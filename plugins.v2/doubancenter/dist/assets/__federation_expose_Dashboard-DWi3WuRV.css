@@ -1,0 +1,21 @@
+
+.dc-dash[data-v-27337eeb] { min-height: 60px;
+}
+.dc-timeline[data-v-27337eeb] { max-width: 100%;
+}
+.dc-month[data-v-27337eeb] { margin-bottom: 12px;
+}
+.dc-month-head[data-v-27337eeb] { display: flex; align-items: center; margin-bottom: 6px;
+}
+.dc-month-label[data-v-27337eeb] { font-size: 13px; font-weight: 700; color: rgb(var(--v-theme-primary));
+}
+.dc-posters[data-v-27337eeb] { display: flex; flex-wrap: wrap; gap: 6px;
+}
+.dc-poster-link[data-v-27337eeb] { text-decoration: none; transition: transform 0.15s;
+}
+.dc-poster-link[data-v-27337eeb]:hover { transform: scale(1.08);
+}
+.dc-poster-card[data-v-27337eeb] { border-radius: 6px; overflow: hidden; border-color: rgba(var(--v-border-color), 0.3);
+}
+.dc-placeholder[data-v-27337eeb] { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: rgba(var(--v-theme-on-surface), 0.04);
+}

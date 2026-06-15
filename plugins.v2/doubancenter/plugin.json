@@ -1,0 +1,17 @@
+{
+    "name": "豆瓣中心",
+    "description": "豆瓣即将播出订阅 + 榜单订阅 + 豆瓣档案，一站式豆瓣集成。",
+    "version": "1.0.3",
+    "history": {
+        "v1.0.3": "修改作者小头像：使用 GitHub author-avatars/kurisu.png 作为牧濑红莉栖头像，author_url 按前端规则填写不带 .png 的 raw 基址。",
+        "1.0.2": "微调豆瓣中心仪表盘海报尺寸：桌面端由52x78放大到64x96，移动端由36x54放大到44x66，同时略增海报间距与圆角。",
+        "1.0.1": "优化订阅来源与通知：即将播出订阅人改为“豆瓣中心-即映”，榜单订阅人改为“豆瓣中心-榜单”；即映通知受总通知开关控制；榜单订阅成功后新增订阅通知；统一 logger.warning 写法。",
+        "1.0.0": "初始版本。整合豆瓣即将播出订阅、豆瓣榜单Plus、豆瓣档案三个插件。支持侧栏导航+子标签页配置界面，仪表盘展示豆瓣档案时间线，即将播出和榜单均支持立即运行一次。豆瓣档案完整移植自 DoubanFolio v1.0.4，修复事件注册问题；豆瓣搜索加入年份辅助匹配避免同名真人/动画混淆；仪表盘参考 AgentTokens 方案实现 Vue 联邦组件渲染。"
+    },
+    "author": "牧濑红莉栖",
+    "icon": "douban.png",
+    "color": "#2E7D32",
+    "level": 1,
+    "v2": true,
+    "author_url": "https://raw.githubusercontent.com/z2561221/MoviePilot-Plugins/main/icons/author-avatars/kurisu"
+}
