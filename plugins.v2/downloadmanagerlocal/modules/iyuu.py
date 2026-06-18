@@ -6,6 +6,7 @@ import time
 from typing import Optional, Dict
 from urllib.parse import urljoin
 
+from bencode import bdecode
 from lxml import etree
 
 from app.core.config import settings
@@ -18,6 +19,25 @@ from app.schemas import NotificationType, ServiceInfo
 from app.schemas.types import SystemConfigKey
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
+
+
+IYUU_QUERY_CHUNK_SIZE = 200
+IYUU_QUERY_BATCH_DELAY_SECONDS = 2
+IYUU_SCAN_PROGRESS_INTERVAL = 500
+
+
+def is_torrent_content(content: bytes) -> bool:
+    """确认下载内容是 bencode torrent，而不是登录页/错误页 HTML。"""
+    if not content or not isinstance(content, (bytes, bytearray)):
+        return False
+    head = bytes(content[:4096]).lstrip()
+    if not head or head.startswith((b"<", b"{")):
+        return False
+    try:
+        data = bdecode(content)
+    except Exception:
+        return False
+    return isinstance(data, dict) and (b"info" in data or "info" in data)
 
 
 def iyuu_service_infos(plugin) -> Optional[Dict[str, ServiceInfo]]:
@@ -51,6 +71,18 @@ def iyuu_auto_service_info(plugin) -> Optional[ServiceInfo]:
 
 def iyuu_auto_seed(plugin):
     """IYUU 自动辅种主逻辑"""
+    try:
+        return _iyuu_auto_seed(plugin)
+    except Exception as e:
+        logger.error(f"IYUU辅种任务执行失败: {e}", exc_info=True)
+        try:
+            update_iyuu_config(plugin)
+        except Exception as save_err:
+            logger.error(f"IYUU辅种：异常后保存缓存失败: {save_err}", exc_info=True)
+
+
+def _iyuu_auto_seed(plugin):
+    """IYUU 自动辅种主逻辑"""
     if not plugin.iyuu_helper or not iyuu_service_infos(plugin):
         return
     logger.info("开始 IYUU 辅种任务 ...")
@@ -73,10 +105,12 @@ def iyuu_auto_seed(plugin):
         logger.info(f"IYUU辅种：下载器 {downloader} 已完成种子数：{len(torrents)}")
 
         hash_strs = []
-        for torrent in torrents:
+        for index, torrent in enumerate(torrents, 1):
             if plugin._event.is_set():
                 logger.info("IYUU辅种服务停止")
                 return
+            if index % IYUU_SCAN_PROGRESS_INTERVAL == 0:
+                logger.info(f"IYUU辅种：下载器 {downloader} 已扫描 {index}/{len(torrents)} 个已完成种子")
             hash_str = plugin.get_hash(torrent, service.type)
             if hash_str in plugin._iyuu_error_caches or hash_str in plugin._iyuu_permanent_error_caches:
                 continue
@@ -110,9 +144,13 @@ def iyuu_auto_seed(plugin):
 
         if hash_strs:
             logger.info(f"IYUU辅种：需要辅种的种子数：{len(hash_strs)}")
-            chunk_size = 200
-            for i in range(0, len(hash_strs), chunk_size):
-                chunk = hash_strs[i:i + chunk_size]
+            for i in range(0, len(hash_strs), IYUU_QUERY_CHUNK_SIZE):
+                if i and IYUU_QUERY_BATCH_DELAY_SECONDS > 0:
+                    logger.info(
+                        f"IYUU辅种：等待 {IYUU_QUERY_BATCH_DELAY_SECONDS} 秒后继续下一批，避免请求过快"
+                    )
+                    time.sleep(IYUU_QUERY_BATCH_DELAY_SECONDS)
+                chunk = hash_strs[i:i + IYUU_QUERY_CHUNK_SIZE]
                 iyuu_seed_torrents(plugin, hash_strs=chunk, service=service)
         else:
             logger.info(f"IYUU辅种：下载器 {downloader} 没有需要辅种的种子")
@@ -271,6 +309,10 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         url=torrent_url, cookie=site_info.get("cookie"),
         ua=site_info.get("ua") or settings.USER_AGENT, proxy=site_info.get("proxy"))
 
+    if content and not is_torrent_content(content):
+        error_msg = "下载到的内容不是有效 torrent 文件，疑似登录页或错误页"
+        content = None
+
     if not content:
         logger.warning(
             f"IYUU辅种：下载种子文件失败，准备回退详情页获取：站点={site_info.get('name')}，"
@@ -284,6 +326,9 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
             _, content, _, _, fallback_error = TorrentHelper().download_torrent(
                 url=fallback_url, cookie=site_info.get("cookie"),
                 ua=site_info.get("ua") or settings.USER_AGENT, proxy=site_info.get("proxy"))
+            if content and not is_torrent_content(content):
+                fallback_error = "下载到的内容不是有效 torrent 文件，疑似登录页或错误页"
+                content = None
             if content:
                 torrent_url = fallback_url
                 error_msg = ""
@@ -317,6 +362,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         return False
 
     plugin._iyuu_success += 1
+    append_iyuu_cache(plugin._iyuu_success_caches, seed.get("info_hash"))
     dl = service.instance
     dl_type = service.type
 

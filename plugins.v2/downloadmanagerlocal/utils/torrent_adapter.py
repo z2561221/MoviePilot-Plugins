@@ -1,6 +1,6 @@
 """下载器种子字段适配工具（qBittorrent / Transmission 兼容）"""
 
-from typing import Any
+from typing import Any, List
 
 
 def get_hash(torrent: Any, dl_type: str) -> str:
@@ -10,11 +10,21 @@ def get_hash(torrent: Any, dl_type: str) -> str:
     return torrent.hashString
 
 
-def get_label(torrent: Any, dl_type: str) -> str:
+def _split_labels(labels: Any) -> List[str]:
+    if not labels:
+        return []
+    if isinstance(labels, str):
+        return [str(label).strip() for label in labels.split(",") if str(label).strip()]
+    if isinstance(labels, (list, tuple, set)):
+        return [str(label).strip() for label in labels if str(label).strip()]
+    return []
+
+
+def get_label(torrent: Any, dl_type: str) -> List[str]:
     """获取种子标签/分类。"""
     if dl_type == "qbittorrent":
-        return torrent.get("category", "")
-    return torrent.labels or ""
+        return _split_labels(torrent.get("tags"))
+    return _split_labels(torrent.labels or [])
 
 
 def get_category(torrent: Any, dl_type: str) -> str:
