@@ -115,7 +115,45 @@ def _rcount(self, key: str) -> int:
     return int(_rc(self, key).get("count", 10) or 10)
 
 
+def _positive_number(value: Any) -> bool:
+    try:
+        return float(value or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _has_global_subscription_filter(self) -> bool:
+    if self._region_filters or self._genre_filters or self._resolution_filters:
+        return True
+    if (self._blacklist_keywords or "").strip():
+        return True
+    if int(self._observe_days or 0) > 0:
+        return True
+    return bool(self._anti_cheat_enabled and _positive_number(self._anti_cheat_min_vote))
+
+
+def _has_rank_subscription_filter(self, rd: dict) -> bool:
+    cfg = _rc(self, rd["key"])
+    if rd["coming"]:
+        return _positive_number(cfg.get("wish_count")) or _positive_number(cfg.get("air_days"))
+    return _positive_number(cfg.get("vote")) or _positive_number(cfg.get("year"))
+
+
+def _has_subscription_safety_filter(self) -> bool:
+    if _has_global_subscription_filter(self):
+        return True
+    return any(
+        _ren(self, rd["key"]) and _has_rank_subscription_filter(self, rd)
+        for rd in BUILTIN_RANKS
+    )
+
+
 def subscribe_to_ranks(self) -> None:
+    if not _has_subscription_safety_filter(self):
+        logger.warning("豆瓣中心：未配置任何订阅筛选条件，已跳过自动订阅；仅刷新榜单历史以避免误触发大量订阅")
+        refresh_rank_data(self)
+        return
+
     rsshub = utils.normalize_rss_domain(self._rsshub_domain)
     for rd in BUILTIN_RANKS:
         key = rd["key"]
