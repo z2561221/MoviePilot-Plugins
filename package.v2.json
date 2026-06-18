@@ -1,0 +1,19 @@
+{
+  "DoubanCenter": {
+    "name": "豆瓣中心",
+    "description": "豆瓣榜单订阅 + 豆瓣档案 + 仪表盘，一站式豆瓣集成。",
+    "version": "1.1.0",
+    "author": "牧濑红莉栖",
+    "icon": "douban.png",
+    "color": "#2E7D32",
+    "level": 1,
+    "v2": true,
+    "release": true,
+    "author_url": "https://raw.githubusercontent.com/z2561221/MoviePilot-Plugins/main/icons/author-avatars/kurisu",
+    "history": {
+      "v1.1.0": "新增详情页（订阅统计/历史/防刷榜日志）、防刷榜机制（黑名单/观察期/TMDB评分）、订阅记录独立存储、仪表盘点击菜单（订阅/豆瓣跳转）、BangumiTV中文名替换、替换原版豆瓣中心。",
+      "v1.0.1": "替换原版豆瓣中心。整合榜单订阅（6个内置榜单+自定义RSS）、豆瓣档案、仪表盘、防刷榜、订阅统计。",
+      "v1.0.0": "初始版本。整合榜单订阅（6个内置榜单+自定义RSS）、豆瓣档案、仪表盘双面板。"
+    }
+  }
+}
