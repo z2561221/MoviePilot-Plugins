@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import re
 from pathlib import Path
 
 
@@ -35,3 +37,13 @@ def test_iyuu_rejects_html_content_before_adding_to_downloader():
 
     assert "is_torrent_content(content)" in source
     assert "下载到的内容不是有效 torrent 文件" in source
+
+
+def test_downloadmanagerlocal_runtime_version_matches_market_metadata():
+    package = json.loads((REPO / "package.v2.json").read_text(encoding="utf-8"))
+    plugin_meta = json.loads((PLUGIN_DIR / "plugin.json").read_text(encoding="utf-8"))
+    init_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
+    match = re.search(r'plugin_version\s*=\s*"([^"]+)"', init_source)
+
+    assert match
+    assert match.group(1) == package["DownloadManagerLocal"]["version"] == plugin_meta["version"]
