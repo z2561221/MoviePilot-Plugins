@@ -71,7 +71,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.1.2"
+    plugin_version = "3.1.3"
     # 插件作者
     plugin_author = "牧濑红莉栖"
     # 作者主页
@@ -370,8 +370,12 @@ class DownloadManagerLocal(_PluginBase):
         return DownloadManagerLocal.get_torrent_size(torrent, dl_type)
 
     @staticmethod
-    def __convert_save_path(save_path: str, from_root: str, to_root: str):
+    def convert_save_path(save_path: str, from_root: str, to_root: str):
         return convert_save_path(save_path, from_root, to_root)
+
+    @staticmethod
+    def __convert_save_path(save_path: str, from_root: str, to_root: str):
+        return DownloadManagerLocal.convert_save_path(save_path, from_root, to_root)
 
     @staticmethod
     def service_info(name: str) -> Optional[ServiceInfo]:

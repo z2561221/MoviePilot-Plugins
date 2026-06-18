@@ -235,9 +235,9 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                     skip += 1
                 continue
 
-            download_dir = plugin.__convert_save_path(torrent_item.get('save_path'),
-                                                      plugin._frompath,
-                                                      plugin._topath)
+            download_dir = plugin.convert_save_path(torrent_item.get('save_path'),
+                                                    plugin._frompath,
+                                                    plugin._topath)
             if not download_dir:
                 logger.error(f"转换保存路径失败：{torrent_item.get('save_path')}")
                 fail += 1
