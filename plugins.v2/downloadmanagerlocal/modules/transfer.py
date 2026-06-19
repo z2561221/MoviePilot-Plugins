@@ -20,6 +20,8 @@ from app.schemas import NotificationType, ServiceInfo
 from app.schemas.types import EventType
 from app.utils.string import StringUtils
 
+from ..utils.name_cleaner import is_dirty_renamed_torrent_name
+
 
 def validate_config(plugin) -> bool:
     """校验转移配置"""
@@ -337,8 +339,68 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
     logger.info("转移做种任务执行完成")
 
 
+def retry_pending_renames(plugin):
+    """独立补刀重命名，避免转移扫描提前返回时跳过旧污染记录修复。"""
+    if not plugin._todownloader:
+        return {"code": 1, "msg": "未配置目标下载器", "history": 0, "dirty": 0, "total": 0}
+    try:
+        to_service = plugin.service_info(plugin._todownloader)
+        if not to_service or not to_service.instance:
+            logger.warning("转移做种兜底服务：目标下载器不可用，跳过重命名补刀")
+            return {"code": 1, "msg": "目标下载器不可用，已跳过补刀", "history": 0, "dirty": 0, "total": 0}
+        history_count = int(plugin._retry_failed_renames(to_service) or 0)
+        dirty_count = int(retry_dirty_torrent_names(plugin, to_service) or 0)
+        total = history_count + dirty_count
+        return {
+            "code": 0,
+            "msg": f"补刀完成：历史记录 {history_count} 个，当前脏名字 {dirty_count} 个",
+            "history": history_count,
+            "dirty": dirty_count,
+            "total": total,
+        }
+    except Exception as e:
+        logger.error(f"转移做种兜底服务：重命名补刀失败: {e}")
+        return {"code": 1, "msg": f"补刀失败: {e}", "history": 0, "dirty": 0, "total": 0}
+
+
+def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
+    """扫描目标下载器当前任务名，补刀不在历史记录里的副标题污染任务。"""
+    if not plugin._rename_enabled or not to_service or not to_service.instance:
+        return 0
+    dl = to_service.instance
+    dl_type = to_service.type
+    try:
+        torrents, _ = dl.get_torrents()
+    except Exception as e:
+        logger.error(f"转移做种兜底服务：获取目标下载器任务失败: {e}")
+        return 0
+    if not torrents:
+        return 0
+
+    retry_count = 0
+    for torrent in torrents:
+        torrent_name = torrent.get("name", "") if dl_type == "qbittorrent" else torrent.name
+        if not is_dirty_renamed_torrent_name(torrent_name):
+            continue
+        torrent_hash = plugin.get_hash(torrent, dl_type)
+        if not torrent_hash:
+            logger.warning(f"转移做种兜底服务：发现副标题污染任务但无 hash，跳过重命名 name={torrent_name}")
+            continue
+        save_path = plugin.get_save_path(torrent, dl_type)
+        logger.info(f"转移做种兜底服务：发现副标题污染重命名，补刀处理 hash={torrent_hash} name={torrent_name}")
+        try:
+            plugin._rename_torrent(dl, dl_type, torrent_hash, torrent_name, save_path)
+            retry_count += 1
+        except Exception as e:
+            logger.error(f"转移做种兜底服务：副标题污染重命名补刀失败 hash={torrent_hash} name={torrent_name}: {e}")
+    if retry_count:
+        logger.info(f"转移做种兜底服务：副标题污染重命名补刀完成，处理 {retry_count} 个种子")
+    return retry_count
+
+
 def fallback_transfer(plugin):
     """转移做种兜底扫描包装函数"""
+    retry_pending_renames(plugin)
     transfer(plugin, trigger_source="兜底扫描")
 
 

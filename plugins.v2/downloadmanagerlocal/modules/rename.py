@@ -10,13 +10,32 @@ from app.log import logger
 from app.modules.filemanager.transhandler import TransHandler
 from app.schemas.types import MediaType
 
+from ..utils.name_cleaner import clean_torrent_original_name, collect_retry_rename_hashes
+from ..utils.torrent_adapter import get_hash, get_label, get_save_path
+
+
+def _set_meta_attr(meta: MetaBase, attr: str, value: str) -> None:
+    try:
+        if hasattr(meta, attr):
+            setattr(meta, attr, value)
+    except Exception:
+        pass
+
+
+def _clean_meta_for_rename(meta: MetaBase) -> None:
+    if not meta:
+        return
+    for attr in ("title", "org_string", "original_name"):
+        value = getattr(meta, attr, None)
+        if value:
+            _set_meta_attr(meta, attr, clean_torrent_original_name(str(value)))
+    for attr in ("subtitle", "description"):
+        _set_meta_attr(meta, attr, "")
+
 
 def format_torrent_name(template_string: str, meta: MetaBase, mediainfo) -> Optional[str]:
     """根据 Jinja2 模板格式化种子名称"""
-    if meta and meta.title:
-        processed = re.sub(r'\[.*?\][\s.]*', '', meta.title)
-        processed = re.sub(r'\.torrent$', '', processed).strip(' .')
-        meta.title = processed
+    _clean_meta_for_rename(meta)
     handler = TransHandler()
     rename_dict = handler.get_naming_dict(meta=meta, mediainfo=mediainfo)
     path = handler.get_rename_path(template_string, rename_dict)
@@ -39,9 +58,9 @@ def save_rename_record(plugin, torrent_hash: str, original_name: str, after_name
 
 
 def get_failed_rename_hashes(plugin) -> set:
-    """获取所有重命名失败的种子 hash"""
+    """获取所有需补刀的种子 hash：失败记录 + 已成功但 original_name 被副标题污染的记录"""
     records = plugin.get_data("rename_records") or {}
-    return {h for h, r in records.items() if not r.get("success")}
+    return collect_retry_rename_hashes(records)
 
 
 def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: str, save_path: str):
@@ -119,17 +138,17 @@ def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: st
 def retry_failed_renames(plugin, to_service):
     """对目标下载器中之前重命名失败的种子进行补刀（重命名+站点标签）"""
     if not plugin._rename_enabled and not plugin._tag_enabled:
-        return
+        return 0
     failed_hashes = get_failed_rename_hashes(plugin)
     if not failed_hashes:
-        return
+        return 0
 
     dl = to_service.instance
     dl_type = to_service.type
     try:
         torrents, _ = dl.get_torrents(ids=list(failed_hashes))
         if not torrents:
-            return
+            return 0
         retry_count = 0
         for torrent in torrents:
             th = torrent.get("hash") if dl_type == "qbittorrent" else torrent.hashString
@@ -148,8 +167,75 @@ def retry_failed_renames(plugin, to_service):
             retry_count += 1
         if retry_count > 0:
             logger.info(f"补刀完成，处理 {retry_count} 个种子")
+        return retry_count
     except Exception as e:
         logger.error(f"补刀失败: {e}")
+        return 0
+
+
+def _get_torrent_name(torrent, dl_type):
+    if dl_type == "qbittorrent":
+        return torrent.get("name", "")
+    return torrent.name
+
+
+def _get_tracker_urls(torrent, dl_type):
+    trackers = getattr(torrent, "trackers", None) or []
+    if dl_type == "qbittorrent":
+        return [
+            tracker.get("url")
+            for tracker in trackers
+            if tracker.get("tier", -1) >= 0 and tracker.get("url")
+        ]
+    return [
+        tracker.announce
+        for tracker in trackers
+        if tracker.tier >= 0 and tracker.announce
+    ]
+
+
+def retry_rename_by_hash(plugin, to_service, torrent_hash: str):
+    """对目标下载器中的单个种子执行补刀（重命名+站点标签）。"""
+    hash_text = str(torrent_hash or "").strip()
+    if not hash_text:
+        return {"code": 1, "msg": "缺少 hash 参数", "hash": ""}
+    if not plugin._rename_enabled and not plugin._tag_enabled:
+        return {"code": 1, "msg": "重命名和站点标签均未启用，已跳过补刀", "hash": hash_text}
+    if not to_service or not to_service.instance:
+        return {"code": 1, "msg": "目标下载器不可用，已跳过补刀", "hash": hash_text}
+
+    dl = to_service.instance
+    dl_type = to_service.type
+    try:
+        torrents, _ = dl.get_torrents(ids=[hash_text])
+        if not torrents:
+            return {"code": 1, "msg": "未在目标下载器找到该种子", "hash": hash_text}
+
+        for torrent in torrents:
+            current_hash = get_hash(torrent, dl_type)
+            if current_hash != hash_text:
+                continue
+
+            torrent_name = _get_torrent_name(torrent, dl_type)
+            if not torrent_name:
+                return {"code": 1, "msg": "种子名称为空，无法补刀", "hash": hash_text}
+
+            save_path = get_save_path(torrent, dl_type)
+            torrent_tags = get_label(torrent, dl_type)
+            trackers = _get_tracker_urls(torrent, dl_type)
+            logger.info(f"单条补刀处理: hash={hash_text} name={torrent_name}")
+
+            if plugin._rename_enabled:
+                plugin._rename_torrent(dl, dl_type, hash_text, torrent_name, save_path)
+            if plugin._tag_enabled:
+                plugin._tag_torrent(dl, dl_type, hash_text, torrent_tags, trackers)
+
+            return {"code": 0, "msg": "补刀完成", "hash": hash_text}
+
+        return {"code": 1, "msg": "未在目标下载器找到该种子", "hash": hash_text}
+    except Exception as e:
+        logger.error(f"单条补刀失败 hash={hash_text}: {e}")
+        return {"code": 1, "msg": f"补刀失败: {e}", "hash": hash_text}
 
 
 def rename_iyuu_torrent_by_source_record(plugin, dl, dl_type, torrent_hash, torrent_name, source_hash):

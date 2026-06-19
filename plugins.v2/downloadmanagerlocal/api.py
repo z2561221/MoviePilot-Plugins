@@ -6,6 +6,33 @@ from app.helper.downloader import DownloaderHelper
 from app.log import logger
 
 
+def api_retry_renames(plugin):
+    """Manually run rename retry for failed history and dirty current torrent names."""
+    try:
+        return plugin._retry_pending_renames()
+    except Exception as e:
+        logger.error(f"一键补刀失败: {e}")
+        return {"code": 1, "msg": f"补刀失败: {e}", "history": 0, "dirty": 0, "total": 0}
+
+
+def api_retry_rename(plugin, hash: str = ""):
+    """Manually retry rename/tag for one torrent hash."""
+    try:
+        return plugin._retry_rename(hash)
+    except Exception as e:
+        logger.error(f"单条补刀失败: {e}")
+        return {"code": 1, "msg": f"补刀失败: {e}", "hash": hash or ""}
+
+
+def api_diagnostics(plugin):
+    """Return a read-only diagnostics summary for the detail page."""
+    try:
+        return plugin._diagnostics()
+    except Exception as e:
+        logger.error(f"诊断信息生成失败: {e}")
+        return {"code": 1, "msg": f"诊断失败: {e}"}
+
+
 def api_downloaders(plugin):
     """返回可用下载器列表"""
     try:

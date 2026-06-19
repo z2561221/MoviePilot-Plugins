@@ -3,3 +3,19 @@
 }
 .dm-table[data-v-42e2ccd0] th { font-weight: 600 !important;
 }
+.dm-stat-grid[data-v-42e2ccd0] { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;
+}
+.dm-stat[data-v-42e2ccd0] { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 6px; padding: 10px; min-height: 76px;
+}
+.dm-checks[data-v-42e2ccd0] { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 6px; overflow: hidden;
+}
+.dm-check-row[data-v-42e2ccd0] { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+.dm-check-row[data-v-42e2ccd0]:last-child { border-bottom: 0;
+}
+@media (max-width: 760px) {
+.dm-stat-grid[data-v-42e2ccd0] { grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.dm-check-row[data-v-42e2ccd0] { align-items: flex-start; flex-direction: column;
+}
+}

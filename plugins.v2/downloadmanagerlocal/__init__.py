@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.0.13 - MoviePilot 本地插件
+DownloadManagerLocal v3.1.8 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 import os
@@ -42,24 +42,13 @@ from .utils.config import safe_int
 from .utils.tracker import parse_tracker_mappings
 from .utils.path import convert_save_path
 from .utils.torrent_adapter import get_hash, get_label, get_category, get_save_path, get_torrent_size
-from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent
-from .modules.rename import rename_torrent as _rename_torrent_impl, format_torrent_name as _format_torrent_name_impl, save_rename_record as _save_rename_record_impl, get_failed_rename_hashes as _get_failed_rename_hashes_impl, retry_failed_renames as _retry_failed_renames_impl, rename_iyuu_torrent_by_source_record as _rename_iyuu_torrent_by_source_record_impl
+from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent, api_retry_renames as _api_retry_renames, api_retry_rename as _api_retry_rename, api_diagnostics as _api_diagnostics
+from .modules.rename import rename_torrent as _rename_torrent_impl, format_torrent_name as _format_torrent_name_impl, save_rename_record as _save_rename_record_impl, get_failed_rename_hashes as _get_failed_rename_hashes_impl, retry_failed_renames as _retry_failed_renames_impl, retry_rename_by_hash as _retry_rename_by_hash_impl, rename_iyuu_torrent_by_source_record as _rename_iyuu_torrent_by_source_record_impl
+from .modules.diagnostics import build_diagnostics as _build_diagnostics_impl
 from .modules.site_tag import tag_torrent as _tag_torrent_impl, find_site_by_domain as _find_site_by_domain_impl
 from .modules.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl
-from .modules.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl
+from .modules.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl, retry_pending_renames as _retry_pending_renames_impl
 from .modules.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
-
-from .utils.config import safe_int
-from .utils.tracker import parse_tracker_mappings
-from .utils.path import convert_save_path
-from .utils.torrent_adapter import get_hash, get_label, get_category, get_save_path, get_torrent_size
-from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent
-from .modules.rename import rename_torrent as _rename_torrent_impl, format_torrent_name as _format_torrent_name_impl, save_rename_record as _save_rename_record_impl, get_failed_rename_hashes as _get_failed_rename_hashes_impl, retry_failed_renames as _retry_failed_renames_impl, rename_iyuu_torrent_by_source_record as _rename_iyuu_torrent_by_source_record_impl
-from .modules.site_tag import tag_torrent as _tag_torrent_impl, find_site_by_domain as _find_site_by_domain_impl
-from .modules.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl
-from .modules.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl
-from .modules.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
-
 
 class DownloadManagerLocal(_PluginBase):
     # 插件名称
@@ -71,7 +60,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.1.4"
+    plugin_version = "3.1.8"
     # 插件作者
     plugin_author = "牧濑红莉栖"
     # 作者主页
@@ -430,6 +419,27 @@ class DownloadManagerLocal(_PluginBase):
                 "summary": "获取重命名历史",
             },
             {
+                "path": "/diagnostics",
+                "endpoint": self.api_diagnostics,
+                "auth": "bear",
+                "methods": ["GET"],
+                "summary": "获取诊断信息",
+            },
+            {
+                "path": "/retry_renames",
+                "endpoint": self.api_retry_renames,
+                "auth": "bear",
+                "methods": ["POST"],
+                "summary": "一键补刀重命名",
+            },
+            {
+                "path": "/retry_rename",
+                "endpoint": self.api_retry_rename,
+                "auth": "bear",
+                "methods": ["POST"],
+                "summary": "单条补刀重命名",
+            },
+            {
                 "path": "/delete_rename_history",
                 "endpoint": self.api_delete_rename_history,
                 "auth": "bear",
@@ -466,6 +476,15 @@ class DownloadManagerLocal(_PluginBase):
 
     def api_recovery_torrent(self, hash: str = ""):
         return _api_recovery_torrent(self, hash)
+
+    def api_retry_renames(self):
+        return _api_retry_renames(self)
+
+    def api_retry_rename(self, hash: str = ""):
+        return _api_retry_rename(self, hash)
+
+    def api_diagnostics(self):
+        return _api_diagnostics(self)
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -716,6 +735,16 @@ class DownloadManagerLocal(_PluginBase):
 
     def _retry_failed_renames(self, to_service: ServiceInfo):
         return _retry_failed_renames_impl(self, to_service)
+
+    def _retry_pending_renames(self):
+        return _retry_pending_renames_impl(self)
+
+    def _retry_rename(self, hash: str = ""):
+        to_service = self.service_info(self._todownloader)
+        return _retry_rename_by_hash_impl(self, to_service, hash)
+
+    def _diagnostics(self):
+        return _build_diagnostics_impl(self)
 
     # ════════════════════════════════════════════════════════════
     # v2.3.0: 事件驱动转移
