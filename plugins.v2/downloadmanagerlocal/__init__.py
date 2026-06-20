@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.1.8 - MoviePilot 本地插件
+DownloadManagerLocal v3.1.9 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 import os
@@ -38,7 +38,7 @@ from app.schemas.types import MediaType, SystemConfigKey, EventType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
-from .utils.config import safe_int
+from .utils.config import safe_int, is_plugin_active, is_transfer_active
 from .utils.tracker import parse_tracker_mappings
 from .utils.path import convert_save_path
 from .utils.torrent_adapter import get_hash, get_label, get_category, get_save_path, get_torrent_size
@@ -60,7 +60,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.1.8"
+    plugin_version = "3.1.9"
     # 插件作者
     plugin_author = "牧濑红莉栖"
     # 作者主页
@@ -387,16 +387,12 @@ class DownloadManagerLocal(_PluginBase):
         return service
 
     def get_state(self):
-        return True if self._enabled \
-                       and self._fromdownloader \
-                       and self._todownloader \
-                       and self._fromtorrentpath else False
+        return is_plugin_active(self)
 
     @property
     def _transfer_active(self) -> bool:
         """转移做种功能是否激活（总开关 + 转移开关 + 配置完整）"""
-        return self._enabled and self._transfer_enabled \
-               and self._fromdownloader and self._todownloader and self._fromtorrentpath
+        return is_transfer_active(self)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -773,11 +769,13 @@ class DownloadManagerLocal(_PluginBase):
             self._scheduler.start()
 
         run_time = datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(minutes=delay)
+        job_id = f"delayed_transfer_{self._fromdownloader or 'default'}"
         self._scheduler.add_job(
             self._delayed_transfer,
             'date',
             run_date=run_time,
-            id=f"delayed_transfer_{datetime.now().strftime('%H%M%S%f')}"
+            id=job_id,
+            replace_existing=True
         )
 
     def _delayed_transfer(self):

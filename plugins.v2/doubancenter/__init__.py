@@ -26,7 +26,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣档案 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "1.1.1"
+    plugin_version = "1.1.2"
     plugin_author = "牧濑红莉栖"
     author_url = "https://raw.githubusercontent.com/z2561221/MoviePilot-Plugins/main/icons/author-avatars/kurisu"
     plugin_config_prefix = "doubancenter_"
@@ -127,7 +127,7 @@ class DoubanCenter(_PluginBase):
             {"path":"/folio_data","endpoint":self.api_folio_data,"methods":["GET"],"auth":"bear","summary":"获取豆瓣档案数据"},
             {"path":"/config","endpoint":self.api_config,"methods":["GET"],"auth":"bear","summary":"获取插件配置"},
             {"path":"/rank_history","endpoint":self.api_rank_history,"methods":["GET"],"auth":"bear","summary":"获取榜单历史"},
-            {"path":"/subscribe","endpoint":self.api_subscribe,"methods":["GET"],"auth":"bear","summary":"一键订阅"},
+            {"path":"/subscribe","endpoint":self.api_subscribe,"methods":["GET","POST"],"auth":"bear","summary":"一键订阅"},
             {"path":"/refresh_rss","endpoint":self.api_refresh_rss,"methods":["POST"],"auth":"bear","summary":"刷新RSS（只刷新榜单数据，不订阅）"},
             {"path":"/stats","endpoint":self.api_stats,"methods":["GET"],"auth":"bear","summary":"获取订阅统计"},
             {"path":"/subscribe_history","endpoint":self.api_subscribe_history,"methods":["GET"],"auth":"bear","summary":"获取订阅历史（分页）"},

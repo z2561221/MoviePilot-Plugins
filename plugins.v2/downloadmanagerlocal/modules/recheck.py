@@ -125,6 +125,7 @@ def process_seed_recheck_once(plugin, queue):
                 logger.info(f"做种校验：{h} 等待超时（{plugin._seed_max_wait_minutes}分钟），已移出队列")
                 continue
             item["last_check"] = time.time()
+            changed = True
     return changed
 
 

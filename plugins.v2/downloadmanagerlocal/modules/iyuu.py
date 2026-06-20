@@ -20,6 +20,8 @@ from app.schemas.types import SystemConfigKey
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
+from ..utils.sensitive import mask_sensitive_url
+
 
 IYUU_QUERY_CHUNK_SIZE = 200
 IYUU_QUERY_BATCH_DELAY_SECONDS = 2
@@ -304,6 +306,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         return url + ("&https=1" if "?" in url else "?https=1")
 
     torrent_url = __with_https_param(torrent_url)
+    safe_torrent_url = mask_sensitive_url(torrent_url)
 
     _, content, _, _, error_msg = TorrentHelper().download_torrent(
         url=torrent_url, cookie=site_info.get("cookie"),
@@ -316,13 +319,14 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
     if not content:
         logger.warning(
             f"IYUU辅种：下载种子文件失败，准备回退详情页获取：站点={site_info.get('name')}，"
-            f"info_hash={seed.get('info_hash')}，url={torrent_url}，原因={error_msg or '未知'}"
+            f"info_hash={seed.get('info_hash')}，url={safe_torrent_url}，原因={error_msg or '未知'}"
         )
         fallback_url = iyuu_get_download_url(plugin, seed=seed, site=site_info, base_url=download_page,
                                              force_page=True)
         fallback_url = __with_https_param(fallback_url)
         if fallback_url and fallback_url != torrent_url:
-            logger.info(f"IYUU辅种：使用详情页下载链接重试：{fallback_url}")
+            safe_fallback_url = mask_sensitive_url(fallback_url)
+            logger.info(f"IYUU辅种：使用详情页下载链接重试：{safe_fallback_url}")
             _, content, _, _, fallback_error = TorrentHelper().download_torrent(
                 url=fallback_url, cookie=site_info.get("cookie"),
                 ua=site_info.get("ua") or settings.USER_AGENT, proxy=site_info.get("proxy"))
@@ -331,6 +335,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
                 content = None
             if content:
                 torrent_url = fallback_url
+                safe_torrent_url = safe_fallback_url
                 error_msg = ""
             else:
                 error_msg = fallback_error or error_msg
@@ -345,11 +350,11 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
             append_iyuu_cache(plugin._iyuu_permanent_error_caches, seed.get("info_hash"))
         logger.error(
             f"IYUU辅种：下载种子文件失败：站点={site_info.get('name')}，"
-            f"info_hash={seed.get('info_hash')}，url={torrent_url}，原因={error_msg or '未知'}"
+            f"info_hash={seed.get('info_hash')}，url={safe_torrent_url}，原因={error_msg or '未知'}"
         )
         return False
 
-    logger.info(f"IYUU辅种：准备添加下载任务：{torrent_url}")
+    logger.info(f"IYUU辅种：准备添加下载任务：{safe_torrent_url}")
     download_id = iyuu_download(plugin, service=service, content=content,
                                 save_path=save_path, save_category=save_category,
                                 site_name=site_info.get("name"),
@@ -416,6 +421,7 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
                   save_path: str, save_category: str, site_name: str,
                   expected_hash: str = None, torrent_url: str = None) -> Optional[str]:
     """添加 IYUU 辅种下载任务，并用 expected_hash + 临时标签多次确认任务入库。"""
+    safe_torrent_url = mask_sensitive_url(torrent_url)
     torrent_tags = plugin._iyuu_labelsafterseed.split(',')
     if hasattr(plugin, '_iyuu_addhosttotag') and plugin._iyuu_addhosttotag:
         torrent_tags.append(site_name)
@@ -447,7 +453,7 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
         if not state:
             logger.error(
                 f"IYUU辅种：{service.name} 下载任务添加失败：expected_hash={expected_hash}，"
-                f"url={torrent_url}，save_path={save_path}，category={save_category}"
+                f"url={safe_torrent_url}，save_path={save_path}，category={save_category}"
             )
             return None
 
@@ -463,7 +469,7 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
 
         logger.error(
             f"IYUU辅种：{service.name} 下载器返回已接收，但未能确认任务入库："
-            f"expected_hash={expected_hash}，tag={tag}，url={torrent_url}，"
+            f"expected_hash={expected_hash}，tag={tag}，url={safe_torrent_url}，"
             f"save_path={save_path}，category={save_category}"
         )
         return None
@@ -552,7 +558,7 @@ def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_p
                         download_url = download_url[0]
                         if not download_url.startswith("http"):
                             download_url = urljoin(site.get('url'), download_url)
-                        logger.info(f"IYUU辅种：从详情页获取下载链接成功：{download_url}")
+                        logger.info(f"IYUU辅种：从详情页获取下载链接成功：{mask_sensitive_url(download_url)}")
                         return download_url
                 logger.warning(f"IYUU辅种：详情页 xpath 未匹配到下载链接：{page_url}，站点：{site.get('name')}")
             else:
