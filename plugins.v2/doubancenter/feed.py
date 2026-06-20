@@ -404,7 +404,6 @@ def _fetch_coming_rss(self, addr: str) -> List[dict]:
         dom = xml.dom.minidom.parseString(ret.text)
         root = dom.documentElement
         result = []
-        default_mtype = _rss_default_media_type(addr)
         for item in root.getElementsByTagName("item"):
             title = DomUtils.tag_value(item, "title", default="")
             link = DomUtils.tag_value(item, "link", default="")
@@ -427,6 +426,7 @@ def _fetch_rss(self, addr: str) -> List[dict]:
         dom = xml.dom.minidom.parseString(ret.text)
         root = dom.documentElement
         result = []
+        default_mtype = _rss_default_media_type(addr)
         for item in root.getElementsByTagName("item"):
             title = DomUtils.tag_value(item, "title", default="")
             link = DomUtils.tag_value(item, "link", default="")

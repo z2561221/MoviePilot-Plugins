@@ -172,6 +172,34 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(self.feed._rank_media_type(movie_rank, {"mtype": ""}), "movie")
         self.assertEqual(self.feed._rank_media_type(tv_rank, {"mtype": ""}), "tv")
 
+    def test_fetch_rss_uses_default_media_type_from_url(self):
+        rss = """<?xml version="1.0"?>
+<rss><channel><item><title>Test Movie</title><link>https://movie.douban.com/subject/1234567/</link><description>2026</description></item></channel></rss>"""
+
+        class RequestUtils:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def get_res(self, addr):
+                return types.SimpleNamespace(text=rss)
+
+        def tag_value(item, tag, default=""):
+            nodes = item.getElementsByTagName(tag)
+            if not nodes or not nodes[0].firstChild:
+                return default
+            return nodes[0].firstChild.nodeValue
+
+        plugin = _Plugin()
+        plugin._proxy = False
+        self.feed.RequestUtils = RequestUtils
+        self.feed.DomUtils.tag_value = staticmethod(tag_value)
+
+        items = self.feed._fetch_rss(plugin, "https://rsshub.example/douban/list/movie_weekly_best")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["mtype"], "movie")
+        self.assertEqual(items[0]["doubanid"], "1234567")
+
     def test_record_history_item_replaces_observe_placeholder(self):
         history = [{"unique": "rank:1", "title": "旧标题", "time": "2026-01-01 00:00:00", "observing": True}]
         entry = {"unique": "rank:1", "title": "新标题", "tmdbid": 123}
