@@ -58,18 +58,21 @@ const loading = ref(false);
 const stats = ref(null);
 const historyData = ref({ items: [], total: 0, page: 1, page_size: 20, total_pages: 0 });
 const cheatLogs = ref([]);
+const pendingObservations = ref([]);
 
 async function loadAll() {
   loading.value = true;
   try {
-    const [s, h, c] = await Promise.all([
+    const [s, h, c, p] = await Promise.all([
       getPluginApi(props.api, 'stats'),
       getPluginApi(props.api, `subscribe_history?page=${historyData.value.page}&page_size=${historyData.value.page_size}`),
       getPluginApi(props.api, 'anti_cheat_logs'),
+      getPluginApi(props.api, 'pending_observations'),
     ]);
     if (s) stats.value = s;
     if (h) historyData.value = h;
     if (c) cheatLogs.value = c;
+    if (p) pendingObservations.value = p;
   } catch(e) { console.error(e); }
   loading.value = false;
 }
@@ -207,6 +210,57 @@ return (_ctx, _cache) => {
                               style: _normalizeStyle({color:`rgb(var(--v-theme-${rankColors[key]||'primary'}))`})
                             }, _toDisplayString(count), 5),
                             _createElementVNode("div", _hoisted_7, _toDisplayString(({coming:'即将上映',tv_real_time:'实时热门',tv_chinese:'华语口碑',tv_global:'全球口碑',movie_weekly:'电影口碑',bangumi:'BangumiTV'})[key] || key), 1)
+                          ]))
+                        }), 128))
+                      ])
+                    ]))
+                  : _createCommentVNode("", true),
+                (pendingObservations.value && pendingObservations.value.length)
+                  ? (_openBlock(), _createElementBlock("div", {
+                      key: "pending",
+                      class: "mb-4"
+                    }, [
+                      _createElementVNode("div", _hoisted_9, [
+                        _cache[16] || (_cache[16] = _createTextVNode("观察中 ", -1)),
+                        _createElementVNode("span", _hoisted_10, "（待自动订阅 " + _toDisplayString(pendingObservations.value.length) + " 条）", 1)
+                      ]),
+                      _createElementVNode("div", _hoisted_11, [
+                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(pendingObservations.value, (item, i) => {
+                          return (_openBlock(), _createElementBlock("div", {
+                            key: i,
+                            class: "dc-history-row"
+                          }, [
+                            _createVNode(_component_VAvatar, {
+                              size: "28",
+                              class: "mr-2 flex-shrink-0",
+                              color: "warning",
+                              variant: "tonal"
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VIcon, {
+                                  icon: "mdi-clock-outline",
+                                  size: "14"
+                                })
+                              ]),
+                              _: 2
+                            }, 1024),
+                            _createElementVNode("div", _hoisted_12, [
+                              _createElementVNode("div", _hoisted_13, _toDisplayString(item.title), 1),
+                              _createElementVNode("div", _hoisted_14, [
+                                _createVNode(_component_VChip, {
+                                  size: "x-small",
+                                  color: rankColors[item.rank_key]||'primary',
+                                  variant: "tonal",
+                                  class: "mr-1"
+                                }, {
+                                  default: _withCtx(() => [
+                                    _createTextVNode(_toDisplayString(item.rank_name), 1)
+                                  ]),
+                                  _: 2
+                                }, 1032, ["color"]),
+                                _createElementVNode("span", _hoisted_15, "观察 " + _toDisplayString(item.elapsed_days || 0) + " / " + _toDisplayString(item.observe_days || 0) + " 天，剩余 " + _toDisplayString(item.remaining_days || 0) + " 天", 1)
+                              ])
+                            ])
                           ]))
                         }), 128))
                       ])

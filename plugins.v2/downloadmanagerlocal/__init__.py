@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.1.9 - MoviePilot 本地插件
+DownloadManagerLocal v3.1.10 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 import os
@@ -60,11 +60,11 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.1.9"
+    plugin_version = "3.1.10"
     # 插件作者
     plugin_author = "牧濑红莉栖"
     # 作者主页
-    author_url = "https://raw.githubusercontent.com/z2561221/MoviePilot-Plugins/main/icons/author-avatars/kurisu"
+    author_url = "https://github.com/z2561221/MoviePilot-Plugins"
     # 插件配置项ID前缀
     plugin_config_prefix = "downloadmanagerlocal_"
     # 加载顺序

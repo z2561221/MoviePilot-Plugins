@@ -47,6 +47,9 @@ def _install_stubs():
     download = types.ModuleType("app.chain.download")
     download.DownloadChain = type("DownloadChain", (), {})
 
+    media = types.ModuleType("app.chain.media")
+    media.MediaChain = type("MediaChain", (), {})
+
     subscribe = types.ModuleType("app.chain.subscribe")
     subscribe.SubscribeChain = type("SubscribeChain", (), {})
 
@@ -91,6 +94,7 @@ def _install_stubs():
             "app": app,
             "app.chain": chain,
             "app.chain.download": download,
+            "app.chain.media": media,
             "app.chain.subscribe": subscribe,
             "app.core": core,
             "app.core.config": config,
@@ -117,8 +121,25 @@ def _import_feed():
     return module
 
 
+def _import_dashboard():
+    _install_stubs()
+    sys.modules.pop("doubancenter.dashboard", None)
+    spec = importlib.util.spec_from_file_location("doubancenter.dashboard", PLUGIN_DIR / "dashboard.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["doubancenter.dashboard"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 class _Plugin:
     _observe_days = 2
+    _anti_cheat_enabled = True
+    _anti_cheat_min_vote = 5.0
+    _blacklist_keywords = ""
+    _region_filters = []
+    _genre_filters = []
+    _resolution_filters = []
+    _rank_configs = {}
 
     def __init__(self):
         self.data = {}
@@ -128,6 +149,18 @@ class _Plugin:
 
     def save_data(self, key, value):
         self.data[key] = value
+
+
+class _MediaInfo:
+    def __init__(self, title="测试电影", year="2026", mtype=_MediaType.MOVIE, tmdb_id=12345):
+        self.title = title
+        self.year = year
+        self.type = mtype
+        self.tmdb_id = tmdb_id
+        self.vote_average = 8.0
+
+    def get_poster_image(self):
+        return "poster.jpg"
 
 
 class DoubanCenterFeedSafetyTest(unittest.TestCase):
@@ -217,6 +250,111 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         trimmed = self.feed._trim_history(history, limit=3)
 
         self.assertEqual([item["unique"] for item in trimmed], ["2", "3", "4"])
+
+    def test_observe_is_ignored_when_anti_cheat_disabled(self):
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = False
+        history = []
+
+        should_skip = self.feed._check_observe(plugin, "rank:1", history, title="测试电影")
+
+        self.assertFalse(should_skip)
+        self.assertEqual(history, [])
+
+    def test_observe_days_do_not_make_subscription_safe_when_anti_cheat_disabled(self):
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = False
+        plugin._observe_days = 2
+
+        has_filter = self.feed._has_global_subscription_filter(plugin)
+
+        self.assertFalse(has_filter)
+
+    def test_blacklist_stays_active_when_anti_cheat_disabled(self):
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = False
+        plugin._blacklist_keywords = "综艺"
+
+        should_skip = self.feed._check_blacklist(plugin, "测试综艺")
+        has_filter = self.feed._has_global_subscription_filter(plugin)
+
+        self.assertTrue(should_skip)
+        self.assertTrue(has_filter)
+
+    def test_pending_observations_returns_observing_rank_items(self):
+        dashboard = _import_dashboard()
+        plugin = _Plugin()
+        plugin._observe_days = 3
+        first_seen = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        plugin.data["rank_history_tv_global"] = [
+            {"title": "观察中剧集", "unique": "rank:1", "first_seen": first_seen, "observing": True}
+        ]
+
+        result = dashboard.api_pending_observations(plugin)["data"]
+
+        self.assertEqual(result[0]["title"], "观察中剧集")
+        self.assertEqual(result[0]["rank_key"], "tv_global")
+        self.assertEqual(result[0]["rank_name"], "全球口碑")
+        self.assertEqual(result[0]["observe_days"], 3)
+        self.assertEqual(result[0]["elapsed_days"], 1)
+        self.assertEqual(result[0]["remaining_days"], 2)
+
+    def test_dashboard_rank_history_returns_latest_five_first(self):
+        dashboard = _import_dashboard()
+        plugin = _Plugin()
+        plugin._dashboard_rank_keys = ["tv_global"]
+        plugin.data["rank_history_tv_global"] = [{"title": f"第{i}条"} for i in range(7)]
+
+        result = dashboard.api_rank_history(plugin)["data"]["tv_global"]
+
+        self.assertEqual([item["title"] for item in result], ["第6条", "第5条", "第4条", "第3条", "第2条"])
+
+    def test_merge_rank_items_keeps_media_type_and_year_for_dashboard_subscribe(self):
+        plugin = _Plugin()
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
+        )
+        rank = {"key": "movie_weekly", "name": "电影口碑", "route": "/douban/list/movie_weekly_best"}
+
+        history = self.feed._merge_rank_items(
+            plugin,
+            "movie_weekly",
+            [{"title": "测试电影", "link": "https://movie.douban.com/subject/123/", "mtype": "movie", "year": "2026"}],
+            rank,
+        )
+
+        self.assertEqual(history[0]["media_type"], "movie")
+        self.assertEqual(history[0]["year"], "2026")
+
+    def test_dashboard_subscribe_uses_recognized_tmdbid_when_item_has_none(self):
+        dashboard = _import_dashboard()
+        captured = {}
+
+        class MediaChain:
+            def recognize_media(self, meta, mtype):
+                return _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=24680)
+
+        class DownloadChain:
+            def get_no_exists_info(self, meta, mediainfo):
+                return False, None
+
+        class SubscribeChain:
+            def exists(self, mediainfo, meta):
+                return False
+
+            def add(self, **kwargs):
+                captured.update(kwargs)
+                return 1, ""
+
+        sys.modules["app.chain.media"].MediaChain = MediaChain
+        sys.modules["app.chain.download"].DownloadChain = DownloadChain
+        sys.modules["app.chain.subscribe"].SubscribeChain = SubscribeChain
+
+        result = dashboard.api_subscribe_from_rank(_Plugin(), None, "movie", "测试电影", "2026")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(captured["tmdbid"], 24680)
+        self.assertEqual(captured["mtype"], _MediaType.MOVIE)
 
 
 if __name__ == "__main__":

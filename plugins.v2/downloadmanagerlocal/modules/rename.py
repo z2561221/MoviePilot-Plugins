@@ -2,7 +2,10 @@
 
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
+from bencode import bdecode
 
 from app.core.meta.metabase import MetaBase
 from app.core.metainfo import MetaInfo
@@ -61,6 +64,48 @@ def get_failed_rename_hashes(plugin) -> set:
     """获取所有需补刀的种子 hash：失败记录 + 已成功但 original_name 被副标题污染的记录"""
     records = plugin.get_data("rename_records") or {}
     return collect_retry_rename_hashes(records)
+
+
+def _get_bencoded_value(mapping, key: str):
+    """从 bencode 字典中兼容读取 str/bytes 两种键。"""
+    if not isinstance(mapping, dict):
+        return None
+    if key in mapping:
+        return mapping.get(key)
+    return mapping.get(key.encode("utf-8"))
+
+
+def _to_text(value) -> str:
+    """将 bencode 字段值转换为可用于识别的文本。"""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        for encoding in ("utf-8", "gb18030"):
+            try:
+                return value.decode(encoding).strip()
+            except UnicodeDecodeError:
+                continue
+        return value.decode("utf-8", errors="ignore").strip()
+    return str(value).strip()
+
+
+def _get_original_torrent_name(plugin, torrent_hash: str) -> str:
+    """读取源 .torrent 元信息中的原始发布名。"""
+    source_dir = str(getattr(plugin, "_fromtorrentpath", "") or "").strip()
+    hash_text = str(torrent_hash or "").strip()
+    if not source_dir or not hash_text:
+        return ""
+    torrent_file = Path(source_dir) / f"{hash_text}.torrent"
+    if not torrent_file.exists():
+        return ""
+    try:
+        torrent_data = bdecode(torrent_file.read_bytes())
+        info = _get_bencoded_value(torrent_data, "info")
+        original_name = _to_text(_get_bencoded_value(info, "name"))
+        return clean_torrent_original_name(original_name)
+    except Exception as e:
+        logger.warning(f"转移后重命名：读取原始种子名失败 hash={hash_text} file={torrent_file}: {e}")
+        return ""
 
 
 def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: str, save_path: str):
@@ -160,7 +205,7 @@ def retry_failed_renames(plugin, to_service):
             trackers = [t.get("url") for t in (torrent.trackers or []) if t.get("tier", -1) >= 0 and t.get("url")] if dl_type == "qbittorrent" else [t.announce for t in (torrent.trackers or []) if t.tier >= 0 and t.announce]
             logger.info(f"补刀处理: hash={th} name={tn}")
             if plugin._rename_enabled:
-                rename_torrent(plugin, dl, dl_type, th, tn, sp)
+                rename_torrent(plugin, dl, dl_type, th, _get_original_torrent_name(plugin, th) or tn, sp)
             if plugin._tag_enabled:
                 from .site_tag import tag_torrent
                 tag_torrent(plugin, dl, dl_type, th, tags, trackers)
@@ -226,7 +271,11 @@ def retry_rename_by_hash(plugin, to_service, torrent_hash: str):
             logger.info(f"单条补刀处理: hash={hash_text} name={torrent_name}")
 
             if plugin._rename_enabled:
-                plugin._rename_torrent(dl, dl_type, hash_text, torrent_name, save_path)
+                plugin._rename_torrent(
+                    dl, dl_type, hash_text,
+                    _get_original_torrent_name(plugin, hash_text) or torrent_name,
+                    save_path
+                )
             if plugin._tag_enabled:
                 plugin._tag_torrent(dl, dl_type, hash_text, torrent_tags, trackers)
 

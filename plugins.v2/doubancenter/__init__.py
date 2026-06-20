@@ -1,5 +1,5 @@
 """
-DoubanCenter v1.1.3 - MoviePilot 本地插件
+DoubanCenter v1.1.4 - MoviePilot 本地插件
 整合：榜单订阅 + 豆瓣档案 + 仪表盘双面板
 """
 import datetime
@@ -26,9 +26,9 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣档案 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "1.1.3"
+    plugin_version = "1.1.4"
     plugin_author = "牧濑红莉栖"
-    author_url = "https://raw.githubusercontent.com/z2561221/MoviePilot-Plugins/main/icons/author-avatars/kurisu"
+    author_url = "https://github.com/z2561221/MoviePilot-Plugins"
     plugin_config_prefix = "doubancenter_"
     plugin_order = 14
     auth_level = 1
@@ -131,6 +131,7 @@ class DoubanCenter(_PluginBase):
             {"path":"/refresh_rss","endpoint":self.api_refresh_rss,"methods":["POST"],"auth":"bear","summary":"刷新RSS（只刷新榜单数据，不订阅）"},
             {"path":"/stats","endpoint":self.api_stats,"methods":["GET"],"auth":"bear","summary":"获取订阅统计"},
             {"path":"/subscribe_history","endpoint":self.api_subscribe_history,"methods":["GET"],"auth":"bear","summary":"获取订阅历史（分页）"},
+            {"path":"/pending_observations","endpoint":self.api_pending_observations,"methods":["GET"],"auth":"bear","summary":"获取观察期待自动订阅条目"},
             {"path":"/anti_cheat_logs","endpoint":self.api_anti_cheat_logs,"methods":["GET"],"auth":"bear","summary":"获取防刷榜日志"},
         ]
 
@@ -146,7 +147,7 @@ class DoubanCenter(_PluginBase):
     def api_subscribe(self, tmdb_id=None, media_type=None, title="", year=""):
         """一键订阅：GET ?tmdb_id=xxx&media_type=tv&title=xxx&year=xxx"""
         try:
-            if not tmdb_id or not title:
+            if not title:
                 return {"success": False, "message": "缺少必要参数"}
             return dash.api_subscribe_from_rank(self, tmdb_id, media_type, title, year)
         except Exception as e:
@@ -180,6 +181,14 @@ class DoubanCenter(_PluginBase):
         except Exception as e:
             logger.error(f"豆瓣中心：api_subscribe_history 异常：{e}", exc_info=True)
             return {"success": False, "message": f"获取订阅历史失败：{e}"}
+
+    def api_pending_observations(self):
+        """获取观察期内待自动订阅条目"""
+        try:
+            return dash.api_pending_observations(self)
+        except Exception as e:
+            logger.error(f"豆瓣中心：api_pending_observations 异常：{e}", exc_info=True)
+            return {"success": False, "message": f"获取观察期条目失败：{e}"}
 
     def api_anti_cheat_logs(self):
         """获取防刷榜日志"""

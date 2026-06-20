@@ -567,7 +567,7 @@ return (_ctx, _cache) => {
                           color: "warning",
                           inset: "",
                           "hide-details": "",
-                          label: "启用TMDB评分过滤"
+                          label: "启用防刷榜"
                         }, null, 8, ["modelValue"])
                       ]),
                       _: 1
@@ -611,9 +611,10 @@ return (_ctx, _cache) => {
                           density: "compact",
                           variant: "outlined",
                           "hide-details": "",
+                          disabled: !form.anti_cheat_enabled,
                           hint: "新条目在榜N天后才订阅，0为不启用",
                           "persistent-hint": ""
-                        }, null, 8, ["modelValue"])
+                        }, null, 8, ["modelValue", "disabled"])
                       ]),
                       _: 1
                     })

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -8,6 +9,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
+
+
+def _fake_bdecode(content):
+    return {"info": {"name": "Original.Release.S01E01.2026.WEB-DL-GRP"}}
 
 
 def _load_retry_dirty_function():
@@ -27,6 +32,7 @@ def _load_retry_dirty_function():
             error=lambda *args, **kwargs: None,
         ),
         "is_dirty_renamed_torrent_name": _dirty_name_detector,
+        "_get_original_torrent_name": lambda plugin, torrent_hash: "",
     }
     exec(compiled, namespace)
     return namespace["retry_dirty_torrent_names"]
@@ -50,6 +56,7 @@ def _load_retry_functions():
             error=lambda *args, **kwargs: None,
         ),
         "is_dirty_renamed_torrent_name": _dirty_name_detector,
+        "_get_original_torrent_name": lambda plugin, torrent_hash: "",
     }
     exec(compiled, namespace)
     return namespace
@@ -58,7 +65,14 @@ def _load_retry_functions():
 def _load_retry_rename_by_hash_function():
     source = (PLUGIN_DIR / "modules" / "rename.py").read_text(encoding="utf-8")
     module_ast = ast.parse(source)
-    required_names = {"_get_torrent_name", "_get_tracker_urls", "retry_rename_by_hash"}
+    required_names = {
+        "_get_bencoded_value",
+        "_get_original_torrent_name",
+        "_get_torrent_name",
+        "_get_tracker_urls",
+        "_to_text",
+        "retry_rename_by_hash",
+    }
     retry_funcs = [
         node
         for node in module_ast.body
@@ -80,6 +94,9 @@ def _load_retry_rename_by_hash_function():
             label.strip() for label in torrent.get("tags", "").split(",") if label.strip()
         ],
         "get_save_path": lambda torrent, dl_type: torrent.get("save_path"),
+        "Path": Path,
+        "bdecode": _fake_bdecode,
+        "clean_torrent_original_name": lambda value: str(value or "").strip(),
     }
     exec(compiled, namespace)
     return namespace["retry_rename_by_hash"]
@@ -135,6 +152,7 @@ class FakePlugin:
 class FakeSingleRetryPlugin:
     _rename_enabled = True
     _tag_enabled = True
+    _fromtorrentpath = ""
 
     def __init__(self):
         self.renamed = []
@@ -332,6 +350,38 @@ class DownloadManagerLocalStabilityBaselineTest(unittest.TestCase):
                 )
             ],
         )
+
+    def test_single_hash_retry_uses_original_torrent_info_name_for_rename(self) -> None:
+        retry_rename_by_hash = _load_retry_rename_by_hash_function()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            torrent_file = Path(temp_dir) / "hash-one.torrent"
+            torrent_file.write_bytes(b"fake torrent content")
+            torrent = FakeQbTorrent(
+                hash="hash-one",
+                name="[ Show (2026) - S01E01 ] - Dirty Current Name | 类型：动画",
+                save_path="/downloads/show",
+                tags="old,seed",
+            )
+            torrent.trackers = []
+            downloader = FakeDownloader([torrent])
+            plugin = FakeSingleRetryPlugin()
+            plugin._fromtorrentpath = temp_dir
+            service = types.SimpleNamespace(type="qbittorrent", instance=downloader)
+
+            report = retry_rename_by_hash(plugin, service, "hash-one")
+
+            self.assertEqual(report["code"], 0)
+            self.assertEqual(
+                plugin.renamed,
+                [
+                    (
+                        "qbittorrent",
+                        "hash-one",
+                        "Original.Release.S01E01.2026.WEB-DL-GRP",
+                        "/downloads/show",
+                    )
+                ],
+            )
 
 
 if __name__ == "__main__":

@@ -104,6 +104,8 @@ def _check_observe(self, unique: str, history: List[dict], title: str = "") -> b
     """检查观察期：条目首次出现未满观察期则跳过订阅
     返回True表示还在观察期内（跳过）
     """
+    if not self._anti_cheat_enabled:
+        return False
     days = int(self._observe_days or 0)
     if days <= 0:
         return False
@@ -191,9 +193,11 @@ def _has_global_subscription_filter(self) -> bool:
         return True
     if (self._blacklist_keywords or "").strip():
         return True
+    if not self._anti_cheat_enabled:
+        return False
     if int(self._observe_days or 0) > 0:
         return True
-    return bool(self._anti_cheat_enabled and _positive_number(self._anti_cheat_min_vote))
+    return _positive_number(self._anti_cheat_min_vote)
 
 
 def _has_rank_subscription_filter(self, rd: dict) -> bool:
@@ -324,9 +328,9 @@ def _process_general(self, url: str, rd: dict) -> None:
         # 防刷榜：观察期
         if _check_observe(self, unique, history, title=title):
             continue
-        if _add_sub(self, mediainfo, meta):
+        if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"]):
             cn_title = mediainfo.title or title
-            _record_history_item(history, {"title": cn_title, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "unique": unique})
+            _record_history_item(history, {"title": cn_title, "year": mediainfo.year or year or "", "media_type": mtype, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "unique": unique})
             uh.add(unique)
     self.save_data(data_key, _trim_history(history))
 
@@ -516,23 +520,24 @@ def _merge_rank_items(self, rank_key, items, rd):
             poster = None
             cn_title = title
             douban_id = item.get("doubanid")  # 优先用RSS中解析的豆瓣ID
+            meta_type = "tv" if rank_key == "coming" else _rank_media_type(rd, item)
             try:
                 meta = MetaInfo(title)
                 if year:
                     meta.year = str(year)
-                meta_type = "tv" if rank_key == "coming" else _rank_media_type(rd, item)
                 meta.type = MediaType.MOVIE if meta_type == "movie" else MediaType.TV
                 mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
                 if mediainfo:
                     tmdbid = mediainfo.tmdb_id
                     poster = mediainfo.get_poster_image()
                     cn_title = mediainfo.title or title
+                    year = mediainfo.year or year
                     # 从mediainfo获取豆瓣ID（TMDB识别结果可能包含豆瓣映射）
                     if not douban_id and hasattr(mediainfo, 'douban_id') and mediainfo.douban_id:
                         douban_id = mediainfo.douban_id
             except Exception:
                 pass
-            entry = {"title": cn_title, "link": link, "tmdbid": tmdbid, "poster": poster, "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "unique": unique, "douban_id": douban_id}
+            entry = {"title": cn_title, "year": year or "", "media_type": meta_type, "link": link, "tmdbid": tmdbid, "poster": poster, "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "unique": unique, "douban_id": douban_id}
             if rank_key == "coming":
                 entry.update({"year": year, "wish_count": item.get("wish_count", 0)})
             _record_history_item(history, entry)

@@ -21,6 +21,7 @@ from app.schemas.types import EventType
 from app.utils.string import StringUtils
 
 from ..utils.name_cleaner import is_dirty_renamed_torrent_name
+from .rename import _get_original_torrent_name
 
 
 def validate_config(plugin) -> bool:
@@ -389,7 +390,11 @@ def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
         save_path = plugin.get_save_path(torrent, dl_type)
         logger.info(f"转移做种兜底服务：发现副标题污染重命名，补刀处理 hash={torrent_hash} name={torrent_name}")
         try:
-            plugin._rename_torrent(dl, dl_type, torrent_hash, torrent_name, save_path)
+            plugin._rename_torrent(
+                dl, dl_type, torrent_hash,
+                _get_original_torrent_name(plugin, torrent_hash) or torrent_name,
+                save_path
+            )
             retry_count += 1
         except Exception as e:
             logger.error(f"转移做种兜底服务：副标题污染重命名补刀失败 hash={torrent_hash} name={torrent_name}: {e}")

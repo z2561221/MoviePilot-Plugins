@@ -110,7 +110,8 @@ async function doSubscribe() {
   showDialog.value = false;
   subscribeResult.value = '';
   try {
-    const params = `tmdb_id=${item.tmdbid}&media_type=tv&title=${encodeURIComponent(item.title)}&year=${item.year||''}`;
+    const mediaType = item.media_type || item.mtype || (rk === 'movie_weekly' ? 'movie' : 'tv');
+    const params = `tmdb_id=${item.tmdbid||''}&media_type=${mediaType}&title=${encodeURIComponent(item.title)}&year=${item.year||''}`;
     const res = await getPluginApi(props.api, `subscribe?${params}`);
     subscribeResult.value = res.success ? `✓ ${item.title} 已订阅` : `✗ ${item.title}: ${res.message}`;
   } catch(e) { subscribeResult.value = `✗ 订阅失败: ${e}`; }

@@ -77,7 +77,7 @@ def api_config(self):
 def api_rank_history(self):
     from .feed import get_rank_history_by_key
     rk = self._dashboard_rank_keys or []
-    return {"data": {k: get_rank_history_by_key(self, k)[:5] for k in rk if k}}
+    return {"data": {k: list(reversed(get_rank_history_by_key(self, k)[-5:])) for k in rk if k}}
 
 
 def api_subscribe_from_rank(self, tmdb_id, media_type, title, year):
@@ -101,7 +101,7 @@ def api_subscribe_from_rank(self, tmdb_id, media_type, title, year):
         return {"success": False, "message": "媒体库中已存在"}
     if sc.exists(mediainfo=mediainfo, meta=meta):
         return {"success": False, "message": "已订阅"}
-    sid, msg = sc.add(title=title, year=year or "", mtype=mt, tmdbid=tmdb_id, season=meta.begin_season if meta.type == MT.TV else None, exist_ok=True, username="豆瓣中心-仪表盘", message=False)
+    sid, msg = sc.add(title=title, year=year or "", mtype=mt, tmdbid=tmdb_id or mediainfo.tmdb_id, season=meta.begin_season if meta.type == MT.TV else None, exist_ok=True, username="豆瓣中心-仪表盘", message=False)
     return {"success": True, "message": "已添加订阅"} if sid else {"success": False, "message": msg}
 
 
@@ -139,6 +139,40 @@ def api_subscribe_history(self, page=1, page_size=20):
     end = start + page_size
     page_items = records[start:end]
     return {"data": {"items": page_items, "total": total, "page": page, "page_size": page_size, "total_pages": (total + page_size - 1) // page_size}}
+
+
+def api_pending_observations(self):
+    """获取观察期内等待自动订阅的榜单条目。"""
+    if not self._anti_cheat_enabled or int(self._observe_days or 0) <= 0:
+        return {"data": []}
+    from .feed import BUILTIN_RANKS, get_rank_history_by_key
+    now = datetime.datetime.now()
+    observe_days = int(self._observe_days or 0)
+    items = []
+    for rank in BUILTIN_RANKS:
+        rank_key = rank["key"]
+        for item in get_rank_history_by_key(self, rank_key):
+            if not isinstance(item, dict) or not item.get("observing"):
+                continue
+            first_seen = item.get("first_seen") or item.get("time") or ""
+            elapsed_days = 0
+            if first_seen:
+                try:
+                    first_seen_at = datetime.datetime.strptime(first_seen, "%Y-%m-%d %H:%M:%S")
+                    elapsed_days = max((now - first_seen_at).days, 0)
+                except Exception:
+                    elapsed_days = 0
+            pending = dict(item)
+            pending.update({
+                "rank_key": rank_key,
+                "rank_name": rank["name"],
+                "observe_days": observe_days,
+                "elapsed_days": elapsed_days,
+                "remaining_days": max(observe_days - elapsed_days, 0),
+            })
+            items.append(pending)
+    items.sort(key=lambda x: x.get("first_seen") or x.get("time") or "", reverse=True)
+    return {"data": items}
 
 
 def api_anti_cheat_logs(self):
