@@ -1,5 +1,5 @@
 """
-DoubanCenter v1.1.1 - MoviePilot 本地插件
+DoubanCenter v1.1.3 - MoviePilot 本地插件
 整合：榜单订阅 + 豆瓣档案 + 仪表盘双面板
 """
 import datetime
@@ -26,7 +26,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣档案 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "1.1.2"
+    plugin_version = "1.1.3"
     plugin_author = "牧濑红莉栖"
     author_url = "https://raw.githubusercontent.com/z2561221/MoviePilot-Plugins/main/icons/author-avatars/kurisu"
     plugin_config_prefix = "doubancenter_"
