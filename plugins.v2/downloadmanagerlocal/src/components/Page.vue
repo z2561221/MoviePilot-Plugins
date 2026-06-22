@@ -133,7 +133,7 @@ onMounted(loadHistory)
   <div class="dm-page">
     <VToolbar density="comfortable" class="dm-toolbar">
       <VIcon icon="mdi-rename-box" class="ms-3 me-2" color="primary" />
-      <div class="text-h6">下载管理</div>
+      <div class="text-h6">下载中心</div>
       <VSpacer />
       <VBtn value="history" :variant="activeTab === 'history' ? 'tonal' : 'text'" size="small" class="text-none me-1" @click="activeTab = 'history'">重命名历史</VBtn>
       <VBtn value="diagnostics" :variant="activeTab === 'diagnostics' ? 'tonal' : 'text'" size="small" class="text-none me-2" @click="loadDiagnostics">诊断</VBtn>

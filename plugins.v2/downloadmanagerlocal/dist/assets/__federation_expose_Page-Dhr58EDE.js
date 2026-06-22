@@ -168,7 +168,7 @@ const _sfc_main = {
         class: 'dm-toolbar',
       }, () => [
         h(VIcon, { icon: 'mdi-rename-box', class: 'ms-3 me-2', color: 'primary' }),
-        h('div', { class: 'text-h6' }, '下载管理'),
+        h('div', { class: 'text-h6' }, '下载中心'),
         h(VSpacer),
         h(VBtn, {
           value: 'history',

@@ -68,7 +68,14 @@ def api_sites(plugin):
 def api_rename_history(plugin, page: int = 1, page_size: int = 15):
     """返回重命名历史记录（支持分页）"""
     records = plugin.get_data("rename_records") or {}
-    all_items = sorted(records.values(), key=lambda x: x.get("time", ""), reverse=True)
+    items = []
+    for record_hash, record in records.items():
+        if not isinstance(record, dict):
+            continue
+        item = dict(record)
+        item["hash"] = item.get("hash") or record_hash
+        items.append(item)
+    all_items = sorted(items, key=lambda x: x.get("time", ""), reverse=True)
     total = len(all_items)
     start = (page - 1) * page_size
     end = start + page_size

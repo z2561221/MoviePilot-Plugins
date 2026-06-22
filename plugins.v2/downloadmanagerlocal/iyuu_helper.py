@@ -25,6 +25,22 @@ class IyuuHelper(object):
     def init_config(self):
         pass
 
+    def ensure_ready(self) -> Tuple[bool, str]:
+        """
+        确认 IYUU Token、站点列表和站点绑定摘要可用于辅种查询。
+        """
+        if not self._token:
+            return False, "未配置 IYUU Token"
+        if not self._sites:
+            self._sites = self.__get_sites()
+        if not self._sites:
+            return False, "未获取到 IYUU 支持站点列表"
+        if not self._sid_sha1:
+            self._sid_sha1 = self.__report_existing()
+        if not self._sid_sha1:
+            return False, "IYUU 站点汇报失败或未绑定推荐站点"
+        return True, ""
+
     def __request_iyuu(self, url: str, method: str = "get", params: dict = None) -> Tuple[Optional[dict], str]:
         """
         向IYUUApi发送请求
@@ -84,6 +100,9 @@ class IyuuHelper(object):
         if not self._sites:
             self._sites = self.__get_sites()
         sid_list = list(self._sites.keys())
+        if not sid_list:
+            logger.warning("IYUU汇报站点失败：站点列表为空，跳过 sid_list 为空的请求")
+            return None
         result, msg = self.__request_iyuu(url='/reseed/sites/reportExisting',
                                           method='post',
                                           params={'sid_list': sid_list})
@@ -107,14 +126,19 @@ class IyuuHelper(object):
         :param info_hashs:
         :return:
         """
-        if not self._sid_sha1:
-            self._sid_sha1 = self.__report_existing()
+        if not info_hashs:
+            return {}, ""
+        ready, msg = self.ensure_ready()
+        if not ready:
+            return None, msg
         info_hashs.sort()
         json_data = json.dumps(info_hashs, separators=(',', ':'), ensure_ascii=False)
         sha1 = self.get_sha1(json_data)
         result, msg = self.__reseed_index(json_data, sha1)
         if msg and "站点哈希值 require" in msg:
             self._sid_sha1 = self.__report_existing()
+            if not self._sid_sha1:
+                return None, "IYUU 站点哈希刷新失败"
             result, msg = self.__reseed_index(json_data, sha1)
         return result, msg
 

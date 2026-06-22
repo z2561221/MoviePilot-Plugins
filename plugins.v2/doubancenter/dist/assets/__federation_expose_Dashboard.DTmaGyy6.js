@@ -120,9 +120,14 @@ async function doSubscribe() {
 
 function doOpenDouban() {
   if (!dialogItem.value) return
+  const rk = dialogItem.value.rk;
   const item = dialogItem.value.item;
   showDialog.value = false;
   const link = item.link || '';
+  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) {
+    if (link) window.open(link, '_blank');
+    return
+  }
   // 优先用douban_id
   const subjectId = item.douban_id || '';
   if (subjectId) {
@@ -465,12 +470,12 @@ return (_ctx, _cache) => {
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
                     color: "primary",
-                    "prepend-icon": dialogItem.value?.item?.link?.includes('douban') ? 'mdi-open-in-new' : 'mdi-link-variant',
+                    "prepend-icon": dialogItem.value?.rk === 'bangumi' || dialogItem.value?.item?.link?.includes('bgm.tv') || dialogItem.value?.item?.link?.includes('bangumi.tv') ? 'mdi-link-variant' : (dialogItem.value?.item?.link?.includes('douban') ? 'mdi-open-in-new' : 'mdi-link-variant'),
                     class: "flex-grow-1 text-none",
                     onClick: doOpenDouban
                   }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(dialogItem.value?.item?.link?.includes('douban') ? '豆瓣' : '详情'), 1)
+                      _createTextVNode(_toDisplayString(dialogItem.value?.rk === 'bangumi' || dialogItem.value?.item?.link?.includes('bgm.tv') || dialogItem.value?.item?.link?.includes('bangumi.tv') ? 'Bgm' : (dialogItem.value?.item?.link?.includes('douban') ? '豆瓣' : '详情')), 1)
                     ]),
                     _: 1
                   }, 8, ["prepend-icon"])

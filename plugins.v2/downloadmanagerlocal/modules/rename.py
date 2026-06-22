@@ -1,5 +1,6 @@
 """种子重命名模块"""
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +14,11 @@ from app.log import logger
 from app.modules.filemanager.transhandler import TransHandler
 from app.schemas.types import MediaType
 
-from ..utils.name_cleaner import clean_torrent_original_name, collect_retry_rename_hashes
+from ..utils.name_cleaner import (
+    clean_torrent_original_name,
+    collect_retry_rename_hashes,
+    is_polluted_original_name,
+)
 from ..utils.torrent_adapter import get_hash, get_label, get_save_path
 
 
@@ -89,23 +94,259 @@ def _to_text(value) -> str:
     return str(value).strip()
 
 
-def _get_original_torrent_name(plugin, torrent_hash: str) -> str:
-    """读取源 .torrent 元信息中的原始发布名。"""
+def _add_original_name_candidate(
+    candidates: list,
+    seen: set,
+    value,
+    source: str = "",
+    base_score: int = 0,
+) -> None:
+    """添加去重后的原始名称候选，并保留污染与来源信息。"""
+    raw = _to_text(value)
+    candidate = clean_torrent_original_name(raw).strip()
+    if candidate and candidate not in seen:
+        candidates.append({
+            "name": candidate,
+            "raw": raw,
+            "source": source,
+            "base_score": base_score,
+            "polluted": is_polluted_original_name(raw),
+        })
+        seen.add(candidate)
+
+
+def _add_torrent_file_candidates(candidates: list, seen: set, plugin, torrent_hash: str) -> None:
+    """从源 .torrent 文件中添加原始发布名候选。"""
     source_dir = str(getattr(plugin, "_fromtorrentpath", "") or "").strip()
     hash_text = str(torrent_hash or "").strip()
     if not source_dir or not hash_text:
-        return ""
+        return
     torrent_file = Path(source_dir) / f"{hash_text}.torrent"
     if not torrent_file.exists():
-        return ""
+        return
     try:
         torrent_data = bdecode(torrent_file.read_bytes())
         info = _get_bencoded_value(torrent_data, "info")
-        original_name = _to_text(_get_bencoded_value(info, "name"))
-        return clean_torrent_original_name(original_name)
+        _add_original_name_candidate(
+            candidates, seen, _get_bencoded_value(info, "name"), "torrent_info", 12
+        )
+
+        files = _get_bencoded_value(info, "files") or []
+        if isinstance(files, list):
+            for file_info in files:
+                path_parts = (
+                    _get_bencoded_value(file_info, "path.utf-8")
+                    or _get_bencoded_value(file_info, "path")
+                )
+                if isinstance(path_parts, list) and path_parts:
+                    if len(path_parts) > 1:
+                        _add_original_name_candidate(candidates, seen, path_parts[0], "torrent_folder", 18)
+                    _add_original_name_candidate(
+                        candidates, seen, Path(_to_text(path_parts[-1])).stem, "torrent_file", 8
+                    )
+                elif path_parts:
+                    _add_original_name_candidate(
+                        candidates, seen, Path(_to_text(path_parts)).stem, "torrent_file", 8
+                    )
     except Exception as e:
         logger.warning(f"转移后重命名：读取原始种子名失败 hash={hash_text} file={torrent_file}: {e}")
+
+
+def _add_rename_record_candidates(candidates: list, seen: set, plugin, torrent_hash: str) -> None:
+    """从重命名历史中添加原始名候选。"""
+    try:
+        records = plugin.get_data("rename_records") or {}
+    except Exception:
+        return
+    record = records.get(str(torrent_hash or ""))
+    if not isinstance(record, dict):
+        return
+    _add_original_name_candidate(candidates, seen, record.get("original_name"), "rename_record_original", 4)
+    _add_original_name_candidate(candidates, seen, record.get("after_name"), "rename_record_after", 2)
+
+
+def _add_download_history_candidates(candidates: list, seen: set, torrent_hash: str) -> None:
+    """从下载历史中添加原始种子名候选。"""
+    try:
+        from app.db.downloadhistory_oper import DownloadHistoryOper
+        downloadhis = DownloadHistoryOper().get_by_hash(torrent_hash)
+    except Exception:
+        return
+    if not downloadhis:
+        return
+    _add_original_name_candidate(candidates, seen, downloadhis.torrent_name, "download_history", 6)
+
+
+def _path_name_candidate(value) -> str:
+    """从下载器内容路径中提取适合识别的文件夹名或文件名。"""
+    text = _to_text(value).replace("\\", "/").strip().rstrip("/")
+    if not text:
         return ""
+    name = Path(text).name
+    if Path(name).suffix.lower() in {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".torrent"}:
+        return Path(name).stem
+    return name
+
+
+def _get_torrent_content_name(torrent, dl_type: str) -> str:
+    """从下载器任务中提取内容根目录名。"""
+    if dl_type == "qbittorrent":
+        for key in ("content_path", "root_path"):
+            candidate = _path_name_candidate(torrent.get(key))
+            if candidate:
+                return candidate
+    candidate = _path_name_candidate(getattr(torrent, "download_dir", ""))
+    if candidate and candidate != _to_text(getattr(torrent, "name", "")):
+        return candidate
+    return ""
+
+
+def _build_original_name_candidate_items(
+    plugin,
+    torrent_hash: str,
+    current_name: str = "",
+    content_name: str = "",
+) -> list:
+    """收集补刀可用的原始发布名候选。"""
+    candidates = []
+    seen = set()
+    _add_torrent_file_candidates(candidates, seen, plugin, torrent_hash)
+    _add_download_history_candidates(candidates, seen, str(torrent_hash or ""))
+    _add_rename_record_candidates(candidates, seen, plugin, torrent_hash)
+    _add_original_name_candidate(candidates, seen, content_name, "content_path", 20)
+    _add_original_name_candidate(candidates, seen, current_name, "current_torrent", 0)
+    return candidates
+
+
+def _get_original_torrent_name_candidates(plugin, torrent_hash: str) -> list:
+    """读取源 .torrent 中可用于识别的原始名称候选。"""
+    return [item["name"] for item in _build_original_name_candidate_items(plugin, torrent_hash)]
+
+
+def _score_original_name_candidate(value) -> int:
+    """根据发布名特征和污染特征给候选原始名称打分。"""
+    if isinstance(value, dict):
+        text = str(value.get("name") or "")
+        raw = str(value.get("raw") or "")
+        score = int(value.get("base_score") or 0)
+        polluted = bool(value.get("polluted"))
+    else:
+        text = str(value or "")
+        raw = text
+        score = 0
+        polluted = is_polluted_original_name(raw)
+    upper = text.upper()
+    release_tokens = (
+        "S0", "S1", "S2", "S3", "2160P", "1080P", "720P", "WEB",
+        "BLURAY", "H264", "H265", "HEVC", "AVC", "AAC",
+    )
+    has_release_marker = any(token in upper for token in release_tokens)
+    if has_release_marker:
+        score += 10
+    candidate_polluted = is_polluted_original_name(text)
+    if candidate_polluted:
+        score -= 20
+    elif polluted and not has_release_marker:
+        score -= 12
+    elif polluted:
+        score -= 2
+    score += min(len(text), 120) // 20
+    return score
+
+
+def _get_original_torrent_name(
+    plugin,
+    torrent_hash: str,
+    current_name: str = "",
+    content_name: str = "",
+) -> str:
+    """读取源 .torrent 中最适合用于识别的原始发布名。"""
+    candidates = _build_original_name_candidate_items(plugin, torrent_hash, current_name, content_name)
+    if not candidates:
+        return ""
+    best = max(candidates, key=_score_original_name_candidate)
+    if _score_original_name_candidate(best) < 8:
+        logger.warning(
+            f"转移后重命名：原始发布名候选置信度过低，跳过自动补刀 hash={torrent_hash} "
+            f"candidate={best.get('name')}"
+        )
+        return ""
+    return str(best.get("name") or "")
+
+
+def resolve_retry_original_name(
+    plugin,
+    torrent_hash: str,
+    current_name: str,
+    content_name: str = "",
+) -> str:
+    """为补刀解析可信原始发布名，无法确认时返回空字符串。"""
+    candidate = _get_original_torrent_name(plugin, torrent_hash, current_name, content_name)
+    if candidate:
+        return candidate
+    if is_polluted_original_name(current_name):
+        logger.warning(f"补刀跳过重命名：原始发布名污染且无可信候选 hash={torrent_hash} name={current_name}")
+        return ""
+    return clean_torrent_original_name(current_name).strip()
+
+
+def _is_iyuu_seed_tags(plugin, tags: list) -> bool:
+    """判断标签是否表示 IYUU 铺种任务。"""
+    tag_texts = [str(tag or "").strip() for tag in (tags or []) if str(tag or "").strip()]
+    if not tag_texts:
+        return False
+    configured = [
+        tag.strip()
+        for tag in str(getattr(plugin, "_iyuu_labelsafterseed", "") or "").split(",")
+        if tag.strip()
+    ]
+    for tag in tag_texts:
+        if tag in configured or "铺种" in tag:
+            return True
+    return False
+
+
+def _find_iyuu_source_hash_from_files(plugin, torrent_hash: str) -> str:
+    """从插件数据文件中反查辅种 hash 对应的母种 hash。"""
+    get_data_path = getattr(plugin, "get_data_path", None)
+    if not callable(get_data_path):
+        return ""
+    try:
+        data_dir = Path(get_data_path())
+    except Exception:
+        return ""
+    if not data_dir.exists() or not data_dir.is_dir():
+        return ""
+    for path in data_dir.glob("iyuu_*"):
+        if path.name.startswith("iyuu_source_") or not path.is_file():
+            continue
+        source_hash = path.stem.replace("iyuu_", "", 1)
+        if not source_hash or source_hash == path.stem:
+            source_hash = path.name.replace("iyuu_", "", 1)
+        if not source_hash:
+            continue
+        try:
+            history = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for item in history or []:
+            if isinstance(item, dict) and torrent_hash in (item.get("torrents") or []):
+                return source_hash
+    return ""
+
+
+def _find_iyuu_source_hash(plugin, torrent_hash: str) -> str:
+    """查找辅种任务对应的母种 hash。"""
+    hash_text = str(torrent_hash or "").strip()
+    if not hash_text:
+        return ""
+    try:
+        source_hash = plugin.get_data(f"iyuu_source_{hash_text}")
+        if source_hash:
+            return str(source_hash)
+    except Exception:
+        pass
+    return _find_iyuu_source_hash_from_files(plugin, hash_text)
 
 
 def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: str, save_path: str):
@@ -205,7 +446,14 @@ def retry_failed_renames(plugin, to_service):
             trackers = [t.get("url") for t in (torrent.trackers or []) if t.get("tier", -1) >= 0 and t.get("url")] if dl_type == "qbittorrent" else [t.announce for t in (torrent.trackers or []) if t.tier >= 0 and t.announce]
             logger.info(f"补刀处理: hash={th} name={tn}")
             if plugin._rename_enabled:
-                rename_torrent(plugin, dl, dl_type, th, _get_original_torrent_name(plugin, th) or tn, sp)
+                retry_name = resolve_retry_original_name(plugin, th, tn, _get_torrent_content_name(torrent, dl_type))
+                source_hash = _find_iyuu_source_hash(plugin, th) if _is_iyuu_seed_tags(plugin, tags) else ""
+                if source_hash and rename_iyuu_torrent_by_source_record(plugin, dl, dl_type, th, retry_name or tn, source_hash):
+                    pass
+                elif retry_name:
+                    rename_torrent(plugin, dl, dl_type, th, retry_name, sp)
+                else:
+                    save_rename_record(plugin, th, tn, tn, False, "原始发布名污染，无法可靠补刀")
             if plugin._tag_enabled:
                 from .site_tag import tag_torrent
                 tag_torrent(plugin, dl, dl_type, th, tags, trackers)
@@ -271,11 +519,25 @@ def retry_rename_by_hash(plugin, to_service, torrent_hash: str):
             logger.info(f"单条补刀处理: hash={hash_text} name={torrent_name}")
 
             if plugin._rename_enabled:
-                plugin._rename_torrent(
-                    dl, dl_type, hash_text,
-                    _get_original_torrent_name(plugin, hash_text) or torrent_name,
-                    save_path
+                retry_name = resolve_retry_original_name(
+                    plugin,
+                    hash_text,
+                    torrent_name,
+                    _get_torrent_content_name(torrent, dl_type),
                 )
+                if not retry_name:
+                    return {"code": 1, "msg": "原始发布名污染，无法可靠补刀", "hash": hash_text}
+                source_hash = _find_iyuu_source_hash(plugin, hash_text) if _is_iyuu_seed_tags(plugin, torrent_tags) else ""
+                if source_hash and rename_iyuu_torrent_by_source_record(
+                    plugin, dl, dl_type, hash_text, retry_name, source_hash
+                ):
+                    pass
+                else:
+                    plugin._rename_torrent(
+                        dl, dl_type, hash_text,
+                        retry_name,
+                        save_path
+                    )
             if plugin._tag_enabled:
                 plugin._tag_torrent(dl, dl_type, hash_text, torrent_tags, trackers)
 
@@ -304,8 +566,11 @@ def rename_iyuu_torrent_by_source_record(plugin, dl, dl_type, torrent_hash, torr
         return None
 
     prefix = prefix_match.group(1).strip()
+    release_name = clean_torrent_original_name(torrent_name).strip()
+    if not release_name:
+        release_name = torrent_name
     # 保留新种原始发布名
-    new_name = f"[{prefix}] - {torrent_name}"
+    new_name = f"[{prefix}] - {release_name}"
 
     try:
         if dl_type == "qbittorrent":

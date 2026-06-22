@@ -102,7 +102,7 @@ function selectMain(key) {
             <VIcon icon="mdi-download" size="24" />
           </VAvatar>
         </template>
-        <VCardTitle class="text-h6">下载管理</VCardTitle>
+        <VCardTitle class="text-h6">下载中心</VCardTitle>
         <VCardSubtitle class="text-caption">{{ currentMain.desc }}</VCardSubtitle>
         <template #append>
           <VSwitch v-model="form.enabled" color="success" hide-details inset :label="form.enabled ? '已启用' : '已停用'" />

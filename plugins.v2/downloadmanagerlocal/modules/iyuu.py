@@ -23,9 +23,41 @@ from app.utils.string import StringUtils
 from ..utils.sensitive import mask_sensitive_url
 
 
-IYUU_QUERY_CHUNK_SIZE = 200
-IYUU_QUERY_BATCH_DELAY_SECONDS = 2
+IYUU_QUERY_CHUNK_SIZE = 100
+IYUU_QUERY_BATCH_DELAY_SECONDS = 6
 IYUU_SCAN_PROGRESS_INTERVAL = 500
+IYUU_TRANSIENT_ERROR_LIMIT = 2
+IYUU_TRANSIENT_ERROR_KEYWORDS = (
+    "Server internal error",
+    "OOM command not allowed",
+    "未获取到返回信息",
+    "访问频率过快",
+    "Too Many Requests",
+    "timeout",
+    "Timeout",
+    "Connection",
+    "连接",
+)
+IYUU_CONFIG_ERROR_KEYWORDS = (
+    "未配置 IYUU Token",
+    "token未注册",
+    "请求缺少token",
+    "未绑定推荐站点",
+    "缺少sid_list",
+    "站点哈希值 require",
+    "站点哈希刷新失败",
+    "未获取到 IYUU 支持站点列表",
+)
+
+
+def _is_iyuu_transient_error(message: str) -> bool:
+    """判断 IYUU 查询失败是否属于临时服务端异常或限流。"""
+    return bool(message and any(keyword in message for keyword in IYUU_TRANSIENT_ERROR_KEYWORDS))
+
+
+def _is_iyuu_config_error(message: str) -> bool:
+    """判断 IYUU 查询失败是否属于 Token 或站点绑定配置异常。"""
+    return bool(message and any(keyword in message for keyword in IYUU_CONFIG_ERROR_KEYWORDS))
 
 
 def is_torrent_content(content: bytes) -> bool:
@@ -85,7 +117,12 @@ def iyuu_auto_seed(plugin):
 
 def _iyuu_auto_seed(plugin):
     """IYUU 自动辅种主逻辑"""
-    if not plugin.iyuu_helper or not iyuu_service_infos(plugin):
+    services = iyuu_service_infos(plugin)
+    if not plugin.iyuu_helper or not services:
+        return
+    ready, ready_msg = plugin.iyuu_helper.ensure_ready()
+    if not ready:
+        logger.warning(f"IYUU辅种：预检失败，本轮跳过：{ready_msg}")
         return
     logger.info("开始 IYUU 辅种任务 ...")
 
@@ -96,7 +133,10 @@ def _iyuu_auto_seed(plugin):
     plugin._iyuu_fail = 0
     plugin._iyuu_cached = 0
 
-    for service in iyuu_service_infos(plugin).values():
+    transient_error_count = 0
+    stop_reason = ""
+
+    for service in services.values():
         downloader = service.name
         downloader_obj = service.instance
         logger.info(f"IYUU辅种：扫描下载器 {downloader} ...")
@@ -151,11 +191,36 @@ def _iyuu_auto_seed(plugin):
                     logger.info(
                         f"IYUU辅种：等待 {IYUU_QUERY_BATCH_DELAY_SECONDS} 秒后继续下一批，避免请求过快"
                     )
-                    time.sleep(IYUU_QUERY_BATCH_DELAY_SECONDS)
+                    if plugin._event.wait(IYUU_QUERY_BATCH_DELAY_SECONDS):
+                        logger.info("IYUU辅种服务停止")
+                        return
                 chunk = hash_strs[i:i + IYUU_QUERY_CHUNK_SIZE]
-                iyuu_seed_torrents(plugin, hash_strs=chunk, service=service)
+                query_error = iyuu_seed_torrents(plugin, hash_strs=chunk, service=service)
+                if not query_error:
+                    transient_error_count = 0
+                    continue
+                if _is_iyuu_config_error(query_error):
+                    stop_reason = f"IYUU 配置或站点绑定异常：{query_error}"
+                    break
+                if _is_iyuu_transient_error(query_error):
+                    transient_error_count += 1
+                    logger.warning(
+                        f"IYUU辅种：检测到临时异常 {transient_error_count}/{IYUU_TRANSIENT_ERROR_LIMIT}：{query_error}"
+                    )
+                    if transient_error_count >= IYUU_TRANSIENT_ERROR_LIMIT:
+                        stop_reason = f"IYUU 临时异常连续达到 {IYUU_TRANSIENT_ERROR_LIMIT} 次，停止本轮辅种"
+                        break
+                else:
+                    transient_error_count = 0
+            if stop_reason:
+                break
         else:
             logger.info(f"IYUU辅种：下载器 {downloader} 没有需要辅种的种子")
+        if stop_reason:
+            break
+
+    if stop_reason:
+        logger.warning(f"IYUU辅种：{stop_reason}")
 
     update_iyuu_config(plugin)
     if plugin._notify and (plugin._iyuu_success or plugin._iyuu_fail):
@@ -175,7 +240,7 @@ def _iyuu_auto_seed(plugin):
 def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
     """执行一批种子的 IYUU 辅种"""
     if not hash_strs:
-        return
+        return None
     logger.info(f"IYUU辅种：下载器 {service.name} 查询辅种，数量：{len(hash_strs)}")
     hashs = [item.get("hash") for item in hash_strs]
     save_paths = {item.get("hash"): item.get("save_path") for item in hash_strs}
@@ -203,7 +268,7 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
             logger.warning(f'IYUU辅种失败，疑似站点未绑定：{msg}')
         else:
             logger.warning(f"IYUU辅种：当前种子列表没有可辅种的站点：{msg}")
-        return
+        return msg or "IYUU 查询未返回有效数据"
     logger.info(f"IYUU辅种：返回可辅种数：{len(seed_list)}")
 
     for current_hash, seed_info in seed_list.items():
@@ -252,6 +317,7 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
     __log_counter("跳过未维护站点", unmanaged_sites)
     __log_counter("跳过未选择站点", skipped_sites)
     logger.info(f"IYUU辅种：下载器 {service.name} 辅种完成")
+    return None
 
 
 def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: str, save_category: str,
@@ -622,6 +688,9 @@ def iyuu_save_history(plugin, current_hash: str, downloader: str, success_torren
         if new_history:
             seed_history.append({"downloader": downloader, "torrents": list(set(success_torrents))})
         plugin.save_data(key=f"iyuu_{current_hash}", value=seed_history)
+        for seed_hash in success_torrents:
+            if seed_hash:
+                plugin.save_data(key=f"iyuu_source_{seed_hash}", value=current_hash)
     except Exception as e:
         logger.error(f"IYUU辅种：保存历史失败：{e}")
 

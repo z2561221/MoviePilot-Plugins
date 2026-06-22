@@ -182,7 +182,7 @@ return (_ctx, _cache) => {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-h6" }, {
               default: _withCtx(() => [...(_cache[48] || (_cache[48] = [
-                _createTextVNode("下载管理", -1)
+                _createTextVNode("下载中心", -1)
               ]))]),
               _: 1
             }),

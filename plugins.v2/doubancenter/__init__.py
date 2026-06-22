@@ -1,6 +1,6 @@
-"""
-DoubanCenter v1.1.4 - MoviePilot 本地插件
-整合：榜单订阅 + 豆瓣档案 + 仪表盘双面板
+﻿"""
+DoubanCenter v1.2.0 - MoviePilot 本地插件
+鏁村悎锛氭鍗曡闃?+ 璞嗙摚妗ｆ + 浠〃鐩樺弻闈㈡澘
 """
 import datetime
 import threading
@@ -26,9 +26,9 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣档案 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "1.1.4"
+    plugin_version = "1.2.0"
     plugin_author = "牧濑红莉栖"
-    author_url = "https://github.com/z2561221/MoviePilot-Plugins"
+    author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
     plugin_order = 14
     auth_level = 1
@@ -61,8 +61,8 @@ class DoubanCenter(_PluginBase):
     _anti_cheat_enabled: bool = False
     _anti_cheat_min_vote: float = 5.0
 
-    _region_options = ["中国大陆","中国香港","中国台湾","美国","日本","韩国","英国","泰国","印度","法国","德国","西班牙","加拿大","澳大利亚","俄罗斯","瑞典","丹麦","爱尔兰","意大利","巴西"]
-    _genre_options = ["爱情","喜剧","剧情","悬疑","古装","动作","犯罪","科幻","家庭","奇幻","武侠","历史","动画","惊悚","战争","冒险","恐怖","灾难","传记","音乐","歌舞"]
+    _region_options = ["中国大陆", "中国香港", "中国台湾", "美国", "日本", "韩国", "英国", "泰国", "印度", "法国", "德国", "西班牙", "加拿大", "澳大利亚", "俄罗斯", "瑞典", "丹麦", "爱尔兰", "意大利", "巴西"]
+    _genre_options = ["爱情", "喜剧", "剧情", "悬疑", "古装", "动作", "犯罪", "科幻", "家庭", "奇幻", "武侠", "历史", "动画", "惊悚", "战争", "冒险", "恐怖", "灾难", "传记", "音乐", "歌舞"]
     _resolution_options = [{"title":"2160p/4K","value":"2160p|4k|uhd"},{"title":"1080p","value":"1080p"},{"title":"720p","value":"720p"}]
 
     _scheduler = None
@@ -106,8 +106,8 @@ class DoubanCenter(_PluginBase):
         if self._onlyonce:
             self._onlyonce = False
             self.__update_config()
-            # 立即运行只刷新RSS数据更新历史记录，不触发订阅，避免无条件时订阅大量剧集
-            feed.refresh_rank_data(self)
+            # 立即运行先刷新 RSS 榜单，再按当前配置执行订阅。
+            feed.run_once(self)
 
     def __run_all(self):
         feed.subscribe_to_ranks(self)
@@ -128,11 +128,14 @@ class DoubanCenter(_PluginBase):
             {"path":"/config","endpoint":self.api_config,"methods":["GET"],"auth":"bear","summary":"获取插件配置"},
             {"path":"/rank_history","endpoint":self.api_rank_history,"methods":["GET"],"auth":"bear","summary":"获取榜单历史"},
             {"path":"/subscribe","endpoint":self.api_subscribe,"methods":["GET","POST"],"auth":"bear","summary":"一键订阅"},
-            {"path":"/refresh_rss","endpoint":self.api_refresh_rss,"methods":["POST"],"auth":"bear","summary":"刷新RSS（只刷新榜单数据，不订阅）"},
+            {"path":"/refresh_rss","endpoint":self.api_refresh_rss,"methods":["POST"],"auth":"bear","summary":"刷新 RSS 榜单数据"},
             {"path":"/stats","endpoint":self.api_stats,"methods":["GET"],"auth":"bear","summary":"获取订阅统计"},
-            {"path":"/subscribe_history","endpoint":self.api_subscribe_history,"methods":["GET"],"auth":"bear","summary":"获取订阅历史（分页）"},
-            {"path":"/pending_observations","endpoint":self.api_pending_observations,"methods":["GET"],"auth":"bear","summary":"获取观察期待自动订阅条目"},
+            {"path":"/subscribe_history","endpoint":self.api_subscribe_history,"methods":["GET"],"auth":"bear","summary":"获取订阅历史"},
+            {"path":"/pending_observations","endpoint":self.api_pending_observations,"methods":["GET"],"auth":"bear","summary":"获取观察期待订阅条目"},
             {"path":"/anti_cheat_logs","endpoint":self.api_anti_cheat_logs,"methods":["GET"],"auth":"bear","summary":"获取防刷榜日志"},
+            {"path":"/delete_subscribe_history","endpoint":self.api_delete_subscribe_history,"methods":["POST"],"auth":"bear","summary":"删除订阅历史记录"},
+            {"path":"/delete_observation","endpoint":self.api_delete_observation,"methods":["POST"],"auth":"bear","summary":"删除观察队列条目"},
+            {"path":"/delete_anti_cheat_log","endpoint":self.api_delete_anti_cheat_log,"methods":["POST"],"auth":"bear","summary":"删除防刷榜日志"},
         ]
 
     def api_folio_data(self):
@@ -145,29 +148,29 @@ class DoubanCenter(_PluginBase):
         return dash.api_rank_history(self)
 
     def api_subscribe(self, tmdb_id=None, media_type=None, title="", year=""):
-        """一键订阅：GET ?tmdb_id=xxx&media_type=tv&title=xxx&year=xxx"""
+        """One-click subscribe from dashboard rank items."""
         try:
             if not title:
-                return {"success": False, "message": "缺少必要参数"}
+                return {"success": False, "message": "缂哄皯蹇呰鍙傛暟"}
             return dash.api_subscribe_from_rank(self, tmdb_id, media_type, title, year)
         except Exception as e:
             logger.error(f"豆瓣中心：api_subscribe 异常：{e}", exc_info=True)
             return {"success": False, "message": f"订阅失败：{e}"}
 
     def api_refresh_rss(self):
-        """刷新RSS：只拉取最新榜单数据更新历史记录，不触发订阅"""
+        """Refresh RSS rank data without creating subscriptions."""
         try:
             logger.info("豆瓣中心：api_refresh_rss 被调用")
             rank_keys = self._dashboard_rank_keys or None
             logger.info(f"豆瓣中心：refresh_rss rank_keys={rank_keys}")
             result = feed.refresh_rank_data(self, rank_keys=rank_keys)
-            return {"success": True, "message": "RSS刷新完成", "data": result}
+            return {"success": True, "message": "RSS鍒锋柊瀹屾垚", "data": result}
         except Exception as e:
             logger.error(f"豆瓣中心：api_refresh_rss 异常：{e}", exc_info=True)
             return {"success": False, "message": f"刷新失败：{e}"}
 
     def api_stats(self):
-        """获取订阅统计"""
+        """Return subscription statistics."""
         try:
             return dash.api_stats(self)
         except Exception as e:
@@ -175,7 +178,7 @@ class DoubanCenter(_PluginBase):
             return {"success": False, "message": f"获取统计失败：{e}"}
 
     def api_subscribe_history(self, page=1, page_size=20):
-        """获取订阅历史（分页）"""
+        """Return paged subscription history."""
         try:
             return dash.api_subscribe_history(self, page=int(page), page_size=int(page_size))
         except Exception as e:
@@ -183,7 +186,7 @@ class DoubanCenter(_PluginBase):
             return {"success": False, "message": f"获取订阅历史失败：{e}"}
 
     def api_pending_observations(self):
-        """获取观察期内待自动订阅条目"""
+        """Return items still waiting inside the observe window."""
         try:
             return dash.api_pending_observations(self)
         except Exception as e:
@@ -191,16 +194,40 @@ class DoubanCenter(_PluginBase):
             return {"success": False, "message": f"获取观察期条目失败：{e}"}
 
     def api_anti_cheat_logs(self):
-        """获取防刷榜日志"""
+        """Return anti-cheat logs."""
         try:
             return dash.api_anti_cheat_logs(self)
         except Exception as e:
             logger.error(f"豆瓣中心：api_anti_cheat_logs 异常：{e}", exc_info=True)
             return {"success": False, "message": f"获取防刷榜日志失败：{e}"}
 
+    def api_delete_subscribe_history(self, time="", title="", tmdbid=None):
+        """Delete a single subscription history row from detail page."""
+        try:
+            return dash.api_delete_subscribe_history(self, time=time, title=title, tmdbid=tmdbid)
+        except Exception as e:
+            logger.error(f"豆瓣中心：api_delete_subscribe_history 异常：{e}", exc_info=True)
+            return {"success": False, "message": f"删除订阅历史失败：{e}"}
+
+    def api_delete_observation(self, unique="", rank_key="", title=""):
+        """Delete a single pending observation row from detail page."""
+        try:
+            return dash.api_delete_observation(self, unique=unique, rank_key=rank_key, title=title)
+        except Exception as e:
+            logger.error(f"豆瓣中心：api_delete_observation 异常：{e}", exc_info=True)
+            return {"success": False, "message": f"删除观察条目失败：{e}"}
+
+    def api_delete_anti_cheat_log(self, time="", title="", reason=""):
+        """Delete a single anti-cheat log row from detail page."""
+        try:
+            return dash.api_delete_anti_cheat_log(self, time=time, title=title, reason=reason)
+        except Exception as e:
+            logger.error(f"豆瓣中心：api_delete_anti_cheat_log 异常：{e}", exc_info=True)
+            return {"success": False, "message": f"删除防刷日志失败：{e}"}
+
     def get_service(self) -> List[Dict[str, Any]]:
         if self._enabled and self._cron:
-            return [{"id":"DoubanCenter","name":"豆瓣中心定时服务","trigger":CronTrigger.from_crontab(self._cron),"func":self.__run_all,"kwargs":{}}]
+            return [{"id":"DoubanCenter","name":"璞嗙摚涓績瀹氭椂鏈嶅姟","trigger":CronTrigger.from_crontab(self._cron),"func":self.__run_all,"kwargs":{}}]
         return []
 
     @staticmethod
@@ -208,7 +235,7 @@ class DoubanCenter(_PluginBase):
         return "vue", "dist/assets"
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
-        return None, {"enabled":False,"cron":"0 8 * * *","notify":False,"proxy":False,"onlyonce":False,"rsshub_domain":"https://rsshub.ddsrem.com","rank_configs":{},"region_filters":[],"genre_filters":[],"resolution_filters":[],"custom_rss_addrs":"","folio_enabled":True,"folio_private":True,"folio_first":True,"folio_notify":False,"folio_user":"","folio_exclude":"","folio_cookie":"","folio_pc_month":3,"folio_pc_num":50,"folio_mobile_month":2,"folio_mobile_num":15,"dashboard_rank_keys":[],"blacklist_keywords":"","observe_days":0,"anti_cheat_enabled":False,"anti_cheat_min_vote":5.0}
+        return None, {"enabled":False,"cron":"0 8 * * *","notify":False,"proxy":False,"onlyonce":False,"rsshub_domain":"https://rsshub.ddsrem.com","rank_configs":{"coming":{"enabled":False,"count":10,"wish_count":5000,"air_days":7,"vote":0,"year":0},"tv_real_time":{"enabled":False,"count":10,"wish_count":0,"air_days":0,"vote":0,"year":0},"tv_chinese":{"enabled":False,"count":10,"wish_count":0,"air_days":0,"vote":0,"year":0},"tv_global":{"enabled":False,"count":10,"wish_count":0,"air_days":0,"vote":0,"year":0},"movie_weekly":{"enabled":False,"count":10,"wish_count":0,"air_days":0,"vote":0,"year":0},"bangumi":{"enabled":False,"count":10,"wish_count":0,"air_days":0,"vote":0,"year":0}},"region_filters":[],"genre_filters":[],"resolution_filters":[],"custom_rss_addrs":"","folio_enabled":True,"folio_private":True,"folio_first":True,"folio_notify":False,"folio_user":"","folio_exclude":"","folio_cookie":"","folio_pc_month":3,"folio_pc_num":50,"folio_mobile_month":2,"folio_mobile_num":15,"dashboard_rank_keys":[],"blacklist_keywords":"","observe_days":0,"anti_cheat_enabled":False,"anti_cheat_min_vote":5.0}
 
     def get_page(self) -> Optional[List[dict]]:
         return None

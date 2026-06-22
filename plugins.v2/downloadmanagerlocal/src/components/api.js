@@ -5,7 +5,13 @@ export function unwrapResponse(response) {
 }
 export async function postPluginApi(api, path, payload = {}) {
   if (!api?.post) throw new Error('MoviePilot 插件 API 未就绪')
-  const response = await api.post(`plugin/DownloadManagerLocal/${path}`, payload)
+  const params = new URLSearchParams()
+  Object.entries(payload || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') params.set(key, value)
+  })
+  const query = params.toString()
+  const url = `plugin/DownloadManagerLocal/${path}${query ? `?${query}` : ''}`
+  const response = await api.post(url, payload)
   return unwrapResponse(response)
 }
 export async function getPluginApi(api, path) {

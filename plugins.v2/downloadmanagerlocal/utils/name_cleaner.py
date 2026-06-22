@@ -6,6 +6,7 @@ import re
 
 
 _BRACKET_PREFIX_RE = re.compile(r"\[.*?\][\s.]*")
+_LEADING_BRACKET_PREFIX_RE = re.compile(r"^\s*\[[^\]]+\]\s*(?:-\s*)*")
 _LEADING_RENAME_SEPARATOR_RE = re.compile(r"^(?:-\s*)+")
 _TORRENT_SUFFIX_RE = re.compile(r"\.torrent$", re.IGNORECASE)
 _SUBTITLE_SEPARATOR_RE = re.compile(r"\s+\|\s+")
@@ -20,6 +21,9 @@ _GROUP_THEN_CHINESE_RE = re.compile(
 _CHINESE_SUBTITLE_HINT_RE = re.compile(
     r"[\u4e00-\u9fff].*(?:第\s*\d+\s*集|类型[:：]|主演[:：]|别名[:：]|酷喵TV)"
 )
+_POLLUTION_HINT_RE = re.compile(
+    r"(?:\s+\|\s+|类型[:：]|主演[:：]|别名[:：]|酷喵TV|第\s*\d+\s*集)"
+)
 
 
 def clean_torrent_original_name(value: str) -> str:
@@ -28,8 +32,12 @@ def clean_torrent_original_name(value: str) -> str:
         return ""
 
     cleaned = str(value).strip()
-    cleaned = _BRACKET_PREFIX_RE.sub("", cleaned)
-    cleaned = _LEADING_RENAME_SEPARATOR_RE.sub("", cleaned).strip()
+    while True:
+        next_cleaned = _LEADING_BRACKET_PREFIX_RE.sub("", cleaned).strip()
+        next_cleaned = _LEADING_RENAME_SEPARATOR_RE.sub("", next_cleaned).strip()
+        if next_cleaned == cleaned:
+            break
+        cleaned = next_cleaned
     cleaned = _TORRENT_SUFFIX_RE.sub("", cleaned).strip(" .")
     cleaned = _SUBTITLE_SEPARATOR_RE.split(cleaned, 1)[0].strip()
     cleaned = _TRAILING_SOURCE_RE.sub("", cleaned).strip()
@@ -40,6 +48,15 @@ def clean_torrent_original_name(value: str) -> str:
             cleaned = match.group(1).strip()
 
     return cleaned
+
+
+def is_polluted_original_name(value: str) -> bool:
+    """判断候选原始名是否包含副标题、类型、主演等污染信息。"""
+    text = str(value or "").strip()
+    if not text:
+        return False
+    cleaned = clean_torrent_original_name(text)
+    return cleaned != text or bool(_POLLUTION_HINT_RE.search(text))
 
 
 def _extract_original_part(renamed_name: str) -> str:

@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.1.10 - MoviePilot 本地插件
+DownloadManagerLocal v3.2.0 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 import os
@@ -52,7 +52,7 @@ from .modules.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_a
 
 class DownloadManagerLocal(_PluginBase):
     # 插件名称
-    plugin_name = "下载管理"
+    plugin_name = "下载中心"
     # 插件描述
     plugin_desc = "转移做种 + IYUU辅种 + 种子重命名 + 站点标签，一站式下载管理。"
     # 插件图标
@@ -60,11 +60,11 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.1.10"
+    plugin_version = "3.2.0"
     # 插件作者
     plugin_author = "牧濑红莉栖"
     # 作者主页
-    author_url = "https://github.com/z2561221/MoviePilot-Plugins"
+    author_url = "https://github.com/z2561221"
     # 插件配置项ID前缀
     plugin_config_prefix = "downloadmanagerlocal_"
     # 加载顺序
