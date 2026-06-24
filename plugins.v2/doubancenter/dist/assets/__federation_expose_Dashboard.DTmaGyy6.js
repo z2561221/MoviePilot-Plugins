@@ -39,7 +39,7 @@ const _hoisted_13 = { class: "dc-rank-head" };
 const _hoisted_14 = { class: "dc-rank-body" };
 const _hoisted_15 = ["title", "onClick"];
 const _hoisted_16 = { class: "dc-rank-name" };
-const _hoisted_17 = { class: "dc-rank-num" };
+const _hoisted_17 = { class: "dc-rank-wish" };
 const _hoisted_18 = {
   key: 0,
   class: "text-center text-medium-emphasis py-2 text-caption"
@@ -104,16 +104,45 @@ function showActionDialog(rk, item) {
   showDialog.value = true;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
+}
+
+function normalizeApiData(value) {
+  if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'success')) return value
+  return value?.data && !Array.isArray(value?.data) ? value.data : value
+}
+
+function mediaIdOf(media) {
+  if (media?.tmdb_id) return `tmdb:${media.tmdb_id}`
+  if (media?.douban_id) return `douban:${media.douban_id}`
+  if (media?.bangumi_id) return `bangumi:${media.bangumi_id}`
+  if (media?.media_id && media?.mediaid_prefix) return `${media.mediaid_prefix}:${media.media_id}`
+  return ''
+}
+
+function bangumiIdOf(rk, item) {
+  if (item?.bangumi_id || item?.bangumiid) return item.bangumi_id || item.bangumiid
+  if (rk === 'bangumi' && item?.douban_id) return item.douban_id
+  const match = String(item?.link || '').match(/(?:bgm\.tv|bangumi\.tv)\/subject\/(\d+)/)
+  return match ? match[1] : ''
+}
+
+async function subscribeRankItem(rk, item) {
+  const mediaType = item.media_type || item.mtype || (rk === 'movie_weekly' ? 'movie' : 'tv');
+  const params = `tmdb_id=${encodeURIComponent(item.tmdbid || '')}&bangumi_id=${encodeURIComponent(bangumiIdOf(rk, item))}&media_type=${encodeURIComponent(mediaType)}&title=${encodeURIComponent(item.title || '')}&year=${encodeURIComponent(item.year || '')}`;
+  const res = await postPluginApi(props.api, `subscribe?${params}`, {});
+  if (!res?.success) throw new Error(res?.message || '订阅失败')
+  subscribeResult.value = `✓ ${res?.message || `${item.title || ''} 已添加订阅`}`;
+}
+
 async function doSubscribe() {
   if (!dialogItem.value) return
   const { rk, item } = dialogItem.value;
   showDialog.value = false;
   subscribeResult.value = '';
   try {
-    const mediaType = item.media_type || item.mtype || (rk === 'movie_weekly' ? 'movie' : 'tv');
-    const params = `tmdb_id=${item.tmdbid||''}&media_type=${mediaType}&title=${encodeURIComponent(item.title)}&year=${item.year||''}`;
-    const res = await getPluginApi(props.api, `subscribe?${params}`);
-    subscribeResult.value = res.success ? `✓ ${item.title} 已订阅` : `✗ ${item.title}: ${res.message}`;
+    await subscribeRankItem(rk, item);
   } catch(e) { subscribeResult.value = `✗ 订阅失败: ${e}`; }
   setTimeout(() => { subscribeResult.value = ''; }, 3000);
 }
@@ -360,33 +389,29 @@ return (_ctx, _cache) => {
                             onClick: $event => (showActionDialog(rk, item))
                           }, [
                             _createVNode(_component_VAvatar, {
-                              size: "16",
-                              class: "mr-1 flex-shrink-0"
+                              size: "18",
+                              rounded: "sm",
+                              class: "dc-rank-poster"
                             }, {
                               default: _withCtx(() => [
                                 (item.poster)
                                   ? (_openBlock(), _createBlock(_component_VImg, {
                                       key: 0,
-                                      src: item.poster
+                                      src: item.poster,
+                                      cover: ""
                                     }, null, 8, ["src"]))
                                   : (_openBlock(), _createBlock(_component_VIcon, {
                                       key: 1,
                                       icon: "mdi-filmstrip",
-                                      size: "10"
+                                      size: "12"
                                     }))
                               ]),
                               _: 2
                             }, 1024),
                             _createElementVNode("span", _hoisted_16, _toDisplayString(item.title), 1),
-                            _createElementVNode("span", _hoisted_17, [
-                              (rk==='coming' && item.wish_count)
-                                ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
-                                    _createTextVNode(_toDisplayString(item.wish_count), 1)
-                                  ], 64))
-                                : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
-                                    _createTextVNode(_toDisplayString(item.year||''), 1)
-                                  ], 64))
-                            ])
+                            (rk==='coming' && item.wish_count)
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_17, _toDisplayString(item.wish_count), 1))
+                              : _createCommentVNode("", true)
                           ], 8, _hoisted_15))
                         }), 128)),
                         (!(rankHistory.value[rk]||[]).length)
