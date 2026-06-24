@@ -1,9 +1,12 @@
 function unwrap(response) {
+  if (response && typeof response === 'object' && Object.prototype.hasOwnProperty.call(response, 'success')) return response
   const data = response?.data ?? response;
+  if (data && typeof data === 'object' && Object.prototype.hasOwnProperty.call(data, 'success')) return data
   if (data && typeof data === 'object' && Object.prototype.hasOwnProperty.call(data, 'data')) return data.data
   return data
 }
 function unwrapAction(response) {
+  if (response && typeof response === 'object' && Object.prototype.hasOwnProperty.call(response, 'success')) return response
   return response?.data ?? response
 }
 async function getPluginApi(api, path) {
