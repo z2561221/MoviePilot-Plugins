@@ -33,6 +33,48 @@ def api_diagnostics(plugin):
         return {"code": 1, "msg": f"诊断失败: {e}"}
 
 
+def api_overview(plugin):
+    """返回详情页总览数据。"""
+    try:
+        diagnostics = plugin._diagnostics()
+        archive = plugin.rename_archive_stats()
+        rename_history = diagnostics.get("rename_history", {}) if isinstance(diagnostics, dict) else {}
+        return {
+            "code": 0,
+            "plugin": diagnostics.get("plugin", {}) if isinstance(diagnostics, dict) else {},
+            "config": diagnostics.get("config", {}) if isinstance(diagnostics, dict) else {},
+            "downloaders": diagnostics.get("downloaders", {}) if isinstance(diagnostics, dict) else {},
+            "rename_history": rename_history,
+            "archive": archive,
+            "cards": {
+                "transfer": {
+                    "enabled": bool(getattr(plugin, "_transfer_enabled", False)),
+                    "active": bool(getattr(plugin, "_transfer_active", False)),
+                    "fallback_enabled": bool(getattr(plugin, "_transfer_fallback_enabled", False)),
+                },
+                "iyuu": {
+                    "enabled": bool(getattr(plugin, "_iyuu_enabled", False)),
+                    "success": int(getattr(plugin, "_iyuu_success", 0) or 0),
+                    "fail": int(getattr(plugin, "_iyuu_fail", 0) or 0),
+                    "cached": int(getattr(plugin, "_iyuu_cached", 0) or 0),
+                },
+                "rename": {
+                    "enabled": bool(getattr(plugin, "_rename_enabled", False)),
+                    "failed": int(rename_history.get("failed", 0) or 0),
+                    "dirty": int(rename_history.get("dirty", 0) or 0),
+                    "archived": int(archive.get("archived", 0) or 0),
+                },
+                "seed": {
+                    "autostart": bool(getattr(plugin, "_seed_autostart", False)),
+                    "skipverify": bool(getattr(plugin, "_seed_skipverify", False)),
+                },
+            },
+        }
+    except Exception as e:
+        logger.error(f"总览信息生成失败: {e}")
+        return {"code": 1, "msg": f"总览失败: {e}"}
+
+
 def api_downloaders(plugin):
     """返回可用下载器列表"""
     try:
@@ -43,6 +85,7 @@ def api_downloaders(plugin):
                 result.append({
                     "title": name,
                     "value": name,
+                    "type": info.type,
                 })
         return {"data": result}
     except Exception as e:
@@ -68,9 +111,17 @@ def api_sites(plugin):
 def api_rename_history(plugin, page: int = 1, page_size: int = 15):
     """返回重命名历史记录（支持分页）"""
     records = plugin.get_data("rename_records") or {}
+    retry_state = plugin.get_data("rename_retry_state") or {}
+    archived_hashes = {
+        record_hash
+        for record_hash, state in retry_state.items()
+        if isinstance(state, dict) and state.get("archived")
+    } if isinstance(retry_state, dict) else set()
     items = []
     for record_hash, record in records.items():
         if not isinstance(record, dict):
+            continue
+        if record_hash in archived_hashes:
             continue
         item = dict(record)
         item["hash"] = item.get("hash") or record_hash
@@ -96,6 +147,21 @@ def api_delete_rename_history(plugin, hash: str = ""):
         plugin.save_data("rename_records", records)
         return {"code": 0, "msg": "已删除"}
     return {"code": 1, "msg": "记录不存在"}
+
+
+def api_rename_archive(plugin, page: int = 1, page_size: int = 15):
+    """返回补刀归档记录（支持分页）。"""
+    return plugin.list_rename_archive(page, page_size)
+
+
+def api_restore_rename_archive(plugin, hash: str = ""):
+    """恢复归档记录，使其继续参与补刀。"""
+    return plugin.restore_rename_archive(hash)
+
+
+def api_delete_rename_archive(plugin, hash: str = ""):
+    """删除归档状态记录。"""
+    return plugin.delete_rename_archive(hash)
 
 
 def api_recovery_torrent(plugin, hash: str = ""):
