@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.2.0 - MoviePilot 本地插件
+DownloadManagerLocal v3.2.1 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 import os
@@ -42,8 +42,9 @@ from .utils.config import safe_int, is_plugin_active, is_transfer_active
 from .utils.tracker import parse_tracker_mappings
 from .utils.path import convert_save_path
 from .utils.torrent_adapter import get_hash, get_label, get_category, get_save_path, get_torrent_size
-from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent, api_retry_renames as _api_retry_renames, api_retry_rename as _api_retry_rename, api_diagnostics as _api_diagnostics
+from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent, api_retry_renames as _api_retry_renames, api_retry_rename as _api_retry_rename, api_diagnostics as _api_diagnostics, api_overview as _api_overview, api_rename_archive as _api_rename_archive, api_restore_rename_archive as _api_restore_rename_archive, api_delete_rename_archive as _api_delete_rename_archive
 from .modules.rename import rename_torrent as _rename_torrent_impl, format_torrent_name as _format_torrent_name_impl, save_rename_record as _save_rename_record_impl, get_failed_rename_hashes as _get_failed_rename_hashes_impl, retry_failed_renames as _retry_failed_renames_impl, retry_rename_by_hash as _retry_rename_by_hash_impl, rename_iyuu_torrent_by_source_record as _rename_iyuu_torrent_by_source_record_impl
+from .modules.rename_archive import record_rename_failure as _record_rename_failure_impl, clear_rename_retry_state as _clear_rename_retry_state_impl, is_rename_archived as _is_rename_archived_impl, list_rename_archive as _list_rename_archive_impl, restore_rename_archive as _restore_rename_archive_impl, delete_rename_archive as _delete_rename_archive_impl, rename_archive_stats as _rename_archive_stats_impl
 from .modules.diagnostics import build_diagnostics as _build_diagnostics_impl
 from .modules.site_tag import tag_torrent as _tag_torrent_impl, find_site_by_domain as _find_site_by_domain_impl
 from .modules.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl
@@ -60,7 +61,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.2.0"
+    plugin_version = "3.2.1"
     # 插件作者
     plugin_author = "牧濑红莉栖"
     # 作者主页
@@ -415,6 +416,13 @@ class DownloadManagerLocal(_PluginBase):
                 "summary": "获取重命名历史",
             },
             {
+                "path": "/overview",
+                "endpoint": self.api_overview,
+                "auth": "bear",
+                "methods": ["GET"],
+                "summary": "获取下载中心总览",
+            },
+            {
                 "path": "/diagnostics",
                 "endpoint": self.api_diagnostics,
                 "auth": "bear",
@@ -443,6 +451,27 @@ class DownloadManagerLocal(_PluginBase):
                 "summary": "删除重命名历史记录",
             },
             {
+                "path": "/rename_archive",
+                "endpoint": self.api_rename_archive,
+                "auth": "bear",
+                "methods": ["GET"],
+                "summary": "获取补刀归档记录",
+            },
+            {
+                "path": "/restore_rename_archive",
+                "endpoint": self.api_restore_rename_archive,
+                "auth": "bear",
+                "methods": ["POST"],
+                "summary": "恢复补刀归档记录",
+            },
+            {
+                "path": "/delete_rename_archive",
+                "endpoint": self.api_delete_rename_archive,
+                "auth": "bear",
+                "methods": ["POST"],
+                "summary": "删除补刀归档记录",
+            },
+            {
                 "path": "/recovery_torrent",
                 "endpoint": self.api_recovery_torrent,
                 "auth": "bear",
@@ -467,8 +496,20 @@ class DownloadManagerLocal(_PluginBase):
     def api_rename_history(self, page: int = 1, page_size: int = 15):
         return _api_rename_history(self, page, page_size)
 
+    def api_overview(self):
+        return _api_overview(self)
+
     def api_delete_rename_history(self, hash: str = ""):
         return _api_delete_rename_history(self, hash)
+
+    def api_rename_archive(self, page: int = 1, page_size: int = 15):
+        return _api_rename_archive(self, page, page_size)
+
+    def api_restore_rename_archive(self, hash: str = ""):
+        return _api_restore_rename_archive(self, hash)
+
+    def api_delete_rename_archive(self, hash: str = ""):
+        return _api_delete_rename_archive(self, hash)
 
     def api_recovery_torrent(self, hash: str = ""):
         return _api_recovery_torrent(self, hash)
@@ -741,6 +782,28 @@ class DownloadManagerLocal(_PluginBase):
 
     def _diagnostics(self):
         return _build_diagnostics_impl(self)
+
+    def record_rename_failure(self, torrent_hash: str, torrent_name: str,
+                              category: str = "", reason: str = ""):
+        return _record_rename_failure_impl(self, torrent_hash, torrent_name, category, reason)
+
+    def clear_rename_retry_state(self, torrent_hash: str):
+        return _clear_rename_retry_state_impl(self, torrent_hash)
+
+    def is_rename_archived(self, torrent_hash: str):
+        return _is_rename_archived_impl(self, torrent_hash)
+
+    def list_rename_archive(self, page: int = 1, page_size: int = 15):
+        return _list_rename_archive_impl(self, page, page_size)
+
+    def restore_rename_archive(self, torrent_hash: str):
+        return _restore_rename_archive_impl(self, torrent_hash)
+
+    def delete_rename_archive(self, torrent_hash: str):
+        return _delete_rename_archive_impl(self, torrent_hash)
+
+    def rename_archive_stats(self):
+        return _rename_archive_stats_impl(self)
 
     # ════════════════════════════════════════════════════════════
     # v2.3.0: 事件驱动转移
