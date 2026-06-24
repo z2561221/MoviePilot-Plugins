@@ -68,17 +68,20 @@ const actionMessage = ref('');
 const actionOk = ref(true);
 const dialogItem = ref(null);
 const showDialog = ref(false);
+const archivePage = ref(false);
+const archiveData = ref({ items: [], total: 0, page: 1, page_size: 20, total_pages: 0 });
 
 async function loadAll() {
   loading.value = true;
   try {
-    const [s, h, c, p, r, cfg] = await Promise.all([
+    const [s, h, c, p, r, cfg, a] = await Promise.all([
       getPluginApi(props.api, 'stats'),
       getPluginApi(props.api, `subscribe_history?page=${historyData.value.page}&page_size=${historyData.value.page_size}`),
       getPluginApi(props.api, 'anti_cheat_logs'),
       getPluginApi(props.api, 'pending_observations'),
       getPluginApi(props.api, 'rank_history'),
       getPluginApi(props.api, 'config'),
+      getPluginApi(props.api, `archive_records?page=${archiveData.value.page}&page_size=${archiveData.value.page_size}`),
     ]);
     if (s) stats.value = s;
     if (h) historyData.value = h;
@@ -93,6 +96,7 @@ async function loadAll() {
       configData.value = cfg;
       blacklistKeywords.value = String(cfg.blacklist_keywords || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
     }
+    if (a) archiveData.value = a;
   } catch(e) { console.error(e); }
   loading.value = false;
 }
@@ -101,6 +105,20 @@ async function goPage(p) {
   if (p < 1 || p > historyData.value.total_pages) return
   historyData.value.page = p;
   await loadAll();
+}
+
+async function loadArchive() {
+  const data = await getPluginApi(props.api, `archive_records?page=${archiveData.value.page}&page_size=${archiveData.value.page_size}`);
+  if (data) archiveData.value = data;
+}
+
+async function openArchivePage() {
+  archivePage.value = true;
+  await loadArchive();
+}
+
+function closeArchivePage() {
+  archivePage.value = false;
 }
 
 function rowKey(prefix, item, index) {
@@ -112,6 +130,44 @@ function queryString(params) {
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
     .join('&')
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
+}
+
+function getHostApi() {
+  return props.api || window.MoviePilotAPI
+}
+
+function normalizeApiData(value) {
+  if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'success')) return value
+  return value?.data && !Array.isArray(value?.data) ? value.data : value
+}
+
+function mediaIdOf(media) {
+  if (media?.tmdb_id) return `tmdb:${media.tmdb_id}`
+  if (media?.douban_id) return `douban:${media.douban_id}`
+  if (media?.bangumi_id) return `bangumi:${media.bangumi_id}`
+  if (media?.media_id && media?.mediaid_prefix) return `${media.mediaid_prefix}:${media.media_id}`
+  return ''
+}
+
+function bangumiIdOf(rk, item) {
+  if (item?.bangumi_id || item?.bangumiid) return item.bangumi_id || item.bangumiid
+  if (rk === 'bangumi' && item?.douban_id) return item.douban_id
+  const match = String(item?.link || '').match(/(?:bgm\.tv|bangumi\.tv)\/subject\/(\d+)/)
+  return match ? match[1] : ''
+}
+
+async function subscribeRankItem(rk, item) {
+  const mediaType = item.media_type || item.mtype || (rk === 'movie_weekly' ? 'movie' : 'tv');
+  const params = queryString({ tmdb_id: item.tmdbid || '', bangumi_id: bangumiIdOf(rk, item), media_type: mediaType, title: item.title || '', year: item.year || '' });
+  const res = await postPluginApi(props.api, `subscribe?${params}`, {});
+  if (!res?.success) throw new Error(res?.message || '订阅失败')
+  actionOk.value = true;
+  actionMessage.value = res?.message || `${item.title || ''} 已添加订阅`;
+  await loadAll();
 }
 
 async function runDelete(path, body, key, successText) {
@@ -145,6 +201,14 @@ async function deleteAntiCheatLog(item, index) {
   await runDelete('delete_anti_cheat_log', { time: item?.time || '', title: item?.title || '', reason: item?.reason || '' }, rowKey('log', item, index), '已删除防刷日志')
 }
 
+async function restoreArchive(item, index) {
+  await runDelete('restore_archive', { archive_id: item?.id || '' }, rowKey('archive-restore', item, index), '已恢复归档记录')
+}
+
+async function deleteArchive(item, index) {
+  await runDelete('delete_archive', { archive_id: item?.id || '' }, rowKey('archive-delete', item, index), '已删除归档记录')
+}
+
 function showActionDialog(rk, item) {
   dialogItem.value = { rk, item };
   showDialog.value = true;
@@ -157,12 +221,7 @@ async function doSubscribe() {
   actionMessage.value = '';
   actionOk.value = true;
   try {
-    const mediaType = item.media_type || item.mtype || (rk === 'movie_weekly' ? 'movie' : 'tv');
-    const params = `tmdb_id=${item.tmdbid||''}&media_type=${mediaType}&title=${encodeURIComponent(item.title||'')}&year=${item.year||''}`;
-    const res = await getPluginApi(props.api, `subscribe?${params}`);
-    actionOk.value = !!(res && res.success);
-    actionMessage.value = res && res.success ? `${item.title || ''} 已添加订阅` : `${item.title || ''}: ${(res && res.message) || '订阅失败'}`;
-    await loadAll();
+    await subscribeRankItem(rk, item);
   } catch(e) {
     actionOk.value = false;
     actionMessage.value = `订阅失败: ${e?.message || e}`;
@@ -254,7 +313,7 @@ return (_ctx, _cache) => {
             size: "small",
             "prepend-icon": "mdi-refresh",
             class: "text-none me-1",
-            onClick: loadAll,
+            onClick: $event => archivePage.value ? loadArchive() : loadAll(),
             loading: loading.value
           }, {
             default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
@@ -262,6 +321,19 @@ return (_ctx, _cache) => {
             ]))]),
             _: 1
           }, 8, ["loading"]),
+          _createVNode(_component_VBtn, {
+            variant: "text",
+            size: "small",
+            "prepend-icon": archivePage.value ? "mdi-arrow-left" : "mdi-archive-outline",
+            class: "text-none me-1",
+            color: archivePage.value ? 'primary' : undefined,
+            onClick: $event => archivePage.value ? closeArchivePage() : openArchivePage()
+          }, {
+            default: _withCtx(() => [
+              _createTextVNode(_toDisplayString(archivePage.value ? '返回' : '归档'), 1)
+            ]),
+            _: 1
+          }, 8, ["prepend-icon", "color", "onClick"]),
           _createVNode(_component_VBtn, {
             variant: "text",
             size: "small",
@@ -283,15 +355,15 @@ return (_ctx, _cache) => {
         ]),
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, null, {
-            default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
-              _createTextVNode("豆瓣中心 · 运行详情", -1)
-            ]))]),
+            default: _withCtx(() => [
+              _createTextVNode(_toDisplayString(archivePage.value ? '豆瓣中心 · 归档记录' : '豆瓣中心 · 运行详情'), 1)
+            ]),
             _: 1
           }),
           _createVNode(_component_VCardSubtitle, null, {
-            default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
-              _createTextVNode("榜单刷新 → 黑名筛选 → 观察队列 → 订阅记录", -1)
-            ]))]),
+            default: _withCtx(() => [
+              _createTextVNode(_toDisplayString(archivePage.value ? '删除进入归档，支持恢复或彻底删除' : '榜单刷新 → 黑名筛选 → 观察队列 → 订阅记录'), 1)
+            ]),
             _: 1
           })
         ]),
@@ -316,7 +388,84 @@ return (_ctx, _cache) => {
               }, _toDisplayString(actionMessage.value), 5))
             : _createCommentVNode("", true),
           (!loading.value)
-            ? (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
+            ? (archivePage.value)
+              ? (_openBlock(), _createElementBlock("div", {
+                      key: "archive",
+                      class: "dc-section dc-section--archive"
+                    }, [
+                      _createElementVNode("div", {
+                        class: "dc-section-title mb-2"
+                      }, [
+                        _createTextVNode("归档记录 "),
+                        _createElementVNode("span", {
+                          class: "text-caption font-weight-regular text-medium-emphasis"
+                        }, "（共 " + _toDisplayString(archiveData.value.total || 0) + " 条）", 1)
+                      ]),
+                      (archiveData.value.items && archiveData.value.items.length)
+                        ? (_openBlock(), _createElementBlock("div", {
+                            key: 0,
+                            class: "dc-history-list"
+                          }, [
+                            (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(archiveData.value.items, (item, i) => {
+                              return (_openBlock(), _createElementBlock("div", {
+                                key: item.id || i,
+                                class: "dc-history-row dc-archive-row"
+                              }, [
+                                _createVNode(_component_VAvatar, {
+                                  size: "28",
+                                  class: "mr-2 flex-shrink-0",
+                                  color: "primary",
+                                  variant: "tonal"
+                                }, {
+                                  default: _withCtx(() => [
+                                    _createVNode(_component_VIcon, {
+                                      icon: "mdi-archive-outline",
+                                      size: "14"
+                                    })
+                                  ]),
+                                  _: 2
+                                }, 1024),
+                                _createElementVNode("div", _hoisted_12, [
+                                  _createElementVNode("div", _hoisted_13, _toDisplayString(item.title || '未命名条目'), 1),
+                                  _createElementVNode("div", _hoisted_14, [
+                                    _createVNode(_component_VChip, {
+                                      size: "x-small",
+                                      color: "primary",
+                                      variant: "tonal",
+                                      class: "mr-1"
+                                    }, {
+                                      default: _withCtx(() => [
+                                        _createTextVNode(_toDisplayString(item.source_name || item.source || '归档'), 1)
+                                      ]),
+                                      _: 2
+                                    }, 1024),
+                                    _createElementVNode("span", _hoisted_15, _toDisplayString(item.archived_at ? item.archived_at.split(' ')[0] : ''), 1)
+                                  ])
+                                ]),
+                                _createVNode(_component_VBtn, {
+                                  icon: "mdi-restore",
+                                  variant: "text",
+                                  size: "x-small",
+                                  color: "primary",
+                                  class: "dc-row-action",
+                                  loading: actionKey.value === rowKey('archive-restore', item, i),
+                                  onClick: $event => restoreArchive(item, i)
+                                }, null, 8, ["loading", "onClick"]),
+                                _createVNode(_component_VBtn, {
+                                  icon: "mdi-delete-outline",
+                                  variant: "text",
+                                  size: "x-small",
+                                  color: "error",
+                                  class: "dc-row-action",
+                                  loading: actionKey.value === rowKey('archive-delete', item, i),
+                                  onClick: $event => deleteArchive(item, i)
+                                }, null, 8, ["loading", "onClick"])
+                              ]))
+                            }), 128))
+                          ]))
+                        : (_openBlock(), _createElementBlock("div", _hoisted_16, "暂无归档记录"))
+                    ]))
+              : (_openBlock(), _createElementBlock(_Fragment, { key: "detail-page" }, [
                 (stats.value)
                   ? (_openBlock(), _createElementBlock("div", _hoisted_1, [
                       _cache[10] || (_cache[10] = _createElementVNode("div", { class: "dc-section-title mb-2" }, "订阅统计", -1)),
@@ -384,19 +533,17 @@ return (_ctx, _cache) => {
                                     title: "订阅 / 打开详情",
                                     onClick: $event => showActionDialog(key, item)
                                   }, [
-                                    _createElementVNode("span", {
-                                      class: "dc-rank-index"
-                                    }, _toDisplayString(item.rank_order || i + 1), 1),
                                     _createVNode(_component_VAvatar, {
-                                      size: "24",
+                                      size: "20",
                                       rounded: "sm",
-                                      class: "mr-2 flex-shrink-0"
+                                      class: "dc-rank-poster"
                                     }, {
                                       default: _withCtx(() => [
                                         (item.poster)
                                           ? (_openBlock(), _createBlock(_component_VImg, {
                                               key: 0,
-                                              src: item.poster
+                                              src: item.poster,
+                                              cover: ""
                                             }, null, 8, ["src"]))
                                           : (_openBlock(), _createBlock(_component_VIcon, {
                                               key: 1,
@@ -406,16 +553,15 @@ return (_ctx, _cache) => {
                                       ]),
                                       _: 2
                                     }, 1024),
-                                    _createElementVNode("div", {
-                                      class: "dc-rank-info"
-                                    }, [
-                                      _createElementVNode("div", {
-                                        class: "dc-rank-title"
-                                      }, _toDisplayString(item.title || ''), 1),
-                                      _createElementVNode("div", {
-                                        class: "dc-rank-meta"
-                                      }, _toDisplayString(item.year || item.rank_name || ''), 1)
-                                    ])
+                                    _createElementVNode("span", {
+                                      class: "dc-rank-title"
+                                    }, _toDisplayString(item.title || ''), 1),
+                                    (key === 'coming' && item.wish_count)
+                                      ? (_openBlock(), _createElementBlock("span", {
+                                          key: 0,
+                                          class: "dc-rank-wish"
+                                        }, _toDisplayString(item.wish_count), 1))
+                                      : _createCommentVNode("", true)
                                   ], 8, ["onClick"]))
                                 }), 128))
                               : (_openBlock(), _createElementBlock("div", {
@@ -461,10 +607,10 @@ return (_ctx, _cache) => {
                         class: "dc-cheat-list"
                       }, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(blacklistEntries.value, (item, i) => {
-                          return (_openBlock(), _createElementBlock("div", {
-                            key: i,
-                            class: "dc-history-row"
-                          }, [
+                               return (_openBlock(), _createElementBlock("div", {
+                             key: i,
+                             class: "dc-history-row"
+                           }, [
                             _createVNode(_component_VAvatar, {
                               size: "28",
                               class: "mr-2 flex-shrink-0",
@@ -523,10 +669,11 @@ return (_ctx, _cache) => {
                           ? (_openBlock(true), _createElementBlock(_Fragment, {
                               key: 0
                             }, _renderList(pendingObservations.value, (item, i) => {
-                              return (_openBlock(), _createElementBlock("div", {
-                            key: i,
-                            class: "dc-history-row"
-                          }, [
+                               return (_openBlock(), _createElementBlock("div", {
+                             key: i,
+                             class: "dc-history-row dc-history-row--clickable",
+                             onClick: $event => showActionDialog(item.rank_key, item)
+                           }, [
                             _createVNode(_component_VAvatar, {
                               size: "28",
                               class: "mr-2 flex-shrink-0",
@@ -565,7 +712,7 @@ return (_ctx, _cache) => {
                               color: "error",
                               class: "dc-row-action",
                               loading: actionKey.value === rowKey('obs', item, i),
-                              onClick: $event => deleteObservation(item, i)
+                              onClick: $event => { $event.stopPropagation(); deleteObservation(item, i); }
                             }, null, 8, ["loading", "onClick"])
                               ]))
                             }), 128))
