@@ -379,6 +379,7 @@ def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
         return 0
 
     retry_count = 0
+    archived_skip_count = 0
     for torrent in torrents:
         torrent_name = torrent.get("name", "") if dl_type == "qbittorrent" else torrent.name
         if not is_dirty_renamed_torrent_name(torrent_name):
@@ -387,8 +388,12 @@ def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
         if not torrent_hash:
             logger.warning(f"转移做种兜底服务：发现副标题污染任务但无 hash，跳过重命名 name={torrent_name}")
             continue
+        is_archived = getattr(plugin, "is_rename_archived", None)
+        if callable(is_archived) and is_archived(torrent_hash):
+            archived_skip_count += 1
+            continue
         save_path = plugin.get_save_path(torrent, dl_type)
-        logger.info(f"转移做种兜底服务：发现副标题污染重命名，补刀处理 hash={torrent_hash} name={torrent_name}")
+        logger.info(f"转移做种兜底服务：发现脏种子名，补刀处理 hash={torrent_hash} name={torrent_name}")
         try:
             retry_name = resolve_retry_original_name(
                 plugin,
@@ -398,6 +403,9 @@ def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
             )
             if not retry_name:
                 logger.warning(f"转移做种兜底服务：原始发布名污染且无可信候选，跳过重命名 hash={torrent_hash}")
+                record_failure = getattr(plugin, "record_rename_failure", None)
+                if callable(record_failure):
+                    record_failure(torrent_hash, torrent_name, "NO_TRUSTED_SOURCE", "原始发布名污染且无可信候选")
                 continue
             plugin._rename_torrent(
                 dl, dl_type, torrent_hash,
@@ -406,9 +414,14 @@ def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
             )
             retry_count += 1
         except Exception as e:
-            logger.error(f"转移做种兜底服务：副标题污染重命名补刀失败 hash={torrent_hash} name={torrent_name}: {e}")
+            logger.error(f"转移做种兜底服务：脏种子名补刀失败 hash={torrent_hash} name={torrent_name}: {e}")
+            record_failure = getattr(plugin, "record_rename_failure", None)
+            if callable(record_failure):
+                record_failure(torrent_hash, torrent_name, "RENAME_API_FAILED", str(e))
     if retry_count:
-        logger.info(f"转移做种兜底服务：副标题污染重命名补刀完成，处理 {retry_count} 个种子")
+        logger.info(f"转移做种兜底服务：脏种子名补刀完成，处理 {retry_count} 个种子")
+    if archived_skip_count:
+        logger.info(f"转移做种兜底服务：跳过已归档补刀记录 {archived_skip_count} 个")
     return retry_count
 
 
