@@ -8,7 +8,6 @@ import time
 import xml.dom.minidom
 from typing import Any, Dict, List, Optional
 
-from app.chain.download import DownloadChain
 from app.chain.subscribe import SubscribeChain
 from app.core.config import settings
 from app.core.metainfo import MetaInfo
@@ -79,10 +78,10 @@ def _history_item_subscribed(item: dict) -> bool:
 
 
 def _history_item_existing(item: dict) -> bool:
-    """判断历史条目是否已确认存在于媒体库或订阅中。"""
+    """判断历史条目是否已确认存在订阅。"""
     if not isinstance(item, dict):
         return False
-    return bool(item.get("existing") or item.get("existing_at"))
+    return bool((item.get("existing") or item.get("existing_at")) and item.get("existing_reason") == "subscribe")
 
 
 def _history_index_by_unique(history: List[dict]) -> Dict[str, dict]:
@@ -168,13 +167,7 @@ def _cleanup_observe_logs(self, title: str = "", unique: str = "") -> None:
 
 
 def _is_existing_media(mediainfo, meta=None) -> bool:
-    """判断媒体是否已存在于媒体库或订阅中。"""
-    try:
-        ef, _ = DownloadChain().get_no_exists_info(meta=meta, mediainfo=mediainfo)
-        if ef:
-            return True
-    except Exception as err:
-        logger.warning(f"豆瓣中心：检查媒体库存在状态失败：{err}")
+    """判断媒体是否已存在订阅。"""
     try:
         if SubscribeChain().exists(mediainfo=mediainfo, meta=meta):
             return True
@@ -184,7 +177,7 @@ def _is_existing_media(mediainfo, meta=None) -> bool:
 
 
 def _record_existing_history(history: List[dict], unique: str, title: str = "", year: Any = "", link: str = "", mediainfo=None) -> None:
-    """记录已存在媒体，避免后续再次进入观察队列。"""
+    """记录已存在订阅，避免后续再次进入观察队列。"""
     existing_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = {
         "title": getattr(mediainfo, "title", None) or title or unique,
@@ -195,6 +188,7 @@ def _record_existing_history(history: List[dict], unique: str, title: str = "", 
         "unique": unique,
         "existing": True,
         "existing_at": existing_at,
+        "existing_reason": "subscribe",
     }
     try:
         entry["poster"] = mediainfo.get_poster_image() if mediainfo else ""
@@ -685,11 +679,11 @@ def _process_coming(self, url: str, rd: dict) -> None:
         if _check_anti_cheat(self, mediainfo):
             continue
         if _is_existing_media(mediainfo, meta):
-            logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已在媒体库或订阅中，跳过观察与订阅")
+            logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
             _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
-            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
         ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
         if not ad or not utils.is_within_days(ad, air_days):
@@ -745,11 +739,11 @@ def _process_general(self, url: str, rd: dict) -> None:
         if _check_anti_cheat(self, mediainfo):
             continue
         if _is_existing_media(mediainfo, meta):
-            logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已在媒体库或订阅中，跳过观察与订阅")
+            logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
             _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
-            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
         # 防刷榜：观察期
         if _check_observe(self, unique, history, title=title):
@@ -787,11 +781,11 @@ def _process_items(self, items: List[dict], source: str) -> None:
         if _check_anti_cheat(self, mediainfo):
             continue
         if _is_existing_media(mediainfo, meta):
-            logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已在媒体库或订阅中，跳过观察与订阅")
+            logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
             _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
-            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
         # 防刷榜：观察期
         if _check_observe(self, unique, history, title=title):

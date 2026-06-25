@@ -196,7 +196,6 @@ def api_subscribe_from_rank(self, tmdb_id, media_type, title, year, bangumi_id=N
     from app.schemas.types import MediaType as MT
     from app.core.metainfo import MetaInfo
     from app.chain.subscribe import SubscribeChain
-    from app.chain.download import DownloadChain
     from app.chain.media import MediaChain
     mt = MT.TV if media_type == "tv" else MT.MOVIE
     meta = MetaInfo(title)
@@ -231,11 +230,7 @@ def api_subscribe_from_rank(self, tmdb_id, media_type, title, year, bangumi_id=N
             return {"success": False, "message": msg}
         return {"success": True, "message": "已添加订阅"}
 
-    dc = DownloadChain()
     sc = SubscribeChain()
-    ef, _ = dc.get_no_exists_info(meta=meta, mediainfo=mediainfo)
-    if ef:
-        return {"success": False, "message": "媒体库中已存在"}
     if sc.exists(mediainfo=mediainfo, meta=meta):
         return {"success": False, "message": "已订阅"}
     sid, msg = _add_silent_subscription(
@@ -328,15 +323,23 @@ def api_subscribe_history(self, page=1, page_size=20):
     return {"data": {"items": page_items, "total": total, "page": page, "page_size": page_size, "total_pages": (total + page_size - 1) // page_size}}
 
 
-def _observed_item_exists_in_library(item: dict, rank_key: str = "") -> bool:
-    """检查观察队列条目是否已经存在于媒体库或订阅中。"""
+def _item_existing_subscription(item: dict) -> bool:
+    """判断条目是否已标记为订阅存在。"""
+    return bool(
+        isinstance(item, dict)
+        and (item.get("existing") or item.get("existing_at"))
+        and item.get("existing_reason") == "subscribe"
+    )
+
+
+def _observed_item_subscription_exists(item: dict, rank_key: str = "") -> bool:
+    """检查观察队列条目是否已经存在订阅。"""
     title = (item or {}).get("title") or ""
     if not title:
         return False
     try:
         from app.schemas.types import MediaType as MT
         from app.core.metainfo import MetaInfo
-        from app.chain.download import DownloadChain
         from app.chain.subscribe import SubscribeChain
         from app.chain.media import MediaChain
 
@@ -353,9 +356,6 @@ def _observed_item_exists_in_library(item: dict, rank_key: str = "") -> bool:
         mediainfo = MediaChain().recognize_media(meta=meta, mtype=media_type)
         if not mediainfo:
             return False
-        ef, _ = DownloadChain().get_no_exists_info(meta=meta, mediainfo=mediainfo)
-        if ef:
-            return True
         return bool(SubscribeChain().exists(mediainfo=mediainfo, meta=meta))
     except Exception:
         return False
@@ -452,12 +452,13 @@ def api_pending_observations(self):
         for item in history:
             if not isinstance(item, dict) or not item.get("observing"):
                 continue
-            if item.get("observe_deleted") or item.get("subscribed") or item.get("subscribed_at") or item.get("existing") or item.get("existing_at"):
+            if item.get("observe_deleted") or item.get("subscribed") or item.get("subscribed_at") or _item_existing_subscription(item):
                 continue
-            if _observed_item_exists_in_library(item, rank_key=rank_key):
+            if _observed_item_subscription_exists(item, rank_key=rank_key):
                 item["observing"] = False
                 item["existing"] = True
                 item["existing_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+                item["existing_reason"] = "subscribe"
                 changed = True
                 continue
             first_seen = item.get("first_seen") or item.get("time") or ""
@@ -571,8 +572,7 @@ def _finished_observation_titles(self) -> set:
                 finished = (
                     item.get("subscribed")
                     or item.get("subscribed_at")
-                    or item.get("existing")
-                    or item.get("existing_at")
+                    or _item_existing_subscription(item)
                     or (item.get("observing") is False and (item.get("observe_dropped_at") or item.get("observe_deleted_at")))
                 )
                 if finished:
@@ -652,7 +652,7 @@ def api_overview(self):
                 last_refresh = refreshed_at
             if item.get("observe_deleted"):
                 ignored_observations += 1
-            if item.get("observing") and not item.get("observe_deleted") and not item.get("subscribed") and not item.get("existing"):
+            if item.get("observing") and not item.get("observe_deleted") and not item.get("subscribed") and not _item_existing_subscription(item):
                 pending_observations += 1
 
     stats = api_stats(self).get("data", {})

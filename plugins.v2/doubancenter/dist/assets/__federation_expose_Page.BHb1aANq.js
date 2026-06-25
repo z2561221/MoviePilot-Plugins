@@ -47,7 +47,10 @@ const {ref,onMounted} = await importShared('vue');
 
 const _sfc_main = {
   __name: 'Page',
-  props: { api: { type: [Object, Function], default: null } },
+  props: {
+    api: { type: [Object, Function], default: null },
+    nativeSubscribe: { type: Function, default: null }
+  },
   emits: ['close', 'switch'],
   setup(__props, { emit: __emit }) {
 
@@ -160,9 +163,58 @@ function bangumiIdOf(rk, item) {
   return match ? match[1] : ''
 }
 
+function mediaTypeOf(rk, item) {
+  const type = item?.media_type || item?.mtype || item?.type || '';
+  if (type === '电影' || type === 'movie') return 'movie'
+  if (type === '电视剧' || type === 'tv') return 'tv'
+  return rk === 'movie_weekly' ? 'movie' : 'tv'
+}
+
+async function resolveRankMedia(rk, item) {
+  const mediaType = mediaTypeOf(rk, item);
+  const params = queryString({
+    tmdb_id: item?.tmdbid || item?.tmdb_id || '',
+    bangumi_id: bangumiIdOf(rk, item),
+    media_type: mediaType,
+    title: item?.title || item?.name || '',
+    year: item?.year || ''
+  });
+  const res = normalizeApiData(await getPluginApi(props.api, `resolve_media?${params}`));
+  if (res?.success === false) throw new Error(res?.message || '媒体识别失败')
+  const media = res?.data && !Array.isArray(res.data) ? res.data : res;
+  if (!media || typeof media !== 'object') throw new Error('媒体识别失败')
+  const merged = { ...item, ...media };
+  merged.title = media.title || media.name || item?.title || item?.name || '';
+  merged.name = media.name || media.title || item?.name || item?.title || '';
+  merged.year = media.year || item?.year || '';
+  merged.type = media.type || (mediaType === 'movie' ? '电影' : '电视剧');
+  merged.tmdb_id = media.tmdb_id || media.tmdbid || item?.tmdb_id || item?.tmdbid || null;
+  merged.tmdbid = media.tmdbid || media.tmdb_id || item?.tmdbid || item?.tmdb_id || null;
+  merged.douban_id = media.douban_id || media.doubanid || item?.douban_id || item?.doubanid || null;
+  merged.doubanid = media.doubanid || media.douban_id || item?.doubanid || item?.douban_id || null;
+  merged.bangumi_id = media.bangumi_id || media.bangumiid || bangumiIdOf(rk, item) || null;
+  merged.bangumiid = media.bangumiid || media.bangumi_id || bangumiIdOf(rk, item) || null;
+  if (!merged.mediaid_prefix || !merged.media_id) {
+    const mediaId = mediaIdOf(merged);
+    if (mediaId) {
+      const [prefix, id] = mediaId.split(':');
+      merged.mediaid_prefix = merged.mediaid_prefix || prefix;
+      merged.media_id = merged.media_id || id;
+    }
+  }
+  return merged
+}
+
+async function subscribeViaNativeDialog(rk, item) {
+  const media = await resolveRankMedia(rk, item);
+  await props.nativeSubscribe(media);
+  actionOk.value = true;
+  actionMessage.value = '已打开 MP 原生订阅窗口';
+}
+
 async function subscribeRankItem(rk, item) {
-  const mediaType = item.media_type || item.mtype || (rk === 'movie_weekly' ? 'movie' : 'tv');
-  const params = queryString({ tmdb_id: item.tmdbid || '', bangumi_id: bangumiIdOf(rk, item), media_type: mediaType, title: item.title || '', year: item.year || '' });
+  const mediaType = mediaTypeOf(rk, item);
+  const params = queryString({ tmdb_id: item?.tmdbid || item?.tmdb_id || '', bangumi_id: bangumiIdOf(rk, item), media_type: mediaType, title: item?.title || item?.name || '', year: item?.year || '' });
   const res = await postPluginApi(props.api, `subscribe?${params}`, {});
   if (!res?.success) throw new Error(res?.message || '订阅失败')
   actionOk.value = true;
@@ -221,7 +273,8 @@ async function doSubscribe() {
   actionMessage.value = '';
   actionOk.value = true;
   try {
-    await subscribeRankItem(rk, item);
+    if (props.nativeSubscribe) await subscribeViaNativeDialog(rk, item);
+    else await subscribeRankItem(rk, item);
   } catch(e) {
     actionOk.value = false;
     actionMessage.value = `订阅失败: ${e?.message || e}`;
@@ -251,7 +304,19 @@ function doOpenDouban() {
       return
     }
   }
-  if (link) window.open(link, '_blank');
+if (link) window.open(link, '_blank');
+}
+
+function doOpenTmdb() {
+  if (!dialogItem.value) return
+  const rk = dialogItem.value.rk;
+  const item = dialogItem.value.item || {};
+  const tmdbId = item.tmdbid || item.tmdb_id || '';
+  if (!tmdbId) return
+  const mediaType = mediaTypeOf(rk, item);
+  const url = mediaType === 'movie' ? `https://www.themoviedb.org/movie/${tmdbId}` : `https://www.themoviedb.org/tv/${tmdbId}`;
+  showDialog.value = false;
+  window.open(url, '_blank');
 }
 
 const rankColors = {
@@ -918,7 +983,7 @@ return (_ctx, _cache) => {
                     variant: "tonal",
                     color: "primary",
                     "prepend-icon": "mdi-plus-circle-outline",
-                    class: "flex-grow-1 text-none",
+                    class: "dc-dialog-action text-none",
                     onClick: doSubscribe
                   }, {
                     default: _withCtx(() => [
@@ -928,9 +993,22 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
+                    color: "info",
+                    "prepend-icon": "mdi-movie-open-outline",
+                    class: "dc-dialog-action text-none",
+                    "disabled": !dialogItem.value?.item?.tmdbid && !dialogItem.value?.item?.tmdb_id,
+                    onClick: doOpenTmdb
+                  }, {
+                    default: _withCtx(() => [
+                      _createTextVNode("TMDB")
+                    ]),
+                    _: 1
+                  }, 8, ["disabled"]),
+                  _createVNode(_component_VBtn, {
+                    variant: "tonal",
                     color: "primary",
                     "prepend-icon": dialogItem.value?.rk === 'bangumi' || dialogItem.value?.item?.link?.includes('bgm.tv') || dialogItem.value?.item?.link?.includes('bangumi.tv') ? 'mdi-link-variant' : (dialogItem.value?.item?.link?.includes('douban') ? 'mdi-open-in-new' : 'mdi-link-variant'),
-                    class: "flex-grow-1 text-none",
+                    class: "dc-dialog-action text-none",
                     onClick: doOpenDouban
                   }, {
                     default: _withCtx(() => [

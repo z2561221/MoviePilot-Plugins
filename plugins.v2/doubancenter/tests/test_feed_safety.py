@@ -364,7 +364,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual([item["title"] for item in plugin.data["anti_cheat_logs"]], ["keep"])
 
-    def test_existing_media_branch_cleans_observe_anti_cheat_logs(self):
+    def test_existing_subscription_branch_cleans_observe_anti_cheat_logs(self):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = True
         plugin._observe_days = 2
@@ -377,16 +377,16 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
             {"title": "existing", "reason": "\u89c2\u5bdf\u671f\u672a\u6ee1", "detail": "d", "time": "2026-06-22 10:00:00"},
         ]
 
-        class ExistingDownloadChain:
+        class UnusedDownloadChain:
             def get_no_exists_info(self, meta=None, mediainfo=None):
-                return True, None
+                raise AssertionError("不应在订阅前读取媒体库存在状态")
 
-        class EmptySubscribeChain:
+        class ExistingSubscribeChain:
             def exists(self, mediainfo=None, meta=None):
-                return False
+                return True
 
-        self.feed.DownloadChain = ExistingDownloadChain
-        self.feed.SubscribeChain = EmptySubscribeChain
+        self.feed.DownloadChain = UnusedDownloadChain
+        self.feed.SubscribeChain = ExistingSubscribeChain
         self.feed._fetch_rss = lambda self_obj, url: [
             {"title": "existing", "link": "https://example.com/a", "mtype": "tv", "year": "2026"}
         ]
@@ -562,7 +562,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
-    def test_process_general_skips_observe_when_media_exists_in_library(self):
+    def test_process_general_still_observes_when_media_exists_only_in_library(self):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = True
         plugin._observe_days = 2
@@ -589,8 +589,8 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         history = plugin.data["rank_history_tv_global"]
         self.assertEqual(len(history), 1)
-        self.assertTrue(history[0]["existing"])
-        self.assertNotIn("observing", history[0])
+        self.assertTrue(history[0]["observing"])
+        self.assertNotIn("existing", history[0])
 
     def test_merge_rank_items_recognizes_display_items_without_subscribing(self):
         plugin = _Plugin()
@@ -702,7 +702,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         plugin._observe_days = 3
         first_seen = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         plugin.data["rank_history_tv_global"] = [
-            {"title": "existing", "unique": "rank:1", "first_seen": first_seen, "observing": True, "existing": True},
+            {"title": "existing", "unique": "rank:1", "first_seen": first_seen, "observing": True, "existing": True, "existing_reason": "subscribe"},
             {"title": "subscribed", "unique": "rank:2", "first_seen": first_seen, "observing": True, "subscribed": True},
             {"title": "pending", "unique": "rank:3", "first_seen": first_seen, "observing": True},
         ]
@@ -711,7 +711,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertEqual([item["unique"] for item in result], ["rank:3"])
 
-    def test_pending_observations_marks_live_existing_item(self):
+    def test_pending_observations_keeps_item_when_only_library_exists(self):
         dashboard = _import_dashboard()
         plugin = _Plugin()
         plugin._observe_days = 3
@@ -738,9 +738,9 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         result = dashboard.api_pending_observations(plugin)["data"]
 
-        self.assertEqual(result, [])
-        self.assertFalse(plugin.data["rank_history_tv_global"][0]["observing"])
-        self.assertTrue(plugin.data["rank_history_tv_global"][0]["existing"])
+        self.assertEqual([item["unique"] for item in result], ["rank:1"])
+        self.assertTrue(plugin.data["rank_history_tv_global"][0]["observing"])
+        self.assertNotIn("existing", plugin.data["rank_history_tv_global"][0])
 
     def test_config_returns_blacklist_keywords_for_page(self):
         dashboard = _import_dashboard()
@@ -1068,7 +1068,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertFalse(indexed["dc2_rank:https://example.com/old"].get("observing"))
         self.assertEqual(indexed["dc2_rank:https://example.com/old"]["observe_dropped_reason"], "跌出当前自动订阅候选")
 
-    def test_dashboard_subscribe_uses_recognized_tmdbid_when_item_has_none(self):
+    def test_dashboard_subscribe_ignores_library_exists_when_item_has_none(self):
         dashboard = _import_dashboard()
         captured = {}
 
@@ -1078,7 +1078,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         class DownloadChain:
             def get_no_exists_info(self, meta, mediainfo):
-                return False, None
+                raise AssertionError("不应在订阅前读取媒体库存在状态")
 
         class SubscribeChain:
             def exists(self, mediainfo, meta):
@@ -1247,13 +1247,14 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("width: 110px", css)
         self.assertIn("max-width: 118px", css)
 
-    def test_active_frontend_uses_silent_subscribe_endpoint(self):
+    def test_active_frontend_uses_native_subscribe_with_silent_fallback(self):
         for filename in ("__federation_expose_Page.BHb1aANq.js", "__federation_expose_Dashboard.DTmaGyy6.js"):
             js = (PLUGIN_DIR / "dist" / "assets" / filename).read_text(encoding="utf-8")
             self.assertIn("bangumi_id", js)
             self.assertIn("subscribe?", js)
-            self.assertNotIn("resolve_media?", js)
-            self.assertNotIn("nativeSubscribe", js)
+            self.assertIn("resolve_media?", js)
+            self.assertIn("nativeSubscribe", js)
+            self.assertIn("subscribeViaNativeDialog", js)
             self.assertNotIn("MoviePilotNativeSubscribe", js)
             self.assertNotIn("MP native subscribe bridge is unavailable", js)
             self.assertNotIn("dc-subscribe-season-dialog", js)
@@ -1299,7 +1300,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
             {"title": "done", "status": "success", "time": "2026-06-22 10:00:00"}
         ]
         plugin.data["rank_history_tv_global"] = [
-            {"title": "existing", "unique": "rank:1", "observing": True, "existing": True}
+            {"title": "existing", "unique": "rank:1", "observing": True, "existing": True, "existing_reason": "subscribe"}
         ]
         plugin.data["anti_cheat_logs"] = [
             {"title": "done", "reason": "\u89c2\u5bdf\u671f\u672a\u6ee1", "detail": "d", "time": "2026-06-21 10:00:00"},
@@ -1478,7 +1479,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         class DownloadChain:
             def get_no_exists_info(self, meta, mediainfo):
-                return False, None
+                raise AssertionError("不应在订阅前读取媒体库存在状态")
 
         class SubscribeChain:
             def exists(self, mediainfo, meta):
