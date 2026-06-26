@@ -19,6 +19,7 @@ from app.utils.http import RequestUtils
 from . import utils
 
 RANK_HISTORY_LIMIT = 500
+DEFAULT_OBSERVE_RANK_KEYS = ["coming", "tv_real_time"]
 
 
 def _trim_history(history: List[dict], limit: int = RANK_HISTORY_LIMIT) -> List[dict]:
@@ -93,11 +94,11 @@ def _history_index_by_unique(history: List[dict]) -> Dict[str, dict]:
     }
 
 
-# 防刷榜工具函数
+# 订阅过滤与观察期工具函数
 
 
 def _log_anti_cheat(self, reason: str, title: str, detail: str = "", link: str = ""):
-    """记录防刷榜日志。"""
+    """记录订阅过滤日志。"""
     logs = self.get_data("anti_cheat_logs") or []
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     matched = None
@@ -143,7 +144,7 @@ def _log_anti_cheat(self, reason: str, title: str, detail: str = "", link: str =
 
 
 def _cleanup_observe_logs(self, title: str = "", unique: str = "") -> None:
-    """订阅成功后清理对应条目的观察期防刷日志。"""
+    """订阅成功后清理对应条目的观察日志。"""
     logs = self.get_data("anti_cheat_logs") or []
     if not isinstance(logs, list):
         return
@@ -237,10 +238,30 @@ def _check_blacklist(self, title: str, description: str = "", link: str = "") ->
     return False
 
 
-def _check_observe(self, unique: str, history: List[dict], title: str = "") -> bool:
+def default_observe_rank_keys() -> List[str]:
+    """返回默认启用观察期的波动榜单。"""
+    return list(DEFAULT_OBSERVE_RANK_KEYS)
+
+
+def _rank_observe_enabled(self, rank_key: str = "") -> bool:
+    """判断指定榜单是否启用观察期。"""
+    if int(getattr(self, "_observe_days", 0) or 0) <= 0:
+        return False
+    selected = getattr(self, "_observe_rank_keys", None)
+    if selected is None:
+        selected = default_observe_rank_keys()
+    if not isinstance(selected, (list, tuple, set)):
+        return False
+    selected_keys = {str(item) for item in selected if str(item)}
+    if not rank_key:
+        return bool(selected_keys)
+    return str(rank_key) in selected_keys
+
+
+def _check_observe(self, unique: str, history: List[dict], title: str = "", rank_key: str = "") -> bool:
     """条目仍处于观察期内时返回 True。"""
 
-    if not self._anti_cheat_enabled:
+    if rank_key and not _rank_observe_enabled(self, rank_key):
         return False
     days = int(self._observe_days or 0)
     if days <= 0:
@@ -281,27 +302,6 @@ def _check_observe(self, unique: str, history: List[dict], title: str = "") -> b
     _log_anti_cheat(self, "观察期首次记录", title or unique, f"需要观察 {days} 天")
     return True
 
-
-def _check_anti_cheat(self, mediainfo) -> bool:
-    """TMDB 评分低于防刷阈值时返回 True。"""
-    if not self._anti_cheat_enabled:
-        return False
-    threshold = self._anti_cheat_min_vote
-    if threshold <= 0:
-        return False
-    vote = mediainfo.vote_average
-    try:
-        vote_value = float(vote or 0)
-    except (TypeError, ValueError):
-        vote_value = 0
-    if vote_value <= 0:
-        logger.info(f"豆瓣中心：条目《{mediainfo.title}》暂无 TMDB 评分，忽略评分筛选")
-        return False
-    if vote_value < threshold:
-        logger.info(f"豆瓣中心：条目《{mediainfo.title}》TMDB 评分 {vote_value} 低于阈值 {threshold}，跳过订阅")
-        _log_anti_cheat(self, "TMDB评分过低", mediainfo.title, f"评分 {vote_value}，阈值 {threshold}")
-        return True
-    return False
 
 BUILTIN_RANKS: List[Dict[str, Any]] = [
     {"key": "coming", "name": "即将上映", "route": "/douban/tv/coming", "coming": True, "filters": ["wish_count", "air_days"]},
@@ -584,11 +584,9 @@ def _normalize_bangumi_history(self, history: List[dict]) -> List[dict]:
 def _has_global_subscription_filter(self) -> bool:
     if (self._blacklist_keywords or "").strip():
         return True
-    if not self._anti_cheat_enabled:
-        return False
-    if int(self._observe_days or 0) > 0:
+    if _rank_observe_enabled(self):
         return True
-    return _positive_number(self._anti_cheat_min_vote)
+    return False
 
 
 def _has_rank_subscription_filter(self, rd: dict) -> bool:
@@ -640,11 +638,21 @@ def subscribe_to_ranks(self, refresh_when_unsafe: bool = True) -> None:
     logger.info("豆瓣中心：榜单订阅刷新完成")
 
 
-def run_once(self) -> None:
-    """立即刷新榜单数据，并按当前订阅配置执行订阅。"""
-    logger.info("豆瓣中心：立即运行开始，先刷新 RSS 榜单，再按配置执行订阅")
+def _refresh_then_subscribe(self, message: str) -> None:
+    """刷新榜单展示数据后，再按当前订阅配置执行订阅。"""
+    logger.info(message)
     refresh_rank_data(self)
     subscribe_to_ranks(self, refresh_when_unsafe=False)
+
+
+def run_once(self) -> None:
+    """立即刷新榜单数据，并按当前订阅配置执行订阅。"""
+    _refresh_then_subscribe(self, "豆瓣中心：立即运行开始，先刷新 RSS 榜单，再按配置执行订阅")
+
+
+def run_scheduled(self) -> None:
+    """定时刷新榜单数据，并按当前订阅配置执行订阅。"""
+    _refresh_then_subscribe(self, "豆瓣中心：定时运行开始，先刷新 RSS 榜单，再按配置执行订阅")
 
 
 def _process_coming(self, url: str, rd: dict) -> None:
@@ -675,9 +683,6 @@ def _process_coming(self, url: str, rd: dict) -> None:
         mediainfo = self.chain.recognize_media(meta=meta, mtype=MediaType.TV)
         if not mediainfo:
             continue
-        # 防刷榜：TMDB 评分过滤
-        if _check_anti_cheat(self, mediainfo):
-            continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
             _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
@@ -688,8 +693,8 @@ def _process_coming(self, url: str, rd: dict) -> None:
         ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
         if not ad or not utils.is_within_days(ad, air_days):
             continue
-        # 防刷榜：观察期
-        if _check_observe(self, unique, history, title=title):
+        # 观察期：仅对选中的波动榜单延迟订阅。
+        if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
             continue
         if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
             # 使用 TMDB 识别后的中文名替换原始标题
@@ -735,9 +740,6 @@ def _process_general(self, url: str, rd: dict) -> None:
             continue
         if _year_below_min(mediainfo.year, min_year):
             continue
-        # 防刷榜：TMDB 评分过滤
-        if _check_anti_cheat(self, mediainfo):
-            continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
             _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
@@ -745,8 +747,8 @@ def _process_general(self, url: str, rd: dict) -> None:
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
-        # 防刷榜：观察期
-        if _check_observe(self, unique, history, title=title):
+        # 观察期：仅对选中的波动榜单延迟订阅。
+        if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
             continue
         if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
             cn_title = mediainfo.title or title
@@ -777,9 +779,6 @@ def _process_items(self, items: List[dict], source: str) -> None:
         mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
         if not mediainfo:
             continue
-        # 防刷榜：TMDB 评分过滤
-        if _check_anti_cheat(self, mediainfo):
-            continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
             _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
@@ -787,8 +786,8 @@ def _process_items(self, items: List[dict], source: str) -> None:
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
-        # 防刷榜：观察期
-        if _check_observe(self, unique, history, title=title):
+        # 观察期：仅对自定义源显式配置时延迟订阅。
+        if _check_observe(self, unique, history, title=title, rank_key=source):
             continue
         if _add_sub(self, mediainfo, meta, source_link=link):
             cn_title = mediainfo.title or title

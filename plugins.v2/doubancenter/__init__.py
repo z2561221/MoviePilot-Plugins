@@ -1,5 +1,5 @@
 ﻿"""
-DoubanCenter v1.2.2 - MoviePilot 本地插件
+DoubanCenter v1.2.3 - MoviePilot 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
 import datetime
@@ -26,7 +26,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "1.2.2"
+    plugin_version = "1.2.3"
     plugin_author = "牧濑红莉栖"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
@@ -58,8 +58,7 @@ class DoubanCenter(_PluginBase):
     _dashboard_rank_keys: List[str] = []
     _blacklist_keywords: str = ""
     _observe_days: int = 0
-    _anti_cheat_enabled: bool = False
-    _anti_cheat_min_vote: float = 5.0
+    _observe_rank_keys: List[str] = []
 
     _region_options = ["中国大陆", "中国香港", "中国台湾", "美国", "日本", "韩国", "英国", "泰国", "印度", "法国", "德国", "西班牙", "加拿大", "澳大利亚", "俄罗斯", "瑞典", "丹麦", "爱尔兰", "意大利", "巴西"]
     _genre_options = ["爱情", "喜剧", "剧情", "悬疑", "古装", "动作", "犯罪", "科幻", "家庭", "奇幻", "武侠", "历史", "动画", "惊悚", "战争", "冒险", "恐怖", "灾难", "传记", "音乐", "歌舞"]
@@ -99,8 +98,11 @@ class DoubanCenter(_PluginBase):
         self._dashboard_rank_keys = config.get("dashboard_rank_keys") or []
         self._blacklist_keywords = config.get("blacklist_keywords") or ""
         self._observe_days = int(config.get("observe_days", 0) or 0)
-        self._anti_cheat_enabled = config.get("anti_cheat_enabled", False)
-        self._anti_cheat_min_vote = float(config.get("anti_cheat_min_vote", 5.0) or 5.0)
+        self._observe_rank_keys = config.get("observe_rank_keys") if "observe_rank_keys" in config else feed.default_observe_rank_keys()
+        if not isinstance(self._observe_rank_keys, list):
+            self._observe_rank_keys = []
+        if set(config) - set(self.__current_config()):
+            self.__update_config()
         self.stop_service()
         if self._onlyonce:
             self._onlyonce = False
@@ -109,10 +111,14 @@ class DoubanCenter(_PluginBase):
             feed.run_once(self)
 
     def __run_all(self):
-        feed.subscribe_to_ranks(self)
+        feed.run_scheduled(self)
+
+    def __current_config(self):
+        """返回当前有效配置快照，用于清理旧字段。"""
+        return {"enabled":self._enabled,"cron":self._cron,"notify":self._notify,"proxy":self._proxy,"onlyonce":self._onlyonce,"rsshub_domain":self._rsshub_domain,"rank_configs":self._rank_configs,"region_filters":[],"genre_filters":[],"resolution_filters":[],"custom_rss_addrs":"","folio_enabled":self._folio_enabled,"folio_private":self._folio_private,"folio_first":self._folio_first,"folio_notify":self._folio_notify,"folio_user":self._folio_user,"folio_exclude":self._folio_exclude,"folio_cookie":self._folio_cookie,"folio_pc_month":self._folio_pc_month,"folio_pc_num":self._folio_pc_num,"folio_mobile_month":self._folio_mobile_month,"folio_mobile_num":self._folio_mobile_num,"dashboard_rank_keys":self._dashboard_rank_keys,"blacklist_keywords":self._blacklist_keywords,"observe_days":self._observe_days,"observe_rank_keys":self._observe_rank_keys}
 
     def __update_config(self):
-        self.update_config({"enabled":self._enabled,"cron":self._cron,"notify":self._notify,"proxy":self._proxy,"onlyonce":self._onlyonce,"rsshub_domain":self._rsshub_domain,"rank_configs":self._rank_configs,"region_filters":[],"genre_filters":[],"resolution_filters":[],"custom_rss_addrs":"","folio_enabled":self._folio_enabled,"folio_private":self._folio_private,"folio_first":self._folio_first,"folio_notify":self._folio_notify,"folio_user":self._folio_user,"folio_exclude":self._folio_exclude,"folio_cookie":self._folio_cookie,"folio_pc_month":self._folio_pc_month,"folio_pc_num":self._folio_pc_num,"folio_mobile_month":self._folio_mobile_month,"folio_mobile_num":self._folio_mobile_num,"dashboard_rank_keys":self._dashboard_rank_keys,"blacklist_keywords":self._blacklist_keywords,"observe_days":self._observe_days,"anti_cheat_enabled":self._anti_cheat_enabled,"anti_cheat_min_vote":self._anti_cheat_min_vote})
+        self.update_config(self.__current_config())
 
     def get_state(self) -> bool:
         return self._enabled
@@ -133,10 +139,10 @@ class DoubanCenter(_PluginBase):
             {"path":"/stats","endpoint":self.api_stats,"methods":["GET"],"auth":"bear","summary":"获取订阅统计"},
             {"path":"/subscribe_history","endpoint":self.api_subscribe_history,"methods":["GET"],"auth":"bear","summary":"获取订阅历史"},
             {"path":"/pending_observations","endpoint":self.api_pending_observations,"methods":["GET"],"auth":"bear","summary":"获取观察期待订阅条目"},
-            {"path":"/anti_cheat_logs","endpoint":self.api_anti_cheat_logs,"methods":["GET"],"auth":"bear","summary":"获取防刷榜日志"},
+            {"path":"/anti_cheat_logs","endpoint":self.api_anti_cheat_logs,"methods":["GET"],"auth":"bear","summary":"获取观察日志"},
             {"path":"/delete_subscribe_history","endpoint":self.api_delete_subscribe_history,"methods":["POST"],"auth":"bear","summary":"删除订阅历史记录"},
             {"path":"/delete_observation","endpoint":self.api_delete_observation,"methods":["POST"],"auth":"bear","summary":"删除观察队列条目"},
-            {"path":"/delete_anti_cheat_log","endpoint":self.api_delete_anti_cheat_log,"methods":["POST"],"auth":"bear","summary":"删除防刷榜日志"},
+            {"path":"/delete_anti_cheat_log","endpoint":self.api_delete_anti_cheat_log,"methods":["POST"],"auth":"bear","summary":"删除观察日志"},
             {"path":"/archive_records","endpoint":self.api_archive_records,"methods":["GET"],"auth":"bear","summary":"获取归档记录"},
             {"path":"/restore_archive","endpoint":self.api_restore_archive,"methods":["POST"],"auth":"bear","summary":"恢复归档记录"},
             {"path":"/delete_archive","endpoint":self.api_delete_archive,"methods":["POST"],"auth":"bear","summary":"删除归档记录"},
@@ -216,12 +222,12 @@ class DoubanCenter(_PluginBase):
             return {"success": False, "message": f"获取观察期条目失败：{e}"}
 
     def api_anti_cheat_logs(self):
-        """返回防刷榜日志。"""
+        """返回观察日志。"""
         try:
             return dash.api_anti_cheat_logs(self)
         except Exception as e:
             logger.error(f"豆瓣中心：api_anti_cheat_logs 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"获取防刷榜日志失败：{e}"}
+            return {"success": False, "message": f"获取观察日志失败：{e}"}
 
     def api_delete_subscribe_history(self, time="", title="", tmdbid=None):
         """从详情页删除一条订阅历史并归档。"""
@@ -240,12 +246,12 @@ class DoubanCenter(_PluginBase):
             return {"success": False, "message": f"删除观察条目失败：{e}"}
 
     def api_delete_anti_cheat_log(self, time="", title="", reason=""):
-        """从详情页删除一条防刷日志并归档。"""
+        """从详情页删除一条观察日志并归档。"""
         try:
             return dash.api_delete_anti_cheat_log(self, time=time, title=title, reason=reason)
         except Exception as e:
             logger.error(f"豆瓣中心：api_delete_anti_cheat_log 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"删除防刷日志失败：{e}"}
+            return {"success": False, "message": f"删除观察日志失败：{e}"}
 
     def api_archive_records(self, page=1, page_size=20):
         """返回分页归档记录。"""
@@ -281,7 +287,7 @@ class DoubanCenter(_PluginBase):
         return "vue", "dist/assets"
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
-        return None, {"enabled":False,"cron":"0 8 * * *","notify":False,"proxy":False,"onlyonce":False,"rsshub_domain":"https://rsshub.ddsrem.com","rank_configs":{"coming":{"enabled":False,"count":0,"wish_count":5000,"air_days":7,"vote":0,"year":0},"tv_real_time":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"tv_chinese":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"tv_global":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"movie_weekly":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"bangumi":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0}},"region_filters":[],"genre_filters":[],"resolution_filters":[],"custom_rss_addrs":"","folio_enabled":True,"folio_private":True,"folio_first":True,"folio_notify":False,"folio_user":"","folio_exclude":"","folio_cookie":"","folio_pc_month":3,"folio_pc_num":50,"folio_mobile_month":2,"folio_mobile_num":15,"dashboard_rank_keys":[],"blacklist_keywords":"","observe_days":0,"anti_cheat_enabled":False,"anti_cheat_min_vote":5.0}
+        return None, {"enabled":False,"cron":"0 8 * * *","notify":False,"proxy":False,"onlyonce":False,"rsshub_domain":"https://rsshub.ddsrem.com","rank_configs":{"coming":{"enabled":False,"count":0,"wish_count":5000,"air_days":7,"vote":0,"year":0},"tv_real_time":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"tv_chinese":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"tv_global":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"movie_weekly":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"bangumi":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0}},"region_filters":[],"genre_filters":[],"resolution_filters":[],"custom_rss_addrs":"","folio_enabled":True,"folio_private":True,"folio_first":True,"folio_notify":False,"folio_user":"","folio_exclude":"","folio_cookie":"","folio_pc_month":3,"folio_pc_num":50,"folio_mobile_month":2,"folio_mobile_num":15,"dashboard_rank_keys":[],"blacklist_keywords":"","observe_days":0,"observe_rank_keys":feed.default_observe_rank_keys()}
 
     def get_page(self) -> Optional[List[dict]]:
         return None

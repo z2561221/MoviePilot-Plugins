@@ -250,7 +250,7 @@ async function deleteSubscribeHistory(item, index) {
 }
 
 async function deleteAntiCheatLog(item, index) {
-  await runDelete('delete_anti_cheat_log', { time: item?.time || '', title: item?.title || '', reason: item?.reason || '' }, rowKey('log', item, index), '已删除防刷日志')
+  await runDelete('delete_anti_cheat_log', { time: item?.time || '', title: item?.title || '', reason: item?.reason || '' }, rowKey('log', item, index), '已删除观察日志')
 }
 
 async function restoreArchive(item, index) {
@@ -305,6 +305,15 @@ function doOpenDouban() {
     }
   }
 if (link) window.open(link, '_blank');
+}
+
+function sourceButtonColor() {
+  if (!dialogItem.value) return 'primary'
+  const rk = dialogItem.value.rk;
+  const link = String(dialogItem.value.item?.link || '');
+  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return '#F838A0'
+  if (link.includes('douban') || dialogItem.value.item?.douban_id || dialogItem.value.item?.doubanid) return '#08B810'
+  return 'primary'
 }
 
 function doOpenTmdb() {
@@ -876,7 +885,7 @@ return (_ctx, _cache) => {
                 ]),
                 (_openBlock(), _createElementBlock("div", _hoisted_19, [
                       _createElementVNode("div", _hoisted_20, [
-                        _cache[14] || (_cache[14] = _createTextVNode("防刷日志 ", -1)),
+                        _cache[14] || (_cache[14] = _createTextVNode("观察日志 ", -1)),
                         _createElementVNode("span", _hoisted_21, "（最近 " + _toDisplayString(cheatLogs.value.length) + " 条）", 1)
                       ]),
                       (cheatLogs.value && cheatLogs.value.length)
@@ -921,7 +930,7 @@ return (_ctx, _cache) => {
                           ]))
                         }), 128))
                       ]))
-                        : (_openBlock(), _createElementBlock("div", _hoisted_16, "暂无防刷日志"))
+                        : (_openBlock(), _createElementBlock("div", _hoisted_16, "暂无观察日志"))
                     ]))
               ], 64))
             : _createCommentVNode("", true)
@@ -1006,7 +1015,7 @@ return (_ctx, _cache) => {
                   }, 8, ["disabled"]),
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
-                    color: "primary",
+                    color: sourceButtonColor(),
                     "prepend-icon": dialogItem.value?.rk === 'bangumi' || dialogItem.value?.item?.link?.includes('bgm.tv') || dialogItem.value?.item?.link?.includes('bangumi.tv') ? 'mdi-link-variant' : (dialogItem.value?.item?.link?.includes('douban') ? 'mdi-open-in-new' : 'mdi-link-variant'),
                     class: "dc-dialog-action text-none",
                     onClick: doOpenDouban
@@ -1015,7 +1024,7 @@ return (_ctx, _cache) => {
                       _createTextVNode(_toDisplayString(dialogItem.value?.rk === 'bangumi' || dialogItem.value?.item?.link?.includes('bgm.tv') || dialogItem.value?.item?.link?.includes('bangumi.tv') ? 'Bgm' : (dialogItem.value?.item?.link?.includes('douban') ? '豆瓣' : '详情')), 1)
                     ]),
                     _: 1
-                  }, 8, ["prepend-icon"])
+                  }, 8, ["color", "prepend-icon"])
                 ]),
                 _: 1
               })

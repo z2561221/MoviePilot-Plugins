@@ -103,7 +103,7 @@ def process_seed_recheck_once(plugin, queue):
             state = task.get("state") if dl_type == "qbittorrent" else task.status
             if seed_is_checking(state, dl_type):
                 continue
-            if seed_is_ready(state, dl_type):
+            if seed_is_ready(state, dl_type, task):
                 try:
                     dl.start_torrents(ids=[h])
                     logger.info(f"做种校验：{h} 校验完成，已自动开始做种，来源={item.get('source')}")
@@ -140,10 +140,11 @@ def seed_is_checking(state, dl_type):
     return hasattr(state, 'checking') and state.checking
 
 
-def seed_is_ready(state, dl_type):
+def seed_is_ready(state, dl_type, torrent=None):
     if dl_type == "qbittorrent":
         return state in ["pausedUP", "stoppedUP", "completed"]
-    return hasattr(state, 'stopped') and state.stopped and getattr(state, 'percent_done', 0) == 1
+    percent_done = getattr(torrent, 'percent_done', getattr(state, 'percent_done', 0))
+    return hasattr(state, 'stopped') and state.stopped and percent_done == 1
 
 
 def seed_is_error(state, dl_type):

@@ -98,8 +98,7 @@ const defaults = {
   dashboard_rank_keys: [],
   blacklist_keywords: '',
   observe_days: 0,
-  anti_cheat_enabled: false,
-  anti_cheat_min_vote: 5.0,
+  observe_rank_keys: ['coming', 'tv_real_time'],
 };
 
 const rankDefs = [
@@ -395,7 +394,7 @@ return (_ctx, _cache) => {
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.attention?.pending_observations || 0), 1)
                     ]),
                     _createElementVNode("div", _hoisted_22, [
-                      _cache[29] || (_cache[29] = _createElementVNode("span", null, "防刷日志", -1)),
+                      _cache[29] || (_cache[29] = _createElementVNode("span", null, "观察日志", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.attention?.anti_cheat_logs || 0), 1)
                     ]),
                     _createElementVNode("div", _hoisted_23, [
@@ -414,7 +413,7 @@ return (_ctx, _cache) => {
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.governance?.subscribe_records || 0), 1)
                     ]),
                     _createElementVNode("div", _hoisted_27, [
-                      _cache[34] || (_cache[34] = _createElementVNode("span", null, "防刷日志", -1)),
+                      _cache[34] || (_cache[34] = _createElementVNode("span", null, "观察日志", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.governance?.anti_cheat_logs || 0), 1)
                     ])
                   ])
@@ -642,46 +641,27 @@ return (_ctx, _cache) => {
                   _: 1
                 }),
                 _createVNode(_component_VDivider, { class: "my-3" }),
-                _cache[47] || (_cache[47] = _createElementVNode("div", { class: "dc-section-title" }, "防刷榜设置", -1)),
+                _cache[47] || (_cache[47] = _createElementVNode("div", { class: "dc-section-title" }, "观察设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
                       cols: "12",
-                      md: "4"
+                      md: "8"
                     }, {
                       default: _withCtx(() => [
-                        _createVNode(_component_VSwitch, {
-                          modelValue: form.anti_cheat_enabled,
-                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.anti_cheat_enabled) = $event)),
-                          color: "warning",
-                          inset: "",
-                          "hide-details": "",
-                          label: "启用 TMDB 评分过滤"
-                        }, null, 8, ["modelValue"])
-                      ]),
-                      _: 1
-                    }),
-                    _createVNode(_component_VCol, {
-                      cols: "12",
-                      md: "4"
-                    }, {
-                      default: _withCtx(() => [
-                        _createVNode(_component_VTextField, {
-                          modelValue: form.anti_cheat_min_vote,
-                          "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.anti_cheat_min_vote) = $event)),
-                          modelModifiers: { number: true },
-                          label: "最低 TMDB 评分",
-                          type: "number",
-                          min: "0",
-                          max: "10",
-                          step: "0.1",
+                        _createVNode(_component_VSelect, {
+                          modelValue: form.observe_rank_keys,
+                          "onUpdate:modelValue": $event => ((form.observe_rank_keys) = $event),
+                          label: "观察榜单",
+                          items: rankDefs.map(r => ({ title: r.name, value: r.key })),
+                          multiple: "",
+                          chips: "",
+                          clearable: "",
                           density: "compact",
                           variant: "outlined",
-                          "hide-details": "",
-                          disabled: !form.anti_cheat_enabled,
-                          hint: "低于此评分的条目跳过订阅",
+                          hint: "默认观察即将上映、实时热门；未选择的周榜直接订阅",
                           "persistent-hint": ""
-                        }, null, 8, ["modelValue", "disabled"])
+                        }, null, 8, ["modelValue", "items"])
                       ]),
                       _: 1
                     }),

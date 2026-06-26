@@ -139,6 +139,7 @@ class _Plugin:
     _notify = False
     _folio_enabled = True
     _observe_days = 2
+    _observe_rank_keys = ["coming", "tv_real_time"]
     _anti_cheat_enabled = True
     _anti_cheat_min_vote = 5.0
     _blacklist_keywords = ""
@@ -197,6 +198,14 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(history[0]["unique"], "rank:1")
         self.assertEqual(history[0]["title"], "测试电影")
         self.assertTrue(history[0]["observing"])
+
+    def test_default_observe_rank_keys_target_volatile_ranks(self):
+        plugin = _Plugin()
+
+        self.assertTrue(self.feed._rank_observe_enabled(plugin, "coming"))
+        self.assertTrue(self.feed._rank_observe_enabled(plugin, "tv_real_time"))
+        self.assertFalse(self.feed._rank_observe_enabled(plugin, "tv_global"))
+        self.assertFalse(self.feed._rank_observe_enabled(plugin, "movie_weekly"))
 
     def test_observe_allows_item_after_window(self):
         plugin = _Plugin()
@@ -280,24 +289,26 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertEqual([item["unique"] for item in trimmed], ["2", "3", "4"])
 
-    def test_observe_is_ignored_when_anti_cheat_disabled(self):
+    def test_observe_uses_rank_selection_not_anti_cheat_switch(self):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = False
+        plugin._observe_rank_keys = ["tv_real_time"]
         history = []
 
-        should_skip = self.feed._check_observe(plugin, "rank:1", history, title="测试电影")
+        should_skip = self.feed._check_observe(plugin, "rank:1", history, title="测试电影", rank_key="tv_real_time")
 
-        self.assertFalse(should_skip)
-        self.assertEqual(history, [])
+        self.assertTrue(should_skip)
+        self.assertEqual(history[0]["unique"], "rank:1")
 
-    def test_observe_days_do_not_make_subscription_safe_when_anti_cheat_disabled(self):
+    def test_observe_days_make_subscription_safe_when_observe_ranks_selected(self):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = False
         plugin._observe_days = 2
+        plugin._observe_rank_keys = ["coming"]
 
         has_filter = self.feed._has_global_subscription_filter(plugin)
 
-        self.assertFalse(has_filter)
+        self.assertTrue(has_filter)
 
     def test_blacklist_stays_active_when_anti_cheat_disabled(self):
         plugin = _Plugin()
@@ -323,14 +334,50 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertFalse(miss)
         self.assertEqual(plugin.data["anti_cheat_logs"][0]["link"], "https://rsshub.example/a")
 
+    def test_global_subscription_filter_ignores_legacy_score_flags(self):
+        plugin = _Plugin()
+        plugin._blacklist_keywords = ""
+        plugin._observe_days = 0
+        plugin._observe_rank_keys = []
+        plugin._anti_cheat_enabled = True
+        plugin._anti_cheat_min_vote = 9.0
+
+        has_filter = self.feed._has_global_subscription_filter(plugin)
+
+        self.assertFalse(has_filter)
+
+    def test_process_general_subscribes_low_tmdb_score_without_score_filter(self):
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = True
+        plugin._anti_cheat_min_vote = 9.0
+        plugin._observe_days = 0
+        plugin._observe_rank_keys = []
+        calls = []
+
+        def low_score_media(title, year, mtype):
+            mediainfo = _MediaInfo(title=title, year=year, mtype=mtype, tmdb_id=67890)
+            mediainfo.vote_average = 3.2
+            return mediainfo
+
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: low_score_media(meta.title, meta.year, mtype)
+        )
+        self.feed._fetch_rss = lambda self_obj, url: [
+            {"title": "低分也订阅", "link": "https://example.com/a", "mtype": "tv", "year": "2026"}
+        ]
+        self.feed._add_sub = lambda self_obj, mediainfo, meta=None, rank_key="", rank_name="", **kwargs: calls.append((rank_key, mediainfo.title, mediainfo.vote_average)) or True
+
+        self.feed._process_general(plugin, "https://rsshub.example/douban/list/tv_global_best_weekly?limit=1", {"key": "tv_global", "name": "全球口碑", "route": "/douban/list/tv_global_best_weekly"})
+
+        self.assertEqual(calls, [("tv_global", "低分也订阅", 3.2)])
+        self.assertEqual(plugin.data.get("anti_cheat_logs"), None)
+
     def test_anti_cheat_ignores_zero_tmdb_vote(self):
         plugin = _Plugin()
         mediainfo = _MediaInfo(title="暂无评分")
         mediainfo.vote_average = 0
 
-        should_skip = self.feed._check_anti_cheat(plugin, mediainfo)
-
-        self.assertFalse(should_skip)
+        self.assertFalse(hasattr(self.feed, "_check_anti_cheat"))
         self.assertEqual(plugin.data.get("anti_cheat_logs"), None)
 
     def test_anti_cheat_log_deduplicates_same_reason_title_and_detail(self):
@@ -368,6 +415,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = True
         plugin._observe_days = 2
+        plugin._observe_rank_keys = ["tv_global"]
         plugin.chain = types.SimpleNamespace(
             recognize_media=lambda meta, mtype: _MediaInfo(title="existing", year=meta.year, mtype=mtype, tmdb_id=67890)
         )
@@ -486,6 +534,29 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertEqual(calls, [("refresh", None), ("subscribe", False)])
 
+    def test_scheduled_run_refreshes_rank_data_then_subscribes_by_config(self):
+        plugin = _Plugin()
+        calls = []
+        original_refresh = self.feed.refresh_rank_data
+        original_subscribe = self.feed.subscribe_to_ranks
+
+        def fake_refresh(plugin_obj, rank_keys=None):
+            calls.append(("refresh", rank_keys))
+            return {}
+
+        def fake_subscribe(plugin_obj, refresh_when_unsafe=True):
+            calls.append(("subscribe", refresh_when_unsafe))
+
+        self.feed.refresh_rank_data = fake_refresh
+        self.feed.subscribe_to_ranks = fake_subscribe
+        try:
+            self.feed.run_scheduled(plugin)
+        finally:
+            self.feed.refresh_rank_data = original_refresh
+            self.feed.subscribe_to_ranks = original_subscribe
+
+        self.assertEqual(calls, [("refresh", None), ("subscribe", False)])
+
     def test_subscribe_to_ranks_can_skip_duplicate_refresh_when_unsafe(self):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = False
@@ -566,6 +637,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = True
         plugin._observe_days = 2
+        plugin._observe_rank_keys = ["tv_global"]
         plugin.chain = types.SimpleNamespace(
             recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
         )
@@ -617,6 +689,8 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = True
         plugin._observe_days = 2
+        plugin._observe_rank_keys = ["tv_global"]
+        plugin._observe_rank_keys = ["tv_global"]
         plugin.chain = types.SimpleNamespace(
             recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
         )
@@ -635,6 +709,26 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertTrue(plugin.data["rank_history_tv_global"][0]["observing"])
         self.assertEqual(plugin.data["rank_history_tv_global"][0]["first_seen"], now)
+
+    def test_process_general_skips_observe_for_unselected_weekly_rank(self):
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = False
+        plugin._observe_days = 2
+        plugin._observe_rank_keys = ["coming", "tv_real_time"]
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
+        )
+        plugin.data["rank_history_tv_global"] = []
+        calls = []
+        self.feed._fetch_rss = lambda self_obj, url: [
+            {"title": "稳定周榜", "link": "https://example.com/a", "mtype": "tv", "year": "2026"}
+        ]
+        self.feed._add_sub = lambda self_obj, mediainfo, meta=None, rank_key="", rank_name="", **kwargs: calls.append((rank_key, mediainfo.title)) or True
+
+        self.feed._process_general(plugin, "https://rsshub.example/douban/list/tv_global_best_weekly?limit=1", {"key": "tv_global", "name": "全球口碑", "route": "/douban/list/tv_global_best_weekly"})
+
+        self.assertEqual(calls, [("tv_global", "稳定周榜")])
+        self.assertTrue(plugin.data["rank_history_tv_global"][0]["subscribed"])
 
     def test_process_coming_observes_only_after_air_date_filter_passes(self):
         plugin = _Plugin()
@@ -1046,6 +1140,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = True
         plugin._observe_days = 2
+        plugin._observe_rank_keys = ["tv_global"]
         first_seen = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         plugin.data["rank_history_tv_global"] = [
             {

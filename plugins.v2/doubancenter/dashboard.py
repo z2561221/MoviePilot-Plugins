@@ -69,9 +69,20 @@ def api_folio_data(self):
 
 
 def api_config(self):
+    """返回前端运行配置补充数据。"""
     from .feed import BUILTIN_RANKS, _ren
     opts = [{"title": rd["name"], "value": rd["key"]} for rd in BUILTIN_RANKS if _ren(self, rd["key"])]
-    return {"data": {"folio_pc_month": self._folio_pc_month, "folio_pc_num": self._folio_pc_num, "folio_mobile_month": self._folio_mobile_month, "folio_mobile_num": self._folio_mobile_num, "dashboard_rank_keys": self._dashboard_rank_keys or [], "rank_options": opts, "blacklist_keywords": self._blacklist_keywords or ""}}
+    return {"data": {
+        "folio_pc_month": self._folio_pc_month,
+        "folio_pc_num": self._folio_pc_num,
+        "folio_mobile_month": self._folio_mobile_month,
+        "folio_mobile_num": self._folio_mobile_num,
+        "dashboard_rank_keys": self._dashboard_rank_keys or [],
+        "rank_options": opts,
+        "blacklist_keywords": self._blacklist_keywords or "",
+        "observe_days": int(getattr(self, "_observe_days", 0) or 0),
+        "observe_rank_keys": getattr(self, "_observe_rank_keys", []) or [],
+    }}
 
 
 def _dedupe_subscribe_records(records: list) -> tuple:
@@ -438,7 +449,7 @@ def api_delete_subscribe_history(self, time: str = "", title: str = "", tmdbid: 
 
 def api_pending_observations(self):
     """获取观察期内等待自动订阅的榜单条目。"""
-    if not self._anti_cheat_enabled or int(self._observe_days or 0) <= 0:
+    if int(self._observe_days or 0) <= 0:
         return {"data": []}
     from .feed import BUILTIN_RANKS, get_rank_history_by_key
     now = datetime.datetime.now()
@@ -515,7 +526,7 @@ def api_delete_observation(self, unique: str = "", rank_key: str = "", title: st
 
 
 def _dedupe_anti_cheat_logs(logs: list) -> tuple:
-    """按原因、标题和详情合并防刷日志。"""
+    """按原因、标题和详情合并观察日志。"""
     if not isinstance(logs, list):
         return [], False
     merged = []
@@ -546,7 +557,7 @@ def _dedupe_anti_cheat_logs(logs: list) -> tuple:
 
 
 def _finished_observation_titles(self) -> set:
-    """收集已经结束观察的条目标题，用于清理观察期防刷日志。"""
+    """收集已经结束观察的条目标题，用于清理观察日志。"""
     titles = set()
     records = self.get_data("subscribe_records") or []
     if isinstance(records, list):
@@ -583,7 +594,7 @@ def _finished_observation_titles(self) -> set:
 
 
 def _reconcile_anti_cheat_logs(self, logs: list) -> tuple:
-    """合并并清理已结束观察项的防刷日志。"""
+    """合并并清理已结束观察项的观察日志。"""
     logs, changed = _dedupe_anti_cheat_logs(logs)
     finished_titles = _finished_observation_titles(self)
     if not finished_titles:
@@ -603,7 +614,7 @@ def _reconcile_anti_cheat_logs(self, logs: list) -> tuple:
 
 
 def api_anti_cheat_logs(self):
-    """防刷榜日志"""
+    """观察日志。"""
     logs = self.get_data("anti_cheat_logs") or []
     logs, changed = _reconcile_anti_cheat_logs(self, logs)
     if changed:
@@ -687,7 +698,7 @@ def api_overview(self):
                 "ignored": ignored_observations,
             },
             "observe": {
-                "enabled": bool(getattr(self, "_anti_cheat_enabled", False)),
+                "enabled": bool(int(getattr(self, "_observe_days", 0) or 0) > 0 and getattr(self, "_observe_rank_keys", [])),
                 "days": int(getattr(self, "_observe_days", 0) or 0),
                 "pending": pending_observations,
                 "ignored": ignored_observations,
@@ -786,9 +797,9 @@ def api_delete_archive(self, archive_id: str = ""):
 
 
 def api_delete_anti_cheat_log(self, time: str = "", title: str = "", reason: str = ""):
-    """删除一条防刷榜日志记录。"""
+    """删除一条观察日志记录。"""
     if not (time or title or reason):
-        return {"success": False, "message": "缺少防刷日志标识"}
+        return {"success": False, "message": "缺少观察日志标识"}
     logs = self.get_data("anti_cheat_logs") or []
     removed = [
         item for item in logs
@@ -801,9 +812,9 @@ def api_delete_anti_cheat_log(self, time: str = "", title: str = "", reason: str
     ]
     kept = [item for item in logs if item not in removed]
     if len(kept) == len(logs):
-        return {"success": False, "message": "未找到防刷日志"}
+        return {"success": False, "message": "未找到观察日志"}
     archive = None
     for item in removed:
-        archive = _archive_record(self, "anti_cheat_log", item, "防刷日志") or archive
+        archive = _archive_record(self, "anti_cheat_log", item, "观察日志") or archive
     self.save_data("anti_cheat_logs", kept)
-    return {"success": True, "message": "已归档防刷日志", "archive_id": archive.get("id") if archive else ""}
+    return {"success": True, "message": "已归档观察日志", "archive_id": archive.get("id") if archive else ""}
