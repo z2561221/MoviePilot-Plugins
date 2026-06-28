@@ -125,6 +125,24 @@ const overviewCards = computed(() => {
     },
   ]
 })
+const runtimeFlows = [
+  {
+    label: '转移做种',
+    steps: ['下载完成', '延迟等待', '目标转移', '公共链路'],
+  },
+  {
+    label: 'IYUU铺种',
+    steps: ['任务触发', '资源查询', '辅种下载', '公共链路'],
+  },
+  {
+    label: '公共链路',
+    steps: ['命名处理', '站点标签', '做种校验'],
+  },
+  {
+    label: '兜底补刀',
+    steps: ['异常命名', '兜底补刀', '失败计数', '归档恢复'],
+  },
+]
 
 watch(() => props.initialConfig, v => {
   Object.keys(form).forEach(k => delete form[k])
@@ -156,7 +174,7 @@ function selectMain(key) {
       <VDivider />
       <div class="dm-body">
         <nav class="dm-nav">
-          <VList density="comfortable" nav class="py-2">
+          <VList density="comfortable" nav class="dm-nav-list py-2">
             <VListItem v-for="item in mainTabs" :key="item.key" :active="activeMain === item.key"
               color="primary" rounded="lg" class="dm-nav-item" @click="selectMain(item.key)">
               <template #prepend><VIcon :icon="item.icon" /></template>
@@ -172,8 +190,23 @@ function selectMain(key) {
             </button>
           </div>
           <VDivider />
-          <div class="dm-window">
-            <div v-show="activeSub === 'overview'" class="dm-pane">
+          <div class="dm-window" :class="{ 'dm-window--overview': activeMain === 'overview' }">
+            <div v-show="activeSub === 'overview'" class="dm-pane dm-pane--overview">
+              <div class="dm-overview-section mb-3">
+                <div class="dm-section-title">运行链路</div>
+                <div class="dm-flow">
+                  <div v-for="flow in runtimeFlows" :key="flow.label" class="dm-flow-block">
+                    <div class="dm-flow-label">{{ flow.label }}</div>
+                    <div class="dm-flow-row">
+                      <template v-for="(step, index) in flow.steps" :key="`${flow.label}-${step}`">
+                        <span class="dm-flow-step">{{ step }}</span>
+                        <VIcon v-if="index < flow.steps.length - 1" class="dm-flow-arrow" icon="mdi-arrow-right" size="14" />
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="dm-stat-grid mb-3">
                 <div v-for="card in overviewCards" :key="card.title" class="dm-stat">
                   <div class="d-flex align-center ga-2 mb-1">
@@ -182,28 +215,6 @@ function selectMain(key) {
                   </div>
                   <div class="text-subtitle-1 font-weight-bold">{{ card.value }}</div>
                   <div class="text-caption text-medium-emphasis">{{ card.desc }}</div>
-                </div>
-              </div>
-
-              <div class="dm-overview-section mb-3">
-                <div class="dm-section-title">运行逻辑</div>
-                <div class="dm-flow">
-                  <div class="dm-flow-label">链路一：转移做种</div>
-                  <div class="dm-flow-row">
-                    <span>下载完成事件</span><VIcon icon="mdi-arrow-right" size="15" /><span>延迟等待</span><VIcon icon="mdi-arrow-right" size="15" /><span>转移到目标下载器</span>
-                  </div>
-                  <div class="dm-flow-label">链路二：IYUU铺种</div>
-                  <div class="dm-flow-row">
-                    <span>定时/手动触发</span><VIcon icon="mdi-arrow-right" size="15" /><span>查询可辅种资源</span><VIcon icon="mdi-arrow-right" size="15" /><span>下载辅种</span>
-                  </div>
-                  <div class="dm-flow-label">公共处理</div>
-                  <div class="dm-flow-row">
-                    <span>命名处理</span><VIcon icon="mdi-arrow-right" size="15" /><span>站点标签</span><VIcon icon="mdi-arrow-right" size="15" /><span>做种校验</span>
-                  </div>
-                  <div class="dm-flow-label">链路三：兜底补刀</div>
-                  <div class="dm-flow-row">
-                    <span>失败/脏名</span><VIcon icon="mdi-arrow-right" size="15" /><span>兜底补刀</span><VIcon icon="mdi-arrow-right" size="15" /><span>失败计数</span><VIcon icon="mdi-arrow-right" size="15" /><span>自动归档/恢复</span>
-                  </div>
                 </div>
               </div>
 
@@ -501,9 +512,14 @@ function selectMain(key) {
   </div>
 </template>
 <style scoped>
-.dm-config { padding: 8px; }
+.dm-config {
+  width: min(1120px, calc(100vw - 48px));
+  max-width: 100%;
+  padding: 8px;
+}
 .dm-card {
-  height: clamp(620px, calc(100vh - 120px), 780px);
+  width: 100%;
+  height: clamp(620px, calc(100vh - 96px), 760px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -519,6 +535,7 @@ function selectMain(key) {
 }
 .dm-body { flex: 1 1 auto; min-height: 0; display: flex; }
 .dm-nav { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), 0.02); }
+.dm-nav-list { width: 100%; }
 .dm-nav-item { margin: 2px 8px; }
 .dm-content { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .dm-subtabs { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; }
@@ -526,23 +543,39 @@ function selectMain(key) {
 .dm-subtab:hover { background: rgba(var(--v-theme-primary), 0.08); color: rgb(var(--v-theme-primary)); }
 .dm-subtab--active { background: rgba(var(--v-theme-primary), 0.14); color: rgb(var(--v-theme-primary)); font-weight: 600; }
 .dm-window { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.dm-window--overview { overflow-y: hidden; }
 .dm-pane { min-height: 100%; padding: 18px 20px; }
+.dm-pane--overview { min-height: auto; padding: 12px 16px; }
 .dm-section-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: rgb(var(--v-theme-primary)); }
 .dm-hint { font-size: 12px; line-height: 1.5; color: rgba(var(--v-theme-on-surface), 0.6); margin-top: 2px; }
-.dm-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.dm-stat { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px; min-width: 0; }
-.dm-overview-section { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 12px; min-width: 0; }
+.dm-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.dm-stat { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.dm-overview-section { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px 12px; min-width: 0; }
 .dm-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.dm-flow { display: grid; gap: 8px; }
-.dm-flow-label { font-size: 12px; font-weight: 600; color: rgb(var(--v-theme-primary)); }
-.dm-flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.78); }
-.dm-flow-row span { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), 0.02); }
+.dm-flow { display: grid; gap: 10px; }
+.dm-flow-block { min-width: 0; }
+.dm-flow-label { font-size: 12px; font-weight: 600; color: rgb(var(--v-theme-primary)); margin-bottom: 5px; }
+.dm-flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.78); }
+.dm-flow-step { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), 0.02); white-space: nowrap; }
+.dm-flow-arrow { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), 0.44); }
 .dm-actions { padding: 10px 18px; }
 @media (max-width: 760px) {
+  .dm-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
   .dm-card { height: min(760px, calc(100dvh - 24px)); }
   .dm-header :deep(.v-card-subtitle) { max-width: 100%; }
   .dm-body { flex-direction: column; }
-  .dm-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+  .dm-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .dm-nav::-webkit-scrollbar { display: none; }
+  .dm-nav-list { display: flex; flex-wrap: nowrap; gap: 6px; min-width: max-content; padding: 8px 12px !important; }
+  .dm-nav-item { flex: 0 0 auto; min-width: 96px; margin: 0; padding-inline: 10px; }
+  .dm-nav-item :deep(.v-list-item-title) { white-space: nowrap; }
+  .dm-subtabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 6px 12px; }
+  .dm-subtabs::-webkit-scrollbar { display: none; }
+  .dm-subtab { flex: 0 0 auto; padding: 6px 12px; }
   .dm-stat-grid, .dm-overview-grid { grid-template-columns: 1fr; }
+  .dm-window--overview { overflow-y: auto; }
+}
+@media (max-height: 620px) {
+  .dm-window--overview { overflow-y: auto; }
 }
 </style>
