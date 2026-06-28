@@ -134,6 +134,16 @@ def _import_dashboard():
     return module
 
 
+def _import_migration():
+    _install_stubs()
+    sys.modules.pop("doubancenter.migration", None)
+    spec = importlib.util.spec_from_file_location("doubancenter.migration", PLUGIN_DIR / "migration.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["doubancenter.migration"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 class _Plugin:
     _enabled = True
     _notify = False
@@ -215,6 +225,12 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         should_skip = self.feed._check_observe(plugin, "rank:1", history, title="测试电影")
 
         self.assertFalse(should_skip)
+        logs = plugin.data["anti_cheat_logs"]
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0]["reason"], "观察期完成")
+        self.assertEqual(logs[0]["title"], "测试电影")
+        self.assertIn("达到", logs[0]["detail"])
+        self.assertIsNone(plugin.data.get("archive_records"))
 
     def test_custom_rank_history_key_is_stable(self):
         source = "https://example.com/rss?token=abc"
@@ -225,6 +241,38 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertTrue(first.startswith("rank_history_custom_"))
         self.assertNotIn("-", first)
+
+    def test_migration_normalizes_legacy_subscribe_usernames(self):
+        migration = _import_migration()
+
+        class FakeOper:
+            def __init__(self):
+                self.records = [
+                    types.SimpleNamespace(id=1, username="豆瓣榜单"),
+                    types.SimpleNamespace(id=2, username="豆瓣中心-即映"),
+                    types.SimpleNamespace(id=3, username="豆瓣中心"),
+                    types.SimpleNamespace(id=4, username="其他来源"),
+                ]
+                self.updates = []
+
+            def list(self):
+                return self.records
+
+            def update(self, record_id, payload):
+                self.updates.append((record_id, payload))
+
+        oper = FakeOper()
+
+        changed = migration.normalize_operation_records(oper)
+
+        self.assertEqual(changed, 2)
+        self.assertEqual(
+            oper.updates,
+            [
+                (1, {"username": "豆瓣中心"}),
+                (2, {"username": "豆瓣中心"}),
+            ],
+        )
 
     def test_rank_media_type_uses_rank_route(self):
         movie_rank = {"key": "movie_weekly", "route": "/douban/list/movie_weekly_best"}
@@ -398,6 +446,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
             {"title": "keep", "reason": "TMDB评分过低", "detail": "d", "time": "2026-06-21 10:00:00"},
             {"title": "target", "reason": "观察期首次记录", "detail": "需要观察 2 天", "time": "2026-06-21 10:00:00"},
             {"title": "target", "reason": "观察期未满", "detail": "已过 1 天，需要 2 天", "time": "2026-06-22 10:00:00"},
+            {"title": "target", "reason": "\u89c2\u5bdf\u671f\u5b8c\u6210", "detail": "已过 2 天，达到 2 天", "time": "2026-06-23 10:00:00"},
         ]
 
         class SubscribeChain:
@@ -409,7 +458,8 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         result = self.feed._add_sub(plugin, _MediaInfo(title="target", mtype=_MediaType.TV), rank_key="tv_global")
 
         self.assertTrue(result)
-        self.assertEqual([item["title"] for item in plugin.data["anti_cheat_logs"]], ["keep"])
+        self.assertEqual([item["title"] for item in plugin.data["anti_cheat_logs"]], ["keep", "target"])
+        self.assertEqual(plugin.data["anti_cheat_logs"][1]["reason"], "\u89c2\u5bdf\u671f\u5b8c\u6210")
 
     def test_existing_subscription_branch_cleans_observe_anti_cheat_logs(self):
         plugin = _Plugin()
@@ -1388,17 +1438,63 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("font-variant-numeric:tabular-nums", compact_css.replace(" ", ""))
         self.assertIn("dc-rank-poster", compact_css)
 
+    def test_active_detail_rows_use_compact_log_style(self):
+        page_js = self._active_asset_text("./Page", ".js")
+        page_css = self._active_css_text("./Page").replace(" ", "")
+
+        self.assertIn("cheatLogs.value = logs.filter(log => !log || log.reason !== '黑名单关键词').slice(-5);", page_js)
+        self.assertIn("blacklistEntries.value = logs.filter(log => log && log.reason === '黑名单关键词').slice().reverse().slice(0, 5);", page_js)
+        self.assertNotIn('class: "dc-history-row dc-log-row"', page_js)
+        self.assertIn('class: "dc-history-row dc-status-row"', page_js)
+        self.assertIn('class: "dc-history-row dc-status-row dc-history-row--clickable"', page_js)
+        self.assertIn('class: "dc-row-status"', page_js)
+        log_block = re.search(
+            r"_renderList\(cheatLogs\.value\.slice\(\)\.reverse\(\), \(log, i\) => \{[\s\S]*?rowKey\('log', log, i\)[\s\S]*?\]\)\)",
+            page_js,
+        )
+        self.assertIsNotNone(log_block)
+        log_block_text = log_block.group(0)
+        self.assertIn('class: "dc-history-row dc-status-row"', log_block_text)
+        self.assertNotIn('class: "dc-cheat-row', log_block_text)
+        self.assertIn("(log.poster)", log_block_text)
+        self.assertIn("src: log.poster", log_block_text)
+        self.assertIn('icon: "mdi-filmstrip"', log_block_text)
+        self.assertIn("color: rankColors[log.rank_key]||'primary'", log_block_text)
+        self.assertIn("_toDisplayString(log.rank_name || log.rank_key || '观察日志')", log_block_text)
+        self.assertIn('const _hoisted_22 = { class: "dc-history-list" };', page_js)
+        self.assertRegex(
+            page_js,
+            r"_renderList\(cheatLogs\.value\.slice\(\)\.reverse\(\), \(log, i\)[\s\S]*?class: \"dc-history-row dc-status-row\"[\s\S]*?class: \"dc-row-status\"[\s\S]*?class: \"dc-row-action\"",
+        )
+        self.assertIn("dc-status-row", page_css)
+        self.assertIn("grid-template-columns:autominmax(0,1fr)autoauto", page_css)
+        self.assertIn(".dc-row-status", page_css)
+        self.assertIn("grid-template-columns:autominmax(0,1fr)auto", page_css)
+        self.assertNotIn("grid-template-columns:44pxminmax(0,1fr)34px", page_css)
+        self.assertNotIn("border-radius:50%!important", page_css)
+
     def test_anti_cheat_logs_reconcile_finished_observations(self):
         dashboard = _import_dashboard()
         plugin = _Plugin()
         plugin.data["subscribe_records"] = [
             {"title": "done", "status": "success", "time": "2026-06-22 10:00:00"}
         ]
+        plugin.data["rank_history_tv_real_time"] = [
+            {
+                "title": "done",
+                "unique": "rank:done",
+                "first_seen": "2026-06-20 10:00:00",
+                "subscribed": True,
+                "subscribed_at": "2026-06-22 10:00:00",
+                "link": "https://example.com/done",
+            }
+        ]
         plugin.data["rank_history_tv_global"] = [
             {"title": "existing", "unique": "rank:1", "observing": True, "existing": True, "existing_reason": "subscribe"}
         ]
         plugin.data["anti_cheat_logs"] = [
             {"title": "done", "reason": "\u89c2\u5bdf\u671f\u672a\u6ee1", "detail": "d", "time": "2026-06-21 10:00:00"},
+            {"title": "done", "reason": "\u89c2\u5bdf\u671f\u5b8c\u6210", "detail": "实时热门：2026-06-20 10:00:00 -> 2026-06-22 10:00:00", "time": "2026-06-22 10:00:00"},
             {"title": "existing", "reason": "\u89c2\u5bdf\u671f\u9996\u6b21\u8bb0\u5f55", "detail": "d", "time": "2026-06-21 11:00:00"},
             {"title": "keep", "reason": "\u89c2\u5bdf\u671f\u672a\u6ee1", "detail": "d", "time": "2026-06-21 12:00:00"},
             {"title": "keep", "reason": "\u89c2\u5bdf\u671f\u672a\u6ee1", "detail": "d", "time": "2026-06-21 12:00:00"},
@@ -1406,9 +1502,16 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         logs = dashboard.api_anti_cheat_logs(plugin)["data"]
 
-        self.assertEqual([item["title"] for item in logs], ["keep"])
-        self.assertEqual(logs[0]["count"], 2)
+        self.assertEqual([item["title"] for item in logs], ["done", "keep"])
+        self.assertEqual(logs[0]["reason"], "观察期完成")
+        self.assertIn("2026-06-20 10:00:00", logs[0]["detail"])
+        self.assertEqual(logs[1]["count"], 2)
+        self.assertIsNone(plugin.data.get("archive_records"))
         self.assertEqual(plugin.data["anti_cheat_logs"], logs)
+
+        dashboard.api_anti_cheat_logs(plugin)
+
+        self.assertIsNone(plugin.data.get("archive_records"))
 
     def test_overview_reports_flow_order_and_archive_counts(self):
         dashboard = _import_dashboard()
@@ -1490,6 +1593,77 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertTrue(deleted["success"])
         self.assertEqual(plugin.data["archive_records"], [])
+
+    def test_legacy_observation_completion_archives_return_to_logs(self):
+        dashboard = _import_dashboard()
+        plugin = _Plugin()
+        plugin.data["archive_records"] = [
+            {
+                "id": "legacy",
+                "source": "observation_completed",
+                "source_name": "观察完成",
+                "title": "旧完成",
+                "time": "2026-06-22 10:00:00",
+                "reason": "观察期完成",
+                "archived_at": "2026-06-28 10:00:00",
+                "record": {"title": "旧完成", "time": "2026-06-22 10:00:00", "reason": "观察期完成", "detail": "已过 2 天，达到 2 天"},
+            }
+        ]
+
+        logs = dashboard.api_anti_cheat_logs(plugin)["data"]
+        archives = dashboard.api_archive_records(plugin)["data"]
+
+        self.assertEqual([item["title"] for item in logs], ["旧完成"])
+        self.assertEqual(logs[0]["reason"], "观察期完成")
+        self.assertEqual(archives["total"], 0)
+        self.assertEqual(plugin.data["archive_records"], [])
+
+    def test_detail_sections_archive_overflow_records(self):
+        dashboard = _import_dashboard()
+        plugin = _Plugin()
+        plugin._observe_days = 3
+        plugin.data["subscribe_records"] = [
+            {"title": f"订阅{i}", "time": f"2026-06-22 10:00:0{i}", "tmdbid": i}
+            for i in range(7)
+        ]
+        plugin.data["anti_cheat_logs"] = [
+            {"title": f"黑名{i}", "reason": "黑名单关键词", "detail": "命中", "time": f"2026-06-22 11:00:0{i}"}
+            for i in range(7)
+        ] + [
+            {"title": f"日志{i}", "reason": "观察期未满", "detail": "等待", "time": f"2026-06-22 12:00:0{i}"}
+            for i in range(7)
+        ]
+        plugin.data["rank_history_tv_global"] = [
+            {
+                "title": f"观察{i}",
+                "unique": f"rank:{i}",
+                "first_seen": f"2026-06-22 13:00:0{i}",
+                "observing": True,
+            }
+            for i in range(7)
+        ]
+
+        history = dashboard.api_subscribe_history(plugin)["data"]
+        logs = dashboard.api_anti_cheat_logs(plugin)["data"]
+        pending = dashboard.api_pending_observations(plugin)["data"]
+
+        self.assertEqual(history["total"], 5)
+        self.assertEqual([item["title"] for item in history["items"]], ["订阅6", "订阅5", "订阅4", "订阅3", "订阅2"])
+        self.assertEqual(len(logs), 10)
+        self.assertEqual(len([item for item in logs if item["reason"] == "黑名单关键词"]), 5)
+        self.assertEqual(len([item for item in logs if item["reason"] != "黑名单关键词"]), 5)
+        self.assertEqual([item["title"] for item in pending], ["观察6", "观察5", "观察4", "观察3", "观察2"])
+        self.assertFalse(plugin.data["rank_history_tv_global"][0]["observing"])
+        self.assertTrue(plugin.data["rank_history_tv_global"][0]["observe_deleted"])
+        sources = [(item["source"], item["source_name"], item["title"]) for item in plugin.data["archive_records"]]
+        self.assertIn(("subscribe_history", "订阅历史", "订阅1"), sources)
+        self.assertIn(("subscribe_history", "订阅历史", "订阅0"), sources)
+        self.assertIn(("anti_cheat_log", "黑名拦截", "黑名1"), sources)
+        self.assertIn(("anti_cheat_log", "黑名拦截", "黑名0"), sources)
+        self.assertIn(("anti_cheat_log", "观察日志", "日志1"), sources)
+        self.assertIn(("anti_cheat_log", "观察日志", "日志0"), sources)
+        self.assertIn(("observation", "观察队列", "观察1"), sources)
+        self.assertIn(("observation", "观察队列", "观察0"), sources)
 
     def test_auto_subscription_uses_mp_default_message_instead_of_plugin_notify(self):
         plugin = _Plugin()

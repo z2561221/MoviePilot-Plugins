@@ -38,7 +38,7 @@ const _hoisted_18 = { class: "d-flex align-center mx-2 text-caption text-medium-
 const _hoisted_19 = { key: 1, class: "dc-section dc-section--logs" };
 const _hoisted_20 = { class: "dc-section-title mb-2" };
 const _hoisted_21 = { class: "text-caption font-weight-regular text-medium-emphasis" };
-const _hoisted_22 = { class: "dc-cheat-list" };
+const _hoisted_22 = { class: "dc-history-list" };
 const _hoisted_23 = { class: "dc-cheat-title" };
 const _hoisted_24 = { class: "text-caption text-medium-emphasis" };
 
@@ -90,8 +90,8 @@ async function loadAll() {
     if (h) historyData.value = h;
     if (c) {
       const logs = Array.isArray(c) ? c : [];
-      cheatLogs.value = logs;
-      blacklistEntries.value = logs.filter(log => log && log.reason === '黑名单关键词').slice().reverse().slice(0, 20);
+      cheatLogs.value = logs.filter(log => !log || log.reason !== '黑名单关键词').slice(-5);
+      blacklistEntries.value = logs.filter(log => log && log.reason === '黑名单关键词').slice().reverse().slice(0, 5);
     }
     if (p) pendingObservations.value = p;
     if (r) rankHistory.value = r;
@@ -683,7 +683,7 @@ return (_ctx, _cache) => {
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(blacklistEntries.value, (item, i) => {
                                return (_openBlock(), _createElementBlock("div", {
                              key: i,
-                             class: "dc-history-row"
+                             class: "dc-history-row dc-status-row"
                            }, [
                             _createVNode(_component_VAvatar, {
                               size: "28",
@@ -702,20 +702,20 @@ return (_ctx, _cache) => {
                             _createElementVNode("div", _hoisted_12, [
                               _createElementVNode("div", _hoisted_13, _toDisplayString(item.title || '未命名条目'), 1),
                               _createElementVNode("div", _hoisted_14, [
-                                _createVNode(_component_VChip, {
-                                  size: "x-small",
-                                  color: "error",
-                                  variant: "tonal",
-                                  class: "mr-1"
-                                }, {
-                                  default: _withCtx(() => [
-                                    _createTextVNode(_toDisplayString(item.detail || item.reason || '黑名单关键词'), 1)
-                                  ]),
-                                  _: 2
-                                }, 1024),
                                 _createElementVNode("span", _hoisted_15, _toDisplayString(item.time || ''), 1)
                               ])
                             ]),
+                            _createVNode(_component_VChip, {
+                              size: "x-small",
+                              color: "error",
+                              variant: "tonal",
+                              class: "dc-row-status"
+                            }, {
+                              default: _withCtx(() => [
+                                _createTextVNode(_toDisplayString(item.detail || item.reason || '黑名单关键词'), 1)
+                              ]),
+                              _: 2
+                            }, 1024),
                             _createVNode(_component_VBtn, {
                               icon: "mdi-delete-outline",
                               variant: "text",
@@ -745,7 +745,7 @@ return (_ctx, _cache) => {
                             }, _renderList(pendingObservations.value, (item, i) => {
                                return (_openBlock(), _createElementBlock("div", {
                              key: i,
-                             class: "dc-history-row dc-history-row--clickable",
+                             class: "dc-history-row dc-status-row dc-history-row--clickable",
                              onClick: $event => showActionDialog(item.rank_key, item)
                            }, [
                             _createVNode(_component_VAvatar, {
@@ -776,9 +776,20 @@ return (_ctx, _cache) => {
                                   ]),
                                   _: 2
                                 }, 1032, ["color"]),
-                                _createElementVNode("span", _hoisted_15, "观察 " + _toDisplayString(item.elapsed_days || 0) + " / " + _toDisplayString(item.observe_days || 0) + " 天，剩余 " + _toDisplayString(item.remaining_days || 0) + " 天", 1)
+                                _createElementVNode("span", _hoisted_15, "观察 " + _toDisplayString(item.elapsed_days || 0) + " / " + _toDisplayString(item.observe_days || 0) + " 天", 1)
                               ])
                             ]),
+                            _createVNode(_component_VChip, {
+                              size: "x-small",
+                              color: "warning",
+                              variant: "tonal",
+                              class: "dc-row-status"
+                            }, {
+                              default: _withCtx(() => [
+                                _createTextVNode("剩余 " + _toDisplayString(item.remaining_days || 0) + " 天", 1)
+                              ]),
+                              _: 2
+                            }, 1024),
                             _createVNode(_component_VBtn, {
                               icon: "mdi-delete-outline",
                               variant: "text",
@@ -803,7 +814,7 @@ return (_ctx, _cache) => {
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(historyData.value.items, (item, i) => {
                           return (_openBlock(), _createElementBlock("div", {
                             key: i,
-                            class: "dc-history-row"
+                            class: "dc-history-row dc-status-row"
                           }, [
                             _createVNode(_component_VAvatar, {
                               size: "28",
@@ -840,6 +851,17 @@ return (_ctx, _cache) => {
                                 _createElementVNode("span", _hoisted_15, _toDisplayString(item.time ? item.time.split(' ')[0] : ''), 1)
                               ])
                             ]),
+                            _createVNode(_component_VChip, {
+                              size: "x-small",
+                              color: item.status === 'failed' ? 'error' : 'success',
+                              variant: "tonal",
+                              class: "dc-row-status"
+                            }, {
+                              default: _withCtx(() => [
+                                _createTextVNode(_toDisplayString(item.status === 'failed' ? '订阅失败' : '订阅成功'), 1)
+                              ]),
+                              _: 2
+                            }, 1032, ["color"]),
                             _createVNode(_component_VBtn, {
                               icon: "mdi-delete-outline",
                               variant: "text",
@@ -893,31 +915,54 @@ return (_ctx, _cache) => {
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(cheatLogs.value.slice().reverse(), (log, i) => {
                           return (_openBlock(), _createElementBlock("div", {
                             key: i,
-                            class: "dc-cheat-row"
+                            class: "dc-history-row dc-status-row"
                           }, [
-                            _createVNode(_component_VIcon, {
-                              size: "14",
-                              color: "warning",
-                              class: "mr-1"
+                            _createVNode(_component_VAvatar, {
+                              size: "28",
+                              class: "mr-2 flex-shrink-0"
                             }, {
-                              default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
-                                _createTextVNode("mdi-shield-off-outline", -1)
-                              ]))]),
-                              _: 1
-                            }),
-                            _createElementVNode("span", _hoisted_23, _toDisplayString(log.title), 1),
+                              default: _withCtx(() => [
+                                (log.poster)
+                                  ? (_openBlock(), _createBlock(_component_VImg, {
+                                      key: 0,
+                                      src: log.poster
+                                    }, null, 8, ["src"]))
+                                  : (_openBlock(), _createBlock(_component_VIcon, {
+                                      key: 1,
+                                      icon: "mdi-filmstrip",
+                                      size: "14"
+                                    }))
+                              ]),
+                              _: 2
+                            }, 1024),
+                            _createElementVNode("div", _hoisted_12, [
+                              _createElementVNode("div", _hoisted_13, _toDisplayString(log.title), 1),
+                              _createElementVNode("div", _hoisted_14, [
+                                _createVNode(_component_VChip, {
+                                  size: "x-small",
+                                  color: rankColors[log.rank_key]||'primary',
+                                  variant: "tonal",
+                                  class: "mr-1"
+                                }, {
+                                  default: _withCtx(() => [
+                                    _createTextVNode(_toDisplayString(log.rank_name || log.rank_key || '观察日志'), 1)
+                                  ]),
+                                  _: 2
+                                }, 1032, ["color"]),
+                                _createElementVNode("span", _hoisted_15, _toDisplayString(log.time ? log.time.split(' ')[0] : ''), 1)
+                              ])
+                            ]),
                             _createVNode(_component_VChip, {
                               size: "x-small",
                               color: "warning",
                               variant: "tonal",
-                              class: "mx-1"
+                              class: "dc-row-status"
                             }, {
                               default: _withCtx(() => [
                                 _createTextVNode(_toDisplayString(log.reason), 1)
                               ]),
                               _: 2
                             }, 1024),
-                            _createElementVNode("span", _hoisted_24, _toDisplayString(log.time ? log.time.split(' ')[0] : ''), 1),
                             _createVNode(_component_VBtn, {
                               icon: "mdi-delete-outline",
                               variant: "text",

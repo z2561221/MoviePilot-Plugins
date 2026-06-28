@@ -283,6 +283,8 @@ def _check_observe(self, unique: str, history: List[dict], title: str = "", rank
                         logger.info(f"豆瓣中心：条目《{h.get('title')}》观察期未满（{elapsed}/{days} 天），跳过订阅")
                         _log_anti_cheat(self, "观察期未满", h.get("title", ""), f"已过 {elapsed} 天，需要 {days} 天")
                         return True
+                    logger.info(f"豆瓣中心：条目《{h.get('title') or title or unique}》观察期已满（{elapsed}/{days} 天），继续订阅")
+                    _log_anti_cheat(self, "观察期完成", h.get("title") or title or unique, f"已过 {elapsed} 天，达到 {days} 天")
                     return False
                 except Exception:
                     pass

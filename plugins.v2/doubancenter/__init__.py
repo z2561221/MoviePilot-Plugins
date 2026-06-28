@@ -1,5 +1,5 @@
 ﻿"""
-DoubanCenter v1.2.3 - MoviePilot 本地插件
+DoubanCenter v1.2.4 - MoviePilot 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
 import datetime
@@ -15,7 +15,7 @@ from app.plugins import _PluginBase
 from app.schemas import WebhookEventInfo
 from app.schemas.types import EventType
 
-from . import dashboard as dash, feed, folio
+from . import dashboard as dash, feed, folio, migration
 from . import utils
 
 lock = threading.Lock()
@@ -26,7 +26,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "1.2.3"
+    plugin_version = "1.2.4"
     plugin_author = "牧濑红莉栖"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
@@ -103,6 +103,7 @@ class DoubanCenter(_PluginBase):
             self._observe_rank_keys = []
         if set(config) - set(self.__current_config()):
             self.__update_config()
+        migration.normalize_legacy_subscribe_usernames()
         self.stop_service()
         if self._onlyonce:
             self._onlyonce = False

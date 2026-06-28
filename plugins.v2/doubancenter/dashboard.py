@@ -9,6 +9,10 @@ from app.core.metainfo import MetaInfo
 from app.schemas.types import MediaType
 
 
+DETAIL_SECTION_LIMIT = 5
+DETAIL_OVERFLOW_REASON = "超过详情页显示上限归档"
+
+
 def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
     cols = {"cols": 12, "md": 12}
     attrs = {"refresh": 600, "border": True, "title": "豆瓣中心", "subtitle": "追剧观影时间线"}
@@ -324,9 +328,10 @@ def api_subscribe_history(self, page=1, page_size=20):
     """订阅历史：基于 subscribe_records 分页"""
     records = self.get_data("subscribe_records") or []
     records, changed = _dedupe_subscribe_records(records)
-    if changed:
-        self.save_data("subscribe_records", records)
     records.sort(key=lambda x: x.get("time", ""), reverse=True)
+    records, overflow_changed = _archive_detail_overflow(self, records, "subscribe_history", "订阅历史")
+    if changed or overflow_changed:
+        self.save_data("subscribe_records", records)
     total = len(records)
     start = (page - 1) * page_size
     end = start + page_size
@@ -387,13 +392,100 @@ def _same_record(item: dict, unique: str = "", time: str = "", title: str = "", 
     return False
 
 
-def _archive_record(self, source: str, record: dict, source_name: str = "") -> Optional[dict]:
+def _archive_record_key(source: str, record: dict) -> tuple:
+    """生成归档记录去重键。"""
+    if not isinstance(record, dict):
+        return (source, "")
+    return (
+        source,
+        str(record.get("unique") or ""),
+        str(record.get("tmdbid") or record.get("tmdb_id") or ""),
+        str(record.get("title") or ""),
+        str(record.get("reason") or ""),
+        str(record.get("detail") or ""),
+        str(record.get("time") or ""),
+        str(record.get("link") or ""),
+    )
+
+
+def _archive_record_score(record: dict) -> int:
+    """计算归档原始记录的信息完整度。"""
+    if not isinstance(record, dict):
+        return 0
+    score = sum(1 for value in record.values() if value not in (None, "", [], {}))
+    for field in ("unique", "poster", "tmdbid", "rank_key", "rank_name", "first_seen", "subscribed_at"):
+        if record.get(field):
+            score += 5
+    return score
+
+
+def _same_archive_record(source: str, left: dict, right: dict) -> bool:
+    """按来源判断两条归档原始记录是否重复。"""
+    return _archive_record_key(source, left) == _archive_record_key(source, right)
+
+
+def _update_archive_item_from_record(archive: dict, source: str, record: dict, source_name: str = "") -> dict:
+    """用更完整的原始记录刷新归档展示字段。"""
+    copied = dict(record)
+    archive.update({
+        "source": source,
+        "source_name": source_name or archive.get("source_name") or source,
+        "title": copied.get("title") or archive.get("title") or "",
+        "time": copied.get("time") or copied.get("first_seen") or archive.get("time") or "",
+        "rank_key": copied.get("rank_key") or archive.get("rank_key") or "",
+        "rank_name": copied.get("rank_name") or archive.get("rank_name") or "",
+        "reason": copied.get("reason") or archive.get("reason") or "",
+        "record": copied,
+    })
+    return archive
+
+
+def _dedupe_archive_records(archives: list) -> tuple:
+    """压缩重复归档记录，保留信息更完整的一条。"""
+    if not isinstance(archives, list):
+        return [], False
+    merged = []
+    changed = False
+    for archive in archives:
+        if not isinstance(archive, dict):
+            changed = True
+            continue
+        source = str(archive.get("source") or "")
+        record = archive.get("record") or {}
+        duplicate_index = None
+        for index, existing in enumerate(merged):
+            if str(existing.get("source") or "") != source:
+                continue
+            if _same_archive_record(source, existing.get("record") or {}, record):
+                duplicate_index = index
+                break
+        if duplicate_index is None:
+            merged.append(archive)
+            continue
+        changed = True
+        existing = merged[duplicate_index]
+        if _archive_record_score(record) > _archive_record_score(existing.get("record") or {}):
+            merged[duplicate_index] = archive
+    return merged[-500:], changed or len(merged) != len(archives)
+
+
+def _archive_record(self, source: str, record: dict, source_name: str = "", dedupe: bool = False) -> Optional[dict]:
     """将详情页删除的记录写入归档。"""
     if not isinstance(record, dict):
         return None
     archives = self.get_data("archive_records") or []
     if not isinstance(archives, list):
         archives = []
+    if dedupe:
+        for index, archive in enumerate(archives):
+            if not isinstance(archive, dict) or archive.get("source") != source:
+                continue
+            if _same_archive_record(source, archive.get("record") or {}, record):
+                if _archive_record_score(record) > _archive_record_score(archive.get("record") or {}):
+                    archives[index] = _update_archive_item_from_record(archive, source, record, source_name)
+                    self.save_data("archive_records", archives)
+                    return archives[index]
+                return archive
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     archive_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
     copied = dict(record)
@@ -414,6 +506,116 @@ def _archive_record(self, source: str, record: dict, source_name: str = "") -> O
         archives = archives[-500:]
     self.save_data("archive_records", archives)
     return item
+
+
+def _detail_record_time(record: dict) -> str:
+    """返回详情页记录用于新旧排序的时间字段。"""
+    if not isinstance(record, dict):
+        return ""
+    return str(record.get("time") or record.get("first_seen") or record.get("archived_at") or "")
+
+
+def _latest_detail_indexes(records: list, limit: int = DETAIL_SECTION_LIMIT) -> set:
+    """按时间选出详情页应保留的最新记录下标。"""
+    indexed = [(index, record) for index, record in enumerate(records) if isinstance(record, dict)]
+    ordered = sorted(indexed, key=lambda pair: (_detail_record_time(pair[1]), pair[0]), reverse=True)
+    return {index for index, _ in ordered[:limit]}
+
+
+def _archive_detail_overflow(self, records: list, source: str, source_name: str, limit: int = DETAIL_SECTION_LIMIT) -> tuple:
+    """保留最新详情记录，并将超出上限的条目写入归档。"""
+    if not isinstance(records, list) or len(records) <= limit:
+        return records if isinstance(records, list) else [], False
+    keep_indexes = _latest_detail_indexes(records, limit)
+    kept = []
+    changed = False
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            changed = True
+            continue
+        if index in keep_indexes:
+            kept.append(record)
+            continue
+        archive_record = dict(record)
+        archive_record.setdefault("reason", record.get("reason") or DETAIL_OVERFLOW_REASON)
+        _archive_record(self, source, archive_record, source_name, dedupe=True)
+        changed = True
+    return kept, changed
+
+
+def _archive_anti_cheat_overflow(self, logs: list, limit: int = DETAIL_SECTION_LIMIT) -> tuple:
+    """分别限制黑名拦截与观察日志的详情页展示数量。"""
+    if not isinstance(logs, list):
+        return [], False
+    blacklist_indexes = []
+    observe_indexes = []
+    for index, log in enumerate(logs):
+        if not isinstance(log, dict):
+            continue
+        if str(log.get("reason") or "") == "黑名单关键词":
+            blacklist_indexes.append(index)
+        else:
+            observe_indexes.append(index)
+
+    keep_indexes = set()
+    changed = False
+    for indexes, source_name in ((blacklist_indexes, "黑名拦截"), (observe_indexes, "观察日志")):
+        if len(indexes) <= limit:
+            keep_indexes.update(indexes)
+            continue
+        ordered = sorted(indexes, key=lambda item_index: (_detail_record_time(logs[item_index]), item_index), reverse=True)
+        keep_indexes.update(ordered[:limit])
+        for item_index in ordered[limit:]:
+            _archive_record(self, "anti_cheat_log", logs[item_index], source_name, dedupe=True)
+            changed = True
+    kept = [log for index, log in enumerate(logs) if index in keep_indexes]
+    return kept, changed
+
+
+def _anti_cheat_log_key(record: dict) -> tuple:
+    """生成观察日志记录的去重键。"""
+    if not isinstance(record, dict):
+        return ("", "", "", "", "")
+    return (
+        str(record.get("title") or ""),
+        str(record.get("reason") or ""),
+        str(record.get("detail") or ""),
+        str(record.get("time") or ""),
+        str(record.get("link") or ""),
+    )
+
+
+def _remove_legacy_observation_completed_archives(self) -> bool:
+    """将旧版观察完成归档迁回观察日志并从归档页移除。"""
+    archives = self.get_data("archive_records") or []
+    if not isinstance(archives, list):
+        return False
+    logs = self.get_data("anti_cheat_logs") or []
+    if not isinstance(logs, list):
+        logs = []
+    existing_log_keys = {_anti_cheat_log_key(log) for log in logs if isinstance(log, dict)}
+    kept_archives = []
+    changed = False
+    for archive in archives:
+        if not isinstance(archive, dict):
+            changed = True
+            continue
+        if archive.get("source") != "observation_completed":
+            kept_archives.append(archive)
+            continue
+        record = dict(archive.get("record") or {})
+        record["title"] = record.get("title") or archive.get("title") or ""
+        record["time"] = record.get("time") or archive.get("time") or ""
+        record["reason"] = record.get("reason") or "观察期完成"
+        key = _anti_cheat_log_key(record)
+        if key not in existing_log_keys:
+            logs.append(record)
+            existing_log_keys.add(key)
+        changed = True
+    if changed:
+        self.save_data("archive_records", kept_archives)
+        self.save_data("anti_cheat_logs", logs[-100:])
+    return changed
 
 
 def _remove_archive(self, archive_id: str) -> Optional[dict]:
@@ -453,12 +655,16 @@ def api_pending_observations(self):
         return {"data": []}
     from .feed import BUILTIN_RANKS, get_rank_history_by_key
     now = datetime.datetime.now()
+    now_text = now.strftime("%Y-%m-%d %H:%M:%S")
     observe_days = int(self._observe_days or 0)
     items = []
+    histories = {}
+    changed_rank_keys = set()
     for rank in BUILTIN_RANKS:
         rank_key = rank["key"]
         data_key = "coming_history" if rank_key == "coming" else f"rank_history_{rank_key}"
         history = get_rank_history_by_key(self, rank_key)
+        histories[rank_key] = (data_key, history)
         changed = False
         for item in history:
             if not isinstance(item, dict) or not item.get("observing"):
@@ -468,7 +674,7 @@ def api_pending_observations(self):
             if _observed_item_subscription_exists(item, rank_key=rank_key):
                 item["observing"] = False
                 item["existing"] = True
-                item["existing_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+                item["existing_at"] = now_text
                 item["existing_reason"] = "subscribe"
                 changed = True
                 continue
@@ -490,8 +696,38 @@ def api_pending_observations(self):
             })
             items.append(pending)
         if changed:
-            self.save_data(data_key, history)
+            changed_rank_keys.add(rank_key)
     items.sort(key=lambda x: x.get("first_seen") or x.get("time") or "", reverse=True)
+    if len(items) > DETAIL_SECTION_LIMIT:
+        overflow = items[DETAIL_SECTION_LIMIT:]
+        items = items[:DETAIL_SECTION_LIMIT]
+        for pending in overflow:
+            if not isinstance(pending, dict):
+                continue
+            rank_key = pending.get("rank_key") or ""
+            data_key, history = histories.get(rank_key, ("", []))
+            target_unique = pending.get("unique")
+            target_title = pending.get("title")
+            for item in history:
+                if not isinstance(item, dict):
+                    continue
+                same_unique = target_unique and item.get("unique") == target_unique
+                same_title = not target_unique and target_title and item.get("title") == target_title
+                if not (same_unique or same_title):
+                    continue
+                item["observing"] = False
+                item["observe_deleted"] = True
+                item["observe_deleted_at"] = now_text
+                item["observe_deleted_reason"] = DETAIL_OVERFLOW_REASON
+                changed_rank_keys.add(rank_key)
+                break
+            record = dict(pending)
+            record["reason"] = DETAIL_OVERFLOW_REASON
+            _archive_record(self, "observation", record, "观察队列", dedupe=True)
+    for rank_key in changed_rank_keys:
+        data_key, history = histories.get(rank_key, ("", []))
+        if data_key:
+            self.save_data(data_key, history)
     return {"data": items}
 
 
@@ -593,31 +829,98 @@ def _finished_observation_titles(self) -> set:
     return titles
 
 
+def _observation_completion_log(item: dict, rank: dict) -> Optional[dict]:
+    """从榜单历史构造观察完成日志。"""
+    if not isinstance(item, dict) or not isinstance(rank, dict):
+        return None
+    title = str(item.get("title") or "")
+    first_seen = str(item.get("first_seen") or "")
+    subscribed_at = str(item.get("subscribed_at") or "")
+    if not title or not first_seen or not (item.get("subscribed") or subscribed_at):
+        return None
+    record = dict(item)
+    record.update({
+        "time": subscribed_at or str(item.get("time") or first_seen),
+        "reason": "观察期完成",
+        "title": title,
+        "detail": f"{rank.get('name') or rank.get('key') or ''}：{first_seen} -> {subscribed_at or '已订阅'}",
+        "link": item.get("link") or "",
+        "rank_key": rank.get("key") or item.get("rank_key") or "",
+        "rank_name": rank.get("name") or item.get("rank_name") or "",
+        "first_seen": first_seen,
+        "subscribed_at": subscribed_at,
+    })
+    return record
+
+
+def _append_observation_completion_logs(self, logs: list) -> tuple:
+    """补齐已订阅观察条目的观察完成日志。"""
+    if not isinstance(logs, list):
+        logs = []
+    changed = False
+    existing_titles = {
+        str(log.get("title") or "")
+        for log in logs
+        if isinstance(log, dict) and str(log.get("reason") or "") == "观察期完成"
+    }
+    archives = self.get_data("archive_records") or []
+    if isinstance(archives, list):
+        for archive in archives:
+            if not isinstance(archive, dict):
+                continue
+            record = archive.get("record") or {}
+            if archive.get("source") == "anti_cheat_log" and str(record.get("reason") or "") == "观察期完成":
+                existing_titles.add(str(record.get("title") or archive.get("title") or ""))
+    try:
+        from .feed import BUILTIN_RANKS, get_rank_history_by_key
+        for rank in BUILTIN_RANKS:
+            history = get_rank_history_by_key(self, rank["key"])
+            if not isinstance(history, list):
+                continue
+            for item in history:
+                record = _observation_completion_log(item, rank)
+                if not record or str(record.get("title") or "") in existing_titles:
+                    continue
+                logs.append(record)
+                existing_titles.add(str(record.get("title") or ""))
+                changed = True
+    except Exception:
+        return logs, changed
+    if len(logs) > 100:
+        logs = logs[-100:]
+        changed = True
+    return logs, changed
+
+
 def _reconcile_anti_cheat_logs(self, logs: list) -> tuple:
     """合并并清理已结束观察项的观察日志。"""
     logs, changed = _dedupe_anti_cheat_logs(logs)
     finished_titles = _finished_observation_titles(self)
-    if not finished_titles:
-        return logs, changed
-    observe_reasons = {"观察期首次记录", "观察期未满"}
-    kept = []
-    for log in logs:
-        if (
-            isinstance(log, dict)
-            and str(log.get("reason") or "") in observe_reasons
-            and str(log.get("title") or "") in finished_titles
-        ):
-            changed = True
-            continue
-        kept.append(log)
-    return kept, changed
+    if finished_titles:
+        observe_reasons = {"观察期首次记录", "观察期未满"}
+        kept = []
+        for log in logs:
+            if (
+                isinstance(log, dict)
+                and str(log.get("reason") or "") in observe_reasons
+                and str(log.get("title") or "") in finished_titles
+            ):
+                changed = True
+                continue
+            kept.append(log)
+        logs = kept
+    logs, completion_logs_changed = _append_observation_completion_logs(self, logs)
+    changed = changed or completion_logs_changed
+    return logs, changed
 
 
 def api_anti_cheat_logs(self):
     """观察日志。"""
+    _remove_legacy_observation_completed_archives(self)
     logs = self.get_data("anti_cheat_logs") or []
     logs, changed = _reconcile_anti_cheat_logs(self, logs)
-    if changed:
+    logs, overflow_changed = _archive_anti_cheat_overflow(self, logs)
+    if changed or overflow_changed:
         self.save_data("anti_cheat_logs", logs)
     return {"data": logs}
 
@@ -626,6 +929,7 @@ def api_overview(self):
     """返回设置页运行总览数据。"""
     from .feed import BUILTIN_RANKS, get_rank_history_by_key
 
+    _remove_legacy_observation_completed_archives(self)
     subscribe_records = self.get_data("subscribe_records") or []
     if not isinstance(subscribe_records, list):
         subscribe_records = []
@@ -641,6 +945,9 @@ def api_overview(self):
     archive_records = self.get_data("archive_records") or []
     if not isinstance(archive_records, list):
         archive_records = []
+    archive_records, changed_archive_records = _dedupe_archive_records(archive_records)
+    if changed_archive_records:
+        self.save_data("archive_records", archive_records)
     folio_data = self.get_data("folio_data") or {}
     if not isinstance(folio_data, dict):
         folio_data = {}
@@ -733,10 +1040,14 @@ def api_overview(self):
 
 def api_archive_records(self, page: int = 1, page_size: int = 20):
     """返回详情页归档记录。"""
+    _remove_legacy_observation_completed_archives(self)
     archives = self.get_data("archive_records") or []
     if not isinstance(archives, list):
         archives = []
     archives = [item for item in archives if isinstance(item, dict)]
+    archives, changed = _dedupe_archive_records(archives)
+    if changed:
+        self.save_data("archive_records", archives)
     archives.sort(key=lambda x: x.get("archived_at", ""), reverse=True)
     total = len(archives)
     start = (int(page) - 1) * int(page_size)
