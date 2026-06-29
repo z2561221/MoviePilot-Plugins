@@ -214,11 +214,6 @@ function showActionDialog(rk, item) {
   showDialog.value = true
 }
 
-function dialogPoster() {
-  const item = dialogItem.value?.item || {}
-  return item.poster || item.poster_path || item.cover || ''
-}
-
 async function subscribeViaNativeDialog(rk, item) {
   const media = await resolveRankMedia(rk, item)
   await props.nativeSubscribe(media)
@@ -323,7 +318,7 @@ onMounted(loadAll)
       <div v-if="actionMessage" class="dc-action-message" :class="actionOk ? 'text-success' : 'text-error'">{{ actionMessage }}</div>
 
       <template v-if="!loading && archivePage">
-        <div class="dc-section dc-section--archive">
+        <div class="dc-section">
           <div class="dc-section-title mb-2">归档记录 <span class="text-caption font-weight-regular text-medium-emphasis">（共 {{ archiveData.total || 0 }} 条）</span></div>
           <div v-if="archiveData.items && archiveData.items.length" class="dc-history-list">
             <div v-for="(item, i) in archiveData.items" :key="item.id || i" class="dc-history-row dc-status-row">
@@ -462,24 +457,15 @@ onMounted(loadAll)
         </div>
       </template>
     </VCardText>
-    <VDialog v-model="showDialog" max-width="420">
-      <VCard class="dc-action-dialog">
-        <VCardText class="dc-dialog-body">
-          <div class="dc-dialog-poster">
-            <VImg v-if="dialogPoster()" :src="dialogPoster()" cover />
-            <VIcon v-else icon="mdi-filmstrip" size="26" />
-          </div>
-          <div class="dc-dialog-info">
-            <div class="dc-dialog-title">{{ dialogItem?.item?.title || '选择操作' }}</div>
-            <div class="dc-dialog-meta">{{ dialogItem?.item?.year || rankNames[dialogItem?.rk] || '' }}</div>
-          </div>
-        </VCardText>
-        <VDivider />
-        <VCardActions class="dc-dialog-actions">
-          <VBtn :color="sourceButtonColor()" variant="text" prepend-icon="mdi-open-in-new" @click="doOpenSource">豆瓣</VBtn>
-          <VBtn color="primary" variant="text" prepend-icon="mdi-database-search-outline" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
+    <VDialog v-model="showDialog" max-width="360">
+      <VCard>
+        <VCardTitle class="text-subtitle-1">{{ dialogItem?.item?.title || '选择操作' }}</VCardTitle>
+        <VCardText class="text-caption text-medium-emphasis">{{ dialogItem?.item?.year || '' }}</VCardText>
+        <VCardActions>
+          <VBtn :color="sourceButtonColor()" variant="text" @click="doOpenSource">来源</VBtn>
+          <VBtn color="primary" variant="text" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
           <VSpacer />
-          <VBtn color="success" variant="flat" prepend-icon="mdi-plus-circle-outline" @click="doSubscribe">订阅</VBtn>
+          <VBtn color="success" variant="flat" @click="doSubscribe">订阅</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
@@ -492,7 +478,6 @@ onMounted(loadAll)
 .dc-flow { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; }
 .dc-section { grid-column: span 6; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .6)); border-radius: 8px; padding: 10px; min-width: 0; }
 .dc-section--stats, .dc-section--history, .dc-section--logs { grid-column: span 12; }
-.dc-section--archive { grid-column: 1 / -1; }
 .dc-section-title { font-size: 14px; font-weight: 600; color: rgb(var(--v-theme-primary)); }
 .dc-title-with-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .dc-blacklist-chip { max-width: 120px; }
@@ -506,9 +491,8 @@ onMounted(loadAll)
 .dc-rank-head { display: flex; align-items: center; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
 .dc-rank-row { display: flex; align-items: center; gap: 4px; padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 12px; min-width: 0; }
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
-.dc-rank-poster { flex: 0 0 auto; }
 .dc-rank-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .5); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .5); font-size: 11px; }
 .dc-rank-empty { text-align: center; color: rgba(var(--v-theme-on-surface), .55); font-size: 12px; padding: 8px 0; }
 .dc-history-list { display: flex; flex-direction: column; gap: 2px; }
 .dc-history-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 6px; padding: 5px 6px; border-radius: 6px; transition: background .12s; }
@@ -520,13 +504,6 @@ onMounted(loadAll)
 .dc-history-meta { display: flex; align-items: center; gap: 4px; margin-top: 1px; min-width: 0; overflow: hidden; }
 .dc-row-status { max-width: 160px; }
 .dc-row-action { flex: 0 0 auto; }
-.dc-action-dialog { border-radius: 12px; overflow: hidden; }
-.dc-dialog-body { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: center; padding: 14px 16px 12px; }
-.dc-dialog-poster { width: 64px; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; display: flex; align-items: center; justify-content: center; color: rgba(var(--v-theme-on-surface), .45); background: rgba(var(--v-theme-on-surface), .06); }
-.dc-dialog-info { min-width: 0; }
-.dc-dialog-title { font-size: 15px; font-weight: 700; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-dialog-meta { margin-top: 4px; font-size: 12px; color: rgba(var(--v-theme-on-surface), .62); min-height: 18px; }
-.dc-dialog-actions { padding: 8px 12px 12px; gap: 4px; }
 @media (max-width: 760px) {
   .dc-flow { grid-template-columns: 1fr; }
   .dc-section { grid-column: 1 / -1; padding: 10px; }

@@ -1,13 +1,12 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
-import { rmSync } from 'node:fs'
 
 export default defineConfig({
   plugins: [
     vue(),
     federation({
-      name: 'DoubanCenter',
+      name: 'DoubanCenterV121',
       filename: 'remoteEntry.js',
       exposes: {
         './Config': './src/components/Config.vue',
@@ -15,18 +14,12 @@ export default defineConfig({
         './Dashboard': './src/components/Dashboard.vue',
       },
       shared: {
-        vue: { requiredVersion: false, generate: false, import: false },
-        vuetify: { requiredVersion: false, generate: false, singleton: true, import: false },
-        'vuetify/styles': { requiredVersion: false, generate: false, singleton: true, import: false },
+        vue: { requiredVersion: false, generate: false },
+        vuetify: { requiredVersion: false, generate: false, singleton: true },
+        'vuetify/styles': { requiredVersion: false, generate: false, singleton: true },
       },
       format: 'esm',
     }),
-    {
-      name: 'remove-unused-vuetify-shared-styles',
-      closeBundle() {
-        rmSync('dist/assets/__federation_shared_vuetify', { recursive: true, force: true })
-      },
-    },
   ],
   build: {
     target: 'esnext',
