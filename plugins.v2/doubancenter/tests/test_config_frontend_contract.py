@@ -4,6 +4,8 @@ import unittest
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 CONFIG_VUE = PLUGIN_DIR / "src" / "components" / "Config.vue"
+PAGE_VUE = PLUGIN_DIR / "src" / "components" / "Page.vue"
+DASHBOARD_VUE = PLUGIN_DIR / "src" / "components" / "Dashboard.vue"
 DIST_ASSETS = PLUGIN_DIR / "dist" / "assets"
 
 
@@ -80,6 +82,48 @@ class ConfigFrontendContractTest(unittest.TestCase):
 
         for asset in stale_assets:
             self.assertFalse((DIST_ASSETS / asset).exists(), asset)
+
+    def test_page_source_keeps_runtime_detail_behaviour(self):
+        text = PAGE_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            "nativeSubscribe",
+            "blacklistEntries",
+            "pending_observations",
+            "rank_history",
+            "archive_records",
+            "delete_observation",
+            "delete_subscribe_history",
+            "delete_anti_cheat_log",
+            "restore_archive",
+            "delete_archive",
+            "resolve_media",
+            "bangumi_id",
+            "subscribeViaNativeDialog",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
+
+        self.assertIn("log.reason !== '黑名单关键词'", text)
+        self.assertIn("log.reason === '黑名单关键词'", text)
+        self.assertNotIn("if (c) cheatLogs.value = c", text)
+
+    def test_dashboard_source_keeps_native_subscribe_behaviour(self):
+        text = DASHBOARD_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            "nativeSubscribe",
+            "resolve_media",
+            "bangumi_id",
+            "subscribeViaNativeDialog",
+            "postPluginApi(props.api, `subscribe?",
+            "showActionDialog",
+            "dc-rank-wish",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
+
+        self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
 
 
 if __name__ == "__main__":
