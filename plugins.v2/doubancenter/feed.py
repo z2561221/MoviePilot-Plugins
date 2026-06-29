@@ -4,7 +4,6 @@ DoubanCenter - 榜单订阅引擎
 import datetime
 import re
 import time
-import xml.dom.minidom
 from typing import Any, Dict, List, Optional
 
 from app.chain.subscribe import SubscribeChain
@@ -16,6 +15,7 @@ from app.utils.dom import DomUtils
 from app.utils.http import RequestUtils
 
 from . import utils
+from .adapter import rss as rss_adapter
 from .storage import records as storage
 
 RANK_HISTORY_LIMIT = 500
@@ -46,10 +46,7 @@ def _rank_media_type(rank: dict, item: dict) -> str:
 
 def _rss_default_media_type(addr: str) -> str:
     """根据 RSS 地址推断默认媒体类型。"""
-    text = str(addr or "").lower()
-    if "movie_" in text or "/movie" in text:
-        return "movie"
-    return "tv"
+    return rss_adapter.default_media_type(addr)
 
 
 def _record_history_item(history: List[dict], entry: dict) -> None:
@@ -849,60 +846,15 @@ def _add_sub(self, mediainfo, meta=None, rank_key="", rank_name="", source_link:
 
 
 def _fetch_coming_rss(self, addr: str) -> List[dict]:
-    try:
-        ret = RequestUtils(proxies=settings.PROXY).get_res(addr) if self._proxy else RequestUtils().get_res(addr)
-        if not ret:
-            return []
-        dom = xml.dom.minidom.parseString(ret.text)
-        root = dom.documentElement
-        result = []
-        for item in root.getElementsByTagName("item"):
-            title = DomUtils.tag_value(item, "title", default="")
-            link = DomUtils.tag_value(item, "link", default="")
-            desc = DomUtils.tag_value(item, "description", default="")
-            cat = DomUtils.tag_value(item, "category", default="")
-            if not title and not link:
-                continue
-            result.append({"title": title, "link": link, "description": desc, "wish_count": utils.parse_wish_count(desc), "year": utils.parse_year(cat), "regions": utils.parse_regions_and_genres(cat)[0], "genres": utils.parse_regions_and_genres(cat)[1]})
-        return result
-    except Exception as err:
-        logger.error(f"获取即将上映 RSS 失败：{err}")
-        return []
+    rss_adapter.RequestUtils = RequestUtils
+    rss_adapter.DomUtils = DomUtils
+    return rss_adapter.fetch_coming(self, addr)
 
 
 def _fetch_rss(self, addr: str) -> List[dict]:
-    try:
-        ret = RequestUtils(proxies=settings.PROXY).get_res(addr) if self._proxy else RequestUtils().get_res(addr)
-        if not ret:
-            return []
-        dom = xml.dom.minidom.parseString(ret.text)
-        root = dom.documentElement
-        result = []
-        default_mtype = _rss_default_media_type(addr)
-        for item in root.getElementsByTagName("item"):
-            title = DomUtils.tag_value(item, "title", default="")
-            link = DomUtils.tag_value(item, "link", default="")
-            desc = DomUtils.tag_value(item, "description", default="")
-            if not title:
-                continue
-            mtype = default_mtype
-            if re.search(r"第[一二三四五六七八九十\d]+季|Season\s*\d+", title, re.IGNORECASE):
-                mtype = "tv"
-            doubanid = None
-            if link:
-                m = re.search(r"/subject/(\d+)/?", link)
-                if m:
-                    doubanid = m.group(1)
-            year = None
-            if desc:
-                m = re.search(r"\b(19|20)\d{2}\b", desc)
-                if m:
-                    year = m.group(0)
-            result.append({"title": title, "link": link, "mtype": mtype, "doubanid": doubanid, "year": year})
-        return result
-    except Exception as err:
-        logger.error(f"获取 RSS 失败：{err}")
-        return []
+    rss_adapter.RequestUtils = RequestUtils
+    rss_adapter.DomUtils = DomUtils
+    return rss_adapter.fetch_rank(self, addr)
 
 
 def get_enabled_rank_keys(self) -> List[str]:
