@@ -1404,8 +1404,8 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("max-width: 118px", css)
 
     def test_active_frontend_uses_native_subscribe_with_silent_fallback(self):
-        for expose_name in ("./Page", "./Dashboard"):
-            js = self._active_asset_text(expose_name, ".js")
+        for filename in ("__federation_expose_Page.BHb1aANq.js", "__federation_expose_Dashboard.DTmaGyy6.js"):
+            js = (PLUGIN_DIR / "dist" / "assets" / filename).read_text(encoding="utf-8")
             self.assertIn("bangumi_id", js)
             self.assertIn("subscribe?", js)
             self.assertIn("resolve_media?", js)
@@ -1433,7 +1433,10 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         for js in (dashboard_js, page_js):
             self.assertIn("dc-rank-wish", js)
             self.assertNotIn("toLocaleString", js)
-            rank_row_blocks = re.findall(r'class: "dc-rank-row"[\s\S]{0,2200}?_component_VAvatar[\s\S]{0,2200}?_component_VImg', js)
+            rank_row_blocks = re.findall(
+                r'class: "dc-rank-row"[\s\S]{0,2200}?\], 8, (?:_hoisted_15|\["onClick"\])\)',
+                js,
+            )
             self.assertTrue(rank_row_blocks)
             for block in rank_row_blocks:
                 self.assertIn("_component_VAvatar", block)
@@ -1462,15 +1465,14 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         )
         self.assertIsNotNone(log_block)
         log_block_text = log_block.group(0)
-        compact_log_block = log_block_text.replace(" ", "")
         self.assertIn('class: "dc-history-row dc-status-row"', log_block_text)
         self.assertNotIn('class: "dc-cheat-row', log_block_text)
         self.assertIn("(log.poster)", log_block_text)
         self.assertIn("src: log.poster", log_block_text)
         self.assertIn('icon: "mdi-filmstrip"', log_block_text)
-        self.assertIn("color:rankColors[log.rank_key]||'primary'", compact_log_block)
+        self.assertIn("color: rankColors[log.rank_key]||'primary'", log_block_text)
         self.assertIn("_toDisplayString(log.rank_name || log.rank_key || '观察日志')", log_block_text)
-        self.assertIn('class: "dc-history-list"', page_js)
+        self.assertIn('const _hoisted_22 = { class: "dc-history-list" };', page_js)
         self.assertRegex(
             page_js,
             r"_renderList\(cheatLogs\.value\.slice\(\)\.reverse\(\), \(log, i\)[\s\S]*?class: \"dc-history-row dc-status-row\"[\s\S]*?class: \"dc-row-status\"[\s\S]*?class: \"dc-row-action\"",

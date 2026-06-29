@@ -289,6 +289,7 @@ onMounted(load)
                 <VAvatar size="16" class="mr-1 flex-shrink-0"><VImg v-if="item.poster" :src="item.poster" /><VIcon v-else icon="mdi-filmstrip" size="10" /></VAvatar>
                 <span class="dc-rank-name">{{ item.title }}</span>
                 <span v-if="rk === 'coming' && item.wish_count" class="dc-rank-wish">{{ item.wish_count }}</span>
+                <span v-else class="dc-rank-num">{{ item.year || '' }}</span>
               </div>
               <div v-if="!(rankHistory[rk] || []).length" class="text-center text-medium-emphasis py-2 text-caption">暂无数据</div>
             </div>
@@ -328,7 +329,7 @@ onMounted(load)
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
 .dc-rank-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-rank-num { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; }
-.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .5); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .5); font-size: 11px; white-space: nowrap; }
 @media (max-width: 960px) { .dc-rank-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 600px) { .dc-rank-grid { grid-template-columns: repeat(2, 1fr); } }
 </style>
