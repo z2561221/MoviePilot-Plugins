@@ -18,12 +18,12 @@ const defaults = {
   enabled: false, cron: '0 8 * * *', notify: false, proxy: false, onlyonce: false,
   rsshub_domain: 'https://rsshub.ddsrem.com',
   rank_configs: {
-    coming: { enabled: false, count: 10, wish_count: 5000, air_days: 7, vote: 0, year: 0 },
-    tv_real_time: { enabled: false, count: 10, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    tv_chinese: { enabled: false, count: 10, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    tv_global: { enabled: false, count: 10, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    movie_weekly: { enabled: false, count: 10, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    bangumi: { enabled: false, count: 10, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    coming: { enabled: false, count: 0, wish_count: 5000, air_days: 7, vote: 0, year: 0 },
+    tv_real_time: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    tv_chinese: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    tv_global: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    movie_weekly: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    bangumi: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
   },
   region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '',
   folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false,
@@ -34,10 +34,6 @@ const defaults = {
   observe_days: 0,
   observe_rank_keys: ['coming', 'tv_real_time'],
 }
-
-const regionOptions = ['中国大陆', '中国香港', '中国台湾', '美国', '日本', '韩国', '英国', '泰国', '印度', '法国', '德国', '西班牙', '加拿大', '澳大利亚', '俄罗斯', '瑞典', '丹麦', '爱尔兰', '意大利', '巴西']
-const genreOptions = ['爱情', '喜剧', '剧情', '悬疑', '古装', '动作', '犯罪', '科幻', '家庭', '奇幻', '武侠', '历史', '动画', '惊悚', '战争', '冒险', '恐怖', '灾难', '传记', '音乐', '歌舞']
-const resolutionOptions = [{ title: '2160p/4K', value: '2160p|4k|uhd' }, { title: '1080p', value: '1080p' }, { title: '720p', value: '720p' }]
 
 const rankDefs = [
   { key: 'coming', name: '即将上映', route: '/douban/tv/coming', filters: ['wish_count', 'air_days'] },
@@ -50,14 +46,14 @@ const rankDefs = [
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '运行链路、模块状态和待关注事项。' },
-  { key: 'rank', title: '榜单订阅', icon: 'mdi-trophy-outline', desc: '6 个内置榜单 + 自定义 RSS，统一订阅到豆瓣中心。' },
+  { key: 'rank', title: '榜单订阅', icon: 'mdi-trophy-outline', desc: '6 个内置榜单统一订阅到豆瓣中心。' },
   { key: 'folio', title: '豆瓣时间', icon: 'mdi-book-clock-outline', desc: '追剧观影自动同步进度到豆瓣时间线。' },
   { key: 'dashboard', title: '仪表显示', icon: 'mdi-view-dashboard-outline', desc: '时间线 + 榜单排行双面板。' },
 ]
 
 const subTabs = {
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
-  rank: [{ key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' }, { key: 'list', title: '榜单列表', icon: 'mdi-format-list-bulleted' }, { key: 'filter', title: '条件筛选', icon: 'mdi-filter-variant' }],
+  rank: [{ key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' }, { key: 'list', title: '榜单列表', icon: 'mdi-format-list-bulleted' }, { key: 'filter', title: '订阅观察', icon: 'mdi-shield-search' }],
   folio: [{ key: 'sync', title: '同步设置', icon: 'mdi-sync' }],
   dashboard: [{ key: 'view', title: '仪表盘选择', icon: 'mdi-view-dashboard-outline' }],
 }
@@ -110,7 +106,13 @@ watch(() => props.initialConfig, val => {
 }, { immediate: true, deep: true })
 
 function saveConfig() {
-  emit('save', { ...form })
+  emit('save', {
+    ...form,
+    region_filters: [],
+    genre_filters: [],
+    resolution_filters: [],
+    custom_rss_addrs: '',
+  })
 }
 
 function selectMain(key) {
@@ -229,7 +231,7 @@ onMounted(loadOverview)
                   <div class="dc-rank-card-body">
                     <div class="dc-rank-field">
                       <span class="dc-rank-label">数量</span>
-                      <VTextField v-model.number="form.rank_configs[rd.key].count" type="number" min="1" density="compact" variant="outlined" hide-details class="dc-rank-input" />
+                      <VTextField v-model.number="form.rank_configs[rd.key].count" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" />
                     </div>
                     <div v-if="rd.filters.includes('wish_count')" class="dc-rank-field">
                       <span class="dc-rank-label">想看</span>
@@ -250,18 +252,9 @@ onMounted(loadOverview)
                   </div>
                 </div>
               </div>
-              <div class="dc-section-title mt-4">自定义榜单</div>
-              <VTextarea v-model="form.custom_rss_addrs" label="自定义 RSS 地址（一行一个）" rows="3" auto-grow density="compact" variant="outlined" hide-details />
             </div>
 
             <div v-show="activeSub === 'filter'" class="dc-pane">
-              <div class="dc-section-title">条件筛选</div>
-              <VRow>
-                <VCol cols="12" md="6"><VSelect v-model="form.region_filters" :items="regionOptions" label="地区筛选" multiple chips closable-chips clearable density="compact" variant="outlined" hide-details /><div class="dc-hint">即将上映专用</div></VCol>
-                <VCol cols="12" md="6"><VSelect v-model="form.genre_filters" :items="genreOptions" label="类型筛选" multiple chips closable-chips clearable density="compact" variant="outlined" hide-details /><div class="dc-hint">即将上映专用</div></VCol>
-              </VRow>
-              <VRow class="mt-2"><VCol cols="12" md="6"><VSelect v-model="form.resolution_filters" :items="resolutionOptions" item-title="title" item-value="value" label="订阅分辨率" multiple chips closable-chips clearable density="compact" variant="outlined" hide-details hint="不选则沿用系统默认" persistent-hint /></VCol></VRow>
-              <VDivider class="my-3" />
               <div class="dc-section-title">观察设置</div>
               <VRow>
                 <VCol cols="12" md="8"><VSelect v-model="form.observe_rank_keys" :items="rankDefs.map(r => ({ title: r.name, value: r.key }))" label="观察榜单" multiple chips clearable density="compact" variant="outlined" hide-details hint="被选中的榜单会先进入观察队列，达到观察期后再订阅" persistent-hint /></VCol>
