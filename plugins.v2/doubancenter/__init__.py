@@ -17,6 +17,14 @@ from app.schemas.types import EventType
 
 from . import dashboard as dash, feed, folio, migration
 from . import utils
+from .model.config import (
+    DEFAULT_CRON,
+    DEFAULT_RSSHUB_DOMAIN,
+    GENRE_OPTIONS,
+    REGION_OPTIONS,
+    RESOLUTION_OPTIONS,
+    default_config,
+)
 
 lock = threading.Lock()
 
@@ -34,11 +42,11 @@ class DoubanCenter(_PluginBase):
     auth_level = 1
 
     _enabled = False
-    _cron = "0 8 * * *"
+    _cron = DEFAULT_CRON
     _notify = False
     _proxy = False
     _onlyonce = False
-    _rsshub_domain = "https://rsshub.ddsrem.com"
+    _rsshub_domain = DEFAULT_RSSHUB_DOMAIN
     _rank_configs: Dict[str, Any] = {}
     _region_filters: List[str] = []
     _genre_filters: List[str] = []
@@ -60,9 +68,9 @@ class DoubanCenter(_PluginBase):
     _observe_days: int = 0
     _observe_rank_keys: List[str] = []
 
-    _region_options = ["中国大陆", "中国香港", "中国台湾", "美国", "日本", "韩国", "英国", "泰国", "印度", "法国", "德国", "西班牙", "加拿大", "澳大利亚", "俄罗斯", "瑞典", "丹麦", "爱尔兰", "意大利", "巴西"]
-    _genre_options = ["爱情", "喜剧", "剧情", "悬疑", "古装", "动作", "犯罪", "科幻", "家庭", "奇幻", "武侠", "历史", "动画", "惊悚", "战争", "冒险", "恐怖", "灾难", "传记", "音乐", "歌舞"]
-    _resolution_options = [{"title":"2160p/4K","value":"2160p|4k|uhd"},{"title":"1080p","value":"1080p"},{"title":"720p","value":"720p"}]
+    _region_options = REGION_OPTIONS
+    _genre_options = GENRE_OPTIONS
+    _resolution_options = RESOLUTION_OPTIONS
 
     _scheduler = None
     _wait_process: Dict = None
@@ -74,11 +82,11 @@ class DoubanCenter(_PluginBase):
     def init_plugin(self, config: dict = None):
         config = config or {}
         self._enabled = config.get("enabled", False)
-        self._cron = config.get("cron") or "0 8 * * *"
+        self._cron = config.get("cron") or DEFAULT_CRON
         self._notify = config.get("notify", False)
         self._proxy = config.get("proxy", False)
         self._onlyonce = config.get("onlyonce", False)
-        self._rsshub_domain = utils.normalize_rss_domain(config.get("rsshub_domain") or "https://rsshub.ddsrem.com")
+        self._rsshub_domain = utils.normalize_rss_domain(config.get("rsshub_domain") or DEFAULT_RSSHUB_DOMAIN)
         self._rank_configs = config.get("rank_configs") or {}
         self._region_filters = []
         self._genre_filters = []
@@ -126,6 +134,10 @@ class DoubanCenter(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        return []
+
+    @staticmethod
+    def get_agent_tools() -> List[type]:
         return []
 
     def get_api(self) -> List[Dict[str, Any]]:
@@ -288,7 +300,7 @@ class DoubanCenter(_PluginBase):
         return "vue", "dist/assets"
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
-        return None, {"enabled":False,"cron":"0 8 * * *","notify":False,"proxy":False,"onlyonce":False,"rsshub_domain":"https://rsshub.ddsrem.com","rank_configs":{"coming":{"enabled":False,"count":0,"wish_count":5000,"air_days":7,"vote":0,"year":0},"tv_real_time":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"tv_chinese":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"tv_global":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"movie_weekly":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0},"bangumi":{"enabled":False,"count":0,"wish_count":0,"air_days":0,"vote":0,"year":0}},"region_filters":[],"genre_filters":[],"resolution_filters":[],"custom_rss_addrs":"","folio_enabled":True,"folio_private":True,"folio_first":True,"folio_notify":False,"folio_user":"","folio_exclude":"","folio_cookie":"","folio_pc_month":3,"folio_pc_num":50,"folio_mobile_month":2,"folio_mobile_num":15,"dashboard_rank_keys":[],"blacklist_keywords":"","observe_days":0,"observe_rank_keys":feed.default_observe_rank_keys()}
+        return None, default_config()
 
     def get_page(self) -> Optional[List[dict]]:
         return None

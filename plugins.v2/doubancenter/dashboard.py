@@ -8,6 +8,7 @@ from app.chain.media import MediaChain
 from app.core.metainfo import MetaInfo
 from app.schemas.types import MediaType
 
+from .storage import records as storage
 
 DETAIL_SECTION_LIMIT = 5
 DETAIL_OVERFLOW_REASON = "超过详情页显示上限归档"
@@ -20,7 +21,7 @@ def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Di
 
 
 def get_timeline_items(self, mobile: bool = False) -> List[dict]:
-    data: Dict = self.get_data('folio_data') or {}
+    data: Dict = storage.read_folio_data(self)
     content = []
     last_month = None
     cur = None
@@ -66,9 +67,9 @@ def _fin(item, limit):
 
 def api_folio_data(self):
     """获取豆瓣时间数据，优先读自己的，没有则读原版豆瓣中心的。"""
-    data = self.get_data('folio_data') or {}
+    data = storage.read_folio_data(self)
     if not data:
-        data = self.get_data('folio_data', plugin_id='DoubanCenter') or {}
+        data = storage.read_folio_data(self, plugin_id='DoubanCenter')
     return {"data": data}
 
 
@@ -286,10 +287,10 @@ def api_stats(self):
     """订阅统计：基于 subscribe_records 统计"""
     from .feed import BUILTIN_RANKS
 
-    records = self.get_data("subscribe_records") or []
+    records = storage.read_subscribe_records(self)
     records, changed = _dedupe_subscribe_records(records)
     if changed:
-        self.save_data("subscribe_records", records)
+        storage.save_subscribe_records(self, records)
     total = len(records)
     rank_names = {rank["key"]: rank["name"] for rank in BUILTIN_RANKS}
     rank_dist = {rank["key"]: 0 for rank in BUILTIN_RANKS}
@@ -326,12 +327,12 @@ def api_stats(self):
 
 def api_subscribe_history(self, page=1, page_size=20):
     """订阅历史：基于 subscribe_records 分页"""
-    records = self.get_data("subscribe_records") or []
+    records = storage.read_subscribe_records(self)
     records, changed = _dedupe_subscribe_records(records)
     records.sort(key=lambda x: x.get("time", ""), reverse=True)
     records, overflow_changed = _archive_detail_overflow(self, records, "subscribe_history", "订阅历史")
     if changed or overflow_changed:
-        self.save_data("subscribe_records", records)
+        storage.save_subscribe_records(self, records)
     total = len(records)
     start = (page - 1) * page_size
     end = start + page_size
@@ -473,9 +474,7 @@ def _archive_record(self, source: str, record: dict, source_name: str = "", dedu
     """将详情页删除的记录写入归档。"""
     if not isinstance(record, dict):
         return None
-    archives = self.get_data("archive_records") or []
-    if not isinstance(archives, list):
-        archives = []
+    archives = storage.read_archive_records(self)
     if dedupe:
         for index, archive in enumerate(archives):
             if not isinstance(archive, dict) or archive.get("source") != source:
@@ -483,7 +482,7 @@ def _archive_record(self, source: str, record: dict, source_name: str = "", dedu
             if _same_archive_record(source, archive.get("record") or {}, record):
                 if _archive_record_score(record) > _archive_record_score(archive.get("record") or {}):
                     archives[index] = _update_archive_item_from_record(archive, source, record, source_name)
-                    self.save_data("archive_records", archives)
+                    storage.save_archive_records(self, archives)
                     return archives[index]
                 return archive
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -502,9 +501,7 @@ def _archive_record(self, source: str, record: dict, source_name: str = "", dedu
         "record": copied,
     }
     archives.append(item)
-    if len(archives) > 500:
-        archives = archives[-500:]
-    self.save_data("archive_records", archives)
+    storage.save_archive_records(self, archives)
     return item
 
 
@@ -587,12 +584,10 @@ def _anti_cheat_log_key(record: dict) -> tuple:
 
 def _remove_legacy_observation_completed_archives(self) -> bool:
     """将旧版观察完成归档迁回观察日志并从归档页移除。"""
-    archives = self.get_data("archive_records") or []
+    archives = storage.read_archive_records(self)
     if not isinstance(archives, list):
         return False
-    logs = self.get_data("anti_cheat_logs") or []
-    if not isinstance(logs, list):
-        logs = []
+    logs = storage.read_anti_cheat_logs(self)
     existing_log_keys = {_anti_cheat_log_key(log) for log in logs if isinstance(log, dict)}
     kept_archives = []
     changed = False
@@ -613,14 +608,14 @@ def _remove_legacy_observation_completed_archives(self) -> bool:
             existing_log_keys.add(key)
         changed = True
     if changed:
-        self.save_data("archive_records", kept_archives)
-        self.save_data("anti_cheat_logs", logs[-100:])
+        storage.save_archive_records(self, kept_archives)
+        storage.save_anti_cheat_logs(self, logs)
     return changed
 
 
 def _remove_archive(self, archive_id: str) -> Optional[dict]:
     """从归档列表取出并删除一条归档记录。"""
-    archives = self.get_data("archive_records") or []
+    archives = storage.read_archive_records(self)
     if not isinstance(archives, list):
         return None
     removed = None
@@ -631,13 +626,13 @@ def _remove_archive(self, archive_id: str) -> Optional[dict]:
             continue
         kept.append(item)
     if removed:
-        self.save_data("archive_records", kept)
+        storage.save_archive_records(self, kept)
     return removed
 
 
 def api_delete_subscribe_history(self, time: str = "", title: str = "", tmdbid: Any = None):
     """删除一条豆瓣中心订阅历史记录。"""
-    records = self.get_data("subscribe_records") or []
+    records = storage.read_subscribe_records(self)
     removed = [item for item in records if _same_record(item, time=time, title=title, tmdbid=tmdbid)]
     kept = [item for item in records if item not in removed]
     if len(kept) == len(records):
@@ -645,7 +640,7 @@ def api_delete_subscribe_history(self, time: str = "", title: str = "", tmdbid: 
     archive = None
     for item in removed:
         archive = _archive_record(self, "subscribe_history", item, "订阅历史") or archive
-    self.save_data("subscribe_records", kept)
+    storage.save_subscribe_records(self, kept)
     return {"success": True, "message": "已归档订阅历史记录", "archive_id": archive.get("id") if archive else ""}
 
 
@@ -662,7 +657,7 @@ def api_pending_observations(self):
     changed_rank_keys = set()
     for rank in BUILTIN_RANKS:
         rank_key = rank["key"]
-        data_key = "coming_history" if rank_key == "coming" else f"rank_history_{rank_key}"
+        data_key = storage.rank_history_key(rank_key)
         history = get_rank_history_by_key(self, rank_key)
         histories[rank_key] = (data_key, history)
         changed = False
@@ -727,7 +722,7 @@ def api_pending_observations(self):
     for rank_key in changed_rank_keys:
         data_key, history = histories.get(rank_key, ("", []))
         if data_key:
-            self.save_data(data_key, history)
+            storage.save_rank_history(self, rank_key, history)
     return {"data": items}
 
 
@@ -739,7 +734,6 @@ def api_delete_observation(self, unique: str = "", rank_key: str = "", title: st
     rank_keys = [rank_key] if rank_key else [rank["key"] for rank in BUILTIN_RANKS]
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for key in rank_keys:
-        data_key = "coming_history" if key == "coming" else f"rank_history_{key}"
         history = get_rank_history_by_key(self, key)
         changed = False
         for item in history:
@@ -756,7 +750,7 @@ def api_delete_observation(self, unique: str = "", rank_key: str = "", title: st
             break
         if changed:
             archive = _archive_record(self, "observation", record, "观察队列")
-            self.save_data(data_key, history)
+            storage.save_rank_history(self, key, history)
             return {"success": True, "message": "已归档观察条目", "archive_id": archive.get("id") if archive else ""}
     return {"success": False, "message": "未找到观察条目"}
 
@@ -795,7 +789,7 @@ def _dedupe_anti_cheat_logs(logs: list) -> tuple:
 def _finished_observation_titles(self) -> set:
     """收集已经结束观察的条目标题，用于清理观察日志。"""
     titles = set()
-    records = self.get_data("subscribe_records") or []
+    records = storage.read_subscribe_records(self)
     if isinstance(records, list):
         for record in records:
             if not isinstance(record, dict):
@@ -863,7 +857,7 @@ def _append_observation_completion_logs(self, logs: list) -> tuple:
         for log in logs
         if isinstance(log, dict) and str(log.get("reason") or "") == "观察期完成"
     }
-    archives = self.get_data("archive_records") or []
+    archives = storage.read_archive_records(self)
     if isinstance(archives, list):
         for archive in archives:
             if not isinstance(archive, dict):
@@ -917,11 +911,11 @@ def _reconcile_anti_cheat_logs(self, logs: list) -> tuple:
 def api_anti_cheat_logs(self):
     """观察日志。"""
     _remove_legacy_observation_completed_archives(self)
-    logs = self.get_data("anti_cheat_logs") or []
+    logs = storage.read_anti_cheat_logs(self)
     logs, changed = _reconcile_anti_cheat_logs(self, logs)
     logs, overflow_changed = _archive_anti_cheat_overflow(self, logs)
     if changed or overflow_changed:
-        self.save_data("anti_cheat_logs", logs)
+        storage.save_anti_cheat_logs(self, logs)
     return {"data": logs}
 
 
@@ -930,27 +924,19 @@ def api_overview(self):
     from .feed import BUILTIN_RANKS, get_rank_history_by_key
 
     _remove_legacy_observation_completed_archives(self)
-    subscribe_records = self.get_data("subscribe_records") or []
-    if not isinstance(subscribe_records, list):
-        subscribe_records = []
+    subscribe_records = storage.read_subscribe_records(self)
     subscribe_records, changed_subscribe_records = _dedupe_subscribe_records(subscribe_records)
     if changed_subscribe_records:
-        self.save_data("subscribe_records", subscribe_records)
-    anti_cheat_logs = self.get_data("anti_cheat_logs") or []
-    if not isinstance(anti_cheat_logs, list):
-        anti_cheat_logs = []
+        storage.save_subscribe_records(self, subscribe_records)
+    anti_cheat_logs = storage.read_anti_cheat_logs(self)
     anti_cheat_logs, changed_anti_cheat_logs = _reconcile_anti_cheat_logs(self, anti_cheat_logs)
     if changed_anti_cheat_logs:
-        self.save_data("anti_cheat_logs", anti_cheat_logs)
-    archive_records = self.get_data("archive_records") or []
-    if not isinstance(archive_records, list):
-        archive_records = []
+        storage.save_anti_cheat_logs(self, anti_cheat_logs)
+    archive_records = storage.read_archive_records(self)
     archive_records, changed_archive_records = _dedupe_archive_records(archive_records)
     if changed_archive_records:
-        self.save_data("archive_records", archive_records)
-    folio_data = self.get_data("folio_data") or {}
-    if not isinstance(folio_data, dict):
-        folio_data = {}
+        storage.save_archive_records(self, archive_records)
+    folio_data = storage.read_folio_data(self)
 
     rank_items = 0
     last_refresh = ""
@@ -1041,13 +1027,11 @@ def api_overview(self):
 def api_archive_records(self, page: int = 1, page_size: int = 20):
     """返回详情页归档记录。"""
     _remove_legacy_observation_completed_archives(self)
-    archives = self.get_data("archive_records") or []
-    if not isinstance(archives, list):
-        archives = []
+    archives = storage.read_archive_records(self)
     archives = [item for item in archives if isinstance(item, dict)]
     archives, changed = _dedupe_archive_records(archives)
     if changed:
-        self.save_data("archive_records", archives)
+        storage.save_archive_records(self, archives)
     archives.sort(key=lambda x: x.get("archived_at", ""), reverse=True)
     total = len(archives)
     start = (int(page) - 1) * int(page_size)
@@ -1065,20 +1049,19 @@ def api_restore_archive(self, archive_id: str = ""):
     source = archive.get("source")
     record = archive.get("record") or {}
     if source == "subscribe_history":
-        records = self.get_data("subscribe_records") or []
+        records = storage.read_subscribe_records(self)
         if not any(_same_record(item, unique=record.get("unique", ""), time=record.get("time", ""), title=record.get("title", ""), tmdbid=record.get("tmdbid")) for item in records):
             records.append(record)
-        self.save_data("subscribe_records", records)
+        storage.save_subscribe_records(self, records)
     elif source == "anti_cheat_log":
-        logs = self.get_data("anti_cheat_logs") or []
+        logs = storage.read_anti_cheat_logs(self)
         logs.append(record)
-        self.save_data("anti_cheat_logs", logs[-100:])
+        storage.save_anti_cheat_logs(self, logs)
     elif source == "observation":
         rank_key = record.get("rank_key") or archive.get("rank_key") or ""
         if not rank_key:
             return {"success": False, "message": "归档缺少榜单标识"}
-        data_key = "coming_history" if rank_key == "coming" else f"rank_history_{rank_key}"
-        history = self.get_data(data_key) or []
+        history = storage.read_rank_history(self, rank_key)
         restored = False
         for item in history:
             if isinstance(item, dict) and item.get("unique") == record.get("unique"):
@@ -1091,7 +1074,7 @@ def api_restore_archive(self, archive_id: str = ""):
             record["observing"] = True
             record["observe_deleted"] = False
             history.append(record)
-        self.save_data(data_key, history)
+        storage.save_rank_history(self, rank_key, history)
     else:
         return {"success": False, "message": "未知归档类型"}
     return {"success": True, "message": "已恢复归档记录"}
@@ -1111,7 +1094,7 @@ def api_delete_anti_cheat_log(self, time: str = "", title: str = "", reason: str
     """删除一条观察日志记录。"""
     if not (time or title or reason):
         return {"success": False, "message": "缺少观察日志标识"}
-    logs = self.get_data("anti_cheat_logs") or []
+    logs = storage.read_anti_cheat_logs(self)
     removed = [
         item for item in logs
         if (
@@ -1127,5 +1110,5 @@ def api_delete_anti_cheat_log(self, time: str = "", title: str = "", reason: str
     archive = None
     for item in removed:
         archive = _archive_record(self, "anti_cheat_log", item, "观察日志") or archive
-    self.save_data("anti_cheat_logs", kept)
+    storage.save_anti_cheat_logs(self, kept)
     return {"success": True, "message": "已归档观察日志", "archive_id": archive.get("id") if archive else ""}
