@@ -144,6 +144,17 @@ def _import_migration():
     return module
 
 
+def _import_service(name):
+    _install_stubs()
+    module_name = f"doubancenter.service.{name}"
+    sys.modules.pop(module_name, None)
+    spec = importlib.util.spec_from_file_location(module_name, PLUGIN_DIR / "service" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 class _Plugin:
     _enabled = True
     _notify = False
@@ -1767,6 +1778,50 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(plugin.messages, [])
         self.assertNotEqual(captured.get("message"), False)
+
+    def test_observation_service_records_first_seen(self):
+        service = _import_service("observation")
+        plugin = _Plugin()
+        history = []
+
+        should_skip = service.check_observe(plugin, "rank:1", history, title="测试电影", rank_key="coming")
+
+        self.assertTrue(should_skip)
+        self.assertEqual(history[0]["unique"], "rank:1")
+        self.assertEqual(history[0]["title"], "测试电影")
+        self.assertTrue(history[0]["observing"])
+        self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "观察期首次记录")
+
+    def test_subscription_service_deduplicates_records(self):
+        service = _import_service("subscription")
+        plugin = _Plugin()
+        mediainfo = _MediaInfo(title="测试电影", year="2026", tmdb_id=12345)
+
+        service.write_subscribe_record(plugin, mediainfo, rank_key="coming", rank_name="即将上映")
+        service.write_subscribe_record(plugin, mediainfo, rank_key="coming", rank_name="即将上映")
+
+        records = plugin.data["subscribe_records"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["title"], "测试电影")
+        self.assertTrue(service.history_item_subscribed({"subscribed": True}))
+
+    def test_archive_service_deduplicates_more_complete_record(self):
+        service = _import_service("archive")
+        plugin = _Plugin()
+
+        first = service.archive_record(plugin, "subscribe_history", {"title": "测试电影"}, "订阅历史", dedupe=True)
+        second = service.archive_record(
+            plugin,
+            "subscribe_history",
+            {"title": "测试电影", "tmdbid": 12345, "poster": "poster.jpg"},
+            "订阅历史",
+            dedupe=True,
+        )
+
+        archives = plugin.data["archive_records"]
+        self.assertEqual(len(archives), 1)
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(archives[0]["record"]["tmdbid"], 12345)
 
 
 if __name__ == "__main__":

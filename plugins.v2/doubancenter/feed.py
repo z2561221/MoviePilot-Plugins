@@ -17,6 +17,8 @@ from app.utils.http import RequestUtils
 from . import utils
 from .adapter import rss as rss_adapter
 from .model import rank as rank_model
+from .service import observation as observation_service
+from .service import subscription as subscription_service
 from .storage import records as storage
 
 RANK_HISTORY_LIMIT = 500
@@ -69,25 +71,17 @@ def _record_history_item(history: List[dict], entry: dict) -> None:
 
 def _history_item_subscribed(item: dict) -> bool:
     """判断历史条目是否已经产生过订阅。"""
-    if not isinstance(item, dict):
-        return False
-    return bool(item.get("subscribed") or item.get("subscribed_at"))
+    return subscription_service.history_item_subscribed(item)
 
 
 def _history_item_existing(item: dict) -> bool:
     """判断历史条目是否已确认存在订阅。"""
-    if not isinstance(item, dict):
-        return False
-    return bool((item.get("existing") or item.get("existing_at")) and item.get("existing_reason") == "subscribe")
+    return subscription_service.history_item_existing(item)
 
 
 def _history_index_by_unique(history: List[dict]) -> Dict[str, dict]:
     """按唯一标识构建榜单历史索引。"""
-    return {
-        item.get("unique"): item
-        for item in history
-        if isinstance(item, dict) and item.get("unique")
-    }
+    return subscription_service.history_index_by_unique(history)
 
 
 # 订阅过滤与观察期工具函数
@@ -95,100 +89,22 @@ def _history_index_by_unique(history: List[dict]) -> Dict[str, dict]:
 
 def _log_anti_cheat(self, reason: str, title: str, detail: str = "", link: str = ""):
     """记录订阅过滤日志。"""
-    logs = storage.read_anti_cheat_logs(self)
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    matched = None
-    kept = []
-    for log in logs:
-        if (
-            isinstance(log, dict)
-            and log.get("reason") == reason
-            and log.get("title") == title
-            and log.get("detail") == detail
-            and (log.get("link") or "") == (link or "")
-        ):
-            if matched is None:
-                matched = dict(log)
-            else:
-                try:
-                    matched["count"] = int(matched.get("count") or 1) + int(log.get("count") or 1)
-                except (TypeError, ValueError):
-                    matched["count"] = int(matched.get("count") or 1) + 1
-            continue
-        kept.append(log)
-    if matched is not None:
-        try:
-            matched["count"] = int(matched.get("count") or 1) + 1
-        except (TypeError, ValueError):
-            matched["count"] = 2
-        matched["time"] = now
-        kept.append(matched)
-        logs = kept
-    else:
-        logs = kept
-        logs.append({
-            "time": now,
-            "reason": reason,
-            "title": title,
-            "detail": detail,
-            "link": link or "",
-        })
-    storage.save_anti_cheat_logs(self, logs)
+    observation_service.log_anti_cheat(self, reason, title, detail=detail, link=link)
 
 
 def _cleanup_observe_logs(self, title: str = "", unique: str = "") -> None:
     """订阅成功后清理对应条目的观察日志。"""
-    logs = storage.read_anti_cheat_logs(self)
-    if not isinstance(logs, list):
-        return
-    observe_reasons = {"观察期首次记录", "观察期未满"}
-    title = str(title or "")
-    unique = str(unique or "")
-    kept = []
-    changed = False
-    for log in logs:
-        if not isinstance(log, dict):
-            kept.append(log)
-            continue
-        reason = str(log.get("reason") or "")
-        log_title = str(log.get("title") or "")
-        if reason in observe_reasons and log_title in {title, unique}:
-            changed = True
-            continue
-        kept.append(log)
-    if changed:
-        storage.save_anti_cheat_logs(self, kept)
+    observation_service.cleanup_observe_logs(self, title=title, unique=unique)
 
 
 def _is_existing_media(mediainfo, meta=None) -> bool:
     """判断媒体是否已存在订阅。"""
-    try:
-        if SubscribeChain().exists(mediainfo=mediainfo, meta=meta):
-            return True
-    except Exception as err:
-        logger.warning(f"豆瓣中心：检查订阅存在状态失败：{err}")
-    return False
+    return subscription_service.is_existing_media(mediainfo, meta=meta, subscribe_chain_cls=SubscribeChain)
 
 
 def _record_existing_history(history: List[dict], unique: str, title: str = "", year: Any = "", link: str = "", mediainfo=None) -> None:
     """记录已存在订阅，避免后续再次进入观察队列。"""
-    existing_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    entry = {
-        "title": getattr(mediainfo, "title", None) or title or unique,
-        "year": getattr(mediainfo, "year", None) or year or "",
-        "link": link,
-        "tmdbid": getattr(mediainfo, "tmdb_id", ""),
-        "time": existing_at,
-        "unique": unique,
-        "existing": True,
-        "existing_at": existing_at,
-        "existing_reason": "subscribe",
-    }
-    try:
-        entry["poster"] = mediainfo.get_poster_image() if mediainfo else ""
-    except Exception:
-        entry["poster"] = ""
-    _record_history_item(history, entry)
+    subscription_service.record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
 
 
 def _match_blacklist_line(line: str, haystack: str) -> bool:
@@ -233,69 +149,17 @@ def _check_blacklist(self, title: str, description: str = "", link: str = "") ->
 
 def default_observe_rank_keys() -> List[str]:
     """返回默认启用观察期的波动榜单。"""
-    return rank_model.default_observe_rank_keys()
+    return observation_service.default_observe_rank_keys()
 
 
 def _rank_observe_enabled(self, rank_key: str = "") -> bool:
     """判断指定榜单是否启用观察期。"""
-    if int(getattr(self, "_observe_days", 0) or 0) <= 0:
-        return False
-    selected = getattr(self, "_observe_rank_keys", None)
-    if selected is None:
-        selected = default_observe_rank_keys()
-    if not isinstance(selected, (list, tuple, set)):
-        return False
-    selected_keys = {str(item) for item in selected if str(item)}
-    if not rank_key:
-        return bool(selected_keys)
-    return str(rank_key) in selected_keys
+    return observation_service.rank_observe_enabled(self, rank_key)
 
 
 def _check_observe(self, unique: str, history: List[dict], title: str = "", rank_key: str = "") -> bool:
     """条目仍处于观察期内时返回 True。"""
-
-    if rank_key and not _rank_observe_enabled(self, rank_key):
-        return False
-    days = int(self._observe_days or 0)
-    if days <= 0:
-        return False
-    now = datetime.datetime.now()
-    for h in history:
-        if h.get("unique") == unique:
-            if h.get("observe_deleted"):
-                logger.info(f"豆瓣中心：条目《{h.get('title') or title or unique}》已从观察队列删除，跳过订阅")
-                return True
-            first_seen = h.get("first_seen") or h.get("time", "")
-            if first_seen:
-                try:
-                    ft = datetime.datetime.strptime(first_seen, "%Y-%m-%d %H:%M:%S")
-                    elapsed = (now - ft).days
-                    if elapsed < days:
-                        h["first_seen"] = first_seen
-                        h["observing"] = True
-                        logger.info(f"豆瓣中心：条目《{h.get('title')}》观察期未满（{elapsed}/{days} 天），跳过订阅")
-                        _log_anti_cheat(self, "观察期未满", h.get("title", ""), f"已过 {elapsed} 天，需要 {days} 天")
-                        return True
-                    logger.info(f"豆瓣中心：条目《{h.get('title') or title or unique}》观察期已满（{elapsed}/{days} 天），继续订阅")
-                    _log_anti_cheat(self, "观察期完成", h.get("title") or title or unique, f"已过 {elapsed} 天，达到 {days} 天")
-                    return False
-                except Exception:
-                    pass
-            h["time"] = now.strftime("%Y-%m-%d %H:%M:%S")
-            h["first_seen"] = h["time"]
-            h["observing"] = True
-            return True
-    observed_at = now.strftime("%Y-%m-%d %H:%M:%S")
-    history.append({
-        "title": title or unique,
-        "time": observed_at,
-        "first_seen": observed_at,
-        "unique": unique,
-        "observing": True,
-    })
-    logger.info(f"豆瓣中心：条目《{title or unique}》首次进入观察期（0/{days} 天），跳过订阅")
-    _log_anti_cheat(self, "观察期首次记录", title or unique, f"需要观察 {days} 天")
-    return True
+    return observation_service.check_observe(self, unique, history, title=title, rank_key=rank_key)
 
 
 def _rc(self, key: str) -> dict:
@@ -312,17 +176,7 @@ def _rcount(self, key: str) -> int:
 
 def _drop_stale_observations(history: List[dict], current_candidates: set) -> None:
     """将已跌出当前候选窗口的观察条目标记为结束。"""
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    for item in history:
-        if not isinstance(item, dict):
-            continue
-        if not item.get("observing") or item.get("subscribed") or item.get("existing") or item.get("observe_deleted"):
-            continue
-        unique = item.get("unique")
-        if unique and unique not in current_candidates:
-            item["observing"] = False
-            item["observe_dropped_at"] = now
-            item["observe_dropped_reason"] = "跌出当前自动订阅候选"
+    observation_service.drop_stale_observations(history, current_candidates)
 
 
 def _positive_number(value: Any) -> bool:
@@ -782,59 +636,20 @@ def _process_items(self, items: List[dict], source: str) -> None:
 
 def _write_subscribe_record(self, mediainfo, rank_key: str = "", rank_name: str = "", status: str = "success", reason: str = "", source_link: str = "") -> None:
     """写入自动订阅历史记录。"""
-    subs = storage.read_subscribe_records(self)
-    record = {
-        "title": mediainfo.title,
-        "year": mediainfo.year or "",
-        "tmdbid": mediainfo.tmdb_id,
-        "poster": mediainfo.get_poster_image(),
-        "media_type": "电影" if mediainfo.type == MediaType.MOVIE else "电视剧",
-        "rank_key": rank_key,
-        "rank_name": rank_name,
-        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "status": status,
-        "reason": reason,
-        "link": source_link or "",
-    }
-    record_key = (
-        str(status or ""),
-        str(mediainfo.tmdb_id or ""),
-        str(mediainfo.title or ""),
-        str(mediainfo.year or ""),
-        str(rank_key or ""),
-    )
-    kept = []
-    for item in subs:
-        if not isinstance(item, dict):
-            kept.append(item)
-            continue
-        item_key = (
-            str(item.get("status") or "success"),
-            str(item.get("tmdbid") or ""),
-            str(item.get("title") or ""),
-            str(item.get("year") or ""),
-            str(item.get("rank_key") or ""),
-        )
-        if item_key == record_key:
-            continue
-        kept.append(item)
-    kept.append(record)
-    storage.save_subscribe_records(self, kept)
+    subscription_service.write_subscribe_record(self, mediainfo, rank_key=rank_key, rank_name=rank_name, status=status, reason=reason, source_link=source_link)
 
 
 def _add_sub(self, mediainfo, meta=None, rank_key="", rank_name="", source_link: str = "") -> bool:
     """按 MP 默认 TMDB 语义执行自动订阅。"""
-    if _is_existing_media(mediainfo, meta):
-        _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""))
-        return False
-    sc = SubscribeChain()
-    sid, msg = sc.add(title=mediainfo.title, year=mediainfo.year or "", mtype=mediainfo.type if mediainfo.type else MediaType.TV, tmdbid=mediainfo.tmdb_id, season=None, resolution=None, sites=None, exist_ok=True, username="豆瓣中心")
-    if not sid:
-        _write_subscribe_record(self, mediainfo, rank_key=rank_key, rank_name=rank_name, status="failed", reason=msg or "订阅失败", source_link=source_link)
-        return False
-    _cleanup_observe_logs(self, title=mediainfo.title)
-    _write_subscribe_record(self, mediainfo, rank_key=rank_key, rank_name=rank_name, status="success", source_link=source_link)
-    return True
+    return subscription_service.add_subscription(
+        self,
+        mediainfo,
+        meta=meta,
+        rank_key=rank_key,
+        rank_name=rank_name,
+        source_link=source_link,
+        subscribe_chain_cls=SubscribeChain,
+    )
 
 
 def _fetch_coming_rss(self, addr: str) -> List[dict]:
