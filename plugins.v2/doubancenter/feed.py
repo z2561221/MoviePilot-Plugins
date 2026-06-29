@@ -16,10 +16,12 @@ from app.utils.http import RequestUtils
 
 from . import utils
 from .adapter import rss as rss_adapter
+from .model import rank as rank_model
 from .storage import records as storage
 
 RANK_HISTORY_LIMIT = 500
-DEFAULT_OBSERVE_RANK_KEYS = ["coming", "tv_real_time"]
+DEFAULT_OBSERVE_RANK_KEYS = rank_model.DEFAULT_OBSERVE_RANK_KEYS
+BUILTIN_RANKS: List[Dict[str, Any]] = rank_model.BUILTIN_RANKS
 
 
 def _trim_history(history: List[dict], limit: int = RANK_HISTORY_LIMIT) -> List[dict]:
@@ -231,7 +233,7 @@ def _check_blacklist(self, title: str, description: str = "", link: str = "") ->
 
 def default_observe_rank_keys() -> List[str]:
     """返回默认启用观察期的波动榜单。"""
-    return list(DEFAULT_OBSERVE_RANK_KEYS)
+    return rank_model.default_observe_rank_keys()
 
 
 def _rank_observe_enabled(self, rank_key: str = "") -> bool:
@@ -294,16 +296,6 @@ def _check_observe(self, unique: str, history: List[dict], title: str = "", rank
     logger.info(f"豆瓣中心：条目《{title or unique}》首次进入观察期（0/{days} 天），跳过订阅")
     _log_anti_cheat(self, "观察期首次记录", title or unique, f"需要观察 {days} 天")
     return True
-
-
-BUILTIN_RANKS: List[Dict[str, Any]] = [
-    {"key": "coming", "name": "即将上映", "route": "/douban/tv/coming", "coming": True, "filters": ["wish_count", "air_days"]},
-    {"key": "tv_real_time", "name": "实时热门", "route": "/douban/list/tv_real_time_hotest", "coming": False, "filters": ["vote", "year"]},
-    {"key": "tv_chinese", "name": "华语口碑", "route": "/douban/list/tv_chinese_best_weekly", "coming": False, "filters": ["vote", "year"]},
-    {"key": "tv_global", "name": "全球口碑", "route": "/douban/list/tv_global_best_weekly", "coming": False, "filters": ["vote", "year"]},
-    {"key": "movie_weekly", "name": "电影口碑", "route": "/douban/list/movie_weekly_best", "coming": False, "filters": ["vote", "year"]},
-    {"key": "bangumi", "name": "BangumiTV", "route": "/bangumi.tv/anime/followrank", "coming": False, "filters": ["vote", "year"]},
-]
 
 
 def _rc(self, key: str) -> dict:

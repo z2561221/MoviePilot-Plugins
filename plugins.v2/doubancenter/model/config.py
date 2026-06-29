@@ -3,7 +3,7 @@
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from .. import feed
+from .rank import default_observe_rank_keys
 
 DEFAULT_CRON = "0 8 * * *"
 DEFAULT_RSSHUB_DOMAIN = "https://rsshub.ddsrem.com"
@@ -141,6 +141,5 @@ def default_config() -> Dict[str, Any]:
         "dashboard_rank_keys": [],
         "blacklist_keywords": "",
         "observe_days": 0,
-        "observe_rank_keys": feed.default_observe_rank_keys(),
+        "observe_rank_keys": default_observe_rank_keys(),
     }
-
