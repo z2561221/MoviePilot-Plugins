@@ -2,20 +2,14 @@
 DoubanCenter v1.2.6 - MoviePilot 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
-import datetime
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-
 from app.core.event import eventmanager, Event
-from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import WebhookEventInfo
 from app.schemas.types import EventType
 
-from . import dashboard as dash, feed, folio, migration
+from . import dashboard as dash, feed, migration
 from . import utils
 from .controller import api as api_controller
 from .model.config import (
@@ -26,8 +20,8 @@ from .model.config import (
     RESOLUTION_OPTIONS,
     default_config,
 )
-
-lock = threading.Lock()
+from .service import scheduler as scheduler_service
+from .service import webhook as webhook_service
 
 
 class DoubanCenter(_PluginBase):
@@ -196,9 +190,7 @@ class DoubanCenter(_PluginBase):
         return api_controller.api_delete_archive(self, archive_id=archive_id)
 
     def get_service(self) -> List[Dict[str, Any]]:
-        if self._enabled and self._cron:
-            return [{"id":"DoubanCenter","name":"豆瓣中心定时服务","trigger":CronTrigger.from_crontab(self._cron),"func":self.__run_all,"kwargs":{}}]
-        return []
+        return scheduler_service.get_services(self, self.__run_all)
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
@@ -214,43 +206,12 @@ class DoubanCenter(_PluginBase):
         return dash.get_dashboard(self, key, **kwargs)
 
     def stop_service(self):
-        try:
-            if self._scheduler:
-                self._scheduler.remove_all_jobs()
-                if self._scheduler.running:
-                    self._scheduler.shutdown()
-                self._scheduler = None
-        except Exception as err:
-            logger.error(str(err))
+        scheduler_service.stop_scheduler(self)
 
     @eventmanager.register(EventType.WebhookMessage)
     def sync_log(self, event: Event, played: bool = False):
-        if not self._enabled or not self._folio_enabled:
-            return
-        if not hasattr(self, '_sync_lock'):
-            self._sync_lock = threading.Lock()
-        if not self._sync_lock.acquire(blocking=False):
-            now = datetime.datetime.now().timestamp()
-            if not hasattr(self, '_last_skip_log_time'):
-                self._last_skip_log_time = 0
-            if now - self._last_skip_log_time > 600:
-                self._last_skip_log_time = now
-            return
-        try:
-            folio.check_cookie_periodically(self)
-            folio.sync_log_handler(self, event.event_data, played=played)
-        finally:
-            self._sync_lock.release()
+        webhook_service.handle_sync_log(self, event=event, played=played)
 
     @eventmanager.register(EventType.WebhookMessage)
     def sync_played(self, event: Event):
-        if not self._enabled or not self._folio_enabled:
-            return
-        ei = event.event_data
-        played = {'item.markplayed', 'media.scrobble'}
-        ip = ei.event in played
-        if ei.channel == "jellyfin":
-            ip = ei.event == 'UserDataSaved' and ei.save_reason == 'TogglePlayed'
-        if ip and ei.user_name in self._folio_user.split(','):
-            with lock:
-                self.sync_log(event=event, played=True)
+        webhook_service.handle_sync_played(self, event=event, sync_log=self.sync_log)
