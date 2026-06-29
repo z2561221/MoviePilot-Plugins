@@ -335,12 +335,12 @@ onMounted(loadOverview)
 .dc-rank-switch { white-space: nowrap; }
 .dc-rank-row .v-row { margin-top: 0; margin-bottom: 0; }
 .dc-rank-row .v-col { padding-top: 1px; padding-bottom: 1px; }
-.dc-rank-list-1col { display: flex; flex-direction: column; gap: 6px; }
-.dc-rank-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; padding: 8px 12px; background: rgba(var(--v-theme-on-surface), .02); transition: border-color .2s, background .2s; }
+.dc-rank-list-1col { display: flex; flex-direction: column; gap: 4px; }
+.dc-rank-card { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); align-items: center; column-gap: 12px; min-height: 42px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 5px 10px; background: rgba(var(--v-theme-on-surface), .02); transition: border-color .2s, background .2s; }
 .dc-rank-card--on { border-color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .04); }
-.dc-rank-card-header { margin-bottom: 6px; }
+.dc-rank-card-header { margin-bottom: 0; min-width: 0; }
 .dc-rank-check :deep(.v-label) { font-size: 13px; font-weight: 600; }
-.dc-rank-card-body { display: flex; flex-wrap: wrap; gap: 6px; }
+.dc-rank-card-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, auto)); justify-content: start; align-items: center; column-gap: 8px; row-gap: 4px; min-width: 0; }
 .dc-rank-field { display: grid; grid-template-columns: 28px 110px; align-items: center; gap: 4px; }
 .dc-rank-label { font-size: 12px; color: rgba(var(--v-theme-on-surface), .6); white-space: nowrap; min-width: 28px; }
 .dc-rank-input { width: 110px; max-width: 118px; }
@@ -375,6 +375,8 @@ onMounted(loadOverview)
   .dc-flow-row { gap: 4px; font-size: 12px; }
   .dc-flow-row span { padding: 4px 7px; }
   .dc-kv { padding: 5px 0; font-size: 12px; }
+  .dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }
+  .dc-rank-card-body { grid-template-columns: repeat(2, minmax(142px, auto)); }
   .dc-actions { min-height: 44px; padding: 6px 10px; gap: 6px; }
   .dc-action-btn { min-height: 32px; font-size: 13px; }
   .dc-window--overview { overflow-y: auto; }
