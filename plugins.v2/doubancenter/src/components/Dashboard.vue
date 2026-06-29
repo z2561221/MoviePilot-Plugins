@@ -286,10 +286,9 @@ onMounted(load)
             <div class="dc-rank-head">{{ rankDefs[rk]?.name || rk }}</div>
             <div class="dc-rank-body">
               <div v-for="(item, i) in (rankHistory[rk] || []).slice(0, 5)" :key="i" class="dc-rank-row" :title="item.title" @click="showActionDialog(rk, item)">
-                <VAvatar size="16" class="mr-1 flex-shrink-0"><VImg v-if="item.poster" :src="item.poster" /><VIcon v-else icon="mdi-filmstrip" size="10" /></VAvatar>
+                <VAvatar size="16" class="dc-rank-poster mr-1 flex-shrink-0"><VImg v-if="item.poster" :src="item.poster" /><VIcon v-else icon="mdi-filmstrip" size="10" /></VAvatar>
                 <span class="dc-rank-name">{{ item.title }}</span>
                 <span v-if="rk === 'coming' && item.wish_count" class="dc-rank-wish">{{ item.wish_count }}</span>
-                <span v-else class="dc-rank-num">{{ item.year || '' }}</span>
               </div>
               <div v-if="!(rankHistory[rk] || []).length" class="text-center text-medium-emphasis py-2 text-caption">暂无数据</div>
             </div>
@@ -327,9 +326,10 @@ onMounted(load)
 .dc-rank-body { display: flex; flex-direction: column; gap: 1px; }
 .dc-rank-row { display: flex; align-items: center; gap: 3px; padding: 2px 3px; border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1.4; transition: background .12s; overflow: hidden; }
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
+.dc-rank-poster { flex: 0 0 auto; }
 .dc-rank-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-rank-num { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; }
-.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .5); font-size: 11px; white-space: nowrap; }
+.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .5); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (max-width: 960px) { .dc-rank-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 600px) { .dc-rank-grid { grid-template-columns: repeat(2, 1fr); } }
 </style>

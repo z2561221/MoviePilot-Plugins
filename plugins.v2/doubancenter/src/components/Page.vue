@@ -491,8 +491,9 @@ onMounted(loadAll)
 .dc-rank-head { display: flex; align-items: center; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
 .dc-rank-row { display: flex; align-items: center; gap: 4px; padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 12px; min-width: 0; }
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
+.dc-rank-poster { flex: 0 0 auto; }
 .dc-rank-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .5); font-size: 11px; }
+.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .5); font-size: 11px; font-variant-numeric: tabular-nums; }
 .dc-rank-empty { text-align: center; color: rgba(var(--v-theme-on-surface), .55); font-size: 12px; padding: 8px 0; }
 .dc-history-list { display: flex; flex-direction: column; gap: 2px; }
 .dc-history-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 6px; padding: 5px 6px; border-radius: 6px; transition: background .12s; }

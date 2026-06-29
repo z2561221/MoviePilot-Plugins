@@ -6,7 +6,11 @@ PLUGIN_DIR = Path(__file__).resolve().parents[1]
 CONFIG_VUE = PLUGIN_DIR / "src" / "components" / "Config.vue"
 PAGE_VUE = PLUGIN_DIR / "src" / "components" / "Page.vue"
 DASHBOARD_VUE = PLUGIN_DIR / "src" / "components" / "Dashboard.vue"
+API_JS = PLUGIN_DIR / "src" / "components" / "api.js"
+PACKAGE_JSON = PLUGIN_DIR / "package.json"
+VITE_CONFIG = PLUGIN_DIR / "vite.config.js"
 DIST_ASSETS = PLUGIN_DIR / "dist" / "assets"
+AI_SPEC = PLUGIN_DIR / "ai_spec" / "plugin_context.md"
 
 
 def _compact_css(text: str) -> str:
@@ -14,6 +18,65 @@ def _compact_css(text: str) -> str:
 
 
 class ConfigFrontendContractTest(unittest.TestCase):
+    def test_standard_template_scaffold_exists(self):
+        required_dirs = [
+            "ai_spec",
+            "controller",
+            "service",
+            "adapter",
+            "model",
+            "storage",
+        ]
+
+        for directory in required_dirs:
+            self.assertTrue((PLUGIN_DIR / directory).is_dir(), directory)
+            if directory != "ai_spec":
+                self.assertTrue((PLUGIN_DIR / directory / "__init__.py").is_file(), directory)
+
+    def test_ai_spec_documents_refactor_boundaries(self):
+        text = AI_SPEC.read_text(encoding="utf-8")
+
+        required_fragments = [
+            "DoubanCenter",
+            "插件用途",
+            "主要入口",
+            "主要数据 key",
+            "RSS 刷新链路",
+            "自动订阅链路",
+            "观察队列链路",
+            "归档治理链路",
+            "豆瓣时间同步链路",
+            "Vue 联邦页面 API 链路",
+            "禁止改动区域",
+            "验收方式",
+            "subscribe_records",
+            "anti_cheat_logs",
+            "archive_records",
+            "coming_history",
+            "rank_history_*",
+            "folio_data",
+            "folio_wait",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
+
+    def test_vue_api_helper_requires_injected_api(self):
+        text = API_JS.read_text(encoding="utf-8")
+
+        self.assertIn("api.get(`plugin/DoubanCenter/${path}`)", text)
+        self.assertIn("api.post(`plugin/DoubanCenter/${path}`, payload)", text)
+        self.assertIn("throw new Error('DoubanCenter requires injected api prop')", text)
+        self.assertNotIn("fetch(", text)
+        self.assertNotIn("/api/v1/plugin/DoubanCenter", text)
+
+    def test_frontend_metadata_matches_current_plugin_version(self):
+        package_text = PACKAGE_JSON.read_text(encoding="utf-8")
+        vite_text = VITE_CONFIG.read_text(encoding="utf-8")
+
+        self.assertIn('"version": "1.2.6"', package_text)
+        self.assertIn("name: 'DoubanCenter'", vite_text)
+        self.assertNotIn("DoubanCenterV121", vite_text)
+
     def test_config_vue_hides_backend_cleaned_legacy_fields(self):
         text = CONFIG_VUE.read_text(encoding="utf-8")
 
