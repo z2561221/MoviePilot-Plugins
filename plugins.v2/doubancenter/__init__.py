@@ -17,6 +17,7 @@ from app.schemas.types import EventType
 
 from . import dashboard as dash, feed, folio, migration
 from . import utils
+from .controller import api as api_controller
 from .model.config import (
     DEFAULT_CRON,
     DEFAULT_RSSHUB_DOMAIN,
@@ -141,154 +142,58 @@ class DoubanCenter(_PluginBase):
         return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        return [
-            {"path":"/folio_data","endpoint":self.api_folio_data,"methods":["GET"],"auth":"bear","summary":"获取豆瓣时间数据"},
-            {"path":"/overview","endpoint":self.api_overview,"methods":["GET"],"auth":"bear","summary":"获取运行总览"},
-            {"path":"/config","endpoint":self.api_config,"methods":["GET"],"auth":"bear","summary":"获取插件配置"},
-            {"path":"/rank_history","endpoint":self.api_rank_history,"methods":["GET"],"auth":"bear","summary":"获取榜单历史"},
-            {"path":"/resolve_media","endpoint":self.api_resolve_media,"methods":["GET"],"auth":"bear","summary":"识别榜单媒体"},
-            {"path":"/subscribe","endpoint":self.api_subscribe,"methods":["GET","POST"],"auth":"bear","summary":"一键订阅"},
-            {"path":"/refresh_rss","endpoint":self.api_refresh_rss,"methods":["POST"],"auth":"bear","summary":"刷新 RSS 榜单数据"},
-            {"path":"/stats","endpoint":self.api_stats,"methods":["GET"],"auth":"bear","summary":"获取订阅统计"},
-            {"path":"/subscribe_history","endpoint":self.api_subscribe_history,"methods":["GET"],"auth":"bear","summary":"获取订阅历史"},
-            {"path":"/pending_observations","endpoint":self.api_pending_observations,"methods":["GET"],"auth":"bear","summary":"获取观察期待订阅条目"},
-            {"path":"/anti_cheat_logs","endpoint":self.api_anti_cheat_logs,"methods":["GET"],"auth":"bear","summary":"获取观察日志"},
-            {"path":"/delete_subscribe_history","endpoint":self.api_delete_subscribe_history,"methods":["POST"],"auth":"bear","summary":"删除订阅历史记录"},
-            {"path":"/delete_observation","endpoint":self.api_delete_observation,"methods":["POST"],"auth":"bear","summary":"删除观察队列条目"},
-            {"path":"/delete_anti_cheat_log","endpoint":self.api_delete_anti_cheat_log,"methods":["POST"],"auth":"bear","summary":"删除观察日志"},
-            {"path":"/archive_records","endpoint":self.api_archive_records,"methods":["GET"],"auth":"bear","summary":"获取归档记录"},
-            {"path":"/restore_archive","endpoint":self.api_restore_archive,"methods":["POST"],"auth":"bear","summary":"恢复归档记录"},
-            {"path":"/delete_archive","endpoint":self.api_delete_archive,"methods":["POST"],"auth":"bear","summary":"删除归档记录"},
-        ]
+        return api_controller.get_api(self)
 
     def api_folio_data(self):
-        return dash.api_folio_data(self)
+        return api_controller.api_folio_data(self)
 
     def api_overview(self):
-        """返回设置页运行总览数据。"""
-        try:
-            return dash.api_overview(self)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_overview 异常：{e}", exc_info=True)
-            return {"code": 1, "msg": f"获取运行总览失败：{e}"}
+        return api_controller.api_overview(self)
 
     def api_config(self):
-        return dash.api_config(self)
+        return api_controller.api_config(self)
 
     def api_rank_history(self):
-        return dash.api_rank_history(self)
+        return api_controller.api_rank_history(self)
 
     def api_resolve_media(self, media_type=None, title="", year="", tmdb_id=None, bangumi_id=None):
-        """识别榜单条目并返回媒体信息。"""
-        try:
-            if not title and not tmdb_id and not bangumi_id:
-                return {"success": False, "message": "缺少必要参数"}
-            return dash.api_resolve_media_from_rank(self, media_type, title, year, tmdb_id=tmdb_id, bangumi_id=bangumi_id)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_resolve_media 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"识别失败：{e}"}
+        return api_controller.api_resolve_media(self, media_type, title, year, tmdb_id=tmdb_id, bangumi_id=bangumi_id)
 
     def api_subscribe(self, tmdb_id=None, media_type=None, title="", year="", bangumi_id=None):
-        """从仪表盘榜单条目发起订阅。"""
-        try:
-            if not title and not tmdb_id and not bangumi_id:
-                return {"success": False, "message": "缺少必要参数"}
-            return dash.api_subscribe_from_rank(self, tmdb_id, media_type, title, year, bangumi_id=bangumi_id)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_subscribe 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"订阅失败：{e}"}
+        return api_controller.api_subscribe(self, tmdb_id, media_type, title, year, bangumi_id=bangumi_id)
 
     def api_refresh_rss(self):
-        """刷新 RSS 榜单数据但不创建订阅。"""
-        try:
-            logger.info("豆瓣中心：api_refresh_rss 被调用")
-            rank_keys = self._dashboard_rank_keys or None
-            logger.info(f"豆瓣中心：refresh_rss rank_keys={rank_keys}")
-            result = feed.refresh_rank_data(self, rank_keys=rank_keys)
-            return {"success": True, "message": "RSS 刷新完成", "data": result}
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_refresh_rss 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"刷新失败：{e}"}
+        return api_controller.api_refresh_rss(self)
 
     def api_stats(self):
-        """返回订阅统计。"""
-        try:
-            return dash.api_stats(self)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_stats 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"获取统计失败：{e}"}
+        return api_controller.api_stats(self)
 
     def api_subscribe_history(self, page=1, page_size=20):
-        """返回分页订阅历史。"""
-        try:
-            return dash.api_subscribe_history(self, page=int(page), page_size=int(page_size))
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_subscribe_history 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"获取订阅历史失败：{e}"}
+        return api_controller.api_subscribe_history(self, page=page, page_size=page_size)
 
     def api_pending_observations(self):
-        """返回观察期内等待自动订阅的条目。"""
-        try:
-            return dash.api_pending_observations(self)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_pending_observations 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"获取观察期条目失败：{e}"}
+        return api_controller.api_pending_observations(self)
 
     def api_anti_cheat_logs(self):
-        """返回观察日志。"""
-        try:
-            return dash.api_anti_cheat_logs(self)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_anti_cheat_logs 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"获取观察日志失败：{e}"}
+        return api_controller.api_anti_cheat_logs(self)
 
     def api_delete_subscribe_history(self, time="", title="", tmdbid=None):
-        """从详情页删除一条订阅历史并归档。"""
-        try:
-            return dash.api_delete_subscribe_history(self, time=time, title=title, tmdbid=tmdbid)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_delete_subscribe_history 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"删除订阅历史失败：{e}"}
+        return api_controller.api_delete_subscribe_history(self, time=time, title=title, tmdbid=tmdbid)
 
     def api_delete_observation(self, unique="", rank_key="", title=""):
-        """从详情页删除一条观察队列记录并归档。"""
-        try:
-            return dash.api_delete_observation(self, unique=unique, rank_key=rank_key, title=title)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_delete_observation 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"删除观察条目失败：{e}"}
+        return api_controller.api_delete_observation(self, unique=unique, rank_key=rank_key, title=title)
 
     def api_delete_anti_cheat_log(self, time="", title="", reason=""):
-        """从详情页删除一条观察日志并归档。"""
-        try:
-            return dash.api_delete_anti_cheat_log(self, time=time, title=title, reason=reason)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_delete_anti_cheat_log 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"删除观察日志失败：{e}"}
+        return api_controller.api_delete_anti_cheat_log(self, time=time, title=title, reason=reason)
 
     def api_archive_records(self, page=1, page_size=20):
-        """返回分页归档记录。"""
-        try:
-            return dash.api_archive_records(self, page=int(page), page_size=int(page_size))
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_archive_records 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"获取归档记录失败：{e}"}
+        return api_controller.api_archive_records(self, page=page, page_size=page_size)
 
     def api_restore_archive(self, archive_id=""):
-        """从归档恢复一条详情页记录。"""
-        try:
-            return dash.api_restore_archive(self, archive_id=archive_id)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_restore_archive 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"恢复归档记录失败：{e}"}
+        return api_controller.api_restore_archive(self, archive_id=archive_id)
 
     def api_delete_archive(self, archive_id=""):
-        """永久删除一条归档记录。"""
-        try:
-            return dash.api_delete_archive(self, archive_id=archive_id)
-        except Exception as e:
-            logger.error(f"豆瓣中心：api_delete_archive 异常：{e}", exc_info=True)
-            return {"success": False, "message": f"删除归档记录失败：{e}"}
+        return api_controller.api_delete_archive(self, archive_id=archive_id)
 
     def get_service(self) -> List[Dict[str, Any]]:
         if self._enabled and self._cron:
