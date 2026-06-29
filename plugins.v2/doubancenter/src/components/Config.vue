@@ -18,12 +18,12 @@ const defaults = {
   enabled: false, cron: '0 8 * * *', notify: false, proxy: false, onlyonce: false,
   rsshub_domain: 'https://rsshub.ddsrem.com',
   rank_configs: {
-    coming: { enabled: false, count: 10, wish_count: 5000, air_days: 7, vote: 0, year: 0 },
-    tv_real_time: { enabled: false, count: 10, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    tv_chinese: { enabled: false, count: 10, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    tv_global: { enabled: false, count: 10, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    movie_weekly: { enabled: false, count: 10, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    bangumi: { enabled: false, count: 10, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    coming: { enabled: false, count: 0, wish_count: 5000, air_days: 7, vote: 0, year: 0 },
+    tv_real_time: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    tv_chinese: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    tv_global: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    movie_weekly: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    bangumi: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
   },
   region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '',
   folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false,
@@ -32,13 +32,8 @@ const defaults = {
   dashboard_rank_keys: [],
   blacklist_keywords: '',
   observe_days: 0,
-  anti_cheat_enabled: false,
-  anti_cheat_min_vote: 5.0,
+  observe_rank_keys: ['coming', 'tv_real_time'],
 }
-
-const regionOptions = ['中国大陆', '中国香港', '中国台湾', '美国', '日本', '韩国', '英国', '泰国', '印度', '法国', '德国', '西班牙', '加拿大', '澳大利亚', '俄罗斯', '瑞典', '丹麦', '爱尔兰', '意大利', '巴西']
-const genreOptions = ['爱情', '喜剧', '剧情', '悬疑', '古装', '动作', '犯罪', '科幻', '家庭', '奇幻', '武侠', '历史', '动画', '惊悚', '战争', '冒险', '恐怖', '灾难', '传记', '音乐', '歌舞']
-const resolutionOptions = [{ title: '2160p/4K', value: '2160p|4k|uhd' }, { title: '1080p', value: '1080p' }, { title: '720p', value: '720p' }]
 
 const rankDefs = [
   { key: 'coming', name: '即将上映', route: '/douban/tv/coming', filters: ['wish_count', 'air_days'] },
@@ -51,14 +46,14 @@ const rankDefs = [
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '运行链路、模块状态和待关注事项。' },
-  { key: 'rank', title: '榜单订阅', icon: 'mdi-trophy-outline', desc: '6 个内置榜单 + 自定义 RSS，统一订阅到豆瓣中心。' },
+  { key: 'rank', title: '榜单订阅', icon: 'mdi-trophy-outline', desc: '6 个内置榜单统一订阅到豆瓣中心。' },
   { key: 'folio', title: '豆瓣时间', icon: 'mdi-book-clock-outline', desc: '追剧观影自动同步进度到豆瓣时间线。' },
   { key: 'dashboard', title: '仪表显示', icon: 'mdi-view-dashboard-outline', desc: '时间线 + 榜单排行双面板。' },
 ]
 
 const subTabs = {
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
-  rank: [{ key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' }, { key: 'list', title: '榜单列表', icon: 'mdi-format-list-bulleted' }, { key: 'filter', title: '条件筛选', icon: 'mdi-filter-variant' }],
+  rank: [{ key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' }, { key: 'list', title: '榜单列表', icon: 'mdi-format-list-bulleted' }, { key: 'filter', title: '订阅观察', icon: 'mdi-shield-search' }],
   folio: [{ key: 'sync', title: '同步设置', icon: 'mdi-sync' }],
   dashboard: [{ key: 'view', title: '仪表盘选择', icon: 'mdi-view-dashboard-outline' }],
 }
@@ -111,7 +106,13 @@ watch(() => props.initialConfig, val => {
 }, { immediate: true, deep: true })
 
 function saveConfig() {
-  emit('save', { ...form })
+  emit('save', {
+    ...form,
+    region_filters: [],
+    genre_filters: [],
+    resolution_filters: [],
+    custom_rss_addrs: '',
+  })
 }
 
 function selectMain(key) {
@@ -210,7 +211,6 @@ onMounted(loadOverview)
             <div v-show="activeSub === 'basic'" class="dc-pane">
               <div class="dc-section-title">基础设置</div>
               <VRow>
-                <VCol cols="12" md="4"><VSwitch v-model="form.notify" color="info" inset hide-details label="发送通知" /></VCol>
                 <VCol cols="12" md="4"><VSwitch v-model="form.onlyonce" color="warning" inset hide-details label="立即运行一次" /></VCol>
                 <VCol cols="12" md="4"><VCronField v-model="form.cron" label="运行周期" density="compact" variant="outlined" hide-details /></VCol>
               </VRow>
@@ -231,7 +231,7 @@ onMounted(loadOverview)
                   <div class="dc-rank-card-body">
                     <div class="dc-rank-field">
                       <span class="dc-rank-label">数量</span>
-                      <VTextField v-model.number="form.rank_configs[rd.key].count" type="number" min="1" density="compact" variant="outlined" hide-details class="dc-rank-input" />
+                      <VTextField v-model.number="form.rank_configs[rd.key].count" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" />
                     </div>
                     <div v-if="rd.filters.includes('wish_count')" class="dc-rank-field">
                       <span class="dc-rank-label">想看</span>
@@ -252,22 +252,12 @@ onMounted(loadOverview)
                   </div>
                 </div>
               </div>
-              <div class="dc-section-title mt-4">自定义榜单</div>
-              <VTextarea v-model="form.custom_rss_addrs" label="自定义 RSS 地址（一行一个）" rows="3" auto-grow density="compact" variant="outlined" hide-details />
             </div>
 
             <div v-show="activeSub === 'filter'" class="dc-pane">
-              <div class="dc-section-title">条件筛选</div>
+              <div class="dc-section-title">观察设置</div>
               <VRow>
-                <VCol cols="12" md="6"><VSelect v-model="form.region_filters" :items="regionOptions" label="地区筛选" multiple chips closable-chips clearable density="compact" variant="outlined" hide-details /><div class="dc-hint">即将上映专用</div></VCol>
-                <VCol cols="12" md="6"><VSelect v-model="form.genre_filters" :items="genreOptions" label="类型筛选" multiple chips closable-chips clearable density="compact" variant="outlined" hide-details /><div class="dc-hint">即将上映专用</div></VCol>
-              </VRow>
-              <VRow class="mt-2"><VCol cols="12" md="6"><VSelect v-model="form.resolution_filters" :items="resolutionOptions" item-title="title" item-value="value" label="订阅分辨率" multiple chips closable-chips clearable density="compact" variant="outlined" hide-details hint="不选则沿用系统默认" persistent-hint /></VCol></VRow>
-              <VDivider class="my-3" />
-              <div class="dc-section-title">防刷榜设置</div>
-              <VRow>
-                <VCol cols="12" md="4"><VSwitch v-model="form.anti_cheat_enabled" color="warning" inset hide-details label="启用 TMDB 评分过滤" /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.anti_cheat_min_vote" label="最低 TMDB 评分" type="number" min="0" max="10" step="0.1" density="compact" variant="outlined" hide-details :disabled="!form.anti_cheat_enabled" hint="低于此评分的条目跳过订阅" persistent-hint /></VCol>
+                <VCol cols="12" md="8"><VSelect v-model="form.observe_rank_keys" :items="rankDefs.map(r => ({ title: r.name, value: r.key }))" label="观察榜单" multiple chips clearable density="compact" variant="outlined" hide-details hint="被选中的榜单会先进入观察队列，达到观察期后再订阅" persistent-hint /></VCol>
                 <VCol cols="12" md="4"><VTextField v-model.number="form.observe_days" label="观察期（天）" type="number" min="0" density="compact" variant="outlined" hide-details hint="新条目在榜 N 天后才订阅，0 为不启用" persistent-hint /></VCol>
               </VRow>
               <VRow class="mt-2">
@@ -345,15 +335,15 @@ onMounted(loadOverview)
 .dc-rank-switch { white-space: nowrap; }
 .dc-rank-row .v-row { margin-top: 0; margin-bottom: 0; }
 .dc-rank-row .v-col { padding-top: 1px; padding-bottom: 1px; }
-.dc-rank-list-1col { display: flex; flex-direction: column; gap: 6px; }
-.dc-rank-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; padding: 8px 12px; background: rgba(var(--v-theme-on-surface), .02); transition: border-color .2s, background .2s; }
+.dc-rank-list-1col { display: flex; flex-direction: column; gap: 4px; }
+.dc-rank-card { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); align-items: center; column-gap: 12px; min-height: 42px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 5px 10px; background: rgba(var(--v-theme-on-surface), .02); transition: border-color .2s, background .2s; }
 .dc-rank-card--on { border-color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .04); }
-.dc-rank-card-header { margin-bottom: 6px; }
+.dc-rank-card-header { margin-bottom: 0; min-width: 0; }
 .dc-rank-check :deep(.v-label) { font-size: 13px; font-weight: 600; }
-.dc-rank-card-body { display: flex; flex-wrap: wrap; gap: 6px; }
-.dc-rank-field { display: flex; align-items: center; gap: 4px; }
+.dc-rank-card-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, auto)); justify-content: start; align-items: center; column-gap: 8px; row-gap: 4px; min-width: 0; }
+.dc-rank-field { display: grid; grid-template-columns: 28px 110px; align-items: center; gap: 4px; }
 .dc-rank-label { font-size: 12px; color: rgba(var(--v-theme-on-surface), .6); white-space: nowrap; min-width: 28px; }
-.dc-rank-input { max-width: 110px; }
+.dc-rank-input { width: 110px; max-width: 118px; }
 .dc-rank-input :deep(.v-field) { min-height: 28px; max-height: 28px; border-radius: 6px; }
 .dc-rank-input :deep(.v-field__input) { min-height: 24px; padding-top: 1px; padding-bottom: 1px; font-size: 13px; }
 .dc-actions { padding: 10px 18px; }
@@ -385,6 +375,8 @@ onMounted(loadOverview)
   .dc-flow-row { gap: 4px; font-size: 12px; }
   .dc-flow-row span { padding: 4px 7px; }
   .dc-kv { padding: 5px 0; font-size: 12px; }
+  .dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }
+  .dc-rank-card-body { grid-template-columns: repeat(2, minmax(142px, auto)); }
   .dc-actions { min-height: 44px; padding: 6px 10px; gap: 6px; }
   .dc-action-btn { min-height: 32px; font-size: 13px; }
   .dc-window--overview { overflow-y: auto; }
