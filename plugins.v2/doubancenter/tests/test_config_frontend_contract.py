@@ -6,6 +6,9 @@ PLUGIN_DIR = Path(__file__).resolve().parents[1]
 CONFIG_VUE = PLUGIN_DIR / "src" / "components" / "Config.vue"
 PAGE_VUE = PLUGIN_DIR / "src" / "components" / "Page.vue"
 DASHBOARD_VUE = PLUGIN_DIR / "src" / "components" / "Dashboard.vue"
+API_JS = PLUGIN_DIR / "src" / "components" / "api.js"
+VITE_CONFIG = PLUGIN_DIR / "vite.config.js"
+PACKAGE_JSON = PLUGIN_DIR / "package.json"
 DIST_ASSETS = PLUGIN_DIR / "dist" / "assets"
 
 
@@ -14,6 +17,31 @@ def _compact_css(text: str) -> str:
 
 
 class ConfigFrontendContractTest(unittest.TestCase):
+    def test_frontend_package_version_tracks_plugin_version(self):
+        init_text = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
+        version = init_text.split('plugin_version = "')[1].split('"')[0]
+        package_text = PACKAGE_JSON.read_text(encoding="utf-8")
+
+        self.assertIn(f'"version": "{version}"', package_text)
+
+    def test_api_wrapper_uses_injected_plugin_api_only(self):
+        text = API_JS.read_text(encoding="utf-8")
+
+        self.assertIn("api.get(`plugin/DoubanCenter/${path}`)", text)
+        self.assertIn("api.post(`plugin/DoubanCenter/${path}`, payload)", text)
+        self.assertIn("MoviePilot 插件 API 未就绪", text)
+        self.assertNotIn("fetch(", text)
+        self.assertNotIn("/api/v1/plugin/DoubanCenter", text)
+
+    def test_vite_federation_uses_stable_plugin_name_and_explicit_output(self):
+        text = VITE_CONFIG.read_text(encoding="utf-8")
+
+        self.assertIn("name: 'DoubanCenter'", text)
+        self.assertIn("outDir: 'dist'", text)
+        self.assertIn("emptyOutDir: true", text)
+        self.assertIn("target: 'esnext'", text)
+        self.assertIn("cssCodeSplit: true", text)
+
     def test_config_vue_hides_backend_cleaned_legacy_fields(self):
         text = CONFIG_VUE.read_text(encoding="utf-8")
 
