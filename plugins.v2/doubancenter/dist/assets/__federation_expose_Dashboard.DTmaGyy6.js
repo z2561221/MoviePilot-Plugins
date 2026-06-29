@@ -39,7 +39,7 @@ const _hoisted_13 = { class: "dc-rank-head" };
 const _hoisted_14 = { class: "dc-rank-body" };
 const _hoisted_15 = ["title", "onClick"];
 const _hoisted_16 = { class: "dc-rank-name" };
-const _hoisted_17 = { class: "dc-rank-num" };
+const _hoisted_17 = { class: "dc-rank-wish" };
 const _hoisted_18 = {
   key: 0,
   class: "text-center text-medium-emphasis py-2 text-caption"
@@ -54,7 +54,10 @@ const {ref,computed,onMounted} = await importShared('vue');
 
 const _sfc_main = {
   __name: 'Dashboard',
-  props: { api: { type: [Object, Function], default: null } },
+  props: {
+    api: { type: [Object, Function], default: null },
+    nativeSubscribe: { type: Function, default: null }
+  },
   emits: ['close', 'switch'],
   setup(__props, { emit: __emit }) {
 
@@ -104,24 +107,115 @@ function showActionDialog(rk, item) {
   showDialog.value = true;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
+}
+
+function normalizeApiData(value) {
+  if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'success')) return value
+  return value?.data && !Array.isArray(value?.data) ? value.data : value
+}
+
+function queryString(params) {
+  return Object.entries(params || {})
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+    .join('&')
+}
+
+function mediaIdOf(media) {
+  if (media?.tmdb_id) return `tmdb:${media.tmdb_id}`
+  if (media?.douban_id) return `douban:${media.douban_id}`
+  if (media?.bangumi_id) return `bangumi:${media.bangumi_id}`
+  if (media?.media_id && media?.mediaid_prefix) return `${media.mediaid_prefix}:${media.media_id}`
+  return ''
+}
+
+function bangumiIdOf(rk, item) {
+  if (item?.bangumi_id || item?.bangumiid) return item.bangumi_id || item.bangumiid
+  if (rk === 'bangumi' && item?.douban_id) return item.douban_id
+  const match = String(item?.link || '').match(/(?:bgm\.tv|bangumi\.tv)\/subject\/(\d+)/)
+  return match ? match[1] : ''
+}
+
+function mediaTypeOf(rk, item) {
+  const type = item?.media_type || item?.mtype || item?.type || '';
+  if (type === '电影' || type === 'movie') return 'movie'
+  if (type === '电视剧' || type === 'tv') return 'tv'
+  return rk === 'movie_weekly' ? 'movie' : 'tv'
+}
+
+async function resolveRankMedia(rk, item) {
+  const mediaType = mediaTypeOf(rk, item);
+  const params = queryString({
+    tmdb_id: item?.tmdbid || item?.tmdb_id || '',
+    bangumi_id: bangumiIdOf(rk, item),
+    media_type: mediaType,
+    title: item?.title || item?.name || '',
+    year: item?.year || ''
+  });
+  const res = normalizeApiData(await getPluginApi(props.api, `resolve_media?${params}`));
+  if (res?.success === false) throw new Error(res?.message || '媒体识别失败')
+  const media = res?.data && !Array.isArray(res.data) ? res.data : res;
+  if (!media || typeof media !== 'object') throw new Error('媒体识别失败')
+  const merged = { ...item, ...media };
+  merged.title = media.title || media.name || item?.title || item?.name || '';
+  merged.name = media.name || media.title || item?.name || item?.title || '';
+  merged.year = media.year || item?.year || '';
+  merged.type = media.type || (mediaType === 'movie' ? '电影' : '电视剧');
+  merged.tmdb_id = media.tmdb_id || media.tmdbid || item?.tmdb_id || item?.tmdbid || null;
+  merged.tmdbid = media.tmdbid || media.tmdb_id || item?.tmdbid || item?.tmdb_id || null;
+  merged.douban_id = media.douban_id || media.doubanid || item?.douban_id || item?.doubanid || null;
+  merged.doubanid = media.doubanid || media.douban_id || item?.doubanid || item?.douban_id || null;
+  merged.bangumi_id = media.bangumi_id || media.bangumiid || bangumiIdOf(rk, item) || null;
+  merged.bangumiid = media.bangumiid || media.bangumi_id || bangumiIdOf(rk, item) || null;
+  if (!merged.mediaid_prefix || !merged.media_id) {
+    const mediaId = mediaIdOf(merged);
+    if (mediaId) {
+      const [prefix, id] = mediaId.split(':');
+      merged.mediaid_prefix = merged.mediaid_prefix || prefix;
+      merged.media_id = merged.media_id || id;
+    }
+  }
+  return merged
+}
+
+async function subscribeViaNativeDialog(rk, item) {
+  const media = await resolveRankMedia(rk, item);
+  await props.nativeSubscribe(media);
+  subscribeResult.value = `✓ 已打开 MP 原生订阅窗口`;
+}
+
+async function subscribeRankItem(rk, item) {
+  const mediaType = mediaTypeOf(rk, item);
+  const params = queryString({ tmdb_id: item?.tmdbid || item?.tmdb_id || '', bangumi_id: bangumiIdOf(rk, item), media_type: mediaType, title: item?.title || item?.name || '', year: item?.year || '' });
+  const res = await postPluginApi(props.api, `subscribe?${params}`, {});
+  if (!res?.success) throw new Error(res?.message || '订阅失败')
+  subscribeResult.value = `✓ ${res?.message || `${item.title || ''} 已添加订阅`}`;
+}
+
 async function doSubscribe() {
   if (!dialogItem.value) return
   const { rk, item } = dialogItem.value;
   showDialog.value = false;
   subscribeResult.value = '';
   try {
-    const params = `tmdb_id=${item.tmdbid}&media_type=tv&title=${encodeURIComponent(item.title)}&year=${item.year||''}`;
-    const res = await getPluginApi(props.api, `subscribe?${params}`);
-    subscribeResult.value = res.success ? `✓ ${item.title} 已订阅` : `✗ ${item.title}: ${res.message}`;
+    if (props.nativeSubscribe) await subscribeViaNativeDialog(rk, item);
+    else await subscribeRankItem(rk, item);
   } catch(e) { subscribeResult.value = `✗ 订阅失败: ${e}`; }
   setTimeout(() => { subscribeResult.value = ''; }, 3000);
 }
 
 function doOpenDouban() {
   if (!dialogItem.value) return
+  const rk = dialogItem.value.rk;
   const item = dialogItem.value.item;
   showDialog.value = false;
   const link = item.link || '';
+  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) {
+    if (link) window.open(link, '_blank');
+    return
+  }
   // 优先用douban_id
   const subjectId = item.douban_id || '';
   if (subjectId) {
@@ -139,6 +233,27 @@ function doOpenDouban() {
   }
   // 兜底：直接打开原始链接（bgm.tv等）
   if (link) window.open(link, '_blank');
+}
+
+function sourceButtonColor() {
+  if (!dialogItem.value) return 'primary'
+  const rk = dialogItem.value.rk;
+  const link = String(dialogItem.value.item?.link || '');
+  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return '#F838A0'
+  if (link.includes('douban') || dialogItem.value.item?.douban_id || dialogItem.value.item?.doubanid) return '#08B810'
+  return 'primary'
+}
+
+function doOpenTmdb() {
+  if (!dialogItem.value) return
+  const rk = dialogItem.value.rk;
+  const item = dialogItem.value.item || {};
+  const tmdbId = item.tmdbid || item.tmdb_id || '';
+  if (!tmdbId) return
+  const mediaType = mediaTypeOf(rk, item);
+  const url = mediaType === 'movie' ? `https://www.themoviedb.org/movie/${tmdbId}` : `https://www.themoviedb.org/tv/${tmdbId}`;
+  showDialog.value = false;
+  window.open(url, '_blank');
 }
 
 const timelineGroups = computed(() => {
@@ -354,33 +469,29 @@ return (_ctx, _cache) => {
                             onClick: $event => (showActionDialog(rk, item))
                           }, [
                             _createVNode(_component_VAvatar, {
-                              size: "16",
-                              class: "mr-1 flex-shrink-0"
+                              size: "18",
+                              rounded: "sm",
+                              class: "dc-rank-poster"
                             }, {
                               default: _withCtx(() => [
                                 (item.poster)
                                   ? (_openBlock(), _createBlock(_component_VImg, {
                                       key: 0,
-                                      src: item.poster
+                                      src: item.poster,
+                                      cover: ""
                                     }, null, 8, ["src"]))
                                   : (_openBlock(), _createBlock(_component_VIcon, {
                                       key: 1,
                                       icon: "mdi-filmstrip",
-                                      size: "10"
+                                      size: "12"
                                     }))
                               ]),
                               _: 2
                             }, 1024),
                             _createElementVNode("span", _hoisted_16, _toDisplayString(item.title), 1),
-                            _createElementVNode("span", _hoisted_17, [
-                              (rk==='coming' && item.wish_count)
-                                ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
-                                    _createTextVNode(_toDisplayString(item.wish_count), 1)
-                                  ], 64))
-                                : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
-                                    _createTextVNode(_toDisplayString(item.year||''), 1)
-                                  ], 64))
-                            ])
+                            (rk==='coming' && item.wish_count)
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_17, _toDisplayString(item.wish_count), 1))
+                              : _createCommentVNode("", true)
                           ], 8, _hoisted_15))
                         }), 128)),
                         (!(rankHistory.value[rk]||[]).length)
@@ -453,7 +564,7 @@ return (_ctx, _cache) => {
                     variant: "tonal",
                     color: "primary",
                     "prepend-icon": "mdi-plus-circle-outline",
-                    class: "flex-grow-1 text-none",
+                    class: "dc-dialog-action text-none",
                     onClick: doSubscribe
                   }, {
                     default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
@@ -463,16 +574,29 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
-                    color: "primary",
-                    "prepend-icon": dialogItem.value?.item?.link?.includes('douban') ? 'mdi-open-in-new' : 'mdi-link-variant',
-                    class: "flex-grow-1 text-none",
+                    color: "info",
+                    "prepend-icon": "mdi-movie-open-outline",
+                    class: "dc-dialog-action text-none",
+                    "disabled": !dialogItem.value?.item?.tmdbid && !dialogItem.value?.item?.tmdb_id,
+                    onClick: doOpenTmdb
+                  }, {
+                    default: _withCtx(() => [
+                      _createTextVNode("TMDB")
+                    ]),
+                    _: 1
+                  }, 8, ["disabled"]),
+                  _createVNode(_component_VBtn, {
+                    variant: "tonal",
+                    color: sourceButtonColor(),
+                    "prepend-icon": dialogItem.value?.rk === 'bangumi' || dialogItem.value?.item?.link?.includes('bgm.tv') || dialogItem.value?.item?.link?.includes('bangumi.tv') ? 'mdi-link-variant' : (dialogItem.value?.item?.link?.includes('douban') ? 'mdi-open-in-new' : 'mdi-link-variant'),
+                    class: "dc-dialog-action text-none",
                     onClick: doOpenDouban
                   }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(dialogItem.value?.item?.link?.includes('douban') ? '豆瓣' : '详情'), 1)
+                      _createTextVNode(_toDisplayString(dialogItem.value?.rk === 'bangumi' || dialogItem.value?.item?.link?.includes('bgm.tv') || dialogItem.value?.item?.link?.includes('bangumi.tv') ? 'Bgm' : (dialogItem.value?.item?.link?.includes('douban') ? '豆瓣' : '详情')), 1)
                     ]),
                     _: 1
-                  }, 8, ["prepend-icon"])
+                  }, 8, ["color", "prepend-icon"])
                 ]),
                 _: 1
               })

@@ -9,7 +9,9 @@
 .dc-rank-body[data-v-f7b3ad04]{display:flex;flex-direction:column;gap:1px}
 .dc-rank-row[data-v-f7b3ad04]{display:flex;align-items:center;gap:3px;padding:2px 3px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1.4;transition:background .12s;overflow:hidden}
 .dc-rank-row[data-v-f7b3ad04]:hover{background:rgba(var(--v-theme-primary),.07)}
+.dc-rank-poster[data-v-f7b3ad04]{flex:0 0 18px;width:18px;height:24px;border-radius:3px;background:rgba(var(--v-theme-on-surface),.08);overflow:hidden}
 .dc-rank-name[data-v-f7b3ad04]{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dc-rank-num[data-v-f7b3ad04]{flex:0 0 auto;color:rgba(var(--v-theme-on-surface),.45);font-size:11px;white-space:nowrap}
+.dc-rank-wish[data-v-f7b3ad04]{flex:0 0 auto;color:rgba(var(--v-theme-on-surface),.45);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+.dc-dialog-action[data-v-f7b3ad04]{flex:1 1 0;min-width:0;height:36px}
 @media(max-width:960px){.dc-rank-grid[data-v-f7b3ad04]{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:600px){.dc-rank-grid[data-v-f7b3ad04]{grid-template-columns:repeat(2,1fr)}}
