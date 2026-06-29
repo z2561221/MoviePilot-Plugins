@@ -37,7 +37,7 @@ const _hoisted_12 = { class: "dc-rank-grid" };
 const _hoisted_13 = { class: "dc-rank-head" };
 const _hoisted_14 = { class: "dc-rank-body" };
 const _hoisted_15 = ["title", "onClick"];
-const _hoisted_16 = { class: "dc-rank-name" };
+const _hoisted_16 = { class: "dc-rank-title" };
 const _hoisted_17 = {
   key: 0,
   class: "dc-rank-wish"
@@ -50,6 +50,10 @@ const _hoisted_19 = {
   key: 5,
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
+const _hoisted_20 = { class: "dc-dialog-poster" };
+const _hoisted_21 = { class: "dc-dialog-info" };
+const _hoisted_22 = { class: "dc-dialog-title" };
+const _hoisted_23 = { class: "dc-dialog-meta" };
 
 const {ref,computed,onMounted} = await importShared('vue');
 
@@ -81,6 +85,14 @@ const rankDefs = {
   tv_global: { name: '全球口碑' },
   movie_weekly: { name: '电影口碑' },
   bangumi: { name: 'BangumiTV' },
+};
+const rankColors = {
+  coming: 'primary',
+  tv_real_time: 'teal',
+  tv_chinese: 'orange-darken-1',
+  tv_global: 'deep-purple',
+  movie_weekly: 'pink',
+  bangumi: 'brown',
 };
 
 function queryString(params) {
@@ -186,6 +198,11 @@ async function refreshRss() {
 function showActionDialog(rk, item) {
   dialogItem.value = { rk, item };
   showDialog.value = true;
+}
+
+function dialogPoster() {
+  const item = dialogItem.value?.item || {};
+  return item.poster || item.poster_path || item.cover || ''
 }
 
 async function subscribeViaNativeDialog(rk, item) {
@@ -468,7 +485,15 @@ return (_ctx, _cache) => {
                       key: rk,
                       class: "dc-rank-cell"
                     }, [
-                      _createElementVNode("div", _hoisted_13, _toDisplayString(rankDefs[rk]?.name || rk), 1),
+                      _createElementVNode("div", _hoisted_13, [
+                        _createVNode(_component_VIcon, {
+                          icon: "mdi-format-list-numbered",
+                          size: "15",
+                          color: rankColors[rk] || 'primary',
+                          class: "mr-1"
+                        }, null, 8, ["color"]),
+                        _createElementVNode("span", null, _toDisplayString(rankDefs[rk]?.name || rk), 1)
+                      ]),
                       _createElementVNode("div", _hoisted_14, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((rankHistory.value[rk] || []).slice(0, 5), (item, i) => {
                           return (_openBlock(), _createElementBlock("div", {
@@ -479,7 +504,7 @@ return (_ctx, _cache) => {
                           }, [
                             _createVNode(_component_VAvatar, {
                               size: "16",
-                              class: "dc-rank-poster mr-1 flex-shrink-0"
+                              class: "dc-rank-poster"
                             }, {
                               default: _withCtx(() => [
                                 (item.poster)
@@ -519,38 +544,51 @@ return (_ctx, _cache) => {
       _createVNode(_component_VDialog, {
         modelValue: showDialog.value,
         "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((showDialog).value = $event)),
-        "max-width": "360"
+        "max-width": "420"
       }, {
         default: _withCtx(() => [
-          _createVNode(_component_VCard, null, {
+          _createVNode(_component_VCard, { class: "dc-action-dialog" }, {
             default: _withCtx(() => [
-              _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
+              _createVNode(_component_VCardText, { class: "dc-dialog-body" }, {
                 default: _withCtx(() => [
-                  _createTextVNode(_toDisplayString(dialogItem.value?.item?.title || '选择操作'), 1)
+                  _createElementVNode("div", _hoisted_20, [
+                    (dialogPoster())
+                      ? (_openBlock(), _createBlock(_component_VImg, {
+                          key: 0,
+                          src: dialogPoster(),
+                          cover: ""
+                        }, null, 8, ["src"]))
+                      : (_openBlock(), _createBlock(_component_VIcon, {
+                          key: 1,
+                          icon: "mdi-filmstrip",
+                          size: "26"
+                        }))
+                  ]),
+                  _createElementVNode("div", _hoisted_21, [
+                    _createElementVNode("div", _hoisted_22, _toDisplayString(dialogItem.value?.item?.title || '选择操作'), 1),
+                    _createElementVNode("div", _hoisted_23, _toDisplayString(dialogItem.value?.item?.year || rankDefs[dialogItem.value?.rk]?.name || ''), 1)
+                  ])
                 ]),
                 _: 1
               }),
-              _createVNode(_component_VCardText, { class: "text-caption text-medium-emphasis" }, {
-                default: _withCtx(() => [
-                  _createTextVNode(_toDisplayString(dialogItem.value?.item?.year || ''), 1)
-                ]),
-                _: 1
-              }),
-              _createVNode(_component_VCardActions, null, {
+              _createVNode(_component_VDivider),
+              _createVNode(_component_VCardActions, { class: "dc-dialog-actions" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VBtn, {
                     color: sourceButtonColor(),
                     variant: "text",
+                    "prepend-icon": "mdi-open-in-new",
                     onClick: doOpenSource
                   }, {
                     default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
-                      _createTextVNode("来源", -1)
+                      _createTextVNode("豆瓣", -1)
                     ]))]),
                     _: 1
                   }, 8, ["color"]),
                   _createVNode(_component_VBtn, {
                     color: "primary",
                     variant: "text",
+                    "prepend-icon": "mdi-database-search-outline",
                     disabled: !(dialogItem.value?.item?.tmdbid || dialogItem.value?.item?.tmdb_id),
                     onClick: doOpenTmdb
                   }, {
@@ -563,6 +601,7 @@ return (_ctx, _cache) => {
                   _createVNode(_component_VBtn, {
                     color: "success",
                     variant: "flat",
+                    "prepend-icon": "mdi-plus-circle-outline",
                     onClick: doSubscribe
                   }, {
                     default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
@@ -586,6 +625,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8e697060"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-726ecd00"]]);
 
 export { Dashboard as default };

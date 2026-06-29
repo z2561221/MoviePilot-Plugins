@@ -6,7 +6,7 @@ const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_with
 
 const _hoisted_1 = {
   key: 2,
-  class: "dc-section"
+  class: "dc-section dc-section--archive"
 };
 const _hoisted_2 = { class: "dc-section-title mb-2" };
 const _hoisted_3 = { class: "text-caption font-weight-regular text-medium-emphasis" };
@@ -114,6 +114,10 @@ const _hoisted_62 = {
   key: 1,
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
+const _hoisted_63 = { class: "dc-dialog-poster" };
+const _hoisted_64 = { class: "dc-dialog-info" };
+const _hoisted_65 = { class: "dc-dialog-title" };
+const _hoisted_66 = { class: "dc-dialog-meta" };
 
 const {ref,onMounted} = await importShared('vue');
 
@@ -334,6 +338,11 @@ async function deleteArchive(item, index) {
 function showActionDialog(rk, item) {
   dialogItem.value = { rk, item };
   showDialog.value = true;
+}
+
+function dialogPoster() {
+  const item = dialogItem.value?.item || {};
+  return item.poster || item.poster_path || item.cover || ''
 }
 
 async function subscribeViaNativeDialog(rk, item) {
@@ -1010,38 +1019,51 @@ return (_ctx, _cache) => {
       _createVNode(_component_VDialog, {
         modelValue: showDialog.value,
         "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((showDialog).value = $event)),
-        "max-width": "360"
+        "max-width": "420"
       }, {
         default: _withCtx(() => [
-          _createVNode(_component_VCard, null, {
+          _createVNode(_component_VCard, { class: "dc-action-dialog" }, {
             default: _withCtx(() => [
-              _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
+              _createVNode(_component_VCardText, { class: "dc-dialog-body" }, {
                 default: _withCtx(() => [
-                  _createTextVNode(_toDisplayString(dialogItem.value?.item?.title || '选择操作'), 1)
+                  _createElementVNode("div", _hoisted_63, [
+                    (dialogPoster())
+                      ? (_openBlock(), _createBlock(_component_VImg, {
+                          key: 0,
+                          src: dialogPoster(),
+                          cover: ""
+                        }, null, 8, ["src"]))
+                      : (_openBlock(), _createBlock(_component_VIcon, {
+                          key: 1,
+                          icon: "mdi-filmstrip",
+                          size: "26"
+                        }))
+                  ]),
+                  _createElementVNode("div", _hoisted_64, [
+                    _createElementVNode("div", _hoisted_65, _toDisplayString(dialogItem.value?.item?.title || '选择操作'), 1),
+                    _createElementVNode("div", _hoisted_66, _toDisplayString(dialogItem.value?.item?.year || rankNames[dialogItem.value?.rk] || ''), 1)
+                  ])
                 ]),
                 _: 1
               }),
-              _createVNode(_component_VCardText, { class: "text-caption text-medium-emphasis" }, {
-                default: _withCtx(() => [
-                  _createTextVNode(_toDisplayString(dialogItem.value?.item?.year || ''), 1)
-                ]),
-                _: 1
-              }),
-              _createVNode(_component_VCardActions, null, {
+              _createVNode(_component_VDivider),
+              _createVNode(_component_VCardActions, { class: "dc-dialog-actions" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VBtn, {
                     color: sourceButtonColor(),
                     variant: "text",
+                    "prepend-icon": "mdi-open-in-new",
                     onClick: doOpenSource
                   }, {
                     default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
-                      _createTextVNode("来源", -1)
+                      _createTextVNode("豆瓣", -1)
                     ]))]),
                     _: 1
                   }, 8, ["color"]),
                   _createVNode(_component_VBtn, {
                     color: "primary",
                     variant: "text",
+                    "prepend-icon": "mdi-database-search-outline",
                     disabled: !(dialogItem.value?.item?.tmdbid || dialogItem.value?.item?.tmdb_id),
                     onClick: doOpenTmdb
                   }, {
@@ -1054,6 +1076,7 @@ return (_ctx, _cache) => {
                   _createVNode(_component_VBtn, {
                     color: "success",
                     variant: "flat",
+                    "prepend-icon": "mdi-plus-circle-outline",
                     onClick: doSubscribe
                   }, {
                     default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
@@ -1077,6 +1100,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-95fd8673"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-23f9f425"]]);
 
 export { Page as default };

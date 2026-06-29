@@ -188,6 +188,40 @@ class ConfigFrontendContractTest(unittest.TestCase):
 
         self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
 
+    def test_rank_action_dialog_keeps_poster_and_three_actions(self):
+        for path in (PAGE_VUE, DASHBOARD_VUE):
+            text = path.read_text(encoding="utf-8")
+
+            self.assertIn('class="dc-action-dialog"', text, path.name)
+            self.assertIn('class="dc-dialog-poster"', text, path.name)
+            self.assertIn("dialogPoster", text, path.name)
+            self.assertIn(">豆瓣</VBtn>", text, path.name)
+            self.assertIn(">TMDB</VBtn>", text, path.name)
+            self.assertIn(">订阅</VBtn>", text, path.name)
+
+    def test_dashboard_rank_cards_match_page_rank_contract(self):
+        dashboard_text = DASHBOARD_VUE.read_text(encoding="utf-8")
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+
+        for fragment in [
+            'class="dc-rank-head"',
+            'icon="mdi-format-list-numbered"',
+            'class="dc-rank-row"',
+            'class="dc-rank-poster"',
+            'class="dc-rank-title"',
+            'class="dc-rank-wish"',
+        ]:
+            self.assertIn(fragment, dashboard_text)
+            self.assertIn(fragment, page_text)
+
+        self.assertNotIn("dc-rank-name", dashboard_text)
+
+    def test_archive_section_uses_full_width_contract(self):
+        text = PAGE_VUE.read_text(encoding="utf-8")
+
+        self.assertIn('class="dc-section dc-section--archive"', text)
+        self.assertIn(".dc-section--archive { grid-column: 1 / -1;", text)
+
 
 if __name__ == "__main__":
     unittest.main()
