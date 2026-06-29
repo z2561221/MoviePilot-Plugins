@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi } from './_plugin-vue_export-helper-DyVawm7J.js';
+import { _ as _export_sfc, g as getPluginApi } from './_plugin-vue_export-helper-DwI7CpmZ.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dm-config" };
@@ -10,18 +10,33 @@ const _hoisted_3 = { class: "dm-nav" };
 const _hoisted_4 = { class: "dm-content" };
 const _hoisted_5 = { class: "dm-subtabs" };
 const _hoisted_6 = ["onClick"];
-const _hoisted_7 = { class: "dm-window" };
-const _hoisted_8 = { class: "dm-pane" };
-const _hoisted_9 = { class: "dm-pane" };
-const _hoisted_10 = { class: "dm-pane" };
-const _hoisted_11 = { class: "dm-pane" };
-const _hoisted_12 = { class: "dm-pane" };
-const _hoisted_13 = { class: "dm-pane" };
-const _hoisted_14 = { class: "dm-pane" };
-const _hoisted_15 = { class: "dm-hint" };
-const _hoisted_16 = { class: "dm-hint" };
-const _hoisted_17 = { class: "dm-pane" };
-const _hoisted_18 = { class: "dm-pane" };
+const _hoisted_7 = { class: "dm-pane dm-pane--overview" };
+const _hoisted_8 = { class: "dm-overview-section mb-3" };
+const _hoisted_9 = { class: "dm-flow" };
+const _hoisted_10 = { class: "dm-flow-label" };
+const _hoisted_11 = { class: "dm-flow-row" };
+const _hoisted_12 = { class: "dm-flow-step" };
+const _hoisted_13 = { class: "dm-stat-grid mb-3" };
+const _hoisted_14 = { class: "d-flex align-center ga-2 mb-1" };
+const _hoisted_15 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_16 = { class: "text-subtitle-1 font-weight-bold" };
+const _hoisted_17 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_18 = { class: "dm-overview-grid" };
+const _hoisted_19 = { class: "dm-overview-section" };
+const _hoisted_20 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_21 = { class: "dm-overview-section" };
+const _hoisted_22 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_23 = { class: "dm-pane" };
+const _hoisted_24 = { class: "dm-pane" };
+const _hoisted_25 = { class: "dm-pane" };
+const _hoisted_26 = { class: "dm-pane" };
+const _hoisted_27 = { class: "dm-pane" };
+const _hoisted_28 = { class: "dm-pane" };
+const _hoisted_29 = { class: "dm-pane" };
+const _hoisted_30 = { class: "dm-hint" };
+const _hoisted_31 = { class: "dm-hint" };
+const _hoisted_32 = { class: "dm-pane" };
+const _hoisted_33 = { class: "dm-pane" };
 
 const {reactive,ref,computed,watch,onMounted} = await importShared('vue');
 
@@ -39,22 +54,27 @@ const props = __props;
 const emit = __emit;
 
 const form = reactive({});
-const activeMain = ref('transfer');
-const activeSub = ref('basic');
+const activeMain = ref('overview');
+const activeSub = ref('overview');
 const downloaderItems = ref([]);
 const siteItems = ref([]);
+const overview = ref(null);
 
 onMounted(async () => {
   try {
-    const [dlResp, siteResp] = await Promise.all([
+    const [dlResp, siteResp, overviewResp] = await Promise.all([
       getPluginApi(props.api, 'downloaders'),
       getPluginApi(props.api, 'sites'),
+      getPluginApi(props.api, 'overview'),
     ]);
     if (dlResp) {
       downloaderItems.value = dlResp;
     }
     if (siteResp) {
       siteItems.value = siteResp;
+    }
+    if (overviewResp?.code === 0 || overviewResp?.cards) {
+      overview.value = overviewResp;
     }
   } catch (e) {
     console.error('获取列表失败:', e);
@@ -85,14 +105,16 @@ const defaults = {
 };
 
 const mainTabs = [
+  { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '总览下载中心运行链路、模块状态和待关注事项。' },
   { key: 'transfer', title: '转移做种', icon: 'mdi-transfer', desc: '监听下载完成事件，延迟后自动转移做种到目标下载器。' },
   { key: 'iyuu', title: 'IYUU辅种', icon: 'mdi-seed-plus', desc: '基于 IYUU API 自动辅种，铺种后自动打站点标签。' },
-  { key: 'rename', title: '种子重命名', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息重命名种子名称。' },
+  { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
   { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
   { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
 ];
 
 const subTabs = {
+  overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   transfer: [
     { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' },
     { key: 'filter', title: '筛选条件', icon: 'mdi-filter-variant' },
@@ -110,6 +132,62 @@ const subTabs = {
 
 const currentMain = computed(() => mainTabs.find(i => i.key === activeMain.value) || mainTabs[0]);
 const currentSubs = computed(() => subTabs[activeMain.value] || []);
+const selectedToDownloaderType = computed(() => {
+  const selected = downloaderItems.value.find(item => item.value === form.todownloader);
+  return selected?.type || ''
+});
+const overviewCards = computed(() => {
+  const cards = overview.value?.cards || {};
+  const archive = overview.value?.archive || {};
+  return [
+    {
+      title: '转移做种',
+      icon: 'mdi-transfer',
+      color: cards.transfer?.active ? 'success' : 'warning',
+      value: cards.transfer?.active ? '运行中' : '未就绪',
+      desc: cards.transfer?.fallback_enabled ? '兜底服务已启用' : '兜底服务未启用',
+    },
+    {
+      title: 'IYUU铺种',
+      icon: 'mdi-seed-plus',
+      color: cards.iyuu?.enabled ? 'success' : 'default',
+      value: cards.iyuu?.enabled ? '已启用' : '未启用',
+      desc: `成功 ${cards.iyuu?.success || 0} · 失败 ${cards.iyuu?.fail || 0}`,
+    },
+    {
+      title: '命名补刀',
+      icon: 'mdi-auto-fix',
+      color: archive.archived ? 'warning' : 'primary',
+      value: `${archive.active_failed || 0} / ${archive.archived || 0}`,
+      desc: `待处理 / 已归档，阈值 ${archive.threshold || 3} 次`,
+    },
+    {
+      title: '做种校验',
+      icon: 'mdi-check-circle-outline',
+      color: cards.seed?.autostart ? 'success' : 'default',
+      value: cards.seed?.autostart ? '自动开始' : '仅校验',
+      desc: cards.seed?.skipverify ? '跳过校验' : '按需校验',
+    },
+  ]
+});
+const runtimeFlows = [
+  {
+    label: '转移做种',
+    steps: ['下载完成', '延迟等待', '目标转移', '公共链路'],
+  },
+  {
+    label: 'IYUU铺种',
+    steps: ['任务触发', '资源查询', '辅种下载', '公共链路'],
+  },
+  {
+    label: '公共链路',
+    steps: ['命名处理', '站点标签', '做种校验'],
+  },
+  {
+    label: '兜底补刀',
+    steps: ['异常命名', '兜底补刀', '失败计数', '归档恢复'],
+  },
+];
 
 watch(() => props.initialConfig, v => {
   Object.keys(form).forEach(k => delete form[k]);
@@ -137,10 +215,10 @@ return (_ctx, _cache) => {
   const _component_VSelect = _resolveComponent("VSelect");
   const _component_VCol = _resolveComponent("VCol");
   const _component_VRow = _resolveComponent("VRow");
+  const _component_VAlert = _resolveComponent("VAlert");
   const _component_VTextField = _resolveComponent("VTextField");
   const _component_VTextarea = _resolveComponent("VTextarea");
   const _component_VCronField = _resolveComponent("VCronField");
-  const _component_VAlert = _resolveComponent("VAlert");
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VBtn = _resolveComponent("VBtn");
   const _component_VCardActions = _resolveComponent("VCardActions");
@@ -182,7 +260,7 @@ return (_ctx, _cache) => {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-h6" }, {
               default: _withCtx(() => [...(_cache[48] || (_cache[48] = [
-                _createTextVNode("下载管理", -1)
+                _createTextVNode("下载中心", -1)
               ]))]),
               _: 1
             }),
@@ -201,7 +279,7 @@ return (_ctx, _cache) => {
             _createVNode(_component_VList, {
               density: "comfortable",
               nav: "",
-              class: "py-2"
+              class: "dm-nav-list py-2"
             }, {
               default: _withCtx(() => [
                 (_openBlock(), _createElementBlock(_Fragment, null, _renderList(mainTabs, (item) => {
@@ -252,9 +330,83 @@ return (_ctx, _cache) => {
               }), 128))
             ]),
             _createVNode(_component_VDivider),
-            _createElementVNode("div", _hoisted_7, [
-              _withDirectives(_createElementVNode("div", _hoisted_8, [
-                _cache[49] || (_cache[49] = _createElementVNode("div", { class: "dm-section-title" }, "基础设置", -1)),
+            _createElementVNode("div", {
+              class: _normalizeClass(["dm-window", { 'dm-window--overview': activeMain.value === 'overview' }])
+            }, [
+              _withDirectives(_createElementVNode("div", _hoisted_7, [
+                _createElementVNode("div", _hoisted_8, [
+                  _cache[49] || (_cache[49] = _createElementVNode("div", { class: "dm-section-title" }, "运行链路", -1)),
+                  _createElementVNode("div", _hoisted_9, [
+                    (_openBlock(), _createElementBlock(_Fragment, null, _renderList(runtimeFlows, (flow) => {
+                      return _createElementVNode("div", {
+                        key: flow.label,
+                        class: "dm-flow-block"
+                      }, [
+                        _createElementVNode("div", _hoisted_10, _toDisplayString(flow.label), 1),
+                        _createElementVNode("div", _hoisted_11, [
+                          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(flow.steps, (step, index) => {
+                            return (_openBlock(), _createElementBlock(_Fragment, {
+                              key: `${flow.label}-${step}`
+                            }, [
+                              _createElementVNode("span", _hoisted_12, _toDisplayString(step), 1),
+                              (index < flow.steps.length - 1)
+                                ? (_openBlock(), _createBlock(_component_VIcon, {
+                                    key: 0,
+                                    class: "dm-flow-arrow",
+                                    icon: "mdi-arrow-right",
+                                    size: "14"
+                                  }))
+                                : _createCommentVNode("", true)
+                            ], 64))
+                          }), 128))
+                        ])
+                      ])
+                    }), 64))
+                  ])
+                ]),
+                _createElementVNode("div", _hoisted_13, [
+                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(overviewCards.value, (card) => {
+                    return (_openBlock(), _createElementBlock("div", {
+                      key: card.title,
+                      class: "dm-stat"
+                    }, [
+                      _createElementVNode("div", _hoisted_14, [
+                        _createVNode(_component_VAvatar, {
+                          color: card.color,
+                          variant: "tonal",
+                          size: "28",
+                          rounded: "lg"
+                        }, {
+                          default: _withCtx(() => [
+                            _createVNode(_component_VIcon, {
+                              icon: card.icon,
+                              size: "17"
+                            }, null, 8, ["icon"])
+                          ]),
+                          _: 2
+                        }, 1032, ["color"]),
+                        _createElementVNode("div", _hoisted_15, _toDisplayString(card.title), 1)
+                      ]),
+                      _createElementVNode("div", _hoisted_16, _toDisplayString(card.value), 1),
+                      _createElementVNode("div", _hoisted_17, _toDisplayString(card.desc), 1)
+                    ]))
+                  }), 128))
+                ]),
+                _createElementVNode("div", _hoisted_18, [
+                  _createElementVNode("div", _hoisted_19, [
+                    _cache[50] || (_cache[50] = _createElementVNode("div", { class: "dm-section-title" }, "命名概况", -1)),
+                    _createElementVNode("div", _hoisted_20, "成功 " + _toDisplayString(overview.value?.rename_history?.success || 0) + " · 失败 " + _toDisplayString(overview.value?.rename_history?.failed || 0) + " · 脏名 " + _toDisplayString(overview.value?.rename_history?.dirty || 0), 1)
+                  ]),
+                  _createElementVNode("div", _hoisted_21, [
+                    _cache[51] || (_cache[51] = _createElementVNode("div", { class: "dm-section-title" }, "待办关注", -1)),
+                    _createElementVNode("div", _hoisted_22, "连续失败 " + _toDisplayString(overview.value?.archive?.active_failed || 0) + " · 接近归档 " + _toDisplayString(overview.value?.archive?.near_archive || 0) + " · 已归档 " + _toDisplayString(overview.value?.archive?.archived || 0), 1)
+                  ])
+                ])
+              ], 512), [
+                [_vShow, activeSub.value === 'overview']
+              ]),
+              _withDirectives(_createElementVNode("div", _hoisted_23, [
+                _cache[53] || (_cache[53] = _createElementVNode("div", { class: "dm-section-title" }, "基础设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -298,6 +450,20 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
+                (form.todownloader && selectedToDownloaderType.value === 'transmission')
+                  ? (_openBlock(), _createBlock(_component_VAlert, {
+                      key: 0,
+                      type: "warning",
+                      variant: "tonal",
+                      density: "compact",
+                      class: "mt-2"
+                    }, {
+                      default: _withCtx(() => [...(_cache[52] || (_cache[52] = [
+                        _createTextVNode(" Transmission 当前不支持种子重命名，命名补刀与恢复原名不会生效；转移做种、IYUU 辅种和做种校验不受影响。 ", -1)
+                      ]))]),
+                      _: 1
+                    }))
+                  : _createCommentVNode("", true),
                 _createVNode(_component_VRow, { class: "mt-2" }, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -499,8 +665,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'basic']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_9, [
-                _cache[50] || (_cache[50] = _createElementVNode("div", { class: "dm-section-title" }, "筛选条件", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_24, [
+                _cache[54] || (_cache[54] = _createElementVNode("div", { class: "dm-section-title" }, "筛选条件", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -603,8 +769,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'filter']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_10, [
-                _cache[51] || (_cache[51] = _createElementVNode("div", { class: "dm-section-title" }, "高级选项", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_25, [
+                _cache[55] || (_cache[55] = _createElementVNode("div", { class: "dm-section-title" }, "高级选项", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -682,8 +848,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'advanced']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_11, [
-                _cache[52] || (_cache[52] = _createElementVNode("div", { class: "dm-section-title" }, "IYUU 辅种设置", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_26, [
+                _cache[56] || (_cache[56] = _createElementVNode("div", { class: "dm-section-title" }, "IYUU 辅种设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -875,8 +1041,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'iyuu_basic']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_12, [
-                _cache[53] || (_cache[53] = _createElementVNode("div", { class: "dm-section-title" }, "辅种筛选", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_27, [
+                _cache[57] || (_cache[57] = _createElementVNode("div", { class: "dm-section-title" }, "辅种筛选", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -963,8 +1129,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'iyuu_filter']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_13, [
-                _cache[54] || (_cache[54] = _createElementVNode("div", { class: "dm-section-title" }, "辅种高级选项", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_28, [
+                _cache[58] || (_cache[58] = _createElementVNode("div", { class: "dm-section-title" }, "辅种高级选项", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -989,8 +1155,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'iyuu_advanced']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_14, [
-                _cache[55] || (_cache[55] = _createElementVNode("div", { class: "dm-section-title" }, "重命名设置", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_29, [
+                _cache[59] || (_cache[59] = _createElementVNode("div", { class: "dm-section-title" }, "重命名设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1025,7 +1191,7 @@ return (_ctx, _cache) => {
                           "hide-details": "",
                           rows: "2"
                         }, null, 8, ["modelValue"]),
-                        _createElementVNode("div", _hoisted_15, "可用变量: " + _toDisplayString(_ctx.title) + ", " + _toDisplayString(_ctx.year) + ", " + _toDisplayString(_ctx.original_name), 1)
+                        _createElementVNode("div", _hoisted_30, "可用变量: " + _toDisplayString(_ctx.title) + ", " + _toDisplayString(_ctx.year) + ", " + _toDisplayString(_ctx.original_name), 1)
                       ]),
                       _: 1
                     })
@@ -1045,7 +1211,7 @@ return (_ctx, _cache) => {
                           "hide-details": "",
                           rows: "2"
                         }, null, 8, ["modelValue"]),
-                        _createElementVNode("div", _hoisted_16, "可用变量: " + _toDisplayString(_ctx.title) + ", " + _toDisplayString(_ctx.year) + ", " + _toDisplayString(_ctx.season_episode) + ", " + _toDisplayString(_ctx.original_name), 1)
+                        _createElementVNode("div", _hoisted_31, "可用变量: " + _toDisplayString(_ctx.title) + ", " + _toDisplayString(_ctx.year) + ", " + _toDisplayString(_ctx.season_episode) + ", " + _toDisplayString(_ctx.original_name), 1)
                       ]),
                       _: 1
                     })
@@ -1074,8 +1240,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'format']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_17, [
-                _cache[57] || (_cache[57] = _createElementVNode("div", { class: "dm-section-title" }, "站点标签设置", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_32, [
+                _cache[61] || (_cache[61] = _createElementVNode("div", { class: "dm-section-title" }, "站点标签设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1126,7 +1292,7 @@ return (_ctx, _cache) => {
                           "hide-details": "",
                           rows: "4"
                         }, null, 8, ["modelValue"]),
-                        _cache[56] || (_cache[56] = _createElementVNode("div", { class: "dm-hint" }, "例: tracker.example.com -> example", -1))
+                        _cache[60] || (_cache[60] = _createElementVNode("div", { class: "dm-hint" }, "例: tracker.example.com -> example", -1))
                       ]),
                       _: 1
                     })
@@ -1136,15 +1302,15 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'mapping']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_18, [
-                _cache[59] || (_cache[59] = _createElementVNode("div", { class: "dm-section-title" }, "做种校验设置", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_33, [
+                _cache[63] || (_cache[63] = _createElementVNode("div", { class: "dm-section-title" }, "做种校验设置", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
                   variant: "tonal",
                   density: "compact",
                   class: "mb-4"
                 }, {
-                  default: _withCtx(() => [...(_cache[58] || (_cache[58] = [
+                  default: _withCtx(() => [...(_cache[62] || (_cache[62] = [
                     _createTextVNode("做种校验采用按需触发：仅在转移做种、IYUU铺种或手动补刀添加种子后启动。队列为空后自动停止。", -1)
                   ]))]),
                   _: 1
@@ -1234,7 +1400,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'seed_basic']
               ])
-            ])
+            ], 2)
           ])
         ]),
         _createVNode(_component_VDivider),
@@ -1245,7 +1411,7 @@ return (_ctx, _cache) => {
               variant: "text",
               onClick: _cache[47] || (_cache[47] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[60] || (_cache[60] = [
+              default: _withCtx(() => [...(_cache[64] || (_cache[64] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -1256,7 +1422,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-content-save-outline",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[61] || (_cache[61] = [
+              default: _withCtx(() => [...(_cache[65] || (_cache[65] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -1272,6 +1438,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ae8e3cd0"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-69162009"]]);
 
 export { Config as default };

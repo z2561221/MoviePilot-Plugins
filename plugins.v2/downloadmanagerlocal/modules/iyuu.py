@@ -20,10 +20,44 @@ from app.schemas.types import SystemConfigKey
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
+from ..utils.sensitive import mask_sensitive_url
 
-IYUU_QUERY_CHUNK_SIZE = 200
-IYUU_QUERY_BATCH_DELAY_SECONDS = 2
+
+IYUU_QUERY_CHUNK_SIZE = 100
+IYUU_QUERY_BATCH_DELAY_SECONDS = 6
 IYUU_SCAN_PROGRESS_INTERVAL = 500
+IYUU_TRANSIENT_ERROR_LIMIT = 2
+IYUU_TRANSIENT_ERROR_KEYWORDS = (
+    "Server internal error",
+    "OOM command not allowed",
+    "未获取到返回信息",
+    "访问频率过快",
+    "Too Many Requests",
+    "timeout",
+    "Timeout",
+    "Connection",
+    "连接",
+)
+IYUU_CONFIG_ERROR_KEYWORDS = (
+    "未配置 IYUU Token",
+    "token未注册",
+    "请求缺少token",
+    "未绑定推荐站点",
+    "缺少sid_list",
+    "站点哈希值 require",
+    "站点哈希刷新失败",
+    "未获取到 IYUU 支持站点列表",
+)
+
+
+def _is_iyuu_transient_error(message: str) -> bool:
+    """判断 IYUU 查询失败是否属于临时服务端异常或限流。"""
+    return bool(message and any(keyword in message for keyword in IYUU_TRANSIENT_ERROR_KEYWORDS))
+
+
+def _is_iyuu_config_error(message: str) -> bool:
+    """判断 IYUU 查询失败是否属于 Token 或站点绑定配置异常。"""
+    return bool(message and any(keyword in message for keyword in IYUU_CONFIG_ERROR_KEYWORDS))
 
 
 def is_torrent_content(content: bytes) -> bool:
@@ -83,7 +117,12 @@ def iyuu_auto_seed(plugin):
 
 def _iyuu_auto_seed(plugin):
     """IYUU 自动辅种主逻辑"""
-    if not plugin.iyuu_helper or not iyuu_service_infos(plugin):
+    services = iyuu_service_infos(plugin)
+    if not plugin.iyuu_helper or not services:
+        return
+    ready, ready_msg = plugin.iyuu_helper.ensure_ready()
+    if not ready:
+        logger.warning(f"IYUU辅种：预检失败，本轮跳过：{ready_msg}")
         return
     logger.info("开始 IYUU 辅种任务 ...")
 
@@ -94,7 +133,10 @@ def _iyuu_auto_seed(plugin):
     plugin._iyuu_fail = 0
     plugin._iyuu_cached = 0
 
-    for service in iyuu_service_infos(plugin).values():
+    transient_error_count = 0
+    stop_reason = ""
+
+    for service in services.values():
         downloader = service.name
         downloader_obj = service.instance
         logger.info(f"IYUU辅种：扫描下载器 {downloader} ...")
@@ -149,11 +191,36 @@ def _iyuu_auto_seed(plugin):
                     logger.info(
                         f"IYUU辅种：等待 {IYUU_QUERY_BATCH_DELAY_SECONDS} 秒后继续下一批，避免请求过快"
                     )
-                    time.sleep(IYUU_QUERY_BATCH_DELAY_SECONDS)
+                    if plugin._event.wait(IYUU_QUERY_BATCH_DELAY_SECONDS):
+                        logger.info("IYUU辅种服务停止")
+                        return
                 chunk = hash_strs[i:i + IYUU_QUERY_CHUNK_SIZE]
-                iyuu_seed_torrents(plugin, hash_strs=chunk, service=service)
+                query_error = iyuu_seed_torrents(plugin, hash_strs=chunk, service=service)
+                if not query_error:
+                    transient_error_count = 0
+                    continue
+                if _is_iyuu_config_error(query_error):
+                    stop_reason = f"IYUU 配置或站点绑定异常：{query_error}"
+                    break
+                if _is_iyuu_transient_error(query_error):
+                    transient_error_count += 1
+                    logger.warning(
+                        f"IYUU辅种：检测到临时异常 {transient_error_count}/{IYUU_TRANSIENT_ERROR_LIMIT}：{query_error}"
+                    )
+                    if transient_error_count >= IYUU_TRANSIENT_ERROR_LIMIT:
+                        stop_reason = f"IYUU 临时异常连续达到 {IYUU_TRANSIENT_ERROR_LIMIT} 次，停止本轮辅种"
+                        break
+                else:
+                    transient_error_count = 0
+            if stop_reason:
+                break
         else:
             logger.info(f"IYUU辅种：下载器 {downloader} 没有需要辅种的种子")
+        if stop_reason:
+            break
+
+    if stop_reason:
+        logger.warning(f"IYUU辅种：{stop_reason}")
 
     update_iyuu_config(plugin)
     if plugin._notify and (plugin._iyuu_success or plugin._iyuu_fail):
@@ -173,7 +240,7 @@ def _iyuu_auto_seed(plugin):
 def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
     """执行一批种子的 IYUU 辅种"""
     if not hash_strs:
-        return
+        return None
     logger.info(f"IYUU辅种：下载器 {service.name} 查询辅种，数量：{len(hash_strs)}")
     hashs = [item.get("hash") for item in hash_strs]
     save_paths = {item.get("hash"): item.get("save_path") for item in hash_strs}
@@ -201,7 +268,7 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
             logger.warning(f'IYUU辅种失败，疑似站点未绑定：{msg}')
         else:
             logger.warning(f"IYUU辅种：当前种子列表没有可辅种的站点：{msg}")
-        return
+        return msg or "IYUU 查询未返回有效数据"
     logger.info(f"IYUU辅种：返回可辅种数：{len(seed_list)}")
 
     for current_hash, seed_info in seed_list.items():
@@ -250,6 +317,7 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
     __log_counter("跳过未维护站点", unmanaged_sites)
     __log_counter("跳过未选择站点", skipped_sites)
     logger.info(f"IYUU辅种：下载器 {service.name} 辅种完成")
+    return None
 
 
 def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: str, save_category: str,
@@ -304,6 +372,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         return url + ("&https=1" if "?" in url else "?https=1")
 
     torrent_url = __with_https_param(torrent_url)
+    safe_torrent_url = mask_sensitive_url(torrent_url)
 
     _, content, _, _, error_msg = TorrentHelper().download_torrent(
         url=torrent_url, cookie=site_info.get("cookie"),
@@ -316,13 +385,14 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
     if not content:
         logger.warning(
             f"IYUU辅种：下载种子文件失败，准备回退详情页获取：站点={site_info.get('name')}，"
-            f"info_hash={seed.get('info_hash')}，url={torrent_url}，原因={error_msg or '未知'}"
+            f"info_hash={seed.get('info_hash')}，url={safe_torrent_url}，原因={error_msg or '未知'}"
         )
         fallback_url = iyuu_get_download_url(plugin, seed=seed, site=site_info, base_url=download_page,
                                              force_page=True)
         fallback_url = __with_https_param(fallback_url)
         if fallback_url and fallback_url != torrent_url:
-            logger.info(f"IYUU辅种：使用详情页下载链接重试：{fallback_url}")
+            safe_fallback_url = mask_sensitive_url(fallback_url)
+            logger.info(f"IYUU辅种：使用详情页下载链接重试：{safe_fallback_url}")
             _, content, _, _, fallback_error = TorrentHelper().download_torrent(
                 url=fallback_url, cookie=site_info.get("cookie"),
                 ua=site_info.get("ua") or settings.USER_AGENT, proxy=site_info.get("proxy"))
@@ -331,6 +401,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
                 content = None
             if content:
                 torrent_url = fallback_url
+                safe_torrent_url = safe_fallback_url
                 error_msg = ""
             else:
                 error_msg = fallback_error or error_msg
@@ -345,11 +416,11 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
             append_iyuu_cache(plugin._iyuu_permanent_error_caches, seed.get("info_hash"))
         logger.error(
             f"IYUU辅种：下载种子文件失败：站点={site_info.get('name')}，"
-            f"info_hash={seed.get('info_hash')}，url={torrent_url}，原因={error_msg or '未知'}"
+            f"info_hash={seed.get('info_hash')}，url={safe_torrent_url}，原因={error_msg or '未知'}"
         )
         return False
 
-    logger.info(f"IYUU辅种：准备添加下载任务：{torrent_url}")
+    logger.info(f"IYUU辅种：准备添加下载任务：{safe_torrent_url}")
     download_id = iyuu_download(plugin, service=service, content=content,
                                 save_path=save_path, save_category=save_category,
                                 site_name=site_info.get("name"),
@@ -416,6 +487,7 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
                   save_path: str, save_category: str, site_name: str,
                   expected_hash: str = None, torrent_url: str = None) -> Optional[str]:
     """添加 IYUU 辅种下载任务，并用 expected_hash + 临时标签多次确认任务入库。"""
+    safe_torrent_url = mask_sensitive_url(torrent_url)
     torrent_tags = plugin._iyuu_labelsafterseed.split(',')
     if hasattr(plugin, '_iyuu_addhosttotag') and plugin._iyuu_addhosttotag:
         torrent_tags.append(site_name)
@@ -447,7 +519,7 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
         if not state:
             logger.error(
                 f"IYUU辅种：{service.name} 下载任务添加失败：expected_hash={expected_hash}，"
-                f"url={torrent_url}，save_path={save_path}，category={save_category}"
+                f"url={safe_torrent_url}，save_path={save_path}，category={save_category}"
             )
             return None
 
@@ -463,7 +535,7 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
 
         logger.error(
             f"IYUU辅种：{service.name} 下载器返回已接收，但未能确认任务入库："
-            f"expected_hash={expected_hash}，tag={tag}，url={torrent_url}，"
+            f"expected_hash={expected_hash}，tag={tag}，url={safe_torrent_url}，"
             f"save_path={save_path}，category={save_category}"
         )
         return None
@@ -552,7 +624,7 @@ def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_p
                         download_url = download_url[0]
                         if not download_url.startswith("http"):
                             download_url = urljoin(site.get('url'), download_url)
-                        logger.info(f"IYUU辅种：从详情页获取下载链接成功：{download_url}")
+                        logger.info(f"IYUU辅种：从详情页获取下载链接成功：{mask_sensitive_url(download_url)}")
                         return download_url
                 logger.warning(f"IYUU辅种：详情页 xpath 未匹配到下载链接：{page_url}，站点：{site.get('name')}")
             else:
@@ -616,6 +688,9 @@ def iyuu_save_history(plugin, current_hash: str, downloader: str, success_torren
         if new_history:
             seed_history.append({"downloader": downloader, "torrents": list(set(success_torrents))})
         plugin.save_data(key=f"iyuu_{current_hash}", value=seed_history)
+        for seed_hash in success_torrents:
+            if seed_hash:
+                plugin.save_data(key=f"iyuu_source_{seed_hash}", value=current_hash)
     except Exception as e:
         logger.error(f"IYUU辅种：保存历史失败：{e}")
 

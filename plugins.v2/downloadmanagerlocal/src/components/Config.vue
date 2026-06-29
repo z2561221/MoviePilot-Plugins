@@ -9,22 +9,27 @@ const props = defineProps({
 const emit = defineEmits(['save', 'close', 'switch'])
 
 const form = reactive({})
-const activeMain = ref('transfer')
-const activeSub = ref('basic')
+const activeMain = ref('overview')
+const activeSub = ref('overview')
 const downloaderItems = ref([])
 const siteItems = ref([])
+const overview = ref(null)
 
 onMounted(async () => {
   try {
-    const [dlResp, siteResp] = await Promise.all([
+    const [dlResp, siteResp, overviewResp] = await Promise.all([
       getPluginApi(props.api, 'downloaders'),
       getPluginApi(props.api, 'sites'),
+      getPluginApi(props.api, 'overview'),
     ])
     if (dlResp) {
       downloaderItems.value = dlResp
     }
     if (siteResp) {
       siteItems.value = siteResp
+    }
+    if (overviewResp?.code === 0 || overviewResp?.cards) {
+      overview.value = overviewResp
     }
   } catch (e) {
     console.error('获取列表失败:', e)
@@ -55,14 +60,16 @@ const defaults = {
 }
 
 const mainTabs = [
+  { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '总览下载中心运行链路、模块状态和待关注事项。' },
   { key: 'transfer', title: '转移做种', icon: 'mdi-transfer', desc: '监听下载完成事件，延迟后自动转移做种到目标下载器。' },
   { key: 'iyuu', title: 'IYUU辅种', icon: 'mdi-seed-plus', desc: '基于 IYUU API 自动辅种，铺种后自动打站点标签。' },
-  { key: 'rename', title: '种子重命名', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息重命名种子名称。' },
+  { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
   { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
   { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
 ]
 
 const subTabs = {
+  overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   transfer: [
     { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' },
     { key: 'filter', title: '筛选条件', icon: 'mdi-filter-variant' },
@@ -80,6 +87,62 @@ const subTabs = {
 
 const currentMain = computed(() => mainTabs.find(i => i.key === activeMain.value) || mainTabs[0])
 const currentSubs = computed(() => subTabs[activeMain.value] || [])
+const selectedToDownloaderType = computed(() => {
+  const selected = downloaderItems.value.find(item => item.value === form.todownloader)
+  return selected?.type || ''
+})
+const overviewCards = computed(() => {
+  const cards = overview.value?.cards || {}
+  const archive = overview.value?.archive || {}
+  return [
+    {
+      title: '转移做种',
+      icon: 'mdi-transfer',
+      color: cards.transfer?.active ? 'success' : 'warning',
+      value: cards.transfer?.active ? '运行中' : '未就绪',
+      desc: cards.transfer?.fallback_enabled ? '兜底服务已启用' : '兜底服务未启用',
+    },
+    {
+      title: 'IYUU铺种',
+      icon: 'mdi-seed-plus',
+      color: cards.iyuu?.enabled ? 'success' : 'default',
+      value: cards.iyuu?.enabled ? '已启用' : '未启用',
+      desc: `成功 ${cards.iyuu?.success || 0} · 失败 ${cards.iyuu?.fail || 0}`,
+    },
+    {
+      title: '命名补刀',
+      icon: 'mdi-auto-fix',
+      color: archive.archived ? 'warning' : 'primary',
+      value: `${archive.active_failed || 0} / ${archive.archived || 0}`,
+      desc: `待处理 / 已归档，阈值 ${archive.threshold || 3} 次`,
+    },
+    {
+      title: '做种校验',
+      icon: 'mdi-check-circle-outline',
+      color: cards.seed?.autostart ? 'success' : 'default',
+      value: cards.seed?.autostart ? '自动开始' : '仅校验',
+      desc: cards.seed?.skipverify ? '跳过校验' : '按需校验',
+    },
+  ]
+})
+const runtimeFlows = [
+  {
+    label: '转移做种',
+    steps: ['下载完成', '延迟等待', '目标转移', '公共链路'],
+  },
+  {
+    label: 'IYUU铺种',
+    steps: ['任务触发', '资源查询', '辅种下载', '公共链路'],
+  },
+  {
+    label: '公共链路',
+    steps: ['命名处理', '站点标签', '做种校验'],
+  },
+  {
+    label: '兜底补刀',
+    steps: ['异常命名', '兜底补刀', '失败计数', '归档恢复'],
+  },
+]
 
 watch(() => props.initialConfig, v => {
   Object.keys(form).forEach(k => delete form[k])
@@ -102,7 +165,7 @@ function selectMain(key) {
             <VIcon icon="mdi-download" size="24" />
           </VAvatar>
         </template>
-        <VCardTitle class="text-h6">下载管理</VCardTitle>
+        <VCardTitle class="text-h6">下载中心</VCardTitle>
         <VCardSubtitle class="text-caption">{{ currentMain.desc }}</VCardSubtitle>
         <template #append>
           <VSwitch v-model="form.enabled" color="success" hide-details inset :label="form.enabled ? '已启用' : '已停用'" />
@@ -111,7 +174,7 @@ function selectMain(key) {
       <VDivider />
       <div class="dm-body">
         <nav class="dm-nav">
-          <VList density="comfortable" nav class="py-2">
+          <VList density="comfortable" nav class="dm-nav-list py-2">
             <VListItem v-for="item in mainTabs" :key="item.key" :active="activeMain === item.key"
               color="primary" rounded="lg" class="dm-nav-item" @click="selectMain(item.key)">
               <template #prepend><VIcon :icon="item.icon" /></template>
@@ -127,7 +190,45 @@ function selectMain(key) {
             </button>
           </div>
           <VDivider />
-          <div class="dm-window">
+          <div class="dm-window" :class="{ 'dm-window--overview': activeMain === 'overview' }">
+            <div v-show="activeSub === 'overview'" class="dm-pane dm-pane--overview">
+              <div class="dm-overview-section mb-3">
+                <div class="dm-section-title">运行链路</div>
+                <div class="dm-flow">
+                  <div v-for="flow in runtimeFlows" :key="flow.label" class="dm-flow-block">
+                    <div class="dm-flow-label">{{ flow.label }}</div>
+                    <div class="dm-flow-row">
+                      <template v-for="(step, index) in flow.steps" :key="`${flow.label}-${step}`">
+                        <span class="dm-flow-step">{{ step }}</span>
+                        <VIcon v-if="index < flow.steps.length - 1" class="dm-flow-arrow" icon="mdi-arrow-right" size="14" />
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="dm-stat-grid mb-3">
+                <div v-for="card in overviewCards" :key="card.title" class="dm-stat">
+                  <div class="d-flex align-center ga-2 mb-1">
+                    <VAvatar :color="card.color" variant="tonal" size="28" rounded="lg"><VIcon :icon="card.icon" size="17" /></VAvatar>
+                    <div class="text-caption text-medium-emphasis">{{ card.title }}</div>
+                  </div>
+                  <div class="text-subtitle-1 font-weight-bold">{{ card.value }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ card.desc }}</div>
+                </div>
+              </div>
+
+              <div class="dm-overview-grid">
+                <div class="dm-overview-section">
+                  <div class="dm-section-title">命名概况</div>
+                  <div class="text-caption text-medium-emphasis">成功 {{ overview?.rename_history?.success || 0 }} · 失败 {{ overview?.rename_history?.failed || 0 }} · 脏名 {{ overview?.rename_history?.dirty || 0 }}</div>
+                </div>
+                <div class="dm-overview-section">
+                  <div class="dm-section-title">待办关注</div>
+                  <div class="text-caption text-medium-emphasis">连续失败 {{ overview?.archive?.active_failed || 0 }} · 接近归档 {{ overview?.archive?.near_archive || 0 }} · 已归档 {{ overview?.archive?.archived || 0 }}</div>
+                </div>
+              </div>
+            </div>
 
             <!-- ═══ 转移做种 · 基础设置 ═══ -->
             <div v-show="activeSub === 'basic'" class="dm-pane">
@@ -142,6 +243,15 @@ function selectMain(key) {
                     :items="downloaderItems" hint="选择目的下载器" persistent-hint />
                 </VCol>
               </VRow>
+              <VAlert
+                v-if="form.todownloader && selectedToDownloaderType === 'transmission'"
+                type="warning"
+                variant="tonal"
+                density="compact"
+                class="mt-2"
+              >
+                Transmission 当前不支持种子重命名，命名补刀与恢复原名不会生效；转移做种、IYUU 辅种和做种校验不受影响。
+              </VAlert>
               <VRow class="mt-2">
                 <VCol cols="12" md="6">
                   <VTextField v-model="form.frompath" label="源数据文件根路径" density="compact" variant="outlined" hide-details
@@ -402,24 +512,70 @@ function selectMain(key) {
   </div>
 </template>
 <style scoped>
-.dm-config { padding: 8px; }
-.dm-card { border-radius: 14px; overflow: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.dm-config {
+  width: min(1120px, calc(100vw - 48px));
+  max-width: 100%;
+  padding: 8px;
+}
+.dm-card {
+  width: 100%;
+  height: clamp(620px, calc(100vh - 96px), 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
 .dm-header { padding: 14px 18px; }
-.dm-body { display: flex; min-height: 460px; }
+.dm-header :deep(.v-card-subtitle) {
+  max-width: min(560px, 52vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dm-body { flex: 1 1 auto; min-height: 0; display: flex; }
 .dm-nav { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), 0.02); }
+.dm-nav-list { width: 100%; }
 .dm-nav-item { margin: 2px 8px; }
-.dm-content { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.dm-content { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .dm-subtabs { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; }
 .dm-subtab { display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; color: rgba(var(--v-theme-on-surface), 0.7); background: transparent; border: none; cursor: pointer; transition: background 0.15s, color 0.15s; white-space: nowrap; }
 .dm-subtab:hover { background: rgba(var(--v-theme-primary), 0.08); color: rgb(var(--v-theme-primary)); }
 .dm-subtab--active { background: rgba(var(--v-theme-primary), 0.14); color: rgb(var(--v-theme-primary)); font-weight: 600; }
-.dm-window { flex: 1 1 auto; }
-.dm-pane { padding: 18px 20px; }
+.dm-window { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.dm-window--overview { overflow-y: hidden; }
+.dm-pane { min-height: 100%; padding: 18px 20px; }
+.dm-pane--overview { min-height: auto; padding: 12px 16px; }
 .dm-section-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: rgb(var(--v-theme-primary)); }
 .dm-hint { font-size: 12px; line-height: 1.5; color: rgba(var(--v-theme-on-surface), 0.6); margin-top: 2px; }
+.dm-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.dm-stat { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.dm-overview-section { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.dm-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dm-flow { display: grid; gap: 10px; }
+.dm-flow-block { min-width: 0; }
+.dm-flow-label { font-size: 12px; font-weight: 600; color: rgb(var(--v-theme-primary)); margin-bottom: 5px; }
+.dm-flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.78); }
+.dm-flow-step { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), 0.02); white-space: nowrap; }
+.dm-flow-arrow { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), 0.44); }
 .dm-actions { padding: 10px 18px; }
 @media (max-width: 760px) {
+  .dm-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
+  .dm-card { height: min(760px, calc(100dvh - 24px)); }
+  .dm-header :deep(.v-card-subtitle) { max-width: 100%; }
   .dm-body { flex-direction: column; }
-  .dm-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+  .dm-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .dm-nav::-webkit-scrollbar { display: none; }
+  .dm-nav-list { display: flex; flex-wrap: nowrap; gap: 6px; min-width: max-content; padding: 8px 12px !important; }
+  .dm-nav-item { flex: 0 0 auto; min-width: 96px; margin: 0; padding-inline: 10px; }
+  .dm-nav-item :deep(.v-list-item-title) { white-space: nowrap; }
+  .dm-subtabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 6px 12px; }
+  .dm-subtabs::-webkit-scrollbar { display: none; }
+  .dm-subtab { flex: 0 0 auto; padding: 6px 12px; }
+  .dm-stat-grid, .dm-overview-grid { grid-template-columns: 1fr; }
+  .dm-window--overview { overflow-y: auto; }
+}
+@media (max-height: 620px) {
+  .dm-window--overview { overflow-y: auto; }
 }
 </style>

@@ -39,6 +39,19 @@ def test_iyuu_rejects_html_content_before_adding_to_downloader():
     assert "下载到的内容不是有效 torrent 文件" in source
 
 
+def test_iyuu_query_has_preflight_and_circuit_breaker():
+    source = (PLUGIN_DIR / "modules" / "iyuu.py").read_text(encoding="utf-8")
+    helper_source = (PLUGIN_DIR / "iyuu_helper.py").read_text(encoding="utf-8")
+
+    assert "IYUU_QUERY_CHUNK_SIZE = 100" in source
+    assert "IYUU_QUERY_BATCH_DELAY_SECONDS = 6" in source
+    assert "IYUU_TRANSIENT_ERROR_LIMIT = 2" in source
+    assert "_is_iyuu_transient_error(query_error)" in source
+    assert "plugin._event.wait(IYUU_QUERY_BATCH_DELAY_SECONDS)" in source
+    assert "ensure_ready" in helper_source
+    assert "跳过 sid_list 为空的请求" in helper_source
+
+
 def test_downloadmanagerlocal_runtime_version_matches_market_metadata():
     package = json.loads((REPO / "package.v2.json").read_text(encoding="utf-8"))
     plugin_meta = json.loads((PLUGIN_DIR / "plugin.json").read_text(encoding="utf-8"))

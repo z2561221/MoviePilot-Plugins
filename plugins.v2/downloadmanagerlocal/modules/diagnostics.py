@@ -94,6 +94,7 @@ def build_diagnostics(plugin):
         plugin._transfer_active and from_service["available"] and to_service["available"]
     )
     rename_history = _rename_history_stats(plugin)
+    archive_stats = plugin.rename_archive_stats()
 
     checks = [
         _check(
@@ -116,9 +117,18 @@ def build_diagnostics(plugin):
             "ok" if transfer_ready else ("off" if not plugin._transfer_enabled else "warn"),
             "配置完整" if transfer_ready else "未启用或配置不完整",
         ),
-        _check("重命名", "ok" if plugin._rename_enabled else "off", _bool_text(plugin._rename_enabled)),
+        _check(
+            "种子重命名",
+            "warn" if to_service.get("type") == "transmission" else ("ok" if plugin._rename_enabled else "off"),
+            "不支持 Transmission" if to_service.get("type") == "transmission" else _bool_text(plugin._rename_enabled),
+        ),
         _check("站点标签", "ok" if plugin._tag_enabled else "off", _bool_text(plugin._tag_enabled)),
         _check("IYUU辅种", "ok" if plugin._iyuu_enabled else "off", _bool_text(plugin._iyuu_enabled)),
+        _check(
+            "补刀归档",
+            "warn" if archive_stats.get("archived") else "ok",
+            f"已归档 {archive_stats.get('archived', 0)}，阈值 {archive_stats.get('threshold', 3)} 次",
+        ),
     ]
 
     return {
@@ -151,5 +161,6 @@ def build_diagnostics(plugin):
             "fromtorrentpath_exists": source_path_exists,
         },
         "rename_history": rename_history,
+        "rename_archive": archive_stats,
         "checks": checks,
     }

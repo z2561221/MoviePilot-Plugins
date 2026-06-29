@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.1.8 - MoviePilot 本地插件
+DownloadManagerLocal v3.2.3 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 import os
@@ -38,12 +38,13 @@ from app.schemas.types import MediaType, SystemConfigKey, EventType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
-from .utils.config import safe_int
+from .utils.config import safe_int, is_plugin_active, is_transfer_active
 from .utils.tracker import parse_tracker_mappings
 from .utils.path import convert_save_path
 from .utils.torrent_adapter import get_hash, get_label, get_category, get_save_path, get_torrent_size
-from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent, api_retry_renames as _api_retry_renames, api_retry_rename as _api_retry_rename, api_diagnostics as _api_diagnostics
+from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent, api_retry_renames as _api_retry_renames, api_retry_rename as _api_retry_rename, api_diagnostics as _api_diagnostics, api_overview as _api_overview, api_rename_archive as _api_rename_archive, api_restore_rename_archive as _api_restore_rename_archive, api_delete_rename_archive as _api_delete_rename_archive
 from .modules.rename import rename_torrent as _rename_torrent_impl, format_torrent_name as _format_torrent_name_impl, save_rename_record as _save_rename_record_impl, get_failed_rename_hashes as _get_failed_rename_hashes_impl, retry_failed_renames as _retry_failed_renames_impl, retry_rename_by_hash as _retry_rename_by_hash_impl, rename_iyuu_torrent_by_source_record as _rename_iyuu_torrent_by_source_record_impl
+from .modules.rename_archive import record_rename_failure as _record_rename_failure_impl, clear_rename_retry_state as _clear_rename_retry_state_impl, is_rename_archived as _is_rename_archived_impl, list_rename_archive as _list_rename_archive_impl, restore_rename_archive as _restore_rename_archive_impl, delete_rename_archive as _delete_rename_archive_impl, rename_archive_stats as _rename_archive_stats_impl
 from .modules.diagnostics import build_diagnostics as _build_diagnostics_impl
 from .modules.site_tag import tag_torrent as _tag_torrent_impl, find_site_by_domain as _find_site_by_domain_impl
 from .modules.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl
@@ -52,7 +53,7 @@ from .modules.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_a
 
 class DownloadManagerLocal(_PluginBase):
     # 插件名称
-    plugin_name = "下载管理"
+    plugin_name = "下载中心"
     # 插件描述
     plugin_desc = "转移做种 + IYUU辅种 + 种子重命名 + 站点标签，一站式下载管理。"
     # 插件图标
@@ -60,11 +61,11 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.1.8"
+    plugin_version = "3.2.3"
     # 插件作者
     plugin_author = "牧濑红莉栖"
     # 作者主页
-    author_url = "https://raw.githubusercontent.com/z2561221/MoviePilot-Plugins/main/icons/author-avatars/kurisu"
+    author_url = "https://github.com/z2561221"
     # 插件配置项ID前缀
     plugin_config_prefix = "downloadmanagerlocal_"
     # 加载顺序
@@ -387,16 +388,12 @@ class DownloadManagerLocal(_PluginBase):
         return service
 
     def get_state(self):
-        return True if self._enabled \
-                       and self._fromdownloader \
-                       and self._todownloader \
-                       and self._fromtorrentpath else False
+        return is_plugin_active(self)
 
     @property
     def _transfer_active(self) -> bool:
         """转移做种功能是否激活（总开关 + 转移开关 + 配置完整）"""
-        return self._enabled and self._transfer_enabled \
-               and self._fromdownloader and self._todownloader and self._fromtorrentpath
+        return is_transfer_active(self)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -417,6 +414,13 @@ class DownloadManagerLocal(_PluginBase):
                 "auth": "bear",
                 "methods": ["GET"],
                 "summary": "获取重命名历史",
+            },
+            {
+                "path": "/overview",
+                "endpoint": self.api_overview,
+                "auth": "bear",
+                "methods": ["GET"],
+                "summary": "获取下载中心总览",
             },
             {
                 "path": "/diagnostics",
@@ -447,6 +451,27 @@ class DownloadManagerLocal(_PluginBase):
                 "summary": "删除重命名历史记录",
             },
             {
+                "path": "/rename_archive",
+                "endpoint": self.api_rename_archive,
+                "auth": "bear",
+                "methods": ["GET"],
+                "summary": "获取补刀归档记录",
+            },
+            {
+                "path": "/restore_rename_archive",
+                "endpoint": self.api_restore_rename_archive,
+                "auth": "bear",
+                "methods": ["POST"],
+                "summary": "恢复补刀归档记录",
+            },
+            {
+                "path": "/delete_rename_archive",
+                "endpoint": self.api_delete_rename_archive,
+                "auth": "bear",
+                "methods": ["POST"],
+                "summary": "删除补刀归档记录",
+            },
+            {
                 "path": "/recovery_torrent",
                 "endpoint": self.api_recovery_torrent,
                 "auth": "bear",
@@ -471,8 +496,20 @@ class DownloadManagerLocal(_PluginBase):
     def api_rename_history(self, page: int = 1, page_size: int = 15):
         return _api_rename_history(self, page, page_size)
 
+    def api_overview(self):
+        return _api_overview(self)
+
     def api_delete_rename_history(self, hash: str = ""):
         return _api_delete_rename_history(self, hash)
+
+    def api_rename_archive(self, page: int = 1, page_size: int = 15):
+        return _api_rename_archive(self, page, page_size)
+
+    def api_restore_rename_archive(self, hash: str = ""):
+        return _api_restore_rename_archive(self, hash)
+
+    def api_delete_rename_archive(self, hash: str = ""):
+        return _api_delete_rename_archive(self, hash)
 
     def api_recovery_torrent(self, hash: str = ""):
         return _api_recovery_torrent(self, hash)
@@ -746,6 +783,28 @@ class DownloadManagerLocal(_PluginBase):
     def _diagnostics(self):
         return _build_diagnostics_impl(self)
 
+    def record_rename_failure(self, torrent_hash: str, torrent_name: str,
+                              category: str = "", reason: str = ""):
+        return _record_rename_failure_impl(self, torrent_hash, torrent_name, category, reason)
+
+    def clear_rename_retry_state(self, torrent_hash: str):
+        return _clear_rename_retry_state_impl(self, torrent_hash)
+
+    def is_rename_archived(self, torrent_hash: str):
+        return _is_rename_archived_impl(self, torrent_hash)
+
+    def list_rename_archive(self, page: int = 1, page_size: int = 15):
+        return _list_rename_archive_impl(self, page, page_size)
+
+    def restore_rename_archive(self, torrent_hash: str):
+        return _restore_rename_archive_impl(self, torrent_hash)
+
+    def delete_rename_archive(self, torrent_hash: str):
+        return _delete_rename_archive_impl(self, torrent_hash)
+
+    def rename_archive_stats(self):
+        return _rename_archive_stats_impl(self)
+
     # ════════════════════════════════════════════════════════════
     # v2.3.0: 事件驱动转移
     # ════════════════════════════════════════════════════════════
@@ -773,11 +832,13 @@ class DownloadManagerLocal(_PluginBase):
             self._scheduler.start()
 
         run_time = datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(minutes=delay)
+        job_id = f"delayed_transfer_{self._fromdownloader or 'default'}"
         self._scheduler.add_job(
             self._delayed_transfer,
             'date',
             run_date=run_time,
-            id=f"delayed_transfer_{datetime.now().strftime('%H%M%S%f')}"
+            id=job_id,
+            replace_existing=True
         )
 
     def _delayed_transfer(self):
