@@ -1,3 +1,4 @@
+import ast
 import json
 import re
 import unittest
@@ -23,11 +24,44 @@ class DoubanCenterRuntimeContractsTest(unittest.TestCase):
         self.assertIn(f"v{version}", plugin_json["history"])
         self.assertIn(f"v{version}", package["DoubanCenter"]["history"])
 
+    def test_latest_history_text_stays_in_sync(self):
+        init_text = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8-sig")
+        plugin_json = json.loads((PLUGIN_DIR / "plugin.json").read_text(encoding="utf-8"))
+        package = json.loads((REPO_ROOT / "package.v2.json").read_text(encoding="utf-8"))
+
+        version = re.search(r'plugin_version\s*=\s*"([^"]+)"', init_text).group(1)
+        history_key = f"v{version}"
+
+        self.assertEqual(
+            plugin_json["history"][history_key],
+            package["DoubanCenter"]["history"][history_key],
+        )
+
+    def test_plugin_entry_public_members_have_docstrings(self):
+        tree = ast.parse((PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8-sig"))
+        missing = []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name.startswith("_"):
+                continue
+            if ast.get_docstring(node) is None:
+                missing.append(f"{node.name}:{node.lineno}")
+
+        self.assertEqual(missing, [])
+
     def test_frontend_api_routes_use_bear_auth(self):
         controller_text = (PLUGIN_DIR / "controller" / "api.py").read_text(encoding="utf-8")
 
         self.assertGreaterEqual(controller_text.count('"auth": "bear"'), 15)
         self.assertNotIn('"auth": "apikey"', controller_text)
+
+    def test_frontend_source_uses_injected_api_only(self):
+        api_source = (PLUGIN_DIR / "src" / "components" / "api.js").read_text(encoding="utf-8")
+
+        self.assertNotIn("fetch(", api_source)
+        self.assertIn("api.get", api_source)
+        self.assertIn("api.post", api_source)
 
     def test_vue_runtime_asset_contract_is_preserved(self):
         init_text = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8-sig")

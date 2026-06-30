@@ -25,6 +25,8 @@ from .service import webhook as webhook_service
 
 
 class DoubanCenter(_PluginBase):
+    """整合豆瓣榜单订阅、豆瓣时间和仪表盘的 MoviePilot 插件入口。"""
+
     plugin_name = "豆瓣中心"
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
@@ -75,6 +77,7 @@ class DoubanCenter(_PluginBase):
         self._sync_lock = threading.Lock()
 
     def init_plugin(self, config: dict = None):
+        """根据插件配置初始化运行状态并触发一次性任务。"""
         config = config or {}
         self._enabled = config.get("enabled", False)
         self._cron = config.get("cron") or DEFAULT_CRON
@@ -125,93 +128,122 @@ class DoubanCenter(_PluginBase):
         self.update_config(self.__current_config())
 
     def get_state(self) -> bool:
+        """返回插件当前启用状态。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """返回插件命令列表。"""
         return []
 
     @staticmethod
     def get_agent_tools() -> List[type]:
+        """返回插件提供的 Agent 工具列表。"""
         return []
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """返回插件对外开放的 API 路由定义。"""
         return api_controller.get_api(self)
 
     def api_folio_data(self):
+        """返回豆瓣时间数据。"""
         return api_controller.api_folio_data(self)
 
     def api_overview(self):
+        """返回插件总览数据。"""
         return api_controller.api_overview(self)
 
     def api_config(self):
+        """返回前端配置选项和当前配置。"""
         return api_controller.api_config(self)
 
     def api_rank_history(self):
+        """返回榜单历史快照。"""
         return api_controller.api_rank_history(self)
 
     def api_resolve_media(self, media_type=None, title="", year="", tmdb_id=None, bangumi_id=None):
+        """根据标题、年份和外部 ID 解析媒体信息。"""
         return api_controller.api_resolve_media(self, media_type, title, year, tmdb_id=tmdb_id, bangumi_id=bangumi_id)
 
     def api_subscribe(self, tmdb_id=None, media_type=None, title="", year="", bangumi_id=None):
+        """根据前端请求创建媒体订阅。"""
         return api_controller.api_subscribe(self, tmdb_id, media_type, title, year, bangumi_id=bangumi_id)
 
     def api_refresh_rss(self):
+        """立即刷新 RSS 榜单并执行订阅检查。"""
         return api_controller.api_refresh_rss(self)
 
     def api_stats(self):
+        """返回插件统计数据。"""
         return api_controller.api_stats(self)
 
     def api_subscribe_history(self, page=1, page_size=20):
+        """分页返回订阅历史记录。"""
         return api_controller.api_subscribe_history(self, page=page, page_size=page_size)
 
     def api_pending_observations(self):
+        """返回待观察的媒体记录。"""
         return api_controller.api_pending_observations(self)
 
     def api_anti_cheat_logs(self):
+        """返回反作弊拦截日志。"""
         return api_controller.api_anti_cheat_logs(self)
 
     def api_delete_subscribe_history(self, time="", title="", tmdbid=None):
+        """删除指定订阅历史记录。"""
         return api_controller.api_delete_subscribe_history(self, time=time, title=title, tmdbid=tmdbid)
 
     def api_delete_observation(self, unique="", rank_key="", title=""):
+        """删除指定观察记录。"""
         return api_controller.api_delete_observation(self, unique=unique, rank_key=rank_key, title=title)
 
     def api_delete_anti_cheat_log(self, time="", title="", reason=""):
+        """删除指定反作弊日志。"""
         return api_controller.api_delete_anti_cheat_log(self, time=time, title=title, reason=reason)
 
     def api_archive_records(self, page=1, page_size=20):
+        """分页返回订阅归档记录。"""
         return api_controller.api_archive_records(self, page=page, page_size=page_size)
 
     def api_restore_archive(self, archive_id=""):
+        """恢复指定订阅归档记录。"""
         return api_controller.api_restore_archive(self, archive_id=archive_id)
 
     def api_delete_archive(self, archive_id=""):
+        """删除指定订阅归档记录。"""
         return api_controller.api_delete_archive(self, archive_id=archive_id)
 
     def get_service(self) -> List[Dict[str, Any]]:
+        """返回插件定时服务定义。"""
         return scheduler_service.get_services(self, self.__run_all)
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
+        """声明插件使用 Vue 联邦组件渲染。"""
         return "vue", "dist/assets"
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
+        """返回 Vue 模式下的默认配置模型。"""
         return None, default_config()
 
     def get_page(self) -> Optional[List[dict]]:
+        """返回插件详情页结构，Vue 模式下由前端远程组件渲染。"""
         return None
 
     def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+        """返回指定仪表盘组件数据。"""
         return dash.get_dashboard(self, key, **kwargs)
 
     def stop_service(self):
+        """停止插件后台定时服务。"""
         scheduler_service.stop_scheduler(self)
 
     @eventmanager.register(EventType.WebhookMessage)
     def sync_log(self, event: Event, played: bool = False):
+        """处理媒体库同步完成的 Webhook 日志。"""
         webhook_service.handle_sync_log(self, event=event, played=played)
 
     @eventmanager.register(EventType.WebhookMessage)
     def sync_played(self, event: Event):
+        """处理媒体库已播放同步 Webhook。"""
         webhook_service.handle_sync_played(self, event=event, sync_log=self.sync_log)
