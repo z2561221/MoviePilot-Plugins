@@ -25,6 +25,14 @@ const rankDefs = {
   movie_weekly: { name: '电影口碑' },
   bangumi: { name: 'BangumiTV' },
 }
+const rankColors = {
+  coming: 'primary',
+  tv_real_time: 'teal',
+  tv_chinese: 'orange-darken-1',
+  tv_global: 'deep-purple',
+  movie_weekly: 'pink',
+  bangumi: 'brown',
+}
 
 function queryString(params) {
   return Object.entries(params || {})
@@ -131,6 +139,11 @@ function showActionDialog(rk, item) {
   showDialog.value = true
 }
 
+function dialogPoster() {
+  const item = dialogItem.value?.item || {}
+  return item.poster || item.poster_path || item.cover || ''
+}
+
 async function subscribeViaNativeDialog(rk, item) {
   const media = await resolveRankMedia(rk, item)
   await props.nativeSubscribe(media)
@@ -194,6 +207,22 @@ function sourceButtonColor() {
   if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return '#F838A0'
   if (link.includes('douban') || item?.douban_id || item?.doubanid) return '#08B810'
   return 'primary'
+}
+
+function sourceButtonIcon() {
+  const { rk, item } = dialogItem.value || {}
+  const link = String(item?.link || '')
+  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'mdi-link-variant'
+  if (link.includes('douban')) return 'mdi-open-in-new'
+  return 'mdi-link-variant'
+}
+
+function sourceButtonLabel() {
+  const { rk, item } = dialogItem.value || {}
+  const link = String(item?.link || '')
+  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'Bgm'
+  if (link.includes('douban') || item?.douban_id || item?.doubanid) return '豆瓣'
+  return '详情'
 }
 
 function doOpenTmdb() {
@@ -283,13 +312,12 @@ onMounted(load)
       <div v-if="config.dashboard_rank_keys && config.dashboard_rank_keys.length">
         <div class="dc-rank-grid">
           <div v-for="rk in config.dashboard_rank_keys" :key="rk" class="dc-rank-cell">
-            <div class="dc-rank-head">{{ rankDefs[rk]?.name || rk }}</div>
+            <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :color="rankColors[rk] || 'primary'" class="mr-1" /><span>{{ rankDefs[rk]?.name || rk }}</span></div>
             <div class="dc-rank-body">
               <div v-for="(item, i) in (rankHistory[rk] || []).slice(0, 5)" :key="i" class="dc-rank-row" :title="item.title" @click="showActionDialog(rk, item)">
-                <VAvatar size="16" class="mr-1 flex-shrink-0"><VImg v-if="item.poster" :src="item.poster" /><VIcon v-else icon="mdi-filmstrip" size="10" /></VAvatar>
-                <span class="dc-rank-name">{{ item.title }}</span>
+                <VAvatar size="16" class="dc-rank-poster"><VImg v-if="item.poster" :src="item.poster" /><VIcon v-else icon="mdi-filmstrip" size="10" /></VAvatar>
+                <span class="dc-rank-title">{{ item.title }}</span>
                 <span v-if="rk === 'coming' && item.wish_count" class="dc-rank-wish">{{ item.wish_count }}</span>
-                <span v-else class="dc-rank-num">{{ item.year || '' }}</span>
               </div>
               <div v-if="!(rankHistory[rk] || []).length" class="text-center text-medium-emphasis py-2 text-caption">暂无数据</div>
             </div>
@@ -301,15 +329,23 @@ onMounted(load)
         请在配置页「仪表显示」中选择要显示的榜单
       </div>
     </VCardText>
-    <VDialog v-model="showDialog" max-width="360">
-      <VCard>
-        <VCardTitle class="text-subtitle-1">{{ dialogItem?.item?.title || '选择操作' }}</VCardTitle>
-        <VCardText class="text-caption text-medium-emphasis">{{ dialogItem?.item?.year || '' }}</VCardText>
-        <VCardActions>
-          <VBtn :color="sourceButtonColor()" variant="text" @click="doOpenSource">来源</VBtn>
-          <VBtn color="primary" variant="text" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
-          <VSpacer />
-          <VBtn color="success" variant="flat" @click="doSubscribe">订阅</VBtn>
+    <VDialog v-model="showDialog" max-width="420">
+      <VCard rounded="lg" class="dc-action-dialog">
+        <VCardItem class="pa-3">
+          <template #prepend>
+            <VAvatar size="36" rounded="md" class="mr-2">
+              <VImg v-if="dialogPoster()" :src="dialogPoster()" />
+              <VIcon v-else icon="mdi-filmstrip" />
+            </VAvatar>
+          </template>
+          <VCardTitle class="text-body-1 font-weight-bold pa-0">{{ dialogItem?.item?.title || '' }}</VCardTitle>
+          <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? (rankDefs[dialogItem.rk]?.name || dialogItem.rk) : '' }}</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VCardActions class="pa-3 pt-2" style="gap: 8px">
+          <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
+          <VBtn variant="tonal" color="info" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
+          <VBtn variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" class="dc-dialog-action text-none" @click="doOpenSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
@@ -323,13 +359,15 @@ onMounted(load)
 .dc-ph { width: 60px; height: 90px; display: flex; align-items: center; justify-content: center; background: rgba(var(--v-theme-on-surface), .05); color: rgba(var(--v-theme-on-surface), .25); border-radius: 4px; }
 .dc-rank-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
 .dc-rank-cell { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .5)); border-radius: 8px; padding: 5px; min-width: 0; }
-.dc-rank-head { font-size: 12px; font-weight: 600; margin-bottom: 3px; padding-bottom: 3px; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .3)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dc-rank-head { display: flex; align-items: center; font-size: 12px; font-weight: 600; margin-bottom: 3px; padding-bottom: 3px; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .3)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dc-rank-body { display: flex; flex-direction: column; gap: 1px; }
 .dc-rank-row { display: flex; align-items: center; gap: 3px; padding: 2px 3px; border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1.4; transition: background .12s; overflow: hidden; }
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
-.dc-rank-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-rank-poster { flex: 0 0 18px; width: 18px; height: 24px; border-radius: 3px; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
+.dc-rank-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-rank-num { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; }
-.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .5); font-size: 11px; white-space: nowrap; }
+.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.dc-dialog-action { flex: 1 1 0; min-width: 0; height: 36px; }
 @media (max-width: 960px) { .dc-rank-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 600px) { .dc-rank-grid { grid-template-columns: repeat(2, 1fr); } }
 </style>

@@ -2,14 +2,14 @@ const currentImports = {};
       const exportSet = new Set(['Module', '__esModule', 'default', '_export_sfc']);
       let moduleMap = {
 "./Config":()=>{
-      dynamicLoadingCss(["__federation_expose_Config-B8YY0XeW.css"], false, './Config');
-      return __federation_import('./__federation_expose_Config-CyRXb6Av.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Config-DuK6iWfr.css"], false, './Config');
+      return __federation_import('./__federation_expose_Config-DSvYXqa2.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Page":()=>{
-      dynamicLoadingCss(["__federation_expose_Page-IgGyPtbn.css"], false, './Page');
-      return __federation_import('./__federation_expose_Page.BHb1aANq.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
-  "./Dashboard":()=>{
-      dynamicLoadingCss(["__federation_expose_Dashboard-DNTaAVVq.css"], false, './Dashboard');
-      return __federation_import('./__federation_expose_Dashboard.DTmaGyy6.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_Page-B8gOk6lF.css"], false, './Page');
+      return __federation_import('./__federation_expose_Page-DTL_eJlx.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+"./Dashboard":()=>{
+      dynamicLoadingCss(["__federation_expose_Dashboard-Cw2AG_sR.css"], false, './Dashboard');
+      return __federation_import('./__federation_expose_Dashboard-DusxPA7B.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;

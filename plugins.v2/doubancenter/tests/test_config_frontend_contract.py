@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 
@@ -11,6 +12,15 @@ DIST_ASSETS = PLUGIN_DIR / "dist" / "assets"
 
 def _compact_css(text: str) -> str:
     return "".join(text.split())
+
+
+def _active_css_text(expose_name: str) -> str:
+    remote_entry = DIST_ASSETS / "remoteEntry.js"
+    remote_text = remote_entry.read_text(encoding="utf-8")
+    match = re.search(rf'dynamicLoadingCss\(\["([^"]+)"\], false, \'{expose_name}\'\)', remote_text)
+    if not match:
+        raise AssertionError(f"missing active CSS mapping for {expose_name}")
+    return (remote_entry.parent / match.group(1)).read_text(encoding="utf-8")
 
 
 class ConfigFrontendContractTest(unittest.TestCase):
@@ -61,9 +71,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn(".dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }", text)
         self.assertIn(".dc-rank-card-body { grid-template-columns: repeat(2, minmax(142px, auto)); }", text)
 
-        config_css_files = list(DIST_ASSETS.glob("__federation_expose_Config-*.css"))
-        self.assertEqual(len(config_css_files), 1)
-        compact_css = _compact_css(config_css_files[0].read_text(encoding="utf-8"))
+        compact_css = _compact_css(_active_css_text("./Config"))
         self.assertIn("gap:4px", compact_css)
         self.assertIn("display:grid;grid-template-columns:minmax(150px,220px)minmax(0,1fr)", compact_css)
         self.assertIn("border-radius:8px;padding:5px10px", compact_css)
@@ -124,6 +132,44 @@ class ConfigFrontendContractTest(unittest.TestCase):
             self.assertIn(fragment, text)
 
         self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
+
+    def test_page_source_keeps_current_detail_layout_contract(self):
+        text = PAGE_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            'class="dc-section dc-section--archive"',
+            'class="dc-section dc-section--stats"',
+            'class="dc-section dc-section--rank"',
+            'class="dc-section dc-section--blacklist"',
+            'class="dc-section dc-section--observe"',
+            'class="dc-section dc-section--history"',
+            'class="dc-section dc-section--logs"',
+            ".dc-section--archive {",
+            ".dc-section--rank {",
+            ".dc-section--stats {",
+            "grid-column: 1 / -1",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
+
+    def test_page_source_keeps_archive_rows_full_width(self):
+        text = PAGE_VUE.read_text(encoding="utf-8")
+
+        self.assertIn('class="dc-history-row dc-archive-row"', text)
+        self.assertIn(".dc-archive-row {", text)
+        self.assertIn("auto minmax(0, 1fr) auto auto", text)
+
+    def test_rank_action_dialog_keeps_current_visual_contract(self):
+        for path in (PAGE_VUE, DASHBOARD_VUE):
+            text = path.read_text(encoding="utf-8")
+
+            self.assertIn('class="dc-action-dialog"', text, path.name)
+            self.assertIn('size="36" rounded="md"', text, path.name)
+            self.assertIn("dialogPoster", text, path.name)
+            self.assertIn("dc-dialog-action text-none", text, path.name)
+            self.assertIn('prepend-icon="mdi-plus-circle-outline"', text, path.name)
+            self.assertIn('prepend-icon="mdi-movie-open-outline"', text, path.name)
+            self.assertIn(".dc-dialog-action {", text, path.name)
 
 
 if __name__ == "__main__":
