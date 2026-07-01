@@ -37,6 +37,7 @@ from .modules.site_tag import tag_torrent as _tag_torrent_impl, find_site_by_dom
 from .modules.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl
 from .modules.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl, retry_pending_renames as _retry_pending_renames_impl
 from .modules.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
+from .controller.api import build_api_routes as _build_api_routes_impl
 from .service.config import initialize_runtime_config as _initialize_runtime_config_impl
 from .service.scheduler import build_plugin_services as _build_plugin_services_impl
 
@@ -295,92 +296,7 @@ class DownloadManagerLocal(_PluginBase):
         return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "path": "/downloaders",
-                "endpoint": self.api_downloaders,
-                "auth": "bear",
-                "methods": ["GET"],
-                "summary": "获取下载器列表",
-            },
-            {
-                "path": "/rename_history",
-                "endpoint": self.api_rename_history,
-                "auth": "bear",
-                "methods": ["GET"],
-                "summary": "获取重命名历史",
-            },
-            {
-                "path": "/overview",
-                "endpoint": self.api_overview,
-                "auth": "bear",
-                "methods": ["GET"],
-                "summary": "获取下载中心总览",
-            },
-            {
-                "path": "/diagnostics",
-                "endpoint": self.api_diagnostics,
-                "auth": "bear",
-                "methods": ["GET"],
-                "summary": "获取诊断信息",
-            },
-            {
-                "path": "/retry_renames",
-                "endpoint": self.api_retry_renames,
-                "auth": "bear",
-                "methods": ["POST"],
-                "summary": "一键补刀重命名",
-            },
-            {
-                "path": "/retry_rename",
-                "endpoint": self.api_retry_rename,
-                "auth": "bear",
-                "methods": ["POST"],
-                "summary": "单条补刀重命名",
-            },
-            {
-                "path": "/delete_rename_history",
-                "endpoint": self.api_delete_rename_history,
-                "auth": "bear",
-                "methods": ["POST"],
-                "summary": "删除重命名历史记录",
-            },
-            {
-                "path": "/rename_archive",
-                "endpoint": self.api_rename_archive,
-                "auth": "bear",
-                "methods": ["GET"],
-                "summary": "获取补刀归档记录",
-            },
-            {
-                "path": "/restore_rename_archive",
-                "endpoint": self.api_restore_rename_archive,
-                "auth": "bear",
-                "methods": ["POST"],
-                "summary": "恢复补刀归档记录",
-            },
-            {
-                "path": "/delete_rename_archive",
-                "endpoint": self.api_delete_rename_archive,
-                "auth": "bear",
-                "methods": ["POST"],
-                "summary": "删除补刀归档记录",
-            },
-            {
-                "path": "/recovery_torrent",
-                "endpoint": self.api_recovery_torrent,
-                "auth": "bear",
-                "methods": ["POST"],
-                "summary": "恢复种子原始名称",
-            },
-            {
-                "path": "/sites",
-                "endpoint": self.api_sites,
-                "auth": "bear",
-                "methods": ["GET"],
-                "summary": "获取站点列表（用于辅种站点选择）",
-            },
-        ]
+        return _build_api_routes_impl(self)
 
     def api_downloaders(self):
         return _api_downloaders(self)

@@ -44,22 +44,17 @@ def _literal(node: ast.AST):
 
 
 def _route_metadata() -> dict:
-    """从插件入口静态提取 get_api 路由元数据。"""
-    source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
+    """从 API 路由构造器静态提取路由元数据。"""
+    source = (PLUGIN_DIR / "controller" / "api.py").read_text(encoding="utf-8")
     module = ast.parse(source)
-    plugin_class = next(
+    route_builder = next(
         node
         for node in module.body
-        if isinstance(node, ast.ClassDef) and node.name == "DownloadManagerLocal"
-    )
-    get_api = next(
-        node
-        for node in plugin_class.body
-        if isinstance(node, ast.FunctionDef) and node.name == "get_api"
+        if isinstance(node, ast.FunctionDef) and node.name == "build_api_routes"
     )
     return_node = next(
         node
-        for node in ast.walk(get_api)
+        for node in ast.walk(route_builder)
         if isinstance(node, ast.Return) and isinstance(node.value, ast.List)
     )
 
@@ -107,6 +102,22 @@ def test_downloadmanagerlocal_api_routes_keep_frontend_contract():
     routes = _route_metadata()
 
     assert routes == EXPECTED_ROUTES
+
+
+def test_downloadmanagerlocal_get_api_delegates_route_builder():
+    plugin_class = _downloadmanagerlocal_class()
+    get_api = next(
+        node
+        for node in plugin_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "get_api"
+    )
+    called_names = {
+        node.func.id
+        for node in ast.walk(get_api)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+
+    assert "_build_api_routes_impl" in called_names
 
 
 def test_downloadmanagerlocal_init_plugin_delegates_config_initialization():

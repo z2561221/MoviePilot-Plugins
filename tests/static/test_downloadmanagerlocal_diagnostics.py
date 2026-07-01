@@ -11,10 +11,11 @@ PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
 class DownloadManagerLocalDiagnosticsTest(unittest.TestCase):
     def test_plugin_registers_diagnostics_api_route(self) -> None:
         init_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
+        route_source = (PLUGIN_DIR / "controller" / "api.py").read_text(encoding="utf-8")
         api_source = (PLUGIN_DIR / "api.py").read_text(encoding="utf-8")
 
         self.assertIn("api_diagnostics", init_source)
-        self.assertIn('"path": "/diagnostics"', init_source)
+        self.assertIn('"path": "/diagnostics"', route_source)
         self.assertIn("def api_diagnostics(plugin):", api_source)
         self.assertIn("plugin._diagnostics()", api_source)
 
