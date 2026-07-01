@@ -10,32 +10,20 @@ from pathlib import Path
 from threading import Event as ThreadEvent
 import threading
 from typing import Any, List, Dict, Tuple, Optional, Union
-from urllib.parse import urljoin
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
-from bencode import bdecode, bencode
-from lxml import etree
 
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.core.meta.metabase import MetaBase
 from app.core.metainfo import MetaInfo
-from app.db.site_oper import SiteOper
-from app.db.systemconfig_oper import SystemConfigOper
 from app.helper.downloader import DownloaderHelper
-from app.helper.sites import SitesHelper
-from app.helper.torrent import TorrentHelper
 from app.log import logger
-from app.modules.filemanager.transhandler import TransHandler
-from app.modules.qbittorrent import Qbittorrent
-from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
 from app.schemas import NotificationType, ServiceInfo
 from app.schemas.types import MediaType, SystemConfigKey, EventType
-from app.utils.http import RequestUtils
-from app.utils.string import StringUtils
 
 from .utils.config import safe_int, is_plugin_active, is_transfer_active
 from .utils.tracker import parse_tracker_mappings

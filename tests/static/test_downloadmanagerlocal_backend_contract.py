@@ -152,6 +152,33 @@ def test_downloadmanagerlocal_service_builder_preserves_scheduler_service_metada
     assert "CronTrigger.from_crontab(plugin._iyuu_cron)" in source
 
 
+def test_downloadmanagerlocal_entrypoint_drops_migrated_heavy_imports():
+    source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
+    module = ast.parse(source)
+    imported_names = {
+        alias.name
+        for node in module.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+
+    assert not {
+        "urljoin",
+        "bdecode",
+        "bencode",
+        "etree",
+        "SiteOper",
+        "SystemConfigOper",
+        "SitesHelper",
+        "TorrentHelper",
+        "TransHandler",
+        "Qbittorrent",
+        "Transmission",
+        "RequestUtils",
+        "StringUtils",
+    } & imported_names
+
+
 def test_downloadmanagerlocal_backend_refactor_does_not_touch_ui_worktree_paths():
     assert _git_diff_names() == []
     assert _git_diff_names("--cached") == []
