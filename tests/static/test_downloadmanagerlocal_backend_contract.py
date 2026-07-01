@@ -80,6 +80,17 @@ def _route_metadata() -> dict:
     return routes
 
 
+def _downloadmanagerlocal_class() -> ast.ClassDef:
+    """返回下载中心插件主类 AST。"""
+    source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
+    module = ast.parse(source)
+    return next(
+        node
+        for node in module.body
+        if isinstance(node, ast.ClassDef) and node.name == "DownloadManagerLocal"
+    )
+
+
 def _git_diff_names(*args: str) -> list[str]:
     """返回指定 git diff 范围中的文件清单。"""
     result = subprocess.run(
@@ -96,6 +107,22 @@ def test_downloadmanagerlocal_api_routes_keep_frontend_contract():
     routes = _route_metadata()
 
     assert routes == EXPECTED_ROUTES
+
+
+def test_downloadmanagerlocal_init_plugin_delegates_config_initialization():
+    plugin_class = _downloadmanagerlocal_class()
+    init_plugin = next(
+        node
+        for node in plugin_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "init_plugin"
+    )
+    called_names = {
+        node.func.id
+        for node in ast.walk(init_plugin)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+
+    assert "_initialize_runtime_config_impl" in called_names
 
 
 def test_downloadmanagerlocal_backend_refactor_does_not_touch_ui_worktree_paths():

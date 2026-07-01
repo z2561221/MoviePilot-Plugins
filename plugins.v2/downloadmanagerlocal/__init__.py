@@ -50,6 +50,7 @@ from .modules.site_tag import tag_torrent as _tag_torrent_impl, find_site_by_dom
 from .modules.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl
 from .modules.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl, retry_pending_renames as _retry_pending_renames_impl
 from .modules.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
+from .service.config import initialize_runtime_config as _initialize_runtime_config_impl
 
 class DownloadManagerLocal(_PluginBase):
     # 插件名称
@@ -169,101 +170,7 @@ class DownloadManagerLocal(_PluginBase):
     downloader_helper = None
 
     def init_plugin(self, config: dict = None):
-        self.downloader_helper = DownloaderHelper()
-
-        # 默认 tracker 映射
-        default_mappings = (
-            "chdbits.xyz -> ptchdbits.co\n"
-            "agsvpt.trackers.work -> agsvpt.com\n"
-            "tracker.cinefiles.info -> audiences.me"
-        )
-        self._tracker_mappings = self._parse_tracker_mappings(default_mappings)
-
-        # 读取配置
-        if config:
-            self._enabled = config.get("enabled")
-            self._transfer_enabled = config.get("transfer_enabled", True)
-            self._onlyonce = config.get("onlyonce")
-            self._delay_minutes = config.get("delay_minutes", 25)
-            self._transfer_fallback_enabled = config.get("transfer_fallback_enabled", True)
-            try:
-                self._transfer_fallback_interval_minutes = max(1, int(config.get("transfer_fallback_interval_minutes") or 60))
-            except (TypeError, ValueError):
-                self._transfer_fallback_interval_minutes = 60
-            self._notify = config.get("notify")
-            self._nolabels = config.get("nolabels")
-            self._includelabels = config.get("includelabels")
-            self._includecategory = config.get("includecategory")
-            self._frompath = config.get("frompath")
-            self._topath = config.get("topath")
-            self._fromdownloader = config.get("fromdownloader")
-            self._todownloader = config.get("todownloader")
-            self._deletesource = config.get("deletesource")
-            self._deleteduplicate = config.get("deleteduplicate")
-            self._fromtorrentpath = config.get("fromtorrentpath")
-            self._nopaths = config.get("nopaths")
-            self._transferemptylabel = config.get("transferemptylabel")
-            self._add_torrent_tags = config.get("add_torrent_tags") or ""
-            self._torrent_tags = self._add_torrent_tags.strip().split(",") if self._add_torrent_tags else []
-            self._remainoldcat = config.get("remainoldcat")
-            self._remainoldtag = config.get("remainoldtag")
-            self._seed_autostart = config.get("seed_autostart", True)
-            self._seed_skipverify = config.get("seed_skipverify", False)
-            self._seed_check_interval = self.__safe_int(config.get("seed_check_interval"), 60, 10, 3600)
-            self._seed_max_wait_minutes = self.__safe_int(config.get("seed_max_wait_minutes"), 120, 10, 1440)
-
-
-            # 重命名配置
-            self._rename_enabled = config.get("rename_enabled", True)
-            self._rename_movie_format = config.get("rename_movie_format",
-                "[ {{ title }}{% if year %} ({{ year }}){% endif %} ] - {{original_name}}")
-            self._rename_tv_format = config.get("rename_tv_format",
-                "[ {{ title }}{% if year %} ({{ year }}){% endif %}{% if season_episode %} - {{season_episode}}{% endif %} ] - {{original_name}}")
-            self._rename_exclude_dirs = config.get("rename_exclude_dirs", "")
-
-            # 站点标签配置
-            self._tag_enabled = config.get("tag_enabled", True)
-            self._tag_siteprefix = config.get("tag_siteprefix", "🏠")
-            self._tag_tracker_mappings_str = config.get("tag_tracker_mappings_str", "")
-            if self._tag_tracker_mappings_str:
-                self._tracker_mappings.update(self._parse_tracker_mappings(self._tag_tracker_mappings_str))
-
-            # IYUU 辅种配置
-            self._iyuu_enabled = config.get("iyuu_enabled", False)
-            self._iyuu_cron = config.get("iyuu_cron", "")
-            self._iyuu_onlyonce = config.get("iyuu_onlyonce", False)
-            self._iyuu_token = config.get("iyuu_token", "")
-            self._iyuu_downloaders = config.get("iyuu_downloaders") or []
-            self._iyuu_auto_downloader = config.get("iyuu_auto_downloader", "")
-            self._iyuu_sites = config.get("iyuu_sites") or []
-            self._iyuu_nolabels = config.get("iyuu_nolabels", "")
-            self._iyuu_nopaths = config.get("iyuu_nopaths", "")
-            self._iyuu_size = float(config.get("iyuu_size")) if config.get("iyuu_size") else 0
-            self._iyuu_auto_category = config.get("iyuu_auto_category", False)
-            self._iyuu_labelsafterseed = config.get("iyuu_labelsafterseed") or "已整理,辅种"
-            self._iyuu_categoryafterseed = config.get("iyuu_categoryafterseed", "")
-            self._iyuu_clearcache = config.get("iyuu_clearcache", False)
-            self._iyuu_permanent_error_caches = [] if self._iyuu_clearcache else list(config.get("iyuu_permanent_error_caches") or [])
-            self._iyuu_error_caches = [] if self._iyuu_clearcache else list(config.get("iyuu_error_caches") or [])
-            self._iyuu_success_caches = [] if self._iyuu_clearcache else list(config.get("iyuu_success_caches") or [])
-            if self._iyuu_clearcache:
-                # 立即持久化清空后的缓存到 config
-                config["iyuu_permanent_error_caches"] = []
-                config["iyuu_error_caches"] = []
-                config["iyuu_success_caches"] = []
-                self._iyuu_clearcache = False
-                config["iyuu_clearcache"] = False
-                self.update_config(config=config)
-                logger.info("IYUU辅种：已清除所有辅种缓存")
-            self._trim_seed_cache(self._iyuu_permanent_error_caches)
-            self._trim_seed_cache(self._iyuu_error_caches)
-            self._trim_seed_cache(self._iyuu_success_caches)
-
-            # 过滤掉已删除的站点
-            if self._iyuu_sites:
-                all_site_ids = [site.id for site in SiteOper().list_order_by_pri()] + [site.get("id") for site in self._custom_sites()]
-                self._iyuu_sites = [sid for sid in all_site_ids if sid in self._iyuu_sites]
-                self._update_iyuu_config(config)
+        config = _initialize_runtime_config_impl(self, config)
 
         # 停止现有任务
         self.stop_service()
