@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-02-downloadmanagerlocal-backend-refactor-phased-plan.md",
   "status": {
     "phase": "phase-3",
-    "task": "3.1",
-    "next_allowed_action": "Begin Phase 3 task 3.1 by adding a failing test for API route builder delegation before production code changes"
+    "task": "3.2",
+    "next_allowed_action": "Begin Phase 3 task 3.2 by adding a failing test for controller handler migration compatibility before production code changes"
   },
   "execution_rules": {
     "working_directory": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -220,7 +220,7 @@
     {
       "id": "phase-3",
       "goal": "Move API route declaration and response shaping into a controller boundary while preserving routes and schemas.",
-      "status": "pending",
+      "status": "in_progress",
       "acceptance": [
         "API route metadata is preserved.",
         "API implementation has a clear controller boundary.",
@@ -230,9 +230,26 @@
         {
           "id": "3.1",
           "title": "Introduce API route builder",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_manual_retry_api.py tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_registers_diagnostics_api_route tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_exposes_diagnostics_wrapper",
+              "result": "exit 0; 14 passed in 0.63s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "f1e19fb"
         },
         {
           "id": "3.2",
@@ -384,6 +401,18 @@
         "compileall exited 0 with bundled Python",
         "pytest --confcutdir=tests/static backend contract/private helper/stability tests: 15 passed",
         "phase acceptance rerun with backend contract/private helper/stability/IYUU/transfer retry tests: 20 passed",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "3.1",
+      "summary": "Moved get_api route declarations into controller/api.py, kept route path/auth/method/summary metadata intact, and updated backend static tests to read the new route builder.",
+      "evidence": [
+        "red test failed as expected before implementation: _build_api_routes_impl missing from get_api",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/manual retry/diagnostics backend route tests: 14 passed",
+        "full diagnostics static file still contains an existing UI tab assertion failure and was not fixed because UI is out of scope",
         "no-UI gate output empty",
         "git diff --check exited 0"
       ]
