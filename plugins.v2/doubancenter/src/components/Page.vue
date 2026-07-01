@@ -214,6 +214,11 @@ function showActionDialog(rk, item) {
   showDialog.value = true
 }
 
+function dialogPoster() {
+  const item = dialogItem.value?.item || {}
+  return item.poster || item.poster_path || item.cover || ''
+}
+
 async function subscribeViaNativeDialog(rk, item) {
   const media = await resolveRankMedia(rk, item)
   await props.nativeSubscribe(media)
@@ -283,6 +288,22 @@ function sourceButtonColor() {
   return 'primary'
 }
 
+function sourceButtonIcon() {
+  const { rk, item } = dialogItem.value || {}
+  const link = String(item?.link || '')
+  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'mdi-link-variant'
+  if (link.includes('douban')) return 'mdi-open-in-new'
+  return 'mdi-link-variant'
+}
+
+function sourceButtonLabel() {
+  const { rk, item } = dialogItem.value || {}
+  const link = String(item?.link || '')
+  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'Bgm'
+  if (link.includes('douban') || item?.douban_id || item?.doubanid) return '豆瓣'
+  return '详情'
+}
+
 function doOpenTmdb() {
   if (!dialogItem.value) return
   const { rk, item } = dialogItem.value
@@ -318,10 +339,10 @@ onMounted(loadAll)
       <div v-if="actionMessage" class="dc-action-message" :class="actionOk ? 'text-success' : 'text-error'">{{ actionMessage }}</div>
 
       <template v-if="!loading && archivePage">
-        <div class="dc-section">
+        <div class="dc-section dc-section--archive">
           <div class="dc-section-title mb-2">归档记录 <span class="text-caption font-weight-regular text-medium-emphasis">（共 {{ archiveData.total || 0 }} 条）</span></div>
           <div v-if="archiveData.items && archiveData.items.length" class="dc-history-list">
-            <div v-for="(item, i) in archiveData.items" :key="item.id || i" class="dc-history-row dc-status-row">
+            <div v-for="(item, i) in archiveData.items" :key="item.id || i" class="dc-history-row dc-archive-row">
               <VAvatar size="28" class="mr-2 flex-shrink-0" color="primary" variant="tonal"><VIcon icon="mdi-archive-outline" size="14" /></VAvatar>
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ item.title || '未命名条目' }}</div>
@@ -339,7 +360,7 @@ onMounted(loadAll)
       </template>
 
       <template v-else-if="!loading">
-        <div v-if="stats" class="dc-section">
+        <div v-if="stats" class="dc-section dc-section--stats">
           <div class="dc-section-title mb-2">订阅统计</div>
           <div class="dc-stats-grid">
             <div class="dc-stat-card">
@@ -357,7 +378,7 @@ onMounted(loadAll)
           </div>
         </div>
 
-        <div v-if="rankHistory && Object.keys(rankHistory).length" class="dc-section">
+        <div v-if="rankHistory && Object.keys(rankHistory).length" class="dc-section dc-section--rank">
           <div class="dc-section-title mb-2">榜单快照 <span class="text-caption font-weight-regular text-medium-emphasis">（点击条目订阅或打开来源）</span></div>
           <div class="dc-rank-grid">
             <div v-for="[key, items] in Object.entries(rankHistory)" :key="key" class="dc-rank-card">
@@ -374,7 +395,7 @@ onMounted(loadAll)
           </div>
         </div>
 
-        <div class="dc-section">
+        <div class="dc-section dc-section--blacklist">
           <div class="dc-section-title mb-2 dc-title-with-chips">
             黑名拦截
             <span class="text-caption font-weight-regular text-medium-emphasis">（关键词 {{ blacklistKeywords.length }} 个，最近命中 {{ blacklistEntries.length }} 条）</span>
@@ -394,7 +415,7 @@ onMounted(loadAll)
           <div v-else class="text-center text-medium-emphasis py-4 text-caption">暂无被黑名单筛选的条目</div>
         </div>
 
-        <div class="dc-section">
+        <div class="dc-section dc-section--observe">
           <div class="dc-section-title mb-2">观察队列 <span class="text-caption font-weight-regular text-medium-emphasis">（待自动订阅 {{ pendingObservations.length }} 条）</span></div>
           <div v-if="pendingObservations && pendingObservations.length" class="dc-history-list">
             <div v-for="(item, i) in pendingObservations" :key="i" class="dc-history-row dc-status-row dc-history-row--clickable" @click="showActionDialog(item.rank_key, item)">
@@ -413,7 +434,7 @@ onMounted(loadAll)
           <div v-else class="text-center text-medium-emphasis py-4 text-caption">暂无观察期条目</div>
         </div>
 
-        <div class="dc-section">
+        <div class="dc-section dc-section--history">
           <div class="dc-section-title mb-2">订阅历史 <span class="text-caption font-weight-regular text-medium-emphasis">（共 {{ historyData.total }} 条）</span></div>
           <div v-if="historyData.items && historyData.items.length" class="dc-history-list">
             <div v-for="(item, i) in historyData.items" :key="i" class="dc-history-row dc-status-row">
@@ -437,7 +458,7 @@ onMounted(loadAll)
           </div>
         </div>
 
-        <div class="dc-section">
+        <div class="dc-section dc-section--logs">
           <div class="dc-section-title mb-2">观察日志 <span class="text-caption font-weight-regular text-medium-emphasis">（最近 {{ cheatLogs.length }} 条）</span></div>
           <div v-if="cheatLogs && cheatLogs.length" class="dc-history-list">
             <div v-for="(log, i) in cheatLogs.slice().reverse()" :key="i" class="dc-history-row dc-status-row">
@@ -457,15 +478,23 @@ onMounted(loadAll)
         </div>
       </template>
     </VCardText>
-    <VDialog v-model="showDialog" max-width="360">
-      <VCard>
-        <VCardTitle class="text-subtitle-1">{{ dialogItem?.item?.title || '选择操作' }}</VCardTitle>
-        <VCardText class="text-caption text-medium-emphasis">{{ dialogItem?.item?.year || '' }}</VCardText>
-        <VCardActions>
-          <VBtn :color="sourceButtonColor()" variant="text" @click="doOpenSource">来源</VBtn>
-          <VBtn color="primary" variant="text" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
-          <VSpacer />
-          <VBtn color="success" variant="flat" @click="doSubscribe">订阅</VBtn>
+    <VDialog v-model="showDialog" max-width="420">
+      <VCard rounded="lg" class="dc-action-dialog">
+        <VCardItem class="pa-3">
+          <template #prepend>
+            <VAvatar size="36" rounded="md" class="mr-2">
+              <VImg v-if="dialogPoster()" :src="dialogPoster()" />
+              <VIcon v-else icon="mdi-filmstrip" />
+            </VAvatar>
+          </template>
+          <VCardTitle class="text-body-1 font-weight-bold pa-0">{{ dialogItem?.item?.title || '' }}</VCardTitle>
+          <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? (rankNames[dialogItem.rk] || dialogItem.rk) : '' }}</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VCardActions class="pa-3 pt-2" style="gap: 8px">
+          <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
+          <VBtn variant="tonal" color="info" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
+          <VBtn variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" class="dc-dialog-action text-none" @click="doOpenSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
@@ -475,27 +504,43 @@ onMounted(loadAll)
 <style scoped>
 .dc-page { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
 .dc-page-header { padding: 12px 16px; }
-.dc-flow { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; }
-.dc-section { grid-column: span 6; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .6)); border-radius: 8px; padding: 10px; min-width: 0; }
-.dc-section--stats, .dc-section--history, .dc-section--logs { grid-column: span 12; }
-.dc-section-title { font-size: 14px; font-weight: 600; color: rgb(var(--v-theme-primary)); }
+.dc-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dc-section { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .72)); border-radius: 8px; padding: 12px; margin-bottom: 0; background: rgba(var(--v-theme-on-surface), .012); min-width: 0; }
+.dc-section--archive { order: 0; grid-column: 1 / -1; }
+.dc-section--rank { order: 1; grid-column: 1 / -1; }
+.dc-section--blacklist { order: 2; }
+.dc-section--observe { order: 3; }
+.dc-section--history { order: 4; }
+.dc-section--logs { order: 5; }
+.dc-section--stats { order: 6; grid-column: 1 / -1; }
+.dc-section-title { display: flex; align-items: center; gap: 6px; min-height: 28px; padding-bottom: 8px; margin-bottom: 8px !important; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .42)); font-size: 14px; font-weight: 600; color: rgb(var(--v-theme-primary)); line-height: 1.25; flex-wrap: wrap; }
+.dc-section-title::before { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: rgba(var(--v-theme-primary), .12); color: rgb(var(--v-theme-primary)); font-size: 12px; font-weight: 700; flex: 0 0 22px; }
+.dc-section--archive .dc-section-title::before { content: "归"; font-size: 11px; }
+.dc-section--rank .dc-section-title::before { content: "1"; }
+.dc-section--blacklist .dc-section-title::before { content: "2"; }
+.dc-section--observe .dc-section-title::before { content: "3"; }
+.dc-section--history .dc-section-title::before { content: "4"; }
+.dc-section--logs .dc-section-title::before { content: "5"; }
+.dc-section--stats .dc-section-title::before { content: "6"; }
 .dc-title-with-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .dc-blacklist-chip { max-width: 120px; }
-.dc-action-message { grid-column: 1 / -1; font-size: 13px; font-weight: 600; padding: 4px 2px; }
-.dc-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; }
-.dc-stat-card { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .5)); border-radius: 8px; padding: 8px; text-align: center; }
+.dc-action-message { grid-column: 1 / -1; border: 1px solid currentColor; border-radius: 8px; padding: 7px 10px; margin-bottom: 0; font-size: 12px; background: rgba(var(--v-theme-on-surface), .018); }
+.dc-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
+.dc-stat-card { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .5)); border-radius: 8px; padding: 9px 8px; text-align: center; background: rgba(var(--v-theme-on-surface), .01); }
 .dc-stat-value { font-size: 18px; font-weight: 700; color: rgb(var(--v-theme-primary)); }
 .dc-stat-label { font-size: 11px; color: rgba(var(--v-theme-on-surface), .5); margin-top: 2px; }
-.dc-rank-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.dc-rank-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .dc-rank-card { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .6)); border-radius: 8px; padding: 6px; min-width: 0; }
-.dc-rank-head { display: flex; align-items: center; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
-.dc-rank-row { display: flex; align-items: center; gap: 4px; padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 12px; min-width: 0; }
+.dc-rank-head { display: flex; align-items: center; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+.dc-rank-row { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
-.dc-rank-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .5); font-size: 11px; }
-.dc-rank-empty { text-align: center; color: rgba(var(--v-theme-on-surface), .55); font-size: 12px; padding: 8px 0; }
-.dc-history-list { display: flex; flex-direction: column; gap: 2px; }
-.dc-history-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 6px; padding: 5px 6px; border-radius: 6px; transition: background .12s; }
+.dc-rank-poster { flex: 0 0 20px; width: 20px; height: 28px; border-radius: 3px; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
+.dc-rank-title { flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.dc-rank-empty { font-size: 12px; color: rgba(var(--v-theme-on-surface), .5); padding: 8px; text-align: center; }
+.dc-history-list { display: flex; flex-direction: column; gap: 4px; }
+.dc-history-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 4px; min-height: 40px; padding: 5px 6px; border-radius: 6px; transition: background .12s; }
+.dc-archive-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .dc-status-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .dc-history-row--clickable { cursor: pointer; }
 .dc-history-row:hover { background: rgba(var(--v-theme-primary), .04); }
@@ -504,12 +549,15 @@ onMounted(loadAll)
 .dc-history-meta { display: flex; align-items: center; gap: 4px; margin-top: 1px; min-width: 0; overflow: hidden; }
 .dc-row-status { max-width: 160px; }
 .dc-row-action { flex: 0 0 auto; }
+.dc-dialog-action { flex: 1 1 0; min-width: 0; height: 36px; }
 @media (max-width: 760px) {
   .dc-flow { grid-template-columns: 1fr; }
   .dc-section { grid-column: 1 / -1; padding: 10px; }
   .dc-rank-grid { grid-template-columns: repeat(6, 150px); overflow-x: auto; padding-bottom: 2px; }
   .dc-history-row { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 4px; padding: 4px 6px; }
-  .dc-status-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+  .dc-archive-row, .dc-status-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
   .dc-row-status { max-width: 96px; }
+  .dc-history-meta .v-chip { max-width: 120px; }
+  .dc-history-row span.text-caption { display: none; }
 }
 </style>

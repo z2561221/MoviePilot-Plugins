@@ -57,12 +57,12 @@ def test_doubancenter_native_subscribe_release_version_is_consistent():
     plugin_json = json.loads((PLUGIN_DIR / "plugin.json").read_text(encoding="utf-8"))
     package_json = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     init_py = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
+    version = re.search(r'plugin_version\s*=\s*"([^"]+)"', init_py).group(1)
 
-    assert plugin_json["version"] == "1.2.4"
-    assert plugin_json["history"]["v1.2.4"].startswith("[1]")
-    assert package_json["DoubanCenter"]["version"] == "1.2.4"
-    assert package_json["DoubanCenter"]["history"]["v1.2.4"] == plugin_json["history"]["v1.2.4"]
-    assert re.search(r'plugin_version\s*=\s*"1\.2\.4"', init_py)
+    assert plugin_json["version"] == version
+    assert plugin_json["history"][f"v{version}"].startswith("[1]")
+    assert package_json["DoubanCenter"]["version"] == version
+    assert package_json["DoubanCenter"]["history"][f"v{version}"] == plugin_json["history"][f"v{version}"]
 
 
 def test_doubancenter_scheduled_task_refreshes_dashboard_rss_before_subscribe():

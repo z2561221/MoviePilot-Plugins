@@ -1,0 +1,12 @@
+{
+  "plugin_id": "DoubanCenter",
+  "version": "1.2.8",
+  "agent_tools": [],
+  "capabilities": [
+    "rank_subscription",
+    "douban_folio_sync",
+    "dashboard_overview",
+    "archive_management"
+  ],
+  "notes": "This plugin currently exposes runtime capabilities through plugin APIs and scheduled service only. Agent tools are intentionally not registered in the first template refactor round."
+}

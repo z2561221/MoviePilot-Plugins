@@ -1,6 +1,19 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
+import { rmSync } from 'node:fs'
+
+function removeUnreachableSharedAssets() {
+  return {
+    name: 'remove-unreachable-shared-assets',
+    closeBundle() {
+      rmSync(new URL('./dist/assets/__federation_shared_vuetify', import.meta.url), {
+        recursive: true,
+        force: true,
+      })
+    },
+  }
+}
 
 export default defineConfig({
   plugins: [
@@ -20,6 +33,7 @@ export default defineConfig({
       },
       format: 'esm',
     }),
+    removeUnreachableSharedAssets(),
   ],
   build: {
     target: 'esnext',

@@ -12,6 +12,7 @@ from app.schemas.types import MediaType, NotificationType
 
 from . import utils
 from .doubanapi import DoubanApi
+from .storage import records as storage
 
 
 def check_cookie_periodically(self) -> None:
@@ -40,8 +41,8 @@ def check_cookie_periodically(self) -> None:
 
 def sync_log_handler(self, event_info, played: bool = False):
     play_start = {"playback.start", "media.play", "PlaybackStart"}
-    processed = self.get_data('folio_data') or {}
-    self._wait_process = self.get_data('folio_wait') or {}
+    processed = storage.read_folio_data(self)
+    self._wait_process = storage.read_folio_wait(self)
     if (event_info.event in play_start and event_info.user_name in self._folio_user.split(',')) or played:
         if played:
             logger.info(f"标记播放完成 {event_info.item_name}")
@@ -84,7 +85,7 @@ def _process_tv_show(self, event_info, processed: Dict, played: bool = False):
         return
     if _sync_to_douban(self, title, status, event_info.item_type, processed, mediainfo):
         logger.info("尝试同步之前同步失败的条目")
-        self._wait_process = self.get_data('folio_wait') or {}
+        self._wait_process = storage.read_folio_wait(self)
         for k, v in self._wait_process.items():
             logger.info(f"尝试同步: {k}")
             _sync_to_douban(self, k, v["status"], v["type"], processed, None)
@@ -134,8 +135,8 @@ def _sync_to_douban(self, title: str, status: str, mediaType: str, processed: Di
             }
             if title in (self._wait_process or {}):
                 del self._wait_process[title]
-            self.save_data('folio_data', processed)
-            self.save_data('folio_wait', self._wait_process)
+            storage.save_folio_data(self, processed)
+            storage.save_folio_wait(self, self._wait_process)
             logger.info(f"{title} 同步到档案成功")
             _send_folio_notification(self, True, f"《{title}》已成功同步到豆瓣档案。")
             return True
@@ -143,7 +144,7 @@ def _sync_to_douban(self, title: str, status: str, mediaType: str, processed: Di
             logger.error(f'{title} 同步到档案失败')
             if title not in (self._wait_process or {}):
                 self._wait_process[title] = {"subject_id": sid, "subject_name": name, "status": status, "poster_path": poster, "type": mediaType}
-                self.save_data('folio_wait', self._wait_process)
+                storage.save_folio_wait(self, self._wait_process)
                 logger.error(f'{title} 添加到待同步列表')
             _send_folio_notification(self, False, f"《{title}》同步到豆瓣档案失败")
     else:

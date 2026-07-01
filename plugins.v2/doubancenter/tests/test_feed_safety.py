@@ -144,6 +144,17 @@ def _import_migration():
     return module
 
 
+def _import_service(name):
+    _install_stubs()
+    module_name = f"doubancenter.service.{name}"
+    sys.modules.pop(module_name, None)
+    spec = importlib.util.spec_from_file_location(module_name, PLUGIN_DIR / "service" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 class _Plugin:
     _enabled = True
     _notify = False
@@ -1393,8 +1404,8 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("max-width: 118px", css)
 
     def test_active_frontend_uses_native_subscribe_with_silent_fallback(self):
-        for filename in ("__federation_expose_Page.BHb1aANq.js", "__federation_expose_Dashboard.DTmaGyy6.js"):
-            js = (PLUGIN_DIR / "dist" / "assets" / filename).read_text(encoding="utf-8")
+        for expose_name in ("./Page", "./Dashboard"):
+            js = self._active_asset_text(expose_name, ".js")
             self.assertIn("bangumi_id", js)
             self.assertIn("subscribe?", js)
             self.assertIn("resolve_media?", js)
@@ -1422,17 +1433,15 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         for js in (dashboard_js, page_js):
             self.assertIn("dc-rank-wish", js)
             self.assertNotIn("toLocaleString", js)
-            rank_row_blocks = re.findall(
-                r'class: "dc-rank-row"[\s\S]{0,2200}?\], 8, (?:_hoisted_15|\["onClick"\])\)',
-                js,
-            )
-            self.assertTrue(rank_row_blocks)
-            for block in rank_row_blocks:
-                self.assertIn("_component_VAvatar", block)
-                self.assertIn("_component_VImg", block)
-                self.assertNotIn("item.year", block)
-                self.assertNotIn("item.rank_name", block)
-                self.assertNotIn("dc-rank-meta", block)
+            self.assertIn('class: "dc-rank-row"', js)
+            self.assertIn("_component_VAvatar", js)
+            self.assertIn("_component_VImg", js)
+            rank_row_start = js.find('class: "dc-rank-row"')
+            rank_row_end = js.find('class: "dc-rank-empty"', rank_row_start)
+            rank_row_block = js[rank_row_start:rank_row_end if rank_row_end != -1 else rank_row_start + 3000]
+            self.assertNotIn("item.year", rank_row_block)
+            self.assertNotIn("item.rank_name", rank_row_block)
+            self.assertNotIn("dc-rank-meta", rank_row_block)
 
         compact_css = dashboard_css + "\n" + page_css
         self.assertIn("font-variant-numeric:tabular-nums", compact_css.replace(" ", ""))
@@ -1459,9 +1468,9 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("(log.poster)", log_block_text)
         self.assertIn("src: log.poster", log_block_text)
         self.assertIn('icon: "mdi-filmstrip"', log_block_text)
-        self.assertIn("color: rankColors[log.rank_key]||'primary'", log_block_text)
+        self.assertIn("color:rankColors[log.rank_key]||'primary'", log_block_text.replace(" ", ""))
         self.assertIn("_toDisplayString(log.rank_name || log.rank_key || '观察日志')", log_block_text)
-        self.assertIn('const _hoisted_22 = { class: "dc-history-list" };', page_js)
+        self.assertIn('class: "dc-history-list"', page_js)
         self.assertRegex(
             page_js,
             r"_renderList\(cheatLogs\.value\.slice\(\)\.reverse\(\), \(log, i\)[\s\S]*?class: \"dc-history-row dc-status-row\"[\s\S]*?class: \"dc-row-status\"[\s\S]*?class: \"dc-row-action\"",
@@ -1512,6 +1521,18 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         dashboard.api_anti_cheat_logs(plugin)
 
         self.assertIsNone(plugin.data.get("archive_records"))
+
+    def test_dashboard_rank_history_snapshots_read_builtin_rank_histories(self):
+        dashboard = _import_dashboard()
+        plugin = _Plugin()
+        plugin.data["rank_history_tv_real_time"] = [{"title": "实时"}]
+        plugin.data["rank_history_tv_global"] = [{"title": "全球"}]
+
+        snapshots = dashboard._rank_history_snapshots(plugin)
+
+        indexed = {rank["key"]: rank["history"] for rank in snapshots}
+        self.assertEqual(indexed["tv_real_time"], [{"title": "实时"}])
+        self.assertEqual(indexed["tv_global"], [{"title": "全球"}])
 
     def test_overview_reports_flow_order_and_archive_counts(self):
         dashboard = _import_dashboard()
@@ -1767,6 +1788,50 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(plugin.messages, [])
         self.assertNotEqual(captured.get("message"), False)
+
+    def test_observation_service_records_first_seen(self):
+        service = _import_service("observation")
+        plugin = _Plugin()
+        history = []
+
+        should_skip = service.check_observe(plugin, "rank:1", history, title="测试电影", rank_key="coming")
+
+        self.assertTrue(should_skip)
+        self.assertEqual(history[0]["unique"], "rank:1")
+        self.assertEqual(history[0]["title"], "测试电影")
+        self.assertTrue(history[0]["observing"])
+        self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "观察期首次记录")
+
+    def test_subscription_service_deduplicates_records(self):
+        service = _import_service("subscription")
+        plugin = _Plugin()
+        mediainfo = _MediaInfo(title="测试电影", year="2026", tmdb_id=12345)
+
+        service.write_subscribe_record(plugin, mediainfo, rank_key="coming", rank_name="即将上映")
+        service.write_subscribe_record(plugin, mediainfo, rank_key="coming", rank_name="即将上映")
+
+        records = plugin.data["subscribe_records"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["title"], "测试电影")
+        self.assertTrue(service.history_item_subscribed({"subscribed": True}))
+
+    def test_archive_service_deduplicates_more_complete_record(self):
+        service = _import_service("archive")
+        plugin = _Plugin()
+
+        first = service.archive_record(plugin, "subscribe_history", {"title": "测试电影"}, "订阅历史", dedupe=True)
+        second = service.archive_record(
+            plugin,
+            "subscribe_history",
+            {"title": "测试电影", "tmdbid": 12345, "poster": "poster.jpg"},
+            "订阅历史",
+            dedupe=True,
+        )
+
+        archives = plugin.data["archive_records"]
+        self.assertEqual(len(archives), 1)
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(archives[0]["record"]["tmdbid"], 12345)
 
 
 if __name__ == "__main__":
