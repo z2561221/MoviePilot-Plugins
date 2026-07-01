@@ -1,9 +1,9 @@
 {
   "plan": "docs/plans/2026-07-02-downloadmanagerlocal-backend-refactor-phased-plan.md",
   "status": {
-    "phase": "phase-3",
-    "task": "3.3",
-    "next_allowed_action": "Begin Phase 3 task 3.3 by adding API response regression inventory before production code changes"
+    "phase": "phase-4",
+    "task": "4.1",
+    "next_allowed_action": "Begin Phase 4 task 4.1 by adding model constants/state helper tests before production code changes"
   },
   "execution_rules": {
     "working_directory": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -220,7 +220,7 @@
     {
       "id": "phase-3",
       "goal": "Move API route declaration and response shaping into a controller boundary while preserving routes and schemas.",
-      "status": "in_progress",
+      "status": "completed",
       "acceptance": [
         "API route metadata is preserved.",
         "API implementation has a clear controller boundary.",
@@ -278,9 +278,26 @@
         {
           "id": "3.3",
           "title": "Add API response regression inventory",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_api_response_inventory.py tests/static/test_downloadmanagerlocal_manual_retry_api.py tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_registers_diagnostics_api_route tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_exposes_diagnostics_wrapper",
+              "result": "exit 0; 19 passed in 0.69s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "c596442"
         }
       ]
     },
@@ -442,6 +459,16 @@
         "compileall exited 0 with bundled Python",
         "pytest --confcutdir=tests/static backend contract/manual retry/private helper/stability/diagnostics backend tests: 23 passed",
         "planned tests/static/test_downloadmanagerlocal_rename_archive.py does not exist in this repository; route inventory coverage remains in backend contract tests",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "3.3",
+      "summary": "Added API response regression inventory for overview, diagnostics, rename history, archive, retry, delete, restore, and recovery handler response keys.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/API response inventory/manual retry/diagnostics backend tests: 19 passed",
         "no-UI gate output empty",
         "git diff --check exited 0"
       ]
