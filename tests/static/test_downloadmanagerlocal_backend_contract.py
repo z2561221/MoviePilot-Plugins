@@ -120,6 +120,16 @@ def test_downloadmanagerlocal_get_api_delegates_route_builder():
     assert "_build_api_routes_impl" in called_names
 
 
+def test_downloadmanagerlocal_api_handlers_keep_compatibility_shim():
+    shim_source = (PLUGIN_DIR / "api.py").read_text(encoding="utf-8")
+    handler_source = (PLUGIN_DIR / "controller" / "handlers.py").read_text(encoding="utf-8")
+
+    assert "from .controller.handlers import" in shim_source
+    assert "def api_overview(plugin):" in handler_source
+    assert "def api_retry_rename(plugin, hash: str = \"\"):" in handler_source
+    assert "def api_diagnostics(plugin):" in handler_source
+
+
 def test_downloadmanagerlocal_init_plugin_delegates_config_initialization():
     plugin_class = _downloadmanagerlocal_class()
     init_plugin = next(
