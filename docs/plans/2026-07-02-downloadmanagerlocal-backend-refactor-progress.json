@@ -77,7 +77,7 @@
               "result": "exit 0; empty output"
             }
           ],
-          "commit": null
+          "commit": "3ddc8e4"
         },
         {
           "id": "1.2",
