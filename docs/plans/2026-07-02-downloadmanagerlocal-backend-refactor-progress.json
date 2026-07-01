@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-02-downloadmanagerlocal-backend-refactor-phased-plan.md",
   "status": {
     "phase": "phase-2",
-    "task": "2.2",
-    "next_allowed_action": "Begin Phase 2 task 2.2 by adding a failing test for service registration construction before production code changes"
+    "task": "2.3",
+    "next_allowed_action": "Begin Phase 2 task 2.3 by adding a failing test for wrapper/import cleanup compatibility before production code changes"
   },
   "execution_rules": {
     "working_directory": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -166,9 +166,26 @@
         {
           "id": "2.2",
           "title": "Extract service registration construction",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py tests/static/test_downloadmanagerlocal_transfer_retry_hook.py",
+              "result": "exit 0; 15 passed in 0.62s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "57a372f"
         },
         {
           "id": "2.3",
@@ -322,6 +339,18 @@
       "evidence": [
         "compileall exited 0 with bundled Python",
         "pytest --confcutdir=tests/static backend contract/private helper/stability/IYUU tests: 16 passed",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "2.2",
+      "summary": "Extracted get_service scheduler declarations into service/scheduler.py and kept service IDs, names, triggers, and callable targets compatible.",
+      "evidence": [
+        "red test failed as expected before implementation: _build_plugin_services_impl missing from get_service",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/private helper/stability/transfer retry tests: 15 passed",
+        "planned tests/static/test_downloadmanagerlocal_seed_recheck.py does not exist in this repository; equivalent existing static coverage was used",
         "no-UI gate output empty",
         "git diff --check exited 0"
       ]
