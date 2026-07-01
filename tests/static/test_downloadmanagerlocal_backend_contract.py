@@ -125,6 +125,33 @@ def test_downloadmanagerlocal_init_plugin_delegates_config_initialization():
     assert "_initialize_runtime_config_impl" in called_names
 
 
+def test_downloadmanagerlocal_get_service_delegates_service_registration():
+    plugin_class = _downloadmanagerlocal_class()
+    get_service = next(
+        node
+        for node in plugin_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "get_service"
+    )
+    called_names = {
+        node.func.id
+        for node in ast.walk(get_service)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+
+    assert "_build_plugin_services_impl" in called_names
+
+
+def test_downloadmanagerlocal_service_builder_preserves_scheduler_service_metadata():
+    source = (PLUGIN_DIR / "service" / "scheduler.py").read_text(encoding="utf-8")
+
+    assert '"id": "TorrentTransferFallback"' in source
+    assert '"name": "转移做种兜底服务"' in source
+    assert '"trigger": "interval"' in source
+    assert '"id": "IYUUAutoSeed"' in source
+    assert '"name": "IYUU自动辅种服务"' in source
+    assert "CronTrigger.from_crontab(plugin._iyuu_cron)" in source
+
+
 def test_downloadmanagerlocal_backend_refactor_does_not_touch_ui_worktree_paths():
     assert _git_diff_names() == []
     assert _git_diff_names("--cached") == []

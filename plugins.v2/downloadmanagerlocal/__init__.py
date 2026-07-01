@@ -14,7 +14,6 @@ from urllib.parse import urljoin
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 from bencode import bdecode, bencode
 from lxml import etree
 
@@ -51,6 +50,7 @@ from .modules.recheck import load_seed_recheck_queue as _load_seed_recheck_queue
 from .modules.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl, retry_pending_renames as _retry_pending_renames_impl
 from .modules.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
 from .service.config import initialize_runtime_config as _initialize_runtime_config_impl
+from .service.scheduler import build_plugin_services as _build_plugin_services_impl
 
 class DownloadManagerLocal(_PluginBase):
     # 插件名称
@@ -434,27 +434,7 @@ class DownloadManagerLocal(_PluginBase):
         """
         注册插件公共服务
         """
-        services = []
-        # 做种校验：改为按需触发，不再注册固定周期服务
-        # 转移做种兜底服务：事件漏触发时，按自定义间隔低频扫描 QB1 已完成任务
-        if self._transfer_active and self._transfer_fallback_enabled:
-            services.append({
-                "id": "TorrentTransferFallback",
-                "name": "转移做种兜底服务",
-                "trigger": "interval",
-                "func": self._fallback_transfer,
-                "kwargs": {"minutes": self._transfer_fallback_interval_minutes}
-            })
-        # IYUU 辅种服务
-        if self._iyuu_enabled and self._iyuu_cron and self._iyuu_token and self._iyuu_downloaders:
-            services.append({
-                "id": "IYUUAutoSeed",
-                "name": "IYUU自动辅种服务",
-                "trigger": CronTrigger.from_crontab(self._iyuu_cron),
-                "func": self.iyuu_auto_seed,
-                "kwargs": {}
-            })
-        return services
+        return _build_plugin_services_impl(self)
 
     def _fallback_transfer(self):
         return _fallback_transfer_impl(self)
