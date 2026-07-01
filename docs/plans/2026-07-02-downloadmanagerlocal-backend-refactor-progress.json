@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-02-downloadmanagerlocal-backend-refactor-phased-plan.md",
   "status": {
     "phase": "phase-2",
-    "task": "2.1",
-    "next_allowed_action": "Begin Phase 2 task 2.1 by adding a failing test for config parsing/default normalization before production code changes"
+    "task": "2.2",
+    "next_allowed_action": "Begin Phase 2 task 2.2 by adding a failing test for service registration construction before production code changes"
   },
   "execution_rules": {
     "working_directory": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -132,7 +132,7 @@
     {
       "id": "phase-2",
       "goal": "Reduce __init__.py to plugin identity, lifecycle, configuration state, extension-point declarations, and thin delegation without behavior changes.",
-      "status": "pending",
+      "status": "in_progress",
       "acceptance": [
         "__init__.py owns only plugin contract and thin delegation.",
         "Existing API paths, service behavior, and event hook behavior remain compatible.",
@@ -142,9 +142,26 @@
         {
           "id": "2.1",
           "title": "Extract config parsing/default normalization",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py tests/static/test_downloadmanagerlocal_iyuu_regressions.py",
+              "result": "exit 0; 16 passed in 0.82s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "20a7dda"
         },
         {
           "id": "2.2",
@@ -297,6 +314,16 @@
         "compileall exited 0 with bundled Python",
         "pytest --confcutdir=tests/static backend contract/private helper/stability tests: 11 passed",
         "no-UI gate output empty"
+      ]
+    },
+    {
+      "task": "2.1",
+      "summary": "Extracted DownloadManagerLocal runtime config parsing and default normalization into service/config.py, leaving init_plugin as a lifecycle delegate and preserving frontend config keys.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/private helper/stability/IYUU tests: 16 passed",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
       ]
     }
   ]
