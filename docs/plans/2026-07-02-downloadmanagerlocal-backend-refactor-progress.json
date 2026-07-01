@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-02-downloadmanagerlocal-backend-refactor-phased-plan.md",
   "status": {
     "phase": "phase-3",
-    "task": "3.2",
-    "next_allowed_action": "Begin Phase 3 task 3.2 by adding a failing test for controller handler migration compatibility before production code changes"
+    "task": "3.3",
+    "next_allowed_action": "Begin Phase 3 task 3.3 by adding API response regression inventory before production code changes"
   },
   "execution_rules": {
     "working_directory": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -254,9 +254,26 @@
         {
           "id": "3.2",
           "title": "Move API handlers into controller while keeping compatibility imports",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_manual_retry_api.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_registers_diagnostics_api_route tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_exposes_diagnostics_wrapper",
+              "result": "exit 0; 23 passed in 0.90s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "b17e0e3"
         },
         {
           "id": "3.3",
@@ -413,6 +430,18 @@
         "compileall exited 0 with bundled Python",
         "pytest --confcutdir=tests/static backend contract/manual retry/diagnostics backend route tests: 14 passed",
         "full diagnostics static file still contains an existing UI tab assertion failure and was not fixed because UI is out of scope",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "3.2",
+      "summary": "Moved API handler implementations into controller/handlers.py and kept plugins.v2/downloadmanagerlocal/api.py as a compatibility shim.",
+      "evidence": [
+        "red test failed as expected before implementation: controller/handlers.py missing",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/manual retry/private helper/stability/diagnostics backend tests: 23 passed",
+        "planned tests/static/test_downloadmanagerlocal_rename_archive.py does not exist in this repository; route inventory coverage remains in backend contract tests",
         "no-UI gate output empty",
         "git diff --check exited 0"
       ]
