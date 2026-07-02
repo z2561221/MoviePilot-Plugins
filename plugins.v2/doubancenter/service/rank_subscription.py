@@ -22,6 +22,48 @@ def rank_count(rank_configs: Dict[str, dict], key: str) -> int:
     return int(rank_config(rank_configs, key).get("count", 0) or 0)
 
 
+def _positive_value_text(value: Any) -> str:
+    """返回正数配置的可读文本，非正数返回空字符串。"""
+    if not rank_model.positive_number(value):
+        return ""
+    return str(value).strip()
+
+
+def describe_rank_filter(
+    config: dict,
+    rank: dict,
+    *,
+    candidate_count: int = 0,
+    blacklist_enabled: bool = False,
+    observe_enabled: bool = False,
+) -> str:
+    """生成人类可读的榜单订阅筛选条件描述。"""
+    config = config if isinstance(config, dict) else {}
+    rank = rank if isinstance(rank, dict) else {}
+    parts = [f"候选 {max(int(candidate_count or 0), 0)} 条"]
+    if rank.get("coming"):
+        wish = _positive_value_text(config.get("wish_count"))
+        air_days = _positive_value_text(config.get("air_days"))
+        if wish:
+            parts.append(f"想看>={wish}")
+        if air_days:
+            parts.append(f"上映<={air_days}天")
+    else:
+        vote = _positive_value_text(config.get("vote"))
+        year = _positive_value_text(config.get("year"))
+        if vote:
+            parts.append(f"评分>={vote}")
+        if year:
+            parts.append(f"年份>={year}")
+    if observe_enabled:
+        parts.append("观察期")
+    if blacklist_enabled:
+        parts.append("黑名单")
+    if len(parts) == 1:
+        parts.append("无额外筛选")
+    return "；".join(parts)
+
+
 def has_global_filter(blacklist_keywords: str = "", observe_enabled: bool = False) -> bool:
     """判断是否配置了全局自动订阅安全条件。"""
     if (blacklist_keywords or "").strip():

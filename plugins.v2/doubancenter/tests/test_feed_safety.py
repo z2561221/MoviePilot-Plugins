@@ -576,47 +576,47 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         plugin = _Plugin()
         calls = []
         original_refresh = self.feed.refresh_rank_data
-        original_subscribe = self.feed.subscribe_to_ranks
+        original_subscribe = self.feed.subscribe_to_rank_snapshots
 
-        def fake_refresh(plugin_obj, rank_keys=None):
-            calls.append(("refresh", rank_keys))
-            return {}
+        def fake_refresh(plugin_obj, rank_keys=None, limit_by_rank=None, with_snapshots=False):
+            calls.append(("refresh", rank_keys, limit_by_rank, with_snapshots))
+            return {}, {"snapshot": True}
 
-        def fake_subscribe(plugin_obj, refresh_when_unsafe=True):
-            calls.append(("subscribe", refresh_when_unsafe))
+        def fake_subscribe(plugin_obj, snapshots):
+            calls.append(("subscribe_snapshots", snapshots))
 
         self.feed.refresh_rank_data = fake_refresh
-        self.feed.subscribe_to_ranks = fake_subscribe
+        self.feed.subscribe_to_rank_snapshots = fake_subscribe
         try:
             self.feed.run_once(plugin)
         finally:
             self.feed.refresh_rank_data = original_refresh
-            self.feed.subscribe_to_ranks = original_subscribe
+            self.feed.subscribe_to_rank_snapshots = original_subscribe
 
-        self.assertEqual(calls, [("refresh", None), ("subscribe", False)])
+        self.assertEqual(calls, [("refresh", None, {}, True), ("subscribe_snapshots", {"snapshot": True})])
 
     def test_scheduled_run_refreshes_rank_data_then_subscribes_by_config(self):
         plugin = _Plugin()
         calls = []
         original_refresh = self.feed.refresh_rank_data
-        original_subscribe = self.feed.subscribe_to_ranks
+        original_subscribe = self.feed.subscribe_to_rank_snapshots
 
-        def fake_refresh(plugin_obj, rank_keys=None):
-            calls.append(("refresh", rank_keys))
-            return {}
+        def fake_refresh(plugin_obj, rank_keys=None, limit_by_rank=None, with_snapshots=False):
+            calls.append(("refresh", rank_keys, limit_by_rank, with_snapshots))
+            return {}, {"snapshot": True}
 
-        def fake_subscribe(plugin_obj, refresh_when_unsafe=True):
-            calls.append(("subscribe", refresh_when_unsafe))
+        def fake_subscribe(plugin_obj, snapshots):
+            calls.append(("subscribe_snapshots", snapshots))
 
         self.feed.refresh_rank_data = fake_refresh
-        self.feed.subscribe_to_ranks = fake_subscribe
+        self.feed.subscribe_to_rank_snapshots = fake_subscribe
         try:
             self.feed.run_scheduled(plugin)
         finally:
             self.feed.refresh_rank_data = original_refresh
-            self.feed.subscribe_to_ranks = original_subscribe
+            self.feed.subscribe_to_rank_snapshots = original_subscribe
 
-        self.assertEqual(calls, [("refresh", None), ("subscribe", False)])
+        self.assertEqual(calls, [("refresh", None, {}, True), ("subscribe_snapshots", {"snapshot": True})])
 
     def test_subscribe_to_ranks_can_skip_duplicate_refresh_when_unsafe(self):
         plugin = _Plugin()
@@ -646,6 +646,138 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
             self.feed._fetch_rss = original_fetch
 
         self.assertEqual(calls, [])
+
+    def test_run_once_uses_single_recognized_snapshot_for_subscription_window(self):
+        plugin = _Plugin()
+        plugin._rsshub_domain = "https://rsshub.example"
+        plugin._observe_days = 0
+        plugin._rank_configs = {"tv_global": {"enabled": True, "count": 7}}
+        fetch_urls = []
+        recognize_calls = []
+        subscribed = []
+
+        def make_items(limit):
+            return [
+                {"title": f"item-{index}", "link": f"https://example.com/{index}", "mtype": "tv", "year": "2026"}
+                for index in range(1, limit + 1)
+            ]
+
+        def fake_fetch(self_obj, url):
+            fetch_urls.append(url)
+            match = re.search(r"limit=(\d+)", url)
+            return make_items(int(match.group(1)) if match else 0)
+
+        def fake_recognize(meta, mtype):
+            recognize_calls.append(meta.title)
+            return _MediaInfo(title=f"CN {meta.title}", year=meta.year, mtype=mtype, tmdb_id=1000 + len(recognize_calls))
+
+        plugin.chain = types.SimpleNamespace(recognize_media=fake_recognize)
+        original_fetch = self.feed._fetch_rss
+        original_add_sub = self.feed._add_sub
+        original_sleep = self.feed.time.sleep
+        self.feed._fetch_rss = fake_fetch
+        self.feed._add_sub = lambda self_obj, mediainfo, meta=None, rank_key="", rank_name="", **kwargs: subscribed.append((rank_key, mediainfo.title)) or True
+        self.feed.time.sleep = lambda seconds: None
+        try:
+            self.feed.run_once(plugin)
+        finally:
+            self.feed._fetch_rss = original_fetch
+            self.feed._add_sub = original_add_sub
+            self.feed.time.sleep = original_sleep
+
+        self.assertEqual(fetch_urls, ["https://rsshub.example/douban/list/tv_global_best_weekly?limit=7"])
+        self.assertEqual(recognize_calls, [f"item-{index}" for index in range(1, 8)])
+        self.assertEqual(subscribed, [("tv_global", f"CN item-{index}") for index in range(1, 8)])
+        dashboard_items = self.feed.get_dashboard_rank_items(plugin, "tv_global", limit=5)
+        self.assertEqual([item["title"] for item in dashboard_items], [f"CN item-{index}" for index in range(1, 6)])
+
+    def test_run_once_keeps_observation_inside_subscription_window_outside_display_window(self):
+        plugin = _Plugin()
+        plugin._rsshub_domain = "https://rsshub.example"
+        plugin._observe_days = 2
+        plugin._observe_rank_keys = ["tv_global"]
+        plugin._rank_configs = {"tv_global": {"enabled": True, "count": 7}}
+        first_seen = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        plugin.data["rank_history_tv_global"] = [
+            {
+                "title": "old item 6",
+                "unique": "dc2_rank:https://example.com/6",
+                "first_seen": first_seen,
+                "observing": True,
+            }
+        ]
+
+        def fake_fetch(self_obj, url):
+            return [
+                {"title": f"item-{index}", "link": f"https://example.com/{index}", "mtype": "tv", "year": "2026"}
+                for index in range(1, 8)
+            ]
+
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
+        )
+        original_fetch = self.feed._fetch_rss
+        original_add_sub = self.feed._add_sub
+        original_sleep = self.feed.time.sleep
+        self.feed._fetch_rss = fake_fetch
+        self.feed._add_sub = lambda *args, **kwargs: True
+        self.feed.time.sleep = lambda seconds: None
+        try:
+            self.feed.run_once(plugin)
+        finally:
+            self.feed._fetch_rss = original_fetch
+            self.feed._add_sub = original_add_sub
+            self.feed.time.sleep = original_sleep
+
+        indexed = {item["unique"]: item for item in plugin.data["rank_history_tv_global"]}
+        self.assertTrue(indexed["dc2_rank:https://example.com/6"]["observing"])
+        self.assertNotIn("observe_dropped_at", indexed["dc2_rank:https://example.com/6"])
+
+    def test_snapshot_subscription_logs_filter_summary_and_skip_reason(self):
+        plugin = _Plugin()
+        plugin._rank_configs = {"tv_global": {"enabled": True, "count": 1, "vote": "9.0", "year": "2024"}}
+        media = _MediaInfo(title="low score", year="2026", mtype=_MediaType.TV, tmdb_id=67890)
+        media.vote_average = 7.0
+        messages = []
+
+        class CaptureLogger:
+            def info(self, message, *args, **kwargs):
+                messages.append(str(message))
+
+            def warning(self, message, *args, **kwargs):
+                messages.append(str(message))
+
+            def error(self, message, *args, **kwargs):
+                messages.append(str(message))
+
+        original_logger = self.feed.logger
+        self.feed.logger = CaptureLogger()
+        try:
+            self.feed.subscribe_to_rank_snapshots(
+                plugin,
+                {
+                    "tv_global": {
+                        "items": [
+                            {
+                                "raw": {"title": "low score", "link": "https://example.com/a", "mtype": "tv", "year": "2026"},
+                                "entry": {
+                                    "title": "low score",
+                                    "link": "https://example.com/a",
+                                    "media_type": "tv",
+                                    "year": "2026",
+                                    "unique": "dc2_rank:https://example.com/a",
+                                },
+                                "mediainfo": media,
+                            }
+                        ]
+                    }
+                },
+            )
+        finally:
+            self.feed.logger = original_logger
+
+        self.assertTrue(any("筛选条件" in message and "评分>=9.0" in message for message in messages))
+        self.assertTrue(any("跳过《low score》：评分 7.0 < 9.0" in message for message in messages))
 
     def test_process_general_subscribes_after_dashboard_refresh_history_exists(self):
         plugin = _Plugin()

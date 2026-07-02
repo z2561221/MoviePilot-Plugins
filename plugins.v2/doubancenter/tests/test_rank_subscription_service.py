@@ -69,6 +69,40 @@ class RankSubscriptionServiceTest(unittest.TestCase):
         self.assertTrue(rank_subscription.has_rank_filter({"year": "2024"}, general))
         self.assertFalse(rank_subscription.has_rank_filter({}, general))
 
+    def test_describe_rank_filter_makes_coming_conditions_readable(self):
+        coming = {"key": "coming", "name": "即将上映", "coming": True}
+
+        description = rank_subscription.describe_rank_filter(
+            {"count": 3, "wish_count": 5000, "air_days": 7},
+            coming,
+            candidate_count=3,
+            blacklist_enabled=True,
+            observe_enabled=True,
+        )
+
+        self.assertIn("候选 3 条", description)
+        self.assertIn("想看>=5000", description)
+        self.assertIn("上映<=7天", description)
+        self.assertIn("观察期", description)
+        self.assertIn("黑名单", description)
+
+    def test_describe_rank_filter_makes_general_conditions_readable(self):
+        general = {"key": "movie_weekly", "name": "电影口碑", "coming": False}
+
+        description = rank_subscription.describe_rank_filter(
+            {"count": 5, "vote": "8.0", "year": "2024"},
+            general,
+            candidate_count=5,
+            blacklist_enabled=False,
+            observe_enabled=True,
+        )
+
+        self.assertIn("候选 5 条", description)
+        self.assertIn("评分>=8.0", description)
+        self.assertIn("年份>=2024", description)
+        self.assertIn("观察期", description)
+        self.assertNotIn("黑名单", description)
+
     def test_safety_filter_requires_global_or_enabled_rank_filter(self):
         ranks = [
             {"key": "coming", "coming": True},
