@@ -4,7 +4,8 @@ import time
 from typing import Tuple, Optional
 
 from app.log import logger
-from app.utils.http import RequestUtils
+
+from .adapter.moviepilot import request_get_res, request_post_res
 
 
 class IyuuHelper(object):
@@ -46,15 +47,19 @@ class IyuuHelper(object):
         向IYUUApi发送请求
         """
         if method == "post":
-            ret = RequestUtils(
+            ret = request_post_res(
+                f'{self._api_base + url}',
+                json=params,
                 accept_type="application/json",
                 headers={'token': self._token}
-            ).post_res(f'{self._api_base + url}', json=params)
+            )
         else:
-            ret = RequestUtils(
+            ret = request_get_res(
+                f'{self._api_base + url}',
+                params=params,
                 accept_type="application/json",
                 headers={'token': self._token}
-            ).get_res(f'{self._api_base + url}', params=params)
+            )
         if ret:
             result = ret.json()
             if result.get('code') == 0:

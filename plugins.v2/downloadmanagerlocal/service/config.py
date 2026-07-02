@@ -1,9 +1,8 @@
 """下载中心配置初始化服务。"""
 
-from app.db.site_oper import SiteOper
-from app.helper.downloader import DownloaderHelper
 from app.log import logger
 
+from ..adapter.moviepilot import create_downloader_helper, list_builtin_sites
 from ..model.state import (
     IYUU_CLEAR_CACHE_KEY,
     IYUU_ERROR_CACHES_KEY,
@@ -16,7 +15,7 @@ from ..utils.config import safe_int
 def initialize_runtime_config(plugin, config: dict = None) -> dict:
     """根据插件配置初始化运行时字段并返回可继续持久化的配置。"""
     config = config or {}
-    plugin.downloader_helper = DownloaderHelper()
+    plugin.downloader_helper = create_downloader_helper()
 
     default_mappings = (
         "chdbits.xyz -> ptchdbits.co\n"
@@ -119,7 +118,7 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
 
     if plugin._iyuu_sites:
         all_site_ids = [
-            site.id for site in SiteOper().list_order_by_pri()
+            site.id for site in list_builtin_sites()
         ] + [site.get("id") for site in plugin._custom_sites()]
         plugin._iyuu_sites = [sid for sid in all_site_ids if sid in plugin._iyuu_sites]
         plugin._update_iyuu_config(config)

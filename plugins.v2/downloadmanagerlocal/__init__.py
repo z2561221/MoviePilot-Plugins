@@ -18,13 +18,13 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.core.meta.metabase import MetaBase
 from app.core.metainfo import MetaInfo
-from app.helper.downloader import DownloaderHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
 from app.schemas import NotificationType, ServiceInfo
 from app.schemas.types import MediaType, SystemConfigKey, EventType
 
+from .adapter.moviepilot import get_downloader_service
 from .model.state import SEED_RECHECK_QUEUE_KEY
 from .utils.config import safe_int, is_plugin_active, is_transfer_active
 from .utils.tracker import parse_tracker_mappings
@@ -273,7 +273,7 @@ class DownloadManagerLocal(_PluginBase):
             logger.warning("尚未配置下载器，请检查配置")
             return None
 
-        service = DownloaderHelper().get_service(name)
+        service = get_downloader_service(name)
         if not service or not service.instance:
             logger.warning(f"获取下载器 {name} 实例失败，请检查配置")
             return None
@@ -427,9 +427,8 @@ class DownloadManagerLocal(_PluginBase):
 
             # IYUU 辅种下载器
             if self._iyuu_enabled and self._iyuu_downloaders:
-                dl_helper = DownloaderHelper()
                 for name in self._iyuu_downloaders:
-                    svc = dl_helper.get_service(name)
+                    svc = get_downloader_service(name)
                     if svc and not svc.instance.is_inactive():
                         add_check_service(svc)
 

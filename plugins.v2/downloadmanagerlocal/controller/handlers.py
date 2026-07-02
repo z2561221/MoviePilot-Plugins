@@ -2,9 +2,9 @@
 
 from datetime import datetime
 
-from app.helper.downloader import DownloaderHelper
 from app.log import logger
 
+from ..adapter.moviepilot import get_downloader_config, list_builtin_sites
 from ..model.state import RENAME_RECORDS_KEY, RENAME_RETRY_STATE_KEY
 
 
@@ -98,10 +98,9 @@ def api_downloaders(plugin):
 def api_sites(plugin):
     """返回可用站点列表（内置站点 + 自定义站点）"""
     try:
-        from app.db.site_oper import SiteOper
         custom_sites = plugin._custom_sites()
         result = [{"title": site.name, "value": site.id}
-                  for site in SiteOper().list_order_by_pri()]
+                  for site in list_builtin_sites()]
         result += [{"title": site.get("name"), "value": site.get("id")}
                    for site in custom_sites]
         return {"data": result}
@@ -180,8 +179,7 @@ def api_recovery_torrent(plugin, hash: str = ""):
 
     # 在目标下载器中查找并恢复
     try:
-        dl_helper = DownloaderHelper()
-        to_config = dl_helper.get_config(plugin._todownloader)
+        to_config = get_downloader_config(plugin._todownloader)
         if not to_config:
             return {"code": 1, "msg": f"下载器 {plugin._todownloader} 不存在"}
         dl = to_config.instance

@@ -14,6 +14,7 @@ from app.log import logger
 from app.modules.filemanager.transhandler import TransHandler
 from app.schemas.types import MediaType
 
+from ..adapter.moviepilot import get_download_history_by_hash
 from ..model.state import IYUU_SOURCE_KEY_PREFIX, RENAME_RECORDS_KEY, iyuu_source_key
 from ..utils.name_cleaner import (
     clean_torrent_original_name,
@@ -181,8 +182,7 @@ def _add_rename_record_candidates(candidates: list, seen: set, plugin, torrent_h
 def _add_download_history_candidates(candidates: list, seen: set, torrent_hash: str) -> None:
     """从下载历史中添加原始种子名候选。"""
     try:
-        from app.db.downloadhistory_oper import DownloadHistoryOper
-        downloadhis = DownloadHistoryOper().get_by_hash(torrent_hash)
+        downloadhis = get_download_history_by_hash(torrent_hash)
     except Exception:
         return
     if not downloadhis:
@@ -374,8 +374,7 @@ def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: st
                     return
 
         # 优先从下载历史获取识别信息（含完整季集号）
-        from app.db.downloadhistory_oper import DownloadHistoryOper
-        downloadhis = DownloadHistoryOper().get_by_hash(torrent_hash)
+        downloadhis = get_download_history_by_hash(torrent_hash)
         if downloadhis:
             history_name = clean_torrent_original_name(downloadhis.torrent_name).strip()
             logger.info(f"转移后重命名：找到下载历史记录，使用历史名称识别: {history_name or downloadhis.torrent_name}")
