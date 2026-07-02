@@ -40,12 +40,14 @@ class DownloadManagerLocalDiagnosticsTest(unittest.TestCase):
 
         self.assertIn("const activeTab = ref('history')", page_source)
         self.assertIn("const diagnostics = ref(null)", page_source)
+        self.assertIn("const tabs = [", page_source)
+        self.assertIn("{ key: 'diagnostics', title: '运行诊断', icon: 'mdi-stethoscope' }", page_source)
         self.assertIn("async function loadDiagnostics()", page_source)
         self.assertIn("getPluginApi(props.api, 'diagnostics')", page_source)
-        self.assertIn('value="diagnostics"', page_source)
-        self.assertIn("@click=\"loadDiagnostics\"", page_source)
+        self.assertIn("return loadDiagnostics()", page_source)
+        self.assertIn("@click=\"selectTab(tab.key)\"", page_source)
         self.assertIn("diagnostics?.plugin?.version", page_source)
-        self.assertIn("diagnostics?.rename_history?.failed", page_source)
+        self.assertIn("diagnostics?.rename_history?.recent_failures", page_source)
 
 
 if __name__ == "__main__":

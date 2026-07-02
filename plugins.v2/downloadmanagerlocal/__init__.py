@@ -2,14 +2,10 @@
 DownloadManagerLocal v3.2.3 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
-import os
-import re
 from datetime import datetime, timedelta
-import time
-from pathlib import Path
 from threading import Event as ThreadEvent
 import threading
-from typing import Any, List, Dict, Tuple, Optional, Union
+from typing import Any, List, Dict, Tuple, Optional
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -17,12 +13,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.core.meta.metabase import MetaBase
-from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
 from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
-from app.schemas import NotificationType, ServiceInfo
-from app.schemas.types import MediaType, SystemConfigKey, EventType
+from app.schemas import ServiceInfo
+from app.schemas.types import EventType
 
 from .adapter.moviepilot import get_downloader_service
 from .model.state import SEED_RECHECK_QUEUE_KEY
