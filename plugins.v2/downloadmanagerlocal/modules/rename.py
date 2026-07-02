@@ -14,6 +14,7 @@ from app.log import logger
 from app.modules.filemanager.transhandler import TransHandler
 from app.schemas.types import MediaType
 
+from ..model.state import IYUU_SOURCE_KEY_PREFIX, RENAME_RECORDS_KEY, iyuu_source_key
 from ..utils.name_cleaner import (
     clean_torrent_original_name,
     collect_retry_rename_hashes,
@@ -53,7 +54,7 @@ def format_torrent_name(template_string: str, meta: MetaBase, mediainfo) -> Opti
 def save_rename_record(plugin, torrent_hash: str, original_name: str, after_name: str,
                        success: bool, reason: str = ""):
     """保存重命名记录"""
-    records = plugin.get_data("rename_records") or {}
+    records = plugin.get_data(RENAME_RECORDS_KEY) or {}
     records[torrent_hash] = {
         "hash": torrent_hash,
         "original_name": original_name,
@@ -62,7 +63,7 @@ def save_rename_record(plugin, torrent_hash: str, original_name: str, after_name
         "reason": reason,
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
-    plugin.save_data("rename_records", records)
+    plugin.save_data(RENAME_RECORDS_KEY, records)
     if success:
         clear_state = getattr(plugin, "clear_rename_retry_state", None)
         if callable(clear_state):
@@ -75,7 +76,7 @@ def save_rename_record(plugin, torrent_hash: str, original_name: str, after_name
 
 def get_failed_rename_hashes(plugin) -> set:
     """获取所有需补刀的种子 hash：失败记录 + 已成功但 original_name 被副标题污染的记录"""
-    records = plugin.get_data("rename_records") or {}
+    records = plugin.get_data(RENAME_RECORDS_KEY) or {}
     retry_hashes = collect_retry_rename_hashes(records)
     is_archived = getattr(plugin, "is_rename_archived", None)
     if not callable(is_archived):
@@ -167,7 +168,7 @@ def _add_torrent_file_candidates(candidates: list, seen: set, plugin, torrent_ha
 def _add_rename_record_candidates(candidates: list, seen: set, plugin, torrent_hash: str) -> None:
     """从重命名历史中添加原始名候选。"""
     try:
-        records = plugin.get_data("rename_records") or {}
+        records = plugin.get_data(RENAME_RECORDS_KEY) or {}
     except Exception:
         return
     record = records.get(str(torrent_hash or ""))
@@ -330,7 +331,7 @@ def _find_iyuu_source_hash_from_files(plugin, torrent_hash: str) -> str:
     if not data_dir.exists() or not data_dir.is_dir():
         return ""
     for path in data_dir.glob("iyuu_*"):
-        if path.name.startswith("iyuu_source_") or not path.is_file():
+        if path.name.startswith(IYUU_SOURCE_KEY_PREFIX) or not path.is_file():
             continue
         source_hash = path.stem.replace("iyuu_", "", 1)
         if not source_hash or source_hash == path.stem:
@@ -353,7 +354,7 @@ def _find_iyuu_source_hash(plugin, torrent_hash: str) -> str:
     if not hash_text:
         return ""
     try:
-        source_hash = plugin.get_data(f"iyuu_source_{hash_text}")
+        source_hash = plugin.get_data(iyuu_source_key(hash_text))
         if source_hash:
             return str(source_hash)
     except Exception:
@@ -587,7 +588,7 @@ def retry_rename_by_hash(plugin, to_service, torrent_hash: str):
 
 def rename_iyuu_torrent_by_source_record(plugin, dl, dl_type, torrent_hash, torrent_name, source_hash):
     """IYUU 铺种复用母种重命名前缀"""
-    records = plugin.get_data("rename_records") or {}
+    records = plugin.get_data(RENAME_RECORDS_KEY) or {}
     source_record = records.get(source_hash)
     if not source_record or not source_record.get("success"):
         return None

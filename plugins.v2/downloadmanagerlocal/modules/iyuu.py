@@ -20,6 +20,7 @@ from app.schemas.types import SystemConfigKey
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
+from ..model.state import iyuu_history_key, iyuu_source_key
 from ..utils.sensitive import mask_sensitive_url
 
 
@@ -678,7 +679,7 @@ def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_p
 def iyuu_save_history(plugin, current_hash: str, downloader: str, success_torrents: list):
     """保存 IYUU 辅种历史"""
     try:
-        seed_history = plugin.get_data(key=f"iyuu_{current_hash}") or []
+        seed_history = plugin.get_data(key=iyuu_history_key(current_hash)) or []
         new_history = True
         for history in seed_history:
             if history and isinstance(history, dict) and str(history.get("downloader")) == downloader:
@@ -687,10 +688,10 @@ def iyuu_save_history(plugin, current_hash: str, downloader: str, success_torren
                 break
         if new_history:
             seed_history.append({"downloader": downloader, "torrents": list(set(success_torrents))})
-        plugin.save_data(key=f"iyuu_{current_hash}", value=seed_history)
+        plugin.save_data(key=iyuu_history_key(current_hash), value=seed_history)
         for seed_hash in success_torrents:
             if seed_hash:
-                plugin.save_data(key=f"iyuu_source_{seed_hash}", value=current_hash)
+                plugin.save_data(key=iyuu_source_key(seed_hash), value=current_hash)
     except Exception as e:
         logger.error(f"IYUU辅种：保存历史失败：{e}")
 

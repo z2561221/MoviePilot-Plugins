@@ -4,6 +4,12 @@ from app.db.site_oper import SiteOper
 from app.helper.downloader import DownloaderHelper
 from app.log import logger
 
+from ..model.state import (
+    IYUU_CLEAR_CACHE_KEY,
+    IYUU_ERROR_CACHES_KEY,
+    IYUU_PERMANENT_ERROR_CACHES_KEY,
+    IYUU_SUCCESS_CACHES_KEY,
+)
 from ..utils.config import safe_int
 
 
@@ -89,22 +95,22 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
     plugin._iyuu_auto_category = config.get("iyuu_auto_category", False)
     plugin._iyuu_labelsafterseed = config.get("iyuu_labelsafterseed") or "已整理,辅种"
     plugin._iyuu_categoryafterseed = config.get("iyuu_categoryafterseed", "")
-    plugin._iyuu_clearcache = config.get("iyuu_clearcache", False)
+    plugin._iyuu_clearcache = config.get(IYUU_CLEAR_CACHE_KEY, False)
     plugin._iyuu_permanent_error_caches = (
-        [] if plugin._iyuu_clearcache else list(config.get("iyuu_permanent_error_caches") or [])
+        [] if plugin._iyuu_clearcache else list(config.get(IYUU_PERMANENT_ERROR_CACHES_KEY) or [])
     )
     plugin._iyuu_error_caches = (
-        [] if plugin._iyuu_clearcache else list(config.get("iyuu_error_caches") or [])
+        [] if plugin._iyuu_clearcache else list(config.get(IYUU_ERROR_CACHES_KEY) or [])
     )
     plugin._iyuu_success_caches = (
-        [] if plugin._iyuu_clearcache else list(config.get("iyuu_success_caches") or [])
+        [] if plugin._iyuu_clearcache else list(config.get(IYUU_SUCCESS_CACHES_KEY) or [])
     )
     if plugin._iyuu_clearcache:
-        config["iyuu_permanent_error_caches"] = []
-        config["iyuu_error_caches"] = []
-        config["iyuu_success_caches"] = []
+        config[IYUU_PERMANENT_ERROR_CACHES_KEY] = []
+        config[IYUU_ERROR_CACHES_KEY] = []
+        config[IYUU_SUCCESS_CACHES_KEY] = []
         plugin._iyuu_clearcache = False
-        config["iyuu_clearcache"] = False
+        config[IYUU_CLEAR_CACHE_KEY] = False
         plugin.update_config(config=config)
         logger.info("IYUU辅种：已清除所有辅种缓存")
     plugin._trim_seed_cache(plugin._iyuu_permanent_error_caches)

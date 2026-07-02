@@ -5,6 +5,8 @@ from datetime import datetime
 from app.helper.downloader import DownloaderHelper
 from app.log import logger
 
+from ..model.state import RENAME_RECORDS_KEY, RENAME_RETRY_STATE_KEY
+
 
 def api_retry_renames(plugin):
     """Manually run rename retry for failed history and dirty current torrent names."""
@@ -110,8 +112,8 @@ def api_sites(plugin):
 
 def api_rename_history(plugin, page: int = 1, page_size: int = 15):
     """返回重命名历史记录（支持分页）"""
-    records = plugin.get_data("rename_records") or {}
-    retry_state = plugin.get_data("rename_retry_state") or {}
+    records = plugin.get_data(RENAME_RECORDS_KEY) or {}
+    retry_state = plugin.get_data(RENAME_RETRY_STATE_KEY) or {}
     archived_hashes = {
         record_hash
         for record_hash, state in retry_state.items()
@@ -141,10 +143,10 @@ def api_rename_history(plugin, page: int = 1, page_size: int = 15):
 
 def api_delete_rename_history(plugin, hash: str = ""):
     """删除指定 hash 的重命名记录"""
-    records = plugin.get_data("rename_records") or {}
+    records = plugin.get_data(RENAME_RECORDS_KEY) or {}
     if hash in records:
         del records[hash]
-        plugin.save_data("rename_records", records)
+        plugin.save_data(RENAME_RECORDS_KEY, records)
         return {"code": 0, "msg": "已删除"}
     return {"code": 1, "msg": "记录不存在"}
 
@@ -168,7 +170,7 @@ def api_recovery_torrent(plugin, hash: str = ""):
     """恢复种子原始名称"""
     if not hash:
         return {"code": 1, "msg": "缺少 hash 参数"}
-    records = plugin.get_data("rename_records") or {}
+    records = plugin.get_data(RENAME_RECORDS_KEY) or {}
     record = records.get(hash)
     if not record or not record.get("success"):
         return {"code": 1, "msg": "未找到成功的重命名记录"}
@@ -195,7 +197,7 @@ def api_recovery_torrent(plugin, hash: str = ""):
         record["success"] = True
         record["time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         records[hash] = record
-        plugin.save_data("rename_records", records)
+        plugin.save_data(RENAME_RECORDS_KEY, records)
         logger.info(f"种子恢复成功: {hash} → {original_name}")
         return {"code": 0, "msg": f"已恢复为: {original_name}"}
     except Exception as e:

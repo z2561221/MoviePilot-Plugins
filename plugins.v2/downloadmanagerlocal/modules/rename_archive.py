@@ -6,8 +6,9 @@ from datetime import datetime
 
 from app.log import logger
 
+from ..model.state import RENAME_RETRY_STATE_KEY
 
-RETRY_STATE_KEY = "rename_retry_state"
+RETRY_STATE_KEY = RENAME_RETRY_STATE_KEY
 DEFAULT_ARCHIVE_THRESHOLD = 3
 
 FAILURE_CATEGORY_LABELS = {

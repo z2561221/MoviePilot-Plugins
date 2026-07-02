@@ -25,6 +25,7 @@ from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
 from app.schemas import NotificationType, ServiceInfo
 from app.schemas.types import MediaType, SystemConfigKey, EventType
 
+from .model.state import SEED_RECHECK_QUEUE_KEY
 from .utils.config import safe_int, is_plugin_active, is_transfer_active
 from .utils.tracker import parse_tracker_mappings
 from .utils.path import convert_save_path
@@ -148,7 +149,7 @@ class DownloadManagerLocal(_PluginBase):
     _is_recheck_running = False
     _seed_recheck_running = False
     _seed_recheck_lock = threading.RLock()
-    _seed_recheck_queue_key = "seed_recheck_queue"
+    _seed_recheck_queue_key = SEED_RECHECK_QUEUE_KEY
 
     # 任务标签
     _torrent_tags = []
