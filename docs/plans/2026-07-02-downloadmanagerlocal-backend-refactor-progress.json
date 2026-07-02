@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-02-downloadmanagerlocal-backend-refactor-phased-plan.md",
   "status": {
     "phase": "phase-5",
-    "task": "5.1",
-    "next_allowed_action": "Begin Phase 5 task 5.1 by running full backend regression after syncing completed Phase 4 commits online"
+    "task": "5.2",
+    "next_allowed_action": "Begin Phase 5 task 5.2 by updating backend context and residual risk"
   },
   "execution_rules": {
     "working_directory": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -443,8 +443,25 @@
         {
           "id": "5.1",
           "title": "Run full backend regression",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <all tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "exit 0; 50 passed in 1.27s"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            }
+          ],
           "commit": null
         },
         {
@@ -605,6 +622,16 @@
         "pytest --confcutdir=tests/static all DownloadManagerLocal static tests: 50 passed",
         "no-UI gate output empty",
         "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "5.1",
+      "summary": "Ran final backend regression across compileall, all DownloadManagerLocal static tests, whitespace diff checks, and forbidden UI path diff checks.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static all DownloadManagerLocal static tests: 50 passed",
+        "git diff --check exited 0",
+        "no-UI gate output empty"
       ]
     }
   ]
