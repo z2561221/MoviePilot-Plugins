@@ -2,3 +2,4 @@
 
 from ..modules.diagnostics import build_diagnostics
 
+__all__ = ("build_diagnostics",)
