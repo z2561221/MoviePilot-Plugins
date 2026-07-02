@@ -133,6 +133,34 @@ class ConfigFrontendContractTest(unittest.TestCase):
 
         self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
 
+    def test_overview_and_rank_header_visual_contract(self):
+        config_text = CONFIG_VUE.read_text(encoding="utf-8")
+        dashboard_text = DASHBOARD_VUE.read_text(encoding="utf-8")
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+
+        overview_start = config_text.find('<span>运行链路</span>')
+        self.assertGreaterEqual(overview_start, 0)
+        overview_end = config_text.find('<div class="dc-flow">', overview_start)
+        self.assertGreater(overview_end, overview_start)
+        overview_header = config_text[overview_start:overview_end]
+        self.assertNotIn('icon="mdi-refresh"', overview_header)
+        self.assertNotIn('@click="loadOverview"', overview_header)
+
+        warm_icon_colors = [
+            "#f97316",
+            "#fb923c",
+            "#f59e0b",
+            "#ef4444",
+            "#ec4899",
+            "#d97706",
+        ]
+        for text in (dashboard_text, page_text):
+            self.assertIn(":style=\"rankIconStyle(", text)
+            for color in warm_icon_colors:
+                self.assertIn(color, text)
+            self.assertNotIn(":color=\"rankColors[rk] || 'primary'\"", text)
+            self.assertNotIn(":color=\"rankColors[key] || 'primary'\"", text)
+
     def test_page_source_keeps_current_detail_layout_contract(self):
         text = PAGE_VUE.read_text(encoding="utf-8")
 

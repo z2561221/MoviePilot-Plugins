@@ -33,6 +33,18 @@ const rankColors = {
   movie_weekly: 'pink',
   bangumi: 'brown',
 }
+const rankIconColors = {
+  coming: '#f97316',
+  tv_real_time: '#fb923c',
+  tv_chinese: '#f59e0b',
+  tv_global: '#ef4444',
+  movie_weekly: '#ec4899',
+  bangumi: '#d97706',
+}
+
+function rankIconStyle(key) {
+  return { color: rankIconColors[key] || '#f97316' }
+}
 
 function queryString(params) {
   return Object.entries(params || {})
@@ -312,7 +324,7 @@ onMounted(load)
       <div v-if="config.dashboard_rank_keys && config.dashboard_rank_keys.length">
         <div class="dc-rank-grid">
           <div v-for="rk in config.dashboard_rank_keys" :key="rk" class="dc-rank-cell">
-            <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :color="rankColors[rk] || 'primary'" class="mr-1" /><span>{{ rankDefs[rk]?.name || rk }}</span></div>
+            <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(rk)" class="mr-1" /><span>{{ rankDefs[rk]?.name || rk }}</span></div>
             <div class="dc-rank-body">
               <div v-for="(item, i) in (rankHistory[rk] || []).slice(0, 5)" :key="i" class="dc-rank-row" :title="item.title" @click="showActionDialog(rk, item)">
                 <VAvatar size="16" class="dc-rank-poster"><VImg v-if="item.poster" :src="item.poster" /><VIcon v-else icon="mdi-filmstrip" size="10" /></VAvatar>

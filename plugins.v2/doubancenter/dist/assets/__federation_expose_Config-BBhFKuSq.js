@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi } from './_plugin-vue_export-helper-D8ETCy53.js';
+import { _ as _export_sfc, g as getPluginApi } from './_plugin-vue_export-helper-BHpYs4LN.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -12,51 +12,50 @@ const _hoisted_5 = { class: "dc-subtabs" };
 const _hoisted_6 = ["onClick"];
 const _hoisted_7 = { class: "dc-pane dc-pane--overview" };
 const _hoisted_8 = { class: "dc-overview-section mb-3" };
-const _hoisted_9 = { class: "dc-section-title d-flex align-center" };
-const _hoisted_10 = { class: "dc-flow" };
-const _hoisted_11 = { class: "dc-flow-label" };
-const _hoisted_12 = { class: "dc-flow-row" };
-const _hoisted_13 = { class: "dc-stat-grid mb-3" };
-const _hoisted_14 = { class: "d-flex align-center ga-2 mb-1" };
-const _hoisted_15 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_16 = { class: "text-subtitle-1 font-weight-bold" };
-const _hoisted_17 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_18 = { class: "dc-overview-grid" };
-const _hoisted_19 = { class: "dc-overview-section" };
+const _hoisted_9 = { class: "dc-flow" };
+const _hoisted_10 = { class: "dc-flow-label" };
+const _hoisted_11 = { class: "dc-flow-row" };
+const _hoisted_12 = { class: "dc-stat-grid mb-3" };
+const _hoisted_13 = { class: "d-flex align-center ga-2 mb-1" };
+const _hoisted_14 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_15 = { class: "text-subtitle-1 font-weight-bold" };
+const _hoisted_16 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_17 = { class: "dc-overview-grid" };
+const _hoisted_18 = { class: "dc-overview-section" };
+const _hoisted_19 = { class: "dc-kv" };
 const _hoisted_20 = { class: "dc-kv" };
 const _hoisted_21 = { class: "dc-kv" };
-const _hoisted_22 = { class: "dc-kv" };
-const _hoisted_23 = { class: "dc-overview-section" };
+const _hoisted_22 = { class: "dc-overview-section" };
+const _hoisted_23 = { class: "dc-kv" };
 const _hoisted_24 = { class: "dc-kv" };
 const _hoisted_25 = { class: "dc-kv" };
-const _hoisted_26 = { class: "dc-kv" };
+const _hoisted_26 = { class: "dc-pane" };
 const _hoisted_27 = { class: "dc-pane" };
-const _hoisted_28 = { class: "dc-pane" };
-const _hoisted_29 = { class: "dc-section-title" };
-const _hoisted_30 = { class: "text-caption font-weight-regular text-medium-emphasis" };
-const _hoisted_31 = { class: "dc-rank-list-1col" };
-const _hoisted_32 = { class: "dc-rank-card-header" };
-const _hoisted_33 = { class: "dc-rank-card-body" };
-const _hoisted_34 = { class: "dc-rank-field" };
-const _hoisted_35 = {
+const _hoisted_28 = { class: "dc-section-title" };
+const _hoisted_29 = { class: "text-caption font-weight-regular text-medium-emphasis" };
+const _hoisted_30 = { class: "dc-rank-list-1col" };
+const _hoisted_31 = { class: "dc-rank-card-header" };
+const _hoisted_32 = { class: "dc-rank-card-body" };
+const _hoisted_33 = { class: "dc-rank-field" };
+const _hoisted_34 = {
   key: 0,
   class: "dc-rank-field"
 };
-const _hoisted_36 = {
+const _hoisted_35 = {
   key: 1,
   class: "dc-rank-field"
 };
-const _hoisted_37 = {
+const _hoisted_36 = {
   key: 2,
   class: "dc-rank-field"
 };
-const _hoisted_38 = {
+const _hoisted_37 = {
   key: 3,
   class: "dc-rank-field"
 };
+const _hoisted_38 = { class: "dc-pane" };
 const _hoisted_39 = { class: "dc-pane" };
 const _hoisted_40 = { class: "dc-pane" };
-const _hoisted_41 = { class: "dc-pane" };
 
 const {computed,onMounted,reactive,ref,watch} = await importShared('vue');
 
@@ -211,8 +210,6 @@ return (_ctx, _cache) => {
   const _component_VListItemTitle = _resolveComponent("VListItemTitle");
   const _component_VListItem = _resolveComponent("VListItem");
   const _component_VList = _resolveComponent("VList");
-  const _component_VSpacer = _resolveComponent("VSpacer");
-  const _component_VBtn = _resolveComponent("VBtn");
   const _component_VCol = _resolveComponent("VCol");
   const _component_VCronField = _resolveComponent("VCronField");
   const _component_VRow = _resolveComponent("VRow");
@@ -221,6 +218,8 @@ return (_ctx, _cache) => {
   const _component_VCheckbox = _resolveComponent("VCheckbox");
   const _component_VSelect = _resolveComponent("VSelect");
   const _component_VTextarea = _resolveComponent("VTextarea");
+  const _component_VSpacer = _resolveComponent("VSpacer");
+  const _component_VBtn = _resolveComponent("VBtn");
   const _component_VCardActions = _resolveComponent("VCardActions");
   const _component_VCard = _resolveComponent("VCard");
 
@@ -338,25 +337,17 @@ return (_ctx, _cache) => {
             }, [
               _withDirectives(_createElementVNode("div", _hoisted_7, [
                 _createElementVNode("div", _hoisted_8, [
+                  _cache[21] || (_cache[21] = _createElementVNode("div", { class: "dc-section-title d-flex align-center" }, [
+                    _createElementVNode("span", null, "运行链路")
+                  ], -1)),
                   _createElementVNode("div", _hoisted_9, [
-                    _cache[21] || (_cache[21] = _createElementVNode("span", null, "运行链路", -1)),
-                    _createVNode(_component_VSpacer),
-                    _createVNode(_component_VBtn, {
-                      size: "x-small",
-                      variant: "text",
-                      icon: "mdi-refresh",
-                      loading: loadingOverview.value,
-                      onClick: loadOverview
-                    }, null, 8, ["loading"])
-                  ]),
-                  _createElementVNode("div", _hoisted_10, [
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((overview.value?.flows || []), (flow) => {
                       return (_openBlock(), _createElementBlock("div", {
                         key: flow.label,
                         class: "dc-flow-block"
                       }, [
-                        _createElementVNode("div", _hoisted_11, _toDisplayString(flow.label), 1),
-                        _createElementVNode("div", _hoisted_12, [
+                        _createElementVNode("div", _hoisted_10, _toDisplayString(flow.label), 1),
+                        _createElementVNode("div", _hoisted_11, [
                           (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(flow.steps, (step, idx) => {
                             return (_openBlock(), _createElementBlock(_Fragment, {
                               key: `${flow.label}-${step}`
@@ -376,13 +367,13 @@ return (_ctx, _cache) => {
                     }), 128))
                   ])
                 ]),
-                _createElementVNode("div", _hoisted_13, [
+                _createElementVNode("div", _hoisted_12, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(overviewCards.value, (card) => {
                     return (_openBlock(), _createElementBlock("div", {
                       key: card.title,
                       class: "dc-stat"
                     }, [
-                      _createElementVNode("div", _hoisted_14, [
+                      _createElementVNode("div", _hoisted_13, [
                         _createVNode(_component_VAvatar, {
                           color: card.color,
                           variant: "tonal",
@@ -397,40 +388,40 @@ return (_ctx, _cache) => {
                           ]),
                           _: 2
                         }, 1032, ["color"]),
-                        _createElementVNode("div", _hoisted_15, _toDisplayString(card.title), 1)
+                        _createElementVNode("div", _hoisted_14, _toDisplayString(card.title), 1)
                       ]),
-                      _createElementVNode("div", _hoisted_16, _toDisplayString(card.value), 1),
-                      _createElementVNode("div", _hoisted_17, _toDisplayString(card.desc), 1)
+                      _createElementVNode("div", _hoisted_15, _toDisplayString(card.value), 1),
+                      _createElementVNode("div", _hoisted_16, _toDisplayString(card.desc), 1)
                     ]))
                   }), 128))
                 ]),
-                _createElementVNode("div", _hoisted_18, [
-                  _createElementVNode("div", _hoisted_19, [
+                _createElementVNode("div", _hoisted_17, [
+                  _createElementVNode("div", _hoisted_18, [
                     _cache[25] || (_cache[25] = _createElementVNode("div", { class: "dc-section-title" }, "待关注", -1)),
-                    _createElementVNode("div", _hoisted_20, [
+                    _createElementVNode("div", _hoisted_19, [
                       _cache[22] || (_cache[22] = _createElementVNode("span", null, "观察队列", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.attention?.pending_observations || 0), 1)
                     ]),
-                    _createElementVNode("div", _hoisted_21, [
+                    _createElementVNode("div", _hoisted_20, [
                       _cache[23] || (_cache[23] = _createElementVNode("span", null, "防刷日志", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.attention?.anti_cheat_logs || 0), 1)
                     ]),
-                    _createElementVNode("div", _hoisted_22, [
+                    _createElementVNode("div", _hoisted_21, [
                       _cache[24] || (_cache[24] = _createElementVNode("span", null, "黑名命中", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.attention?.blacklist_hits || 0), 1)
                     ])
                   ]),
-                  _createElementVNode("div", _hoisted_23, [
+                  _createElementVNode("div", _hoisted_22, [
                     _cache[29] || (_cache[29] = _createElementVNode("div", { class: "dc-section-title" }, "治理概况", -1)),
-                    _createElementVNode("div", _hoisted_24, [
+                    _createElementVNode("div", _hoisted_23, [
                       _cache[26] || (_cache[26] = _createElementVNode("span", null, "忽略条目", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.governance?.ignored_observations || 0), 1)
                     ]),
-                    _createElementVNode("div", _hoisted_25, [
+                    _createElementVNode("div", _hoisted_24, [
                       _cache[27] || (_cache[27] = _createElementVNode("span", null, "订阅记录", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.governance?.subscribe_records || 0), 1)
                     ]),
-                    _createElementVNode("div", _hoisted_26, [
+                    _createElementVNode("div", _hoisted_25, [
                       _cache[28] || (_cache[28] = _createElementVNode("span", null, "防刷日志", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.governance?.anti_cheat_logs || 0), 1)
                     ])
@@ -439,7 +430,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'overview']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_27, [
+              _withDirectives(_createElementVNode("div", _hoisted_26, [
                 _cache[30] || (_cache[30] = _createElementVNode("div", { class: "dc-section-title" }, "基础设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -508,10 +499,10 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'basic']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_28, [
-                _createElementVNode("div", _hoisted_29, [
+              _withDirectives(_createElementVNode("div", _hoisted_27, [
+                _createElementVNode("div", _hoisted_28, [
                   _cache[31] || (_cache[31] = _createTextVNode("榜单列表 ", -1)),
-                  _createElementVNode("span", _hoisted_30, "（已启用 " + _toDisplayString(enabledRankCount.value) + "/" + _toDisplayString(rankDefs.length) + "）", 1)
+                  _createElementVNode("span", _hoisted_29, "（已启用 " + _toDisplayString(enabledRankCount.value) + "/" + _toDisplayString(rankDefs.length) + "）", 1)
                 ]),
                 _createVNode(_component_VAlert, {
                   type: "info",
@@ -520,13 +511,13 @@ return (_ctx, _cache) => {
                   class: "mb-3",
                   text: "每个榜单独立控制，条件框之间是且的关系。即将上映保留特殊处理。"
                 }),
-                _createElementVNode("div", _hoisted_31, [
+                _createElementVNode("div", _hoisted_30, [
                   (_openBlock(), _createElementBlock(_Fragment, null, _renderList(rankDefs, (rd) => {
                     return _createElementVNode("div", {
                       key: rd.key,
                       class: _normalizeClass(["dc-rank-card", { 'dc-rank-card--on': form.rank_configs[rd.key]?.enabled }])
                     }, [
-                      _createElementVNode("div", _hoisted_32, [
+                      _createElementVNode("div", _hoisted_31, [
                         _createVNode(_component_VCheckbox, {
                           modelValue: form.rank_configs[rd.key].enabled,
                           "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].enabled) = $event),
@@ -537,8 +528,8 @@ return (_ctx, _cache) => {
                           class: "dc-rank-check"
                         }, null, 8, ["modelValue", "onUpdate:modelValue", "label"])
                       ]),
-                      _createElementVNode("div", _hoisted_33, [
-                        _createElementVNode("div", _hoisted_34, [
+                      _createElementVNode("div", _hoisted_32, [
+                        _createElementVNode("div", _hoisted_33, [
                           _cache[32] || (_cache[32] = _createElementVNode("span", { class: "dc-rank-label" }, "数量", -1)),
                           _createVNode(_component_VTextField, {
                             modelValue: form.rank_configs[rd.key].count,
@@ -553,7 +544,7 @@ return (_ctx, _cache) => {
                           }, null, 8, ["modelValue", "onUpdate:modelValue"])
                         ]),
                         (rd.filters.includes('wish_count'))
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_35, [
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_34, [
                               _cache[33] || (_cache[33] = _createElementVNode("span", { class: "dc-rank-label" }, "想看", -1)),
                               _createVNode(_component_VTextField, {
                                 modelValue: form.rank_configs[rd.key].wish_count,
@@ -568,7 +559,7 @@ return (_ctx, _cache) => {
                             ]))
                           : _createCommentVNode("", true),
                         (rd.filters.includes('air_days'))
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_36, [
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_35, [
                               _cache[34] || (_cache[34] = _createElementVNode("span", { class: "dc-rank-label" }, "窗口", -1)),
                               _createVNode(_component_VTextField, {
                                 modelValue: form.rank_configs[rd.key].air_days,
@@ -583,7 +574,7 @@ return (_ctx, _cache) => {
                             ]))
                           : _createCommentVNode("", true),
                         (rd.filters.includes('vote'))
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_37, [
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_36, [
                               _cache[35] || (_cache[35] = _createElementVNode("span", { class: "dc-rank-label" }, "评分", -1)),
                               _createVNode(_component_VTextField, {
                                 modelValue: form.rank_configs[rd.key].vote,
@@ -601,7 +592,7 @@ return (_ctx, _cache) => {
                             ]))
                           : _createCommentVNode("", true),
                         (rd.filters.includes('year'))
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_38, [
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_37, [
                               _cache[36] || (_cache[36] = _createElementVNode("span", { class: "dc-rank-label" }, "年份", -1)),
                               _createVNode(_component_VTextField, {
                                 modelValue: form.rank_configs[rd.key].year,
@@ -623,7 +614,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'list']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_39, [
+              _withDirectives(_createElementVNode("div", _hoisted_38, [
                 _cache[37] || (_cache[37] = _createElementVNode("div", { class: "dc-section-title" }, "观察设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -698,7 +689,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'filter']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_40, [
+              _withDirectives(_createElementVNode("div", _hoisted_39, [
                 _cache[38] || (_cache[38] = _createElementVNode("div", { class: "dc-section-title" }, "同步设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -832,7 +823,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'sync']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_41, [
+              _withDirectives(_createElementVNode("div", _hoisted_40, [
                 _cache[39] || (_cache[39] = _createElementVNode("div", { class: "dc-section-title" }, "仪表盘选择", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
@@ -996,6 +987,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-faf3830b"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-58d736f6"]]);
 
 export { Config as default };

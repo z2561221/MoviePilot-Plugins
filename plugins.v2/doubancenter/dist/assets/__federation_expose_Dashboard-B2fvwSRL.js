@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-D8ETCy53.js';
+import { _ as _export_sfc, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BHpYs4LN.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
 
 const _hoisted_1 = {
@@ -82,14 +82,18 @@ const rankDefs = {
   movie_weekly: { name: '电影口碑' },
   bangumi: { name: 'BangumiTV' },
 };
-const rankColors = {
-  coming: 'primary',
-  tv_real_time: 'teal',
-  tv_chinese: 'orange-darken-1',
-  tv_global: 'deep-purple',
-  movie_weekly: 'pink',
-  bangumi: 'brown',
+const rankIconColors = {
+  coming: '#f97316',
+  tv_real_time: '#fb923c',
+  tv_chinese: '#f59e0b',
+  tv_global: '#ef4444',
+  movie_weekly: '#ec4899',
+  bangumi: '#d97706',
 };
+
+function rankIconStyle(key) {
+  return { color: rankIconColors[key] || '#f97316' }
+}
 
 function queryString(params) {
   return Object.entries(params || {})
@@ -500,9 +504,9 @@ return (_ctx, _cache) => {
                         _createVNode(_component_VIcon, {
                           icon: "mdi-format-list-numbered",
                           size: "15",
-                          color: rankColors[rk] || 'primary',
+                          style: _normalizeStyle(rankIconStyle(rk)),
                           class: "mr-1"
-                        }, null, 8, ["color"]),
+                        }, null, 8, ["style"]),
                         _createElementVNode("span", null, _toDisplayString(rankDefs[rk]?.name || rk), 1)
                       ]),
                       _createElementVNode("div", _hoisted_14, [
@@ -659,6 +663,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-849b5973"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a22c8ee1"]]);
 
 export { Dashboard as default };

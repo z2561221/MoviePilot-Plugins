@@ -165,8 +165,6 @@ onMounted(loadOverview)
               <div class="dc-overview-section mb-3">
                 <div class="dc-section-title d-flex align-center">
                   <span>运行链路</span>
-                  <VSpacer />
-                  <VBtn size="x-small" variant="text" icon="mdi-refresh" :loading="loadingOverview" @click="loadOverview" />
                 </div>
                 <div class="dc-flow">
                   <div v-for="flow in (overview?.flows || [])" :key="flow.label" class="dc-flow-block">

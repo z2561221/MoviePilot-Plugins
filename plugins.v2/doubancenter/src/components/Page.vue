@@ -43,6 +43,18 @@ const rankNames = {
   bangumi: 'BangumiTV',
   unknown: '未归类',
 }
+const rankIconColors = {
+  coming: '#f97316',
+  tv_real_time: '#fb923c',
+  tv_chinese: '#f59e0b',
+  tv_global: '#ef4444',
+  movie_weekly: '#ec4899',
+  bangumi: '#d97706',
+}
+
+function rankIconStyle(key) {
+  return { color: rankIconColors[key] || '#f97316' }
+}
 
 function queryString(params) {
   return Object.entries(params || {})
@@ -382,7 +394,7 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">榜单快照 <span class="text-caption font-weight-regular text-medium-emphasis">（点击条目订阅或打开来源）</span></div>
           <div class="dc-rank-grid">
             <div v-for="[key, items] in Object.entries(rankHistory)" :key="key" class="dc-rank-card">
-              <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :color="rankColors[key] || 'primary'" class="mr-1" /><span>{{ rankNames[key] || key }}</span></div>
+              <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(key)" class="mr-1" /><span>{{ rankNames[key] || key }}</span></div>
               <template v-if="items && items.length">
                 <div v-for="(item, i) in items.slice(0, 5)" :key="`${key}-${i}`" class="dc-rank-row" title="订阅 / 打开详情" @click="showActionDialog(key, item)">
                   <VAvatar size="20" rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="item.poster" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
