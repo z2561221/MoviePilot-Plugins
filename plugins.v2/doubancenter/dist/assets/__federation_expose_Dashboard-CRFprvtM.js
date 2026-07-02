@@ -84,15 +84,20 @@ const rankDefs = {
 };
 const rankIconColors = {
   coming: '#f97316',
-  tv_real_time: '#fb923c',
-  tv_chinese: '#f59e0b',
+  tv_real_time: '#06b6d4',
+  tv_chinese: '#eab308',
   tv_global: '#ef4444',
   movie_weekly: '#ec4899',
-  bangumi: '#d97706',
+  bangumi: '#8b5cf6',
+  unknown: '#94a3b8',
 };
 
+function rankColorOf(key) {
+  return rankIconColors[key] || rankIconColors.unknown
+}
+
 function rankIconStyle(key) {
-  return { color: rankIconColors[key] || '#f97316' }
+  return { color: rankColorOf(key) }
 }
 
 function queryString(params) {
@@ -663,6 +668,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a22c8ee1"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ddc0ac88"]]);
 
 export { Dashboard as default };

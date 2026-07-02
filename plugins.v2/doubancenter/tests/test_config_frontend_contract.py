@@ -146,20 +146,29 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertNotIn('icon="mdi-refresh"', overview_header)
         self.assertNotIn('@click="loadOverview"', overview_header)
 
-        warm_icon_colors = [
+        bright_rank_colors = [
             "#f97316",
-            "#fb923c",
-            "#f59e0b",
+            "#06b6d4",
+            "#eab308",
             "#ef4444",
             "#ec4899",
-            "#d97706",
+            "#8b5cf6",
         ]
         for text in (dashboard_text, page_text):
             self.assertIn(":style=\"rankIconStyle(", text)
-            for color in warm_icon_colors:
+            for color in bright_rank_colors:
                 self.assertIn(color, text)
+            self.assertNotIn("#fb923c", text)
+            self.assertNotIn("#d97706", text)
             self.assertNotIn(":color=\"rankColors[rk] || 'primary'\"", text)
             self.assertNotIn(":color=\"rankColors[key] || 'primary'\"", text)
+
+        self.assertIn("function rankChipStyle(key)", page_text)
+        self.assertIn(":style=\"rankChipStyle(item.rank_key)\"", page_text)
+        self.assertIn(":style=\"rankChipStyle(log.rank_key)\"", page_text)
+        self.assertIn("class=\"dc-rank-chip mr-1\"", page_text)
+        self.assertNotIn(":color=\"rankColors[item.rank_key] || 'primary'\"", page_text)
+        self.assertNotIn(":color=\"rankColors[log.rank_key] || 'primary'\"", page_text)
 
     def test_page_source_keeps_current_detail_layout_contract(self):
         text = PAGE_VUE.read_text(encoding="utf-8")

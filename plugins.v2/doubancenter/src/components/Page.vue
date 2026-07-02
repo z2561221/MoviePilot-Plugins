@@ -25,15 +25,6 @@ const actionOk = ref(true)
 const dialogItem = ref(null)
 const showDialog = ref(false)
 
-const rankColors = {
-  coming: 'primary',
-  tv_real_time: 'teal',
-  tv_chinese: 'orange-darken-1',
-  tv_global: 'deep-purple',
-  movie_weekly: 'pink',
-  bangumi: 'brown',
-  unknown: 'grey',
-}
 const rankNames = {
   coming: '即将上映',
   tv_real_time: '实时热门',
@@ -45,15 +36,29 @@ const rankNames = {
 }
 const rankIconColors = {
   coming: '#f97316',
-  tv_real_time: '#fb923c',
-  tv_chinese: '#f59e0b',
+  tv_real_time: '#06b6d4',
+  tv_chinese: '#eab308',
   tv_global: '#ef4444',
   movie_weekly: '#ec4899',
-  bangumi: '#d97706',
+  bangumi: '#8b5cf6',
+  unknown: '#94a3b8',
+}
+
+function rankColorOf(key) {
+  return rankIconColors[key] || rankIconColors.unknown
 }
 
 function rankIconStyle(key) {
-  return { color: rankIconColors[key] || '#f97316' }
+  return { color: rankColorOf(key) }
+}
+
+function rankChipStyle(key) {
+  const color = rankColorOf(key)
+  return {
+    color,
+    backgroundColor: `${color}1f`,
+    borderColor: `${color}73`,
+  }
 }
 
 function queryString(params) {
@@ -384,7 +389,7 @@ onMounted(loadAll)
               <div class="dc-stat-label">本月新增</div>
             </div>
             <div v-for="(count, key) in stats.rank_dist" :key="key" class="dc-stat-card">
-              <div class="dc-stat-value" :style="{ color: `rgb(var(--v-theme-${rankColors[key] || 'primary'}))` }">{{ count }}</div>
+              <div class="dc-stat-value" :style="{ color: rankColorOf(key) }">{{ count }}</div>
               <div class="dc-stat-label">{{ rankNames[key] || key }}</div>
             </div>
           </div>
@@ -435,7 +440,7 @@ onMounted(loadAll)
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ item.title }}</div>
                 <div class="dc-history-meta">
-                  <VChip size="x-small" :color="rankColors[item.rank_key] || 'primary'" variant="tonal" class="mr-1">{{ item.rank_name }}</VChip>
+                  <VChip size="x-small" :style="rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name }}</VChip>
                   <span class="text-caption text-medium-emphasis">观察 {{ item.elapsed_days || 0 }} / {{ item.observe_days || 0 }} 天</span>
                 </div>
               </div>
@@ -454,7 +459,7 @@ onMounted(loadAll)
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ item.title }}</div>
                 <div class="dc-history-meta">
-                  <VChip size="x-small" :color="rankColors[item.rank_key] || 'primary'" variant="tonal" class="mr-1">{{ item.rank_name }}</VChip>
+                  <VChip size="x-small" :style="rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name }}</VChip>
                   <span class="text-caption text-medium-emphasis">{{ item.time ? item.time.split(' ')[0] : '' }}</span>
                 </div>
               </div>
@@ -478,7 +483,7 @@ onMounted(loadAll)
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ log.title }}</div>
                 <div class="dc-history-meta">
-                  <VChip size="x-small" :color="rankColors[log.rank_key] || 'primary'" variant="tonal" class="mr-1">{{ log.rank_name || log.rank_key || '观察日志' }}</VChip>
+                  <VChip size="x-small" :style="rankChipStyle(log.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ log.rank_name || log.rank_key || '观察日志' }}</VChip>
                   <span class="text-caption text-medium-emphasis">{{ log.time ? log.time.split(' ')[0] : '' }}</span>
                 </div>
               </div>
@@ -559,6 +564,7 @@ onMounted(loadAll)
 .dc-history-info { min-width: 0; }
 .dc-history-title { font-size: 13px; font-weight: 500; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-history-meta { display: flex; align-items: center; gap: 4px; margin-top: 1px; min-width: 0; overflow: hidden; }
+.dc-rank-chip { border: 1px solid; font-weight: 700; }
 .dc-row-status { max-width: 160px; }
 .dc-row-action { flex: 0 0 auto; }
 .dc-dialog-action { flex: 1 1 0; min-width: 0; height: 36px; }

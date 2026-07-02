@@ -25,25 +25,22 @@ const rankDefs = {
   movie_weekly: { name: '电影口碑' },
   bangumi: { name: 'BangumiTV' },
 }
-const rankColors = {
-  coming: 'primary',
-  tv_real_time: 'teal',
-  tv_chinese: 'orange-darken-1',
-  tv_global: 'deep-purple',
-  movie_weekly: 'pink',
-  bangumi: 'brown',
-}
 const rankIconColors = {
   coming: '#f97316',
-  tv_real_time: '#fb923c',
-  tv_chinese: '#f59e0b',
+  tv_real_time: '#06b6d4',
+  tv_chinese: '#eab308',
   tv_global: '#ef4444',
   movie_weekly: '#ec4899',
-  bangumi: '#d97706',
+  bangumi: '#8b5cf6',
+  unknown: '#94a3b8',
+}
+
+function rankColorOf(key) {
+  return rankIconColors[key] || rankIconColors.unknown
 }
 
 function rankIconStyle(key) {
-  return { color: rankIconColors[key] || '#f97316' }
+  return { color: rankColorOf(key) }
 }
 
 function queryString(params) {

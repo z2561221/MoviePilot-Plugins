@@ -1468,7 +1468,9 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("(log.poster)", log_block_text)
         self.assertIn("src: log.poster", log_block_text)
         self.assertIn('icon: "mdi-filmstrip"', log_block_text)
-        self.assertIn("color:rankColors[log.rank_key]||'primary'", log_block_text.replace(" ", ""))
+        self.assertIn("rankChipStyle(log.rank_key)", log_block_text)
+        self.assertIn('class: "dc-rank-chip mr-1"', log_block_text)
+        self.assertNotIn("color: rankColors[log.rank_key] || 'primary'", log_block_text)
         self.assertIn("_toDisplayString(log.rank_name || log.rank_key || '观察日志')", log_block_text)
         self.assertIn('class: "dc-history-list"', page_js)
         self.assertRegex(

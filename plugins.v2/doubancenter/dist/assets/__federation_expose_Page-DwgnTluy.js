@@ -147,15 +147,6 @@ const actionOk = ref(true);
 const dialogItem = ref(null);
 const showDialog = ref(false);
 
-const rankColors = {
-  coming: 'primary',
-  tv_real_time: 'teal',
-  tv_chinese: 'orange-darken-1',
-  tv_global: 'deep-purple',
-  movie_weekly: 'pink',
-  bangumi: 'brown',
-  unknown: 'grey',
-};
 const rankNames = {
   coming: '即将上映',
   tv_real_time: '实时热门',
@@ -167,15 +158,29 @@ const rankNames = {
 };
 const rankIconColors = {
   coming: '#f97316',
-  tv_real_time: '#fb923c',
-  tv_chinese: '#f59e0b',
+  tv_real_time: '#06b6d4',
+  tv_chinese: '#eab308',
   tv_global: '#ef4444',
   movie_weekly: '#ec4899',
-  bangumi: '#d97706',
+  bangumi: '#8b5cf6',
+  unknown: '#94a3b8',
 };
 
+function rankColorOf(key) {
+  return rankIconColors[key] || rankIconColors.unknown
+}
+
 function rankIconStyle(key) {
-  return { color: rankIconColors[key] || '#f97316' }
+  return { color: rankColorOf(key) }
+}
+
+function rankChipStyle(key) {
+  const color = rankColorOf(key);
+  return {
+    color,
+    backgroundColor: `${color}1f`,
+    borderColor: `${color}73`,
+  }
 }
 
 function queryString(params) {
@@ -652,7 +657,7 @@ return (_ctx, _cache) => {
                             }, [
                               _createElementVNode("div", {
                                 class: "dc-stat-value",
-                                style: _normalizeStyle({ color: `rgb(var(--v-theme-${rankColors[key] || 'primary'}))` })
+                                style: _normalizeStyle({ color: rankColorOf(key) })
                               }, _toDisplayString(count), 5),
                               _createElementVNode("div", _hoisted_16, _toDisplayString(rankNames[key] || key), 1)
                             ]))
@@ -824,15 +829,15 @@ return (_ctx, _cache) => {
                                 _createElementVNode("div", _hoisted_40, [
                                   _createVNode(_component_VChip, {
                                     size: "x-small",
-                                    color: rankColors[item.rank_key] || 'primary',
+                                    style: _normalizeStyle(rankChipStyle(item.rank_key)),
                                     variant: "tonal",
-                                    class: "mr-1"
+                                    class: "dc-rank-chip mr-1"
                                   }, {
                                     default: _withCtx(() => [
                                       _createTextVNode(_toDisplayString(item.rank_name), 1)
                                     ]),
                                     _: 2
-                                  }, 1032, ["color"]),
+                                  }, 1032, ["style"]),
                                   _createElementVNode("span", _hoisted_41, "观察 " + _toDisplayString(item.elapsed_days || 0) + " / " + _toDisplayString(item.observe_days || 0) + " 天", 1)
                                 ])
                               ]),
@@ -896,15 +901,15 @@ return (_ctx, _cache) => {
                                 _createElementVNode("div", _hoisted_49, [
                                   _createVNode(_component_VChip, {
                                     size: "x-small",
-                                    color: rankColors[item.rank_key] || 'primary',
+                                    style: _normalizeStyle(rankChipStyle(item.rank_key)),
                                     variant: "tonal",
-                                    class: "mr-1"
+                                    class: "dc-rank-chip mr-1"
                                   }, {
                                     default: _withCtx(() => [
                                       _createTextVNode(_toDisplayString(item.rank_name), 1)
                                     ]),
                                     _: 2
-                                  }, 1032, ["color"]),
+                                  }, 1032, ["style"]),
                                   _createElementVNode("span", _hoisted_50, _toDisplayString(item.time ? item.time.split(' ')[0] : ''), 1)
                                 ])
                               ]),
@@ -997,15 +1002,15 @@ return (_ctx, _cache) => {
                                 _createElementVNode("div", _hoisted_60, [
                                   _createVNode(_component_VChip, {
                                     size: "x-small",
-                                    color: rankColors[log.rank_key] || 'primary',
+                                    style: _normalizeStyle(rankChipStyle(log.rank_key)),
                                     variant: "tonal",
-                                    class: "mr-1"
+                                    class: "dc-rank-chip mr-1"
                                   }, {
                                     default: _withCtx(() => [
                                       _createTextVNode(_toDisplayString(log.rank_name || log.rank_key || '观察日志'), 1)
                                     ]),
                                     _: 2
-                                  }, 1032, ["color"]),
+                                  }, 1032, ["style"]),
                                   _createElementVNode("span", _hoisted_61, _toDisplayString(log.time ? log.time.split(' ')[0] : ''), 1)
                                 ])
                               ]),
@@ -1146,6 +1151,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b221aaa4"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-74721927"]]);
 
 export { Page as default };
