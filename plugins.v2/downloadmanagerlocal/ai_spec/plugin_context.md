@@ -233,3 +233,51 @@ git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadm
 - `__init__.py` 包装方法删除过早会破坏现有模块对 plugin 对象的调用。
 - IYUU 下载链接和日志脱敏涉及外部站点差异，不能用真实网络调用做单测。
 - 做种校验后台线程需要保持退出事件和锁语义，否则可能导致重复 worker 或无法停止。
+
+## 2026-07-03 后端重构收尾状态
+
+本轮后端重构已完成 Phase 1-5.1，并进入最终上下文记录阶段。当前边界如下：
+
+- `__init__.py`：保留插件身份、运行时字段、生命周期、事件监听、扩展点声明和兼容包装方法；业务入口通过 `controller/` 与 `service/` 委托。
+- `controller/api.py`：集中维护 API route metadata，保持 path/method/auth/summary 不变。
+- `controller/handlers.py`：集中维护 API handler 与响应 shape。
+- `model/state.py`：集中维护持久化 key、IYUU 动态 key helper 和 dict 数据读写 helper；旧 key 名保持不变，不需要迁移。
+- `adapter/moviepilot.py`：集中访问 MoviePilot 下载器、站点、系统配置、HTTP、TorrentHelper、下载历史、随机标签和 URL 域名工具。
+- `service/config.py`、`service/scheduler.py`：分别维护运行时配置初始化和 scheduler service 构造。
+- `service/archive.py`、`service/diagnostics.py`、`service/iyuu.py`、`service/recheck.py`、`service/rename.py`、`service/site_tag.py`、`service/transfer.py`：作为服务 facade，入口层从这些文件导入；当前实现仍兼容委托到 `modules/*`。
+- `service/boundaries.py`：记录服务 owner、legacy module 和保留的跨模块依赖例外。
+
+保留的 legacy 例外：
+
+- `modules/transfer.py -> modules/rename.py`：转移后补刀复用重命名候选解析，留到后续物理迁移时再消除。
+- `modules/rename.py -> modules/site_tag.py`：补刀成功后复用站点标签写入，保留动态导入避免旧模块初始化环。
+
+最终验证命令：
+
+```powershell
+& 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m compileall plugins.v2/downloadmanagerlocal
+```
+
+```powershell
+$tests = Get-ChildItem tests/static -Filter 'test_downloadmanagerlocal_*.py' | ForEach-Object { $_.FullName }
+& 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m pytest --confcutdir=tests/static @tests
+```
+
+```powershell
+git diff --check
+git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml
+```
+
+最新验证结果：
+
+- `compileall`：exit 0。
+- 全量 DownloadManagerLocal static tests：`52 passed`。
+- `git diff --check`：exit 0。
+- no-UI gate：空输出。
+
+残余风险：
+
+- 本轮只做 Win 本地仓库静态/编译验证，尚未同步到 MP 本地仓库安装重载，也未做运行时 API/页面验收。
+- 本轮未改 UI、未改 `dist/`、未改版本元数据、未发布；发布前必须重新跑完整回归并由用户确认 release/merge。
+- `service/*` 目前是 facade，`modules/*` 仍是主要实现层；后续若做物理迁移，需要逐项消除 `service/boundaries.py` 中记录的 legacy 例外。
+- IYUU 外部站点下载链路仍主要靠静态回归和编译保护，未进行真实网络调用测试。
