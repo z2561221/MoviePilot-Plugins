@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-02-downloadmanagerlocal-backend-refactor-phased-plan.md",
   "status": {
     "phase": "phase-5",
-    "task": "5.2",
-    "next_allowed_action": "Begin Phase 5 task 5.2 by updating backend context and residual risk"
+    "task": "5.3",
+    "next_allowed_action": "Stop before release-preparation gate; wait for explicit user request to merge, publish, release, or prepare PR metadata"
   },
   "execution_rules": {
     "working_directory": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -414,7 +414,7 @@
             },
             {
               "command": "python -m pytest --confcutdir=tests/static <all tests/static/test_downloadmanagerlocal_*.py files>",
-              "result": "exit 0; 50 passed in 1.14s"
+              "result": "exit 0; 52 passed in 1.29s"
             },
             {
               "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
@@ -425,14 +425,14 @@
               "result": "exit 0"
             }
           ],
-          "commit": "aa6cf70"
+          "commit": "aa6cf70 + cc93056"
         }
       ]
     },
     {
       "id": "phase-5",
       "goal": "Verify the backend refactor end to end, document residual risk, and prepare metadata only if explicitly requested.",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
         "Backend refactor is verified.",
         "UI paths remain untouched.",
@@ -451,7 +451,7 @@
             },
             {
               "command": "python -m pytest --confcutdir=tests/static <all tests/static/test_downloadmanagerlocal_*.py files>",
-              "result": "exit 0; 50 passed in 1.27s"
+              "result": "exit 0; 52 passed in 1.29s"
             },
             {
               "command": "git diff --check",
@@ -467,21 +467,44 @@
         {
           "id": "5.2",
           "title": "Update backend context and residual risk",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "c317310"
         },
         {
           "id": "5.3",
           "title": "Release-preparation gate, only if explicitly requested",
-          "status": "pending",
-          "verification": [],
+          "status": "skipped",
+          "verification": [
+            {
+              "command": "User confirmation gate",
+              "result": "No explicit merge/publish/release/PR metadata request was given; release metadata and version were left unchanged"
+            }
+          ],
           "commit": null
         }
       ]
     }
   ],
-  "residual_risk": [],
+  "residual_risk": [
+    "This branch has only been verified in the Windows local plugin repository with compile/static tests; it has not yet been synced to the MP local repository for install/reload/runtime API validation.",
+    "No UI, dist assets, version metadata, merge, release, or publish work was performed; those remain behind explicit user confirmation.",
+    "service/* currently acts as a facade over legacy modules/* implementations; physical migration would require a separate cycle and removal of documented legacy exceptions.",
+    "IYUU external site download behavior was not tested against real network/site responses in this backend-only refactor."
+  ],
   "turn_log": [
     {
       "task": "1.1",
@@ -619,7 +642,7 @@
       "evidence": [
         "red test failed as expected before implementation: entrypoint kept known dead refactor imports",
         "compileall exited 0 with bundled Python",
-        "pytest --confcutdir=tests/static all DownloadManagerLocal static tests: 50 passed",
+        "pytest --confcutdir=tests/static all DownloadManagerLocal static tests: 52 passed",
         "no-UI gate output empty",
         "git diff --check exited 0"
       ]
@@ -629,9 +652,27 @@
       "summary": "Ran final backend regression across compileall, all DownloadManagerLocal static tests, whitespace diff checks, and forbidden UI path diff checks.",
       "evidence": [
         "compileall exited 0 with bundled Python",
-        "pytest --confcutdir=tests/static all DownloadManagerLocal static tests: 50 passed",
+        "pytest --confcutdir=tests/static all DownloadManagerLocal static tests: 52 passed",
         "git diff --check exited 0",
         "no-UI gate output empty"
+      ]
+    },
+    {
+      "task": "5.2",
+      "summary": "Updated backend context with the final controller/service/adapter/model boundaries, validation commands, retained legacy exceptions, and residual risks for runtime validation and release gates.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "no-UI gate output empty",
+        "git diff --check exited 0",
+        "context commit c317310 recorded"
+      ]
+    },
+    {
+      "task": "5.3",
+      "summary": "Release-preparation gate was not entered because the user has not explicitly requested merge, publish, release, or PR metadata preparation.",
+      "evidence": [
+        "version metadata unchanged",
+        "no merge, push-after-final, release, or publish action performed"
       ]
     }
   ]
