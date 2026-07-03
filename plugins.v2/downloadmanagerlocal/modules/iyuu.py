@@ -10,16 +10,24 @@ from bencode import bdecode
 from lxml import etree
 
 from app.core.config import settings
-from app.db.systemconfig_oper import SystemConfigOper
-from app.helper.downloader import DownloaderHelper
-from app.helper.sites import SitesHelper
-from app.helper.torrent import TorrentHelper
 from app.log import logger
 from app.schemas import NotificationType, ServiceInfo
-from app.schemas.types import SystemConfigKey
-from app.utils.http import RequestUtils
-from app.utils.string import StringUtils
 
+from ..adapter.moviepilot import (
+    check_site,
+    download_torrent_content,
+    generate_random_tag,
+    get_downloader_service,
+    get_downloader_services,
+    get_plugin_config,
+    get_site_indexer,
+    get_url_domain,
+    is_downloader_type,
+    list_custom_site_dicts,
+    request_get_res,
+    request_post_res,
+)
+from ..model.state import iyuu_history_key, iyuu_source_key
 from ..utils.sensitive import mask_sensitive_url
 
 
@@ -79,7 +87,7 @@ def iyuu_service_infos(plugin) -> Optional[Dict[str, ServiceInfo]]:
     if not plugin._iyuu_downloaders:
         logger.warning("IYUU辅种：尚未配置下载器")
         return None
-    services = DownloaderHelper().get_services(name_filters=plugin._iyuu_downloaders)
+    services = get_downloader_services(name_filters=plugin._iyuu_downloaders)
     if not services:
         logger.warning("IYUU辅种：获取下载器实例失败")
         return None
@@ -96,7 +104,7 @@ def iyuu_auto_service_info(plugin) -> Optional[ServiceInfo]:
     """IYUU 主辅分离下载器"""
     if not plugin._iyuu_auto_downloader:
         return None
-    service = DownloaderHelper().get_service(name=plugin._iyuu_auto_downloader)
+    service = get_downloader_service(plugin._iyuu_auto_downloader)
     if not service or service.instance.is_inactive():
         logger.warning(f"IYUU辅种：主辅分离下载器 {plugin._iyuu_auto_downloader} 不可用")
         return None
@@ -245,7 +253,6 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
     hashs = [item.get("hash") for item in hash_strs]
     save_paths = {item.get("hash"): item.get("save_path") for item in hash_strs}
     save_category = {item.get("hash"): item.get("category") for item in hash_strs}
-    sites_helper = SitesHelper()
     unmanaged_sites = {}
     skipped_sites = {}
 
@@ -292,8 +299,8 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
                 continue
 
             site_url, _ = plugin.iyuu_helper.get_torrent_url(seed.get("sid"))
-            site_domain = StringUtils.get_url_domain(site_url) if site_url else None
-            site_info = sites_helper.get_indexer(site_domain) if site_domain else None
+            site_domain = get_url_domain(site_url) if site_url else None
+            site_info = get_site_indexer(site_domain) if site_domain else None
             if not site_info or not site_info.get('url'):
                 __count(unmanaged_sites, site_url or str(seed.get("sid")))
                 continue
@@ -337,10 +344,9 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         plugin._iyuu_cached += 1
         return False
 
-    site_domain = StringUtils.get_url_domain(site_url)
-    sites_helper = SitesHelper()
+    site_domain = get_url_domain(site_url)
     if not site_info:
-        site_info = sites_helper.get_indexer(site_domain)
+        site_info = get_site_indexer(site_domain)
     if not site_info or not site_info.get('url'):
         return False
     if plugin._iyuu_sites and site_info.get('id') not in plugin._iyuu_sites:
@@ -353,7 +359,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         plugin._iyuu_exist += 1
         return False
 
-    check, checkmsg = sites_helper.check(site_domain)
+    check, checkmsg = check_site(site_domain)
     if check:
         logger.warning(checkmsg)
         plugin._iyuu_fail += 1
@@ -374,9 +380,12 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
     torrent_url = __with_https_param(torrent_url)
     safe_torrent_url = mask_sensitive_url(torrent_url)
 
-    _, content, _, _, error_msg = TorrentHelper().download_torrent(
-        url=torrent_url, cookie=site_info.get("cookie"),
-        ua=site_info.get("ua") or settings.USER_AGENT, proxy=site_info.get("proxy"))
+    _, content, _, _, error_msg = download_torrent_content(
+        url=torrent_url,
+        cookie=site_info.get("cookie"),
+        ua=site_info.get("ua") or settings.USER_AGENT,
+        proxy=site_info.get("proxy"),
+    )
 
     if content and not is_torrent_content(content):
         error_msg = "下载到的内容不是有效 torrent 文件，疑似登录页或错误页"
@@ -393,9 +402,12 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         if fallback_url and fallback_url != torrent_url:
             safe_fallback_url = mask_sensitive_url(fallback_url)
             logger.info(f"IYUU辅种：使用详情页下载链接重试：{safe_fallback_url}")
-            _, content, _, _, fallback_error = TorrentHelper().download_torrent(
-                url=fallback_url, cookie=site_info.get("cookie"),
-                ua=site_info.get("ua") or settings.USER_AGENT, proxy=site_info.get("proxy"))
+            _, content, _, _, fallback_error = download_torrent_content(
+                url=fallback_url,
+                cookie=site_info.get("cookie"),
+                ua=site_info.get("ua") or settings.USER_AGENT,
+                proxy=site_info.get("proxy"),
+            )
             if content and not is_torrent_content(content):
                 fallback_error = "下载到的内容不是有效 torrent 文件，疑似登录页或错误页"
                 content = None
@@ -437,8 +449,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
     dl = service.instance
     dl_type = service.type
 
-    downloader_helper = DownloaderHelper()
-    if downloader_helper.is_downloader("qbittorrent", service=service):
+    if is_downloader_type("qbittorrent", service=service):
         if plugin._seed_skipverify:
             if plugin._seed_autostart:
                 logger.info(f"IYUU辅种：{download_id} 跳过校验，自动开始")
@@ -493,7 +504,7 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
         torrent_tags.append(site_name)
 
     if service.type == "qbittorrent":
-        tag = StringUtils.generate_random_str(10)
+        tag = generate_random_tag(10)
         torrent_tags.append(tag)
 
         def __find_torrent_hash():
@@ -573,14 +584,16 @@ def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_p
             return None
         api_url = re.sub(r'//[^/]+\.m-team', '//api.m-team', site.get('url'))
         ua = site.get("ua") or settings.USER_AGENT
-        res = RequestUtils(
+        res = request_post_res(
+            f"{api_url}api/torrent/genDlToken",
+            params={'id': tid},
             headers={
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'User-Agent': ua,
                 'Accept': 'application/json, text/plain, */*',
                 'x-api-key': apikey
             }
-        ).post_res(f"{api_url}api/torrent/genDlToken", params={'id': tid})
+        )
         if not res:
             logger.warning(f"IYUU辅种：m-team 获取种子下载链接失败：{tid}")
             return None
@@ -604,11 +617,12 @@ def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_p
         try:
             page_url = f"{site.get('url')}details.php?id={seed.get('torrent_id')}&hit=1"
             logger.info(f"IYUU辅种：正在从详情页获取种子下载链接：{page_url}")
-            res = RequestUtils(
+            res = request_get_res(
+                page_url,
                 cookies=site.get("cookie"),
                 ua=site.get("ua") or settings.USER_AGENT,
                 proxies=settings.PROXY if site.get("proxy") else None
-            ).get_res(url=page_url)
+            )
             if res is not None and res.status_code in (200, 500):
                 if "charset=utf-8" in res.text or "charset=UTF-8" in res.text:
                     res.encoding = "UTF-8"
@@ -678,7 +692,7 @@ def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_p
 def iyuu_save_history(plugin, current_hash: str, downloader: str, success_torrents: list):
     """保存 IYUU 辅种历史"""
     try:
-        seed_history = plugin.get_data(key=f"iyuu_{current_hash}") or []
+        seed_history = plugin.get_data(key=iyuu_history_key(current_hash)) or []
         new_history = True
         for history in seed_history:
             if history and isinstance(history, dict) and str(history.get("downloader")) == downloader:
@@ -687,10 +701,10 @@ def iyuu_save_history(plugin, current_hash: str, downloader: str, success_torren
                 break
         if new_history:
             seed_history.append({"downloader": downloader, "torrents": list(set(success_torrents))})
-        plugin.save_data(key=f"iyuu_{current_hash}", value=seed_history)
+        plugin.save_data(key=iyuu_history_key(current_hash), value=seed_history)
         for seed_hash in success_torrents:
             if seed_hash:
-                plugin.save_data(key=f"iyuu_source_{seed_hash}", value=current_hash)
+                plugin.save_data(key=iyuu_source_key(seed_hash), value=current_hash)
     except Exception as e:
         logger.error(f"IYUU辅种：保存历史失败：{e}")
 
@@ -711,7 +725,7 @@ def trim_seed_cache(cache_list: list):
 def custom_sites() -> list:
     """获取自定义站点"""
     try:
-        return [site for site in SystemConfigOper().get(SystemConfigKey.UserSite) or {} if isinstance(site, dict)]
+        return list_custom_site_dicts()
     except Exception:
         return []
 
@@ -719,7 +733,7 @@ def custom_sites() -> list:
 def update_iyuu_config(plugin, config: dict = None):
     """更新 IYUU 辅种缓存到持久化存储（合并模式，不覆盖其他配置）"""
     if config is None:
-        config = SystemConfigOper().get(f"plugin.{plugin.__class__.__name__}") or {}
+        config = get_plugin_config(plugin.__class__.__name__)
     config["iyuu_permanent_error_caches"] = plugin._iyuu_permanent_error_caches
     config["iyuu_error_caches"] = plugin._iyuu_error_caches
     config["iyuu_success_caches"] = plugin._iyuu_success_caches

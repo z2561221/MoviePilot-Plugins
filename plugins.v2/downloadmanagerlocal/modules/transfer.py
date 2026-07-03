@@ -4,7 +4,7 @@ import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -12,14 +12,11 @@ from bencode import bdecode, bencode
 
 from app.core.config import settings
 from app.core.event import eventmanager, Event
-from app.helper.downloader import DownloaderHelper
 from app.log import logger
-from app.modules.qbittorrent import Qbittorrent
-from app.modules.transmission import Transmission
 from app.schemas import NotificationType, ServiceInfo
 from app.schemas.types import EventType
-from app.utils.string import StringUtils
 
+from ..adapter.moviepilot import generate_random_tag, is_downloader_type
 from ..utils.name_cleaner import is_dirty_renamed_torrent_name
 from .rename import _get_torrent_content_name, resolve_retry_original_name
 
@@ -44,9 +41,8 @@ def download_torrent(plugin, service: ServiceInfo, content: bytes,
         return None
     downloader = service.instance
     from_service = plugin.service_info(plugin._fromdownloader)
-    downloader_helper = DownloaderHelper()
-    if downloader_helper.is_downloader("qbittorrent", service=service):
-        tag = StringUtils.generate_random_str(10)
+    if is_downloader_type("qbittorrent", service=service):
+        tag = generate_random_tag(10)
         if plugin._remainoldtag:
             torrent_labels = plugin.get_label(torrent, from_service.type)
             new_tag = list(set(torrent_labels + plugin._torrent_tags + [tag]))
@@ -70,7 +66,7 @@ def download_torrent(plugin, service: ServiceInfo, content: bytes,
                 logger.error(f"{downloader} 下载任务添加成功，但获取任务信息失败！")
                 return None
         return torrent_hash
-    elif downloader_helper.is_downloader("transmission", service=service):
+    elif is_downloader_type("transmission", service=service):
         if plugin._remainoldtag:
             torrent_labels = plugin.get_label(torrent, from_service.type)
             new_tag = list(set(torrent_labels + plugin._torrent_tags))
@@ -139,9 +135,9 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
         return
 
     from_service = plugin.service_info(plugin._fromdownloader)
-    from_downloader: Optional[Union[Qbittorrent, Transmission]] = from_service.instance if from_service else None
+    from_downloader: Optional[Any] = from_service.instance if from_service else None
     to_service = plugin.service_info(plugin._todownloader)
-    to_downloader: Optional[Union[Qbittorrent, Transmission]] = to_service.instance if to_service else None
+    to_downloader: Optional[Any] = to_service.instance if to_service else None
 
     if not from_downloader or not to_downloader:
         return
@@ -219,7 +215,6 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
         skip = 0
         del_dup = 0
 
-        downloader_helper = DownloaderHelper()
         for torrent_item in trans_torrents:
             torrent_file = Path(plugin._fromtorrentpath) / f"{torrent_item.get('hash')}.torrent"
             if not torrent_file.exists():
@@ -246,7 +241,7 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                 fail += 1
                 continue
 
-            if downloader_helper.is_downloader("qbittorrent", service=from_service):
+            if is_downloader_type("qbittorrent", service=from_service):
                 content = torrent_file.read_bytes()
                 if not content:
                     logger.warning(f"读取种子文件失败：{torrent_file}")
@@ -298,7 +293,7 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
 
                 post_transfer_process(plugin, to_service, download_id)
 
-                if downloader_helper.is_downloader("qbittorrent", service=to_service):
+                if is_downloader_type("qbittorrent", service=to_service):
                     if plugin._seed_skipverify:
                         if plugin._seed_autostart:
                             logger.info(f"{download_id} 跳过校验，开启自动开始，注意观察种子的完整性")

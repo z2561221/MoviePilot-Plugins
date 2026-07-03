@@ -2,26 +2,25 @@
 
 from typing import Optional
 
-from app.db.systemconfig_oper import SystemConfigOper
-from app.helper.sites import SitesHelper
 from app.log import logger
-from app.schemas.types import SystemConfigKey
-from app.utils.string import StringUtils
+
+from ..adapter.moviepilot import get_site_indexer, get_url_domain, get_user_sites
 
 
 def find_site_by_domain(domain: str) -> Optional[str]:
     """通过域名从系统站点配置中查找站点名称（优先 SystemConfigOper，fallback SitesHelper）"""
     # 方式1：SystemConfigOper（无需认证，调度器环境可用）
     try:
-        sites = SystemConfigOper().get(SystemConfigKey.UserSite) or {}
+        sites = get_user_sites()
         if sites:
-            for site_info in sites.values():
+            site_values = sites.values() if isinstance(sites, dict) else sites
+            for site_info in site_values:
                 if not isinstance(site_info, dict):
                     continue
                 site_domain = site_info.get("domain", "")
                 if not site_domain:
                     continue
-                site_domain_clean = StringUtils.get_url_domain(site_domain)
+                site_domain_clean = get_url_domain(site_domain)
                 if site_domain_clean and site_domain_clean in domain:
                     return site_info.get("name")
                 if domain in site_domain:
@@ -31,8 +30,7 @@ def find_site_by_domain(domain: str) -> Optional[str]:
 
     # 方式2：SitesHelper（需要用户认证，作为 fallback）
     try:
-        sh = SitesHelper()
-        site_info = sh.get_indexer(domain)
+        site_info = get_site_indexer(domain)
         if site_info:
             return site_info.get("name")
     except Exception:
@@ -53,7 +51,7 @@ def tag_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_tags: list,
                     domain = mapped
                     break
             if not domain:
-                domain = StringUtils.get_url_domain(tracker)
+                domain = get_url_domain(tracker)
             if not domain:
                 continue
             # 从系统配置中查找匹配的站点

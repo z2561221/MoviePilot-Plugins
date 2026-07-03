@@ -15,6 +15,16 @@ def _fake_bdecode(content):
     return {"info": {"name": "Original.Release.S01E01.2026.WEB-DL-GRP"}}
 
 
+def _resolve_retry_original_name(plugin, torrent_hash: str, current_name: str, content_name: str = "") -> str:
+    """为抽取函数测试提供补刀原始名解析桩。"""
+    torrent_dir = str(getattr(plugin, "_fromtorrentpath", "") or "")
+    if torrent_dir:
+        torrent_file = Path(torrent_dir) / f"{torrent_hash}.torrent"
+        if torrent_file.exists():
+            return _fake_bdecode(torrent_file.read_bytes())["info"]["name"]
+    return current_name
+
+
 def _load_retry_dirty_function():
     source = (PLUGIN_DIR / "modules" / "transfer.py").read_text(encoding="utf-8")
     module_ast = ast.parse(source)
@@ -33,6 +43,8 @@ def _load_retry_dirty_function():
         ),
         "is_dirty_renamed_torrent_name": _dirty_name_detector,
         "_get_original_torrent_name": lambda plugin, torrent_hash: "",
+        "_get_torrent_content_name": lambda torrent, dl_type: "",
+        "resolve_retry_original_name": _resolve_retry_original_name,
     }
     exec(compiled, namespace)
     return namespace["retry_dirty_torrent_names"]
@@ -57,6 +69,8 @@ def _load_retry_functions():
         ),
         "is_dirty_renamed_torrent_name": _dirty_name_detector,
         "_get_original_torrent_name": lambda plugin, torrent_hash: "",
+        "_get_torrent_content_name": lambda torrent, dl_type: "",
+        "resolve_retry_original_name": _resolve_retry_original_name,
     }
     exec(compiled, namespace)
     return namespace
@@ -97,6 +111,11 @@ def _load_retry_rename_by_hash_function():
         "Path": Path,
         "bdecode": _fake_bdecode,
         "clean_torrent_original_name": lambda value: str(value or "").strip(),
+        "_get_torrent_content_name": lambda torrent, dl_type: "",
+        "resolve_retry_original_name": _resolve_retry_original_name,
+        "_is_iyuu_seed_tags": lambda plugin, tags: False,
+        "_find_iyuu_source_hash": lambda plugin, torrent_hash: "",
+        "rename_iyuu_torrent_by_source_record": lambda *args, **kwargs: False,
     }
     exec(compiled, namespace)
     return namespace["retry_rename_by_hash"]

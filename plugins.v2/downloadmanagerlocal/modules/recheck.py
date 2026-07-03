@@ -5,13 +5,15 @@ import threading
 
 from app.log import logger
 
+from ..model.state import SEED_RECHECK_QUEUE_KEY
+
 
 def load_seed_recheck_queue(plugin):
-    return plugin.get_data(plugin._seed_recheck_queue_key) or {}
+    return plugin.get_data(SEED_RECHECK_QUEUE_KEY) or {}
 
 
 def save_seed_recheck_queue(plugin, queue):
-    plugin.save_data(plugin._seed_recheck_queue_key, queue)
+    plugin.save_data(SEED_RECHECK_QUEUE_KEY, queue)
 
 
 def register_seed_recheck(plugin, downloader, hashes, source):

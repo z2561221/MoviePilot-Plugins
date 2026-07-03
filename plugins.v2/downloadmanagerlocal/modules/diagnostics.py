@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.log import logger
 
+from ..model.state import RENAME_RECORDS_KEY
 from ..utils.name_cleaner import is_dirty_renamed_torrent_name
 
 
@@ -40,7 +41,7 @@ def _service_status(plugin, name: str) -> dict:
 
 
 def _rename_history_stats(plugin) -> dict:
-    records = plugin.get_data("rename_records") or {}
+    records = plugin.get_data(RENAME_RECORDS_KEY) or {}
     items = list(records.values())
     success_count = sum(1 for item in items if item.get("success"))
     failed_items = [item for item in items if not item.get("success")]
