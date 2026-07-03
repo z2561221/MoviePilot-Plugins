@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
+FRONTEND_COMPONENTS_DIR = PLUGIN_DIR / "frontend" / "src" / "components"
 
 
 class DownloadManagerLocalDiagnosticsTest(unittest.TestCase):
@@ -34,7 +35,7 @@ class DownloadManagerLocalDiagnosticsTest(unittest.TestCase):
         self.assertIn('"checks"', diagnostics_source)
 
     def test_history_page_exposes_diagnostics_tab(self) -> None:
-        page_source = (PLUGIN_DIR / "src" / "components" / "Page.vue").read_text(
+        page_source = (FRONTEND_COMPONENTS_DIR / "Page.vue").read_text(
             encoding="utf-8"
         )
 

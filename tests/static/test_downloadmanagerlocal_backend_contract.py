@@ -7,15 +7,32 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
+FRONTEND_DIR = PLUGIN_DIR / "frontend"
+DIST_ASSETS_DIR = PLUGIN_DIR / "dist" / "assets"
 
 FORBIDDEN_UI_PATHS = [
-    "plugins.v2/downloadmanagerlocal/src",
+    "plugins.v2/downloadmanagerlocal/frontend",
     "plugins.v2/downloadmanagerlocal/dist",
-    "plugins.v2/downloadmanagerlocal/index.html",
-    "plugins.v2/downloadmanagerlocal/vite.config.js",
-    "plugins.v2/downloadmanagerlocal/package.json",
-    "plugins.v2/downloadmanagerlocal/package-lock.json",
-    "plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+]
+
+LEGACY_FRONTEND_PATHS = [
+    PLUGIN_DIR / "src",
+    PLUGIN_DIR / "index.html",
+    PLUGIN_DIR / "vite.config.js",
+    PLUGIN_DIR / "package.json",
+    PLUGIN_DIR / "package-lock.json",
+    PLUGIN_DIR / "pnpm-lock.yaml",
+]
+
+EXPECTED_FRONTEND_FILES = [
+    FRONTEND_DIR / "index.html",
+    FRONTEND_DIR / "vite.config.js",
+    FRONTEND_DIR / "package.json",
+    FRONTEND_DIR / "package-lock.json",
+    FRONTEND_DIR / "pnpm-lock.yaml",
+    FRONTEND_DIR / "src" / "components" / "Config.vue",
+    FRONTEND_DIR / "src" / "components" / "Page.vue",
+    FRONTEND_DIR / "src" / "components" / "api.js",
 ]
 
 EXPECTED_ROUTES = {
@@ -200,19 +217,18 @@ def test_downloadmanagerlocal_entrypoint_drops_migrated_heavy_imports():
     } & imported_names
 
 
-def test_downloadmanagerlocal_backend_refactor_does_not_touch_ui_worktree_paths():
-    assert _git_diff_names() == []
-    assert _git_diff_names("--cached") == []
+def test_downloadmanagerlocal_frontend_sources_use_standard_layout():
+    for path in LEGACY_FRONTEND_PATHS:
+        assert not path.exists()
+
+    for path in EXPECTED_FRONTEND_FILES:
+        assert path.is_file()
 
 
-def test_downloadmanagerlocal_backend_branch_diff_does_not_touch_ui_paths():
-    has_origin_main = subprocess.run(
-        ["git", "rev-parse", "--verify", "origin/main"],
-        cwd=REPO,
-        text=True,
-        capture_output=True,
-    )
-    if has_origin_main.returncode != 0:
-        return
+def test_downloadmanagerlocal_frontend_build_targets_plugin_dist_assets():
+    vite_source = (FRONTEND_DIR / "vite.config.js").read_text(encoding="utf-8")
 
-    assert _git_diff_names("origin/main...HEAD") == []
+    assert "outDir: '../dist'" in vite_source
+    assert "emptyOutDir: true" in vite_source
+    assert "target: 'esnext'" in vite_source
+    assert (DIST_ASSETS_DIR / "remoteEntry.js").is_file()

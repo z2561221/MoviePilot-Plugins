@@ -17,13 +17,13 @@
 
 本轮后端重构不得修改：
 
-- `plugins.v2/downloadmanagerlocal/src/**`
+- `plugins.v2/downloadmanagerlocal/frontend/src/**`
 - `plugins.v2/downloadmanagerlocal/dist/**`
-- `plugins.v2/downloadmanagerlocal/index.html`
-- `plugins.v2/downloadmanagerlocal/vite.config.js`
-- `plugins.v2/downloadmanagerlocal/package.json`
-- `plugins.v2/downloadmanagerlocal/package-lock.json`
-- `plugins.v2/downloadmanagerlocal/pnpm-lock.yaml`
+- `plugins.v2/downloadmanagerlocal/frontend/index.html`
+- `plugins.v2/downloadmanagerlocal/frontend/vite.config.js`
+- `plugins.v2/downloadmanagerlocal/frontend/package.json`
+- `plugins.v2/downloadmanagerlocal/frontend/package-lock.json`
+- `plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml`
 
 如后端改动看起来需要 UI 配合，停止执行并报告决策缺口。
 
@@ -214,7 +214,7 @@ $env:MOVIEPILOT_BACKEND_PATH='D:\AIGC\MoviePilot\tmp\MoviePilot-core-v2'
 no-UI gate：
 
 ```powershell
-git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml
+git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend plugins.v2/downloadmanagerlocal/dist
 ```
 
 该命令必须输出为空。
@@ -265,7 +265,7 @@ $tests = Get-ChildItem tests/static -Filter 'test_downloadmanagerlocal_*.py' | F
 
 ```powershell
 git diff --check
-git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml
+git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend plugins.v2/downloadmanagerlocal/dist
 ```
 
 最新验证结果：
