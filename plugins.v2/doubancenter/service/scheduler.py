@@ -8,7 +8,7 @@ from app.log import logger
 
 
 def get_services(plugin, run_all: Callable[[], None]) -> List[Dict[str, Any]]:
-    """Return scheduled services declared by the plugin."""
+    """返回插件声明的定时服务。"""
     if plugin._enabled and plugin._cron:
         return [
             {
@@ -23,7 +23,7 @@ def get_services(plugin, run_all: Callable[[], None]) -> List[Dict[str, Any]]:
 
 
 def stop_scheduler(plugin) -> None:
-    """Stop plugin-owned scheduler instance if one exists."""
+    """停止插件持有的调度器实例。"""
     try:
         if plugin._scheduler:
             plugin._scheduler.remove_all_jobs()

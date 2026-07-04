@@ -10,7 +10,7 @@ _played_lock = threading.Lock()
 
 
 def handle_sync_log(plugin, event: Event, played: bool = False) -> None:
-    """Handle media playback events and sync them to Douban folio."""
+    """处理媒体播放事件并同步到豆瓣时间。"""
     if not plugin._enabled or not plugin._folio_enabled:
         return
     if not hasattr(plugin, "_sync_lock"):
@@ -32,7 +32,7 @@ def handle_sync_log(plugin, event: Event, played: bool = False) -> None:
 
 
 def handle_sync_played(plugin, event: Event, sync_log: Callable[..., None]) -> None:
-    """Handle explicit played/scrobble events and serialize folio sync."""
+    """处理已播放事件并串行执行豆瓣时间同步。"""
     if not plugin._enabled or not plugin._folio_enabled:
         return
     event_info = event.event_data

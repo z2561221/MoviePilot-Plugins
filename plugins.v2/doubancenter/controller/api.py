@@ -9,7 +9,7 @@ from .. import feed
 
 
 def get_api(plugin) -> List[Dict[str, Any]]:
-    """Return MoviePilot plugin API route declarations."""
+    """返回 MoviePilot 插件 API 路由声明。"""
     return [
         {"path": "/folio_data", "endpoint": plugin.api_folio_data, "methods": ["GET"], "auth": "bear", "summary": "获取豆瓣时间数据"},
         {"path": "/overview", "endpoint": plugin.api_overview, "methods": ["GET"], "auth": "bear", "summary": "获取运行总览"},
@@ -32,11 +32,12 @@ def get_api(plugin) -> List[Dict[str, Any]]:
 
 
 def api_folio_data(plugin):
+    """返回豆瓣时间数据。"""
     return dash.api_folio_data(plugin)
 
 
 def api_overview(plugin):
-    """Return settings page overview data."""
+    """返回配置页运行总览数据。"""
     try:
         return dash.api_overview(plugin)
     except Exception as err:
@@ -45,15 +46,17 @@ def api_overview(plugin):
 
 
 def api_config(plugin):
+    """返回前端配置页所需数据。"""
     return dash.api_config(plugin)
 
 
 def api_rank_history(plugin):
+    """返回仪表盘榜单历史数据。"""
     return dash.api_rank_history(plugin)
 
 
 def api_resolve_media(plugin, media_type=None, title="", year="", tmdb_id=None, bangumi_id=None):
-    """Resolve a rank item to media metadata."""
+    """将榜单条目识别为媒体元数据。"""
     try:
         if not title and not tmdb_id and not bangumi_id:
             return {"success": False, "message": "缺少必要参数"}
@@ -71,7 +74,7 @@ def api_resolve_media(plugin, media_type=None, title="", year="", tmdb_id=None, 
 
 
 def api_subscribe(plugin, tmdb_id=None, media_type=None, title="", year="", bangumi_id=None):
-    """Create a subscription from a rank item."""
+    """根据榜单条目创建媒体订阅。"""
     try:
         if not title and not tmdb_id and not bangumi_id:
             return {"success": False, "message": "缺少必要参数"}
@@ -89,7 +92,7 @@ def api_subscribe(plugin, tmdb_id=None, media_type=None, title="", year="", bang
 
 
 def api_refresh_rss(plugin):
-    """Refresh RSS rank data without creating subscriptions."""
+    """刷新 RSS 榜单数据且不创建订阅。"""
     try:
         logger.info("豆瓣中心：api_refresh_rss 被调用")
         rank_keys = plugin._dashboard_rank_keys or None
@@ -102,7 +105,7 @@ def api_refresh_rss(plugin):
 
 
 def api_stats(plugin):
-    """Return subscription statistics."""
+    """返回订阅统计数据。"""
     try:
         return dash.api_stats(plugin)
     except Exception as err:
@@ -111,7 +114,7 @@ def api_stats(plugin):
 
 
 def api_subscribe_history(plugin, page=1, page_size=20):
-    """Return paged subscription history."""
+    """分页返回订阅历史。"""
     try:
         return dash.api_subscribe_history(plugin, page=int(page), page_size=int(page_size))
     except Exception as err:
@@ -120,7 +123,7 @@ def api_subscribe_history(plugin, page=1, page_size=20):
 
 
 def api_pending_observations(plugin):
-    """Return rank items still in observation window."""
+    """返回仍处于观察期的榜单条目。"""
     try:
         return dash.api_pending_observations(plugin)
     except Exception as err:
@@ -129,7 +132,7 @@ def api_pending_observations(plugin):
 
 
 def api_anti_cheat_logs(plugin):
-    """Return observation logs."""
+    """返回观察日志。"""
     try:
         return dash.api_anti_cheat_logs(plugin)
     except Exception as err:
@@ -138,7 +141,7 @@ def api_anti_cheat_logs(plugin):
 
 
 def api_delete_subscribe_history(plugin, time="", title="", tmdbid=None):
-    """Delete and archive one subscription history item."""
+    """删除并归档一条订阅历史。"""
     try:
         return dash.api_delete_subscribe_history(plugin, time=time, title=title, tmdbid=tmdbid)
     except Exception as err:
@@ -147,7 +150,7 @@ def api_delete_subscribe_history(plugin, time="", title="", tmdbid=None):
 
 
 def api_delete_observation(plugin, unique="", rank_key="", title=""):
-    """Delete and archive one observation queue item."""
+    """删除并归档一条观察队列记录。"""
     try:
         return dash.api_delete_observation(plugin, unique=unique, rank_key=rank_key, title=title)
     except Exception as err:
@@ -156,7 +159,7 @@ def api_delete_observation(plugin, unique="", rank_key="", title=""):
 
 
 def api_delete_anti_cheat_log(plugin, time="", title="", reason=""):
-    """Delete and archive one observation log."""
+    """删除并归档一条观察日志。"""
     try:
         return dash.api_delete_anti_cheat_log(plugin, time=time, title=title, reason=reason)
     except Exception as err:
@@ -165,7 +168,7 @@ def api_delete_anti_cheat_log(plugin, time="", title="", reason=""):
 
 
 def api_archive_records(plugin, page=1, page_size=20):
-    """Return paged archive records."""
+    """分页返回归档记录。"""
     try:
         return dash.api_archive_records(plugin, page=int(page), page_size=int(page_size))
     except Exception as err:
@@ -174,7 +177,7 @@ def api_archive_records(plugin, page=1, page_size=20):
 
 
 def api_restore_archive(plugin, archive_id=""):
-    """Restore one archive record."""
+    """恢复一条归档记录。"""
     try:
         return dash.api_restore_archive(plugin, archive_id=archive_id)
     except Exception as err:
@@ -183,7 +186,7 @@ def api_restore_archive(plugin, archive_id=""):
 
 
 def api_delete_archive(plugin, archive_id=""):
-    """Permanently delete one archive record."""
+    """彻底删除一条归档记录。"""
     try:
         return dash.api_delete_archive(plugin, archive_id=archive_id)
     except Exception as err:

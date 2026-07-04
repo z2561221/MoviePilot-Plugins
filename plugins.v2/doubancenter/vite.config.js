@@ -19,7 +19,7 @@ export default defineConfig({
   plugins: [
     vue(),
     federation({
-      name: 'DoubanCenterV121',
+      name: 'DoubanCenter',
       filename: 'remoteEntry.js',
       exposes: {
         './Config': './src/components/Config.vue',

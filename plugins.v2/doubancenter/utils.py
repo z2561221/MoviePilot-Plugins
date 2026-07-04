@@ -15,6 +15,7 @@ from app.schemas.types import MediaType
 
 
 def parse_wish_count(description: str) -> int:
+    """从描述文本中解析想看人数。"""
     if not description:
         return 0
     match = re.search(r"想看人数[：:]\s*([0-9,]+)", description)
@@ -27,6 +28,7 @@ def parse_wish_count(description: str) -> int:
 
 
 def parse_year(string: str) -> str:
+    """从文本中提取四位年份。"""
     if not string:
         return ""
     match = re.search(r"\b(19|20)\d{2}\b", string)
@@ -36,6 +38,7 @@ def parse_year(string: str) -> str:
 
 
 def parse_regions_and_genres(category: str) -> Tuple[List[str], List[str]]:
+    """从 RSS 分类文本中解析地区与类型。"""
     if not category:
         return [], []
     parts = [p.strip() for p in category.split("/") if p.strip()]
@@ -47,12 +50,14 @@ def parse_regions_and_genres(category: str) -> Tuple[List[str], List[str]]:
 
 
 def match_any_filter(item_values: List[str], selected_values: List[str]) -> bool:
+    """判断条目值是否命中任一已选筛选值。"""
     if not selected_values:
         return True
     return bool(set(item_values) & set(selected_values))
 
 
 def normalize_rss_domain(raw_domain: str) -> str:
+    """规范化 RSSHub 域名配置。"""
     domain = (raw_domain or "").strip()
     if not domain:
         return "https://rsshub.app"
@@ -65,6 +70,7 @@ def normalize_rss_domain(raw_domain: str) -> str:
 
 
 def build_resolution_rule(resolution_filters: List[str]) -> Optional[str]:
+    """根据分辨率筛选项生成匹配规则。"""
     if not resolution_filters:
         return None
     if len(resolution_filters) == 1:
@@ -73,6 +79,7 @@ def build_resolution_rule(resolution_filters: List[str]) -> Optional[str]:
 
 
 def get_tmdb_air_date(chain, tmdb_id: Optional[int], season: Optional[int] = None) -> Optional[str]:
+    """查询 TMDB 剧集或媒体播出日期。"""
     if not tmdb_id:
         return None
     try:
@@ -96,6 +103,7 @@ def get_tmdb_air_date(chain, tmdb_id: Optional[int], season: Optional[int] = Non
 
 
 def is_within_days(date_str: str, days: int) -> bool:
+    """判断日期是否位于未来指定天数内。"""
     try:
         target = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
         today = datetime.datetime.now(pytz.timezone(settings.TZ)).date()
@@ -105,6 +113,7 @@ def is_within_days(date_str: str, days: int) -> bool:
 
 
 def build_douban_dispatch_link(link: str) -> str:
+    """将豆瓣网页链接转换为豆瓣 App dispatch 链接。"""
     if not link:
         return ""
     match = re.search(r"/subject/(\d+)/?", link)
@@ -114,6 +123,7 @@ def build_douban_dispatch_link(link: str) -> str:
 
 
 def exclude_keyword(path: str, keywords: str) -> Dict[str, Any]:
+    """按路径排除关键词判断媒体是否允许同步。"""
     if not keywords:
         return {"ret": True, "message": "空关键词"}
     if not path:
@@ -126,10 +136,12 @@ def exclude_keyword(path: str, keywords: str) -> Dict[str, Any]:
 
 
 def format_title(title: str, season_id: int) -> str:
+    """按季号格式化剧集标题。"""
     return f"{title} 第{season_id}季" if season_id > 1 else title
 
 
 def is_mobile(user_agent):
+    """根据 User-Agent 判断是否为移动端访问。"""
     for kw in ['Mobile', 'Android', 'Silk/', 'Kindle', 'BlackBerry', 'Opera Mini', 'Opera Mobi', 'iPhone', 'iPad']:
         if re.search(kw, user_agent, re.IGNORECASE):
             return True

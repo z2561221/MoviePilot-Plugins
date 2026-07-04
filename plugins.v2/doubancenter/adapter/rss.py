@@ -13,7 +13,7 @@ from .. import utils
 
 
 def default_media_type(addr: str) -> str:
-    """Infer default media type from RSS address."""
+    """根据 RSS 地址推断默认媒体类型。"""
     text = str(addr or "").lower()
     if "movie_" in text or "/movie" in text:
         return "movie"
@@ -29,7 +29,7 @@ def _get_response(plugin, addr: str):
 
 
 def fetch_coming(plugin, addr: str) -> List[dict]:
-    """Fetch and parse Douban coming RSS items."""
+    """拉取并解析豆瓣即将上映 RSS 条目。"""
     try:
         ret = _get_response(plugin, addr)
         if not ret:
@@ -63,7 +63,7 @@ def fetch_coming(plugin, addr: str) -> List[dict]:
 
 
 def fetch_rank(plugin, addr: str) -> List[dict]:
-    """Fetch and parse generic rank RSS items."""
+    """拉取并解析通用榜单 RSS 条目。"""
     try:
         ret = _get_response(plugin, addr)
         if not ret:

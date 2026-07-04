@@ -776,8 +776,10 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         finally:
             self.feed.logger = original_logger
 
-        self.assertTrue(any("筛选条件" in message and "评分>=9.0" in message for message in messages))
-        self.assertTrue(any("跳过《low score》：评分 7.0 < 9.0" in message for message in messages))
+        summaries = [message for message in messages if "豆瓣中心：[全球口碑] 订阅筛选完成" in message]
+        self.assertEqual(len(summaries), 1)
+        self.assertIn("筛选条件：候选 1 条；评分>=9.0；年份>=2024", summaries[0])
+        self.assertIn("- 跳过《low score》：评分 7.0 < 9.0", summaries[0])
 
     def test_process_general_subscribes_after_dashboard_refresh_history_exists(self):
         plugin = _Plugin()
