@@ -24,6 +24,7 @@ class IyuuHelper(object):
             self.init_config()
 
     def init_config(self):
+        """保留 IYUU 初始化扩展点，当前版本无需额外加载配置。"""
         pass
 
     def ensure_ready(self) -> Tuple[bool, str]:
@@ -72,6 +73,7 @@ class IyuuHelper(object):
             return None, f"请求IYUU失败，未获取到返回信息"
 
     def get_torrent_url(self, sid: str) -> Tuple[Optional[str], Optional[str]]:
+        """根据 IYUU 站点 id 返回站点基础地址和下载页规则。"""
         if not sid:
             return None, None
         if not self._sites:
@@ -149,4 +151,5 @@ class IyuuHelper(object):
 
     @staticmethod
     def get_sha1(json_str: str) -> str:
+        """计算 IYUU 请求签名需要的 SHA1 摘要。"""
         return hashlib.sha1(json_str.encode('utf-8')).hexdigest()

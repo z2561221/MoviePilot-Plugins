@@ -3,9 +3,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import pytest
-
-
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
 ENTRYPOINT = PLUGIN_DIR / "__init__.py"
@@ -148,13 +145,9 @@ def _module_definitions(module_name: str) -> list[str]:
     ]
 
 
-def test_downloadmanagerlocal_standard_completion_baseline_gaps_are_visible():
-    """确认当前标准收尾任务确实有可观测缺口。"""
-    remaining_gaps = {
-        "public_docstrings": _public_docstring_gaps(),
-        "module_business_files": _module_business_files(),
-    }
-    assert any(remaining_gaps.values()), remaining_gaps
+def test_downloadmanagerlocal_public_docstrings_are_complete():
+    """确认插件公有类、函数和方法均具备中文 docstring。"""
+    assert _public_docstring_gaps() == []
 
 
 def test_downloadmanagerlocal_recheck_entrypoint_is_thin():
@@ -198,7 +191,6 @@ def test_downloadmanagerlocal_remaining_modules_are_shims():
     assert _module_definitions("site_tag.py") == []
 
 
-@pytest.mark.xfail(reason="standard completion is implemented by the phased ledger", strict=True)
 def test_downloadmanagerlocal_standard_completion_target_is_reached():
     """最终标准完成态：公有文档、入口瘦身和 modules 边界全部收束。"""
     assert _public_docstring_gaps() == []

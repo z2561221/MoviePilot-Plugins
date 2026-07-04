@@ -9,7 +9,7 @@ from ..model.state import RENAME_RECORDS_KEY, RENAME_RETRY_STATE_KEY
 
 
 def api_retry_renames(plugin):
-    """Manually run rename retry for failed history and dirty current torrent names."""
+    """手动触发失败历史和脏名称种子的批量补刮。"""
     try:
         return plugin._retry_pending_renames()
     except Exception as e:
@@ -18,7 +18,7 @@ def api_retry_renames(plugin):
 
 
 def api_retry_rename(plugin, hash: str = ""):
-    """Manually retry rename/tag for one torrent hash."""
+    """对指定种子 hash 手动重试重命名和站点标签。"""
     try:
         return plugin._retry_rename(hash)
     except Exception as e:
@@ -27,7 +27,7 @@ def api_retry_rename(plugin, hash: str = ""):
 
 
 def api_diagnostics(plugin):
-    """Return a read-only diagnostics summary for the detail page."""
+    """返回详情页使用的只读诊断摘要。"""
     try:
         return plugin._diagnostics()
     except Exception as e:

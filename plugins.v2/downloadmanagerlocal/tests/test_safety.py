@@ -10,12 +10,15 @@ PLUGIN_DIR = Path(__file__).resolve().parents[1]
 
 class _Logger:
     def info(self, *args, **kwargs):
+        """测试桩记录普通日志时不执行任何输出。"""
         pass
 
     def warning(self, *args, **kwargs):
+        """测试桩记录警告日志时不执行任何输出。"""
         pass
 
     def error(self, *args, **kwargs):
+        """测试桩记录错误日志时不执行任何输出。"""
         pass
 
 
@@ -40,7 +43,10 @@ def _prepare_imports():
 
 
 class DownloadManagerSafetyTest(unittest.TestCase):
+    """验证下载中心插件的安全兜底工具行为。"""
+
     def test_state_is_true_for_iyuu_only_mode(self):
+        """仅启用 IYUU 辅种能力时插件应保持启用状态。"""
         _prepare_imports()
         config = importlib.import_module("downloadmanagerlocal.utils.config")
         plugin = types.SimpleNamespace(
@@ -57,6 +63,7 @@ class DownloadManagerSafetyTest(unittest.TestCase):
         self.assertTrue(config.is_plugin_active(plugin))
 
     def test_state_is_false_without_any_active_capability(self):
+        """没有转移或 IYUU 可运行能力时插件应视为未启用。"""
         _prepare_imports()
         config = importlib.import_module("downloadmanagerlocal.utils.config")
         plugin = types.SimpleNamespace(
@@ -73,6 +80,7 @@ class DownloadManagerSafetyTest(unittest.TestCase):
         self.assertFalse(config.is_plugin_active(plugin))
 
     def test_mask_sensitive_url_hides_private_query_values(self):
+        """敏感 URL 参数应被脱敏但普通参数保留。"""
         _prepare_imports()
         sensitive = importlib.import_module("downloadmanagerlocal.utils.sensitive")
         url = "https://pt.example/download.php?id=1&passkey=abc&authkey=def&uid=42&token=xyz"
@@ -87,6 +95,7 @@ class DownloadManagerSafetyTest(unittest.TestCase):
         self.assertIn("passkey=***", masked)
 
     def test_recheck_marks_last_check_update_as_changed(self):
+        """种子复查更新 last_check 后应返回队列已变化。"""
         _prepare_imports()
         recheck = importlib.import_module("downloadmanagerlocal.modules.recheck")
 
@@ -94,8 +103,11 @@ class DownloadManagerSafetyTest(unittest.TestCase):
             type = "qbittorrent"
 
             class instance:
+                """模拟下载器实例提供种子查询接口。"""
+
                 @staticmethod
                 def get_torrents(ids=None):
+                    """返回一条可继续做种的测试种子。"""
                     return ([{"hash": "abc", "state": "stalledUP"}], None)
 
         plugin = types.SimpleNamespace(

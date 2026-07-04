@@ -32,6 +32,7 @@ from .service.lifecycle import initialize_plugin as _initialize_plugin_impl
 from .service.scheduler import build_plugin_services as _build_plugin_services_impl
 
 class DownloadManagerLocal(_PluginBase):
+    """下载中心插件入口，负责声明 MoviePilot 契约并委托 service 层执行。"""
     # 插件名称
     plugin_name = "下载中心"
     # 插件描述
@@ -148,31 +149,31 @@ class DownloadManagerLocal(_PluginBase):
     downloader_helper = None
 
     def init_plugin(self, config: dict = None):
-        return _initialize_plugin_impl(self, config)
+        """根据配置初始化插件运行状态和后台服务。"""; return _initialize_plugin_impl(self, config)
 
     @staticmethod
     def get_hash(torrent, dl_type: str):
-        return get_hash(torrent, dl_type)
+        """从指定下载器种子对象中提取唯一 hash。"""; return get_hash(torrent, dl_type)
 
     @staticmethod
     def get_label(torrent, dl_type: str):
-        return get_label(torrent, dl_type)
+        """从指定下载器种子对象中读取标签列表。"""; return get_label(torrent, dl_type)
 
     @staticmethod
     def get_category(torrent, dl_type: str):
-        return get_category(torrent, dl_type)
+        """从指定下载器种子对象中读取分类。"""; return get_category(torrent, dl_type)
 
     @staticmethod
     def get_save_path(torrent, dl_type: str):
-        return get_save_path(torrent, dl_type)
+        """从指定下载器种子对象中读取保存路径。"""; return get_save_path(torrent, dl_type)
 
     @staticmethod
     def get_torrent_size(torrent, dl_type: str):
-        return get_torrent_size(torrent, dl_type)
+        """从指定下载器种子对象中读取任务体积。"""; return get_torrent_size(torrent, dl_type)
 
     @staticmethod
     def convert_save_path(save_path: str, from_root: str, to_root: str):
-        return convert_save_path(save_path, from_root, to_root)
+        """按源目录和目标目录转换种子保存路径。"""; return convert_save_path(save_path, from_root, to_root)
 
     @staticmethod
     def service_info(name: str) -> Optional[ServiceInfo]:
@@ -195,7 +196,7 @@ class DownloadManagerLocal(_PluginBase):
         return service
 
     def get_state(self):
-        return is_plugin_active(self)
+        """返回插件当前是否具备可运行能力。"""; return is_plugin_active(self)
 
     @property
     def _transfer_active(self) -> bool:
@@ -204,46 +205,46 @@ class DownloadManagerLocal(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        return []
+        """返回插件远程命令声明列表。"""; return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        return _build_api_routes_impl(self)
+        """返回插件 API 路由声明。"""; return _build_api_routes_impl(self)
 
     def api_downloaders(self):
-        return _api_downloaders(self)
+        """返回前端配置可选的下载器列表。"""; return _api_downloaders(self)
 
     def api_sites(self):
-        return _api_sites(self)
+        """返回前端配置可选的站点列表。"""; return _api_sites(self)
 
     def api_rename_history(self, page: int = 1, page_size: int = 15):
-        return _api_rename_history(self, page, page_size)
+        """分页返回重命名历史记录。"""; return _api_rename_history(self, page, page_size)
 
     def api_overview(self):
-        return _api_overview(self)
+        """返回插件详情页总览数据。"""; return _api_overview(self)
 
     def api_delete_rename_history(self, hash: str = ""):
-        return _api_delete_rename_history(self, hash)
+        """删除指定 hash 的重命名历史记录。"""; return _api_delete_rename_history(self, hash)
 
     def api_rename_archive(self, page: int = 1, page_size: int = 15):
-        return _api_rename_archive(self, page, page_size)
+        """分页返回重命名失败归档记录。"""; return _api_rename_archive(self, page, page_size)
 
     def api_restore_rename_archive(self, hash: str = ""):
-        return _api_restore_rename_archive(self, hash)
+        """恢复指定 hash 的重命名归档状态。"""; return _api_restore_rename_archive(self, hash)
 
     def api_delete_rename_archive(self, hash: str = ""):
-        return _api_delete_rename_archive(self, hash)
+        """删除指定 hash 的重命名归档状态。"""; return _api_delete_rename_archive(self, hash)
 
     def api_recovery_torrent(self, hash: str = ""):
-        return _api_recovery_torrent(self, hash)
+        """按历史记录恢复指定种子的原始名称。"""; return _api_recovery_torrent(self, hash)
 
     def api_retry_renames(self):
-        return _api_retry_renames(self)
+        """触发失败和脏名称任务的一键补刮。"""; return _api_retry_renames(self)
 
     def api_retry_rename(self, hash: str = ""):
-        return _api_retry_rename(self, hash)
+        """对指定 hash 的种子执行单条补刮。"""; return _api_retry_rename(self, hash)
 
     def api_diagnostics(self):
-        return _api_diagnostics(self)
+        """返回插件只读诊断信息。"""; return _api_diagnostics(self)
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -253,7 +254,6 @@ class DownloadManagerLocal(_PluginBase):
 
     def _fallback_transfer(self):
         return _fallback_transfer_impl(self)
-
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
@@ -300,7 +300,7 @@ class DownloadManagerLocal(_PluginBase):
         return None
 
     def transfer(self, trigger_source: str = "手动/定时"):
-        return _transfer_impl(self, trigger_source)
+        """按当前配置执行一次转移做种流程。"""; return _transfer_impl(self, trigger_source)
 
     def __add_recheck_torrents(self, service: ServiceInfo, download_id: str, source: str = "未知来源"):
         """追加做种校验任务，记录来源用于日志区分。"""
@@ -376,25 +376,25 @@ class DownloadManagerLocal(_PluginBase):
 
     def record_rename_failure(self, torrent_hash: str, torrent_name: str,
                               category: str = "", reason: str = ""):
-        return _record_rename_failure_impl(self, torrent_hash, torrent_name, category, reason)
+        """记录指定种子的重命名失败归档状态。"""; return _record_rename_failure_impl(self, torrent_hash, torrent_name, category, reason)
 
     def clear_rename_retry_state(self, torrent_hash: str):
-        return _clear_rename_retry_state_impl(self, torrent_hash)
+        """清除指定种子的重命名重试状态。"""; return _clear_rename_retry_state_impl(self, torrent_hash)
 
     def is_rename_archived(self, torrent_hash: str):
-        return _is_rename_archived_impl(self, torrent_hash)
+        """判断指定种子是否已进入重命名归档。"""; return _is_rename_archived_impl(self, torrent_hash)
 
     def list_rename_archive(self, page: int = 1, page_size: int = 15):
-        return _list_rename_archive_impl(self, page, page_size)
+        """分页列出重命名归档记录。"""; return _list_rename_archive_impl(self, page, page_size)
 
     def restore_rename_archive(self, torrent_hash: str):
-        return _restore_rename_archive_impl(self, torrent_hash)
+        """恢复指定种子的重命名归档状态。"""; return _restore_rename_archive_impl(self, torrent_hash)
 
     def delete_rename_archive(self, torrent_hash: str):
-        return _delete_rename_archive_impl(self, torrent_hash)
+        """删除指定种子的重命名归档状态。"""; return _delete_rename_archive_impl(self, torrent_hash)
 
     def rename_archive_stats(self):
-        return _rename_archive_stats_impl(self)
+        """统计当前重命名归档数量和状态。"""; return _rename_archive_stats_impl(self)
 
     # ════════════════════════════════════════════════════════════
     # v2.3.0: 事件驱动转移
@@ -423,7 +423,7 @@ class DownloadManagerLocal(_PluginBase):
         return _iyuu_auto_service_info_impl(self)
 
     def iyuu_auto_seed(self):
-        return _iyuu_auto_seed_impl(self)
+        """按当前 IYUU 配置执行一次自动辅种。"""; return _iyuu_auto_seed_impl(self)
 
     def _iyuu_seed_torrents(self, hash_strs: list, service: ServiceInfo):
         return _iyuu_seed_torrents_impl(self, hash_strs, service)

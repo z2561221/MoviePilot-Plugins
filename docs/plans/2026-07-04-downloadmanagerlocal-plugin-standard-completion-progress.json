@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
     "phase": "phase-4",
-    "task": "4.1",
-    "next_allowed_action": "Run task 4.1; add Chinese docstrings to all public classes, public functions, and public methods"
+    "task": "4.2",
+    "next_allowed_action": "Run task 4.2; add docstrings to changed private helpers and remove dead code/imports"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -373,8 +373,41 @@
         {
           "id": "4.1",
           "title": "Add Chinese docstrings to all public classes, public functions, and public methods",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m pytest --confcutdir=tests/static --runxfail tests/static/test_downloadmanagerlocal_standard_completion.py -k standard_completion_target -q",
+              "result": "red before implementation: 1 failed, 7 deselected; public docstring audit reported 51 gaps"
+            },
+            {
+              "command": "public docstring AST gap scan",
+              "result": "TOTAL=0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py -q",
+              "result": "8 passed"
+            },
+            {
+              "command": "python -m compileall -q plugins.v2/downloadmanagerlocal",
+              "result": "exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "60 passed"
+            },
+            {
+              "command": "__init__.py line count check",
+              "result": "520 lines"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exited 0; PowerShell reported LF-to-CRLF working-copy warnings only"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml",
+              "result": "no output"
+            }
+          ],
           "commit": null
         },
         {
@@ -485,6 +518,11 @@
       "task": "3.3",
       "action": "Moved archive, diagnostics, site-tag, and residual recheck implementations into service modules, converted all remaining modules/*.py files to compatibility shims, and updated boundary inventory.",
       "evidence": "remaining modules red 1 failed then green 1 passed; service boundaries/diagnostics/backend cleanup 9 passed; modules def/class count all 0; standard completion 7 passed/1 xfailed; full static suite 59 passed/1 xfailed; compileall -q exited 0; UI gate no output"
+    },
+    {
+      "task": "4.1",
+      "action": "Added Chinese docstrings to all public classes, public functions, and public methods, then converted the temporary xfail standard target into a normal passing gate while keeping the entrypoint at 520 lines.",
+      "evidence": "docstring red 1 failed with 51 gaps; AST gap scan TOTAL=0; standard completion 8 passed; full static suite 60 passed; compileall -q exited 0; git diff --check exited 0 with LF/CRLF warnings only; UI gate no output"
     }
   ]
 }
