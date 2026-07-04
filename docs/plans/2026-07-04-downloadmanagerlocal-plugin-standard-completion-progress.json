@@ -678,7 +678,7 @@
               "result": "no stale unfinished completion claims remain; only historical-baseline wording appears inside the final completed closure sentence"
             }
           ],
-          "commit": null
+          "commit": "90c1df7"
         }
       ]
     }
