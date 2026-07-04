@@ -154,7 +154,21 @@ onMounted(load)
         </template>
       </VCardItem>
       <VDivider />
-      <VTable density="compact">
+      <div class="history-mobile">
+        <div v-for="(h, i) in pagedHistory" :key="`mobile-${(page - 1) * pageSize + i}`" class="history-mobile-item">
+          <div class="history-mobile-main">
+            <div class="history-mobile-title">{{ h.module_name }}</div>
+            <VChip size="x-small" :color="h.status === 'success' ? 'success' : 'error'" variant="tonal">{{ h.status }}</VChip>
+          </div>
+          <div class="history-mobile-summary">{{ h.summary }}</div>
+          <div class="history-mobile-meta">
+            <span>{{ h.time }}</span>
+            <span>{{ h.duration }}s</span>
+          </div>
+        </div>
+        <div v-if="!pagedHistory.length" class="text-center text-medium-emphasis py-6">暂无运行历史</div>
+      </div>
+      <VTable class="history-table" density="compact">
         <thead><tr><th>时间</th><th>模块</th><th>状态</th><th>摘要</th><th>耗时</th></tr></thead>
         <tbody>
           <tr v-for="(h, i) in pagedHistory" :key="(page - 1) * pageSize + i">
@@ -177,5 +191,16 @@ onMounted(load)
 .module-card { border-radius: 16px; min-height: 245px; height: 100%; }
 .module-desc { font-size: 13px; line-height: 1.55; color: rgba(var(--v-theme-on-surface), .72); min-height: 42px; }
 .module-meta { font-size: 12px; line-height: 1.7; color: rgba(var(--v-theme-on-surface), .68); }
+.history-mobile { display: none; }
 th { font-weight: 700; }
+@media (max-width: 600px) {
+  .history-table { display: none; }
+  .history-mobile { display: block; }
+  .history-mobile-item { padding: 12px 16px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+  .history-mobile-item:last-child { border-bottom: 0; }
+  .history-mobile-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .history-mobile-title { min-width: 0; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+  .history-mobile-summary { margin-top: 6px; font-size: 13px; line-height: 1.5; color: rgba(var(--v-theme-on-surface), .76); overflow-wrap: anywhere; }
+  .history-mobile-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 12px; color: rgba(var(--v-theme-on-surface), .58); }
+}
 </style>

@@ -11,7 +11,16 @@ const _hoisted_4 = { class: "module-desc" };
 const _hoisted_5 = { class: "mt-3" };
 const _hoisted_6 = { class: "d-flex align-center" };
 const _hoisted_7 = { class: "text-caption mx-1" };
-const _hoisted_8 = { key: 0 };
+const _hoisted_8 = { class: "history-mobile" };
+const _hoisted_9 = { class: "history-mobile-main" };
+const _hoisted_10 = { class: "history-mobile-title" };
+const _hoisted_11 = { class: "history-mobile-summary" };
+const _hoisted_12 = { class: "history-mobile-meta" };
+const _hoisted_13 = {
+  key: 0,
+  class: "text-center text-medium-emphasis py-6"
+};
+const _hoisted_14 = { key: 0 };
 
 const {ref,onMounted,computed} = await importShared('vue');
 
@@ -19,22 +28,23 @@ const pageSize = 10;
 
 
 const _sfc_main = {
-  __name: 'Page',
+  __name: 'AppPage',
   props: { api: { type: Object, default: () => ({}) } },
-  emits: ['close'],
-  setup(__props, { emit: __emit }) {
+  setup(__props) {
 
 const props = __props;
-const emit = __emit;
 
 const status = ref(null);
 const history = ref([]);
-const total = ref(0);
 const loadingModule = ref('');
 const result = ref(null);
 const page = ref(1);
-const totalPages = computed(() => Math.max(1, Math.ceil((total.value || 0) / pageSize)));
-const pagedHistory = computed(() => history.value || []);
+const totalPages = computed(() => Math.max(1, Math.ceil((history.value?.length || 0) / pageSize)));
+const pagedHistory = computed(() => {
+  if (!history.value?.length) return []
+  const start = (page.value - 1) * pageSize;
+  return history.value.slice(start, start + pageSize)
+});
 
 const modules = computed(() => [
   {
@@ -84,9 +94,8 @@ const modules = computed(() => [
 async function load() {
   try {
     status.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/status');
-    const hist = await apiGet(props.api, `plugin/LocalToolkit/local_toolkit/history?page=${page.value}&page_size=${pageSize}`);
-    history.value = hist.items || [];
-    total.value = hist.total || 0;
+    history.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/history');
+    page.value = 1;
   } catch (e) {
     result.value = { success: false, message: String(e) };
   }
@@ -104,18 +113,8 @@ async function run(moduleKey) {
   }
 }
 
-function prevPage() {
-  if (page.value > 1) {
-    page.value--;
-    load();
-  }
-}
-function nextPage() {
-  if (page.value < totalPages.value) {
-    page.value++;
-    load();
-  }
-}
+function prevPage() { if (page.value > 1) page.value--; }
+function nextPage() { if (page.value < totalPages.value) page.value++; }
 
 onMounted(load);
 
@@ -174,7 +173,7 @@ return (_ctx, _cache) => {
               size: "small",
               variant: "text",
               icon: "mdi-close",
-              onClick: _cache[0] || (_cache[0] = $event => (emit('close'))),
+              onClick: _cache[0] || (_cache[0] = $event => (_ctx.emit('close'))),
               class: "ml-1"
             })
           ]),
@@ -314,7 +313,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode(_component_VCardSubtitle, null, {
               default: _withCtx(() => [
-                _createTextVNode("每页 10 条，共 " + _toDisplayString(total.value || 0) + " 条记录。", 1)
+                _createTextVNode("每页 10 条，共 " + _toDisplayString(history.value?.length || 0) + " 条记录。", 1)
               ]),
               _: 1
             })
@@ -322,7 +321,40 @@ return (_ctx, _cache) => {
           _: 1
         }),
         _createVNode(_component_VDivider),
-        _createVNode(_component_VTable, { density: "compact" }, {
+        _createElementVNode("div", _hoisted_8, [
+          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(pagedHistory.value, (h, i) => {
+            return (_openBlock(), _createElementBlock("div", {
+              key: `mobile-${(page.value - 1) * pageSize + i}`,
+              class: "history-mobile-item"
+            }, [
+              _createElementVNode("div", _hoisted_9, [
+                _createElementVNode("div", _hoisted_10, _toDisplayString(h.module_name), 1),
+                _createVNode(_component_VChip, {
+                  size: "x-small",
+                  color: h.status === 'success' ? 'success' : 'error',
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(_toDisplayString(h.status), 1)
+                  ]),
+                  _: 2
+                }, 1032, ["color"])
+              ]),
+              _createElementVNode("div", _hoisted_11, _toDisplayString(h.summary), 1),
+              _createElementVNode("div", _hoisted_12, [
+                _createElementVNode("span", null, _toDisplayString(h.time), 1),
+                _createElementVNode("span", null, _toDisplayString(h.duration) + "s", 1)
+              ])
+            ]))
+          }), 128)),
+          (!pagedHistory.value.length)
+            ? (_openBlock(), _createElementBlock("div", _hoisted_13, "暂无运行历史"))
+            : _createCommentVNode("", true)
+        ]),
+        _createVNode(_component_VTable, {
+          class: "history-table",
+          density: "compact"
+        }, {
           default: _withCtx(() => [
             _cache[6] || (_cache[6] = _createElementVNode("thead", null, [
               _createElementVNode("tr", null, [
@@ -357,7 +389,7 @@ return (_ctx, _cache) => {
                 ]))
               }), 128)),
               (!pagedHistory.value.length)
-                ? (_openBlock(), _createElementBlock("tr", _hoisted_8, [...(_cache[5] || (_cache[5] = [
+                ? (_openBlock(), _createElementBlock("tr", _hoisted_14, [...(_cache[5] || (_cache[5] = [
                     _createElementVNode("td", {
                       colspan: "5",
                       class: "text-center text-medium-emphasis py-6"
@@ -376,6 +408,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f352f13e"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1c45696d"]]);
 
-export { Page as default };
+export { AppPage as default };
