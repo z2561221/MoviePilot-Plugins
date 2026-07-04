@@ -598,7 +598,7 @@
               "result": "package_version=3.2.4; plugin_version=3.2.4; history_has_v=True; render_mode=('vue', 'dist/assets')"
             }
           ],
-          "commit": null
+          "commit": "ead4040"
         },
         {
           "id": "6.2",
