@@ -147,7 +147,7 @@ def test_downloadmanagerlocal_api_handlers_keep_compatibility_shim():
     assert "def api_diagnostics(plugin):" in handler_source
 
 
-def test_downloadmanagerlocal_init_plugin_delegates_config_initialization():
+def test_downloadmanagerlocal_init_plugin_delegates_lifecycle_initialization():
     plugin_class = _downloadmanagerlocal_class()
     init_plugin = next(
         node
@@ -160,7 +160,7 @@ def test_downloadmanagerlocal_init_plugin_delegates_config_initialization():
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
 
-    assert "_initialize_runtime_config_impl" in called_names
+    assert "_initialize_plugin_impl" in called_names
 
 
 def test_downloadmanagerlocal_get_service_delegates_service_registration():

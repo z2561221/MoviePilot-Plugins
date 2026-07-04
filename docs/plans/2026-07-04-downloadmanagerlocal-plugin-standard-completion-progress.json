@@ -1,9 +1,9 @@
 {
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
-    "phase": "phase-2",
-    "task": "2.3",
-    "next_allowed_action": "Run task 2.3; slim entrypoint imports and compatibility wrappers, verify entrypoint section, and preserve UI invariance"
+    "phase": "phase-3",
+    "task": "3.1",
+    "next_allowed_action": "Run task 3.1; move remaining transfer and rename orchestration into service-owned modules while preserving behavior and UI invariance"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -109,7 +109,7 @@
     {
       "id": "phase-2",
       "goal": "Make __init__.py a plugin contract entrypoint with thin delegation only.",
-      "status": "in_progress",
+      "status": "completed",
       "acceptance": [
         "__init__.py owns plugin contract and thin delegation only.",
         "Runtime API route, service, and event behavior remain compatible."
@@ -185,13 +185,42 @@
               "result": "exited 0; PowerShell reported LF-to-CRLF working-copy warnings only"
             }
           ],
-          "commit": null
+          "commit": "72a5101e2ca32939e6e08743cc5a5cecded06e9d"
         },
         {
           "id": "2.3",
           "title": "Slim entrypoint imports and compatibility wrappers",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py -k entrypoint_size_and_imports",
+              "result": "red before implementation: 1 failed, 4 deselected; __init__.py had 606 lines and direct lifecycle scheduling imports"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py -k entrypoint_size_and_imports",
+              "result": "green after lifecycle extraction: 1 passed, 4 deselected; __init__.py line count 520"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_standard_completion.py",
+              "result": "13 passed, 1 xfailed"
+            },
+            {
+              "command": "python -m compileall -q plugins.v2/downloadmanagerlocal",
+              "result": "exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "56 passed, 1 xfailed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exited 0; PowerShell reported LF-to-CRLF working-copy warnings only"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml",
+              "result": "no output"
+            }
+          ],
           "commit": null
         }
       ]
@@ -199,7 +228,7 @@
     {
       "id": "phase-3",
       "goal": "Finish service/module boundary cleanup so modules are not a second service layer.",
-      "status": "pending",
+      "status": "in_progress",
       "acceptance": [
         "Backend directory shape matches the standard responsibilities.",
         "Legacy compatibility exceptions are documented and tested."
@@ -333,6 +362,11 @@
       "task": "2.2",
       "action": "Moved TransferComplete event filtering, delay calculation, scheduler creation, and date-job registration into service/events while keeping the entrypoint decorator and thin delegate.",
       "evidence": "focused event red 1 failed then green 1 passed; standard completion 3 passed/1 xfailed; full static suite 55 passed/1 xfailed; compileall -q exited 0; UI gate no output"
+    },
+    {
+      "task": "2.3",
+      "action": "Moved init_plugin lifecycle scheduling into service/lifecycle, removed direct lifecycle scheduling imports from the entrypoint, and trimmed unused private compatibility wrappers.",
+      "evidence": "entrypoint size/import red 1 failed then green 1 passed; __init__.py line count 520; backend contract plus standard completion 13 passed/1 xfailed; full static suite 56 passed/1 xfailed; compileall -q exited 0; UI gate no output"
     }
   ]
 }

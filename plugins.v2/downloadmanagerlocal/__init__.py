@@ -2,27 +2,20 @@
 DownloadManagerLocal v3.2.3 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
-from datetime import datetime, timedelta
 from threading import Event as ThreadEvent
 import threading
 from typing import Any, List, Dict, Tuple, Optional
 
-import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
-
-from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.core.meta.metabase import MetaBase
 from app.log import logger
 from app.plugins import _PluginBase
-from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
 from app.schemas import ServiceInfo
 from app.schemas.types import EventType
 
 from .adapter.moviepilot import get_downloader_service
 from .model.state import SEED_RECHECK_QUEUE_KEY
-from .utils.config import safe_int, is_plugin_active, is_transfer_active
-from .utils.tracker import parse_tracker_mappings
+from .utils.config import is_plugin_active, is_transfer_active
 from .utils.path import convert_save_path
 from .utils.torrent_adapter import get_hash, get_label, get_category, get_save_path, get_torrent_size
 from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent, api_retry_renames as _api_retry_renames, api_retry_rename as _api_retry_rename, api_diagnostics as _api_diagnostics, api_overview as _api_overview, api_rename_archive as _api_rename_archive, api_restore_rename_archive as _api_restore_rename_archive, api_delete_rename_archive as _api_delete_rename_archive
@@ -35,7 +28,7 @@ from .service.transfer import validate_config as _validate_config_impl, download
 from .service.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
 from .controller.api import build_api_routes as _build_api_routes_impl
 from .service.events import handle_transfer_complete_event as _handle_transfer_complete_event_impl
-from .service.config import initialize_runtime_config as _initialize_runtime_config_impl
+from .service.lifecycle import initialize_plugin as _initialize_plugin_impl
 from .service.scheduler import build_plugin_services as _build_plugin_services_impl
 
 class DownloadManagerLocal(_PluginBase):
@@ -90,7 +83,6 @@ class DownloadManagerLocal(_PluginBase):
     _seed_skipverify: bool = False
     _seed_check_interval: int = 60
     _seed_max_wait_minutes: int = 120
-
 
     # ── 重命名配置 ──
     _rename_enabled: bool = True
@@ -156,109 +148,31 @@ class DownloadManagerLocal(_PluginBase):
     downloader_helper = None
 
     def init_plugin(self, config: dict = None):
-        config = _initialize_runtime_config_impl(self, config)
-
-        # 停止现有任务
-        self.stop_service()
-
-        # 启动转移做种服务（事件驱动）
-        if self._transfer_active or self._onlyonce:
-            if not self.__validate_config():
-                self._enabled = False
-                self._onlyonce = False
-                config["enabled"] = self._enabled
-                config["onlyonce"] = self._onlyonce
-                self.update_config(config=config)
-                return
-
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
-            if self._onlyonce:
-                logger.info(f"转移做种服务启动，立即运行一次")
-                self._scheduler.add_job(self.transfer, 'date',
-                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3))
-                self._onlyonce = False
-                config["onlyonce"] = self._onlyonce
-                self.update_config(config=config)
-
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                if not self._scheduler.running:
-                    self._scheduler.start()
-
-        # 启动 IYUU 辅种服务（cron 定时）
-        if self._iyuu_enabled and self._iyuu_token and self._iyuu_downloaders:
-            self.iyuu_helper = IyuuHelper(token=self._iyuu_token)
-            if not self._scheduler:
-                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
-            if self._iyuu_onlyonce:
-                logger.info(f"IYUU辅种服务启动，立即运行一次")
-                self._scheduler.add_job(self.iyuu_auto_seed, 'date',
-                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=5))
-                self._iyuu_onlyonce = False
-                config["iyuu_onlyonce"] = self._iyuu_onlyonce
-                self.update_config(config=config)
-
-            if self._scheduler.get_jobs() and not self._scheduler.running:
-                self._scheduler.start()
-
-
-    @staticmethod
-    def __safe_int(value, default, min_value, max_value):
-        return safe_int(value, default, min_value, max_value)
-
-    @staticmethod
-    def _parse_tracker_mappings(mapping_str: str) -> dict:
-        return parse_tracker_mappings(mapping_str)
+        return _initialize_plugin_impl(self, config)
 
     @staticmethod
     def get_hash(torrent, dl_type: str):
         return get_hash(torrent, dl_type)
 
     @staticmethod
-    def __get_hash(torrent, dl_type: str):
-        return DownloadManagerLocal.get_hash(torrent, dl_type)
-
-    @staticmethod
     def get_label(torrent, dl_type: str):
         return get_label(torrent, dl_type)
-
-    @staticmethod
-    def __get_label(torrent, dl_type: str):
-        return DownloadManagerLocal.get_label(torrent, dl_type)
 
     @staticmethod
     def get_category(torrent, dl_type: str):
         return get_category(torrent, dl_type)
 
     @staticmethod
-    def __get_category(torrent, dl_type: str):
-        return DownloadManagerLocal.get_category(torrent, dl_type)
-
-    @staticmethod
     def get_save_path(torrent, dl_type: str):
         return get_save_path(torrent, dl_type)
-
-    @staticmethod
-    def __get_save_path(torrent, dl_type: str):
-        return DownloadManagerLocal.get_save_path(torrent, dl_type)
 
     @staticmethod
     def get_torrent_size(torrent, dl_type: str):
         return get_torrent_size(torrent, dl_type)
 
     @staticmethod
-    def __get_torrent_size(torrent, dl_type: str):
-        return DownloadManagerLocal.get_torrent_size(torrent, dl_type)
-
-    @staticmethod
     def convert_save_path(save_path: str, from_root: str, to_root: str):
         return convert_save_path(save_path, from_root, to_root)
-
-    @staticmethod
-    def __convert_save_path(save_path: str, from_root: str, to_root: str):
-        return DownloadManagerLocal.convert_save_path(save_path, from_root, to_root)
 
     @staticmethod
     def service_info(name: str) -> Optional[ServiceInfo]:

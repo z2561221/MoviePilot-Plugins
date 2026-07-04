@@ -27,6 +27,14 @@ EVENT_ENTRYPOINT_METHODS = {
     "on_transfer_complete",
 }
 
+ENTRYPOINT_FORBIDDEN_IMPORT_SNIPPETS = {
+    "from datetime import datetime, timedelta",
+    "import pytz",
+    "from apscheduler.schedulers.background import BackgroundScheduler",
+    "from app.core.config import settings",
+    "from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper",
+}
+
 
 def _plugin_python_files() -> list[Path]:
     """返回插件包内需要参与标准审计的 Python 文件。"""
@@ -146,6 +154,18 @@ def test_downloadmanagerlocal_recheck_entrypoint_is_thin():
 def test_downloadmanagerlocal_transfer_complete_entrypoint_is_thin():
     """TransferComplete 延迟调度必须由 service 边界持有，入口层只做事件委托。"""
     assert _thin_delegate_gaps(EVENT_ENTRYPOINT_METHODS) == []
+
+
+def test_downloadmanagerlocal_entrypoint_size_and_imports_are_slim():
+    """入口层必须保持插件契约定位，不直接持有生命周期调度依赖。"""
+    source = ENTRYPOINT.read_text(encoding="utf-8")
+    assert len(source.splitlines()) <= 520
+    forbidden_imports = [
+        snippet
+        for snippet in ENTRYPOINT_FORBIDDEN_IMPORT_SNIPPETS
+        if snippet in source
+    ]
+    assert forbidden_imports == []
 
 
 @pytest.mark.xfail(reason="standard completion is implemented by the phased ledger", strict=True)
