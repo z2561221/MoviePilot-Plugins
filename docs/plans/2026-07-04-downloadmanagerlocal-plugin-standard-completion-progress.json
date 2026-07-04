@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
     "phase": "phase-5",
-    "task": "5.1",
-    "next_allowed_action": "Run task 5.1; verify frontend source and federation contract without changing UI source"
+    "task": "5.2",
+    "next_allowed_action": "Run task 5.2; run frontend build and verify remoteEntry asset references without changing UI source"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -468,8 +468,41 @@
         {
           "id": "5.1",
           "title": "Verify frontend source and federation contract",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "Test-Path frontend component files",
+              "result": "Config.vue exists; Page.vue exists; api helper exists at frontend/src/components/api.js; dist/assets/remoteEntry.js exists"
+            },
+            {
+              "command": "Select-String frontend/src for API_TOKEN/settings.API_TOKEN/localStorage/fetch/axios/direct /api/v1/plugin usage",
+              "result": "no output for token/fallback/direct HTTP patterns; components call injected props.api through components/api.js helpers"
+            },
+            {
+              "command": "Select-String frontend/vite.config.js for federation exposes",
+              "result": "exposes include ./Config -> ./src/components/Config.vue and ./Page -> ./src/components/Page.vue; filename remoteEntry.js"
+            },
+            {
+              "command": "Select-String plugins.v2/downloadmanagerlocal/__init__.py for get_render_mode",
+              "result": "get_render_mode returns (\"vue\", \"dist/assets\")"
+            },
+            {
+              "command": "python -m compileall -q plugins.v2/downloadmanagerlocal",
+              "result": "exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "62 passed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exited 0"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml",
+              "result": "no output"
+            }
+          ],
           "commit": null
         },
         {
@@ -565,6 +598,11 @@
       "task": "4.2",
       "action": "Added a private-helper static gate, documented private helpers including service-local nested helpers, and removed the unreachable return left after the download delegate.",
       "evidence": "private helper red 2 failed/1 passed with 66 docstring gaps and 1 unreachable return; private helper green 3 passed; AST scan PRIVATE_TOTAL=0 and UNREACHABLE_TOTAL=0; standard+private 11 passed; full static suite 62 passed; compileall -q exited 0; UI gate no output"
+    },
+    {
+      "task": "5.1",
+      "action": "Verified the Vue federation frontend source contract without editing UI files, including component entry files, injected API helper usage, Vite exposes, and backend render mode.",
+      "evidence": "Config.vue/Page.vue/components/api.js/remoteEntry.js exist; token/fallback/direct HTTP grep produced no output; Vite exposes ./Config and ./Page; get_render_mode returns vue dist/assets; full static suite 62 passed; compileall -q exited 0; UI gate no output"
     }
   ]
 }
