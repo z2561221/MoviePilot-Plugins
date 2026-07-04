@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
     "phase": "phase-1",
-    "task": "1.1",
-    "next_allowed_action": "Run the current task; after verified completion, update evidence, commit, record the hash, and advance automatically"
+    "task": "1.2",
+    "next_allowed_action": "Run task 1.2; update plugin_context with final-standard target, verify, commit, record the hash, and advance automatically"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -42,7 +42,7 @@
     {
       "id": "phase-1",
       "goal": "Prove remaining standard gaps with executable checks before implementation changes.",
-      "status": "pending",
+      "status": "in_progress",
       "acceptance": [
         "Standard gaps are represented by tests or explicit progress evidence.",
         "No UI source path is modified."
@@ -51,8 +51,33 @@
         {
           "id": "1.1",
           "title": "Record baseline and create standard-completion audit tests",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m pytest --confcutdir=tests/static --runxfail tests/static/test_downloadmanagerlocal_standard_completion.py",
+              "result": "expected red: 1 failed, 1 passed; first standard gap plugins.v2/downloadmanagerlocal/__init__.py:157:init_plugin; 63 public docstring gaps"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py",
+              "result": "passed with expected xfail: 1 passed, 1 xfailed"
+            },
+            {
+              "command": "python -m compileall -q plugins.v2/downloadmanagerlocal",
+              "result": "exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "53 passed, 1 xfailed"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml",
+              "result": "no output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exited 0"
+            }
+          ],
           "commit": null
         },
         {
@@ -213,5 +238,11 @@
     }
   ],
   "residual_risk": [],
-  "turn_log": []
+  "turn_log": [
+    {
+      "task": "1.1",
+      "action": "Created standard-completion audit tests and recorded red/green baseline evidence while preserving frontend source invariance.",
+      "evidence": "runxfail red 1 failed/1 passed; normal 1 passed/1 xfailed; expanded static suite 53 passed/1 xfailed; compileall -q exited 0; UI gate no output; diff-check exited 0"
+    }
+  ]
 }
