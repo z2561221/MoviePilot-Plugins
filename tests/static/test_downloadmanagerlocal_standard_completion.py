@@ -137,6 +137,17 @@ def _module_business_files() -> list[str]:
     return sorted(business_files)
 
 
+def _module_definitions(module_name: str) -> list[str]:
+    """列出指定 modules 文件中仍保留的顶层函数或类定义。"""
+    path = PLUGIN_DIR / "modules" / module_name
+    module = _parse(path)
+    return [
+        node.name
+        for node in module.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+
+
 def test_downloadmanagerlocal_standard_completion_baseline_gaps_are_visible():
     """确认当前标准收尾任务确实有可观测缺口。"""
     remaining_gaps = {
@@ -166,6 +177,12 @@ def test_downloadmanagerlocal_entrypoint_size_and_imports_are_slim():
         if snippet in source
     ]
     assert forbidden_imports == []
+
+
+def test_downloadmanagerlocal_transfer_and_rename_modules_are_shims():
+    """transfer/rename legacy modules 只能作为兼容 shim，不再定义业务函数。"""
+    assert _module_definitions("transfer.py") == []
+    assert _module_definitions("rename.py") == []
 
 
 @pytest.mark.xfail(reason="standard completion is implemented by the phased ledger", strict=True)
