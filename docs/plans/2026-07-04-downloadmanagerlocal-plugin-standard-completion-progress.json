@@ -1,9 +1,9 @@
 {
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
-    "phase": "phase-6",
-    "task": "6.3",
-    "next_allowed_action": "Run task 6.3; final completion audit with smoke checks, UI gate, runtime evidence, and progress closure"
+    "phase": "complete",
+    "task": "complete",
+    "next_allowed_action": "Report completion; no push, merge, release, or MoviePilot restart was performed"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -554,7 +554,7 @@
     {
       "id": "phase-6",
       "goal": "Sync to the MP local repository, reinstall/reload, and prove runtime state.",
-      "status": "in_progress",
+      "status": "completed",
       "acceptance": [
         "Win local repository, MP local repository, and running MoviePilot all reflect the completed standard refactor.",
         "No push, merge, release, or restart was performed."
@@ -643,14 +643,50 @@
         {
           "id": "6.3",
           "title": "Final completion audit",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "git status --short --branch",
+              "result": "clean working tree before final context/progress updates; branch worldlinefix/downloadmanagerlocal ahead of origin by 23 commits"
+            },
+            {
+              "command": "python AST scan for final shape",
+              "result": "__init__.py lines=520; modules/*.py top_level_defs=0 for __init__/diagnostics/iyuu/recheck/rename/rename_archive/site_tag/transfer"
+            },
+            {
+              "command": "python -m compileall -q plugins.v2/downloadmanagerlocal",
+              "result": "exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "62 passed in 0.87s"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exited 0"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml",
+              "result": "no output"
+            },
+            {
+              "command": "final runtime API snapshot",
+              "result": "history_http=200; plugin_version=3.2.4; history_has_v3.2.4=true; repo_url=local://DownloadManagerLocal?path=/vol1/1000/docker/moviepilot-v2/config/local%20plugins&version=v2; remote_entry_ok=true; form_render_mode=vue; overview_has_data=true"
+            },
+            {
+              "command": "plugin_context stale marker scan",
+              "result": "no stale unfinished completion claims remain; only historical-baseline wording appears inside the final completed closure sentence"
+            }
+          ],
           "commit": null
         }
       ]
     }
   ],
-  "residual_risk": [],
+  "residual_risk": [
+    "No push to Git online repository, merge to main, or Release publish was performed; those require explicit user confirmation.",
+    "IYUU external tracker/site network paths were not exercised against real production sites; this cycle is covered by static regression, compile checks, service-boundary tests, and MoviePilot runtime API validation."
+  ],
   "turn_log": [
     {
       "task": "1.1",
@@ -721,6 +757,11 @@
       "task": "6.2",
       "action": "Installed DownloadManagerLocal from the MP runtime local repository path, explicitly reloaded it, then validated runtime history, federation remote, Vue form mode, overview API, and reload log health.",
       "evidence": "corrected install repo_url from Windows Z: mapping to /vol1/1000/docker/moviepilot-v2/config/local plugins; install http 200 success=true; reload http 200 success=true; history plugin_version=3.2.4 and v3.2.4 history present; remotes include dist/assets/remoteEntry.js; form render_mode=vue; overview returned data; post-reload related log problem count 0"
+    },
+    {
+      "task": "6.3",
+      "action": "Ran the final completion audit, refreshed plugin_context.md from incomplete historical wording to completed standard state, and limited residual risk to non-requested publish/merge/release plus unexercised real external IYUU site paths.",
+      "evidence": "compileall -q exited 0; full static suite 62 passed; git diff --check exited 0; UI gate no output; runtime snapshot plugin_version=3.2.4, v3.2.4 history present, remoteEntry present, render_mode=vue, overview data present; modules/*.py top-level defs 0; __init__.py 520 lines"
     }
   ]
 }
