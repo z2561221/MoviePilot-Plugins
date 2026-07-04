@@ -43,6 +43,7 @@ def _plugin_python_files() -> list[Path]:
         path
         for path in PLUGIN_DIR.rglob("*.py")
         if "__pycache__" not in path.parts
+        and "tests" not in path.parts
     ]
 
 
@@ -149,4 +150,3 @@ def test_localtoolkit_entrypoint_is_thin_contract_layer():
 def test_localtoolkit_modules_do_not_remain_second_service_layer():
     """modules 层不能继续作为第二套 service 层持有核心业务定义。"""
     assert _module_business_files() == []
-

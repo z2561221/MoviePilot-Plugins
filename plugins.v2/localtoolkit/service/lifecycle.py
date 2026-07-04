@@ -3,7 +3,9 @@
 from app.log import logger
 
 from ..model.config import merge_config
-from ..modules import CheckMissingModule, LibraryCleanupModule, TmdbCacheModule
+from .check_missing import CheckMissingModule
+from .library_cleanup import LibraryCleanupModule
+from .tmdb_cache import TmdbCacheModule
 
 
 def initialize_plugin(plugin, config: dict | None = None) -> None:
@@ -59,4 +61,3 @@ def build_services(plugin) -> list:
 def stop_plugin_service(plugin) -> None:
     """停止工具中心后台服务。"""
     return None
-
