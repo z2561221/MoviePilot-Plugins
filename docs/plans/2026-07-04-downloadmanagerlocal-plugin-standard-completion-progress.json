@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
     "phase": "phase-6",
-    "task": "6.2",
-    "next_allowed_action": "Run task 6.2; install/reload from MP local repository and validate runtime APIs"
+    "task": "6.3",
+    "next_allowed_action": "Run task 6.3; final completion audit with smoke checks, UI gate, runtime evidence, and progress closure"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -603,8 +603,41 @@
         {
           "id": "6.2",
           "title": "Install/reload and runtime API validation",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "GET /api/v1/plugin/install/DownloadManagerLocal?repo_url=local://DownloadManagerLocal?path=Z:/moviepilot-v2/config/local%20plugins&version=v2&force=true",
+              "result": "diagnostic run returned http 200 success=false with message '未找到本地插件：DownloadManagerLocal'; corrected source path to MP runtime path from current history repo_url"
+            },
+            {
+              "command": "GET /api/v1/plugin/install/DownloadManagerLocal?repo_url=local://DownloadManagerLocal?path=/vol1/1000/docker/moviepilot-v2/config/local%20plugins&version=v2&force=true",
+              "result": "http 200; success=true"
+            },
+            {
+              "command": "GET /api/v1/plugin/reload/DownloadManagerLocal",
+              "result": "http 200; success=true"
+            },
+            {
+              "command": "GET /api/v1/plugin/history/DownloadManagerLocal?force=true",
+              "result": "http 200; id=DownloadManagerLocal; plugin_version=3.2.4; history contains v3.2.4='[1]后端拆层;[2]契约守护;[3]服务边界'; repo_url=local://DownloadManagerLocal?path=/vol1/1000/docker/moviepilot-v2/config/local%20plugins&version=v2; current MP schema has no top-level version field"
+            },
+            {
+              "command": "GET /api/v1/plugin/remotes?token=moviepilot",
+              "result": "http 200; 9 remotes; contains /plugin/file/downloadmanagerlocal/dist/assets/remoteEntry.js"
+            },
+            {
+              "command": "GET /api/v1/plugin/form/DownloadManagerLocal",
+              "result": "http 200; render_mode=vue; model_key_count=51"
+            },
+            {
+              "command": "GET /api/v1/plugin/DownloadManagerLocal/overview",
+              "result": "http 200; returned dict data with top keys code/plugin/config/downloaders/rename_history/archive/cards"
+            },
+            {
+              "command": "moviepilot.log appended segment after reload",
+              "result": "related_line_count=129; related_problem_count=0; no DownloadManagerLocal ERROR/Traceback/Exception after reload"
+            }
+          ],
           "commit": null
         },
         {
@@ -683,6 +716,11 @@
       "task": "6.1",
       "action": "Synced DownloadManagerLocal from the Win local repository into the MP local plugin repository after dry-run verification, then checked local plugin layout and metadata.",
       "evidence": "dry-run listed only plugin/icon/package for DownloadManagerLocal; actual sync exited 0; MP local frontend exists; dist/assets/remoteEntry.js exists; stale root frontend files none; package_version=3.2.4; plugin_version=3.2.4; history has v3.2.4; render_mode vue dist/assets"
+    },
+    {
+      "task": "6.2",
+      "action": "Installed DownloadManagerLocal from the MP runtime local repository path, explicitly reloaded it, then validated runtime history, federation remote, Vue form mode, overview API, and reload log health.",
+      "evidence": "corrected install repo_url from Windows Z: mapping to /vol1/1000/docker/moviepilot-v2/config/local plugins; install http 200 success=true; reload http 200 success=true; history plugin_version=3.2.4 and v3.2.4 history present; remotes include dist/assets/remoteEntry.js; form render_mode=vue; overview returned data; post-reload related log problem count 0"
     }
   ]
 }
