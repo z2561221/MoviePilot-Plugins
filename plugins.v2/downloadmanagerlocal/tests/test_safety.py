@@ -9,6 +9,8 @@ PLUGIN_DIR = Path(__file__).resolve().parents[1]
 
 
 class _Logger:
+    """提供测试导入所需的最小 logger 桩。"""
+
     def info(self, *args, **kwargs):
         """测试桩记录普通日志时不执行任何输出。"""
         pass
@@ -23,6 +25,7 @@ class _Logger:
 
 
 def _install_stubs():
+    """安装插件工具模块导入所需的 app 日志桩。"""
     app = types.ModuleType("app")
     app.__path__ = []
 
@@ -33,6 +36,7 @@ def _install_stubs():
 
 
 def _prepare_imports():
+    """清理并准备 downloadmanagerlocal 包的测试导入环境。"""
     _install_stubs()
     for name in list(sys.modules):
         if name == "downloadmanagerlocal" or name.startswith("downloadmanagerlocal."):
@@ -100,6 +104,8 @@ class DownloadManagerSafetyTest(unittest.TestCase):
         recheck = importlib.import_module("downloadmanagerlocal.modules.recheck")
 
         class _Service:
+            """模拟 qBittorrent 服务对象。"""
+
             type = "qbittorrent"
 
             class instance:

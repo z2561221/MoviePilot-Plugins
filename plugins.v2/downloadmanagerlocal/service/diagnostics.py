@@ -10,10 +10,12 @@ from ..utils.name_cleaner import is_dirty_renamed_torrent_name
 
 
 def _bool_text(value) -> str:
+    """将布尔开关状态转换为详情页展示文本。"""
     return "已开启" if bool(value) else "未开启"
 
 
 def _service_status(plugin, name: str) -> dict:
+    """检查指定下载器配置和连接状态。"""
     result = {
         "name": name or "",
         "configured": bool(name),
@@ -41,6 +43,7 @@ def _service_status(plugin, name: str) -> dict:
 
 
 def _rename_history_stats(plugin) -> dict:
+    """统计重命名历史中的成功、失败和脏名称记录。"""
     records = plugin.get_data(RENAME_RECORDS_KEY) or {}
     items = list(records.values())
     success_count = sum(1 for item in items if item.get("success"))
@@ -74,6 +77,7 @@ def _rename_history_stats(plugin) -> dict:
 
 
 def _path_exists(path_text: str) -> bool:
+    """安全判断配置路径是否存在。"""
     if not path_text:
         return False
     try:
@@ -83,6 +87,7 @@ def _path_exists(path_text: str) -> bool:
 
 
 def _check(label: str, status: str, detail: str) -> dict:
+    """构造详情页健康检查项。"""
     return {"label": label, "status": status, "detail": detail}
 
 

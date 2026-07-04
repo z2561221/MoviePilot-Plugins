@@ -119,6 +119,7 @@ class IyuuHelper(object):
         return None
 
     def __reseed_index(self, json_data: str, sha1: str) -> Tuple[Optional[dict], str]:
+        """向 IYUU 查询指定 info_hash 列表的可辅种信息。"""
         return self.__request_iyuu(url='/reseed/index/index', method='post', params={
             'hash': json_data,
             'sha1': sha1,

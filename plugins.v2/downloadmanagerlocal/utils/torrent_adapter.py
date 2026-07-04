@@ -11,6 +11,7 @@ def get_hash(torrent: Any, dl_type: str) -> str:
 
 
 def _split_labels(labels: Any) -> List[str]:
+    """将下载器返回的标签字段统一拆分为字符串列表。"""
     if not labels:
         return []
     if isinstance(labels, str):

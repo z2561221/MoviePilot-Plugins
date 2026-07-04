@@ -77,6 +77,7 @@ def is_polluted_original_name(value: str) -> bool:
 
 
 def _extract_original_part(renamed_name: str) -> str:
+    """从插件重命名格式中提取原始发布名部分。"""
     match = re.match(r"^\s*\[[^\]]+\]\s*-\s*(.+)$", str(renamed_name or "").strip())
     return match.group(1).strip() if match else str(renamed_name or "").strip()
 

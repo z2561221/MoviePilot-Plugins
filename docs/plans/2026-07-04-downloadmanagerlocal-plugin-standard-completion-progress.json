@@ -1,9 +1,9 @@
 {
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
-    "phase": "phase-4",
-    "task": "4.2",
-    "next_allowed_action": "Run task 4.2; add docstrings to changed private helpers and remove dead code/imports"
+    "phase": "phase-5",
+    "task": "5.1",
+    "next_allowed_action": "Run task 5.1; verify frontend source and federation contract without changing UI source"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -363,7 +363,7 @@
     {
       "id": "phase-4",
       "goal": "Pass the docstring and static quality bar required by the plugin standard.",
-      "status": "in_progress",
+      "status": "completed",
       "acceptance": [
         "Public docstring gaps are zero.",
         "Changed private helper documentation is complete.",
@@ -413,8 +413,45 @@
         {
           "id": "4.2",
           "title": "Add docstrings to changed private helpers and remove dead code/imports",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_private_helpers.py -q",
+              "result": "red before implementation: 2 failed, 1 passed; private docstring audit reported 66 gaps and unreachable return audit reported 1 offender"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_private_helpers.py -q",
+              "result": "green after cleanup: 3 passed"
+            },
+            {
+              "command": "private helper AST gap scan",
+              "result": "PRIVATE_TOTAL=0; UNREACHABLE_TOTAL=0"
+            },
+            {
+              "command": "python -m compileall -q plugins.v2/downloadmanagerlocal",
+              "result": "exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py tests/static/test_downloadmanagerlocal_private_helpers.py -q",
+              "result": "11 passed"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "62 passed"
+            },
+            {
+              "command": "__init__.py line count check",
+              "result": "520 lines"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exited 0; PowerShell reported LF-to-CRLF working-copy warnings only"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml",
+              "result": "no output"
+            }
+          ],
           "commit": null
         }
       ]
@@ -422,7 +459,7 @@
     {
       "id": "phase-5",
       "goal": "Verify the Vue federation frontend remains standard and unchanged in user experience.",
-      "status": "pending",
+      "status": "in_progress",
       "acceptance": [
         "Frontend source and visible behavior remain unchanged.",
         "Federation assets are buildable and internally consistent."
@@ -523,6 +560,11 @@
       "task": "4.1",
       "action": "Added Chinese docstrings to all public classes, public functions, and public methods, then converted the temporary xfail standard target into a normal passing gate while keeping the entrypoint at 520 lines.",
       "evidence": "docstring red 1 failed with 51 gaps; AST gap scan TOTAL=0; standard completion 8 passed; full static suite 60 passed; compileall -q exited 0; git diff --check exited 0 with LF/CRLF warnings only; UI gate no output"
+    },
+    {
+      "task": "4.2",
+      "action": "Added a private-helper static gate, documented private helpers including service-local nested helpers, and removed the unreachable return left after the download delegate.",
+      "evidence": "private helper red 2 failed/1 passed with 66 docstring gaps and 1 unreachable return; private helper green 3 passed; AST scan PRIVATE_TOTAL=0 and UNREACHABLE_TOTAL=0; standard+private 11 passed; full static suite 62 passed; compileall -q exited 0; UI gate no output"
     }
   ]
 }

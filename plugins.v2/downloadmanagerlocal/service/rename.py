@@ -25,6 +25,7 @@ from ..utils.torrent_adapter import get_hash, get_label, get_save_path
 
 
 def _set_meta_attr(meta: MetaBase, attr: str, value: str) -> None:
+    """安全设置媒体识别元数据对象的字符串字段。"""
     try:
         if hasattr(meta, attr):
             setattr(meta, attr, value)
@@ -33,6 +34,7 @@ def _set_meta_attr(meta: MetaBase, attr: str, value: str) -> None:
 
 
 def _clean_meta_for_rename(meta: MetaBase) -> None:
+    """清理元数据中会污染重命名结果的副标题字段。"""
     if not meta:
         return
     for attr in ("title", "org_string", "original_name"):
@@ -485,12 +487,14 @@ def retry_failed_renames(plugin, to_service):
 
 
 def _get_torrent_name(torrent, dl_type):
+    """按下载器类型读取当前种子名称。"""
     if dl_type == "qbittorrent":
         return torrent.get("name", "")
     return torrent.name
 
 
 def _get_tracker_urls(torrent, dl_type):
+    """按下载器类型提取有效 tracker URL 列表。"""
     trackers = getattr(torrent, "trackers", None) or []
     if dl_type == "qbittorrent":
         return [

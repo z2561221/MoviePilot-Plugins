@@ -257,11 +257,13 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
     skipped_sites = {}
 
     def __count(counter: dict, key: str):
+        """按站点名称累计跳过或未维护数量。"""
         if not key:
             key = "未知站点"
         counter[key] = counter.get(key, 0) + 1
 
     def __log_counter(title: str, counter: dict, limit: int = 20):
+        """按数量排序输出站点统计摘要。"""
         if not counter:
             return
         total = sum(counter.values())
@@ -332,6 +334,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
     """从站点下载种子并添加到下载器，辅种后打站点标签"""
 
     def __is_special_site(url):
+        """判断下载链接是否需要追加 https 参数。"""
         if "hdsky.me" in url:
             return False
         return True
@@ -373,6 +376,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         return False
 
     def __with_https_param(url: str) -> str:
+        """为特殊站点下载链接补充 https=1 参数。"""
         if not url or not __is_special_site(url) or "https=1" in url:
             return url
         return url + ("&https=1" if "?" in url else "?https=1")
@@ -508,6 +512,7 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
         torrent_tags.append(tag)
 
         def __find_torrent_hash():
+            """通过 expected_hash 或临时标签确认新任务 hash。"""
             if expected_hash:
                 try:
                     torrents, _ = service.instance.get_torrents(ids=[expected_hash])
@@ -563,15 +568,19 @@ def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_p
     """获取站点种子下载链接（移植自原版 IYUU 插件，含特殊站点处理）"""
 
     def __is_mteam(url: str):
+        """判断站点地址是否属于 m-team。"""
         return "m-team." in url
 
     def __is_monika(url: str):
+        """判断站点地址是否属于 Monika。"""
         return "monikadesign." in url
 
     def __is_gpw(url: str):
+        """判断站点地址是否属于 GreatPosterWall。"""
         return "greatposterwall." in url
 
     def __is_special_site(url: str):
+        """判断站点是否必须从详情页解析下载链接。"""
         spec_params = ["hash=", "authkey="]
         if any(field in base_url for field in spec_params):
             return True
@@ -579,6 +588,7 @@ def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_p
         return any(d in url for d in special_domains)
 
     def __get_mteam_enclosure(tid: str, apikey: str):
+        """调用 m-team API 生成种子下载 token。"""
         if not apikey:
             logger.warning("IYUU辅种：m-team 站点的 apikey 未配置")
             return None
@@ -600,6 +610,7 @@ def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_p
         return res.json().get("data")
 
     def __get_monika_torrent(tid: str, rssurl: str):
+        """根据 Monika RSS 链接推导种子下载地址。"""
         if not rssurl:
             logger.warning("IYUU辅种：Monika 站点的 rss 链接未配置")
             return None
@@ -611,6 +622,7 @@ def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_p
         return f"{site.get('url')}torrents/download/{tid}.{rsskey}"
 
     def __get_torrent_url_from_page(seed: dict, site: dict):
+        """请求站点详情页并通过 XPath 提取种子下载链接。"""
         if not site.get('url'):
             logger.warning(f"IYUU辅种：站点 {site.get('name')} 未获取站点地址")
             return None
