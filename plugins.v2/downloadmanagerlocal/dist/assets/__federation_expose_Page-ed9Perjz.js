@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-DxfxZJCG.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createBlock:_createBlock,createCommentVNode:_createCommentVNode} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dm-page" };
@@ -74,22 +74,35 @@ const _hoisted_34 = { class: "text-subtitle-2" };
 const _hoisted_35 = { class: "dm-stat" };
 const _hoisted_36 = { class: "text-subtitle-2" };
 const _hoisted_37 = { class: "text-caption" };
-const _hoisted_38 = { class: "dm-checks mb-3" };
-const _hoisted_39 = { class: "text-body-2" };
-const _hoisted_40 = { class: "d-flex align-center ga-2" };
-const _hoisted_41 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_42 = {
+const _hoisted_38 = { class: "dm-diagnostics-panel mb-3" };
+const _hoisted_39 = { class: "dm-diagnostics-head" };
+const _hoisted_40 = { class: "dm-diagnostics-title" };
+const _hoisted_41 = { class: "dm-diagnostics-icon" };
+const _hoisted_42 = { class: "dm-diagnostics-score" };
+const _hoisted_43 = { key: 0 };
+const _hoisted_44 = { class: "dm-diagnostics-grid" };
+const _hoisted_45 = { class: "dm-diagnostic-state" };
+const _hoisted_46 = { class: "dm-diagnostic-content" };
+const _hoisted_47 = { class: "dm-diagnostic-name" };
+const _hoisted_48 = { class: "dm-diagnostic-value" };
+const _hoisted_49 = { class: "dm-diagnostic-note" };
+const _hoisted_50 = { class: "dm-diagnostics-footer" };
+const _hoisted_51 = {
+  key: 0,
+  class: "dm-diagnostics-attention"
+};
+const _hoisted_52 = {
   key: 0,
   class: "text-caption text-medium-emphasis py-2"
 };
-const _hoisted_43 = {
+const _hoisted_53 = {
   key: 1,
   class: "dm-table-scroll"
 };
-const _hoisted_44 = { class: "text-caption text-no-wrap" };
-const _hoisted_45 = ["title"];
-const _hoisted_46 = { class: "text-caption" };
-const _hoisted_47 = {
+const _hoisted_54 = { class: "text-caption text-no-wrap" };
+const _hoisted_55 = ["title"];
+const _hoisted_56 = { class: "text-caption" };
+const _hoisted_57 = {
   key: 1,
   class: "dm-state text-center text-medium-emphasis"
 };
@@ -132,6 +145,20 @@ const tabs = [
 
 const totalPages = computed(() => Math.max(1, Math.ceil((total.value || 0) / pageSize)));
 const archiveTotalPages = computed(() => Math.max(1, Math.ceil((archiveTotal.value || 0) / pageSize)));
+const diagnosticsCards = computed(() => {
+  const items = Array.isArray(diagnostics.value?.checks) ? diagnostics.value.checks : [];
+  return items.map(item => ({
+    ...item,
+    statusText: item.status === 'ok' ? '正常' : item.status === 'warn' ? '关注' : '未启用',
+    icon: item.status === 'ok'
+      ? 'mdi-check-circle-outline'
+      : item.status === 'warn'
+        ? 'mdi-alert-circle-outline'
+        : 'mdi-minus-circle-outline',
+  }))
+});
+const diagnosticsOkCount = computed(() => diagnosticsCards.value.filter(item => item.status === 'ok').length);
+const diagnosticsAttentionCount = computed(() => diagnosticsCards.value.length - diagnosticsOkCount.value);
 
 async function loadHistory() {
   loading.value = true;
@@ -187,13 +214,6 @@ async function refreshActive() {
   if (activeTab.value === 'history') return loadHistory()
   if (activeTab.value === 'archive') return loadArchive()
   return loadDiagnostics()
-}
-
-function checkColor(status) {
-  if (status === 'ok') return 'success'
-  if (status === 'warn') return 'warning'
-  if (status === 'off') return 'default'
-  return 'default'
 }
 
 async function doRecovery(hash) {
@@ -733,39 +753,62 @@ return (_ctx, _cache) => {
                           ])
                         ]),
                         _createElementVNode("div", _hoisted_38, [
-                          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(diagnostics.value.checks, (item) => {
-                            return (_openBlock(), _createElementBlock("div", {
-                              key: item.label,
-                              class: "dm-check-row"
-                            }, [
-                              _createElementVNode("div", _hoisted_39, _toDisplayString(item.label), 1),
-                              _createElementVNode("div", _hoisted_40, [
-                                _createElementVNode("span", _hoisted_41, _toDisplayString(item.detail), 1),
-                                _createVNode(_component_VChip, {
-                                  size: "x-small",
-                                  color: checkColor(item.status),
-                                  variant: "tonal"
-                                }, {
-                                  default: _withCtx(() => [
-                                    _createTextVNode(_toDisplayString(item.status), 1)
-                                  ]),
-                                  _: 2
-                                }, 1032, ["color"])
-                              ])
-                            ]))
-                          }), 128))
+                          _createElementVNode("div", _hoisted_39, [
+                            _createElementVNode("div", _hoisted_40, [
+                              _createElementVNode("span", _hoisted_41, [
+                                _createVNode(_component_VIcon, {
+                                  icon: "mdi-stethoscope",
+                                  size: "20"
+                                })
+                              ]),
+                              _cache[21] || (_cache[21] = _createElementVNode("span", null, "运行诊断", -1))
+                            ]),
+                            _createElementVNode("div", _hoisted_42, [
+                              _createElementVNode("strong", null, _toDisplayString(diagnosticsOkCount.value) + " / " + _toDisplayString(diagnosticsCards.value.length), 1),
+                              _cache[22] || (_cache[22] = _createElementVNode("span", null, "正常", -1)),
+                              (diagnosticsAttentionCount.value)
+                                ? (_openBlock(), _createElementBlock("span", _hoisted_43, "· " + _toDisplayString(diagnosticsAttentionCount.value) + " 项关注", 1))
+                                : _createCommentVNode("", true)
+                            ])
+                          ]),
+                          _createElementVNode("div", _hoisted_44, [
+                            (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(diagnosticsCards.value, (item) => {
+                              return (_openBlock(), _createElementBlock("div", {
+                                key: item.label,
+                                class: _normalizeClass(["dm-diagnostic-card", `dm-diagnostic-card--${item.status || 'off'}`])
+                              }, [
+                                _createElementVNode("div", _hoisted_45, [
+                                  _createVNode(_component_VIcon, {
+                                    icon: item.icon,
+                                    size: "22"
+                                  }, null, 8, ["icon"])
+                                ]),
+                                _createElementVNode("div", _hoisted_46, [
+                                  _createElementVNode("div", _hoisted_47, _toDisplayString(item.label), 1),
+                                  _createElementVNode("div", _hoisted_48, _toDisplayString(item.detail), 1),
+                                  _createElementVNode("div", _hoisted_49, _toDisplayString(item.statusText), 1)
+                                ])
+                              ], 2))
+                            }), 128))
+                          ]),
+                          _createElementVNode("div", _hoisted_50, [
+                            _cache[23] || (_cache[23] = _createElementVNode("span", null, "按运行链路顺序检查下载器、路径、转移、命名、标签和归档状态。", -1)),
+                            (diagnosticsAttentionCount.value)
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_51, "关注项不阻断运行"))
+                              : _createCommentVNode("", true)
+                          ])
                         ]),
                         _createElementVNode("div", null, [
-                          _cache[22] || (_cache[22] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "最近失败", -1)),
+                          _cache[25] || (_cache[25] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "最近失败", -1)),
                           (!diagnostics.value?.rename_history?.recent_failures?.length)
-                            ? (_openBlock(), _createElementBlock("div", _hoisted_42, "暂无失败记录"))
-                            : (_openBlock(), _createElementBlock("div", _hoisted_43, [
+                            ? (_openBlock(), _createElementBlock("div", _hoisted_52, "暂无失败记录"))
+                            : (_openBlock(), _createElementBlock("div", _hoisted_53, [
                                 _createVNode(_component_VTable, {
                                   density: "compact",
                                   class: "dm-table"
                                 }, {
                                   default: _withCtx(() => [
-                                    _cache[21] || (_cache[21] = _createElementVNode("thead", null, [
+                                    _cache[24] || (_cache[24] = _createElementVNode("thead", null, [
                                       _createElementVNode("tr", null, [
                                         _createElementVNode("th", { class: "text-caption" }, "时间"),
                                         _createElementVNode("th", { class: "text-caption" }, "名称"),
@@ -777,12 +820,12 @@ return (_ctx, _cache) => {
                                         return (_openBlock(), _createElementBlock("tr", {
                                           key: item.hash
                                         }, [
-                                          _createElementVNode("td", _hoisted_44, _toDisplayString(item.time), 1),
+                                          _createElementVNode("td", _hoisted_54, _toDisplayString(item.time), 1),
                                           _createElementVNode("td", {
                                             class: "text-caption dm-ellipsis",
                                             title: item.name
-                                          }, _toDisplayString(item.name), 9, _hoisted_45),
-                                          _createElementVNode("td", _hoisted_46, _toDisplayString(item.reason), 1)
+                                          }, _toDisplayString(item.name), 9, _hoisted_55),
+                                          _createElementVNode("td", _hoisted_56, _toDisplayString(item.reason), 1)
                                         ]))
                                       }), 128))
                                     ])
@@ -792,14 +835,14 @@ return (_ctx, _cache) => {
                               ]))
                         ])
                       ]))
-                    : (_openBlock(), _createElementBlock("div", _hoisted_47, [
+                    : (_openBlock(), _createElementBlock("div", _hoisted_57, [
                         _createVNode(_component_VIcon, {
                           icon: "mdi-stethoscope",
                           size: "48",
                           color: "grey-lighten-1",
                           class: "mb-2"
                         }),
-                        _cache[23] || (_cache[23] = _createElementVNode("div", null, "点击刷新诊断", -1))
+                        _cache[26] || (_cache[26] = _createElementVNode("div", null, "点击刷新诊断", -1))
                       ]))
                 ]))
       ])
@@ -809,6 +852,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d29a223b"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9d3e9b29"]]);
 
 export { Page as default };
