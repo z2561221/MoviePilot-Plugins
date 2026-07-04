@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
     "phase": "phase-3",
-    "task": "3.2",
-    "next_allowed_action": "Run task 3.2; move remaining IYUU orchestration into service-owned modules while preserving behavior and UI invariance"
+    "task": "3.3",
+    "next_allowed_action": "Run task 3.3; move archive, diagnostics, site-tag, and seed recheck residual logic into service-owned modules or documented shims"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -272,13 +272,46 @@
               "result": "no output"
             }
           ],
-          "commit": null
+          "commit": "784a6611bee39644d92ee50566ec509914e06536"
         },
         {
           "id": "3.2",
           "title": "Move remaining IYUU orchestration into service-owned modules",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py -k iyuu_module_is_shim",
+              "result": "red before implementation: 1 failed, 6 deselected; modules/iyuu.py still defined 16 business functions"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py -k iyuu_module_is_shim",
+              "result": "green after service migration: 1 passed, 6 deselected"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_iyuu_regressions.py",
+              "result": "4 passed"
+            },
+            {
+              "command": "python -m compileall -q plugins.v2/downloadmanagerlocal",
+              "result": "exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py",
+              "result": "6 passed, 1 xfailed"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "58 passed, 1 xfailed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exited 0; PowerShell reported LF-to-CRLF working-copy warnings only"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml",
+              "result": "no output"
+            }
+          ],
           "commit": null
         },
         {
@@ -405,6 +438,11 @@
       "task": "3.1",
       "action": "Moved transfer and rename implementations into service/transfer.py and service/rename.py, leaving modules/transfer.py and modules/rename.py as compatibility shims.",
       "evidence": "shim red 1 failed then green 1 passed; stability and retry hook 8 passed; standard completion 5 passed/1 xfailed; full static suite 57 passed/1 xfailed; compileall -q exited 0; UI gate no output"
+    },
+    {
+      "task": "3.2",
+      "action": "Moved IYUU implementation into service/iyuu.py, leaving modules/iyuu.py as a compatibility shim.",
+      "evidence": "IYUU shim red 1 failed then green 1 passed; IYUU regressions 4 passed; standard completion 6 passed/1 xfailed; full static suite 58 passed/1 xfailed; compileall -q exited 0; UI gate no output"
     }
   ]
 }

@@ -185,6 +185,11 @@ def test_downloadmanagerlocal_transfer_and_rename_modules_are_shims():
     assert _module_definitions("rename.py") == []
 
 
+def test_downloadmanagerlocal_iyuu_module_is_shim():
+    """IYUU legacy module 只能作为兼容 shim，不再定义辅种业务函数。"""
+    assert _module_definitions("iyuu.py") == []
+
+
 @pytest.mark.xfail(reason="standard completion is implemented by the phased ledger", strict=True)
 def test_downloadmanagerlocal_standard_completion_target_is_reached():
     """最终标准完成态：公有文档、入口瘦身和 modules 边界全部收束。"""

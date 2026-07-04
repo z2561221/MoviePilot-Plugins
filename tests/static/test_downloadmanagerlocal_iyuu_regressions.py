@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
+IYUU_SOURCE = PLUGIN_DIR / "service" / "iyuu.py"
 
 
 def _load_module(path: Path, name: str):
@@ -27,13 +28,13 @@ def test_qbittorrent_labels_are_read_from_tags_not_category():
 
 
 def test_iyuu_successful_seed_is_added_to_success_cache():
-    source = (PLUGIN_DIR / "modules" / "iyuu.py").read_text(encoding="utf-8")
+    source = IYUU_SOURCE.read_text(encoding="utf-8")
 
     assert "append_iyuu_cache(plugin._iyuu_success_caches, seed.get(\"info_hash\"))" in source
 
 
 def test_iyuu_rejects_html_content_before_adding_to_downloader():
-    source = (PLUGIN_DIR / "modules" / "iyuu.py").read_text(encoding="utf-8")
+    source = IYUU_SOURCE.read_text(encoding="utf-8")
 
     assert "is_torrent_content(content)" in source
     assert "下载到的内容不是有效 torrent 文件" in source
