@@ -114,7 +114,7 @@ DEFAULT_RANK_CONFIGS: Dict[str, Dict[str, Any]] = {
 
 
 def default_config() -> Dict[str, Any]:
-    """Return a fresh default config dict for plugin form and cleanup."""
+    """返回插件表单和配置清理使用的默认配置。"""
     return {
         "enabled": False,
         "cron": DEFAULT_CRON,

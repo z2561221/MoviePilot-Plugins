@@ -12,7 +12,7 @@ from ..storage import records as storage
 def overview_flows() -> List[Dict[str, List[str]]]:
     """返回总览页流程说明。"""
     return [
-        {"label": "榜单订阅", "steps": ["榜单刷新", "条件筛选", "观察入池", "自动订阅", "记录写入"]},
+        {"label": "榜单订阅", "steps": ["榜单刷新", "订阅观察", "观察入池", "自动订阅", "记录写入"]},
         {"label": "归档治理", "steps": ["条目删除", "归档入库", "手动恢复", "记录清理"]},
         {"label": "豆瓣时间", "steps": ["媒体事件", "条目识别", "豆瓣同步", "时间写入"]},
     ]

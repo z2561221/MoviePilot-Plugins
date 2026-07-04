@@ -23,12 +23,14 @@ DETAIL_SECTION_LIMIT = 5
 
 
 def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+    """返回仪表盘卡片的列配置与基础属性。"""
     cols = {"cols": 12, "md": 12}
     attrs = {"refresh": 600, "border": True, "title": "豆瓣中心", "subtitle": "追剧观影时间线"}
     return cols, attrs, None
 
 
 def get_timeline_items(self, mobile: bool = False) -> List[dict]:
+    """返回豆瓣时间线展示条目。"""
     return dashboard_folio_service.get_timeline_items(self, mobile=mobile, poster_resolver=_resolve_folio_poster)
 
 
@@ -76,6 +78,7 @@ def _dedupe_subscribe_records(records: list) -> tuple:
 
 
 def api_rank_history(self):
+    """返回前端使用的榜单历史快照。"""
     from .feed import get_dashboard_rank_items
     return dashboard_rank_history_service.build_rank_history_response(
         self,
@@ -100,6 +103,7 @@ def api_resolve_media_from_rank(self, media_type, title, year, tmdb_id=None, ban
 
 
 def api_subscribe_from_rank(self, tmdb_id, media_type, title, year, bangumi_id=None):
+    """根据榜单条目发起订阅。"""
     from .feed import _bangumi_subject_title, _bangumi_subject_year, _fetch_bangumi_subject
 
     return dashboard_rank_subscription_service.subscribe_from_rank(

@@ -16,6 +16,7 @@ from .storage import records as storage
 
 
 def check_cookie_periodically(self) -> None:
+    """定期检测豆瓣 Cookie 是否仍然可用。"""
     now = datetime.datetime.now().timestamp()
     if not hasattr(self, '_last_cookie_check_time'):
         self._last_cookie_check_time = 0
@@ -40,6 +41,7 @@ def check_cookie_periodically(self) -> None:
 
 
 def sync_log_handler(self, event_info, played: bool = False):
+    """处理播放事件并同步豆瓣时间线。"""
     play_start = {"playback.start", "media.play", "PlaybackStart"}
     processed = storage.read_folio_data(self)
     self._wait_process = storage.read_folio_wait(self)

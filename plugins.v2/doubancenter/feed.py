@@ -857,10 +857,12 @@ def _fetch_rss(self, addr: str) -> List[dict]:
 
 
 def get_enabled_rank_keys(self) -> List[str]:
+    """返回当前配置中启用的内置榜单 key。"""
     return [rd["key"] for rd in BUILTIN_RANKS if _ren(self, rd["key"])]
 
 
 def get_rank_history_by_key(self, rank_key: str) -> List[dict]:
+    """读取指定榜单历史并按需归一化。"""
     history = storage.read_rank_history(self, rank_key)
     if rank_key == "bangumi":
         return _normalize_bangumi_history(self, history)

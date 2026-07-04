@@ -50,6 +50,31 @@ class DoubanCenterRuntimeContractsTest(unittest.TestCase):
 
         self.assertEqual(missing, [])
 
+    def test_all_public_source_members_have_chinese_docstrings(self):
+        missing = []
+        non_chinese = []
+        cjk_pattern = re.compile(r"[\u4e00-\u9fff]")
+
+        for source_path in sorted(PLUGIN_DIR.rglob("*.py")):
+            if "tests" in source_path.parts or "__pycache__" in source_path.parts:
+                continue
+            tree = ast.parse(source_path.read_text(encoding="utf-8-sig"))
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if node.name.startswith("_"):
+                    continue
+                docstring = ast.get_docstring(node)
+                rel_path = source_path.relative_to(PLUGIN_DIR).as_posix()
+                marker = f"{rel_path}:{node.name}:{node.lineno}"
+                if not docstring:
+                    missing.append(marker)
+                elif not cjk_pattern.search(docstring):
+                    non_chinese.append(marker)
+
+        self.assertEqual(missing, [])
+        self.assertEqual(non_chinese, [])
+
     def test_frontend_api_routes_use_bear_auth(self):
         controller_text = (PLUGIN_DIR / "controller" / "api.py").read_text(encoding="utf-8")
 
@@ -68,6 +93,23 @@ class DoubanCenterRuntimeContractsTest(unittest.TestCase):
 
         self.assertIn('return "vue", "dist/assets"', init_text)
         self.assertTrue((PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js").exists())
+
+    def test_frontend_metadata_and_page_toolbar_are_standardized(self):
+        init_text = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8-sig")
+        version = re.search(r'plugin_version\s*=\s*"([^"]+)"', init_text).group(1)
+        frontend_package = json.loads((PLUGIN_DIR / "package.json").read_text(encoding="utf-8"))
+        vite_config = (PLUGIN_DIR / "vite.config.js").read_text(encoding="utf-8")
+        page_source = (PLUGIN_DIR / "src" / "components" / "Page.vue").read_text(encoding="utf-8")
+        config_source = (PLUGIN_DIR / "src" / "components" / "Config.vue").read_text(encoding="utf-8")
+        overview_source = (PLUGIN_DIR / "service" / "dashboard_overview.py").read_text(encoding="utf-8")
+
+        self.assertEqual(frontend_package["version"], version)
+        self.assertIn("name: 'DoubanCenter'", vite_config)
+        self.assertIn("<VToolbar", page_source)
+        self.assertIn("dc-page-toolbar", page_source)
+        self.assertIn("订阅观察", config_source)
+        self.assertIn("订阅观察", overview_source)
+        self.assertNotIn("条件筛选", overview_source)
 
     def test_backend_refactor_context_is_documented(self):
         context_path = PLUGIN_DIR / "ai_spec" / "plugin_context.md"

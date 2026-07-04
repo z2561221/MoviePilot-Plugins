@@ -337,19 +337,18 @@ onMounted(loadAll)
 
 <template>
   <VCard flat class="dc-page">
-    <VCardItem class="dc-page-header">
-      <template #prepend>
-        <VAvatar color="primary" variant="tonal" rounded="lg"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
-      </template>
-      <VCardTitle>{{ archivePage ? '豆瓣中心 · 归档记录' : '豆瓣中心 · 运行详情' }}</VCardTitle>
-      <VCardSubtitle>{{ archivePage ? '删除进入归档，支持恢复或彻底删除' : '榜单刷新 -> 黑名筛选 -> 观察队列 -> 订阅记录' }}</VCardSubtitle>
-      <template #append>
-        <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-1" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">刷新</VBtn>
-        <VBtn variant="text" size="small" :prepend-icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" class="text-none me-1" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">{{ archivePage ? '返回' : '归档' }}</VBtn>
-        <VBtn variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1" @click="emit('switch')">设置</VBtn>
-        <VBtn icon="mdi-close" variant="text" size="small" @click="emit('close')" />
-      </template>
-    </VCardItem>
+    <VToolbar density="comfortable" class="dc-page-toolbar">
+      <VAvatar color="primary" variant="tonal" rounded="lg" class="ms-3 me-2"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
+      <div class="dc-page-heading">
+        <div class="text-h6">{{ archivePage ? '豆瓣中心 · 归档记录' : '豆瓣中心 · 运行详情' }}</div>
+        <div class="text-caption text-medium-emphasis">{{ archivePage ? '删除进入归档，支持恢复或彻底删除' : '榜单刷新 -> 黑名筛选 -> 观察队列 -> 订阅记录' }}</div>
+      </div>
+      <VSpacer />
+      <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-1" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">刷新</VBtn>
+      <VBtn variant="text" size="small" :prepend-icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" class="text-none me-1" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">{{ archivePage ? '返回' : '归档' }}</VBtn>
+      <VBtn variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1" @click="emit('switch')">设置</VBtn>
+      <VBtn icon="mdi-close" variant="text" size="small" @click="emit('close')" />
+    </VToolbar>
     <VDivider />
     <VCardText class="pa-3 dc-flow">
       <VProgressCircular v-if="loading" indeterminate color="primary" class="d-block mx-auto my-6" />
@@ -520,7 +519,10 @@ onMounted(loadAll)
 
 <style scoped>
 .dc-page { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
-.dc-page-header { padding: 12px 16px; }
+.dc-page-toolbar { background: rgb(var(--v-theme-surface)); padding-right: 8px; }
+.dc-page-heading { min-width: 0; }
+.dc-page-heading .text-h6,
+.dc-page-heading .text-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .dc-section { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .72)); border-radius: 8px; padding: 12px; margin-bottom: 0; background: rgba(var(--v-theme-on-surface), .012); min-width: 0; }
 .dc-section--archive { order: 0; grid-column: 1 / -1; }

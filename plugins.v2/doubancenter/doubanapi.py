@@ -16,6 +16,7 @@ from app.utils.http import RequestUtils
 
 
 class DoubanApi:
+    """封装豆瓣搜索与观看状态写入接口。"""
 
     def __init__(self, user_cookie: str = None):
         if not user_cookie:
@@ -46,6 +47,7 @@ class DoubanApi:
             logger.error("请求ck失败")
 
     def set_ck(self):
+        """从豆瓣首页响应中刷新 ck cookie。"""
         self.headers["Cookie"] = ";".join([f"{k}={v}" for k, v in self.cookies.items()])
         response = requests.get("https://www.douban.com/", headers=self.headers)
         ck_str = response.headers.get('Set-Cookie', '')
@@ -56,6 +58,7 @@ class DoubanApi:
         self.cookies['ck'] = '' if ck == '"deleted"' else ck
 
     def get_subject_id(self, title: str = None, meta: MetaBase = None) -> Tuple:
+        """根据标题或媒体元数据搜索豆瓣条目 ID。"""
         if not title:
             title = meta.title
         url = f"https://www.douban.com/search?cat=1002&q={title}"
@@ -80,6 +83,7 @@ class DoubanApi:
         return None, None
 
     def set_watching_status(self, subject_id: str, status: str = "do", private: bool = True) -> bool:
+        """设置豆瓣条目的观看状态。"""
         self.headers.update({
             "Referer": f"https://movie.douban.com/subject/{subject_id}/",
             "Origin": "https://movie.douban.com",
