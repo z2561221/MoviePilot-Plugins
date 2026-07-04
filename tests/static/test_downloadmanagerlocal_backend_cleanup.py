@@ -33,10 +33,12 @@ SERVICE_EXPORTS = {
         "update_iyuu_config",
     },
     "recheck.py": {
+        "can_seed_paused_torrent",
         "ensure_seed_recheck_worker",
         "load_seed_recheck_queue",
         "process_seed_recheck_once",
         "register_seed_recheck",
+        "run_recheck_cycle",
         "save_seed_recheck_queue",
         "seed_is_checking",
         "seed_is_error",
@@ -44,6 +46,7 @@ SERVICE_EXPORTS = {
         "seed_is_timeout",
         "seed_recheck_loop",
         "seed_should_remove_missing",
+        "sweep_paused_seed_tasks",
     },
     "rename.py": {
         "format_torrent_name",

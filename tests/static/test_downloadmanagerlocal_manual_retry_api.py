@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
+FRONTEND_COMPONENTS_DIR = PLUGIN_DIR / "frontend" / "src" / "components"
 
 
 class DownloadManagerLocalManualRetryApiTest(unittest.TestCase):
@@ -30,7 +31,7 @@ class DownloadManagerLocalManualRetryApiTest(unittest.TestCase):
         self.assertIn("plugin._retry_rename(hash)", api_source)
 
     def test_history_page_exposes_one_click_retry_button(self) -> None:
-        page_source = (PLUGIN_DIR / "src" / "components" / "Page.vue").read_text(
+        page_source = (FRONTEND_COMPONENTS_DIR / "Page.vue").read_text(
             encoding="utf-8"
         )
 
@@ -41,7 +42,7 @@ class DownloadManagerLocalManualRetryApiTest(unittest.TestCase):
         self.assertIn(':loading="retrying"', page_source)
 
     def test_history_page_exposes_row_retry_button(self) -> None:
-        page_source = (PLUGIN_DIR / "src" / "components" / "Page.vue").read_text(
+        page_source = (FRONTEND_COMPONENTS_DIR / "Page.vue").read_text(
             encoding="utf-8"
         )
 

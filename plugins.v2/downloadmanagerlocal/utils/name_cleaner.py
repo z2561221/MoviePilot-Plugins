@@ -63,7 +63,7 @@ def extract_release_name(value: str) -> str:
 
 
 def clean_torrent_original_name(value: str) -> str:
-    """Return a release name without MoviePilot/Douban subtitle details."""
+    """返回去除 MoviePilot 或豆瓣副标题污染后的发布名。"""
     return extract_release_name(value)
 
 
@@ -77,12 +77,13 @@ def is_polluted_original_name(value: str) -> bool:
 
 
 def _extract_original_part(renamed_name: str) -> str:
+    """从插件重命名格式中提取原始发布名部分。"""
     match = re.match(r"^\s*\[[^\]]+\]\s*-\s*(.+)$", str(renamed_name or "").strip())
     return match.group(1).strip() if match else str(renamed_name or "").strip()
 
 
 def is_dirty_renamed_torrent_name(value: str) -> bool:
-    """Whether a renamed torrent still contains subtitle details in original_name."""
+    """判断已重命名种子的原始名部分是否仍含副标题污染。"""
     original_part = _extract_original_part(value).strip()
     if not original_part:
         return False
@@ -93,7 +94,7 @@ def is_dirty_renamed_torrent_name(value: str) -> bool:
 
 
 def collect_retry_rename_hashes(records: dict) -> set:
-    """Return hashes that should be retried: failures plus dirty successful renames."""
+    """收集需要补刮的失败记录和脏名称成功记录 hash。"""
     retry_hashes = set()
     for torrent_hash, record in (records or {}).items():
         if not isinstance(record, dict):

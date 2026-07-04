@@ -1,28 +1,21 @@
 """
-DownloadManagerLocal v3.2.3 - MoviePilot 本地插件
+DownloadManagerLocal v3.2.5 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
-from datetime import datetime, timedelta
 from threading import Event as ThreadEvent
 import threading
 from typing import Any, List, Dict, Tuple, Optional
 
-import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
-
-from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.core.meta.metabase import MetaBase
 from app.log import logger
 from app.plugins import _PluginBase
-from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
 from app.schemas import ServiceInfo
 from app.schemas.types import EventType
 
 from .adapter.moviepilot import get_downloader_service
 from .model.state import SEED_RECHECK_QUEUE_KEY
-from .utils.config import safe_int, is_plugin_active, is_transfer_active
-from .utils.tracker import parse_tracker_mappings
+from .utils.config import is_plugin_active, is_transfer_active
 from .utils.path import convert_save_path
 from .utils.torrent_adapter import get_hash, get_label, get_category, get_save_path, get_torrent_size
 from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent, api_retry_renames as _api_retry_renames, api_retry_rename as _api_retry_rename, api_diagnostics as _api_diagnostics, api_overview as _api_overview, api_rename_archive as _api_rename_archive, api_restore_rename_archive as _api_restore_rename_archive, api_delete_rename_archive as _api_delete_rename_archive
@@ -30,14 +23,16 @@ from .service.rename import rename_torrent as _rename_torrent_impl, format_torre
 from .service.archive import record_rename_failure as _record_rename_failure_impl, clear_rename_retry_state as _clear_rename_retry_state_impl, is_rename_archived as _is_rename_archived_impl, list_rename_archive as _list_rename_archive_impl, restore_rename_archive as _restore_rename_archive_impl, delete_rename_archive as _delete_rename_archive_impl, rename_archive_stats as _rename_archive_stats_impl
 from .service.diagnostics import build_diagnostics as _build_diagnostics_impl
 from .service.site_tag import tag_torrent as _tag_torrent_impl, find_site_by_domain as _find_site_by_domain_impl
-from .service.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl
+from .service.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl, run_recheck_cycle as _check_recheck_impl, sweep_paused_seed_tasks as _sweep_paused_seed_tasks_impl, can_seed_paused_torrent as _can_seeding_impl
 from .service.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl, retry_pending_renames as _retry_pending_renames_impl
 from .service.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
 from .controller.api import build_api_routes as _build_api_routes_impl
-from .service.config import initialize_runtime_config as _initialize_runtime_config_impl
+from .service.events import handle_transfer_complete_event as _handle_transfer_complete_event_impl
+from .service.lifecycle import initialize_plugin as _initialize_plugin_impl
 from .service.scheduler import build_plugin_services as _build_plugin_services_impl
 
 class DownloadManagerLocal(_PluginBase):
+    """下载中心插件入口，负责声明 MoviePilot 契约并委托 service 层执行。"""
     # 插件名称
     plugin_name = "下载中心"
     # 插件描述
@@ -47,7 +42,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.2.4"
+    plugin_version = "3.2.5"
     # 插件作者
     plugin_author = "牧濑红莉栖"
     # 作者主页
@@ -89,7 +84,6 @@ class DownloadManagerLocal(_PluginBase):
     _seed_skipverify: bool = False
     _seed_check_interval: int = 60
     _seed_max_wait_minutes: int = 120
-
 
     # ── 重命名配置 ──
     _rename_enabled: bool = True
@@ -155,109 +149,31 @@ class DownloadManagerLocal(_PluginBase):
     downloader_helper = None
 
     def init_plugin(self, config: dict = None):
-        config = _initialize_runtime_config_impl(self, config)
-
-        # 停止现有任务
-        self.stop_service()
-
-        # 启动转移做种服务（事件驱动）
-        if self._transfer_active or self._onlyonce:
-            if not self.__validate_config():
-                self._enabled = False
-                self._onlyonce = False
-                config["enabled"] = self._enabled
-                config["onlyonce"] = self._onlyonce
-                self.update_config(config=config)
-                return
-
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
-            if self._onlyonce:
-                logger.info(f"转移做种服务启动，立即运行一次")
-                self._scheduler.add_job(self.transfer, 'date',
-                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3))
-                self._onlyonce = False
-                config["onlyonce"] = self._onlyonce
-                self.update_config(config=config)
-
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                if not self._scheduler.running:
-                    self._scheduler.start()
-
-        # 启动 IYUU 辅种服务（cron 定时）
-        if self._iyuu_enabled and self._iyuu_token and self._iyuu_downloaders:
-            self.iyuu_helper = IyuuHelper(token=self._iyuu_token)
-            if not self._scheduler:
-                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
-            if self._iyuu_onlyonce:
-                logger.info(f"IYUU辅种服务启动，立即运行一次")
-                self._scheduler.add_job(self.iyuu_auto_seed, 'date',
-                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=5))
-                self._iyuu_onlyonce = False
-                config["iyuu_onlyonce"] = self._iyuu_onlyonce
-                self.update_config(config=config)
-
-            if self._scheduler.get_jobs() and not self._scheduler.running:
-                self._scheduler.start()
-
-
-    @staticmethod
-    def __safe_int(value, default, min_value, max_value):
-        return safe_int(value, default, min_value, max_value)
-
-    @staticmethod
-    def _parse_tracker_mappings(mapping_str: str) -> dict:
-        return parse_tracker_mappings(mapping_str)
+        """根据配置初始化插件运行状态和后台服务。"""; return _initialize_plugin_impl(self, config)
 
     @staticmethod
     def get_hash(torrent, dl_type: str):
-        return get_hash(torrent, dl_type)
-
-    @staticmethod
-    def __get_hash(torrent, dl_type: str):
-        return DownloadManagerLocal.get_hash(torrent, dl_type)
+        """从指定下载器种子对象中提取唯一 hash。"""; return get_hash(torrent, dl_type)
 
     @staticmethod
     def get_label(torrent, dl_type: str):
-        return get_label(torrent, dl_type)
-
-    @staticmethod
-    def __get_label(torrent, dl_type: str):
-        return DownloadManagerLocal.get_label(torrent, dl_type)
+        """从指定下载器种子对象中读取标签列表。"""; return get_label(torrent, dl_type)
 
     @staticmethod
     def get_category(torrent, dl_type: str):
-        return get_category(torrent, dl_type)
-
-    @staticmethod
-    def __get_category(torrent, dl_type: str):
-        return DownloadManagerLocal.get_category(torrent, dl_type)
+        """从指定下载器种子对象中读取分类。"""; return get_category(torrent, dl_type)
 
     @staticmethod
     def get_save_path(torrent, dl_type: str):
-        return get_save_path(torrent, dl_type)
-
-    @staticmethod
-    def __get_save_path(torrent, dl_type: str):
-        return DownloadManagerLocal.get_save_path(torrent, dl_type)
+        """从指定下载器种子对象中读取保存路径。"""; return get_save_path(torrent, dl_type)
 
     @staticmethod
     def get_torrent_size(torrent, dl_type: str):
-        return get_torrent_size(torrent, dl_type)
-
-    @staticmethod
-    def __get_torrent_size(torrent, dl_type: str):
-        return DownloadManagerLocal.get_torrent_size(torrent, dl_type)
+        """从指定下载器种子对象中读取任务体积。"""; return get_torrent_size(torrent, dl_type)
 
     @staticmethod
     def convert_save_path(save_path: str, from_root: str, to_root: str):
-        return convert_save_path(save_path, from_root, to_root)
-
-    @staticmethod
-    def __convert_save_path(save_path: str, from_root: str, to_root: str):
-        return DownloadManagerLocal.convert_save_path(save_path, from_root, to_root)
+        """按源目录和目标目录转换种子保存路径。"""; return convert_save_path(save_path, from_root, to_root)
 
     @staticmethod
     def service_info(name: str) -> Optional[ServiceInfo]:
@@ -280,7 +196,7 @@ class DownloadManagerLocal(_PluginBase):
         return service
 
     def get_state(self):
-        return is_plugin_active(self)
+        """返回插件当前是否具备可运行能力。"""; return is_plugin_active(self)
 
     @property
     def _transfer_active(self) -> bool:
@@ -289,46 +205,46 @@ class DownloadManagerLocal(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        return []
+        """返回插件远程命令声明列表。"""; return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        return _build_api_routes_impl(self)
+        """返回插件 API 路由声明。"""; return _build_api_routes_impl(self)
 
     def api_downloaders(self):
-        return _api_downloaders(self)
+        """返回前端配置可选的下载器列表。"""; return _api_downloaders(self)
 
     def api_sites(self):
-        return _api_sites(self)
+        """返回前端配置可选的站点列表。"""; return _api_sites(self)
 
     def api_rename_history(self, page: int = 1, page_size: int = 15):
-        return _api_rename_history(self, page, page_size)
+        """分页返回重命名历史记录。"""; return _api_rename_history(self, page, page_size)
 
     def api_overview(self):
-        return _api_overview(self)
+        """返回插件详情页总览数据。"""; return _api_overview(self)
 
     def api_delete_rename_history(self, hash: str = ""):
-        return _api_delete_rename_history(self, hash)
+        """删除指定 hash 的重命名历史记录。"""; return _api_delete_rename_history(self, hash)
 
     def api_rename_archive(self, page: int = 1, page_size: int = 15):
-        return _api_rename_archive(self, page, page_size)
+        """分页返回重命名失败归档记录。"""; return _api_rename_archive(self, page, page_size)
 
     def api_restore_rename_archive(self, hash: str = ""):
-        return _api_restore_rename_archive(self, hash)
+        """恢复指定 hash 的重命名归档状态。"""; return _api_restore_rename_archive(self, hash)
 
     def api_delete_rename_archive(self, hash: str = ""):
-        return _api_delete_rename_archive(self, hash)
+        """删除指定 hash 的重命名归档状态。"""; return _api_delete_rename_archive(self, hash)
 
     def api_recovery_torrent(self, hash: str = ""):
-        return _api_recovery_torrent(self, hash)
+        """按历史记录恢复指定种子的原始名称。"""; return _api_recovery_torrent(self, hash)
 
     def api_retry_renames(self):
-        return _api_retry_renames(self)
+        """触发失败和脏名称任务的一键补刮。"""; return _api_retry_renames(self)
 
     def api_retry_rename(self, hash: str = ""):
-        return _api_retry_rename(self, hash)
+        """对指定 hash 的种子执行单条补刮。"""; return _api_retry_rename(self, hash)
 
     def api_diagnostics(self):
-        return _api_diagnostics(self)
+        """返回插件只读诊断信息。"""; return _api_diagnostics(self)
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -337,8 +253,7 @@ class DownloadManagerLocal(_PluginBase):
         return _build_plugin_services_impl(self)
 
     def _fallback_transfer(self):
-        return _fallback_transfer_impl(self)
-
+        """执行转移兜底定时任务的兼容入口。"""; return _fallback_transfer_impl(self)
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
@@ -377,15 +292,14 @@ class DownloadManagerLocal(_PluginBase):
         return None
 
     def __validate_config(self) -> bool:
-        return _validate_config_impl(self)
+        """校验转移做种所需的下载器和路径配置。"""; return _validate_config_impl(self)
 
     def __download(self, service: ServiceInfo, content: bytes,
                    save_path: str, torrent) -> Optional[str]:
-        return _download_impl(self, service, content, save_path, torrent)
-        return None
+        """向目标下载器添加转移后的种子内容。"""; return _download_impl(self, service, content, save_path, torrent)
 
     def transfer(self, trigger_source: str = "手动/定时"):
-        return _transfer_impl(self, trigger_source)
+        """按当前配置执行一次转移做种流程。"""; return _transfer_impl(self, trigger_source)
 
     def __add_recheck_torrents(self, service: ServiceInfo, download_id: str, source: str = "未知来源"):
         """追加做种校验任务，记录来源用于日志区分。"""
@@ -401,149 +315,39 @@ class DownloadManagerLocal(_PluginBase):
         定时检查下载器中种子是否校验完成，校验完成且完整的自动开始辅种。
         同时执行队列外兜底扫描，处理插件重载后丢失队列的历史暂停任务。
         """
-        if self._is_recheck_running:
-            return
-
-        self._is_recheck_running = True
-        try:
-            # 收集所有需要检查的下载器
-            check_services = []
-            seen_services = set()
-
-            def add_check_service(svc: Optional[ServiceInfo]):
-                if not svc or not svc.instance or svc.name in seen_services:
-                    return
-                check_services.append(svc)
-                seen_services.add(svc.name)
-
-            # 转移做种目标下载器
-            if self._todownloader:
-                add_check_service(self.service_info(self._todownloader))
-
-            # IYUU 辅种下载器
-            if self._iyuu_enabled and self._iyuu_downloaders:
-                for name in self._iyuu_downloaders:
-                    svc = get_downloader_service(name)
-                    if svc and not svc.instance.is_inactive():
-                        add_check_service(svc)
-
-            if not check_services:
-                return
-
-            # 队列内检查：只在存在待校验任务时执行
-            if self._recheck_torrents:
-                for svc in check_services:
-                    recheck_items = self._recheck_torrents.get(svc.name, {})
-                    if isinstance(recheck_items, list):
-                        # 兼容旧版本运行期队列
-                        recheck_items = {hash_id: "历史队列" for hash_id in recheck_items}
-                        self._recheck_torrents[svc.name] = recheck_items
-                    if not recheck_items:
-                        continue
-
-                    recheck_torrents = list(recheck_items.keys())
-                    logger.info(f"做种校验服务：开始检查下载器 {svc.name} 的校验任务，共 {len(recheck_torrents)} 个 ...")
-                    to_downloader = svc.instance
-                    torrents, _ = to_downloader.get_torrents(ids=recheck_torrents)
-                    if torrents:
-                        can_seeding_torrents = []
-                        source_counts = {}
-                        for torrent in torrents:
-                            hash_str = self.__get_hash(torrent, svc.type)
-                            if self.__can_seeding(torrent, svc.type):
-                                can_seeding_torrents.append(hash_str)
-                                source = recheck_items.get(hash_str, "未知来源")
-                                source_counts[source] = source_counts.get(source, 0) + 1
-
-                        if can_seeding_torrents:
-                            source_text = "，".join([f"{source} {count} 个" for source, count in source_counts.items()]) or f"{len(can_seeding_torrents)} 个"
-                            logger.info(f"做种校验服务：下载器 {svc.name} 中 {source_text} 任务校验完成，开始做种")
-                            to_downloader.start_torrents(ids=can_seeding_torrents)
-                            for hash_id in can_seeding_torrents:
-                                recheck_items.pop(hash_id, None)
-                            self._recheck_torrents[svc.name] = recheck_items
-                        else:
-                            logger.info("做种校验服务：没有新的任务校验完成，将在下次周期继续检查 ...")
-                    elif torrents is None:
-                        logger.info(f"做种校验服务：下载器 {svc.name} 查询校验任务失败，将在下次继续查询 ...")
-                    else:
-                        logger.info(f"做种校验服务：下载器 {svc.name} 中没有需要检查的校验任务，清空待处理列表")
-                        self._recheck_torrents[svc.name] = {}
-
-            # 队列之外的兜底：即使队列为空也执行
-            self._sweep_paused_seed_tasks(check_services)
-        except Exception as e:
-            logger.error(f"做种校验服务执行失败: {e}")
-        finally:
-            self._is_recheck_running = False
+        return _check_recheck_impl(self)
 
     def _sweep_paused_seed_tasks(self, check_services: List[ServiceInfo]):
         """兜底扫描已完成但暂停的转移/铺种任务，并自动开始做种。"""
-        for svc in check_services:
-            try:
-                downloader = svc.instance
-                torrents, _ = downloader.get_torrents()
-                if not torrents:
-                    continue
-                can_start = []
-                source_counts = {}
-                for torrent in torrents:
-                    if not self.__can_seeding(torrent, svc.type):
-                        continue
-                    labels = self.__get_label(torrent, svc.type) or []
-                    source = None
-                    if self._iyuu_labelsafterseed:
-                        iyuu_labels = [label.strip() for label in self._iyuu_labelsafterseed.split(',') if label.strip()]
-                        if any(label in labels for label in iyuu_labels):
-                            source = "IYUU铺种"
-                    if not source and self._torrent_tags:
-                        if any(label in labels for label in self._torrent_tags):
-                            source = "转移做种"
-                    if not source:
-                        continue
-                    hash_str = self.__get_hash(torrent, svc.type)
-                    if hash_str:
-                        can_start.append(hash_str)
-                        source_counts[source] = source_counts.get(source, 0) + 1
-                if can_start:
-                    source_text = "，".join([f"{source} {count} 个" for source, count in source_counts.items()])
-                    logger.info(f"做种校验服务：兜底发现下载器 {svc.name} 中 {source_text} 已校验但未开始，开始做种")
-                    downloader.start_torrents(ids=can_start)
-            except Exception as e:
-                logger.error(f"做种校验服务：兜底扫描下载器 {svc.name} 失败: {e}")
+        return _sweep_paused_seed_tasks_impl(self, check_services)
 
     @staticmethod
     def __can_seeding(torrent: Any, dl_type: str):
         """
         判断种子是否可以做种并处于暂停状态
         """
-        try:
-            return (torrent.get("state") in ["pausedUP", "stoppedUP"]) if dl_type == "qbittorrent" \
-                else (torrent.status.stopped and torrent.percent_done == 1)
-        except Exception as e:
-            logger.error(f"判断种子做种状态失败: {e}")
-            return False
+        return _can_seeding_impl(torrent, dl_type)
 
     # ════════════════════════════════════════════════════════════
     # v2.0.0: 转移后自动重命名 + 站点标签
     # ════════════════════════════════════════════════════════════
 
     def _post_transfer_process(self, to_service: ServiceInfo, torrent_hash: str):
-        return _post_transfer_process_impl(self, to_service, torrent_hash)
+        """执行转移完成后的重命名、标签和复查登记。"""; return _post_transfer_process_impl(self, to_service, torrent_hash)
 
     def _rename_torrent(self, dl, dl_type: str, torrent_hash: str, torrent_name: str, save_path: str):
-        return _rename_torrent_impl(self, dl, dl_type, torrent_hash, torrent_name, save_path)
+        """委托重命名服务处理单个种子名称。"""; return _rename_torrent_impl(self, dl, dl_type, torrent_hash, torrent_name, save_path)
 
     def _tag_torrent(self, dl, dl_type: str, torrent_hash: str, torrent_tags: list, trackers: list):
-        return _tag_torrent_impl(self, dl, dl_type, torrent_hash, torrent_tags, trackers)
+        """委托站点标签服务更新单个种子标签。"""; return _tag_torrent_impl(self, dl, dl_type, torrent_hash, torrent_tags, trackers)
 
     @staticmethod
     def _find_site_by_domain(domain: str) -> Optional[str]:
-        return _find_site_by_domain_impl(domain)
+        """根据 tracker 域名查找对应站点名称。"""; return _find_site_by_domain_impl(domain)
 
     @staticmethod
     def _format_torrent_name(template_string: str, meta: MetaBase, mediainfo) -> Optional[str]:
-        return _format_torrent_name_impl(template_string, meta, mediainfo)
+        """根据模板和媒体信息格式化种子名称。"""; return _format_torrent_name_impl(template_string, meta, mediainfo)
 
     # ════════════════════════════════════════════════════════════
     # 重命名记录持久化
@@ -551,45 +355,46 @@ class DownloadManagerLocal(_PluginBase):
 
     def _save_rename_record(self, torrent_hash: str, original_name: str, after_name: str,
                             success: bool, reason: str = ""):
-        return _save_rename_record_impl(self, torrent_hash, original_name, after_name, success, reason)
+        """保存单个种子的重命名结果记录。"""; return _save_rename_record_impl(self, torrent_hash, original_name, after_name, success, reason)
 
     def _get_failed_rename_hashes(self) -> set:
-        return _get_failed_rename_hashes_impl(self)
+        """返回需要补刮的失败或脏名称种子 hash。"""; return _get_failed_rename_hashes_impl(self)
 
     def _retry_failed_renames(self, to_service: ServiceInfo):
-        return _retry_failed_renames_impl(self, to_service)
+        """对目标下载器中的失败重命名任务执行批量补刮。"""; return _retry_failed_renames_impl(self, to_service)
 
     def _retry_pending_renames(self):
-        return _retry_pending_renames_impl(self)
+        """重试历史失败和当前脏名称的待补刮任务。"""; return _retry_pending_renames_impl(self)
 
     def _retry_rename(self, hash: str = ""):
+        """对指定 hash 执行单条补刮兼容入口。"""
         to_service = self.service_info(self._todownloader)
         return _retry_rename_by_hash_impl(self, to_service, hash)
 
     def _diagnostics(self):
-        return _build_diagnostics_impl(self)
+        """生成插件详情页只读诊断数据。"""; return _build_diagnostics_impl(self)
 
     def record_rename_failure(self, torrent_hash: str, torrent_name: str,
                               category: str = "", reason: str = ""):
-        return _record_rename_failure_impl(self, torrent_hash, torrent_name, category, reason)
+        """记录指定种子的重命名失败归档状态。"""; return _record_rename_failure_impl(self, torrent_hash, torrent_name, category, reason)
 
     def clear_rename_retry_state(self, torrent_hash: str):
-        return _clear_rename_retry_state_impl(self, torrent_hash)
+        """清除指定种子的重命名重试状态。"""; return _clear_rename_retry_state_impl(self, torrent_hash)
 
     def is_rename_archived(self, torrent_hash: str):
-        return _is_rename_archived_impl(self, torrent_hash)
+        """判断指定种子是否已进入重命名归档。"""; return _is_rename_archived_impl(self, torrent_hash)
 
     def list_rename_archive(self, page: int = 1, page_size: int = 15):
-        return _list_rename_archive_impl(self, page, page_size)
+        """分页列出重命名归档记录。"""; return _list_rename_archive_impl(self, page, page_size)
 
     def restore_rename_archive(self, torrent_hash: str):
-        return _restore_rename_archive_impl(self, torrent_hash)
+        """恢复指定种子的重命名归档状态。"""; return _restore_rename_archive_impl(self, torrent_hash)
 
     def delete_rename_archive(self, torrent_hash: str):
-        return _delete_rename_archive_impl(self, torrent_hash)
+        """删除指定种子的重命名归档状态。"""; return _delete_rename_archive_impl(self, torrent_hash)
 
     def rename_archive_stats(self):
-        return _rename_archive_stats_impl(self)
+        """统计当前重命名归档数量和状态。"""; return _rename_archive_stats_impl(self)
 
     # ════════════════════════════════════════════════════════════
     # v2.3.0: 事件驱动转移
@@ -600,35 +405,10 @@ class DownloadManagerLocal(_PluginBase):
         """
         监听 TransferComplete 事件，延迟 N 分钟后自动转移做种
         """
-        if not self._transfer_active:
-            return
-
-        event_data = event.event_data or {}
-        # 检查事件来源下载器是否匹配
-        downloader_name = event_data.get("downloader") or event_data.get("downloader_name", "")
-        if downloader_name and downloader_name != self._fromdownloader:
-            return
-
-        delay = max(1, int(self._delay_minutes or 25))
-        logger.info(f"收到 TransferComplete 事件（来源: {downloader_name}），将在 {delay} 分钟后执行转移做种")
-
-        # 使用 scheduler 延迟执行
-        if not self._scheduler:
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            self._scheduler.start()
-
-        run_time = datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(minutes=delay)
-        job_id = f"delayed_transfer_{self._fromdownloader or 'default'}"
-        self._scheduler.add_job(
-            self._delayed_transfer,
-            'date',
-            run_date=run_time,
-            id=job_id,
-            replace_existing=True
-        )
+        return _handle_transfer_complete_event_impl(self, event)
 
     def _delayed_transfer(self):
-        return _delayed_transfer_impl(self)
+        """执行 TransferComplete 延迟触发后的转移任务。"""; return _delayed_transfer_impl(self)
 
     # ════════════════════════════════════════════════════════════
     # v3.0.0: IYUU 自动辅种
@@ -636,92 +416,92 @@ class DownloadManagerLocal(_PluginBase):
 
     @property
     def _iyuu_service_infos(self):
-        return _iyuu_service_infos_impl(self)
+        """返回 IYUU 可用下载器服务映射。"""; return _iyuu_service_infos_impl(self)
 
     @property
     def _iyuu_auto_service_info(self):
-        return _iyuu_auto_service_info_impl(self)
+        """返回 IYUU 主辅分离下载器服务。"""; return _iyuu_auto_service_info_impl(self)
 
     def iyuu_auto_seed(self):
-        return _iyuu_auto_seed_impl(self)
+        """按当前 IYUU 配置执行一次自动辅种。"""; return _iyuu_auto_seed_impl(self)
 
     def _iyuu_seed_torrents(self, hash_strs: list, service: ServiceInfo):
-        return _iyuu_seed_torrents_impl(self, hash_strs, service)
+        """委托 IYUU 服务查询并处理一批可辅种 hash。"""; return _iyuu_seed_torrents_impl(self, hash_strs, service)
 
     def _iyuu_download_torrent(self, seed: dict, service: ServiceInfo, save_path: str, save_category: str,
                                source_hash: str = None, site_info: dict = None):
-        return _iyuu_download_torrent_impl(self, seed, service, save_path, save_category, source_hash, site_info)
+        """委托 IYUU 服务下载并添加单个辅种种子。"""; return _iyuu_download_torrent_impl(self, seed, service, save_path, save_category, source_hash, site_info)
 
     def _rename_iyuu_torrent_by_source_record(self, dl, dl_type: str, torrent_hash: str,
                                              torrent_name: str, source_hash: str = None) -> bool:
-        return _rename_iyuu_torrent_by_source_record_impl(self, dl, dl_type, torrent_hash, torrent_name, source_hash) is not None
+        """根据母种重命名记录复用 IYUU 辅种命名前缀。"""; return _rename_iyuu_torrent_by_source_record_impl(self, dl, dl_type, torrent_hash, torrent_name, source_hash) is not None
 
     def _iyuu_download(self, service: ServiceInfo, content: bytes,
                        save_path: str, save_category: str, site_name: str,
                        expected_hash: str = None, torrent_url: str = None) -> Optional[str]:
-        return _iyuu_download_impl(self, service, content, save_path, save_category, site_name, expected_hash, torrent_url)
+        """委托 IYUU 服务向下载器添加种子并确认 hash。"""; return _iyuu_download_impl(self, service, content, save_path, save_category, site_name, expected_hash, torrent_url)
 
     def _iyuu_get_download_url(self, seed: dict, site: dict, base_url: str, force_page: bool = False) -> Optional[str]:
-        return _iyuu_get_download_url_impl(self, seed, site, base_url, force_page)
+        """委托 IYUU 服务解析站点种子下载链接。"""; return _iyuu_get_download_url_impl(self, seed, site, base_url, force_page)
 
     def _iyuu_save_history(self, current_hash: str, downloader: str, success_torrents: list):
-        return _iyuu_save_history_impl(self, current_hash, downloader, success_torrents)
+        """保存母种与 IYUU 辅种成功记录。"""; return _iyuu_save_history_impl(self, current_hash, downloader, success_torrents)
 
     @staticmethod
     def _append_iyuu_cache(cache_list: list, info_hash: str):
-        return _append_iyuu_cache_impl(cache_list, info_hash)
+        """向 IYUU 缓存列表追加单个 hash。"""; return _append_iyuu_cache_impl(cache_list, info_hash)
 
     @staticmethod
     def _trim_seed_cache(cache_list: list):
-        return _trim_seed_cache_impl(cache_list)
+        """裁剪 IYUU 辅种缓存列表长度。"""; return _trim_seed_cache_impl(cache_list)
 
     @staticmethod
     def _custom_sites() -> list:
-        return _custom_sites_impl()
+        """返回 MoviePilot 自定义站点列表。"""; return _custom_sites_impl()
 
     def _update_iyuu_config(self, config: dict = None):
-        return _update_iyuu_config_impl(self, config)
+        """持久化 IYUU 缓存和相关配置。"""; return _update_iyuu_config_impl(self, config)
 
     # ════════════════════════════════════════════════════════════
     # v3.0.14: 按需做种校验
     # ════════════════════════════════════════════════════════════
 
     def _load_seed_recheck_queue(self):
-        return _load_seed_recheck_queue_impl(self)
+        """读取按需做种校验队列。"""; return _load_seed_recheck_queue_impl(self)
 
     def _save_seed_recheck_queue(self, queue):
-        return _save_seed_recheck_queue_impl(self, queue)
+        """保存按需做种校验队列。"""; return _save_seed_recheck_queue_impl(self, queue)
 
     def _register_seed_recheck(self, downloader, hashes, source):
-        return _register_seed_recheck_impl(self, downloader, hashes, source)
+        """登记待复查的辅种或转移任务 hash。"""; return _register_seed_recheck_impl(self, downloader, hashes, source)
 
     def _ensure_seed_recheck_worker(self):
-        return _ensure_seed_recheck_worker_impl(self)
+        """确保按需做种复查后台线程已启动。"""; return _ensure_seed_recheck_worker_impl(self)
 
     def _seed_recheck_loop(self):
-        return _seed_recheck_loop_impl(self)
+        """运行按需做种复查后台循环。"""; return _seed_recheck_loop_impl(self)
 
     def _process_seed_recheck_once(self, queue):
-        return _process_seed_recheck_once_impl(self, queue)
+        """处理一轮按需做种复查队列。"""; return _process_seed_recheck_once_impl(self, queue)
 
     @staticmethod
     def _seed_should_remove_missing(item):
-        return _seed_should_remove_missing_impl(item)
+        """判断缺失种子队列项是否应移除。"""; return _seed_should_remove_missing_impl(item)
 
     @staticmethod
     def _seed_is_checking(state, dl_type):
-        return _seed_is_checking_impl(state, dl_type)
+        """判断下载器状态是否仍在校验中。"""; return _seed_is_checking_impl(state, dl_type)
 
     @staticmethod
     def _seed_is_ready(state, dl_type):
-        return _seed_is_ready_impl(state, dl_type)
+        """判断下载器状态是否可开始做种。"""; return _seed_is_ready_impl(state, dl_type)
 
     @staticmethod
     def _seed_is_error(state, dl_type):
-        return _seed_is_error_impl(state, dl_type)
+        """判断下载器状态是否表示校验错误。"""; return _seed_is_error_impl(state, dl_type)
 
     def _seed_is_timeout(self, item):
-        return _seed_is_timeout_impl(item, self._seed_max_wait_minutes)
+        """判断复查队列项是否超过最大等待时间。"""; return _seed_is_timeout_impl(item, self._seed_max_wait_minutes)
 
 
     def stop_service(self):

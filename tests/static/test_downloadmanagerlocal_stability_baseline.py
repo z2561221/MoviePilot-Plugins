@@ -9,6 +9,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
+TRANSFER_SOURCE = PLUGIN_DIR / "service" / "transfer.py"
+RENAME_SOURCE = PLUGIN_DIR / "service" / "rename.py"
 
 
 def _fake_bdecode(content):
@@ -26,7 +28,7 @@ def _resolve_retry_original_name(plugin, torrent_hash: str, current_name: str, c
 
 
 def _load_retry_dirty_function():
-    source = (PLUGIN_DIR / "modules" / "transfer.py").read_text(encoding="utf-8")
+    source = TRANSFER_SOURCE.read_text(encoding="utf-8")
     module_ast = ast.parse(source)
     retry_func = next(
         node
@@ -51,7 +53,7 @@ def _load_retry_dirty_function():
 
 
 def _load_retry_functions():
-    source = (PLUGIN_DIR / "modules" / "transfer.py").read_text(encoding="utf-8")
+    source = TRANSFER_SOURCE.read_text(encoding="utf-8")
     module_ast = ast.parse(source)
     retry_funcs = [
         node
@@ -77,7 +79,7 @@ def _load_retry_functions():
 
 
 def _load_retry_rename_by_hash_function():
-    source = (PLUGIN_DIR / "modules" / "rename.py").read_text(encoding="utf-8")
+    source = RENAME_SOURCE.read_text(encoding="utf-8")
     module_ast = ast.parse(source)
     required_names = {
         "_get_bencoded_value",

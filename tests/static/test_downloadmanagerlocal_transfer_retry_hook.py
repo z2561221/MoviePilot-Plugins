@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[2]
-TRANSFER_SOURCE = REPO / "plugins.v2" / "downloadmanagerlocal" / "modules" / "transfer.py"
+TRANSFER_SOURCE = REPO / "plugins.v2" / "downloadmanagerlocal" / "service" / "transfer.py"
 
 
 class TransferRetryHookTest(unittest.TestCase):

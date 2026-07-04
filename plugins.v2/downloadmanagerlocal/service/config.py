@@ -10,6 +10,7 @@ from ..model.state import (
     IYUU_SUCCESS_CACHES_KEY,
 )
 from ..utils.config import safe_int
+from ..utils.tracker import parse_tracker_mappings
 
 
 def initialize_runtime_config(plugin, config: dict = None) -> dict:
@@ -22,7 +23,7 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
         "agsvpt.trackers.work -> agsvpt.com\n"
         "tracker.cinefiles.info -> audiences.me"
     )
-    plugin._tracker_mappings = plugin._parse_tracker_mappings(default_mappings)
+    plugin._tracker_mappings = parse_tracker_mappings(default_mappings)
 
     if not config:
         return config
@@ -79,7 +80,7 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
     plugin._tag_siteprefix = config.get("tag_siteprefix", "🏠")
     plugin._tag_tracker_mappings_str = config.get("tag_tracker_mappings_str", "")
     if plugin._tag_tracker_mappings_str:
-        plugin._tracker_mappings.update(plugin._parse_tracker_mappings(plugin._tag_tracker_mappings_str))
+        plugin._tracker_mappings.update(parse_tracker_mappings(plugin._tag_tracker_mappings_str))
 
     plugin._iyuu_enabled = config.get("iyuu_enabled", False)
     plugin._iyuu_cron = config.get("iyuu_cron", "")

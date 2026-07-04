@@ -17,29 +17,45 @@
 
 本轮后端重构不得修改：
 
-- `plugins.v2/downloadmanagerlocal/src/**`
+- `plugins.v2/downloadmanagerlocal/frontend/src/**`
 - `plugins.v2/downloadmanagerlocal/dist/**`
-- `plugins.v2/downloadmanagerlocal/index.html`
-- `plugins.v2/downloadmanagerlocal/vite.config.js`
-- `plugins.v2/downloadmanagerlocal/package.json`
-- `plugins.v2/downloadmanagerlocal/package-lock.json`
-- `plugins.v2/downloadmanagerlocal/pnpm-lock.yaml`
+- `plugins.v2/downloadmanagerlocal/frontend/index.html`
+- `plugins.v2/downloadmanagerlocal/frontend/vite.config.js`
+- `plugins.v2/downloadmanagerlocal/frontend/package.json`
+- `plugins.v2/downloadmanagerlocal/frontend/package-lock.json`
+- `plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml`
 
 如后端改动看起来需要 UI 配合，停止执行并报告决策缺口。
 
-## 当前入口职责
+## 当前完成状态
 
-`__init__.py` 当前仍承担较多职责：
+2026-07-04 标准化收口后，`DownloadManagerLocal` 已按 MoviePilot 插件维护规范完成后端分层与运行态闭环验收，UI 源码和可见行为保持不变。
 
-- `_PluginBase` 插件身份、版本、权限和配置前缀。
-- 运行时配置字段和默认值。
-- `init_plugin()` 读取配置、清空 IYUU 缓存、过滤站点、启动一次性任务和 scheduler。
-- `get_state()`、`get_command()`、`get_api()`、`get_service()`、`get_render_mode()`、`get_form()`、`get_page()` 等插件扩展点。
-- `TransferComplete` 事件监听与延迟转移调度。
-- 大量包装方法，把调用转发到 `api.py`、`modules/*.py` 和 `utils/*.py`。
-- `stop_service()` 停止 scheduler、设置退出事件。
+- 入口层：`__init__.py` 保持 520 行，只维护 `_PluginBase` 契约、插件身份、配置生命周期、事件注册、扩展点声明和薄委托。
+- Controller 层：`controller/api.py` 维护 API route metadata，`controller/handlers.py` 维护 handler 调度和响应 shape。
+- Service 层：`service/lifecycle.py`、`events.py`、`transfer.py`、`iyuu.py`、`rename.py`、`archive.py`、`site_tag.py`、`diagnostics.py`、`recheck.py` 等模块承载业务编排。
+- Adapter 层：`adapter/moviepilot.py` 集中访问 MoviePilot 下载器、站点、系统配置、HTTP、TorrentHelper、下载历史和外部链接能力。
+- Model 层：`model/state.py` 集中维护持久化 key、IYUU 动态 key helper 和 dict 数据读写 helper，保持旧 key 后向兼容。
+- Utils 层：只保留无业务状态的解析、脱敏、路径、tracker、种子字段适配等小工具。
+- `modules/`：保留为兼容 shim；AST 扫描显示 `modules/*.py` 顶层 class/function 定义数均为 0，不再承载业务决策。
+- 文档质量：public class/function/method 中文 docstring 缺口为 0；本轮新增或改动的 private helper 中文 docstring 缺口为 0。
 
-目标方向是让 `__init__.py` 只保留插件契约、生命周期和薄委托；业务逻辑归入 controller/service/adapter/model 或现有 modules 的明确边界。
+## 2026-07-04 完整插件标准完成证据
+
+完成证据以执行账本为准：
+
+- 计划：`docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md`
+- 账本：`docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-progress.json`
+- `tests/static/test_downloadmanagerlocal_standard_completion.py`：最终标准断言通过。
+- 全量 `tests/static/test_downloadmanagerlocal_*.py`：62 passed。
+- `compileall -q plugins.v2/downloadmanagerlocal`：exit 0。
+- `git diff --check`：exit 0。
+- no-UI gate：空输出，证明 `frontend/src/**`、`frontend/index.html`、`frontend/vite.config.js`、前端 package/lock 文件未被本轮重构改变。
+- MP 本地仓库同步成功；运行态 history 显示 `plugin_version=3.2.4` 且 history 包含 `v3.2.4`。
+- `/api/v1/plugin/remotes?token=moviepilot` 包含 `/plugin/file/downloadmanagerlocal/dist/assets/remoteEntry.js`。
+- `/api/v1/plugin/form/DownloadManagerLocal` 返回 `render_mode=vue`。
+- `/api/v1/plugin/DownloadManagerLocal/overview` 返回有效数据。
+- 重载后 `moviepilot.log` 追加片段中 DownloadManagerLocal 相关 `ERROR`、`Traceback`、`Exception` 数量为 0。
 
 ## API 路由契约
 
@@ -91,14 +107,18 @@
 
 ## 后端模块边界
 
-- `api.py`：当前 API handler 和响应 shape。后续应迁入 `controller/api.py` 或保留兼容 shim。
-- `modules/transfer.py`：配置校验、种子下载、转移主流程、转移后处理、兜底扫描、补刀入口。
-- `modules/iyuu.py`：IYUU 下载器选择、辅种扫描、IYUU 查询、下载链接解析、种子下载、缓存更新。
-- `modules/rename.py`：重命名模板、原始发布名候选、下载历史候选、补刀、单 hash 补刀、IYUU 母种记录复用。
-- `modules/rename_archive.py`：失败分类、连续失败归档、恢复、删除、列表和统计。
-- `modules/recheck.py`：做种校验队列、后台线程、状态判断和超时判断。
-- `modules/site_tag.py`：tracker 域名解析和站点标签写入。
-- `modules/diagnostics.py`：诊断数据构建。
+- `controller/api.py`：API route metadata，保持 path/method/auth/summary 与 Vue 前端契约一致。
+- `controller/handlers.py`：API handler 与响应 shape，不写核心业务编排。
+- `service/lifecycle.py`：配置初始化、一次性任务和 scheduler 生命周期编排。
+- `service/events.py`：`TransferComplete` 事件过滤、延迟计算和 date job 注册。
+- `service/transfer.py`：转移做种主流程、兜底扫描、转移后处理和补刀入口。
+- `service/iyuu.py`：IYUU 下载器选择、辅种扫描、查询、下载链接解析、种子下载、缓存更新和后处理。
+- `service/rename.py`：重命名模板、原始发布名候选、下载历史候选、补刀和单 hash 补刀。
+- `service/archive.py`：失败分类、连续失败归档、恢复、删除、列表和统计。
+- `service/recheck.py`：做种校验队列、后台线程、状态判断和超时判断。
+- `service/site_tag.py`：tracker 域名解析和站点标签写入。
+- `service/diagnostics.py`：诊断数据构建。
+- `modules/*.py`：兼容 shim，只重导出 service 实现；不得新增业务判断。
 - `utils/config.py`：启用状态、安全整数、转移/IYUU 活跃判定。
 - `utils/torrent_adapter.py`：qBittorrent 和 Transmission 的 hash、标签、分类、保存路径和大小适配。
 - `utils/name_cleaner.py`：发布名清洗、污染名检测和补刀 hash 收集。
@@ -214,7 +234,7 @@ $env:MOVIEPILOT_BACKEND_PATH='D:\AIGC\MoviePilot\tmp\MoviePilot-core-v2'
 no-UI gate：
 
 ```powershell
-git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml
+git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend plugins.v2/downloadmanagerlocal/dist
 ```
 
 该命令必须输出为空。
@@ -234,28 +254,20 @@ git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadm
 - IYUU 下载链接和日志脱敏涉及外部站点差异，不能用真实网络调用做单测。
 - 做种校验后台线程需要保持退出事件和锁语义，否则可能导致重复 worker 或无法停止。
 
-## 2026-07-03 后端重构收尾状态
+## 2026-07-04 标准化收口记录
 
-本轮后端重构已完成 Phase 1-5.1，并进入最终上下文记录阶段。当前边界如下：
+本轮已经完成从“后端拆层历史基线”到“完整插件标准闭环”的收口：
 
-- `__init__.py`：保留插件身份、运行时字段、生命周期、事件监听、扩展点声明和兼容包装方法；业务入口通过 `controller/` 与 `service/` 委托。
-- `controller/api.py`：集中维护 API route metadata，保持 path/method/auth/summary 不变。
-- `controller/handlers.py`：集中维护 API handler 与响应 shape。
-- `model/state.py`：集中维护持久化 key、IYUU 动态 key helper 和 dict 数据读写 helper；旧 key 名保持不变，不需要迁移。
-- `adapter/moviepilot.py`：集中访问 MoviePilot 下载器、站点、系统配置、HTTP、TorrentHelper、下载历史、随机标签和 URL 域名工具。
-- `service/config.py`、`service/scheduler.py`：分别维护运行时配置初始化和 scheduler service 构造。
-- `service/archive.py`、`service/diagnostics.py`、`service/iyuu.py`、`service/recheck.py`、`service/rename.py`、`service/site_tag.py`、`service/transfer.py`：作为服务 facade，入口层从这些文件导入；当前实现仍兼容委托到 `modules/*`。
-- `service/boundaries.py`：记录服务 owner、legacy module 和保留的跨模块依赖例外。
-
-保留的 legacy 例外：
-
-- `modules/transfer.py -> modules/rename.py`：转移后补刀复用重命名候选解析，留到后续物理迁移时再消除。
-- `modules/rename.py -> modules/site_tag.py`：补刀成功后复用站点标签写入，保留动态导入避免旧模块初始化环。
+- Win 本地仓库：`worldlinefix/downloadmanagerlocal` 分支完成分层、docstring、静态守护和上下文更新。
+- MP 本地仓库：已通过 `scripts/sync_to_mp_local.py --plugin DownloadManagerLocal` 同步。
+- 运行态 MoviePilot：已从 MP 运行态本地仓库路径 `/vol1/1000/docker/moviepilot-v2/config/local plugins` force install，并显式 reload。
+- 版本：源码 `plugin_version`、MP 本地 `package.v2.json`、运行态 history 均指向 `3.2.4`；history 含 `v3.2.4`。
+- UI：未修改前端源码、前端配置或依赖；Vue federation 仍通过 `dist/assets/remoteEntry.js` 加载。
 
 最终验证命令：
 
 ```powershell
-& 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m compileall plugins.v2/downloadmanagerlocal
+& 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m compileall -q plugins.v2/downloadmanagerlocal
 ```
 
 ```powershell
@@ -265,19 +277,22 @@ $tests = Get-ChildItem tests/static -Filter 'test_downloadmanagerlocal_*.py' | F
 
 ```powershell
 git diff --check
-git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml
+git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml
 ```
 
 最新验证结果：
 
-- `compileall`：exit 0。
-- 全量 DownloadManagerLocal static tests：`52 passed`。
+- `compileall -q`：exit 0。
+- 全量 DownloadManagerLocal static tests：`62 passed`。
 - `git diff --check`：exit 0。
 - no-UI gate：空输出。
+- MP runtime history：`plugin_version=3.2.4`，history 包含 `v3.2.4`。
+- MP runtime remotes：包含 `/plugin/file/downloadmanagerlocal/dist/assets/remoteEntry.js`。
+- MP runtime form：`render_mode=vue`。
+- MP runtime overview：返回有效数据。
+- reload 后日志：DownloadManagerLocal 相关 `ERROR`、`Traceback`、`Exception` 数量为 0。
 
 残余风险：
 
-- 本轮只做 Win 本地仓库静态/编译验证，尚未同步到 MP 本地仓库安装重载，也未做运行时 API/页面验收。
-- 本轮未改 UI、未改 `dist/`、未改版本元数据、未发布；发布前必须重新跑完整回归并由用户确认 release/merge。
-- `service/*` 目前是 facade，`modules/*` 仍是主要实现层；后续若做物理迁移，需要逐项消除 `service/boundaries.py` 中记录的 legacy 例外。
-- IYUU 外部站点下载链路仍主要靠静态回归和编译保护，未进行真实网络调用测试。
+- 未 push 到 Git 在线仓库，未合入 `main`，未发布 Release；这些动作必须由用户明确确认后才能执行。
+- IYUU 外部站点真实网络链路未做生产站点实测，本轮以静态回归、编译、服务边界测试和运行态 API 验收保护。
