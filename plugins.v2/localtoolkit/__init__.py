@@ -2,9 +2,11 @@ from typing import Any, Dict, List
 from app.plugins import _PluginBase
 from app.log import logger
 from app.schemas.types import NotificationType
-from .modules import TmdbCacheModule, CheckMissingModule, LibraryCleanupModule
+from .service.lifecycle import build_services, initialize_plugin, stop_plugin_service
 
 class LocalToolkit(_PluginBase):
+    """工具中心插件入口，负责声明 MoviePilot 契约并委托服务层执行。"""
+
     plugin_name = "工具中心"
     plugin_display_name = "工具中心"
     plugin_desc = "整合清理库存、扫描缺集、清理TMDB的本地维护工具中心。"
@@ -21,55 +23,23 @@ class LocalToolkit(_PluginBase):
     _config: Dict[str, Any] = {}
 
     def init_plugin(self, config: dict = None):
-        self._config = self.__merge_default(config or {})
-        self._enabled = bool(self._config.get('enabled', False))
-        self.tmdb_cache = TmdbCacheModule(self); self.tmdb_cache.load_config(self._config.get('tmdb_cache', {}))
-        self.check_missing = CheckMissingModule(self); self.check_missing.load_config(self._config.get('check_missing', {}))
-        self.library_cleanup = LibraryCleanupModule(self); self.library_cleanup.load_config(self._config.get('library_cleanup', {}))
-        if config is None or not config.get('migration_done'):
-            self.__migrate_old_configs()
+        """初始化插件配置与运行状态。"""
+        initialize_plugin(self, config)
 
-    def __merge_default(self, config):
-        d = self.__default_config()
-        for k,v in (config or {}).items():
-            if isinstance(v, dict) and isinstance(d.get(k), dict): d[k].update(v)
-            else: d[k]=v
-        return d
+    def get_state(self):
+        """返回工具中心启用状态。"""
+        return self._enabled
 
-    def __default_config(self):
-        return {
-            'enabled': False, 'migration_done': False,
-            'tmdb_cache': TmdbCacheModule(self).get_default_config(),
-            'check_missing': CheckMissingModule(self).get_default_config(),
-            'library_cleanup': LibraryCleanupModule(self).get_default_config(),
-        }
+    def get_render_mode(self):
+        """声明工具中心使用 Vue 联邦组件渲染。"""
+        return 'vue', 'dist/assets'
 
-    def __migrate_old_configs(self):
-        try:
-            from app.core.plugin import PluginManager
-            pm=PluginManager()
-            mapping={'ClearTmdbCache':'tmdb_cache','CheckMissing':'check_missing','LibraryCleanup':'library_cleanup'}
-            changed=False
-            for pid,key in mapping.items():
-                old=pm.get_plugin_config(pid) or {}
-                if old:
-                    self._config[key].update({k:v for k,v in old.items() if k in self._config[key]})
-                    changed=True
-            self._config['migration_done']=True
-            self.update_config(self._config)
-            if changed:
-                logger.info('本地工具集：已导入旧插件配置')
-        except Exception as e:
-            logger.warning(f'本地工具集：旧配置迁移失败：{e}')
-
-    def get_state(self): return self._enabled
-    def get_render_mode(self): return 'vue', 'dist/assets'
     def get_service(self):
-        # 只有清库存允许周期运行；查漏集和清 TMDB 缓存始终按需单次运行。
-        if not self._enabled:
-            return []
-        return self.library_cleanup.get_service()
+        """返回工具中心后台服务列表。"""
+        return build_services(self)
+
     def get_api(self):
+        """返回工具中心 API 路由声明。"""
         return [
             {'path':'/local_toolkit/status','endpoint':self.api_status,'auth':'bear','methods':['GET'],'summary':'本地工具中心状态'},
             {'path':'/local_toolkit/run/{module}','endpoint':self.api_run,'auth':'bear','methods':['POST'],'summary':'运行本地工具模块'},
@@ -151,13 +121,16 @@ class LocalToolkit(_PluginBase):
         return {'success': True, 'message': '缓存已清除'}
 
     def get_form(self):
+        """返回 Vue 模式下的兜底配置表单。"""
         return [{"component":"VForm","content":[
             {"component":"VAlert","props":{"type":"info","variant":"tonal","text":"本地工具中心整合清库存、查漏集、清 TMDB 缓存。配置页建议使用 Vue 页面，旧表单仅保底。"}},
             {"component":"VSwitch","props":{"model":"enabled","label":"启用本地工具中心"}}
         ]}], self._config
 
     def get_page(self):
+        """返回 Vue 模式下的详情页占位 schema。"""
         return []
 
     def stop_service(self):
-        pass
+        """停止工具中心后台服务。"""
+        stop_plugin_service(self)
