@@ -1,9 +1,9 @@
 {
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
-    "phase": "phase-5",
-    "task": "5.2",
-    "next_allowed_action": "Run task 5.2; run frontend build and verify remoteEntry asset references without changing UI source"
+    "phase": "phase-6",
+    "task": "6.1",
+    "next_allowed_action": "Run task 6.1; sync to MP local repository after dry-run verification"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -459,7 +459,7 @@
     {
       "id": "phase-5",
       "goal": "Verify the Vue federation frontend remains standard and unchanged in user experience.",
-      "status": "in_progress",
+      "status": "completed",
       "acceptance": [
         "Frontend source and visible behavior remain unchanged.",
         "Federation assets are buildable and internally consistent."
@@ -508,8 +508,45 @@
         {
           "id": "5.2",
           "title": "Run frontend build and asset reference check",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "pnpm build",
+              "result": "red environment run: failed because node was not on PATH ('node' is not recognized)"
+            },
+            {
+              "command": "PATH=<bundled node/bin; bundled bin> pnpm build",
+              "result": "exited 0; Vite transformed 58 modules and built dist/assets/remoteEntry.js"
+            },
+            {
+              "command": "remoteEntry reference check",
+              "result": "remoteEntry exists; referenced JS/CSS assets all exist; missing: none"
+            },
+            {
+              "command": "git diff --name-status -- plugins.v2/downloadmanagerlocal/dist",
+              "result": "no output; build did not change tracked dist assets"
+            },
+            {
+              "command": "python -m compileall -q plugins.v2/downloadmanagerlocal",
+              "result": "exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "62 passed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exited 0"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml",
+              "result": "no output"
+            },
+            {
+              "command": "git status --short --branch",
+              "result": "clean working tree on worldlinefix/downloadmanagerlocal"
+            }
+          ],
           "commit": null
         }
       ]
@@ -517,7 +554,7 @@
     {
       "id": "phase-6",
       "goal": "Sync to the MP local repository, reinstall/reload, and prove runtime state.",
-      "status": "pending",
+      "status": "in_progress",
       "acceptance": [
         "Win local repository, MP local repository, and running MoviePilot all reflect the completed standard refactor.",
         "No push, merge, release, or restart was performed."
@@ -603,6 +640,11 @@
       "task": "5.1",
       "action": "Verified the Vue federation frontend source contract without editing UI files, including component entry files, injected API helper usage, Vite exposes, and backend render mode.",
       "evidence": "Config.vue/Page.vue/components/api.js/remoteEntry.js exist; token/fallback/direct HTTP grep produced no output; Vite exposes ./Config and ./Page; get_render_mode returns vue dist/assets; full static suite 62 passed; compileall -q exited 0; UI gate no output"
+    },
+    {
+      "task": "5.2",
+      "action": "Ran the frontend federation build with bundled Node after the initial PATH-only run exposed missing node, then verified remoteEntry references and confirmed tracked dist assets did not change.",
+      "evidence": "plain pnpm build failed with node not recognized; bundled PATH pnpm build exited 0; remoteEntry reference check missing none; git diff --name-status dist no output; full static suite 62 passed; compileall -q exited 0; UI gate no output"
     }
   ]
 }
