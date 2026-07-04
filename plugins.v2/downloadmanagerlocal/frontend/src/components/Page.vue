@@ -217,7 +217,7 @@ onMounted(loadHistory)
 
     <div class="dm-layout">
       <nav class="dm-side">
-        <VList density="compact" nav class="py-2">
+        <VList density="compact" nav class="dm-side-list py-2">
           <VListItem v-for="tab in tabs" :key="tab.key" :active="activeTab === tab.key" color="primary" rounded="lg" class="dm-side-item" @click="selectTab(tab.key)">
             <template #prepend><VIcon :icon="tab.icon" /></template>
             <VListItemTitle>{{ tab.title }}</VListItemTitle>
@@ -242,7 +242,8 @@ onMounted(loadHistory)
             <VIcon icon="mdi-history" size="48" color="grey-lighten-1" class="mb-2" />
             <div>暂无命名记录</div>
           </div>
-          <VTable v-else density="compact" class="dm-table">
+          <div v-else class="dm-table-scroll">
+            <VTable density="compact" class="dm-table">
             <thead>
               <tr>
                 <th class="text-caption">时间</th>
@@ -267,7 +268,8 @@ onMounted(loadHistory)
                 </td>
               </tr>
             </tbody>
-          </VTable>
+            </VTable>
+          </div>
           <div v-if="total > pageSize" class="d-flex align-center justify-center pa-3">
             <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" :disabled="page <= 1" @click="prevPage" class="mr-2" />
             <span class="text-caption mx-1">{{ page }} / {{ totalPages }}（共 {{ total }} 条）</span>
@@ -281,7 +283,8 @@ onMounted(loadHistory)
             <VIcon icon="mdi-archive-outline" size="48" color="grey-lighten-1" class="mb-2" />
             <div>暂无归档记录</div>
           </div>
-          <VTable v-else density="compact" class="dm-table">
+          <div v-else class="dm-table-scroll">
+            <VTable density="compact" class="dm-table">
             <thead>
               <tr>
                 <th class="text-caption">归档时间</th>
@@ -307,7 +310,8 @@ onMounted(loadHistory)
                 </td>
               </tr>
             </tbody>
-          </VTable>
+            </VTable>
+          </div>
           <div v-if="archiveTotal > pageSize" class="d-flex align-center justify-center pa-3">
             <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" :disabled="archivePage <= 1" @click="prevArchivePage" class="mr-2" />
             <span class="text-caption mx-1">{{ archivePage }} / {{ archiveTotalPages }}（共 {{ archiveTotal }} 条）</span>
@@ -352,7 +356,8 @@ onMounted(loadHistory)
             <div>
               <div class="text-subtitle-2 mb-2">最近失败</div>
               <div v-if="!diagnostics?.rename_history?.recent_failures?.length" class="text-caption text-medium-emphasis py-2">暂无失败记录</div>
-              <VTable v-else density="compact" class="dm-table">
+              <div v-else class="dm-table-scroll">
+                <VTable density="compact" class="dm-table">
                 <thead>
                   <tr>
                     <th class="text-caption">时间</th>
@@ -367,7 +372,8 @@ onMounted(loadHistory)
                     <td class="text-caption">{{ item.reason }}</td>
                   </tr>
                 </tbody>
-              </VTable>
+                </VTable>
+              </div>
             </div>
           </div>
           <div v-else class="dm-state text-center text-medium-emphasis">
@@ -382,18 +388,21 @@ onMounted(loadHistory)
 
 <style scoped>
 .dm-page {
-  height: clamp(620px, calc(100vh - 120px), 780px);
+  height: clamp(760px, calc(100dvh - 48px), 860px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 .dm-toolbar { position: sticky; top: 0; z-index: 10; background: rgb(var(--v-theme-surface)); }
 .dm-layout { flex: 1 1 auto; min-height: 0; display: flex; }
-.dm-side { width: 150px; flex: 0 0 150px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), 0.02); }
+.dm-side { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), 0.02); }
+.dm-side-list { width: 100%; }
 .dm-side-item { margin: 2px 8px; }
 .dm-main { flex: 1 1 auto; min-width: 0; min-height: 0; padding: 12px; overflow-y: auto; }
 .dm-pane { min-width: 0; min-height: 100%; }
 .dm-state { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.dm-table-scroll { width: 100%; overflow-x: auto; overflow-y: hidden; }
+.dm-table { min-width: 720px; }
 .dm-table :deep(th) { font-weight: 600 !important; }
 .dm-ellipsis { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dm-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -402,9 +411,34 @@ onMounted(loadHistory)
 .dm-check-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .dm-check-row:last-child { border-bottom: none; }
 @media (max-width: 760px) {
-  .dm-page { height: min(760px, calc(100dvh - 24px)); }
+  .dm-page { height: min(860px, calc(100dvh - 16px)); }
   .dm-layout { flex-direction: column; }
-  .dm-side { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+  .dm-side {
+    width: 100%;
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .dm-side::-webkit-scrollbar { display: none; }
+  .dm-side-list {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    min-width: max-content;
+    padding: 8px 12px !important;
+  }
+  .dm-side-item {
+    flex: 0 0 auto;
+    min-width: 96px;
+    margin: 0;
+    padding-inline: 10px;
+  }
+  .dm-side-item :deep(.v-list-item-title) { white-space: nowrap; }
+  .dm-main { padding: 10px; }
   .dm-stat-grid { grid-template-columns: 1fr; }
+  .dm-check-row { align-items: flex-start; flex-direction: column; gap: 6px; }
 }
 </style>

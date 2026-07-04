@@ -519,7 +519,7 @@ function selectMain(key) {
 }
 .dm-card {
   width: 100%;
-  height: clamp(620px, calc(100vh - 96px), 760px);
+  height: clamp(760px, calc(100dvh - 48px), 860px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -561,7 +561,7 @@ function selectMain(key) {
 .dm-actions { padding: 10px 18px; }
 @media (max-width: 760px) {
   .dm-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
-  .dm-card { height: min(760px, calc(100dvh - 24px)); }
+  .dm-card { height: min(860px, calc(100dvh - 16px)); }
   .dm-header :deep(.v-card-subtitle) { max-width: 100%; }
   .dm-body { flex-direction: column; }
   .dm-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
@@ -575,7 +575,7 @@ function selectMain(key) {
   .dm-stat-grid, .dm-overview-grid { grid-template-columns: 1fr; }
   .dm-window--overview { overflow-y: auto; }
 }
-@media (max-height: 620px) {
+@media (max-height: 760px) {
   .dm-window--overview { overflow-y: auto; }
 }
 </style>
