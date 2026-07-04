@@ -22,7 +22,7 @@ class DownloadManagerLocalDiagnosticsTest(unittest.TestCase):
 
     def test_plugin_exposes_diagnostics_wrapper(self) -> None:
         init_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
-        diagnostics_source = (PLUGIN_DIR / "modules" / "diagnostics.py").read_text(
+        diagnostics_source = (PLUGIN_DIR / "service" / "diagnostics.py").read_text(
             encoding="utf-8"
         )
 

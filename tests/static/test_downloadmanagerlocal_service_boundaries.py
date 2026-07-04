@@ -61,5 +61,7 @@ def test_downloadmanagerlocal_service_boundary_inventory_documents_legacy_module
         assert item["legacy_module"] == f"modules/{item['legacy_name']}.py"
         assert item["owner"]
 
-    assert "modules/transfer.py -> modules/rename.py" in boundaries.LEGACY_MODULE_EXCEPTIONS
-    assert "modules/rename.py -> modules/site_tag.py" in boundaries.LEGACY_MODULE_EXCEPTIONS
+    assert boundaries.LEGACY_MODULE_EXCEPTIONS == {}
+    assert set(boundaries.LEGACY_MODULE_COMPATIBILITY_SHIMS) == {
+        item["legacy_module"] for item in boundaries.SERVICE_BOUNDARIES.values()
+    }

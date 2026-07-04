@@ -2,25 +2,178 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any
 
 from app.log import logger
 
-from ..modules.recheck import (
-    ensure_seed_recheck_worker,
-    load_seed_recheck_queue,
-    process_seed_recheck_once,
-    register_seed_recheck,
-    save_seed_recheck_queue,
-    seed_is_checking,
-    seed_is_error,
-    seed_is_ready,
-    seed_is_timeout,
-    seed_recheck_loop,
-    seed_should_remove_missing,
-)
 from ..adapter.moviepilot import get_downloader_service
+from ..model.state import SEED_RECHECK_QUEUE_KEY
 from ..utils.torrent_adapter import get_hash, get_label
+
+
+def load_seed_recheck_queue(plugin):
+    """读取持久化做种校验队列。"""
+    return plugin.get_data(SEED_RECHECK_QUEUE_KEY) or {}
+
+
+def save_seed_recheck_queue(plugin, queue):
+    """保存持久化做种校验队列。"""
+    plugin.save_data(SEED_RECHECK_QUEUE_KEY, queue)
+
+
+def register_seed_recheck(plugin, downloader, hashes, source):
+    """注册一批待校验完成后自动开始做种的任务。"""
+    if not hashes:
+        return
+    queue = load_seed_recheck_queue(plugin)
+    for hash_text in hashes:
+        existing = queue.get(hash_text, {})
+        queue[hash_text] = {
+            "hash": hash_text,
+            "downloader": downloader,
+            "source": source,
+            "created_at": existing.get("created_at") or time.time(),
+            "updated_at": time.time(),
+            "attempts": existing.get("attempts", 0),
+            "last_check": existing.get("last_check", 0),
+            "max_wait_minutes": plugin._seed_max_wait_minutes,
+        }
+    save_seed_recheck_queue(plugin, queue)
+    logger.info(f"做种校验：注册 {len(hashes)} 个待校验任务，来源={source}，下载器={downloader}")
+    ensure_seed_recheck_worker(plugin)
+
+
+def ensure_seed_recheck_worker(plugin):
+    """确保按需做种校验 worker 已启动。"""
+    with plugin._seed_recheck_lock:
+        if plugin._seed_recheck_running:
+            return
+        plugin._seed_recheck_running = True
+    thread = threading.Thread(
+        target=seed_recheck_loop,
+        args=(plugin,),
+        name="DownloadManagerSeedRecheck",
+        daemon=True,
+    )
+    thread.start()
+    logger.info("做种校验：按需 worker 已启动")
+
+
+def seed_recheck_loop(plugin):
+    """持续处理做种校验队列，直到队列清空或插件停用。"""
+    try:
+        while plugin._enabled:
+            queue = load_seed_recheck_queue(plugin)
+            if not queue:
+                logger.info("做种校验：队列已清空，worker 退出")
+                break
+            changed = process_seed_recheck_once(plugin, queue)
+            if changed:
+                save_seed_recheck_queue(plugin, queue)
+            time.sleep(plugin._seed_check_interval)
+    finally:
+        with plugin._seed_recheck_lock:
+            plugin._seed_recheck_running = False
+
+
+def process_seed_recheck_once(plugin, queue):
+    """处理一次做种校验队列并返回队列是否发生变化。"""
+    changed = False
+    grouped = {}
+    for hash_text, item in queue.items():
+        downloader_name = item.get("downloader", "")
+        grouped.setdefault(downloader_name, []).append(item)
+    for downloader_name, items in grouped.items():
+        service = plugin.service_info(downloader_name)
+        if not service:
+            continue
+        downloader = service.instance
+        downloader_type = service.type
+        hashes = [item["hash"] for item in items]
+        try:
+            torrents, _ = downloader.get_torrents(ids=hashes)
+        except Exception as exc:
+            logger.error(f"做种校验：查询下载器 {downloader_name} 失败: {exc}")
+            continue
+        if not torrents:
+            continue
+        task_map = {}
+        for torrent in torrents:
+            hash_text = plugin.get_hash(torrent, downloader_type)
+            if hash_text:
+                task_map[hash_text] = torrent
+        for item in items:
+            hash_text = item["hash"]
+            task = task_map.get(hash_text)
+            if not task:
+                if seed_should_remove_missing(item):
+                    queue.pop(hash_text, None)
+                    changed = True
+                    logger.info(f"做种校验：{hash_text} 在下载器中未找到，已移出队列")
+                continue
+            state = task.get("state") if downloader_type == "qbittorrent" else task.status
+            if seed_is_checking(state, downloader_type):
+                continue
+            if seed_is_ready(state, downloader_type, task):
+                try:
+                    downloader.start_torrents(ids=[hash_text])
+                    logger.info(f"做种校验：{hash_text} 校验完成，已自动开始做种，来源={item.get('source')}")
+                    queue.pop(hash_text, None)
+                    changed = True
+                except Exception as exc:
+                    logger.error(f"做种校验：{hash_text} 开始做种失败: {exc}")
+                continue
+            if seed_is_error(state, downloader_type):
+                item["attempts"] = item.get("attempts", 0) + 1
+                if item["attempts"] >= 5:
+                    queue.pop(hash_text, None)
+                    changed = True
+                    logger.info(f"做种校验：{hash_text} 多次错误，已移出队列")
+                continue
+            if seed_is_timeout(item, plugin._seed_max_wait_minutes):
+                queue.pop(hash_text, None)
+                changed = True
+                logger.info(f"做种校验：{hash_text} 等待超时（{plugin._seed_max_wait_minutes}分钟），已移出队列")
+                continue
+            item["last_check"] = time.time()
+            changed = True
+    return changed
+
+
+def seed_should_remove_missing(item):
+    """判断下载器缺失任务是否应从校验队列移除。"""
+    elapsed = (time.time() - item.get("created_at", 0)) / 60
+    return elapsed > max(item.get("max_wait_minutes", 120), 30)
+
+
+def seed_is_checking(state, downloader_type):
+    """判断种子是否仍处于校验或移动等不可开始状态。"""
+    if downloader_type == "qbittorrent":
+        return state in ["checkingUP", "checkingDL", "checkingResumeData", "checking", "queuedUP", "queuedDL", "moving"]
+    return hasattr(state, "checking") and state.checking
+
+
+def seed_is_ready(state, downloader_type, torrent=None):
+    """判断种子是否已校验完成并可开始做种。"""
+    if downloader_type == "qbittorrent":
+        return state in ["pausedUP", "stoppedUP", "completed"]
+    percent_done = getattr(torrent, "percent_done", getattr(state, "percent_done", 0))
+    return hasattr(state, "stopped") and state.stopped and percent_done == 1
+
+
+def seed_is_error(state, downloader_type):
+    """判断种子是否处于需要计入失败次数的错误状态。"""
+    if downloader_type == "qbittorrent":
+        return state in ["missingFiles", "error", "unknown"]
+    return False
+
+
+def seed_is_timeout(item, max_wait_minutes):
+    """判断校验任务是否已超过最大等待时间。"""
+    elapsed = (time.time() - item.get("created_at", 0)) / 60
+    return elapsed > item.get("max_wait_minutes", max_wait_minutes)
 
 
 def run_recheck_cycle(plugin) -> None:

@@ -45,7 +45,9 @@ SERVICE_BOUNDARIES = {
     },
 }
 
-LEGACY_MODULE_EXCEPTIONS = {
-    "modules/transfer.py -> modules/rename.py": "转移后补刀会复用重命名候选解析；保留到物理迁移阶段再消除。",
-    "modules/rename.py -> modules/site_tag.py": "重命名补刀成功后复用站点标签写入；保留动态导入避免旧模块初始化环。",
+LEGACY_MODULE_EXCEPTIONS = {}
+
+LEGACY_MODULE_COMPATIBILITY_SHIMS = {
+    item["legacy_module"]: item["service"]
+    for item in SERVICE_BOUNDARIES.values()
 }
