@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
     "phase": "phase-6",
-    "task": "6.1",
-    "next_allowed_action": "Run task 6.1; sync to MP local repository after dry-run verification"
+    "task": "6.2",
+    "next_allowed_action": "Run task 6.2; install/reload from MP local repository and validate runtime APIs"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -563,8 +563,41 @@
         {
           "id": "6.1",
           "title": "Sync to MP local repository",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall -q plugins.v2/downloadmanagerlocal",
+              "result": "exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "62 passed"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml",
+              "result": "no output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exited 0"
+            },
+            {
+              "command": "python scripts/sync_to_mp_local.py --plugin DownloadManagerLocal --dry-run",
+              "result": "dry-run listed only plugin:DownloadManagerLocal, icon:download.png, and package:DownloadManagerLocal"
+            },
+            {
+              "command": "python scripts/sync_to_mp_local.py --plugin DownloadManagerLocal",
+              "result": "exited 0; synced plugin:DownloadManagerLocal, icon:download.png, package:DownloadManagerLocal"
+            },
+            {
+              "command": "MP local file layout check",
+              "result": "frontend exists; dist/assets/remoteEntry.js exists; stale root src/vite.config.js/index.html/package.json none"
+            },
+            {
+              "command": "MP local package/plugin metadata check",
+              "result": "package_version=3.2.4; plugin_version=3.2.4; history_has_v=True; render_mode=('vue', 'dist/assets')"
+            }
+          ],
           "commit": null
         },
         {
@@ -645,6 +678,11 @@
       "task": "5.2",
       "action": "Ran the frontend federation build with bundled Node after the initial PATH-only run exposed missing node, then verified remoteEntry references and confirmed tracked dist assets did not change.",
       "evidence": "plain pnpm build failed with node not recognized; bundled PATH pnpm build exited 0; remoteEntry reference check missing none; git diff --name-status dist no output; full static suite 62 passed; compileall -q exited 0; UI gate no output"
+    },
+    {
+      "task": "6.1",
+      "action": "Synced DownloadManagerLocal from the Win local repository into the MP local plugin repository after dry-run verification, then checked local plugin layout and metadata.",
+      "evidence": "dry-run listed only plugin/icon/package for DownloadManagerLocal; actual sync exited 0; MP local frontend exists; dist/assets/remoteEntry.js exists; stale root frontend files none; package_version=3.2.4; plugin_version=3.2.4; history has v3.2.4; render_mode vue dist/assets"
     }
   ]
 }
