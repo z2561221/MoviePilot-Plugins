@@ -17,6 +17,12 @@ ENTRYPOINT_BUSINESS_METHODS = {
     "on_transfer_complete",
 }
 
+RECHECK_ENTRYPOINT_METHODS = {
+    "check_recheck",
+    "_sweep_paused_seed_tasks",
+    "__can_seeding",
+}
+
 
 def _plugin_python_files() -> list[Path]:
     """返回插件包内需要参与标准审计的 Python 文件。"""
@@ -75,6 +81,32 @@ def _heavy_entrypoint_methods() -> list[str]:
     return sorted(heavy)
 
 
+def _thin_delegate_gaps(method_names: set[str]) -> list[str]:
+    """列出不是单行服务委托形态的入口方法。"""
+    module = _parse(ENTRYPOINT)
+    gaps: list[str] = []
+    for node in ast.walk(module):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name not in method_names:
+            continue
+        body = list(node.body)
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+            body = body[1:]
+        if len(body) != 1:
+            gaps.append(f"{ENTRYPOINT.relative_to(REPO).as_posix()}:{node.lineno}:{node.name}")
+            continue
+        statement = body[0]
+        call = None
+        if isinstance(statement, ast.Return):
+            call = statement.value
+        elif isinstance(statement, ast.Expr):
+            call = statement.value
+        if not isinstance(call, ast.Call):
+            gaps.append(f"{ENTRYPOINT.relative_to(REPO).as_posix()}:{node.lineno}:{node.name}")
+    return sorted(gaps)
+
+
 def _module_business_files() -> list[str]:
     """列出仍在 modules 层定义业务函数或类的文件。"""
     business_files: list[str] = []
@@ -98,6 +130,11 @@ def test_downloadmanagerlocal_standard_completion_baseline_gaps_are_visible():
     assert _public_docstring_gaps()
     assert _heavy_entrypoint_methods()
     assert _module_business_files()
+
+
+def test_downloadmanagerlocal_recheck_entrypoint_is_thin():
+    """做种校验运行时逻辑必须由 service/recheck 持有，入口层只做薄委托。"""
+    assert _thin_delegate_gaps(RECHECK_ENTRYPOINT_METHODS) == []
 
 
 @pytest.mark.xfail(reason="standard completion is implemented by the phased ledger", strict=True)

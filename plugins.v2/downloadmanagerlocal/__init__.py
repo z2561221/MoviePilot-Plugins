@@ -30,7 +30,7 @@ from .service.rename import rename_torrent as _rename_torrent_impl, format_torre
 from .service.archive import record_rename_failure as _record_rename_failure_impl, clear_rename_retry_state as _clear_rename_retry_state_impl, is_rename_archived as _is_rename_archived_impl, list_rename_archive as _list_rename_archive_impl, restore_rename_archive as _restore_rename_archive_impl, delete_rename_archive as _delete_rename_archive_impl, rename_archive_stats as _rename_archive_stats_impl
 from .service.diagnostics import build_diagnostics as _build_diagnostics_impl
 from .service.site_tag import tag_torrent as _tag_torrent_impl, find_site_by_domain as _find_site_by_domain_impl
-from .service.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl
+from .service.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl, run_recheck_cycle as _check_recheck_impl, sweep_paused_seed_tasks as _sweep_paused_seed_tasks_impl, can_seed_paused_torrent as _can_seeding_impl
 from .service.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl, retry_pending_renames as _retry_pending_renames_impl
 from .service.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
 from .controller.api import build_api_routes as _build_api_routes_impl
@@ -401,128 +401,18 @@ class DownloadManagerLocal(_PluginBase):
         定时检查下载器中种子是否校验完成，校验完成且完整的自动开始辅种。
         同时执行队列外兜底扫描，处理插件重载后丢失队列的历史暂停任务。
         """
-        if self._is_recheck_running:
-            return
-
-        self._is_recheck_running = True
-        try:
-            # 收集所有需要检查的下载器
-            check_services = []
-            seen_services = set()
-
-            def add_check_service(svc: Optional[ServiceInfo]):
-                if not svc or not svc.instance or svc.name in seen_services:
-                    return
-                check_services.append(svc)
-                seen_services.add(svc.name)
-
-            # 转移做种目标下载器
-            if self._todownloader:
-                add_check_service(self.service_info(self._todownloader))
-
-            # IYUU 辅种下载器
-            if self._iyuu_enabled and self._iyuu_downloaders:
-                for name in self._iyuu_downloaders:
-                    svc = get_downloader_service(name)
-                    if svc and not svc.instance.is_inactive():
-                        add_check_service(svc)
-
-            if not check_services:
-                return
-
-            # 队列内检查：只在存在待校验任务时执行
-            if self._recheck_torrents:
-                for svc in check_services:
-                    recheck_items = self._recheck_torrents.get(svc.name, {})
-                    if isinstance(recheck_items, list):
-                        # 兼容旧版本运行期队列
-                        recheck_items = {hash_id: "历史队列" for hash_id in recheck_items}
-                        self._recheck_torrents[svc.name] = recheck_items
-                    if not recheck_items:
-                        continue
-
-                    recheck_torrents = list(recheck_items.keys())
-                    logger.info(f"做种校验服务：开始检查下载器 {svc.name} 的校验任务，共 {len(recheck_torrents)} 个 ...")
-                    to_downloader = svc.instance
-                    torrents, _ = to_downloader.get_torrents(ids=recheck_torrents)
-                    if torrents:
-                        can_seeding_torrents = []
-                        source_counts = {}
-                        for torrent in torrents:
-                            hash_str = self.__get_hash(torrent, svc.type)
-                            if self.__can_seeding(torrent, svc.type):
-                                can_seeding_torrents.append(hash_str)
-                                source = recheck_items.get(hash_str, "未知来源")
-                                source_counts[source] = source_counts.get(source, 0) + 1
-
-                        if can_seeding_torrents:
-                            source_text = "，".join([f"{source} {count} 个" for source, count in source_counts.items()]) or f"{len(can_seeding_torrents)} 个"
-                            logger.info(f"做种校验服务：下载器 {svc.name} 中 {source_text} 任务校验完成，开始做种")
-                            to_downloader.start_torrents(ids=can_seeding_torrents)
-                            for hash_id in can_seeding_torrents:
-                                recheck_items.pop(hash_id, None)
-                            self._recheck_torrents[svc.name] = recheck_items
-                        else:
-                            logger.info("做种校验服务：没有新的任务校验完成，将在下次周期继续检查 ...")
-                    elif torrents is None:
-                        logger.info(f"做种校验服务：下载器 {svc.name} 查询校验任务失败，将在下次继续查询 ...")
-                    else:
-                        logger.info(f"做种校验服务：下载器 {svc.name} 中没有需要检查的校验任务，清空待处理列表")
-                        self._recheck_torrents[svc.name] = {}
-
-            # 队列之外的兜底：即使队列为空也执行
-            self._sweep_paused_seed_tasks(check_services)
-        except Exception as e:
-            logger.error(f"做种校验服务执行失败: {e}")
-        finally:
-            self._is_recheck_running = False
+        return _check_recheck_impl(self)
 
     def _sweep_paused_seed_tasks(self, check_services: List[ServiceInfo]):
         """兜底扫描已完成但暂停的转移/铺种任务，并自动开始做种。"""
-        for svc in check_services:
-            try:
-                downloader = svc.instance
-                torrents, _ = downloader.get_torrents()
-                if not torrents:
-                    continue
-                can_start = []
-                source_counts = {}
-                for torrent in torrents:
-                    if not self.__can_seeding(torrent, svc.type):
-                        continue
-                    labels = self.__get_label(torrent, svc.type) or []
-                    source = None
-                    if self._iyuu_labelsafterseed:
-                        iyuu_labels = [label.strip() for label in self._iyuu_labelsafterseed.split(',') if label.strip()]
-                        if any(label in labels for label in iyuu_labels):
-                            source = "IYUU铺种"
-                    if not source and self._torrent_tags:
-                        if any(label in labels for label in self._torrent_tags):
-                            source = "转移做种"
-                    if not source:
-                        continue
-                    hash_str = self.__get_hash(torrent, svc.type)
-                    if hash_str:
-                        can_start.append(hash_str)
-                        source_counts[source] = source_counts.get(source, 0) + 1
-                if can_start:
-                    source_text = "，".join([f"{source} {count} 个" for source, count in source_counts.items()])
-                    logger.info(f"做种校验服务：兜底发现下载器 {svc.name} 中 {source_text} 已校验但未开始，开始做种")
-                    downloader.start_torrents(ids=can_start)
-            except Exception as e:
-                logger.error(f"做种校验服务：兜底扫描下载器 {svc.name} 失败: {e}")
+        return _sweep_paused_seed_tasks_impl(self, check_services)
 
     @staticmethod
     def __can_seeding(torrent: Any, dl_type: str):
         """
         判断种子是否可以做种并处于暂停状态
         """
-        try:
-            return (torrent.get("state") in ["pausedUP", "stoppedUP"]) if dl_type == "qbittorrent" \
-                else (torrent.status.stopped and torrent.percent_done == 1)
-        except Exception as e:
-            logger.error(f"判断种子做种状态失败: {e}")
-            return False
+        return _can_seeding_impl(torrent, dl_type)
 
     # ════════════════════════════════════════════════════════════
     # v2.0.0: 转移后自动重命名 + 站点标签
