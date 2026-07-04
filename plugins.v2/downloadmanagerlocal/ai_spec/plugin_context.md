@@ -39,7 +39,37 @@
 - 大量包装方法，把调用转发到 `api.py`、`modules/*.py` 和 `utils/*.py`。
 - `stop_service()` 停止 scheduler、设置退出事件。
 
-目标方向是让 `__init__.py` 只保留插件契约、生命周期和薄委托；业务逻辑归入 controller/service/adapter/model 或现有 modules 的明确边界。
+目标方向是让 `__init__.py` 只保留插件契约、生命周期和薄委托；业务逻辑归入 controller/service/adapter/model，`modules/` 不再作为第二套业务服务层。
+
+## 2026-07-04 完整插件标准目标
+
+当前“下载中心”标准化任务不是 UI 改版，也不是只确认 2026-07-03 的后端收尾记录，而是把整个插件收束到 MoviePilot 插件维护规范要求的最终形态。完成态必须同时满足：
+
+- 入口层：`__init__.py` 只维护 `_PluginBase` 契约、插件身份、配置生命周期、事件注册、扩展点声明和薄委托；`check_recheck`、`_sweep_paused_seed_tasks`、`__can_seeding`、`on_transfer_complete` 不再承载业务决策。
+- Controller 层：只维护 API route metadata、handler 调度和响应 shape，不写转移、辅种、重命名、归档或做种校验核心逻辑。
+- Service 层：拥有生命周期、scheduler、TransferComplete 延迟调度、转移、IYUU、重命名、归档、站点标签、诊断和做种校验的业务编排。
+- Adapter 层：集中访问 MoviePilot 下载器、站点、系统配置、HTTP、TorrentHelper、下载历史、外部链接和第三方 API。
+- Model 层：集中维护配置默认值、持久化 key、DTO/枚举/状态结构，保持旧 key 后向兼容。
+- Utils 层：只保留无业务状态的解析、脱敏、路径、tracker、种子字段适配等小工具。
+- `modules/`：不得继续承载服务决策；若短期保留，只能是带说明的兼容 shim，转发到 service 实现。
+- 文档质量：插件包内所有 public class、public function、public method 都必须有描述边界和用途的中文 docstring；本轮新增或改动的 private helper 也要有中文 docstring。
+
+当前已知未完成缺口：
+
+- 标准完成审计红灯显示 public docstring 缺口仍存在，首个缺口为 `plugins.v2/downloadmanagerlocal/__init__.py:157:init_plugin`。
+- `__init__.py` 中 `check_recheck`、`_sweep_paused_seed_tasks`、`__can_seeding`、`on_transfer_complete` 仍需继续抽薄或迁出业务逻辑。
+- `modules/*.py` 仍定义业务类或函数，需要迁移到 service 或降级为明确兼容 shim。
+- Win 本地仓库尚未完成本轮最终 MP 本地仓库同步、安装、重载和运行态 API 验收。
+
+完成证据必须来自执行账本，而不是人工判断。最终完成前至少需要：
+
+- `tests/static/test_downloadmanagerlocal_standard_completion.py` 的最终标准断言通过。
+- 全量 `tests/static/test_downloadmanagerlocal_*.py` 通过。
+- `compileall` 通过，`git diff --check` 通过。
+- no-UI gate 输出为空，证明前端源码和可见交互未被本轮重构改变。
+- MP 本地仓库同步成功，运行态 `/api/v1/plugin/history/DownloadManagerLocal`、`/api/v1/plugin/remotes`、`/api/v1/plugin/form/DownloadManagerLocal` 和 `/api/v1/plugin/DownloadManagerLocal/overview` 验收通过，并确认重载后日志无 DownloadManagerLocal 相关 ERROR/Traceback。
+
+本节是目标和验收链路说明，不代表当前已经完成。
 
 ## API 路由契约
 
@@ -234,9 +264,9 @@ git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend plugins.v2/down
 - IYUU 下载链接和日志脱敏涉及外部站点差异，不能用真实网络调用做单测。
 - 做种校验后台线程需要保持退出事件和锁语义，否则可能导致重复 worker 或无法停止。
 
-## 2026-07-03 后端重构收尾状态
+## 2026-07-03 后端重构收尾状态（历史基线）
 
-本轮后端重构已完成 Phase 1-5.1，并进入最终上下文记录阶段。当前边界如下：
+以下记录只说明上一轮后端重构的历史基线，不代表 2026-07-04 完整插件标准任务已经完成。当前边界如下：
 
 - `__init__.py`：保留插件身份、运行时字段、生命周期、事件监听、扩展点声明和兼容包装方法；业务入口通过 `controller/` 与 `service/` 委托。
 - `controller/api.py`：集中维护 API route metadata，保持 path/method/auth/summary 不变。
