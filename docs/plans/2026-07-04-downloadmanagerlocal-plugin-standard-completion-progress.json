@@ -1,0 +1,217 @@
+{
+  "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
+  "status": {
+    "phase": "phase-1",
+    "task": "1.1",
+    "next_allowed_action": "Run the current task; after verified completion, update evidence, commit, record the hash, and advance automatically"
+  },
+  "execution_rules": {
+    "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
+    "branch": "worldlinefix/downloadmanagerlocal",
+    "smoke_check": "git status --short --branch; bundled python -m compileall plugins.v2/downloadmanagerlocal; bundled python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+    "commit_each_verified_task": true,
+    "no_commit_on_failed_verification": true,
+    "never_push_merge_or_amend": true,
+    "never_restart_moviepilot": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "only_flip_status_fields": true,
+    "keep_ui_visually_and_behaviorally_unchanged": true
+  },
+  "decision_log": [
+    {
+      "decision": "Continue on worldlinefix/downloadmanagerlocal",
+      "reason": "Project rules use long-lived per-plugin branches.",
+      "rejected_alternatives": "Create a new codex/* branch for the same plugin.",
+      "source": "AGENTS.md repository workflow"
+    },
+    {
+      "decision": "Create a standard-completion plan after the prior backend plan",
+      "reason": "The 2026-07-02 backend plan is complete but current audit still shows entrypoint and docstring standard gaps.",
+      "rejected_alternatives": "Declare completion from prior progress alone.",
+      "source": "Current entrypoint and AST audit"
+    },
+    {
+      "decision": "Keep UI source immutable and verify build/runtime assets",
+      "reason": "The user asked to complete plugin standards while preserving UI.",
+      "rejected_alternatives": "UI redesign or visible text/layout cleanup during backend standardization.",
+      "source": "Latest user direction"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "goal": "Prove remaining standard gaps with executable checks before implementation changes.",
+      "status": "pending",
+      "acceptance": [
+        "Standard gaps are represented by tests or explicit progress evidence.",
+        "No UI source path is modified."
+      ],
+      "tasks": [
+        {
+          "id": "1.1",
+          "title": "Record baseline and create standard-completion audit tests",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "1.2",
+          "title": "Update plugin context with final-standard target",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "goal": "Make __init__.py a plugin contract entrypoint with thin delegation only.",
+      "status": "pending",
+      "acceptance": [
+        "__init__.py owns plugin contract and thin delegation only.",
+        "Runtime API route, service, and event behavior remain compatible."
+      ],
+      "tasks": [
+        {
+          "id": "2.1",
+          "title": "Extract recheck runtime business logic",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "2.2",
+          "title": "Extract event-delay scheduling logic",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "2.3",
+          "title": "Slim entrypoint imports and compatibility wrappers",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "goal": "Finish service/module boundary cleanup so modules are not a second service layer.",
+      "status": "pending",
+      "acceptance": [
+        "Backend directory shape matches the standard responsibilities.",
+        "Legacy compatibility exceptions are documented and tested."
+      ],
+      "tasks": [
+        {
+          "id": "3.1",
+          "title": "Move remaining transfer and rename orchestration into service-owned modules",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "3.2",
+          "title": "Move remaining IYUU orchestration into service-owned modules",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "3.3",
+          "title": "Move archive, diagnostics, site-tag, and seed recheck residual logic into service-owned modules or documented shims",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "goal": "Pass the docstring and static quality bar required by the plugin standard.",
+      "status": "pending",
+      "acceptance": [
+        "Public docstring gaps are zero.",
+        "Changed private helper documentation is complete.",
+        "Compile/static tests pass."
+      ],
+      "tasks": [
+        {
+          "id": "4.1",
+          "title": "Add Chinese docstrings to all public classes, public functions, and public methods",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "4.2",
+          "title": "Add docstrings to changed private helpers and remove dead code/imports",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "goal": "Verify the Vue federation frontend remains standard and unchanged in user experience.",
+      "status": "pending",
+      "acceptance": [
+        "Frontend source and visible behavior remain unchanged.",
+        "Federation assets are buildable and internally consistent."
+      ],
+      "tasks": [
+        {
+          "id": "5.1",
+          "title": "Verify frontend source and federation contract",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "5.2",
+          "title": "Run frontend build and asset reference check",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-6",
+      "goal": "Sync to the MP local repository, reinstall/reload, and prove runtime state.",
+      "status": "pending",
+      "acceptance": [
+        "Win local repository, MP local repository, and running MoviePilot all reflect the completed standard refactor.",
+        "No push, merge, release, or restart was performed."
+      ],
+      "tasks": [
+        {
+          "id": "6.1",
+          "title": "Sync to MP local repository",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "6.2",
+          "title": "Install/reload and runtime API validation",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "6.3",
+          "title": "Final completion audit",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    }
+  ],
+  "residual_risk": [],
+  "turn_log": []
+}
