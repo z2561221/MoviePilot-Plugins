@@ -2,8 +2,8 @@
   "plan": "docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md",
   "status": {
     "phase": "phase-2",
-    "task": "2.2",
-    "next_allowed_action": "Run task 2.2; extract TransferComplete event-delay scheduling logic behind a service boundary while preserving runtime behavior and UI invariance"
+    "task": "2.3",
+    "next_allowed_action": "Run task 2.3; slim entrypoint imports and compatibility wrappers, verify entrypoint section, and preserve UI invariance"
   },
   "execution_rules": {
     "working_directory": "C:/Users/ZhaoYu/.config/superpowers/worktrees/MoviePilot-Plugins/downloadmanagerlocal-backend-standard",
@@ -149,13 +149,42 @@
               "result": "exited 0; PowerShell reported LF-to-CRLF working-copy warnings only"
             }
           ],
-          "commit": null
+          "commit": "e4128de1c16398e4400f2203d37ee0d64360980f"
         },
         {
           "id": "2.2",
           "title": "Extract event-delay scheduling logic",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py -k transfer_complete_entrypoint",
+              "result": "red before implementation: 1 failed, 3 deselected; gap was on_transfer_complete"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py -k transfer_complete_entrypoint",
+              "result": "green after service extraction: 1 passed, 3 deselected"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_standard_completion.py",
+              "result": "3 passed, 1 xfailed"
+            },
+            {
+              "command": "python -m compileall -q plugins.v2/downloadmanagerlocal",
+              "result": "exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <expanded tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "55 passed, 1 xfailed"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml",
+              "result": "no output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exited 0; PowerShell reported LF-to-CRLF working-copy warnings only"
+            }
+          ],
           "commit": null
         },
         {
@@ -299,6 +328,11 @@
       "task": "2.1",
       "action": "Moved recheck runtime cycle, paused-seed sweep, and can-seed predicate from the plugin entrypoint into service/recheck, leaving entrypoint compatibility wrappers as thin delegates.",
       "evidence": "focused recheck red 1 failed then green 1 passed; backend cleanup plus standard completion 4 passed/1 xfailed; full static suite 54 passed/1 xfailed; compileall -q exited 0; UI gate no output"
+    },
+    {
+      "task": "2.2",
+      "action": "Moved TransferComplete event filtering, delay calculation, scheduler creation, and date-job registration into service/events while keeping the entrypoint decorator and thin delegate.",
+      "evidence": "focused event red 1 failed then green 1 passed; standard completion 3 passed/1 xfailed; full static suite 55 passed/1 xfailed; compileall -q exited 0; UI gate no output"
     }
   ]
 }

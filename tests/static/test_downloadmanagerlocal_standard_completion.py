@@ -23,6 +23,10 @@ RECHECK_ENTRYPOINT_METHODS = {
     "__can_seeding",
 }
 
+EVENT_ENTRYPOINT_METHODS = {
+    "on_transfer_complete",
+}
+
 
 def _plugin_python_files() -> list[Path]:
     """返回插件包内需要参与标准审计的 Python 文件。"""
@@ -127,14 +131,21 @@ def _module_business_files() -> list[str]:
 
 def test_downloadmanagerlocal_standard_completion_baseline_gaps_are_visible():
     """确认当前标准收尾任务确实有可观测缺口。"""
-    assert _public_docstring_gaps()
-    assert _heavy_entrypoint_methods()
-    assert _module_business_files()
+    remaining_gaps = {
+        "public_docstrings": _public_docstring_gaps(),
+        "module_business_files": _module_business_files(),
+    }
+    assert any(remaining_gaps.values()), remaining_gaps
 
 
 def test_downloadmanagerlocal_recheck_entrypoint_is_thin():
     """做种校验运行时逻辑必须由 service/recheck 持有，入口层只做薄委托。"""
     assert _thin_delegate_gaps(RECHECK_ENTRYPOINT_METHODS) == []
+
+
+def test_downloadmanagerlocal_transfer_complete_entrypoint_is_thin():
+    """TransferComplete 延迟调度必须由 service 边界持有，入口层只做事件委托。"""
+    assert _thin_delegate_gaps(EVENT_ENTRYPOINT_METHODS) == []
 
 
 @pytest.mark.xfail(reason="standard completion is implemented by the phased ledger", strict=True)

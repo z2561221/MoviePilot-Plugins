@@ -34,6 +34,7 @@ from .service.recheck import load_seed_recheck_queue as _load_seed_recheck_queue
 from .service.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl, retry_pending_renames as _retry_pending_renames_impl
 from .service.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
 from .controller.api import build_api_routes as _build_api_routes_impl
+from .service.events import handle_transfer_complete_event as _handle_transfer_complete_event_impl
 from .service.config import initialize_runtime_config as _initialize_runtime_config_impl
 from .service.scheduler import build_plugin_services as _build_plugin_services_impl
 
@@ -490,32 +491,7 @@ class DownloadManagerLocal(_PluginBase):
         """
         监听 TransferComplete 事件，延迟 N 分钟后自动转移做种
         """
-        if not self._transfer_active:
-            return
-
-        event_data = event.event_data or {}
-        # 检查事件来源下载器是否匹配
-        downloader_name = event_data.get("downloader") or event_data.get("downloader_name", "")
-        if downloader_name and downloader_name != self._fromdownloader:
-            return
-
-        delay = max(1, int(self._delay_minutes or 25))
-        logger.info(f"收到 TransferComplete 事件（来源: {downloader_name}），将在 {delay} 分钟后执行转移做种")
-
-        # 使用 scheduler 延迟执行
-        if not self._scheduler:
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            self._scheduler.start()
-
-        run_time = datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(minutes=delay)
-        job_id = f"delayed_transfer_{self._fromdownloader or 'default'}"
-        self._scheduler.add_job(
-            self._delayed_transfer,
-            'date',
-            run_date=run_time,
-            id=job_id,
-            replace_existing=True
-        )
+        return _handle_transfer_complete_event_impl(self, event)
 
     def _delayed_transfer(self):
         return _delayed_transfer_impl(self)
