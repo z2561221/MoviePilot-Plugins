@@ -39,7 +39,11 @@ def test_rank_dialog_actions_include_equal_width_tmdb_button():
         assert "https://www.themoviedb.org/tv/" in script
         assert "_createTextVNode(\"TMDB\"" in script
         assert "class: \"dc-dialog-action text-none\"" in script
-        assert "\"disabled\": !dialogItem.value?.item?.tmdbid && !dialogItem.value?.item?.tmdb_id" in script
+        disabled_expressions = (
+            "\"disabled\": !dialogItem.value?.item?.tmdbid && !dialogItem.value?.item?.tmdb_id",
+            "disabled: !(dialogItem.value?.item?.tmdbid || dialogItem.value?.item?.tmdb_id)",
+        )
+        assert any(expression in script for expression in disabled_expressions)
 
 
 def test_rank_dialog_source_button_uses_douban_and_bangumi_brand_colors():
