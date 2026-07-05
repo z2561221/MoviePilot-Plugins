@@ -31,7 +31,7 @@ const defaults = {
 
 const form = reactive(JSON.parse(JSON.stringify(defaults)))
 const activeMain = ref('overview')
-const activeSub = ref('basic')
+const activeSub = ref('overview')
 const loadingOptions = ref(false)
 const optionError = ref('')
 const cleanupOptions = reactive({ servers: [], libraries: [], users: [] })
@@ -44,11 +44,11 @@ const mainTabs = [
 ]
 
 const subTabs = {
-  overview: [{ key: 'basic', title: '模块职责', icon: 'mdi-clipboard-check-outline' }],
+  overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   library_cleanup: [
     { key: 'basic', title: '基础设置', icon: 'mdi-timer-cog-outline' },
     { key: 'filter', title: '筛选条件', icon: 'mdi-filter-outline' },
-    { key: 'danger', title: '高级选项', icon: 'mdi-alert-outline' },
+    { key: 'advanced', title: '高级选项', icon: 'mdi-alert-outline' },
   ],
   check_missing: [{ key: 'basic', title: '按需扫描', icon: 'mdi-folder-search-outline' }],
   tmdb_cache: [{ key: 'basic', title: '按需清理', icon: 'mdi-database-cog-outline' }],
@@ -101,7 +101,7 @@ async function loadOptions() {
 
 function selectMain(key) {
   activeMain.value = key
-  activeSub.value = subTabs[key]?.[0]?.key || 'basic'
+  activeSub.value = subTabs[key]?.[0]?.key || 'overview'
   if (key === 'library_cleanup') loadOptions()
 }
 
@@ -160,8 +160,8 @@ function saveConfig() {
           <VDivider />
 
           <div class="plugin-window" :class="{ 'plugin-window--overview': activeMain === 'overview' }">
-            <div v-show="activeMain === 'overview'" class="plugin-pane">
-              <div class="plugin-section-title">模块职责</div>
+            <div v-show="activeMain === 'overview' && activeSub === 'overview'" class="plugin-pane">
+              <div class="plugin-section-title">运行总览</div>
               <VRow>
                 <VCol cols="12" md="4">
                   <VCard variant="tonal" color="error" class="status-card">
@@ -225,7 +225,7 @@ function saveConfig() {
                 </VRow>
               </div>
 
-              <div v-if="activeSub === 'danger'">
+              <div v-if="activeSub === 'advanced'">
                 <div class="plugin-section-title text-error">高级选项</div>
                 <VAlert type="error" variant="tonal" class="mb-4" text="自动删除会直接删除 Emby 条目。按钮手动执行清理库存时也会遵循这里的自动删除配置。" />
                 <VRow>

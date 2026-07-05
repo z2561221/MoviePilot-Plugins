@@ -175,3 +175,15 @@ def test_localtoolkit_config_uses_standard_stable_shell():
     assert re.search(r"\.plugin-window\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*overflow-y:\s*auto", source, re.S)
     assert ".plugin-window--overview" in source
     assert re.search(r"class=\"plugin-window\"[^>]*:class=\"\{ 'plugin-window--overview': activeMain === 'overview' \}\"", source, re.S)
+
+
+def test_localtoolkit_config_navigation_uses_standard_tabs():
+    """配置页一级导航和子标签必须使用标准 key 与默认项。"""
+    source = CONFIG_VUE.read_text(encoding="utf-8")
+    assert "const activeMain = ref('overview')" in source
+    assert "const activeSub = ref('overview')" in source
+    assert re.search(r"overview:\s*\[\{\s*key:\s*'overview',\s*title:\s*'运行总览'", source, re.S)
+    assert "key: 'advanced', title: '高级选项'" in source
+    assert "key: 'danger'" not in source
+    assert "activeSub === 'advanced'" in source
+    assert "activeSub === 'danger'" not in source
