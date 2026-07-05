@@ -193,6 +193,17 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
         if item.get("observe_deleted"):
             logger.info(f"豆瓣中心：条目《{item.get('title') or title or unique}》已从观察队列删除，跳过订阅")
             return True
+        if item.get("observe_dropped_at") or item.get("observe_dropped_reason") == OBSERVE_DROPPED_REASON:
+            observed_at = now.strftime("%Y-%m-%d %H:%M:%S")
+            item["time"] = observed_at
+            item["first_seen"] = observed_at
+            item["observing"] = True
+            item.pop("observe_dropped_at", None)
+            item.pop("observe_dropped_reason", None)
+            item.pop("observe_dropped_detail", None)
+            logger.info(f"豆瓣中心：条目《{item.get('title') or title or unique}》重新进入观察期（0/{days} 天），跳过订阅")
+            log_anti_cheat(plugin, OBSERVE_START_REASON, item.get("title") or title or unique, f"需要观察 {days} 天")
+            return True
         first_seen = item.get("first_seen") or item.get("time", "")
         if first_seen:
             try:

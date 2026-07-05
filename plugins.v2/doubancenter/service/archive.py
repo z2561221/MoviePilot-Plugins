@@ -12,8 +12,101 @@ LEGACY_BLACKLIST_REASON = "黑名单关键词"
 BLACKLIST_SOURCE_NAME = "黑名拦截"
 OBSERVATION_SOURCE_NAME = "观察日志"
 OBSERVATION_COMPLETED_SOURCE = "observation_completed"
+OBSERVATION_QUEUE_SOURCE_NAME = "观察队列"
+SUBSCRIBE_HISTORY_SOURCE_NAME = "订阅历史"
+OBSERVATION_START_REASON = "开始观察"
+OBSERVATION_WAIT_REASON = "继续观察"
 OBSERVATION_COMPLETED_REASON = "观察完成"
+OBSERVATION_DROPPED_REASON = "跌出榜单"
 LEGACY_OBSERVATION_COMPLETED_REASON = "观察期完成"
+LEGACY_REASON_MAP = {
+    LEGACY_BLACKLIST_REASON: BLACKLIST_REASON,
+    "观察期首次记录": OBSERVATION_START_REASON,
+    "观察期未满": OBSERVATION_WAIT_REASON,
+    LEGACY_OBSERVATION_COMPLETED_REASON: OBSERVATION_COMPLETED_REASON,
+}
+
+
+def normalize_reason(reason: str = "") -> str:
+    """归一化归档记录中的旧版状态名。"""
+    reason = str(reason or "")
+    return LEGACY_REASON_MAP.get(reason, reason)
+
+
+def subscribe_display_status(record: dict) -> str:
+    """返回订阅历史归档的展示状态。"""
+    status = str((record or {}).get("status") or "")
+    if status == "failed":
+        return "订阅失败"
+    if status == "success":
+        return "订阅成功"
+    if normalize_reason((record or {}).get("reason") or "") == DETAIL_OVERFLOW_REASON:
+        return "订阅成功"
+    return normalize_reason((record or {}).get("reason") or "") or "订阅历史"
+
+
+def observation_display_status(record: dict) -> str:
+    """返回观察队列归档的展示状态。"""
+    remaining = (record or {}).get("remaining_days")
+    if remaining not in (None, ""):
+        return f"剩余 {remaining} 天"
+    elapsed = (record or {}).get("elapsed_days")
+    total = (record or {}).get("observe_days")
+    if elapsed not in (None, "") and total not in (None, ""):
+        return f"观察 {elapsed} / {total} 天"
+    return normalize_reason((record or {}).get("reason") or "") or "观察中"
+
+
+def normalize_archive_item(archive: dict) -> dict:
+    """按来源补齐归档条目的展示字段。"""
+    item = dict(archive or {})
+    record = dict(item.get("record") or {})
+    source = str(item.get("source") or "")
+    if "reason" in record:
+        record["reason"] = normalize_reason(record.get("reason") or "")
+    if record.get("observe_dropped_reason"):
+        record["observe_dropped_reason"] = normalize_reason(record.get("observe_dropped_reason") or "")
+
+    archive_reason = str(item.get("archive_reason") or "")
+    if not archive_reason and str(item.get("reason") or "") == DETAIL_OVERFLOW_REASON:
+        archive_reason = DETAIL_OVERFLOW_REASON
+    if not archive_reason and str(record.get("reason") or "") == DETAIL_OVERFLOW_REASON:
+        archive_reason = DETAIL_OVERFLOW_REASON
+    if archive_reason:
+        item["archive_reason"] = archive_reason
+
+    item["record"] = record
+    item["title"] = record.get("title") or item.get("title") or ""
+    item["time"] = record.get("time") or record.get("first_seen") or item.get("time") or ""
+    item["rank_key"] = record.get("rank_key") or item.get("rank_key") or ""
+    item["rank_name"] = record.get("rank_name") or item.get("rank_name") or ""
+    item["poster"] = record.get("poster") or record.get("cover") or item.get("poster") or ""
+    item["detail"] = record.get("detail") or item.get("detail") or ""
+    item["link"] = record.get("link") or item.get("link") or ""
+
+    if source == "subscribe_history":
+        item["source_name"] = SUBSCRIBE_HISTORY_SOURCE_NAME
+        item["display_status"] = subscribe_display_status(record)
+        item["reason"] = item.get("reason") or record.get("reason") or ""
+    elif source == "observation":
+        item["source_name"] = OBSERVATION_QUEUE_SOURCE_NAME
+        item["display_status"] = observation_display_status(record)
+        item["reason"] = normalize_reason(item.get("reason") or record.get("reason") or "")
+    elif source == "anti_cheat_log":
+        reason = normalize_reason(record.get("reason") or item.get("reason") or "")
+        record["reason"] = reason
+        item["reason"] = reason
+        if reason == BLACKLIST_REASON:
+            item["source_name"] = BLACKLIST_SOURCE_NAME
+            item["display_status"] = record.get("detail") or item.get("detail") or BLACKLIST_REASON
+        else:
+            item["source_name"] = OBSERVATION_SOURCE_NAME
+            item["display_status"] = reason or OBSERVATION_SOURCE_NAME
+    else:
+        item["source_name"] = item.get("source_name") or source
+        item["reason"] = normalize_reason(item.get("reason") or record.get("reason") or "")
+        item["display_status"] = item.get("display_status") or item.get("reason") or item.get("source_name") or "归档"
+    return item
 
 
 def archive_record_key(source: str, record: dict) -> tuple:
@@ -74,7 +167,7 @@ def update_archive_item_from_record(archive: dict, source: str, record: dict, so
         "reason": copied.get("reason") or archive.get("reason") or "",
         "record": copied,
     })
-    return archive
+    return normalize_archive_item(archive)
 
 
 def dedupe_archive_records(archives: list) -> tuple:
@@ -136,6 +229,7 @@ def archive_record(plugin, source: str, record: dict, source_name: str = "", ded
         "archived_at": now,
         "record": copied,
     }
+    item = normalize_archive_item(item)
     archives.append(item)
     storage.save_archive_records(plugin, archives)
     return item
@@ -283,9 +377,9 @@ def paginate_archive_records(plugin, page: int = 1, page_size: int = 20) -> dict
     """返回已去重并按归档时间倒序排列的归档分页。"""
     remove_legacy_observation_completed_archives(plugin)
     archives = storage.read_archive_records(plugin)
-    valid_archives = [item for item in archives if isinstance(item, dict)]
+    valid_archives = [normalize_archive_item(item) for item in archives if isinstance(item, dict)]
     deduped_archives, changed = dedupe_archive_records(valid_archives)
-    if changed or len(valid_archives) != len(archives):
+    if changed or len(valid_archives) != len(archives) or valid_archives != [item for item in archives if isinstance(item, dict)]:
         storage.save_archive_records(plugin, deduped_archives)
     ordered_archives = sorted(deduped_archives, key=lambda item: item.get("archived_at", ""), reverse=True)
     safe_page = max(int(page), 1)

@@ -243,6 +243,28 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("达到", logs[0]["detail"])
         self.assertIsNone(plugin.data.get("archive_records"))
 
+    def test_observe_restarts_when_dropped_item_returns_to_count_window(self):
+        plugin = _Plugin()
+        old_time = (datetime.datetime.now() - datetime.timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S")
+        history = [{
+            "unique": "rank:1",
+            "title": "回榜电影",
+            "time": old_time,
+            "first_seen": old_time,
+            "observing": False,
+            "observe_dropped_at": old_time,
+            "observe_dropped_reason": "跌出榜单",
+        }]
+
+        should_skip = self.feed._check_observe(plugin, "rank:1", history, title="回榜电影")
+
+        self.assertTrue(should_skip)
+        self.assertTrue(history[0]["observing"])
+        self.assertNotEqual(history[0]["first_seen"], old_time)
+        self.assertNotIn("observe_dropped_at", history[0])
+        self.assertNotIn("observe_dropped_reason", history[0])
+        self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "开始观察")
+
     def test_custom_rank_history_key_is_stable(self):
         source = "https://example.com/rss?token=abc"
 
