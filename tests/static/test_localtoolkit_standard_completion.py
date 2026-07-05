@@ -162,3 +162,16 @@ def test_localtoolkit_mobile_primary_nav_is_horizontal():
     assert re.search(r"\.plugin-nav-list\s*\{[^}]*display:\s*flex", source, re.S)
     assert re.search(r"\.plugin-nav-list\s*\{[^}]*flex-wrap:\s*nowrap", source, re.S)
     assert re.search(r"\.plugin-nav-item\s*\{[^}]*flex:\s*0 0 auto", source, re.S)
+
+
+def test_localtoolkit_config_uses_standard_stable_shell():
+    """配置页必须使用标准稳定外壳和内容滚动区。"""
+    source = CONFIG_VUE.read_text(encoding="utf-8")
+    assert re.search(r"\.plugin-config\s*\{[^}]*width:\s*min\(1120px,\s*calc\(100vw - 48px\)\)", source, re.S)
+    assert re.search(r"\.plugin-card\s*\{[^}]*height:\s*clamp\(760px,\s*calc\(100dvh - 48px\),\s*860px\)", source, re.S)
+    assert re.search(r"\.plugin-card\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*overflow:\s*hidden", source, re.S)
+    assert re.search(r"\.plugin-body\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*display:\s*flex", source, re.S)
+    assert re.search(r"\.plugin-content\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*display:\s*flex[^}]*flex-direction:\s*column", source, re.S)
+    assert re.search(r"\.plugin-window\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*overflow-y:\s*auto", source, re.S)
+    assert ".plugin-window--overview" in source
+    assert re.search(r"class=\"plugin-window\"[^>]*:class=\"\{ 'plugin-window--overview': activeMain === 'overview' \}\"", source, re.S)

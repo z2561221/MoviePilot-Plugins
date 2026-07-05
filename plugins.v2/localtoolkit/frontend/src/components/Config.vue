@@ -159,7 +159,7 @@ function saveConfig() {
           </div>
           <VDivider />
 
-          <div class="plugin-window">
+          <div class="plugin-window" :class="{ 'plugin-window--overview': activeMain === 'overview' }">
             <div v-show="activeMain === 'overview'" class="plugin-pane">
               <div class="plugin-section-title">模块职责</div>
               <VRow>
@@ -271,25 +271,30 @@ function saveConfig() {
 </template>
 
 <style scoped>
-.plugin-config { padding: 8px; }
-.plugin-card { border-radius: 14px; overflow: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.plugin-config { width: min(1120px, calc(100vw - 48px)); max-width: 100%; padding: 8px; }
+.plugin-card { width: 100%; height: clamp(760px, calc(100dvh - 48px), 860px); display: flex; flex-direction: column; overflow: hidden; border-radius: 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .plugin-header { padding: 14px 18px; }
-.plugin-body { display: flex; min-height: 540px; }
+.plugin-header :deep(.v-card-subtitle) { max-width: min(560px, 52vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-body { flex: 1 1 auto; min-height: 0; display: flex; }
 .plugin-nav { width: 176px; flex: 0 0 176px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), .02); }
 .plugin-nav-list { width: 100%; }
 .plugin-nav-item { margin: 2px 8px; }
-.plugin-content { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
-.plugin-subtabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; }
+.plugin-content { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.plugin-subtabs { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; }
 .plugin-subtab { display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; color: rgba(var(--v-theme-on-surface), .7); background: transparent; border: none; cursor: pointer; transition: background .15s, color .15s; }
 .plugin-subtab:hover { background: rgba(var(--v-theme-primary), .08); color: rgb(var(--v-theme-primary)); }
 .plugin-subtab--active { background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); font-weight: 600; }
-.plugin-window { flex: 1 1 auto; }
+.plugin-window { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.plugin-window--overview { overflow-y: hidden; }
 .plugin-pane { padding: 18px 20px; }
 .plugin-section-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: rgb(var(--v-theme-primary)); }
 .plugin-hint { font-size: 12px; line-height: 1.6; color: rgba(var(--v-theme-on-surface), .68); margin-top: 2px; }
 .status-card { border-radius: 14px; min-height: 132px; }
 .plugin-actions { padding: 10px 18px; }
 @media (max-width: 1024px), (hover: none) and (pointer: coarse) {
+  .plugin-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
+  .plugin-card { height: min(860px, calc(100dvh - 16px)); }
+  .plugin-header :deep(.v-card-subtitle) { max-width: 100%; }
   .plugin-body { flex-direction: column; }
   .plugin-nav {
     width: 100%;
@@ -328,5 +333,9 @@ function saveConfig() {
     padding: 6px 12px;
     white-space: nowrap;
   }
+  .plugin-window--overview { overflow-y: auto; }
+}
+@media (max-height: 760px) {
+  .plugin-window--overview { overflow-y: auto; }
 }
 </style>
