@@ -150,8 +150,8 @@ async function loadAll() {
     if (h) historyData.value = h
     if (c) {
       const logs = Array.isArray(c) ? c : []
-      cheatLogs.value = logs.filter(log => !log || log.reason !== '黑名单关键词').slice(-5)
-      blacklistEntries.value = logs.filter(log => log && log.reason === '黑名单关键词').slice().reverse().slice(0, 5)
+      cheatLogs.value = logs.filter(log => !log || !['黑名拦截', '黑名单关键词'].includes(log.reason)).slice(-5)
+      blacklistEntries.value = logs.filter(log => log && ['黑名拦截', '黑名单关键词'].includes(log.reason)).slice().reverse().slice(0, 5)
     }
     if (p) pendingObservations.value = p
     if (r) rankHistory.value = r
@@ -424,7 +424,7 @@ onMounted(loadAll)
                 <div class="dc-history-title">{{ item.title || '未命名条目' }}</div>
                 <div class="dc-history-meta"><span class="text-caption text-medium-emphasis">{{ item.time || '' }}</span></div>
               </div>
-              <VChip size="x-small" color="error" variant="tonal" class="dc-row-status">{{ item.detail || item.reason || '黑名单关键词' }}</VChip>
+              <VChip size="x-small" color="error" variant="tonal" class="dc-row-status">{{ item.detail || item.reason || '黑名拦截' }}</VChip>
               <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="actionKey === rowKey('log', item, i)" @click="deleteAntiCheatLog(item, i)" />
             </div>
           </div>

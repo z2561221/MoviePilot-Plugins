@@ -112,8 +112,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
         for fragment in required_fragments:
             self.assertIn(fragment, text)
 
-        self.assertIn("log.reason !== '黑名单关键词'", text)
-        self.assertIn("log.reason === '黑名单关键词'", text)
+        self.assertIn("!['黑名拦截', '黑名单关键词'].includes(log.reason)", text)
+        self.assertIn("['黑名拦截', '黑名单关键词'].includes(log.reason)", text)
         self.assertNotIn("if (c) cheatLogs.value = c", text)
 
     def test_dashboard_source_keeps_native_subscribe_behaviour(self):

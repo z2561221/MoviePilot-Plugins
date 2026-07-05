@@ -7,11 +7,13 @@ from ..storage import records as storage
 
 DETAIL_SECTION_LIMIT = 5
 DETAIL_OVERFLOW_REASON = "超过详情页显示上限归档"
-BLACKLIST_REASON = "黑名单关键词"
+BLACKLIST_REASON = "黑名拦截"
+LEGACY_BLACKLIST_REASON = "黑名单关键词"
 BLACKLIST_SOURCE_NAME = "黑名拦截"
 OBSERVATION_SOURCE_NAME = "观察日志"
 OBSERVATION_COMPLETED_SOURCE = "observation_completed"
-OBSERVATION_COMPLETED_REASON = "观察期完成"
+OBSERVATION_COMPLETED_REASON = "观察完成"
+LEGACY_OBSERVATION_COMPLETED_REASON = "观察期完成"
 
 
 def archive_record_key(source: str, record: dict) -> tuple:
@@ -208,7 +210,7 @@ def archive_anti_cheat_overflow(plugin, logs: list, limit: int = DETAIL_SECTION_
     for index, log in enumerate(logs):
         if not isinstance(log, dict):
             continue
-        if str(log.get("reason") or "") == BLACKLIST_REASON:
+        if str(log.get("reason") or "") in {BLACKLIST_REASON, LEGACY_BLACKLIST_REASON}:
             blacklist_indexes.append(index)
         else:
             observe_indexes.append(index)
@@ -264,6 +266,8 @@ def remove_legacy_observation_completed_archives(plugin) -> bool:
         record["title"] = record.get("title") or archive.get("title") or ""
         record["time"] = record.get("time") or archive.get("time") or ""
         record["reason"] = record.get("reason") or OBSERVATION_COMPLETED_REASON
+        if record.get("reason") == LEGACY_OBSERVATION_COMPLETED_REASON:
+            record["reason"] = OBSERVATION_COMPLETED_REASON
         key = anti_cheat_log_key(record)
         if key not in existing_log_keys:
             logs.append(record)

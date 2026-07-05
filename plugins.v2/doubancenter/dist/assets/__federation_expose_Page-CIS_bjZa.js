@@ -275,8 +275,8 @@ async function loadAll() {
     if (h) historyData.value = h;
     if (c) {
       const logs = Array.isArray(c) ? c : [];
-      cheatLogs.value = logs.filter(log => !log || log.reason !== '黑名单关键词').slice(-5);
-      blacklistEntries.value = logs.filter(log => log && log.reason === '黑名单关键词').slice().reverse().slice(0, 5);
+      cheatLogs.value = logs.filter(log => !log || !['黑名拦截', '黑名单关键词'].includes(log.reason)).slice(-5);
+      blacklistEntries.value = logs.filter(log => log && ['黑名拦截', '黑名单关键词'].includes(log.reason)).slice().reverse().slice(0, 5);
     }
     if (p) pendingObservations.value = p;
     if (r) rankHistory.value = r;
@@ -777,7 +777,7 @@ return (_ctx, _cache) => {
                                 class: "dc-row-status"
                               }, {
                                 default: _withCtx(() => [
-                                  _createTextVNode(_toDisplayString(item.detail || item.reason || '黑名单关键词'), 1)
+                                  _createTextVNode(_toDisplayString(item.detail || item.reason || '黑名拦截'), 1)
                                 ]),
                                 _: 2
                               }, 1024),
@@ -1149,6 +1149,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-824c33ce"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7c888b9f"]]);
 
 export { Page as default };

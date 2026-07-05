@@ -127,7 +127,7 @@ def _check_blacklist(self, title: str, description: str = "", link: str = "") ->
         word = line.strip()
         if word and _match_blacklist_line(word, haystack):
             logger.info(f"豆瓣中心：黑名单关键词《{word}》匹配《{title}》，跳过")
-            _log_anti_cheat(self, "黑名单关键词", title, f"匹配词：{word}", link=link)
+            _log_anti_cheat(self, "黑名拦截", title, f"匹配词：{word}", link=link)
             return True
     return False
 

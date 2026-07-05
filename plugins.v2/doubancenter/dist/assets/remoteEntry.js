@@ -5,8 +5,8 @@ const currentImports = {};
       dynamicLoadingCss(["__federation_expose_Config-BsHi9lGr.css"], false, './Config');
       return __federation_import('./__federation_expose_Config-DVQ8WXqJ.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Page":()=>{
-      dynamicLoadingCss(["__federation_expose_Page-2YTQ2o2L.css"], false, './Page');
-      return __federation_import('./__federation_expose_Page-DF8i1z6Z.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Page-Dfy6DkRl.css"], false, './Page');
+      return __federation_import('./__federation_expose_Page-CIS_bjZa.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Dashboard":()=>{
       dynamicLoadingCss(["__federation_expose_Dashboard-DorJCCAh.css"], false, './Dashboard');
       return __federation_import('./__federation_expose_Dashboard-BIXhpS6H.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};

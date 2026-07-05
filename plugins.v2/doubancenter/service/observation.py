@@ -13,31 +13,62 @@ DETAIL_SECTION_LIMIT = 5
 DETAIL_OVERFLOW_REASON = "超过详情页显示上限归档"
 OBSERVATION_SOURCE = "observation"
 OBSERVATION_SOURCE_NAME = "观察队列"
+BLACKLIST_REASON = "黑名拦截"
+OBSERVE_START_REASON = "开始观察"
+OBSERVE_WAIT_REASON = "继续观察"
+OBSERVE_DONE_REASON = "观察完成"
+OBSERVE_DROPPED_REASON = "跌出榜单"
+OBSERVE_DROPPED_DETAIL = "跌出当前自动订阅候选"
+LEGACY_REASON_MAP = {
+    "黑名单关键词": BLACKLIST_REASON,
+    "观察期首次记录": OBSERVE_START_REASON,
+    "观察期未满": OBSERVE_WAIT_REASON,
+    "观察期完成": OBSERVE_DONE_REASON,
+}
+
+
+def normalize_log_reason(reason: str = "") -> str:
+    """将旧版观察日志状态归一为四字状态。"""
+    reason = str(reason or "")
+    return LEGACY_REASON_MAP.get(reason, reason)
+
+
+def normalize_log_record(record: dict) -> dict:
+    """复制并归一化观察日志记录的状态字段。"""
+    copied = dict(record or {})
+    copied["reason"] = normalize_log_reason(copied.get("reason") or "")
+    if str(copied.get("observe_dropped_reason") or "") == OBSERVE_DROPPED_DETAIL:
+        copied["observe_dropped_reason"] = OBSERVE_DROPPED_REASON
+    return copied
 
 
 def log_anti_cheat(plugin, reason: str, title: str, detail: str = "", link: str = "") -> None:
     """记录订阅过滤与观察期日志。"""
+    reason = normalize_log_reason(reason)
     logs = storage.read_anti_cheat_logs(plugin)
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     matched = None
     kept = []
     for log in logs:
+        if not isinstance(log, dict):
+            kept.append(log)
+            continue
+        copied = normalize_log_record(log)
         if (
-            isinstance(log, dict)
-            and log.get("reason") == reason
-            and log.get("title") == title
-            and log.get("detail") == detail
-            and (log.get("link") or "") == (link or "")
+            copied.get("reason") == reason
+            and copied.get("title") == title
+            and copied.get("detail") == detail
+            and (copied.get("link") or "") == (link or "")
         ):
             if matched is None:
-                matched = dict(log)
+                matched = copied
             else:
                 try:
-                    matched["count"] = int(matched.get("count") or 1) + int(log.get("count") or 1)
+                    matched["count"] = int(matched.get("count") or 1) + int(copied.get("count") or 1)
                 except (TypeError, ValueError):
                     matched["count"] = int(matched.get("count") or 1) + 1
             continue
-        kept.append(log)
+        kept.append(copied)
     if matched is not None:
         try:
             matched["count"] = int(matched.get("count") or 1) + 1
@@ -63,7 +94,7 @@ def cleanup_observe_logs(plugin, title: str = "", unique: str = "") -> None:
     logs = storage.read_anti_cheat_logs(plugin)
     if not isinstance(logs, list):
         return
-    observe_reasons = {"观察期首次记录", "观察期未满"}
+    observe_reasons = {OBSERVE_START_REASON, OBSERVE_WAIT_REASON}
     title = str(title or "")
     unique = str(unique or "")
     kept = []
@@ -72,12 +103,15 @@ def cleanup_observe_logs(plugin, title: str = "", unique: str = "") -> None:
         if not isinstance(log, dict):
             kept.append(log)
             continue
-        reason = str(log.get("reason") or "")
+        copied = normalize_log_record(log)
+        reason = copied.get("reason") or ""
         log_title = str(log.get("title") or "")
         if reason in observe_reasons and log_title in {title, unique}:
             changed = True
             continue
-        kept.append(log)
+        if copied != log:
+            changed = True
+        kept.append(copied)
     if changed:
         storage.save_anti_cheat_logs(plugin, kept)
 
@@ -168,10 +202,10 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
                     item["first_seen"] = first_seen
                     item["observing"] = True
                     logger.info(f"豆瓣中心：条目《{item.get('title')}》观察期未满（{elapsed}/{days} 天），跳过订阅")
-                    log_anti_cheat(plugin, "观察期未满", item.get("title", ""), f"已过 {elapsed} 天，需要 {days} 天")
+                    log_anti_cheat(plugin, OBSERVE_WAIT_REASON, item.get("title", ""), f"已过 {elapsed} 天，需要 {days} 天")
                     return True
                 logger.info(f"豆瓣中心：条目《{item.get('title') or title or unique}》观察期已满（{elapsed}/{days} 天），继续订阅")
-                log_anti_cheat(plugin, "观察期完成", item.get("title") or title or unique, f"已过 {elapsed} 天，达到 {days} 天")
+                log_anti_cheat(plugin, OBSERVE_DONE_REASON, item.get("title") or title or unique, f"已过 {elapsed} 天，达到 {days} 天")
                 return False
             except Exception:
                 pass
@@ -188,7 +222,7 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
         "observing": True,
     })
     logger.info(f"豆瓣中心：条目《{title or unique}》首次进入观察期（0/{days} 天），跳过订阅")
-    log_anti_cheat(plugin, "观察期首次记录", title or unique, f"需要观察 {days} 天")
+    log_anti_cheat(plugin, OBSERVE_START_REASON, title or unique, f"需要观察 {days} 天")
     return True
 
 
@@ -343,17 +377,24 @@ def delete_anti_cheat_log(
     if not (time or title or reason):
         return {"success": False, "message": "缺少观察日志标识"}
     logs = storage.read_anti_cheat_logs(plugin)
-    removed = [
-        item for item in logs
-        if (
-            isinstance(item, dict)
-            and (not time or item.get("time") == time)
-            and (not title or item.get("title") == title)
-            and (not reason or item.get("reason") == reason)
+    normalized_reason = normalize_log_reason(reason)
+    removed = []
+    kept = []
+    for item in logs:
+        if not isinstance(item, dict):
+            kept.append(item)
+            continue
+        copied = normalize_log_record(item)
+        matched = (
+            (not time or copied.get("time") == time)
+            and (not title or copied.get("title") == title)
+            and (not normalized_reason or copied.get("reason") == normalized_reason)
         )
-    ]
-    kept = [item for item in logs if item not in removed]
-    if len(kept) == len(logs):
+        if matched:
+            removed.append(copied)
+        else:
+            kept.append(copied)
+    if not removed:
         return {"success": False, "message": "未找到观察日志"}
     archive = None
     for item in removed:
@@ -372,7 +413,7 @@ def archived_completion_titles(plugin) -> Set[str]:
         if not isinstance(archive, dict):
             continue
         record = archive.get("record") or {}
-        if archive.get("source") == "anti_cheat_log" and str(record.get("reason") or "") == "观察期完成":
+        if archive.get("source") == "anti_cheat_log" and normalize_log_reason(record.get("reason") or "") == OBSERVE_DONE_REASON:
             titles.add(str(record.get("title") or archive.get("title") or ""))
     return titles
 
@@ -410,7 +451,8 @@ def dedupe_anti_cheat_logs(logs: list) -> tuple:
     for log in logs:
         if not isinstance(log, dict):
             continue
-        key = (log.get("reason") or "", log.get("title") or "", log.get("detail") or "")
+        normalized_reason = normalize_log_reason(log.get("reason") or "")
+        key = (normalized_reason, log.get("title") or "", log.get("detail") or "")
         if key in index:
             target = merged[index[key]]
             try:
@@ -421,7 +463,9 @@ def dedupe_anti_cheat_logs(logs: list) -> tuple:
                 target["time"] = log.get("time")
             changed = True
             continue
-        copied = dict(log)
+        copied = normalize_log_record(log)
+        if copied != log:
+            changed = True
         if int(copied.get("count") or 1) > 1:
             copied["count"] = int(copied.get("count") or 1)
         index[key] = len(merged)
@@ -482,7 +526,7 @@ def observation_completion_log(item: dict, rank: dict) -> Optional[dict]:
     record = dict(item)
     record.update({
         "time": subscribed_at or str(item.get("time") or first_seen),
-        "reason": "观察期完成",
+        "reason": OBSERVE_DONE_REASON,
         "title": title,
         "detail": f"{rank.get('name') or rank.get('key') or ''}：{first_seen} -> {subscribed_at or '已订阅'}",
         "link": item.get("link") or "",
@@ -491,7 +535,33 @@ def observation_completion_log(item: dict, rank: dict) -> Optional[dict]:
         "first_seen": first_seen,
         "subscribed_at": subscribed_at,
     })
-    return record
+    return normalize_log_record(record)
+
+
+def observation_dropped_log(item: dict, rank: dict) -> Optional[dict]:
+    """从榜单历史构造跌出榜单日志。"""
+    if not isinstance(item, dict) or not isinstance(rank, dict):
+        return None
+    title = str(item.get("title") or "")
+    first_seen = str(item.get("first_seen") or "")
+    dropped_at = str(item.get("observe_dropped_at") or "")
+    if not title or not first_seen or not dropped_at:
+        return None
+    detail_reason = str(item.get("observe_dropped_detail") or OBSERVE_DROPPED_DETAIL)
+    record = dict(item)
+    record.update({
+        "time": dropped_at,
+        "reason": OBSERVE_DROPPED_REASON,
+        "title": title,
+        "detail": f"{rank.get('name') or rank.get('key') or ''}：{first_seen} -> {dropped_at}，{detail_reason}",
+        "link": item.get("link") or "",
+        "rank_key": rank.get("key") or item.get("rank_key") or "",
+        "rank_name": rank.get("name") or item.get("rank_name") or "",
+        "first_seen": first_seen,
+        "observe_dropped_at": dropped_at,
+        "observe_dropped_reason": OBSERVE_DROPPED_REASON,
+    })
+    return normalize_log_record(record)
 
 
 def append_observation_completion_logs(
@@ -504,12 +574,12 @@ def append_observation_completion_logs(
     if not isinstance(logs, list):
         logs = []
     changed = False
-    existing_titles = {
-        str(log.get("title") or "")
+    existing_keys = {
+        (str(log.get("title") or ""), normalize_log_reason(log.get("reason") or ""))
         for log in logs
-        if isinstance(log, dict) and str(log.get("reason") or "") == "观察期完成"
+        if isinstance(log, dict)
     }
-    existing_titles.update(archived_completion_titles or set())
+    existing_keys.update((str(title), OBSERVE_DONE_REASON) for title in (archived_completion_titles or set()))
     if not isinstance(ranks, list):
         return logs, changed
     for rank in ranks:
@@ -519,12 +589,13 @@ def append_observation_completion_logs(
         if not isinstance(history, list):
             continue
         for item in history:
-            record = observation_completion_log(item, rank)
-            if not record or str(record.get("title") or "") in existing_titles:
-                continue
-            logs.append(record)
-            existing_titles.add(str(record.get("title") or ""))
-            changed = True
+            for record in (observation_completion_log(item, rank), observation_dropped_log(item, rank)):
+                key = (str((record or {}).get("title") or ""), normalize_log_reason((record or {}).get("reason") or ""))
+                if not record or key in existing_keys:
+                    continue
+                logs.append(record)
+                existing_keys.add(key)
+                changed = True
     if len(logs) > 100:
         logs = logs[-100:]
         changed = True
@@ -547,12 +618,12 @@ def reconcile_anti_cheat_logs(
         existing_subscription_checker=existing_subscription_checker,
     )
     if finished_titles:
-        observe_reasons = {"观察期首次记录", "观察期未满"}
+        observe_reasons = {OBSERVE_START_REASON, OBSERVE_WAIT_REASON}
         kept = []
         for log in logs:
             if (
                 isinstance(log, dict)
-                and str(log.get("reason") or "") in observe_reasons
+                and normalize_log_reason(log.get("reason") or "") in observe_reasons
                 and str(log.get("title") or "") in finished_titles
             ):
                 changed = True
@@ -580,4 +651,5 @@ def drop_stale_observations(history: List[dict], current_candidates: set) -> Non
         if unique and unique not in current_candidates:
             item["observing"] = False
             item["observe_dropped_at"] = now
-            item["observe_dropped_reason"] = "跌出当前自动订阅候选"
+            item["observe_dropped_reason"] = OBSERVE_DROPPED_REASON
+            item["observe_dropped_detail"] = OBSERVE_DROPPED_DETAIL

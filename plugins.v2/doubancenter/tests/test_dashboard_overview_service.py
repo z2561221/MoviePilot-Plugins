@@ -125,7 +125,7 @@ class DashboardOverviewServiceTest(unittest.TestCase):
         self.assertEqual(result["attention"]["pending_observations"], 1)
         self.assertEqual(result["attention"]["anti_cheat_logs"], 2)
         self.assertEqual(plugin.data["subscribe_records"][0]["note"], "new")
-        self.assertEqual(plugin.data["anti_cheat_logs"][-1]["reason"], "观察期完成")
+        self.assertEqual(plugin.data["anti_cheat_logs"][-1]["reason"], "观察完成")
         self.assertEqual(plugin.data["anti_cheat_logs"][0]["count"], 2)
         self.assertEqual(plugin.data["archive_records"][0]["id"], "a2")
 
