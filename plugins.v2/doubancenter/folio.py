@@ -92,6 +92,63 @@ def run_wish_sync(self, api=None, request_get=None) -> None:
     logger.info(f"豆瓣想看同步完成，新增入队 {added} 条")
 
 
+WISH_RANK_KEY = "douban_wish"
+WISH_RANK_NAME = "豆瓣想看"
+
+
+def _default_wish_recognize(self):
+    """返回默认的想看识别函数。"""
+    def recognize(title, year):
+        """识别想看条目对应的媒体信息。"""
+        meta = MetaInfo(title)
+        if year:
+            meta.year = str(year)
+        return MediaChain().recognize_media(meta=meta, cache=True)
+    return recognize
+
+
+def process_wish_queue(self, recognize=None, subscribe=None) -> None:
+    """处理想看待订阅队列，识别后通过现有订阅链创建订阅。"""
+    queue = storage.read_folio_wish_queue(self)
+    if not queue:
+        return
+    processed = storage.read_folio_wish_processed(self)
+    failed = storage.read_folio_wish_failed(self)
+    recognizer = recognize or _default_wish_recognize(self)
+    subscriber = subscribe
+    if subscriber is None:
+        from .service import subscription as subscription_service
+        subscriber = subscription_service.add_subscription
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    remaining = []
+    for item in queue:
+        subject_id = str(item.get("subject_id") or "")
+        title = item.get("title") or ""
+        year = item.get("year") or ""
+        link = item.get("link") or ""
+        mediainfo = None
+        try:
+            mediainfo = recognizer(title, year)
+        except Exception as err:
+            logger.warning(f"豆瓣想看识别失败：{title} {err}")
+            mediainfo = None
+        if not mediainfo:
+            failed.append({"subject_id": subject_id, "title": title, "reason": "recognize_failed",
+                           "retry": int(item.get("retry", 0) or 0) + 1, "failed_at": now})
+            continue
+        try:
+            subscriber(self, mediainfo, rank_key=WISH_RANK_KEY, rank_name=WISH_RANK_NAME, source_link=link)
+        except Exception as err:
+            logger.warning(f"豆瓣想看订阅失败：{title} {err}")
+        processed.append({"subject_id": subject_id, "title": title, "processed_at": now})
+
+    storage.save_folio_wish_queue(self, remaining)
+    storage.save_folio_wish_processed(self, processed)
+    storage.save_folio_wish_failed(self, failed)
+    logger.info(f"豆瓣想看队列处理完成，处理 {len(processed)} 条，失败 {len(failed)} 条")
+
+
 def _wish_seen_record(item, now):
     """构造已见想看条目的最小记录。"""
     return {"subject_id": str(item.get("subject_id") or ""), "title": item.get("title", ""), "seen_at": now}

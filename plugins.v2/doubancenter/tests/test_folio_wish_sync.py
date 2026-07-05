@@ -195,5 +195,75 @@ class FolioWishSyncTest(unittest.TestCase):
         self.assertEqual(calls, [plugin])
 
 
+class FolioWishQueueProcessTest(unittest.TestCase):
+    def _plugin_with_queue(self):
+        plugin = _MemoryPlugin()
+        plugin.data["folio_wish_state"] = {"initialized": True}
+        plugin.data["folio_wish_queue"] = [
+            {"subject_id": "1", "title": "\u7532", "year": "2026", "link": "https://movie.douban.com/subject/1/"},
+            {"subject_id": "2", "title": "\u4e59", "year": "2025", "link": "https://movie.douban.com/subject/2/"},
+        ]
+        return plugin
+
+    def test_process_queue_subscribes_and_writes_rank_key(self):
+        """\u5904\u7406\u961f\u5217\u4f1a\u521b\u5efa\u8ba2\u9605\u5e76\u5199\u5165 rank_key=douban_wish\u3002"""
+        plugin = self._plugin_with_queue()
+        calls = []
+
+        def fake_recognize(title, year):
+            return types.SimpleNamespace(title=title, year=year, tmdb_id=int(year))
+
+        def fake_subscribe(self, mediainfo, meta=None, rank_key="", rank_name="", source_link=""):
+            calls.append((mediainfo.title, rank_key, rank_name, source_link))
+            return True
+
+        folio.process_wish_queue(plugin, recognize=fake_recognize, subscribe=fake_subscribe)
+
+        self.assertEqual([c[0] for c in calls], ["\u7532", "\u4e59"])
+        self.assertTrue(all(c[1] == "douban_wish" for c in calls))
+        self.assertTrue(all(c[2] == "\u8c46\u74e3\u60f3\u770b" for c in calls))
+        self.assertEqual(plugin.data.get("folio_wish_queue"), [])
+        processed = plugin.data.get("folio_wish_processed") or []
+        self.assertEqual({r["subject_id"] for r in processed}, {"1", "2"})
+
+    def test_process_queue_records_failed_recognition_without_crash(self):
+        """\u8bc6\u522b\u5931\u8d25\u7684\u6761\u76ee\u4f1a\u88ab\u8bb0\u5f55\u4e14\u4e0d\u5d29\u6e83\u8c03\u5ea6\u3002"""
+        plugin = self._plugin_with_queue()
+
+        def fake_recognize(title, year):
+            if title == "\u7532":
+                return None
+            return types.SimpleNamespace(title=title, year=year, tmdb_id=int(year))
+
+        subscribed = []
+
+        def fake_subscribe(self, mediainfo, meta=None, rank_key="", rank_name="", source_link=""):
+            subscribed.append(mediainfo.title)
+            return True
+
+        folio.process_wish_queue(plugin, recognize=fake_recognize, subscribe=fake_subscribe)
+
+        failed = plugin.data.get("folio_wish_failed") or []
+        self.assertEqual({r["subject_id"] for r in failed}, {"1"})
+        self.assertEqual(subscribed, ["\u4e59"])
+        self.assertEqual(plugin.data.get("folio_wish_queue"), [])
+
+    def test_process_queue_marks_existing_without_infinite_retry(self):
+        """\u5df2\u5b58\u5728\u8ba2\u9605\u7684\u6761\u76ee\u4e0d\u4f1a\u65e0\u9650\u91cd\u8bd5\u3002"""
+        plugin = self._plugin_with_queue()
+
+        def fake_recognize(title, year):
+            return types.SimpleNamespace(title=title, year=year, tmdb_id=int(year))
+
+        def fake_subscribe(self, mediainfo, meta=None, rank_key="", rank_name="", source_link=""):
+            return False
+
+        folio.process_wish_queue(plugin, recognize=fake_recognize, subscribe=fake_subscribe)
+
+        self.assertEqual(plugin.data.get("folio_wish_queue"), [])
+        processed_ids = {r["subject_id"] for r in (plugin.data.get("folio_wish_processed") or [])}
+        self.assertEqual(processed_ids, {"1", "2"})
+
+
 if __name__ == "__main__":
     unittest.main()
