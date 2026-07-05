@@ -43,22 +43,29 @@ def check_cookie_periodically(self) -> None:
 def run_wish_scheduled(self) -> None:
     """执行豆瓣想看同步定时入口。"""
     run_wish_sync(self)
+    process_wish_queue(self)
 
 
 def run_wish_sync(self, api=None, request_get=None) -> None:
     """读取豆瓣想看列表，首跑建立基线，后续仅将新增条目入队。"""
     dh = api if api is not None else DoubanApi(user_cookie=getattr(self, "_folio_cookie", ""))
-    items = dh.get_wish_items(
-        user_id=getattr(self, "_wish_user", "") or "",
-        max_pages=max(1, int(getattr(self, "_wish_max_pages", 1) or 1)),
-        request_get=request_get,
-    ) or []
-
     state = storage.read_folio_wish_state(self)
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        items = dh.get_wish_items(
+            user_id=getattr(self, "_wish_user", "") or "",
+            max_pages=max(1, int(getattr(self, "_wish_max_pages", 1) or 1)),
+            request_get=request_get,
+        ) or []
+    except Exception as err:
+        state.update({"last_run": now, "last_error": f"读取想看失败：{err}"})
+        storage.save_folio_wish_state(self, state)
+        logger.warning(f"豆瓣想看读取失败：{err}")
+        return
+
     seen = storage.read_folio_wish_seen(self)
     queue = storage.read_folio_wish_queue(self)
     seen_ids = {str(r.get("subject_id")) for r in seen if r.get("subject_id")}
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if not state.get("initialized"):
         for item in items:
@@ -114,6 +121,7 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
         return
     processed = storage.read_folio_wish_processed(self)
     failed = storage.read_folio_wish_failed(self)
+    state = storage.read_folio_wish_state(self)
     recognizer = recognize or _default_wish_recognize(self)
     subscriber = subscribe
     if subscriber is None:
@@ -134,19 +142,78 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
             logger.warning(f"豆瓣想看识别失败：{title} {err}")
             mediainfo = None
         if not mediainfo:
-            failed.append({"subject_id": subject_id, "title": title, "reason": "recognize_failed",
-                           "retry": int(item.get("retry", 0) or 0) + 1, "failed_at": now})
+            _record_wish_failed(failed, item, "recognize_failed", now)
             continue
+        subscribe_failed = False
+        subscribe_reason = ""
+        before_failed_records = _failed_subscribe_record_count(self, mediainfo)
         try:
-            subscriber(self, mediainfo, rank_key=WISH_RANK_KEY, rank_name=WISH_RANK_NAME, source_link=link)
+            result = subscriber(self, mediainfo, rank_key=WISH_RANK_KEY, rank_name=WISH_RANK_NAME, source_link=link)
         except Exception as err:
+            result = None
+            subscribe_failed = True
+            subscribe_reason = str(err) or "subscribe_failed"
             logger.warning(f"豆瓣想看订阅失败：{title} {err}")
+        if _subscribe_result_is_failed(result) or _failed_subscribe_record_count(self, mediainfo) > before_failed_records:
+            subscribe_failed = True
+            subscribe_reason = _subscribe_failure_reason(result)
+        if subscribe_failed:
+            _record_wish_failed(failed, item, "subscribe_failed", now, subscribe_reason)
+            continue
         processed.append({"subject_id": subject_id, "title": title, "processed_at": now})
 
     storage.save_folio_wish_queue(self, remaining)
     storage.save_folio_wish_processed(self, processed)
     storage.save_folio_wish_failed(self, failed)
+    state.update({"last_run": now, "last_processed": len(processed), "last_failed": len(failed), "last_error": ""})
+    storage.save_folio_wish_state(self, state)
     logger.info(f"豆瓣想看队列处理完成，处理 {len(processed)} 条，失败 {len(failed)} 条")
+
+
+def _record_wish_failed(failed, item, reason, now, message=""):
+    """记录想看同步失败条目并维护重试次数。"""
+    subject_id = str(item.get("subject_id") or "")
+    retry = int(item.get("retry", 0) or 0) + 1
+    for record in reversed(failed):
+        if str(record.get("subject_id") or "") == subject_id and record.get("reason") == reason:
+            retry = int(record.get("retry", 0) or 0) + 1
+            break
+    failed.append({
+        "subject_id": subject_id,
+        "title": item.get("title") or "",
+        "reason": reason,
+        "message": message or reason,
+        "retry": retry,
+        "failed_at": now,
+    })
+
+
+def _subscribe_result_is_failed(result) -> bool:
+    """判断订阅调用返回值是否明确表示失败。"""
+    if not isinstance(result, dict):
+        return False
+    status = str(result.get("status") or result.get("result") or "").lower()
+    return status in {"failed", "failure", "error"} or (result.get("ok") is False and not result.get("existing"))
+
+
+def _subscribe_failure_reason(result) -> str:
+    """从订阅调用结果中提取失败原因。"""
+    if not isinstance(result, dict):
+        return "subscribe_failed"
+    return str(result.get("reason") or result.get("message") or "subscribe_failed")
+
+
+def _failed_subscribe_record_count(plugin, mediainfo) -> int:
+    """统计当前媒体对应的失败订阅历史记录数量。"""
+    count = 0
+    for record in storage.read_subscribe_records(plugin):
+        if not isinstance(record, dict) or record.get("status") != "failed":
+            continue
+        if record.get("rank_key") != WISH_RANK_KEY:
+            continue
+        if str(record.get("tmdbid") or "") == str(getattr(mediainfo, "tmdb_id", "") or ""):
+            count += 1
+    return count
 
 
 def _wish_seen_record(item, now):

@@ -265,5 +265,48 @@ class FolioWishQueueProcessTest(unittest.TestCase):
         self.assertEqual(processed_ids, {"1", "2"})
 
 
+class FolioWishErrorStateTest(unittest.TestCase):
+    def test_cookie_invalid_preserves_queue_and_writes_state_error(self):
+        """cookie \u5931\u6548\u65f6\u4fdd\u7559\u961f\u5217\u4e0e\u5df2\u89c1\uff0c\u5e76\u5199\u5165\u72b6\u6001\u9519\u8bef\u3002"""
+        plugin = _MemoryPlugin()
+        plugin.data["folio_wish_state"] = {"initialized": True}
+        plugin.data["folio_wish_seen"] = [{"subject_id": "1", "title": "\u7532"}]
+        plugin.data["folio_wish_queue"] = [{"subject_id": "9", "title": "\u65e7"}]
+
+        class _CookieApi:
+            def get_wish_items(self, user_id="", max_pages=1, request_get=None):
+                raise RuntimeError("cookie invalid")
+
+        folio.run_wish_sync(plugin, api=_CookieApi())
+
+        state = plugin.data.get("folio_wish_state") or {}
+        self.assertTrue(state.get("last_error"))
+        self.assertEqual(plugin.data.get("folio_wish_queue"), [{"subject_id": "9", "title": "\u65e7"}])
+        self.assertEqual(plugin.data.get("folio_wish_seen"), [{"subject_id": "1", "title": "\u7532"}])
+
+    def test_subscription_failure_records_wish_failed_state(self):
+        """\u8ba2\u9605\u5931\u8d25\u65f6\u5199\u5165\u60f3\u770b\u5931\u8d25\u72b6\u6001\u4e14\u4e0d\u91cd\u590d\u91cd\u8bd5\u3002"""
+        plugin = _MemoryPlugin()
+        plugin.data["folio_wish_state"] = {"initialized": True}
+        plugin.data["folio_wish_queue"] = [
+            {"subject_id": "1", "title": "\u7532", "year": "2026", "link": "https://movie.douban.com/subject/1/"},
+        ]
+
+        def fake_recognize(title, year):
+            return types.SimpleNamespace(title=title, year=year, tmdb_id=int(year))
+
+        def fake_subscribe(self, mediainfo, meta=None, rank_key="", rank_name="", source_link=""):
+            return {"status": "failed", "reason": "subscribe_failed"}
+
+        folio.process_wish_queue(plugin, recognize=fake_recognize, subscribe=fake_subscribe)
+
+        failed = plugin.data.get("folio_wish_failed") or []
+        self.assertEqual({r["subject_id"] for r in failed}, {"1"})
+        self.assertTrue(all(r.get("reason") == "subscribe_failed" for r in failed))
+        self.assertEqual(plugin.data.get("folio_wish_queue"), [])
+        state = plugin.data.get("folio_wish_state") or {}
+        self.assertEqual(state.get("last_failed"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
