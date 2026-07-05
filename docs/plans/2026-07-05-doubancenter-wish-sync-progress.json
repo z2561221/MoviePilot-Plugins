@@ -2,7 +2,7 @@
   "plan": "docs/plans/2026-07-05-doubancenter-wish-sync-phased-plan.md",
   "status": {
     "phase": "phase-3",
-    "task": "3.1",
+    "task": "3.2",
     "next_allowed_action": "Implement the current task; after verified completion, advance to the next task or phase automatically"
   },
   "execution_rules": {
@@ -136,9 +136,22 @@
         {
           "id": "3.1",
           "title": "Execute queued wish subscriptions",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_folio_wish_sync.py",
+              "result": "exit 0; Ran 7 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_*.py",
+              "result": "exit 0; Ran 178 tests OK"
+            }
+          ],
+          "commit": "a6b06ac"
         },
         {
           "id": "3.2",
@@ -224,6 +237,10 @@
     {
       "time": "2026-07-05",
       "entry": "Completed task 2.2: implemented wish baseline/queue state machine (first run baseline-only, later runs enqueue new items, default single page); compileall, wish sync tests, and full 175-test suite pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 3.1: process wish queue recognizes items and subscribes via existing chain writing rank_key=douban_wish, records failed recognition without crashing, and does not retry existing subscriptions indefinitely; compileall, wish sync tests, and full 178-test suite pass."
     }
   ]
 }
