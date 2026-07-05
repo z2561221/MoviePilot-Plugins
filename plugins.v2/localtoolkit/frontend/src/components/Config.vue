@@ -143,7 +143,7 @@ function saveConfig() {
 
       <div class="plugin-body">
         <nav class="plugin-nav">
-          <VList density="comfortable" nav class="py-2">
+          <VList density="comfortable" nav class="plugin-nav-list py-2">
             <VListItem v-for="item in mainTabs" :key="item.key" :active="activeMain === item.key" :color="item.color" rounded="lg" class="plugin-nav-item" @click="selectMain(item.key)">
               <template #prepend><VIcon :icon="item.icon" /></template>
               <VListItemTitle>{{ item.title }}</VListItemTitle>
@@ -276,6 +276,7 @@ function saveConfig() {
 .plugin-header { padding: 14px 18px; }
 .plugin-body { display: flex; min-height: 540px; }
 .plugin-nav { width: 176px; flex: 0 0 176px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), .02); }
+.plugin-nav-list { width: 100%; }
 .plugin-nav-item { margin: 2px 8px; }
 .plugin-content { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .plugin-subtabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; }
@@ -288,5 +289,44 @@ function saveConfig() {
 .plugin-hint { font-size: 12px; line-height: 1.6; color: rgba(var(--v-theme-on-surface), .68); margin-top: 2px; }
 .status-card { border-radius: 14px; min-height: 132px; }
 .plugin-actions { padding: 10px 18px; }
-@media (max-width: 760px) { .plugin-body { flex-direction: column; } .plugin-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); } }
+@media (max-width: 760px) {
+  .plugin-body { flex-direction: column; }
+  .plugin-nav {
+    width: 100%;
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .plugin-nav::-webkit-scrollbar { display: none; }
+  .plugin-nav-list {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    min-width: max-content;
+    padding: 8px 12px !important;
+  }
+  .plugin-nav-item {
+    flex: 0 0 auto;
+    min-width: 96px;
+    margin: 0;
+    padding-inline: 10px;
+  }
+  .plugin-nav-item :deep(.v-list-item-title) { white-space: nowrap; }
+  .plugin-subtabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    padding: 6px 12px;
+  }
+  .plugin-subtabs::-webkit-scrollbar { display: none; }
+  .plugin-subtab {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    white-space: nowrap;
+  }
+}
 </style>

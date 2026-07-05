@@ -231,7 +231,7 @@ return (_ctx, _cache) => {
             _createVNode(_component_VList, {
               density: "comfortable",
               nav: "",
-              class: "py-2"
+              class: "plugin-nav-list py-2"
             }, {
               default: _withCtx(() => [
                 (_openBlock(), _createElementBlock(_Fragment, null, _renderList(mainTabs, (item) => {
@@ -828,6 +828,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-95182d87"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a7b818cc"]]);
 
 export { Config as default };

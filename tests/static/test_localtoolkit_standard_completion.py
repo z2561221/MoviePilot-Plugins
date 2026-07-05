@@ -13,6 +13,7 @@ PACKAGE = REPO / "package.v2.json"
 PLUGIN_JSON = PLUGIN_DIR / "plugin.json"
 REMOTE_ENTRY = PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js"
 VITE_CONFIG = PLUGIN_DIR / "frontend" / "vite.config.js"
+CONFIG_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Config.vue"
 
 ENTRYPOINT_HEAVY_METHODS = {
     "init_plugin",
@@ -150,3 +151,13 @@ def test_localtoolkit_entrypoint_is_thin_contract_layer():
 def test_localtoolkit_modules_do_not_remain_second_service_layer():
     """modules 层不能继续作为第二套 service 层持有核心业务定义。"""
     assert _module_business_files() == []
+
+
+def test_localtoolkit_mobile_primary_nav_is_horizontal():
+    """移动端一级导航必须横向滚动，避免继续竖向占据首屏。"""
+    source = CONFIG_VUE.read_text(encoding="utf-8")
+    assert 'class="plugin-nav-list py-2"' in source
+    assert re.search(r"\.plugin-nav\s*\{[^}]*overflow-x:\s*auto", source, re.S)
+    assert re.search(r"\.plugin-nav-list\s*\{[^}]*display:\s*flex", source, re.S)
+    assert re.search(r"\.plugin-nav-list\s*\{[^}]*flex-wrap:\s*nowrap", source, re.S)
+    assert re.search(r"\.plugin-nav-item\s*\{[^}]*flex:\s*0 0 auto", source, re.S)
