@@ -1,8 +1,8 @@
 {
   "plan": "docs/plans/2026-07-05-doubancenter-wish-sync-phased-plan.md",
   "status": {
-    "phase": "phase-4",
-    "task": "4.2",
+    "phase": "phase-5",
+    "task": "5.1",
     "next_allowed_action": "Implement the current task; after verified completion, advance to the next task or phase automatically"
   },
   "execution_rules": {
@@ -217,9 +217,30 @@
         {
           "id": "4.2",
           "title": "Update Vue config UI and built assets",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\pnpm.cmd run build (with bundled Node on PATH)",
+              "result": "exit 0; Vite built remoteEntry.js and updated dist/assets"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_config_frontend_contract.py",
+              "result": "exit 0; Ran 12 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_dashboard_overview_service.py",
+              "result": "exit 0; Ran 4 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_*.py",
+              "result": "exit 0; Ran 184 tests OK"
+            }
+          ],
+          "commit": "f6f42b2"
         }
       ]
     },
@@ -283,6 +304,10 @@
     {
       "time": "2026-07-05",
       "entry": "Completed task 4.1: added the Sync Wish overview flow, surfaced wish queue/failed state under the folio overview, returned wish_status from the config API, and updated backend contract tests; compileall, focused tests, config frontend contract, and full 182-test suite pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 4.2: added the Sync Wish tab before Sync Watching in Config.vue, exposed wish controls and status, rebuilt Vue federation assets with bundled pnpm because npm is not on PATH, and verified compileall, frontend contract, overview tests, and full 184-test suite."
     }
   ]
 }
