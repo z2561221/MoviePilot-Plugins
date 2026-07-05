@@ -1,6 +1,5 @@
 from typing import Any, Dict, List
 from app.plugins import _PluginBase
-from app.schemas.types import NotificationType
 from .controller.api import (
     build_api_routes,
     history_response,
@@ -70,11 +69,8 @@ class LocalToolkit(_PluginBase):
         return invalidate_cache_response(self)
 
     def get_form(self):
-        """返回 Vue 模式下的兜底配置表单。"""
-        return [{"component":"VForm","content":[
-            {"component":"VAlert","props":{"type":"info","variant":"tonal","text":"本地工具中心整合清库存、查漏集、清 TMDB 缓存。配置页建议使用 Vue 页面，旧表单仅保底。"}},
-            {"component":"VSwitch","props":{"model":"enabled","label":"启用本地工具中心"}}
-        ]}], self._config
+        """返回 Vue 模式下的空配置 schema 与当前配置模型。"""
+        return [], self._config
 
     def get_page(self):
         """返回 Vue 模式下的详情页占位 schema。"""

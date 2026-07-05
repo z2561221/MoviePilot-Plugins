@@ -191,6 +191,12 @@ class LocalToolkitStabilityTest(unittest.TestCase):
     def test_vue_mode_get_page_returns_empty_schema(self):
         self.assertEqual(self.plugin.get_page(), [])
 
+    def test_vue_mode_get_form_returns_empty_schema_with_config_model(self):
+        schema, model = self.plugin.get_form()
+
+        self.assertEqual(schema, [])
+        self.assertEqual(model, self.plugin._config)
+
     def test_history_pagination_ignores_corrupt_history_data(self):
         self.plugin._data["tool_history"] = {"bad": "shape"}
 
