@@ -157,6 +157,7 @@ def test_localtoolkit_mobile_primary_nav_is_horizontal():
     """移动端一级导航必须横向滚动，避免继续竖向占据首屏。"""
     source = CONFIG_VUE.read_text(encoding="utf-8")
     assert 'class="plugin-nav-list py-2"' in source
+    assert re.search(r"@media\s*\([^)]*max-width:\s*1024px[^)]*\)\s*,\s*\([^)]*hover:\s*none[^)]*\)\s*and\s*\([^)]*pointer:\s*coarse[^)]*\)", source, re.S)
     assert re.search(r"\.plugin-nav\s*\{[^}]*overflow-x:\s*auto", source, re.S)
     assert re.search(r"\.plugin-nav-list\s*\{[^}]*display:\s*flex", source, re.S)
     assert re.search(r"\.plugin-nav-list\s*\{[^}]*flex-wrap:\s*nowrap", source, re.S)

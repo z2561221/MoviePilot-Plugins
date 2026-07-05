@@ -289,7 +289,7 @@ function saveConfig() {
 .plugin-hint { font-size: 12px; line-height: 1.6; color: rgba(var(--v-theme-on-surface), .68); margin-top: 2px; }
 .status-card { border-radius: 14px; min-height: 132px; }
 .plugin-actions { padding: 10px 18px; }
-@media (max-width: 760px) {
+@media (max-width: 1024px), (hover: none) and (pointer: coarse) {
   .plugin-body { flex-direction: column; }
   .plugin-nav {
     width: 100%;
