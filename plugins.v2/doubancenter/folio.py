@@ -42,7 +42,72 @@ def check_cookie_periodically(self) -> None:
 
 def run_wish_scheduled(self) -> None:
     """执行豆瓣想看同步定时入口。"""
-    return None
+    run_wish_sync(self)
+
+
+def run_wish_sync(self, api=None, request_get=None) -> None:
+    """读取豆瓣想看列表，首跑建立基线，后续仅将新增条目入队。"""
+    dh = api if api is not None else DoubanApi(user_cookie=getattr(self, "_folio_cookie", ""))
+    items = dh.get_wish_items(
+        user_id=getattr(self, "_wish_user", "") or "",
+        max_pages=max(1, int(getattr(self, "_wish_max_pages", 1) or 1)),
+        request_get=request_get,
+    ) or []
+
+    state = storage.read_folio_wish_state(self)
+    seen = storage.read_folio_wish_seen(self)
+    queue = storage.read_folio_wish_queue(self)
+    seen_ids = {str(r.get("subject_id")) for r in seen if r.get("subject_id")}
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    if not state.get("initialized"):
+        for item in items:
+            subject_id = str(item.get("subject_id") or "")
+            if subject_id and subject_id not in seen_ids:
+                seen_ids.add(subject_id)
+                seen.append(_wish_seen_record(item, now))
+        state.update({"initialized": True, "baseline_at": now, "last_run": now, "last_error": ""})
+        storage.save_folio_wish_seen(self, seen)
+        storage.save_folio_wish_queue(self, queue)
+        storage.save_folio_wish_state(self, state)
+        logger.info(f"豆瓣想看首次运行，建立基线 {len(seen)} 条，不入队")
+        return
+
+    queue_ids = {str(r.get("subject_id")) for r in queue if r.get("subject_id")}
+    added = 0
+    for item in items:
+        subject_id = str(item.get("subject_id") or "")
+        if not subject_id or subject_id in seen_ids:
+            continue
+        seen_ids.add(subject_id)
+        seen.append(_wish_seen_record(item, now))
+        if subject_id not in queue_ids:
+            queue_ids.add(subject_id)
+            queue.append(_wish_queue_record(item, now))
+            added += 1
+    state.update({"last_run": now, "last_error": ""})
+    storage.save_folio_wish_seen(self, seen)
+    storage.save_folio_wish_queue(self, queue)
+    storage.save_folio_wish_state(self, state)
+    logger.info(f"豆瓣想看同步完成，新增入队 {added} 条")
+
+
+def _wish_seen_record(item, now):
+    """构造已见想看条目的最小记录。"""
+    return {"subject_id": str(item.get("subject_id") or ""), "title": item.get("title", ""), "seen_at": now}
+
+
+def _wish_queue_record(item, now):
+    """构造待处理想看条目的队列记录。"""
+    return {
+        "subject_id": str(item.get("subject_id") or ""),
+        "title": item.get("title", ""),
+        "year": item.get("year", ""),
+        "link": item.get("link", ""),
+        "poster": item.get("poster", ""),
+        "wish_time": item.get("wish_time", ""),
+        "enqueued_at": now,
+    }
 
 
 def sync_log_handler(self, event_info, played: bool = False):
