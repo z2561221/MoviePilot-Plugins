@@ -18,7 +18,7 @@ class LocalToolkit(_PluginBase):
     plugin_desc = "整合清理库存、扫描缺集、清理TMDB的本地维护工具中心。"
     plugin_icon = "Ittools_A.png"
     plugin_color = "#26A69A"
-    plugin_version = "1.2.10"
+    plugin_version = "1.2.11"
     plugin_author = "牧濑红莉栖"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "localtoolkit_"
