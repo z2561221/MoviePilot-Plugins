@@ -68,6 +68,15 @@ def api_config(self):
             blacklist_keywords=self._blacklist_keywords,
             observe_days=getattr(self, "_observe_days", 0),
             observe_rank_keys=getattr(self, "_observe_rank_keys", []),
+            wish_enabled=getattr(self, "_wish_enabled", False),
+            wish_cron=getattr(self, "_wish_cron", ""),
+            wish_user=getattr(self, "_wish_user", ""),
+            wish_notify=getattr(self, "_wish_notify", False),
+            wish_max_pages=getattr(self, "_wish_max_pages", 1),
+            wish_state=storage.read_folio_wish_state(self),
+            wish_queue=storage.read_folio_wish_queue(self),
+            wish_processed=storage.read_folio_wish_processed(self),
+            wish_failed=storage.read_folio_wish_failed(self),
         )
     }
 
