@@ -151,6 +151,18 @@ class DoubanCenterRuntimeContractsTest(unittest.TestCase):
         ):
             self.assertIn(name, storage_source)
 
+    def test_wish_sync_scheduler_is_independent(self):
+        scheduler_source = (PLUGIN_DIR / "service" / "scheduler.py").read_text(encoding="utf-8")
+        init_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8-sig")
+
+        self.assertIn('"id": "DoubanCenter"', scheduler_source)
+        self.assertIn('"id": "DoubanCenterWish"', scheduler_source)
+        self.assertIn('"name": "豆瓣想看同步服务"', scheduler_source)
+        self.assertIn("plugin._wish_enabled", scheduler_source)
+        self.assertIn("plugin._wish_cron", scheduler_source)
+        self.assertIn("def __run_wish", init_source)
+        self.assertIn("scheduler_service.get_services(self, self.__run_all, self.__run_wish)", init_source)
+
     def test_backend_refactor_context_is_documented(self):
         context_path = PLUGIN_DIR / "ai_spec" / "plugin_context.md"
 

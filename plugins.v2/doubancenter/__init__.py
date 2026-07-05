@@ -9,7 +9,7 @@ from app.core.event import eventmanager, Event
 from app.plugins import _PluginBase
 from app.schemas.types import EventType
 
-from . import dashboard as dash, feed, migration
+from . import dashboard as dash, feed, folio, migration
 from . import utils
 from .controller import api as api_controller
 from .model.config import (
@@ -130,6 +130,9 @@ class DoubanCenter(_PluginBase):
 
     def __run_all(self):
         feed.run_scheduled(self)
+
+    def __run_wish(self):
+        folio.run_wish_scheduled(self)
 
     def __current_config(self):
         """返回当前有效配置快照，用于清理旧字段。"""
@@ -258,7 +261,7 @@ class DoubanCenter(_PluginBase):
 
     def get_service(self) -> List[Dict[str, Any]]:
         """返回插件定时服务定义。"""
-        return scheduler_service.get_services(self, self.__run_all)
+        return scheduler_service.get_services(self, self.__run_all, self.__run_wish)
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:

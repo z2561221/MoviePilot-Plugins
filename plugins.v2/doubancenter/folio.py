@@ -40,6 +40,11 @@ def check_cookie_periodically(self) -> None:
         self._last_cookie_check_time = now
 
 
+def run_wish_scheduled(self) -> None:
+    """执行豆瓣想看同步定时入口。"""
+    return None
+
+
 def sync_log_handler(self, event_info, played: bool = False):
     """处理播放事件并同步豆瓣时间线。"""
     play_start = {"playback.start", "media.play", "PlaybackStart"}

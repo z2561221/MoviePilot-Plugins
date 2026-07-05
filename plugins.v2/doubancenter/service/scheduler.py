@@ -1,16 +1,17 @@
 """Scheduler service helpers for DoubanCenter."""
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from apscheduler.triggers.cron import CronTrigger
 
 from app.log import logger
 
 
-def get_services(plugin, run_all: Callable[[], None]) -> List[Dict[str, Any]]:
+def get_services(plugin, run_all: Callable[[], None], run_wish: Optional[Callable[[], None]] = None) -> List[Dict[str, Any]]:
     """返回插件声明的定时服务。"""
+    services = []
     if plugin._enabled and plugin._cron:
-        return [
+        services.append(
             {
                 "id": "DoubanCenter",
                 "name": "豆瓣中心定时服务",
@@ -18,8 +19,18 @@ def get_services(plugin, run_all: Callable[[], None]) -> List[Dict[str, Any]]:
                 "func": run_all,
                 "kwargs": {},
             }
-        ]
-    return []
+        )
+    if plugin._enabled and plugin._folio_enabled and plugin._wish_enabled and plugin._wish_cron and run_wish:
+        services.append(
+            {
+                "id": "DoubanCenterWish",
+                "name": "豆瓣想看同步服务",
+                "trigger": CronTrigger.from_crontab(plugin._wish_cron),
+                "func": run_wish,
+                "kwargs": {},
+            }
+        )
+    return services
 
 
 def stop_scheduler(plugin) -> None:

@@ -1,8 +1,8 @@
 {
   "plan": "docs/plans/2026-07-05-doubancenter-wish-sync-phased-plan.md",
   "status": {
-    "phase": "phase-1",
-    "task": "1.2",
+    "phase": "phase-2",
+    "task": "2.1",
     "next_allowed_action": "Implement the current task; after verified completion, advance to the next task or phase automatically"
   },
   "execution_rules": {
@@ -51,13 +51,22 @@
               "result": "exit 0; Ran 11 tests OK"
             }
           ],
-          "commit": null
+          "commit": "9f9900f"
         },
         {
           "id": "1.2",
           "title": "Add independent scheduler declaration for DoubanCenterWish",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_runtime_contracts.py",
+              "result": "exit 0; Ran 12 tests OK"
+            }
+          ],
           "commit": null
         }
       ]
@@ -177,6 +186,10 @@
     {
       "time": "2026-07-05",
       "entry": "Completed task 1.1: added wish sync config defaults and folio wish storage helpers; compileall and runtime contract tests pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 1.2: added DoubanCenterWish independent scheduler declaration and wish runner entry; compileall and runtime contract tests pass."
     }
   ]
 }
