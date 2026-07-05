@@ -127,7 +127,7 @@ def _check_blacklist(self, title: str, description: str = "", link: str = "") ->
         word = line.strip()
         if word and _match_blacklist_line(word, haystack):
             logger.info(f"豆瓣中心：黑名单关键词《{word}》匹配《{title}》，跳过")
-            _log_anti_cheat(self, "黑名单关键词", title, f"匹配词：{word}", link=link)
+            _log_anti_cheat(self, "黑名拦截", title, f"匹配词：{word}", link=link)
             return True
     return False
 
@@ -519,6 +519,7 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
     air_days = int(cfg.get("air_days", 7) or 7)
     history: List[dict] = storage.read_rank_history(self, rd["key"])
     history_index = _history_index_by_unique(history)
+    current_candidates = set()
     for snapshot in snapshots or []:
         if not isinstance(snapshot, dict):
             continue
@@ -531,6 +532,7 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
         unique = entry.get("unique") or f"dc2_coming:{link or item.get('title') or title}"
         if not title:
             continue
+        current_candidates.add(unique)
         if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
             _log_rank_skip(rd, title, "历史中已订阅或已存在", result_lines=result_lines)
             continue
@@ -584,6 +586,7 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
                 result_lines.append(f"- 已订阅《{cn_title}》")
             else:
                 logger.info(f"豆瓣中心：[{rd['name']}] 已订阅《{cn_title}》")
+    _drop_stale_observations(history, current_candidates)
     storage.save_rank_history(self, rd["key"], history)
 
 
@@ -695,12 +698,14 @@ def _process_coming(self, url: str, rd: dict) -> None:
         return
     history: List[dict] = storage.read_rank_history(self, rd["key"])
     history_index = _history_index_by_unique(history)
+    current_candidates = set()
     for item in items:
         title, link, wish = item.get("title", ""), item.get("link", ""), item.get("wish_count", 0)
         year = item.get("year", "")
         if not title:
             continue
         unique = f"dc2_coming:{link or title}"
+        current_candidates.add(unique)
         if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
             continue
         if _check_blacklist(self, title, description=item.get("description", ""), link=link):
@@ -733,6 +738,7 @@ def _process_coming(self, url: str, rd: dict) -> None:
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _record_history_item(history, {"title": cn_title, "year": year, "wish_count": wish, "air_date": ad, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": subscribed_at, "unique": unique, "subscribed": True, "subscribed_at": subscribed_at})
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
+    _drop_stale_observations(history, current_candidates)
     storage.save_rank_history(self, rd["key"], history)
 
 

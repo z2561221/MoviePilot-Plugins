@@ -77,6 +77,65 @@ function rowKey(prefix, item, index) {
   return `${prefix}:${item?.id || item?.unique || item?.time || item?.tmdbid || item?.title || index}`
 }
 
+function archiveRecord(item) {
+  return item?.record && typeof item.record === 'object' ? item.record : {}
+}
+
+function archiveSourceName(item) {
+  return item?.source_name || item?.source || '归档'
+}
+
+function archivePoster(item) {
+  const record = archiveRecord(item)
+  return item?.poster || record.poster || record.cover || ''
+}
+
+function archiveRankKey(item) {
+  const record = archiveRecord(item)
+  return item?.rank_key || record.rank_key || ''
+}
+
+function archiveRankName(item) {
+  const key = archiveRankKey(item)
+  const record = archiveRecord(item)
+  return item?.rank_name || record.rank_name || rankNames[key] || key
+}
+
+function archiveTime(item) {
+  const record = archiveRecord(item)
+  return item?.time || record.time || record.first_seen || item?.archived_at || ''
+}
+
+function archiveTitle(item) {
+  const record = archiveRecord(item)
+  return item?.title || record.title || '未命名条目'
+}
+
+function archiveStatus(item) {
+  const record = archiveRecord(item)
+  return item?.display_status || record.display_status || record.detail || item?.detail || record.reason || item?.reason || archiveSourceName(item)
+}
+
+function archiveColor(item) {
+  const source = item?.source || ''
+  const reason = item?.reason || archiveRecord(item).reason || ''
+  if (archiveSourceName(item) === '黑名拦截' || reason === '黑名拦截') return 'error'
+  if (source === 'subscribe_history') return archiveStatus(item) === '订阅失败' ? 'error' : 'success'
+  if (source === 'observation') return 'warning'
+  if (source === 'anti_cheat_log') return 'warning'
+  return 'primary'
+}
+
+function archiveIcon(item) {
+  const source = item?.source || ''
+  const reason = item?.reason || archiveRecord(item).reason || ''
+  if (archiveSourceName(item) === '黑名拦截' || reason === '黑名拦截') return 'mdi-block-helper'
+  if (source === 'observation') return 'mdi-clock-outline'
+  if (source === 'subscribe_history') return 'mdi-filmstrip'
+  if (source === 'anti_cheat_log') return 'mdi-eye-check-outline'
+  return 'mdi-archive-outline'
+}
+
 function mediaIdOf(media) {
   if (media?.tmdb_id) return `tmdb:${media.tmdb_id}`
   if (media?.douban_id) return `douban:${media.douban_id}`
@@ -150,8 +209,8 @@ async function loadAll() {
     if (h) historyData.value = h
     if (c) {
       const logs = Array.isArray(c) ? c : []
-      cheatLogs.value = logs.filter(log => !log || log.reason !== '黑名单关键词').slice(-5)
-      blacklistEntries.value = logs.filter(log => log && log.reason === '黑名单关键词').slice().reverse().slice(0, 5)
+      cheatLogs.value = logs.filter(log => !log || !['黑名拦截', '黑名单关键词'].includes(log.reason)).slice(-5)
+      blacklistEntries.value = logs.filter(log => log && ['黑名拦截', '黑名单关键词'].includes(log.reason)).slice().reverse().slice(0, 5)
     }
     if (p) pendingObservations.value = p
     if (r) rankHistory.value = r
@@ -359,14 +418,20 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">归档记录 <span class="text-caption font-weight-regular text-medium-emphasis">（共 {{ archiveData.total || 0 }} 条）</span></div>
           <div v-if="archiveData.items && archiveData.items.length" class="dc-history-list">
             <div v-for="(item, i) in archiveData.items" :key="item.id || i" class="dc-history-row dc-archive-row">
-              <VAvatar size="28" class="mr-2 flex-shrink-0" color="primary" variant="tonal"><VIcon icon="mdi-archive-outline" size="14" /></VAvatar>
+              <VAvatar size="28" class="mr-2 flex-shrink-0" :color="archiveColor(item)" variant="tonal">
+                <VImg v-if="archivePoster(item)" :src="archivePoster(item)" />
+                <VIcon v-else :icon="archiveIcon(item)" size="14" />
+              </VAvatar>
               <div class="dc-history-info">
-                <div class="dc-history-title">{{ item.title || '未命名条目' }}</div>
+                <div class="dc-history-title">{{ archiveTitle(item) }}</div>
                 <div class="dc-history-meta">
-                  <VChip size="x-small" color="primary" variant="tonal" class="mr-1">{{ item.source_name || item.source || '归档' }}</VChip>
-                  <span class="text-caption text-medium-emphasis">{{ item.archived_at ? item.archived_at.split(' ')[0] : '' }}</span>
+                  <VChip size="x-small" :color="archiveColor(item)" variant="tonal" class="mr-1">{{ archiveSourceName(item) }}</VChip>
+                  <VChip v-if="archiveRankName(item)" size="x-small" :style="rankChipStyle(archiveRankKey(item))" variant="tonal" class="dc-rank-chip mr-1">{{ archiveRankName(item) }}</VChip>
+                  <span class="text-caption text-medium-emphasis">{{ archiveTime(item) ? archiveTime(item).split(' ')[0] : '' }}</span>
+                  <span v-if="item.archived_at" class="text-caption text-medium-emphasis">归档 {{ item.archived_at.split(' ')[0] }}</span>
                 </div>
               </div>
+              <VChip size="x-small" :color="archiveColor(item)" variant="tonal" class="dc-row-status">{{ archiveStatus(item) }}</VChip>
               <VBtn icon="mdi-restore" variant="text" size="x-small" color="primary" class="dc-row-action" :loading="actionKey === rowKey('archive-restore', item, i)" @click="restoreArchive(item, i)" />
               <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="actionKey === rowKey('archive-delete', item, i)" @click="deleteArchive(item, i)" />
             </div>
@@ -424,7 +489,7 @@ onMounted(loadAll)
                 <div class="dc-history-title">{{ item.title || '未命名条目' }}</div>
                 <div class="dc-history-meta"><span class="text-caption text-medium-emphasis">{{ item.time || '' }}</span></div>
               </div>
-              <VChip size="x-small" color="error" variant="tonal" class="dc-row-status">{{ item.detail || item.reason || '黑名单关键词' }}</VChip>
+              <VChip size="x-small" color="error" variant="tonal" class="dc-row-status">{{ item.detail || item.reason || '黑名拦截' }}</VChip>
               <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="actionKey === rowKey('log', item, i)" @click="deleteAntiCheatLog(item, i)" />
             </div>
           </div>
@@ -559,7 +624,7 @@ onMounted(loadAll)
 .dc-rank-empty { font-size: 12px; color: rgba(var(--v-theme-on-surface), .5); padding: 8px; text-align: center; }
 .dc-history-list { display: flex; flex-direction: column; gap: 4px; }
 .dc-history-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 4px; min-height: 40px; padding: 5px 6px; border-radius: 6px; transition: background .12s; }
-.dc-archive-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.dc-archive-row { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
 .dc-status-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .dc-history-row--clickable { cursor: pointer; }
 .dc-history-row:hover { background: rgba(var(--v-theme-primary), .04); }
@@ -575,7 +640,8 @@ onMounted(loadAll)
   .dc-section { grid-column: 1 / -1; padding: 10px; }
   .dc-rank-grid { grid-template-columns: repeat(6, 150px); overflow-x: auto; padding-bottom: 2px; }
   .dc-history-row { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 4px; padding: 4px 6px; }
-  .dc-archive-row, .dc-status-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+  .dc-archive-row { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
+  .dc-status-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
   .dc-row-status { max-width: 96px; }
   .dc-history-meta .v-chip { max-width: 120px; }
   .dc-history-row span.text-caption { display: none; }

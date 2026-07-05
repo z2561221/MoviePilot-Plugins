@@ -90,7 +90,10 @@ def build_overview(
     blacklist_hits = sum(
         1
         for item in anti_cheat_logs
-        if isinstance(item, dict) and "黑名单" in str(item.get("reason") or "")
+        if (
+            isinstance(item, dict)
+            and observation_service.normalize_log_reason(item.get("reason") or "") == observation_service.BLACKLIST_REASON
+        )
     )
 
     return {
