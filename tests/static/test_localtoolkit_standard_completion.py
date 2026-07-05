@@ -14,6 +14,7 @@ PLUGIN_JSON = PLUGIN_DIR / "plugin.json"
 REMOTE_ENTRY = PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js"
 VITE_CONFIG = PLUGIN_DIR / "frontend" / "vite.config.js"
 CONFIG_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Config.vue"
+FRONTEND_API = PLUGIN_DIR / "frontend" / "src" / "api.js"
 
 ENTRYPOINT_HEAVY_METHODS = {
     "init_plugin",
@@ -187,3 +188,14 @@ def test_localtoolkit_config_navigation_uses_standard_tabs():
     assert "key: 'danger'" not in source
     assert "activeSub === 'advanced'" in source
     assert "activeSub === 'danger'" not in source
+
+
+def test_localtoolkit_frontend_api_uses_injected_client_only():
+    """Vue 联邦组件必须通过注入 API 调用插件接口。"""
+    source = FRONTEND_API.read_text(encoding="utf-8")
+    assert "fetch(" not in source
+    assert "/api/v1/" not in source
+    assert "if (!api?.get) throw new Error('MoviePilot 插件 API 未就绪')" in source
+    assert "if (!api?.post) throw new Error('MoviePilot 插件 API 未就绪')" in source
+    assert "return unwrap(await api.get(path))" in source
+    assert "return unwrap(await api.post(path, body))" in source
