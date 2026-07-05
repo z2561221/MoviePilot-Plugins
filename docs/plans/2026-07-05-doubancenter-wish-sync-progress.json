@@ -1,0 +1,182 @@
+{
+  "plan": "docs/plans/2026-07-05-doubancenter-wish-sync-phased-plan.md",
+  "status": {
+    "phase": "phase-1",
+    "task": "1.2",
+    "next_allowed_action": "Implement the current task; after verified completion, advance to the next task or phase automatically"
+  },
+  "execution_rules": {
+    "branch": "worldlinefix/doubancenter",
+    "smoke_check": "python -m compileall -q plugins.v2/doubancenter",
+    "commit_each_verified_task": true,
+    "no_commit_on_failed_verification": true,
+    "never_push_merge_or_amend": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "only_flip_status_fields": true
+  },
+  "decision_log": [
+    {
+      "decision": "Treat sync wish as a Douban time child feature with an independent scheduler.",
+      "reason": "Latest user direction explicitly separates product ownership from runtime chain boundaries.",
+      "rejected_alternatives": [
+        "Make sync wish a new independent module",
+        "Run sync wish from ranking subscription cron"
+      ],
+      "source": "User discussion on 2026-07-05"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "goal": "Add wish sync config/state defaults and independent scheduler contract.",
+      "acceptance": [
+        "python -m compileall -q plugins.v2/doubancenter exits 0",
+        "python -m unittest discover -s plugins.v2/doubancenter/tests -p \"test_runtime_contracts.py\" exits 0",
+        "A test proves DoubanCenterWish is declared separately from DoubanCenter",
+        "A test proves default wish max scan pages is 1"
+      ],
+      "tasks": [
+        {
+          "id": "1.1",
+          "title": "Add wish sync config/state defaults and storage helpers",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_runtime_contracts.py",
+              "result": "exit 0; Ran 11 tests OK"
+            }
+          ],
+          "commit": null
+        },
+        {
+          "id": "1.2",
+          "title": "Add independent scheduler declaration for DoubanCenterWish",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "goal": "Implement Douban wish reading and baseline/queue logic without subscriptions.",
+      "acceptance": [
+        "python -m compileall -q plugins.v2/doubancenter exits 0",
+        "New unit tests prove first run creates baseline without queued items",
+        "New unit tests prove later run adds only new wish items to queue",
+        "New unit tests prove default max pages 1 only requests the first page"
+      ],
+      "tasks": [
+        {
+          "id": "2.1",
+          "title": "Add Douban wish list access and parsing",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "2.2",
+          "title": "Implement baseline and queue state machine",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "goal": "Recognize queued wish items and create subscriptions through existing services.",
+      "acceptance": [
+        "python -m compileall -q plugins.v2/doubancenter exits 0",
+        "Unit tests prove success writes rank_key=douban_wish",
+        "Unit tests prove failed recognition is recorded and does not crash the scheduler",
+        "Unit tests prove existing subscription is not retried indefinitely"
+      ],
+      "tasks": [
+        {
+          "id": "3.1",
+          "title": "Execute queued wish subscriptions",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "3.2",
+          "title": "Add error handling and status persistence",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "goal": "Update overview and config UI for sync wish.",
+      "acceptance": [
+        "python -m unittest discover -s plugins.v2/doubancenter/tests -p \"test_dashboard_overview_service.py\" exits 0",
+        "python -m unittest discover -s plugins.v2/doubancenter/tests -p \"test_config_frontend_contract.py\" exits 0",
+        "npm run build from plugins.v2/doubancenter exits 0 and updates dist/assets/remoteEntry.js",
+        "Static tests prove tab order is 同步想看 then 同步观影",
+        "Static tests prove flow labels use the unified text exactly"
+      ],
+      "tasks": [
+        {
+          "id": "4.1",
+          "title": "Update backend overview/config response",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "4.2",
+          "title": "Update Vue config UI and built assets",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "goal": "Run full regression and runtime validation.",
+      "acceptance": [
+        "python -m compileall -q plugins.v2/doubancenter exits 0",
+        "python -m unittest discover -s plugins.v2/doubancenter/tests -p \"test_*.py\" exits 0",
+        "python -m pytest tests/static/test_doubancenter_native_subscribe.py tests/static/test_doubancenter_observation_order.py exits 0",
+        "npm run build from plugins.v2/doubancenter exits 0",
+        "MP runtime validation is recorded, or unavailability is recorded with exact blocker"
+      ],
+      "tasks": [
+        {
+          "id": "5.1",
+          "title": "Run full local verification",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "5.2",
+          "title": "Perform MoviePilot local close-loop validation",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    }
+  ],
+  "turn_log": [
+    {
+      "time": "2026-07-05",
+      "entry": "Created the missing plan and progress ledger because the goal referenced paths that did not exist."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 1.1: added wish sync config defaults and folio wish storage helpers; compileall and runtime contract tests pass."
+    }
+  ]
+}

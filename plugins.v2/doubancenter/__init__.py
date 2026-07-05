@@ -14,6 +14,7 @@ from . import utils
 from .controller import api as api_controller
 from .model.config import (
     DEFAULT_CRON,
+    DEFAULT_WISH_CRON,
     DEFAULT_RSSHUB_DOMAIN,
     GENRE_OPTIONS,
     REGION_OPTIONS,
@@ -60,6 +61,11 @@ class DoubanCenter(_PluginBase):
     _folio_pc_num = 50
     _folio_mobile_month = 2
     _folio_mobile_num = 15
+    _wish_enabled = False
+    _wish_cron = DEFAULT_WISH_CRON
+    _wish_user = ""
+    _wish_notify = False
+    _wish_max_pages = 1
     _dashboard_rank_keys: List[str] = []
     _blacklist_keywords: str = ""
     _observe_days: int = 0
@@ -101,6 +107,11 @@ class DoubanCenter(_PluginBase):
         self._folio_pc_num = int(config.get("folio_pc_num", 50) or 50)
         self._folio_mobile_month = int(config.get("folio_mobile_month", 2) or 2)
         self._folio_mobile_num = int(config.get("folio_mobile_num", 15) or 15)
+        self._wish_enabled = bool(config.get("wish_enabled", False))
+        self._wish_cron = config.get("wish_cron") or DEFAULT_WISH_CRON
+        self._wish_user = config.get("wish_user", "")
+        self._wish_notify = bool(config.get("wish_notify", False))
+        self._wish_max_pages = max(1, int(config.get("wish_max_pages", 1) or 1))
         self._dashboard_rank_keys = config.get("dashboard_rank_keys") or []
         self._blacklist_keywords = config.get("blacklist_keywords") or ""
         self._observe_days = int(config.get("observe_days", 0) or 0)
@@ -122,7 +133,39 @@ class DoubanCenter(_PluginBase):
 
     def __current_config(self):
         """返回当前有效配置快照，用于清理旧字段。"""
-        return {"enabled":self._enabled,"cron":self._cron,"notify":self._notify,"proxy":self._proxy,"onlyonce":self._onlyonce,"rsshub_domain":self._rsshub_domain,"rank_configs":self._rank_configs,"region_filters":[],"genre_filters":[],"resolution_filters":[],"custom_rss_addrs":"","folio_enabled":self._folio_enabled,"folio_private":self._folio_private,"folio_first":self._folio_first,"folio_notify":self._folio_notify,"folio_user":self._folio_user,"folio_exclude":self._folio_exclude,"folio_cookie":self._folio_cookie,"folio_pc_month":self._folio_pc_month,"folio_pc_num":self._folio_pc_num,"folio_mobile_month":self._folio_mobile_month,"folio_mobile_num":self._folio_mobile_num,"dashboard_rank_keys":self._dashboard_rank_keys,"blacklist_keywords":self._blacklist_keywords,"observe_days":self._observe_days,"observe_rank_keys":self._observe_rank_keys}
+        return {
+            "enabled": self._enabled,
+            "cron": self._cron,
+            "notify": self._notify,
+            "proxy": self._proxy,
+            "onlyonce": self._onlyonce,
+            "rsshub_domain": self._rsshub_domain,
+            "rank_configs": self._rank_configs,
+            "region_filters": [],
+            "genre_filters": [],
+            "resolution_filters": [],
+            "custom_rss_addrs": "",
+            "folio_enabled": self._folio_enabled,
+            "folio_private": self._folio_private,
+            "folio_first": self._folio_first,
+            "folio_notify": self._folio_notify,
+            "folio_user": self._folio_user,
+            "folio_exclude": self._folio_exclude,
+            "folio_cookie": self._folio_cookie,
+            "folio_pc_month": self._folio_pc_month,
+            "folio_pc_num": self._folio_pc_num,
+            "folio_mobile_month": self._folio_mobile_month,
+            "folio_mobile_num": self._folio_mobile_num,
+            "wish_enabled": self._wish_enabled,
+            "wish_cron": self._wish_cron,
+            "wish_user": self._wish_user,
+            "wish_notify": self._wish_notify,
+            "wish_max_pages": self._wish_max_pages,
+            "dashboard_rank_keys": self._dashboard_rank_keys,
+            "blacklist_keywords": self._blacklist_keywords,
+            "observe_days": self._observe_days,
+            "observe_rank_keys": self._observe_rank_keys,
+        }
 
     def __update_config(self):
         self.update_config(self.__current_config())

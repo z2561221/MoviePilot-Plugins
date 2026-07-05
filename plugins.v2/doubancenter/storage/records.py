@@ -12,6 +12,11 @@ ANTI_CHEAT_LOGS_KEY = "anti_cheat_logs"
 ARCHIVE_RECORDS_KEY = "archive_records"
 FOLIO_DATA_KEY = "folio_data"
 FOLIO_WAIT_KEY = "folio_wait"
+FOLIO_WISH_STATE_KEY = "folio_wish_state"
+FOLIO_WISH_SEEN_KEY = "folio_wish_seen"
+FOLIO_WISH_QUEUE_KEY = "folio_wish_queue"
+FOLIO_WISH_PROCESSED_KEY = "folio_wish_processed"
+FOLIO_WISH_FAILED_KEY = "folio_wish_failed"
 
 
 def trim_records(records: List[dict], limit: Optional[int] = None) -> List[dict]:
@@ -73,6 +78,56 @@ def read_folio_wait(plugin) -> Dict[str, Any]:
 def save_folio_wait(plugin, data: Dict[str, Any]) -> Dict[str, Any]:
     """保存等待处理的豆瓣时间数据。"""
     return write_dict(plugin, FOLIO_WAIT_KEY, data)
+
+
+def read_folio_wish_state(plugin) -> Dict[str, Any]:
+    """读取豆瓣想看同步状态。"""
+    return read_dict(plugin, FOLIO_WISH_STATE_KEY)
+
+
+def save_folio_wish_state(plugin, data: Dict[str, Any]) -> Dict[str, Any]:
+    """保存豆瓣想看同步状态。"""
+    return write_dict(plugin, FOLIO_WISH_STATE_KEY, data)
+
+
+def read_folio_wish_seen(plugin) -> List[dict]:
+    """读取豆瓣想看已见条目。"""
+    return read_list(plugin, FOLIO_WISH_SEEN_KEY)
+
+
+def save_folio_wish_seen(plugin, records: List[dict]) -> List[dict]:
+    """保存豆瓣想看已见条目。"""
+    return write_list(plugin, FOLIO_WISH_SEEN_KEY, records, DETAIL_RECORD_LIMIT)
+
+
+def read_folio_wish_queue(plugin) -> List[dict]:
+    """读取豆瓣想看待处理队列。"""
+    return read_list(plugin, FOLIO_WISH_QUEUE_KEY)
+
+
+def save_folio_wish_queue(plugin, records: List[dict]) -> List[dict]:
+    """保存豆瓣想看待处理队列。"""
+    return write_list(plugin, FOLIO_WISH_QUEUE_KEY, records, DETAIL_RECORD_LIMIT)
+
+
+def read_folio_wish_processed(plugin) -> List[dict]:
+    """读取豆瓣想看已处理条目。"""
+    return read_list(plugin, FOLIO_WISH_PROCESSED_KEY)
+
+
+def save_folio_wish_processed(plugin, records: List[dict]) -> List[dict]:
+    """保存豆瓣想看已处理条目。"""
+    return write_list(plugin, FOLIO_WISH_PROCESSED_KEY, records, DETAIL_RECORD_LIMIT)
+
+
+def read_folio_wish_failed(plugin) -> List[dict]:
+    """读取豆瓣想看失败记录。"""
+    return read_list(plugin, FOLIO_WISH_FAILED_KEY)
+
+
+def save_folio_wish_failed(plugin, records: List[dict]) -> List[dict]:
+    """保存豆瓣想看失败记录。"""
+    return write_list(plugin, FOLIO_WISH_FAILED_KEY, records, DETAIL_RECORD_LIMIT)
 
 
 def read_subscribe_records(plugin) -> List[dict]:
