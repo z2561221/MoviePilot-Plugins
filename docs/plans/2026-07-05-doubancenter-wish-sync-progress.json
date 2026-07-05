@@ -2,7 +2,7 @@
   "plan": "docs/plans/2026-07-05-doubancenter-wish-sync-phased-plan.md",
   "status": {
     "phase": "phase-4",
-    "task": "4.1",
+    "task": "4.2",
     "next_allowed_action": "Implement the current task; after verified completion, advance to the next task or phase automatically"
   },
   "execution_rules": {
@@ -189,9 +189,30 @@
         {
           "id": "4.1",
           "title": "Update backend overview/config response",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_dashboard_overview_service.py",
+              "result": "exit 0; Ran 4 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_dashboard_config_service.py",
+              "result": "exit 0; Ran 3 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_config_frontend_contract.py",
+              "result": "exit 0; Ran 10 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_*.py",
+              "result": "exit 0; Ran 182 tests OK"
+            }
+          ],
+          "commit": "f1c3ea1"
         },
         {
           "id": "4.2",
@@ -258,6 +279,10 @@
     {
       "time": "2026-07-05",
       "entry": "Completed task 3.2: persisted wish sync read errors without clearing queue/seen state, recorded subscription failures into wish failed state, and executed queue processing from the wish scheduler; compileall, wish sync tests, and full 180-test suite pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 4.1: added the Sync Wish overview flow, surfaced wish queue/failed state under the folio overview, returned wish_status from the config API, and updated backend contract tests; compileall, focused tests, config frontend contract, and full 182-test suite pass."
     }
   ]
 }
