@@ -1,9 +1,9 @@
 {
   "plan": "docs/plans/2026-07-05-doubancenter-wish-sync-phased-plan.md",
   "status": {
-    "phase": "phase-5",
-    "task": "5.2",
-    "next_allowed_action": "Implement the current task; after verified completion, advance to the next task or phase automatically"
+    "phase": "completed",
+    "task": "done",
+    "next_allowed_action": "Stop; do not push, merge, publish, or release without explicit user confirmation"
   },
   "execution_rules": {
     "branch": "worldlinefix/doubancenter",
@@ -290,9 +290,42 @@
         {
           "id": "5.2",
           "title": "Perform MoviePilot local close-loop validation",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "robocopy D:\\AIGC\\MoviePilot\\MoviePilot-Plugins\\plugins.v2\\doubancenter \"Z:\\moviepilot-v2\\config\\local plugins\\plugins.v2\\doubancenter\" /E /XD node_modules __pycache__ .pytest_cache /XF *.pyc *.pyo",
+              "result": "exit 0; robocopy_code=3; local source synchronized without mirror deletion"
+            },
+            {
+              "command": "Copy-Item D:\\AIGC\\MoviePilot\\MoviePilot-Plugins\\package.v2.json \"Z:\\moviepilot-v2\\config\\local plugins\\package.v2.json\" -Force",
+              "result": "exit 0; package.v2.json copied to MP local plugin source"
+            },
+            {
+              "command": "GET http://192.168.50.5:3000/api/v1/plugin/reload/DoubanCenter with X-API-KEY",
+              "result": "exit 0; {\"success\":true,\"message\":null,\"data\":{}}"
+            },
+            {
+              "command": "GET http://192.168.50.5:3000/api/v1/plugin/history/DoubanCenter with X-API-KEY",
+              "result": "exit 0; installed=true; state=true; plugin_version=1.2.11; is_local=true; repo_url=local://DoubanCenter?path=/vol1/1000/docker/moviepilot-v2/config/local%20plugins&version=v2"
+            },
+            {
+              "command": "GET/PUT http://192.168.50.5:3000/api/v1/plugin/DoubanCenter with X-API-KEY",
+              "result": "exit 0; added disabled default wish config fields only: wish_enabled=false, wish_cron=*/30 * * * *, wish_user='', wish_notify=false, wish_max_pages=1"
+            },
+            {
+              "command": "GET http://192.168.50.5:3000/api/v1/plugin/DoubanCenter/config with X-API-KEY",
+              "result": "exit 0; response data contains wish_status={enabled:false, cron:'*/30 * * * *', user:'', notify:false, max_pages:1, initialized:false, queue:0, failed:0, last_error:''}"
+            },
+            {
+              "command": "GET http://192.168.50.5:3000/api/v1/plugin/DoubanCenter/overview with X-API-KEY",
+              "result": "exit 0; code=0; cards.folio.wish={enabled:false, initialized:false, queue:0, failed:0, last_run:'', last_error:''}; attention.wish_queue=0; attention.wish_failed=0"
+            },
+            {
+              "command": "GET http://192.168.50.5:3000/api/v1/dashboard/schedule2?token=<API_TOKEN>",
+              "result": "exit 0; contains_DoubanCenter=true; contains_DoubanCenterWish=false because wish_enabled=false, so validation did not trigger live wish sync or subscriptions"
+            }
+          ],
+          "commit": "runtime-only"
         }
       ]
     }
@@ -337,6 +370,10 @@
     {
       "time": "2026-07-05",
       "entry": "Completed task 5.1: stabilized the static TMDB disabled-state assertion for the current Vite output, rebuilt assets, confirmed version metadata, and passed compileall, 184 plugin unit tests, 7 static tests, build, and diff-check."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 5.2: synchronized DoubanCenter to the MP local plugin source over Z:, reloaded the installed local plugin, added disabled default wish config fields to the existing runtime config, verified custom config/overview APIs expose wish_status and folio wish state, and confirmed the wish scheduler remains unregistered while disabled so no live sync/subscription was triggered."
     }
   ]
 }
