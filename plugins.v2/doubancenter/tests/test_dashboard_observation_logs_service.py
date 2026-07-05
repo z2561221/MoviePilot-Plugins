@@ -197,6 +197,43 @@ class DashboardObservationLogsServiceTest(unittest.TestCase):
         self.assertEqual([item["title"] for item in reconciled], ["keep", "done"])
         self.assertEqual(reconciled[-1]["reason"], "观察期完成")
 
+    def test_reconcile_anti_cheat_logs_removes_wait_logs_for_dropped_observations(self):
+        """观察条目跌出候选窗口后会清理观察期未满日志。"""
+        logs = [
+            {"title": "跌出候选", "reason": "观察期未满", "detail": "已过 1 天，需要 2 天", "time": "2026-07-02 10:00:00"},
+            {"title": "继续观察", "reason": "观察期未满", "detail": "已过 1 天，需要 2 天", "time": "2026-07-02 11:00:00"},
+        ]
+        ranks = [
+            {
+                "key": "coming",
+                "name": "即将上映",
+                "history": [
+                    {
+                        "title": "跌出候选",
+                        "first_seen": "2026-07-01 10:00:00",
+                        "observing": False,
+                        "observe_dropped_at": "2026-07-03 10:00:00",
+                    },
+                    {
+                        "title": "继续观察",
+                        "first_seen": "2026-07-01 11:00:00",
+                        "observing": True,
+                    },
+                ],
+            }
+        ]
+
+        reconciled, changed = observation_service.reconcile_anti_cheat_logs(
+            logs,
+            subscribe_records=[],
+            ranks=ranks,
+            archived_completion_titles=set(),
+            existing_subscription_checker=lambda item: False,
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual([item["title"] for item in reconciled], ["继续观察"])
+
 
 if __name__ == "__main__":
     unittest.main()

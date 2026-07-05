@@ -967,6 +967,86 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)
 
+    def test_process_coming_drops_observations_outside_count_window(self):
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = True
+        plugin._observe_days = 2
+        plugin._observe_rank_keys = ["coming"]
+        plugin._rank_configs = {"coming": {"count": 1, "wish_count": 1000, "air_days": 7}}
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
+        )
+        plugin.data["coming_history"] = [
+            {
+                "title": "跌出候选",
+                "unique": "dc2_coming:https://example.com/old",
+                "first_seen": "2026-07-01 10:00:00",
+                "observing": True,
+            }
+        ]
+        plugin.data["anti_cheat_logs"] = [
+            {"title": "跌出候选", "reason": "观察期未满", "detail": "已过 1 天，需要 2 天", "time": "2026-07-02 10:00:00"}
+        ]
+        self.feed._fetch_coming_rss = lambda self_obj, url: [
+            {"title": "仍在候选", "link": "https://example.com/new", "year": "2026", "wish_count": 2000}
+        ]
+        self.feed.utils.get_tmdb_air_date = lambda *args, **kwargs: "2026-07-05"
+        self.feed.utils.is_within_days = lambda *args, **kwargs: True
+        self.feed._add_sub = lambda *args, **kwargs: True
+
+        self.feed._process_coming(
+            plugin,
+            "https://rsshub.example/douban/tv/coming?limit=1",
+            {"key": "coming", "name": "即将上映", "route": "/douban/tv/coming"},
+        )
+
+        dropped = plugin.data["coming_history"][0]
+        self.assertFalse(dropped["observing"])
+        self.assertIn("observe_dropped_at", dropped)
+        self.assertEqual(dropped["observe_dropped_reason"], "跌出当前自动订阅候选")
+
+    def test_process_coming_snapshots_drops_observations_outside_count_window(self):
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = True
+        plugin._observe_days = 2
+        plugin._observe_rank_keys = ["coming"]
+        plugin._rank_configs = {"coming": {"count": 1, "wish_count": 1000, "air_days": 7}}
+        plugin.chain = types.SimpleNamespace()
+        plugin.data["coming_history"] = [
+            {
+                "title": "快照跌出候选",
+                "unique": "dc2_coming:https://example.com/old-snapshot",
+                "first_seen": "2026-07-01 10:00:00",
+                "observing": True,
+            }
+        ]
+        snapshots = [
+            {
+                "raw": {"title": "快照仍在候选", "link": "https://example.com/new-snapshot", "year": "2026", "wish_count": 2000},
+                "entry": {
+                    "title": "快照仍在候选",
+                    "link": "https://example.com/new-snapshot",
+                    "year": "2026",
+                    "wish_count": 2000,
+                    "unique": "dc2_coming:https://example.com/new-snapshot",
+                },
+                "mediainfo": _MediaInfo(title="快照仍在候选", year="2026", mtype=_MediaType.TV, tmdb_id=67890),
+            }
+        ]
+        self.feed.utils.get_tmdb_air_date = lambda *args, **kwargs: "2026-07-05"
+        self.feed.utils.is_within_days = lambda *args, **kwargs: True
+        self.feed._add_sub = lambda *args, **kwargs: True
+
+        self.feed._process_coming_snapshots(
+            plugin,
+            snapshots,
+            {"key": "coming", "name": "即将上映", "route": "/douban/tv/coming", "coming": True},
+        )
+
+        dropped = plugin.data["coming_history"][0]
+        self.assertFalse(dropped["observing"])
+        self.assertIn("observe_dropped_at", dropped)
+
     def test_pending_observations_returns_observing_rank_items(self):
         dashboard = _import_dashboard()
         plugin = _Plugin()
