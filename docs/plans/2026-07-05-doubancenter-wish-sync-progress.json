@@ -1,8 +1,8 @@
 {
   "plan": "docs/plans/2026-07-05-doubancenter-wish-sync-phased-plan.md",
   "status": {
-    "phase": "phase-2",
-    "task": "2.2",
+    "phase": "phase-3",
+    "task": "3.1",
     "next_allowed_action": "Implement the current task; after verified completion, advance to the next task or phase automatically"
   },
   "execution_rules": {
@@ -104,9 +104,22 @@
         {
           "id": "2.2",
           "title": "Implement baseline and queue state machine",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_folio_wish_sync.py",
+              "result": "exit 0; Ran 4 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_*.py",
+              "result": "exit 0; Ran 175 tests OK"
+            }
+          ],
+          "commit": "2f2cdd3"
         }
       ]
     },
@@ -207,6 +220,10 @@
     {
       "time": "2026-07-05",
       "entry": "Completed task 2.1: added Douban wish list access, parsing, request injection, and cookie movie headers; compileall, DoubanApi wish tests, and runtime contract tests pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 2.2: implemented wish baseline/queue state machine (first run baseline-only, later runs enqueue new items, default single page); compileall, wish sync tests, and full 175-test suite pass."
     }
   ]
 }
