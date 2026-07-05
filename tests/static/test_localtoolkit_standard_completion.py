@@ -137,6 +137,7 @@ def test_localtoolkit_vue_federation_contract_is_present():
     assert REMOTE_ENTRY.exists()
     for expose in ("./Page", "./Config", "./Dashboard", "./AppPage"):
         assert expose in vite_config
+    assert "emptyOutDir: true" in vite_config
 
 
 def test_localtoolkit_public_docstrings_are_complete():

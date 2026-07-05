@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as apiGet } from './_plugin-vue_export-helper-BX4pWp5Z.js';
+import { _ as _export_sfc, a as apiGet } from './_plugin-vue_export-helper-DFDyaOGw.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives,createCommentVNode:_createCommentVNode,createBlock:_createBlock} = await importShared('vue');
 
@@ -10,19 +10,18 @@ const _hoisted_3 = { class: "plugin-nav" };
 const _hoisted_4 = { class: "plugin-content" };
 const _hoisted_5 = { class: "plugin-subtabs" };
 const _hoisted_6 = ["onClick"];
-const _hoisted_7 = { class: "plugin-window" };
-const _hoisted_8 = { class: "plugin-pane" };
+const _hoisted_7 = { class: "plugin-pane" };
+const _hoisted_8 = { class: "plugin-hint" };
 const _hoisted_9 = { class: "plugin-hint" };
 const _hoisted_10 = { class: "plugin-hint" };
 const _hoisted_11 = { class: "plugin-hint" };
 const _hoisted_12 = { class: "plugin-hint" };
-const _hoisted_13 = { class: "plugin-hint" };
-const _hoisted_14 = { class: "plugin-pane" };
-const _hoisted_15 = { key: 0 };
-const _hoisted_16 = { key: 1 };
-const _hoisted_17 = { key: 2 };
+const _hoisted_13 = { class: "plugin-pane" };
+const _hoisted_14 = { key: 0 };
+const _hoisted_15 = { key: 1 };
+const _hoisted_16 = { key: 2 };
+const _hoisted_17 = { class: "plugin-pane" };
 const _hoisted_18 = { class: "plugin-pane" };
-const _hoisted_19 = { class: "plugin-pane" };
 
 const {reactive,ref,computed,watch,onMounted} = await importShared('vue');
 
@@ -62,7 +61,7 @@ const defaults = {
 
 const form = reactive(JSON.parse(JSON.stringify(defaults)));
 const activeMain = ref('overview');
-const activeSub = ref('basic');
+const activeSub = ref('overview');
 const loadingOptions = ref(false);
 const optionError = ref('');
 const cleanupOptions = reactive({ servers: [], libraries: [], users: [] });
@@ -75,11 +74,11 @@ const mainTabs = [
 ];
 
 const subTabs = {
-  overview: [{ key: 'basic', title: '模块职责', icon: 'mdi-clipboard-check-outline' }],
+  overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   library_cleanup: [
     { key: 'basic', title: '基础设置', icon: 'mdi-timer-cog-outline' },
     { key: 'filter', title: '筛选条件', icon: 'mdi-filter-outline' },
-    { key: 'danger', title: '高级选项', icon: 'mdi-alert-outline' },
+    { key: 'advanced', title: '高级选项', icon: 'mdi-alert-outline' },
   ],
   check_missing: [{ key: 'basic', title: '按需扫描', icon: 'mdi-folder-search-outline' }],
   tmdb_cache: [{ key: 'basic', title: '按需清理', icon: 'mdi-database-cog-outline' }],
@@ -132,7 +131,7 @@ async function loadOptions() {
 
 function selectMain(key) {
   activeMain.value = key;
-  activeSub.value = subTabs[key]?.[0]?.key || 'basic';
+  activeSub.value = subTabs[key]?.[0]?.key || 'overview';
   if (key === 'library_cleanup') loadOptions();
 }
 
@@ -282,9 +281,11 @@ return (_ctx, _cache) => {
               }), 128))
             ]),
             _createVNode(_component_VDivider),
-            _createElementVNode("div", _hoisted_7, [
-              _withDirectives(_createElementVNode("div", _hoisted_8, [
-                _cache[29] || (_cache[29] = _createElementVNode("div", { class: "plugin-section-title" }, "模块职责", -1)),
+            _createElementVNode("div", {
+              class: _normalizeClass(["plugin-window", { 'plugin-window--overview': activeMain.value === 'overview' }])
+            }, [
+              _withDirectives(_createElementVNode("div", _hoisted_7, [
+                _cache[29] || (_cache[29] = _createElementVNode("div", { class: "plugin-section-title" }, "运行总览", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -301,9 +302,9 @@ return (_ctx, _cache) => {
                             _createVNode(_component_VCardText, null, {
                               default: _withCtx(() => [
                                 _cache[22] || (_cache[22] = _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "清理库存", -1)),
-                                _createElementVNode("div", _hoisted_9, "周期运行：" + _toDisplayString(form.library_cleanup.enabled && form.enabled ? '开启' : '关闭'), 1),
-                                _createElementVNode("div", _hoisted_10, "Cron：" + _toDisplayString(form.library_cleanup.cron || '未设置'), 1),
-                                _createElementVNode("div", _hoisted_11, "自动删除：" + _toDisplayString(form.library_cleanup.auto_delete ? '开启' : '关闭'), 1)
+                                _createElementVNode("div", _hoisted_8, "周期运行：" + _toDisplayString(form.library_cleanup.enabled && form.enabled ? '开启' : '关闭'), 1),
+                                _createElementVNode("div", _hoisted_9, "Cron：" + _toDisplayString(form.library_cleanup.cron || '未设置'), 1),
+                                _createElementVNode("div", _hoisted_10, "自动删除：" + _toDisplayString(form.library_cleanup.auto_delete ? '开启' : '关闭'), 1)
                               ]),
                               _: 1
                             })
@@ -328,7 +329,7 @@ return (_ctx, _cache) => {
                               default: _withCtx(() => [
                                 _cache[23] || (_cache[23] = _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "扫描缺集", -1)),
                                 _cache[24] || (_cache[24] = _createElementVNode("div", { class: "plugin-hint" }, "运行方式：按需单次", -1)),
-                                _createElementVNode("div", _hoisted_12, "扫描路径：" + _toDisplayString(pathCount.value) + " 个", 1),
+                                _createElementVNode("div", _hoisted_11, "扫描路径：" + _toDisplayString(pathCount.value) + " 个", 1),
                                 _cache[25] || (_cache[25] = _createElementVNode("div", { class: "plugin-hint" }, "在详情页点击「立即扫描」运行", -1))
                               ]),
                               _: 1
@@ -354,7 +355,7 @@ return (_ctx, _cache) => {
                               default: _withCtx(() => [
                                 _cache[26] || (_cache[26] = _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "TMDB 缓存", -1)),
                                 _cache[27] || (_cache[27] = _createElementVNode("div", { class: "plugin-hint" }, "运行方式：按需单次", -1)),
-                                _createElementVNode("div", _hoisted_13, "阈值：" + _toDisplayString(form.tmdb_cache.threshold_mb) + " MB", 1),
+                                _createElementVNode("div", _hoisted_12, "阈值：" + _toDisplayString(form.tmdb_cache.threshold_mb) + " MB", 1),
                                 _cache[28] || (_cache[28] = _createElementVNode("div", { class: "plugin-hint" }, "在详情页点击「立即清理」运行", -1))
                               ]),
                               _: 1
@@ -375,11 +376,11 @@ return (_ctx, _cache) => {
                   text: "详情页提供三个模块的一键立即执行按钮；配置页只负责保存参数。只有清理库存会在插件启用且模块启用时按 Cron 周期运行。"
                 })
               ], 512), [
-                [_vShow, activeMain.value === 'overview']
+                [_vShow, activeMain.value === 'overview' && activeSub.value === 'overview']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_14, [
+              _withDirectives(_createElementVNode("div", _hoisted_13, [
                 (activeSub.value === 'basic')
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_15, [
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_14, [
                       _cache[30] || (_cache[30] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "清理库存基础设置", -1)),
                       _createVNode(_component_VAlert, {
                         type: "warning",
@@ -442,7 +443,7 @@ return (_ctx, _cache) => {
                     ]))
                   : _createCommentVNode("", true),
                 (activeSub.value === 'filter')
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_16, [
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_15, [
                       _cache[31] || (_cache[31] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "筛选条件", -1)),
                       _createVNode(_component_VRow, null, {
                         default: _withCtx(() => [
@@ -577,8 +578,8 @@ return (_ctx, _cache) => {
                       })
                     ]))
                   : _createCommentVNode("", true),
-                (activeSub.value === 'danger')
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_17, [
+                (activeSub.value === 'advanced')
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_16, [
                       _cache[32] || (_cache[32] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "高级选项", -1)),
                       _createVNode(_component_VAlert, {
                         type: "error",
@@ -664,7 +665,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeMain.value === 'library_cleanup']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_18, [
+              _withDirectives(_createElementVNode("div", _hoisted_17, [
                 _cache[33] || (_cache[33] = _createElementVNode("div", { class: "plugin-section-title" }, "扫描缺集按需扫描", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
@@ -725,7 +726,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeMain.value === 'check_missing']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_19, [
+              _withDirectives(_createElementVNode("div", _hoisted_18, [
                 _cache[34] || (_cache[34] = _createElementVNode("div", { class: "plugin-section-title text-warning" }, "TMDB 缓存按需清理", -1)),
                 _createVNode(_component_VAlert, {
                   type: "warning",
@@ -790,7 +791,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeMain.value === 'tmdb_cache']
               ])
-            ])
+            ], 2)
           ])
         ]),
         _createVNode(_component_VDivider),
@@ -828,6 +829,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ea50d8da"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b3d5b5f6"]]);
 
 export { Config as default };

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as apiGet, b as apiPost } from './_plugin-vue_export-helper-BX4pWp5Z.js';
+import { _ as _export_sfc, a as apiGet, b as apiPost } from './_plugin-vue_export-helper-DFDyaOGw.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode} = await importShared('vue');
 
@@ -28,23 +28,22 @@ const pageSize = 10;
 
 
 const _sfc_main = {
-  __name: 'AppPage',
+  __name: 'Page',
   props: { api: { type: Object, default: () => ({}) } },
-  setup(__props) {
+  emits: ['close'],
+  setup(__props, { emit: __emit }) {
 
 const props = __props;
+const emit = __emit;
 
 const status = ref(null);
 const history = ref([]);
+const total = ref(0);
 const loadingModule = ref('');
 const result = ref(null);
 const page = ref(1);
-const totalPages = computed(() => Math.max(1, Math.ceil((history.value?.length || 0) / pageSize)));
-const pagedHistory = computed(() => {
-  if (!history.value?.length) return []
-  const start = (page.value - 1) * pageSize;
-  return history.value.slice(start, start + pageSize)
-});
+const totalPages = computed(() => Math.max(1, Math.ceil((total.value || 0) / pageSize)));
+const pagedHistory = computed(() => history.value || []);
 
 const modules = computed(() => [
   {
@@ -94,8 +93,9 @@ const modules = computed(() => [
 async function load() {
   try {
     status.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/status');
-    history.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/history');
-    page.value = 1;
+    const hist = await apiGet(props.api, `plugin/LocalToolkit/local_toolkit/history?page=${page.value}&page_size=${pageSize}`);
+    history.value = hist.items || [];
+    total.value = hist.total || 0;
   } catch (e) {
     result.value = { success: false, message: String(e) };
   }
@@ -113,8 +113,18 @@ async function run(moduleKey) {
   }
 }
 
-function prevPage() { if (page.value > 1) page.value--; }
-function nextPage() { if (page.value < totalPages.value) page.value++; }
+function prevPage() {
+  if (page.value > 1) {
+    page.value--;
+    load();
+  }
+}
+function nextPage() {
+  if (page.value < totalPages.value) {
+    page.value++;
+    load();
+  }
+}
 
 onMounted(load);
 
@@ -173,7 +183,7 @@ return (_ctx, _cache) => {
               size: "small",
               variant: "text",
               icon: "mdi-close",
-              onClick: _cache[0] || (_cache[0] = $event => (_ctx.emit('close'))),
+              onClick: _cache[0] || (_cache[0] = $event => (emit('close'))),
               class: "ml-1"
             })
           ]),
@@ -313,7 +323,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode(_component_VCardSubtitle, null, {
               default: _withCtx(() => [
-                _createTextVNode("每页 10 条，共 " + _toDisplayString(history.value?.length || 0) + " 条记录。", 1)
+                _createTextVNode("每页 10 条，共 " + _toDisplayString(total.value || 0) + " 条记录。", 1)
               ]),
               _: 1
             })
@@ -408,6 +418,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1c45696d"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d97a1624"]]);
 
-export { AppPage as default };
+export { Page as default };

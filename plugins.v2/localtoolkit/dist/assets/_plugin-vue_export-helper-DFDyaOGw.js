@@ -7,19 +7,13 @@ function unwrap(response) {
 }
 
 async function apiGet(api, path) {
-  if (api?.get) return unwrap(await api.get(path))
-  const r = await fetch(`/api/v1/${path}`);
-  return unwrap(await r.json())
+  if (!api?.get) throw new Error('MoviePilot 插件 API 未就绪')
+  return unwrap(await api.get(path))
 }
 
 async function apiPost(api, path, body = {}) {
-  if (api?.post) return unwrap(await api.post(path, body))
-  const r = await fetch(`/api/v1/${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  return unwrap(await r.json())
+  if (!api?.post) throw new Error('MoviePilot 插件 API 未就绪')
+  return unwrap(await api.post(path, body))
 }
 
 const _export_sfc = (sfc, props) => {
