@@ -29,6 +29,7 @@ const defaults = {
   folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false,
   folio_user: '', folio_exclude: '', folio_cookie: '',
   folio_pc_month: 3, folio_pc_num: 50, folio_mobile_month: 2, folio_mobile_num: 15,
+  wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_max_pages: 1,
   dashboard_rank_keys: [],
   blacklist_keywords: '',
   observe_days: 0,
@@ -54,7 +55,7 @@ const mainTabs = [
 const subTabs = {
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   rank: [{ key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' }, { key: 'list', title: '榜单列表', icon: 'mdi-format-list-bulleted' }, { key: 'filter', title: '订阅观察', icon: 'mdi-shield-search' }],
-  folio: [{ key: 'sync', title: '同步设置', icon: 'mdi-sync' }],
+  folio: [{ key: 'wish', title: '同步想看', icon: 'mdi-heart-plus-outline' }, { key: 'sync', title: '同步观影', icon: 'mdi-sync' }],
   dashboard: [{ key: 'view', title: '仪表盘选择', icon: 'mdi-view-dashboard-outline' }],
 }
 
@@ -263,8 +264,28 @@ onMounted(loadOverview)
               </VRow>
             </div>
 
+            <div v-show="activeSub === 'wish'" class="dc-pane">
+              <div class="dc-section-title">同步想看</div>
+              <VRow>
+                <VCol cols="12" md="4"><VSwitch v-model="form.wish_enabled" color="success" inset hide-details label="启用想看同步" /></VCol>
+                <VCol cols="12" md="4"><VCronField v-model="form.wish_cron" label="独立同步周期" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" md="4"><VTextField v-model.number="form.wish_max_pages" label="扫描页数" type="number" min="1" density="compact" variant="outlined" hide-details hint="默认 1" persistent-hint /></VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="8"><VTextField v-model="form.wish_user" label="豆瓣用户 ID（可选）" density="compact" variant="outlined" hide-details hint="留空时使用当前 Cookie 账号" persistent-hint /></VCol>
+                <VCol cols="12" md="4"><VSwitch v-model="form.wish_notify" color="info" inset hide-details label="发送通知" /></VCol>
+              </VRow>
+              <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="首次启用只建立基线，不会订阅历史想看；后续周期只处理新增条目。" />
+              <div class="dc-wish-status mt-3">
+                <div class="dc-kv"><span>队列待处理</span><strong>{{ overview?.cards?.folio?.wish?.queue || 0 }}</strong></div>
+                <div class="dc-kv"><span>失败记录</span><strong>{{ overview?.cards?.folio?.wish?.failed || 0 }}</strong></div>
+                <div class="dc-kv"><span>最近运行</span><strong>{{ overview?.cards?.folio?.wish?.last_run || '尚未运行' }}</strong></div>
+                <div class="dc-kv"><span>状态错误</span><strong>{{ overview?.cards?.folio?.wish?.last_error || '无' }}</strong></div>
+              </div>
+            </div>
+
             <div v-show="activeSub === 'sync'" class="dc-pane">
-              <div class="dc-section-title">同步设置</div>
+              <div class="dc-section-title">同步观影</div>
               <VRow>
                 <VCol cols="12" md="4"><VSwitch v-model="form.folio_enabled" color="success" inset hide-details label="启用豆瓣时间" /></VCol>
                 <VCol cols="12" md="4"><VSwitch v-model="form.folio_private" color="info" inset hide-details label="仅自己可见" /></VCol>
@@ -324,6 +345,8 @@ onMounted(loadOverview)
 .dc-flow-row span { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), .02); }
 .dc-kv { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .dc-kv:last-child { border-bottom: none; }
+.dc-wish-status { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 6px 10px; background: rgba(var(--v-theme-on-surface), .02); }
+.dc-wish-status strong { max-width: 70%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .dc-rank-row { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .02); font-size: 13px; }
 .dc-rank-row .v-text-field { max-height: 30px; }
 .dc-rank-row .v-text-field :deep(.v-field) { min-height: 28px; max-height: 28px; border-radius: 6px; }

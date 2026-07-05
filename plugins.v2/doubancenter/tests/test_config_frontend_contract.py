@@ -8,6 +8,7 @@ CONFIG_VUE = PLUGIN_DIR / "src" / "components" / "Config.vue"
 PAGE_VUE = PLUGIN_DIR / "src" / "components" / "Page.vue"
 DASHBOARD_VUE = PLUGIN_DIR / "src" / "components" / "Dashboard.vue"
 DIST_ASSETS = PLUGIN_DIR / "dist" / "assets"
+OVERVIEW_SERVICE = PLUGIN_DIR / "service" / "dashboard_overview.py"
 
 
 def _compact_css(text: str) -> str:
@@ -132,6 +133,40 @@ class ConfigFrontendContractTest(unittest.TestCase):
             self.assertIn(fragment, text)
 
         self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
+
+    def test_folio_sync_wish_tabs_and_controls_contract(self):
+        """豆瓣时间配置页会先显示同步想看，再显示同步观影。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        self.assertIn("wish_enabled: false", text)
+        self.assertIn("wish_cron: '*/30 * * * *'", text)
+        self.assertIn("wish_user: ''", text)
+        self.assertIn("wish_notify: false", text)
+        self.assertIn("wish_max_pages: 1", text)
+        self.assertIn("title: '同步想看'", text)
+        self.assertIn("title: '同步观影'", text)
+        self.assertLess(text.index("title: '同步想看'"), text.index("title: '同步观影'"))
+        self.assertNotIn("title: '同步设置'", text)
+
+        required_controls = [
+            'v-model="form.wish_enabled"',
+            'v-model="form.wish_cron"',
+            'v-model="form.wish_user"',
+            'v-model="form.wish_notify"',
+            'v-model.number="form.wish_max_pages"',
+            "overview?.cards?.folio?.wish",
+            "首次启用只建立基线",
+        ]
+        for fragment in required_controls:
+            self.assertIn(fragment, text)
+
+    def test_overview_flow_labels_use_wish_sync_contract(self):
+        """运行链路使用统一的同步想看文案。"""
+        text = OVERVIEW_SERVICE.read_text(encoding="utf-8")
+
+        required_labels = ["同步想看", "周期触发", "读取想看", "新增入队", "媒体识别", "创建订阅"]
+        for label in required_labels:
+            self.assertIn(label, text)
 
     def test_overview_and_rank_header_visual_contract(self):
         config_text = CONFIG_VUE.read_text(encoding="utf-8")
