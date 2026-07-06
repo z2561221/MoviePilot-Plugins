@@ -168,10 +168,6 @@ class _Plugin:
     _genre_filters = []
     _resolution_filters = []
     _rank_configs = {}
-    _folio_pc_month = 3
-    _folio_pc_num = 50
-    _folio_mobile_month = 2
-    _folio_mobile_num = 15
     _dashboard_rank_keys = []
 
     def __init__(self):

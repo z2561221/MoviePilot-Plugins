@@ -7,10 +7,6 @@ def build_config(
     *,
     builtin_ranks: List[dict],
     rank_enabled_checker: Callable[[str], bool],
-    folio_pc_month: Any,
-    folio_pc_num: Any,
-    folio_mobile_month: Any,
-    folio_mobile_num: Any,
     dashboard_rank_keys: Any,
     blacklist_keywords: Any,
     observe_days: Any,
@@ -38,10 +34,6 @@ def build_config(
         rank_options.append({"title": rank.get("name") or key, "value": key})
 
     return {
-        "folio_pc_month": folio_pc_month,
-        "folio_pc_num": folio_pc_num,
-        "folio_mobile_month": folio_mobile_month,
-        "folio_mobile_num": folio_mobile_num,
         "dashboard_rank_keys": dashboard_rank_keys if isinstance(dashboard_rank_keys, list) else [],
         "rank_options": rank_options,
         "blacklist_keywords": blacklist_keywords or "",

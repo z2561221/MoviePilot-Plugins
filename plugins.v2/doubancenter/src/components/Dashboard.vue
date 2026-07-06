@@ -34,6 +34,8 @@ const rankIconColors = {
   bangumi: '#8b5cf6',
   unknown: '#94a3b8',
 }
+const TIMELINE_MONTH_LIMIT = 3
+const TIMELINE_ITEM_LIMIT = 50
 
 function rankColorOf(key) {
   return rankIconColors[key] || rankIconColors.unknown
@@ -247,8 +249,8 @@ function doOpenTmdb() {
 
 const timelineGroups = computed(() => {
   const data = folioData.value || {}
-  const limitMonth = config.value?.folio_pc_month || 3
-  const limitNum = config.value?.folio_pc_num || 50
+  const limitMonth = TIMELINE_MONTH_LIMIT
+  const limitNum = TIMELINE_ITEM_LIMIT
   const entries = Object.entries(data)
     .filter(([, v]) => v && typeof v === 'object' && v.timestamp)
     .map(([key, val]) => ({ key, ...val }))

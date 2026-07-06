@@ -160,6 +160,30 @@ class ConfigFrontendContractTest(unittest.TestCase):
 
         self.assertNotIn('class="d-flex flex-wrap" style="gap: 8px"', text)
 
+    def test_dashboard_timeline_display_options_are_removed_from_config_ui(self):
+        """仪表显示不再提供豆瓣时间线显示数量设置。"""
+        config_text = CONFIG_VUE.read_text(encoding="utf-8")
+        dashboard_text = DASHBOARD_VUE.read_text(encoding="utf-8")
+
+        removed_fragments = [
+            "豆瓣时间线显示设置",
+            "大屏显示月份数",
+            "大屏每月最多显示数",
+            "小屏显示月份数",
+            "小屏每月最多显示数",
+            "folio_pc_month",
+            "folio_pc_num",
+            "folio_mobile_month",
+            "folio_mobile_num",
+        ]
+        for fragment in removed_fragments:
+            self.assertNotIn(fragment, config_text)
+
+        self.assertNotIn("config.value?.folio_pc_month", dashboard_text)
+        self.assertNotIn("config.value?.folio_pc_num", dashboard_text)
+        self.assertIn("const TIMELINE_MONTH_LIMIT = 3", dashboard_text)
+        self.assertIn("const TIMELINE_ITEM_LIMIT = 50", dashboard_text)
+
     def test_folio_sync_wish_tabs_and_controls_contract(self):
         """豆瓣时间配置页会先显示同步想看，再显示同步观影。"""
         text = CONFIG_VUE.read_text(encoding="utf-8")

@@ -57,10 +57,6 @@ class DoubanCenter(_PluginBase):
     _folio_user = ""
     _folio_exclude = ""
     _folio_cookie = ""
-    _folio_pc_month = 3
-    _folio_pc_num = 50
-    _folio_mobile_month = 2
-    _folio_mobile_num = 15
     _wish_enabled = False
     _wish_cron = DEFAULT_WISH_CRON
     _wish_user = ""
@@ -105,10 +101,6 @@ class DoubanCenter(_PluginBase):
         self._folio_user = config.get("folio_user", "")
         self._folio_exclude = config.get("folio_exclude", "")
         self._folio_cookie = config.get("folio_cookie", "")
-        self._folio_pc_month = int(config.get("folio_pc_month", 3) or 3)
-        self._folio_pc_num = int(config.get("folio_pc_num", 50) or 50)
-        self._folio_mobile_month = int(config.get("folio_mobile_month", 2) or 2)
-        self._folio_mobile_num = int(config.get("folio_mobile_num", 15) or 15)
         self._wish_enabled = bool(config.get("wish_enabled", False))
         self._wish_cron = config.get("wish_cron") or DEFAULT_WISH_CRON
         self._wish_user = config.get("wish_user", "")
@@ -163,10 +155,6 @@ class DoubanCenter(_PluginBase):
             "folio_user": self._folio_user,
             "folio_exclude": self._folio_exclude,
             "folio_cookie": self._folio_cookie,
-            "folio_pc_month": self._folio_pc_month,
-            "folio_pc_num": self._folio_pc_num,
-            "folio_mobile_month": self._folio_mobile_month,
-            "folio_mobile_num": self._folio_mobile_num,
             "wish_enabled": self._wish_enabled,
             "wish_cron": self._wish_cron,
             "wish_user": self._wish_user,
