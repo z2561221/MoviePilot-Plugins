@@ -134,6 +134,32 @@ class ConfigFrontendContractTest(unittest.TestCase):
 
         self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
 
+    def test_dashboard_timeline_scroll_is_isolated_on_mobile(self):
+        """追影时间线横滑不应带动榜单，月份组在移动端也保持单行。"""
+        text = DASHBOARD_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            'class="dc-timeline-scroll"',
+            'class="dc-timeline-months"',
+            'class="dc-timeline-month"',
+            ".dc-card { border-radius: 16px;",
+            "max-width: 100%;",
+            ".dc-rank-grid { display: grid;",
+            "overflow-x: hidden;",
+            ".dc-tl-cell { overflow: hidden;",
+            ".dc-timeline-scroll {",
+            "overflow-x: auto;",
+            "overscroll-behavior-x: contain;",
+            "touch-action: pan-x;",
+            ".dc-timeline-months {",
+            "flex-wrap: nowrap;",
+            ".dc-timeline-month { flex: 0 0 auto;",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
+
+        self.assertNotIn('class="d-flex flex-wrap" style="gap: 8px"', text)
+
     def test_folio_sync_wish_tabs_and_controls_contract(self):
         """豆瓣时间配置页会先显示同步想看，再显示同步观影。"""
         text = CONFIG_VUE.read_text(encoding="utf-8")

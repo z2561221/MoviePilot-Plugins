@@ -295,21 +295,23 @@ onMounted(load)
           <div class="dc-rank-cell dc-tl-cell" style="grid-column: 1 / -1">
             <div class="dc-rank-head"><VIcon icon="mdi-timeline-clock-outline" size="14" class="mr-1" color="primary" />追影时间线</div>
             <div class="dc-rank-body">
-              <div class="d-flex flex-wrap" style="gap: 8px">
-                <div v-for="group in timelineGroups" :key="group.monthKey" class="flex-shrink-0">
-                  <div class="text-caption text-medium-emphasis mb-1" style="font-size: 11px">{{ group.label }} <VChip size="x-small" color="primary" variant="tonal">{{ group.items.length }}</VChip></div>
-                  <div class="d-flex flex-wrap" style="gap: 3px">
-                    <a
-                      v-for="item in group.items"
-                      :key="item.key"
-                      :href="`https://www.douban.com/doubanapp/dispatch?uri=/movie/${item.subject_id}?from=mdouban&open=app`"
-                      target="_blank"
-                      class="dc-poster"
-                      :title="item.subject_name"
-                    >
-                      <VImg v-if="item.poster" :src="item.poster" width="60" height="90" cover class="rounded" />
-                      <div v-else class="dc-ph"><VIcon icon="mdi-filmstrip" size="14" /></div>
-                    </a>
+              <div class="dc-timeline-scroll">
+                <div class="dc-timeline-months">
+                  <div v-for="group in timelineGroups" :key="group.monthKey" class="dc-timeline-month">
+                    <div class="text-caption text-medium-emphasis mb-1" style="font-size: 11px">{{ group.label }} <VChip size="x-small" color="primary" variant="tonal">{{ group.items.length }}</VChip></div>
+                    <div class="dc-timeline-posters">
+                      <a
+                        v-for="item in group.items"
+                        :key="item.key"
+                        :href="`https://www.douban.com/doubanapp/dispatch?uri=/movie/${item.subject_id}?from=mdouban&open=app`"
+                        target="_blank"
+                        class="dc-poster"
+                        :title="item.subject_name"
+                      >
+                        <VImg v-if="item.poster" :src="item.poster" width="60" height="90" cover class="rounded" />
+                        <div v-else class="dc-ph"><VIcon icon="mdi-filmstrip" size="14" /></div>
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -362,14 +364,19 @@ onMounted(load)
 </template>
 
 <style scoped>
-.dc-card { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
+.dc-card { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; max-width: 100%; }
 .dc-poster { text-decoration: none; transition: transform .15s; display: block; border-radius: 4px; overflow: hidden; }
 .dc-poster:hover { transform: translateY(-2px); }
 .dc-ph { width: 60px; height: 90px; display: flex; align-items: center; justify-content: center; background: rgba(var(--v-theme-on-surface), .05); color: rgba(var(--v-theme-on-surface), .25); border-radius: 4px; }
-.dc-rank-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
-.dc-rank-cell { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .5)); border-radius: 8px; padding: 5px; min-width: 0; }
+.dc-rank-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; }
+.dc-rank-cell { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .5)); border-radius: 8px; padding: 5px; min-width: 0; max-width: 100%; }
+.dc-tl-cell { overflow: hidden; max-width: 100%; }
 .dc-rank-head { display: flex; align-items: center; font-size: 12px; font-weight: 600; margin-bottom: 3px; padding-bottom: 3px; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .3)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dc-rank-body { display: flex; flex-direction: column; gap: 1px; }
+.dc-rank-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; max-width: 100%; }
+.dc-timeline-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; overscroll-behavior-y: auto; touch-action: pan-x; scrollbar-width: thin; }
+.dc-timeline-months { display: flex; flex-wrap: nowrap; gap: 8px; width: max-content; min-width: 100%; }
+.dc-timeline-month { flex: 0 0 auto; min-width: 0; }
+.dc-timeline-posters { display: flex; flex-wrap: nowrap; gap: 3px; }
 .dc-rank-row { display: flex; align-items: center; gap: 3px; padding: 2px 3px; border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1.4; transition: background .12s; overflow: hidden; }
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
 .dc-rank-poster { flex: 0 0 18px; width: 18px; height: 24px; border-radius: 3px; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }

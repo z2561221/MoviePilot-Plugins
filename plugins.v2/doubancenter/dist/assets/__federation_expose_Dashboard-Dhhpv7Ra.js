@@ -15,38 +15,33 @@ const _hoisted_3 = {
 };
 const _hoisted_4 = { class: "dc-rank-head" };
 const _hoisted_5 = { class: "dc-rank-body" };
-const _hoisted_6 = {
-  class: "d-flex flex-wrap",
-  style: {"gap":"8px"}
-};
-const _hoisted_7 = {
+const _hoisted_6 = { class: "dc-timeline-scroll" };
+const _hoisted_7 = { class: "dc-timeline-months" };
+const _hoisted_8 = {
   class: "text-caption text-medium-emphasis mb-1",
   style: {"font-size":"11px"}
 };
-const _hoisted_8 = {
-  class: "d-flex flex-wrap",
-  style: {"gap":"3px"}
-};
-const _hoisted_9 = ["href", "title"];
-const _hoisted_10 = {
+const _hoisted_9 = { class: "dc-timeline-posters" };
+const _hoisted_10 = ["href", "title"];
+const _hoisted_11 = {
   key: 1,
   class: "dc-ph"
 };
-const _hoisted_11 = { key: 4 };
-const _hoisted_12 = { class: "dc-rank-grid" };
-const _hoisted_13 = { class: "dc-rank-head" };
-const _hoisted_14 = { class: "dc-rank-body" };
-const _hoisted_15 = ["title", "onClick"];
-const _hoisted_16 = { class: "dc-rank-title" };
-const _hoisted_17 = {
+const _hoisted_12 = { key: 4 };
+const _hoisted_13 = { class: "dc-rank-grid" };
+const _hoisted_14 = { class: "dc-rank-head" };
+const _hoisted_15 = { class: "dc-rank-body" };
+const _hoisted_16 = ["title", "onClick"];
+const _hoisted_17 = { class: "dc-rank-title" };
+const _hoisted_18 = {
   key: 0,
   class: "dc-rank-wish"
 };
-const _hoisted_18 = {
+const _hoisted_19 = {
   key: 0,
   class: "text-center text-medium-emphasis py-2 text-caption"
 };
-const _hoisted_19 = {
+const _hoisted_20 = {
   key: 5,
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
@@ -444,53 +439,55 @@ return (_ctx, _cache) => {
                     ]),
                     _createElementVNode("div", _hoisted_5, [
                       _createElementVNode("div", _hoisted_6, [
-                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(timelineGroups.value, (group) => {
-                          return (_openBlock(), _createElementBlock("div", {
-                            key: group.monthKey,
-                            class: "flex-shrink-0"
-                          }, [
-                            _createElementVNode("div", _hoisted_7, [
-                              _createTextVNode(_toDisplayString(group.label) + " ", 1),
-                              _createVNode(_component_VChip, {
-                                size: "x-small",
-                                color: "primary",
-                                variant: "tonal"
-                              }, {
-                                default: _withCtx(() => [
-                                  _createTextVNode(_toDisplayString(group.items.length), 1)
-                                ]),
-                                _: 2
-                              }, 1024)
-                            ]),
-                            _createElementVNode("div", _hoisted_8, [
-                              (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(group.items, (item) => {
-                                return (_openBlock(), _createElementBlock("a", {
-                                  key: item.key,
-                                  href: `https://www.douban.com/doubanapp/dispatch?uri=/movie/${item.subject_id}?from=mdouban&open=app`,
-                                  target: "_blank",
-                                  class: "dc-poster",
-                                  title: item.subject_name
-                                }, [
-                                  (item.poster)
-                                    ? (_openBlock(), _createBlock(_component_VImg, {
-                                        key: 0,
-                                        src: item.poster,
-                                        width: "60",
-                                        height: "90",
-                                        cover: "",
-                                        class: "rounded"
-                                      }, null, 8, ["src"]))
-                                    : (_openBlock(), _createElementBlock("div", _hoisted_10, [
-                                        _createVNode(_component_VIcon, {
-                                          icon: "mdi-filmstrip",
-                                          size: "14"
-                                        })
-                                      ]))
-                                ], 8, _hoisted_9))
-                              }), 128))
-                            ])
-                          ]))
-                        }), 128))
+                        _createElementVNode("div", _hoisted_7, [
+                          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(timelineGroups.value, (group) => {
+                            return (_openBlock(), _createElementBlock("div", {
+                              key: group.monthKey,
+                              class: "dc-timeline-month"
+                            }, [
+                              _createElementVNode("div", _hoisted_8, [
+                                _createTextVNode(_toDisplayString(group.label) + " ", 1),
+                                _createVNode(_component_VChip, {
+                                  size: "x-small",
+                                  color: "primary",
+                                  variant: "tonal"
+                                }, {
+                                  default: _withCtx(() => [
+                                    _createTextVNode(_toDisplayString(group.items.length), 1)
+                                  ]),
+                                  _: 2
+                                }, 1024)
+                              ]),
+                              _createElementVNode("div", _hoisted_9, [
+                                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(group.items, (item) => {
+                                  return (_openBlock(), _createElementBlock("a", {
+                                    key: item.key,
+                                    href: `https://www.douban.com/doubanapp/dispatch?uri=/movie/${item.subject_id}?from=mdouban&open=app`,
+                                    target: "_blank",
+                                    class: "dc-poster",
+                                    title: item.subject_name
+                                  }, [
+                                    (item.poster)
+                                      ? (_openBlock(), _createBlock(_component_VImg, {
+                                          key: 0,
+                                          src: item.poster,
+                                          width: "60",
+                                          height: "90",
+                                          cover: "",
+                                          class: "rounded"
+                                        }, null, 8, ["src"]))
+                                      : (_openBlock(), _createElementBlock("div", _hoisted_11, [
+                                          _createVNode(_component_VIcon, {
+                                            icon: "mdi-filmstrip",
+                                            size: "14"
+                                          })
+                                        ]))
+                                  ], 8, _hoisted_10))
+                                }), 128))
+                              ])
+                            ]))
+                          }), 128))
+                        ])
                       ])
                     ])
                   ])
@@ -498,14 +495,14 @@ return (_ctx, _cache) => {
               ]))
             : _createCommentVNode("", true),
           (config.value.dashboard_rank_keys && config.value.dashboard_rank_keys.length)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_11, [
-                _createElementVNode("div", _hoisted_12, [
+            ? (_openBlock(), _createElementBlock("div", _hoisted_12, [
+                _createElementVNode("div", _hoisted_13, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(config.value.dashboard_rank_keys, (rk) => {
                     return (_openBlock(), _createElementBlock("div", {
                       key: rk,
                       class: "dc-rank-cell"
                     }, [
-                      _createElementVNode("div", _hoisted_13, [
+                      _createElementVNode("div", _hoisted_14, [
                         _createVNode(_component_VIcon, {
                           icon: "mdi-format-list-numbered",
                           size: "15",
@@ -514,7 +511,7 @@ return (_ctx, _cache) => {
                         }, null, 8, ["style"]),
                         _createElementVNode("span", null, _toDisplayString(rankDefs[rk]?.name || rk), 1)
                       ]),
-                      _createElementVNode("div", _hoisted_14, [
+                      _createElementVNode("div", _hoisted_15, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((rankHistory.value[rk] || []).slice(0, 5), (item, i) => {
                           return (_openBlock(), _createElementBlock("div", {
                             key: i,
@@ -540,14 +537,14 @@ return (_ctx, _cache) => {
                               ]),
                               _: 2
                             }, 1024),
-                            _createElementVNode("span", _hoisted_16, _toDisplayString(item.title), 1),
+                            _createElementVNode("span", _hoisted_17, _toDisplayString(item.title), 1),
                             (rk === 'coming' && item.wish_count)
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_17, _toDisplayString(item.wish_count), 1))
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_18, _toDisplayString(item.wish_count), 1))
                               : _createCommentVNode("", true)
-                          ], 8, _hoisted_15))
+                          ], 8, _hoisted_16))
                         }), 128)),
                         (!(rankHistory.value[rk] || []).length)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_18, "暂无数据"))
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_19, "暂无数据"))
                           : _createCommentVNode("", true)
                       ])
                     ]))
@@ -556,7 +553,7 @@ return (_ctx, _cache) => {
               ]))
             : _createCommentVNode("", true),
           (!loading.value && !config.value.dashboard_rank_keys?.length && !timelineGroups.value.length)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_19, " 请在配置页「仪表显示」中选择要显示的榜单 "))
+            ? (_openBlock(), _createElementBlock("div", _hoisted_20, " 请在配置页「仪表显示」中选择要显示的榜单 "))
             : _createCommentVNode("", true)
         ]),
         _: 1
@@ -668,6 +665,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f368d95f"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2cc0aef0"]]);
 
 export { Dashboard as default };
