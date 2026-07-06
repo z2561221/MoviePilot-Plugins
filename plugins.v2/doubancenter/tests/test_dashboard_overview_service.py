@@ -196,7 +196,51 @@ class DashboardOverviewServiceTest(unittest.TestCase):
         self.assertEqual(result["attention"]["month_new"], 1)
         self.assertEqual(result["governance"]["archive_records"], 1)
         self.assertEqual(result["stats"], stats)
-        self.assertEqual([item["label"] for item in result["flows"]], ["榜单订阅", "归档治理", "豆瓣时间"])
+        self.assertEqual([item["label"] for item in result["flows"]], ["榜单订阅", "豆瓣时间", "公共归档"])
+
+    def test_build_overview_reports_wish_status_and_flow(self):
+        """运行总览会在豆瓣时间下展示想看与观影两条链路。"""
+        result = dashboard_overview.build_overview(
+            builtin_ranks=[],
+            rank_histories={},
+            subscribe_records=[],
+            anti_cheat_logs=[],
+            archive_records=[],
+            folio_data={},
+            stats={},
+            rank_configs={},
+            enabled=True,
+            observe_days=0,
+            observe_rank_keys=[],
+            folio_enabled=True,
+            folio_user="Home",
+            existing_subscription_checker=lambda item: False,
+            wish_enabled=True,
+            wish_state={"initialized": True, "last_run": "2026-07-05 10:00:00", "last_error": "cookie invalid"},
+            wish_queue=[{"subject_id": "1"}, {"subject_id": "2"}],
+            wish_failed=[{"subject_id": "3"}],
+        )
+
+        folio_group = next(item for item in result["flows"] if item["label"] == "豆瓣时间")
+        self.assertNotIn("steps", folio_group)
+        self.assertEqual([item["label"] for item in folio_group["flows"]], ["同步想看", "同步观影"])
+        flow = next(item for item in folio_group["flows"] if item["label"] == "同步想看")
+        self.assertEqual(flow["steps"], ["周期触发", "读取想看", "新增入队", "媒体识别", "创建订阅"])
+        folio_flow = next(item for item in folio_group["flows"] if item["label"] == "同步观影")
+        self.assertEqual(folio_flow["steps"], ["媒体事件", "条目识别", "豆瓣同步", "写入时间"])
+        self.assertEqual(
+            result["cards"]["folio"]["wish"],
+            {
+                "enabled": True,
+                "initialized": True,
+                "queue": 2,
+                "failed": 1,
+                "last_run": "2026-07-05 10:00:00",
+                "last_error": "cookie invalid",
+            },
+        )
+        self.assertEqual(result["attention"]["wish_queue"], 2)
+        self.assertEqual(result["attention"]["wish_failed"], 1)
 
     def test_build_overview_skips_existing_subscription_observations(self):
         ranks = [{"key": "tv_global", "name": "全球口碑"}]

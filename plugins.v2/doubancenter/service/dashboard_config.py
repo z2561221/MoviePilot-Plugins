@@ -15,6 +15,17 @@ def build_config(
     blacklist_keywords: Any,
     observe_days: Any,
     observe_rank_keys: Any,
+    wish_enabled: Any = False,
+    wish_cron: Any = "",
+    wish_user: Any = "",
+    wish_notify: Any = False,
+    wish_onlyonce: Any = False,
+    wish_max_pages: Any = 1,
+    wish_days: Any = 7,
+    wish_state: Dict[str, Any] = None,
+    wish_queue: List[dict] = None,
+    wish_processed: List[dict] = None,
+    wish_failed: List[dict] = None,
 ) -> Dict[str, Any]:
     """组装配置页运行时补充数据。"""
     rank_options = []
@@ -36,4 +47,61 @@ def build_config(
         "blacklist_keywords": blacklist_keywords or "",
         "observe_days": int(observe_days or 0),
         "observe_rank_keys": observe_rank_keys if isinstance(observe_rank_keys, list) else [],
+        "wish_status": _build_wish_status(
+            enabled=wish_enabled,
+            cron=wish_cron,
+            user=wish_user,
+            notify=wish_notify,
+            onlyonce=wish_onlyonce,
+            max_pages=wish_max_pages,
+            days=wish_days,
+            state=wish_state,
+            queue=wish_queue,
+            processed=wish_processed,
+            failed=wish_failed,
+        ),
+    }
+
+
+def _build_wish_status(
+    *,
+    enabled: Any = False,
+    cron: Any = "",
+    user: Any = "",
+    notify: Any = False,
+    onlyonce: Any = False,
+    max_pages: Any = 1,
+    days: Any = 7,
+    state: Dict[str, Any] = None,
+    queue: List[dict] = None,
+    processed: List[dict] = None,
+    failed: List[dict] = None,
+) -> Dict[str, Any]:
+    """组装同步想看配置页需要的运行状态。"""
+    state = state if isinstance(state, dict) else {}
+    queue = queue if isinstance(queue, list) else []
+    processed = processed if isinstance(processed, list) else []
+    failed = failed if isinstance(failed, list) else []
+    try:
+        normalized_pages = max(1, int(max_pages or 1))
+    except (TypeError, ValueError):
+        normalized_pages = 1
+    try:
+        normalized_days = max(0, int(days or 0))
+    except (TypeError, ValueError):
+        normalized_days = 7
+    return {
+        "enabled": bool(enabled),
+        "cron": str(cron or "*/30 * * * *"),
+        "user": str(user or ""),
+        "notify": bool(notify),
+        "onlyonce": bool(onlyonce),
+        "max_pages": normalized_pages,
+        "days": normalized_days,
+        "initialized": bool(state.get("initialized")),
+        "last_error": state.get("last_error") or "",
+        "last_run": state.get("last_run") or "",
+        "queue": len(queue),
+        "processed": len(processed),
+        "failed": len(failed),
     }

@@ -1794,7 +1794,9 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         result = dashboard.api_overview(plugin)
 
         self.assertEqual(result["code"], 0)
-        self.assertEqual([item["label"] for item in result["flows"]], ["榜单订阅", "归档治理", "豆瓣时间"])
+        self.assertEqual([item["label"] for item in result["flows"]], ["榜单订阅", "豆瓣时间", "公共归档"])
+        folio_group = next(item for item in result["flows"] if item["label"] == "豆瓣时间")
+        self.assertEqual([item["label"] for item in folio_group["flows"]], ["同步想看", "同步观影"])
         self.assertEqual(result["cards"]["rss"]["enabled"], 2)
         self.assertEqual(result["cards"]["archive"]["total"], 1)
         self.assertEqual(result["attention"]["blacklist_hits"], 1)

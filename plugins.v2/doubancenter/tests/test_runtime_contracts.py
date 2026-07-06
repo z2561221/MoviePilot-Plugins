@@ -111,6 +111,58 @@ class DoubanCenterRuntimeContractsTest(unittest.TestCase):
         self.assertIn("订阅观察", overview_source)
         self.assertNotIn("条件筛选", overview_source)
 
+    def test_wish_sync_config_defaults_are_declared(self):
+        config_source = (PLUGIN_DIR / "model" / "config.py").read_text(encoding="utf-8")
+        init_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8-sig")
+
+        for key in (
+            '"wish_enabled"',
+            '"wish_cron"',
+            '"wish_user"',
+            '"wish_notify"',
+            '"wish_max_pages"',
+        ):
+            self.assertIn(key, config_source)
+            self.assertIn(key, init_source)
+
+        self.assertIn('"wish_max_pages": 1', config_source)
+        self.assertIn('DEFAULT_WISH_CRON = "*/30 * * * *"', config_source)
+        self.assertIn('"wish_cron": DEFAULT_WISH_CRON', config_source)
+
+    def test_wish_sync_storage_helpers_are_declared(self):
+        storage_source = (PLUGIN_DIR / "storage" / "records.py").read_text(encoding="utf-8")
+
+        for name in (
+            "FOLIO_WISH_STATE_KEY",
+            "FOLIO_WISH_SEEN_KEY",
+            "FOLIO_WISH_QUEUE_KEY",
+            "FOLIO_WISH_PROCESSED_KEY",
+            "FOLIO_WISH_FAILED_KEY",
+            "read_folio_wish_state",
+            "save_folio_wish_state",
+            "read_folio_wish_seen",
+            "save_folio_wish_seen",
+            "read_folio_wish_queue",
+            "save_folio_wish_queue",
+            "read_folio_wish_processed",
+            "save_folio_wish_processed",
+            "read_folio_wish_failed",
+            "save_folio_wish_failed",
+        ):
+            self.assertIn(name, storage_source)
+
+    def test_wish_sync_scheduler_is_independent(self):
+        scheduler_source = (PLUGIN_DIR / "service" / "scheduler.py").read_text(encoding="utf-8")
+        init_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8-sig")
+
+        self.assertIn('"id": "DoubanCenter"', scheduler_source)
+        self.assertIn('"id": "DoubanCenterWish"', scheduler_source)
+        self.assertIn('"name": "豆瓣想看同步服务"', scheduler_source)
+        self.assertIn("plugin._wish_enabled", scheduler_source)
+        self.assertIn("plugin._wish_cron", scheduler_source)
+        self.assertIn("def __run_wish", init_source)
+        self.assertIn("scheduler_service.get_services(self, self.__run_all, self.__run_wish)", init_source)
+
     def test_backend_refactor_context_is_documented(self):
         context_path = PLUGIN_DIR / "ai_spec" / "plugin_context.md"
 

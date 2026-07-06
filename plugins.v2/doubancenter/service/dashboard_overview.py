@@ -9,12 +9,18 @@ from . import observation as observation_service
 from ..storage import records as storage
 
 
-def overview_flows() -> List[Dict[str, List[str]]]:
+def overview_flows() -> List[Dict[str, Any]]:
     """返回总览页流程说明。"""
     return [
         {"label": "榜单订阅", "steps": ["榜单刷新", "订阅观察", "观察入池", "自动订阅", "记录写入"]},
-        {"label": "归档治理", "steps": ["条目删除", "归档入库", "手动恢复", "记录清理"]},
-        {"label": "豆瓣时间", "steps": ["媒体事件", "条目识别", "豆瓣同步", "时间写入"]},
+        {
+            "label": "豆瓣时间",
+            "flows": [
+                {"label": "同步想看", "steps": ["周期触发", "读取想看", "新增入队", "媒体识别", "创建订阅"]},
+                {"label": "同步观影", "steps": ["媒体事件", "条目识别", "豆瓣同步", "写入时间"]},
+            ],
+        },
+        {"label": "公共归档", "steps": ["条目删除", "归档入库", "手动恢复", "记录清理"]},
     ]
 
 
@@ -76,6 +82,10 @@ def build_overview(
     folio_enabled: bool,
     folio_user: str,
     existing_subscription_checker: Callable[[dict], bool],
+    wish_enabled: bool = False,
+    wish_state: Dict[str, Any] = None,
+    wish_queue: List[dict] = None,
+    wish_failed: List[dict] = None,
 ) -> Dict[str, Any]:
     """组装设置页运行总览数据。"""
     rank_summary = overview_rank_summary(builtin_ranks, rank_histories, existing_subscription_checker)
@@ -94,6 +104,12 @@ def build_overview(
             isinstance(item, dict)
             and observation_service.normalize_log_reason(item.get("reason") or "") == observation_service.BLACKLIST_REASON
         )
+    )
+    wish_status = _wish_overview_status(
+        enabled=wish_enabled,
+        state=wish_state,
+        queue=wish_queue,
+        failed=wish_failed,
     )
 
     return {
@@ -126,6 +142,7 @@ def build_overview(
                 "enabled": bool(folio_enabled),
                 "items": len(folio_data),
                 "user": folio_user or "",
+                "wish": wish_status,
             },
         },
         "attention": {
@@ -134,6 +151,8 @@ def build_overview(
             "month_new": month_new,
             "anti_cheat_logs": len(anti_cheat_logs),
             "blacklist_hits": blacklist_hits,
+            "wish_queue": wish_status["queue"],
+            "wish_failed": wish_status["failed"],
         },
         "governance": {
             "archive_records": len(archive_records),
@@ -143,6 +162,27 @@ def build_overview(
         },
         "stats": stats or {},
         "flows": overview_flows(),
+    }
+
+
+def _wish_overview_status(
+    *,
+    enabled: bool = False,
+    state: Dict[str, Any] = None,
+    queue: List[dict] = None,
+    failed: List[dict] = None,
+) -> Dict[str, Any]:
+    """组装运行总览中的豆瓣想看同步状态。"""
+    state = state if isinstance(state, dict) else {}
+    queue = queue if isinstance(queue, list) else []
+    failed = failed if isinstance(failed, list) else []
+    return {
+        "enabled": bool(enabled),
+        "initialized": bool(state.get("initialized")),
+        "queue": len(queue),
+        "failed": len(failed),
+        "last_run": state.get("last_run") or "",
+        "last_error": state.get("last_error") or "",
     }
 
 
@@ -190,6 +230,9 @@ def build_overview_response(
         storage.save_archive_records(plugin, archive_records)
 
     folio_data = storage.read_folio_data(plugin)
+    wish_state = storage.read_folio_wish_state(plugin)
+    wish_queue = storage.read_folio_wish_queue(plugin)
+    wish_failed = storage.read_folio_wish_failed(plugin)
     stats = dashboard_stats_service.build_stats(subscribe_records, builtin_ranks)
     return build_overview(
         builtin_ranks=builtin_ranks,
@@ -206,4 +249,8 @@ def build_overview_response(
         folio_enabled=bool(getattr(plugin, "_folio_enabled", False)),
         folio_user=getattr(plugin, "_folio_user", "") or "",
         existing_subscription_checker=existing_subscription_checker,
+        wish_enabled=bool(getattr(plugin, "_wish_enabled", False)),
+        wish_state=wish_state,
+        wish_queue=wish_queue,
+        wish_failed=wish_failed,
     )

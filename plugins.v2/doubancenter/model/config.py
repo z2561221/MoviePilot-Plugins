@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from .rank import default_observe_rank_keys
 
 DEFAULT_CRON = "0 8 * * *"
+DEFAULT_WISH_CRON = "*/30 * * * *"
 DEFAULT_RSSHUB_DOMAIN = "https://rsshub.ddsrem.com"
 
 REGION_OPTIONS: List[str] = [
@@ -138,6 +139,13 @@ def default_config() -> Dict[str, Any]:
         "folio_pc_num": 50,
         "folio_mobile_month": 2,
         "folio_mobile_num": 15,
+        "wish_enabled": False,
+        "wish_cron": DEFAULT_WISH_CRON,
+        "wish_user": "",
+        "wish_notify": False,
+        "wish_onlyonce": False,
+        "wish_max_pages": 1,
+        "wish_days": 7,
         "dashboard_rank_keys": [],
         "blacklist_keywords": "",
         "observe_days": 0,

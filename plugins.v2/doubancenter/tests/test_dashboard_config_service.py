@@ -82,6 +82,51 @@ class DashboardConfigServiceTest(unittest.TestCase):
         self.assertEqual(result["observe_days"], 0)
         self.assertEqual(result["observe_rank_keys"], [])
 
+    def test_build_config_returns_wish_status_for_config_ui(self):
+        """配置补充接口会返回同步想看状态，供前端展示。"""
+        result = dashboard_config.build_config(
+            builtin_ranks=[],
+            rank_enabled_checker=lambda key: True,
+            folio_pc_month=3,
+            folio_pc_num=50,
+            folio_mobile_month=2,
+            folio_mobile_num=15,
+            dashboard_rank_keys=[],
+            blacklist_keywords="",
+            observe_days=0,
+            observe_rank_keys=[],
+            wish_enabled=True,
+            wish_cron="*/30 * * * *",
+            wish_user="home",
+            wish_notify=True,
+            wish_onlyonce=True,
+            wish_max_pages=2,
+            wish_days=3,
+            wish_state={"initialized": True, "last_error": "cookie invalid", "last_run": "2026-07-05 10:00:00"},
+            wish_queue=[{"subject_id": "1"}],
+            wish_processed=[{"subject_id": "2"}, {"subject_id": "3"}],
+            wish_failed=[{"subject_id": "4"}],
+        )
+
+        self.assertEqual(
+            result["wish_status"],
+            {
+                "enabled": True,
+                "cron": "*/30 * * * *",
+                "user": "home",
+                "notify": True,
+                "onlyonce": True,
+                "max_pages": 2,
+                "days": 3,
+                "initialized": True,
+                "last_error": "cookie invalid",
+                "last_run": "2026-07-05 10:00:00",
+                "queue": 1,
+                "processed": 2,
+                "failed": 1,
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
