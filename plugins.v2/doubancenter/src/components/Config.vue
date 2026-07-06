@@ -28,7 +28,6 @@ const defaults = {
   region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '',
   folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false,
   folio_user: '', folio_exclude: '', folio_cookie: '',
-  folio_pc_month: 3, folio_pc_num: 50, folio_mobile_month: 2, folio_mobile_num: 15,
   wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_onlyonce: false, wish_max_pages: 1, wish_days: 7,
   dashboard_rank_keys: [],
   blacklist_keywords: '',
@@ -312,12 +311,6 @@ onMounted(loadOverview)
               <div class="dc-section-title">仪表盘选择</div>
               <VAlert type="info" variant="tonal" density="compact" class="mb-2" text="先在「榜单列表」中启用榜单，此处即可选择在仪表盘并排显示。最多选 2 个。" />
               <VRow><VCol cols="12" md="6"><VSelect v-model="form.dashboard_rank_keys" label="选择要显示的榜单" :items="rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key }))" multiple chips clearable density="compact" variant="outlined" hide-details /></VCol></VRow>
-              <div class="dc-section-title mt-4">豆瓣时间线显示设置</div>
-              <VRow>
-                <VCol cols="12" md="6"><VTextField v-model="form.folio_pc_month" label="大屏显示月份数" type="number" density="compact" variant="outlined" hide-details hint="默认 3" persistent-hint /></VCol>
-                <VCol cols="12" md="6"><VTextField v-model="form.folio_pc_num" label="大屏每月最多显示数" type="number" density="compact" variant="outlined" hide-details hint="默认 50" persistent-hint /></VCol>
-              </VRow>
-              <VRow class="mt-2"><VCol cols="12" md="6"><VTextField v-model="form.folio_mobile_month" label="小屏显示月份数" type="number" density="compact" variant="outlined" hide-details hint="默认 2" persistent-hint /></VCol><VCol cols="12" md="6"><VTextField v-model="form.folio_mobile_num" label="小屏每月最多显示数" type="number" density="compact" variant="outlined" hide-details hint="默认 15" persistent-hint /></VCol></VRow>
             </div>
           </div>
         </section>

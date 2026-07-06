@@ -60,10 +60,6 @@ def api_config(self):
         "data": dashboard_config_service.build_config(
             builtin_ranks=BUILTIN_RANKS,
             rank_enabled_checker=lambda key: _ren(self, key),
-            folio_pc_month=self._folio_pc_month,
-            folio_pc_num=self._folio_pc_num,
-            folio_mobile_month=self._folio_mobile_month,
-            folio_mobile_num=self._folio_mobile_num,
             dashboard_rank_keys=self._dashboard_rank_keys,
             blacklist_keywords=self._blacklist_keywords,
             observe_days=getattr(self, "_observe_days", 0),

@@ -32,20 +32,16 @@ class DashboardConfigServiceTest(unittest.TestCase):
         result = dashboard_config.build_config(
             builtin_ranks=ranks,
             rank_enabled_checker=lambda key: key != "bad_rank",
-            folio_pc_month="4",
-            folio_pc_num="60",
-            folio_mobile_month="2",
-            folio_mobile_num="18",
             dashboard_rank_keys=["tv_global"],
             blacklist_keywords="跳过,忽略",
             observe_days="7",
             observe_rank_keys=["movie_weekly"],
         )
 
-        self.assertEqual(result["folio_pc_month"], "4")
-        self.assertEqual(result["folio_pc_num"], "60")
-        self.assertEqual(result["folio_mobile_month"], "2")
-        self.assertEqual(result["folio_mobile_num"], "18")
+        self.assertNotIn("folio_pc_month", result)
+        self.assertNotIn("folio_pc_num", result)
+        self.assertNotIn("folio_mobile_month", result)
+        self.assertNotIn("folio_mobile_num", result)
         self.assertEqual(result["dashboard_rank_keys"], ["tv_global"])
         self.assertEqual(
             result["rank_options"],
@@ -66,10 +62,6 @@ class DashboardConfigServiceTest(unittest.TestCase):
                 "bad",
             ],
             rank_enabled_checker=lambda key: True,
-            folio_pc_month=3,
-            folio_pc_num=50,
-            folio_mobile_month=2,
-            folio_mobile_num=15,
             dashboard_rank_keys=None,
             blacklist_keywords=None,
             observe_days=None,
@@ -87,10 +79,6 @@ class DashboardConfigServiceTest(unittest.TestCase):
         result = dashboard_config.build_config(
             builtin_ranks=[],
             rank_enabled_checker=lambda key: True,
-            folio_pc_month=3,
-            folio_pc_num=50,
-            folio_mobile_month=2,
-            folio_mobile_num=15,
             dashboard_rank_keys=[],
             blacklist_keywords="",
             observe_days=0,
