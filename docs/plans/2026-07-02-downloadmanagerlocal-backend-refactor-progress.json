@@ -1,0 +1,679 @@
+{
+  "plan": "docs/plans/2026-07-02-downloadmanagerlocal-backend-refactor-phased-plan.md",
+  "status": {
+    "phase": "phase-5",
+    "task": "5.3",
+    "next_allowed_action": "Stop before release-preparation gate; wait for explicit user request to merge, publish, release, or prepare PR metadata"
+  },
+  "execution_rules": {
+    "working_directory": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
+    "branch": "codex/refactor/downloadmanagerlocal-backend-standard",
+    "smoke_check": "python -m compileall plugins.v2/downloadmanagerlocal && python -m pytest tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py",
+    "commit_each_verified_task": true,
+    "no_commit_on_failed_verification": true,
+    "never_push_merge_or_amend": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "only_flip_status_fields": true,
+    "hard_no_ui_gate": true,
+    "forbidden_paths": [
+      "plugins.v2/downloadmanagerlocal/src/**",
+      "plugins.v2/downloadmanagerlocal/dist/**",
+      "plugins.v2/downloadmanagerlocal/index.html",
+      "plugins.v2/downloadmanagerlocal/vite.config.js",
+      "plugins.v2/downloadmanagerlocal/package.json",
+      "plugins.v2/downloadmanagerlocal/package-lock.json",
+      "plugins.v2/downloadmanagerlocal/pnpm-lock.yaml"
+    ]
+  },
+  "decision_log": [
+    {
+      "decision": "Backend-only phased refactor",
+      "reason": "The user explicitly said not to touch UI, and DownloadManagerLocal has a large backend surface.",
+      "rejected_alternatives": "UI standardization, Vue federation rebuild, direct one-shot rewrite",
+      "source": "Latest user constraint and MoviePilot plugin maintenance standard"
+    },
+    {
+      "decision": "Do not bump version during pure refactor tasks",
+      "reason": "Project rules require release-preparation versioning from remote main baseline.",
+      "rejected_alternatives": "Bump version at plan start",
+      "source": "AGENTS.md repository workflow rules"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "goal": "Capture current behavior and harden backend-only guardrails before refactoring.",
+      "status": "completed",
+      "acceptance": [
+        "All Phase 1 tasks are complete.",
+        "Baseline compile and selected static tests exit 0 or exact environment blocker is recorded.",
+        "No forbidden UI path appears in diff."
+      ],
+      "tasks": [
+        {
+          "id": "1.1",
+          "title": "Record baseline status and no-UI guard",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "git log --oneline -15",
+              "result": "exit 0; HEAD includes clean-start plan commit 230534c"
+            },
+            {
+              "command": "git status --short --branch",
+              "result": "exit 0; ## codex/refactor/downloadmanagerlocal-backend-standard...origin/main [ahead 1]"
+            },
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "system python unavailable; bundled Python compileall exited 0"
+            },
+            {
+              "command": "python -m pytest tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py",
+              "result": "initially blocked by root conftest generation guard; rerun with --confcutdir=tests/static after repairing stale AST test stubs exited 0 with 8 passed"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            }
+          ],
+          "commit": "3ddc8e4"
+        },
+        {
+          "id": "1.2",
+          "title": "Add or update static guard tests for backend-only refactor boundaries",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py",
+              "result": "exit 0; 11 passed in 0.69s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "a0d45f7"
+        },
+        {
+          "id": "1.3",
+          "title": "Create backend context document",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py",
+              "result": "exit 0; 11 passed in 0.78s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "b464d66"
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "goal": "Reduce __init__.py to plugin identity, lifecycle, configuration state, extension-point declarations, and thin delegation without behavior changes.",
+      "status": "completed",
+      "acceptance": [
+        "__init__.py owns only plugin contract and thin delegation.",
+        "Existing API paths, service behavior, and event hook behavior remain compatible.",
+        "No forbidden UI path appears in diff."
+      ],
+      "tasks": [
+        {
+          "id": "2.1",
+          "title": "Extract config parsing/default normalization",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py tests/static/test_downloadmanagerlocal_iyuu_regressions.py",
+              "result": "exit 0; 16 passed in 0.82s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "20a7dda"
+        },
+        {
+          "id": "2.2",
+          "title": "Extract service registration construction",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py tests/static/test_downloadmanagerlocal_transfer_retry_hook.py",
+              "result": "exit 0; 15 passed in 0.62s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "57a372f"
+        },
+        {
+          "id": "2.3",
+          "title": "Reduce wrapper clutter while keeping public compatibility",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py",
+              "result": "exit 0; 15 passed in 0.63s"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py tests/static/test_downloadmanagerlocal_iyuu_regressions.py tests/static/test_downloadmanagerlocal_transfer_retry_hook.py",
+              "result": "phase acceptance rerun exited 0; 20 passed in 0.82s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "c148f14"
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "goal": "Move API route declaration and response shaping into a controller boundary while preserving routes and schemas.",
+      "status": "completed",
+      "acceptance": [
+        "API route metadata is preserved.",
+        "API implementation has a clear controller boundary.",
+        "No forbidden UI path appears in diff."
+      ],
+      "tasks": [
+        {
+          "id": "3.1",
+          "title": "Introduce API route builder",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_manual_retry_api.py tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_registers_diagnostics_api_route tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_exposes_diagnostics_wrapper",
+              "result": "exit 0; 14 passed in 0.63s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "f1e19fb"
+        },
+        {
+          "id": "3.2",
+          "title": "Move API handlers into controller while keeping compatibility imports",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_manual_retry_api.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_registers_diagnostics_api_route tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_exposes_diagnostics_wrapper",
+              "result": "exit 0; 23 passed in 0.90s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "b17e0e3"
+        },
+        {
+          "id": "3.3",
+          "title": "Add API response regression inventory",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_api_response_inventory.py tests/static/test_downloadmanagerlocal_manual_retry_api.py tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_registers_diagnostics_api_route tests/static/test_downloadmanagerlocal_diagnostics.py::DownloadManagerLocalDiagnosticsTest::test_plugin_exposes_diagnostics_wrapper",
+              "result": "exit 0; 19 passed in 0.69s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "c596442"
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "goal": "Split business orchestration, external access, and structured state so backend responsibilities match the standard plugin layout.",
+      "status": "completed",
+      "acceptance": [
+        "Backend directory shape follows standard responsibilities.",
+        "Existing persisted state remains compatible.",
+        "No forbidden UI path appears in diff."
+      ],
+      "tasks": [
+        {
+          "id": "4.1",
+          "title": "Introduce model constants and structured state helpers",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_model_state.py",
+              "result": "red test failed as expected before implementation: model/state.py missing; rerun after implementation exited 0 with 4 passed"
+            },
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_model_state.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py tests/static/test_downloadmanagerlocal_iyuu_regressions.py tests/static/test_downloadmanagerlocal_transfer_retry_hook.py tests/static/test_downloadmanagerlocal_api_response_inventory.py",
+              "result": "exit 0; 21 passed in 0.19s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "4cb1c86"
+        },
+        {
+          "id": "4.2",
+          "title": "Extract MoviePilot/downloader adapter calls",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_adapter_boundary.py",
+              "result": "red test failed as expected before implementation: adapter/moviepilot.py missing and external imports leaked from backend files; rerun after implementation exited 0 with 2 passed"
+            },
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_adapter_boundary.py tests/static/test_downloadmanagerlocal_model_state.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py tests/static/test_downloadmanagerlocal_iyuu_regressions.py tests/static/test_downloadmanagerlocal_transfer_retry_hook.py",
+              "result": "exit 0; 19 passed in 0.14s"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_api_response_inventory.py tests/static/test_downloadmanagerlocal_manual_retry_api.py tests/static/test_downloadmanagerlocal_rename_cleaner.py",
+              "result": "exit 0; 22 passed in 0.64s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "3056de6"
+        },
+        {
+          "id": "4.3",
+          "title": "Promote orchestration modules into service boundaries",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_service_boundaries.py",
+              "result": "red test failed as expected before implementation: service facades and boundary inventory missing; rerun after implementation exited 0 with 4 passed"
+            },
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_adapter_boundary.py tests/static/test_downloadmanagerlocal_model_state.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py tests/static/test_downloadmanagerlocal_iyuu_regressions.py tests/static/test_downloadmanagerlocal_transfer_retry_hook.py tests/static/test_downloadmanagerlocal_api_response_inventory.py tests/static/test_downloadmanagerlocal_manual_retry_api.py",
+              "result": "exit 0; 36 passed in 1.01s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "1d84a59"
+        },
+        {
+          "id": "4.4",
+          "title": "Remove dead imports and add docstrings for new backend public surfaces",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_cleanup.py",
+              "result": "red test failed as expected before implementation: entrypoint kept known dead refactor imports; rerun after implementation exited 0 with 2 passed"
+            },
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <all tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "exit 0; 52 passed in 1.29s"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "aa6cf70 + cc93056"
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "goal": "Verify the backend refactor end to end, document residual risk, and prepare metadata only if explicitly requested.",
+      "status": "completed",
+      "acceptance": [
+        "Backend refactor is verified.",
+        "UI paths remain untouched.",
+        "Progress file records final status and residual risk.",
+        "Release metadata remains unchanged unless explicitly requested."
+      ],
+      "tasks": [
+        {
+          "id": "5.1",
+          "title": "Run full backend regression",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "python -m pytest --confcutdir=tests/static <all tests/static/test_downloadmanagerlocal_*.py files>",
+              "result": "exit 0; 52 passed in 1.29s"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            }
+          ],
+          "commit": null
+        },
+        {
+          "id": "5.2",
+          "title": "Update backend context and residual risk",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "python -m compileall plugins.v2/downloadmanagerlocal",
+              "result": "bundled Python exited 0"
+            },
+            {
+              "command": "git diff --name-only -- plugins.v2/downloadmanagerlocal/src plugins.v2/downloadmanagerlocal/dist plugins.v2/downloadmanagerlocal/index.html plugins.v2/downloadmanagerlocal/vite.config.js plugins.v2/downloadmanagerlocal/package.json plugins.v2/downloadmanagerlocal/package-lock.json plugins.v2/downloadmanagerlocal/pnpm-lock.yaml",
+              "result": "exit 0; empty output"
+            },
+            {
+              "command": "git diff --check",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "c317310"
+        },
+        {
+          "id": "5.3",
+          "title": "Release-preparation gate, only if explicitly requested",
+          "status": "skipped",
+          "verification": [
+            {
+              "command": "User confirmation gate",
+              "result": "No explicit merge/publish/release/PR metadata request was given; release metadata and version were left unchanged"
+            }
+          ],
+          "commit": null
+        }
+      ]
+    }
+  ],
+  "residual_risk": [
+    "This branch has only been verified in the Windows local plugin repository with compile/static tests; it has not yet been synced to the MP local repository for install/reload/runtime API validation.",
+    "No UI, dist assets, version metadata, merge, release, or publish work was performed; those remain behind explicit user confirmation.",
+    "service/* currently acts as a facade over legacy modules/* implementations; physical migration would require a separate cycle and removal of documented legacy exceptions.",
+    "IYUU external site download behavior was not tested against real network/site responses in this backend-only refactor."
+  ],
+  "turn_log": [
+    {
+      "task": "1.1",
+      "summary": "Created isolated worktree from origin/main, added clean-start plan commit 230534c, found system python unavailable, used bundled Python, installed pytest into bundled runtime, and repaired stale static AST test stubs so baseline static checks can run.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static selected static checks: 8 passed",
+        "no-UI gate output empty"
+      ]
+    },
+    {
+      "task": "1.2",
+      "summary": "Added backend contract static guards for DownloadManagerLocal API route metadata and no-UI branch/worktree diffs.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/private helper/stability tests: 11 passed",
+        "no-UI gate output empty"
+      ]
+    },
+    {
+      "task": "1.3",
+      "summary": "Created backend context document covering plugin purpose, API routes, services, event hooks, persisted data keys, forbidden UI paths, validation commands, and refactor risks.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/private helper/stability tests: 11 passed",
+        "no-UI gate output empty"
+      ]
+    },
+    {
+      "task": "2.1",
+      "summary": "Extracted DownloadManagerLocal runtime config parsing and default normalization into service/config.py, leaving init_plugin as a lifecycle delegate and preserving frontend config keys.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/private helper/stability/IYUU tests: 16 passed",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "2.2",
+      "summary": "Extracted get_service scheduler declarations into service/scheduler.py and kept service IDs, names, triggers, and callable targets compatible.",
+      "evidence": [
+        "red test failed as expected before implementation: _build_plugin_services_impl missing from get_service",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/private helper/stability/transfer retry tests: 15 passed",
+        "planned tests/static/test_downloadmanagerlocal_seed_recheck.py does not exist in this repository; equivalent existing static coverage was used",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "2.3",
+      "summary": "Removed migrated heavy imports from the DownloadManagerLocal entrypoint while preserving compatibility wrappers and backend contract tests.",
+      "evidence": [
+        "red test failed as expected before implementation: migrated heavy imports still present in __init__.py",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/private helper/stability tests: 15 passed",
+        "phase acceptance rerun with backend contract/private helper/stability/IYUU/transfer retry tests: 20 passed",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "3.1",
+      "summary": "Moved get_api route declarations into controller/api.py, kept route path/auth/method/summary metadata intact, and updated backend static tests to read the new route builder.",
+      "evidence": [
+        "red test failed as expected before implementation: _build_api_routes_impl missing from get_api",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/manual retry/diagnostics backend route tests: 14 passed",
+        "full diagnostics static file still contains an existing UI tab assertion failure and was not fixed because UI is out of scope",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "3.2",
+      "summary": "Moved API handler implementations into controller/handlers.py and kept plugins.v2/downloadmanagerlocal/api.py as a compatibility shim.",
+      "evidence": [
+        "red test failed as expected before implementation: controller/handlers.py missing",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/manual retry/private helper/stability/diagnostics backend tests: 23 passed",
+        "planned tests/static/test_downloadmanagerlocal_rename_archive.py does not exist in this repository; route inventory coverage remains in backend contract tests",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "3.3",
+      "summary": "Added API response regression inventory for overview, diagnostics, rename history, archive, retry, delete, restore, and recovery handler response keys.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static backend contract/API response inventory/manual retry/diagnostics backend tests: 19 passed",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "4.1",
+      "summary": "Introduced plugins.v2/downloadmanagerlocal/model/state.py for persisted rename, retry, seed recheck, and IYUU history/cache keys; migrated backend callers to constants/helpers without changing legacy storage names.",
+      "evidence": [
+        "red test failed as expected before implementation: model/state.py missing",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static model/private helper/stability/IYUU/transfer retry/API inventory tests: 21 passed",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "4.2",
+      "summary": "Introduced adapter/moviepilot.py and migrated downloader, site, system config, torrent download, HTTP, random tag, URL domain, and download history access out of controller/service/modules into the adapter boundary where practical.",
+      "evidence": [
+        "red test failed as expected before implementation: adapter/moviepilot.py missing and external imports leaked from backend files",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static adapter/model/private helper/stability/IYUU/transfer retry tests: 19 passed",
+        "pytest --confcutdir=tests/static backend contract/API response inventory/manual retry/rename cleaner tests: 22 passed",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "4.3",
+      "summary": "Added service facades for transfer, IYUU, rename, recheck, archive, site tag, and diagnostics; redirected the plugin entrypoint through service boundaries and documented retained legacy module dependencies.",
+      "evidence": [
+        "red test failed as expected before implementation: service facades and boundary inventory missing",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static service boundary tests: 4 passed",
+        "pytest --confcutdir=tests/static backend contract/adapter/model/private helper/stability/IYUU/transfer retry/API inventory/manual retry tests: 36 passed",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "4.4",
+      "summary": "Removed dead entrypoint imports introduced or exposed by backend extraction, added cleanup/docstring static guards, and refreshed a stale diagnostics static assertion to match the existing sidebar tab implementation without touching UI files.",
+      "evidence": [
+        "red test failed as expected before implementation: entrypoint kept known dead refactor imports",
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static all DownloadManagerLocal static tests: 52 passed",
+        "no-UI gate output empty",
+        "git diff --check exited 0"
+      ]
+    },
+    {
+      "task": "5.1",
+      "summary": "Ran final backend regression across compileall, all DownloadManagerLocal static tests, whitespace diff checks, and forbidden UI path diff checks.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "pytest --confcutdir=tests/static all DownloadManagerLocal static tests: 52 passed",
+        "git diff --check exited 0",
+        "no-UI gate output empty"
+      ]
+    },
+    {
+      "task": "5.2",
+      "summary": "Updated backend context with the final controller/service/adapter/model boundaries, validation commands, retained legacy exceptions, and residual risks for runtime validation and release gates.",
+      "evidence": [
+        "compileall exited 0 with bundled Python",
+        "no-UI gate output empty",
+        "git diff --check exited 0",
+        "context commit c317310 recorded"
+      ]
+    },
+    {
+      "task": "5.3",
+      "summary": "Release-preparation gate was not entered because the user has not explicitly requested merge, publish, release, or PR metadata preparation.",
+      "evidence": [
+        "version metadata unchanged",
+        "no merge, push-after-final, release, or publish action performed"
+      ]
+    }
+  ]
+}

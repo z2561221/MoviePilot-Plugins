@@ -4,7 +4,8 @@ import time
 from typing import Tuple, Optional
 
 from app.log import logger
-from app.utils.http import RequestUtils
+
+from .adapter.moviepilot import request_get_res, request_post_res
 
 
 class IyuuHelper(object):
@@ -23,6 +24,7 @@ class IyuuHelper(object):
             self.init_config()
 
     def init_config(self):
+        """保留 IYUU 初始化扩展点，当前版本无需额外加载配置。"""
         pass
 
     def ensure_ready(self) -> Tuple[bool, str]:
@@ -46,15 +48,19 @@ class IyuuHelper(object):
         向IYUUApi发送请求
         """
         if method == "post":
-            ret = RequestUtils(
+            ret = request_post_res(
+                f'{self._api_base + url}',
+                json=params,
                 accept_type="application/json",
                 headers={'token': self._token}
-            ).post_res(f'{self._api_base + url}', json=params)
+            )
         else:
-            ret = RequestUtils(
+            ret = request_get_res(
+                f'{self._api_base + url}',
+                params=params,
                 accept_type="application/json",
                 headers={'token': self._token}
-            ).get_res(f'{self._api_base + url}', params=params)
+            )
         if ret:
             result = ret.json()
             if result.get('code') == 0:
@@ -67,6 +73,7 @@ class IyuuHelper(object):
             return None, f"请求IYUU失败，未获取到返回信息"
 
     def get_torrent_url(self, sid: str) -> Tuple[Optional[str], Optional[str]]:
+        """根据 IYUU 站点 id 返回站点基础地址和下载页规则。"""
         if not sid:
             return None, None
         if not self._sites:
@@ -112,6 +119,7 @@ class IyuuHelper(object):
         return None
 
     def __reseed_index(self, json_data: str, sha1: str) -> Tuple[Optional[dict], str]:
+        """向 IYUU 查询指定 info_hash 列表的可辅种信息。"""
         return self.__request_iyuu(url='/reseed/index/index', method='post', params={
             'hash': json_data,
             'sha1': sha1,
@@ -144,4 +152,5 @@ class IyuuHelper(object):
 
     @staticmethod
     def get_sha1(json_str: str) -> str:
+        """计算 IYUU 请求签名需要的 SHA1 摘要。"""
         return hashlib.sha1(json_str.encode('utf-8')).hexdigest()

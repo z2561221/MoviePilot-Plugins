@@ -6,29 +6,32 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
+FRONTEND_COMPONENTS_DIR = PLUGIN_DIR / "frontend" / "src" / "components"
 
 
 class DownloadManagerLocalManualRetryApiTest(unittest.TestCase):
     def test_plugin_registers_manual_retry_api_route(self) -> None:
         init_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
-        api_source = (PLUGIN_DIR / "api.py").read_text(encoding="utf-8")
+        route_source = (PLUGIN_DIR / "controller" / "api.py").read_text(encoding="utf-8")
+        api_source = (PLUGIN_DIR / "controller" / "handlers.py").read_text(encoding="utf-8")
 
         self.assertIn("api_retry_renames", init_source)
-        self.assertIn('"path": "/retry_renames"', init_source)
+        self.assertIn('"path": "/retry_renames"', route_source)
         self.assertIn("def api_retry_renames(plugin):", api_source)
         self.assertIn("plugin._retry_pending_renames()", api_source)
 
     def test_plugin_registers_single_retry_api_route(self) -> None:
         init_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
-        api_source = (PLUGIN_DIR / "api.py").read_text(encoding="utf-8")
+        route_source = (PLUGIN_DIR / "controller" / "api.py").read_text(encoding="utf-8")
+        api_source = (PLUGIN_DIR / "controller" / "handlers.py").read_text(encoding="utf-8")
 
         self.assertIn("api_retry_rename", init_source)
-        self.assertIn('"path": "/retry_rename"', init_source)
+        self.assertIn('"path": "/retry_rename"', route_source)
         self.assertIn("def api_retry_rename(plugin, hash: str = \"\"):", api_source)
         self.assertIn("plugin._retry_rename(hash)", api_source)
 
     def test_history_page_exposes_one_click_retry_button(self) -> None:
-        page_source = (PLUGIN_DIR / "src" / "components" / "Page.vue").read_text(
+        page_source = (FRONTEND_COMPONENTS_DIR / "Page.vue").read_text(
             encoding="utf-8"
         )
 
@@ -39,7 +42,7 @@ class DownloadManagerLocalManualRetryApiTest(unittest.TestCase):
         self.assertIn(':loading="retrying"', page_source)
 
     def test_history_page_exposes_row_retry_button(self) -> None:
-        page_source = (PLUGIN_DIR / "src" / "components" / "Page.vue").read_text(
+        page_source = (FRONTEND_COMPONENTS_DIR / "Page.vue").read_text(
             encoding="utf-8"
         )
 

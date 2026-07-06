@@ -12,7 +12,7 @@ export default defineConfig({
       'vuetify/styles': { requiredVersion: false, generate: false, singleton: true },
     }, format: 'esm',
   })],
-  build: { target: 'esnext', minify: false, cssCodeSplit: true },
+  build: { target: 'esnext', minify: false, cssCodeSplit: true, outDir: '../dist', emptyOutDir: true },
   css: { postcss: { plugins: [
     { postcssPlugin: 'internal:charset-removal', AtRule: { charset: atRule => { if (atRule.name === 'charset') atRule.remove() } } },
     { postcssPlugin: 'vuetify-filter', Root(root) { root.walkRules(rule => { if (rule.selector && (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) { rule.remove() } }) } },

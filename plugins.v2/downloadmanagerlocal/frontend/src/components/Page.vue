@@ -31,6 +31,20 @@ const tabs = [
 
 const totalPages = computed(() => Math.max(1, Math.ceil((total.value || 0) / pageSize)))
 const archiveTotalPages = computed(() => Math.max(1, Math.ceil((archiveTotal.value || 0) / pageSize)))
+const diagnosticsCards = computed(() => {
+  const items = Array.isArray(diagnostics.value?.checks) ? diagnostics.value.checks : []
+  return items.map(item => ({
+    ...item,
+    statusText: item.status === 'ok' ? '正常' : item.status === 'warn' ? '关注' : '未启用',
+    icon: item.status === 'ok'
+      ? 'mdi-check-circle-outline'
+      : item.status === 'warn'
+        ? 'mdi-alert-circle-outline'
+        : 'mdi-minus-circle-outline',
+  }))
+})
+const diagnosticsOkCount = computed(() => diagnosticsCards.value.filter(item => item.status === 'ok').length)
+const diagnosticsAttentionCount = computed(() => diagnosticsCards.value.length - diagnosticsOkCount.value)
 
 async function loadHistory() {
   loading.value = true
@@ -86,13 +100,6 @@ async function refreshActive() {
   if (activeTab.value === 'history') return loadHistory()
   if (activeTab.value === 'archive') return loadArchive()
   return loadDiagnostics()
-}
-
-function checkColor(status) {
-  if (status === 'ok') return 'success'
-  if (status === 'warn') return 'warning'
-  if (status === 'off') return 'default'
-  return 'default'
 }
 
 async function doRecovery(hash) {
@@ -217,7 +224,7 @@ onMounted(loadHistory)
 
     <div class="dm-layout">
       <nav class="dm-side">
-        <VList density="compact" nav class="py-2">
+        <VList density="compact" nav class="dm-side-list py-2">
           <VListItem v-for="tab in tabs" :key="tab.key" :active="activeTab === tab.key" color="primary" rounded="lg" class="dm-side-item" @click="selectTab(tab.key)">
             <template #prepend><VIcon :icon="tab.icon" /></template>
             <VListItemTitle>{{ tab.title }}</VListItemTitle>
@@ -242,7 +249,8 @@ onMounted(loadHistory)
             <VIcon icon="mdi-history" size="48" color="grey-lighten-1" class="mb-2" />
             <div>暂无命名记录</div>
           </div>
-          <VTable v-else density="compact" class="dm-table">
+          <div v-else class="dm-table-scroll">
+            <VTable density="compact" class="dm-table">
             <thead>
               <tr>
                 <th class="text-caption">时间</th>
@@ -267,7 +275,8 @@ onMounted(loadHistory)
                 </td>
               </tr>
             </tbody>
-          </VTable>
+            </VTable>
+          </div>
           <div v-if="total > pageSize" class="d-flex align-center justify-center pa-3">
             <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" :disabled="page <= 1" @click="prevPage" class="mr-2" />
             <span class="text-caption mx-1">{{ page }} / {{ totalPages }}（共 {{ total }} 条）</span>
@@ -281,7 +290,8 @@ onMounted(loadHistory)
             <VIcon icon="mdi-archive-outline" size="48" color="grey-lighten-1" class="mb-2" />
             <div>暂无归档记录</div>
           </div>
-          <VTable v-else density="compact" class="dm-table">
+          <div v-else class="dm-table-scroll">
+            <VTable density="compact" class="dm-table">
             <thead>
               <tr>
                 <th class="text-caption">归档时间</th>
@@ -307,7 +317,8 @@ onMounted(loadHistory)
                 </td>
               </tr>
             </tbody>
-          </VTable>
+            </VTable>
+          </div>
           <div v-if="archiveTotal > pageSize" class="d-flex align-center justify-center pa-3">
             <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" :disabled="archivePage <= 1" @click="prevArchivePage" class="mr-2" />
             <span class="text-caption mx-1">{{ archivePage }} / {{ archiveTotalPages }}（共 {{ archiveTotal }} 条）</span>
@@ -339,20 +350,41 @@ onMounted(loadHistory)
               </div>
             </div>
 
-            <div class="dm-checks mb-3">
-              <div v-for="item in diagnostics.checks" :key="item.label" class="dm-check-row">
-                <div class="text-body-2">{{ item.label }}</div>
-                <div class="d-flex align-center ga-2">
-                  <span class="text-caption text-medium-emphasis">{{ item.detail }}</span>
-                  <VChip size="x-small" :color="checkColor(item.status)" variant="tonal">{{ item.status }}</VChip>
+            <div class="dm-diagnostics-panel mb-3">
+              <div class="dm-diagnostics-head">
+                <div class="dm-diagnostics-title">
+                  <span class="dm-diagnostics-icon"><VIcon icon="mdi-stethoscope" size="20" /></span>
+                  <span>运行诊断</span>
                 </div>
+                <div class="dm-diagnostics-score">
+                  <strong>{{ diagnosticsOkCount }} / {{ diagnosticsCards.length }}</strong>
+                  <span>正常</span>
+                  <span v-if="diagnosticsAttentionCount">· {{ diagnosticsAttentionCount }} 项关注</span>
+                </div>
+              </div>
+              <div class="dm-diagnostics-grid">
+                <div v-for="item in diagnosticsCards" :key="item.label" class="dm-diagnostic-card" :class="`dm-diagnostic-card--${item.status || 'off'}`">
+                  <div class="dm-diagnostic-state">
+                    <VIcon :icon="item.icon" size="22" />
+                  </div>
+                  <div class="dm-diagnostic-content">
+                    <div class="dm-diagnostic-name">{{ item.label }}</div>
+                    <div class="dm-diagnostic-value">{{ item.detail }}</div>
+                    <div class="dm-diagnostic-note">{{ item.statusText }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="dm-diagnostics-footer">
+                <span>按运行链路顺序检查下载器、路径、转移、命名、标签和归档状态。</span>
+                <span v-if="diagnosticsAttentionCount" class="dm-diagnostics-attention">关注项不阻断运行</span>
               </div>
             </div>
 
             <div>
               <div class="text-subtitle-2 mb-2">最近失败</div>
               <div v-if="!diagnostics?.rename_history?.recent_failures?.length" class="text-caption text-medium-emphasis py-2">暂无失败记录</div>
-              <VTable v-else density="compact" class="dm-table">
+              <div v-else class="dm-table-scroll">
+                <VTable density="compact" class="dm-table">
                 <thead>
                   <tr>
                     <th class="text-caption">时间</th>
@@ -367,7 +399,8 @@ onMounted(loadHistory)
                     <td class="text-caption">{{ item.reason }}</td>
                   </tr>
                 </tbody>
-              </VTable>
+                </VTable>
+              </div>
             </div>
           </div>
           <div v-else class="dm-state text-center text-medium-emphasis">
@@ -382,29 +415,207 @@ onMounted(loadHistory)
 
 <style scoped>
 .dm-page {
-  height: clamp(620px, calc(100vh - 120px), 780px);
+  height: clamp(760px, calc(100dvh - 48px), 860px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 .dm-toolbar { position: sticky; top: 0; z-index: 10; background: rgb(var(--v-theme-surface)); }
 .dm-layout { flex: 1 1 auto; min-height: 0; display: flex; }
-.dm-side { width: 150px; flex: 0 0 150px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), 0.02); }
+.dm-side { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), 0.02); }
+.dm-side-list { width: 100%; }
 .dm-side-item { margin: 2px 8px; }
 .dm-main { flex: 1 1 auto; min-width: 0; min-height: 0; padding: 12px; overflow-y: auto; }
 .dm-pane { min-width: 0; min-height: 100%; }
 .dm-state { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.dm-table-scroll { width: 100%; overflow-x: auto; overflow-y: hidden; }
+.dm-table { min-width: 720px; }
 .dm-table :deep(th) { font-weight: 600 !important; }
 .dm-ellipsis { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dm-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .dm-stat { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px; min-width: 0; }
-.dm-checks { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden; }
-.dm-check-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
-.dm-check-row:last-child { border-bottom: none; }
+.dm-diagnostics-panel {
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(var(--v-theme-on-surface), 0.02);
+}
+.dm-diagnostics-head {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+.dm-diagnostics-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+.dm-diagnostics-icon {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.12);
+}
+.dm-diagnostics-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  color: rgba(var(--v-theme-on-surface), 0.68);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.dm-diagnostics-score strong {
+  color: rgba(var(--v-theme-on-surface), 0.92);
+  font-size: 15px;
+}
+.dm-diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+.dm-diagnostic-card {
+  min-height: 96px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.025);
+}
+.dm-diagnostic-card--ok {
+  background: linear-gradient(135deg, rgba(var(--v-theme-success), 0.08), rgba(var(--v-theme-on-surface), 0.025) 54%);
+}
+.dm-diagnostic-card--warn {
+  border-color: rgba(var(--v-theme-warning), 0.28);
+  background: linear-gradient(135deg, rgba(var(--v-theme-warning), 0.12), rgba(var(--v-theme-on-surface), 0.025) 54%);
+}
+.dm-diagnostic-state {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: rgba(var(--v-theme-on-surface), 0.58);
+  background: rgba(var(--v-theme-on-surface), 0.055);
+}
+.dm-diagnostic-card--ok .dm-diagnostic-state {
+  color: rgb(var(--v-theme-success));
+  background: rgba(var(--v-theme-success), 0.14);
+}
+.dm-diagnostic-card--warn .dm-diagnostic-state {
+  color: rgb(var(--v-theme-warning));
+  background: rgba(var(--v-theme-warning), 0.16);
+}
+.dm-diagnostic-content {
+  min-width: 0;
+}
+.dm-diagnostic-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
+}
+.dm-diagnostic-value {
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(var(--v-theme-on-surface), 0.78);
+  font-size: 13px;
+  font-weight: 600;
+}
+.dm-diagnostic-note {
+  margin-top: 5px;
+  color: rgba(var(--v-theme-on-surface), 0.54);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.dm-diagnostics-footer {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  color: rgba(var(--v-theme-on-surface), 0.56);
+  font-size: 12px;
+}
+.dm-diagnostics-attention {
+  color: rgb(var(--v-theme-warning));
+  white-space: nowrap;
+}
+@media (max-width: 1100px) {
+  .dm-diagnostics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 760px) {
-  .dm-page { height: min(760px, calc(100dvh - 24px)); }
+  .dm-page { height: min(860px, calc(100dvh - 16px)); }
   .dm-layout { flex-direction: column; }
-  .dm-side { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+  .dm-side {
+    width: 100%;
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .dm-side::-webkit-scrollbar { display: none; }
+  .dm-side-list {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    min-width: max-content;
+    padding: 8px 12px !important;
+  }
+  .dm-side-item {
+    flex: 0 0 auto;
+    min-width: 96px;
+    margin: 0;
+    padding-inline: 10px;
+  }
+  .dm-side-item :deep(.v-list-item-title) { white-space: nowrap; }
+  .dm-main { padding: 10px; }
   .dm-stat-grid { grid-template-columns: 1fr; }
+  .dm-diagnostics-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .dm-diagnostics-score {
+    white-space: normal;
+  }
+  .dm-diagnostics-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 10px;
+  }
+  .dm-diagnostic-card {
+    min-height: 86px;
+  }
+  .dm-diagnostics-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .dm-diagnostics-attention {
+    white-space: normal;
+  }
 }
 </style>

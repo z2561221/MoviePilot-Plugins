@@ -1087,6 +1087,10 @@ return (_ctx, _cache) => {
 }
 
 };
+<<<<<<<< HEAD:plugins.v2/doubancenter/dist/assets/__federation_expose_Config-CzoRJA05.js
 const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1aa3b67d"]]);
+========
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a33d83d0"]]);
+>>>>>>>> origin/main:plugins.v2/doubancenter/dist/assets/__federation_expose_Config-BKE-mddp.js
 
 export { Config as default };
