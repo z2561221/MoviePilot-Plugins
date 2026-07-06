@@ -99,7 +99,7 @@ const defaults = {
   folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false,
   folio_user: '', folio_exclude: '', folio_cookie: '',
   folio_pc_month: 3, folio_pc_num: 50, folio_mobile_month: 2, folio_mobile_num: 15,
-  wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_max_pages: 1,
+  wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_onlyonce: false, wish_max_pages: 1, wish_days: 7,
   dashboard_rank_keys: [],
   blacklist_keywords: '',
   observe_days: 0,
@@ -267,7 +267,7 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-h6 dc-header-title" }, {
-              default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
+              default: _withCtx(() => [...(_cache[26] || (_cache[26] = [
                 _createTextVNode("豆瓣中心", -1)
               ]))]),
               _: 1
@@ -344,7 +344,7 @@ return (_ctx, _cache) => {
             }, [
               _withDirectives(_createElementVNode("div", _hoisted_7, [
                 _createElementVNode("div", _hoisted_8, [
-                  _cache[26] || (_cache[26] = _createElementVNode("div", { class: "dc-section-title d-flex align-center" }, [
+                  _cache[27] || (_cache[27] = _createElementVNode("div", { class: "dc-section-title d-flex align-center" }, [
                     _createElementVNode("span", null, "运行链路")
                   ], -1)),
                   _createElementVNode("div", _hoisted_9, [
@@ -404,32 +404,32 @@ return (_ctx, _cache) => {
                 ]),
                 _createElementVNode("div", _hoisted_17, [
                   _createElementVNode("div", _hoisted_18, [
-                    _cache[30] || (_cache[30] = _createElementVNode("div", { class: "dc-section-title" }, "待关注", -1)),
+                    _cache[31] || (_cache[31] = _createElementVNode("div", { class: "dc-section-title" }, "待关注", -1)),
                     _createElementVNode("div", _hoisted_19, [
-                      _cache[27] || (_cache[27] = _createElementVNode("span", null, "观察队列", -1)),
+                      _cache[28] || (_cache[28] = _createElementVNode("span", null, "观察队列", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.attention?.pending_observations || 0), 1)
                     ]),
                     _createElementVNode("div", _hoisted_20, [
-                      _cache[28] || (_cache[28] = _createElementVNode("span", null, "防刷日志", -1)),
+                      _cache[29] || (_cache[29] = _createElementVNode("span", null, "防刷日志", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.attention?.anti_cheat_logs || 0), 1)
                     ]),
                     _createElementVNode("div", _hoisted_21, [
-                      _cache[29] || (_cache[29] = _createElementVNode("span", null, "黑名命中", -1)),
+                      _cache[30] || (_cache[30] = _createElementVNode("span", null, "黑名命中", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.attention?.blacklist_hits || 0), 1)
                     ])
                   ]),
                   _createElementVNode("div", _hoisted_22, [
-                    _cache[34] || (_cache[34] = _createElementVNode("div", { class: "dc-section-title" }, "治理概况", -1)),
+                    _cache[35] || (_cache[35] = _createElementVNode("div", { class: "dc-section-title" }, "治理概况", -1)),
                     _createElementVNode("div", _hoisted_23, [
-                      _cache[31] || (_cache[31] = _createElementVNode("span", null, "忽略条目", -1)),
+                      _cache[32] || (_cache[32] = _createElementVNode("span", null, "忽略条目", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.governance?.ignored_observations || 0), 1)
                     ]),
                     _createElementVNode("div", _hoisted_24, [
-                      _cache[32] || (_cache[32] = _createElementVNode("span", null, "订阅记录", -1)),
+                      _cache[33] || (_cache[33] = _createElementVNode("span", null, "订阅记录", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.governance?.subscribe_records || 0), 1)
                     ]),
                     _createElementVNode("div", _hoisted_25, [
-                      _cache[33] || (_cache[33] = _createElementVNode("span", null, "防刷日志", -1)),
+                      _cache[34] || (_cache[34] = _createElementVNode("span", null, "防刷日志", -1)),
                       _createElementVNode("strong", null, _toDisplayString(overview.value?.governance?.anti_cheat_logs || 0), 1)
                     ])
                   ])
@@ -438,7 +438,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'overview']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_26, [
-                _cache[35] || (_cache[35] = _createElementVNode("div", { class: "dc-section-title" }, "基础设置", -1)),
+                _cache[36] || (_cache[36] = _createElementVNode("div", { class: "dc-section-title" }, "基础设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -508,7 +508,7 @@ return (_ctx, _cache) => {
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_27, [
                 _createElementVNode("div", _hoisted_28, [
-                  _cache[36] || (_cache[36] = _createTextVNode("榜单列表 ", -1)),
+                  _cache[37] || (_cache[37] = _createTextVNode("榜单列表 ", -1)),
                   _createElementVNode("span", _hoisted_29, "（已启用 " + _toDisplayString(enabledRankCount.value) + "/" + _toDisplayString(rankDefs.length) + "）", 1)
                 ]),
                 _createVNode(_component_VAlert, {
@@ -537,7 +537,7 @@ return (_ctx, _cache) => {
                       ]),
                       _createElementVNode("div", _hoisted_32, [
                         _createElementVNode("div", _hoisted_33, [
-                          _cache[37] || (_cache[37] = _createElementVNode("span", { class: "dc-rank-label" }, "数量", -1)),
+                          _cache[38] || (_cache[38] = _createElementVNode("span", { class: "dc-rank-label" }, "数量", -1)),
                           _createVNode(_component_VTextField, {
                             modelValue: form.rank_configs[rd.key].count,
                             "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].count) = $event),
@@ -552,7 +552,7 @@ return (_ctx, _cache) => {
                         ]),
                         (rd.filters.includes('wish_count'))
                           ? (_openBlock(), _createElementBlock("div", _hoisted_34, [
-                              _cache[38] || (_cache[38] = _createElementVNode("span", { class: "dc-rank-label" }, "想看", -1)),
+                              _cache[39] || (_cache[39] = _createElementVNode("span", { class: "dc-rank-label" }, "想看", -1)),
                               _createVNode(_component_VTextField, {
                                 modelValue: form.rank_configs[rd.key].wish_count,
                                 "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].wish_count) = $event),
@@ -567,7 +567,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true),
                         (rd.filters.includes('air_days'))
                           ? (_openBlock(), _createElementBlock("div", _hoisted_35, [
-                              _cache[39] || (_cache[39] = _createElementVNode("span", { class: "dc-rank-label" }, "窗口", -1)),
+                              _cache[40] || (_cache[40] = _createElementVNode("span", { class: "dc-rank-label" }, "窗口", -1)),
                               _createVNode(_component_VTextField, {
                                 modelValue: form.rank_configs[rd.key].air_days,
                                 "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].air_days) = $event),
@@ -582,7 +582,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true),
                         (rd.filters.includes('vote'))
                           ? (_openBlock(), _createElementBlock("div", _hoisted_36, [
-                              _cache[40] || (_cache[40] = _createElementVNode("span", { class: "dc-rank-label" }, "评分", -1)),
+                              _cache[41] || (_cache[41] = _createElementVNode("span", { class: "dc-rank-label" }, "评分", -1)),
                               _createVNode(_component_VTextField, {
                                 modelValue: form.rank_configs[rd.key].vote,
                                 "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].vote) = $event),
@@ -600,7 +600,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true),
                         (rd.filters.includes('year'))
                           ? (_openBlock(), _createElementBlock("div", _hoisted_37, [
-                              _cache[41] || (_cache[41] = _createElementVNode("span", { class: "dc-rank-label" }, "年份", -1)),
+                              _cache[42] || (_cache[42] = _createElementVNode("span", { class: "dc-rank-label" }, "年份", -1)),
                               _createVNode(_component_VTextField, {
                                 modelValue: form.rank_configs[rd.key].year,
                                 "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].year) = $event),
@@ -622,7 +622,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'list']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_38, [
-                _cache[42] || (_cache[42] = _createElementVNode("div", { class: "dc-section-title" }, "观察设置", -1)),
+                _cache[43] || (_cache[43] = _createElementVNode("div", { class: "dc-section-title" }, "观察设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -697,12 +697,12 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'filter']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_39, [
-                _cache[47] || (_cache[47] = _createElementVNode("div", { class: "dc-section-title" }, "同步想看", -1)),
+                _cache[48] || (_cache[48] = _createElementVNode("div", { class: "dc-section-title" }, "同步想看", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
                       cols: "12",
-                      md: "4"
+                      md: "3"
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
@@ -718,12 +718,28 @@ return (_ctx, _cache) => {
                     }),
                     _createVNode(_component_VCol, {
                       cols: "12",
-                      md: "4"
+                      md: "3"
+                    }, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_VSwitch, {
+                          modelValue: form.wish_onlyonce,
+                          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.wish_onlyonce) = $event)),
+                          color: "warning",
+                          inset: "",
+                          "hide-details": "",
+                          label: "立即运行一次"
+                        }, null, 8, ["modelValue"])
+                      ]),
+                      _: 1
+                    }),
+                    _createVNode(_component_VCol, {
+                      cols: "12",
+                      md: "3"
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VCronField, {
                           modelValue: form.wish_cron,
-                          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.wish_cron) = $event)),
+                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.wish_cron) = $event)),
                           label: "独立同步周期",
                           density: "compact",
                           variant: "outlined",
@@ -734,20 +750,20 @@ return (_ctx, _cache) => {
                     }),
                     _createVNode(_component_VCol, {
                       cols: "12",
-                      md: "4"
+                      md: "3"
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: form.wish_max_pages,
-                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.wish_max_pages) = $event)),
+                          modelValue: form.wish_days,
+                          "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.wish_days) = $event)),
                           modelModifiers: { number: true },
-                          label: "扫描页数",
+                          label: "最近天数",
                           type: "number",
-                          min: "1",
+                          min: "0",
                           density: "compact",
                           variant: "outlined",
                           "hide-details": "",
-                          hint: "默认 1",
+                          hint: "默认 7 天",
                           "persistent-hint": ""
                         }, null, 8, ["modelValue"])
                       ]),
@@ -765,12 +781,12 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.wish_user,
-                          "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.wish_user) = $event)),
-                          label: "豆瓣用户 ID（可选）",
+                          "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((form.wish_user) = $event)),
+                          label: "豆瓣用户 ID",
                           density: "compact",
                           variant: "outlined",
                           "hide-details": "",
-                          hint: "留空时使用当前 Cookie 账号",
+                          hint: "读取该用户的动态 feed，仅处理「想看」条目",
                           "persistent-hint": ""
                         }, null, 8, ["modelValue"])
                       ]),
@@ -783,7 +799,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.wish_notify,
-                          "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((form.wish_notify) = $event)),
+                          "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((form.wish_notify) = $event)),
                           color: "info",
                           inset: "",
                           "hide-details": "",
@@ -800,23 +816,23 @@ return (_ctx, _cache) => {
                   type: "info",
                   variant: "tonal",
                   density: "compact",
-                  text: "首次启用只建立基线，不会订阅历史想看；后续周期只处理新增条目。"
+                  text: "通过豆瓣动态 feed 同步，首次只建立最近天数内的基线；后续周期只处理最近天数内新增的想看。"
                 }),
                 _createElementVNode("div", _hoisted_40, [
                   _createElementVNode("div", _hoisted_41, [
-                    _cache[43] || (_cache[43] = _createElementVNode("span", null, "队列待处理", -1)),
+                    _cache[44] || (_cache[44] = _createElementVNode("span", null, "队列待处理", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.queue || 0), 1)
                   ]),
                   _createElementVNode("div", _hoisted_42, [
-                    _cache[44] || (_cache[44] = _createElementVNode("span", null, "失败记录", -1)),
+                    _cache[45] || (_cache[45] = _createElementVNode("span", null, "失败记录", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.failed || 0), 1)
                   ]),
                   _createElementVNode("div", _hoisted_43, [
-                    _cache[45] || (_cache[45] = _createElementVNode("span", null, "最近运行", -1)),
+                    _cache[46] || (_cache[46] = _createElementVNode("span", null, "最近运行", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.last_run || '尚未运行'), 1)
                   ]),
                   _createElementVNode("div", _hoisted_44, [
-                    _cache[46] || (_cache[46] = _createElementVNode("span", null, "状态错误", -1)),
+                    _cache[47] || (_cache[47] = _createElementVNode("span", null, "状态错误", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.last_error || '无'), 1)
                   ])
                 ])
@@ -824,7 +840,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'wish']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_45, [
-                _cache[48] || (_cache[48] = _createElementVNode("div", { class: "dc-section-title" }, "同步观影", -1)),
+                _cache[49] || (_cache[49] = _createElementVNode("div", { class: "dc-section-title" }, "同步观影", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -834,7 +850,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.folio_enabled,
-                          "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((form.folio_enabled) = $event)),
+                          "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((form.folio_enabled) = $event)),
                           color: "success",
                           inset: "",
                           "hide-details": "",
@@ -850,7 +866,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.folio_private,
-                          "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((form.folio_private) = $event)),
+                          "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((form.folio_private) = $event)),
                           color: "info",
                           inset: "",
                           "hide-details": "",
@@ -866,7 +882,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.folio_first,
-                          "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((form.folio_first) = $event)),
+                          "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((form.folio_first) = $event)),
                           color: "info",
                           inset: "",
                           "hide-details": "",
@@ -887,7 +903,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.folio_notify,
-                          "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((form.folio_notify) = $event)),
+                          "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((form.folio_notify) = $event)),
                           color: "info",
                           inset: "",
                           "hide-details": "",
@@ -908,7 +924,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.folio_user,
-                          "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((form.folio_user) = $event)),
+                          "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((form.folio_user) = $event)),
                           label: "媒体库用户名（多个以 , 分隔）",
                           density: "compact",
                           variant: "outlined",
@@ -924,7 +940,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.folio_exclude,
-                          "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((form.folio_exclude) = $event)),
+                          "onUpdate:modelValue": _cache[18] || (_cache[18] = $event => ((form.folio_exclude) = $event)),
                           label: "路径排除关键词（多个以 , 分隔）",
                           density: "compact",
                           variant: "outlined",
@@ -942,7 +958,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.folio_cookie,
-                          "onUpdate:modelValue": _cache[18] || (_cache[18] = $event => ((form.folio_cookie) = $event)),
+                          "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((form.folio_cookie) = $event)),
                           label: "豆瓣 Cookie（留空从 CookieCloud 获取）",
                           density: "compact",
                           variant: "outlined",
@@ -958,7 +974,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'sync']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_46, [
-                _cache[49] || (_cache[49] = _createElementVNode("div", { class: "dc-section-title" }, "仪表盘选择", -1)),
+                _cache[50] || (_cache[50] = _createElementVNode("div", { class: "dc-section-title" }, "仪表盘选择", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
                   variant: "tonal",
@@ -975,7 +991,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSelect, {
                           modelValue: form.dashboard_rank_keys,
-                          "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((form.dashboard_rank_keys) = $event)),
+                          "onUpdate:modelValue": _cache[20] || (_cache[20] = $event => ((form.dashboard_rank_keys) = $event)),
                           label: "选择要显示的榜单",
                           items: rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key })),
                           multiple: "",
@@ -991,7 +1007,7 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                _cache[50] || (_cache[50] = _createElementVNode("div", { class: "dc-section-title mt-4" }, "豆瓣时间线显示设置", -1)),
+                _cache[51] || (_cache[51] = _createElementVNode("div", { class: "dc-section-title mt-4" }, "豆瓣时间线显示设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1001,7 +1017,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.folio_pc_month,
-                          "onUpdate:modelValue": _cache[20] || (_cache[20] = $event => ((form.folio_pc_month) = $event)),
+                          "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((form.folio_pc_month) = $event)),
                           label: "大屏显示月份数",
                           type: "number",
                           density: "compact",
@@ -1020,7 +1036,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.folio_pc_num,
-                          "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((form.folio_pc_num) = $event)),
+                          "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((form.folio_pc_num) = $event)),
                           label: "大屏每月最多显示数",
                           type: "number",
                           density: "compact",
@@ -1044,7 +1060,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.folio_mobile_month,
-                          "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((form.folio_mobile_month) = $event)),
+                          "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((form.folio_mobile_month) = $event)),
                           label: "小屏显示月份数",
                           type: "number",
                           density: "compact",
@@ -1063,7 +1079,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.folio_mobile_num,
-                          "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((form.folio_mobile_num) = $event)),
+                          "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((form.folio_mobile_num) = $event)),
                           label: "小屏每月最多显示数",
                           type: "number",
                           density: "compact",
@@ -1091,9 +1107,9 @@ return (_ctx, _cache) => {
             _createVNode(_component_VBtn, {
               variant: "text",
               class: "dc-action-btn",
-              onClick: _cache[24] || (_cache[24] = $event => (emit('close')))
+              onClick: _cache[25] || (_cache[25] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[51] || (_cache[51] = [
+              default: _withCtx(() => [...(_cache[52] || (_cache[52] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -1105,7 +1121,7 @@ return (_ctx, _cache) => {
               class: "dc-action-btn dc-action-btn--save",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[52] || (_cache[52] = [
+              default: _withCtx(() => [...(_cache[53] || (_cache[53] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -1121,6 +1137,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ffc9fcb3"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d657b006"]]);
 
 export { Config as default };

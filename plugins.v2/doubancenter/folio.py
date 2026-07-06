@@ -55,6 +55,7 @@ def run_wish_sync(self, api=None, request_get=None) -> None:
         items = dh.get_wish_items(
             user_id=getattr(self, "_wish_user", "") or "",
             max_pages=max(1, int(getattr(self, "_wish_max_pages", 1) or 1)),
+            days=max(0, int(getattr(self, "_wish_days", 7) or 7)),
             request_get=request_get,
         ) or []
     except Exception as err:

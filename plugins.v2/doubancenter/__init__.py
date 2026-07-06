@@ -65,7 +65,9 @@ class DoubanCenter(_PluginBase):
     _wish_cron = DEFAULT_WISH_CRON
     _wish_user = ""
     _wish_notify = False
+    _wish_onlyonce = False
     _wish_max_pages = 1
+    _wish_days = 7
     _dashboard_rank_keys: List[str] = []
     _blacklist_keywords: str = ""
     _observe_days: int = 0
@@ -111,14 +113,16 @@ class DoubanCenter(_PluginBase):
         self._wish_cron = config.get("wish_cron") or DEFAULT_WISH_CRON
         self._wish_user = config.get("wish_user", "")
         self._wish_notify = bool(config.get("wish_notify", False))
+        self._wish_onlyonce = bool(config.get("wish_onlyonce", False))
         self._wish_max_pages = max(1, int(config.get("wish_max_pages", 1) or 1))
+        self._wish_days = max(0, int(config.get("wish_days", 7) or 7))
         self._dashboard_rank_keys = config.get("dashboard_rank_keys") or []
         self._blacklist_keywords = config.get("blacklist_keywords") or ""
         self._observe_days = int(config.get("observe_days", 0) or 0)
         self._observe_rank_keys = config.get("observe_rank_keys") if "observe_rank_keys" in config else feed.default_observe_rank_keys()
         if not isinstance(self._observe_rank_keys, list):
             self._observe_rank_keys = []
-        if set(config) - set(self.__current_config()):
+        if config and set(config) != set(self.__current_config()):
             self.__update_config()
         migration.normalize_legacy_subscribe_usernames()
         self.stop_service()
@@ -127,6 +131,10 @@ class DoubanCenter(_PluginBase):
             self.__update_config()
             # 立即运行先刷新 RSS 榜单，再按当前配置执行订阅。
             feed.run_once(self)
+        if self._wish_onlyonce:
+            self._wish_onlyonce = False
+            self.__update_config()
+            folio.run_wish_scheduled(self)
 
     def __run_all(self):
         feed.run_scheduled(self)
@@ -163,7 +171,9 @@ class DoubanCenter(_PluginBase):
             "wish_cron": self._wish_cron,
             "wish_user": self._wish_user,
             "wish_notify": self._wish_notify,
+            "wish_onlyonce": self._wish_onlyonce,
             "wish_max_pages": self._wish_max_pages,
+            "wish_days": self._wish_days,
             "dashboard_rank_keys": self._dashboard_rank_keys,
             "blacklist_keywords": self._blacklist_keywords,
             "observe_days": self._observe_days,

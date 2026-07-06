@@ -1,9 +1,9 @@
-import unittest
-
-from pathlib import Path
+import datetime
 import importlib.util
 import sys
 import types
+import unittest
+from pathlib import Path
 
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
@@ -54,10 +54,14 @@ def load_doubanapi():
 doubanapi = load_doubanapi()
 DoubanApi = doubanapi.DoubanApi
 parse_wish_items = doubanapi.parse_wish_items
+parse_interest_feed_items = doubanapi.parse_interest_feed_items
 
 
 class FakeResponse:
+    """用于替代 RequestUtils 返回值的测试响应。"""
+
     def __init__(self, text: str, status_code: int = 200, url: str = ""):
+        """保存响应文本、状态码和 URL。"""
         self.text = text
         self.status_code = status_code
         self.url = url
@@ -65,6 +69,7 @@ class FakeResponse:
 
 class DoubanWishApiTest(unittest.TestCase):
     def test_parse_wish_items_extracts_subject_fields(self):
+        """保留旧 HTML 解析单元能力，但同步主路径不再使用它。"""
         html = """
         <div class="grid-view">
           <div class="item">
@@ -100,49 +105,101 @@ class DoubanWishApiTest(unittest.TestCase):
             ],
         )
 
-    def test_get_wish_items_uses_first_page_by_default(self):
+    def test_parse_interest_feed_items_keeps_recent_wish_only(self):
+        """feed 解析只保留最近天数内的想看条目。"""
+        feed = """
+        <rss><channel>
+          <item>
+            <title><![CDATA[想看小城日常]]></title>
+            <link>https://movie.douban.com/subject/37054059/</link>
+            <pubDate>Mon, 06 Jul 2026 01:00:00 GMT</pubDate>
+          </item>
+          <item>
+            <title><![CDATA[在看重症外伤中心]]></title>
+            <link>https://movie.douban.com/subject/36098554/</link>
+            <pubDate>Mon, 06 Jul 2026 02:00:00 GMT</pubDate>
+          </item>
+          <item>
+            <title><![CDATA[想看旧电影]]></title>
+            <link>https://movie.douban.com/subject/1111111/</link>
+            <pubDate>Mon, 29 Jun 2026 01:00:00 GMT</pubDate>
+          </item>
+        </channel></rss>
+        """
+
+        items = parse_interest_feed_items(
+            feed,
+            days=3,
+            now=datetime.datetime(2026, 7, 6, 12, 0, tzinfo=datetime.timezone.utc),
+        )
+
+        self.assertEqual(
+            items,
+            [
+                {
+                    "subject_id": "37054059",
+                    "title": "小城日常",
+                    "year": "",
+                    "link": "https://movie.douban.com/subject/37054059/",
+                    "poster": "",
+                    "wish_time": "2026-07-06 01:00:00",
+                }
+            ],
+        )
+
+    def test_get_wish_items_uses_interest_feed_with_days(self):
+        """想看同步读取豆瓣动态 feed，并按最近天数过滤。"""
         requested_urls = []
-        html = """
-        <div class="item">
-          <a href="https://movie.douban.com/subject/7654321/">测试剧集</a>
-          <span class="date">2026-07-05</span>
-        </div>
+        feed = """
+        <rss><channel>
+          <item>
+            <title>想看小城日常</title>
+            <link>https://movie.douban.com/subject/37054059/</link>
+            <pubDate>Mon, 06 Jul 2026 01:00:00 GMT</pubDate>
+          </item>
+        </channel></rss>
         """
         api = object.__new__(DoubanApi)
         api.headers = {"User-Agent": "test"}
 
         def fake_get(url):
             requested_urls.append(url)
-            return FakeResponse(html, url=url)
+            return FakeResponse(feed, url=url)
 
-        items = api.get_wish_items(user_id="tester", request_get=fake_get)
+        items = api.get_wish_items(
+            user_id="tester",
+            days=7,
+            request_get=fake_get,
+            now=datetime.datetime(2026, 7, 6, 12, 0, tzinfo=datetime.timezone.utc),
+        )
 
         self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["subject_id"], "7654321")
-        self.assertEqual(requested_urls, ["https://movie.douban.com/people/tester/wish?start=0&sort=time&mode=list"])
+        self.assertEqual(items[0]["subject_id"], "37054059")
+        self.assertEqual(requested_urls, ["https://www.douban.com/feed/people/tester/interests"])
 
-    def test_get_wish_items_uses_cookie_current_account_headers(self):
-        requested_urls = []
-        html = """
-        <div class="item">
-          <a href="https://movie.douban.com/subject/1357246/">Cookie user wish</a>
-        </div>
-        """
+    def test_get_wish_items_requires_user_id_for_feed(self):
+        """feed-only 模式必须显式配置豆瓣用户 ID。"""
         api = object.__new__(DoubanApi)
-        api.cookies = {"dbcl2": "user-token", "ck": "cookie-token"}
         api.headers = {"User-Agent": "test"}
 
-        def fake_get(url):
-            requested_urls.append(url)
-            return FakeResponse(html, url=url)
+        with self.assertRaises(ValueError):
+            api.get_wish_items(request_get=lambda url: FakeResponse(""))
 
-        items = api.get_wish_items(request_get=fake_get)
+    def test_get_wish_items_raises_when_feed_has_no_response(self):
+        """feed 请求无响应时抛错，避免把同步失败伪装成空结果。"""
+        api = object.__new__(DoubanApi)
+        api.headers = {"User-Agent": "test"}
 
-        self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["subject_id"], "1357246")
-        self.assertEqual(requested_urls, ["https://movie.douban.com/mine?status=wish&start=0&sort=time&mode=list"])
-        self.assertEqual(api.headers["Host"], "movie.douban.com")
-        self.assertEqual(api.headers["Cookie"], "dbcl2=user-token;ck=cookie-token")
+        with self.assertRaisesRegex(RuntimeError, "无响应"):
+            api.get_wish_items(user_id="tester", request_get=lambda url: None)
+
+    def test_get_wish_items_raises_when_feed_status_is_not_ok(self):
+        """feed 请求返回非 200 时抛错并暴露状态码。"""
+        api = object.__new__(DoubanApi)
+        api.headers = {"User-Agent": "test"}
+
+        with self.assertRaisesRegex(RuntimeError, "HTTP 403"):
+            api.get_wish_items(user_id="tester", request_get=lambda url: FakeResponse("forbidden", status_code=403))
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ class _MemoryPlugin:
         self.data = data or {}
         self._wish_user = ""
         self._wish_max_pages = 1
+        self._wish_days = 7
         self._wish_notify = False
 
     def get_data(self, key, **kwargs):
@@ -35,9 +36,9 @@ class _FakeApi:
         self._items = items
         self.calls = []
 
-    def get_wish_items(self, user_id="", max_pages=1, request_get=None):
+    def get_wish_items(self, user_id="", max_pages=1, days=7, request_get=None):
         """返回预置的想看条目并记录调用参数。"""
-        self.calls.append({"user_id": user_id, "max_pages": max_pages})
+        self.calls.append({"user_id": user_id, "max_pages": max_pages, "days": days})
         return list(self._items)
 
 
@@ -170,16 +171,17 @@ class FolioWishSyncTest(unittest.TestCase):
         self.assertEqual([r["subject_id"] for r in queue], ["2"])
         self.assertEqual(seen_ids, {"1", "2"})
 
-    def test_default_scan_requests_single_page_with_user(self):
-        """默认扫描只请求一页，并带上配置的想看用户。"""
+    def test_default_sync_passes_user_and_recent_days(self):
+        """默认同步带上配置的想看用户和最近天数。"""
         plugin = _MemoryPlugin()
         plugin._wish_user = "tester"
+        plugin._wish_days = 3
         api = _FakeApi([_item("1", "甲")])
 
         folio.run_wish_sync(plugin, api=api)
 
         self.assertEqual(len(api.calls), 1)
-        self.assertEqual(api.calls[0]["max_pages"], 1)
+        self.assertEqual(api.calls[0]["days"], 3)
         self.assertEqual(api.calls[0]["user_id"], "tester")
 
     def test_scheduled_entry_invokes_sync(self):
@@ -274,13 +276,15 @@ class FolioWishErrorStateTest(unittest.TestCase):
         plugin.data["folio_wish_queue"] = [{"subject_id": "9", "title": "\u65e7"}]
 
         class _CookieApi:
-            def get_wish_items(self, user_id="", max_pages=1, request_get=None):
+            def get_wish_items(self, user_id="", max_pages=1, days=7, request_get=None):
                 raise RuntimeError("cookie invalid")
 
         folio.run_wish_sync(plugin, api=_CookieApi())
 
         state = plugin.data.get("folio_wish_state") or {}
         self.assertTrue(state.get("last_error"))
+        self.assertIn("读取想看失败", state.get("last_error"))
+        self.assertIn("cookie invalid", state.get("last_error"))
         self.assertEqual(plugin.data.get("folio_wish_queue"), [{"subject_id": "9", "title": "\u65e7"}])
         self.assertEqual(plugin.data.get("folio_wish_seen"), [{"subject_id": "1", "title": "\u7532"}])
 

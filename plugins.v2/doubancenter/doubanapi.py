@@ -1,10 +1,13 @@
 """
 DoubanCenter - Douban API
 """
+import datetime
 import re
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Tuple
 from urllib.parse import unquote, urljoin
+from xml.etree import ElementTree
 
 import requests
 from bs4 import BeautifulSoup
@@ -109,6 +112,64 @@ def parse_wish_items(html: str) -> list:
     return parser.items
 
 
+def _xml_text(item, name: str) -> str:
+    """读取 RSS 条目中的指定文本字段。"""
+    element = item.find(name)
+    return (element.text or "").strip() if element is not None else ""
+
+
+def _parse_feed_datetime(value: str = ""):
+    """解析豆瓣 feed 的发布时间并统一为 UTC 时间。"""
+    if not value:
+        return None
+    try:
+        parsed = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.astimezone(datetime.timezone.utc)
+
+
+def parse_interest_feed_items(feed: str, days: int = 7, now: datetime.datetime = None) -> list:
+    """解析豆瓣动态 feed，仅返回最近指定天数内的想看条目。"""
+    try:
+        root = ElementTree.fromstring(feed or "")
+    except ElementTree.ParseError:
+        return []
+    try:
+        normalized_days = max(0, int(days or 0))
+    except (TypeError, ValueError):
+        normalized_days = 7
+    now_dt = now or datetime.datetime.now(datetime.timezone.utc)
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=datetime.timezone.utc)
+    now_dt = now_dt.astimezone(datetime.timezone.utc)
+
+    items = []
+    for item in root.findall(".//item"):
+        raw_title = _xml_text(item, "title")
+        if not raw_title.startswith("想看"):
+            continue
+        pubdate = _parse_feed_datetime(_xml_text(item, "pubDate"))
+        if pubdate and (now_dt - pubdate).days > normalized_days:
+            continue
+        link = _xml_text(item, "link")
+        subject_id = _extract_subject_id(link)
+        title = raw_title[2:].strip()
+        if not subject_id or not title:
+            continue
+        items.append({
+            "subject_id": subject_id,
+            "title": title,
+            "year": "",
+            "link": link,
+            "poster": "",
+            "wish_time": pubdate.strftime("%Y-%m-%d %H:%M:%S") if pubdate else "",
+        })
+    return items
+
+
 class DoubanApi:
     """封装豆瓣搜索与观看状态写入接口。"""
 
@@ -184,25 +245,29 @@ class DoubanApi:
             "Cookie": ";".join([f"{k}={v}" for k, v in getattr(self, "cookies", {}).items()])
         })
 
-    def get_wish_items(self, user_id: str = "", max_pages: int = 1, request_get=None) -> list:
-        """读取当前豆瓣账号的想看条目列表。"""
-        pages = max(1, int(max_pages or 1))
-        items = []
-        self._prepare_movie_headers()
+    def _prepare_feed_headers(self) -> None:
+        """为豆瓣动态 feed 请求准备 Cookie 与 Host 头。"""
+        self.headers.pop("HOST", None)
+        self.headers.update({
+            "Host": "www.douban.com",
+            "Cookie": ";".join([f"{k}={v}" for k, v in getattr(self, "cookies", {}).items()])
+        })
+
+    def get_wish_items(self, user_id: str = "", max_pages: int = 1, days: int = 7, request_get=None, now=None) -> list:
+        """从豆瓣动态 feed 读取最近指定天数内的想看条目。"""
+        if not user_id:
+            raise ValueError("缺少豆瓣用户 ID")
+        self._prepare_feed_headers()
         getter = request_get
         if getter is None:
             getter = lambda url: RequestUtils(headers=self.headers).get_res(url)
-        for page in range(pages):
-            start = page * 15
-            if user_id:
-                url = f"https://movie.douban.com/people/{user_id}/wish?start={start}&sort=time&mode=list"
-            else:
-                url = f"https://movie.douban.com/mine?status=wish&start={start}&sort=time&mode=list"
-            response = getter(url)
-            if not response or getattr(response, "status_code", 0) != 200:
-                continue
-            items.extend(parse_wish_items(getattr(response, "text", "") or ""))
-        return items
+        response = getter(f"https://www.douban.com/feed/people/{user_id}/interests")
+        if not response:
+            raise RuntimeError("读取豆瓣想看 feed 失败：无响应")
+        status_code = getattr(response, "status_code", 0)
+        if status_code != 200:
+            raise RuntimeError(f"读取豆瓣想看 feed 失败：HTTP {status_code}")
+        return parse_interest_feed_items(getattr(response, "text", "") or "", days=days, now=now)
 
     def set_watching_status(self, subject_id: str, status: str = "do", private: bool = True) -> bool:
         """设置豆瓣条目的观看状态。"""

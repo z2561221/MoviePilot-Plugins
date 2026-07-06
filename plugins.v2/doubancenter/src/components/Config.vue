@@ -29,7 +29,7 @@ const defaults = {
   folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false,
   folio_user: '', folio_exclude: '', folio_cookie: '',
   folio_pc_month: 3, folio_pc_num: 50, folio_mobile_month: 2, folio_mobile_num: 15,
-  wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_max_pages: 1,
+  wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_onlyonce: false, wish_max_pages: 1, wish_days: 7,
   dashboard_rank_keys: [],
   blacklist_keywords: '',
   observe_days: 0,
@@ -267,15 +267,16 @@ onMounted(loadOverview)
             <div v-show="activeSub === 'wish'" class="dc-pane">
               <div class="dc-section-title">同步想看</div>
               <VRow>
-                <VCol cols="12" md="4"><VSwitch v-model="form.wish_enabled" color="success" inset hide-details label="启用想看同步" /></VCol>
-                <VCol cols="12" md="4"><VCronField v-model="form.wish_cron" label="独立同步周期" density="compact" variant="outlined" hide-details /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.wish_max_pages" label="扫描页数" type="number" min="1" density="compact" variant="outlined" hide-details hint="默认 1" persistent-hint /></VCol>
+                <VCol cols="12" md="3"><VSwitch v-model="form.wish_enabled" color="success" inset hide-details label="启用想看同步" /></VCol>
+                <VCol cols="12" md="3"><VSwitch v-model="form.wish_onlyonce" color="warning" inset hide-details label="立即运行一次" /></VCol>
+                <VCol cols="12" md="3"><VCronField v-model="form.wish_cron" label="独立同步周期" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" md="3"><VTextField v-model.number="form.wish_days" label="最近天数" type="number" min="0" density="compact" variant="outlined" hide-details hint="默认 7 天" persistent-hint /></VCol>
               </VRow>
               <VRow class="mt-2">
-                <VCol cols="12" md="8"><VTextField v-model="form.wish_user" label="豆瓣用户 ID（可选）" density="compact" variant="outlined" hide-details hint="留空时使用当前 Cookie 账号" persistent-hint /></VCol>
+                <VCol cols="12" md="8"><VTextField v-model="form.wish_user" label="豆瓣用户 ID" density="compact" variant="outlined" hide-details hint="读取该用户的动态 feed，仅处理「想看」条目" persistent-hint /></VCol>
                 <VCol cols="12" md="4"><VSwitch v-model="form.wish_notify" color="info" inset hide-details label="发送通知" /></VCol>
               </VRow>
-              <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="首次启用只建立基线，不会订阅历史想看；后续周期只处理新增条目。" />
+              <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="通过豆瓣动态 feed 同步，首次只建立最近天数内的基线；后续周期只处理最近天数内新增的想看。" />
               <div class="dc-wish-status mt-3">
                 <div class="dc-kv"><span>队列待处理</span><strong>{{ overview?.cards?.folio?.wish?.queue || 0 }}</strong></div>
                 <div class="dc-kv"><span>失败记录</span><strong>{{ overview?.cards?.folio?.wish?.failed || 0 }}</strong></div>

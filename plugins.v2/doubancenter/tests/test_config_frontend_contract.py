@@ -142,7 +142,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("wish_cron: '*/30 * * * *'", text)
         self.assertIn("wish_user: ''", text)
         self.assertIn("wish_notify: false", text)
-        self.assertIn("wish_max_pages: 1", text)
+        self.assertIn("wish_onlyonce: false", text)
+        self.assertIn("wish_days: 7", text)
         self.assertIn("title: '同步想看'", text)
         self.assertIn("title: '同步观影'", text)
         self.assertLess(text.index("title: '同步想看'"), text.index("title: '同步观影'"))
@@ -153,9 +154,11 @@ class ConfigFrontendContractTest(unittest.TestCase):
             'v-model="form.wish_cron"',
             'v-model="form.wish_user"',
             'v-model="form.wish_notify"',
-            'v-model.number="form.wish_max_pages"',
+            'v-model="form.wish_onlyonce"',
+            'v-model.number="form.wish_days"',
+            "立即运行一次",
             "overview?.cards?.folio?.wish",
-            "首次启用只建立基线",
+            "通过豆瓣动态 feed 同步",
         ]
         for fragment in required_controls:
             self.assertIn(fragment, text)
