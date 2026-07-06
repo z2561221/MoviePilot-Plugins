@@ -70,7 +70,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
         )
         self.assertIn("@media (max-width: 760px)", text)
         self.assertIn(".dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }", text)
-        self.assertIn(".dc-rank-card-body { grid-template-columns: repeat(2, minmax(142px, auto)); }", text)
+        self.assertIn(".dc-rank-card-body { grid-template-columns: 1fr; }", text)
 
         compact_css = _compact_css(_active_css_text("./Config"))
         self.assertIn("gap:4px", compact_css)
@@ -78,7 +78,49 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("border-radius:8px;padding:5px10px", compact_css)
         self.assertIn("grid-template-columns:repeat(auto-fit,minmax(142px,auto))", compact_css)
         self.assertIn("@media(max-width:760px)", compact_css)
-        self.assertIn("grid-template-columns:repeat(2,minmax(142px,auto))", compact_css)
+        self.assertIn("grid-template-columns:1fr", compact_css)
+
+    def test_config_normalizes_legacy_null_nested_config(self):
+        """旧配置中的空嵌套对象不应导致 Vue 设置页白屏。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            "function normalizeInitialConfig",
+            "m.rank_configs && typeof m.rank_configs === 'object' && !Array.isArray(m.rank_configs)",
+            "m.rank_configs = {}",
+            "form.rank_configs[rd.key]",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
+
+    def test_mobile_config_dialog_uses_host_fullscreen_bounds(self):
+        """移动端设置页应吃满宿主 fullscreen 弹窗，避免双层 100vw/100dvh 计算撑裂。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            ".dc-config { width: 100%; height: 100%; padding: 0; }",
+            ".dc-card { height: 100vh; height: 100dvh; max-height: 100dvh; border-radius: 0; border: none; }",
+            ".dc-rank-card-body { grid-template-columns: 1fr; }",
+            ".dc-rank-field { grid-template-columns: 42px minmax(0, 1fr); }",
+            ".dc-rank-input { width: 100%; max-width: none; }",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
+
+        compact_css = _compact_css(_active_css_text("./Config"))
+        required_css_fragments = [
+            ".dc-config[data-v-",
+            "width:100%;height:100%;padding:0",
+            "height:100dvh;max-height:100dvh;border-radius:0;border:none",
+            ".dc-rank-card-body[data-v-",
+            "grid-template-columns:1fr",
+            ".dc-rank-field[data-v-",
+            "grid-template-columns:42pxminmax(0,1fr)",
+            ".dc-rank-input[data-v-",
+            "width:100%;max-width:none",
+        ]
+        for fragment in required_css_fragments:
+            self.assertIn(fragment, compact_css)
 
     def test_dist_assets_do_not_keep_unreachable_old_chunks(self):
         stale_assets = [
