@@ -163,11 +163,13 @@ class ConfigFrontendContractTest(unittest.TestCase):
         for fragment in required_controls:
             self.assertIn(fragment, text)
 
-    def test_overview_flow_labels_use_wish_sync_contract(self):
-        """运行链路使用统一的同步想看文案。"""
+    def test_overview_flow_labels_use_grouped_contract(self):
+        """运行链路使用榜单、豆瓣时间、公共归档三组结构。"""
         text = OVERVIEW_SERVICE.read_text(encoding="utf-8")
 
         required_labels = [
+            "榜单订阅",
+            "豆瓣时间",
             "同步想看",
             "周期触发",
             "读取想看",
@@ -179,9 +181,27 @@ class ConfigFrontendContractTest(unittest.TestCase):
             "条目识别",
             "豆瓣同步",
             "写入时间",
+            "公共归档",
+            "条目删除",
+            "归档入库",
+            "手动恢复",
+            "记录清理",
         ]
         for label in required_labels:
             self.assertIn(label, text)
+
+    def test_overview_flow_frontend_supports_nested_flows(self):
+        """运行链路前端支持豆瓣时间下的子链路渲染。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            "flow.flows",
+            "subFlow in flow.flows",
+            "dc-flow-sub",
+            "subFlow.steps",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
 
     def test_overview_and_rank_header_visual_contract(self):
         config_text = CONFIG_VUE.read_text(encoding="utf-8")

@@ -170,11 +170,22 @@ onMounted(loadOverview)
                 <div class="dc-flow">
                   <div v-for="flow in (overview?.flows || [])" :key="flow.label" class="dc-flow-block">
                     <div class="dc-flow-label">{{ flow.label }}</div>
-                    <div class="dc-flow-row">
+                    <div v-if="flow.steps?.length" class="dc-flow-row">
                       <template v-for="(step, idx) in flow.steps" :key="`${flow.label}-${step}`">
                         <span>{{ step }}</span>
                         <VIcon v-if="idx < flow.steps.length - 1" icon="mdi-arrow-right" size="15" />
                       </template>
+                    </div>
+                    <div v-else-if="flow.flows?.length" class="dc-flow-sub">
+                      <div v-for="subFlow in flow.flows" :key="`${flow.label}-${subFlow.label}`" class="dc-flow-sub-block">
+                        <div class="dc-flow-sub-label">{{ subFlow.label }}</div>
+                        <div class="dc-flow-row dc-flow-row--sub">
+                          <template v-for="(step, idx) in subFlow.steps" :key="`${subFlow.label}-${step}`">
+                            <span>{{ step }}</span>
+                            <VIcon v-if="idx < subFlow.steps.length - 1" icon="mdi-arrow-right" size="15" />
+                          </template>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -342,7 +353,11 @@ onMounted(loadOverview)
 .dc-flow { display: grid; gap: 10px; }
 .dc-flow-block { min-width: 0; }
 .dc-flow-label { font-size: 12px; font-weight: 600; color: rgb(var(--v-theme-primary)); margin-bottom: 5px; }
+.dc-flow-sub { display: grid; gap: 6px; }
+.dc-flow-sub-block { min-width: 0; padding-left: 8px; border-left: 2px solid rgba(var(--v-theme-primary), .25); }
+.dc-flow-sub-label { font-size: 12px; font-weight: 600; color: rgba(var(--v-theme-on-surface), .7); margin-bottom: 4px; }
 .dc-flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: rgba(var(--v-theme-on-surface), .78); }
+.dc-flow-row--sub { color: rgba(var(--v-theme-on-surface), .72); }
 .dc-flow-row span { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), .02); }
 .dc-kv { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .dc-kv:last-child { border-bottom: none; }
@@ -394,6 +409,8 @@ onMounted(loadOverview)
   .dc-stat-grid, .dc-overview-grid, .dc-flow { gap: 6px; }
   .dc-stat, .dc-overview-section { padding: 8px; }
   .dc-flow-label { margin-bottom: 4px; }
+  .dc-flow-sub { gap: 5px; }
+  .dc-flow-sub-block { padding-left: 6px; }
   .dc-flow-row { gap: 4px; font-size: 12px; }
   .dc-flow-row span { padding: 4px 7px; }
   .dc-kv { padding: 5px 0; font-size: 12px; }

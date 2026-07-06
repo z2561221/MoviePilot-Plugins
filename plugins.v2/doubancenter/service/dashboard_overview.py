@@ -9,13 +9,18 @@ from . import observation as observation_service
 from ..storage import records as storage
 
 
-def overview_flows() -> List[Dict[str, List[str]]]:
+def overview_flows() -> List[Dict[str, Any]]:
     """返回总览页流程说明。"""
     return [
         {"label": "榜单订阅", "steps": ["榜单刷新", "订阅观察", "观察入池", "自动订阅", "记录写入"]},
-        {"label": "归档治理", "steps": ["条目删除", "归档入库", "手动恢复", "记录清理"]},
-        {"label": "同步想看", "steps": ["周期触发", "读取想看", "新增入队", "媒体识别", "创建订阅"]},
-        {"label": "同步观影", "steps": ["媒体事件", "条目识别", "豆瓣同步", "写入时间"]},
+        {
+            "label": "豆瓣时间",
+            "flows": [
+                {"label": "同步想看", "steps": ["周期触发", "读取想看", "新增入队", "媒体识别", "创建订阅"]},
+                {"label": "同步观影", "steps": ["媒体事件", "条目识别", "豆瓣同步", "写入时间"]},
+            ],
+        },
+        {"label": "公共归档", "steps": ["条目删除", "归档入库", "手动恢复", "记录清理"]},
     ]
 
 
