@@ -167,7 +167,19 @@ class ConfigFrontendContractTest(unittest.TestCase):
         """运行链路使用统一的同步想看文案。"""
         text = OVERVIEW_SERVICE.read_text(encoding="utf-8")
 
-        required_labels = ["同步想看", "周期触发", "读取想看", "新增入队", "媒体识别", "创建订阅"]
+        required_labels = [
+            "同步想看",
+            "周期触发",
+            "读取想看",
+            "新增入队",
+            "媒体识别",
+            "创建订阅",
+            "同步观影",
+            "媒体事件",
+            "条目识别",
+            "豆瓣同步",
+            "写入时间",
+        ]
         for label in required_labels:
             self.assertIn(label, text)
 

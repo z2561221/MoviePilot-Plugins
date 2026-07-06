@@ -196,7 +196,7 @@ class DashboardOverviewServiceTest(unittest.TestCase):
         self.assertEqual(result["attention"]["month_new"], 1)
         self.assertEqual(result["governance"]["archive_records"], 1)
         self.assertEqual(result["stats"], stats)
-        self.assertEqual([item["label"] for item in result["flows"]], ["榜单订阅", "归档治理", "豆瓣时间", "同步想看"])
+        self.assertEqual([item["label"] for item in result["flows"]], ["榜单订阅", "归档治理", "同步想看", "同步观影"])
 
     def test_build_overview_reports_wish_status_and_flow(self):
         """运行总览会独立展示同步想看的链路和状态。"""
@@ -223,6 +223,8 @@ class DashboardOverviewServiceTest(unittest.TestCase):
 
         flow = next(item for item in result["flows"] if item["label"] == "同步想看")
         self.assertEqual(flow["steps"], ["周期触发", "读取想看", "新增入队", "媒体识别", "创建订阅"])
+        folio_flow = next(item for item in result["flows"] if item["label"] == "同步观影")
+        self.assertEqual(folio_flow["steps"], ["媒体事件", "条目识别", "豆瓣同步", "写入时间"])
         self.assertEqual(
             result["cards"]["folio"]["wish"],
             {
