@@ -95,14 +95,33 @@ const overviewCards = computed(() => {
   ]
 })
 
+function cloneConfig(value) {
+  return JSON.parse(JSON.stringify(value ?? {}))
+}
+
+function isPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeInitialConfig(value) {
+  const m = Object.assign({}, cloneConfig(defaults), cloneConfig(value))
+  if (!(m.rank_configs && typeof m.rank_configs === 'object' && !Array.isArray(m.rank_configs))) {
+    m.rank_configs = {}
+  }
+  for (const rd of rankDefs) {
+    m.rank_configs[rd.key] = {
+      ...defaults.rank_configs[rd.key],
+      ...(isPlainObject(m.rank_configs[rd.key]) ? m.rank_configs[rd.key] : {}),
+    }
+  }
+  if (!Array.isArray(m.dashboard_rank_keys)) m.dashboard_rank_keys = []
+  if (!Array.isArray(m.observe_rank_keys)) m.observe_rank_keys = [...defaults.observe_rank_keys]
+  return m
+}
+
 watch(() => props.initialConfig, val => {
   Object.keys(form).forEach(k => delete form[k])
-  const m = {}
-  Object.assign(m, defaults, JSON.parse(JSON.stringify(val || {})))
-  for (const rd of rankDefs) {
-    if (!m.rank_configs[rd.key]) m.rank_configs[rd.key] = { ...defaults.rank_configs[rd.key] }
-  }
-  Object.assign(form, m)
+  Object.assign(form, normalizeInitialConfig(val))
 }, { immediate: true, deep: true })
 
 function saveConfig() {
@@ -378,8 +397,8 @@ onMounted(loadOverview)
 .dc-rank-input :deep(.v-field__input) { min-height: 24px; padding-top: 1px; padding-bottom: 1px; font-size: 13px; }
 .dc-actions { padding: 10px 18px; }
 @media (max-width: 760px) {
-  .dc-config { width: min(100%, calc(100vw - 16px)); padding: 2px; }
-  .dc-card { height: min(860px, calc(100dvh - 16px)); }
+  .dc-config { width: 100%; height: 100%; padding: 0; }
+  .dc-card { height: 100vh; height: 100dvh; max-height: 100dvh; border-radius: 0; border: none; }
   .dc-header { padding: 8px 10px; }
   .dc-header-avatar { width: 34px !important; height: 34px !important; }
   .dc-header-title { font-size: 15px; line-height: 1.25; }
@@ -408,7 +427,9 @@ onMounted(loadOverview)
   .dc-flow-row span { padding: 4px 7px; }
   .dc-kv { padding: 5px 0; font-size: 12px; }
   .dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }
-  .dc-rank-card-body { grid-template-columns: repeat(2, minmax(142px, auto)); }
+  .dc-rank-card-body { grid-template-columns: 1fr; }
+  .dc-rank-field { grid-template-columns: 42px minmax(0, 1fr); }
+  .dc-rank-input { width: 100%; max-width: none; }
   .dc-actions { min-height: 44px; padding: 6px 10px; gap: 6px; }
   .dc-action-btn { min-height: 32px; font-size: 13px; }
   .dc-window--overview { overflow-y: auto; }

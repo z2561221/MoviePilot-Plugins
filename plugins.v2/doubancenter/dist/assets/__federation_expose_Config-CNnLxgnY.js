@@ -174,14 +174,33 @@ const overviewCards = computed(() => {
   ]
 });
 
+function cloneConfig(value) {
+  return JSON.parse(JSON.stringify(value ?? {}))
+}
+
+function isPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeInitialConfig(value) {
+  const m = Object.assign({}, cloneConfig(defaults), cloneConfig(value));
+  if (!(m.rank_configs && typeof m.rank_configs === 'object' && !Array.isArray(m.rank_configs))) {
+    m.rank_configs = {};
+  }
+  for (const rd of rankDefs) {
+    m.rank_configs[rd.key] = {
+      ...defaults.rank_configs[rd.key],
+      ...(isPlainObject(m.rank_configs[rd.key]) ? m.rank_configs[rd.key] : {}),
+    };
+  }
+  if (!Array.isArray(m.dashboard_rank_keys)) m.dashboard_rank_keys = [];
+  if (!Array.isArray(m.observe_rank_keys)) m.observe_rank_keys = [...defaults.observe_rank_keys];
+  return m
+}
+
 watch(() => props.initialConfig, val => {
   Object.keys(form).forEach(k => delete form[k]);
-  const m = {};
-  Object.assign(m, defaults, JSON.parse(JSON.stringify(val || {})));
-  for (const rd of rankDefs) {
-    if (!m.rank_configs[rd.key]) m.rank_configs[rd.key] = { ...defaults.rank_configs[rd.key] };
-  }
-  Object.assign(form, m);
+  Object.assign(form, normalizeInitialConfig(val));
 }, { immediate: true, deep: true });
 
 function saveConfig() {
@@ -1087,10 +1106,6 @@ return (_ctx, _cache) => {
 }
 
 };
-<<<<<<<< HEAD:plugins.v2/doubancenter/dist/assets/__federation_expose_Config-CzoRJA05.js
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1aa3b67d"]]);
-========
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a33d83d0"]]);
->>>>>>>> origin/main:plugins.v2/doubancenter/dist/assets/__federation_expose_Config-BKE-mddp.js
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-baa54424"]]);
 
 export { Config as default };
