@@ -183,7 +183,7 @@ Commit:
 
 ### 7. Desktop And Mobile UI Evidence
 
-Status: pending
+Status: completed
 
 Acceptance:
 - Browser evidence is recorded for Config, Page, AppPage, and Dashboard at `390x844`, `768x1024`, and `1440x900`.
@@ -196,13 +196,19 @@ Verify:
 - Audit JSON has zero horizontal overflow and zero offscreen buttons for all checked views.
 
 Evidence:
-- 
+- Playwright audit with system Chrome generated 12 screenshots for Config, Page, AppPage, and Dashboard at `390x844`, `768x1024`, and `1440x900`.
+- Evidence directory: `docs/plans/localtoolkit-ui-standard-evidence/`.
+- `audit.json` summary returned `{"count":12,"failures":0,...}`.
+- Audit table showed `overflowX=0`, `offscreen=0`, and `badRects=0` for every checked view.
+- Mobile `390x844` Page/AppPage showed `tableVisible=False` and `mobileHistoryVisible=True`; tablet/desktop showed table visible and mobile history hidden.
+- Mobile Config showed primary nav `display=flex` and `flex-wrap=nowrap`.
 
 Notes:
-- 
+- Screenshots use an English static audit harness backed by the current component CSS to avoid PowerShell stdin Chinese encoding loss; source UI text remains unchanged.
+- Residual risk: this evidence verifies layout CSS and representative rendered structure, not a live MoviePilot runtime session. Runtime install/reload can be performed separately before release.
 
 Commit:
-- 
+- pending hash after browser evidence commit
 
 ## Final Completion Criteria
 
