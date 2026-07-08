@@ -19,6 +19,10 @@ from app.log import logger
 from app.utils.http import RequestUtils
 
 
+class DoubanCookieError(RuntimeError):
+    """豆瓣 Cookie 或登录态异常。"""
+
+
 class _WishListParser(HTMLParser):
     """解析豆瓣想看列表页中的条目字段。"""
 
@@ -112,6 +116,54 @@ def parse_wish_items(html: str) -> list:
     return parser.items
 
 
+def _looks_like_auth_blocked(text: str = "") -> bool:
+    """判断响应正文是否像登录页、验证码或风控页。"""
+    body = text or ""
+    lower = body.lower()
+    markers = (
+        "accounts.douban.com/passport/login",
+        "sec.douban.com",
+        "captcha",
+        "验证码",
+        "登录豆瓣",
+        "异常请求",
+    )
+    return any(marker in lower or marker in body for marker in markers)
+
+
+def _parse_wish_date(value: str = ""):
+    """从豆瓣想看时间文本中解析日期。"""
+    match = re.search(r"((?:19|20)\d{2})[-年./](\d{1,2})[-月./](\d{1,2})", value or "")
+    if not match:
+        return None
+    try:
+        return datetime.date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    except ValueError:
+        return None
+
+
+def _filter_wish_items_by_days(items: list, days: int = 7, now: datetime.datetime = None) -> list:
+    """按最近天数过滤想看条目，无法解析时间的条目保留。"""
+    try:
+        normalized_days = max(0, int(days or 0))
+    except (TypeError, ValueError):
+        normalized_days = 7
+    if normalized_days <= 0:
+        return list(items or [])
+    now_dt = now or datetime.datetime.now()
+    if isinstance(now_dt, datetime.datetime):
+        now_date = now_dt.date()
+    else:
+        now_date = now_dt
+    result = []
+    for item in items or []:
+        wish_date = _parse_wish_date(str(item.get("wish_time") or ""))
+        if wish_date and (now_date - wish_date).days > normalized_days:
+            continue
+        result.append(item)
+    return result
+
+
 def _xml_text(item, name: str) -> str:
     """读取 RSS 条目中的指定文本字段。"""
     element = item.find(name)
@@ -179,7 +231,8 @@ class DoubanApi:
             cookie_dict, msg = self.cookiecloud.download()
             if cookie_dict is None:
                 logger.error(f"获取cookiecloud数据错误 {msg}")
-            self.cookies = cookie_dict.get("douban.com")
+            cookie_dict = cookie_dict or {}
+            self.cookies = cookie_dict.get("douban.com") or ""
         else:
             self.cookies = user_cookie
         self.cookies = {k: v.value for k, v in SimpleCookie(self.cookies).items()}
@@ -205,6 +258,9 @@ class DoubanApi:
         """从豆瓣首页响应中刷新 ck cookie。"""
         self.headers["Cookie"] = ";".join([f"{k}={v}" for k, v in self.cookies.items()])
         response = requests.get("https://www.douban.com/", headers=self.headers)
+        if not response:
+            self.cookies['ck'] = ''
+            return
         ck_str = response.headers.get('Set-Cookie', '')
         if not ck_str:
             self.cookies['ck'] = ''
@@ -253,10 +309,59 @@ class DoubanApi:
             "Cookie": ";".join([f"{k}={v}" for k, v in getattr(self, "cookies", {}).items()])
         })
 
+    def get_cookie_user_id(self) -> str:
+        """从登录 Cookie 中解析豆瓣用户 ID。"""
+        dbcl2 = str(getattr(self, "cookies", {}).get("dbcl2") or "").strip().strip('"')
+        match = re.match(r"(\d+):", dbcl2)
+        return match.group(1) if match else ""
+
+    def _get_wish_items_from_pages(self, user_id: str, max_pages: int = 1, days: int = 7, request_get=None, now=None) -> list:
+        """通过登录 Cookie 读取当前账号的豆瓣想看页。"""
+        self._prepare_movie_headers()
+        getter = request_get
+        if getter is None:
+            getter = lambda url: RequestUtils(headers=self.headers).get_res(url)
+        try:
+            pages = max(1, int(max_pages or 1))
+        except (TypeError, ValueError):
+            pages = 1
+        items = []
+        for page in range(pages):
+            start = page * 15
+            url = (
+                f"https://movie.douban.com/people/{user_id}/wish"
+                f"?start={start}&sort=time&rating=all&filter=all&mode=grid"
+            )
+            response = getter(url)
+            if not response:
+                raise DoubanCookieError("读取豆瓣想看页失败：无响应")
+            status_code = getattr(response, "status_code", 0)
+            if status_code != 200:
+                if status_code in {401, 403}:
+                    raise DoubanCookieError(f"豆瓣 Cookie 失效或触发风控：HTTP {status_code}")
+                raise RuntimeError(f"读取豆瓣想看页失败：HTTP {status_code}")
+            text = getattr(response, "text", "") or ""
+            if _looks_like_auth_blocked(text):
+                raise DoubanCookieError("豆瓣 Cookie 失效或触发登录验证")
+            page_items = parse_wish_items(text)
+            if not page_items:
+                break
+            items.extend(page_items)
+        return _filter_wish_items_by_days(items, days=days, now=now)
+
     def get_wish_items(self, user_id: str = "", max_pages: int = 1, days: int = 7, request_get=None, now=None) -> list:
-        """从豆瓣动态 feed 读取最近指定天数内的想看条目。"""
+        """优先通过登录 Cookie 读取想看页，无法定位账号时回退到用户 feed。"""
+        cookie_user_id = self.get_cookie_user_id()
+        if cookie_user_id:
+            return self._get_wish_items_from_pages(
+                cookie_user_id,
+                max_pages=max_pages,
+                days=days,
+                request_get=request_get,
+                now=now,
+            )
         if not user_id:
-            raise ValueError("缺少豆瓣用户 ID")
+            raise DoubanCookieError("Cookie 缺少 dbcl2，且未配置豆瓣用户 ID")
         self._prepare_feed_headers()
         getter = request_get
         if getter is None:
@@ -266,8 +371,13 @@ class DoubanApi:
             raise RuntimeError("读取豆瓣想看 feed 失败：无响应")
         status_code = getattr(response, "status_code", 0)
         if status_code != 200:
+            if status_code in {401, 403}:
+                raise DoubanCookieError(f"读取豆瓣想看 feed 失败：HTTP {status_code}")
             raise RuntimeError(f"读取豆瓣想看 feed 失败：HTTP {status_code}")
-        return parse_interest_feed_items(getattr(response, "text", "") or "", days=days, now=now)
+        text = getattr(response, "text", "") or ""
+        if _looks_like_auth_blocked(text):
+            raise DoubanCookieError("豆瓣 Cookie 失效或触发登录验证")
+        return parse_interest_feed_items(text, days=days, now=now)
 
     def set_watching_status(self, subject_id: str, status: str = "do", private: bool = True) -> bool:
         """设置豆瓣条目的观看状态。"""

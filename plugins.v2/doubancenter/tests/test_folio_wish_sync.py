@@ -18,6 +18,10 @@ class _MemoryPlugin:
         self._wish_max_pages = 1
         self._wish_days = 7
         self._wish_notify = False
+        self._folio_notify = False
+        self._folio_cookie = ""
+        self.plugin_name = "豆瓣中心"
+        self.messages = []
 
     def get_data(self, key, **kwargs):
         """读取指定存储键。"""
@@ -26,6 +30,10 @@ class _MemoryPlugin:
     def save_data(self, key, value):
         """保存指定存储键。"""
         self.data[key] = value
+
+    def post_message(self, **kwargs):
+        """记录插件通知消息。"""
+        self.messages.append(kwargs)
 
 
 class _FakeApi:
@@ -287,6 +295,49 @@ class FolioWishErrorStateTest(unittest.TestCase):
         self.assertIn("cookie invalid", state.get("last_error"))
         self.assertEqual(plugin.data.get("folio_wish_queue"), [{"subject_id": "9", "title": "\u65e7"}])
         self.assertEqual(plugin.data.get("folio_wish_seen"), [{"subject_id": "1", "title": "\u7532"}])
+
+    def test_cookie_read_failure_uses_wish_notify_with_throttle(self):
+        """想看读取 Cookie 异常时使用同步想看通知并按错误类型节流。"""
+        plugin = _MemoryPlugin()
+        plugin._wish_notify = True
+
+        class _CookieApi:
+            def get_wish_items(self, user_id="", max_pages=1, days=7, request_get=None):
+                raise RuntimeError("豆瓣 Cookie 失效或触发风控：HTTP 403")
+
+        folio.run_wish_sync(plugin, api=_CookieApi())
+        folio.run_wish_sync(plugin, api=_CookieApi())
+
+        self.assertEqual(len(plugin.messages), 1)
+        self.assertEqual(plugin.messages[0]["mtype"], "MediaServer")
+        self.assertIn("豆瓣想看同步失败", plugin.messages[0]["title"])
+        self.assertIn("Cookie", plugin.messages[0]["text"])
+        self.assertNotIn("dbcl2", plugin.messages[0]["text"])
+
+    def test_playback_cookie_check_uses_wish_notify_even_when_folio_notify_off(self):
+        """同步观影 Cookie 检测失败时也走同步想看通知开关。"""
+        plugin = _MemoryPlugin()
+        plugin._wish_notify = True
+        plugin._folio_notify = False
+
+        class _InvalidApi:
+            def __init__(self, user_cookie=""):
+                """接收 Cookie 参数但始终返回无效。"""
+
+            def get_subject_id(self, title=""):
+                """模拟 Cookie 无法完成豆瓣搜索。"""
+                return None, None
+
+        original = folio.DoubanApi
+        folio.DoubanApi = _InvalidApi
+        try:
+            folio.check_cookie_periodically(plugin)
+        finally:
+            folio.DoubanApi = original
+
+        self.assertEqual(len(plugin.messages), 1)
+        self.assertIn("豆瓣想看同步失败", plugin.messages[0]["title"])
+        self.assertIn("Cookie", plugin.messages[0]["text"])
 
     def test_subscription_failure_records_wish_failed_state(self):
         """\u8ba2\u9605\u5931\u8d25\u65f6\u5199\u5165\u60f3\u770b\u5931\u8d25\u72b6\u6001\u4e14\u4e0d\u91cd\u590d\u91cd\u8bd5\u3002"""

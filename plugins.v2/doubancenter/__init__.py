@@ -1,5 +1,5 @@
 ﻿"""
- DoubanCenter v1.2.14 - MoviePilot 本地插件
+DoubanCenter v1.2.15 - MoviePilot 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
 import threading
@@ -32,7 +32,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "1.2.14"
+    plugin_version = "1.2.15"
     plugin_author = "牧濑红莉栖"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"

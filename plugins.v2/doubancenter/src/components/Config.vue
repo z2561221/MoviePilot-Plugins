@@ -397,23 +397,18 @@ onMounted(loadOverview)
 .dc-rank-input :deep(.v-field__input) { min-height: 24px; padding-top: 1px; padding-bottom: 1px; font-size: 13px; }
 .dc-actions { padding: 10px 18px; }
 @media (max-width: 760px) {
-  .dc-config { width: 100%; height: 100%; padding: 0; }
-  .dc-card { height: 100vh; height: 100dvh; max-height: 100dvh; border-radius: 0; border: none; }
-  .dc-header { padding: 8px 10px; }
-  .dc-header-avatar { width: 34px !important; height: 34px !important; }
-  .dc-header-title { font-size: 15px; line-height: 1.25; }
+  .dc-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
+  .dc-card { height: min(860px, calc(100dvh - 16px)); }
   .dc-header-subtitle { max-width: 100%; }
-  .dc-enable-switch { flex: 0 0 46px; width: 46px; min-width: 46px; overflow: hidden; }
   .dc-body { flex-direction: column; }
   .dc-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .dc-nav::-webkit-scrollbar { display: none; }
-  .dc-nav-list { display: flex; flex-wrap: nowrap; gap: 4px; min-width: max-content; padding: 5px 8px !important; }
-  .dc-nav-item { flex: 0 0 auto; min-width: 86px; min-height: 34px !important; margin: 0; padding-inline: 8px; }
-  .dc-nav-title { font-size: 12px; white-space: nowrap; }
-  .dc-nav-icon { font-size: 17px; }
-  .dc-subtabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 5px 8px; }
+  .dc-nav-list { display: flex; flex-wrap: nowrap; gap: 6px; min-width: max-content; padding: 8px 12px !important; }
+  .dc-nav-item { flex: 0 0 auto; min-width: 96px; margin: 0; padding-inline: 10px; }
+  .dc-nav-item :deep(.v-list-item-title) { white-space: nowrap; }
+  .dc-subtabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 6px 12px; }
   .dc-subtabs::-webkit-scrollbar { display: none; }
-  .dc-subtab { flex: 0 0 auto; padding: 5px 10px; font-size: 12px; }
+  .dc-subtab { flex: 0 0 auto; padding: 6px 12px; }
   .dc-pane { padding: 12px 12px; }
   .dc-pane--overview { padding: 8px 10px; }
   .dc-section-title { margin-bottom: 6px; }
@@ -433,10 +428,6 @@ onMounted(loadOverview)
   .dc-actions { min-height: 44px; padding: 6px 10px; gap: 6px; }
   .dc-action-btn { min-height: 32px; font-size: 13px; }
   .dc-window--overview { overflow-y: auto; }
-}
-@media (max-width: 480px) {
-  .dc-header-subtitle { display: none; }
-  .dc-nav-item { min-width: 80px; }
 }
 @media (max-height: 760px) {
   .dc-window--overview { overflow-y: auto; }

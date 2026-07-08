@@ -53,6 +53,7 @@ def load_doubanapi():
 
 doubanapi = load_doubanapi()
 DoubanApi = doubanapi.DoubanApi
+DoubanCookieError = doubanapi.DoubanCookieError
 parse_wish_items = doubanapi.parse_wish_items
 parse_interest_feed_items = doubanapi.parse_interest_feed_items
 
@@ -69,7 +70,7 @@ class FakeResponse:
 
 class DoubanWishApiTest(unittest.TestCase):
     def test_parse_wish_items_extracts_subject_fields(self):
-        """保留旧 HTML 解析单元能力，但同步主路径不再使用它。"""
+        """解析豆瓣想看页中的条目字段，供 Cookie 主路径复用。"""
         html = """
         <div class="grid-view">
           <div class="item">
@@ -177,13 +178,88 @@ class DoubanWishApiTest(unittest.TestCase):
         self.assertEqual(items[0]["subject_id"], "37054059")
         self.assertEqual(requested_urls, ["https://www.douban.com/feed/people/tester/interests"])
 
-    def test_get_wish_items_requires_user_id_for_feed(self):
-        """feed-only 模式必须显式配置豆瓣用户 ID。"""
+    def test_get_wish_items_prefers_cookie_user_page_over_config_user(self):
+        """存在登录 Cookie 时优先读取当前账号想看页。"""
+        requested_urls = []
+        html = """
+        <div class="grid-view">
+          <div class="item">
+            <div class="pic">
+              <a href="https://movie.douban.com/subject/37054059/">
+                <img src="https://img.example/poster.jpg" />
+              </a>
+            </div>
+            <div class="info">
+              <ul>
+                <li class="title"><a href="https://movie.douban.com/subject/37054059/">小城日常</a></li>
+                <li class="intro">2026 / 中国大陆 / 剧情</li>
+              </ul>
+              <span class="date">2026-07-06</span>
+            </div>
+          </div>
+        </div>
+        """
         api = object.__new__(DoubanApi)
         api.headers = {"User-Agent": "test"}
+        api.cookies = {"dbcl2": "123456:token", "bid": "abc"}
 
-        with self.assertRaises(ValueError):
+        def fake_get(url):
+            requested_urls.append(url)
+            return FakeResponse(html, url=url)
+
+        items = api.get_wish_items(user_id="fallback-user", request_get=fake_get)
+
+        self.assertEqual(items[0]["subject_id"], "37054059")
+        self.assertEqual(
+            requested_urls,
+            [
+                "https://movie.douban.com/people/123456/wish"
+                "?start=0&sort=time&rating=all&filter=all&mode=grid"
+            ],
+        )
+
+    def test_get_wish_items_falls_back_to_feed_when_cookie_has_no_user_id(self):
+        """Cookie 中没有 dbcl2 时才回退到配置的用户 ID feed。"""
+        requested_urls = []
+        feed = """
+        <rss><channel>
+          <item>
+            <title>想看小城日常</title>
+            <link>https://movie.douban.com/subject/37054059/</link>
+            <pubDate>Mon, 06 Jul 2026 01:00:00 GMT</pubDate>
+          </item>
+        </channel></rss>
+        """
+        api = object.__new__(DoubanApi)
+        api.headers = {"User-Agent": "test"}
+        api.cookies = {"bid": "abc"}
+
+        def fake_get(url):
+            requested_urls.append(url)
+            return FakeResponse(feed, url=url)
+
+        items = api.get_wish_items(user_id="tester", request_get=fake_get)
+
+        self.assertEqual(items[0]["subject_id"], "37054059")
+        self.assertEqual(requested_urls, ["https://www.douban.com/feed/people/tester/interests"])
+
+    def test_get_wish_items_reports_missing_cookie_and_user_id(self):
+        """Cookie 和配置都无法定位账号时报告 Cookie/配置异常。"""
+        api = object.__new__(DoubanApi)
+        api.headers = {"User-Agent": "test"}
+        api.cookies = {"bid": "abc"}
+
+        with self.assertRaisesRegex(DoubanCookieError, "缺少.*dbcl2"):
             api.get_wish_items(request_get=lambda url: FakeResponse(""))
+
+    def test_get_wish_items_reports_cookie_page_forbidden(self):
+        """登录 Cookie 想看页被拒绝时报告 Cookie 失效或风控。"""
+        api = object.__new__(DoubanApi)
+        api.headers = {"User-Agent": "test"}
+        api.cookies = {"dbcl2": "123456:token"}
+
+        with self.assertRaisesRegex(DoubanCookieError, "HTTP 403"):
+            api.get_wish_items(request_get=lambda url: FakeResponse("forbidden", status_code=403))
 
     def test_get_wish_items_raises_when_feed_has_no_response(self):
         """feed 请求无响应时抛错，避免把同步失败伪装成空结果。"""
