@@ -30,6 +30,7 @@ from .controller.api import build_api_routes as _build_api_routes_impl
 from .service.events import handle_transfer_complete_event as _handle_transfer_complete_event_impl
 from .service.lifecycle import initialize_plugin as _initialize_plugin_impl
 from .service.scheduler import build_plugin_services as _build_plugin_services_impl
+from .service.cleanup import handle_sync_delete_by_hash_event as _handle_sync_delete_by_hash_event_impl, handle_webhook_message_event as _handle_webhook_message_event_impl, handle_plugin_action_event as _handle_plugin_action_event_impl
 
 class DownloadManagerLocal(_PluginBase):
     """下载中心插件入口，负责声明 MoviePilot 契约并委托 service 层执行。"""
@@ -396,24 +397,23 @@ class DownloadManagerLocal(_PluginBase):
     def rename_archive_stats(self):
         """统计当前重命名归档数量和状态。"""; return _rename_archive_stats_impl(self)
 
-    # ════════════════════════════════════════════════════════════
-    # v2.3.0: 事件驱动转移
-    # ════════════════════════════════════════════════════════════
-
     @eventmanager.register(EventType.TransferComplete)
     def on_transfer_complete(self, event: Event):
-        """
-        监听 TransferComplete 事件，延迟 N 分钟后自动转移做种
-        """
-        return _handle_transfer_complete_event_impl(self, event)
+        """监听 TransferComplete 事件，延迟 N 分钟后自动转移做种。"""; return _handle_transfer_complete_event_impl(self, event)
 
+    @eventmanager.register([EventType.DownloadFileDeleted, EventType.DownloadDeleted])
+    def on_download_sync_delete(self, event: Event):
+        """监听下载删除事件，同步删除转种和辅种任务。"""; return _handle_sync_delete_by_hash_event_impl(self, event, trigger=getattr(getattr(event, "event_type", None), "value", "DownloadDeleted"))
+
+    @eventmanager.register(EventType.WebhookMessage)
+    def on_webhook_message(self, event: Event):
+        """监听媒体服务器删除 Webhook，同步删除转种和辅种任务。"""; return _handle_webhook_message_event_impl(self, event)
+
+    @eventmanager.register(EventType.PluginAction)
+    def on_plugin_action(self, event: Event):
+        """监听网盘同步删除动作，同步删除转种和辅种任务。"""; return _handle_plugin_action_event_impl(self, event)
     def _delayed_transfer(self):
         """执行 TransferComplete 延迟触发后的转移任务。"""; return _delayed_transfer_impl(self)
-
-    # ════════════════════════════════════════════════════════════
-    # v3.0.0: IYUU 自动辅种
-    # ════════════════════════════════════════════════════════════
-
     @property
     def _iyuu_service_infos(self):
         """返回 IYUU 可用下载器服务映射。"""; return _iyuu_service_infos_impl(self)

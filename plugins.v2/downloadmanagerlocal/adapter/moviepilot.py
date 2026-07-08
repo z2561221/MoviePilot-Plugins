@@ -60,6 +60,11 @@ def get_download_history_by_hash(torrent_hash: str):
     return DownloadHistoryOper().get_by_hash(torrent_hash)
 
 
+def get_download_hash_by_fullpath(fullpath: str) -> str:
+    """按媒体文件完整路径反查下载历史 hash。"""
+    return DownloadHistoryOper().get_hash_by_fullpath(fullpath)
+
+
 def list_builtin_sites() -> list:
     """读取 MoviePilot 内置站点列表。"""
     return SiteOper().list_order_by_pri()
