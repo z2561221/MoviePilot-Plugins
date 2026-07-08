@@ -542,6 +542,9 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertEqual(self.plugin._posted[0]["title"], "清理库存检查报告")
         self.assertIn("即将开始自动删除", self.plugin._posted[0]["text"])
         self.assertIn("符合条件：条件一（未收藏 + 已看过 + 超过20天）", self.plugin._posted[0]["text"])
+        saved = self.plugin._data["library_cleanup_result"]
+        self.assertEqual(saved["condition_label"], "条件一（未收藏 + 已看过 + 超过20天）")
+        self.assertEqual(saved["deletion"], {"success_count": 1, "fail_count": 0})
 
     def test_library_cleanup_owned_manual_mode_sends_dynamic_notice(self):
         from datetime import datetime, timezone
@@ -571,6 +574,11 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertEqual(self.plugin._posted[0]["title"], "清理库存检查报告")
         self.assertNotIn("即将开始自动删除", self.plugin._posted[0]["text"])
         self.assertIn("符合条件：条件一（未收藏 + 已看过 + 超过20天）", self.plugin._posted[0]["text"])
+        saved = self.plugin._data["library_cleanup_result"]
+        self.assertEqual(saved["condition_label"], "条件一（未收藏 + 已看过 + 超过20天）")
+        self.assertEqual(saved["conditions"], ["条件一（未收藏 + 已看过 + 超过20天）"])
+        self.assertEqual(saved["qualified_count"], 1)
+        self.assertEqual(saved["qualified_movies"][0]["movie_id"], "movie-1")
 
     def test_library_cleanup_owned_zero_match_sends_clean_notice(self):
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
