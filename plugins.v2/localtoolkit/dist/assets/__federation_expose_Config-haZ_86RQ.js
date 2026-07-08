@@ -46,12 +46,15 @@ const defaults = {
     enabled: false,
     cron: '9 0 * * *',
     notify: true,
-    days_threshold: 30,
+    days_threshold: 20,
     selected_server: '',
     selected_library: '',
     selected_user: '',
     filter_played: 'played',
     filter_favorite: 'unfav',
+    filter_played_2: 'unplayed',
+    filter_favorite_2: 'unfav',
+    days_threshold_2: 40,
     auto_delete: false,
     auto_delete_delay: 60,
     dry_run: false,
@@ -210,7 +213,7 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-h6" }, {
-              default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+              default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
                 _createTextVNode("工具中心", -1)
               ]))]),
               _: 1
@@ -285,7 +288,7 @@ return (_ctx, _cache) => {
               class: _normalizeClass(["plugin-window", { 'plugin-window--overview': activeMain.value === 'overview' }])
             }, [
               _withDirectives(_createElementVNode("div", _hoisted_7, [
-                _cache[29] || (_cache[29] = _createElementVNode("div", { class: "plugin-section-title" }, "运行总览", -1)),
+                _cache[32] || (_cache[32] = _createElementVNode("div", { class: "plugin-section-title" }, "运行总览", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -301,7 +304,7 @@ return (_ctx, _cache) => {
                           default: _withCtx(() => [
                             _createVNode(_component_VCardText, null, {
                               default: _withCtx(() => [
-                                _cache[22] || (_cache[22] = _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "清理库存", -1)),
+                                _cache[25] || (_cache[25] = _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "清理库存", -1)),
                                 _createElementVNode("div", _hoisted_8, "周期运行：" + _toDisplayString(form.library_cleanup.enabled && form.enabled ? '开启' : '关闭'), 1),
                                 _createElementVNode("div", _hoisted_9, "Cron：" + _toDisplayString(form.library_cleanup.cron || '未设置'), 1),
                                 _createElementVNode("div", _hoisted_10, "自动删除：" + _toDisplayString(form.library_cleanup.auto_delete ? '开启' : '关闭'), 1)
@@ -327,10 +330,10 @@ return (_ctx, _cache) => {
                           default: _withCtx(() => [
                             _createVNode(_component_VCardText, null, {
                               default: _withCtx(() => [
-                                _cache[23] || (_cache[23] = _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "扫描缺集", -1)),
-                                _cache[24] || (_cache[24] = _createElementVNode("div", { class: "plugin-hint" }, "运行方式：按需单次", -1)),
+                                _cache[26] || (_cache[26] = _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "扫描缺集", -1)),
+                                _cache[27] || (_cache[27] = _createElementVNode("div", { class: "plugin-hint" }, "运行方式：按需单次", -1)),
                                 _createElementVNode("div", _hoisted_11, "扫描路径：" + _toDisplayString(pathCount.value) + " 个", 1),
-                                _cache[25] || (_cache[25] = _createElementVNode("div", { class: "plugin-hint" }, "在详情页点击「立即扫描」运行", -1))
+                                _cache[28] || (_cache[28] = _createElementVNode("div", { class: "plugin-hint" }, "在详情页点击「立即扫描」运行", -1))
                               ]),
                               _: 1
                             })
@@ -353,10 +356,10 @@ return (_ctx, _cache) => {
                           default: _withCtx(() => [
                             _createVNode(_component_VCardText, null, {
                               default: _withCtx(() => [
-                                _cache[26] || (_cache[26] = _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "TMDB 缓存", -1)),
-                                _cache[27] || (_cache[27] = _createElementVNode("div", { class: "plugin-hint" }, "运行方式：按需单次", -1)),
+                                _cache[29] || (_cache[29] = _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "TMDB 缓存", -1)),
+                                _cache[30] || (_cache[30] = _createElementVNode("div", { class: "plugin-hint" }, "运行方式：按需单次", -1)),
                                 _createElementVNode("div", _hoisted_12, "阈值：" + _toDisplayString(form.tmdb_cache.threshold_mb) + " MB", 1),
-                                _cache[28] || (_cache[28] = _createElementVNode("div", { class: "plugin-hint" }, "在详情页点击「立即清理」运行", -1))
+                                _cache[31] || (_cache[31] = _createElementVNode("div", { class: "plugin-hint" }, "在详情页点击「立即清理」运行", -1))
                               ]),
                               _: 1
                             })
@@ -381,7 +384,7 @@ return (_ctx, _cache) => {
               _withDirectives(_createElementVNode("div", _hoisted_13, [
                 (activeSub.value === 'basic')
                   ? (_openBlock(), _createElementBlock("div", _hoisted_14, [
-                      _cache[30] || (_cache[30] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "清理库存基础设置", -1)),
+                      _cache[33] || (_cache[33] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "清理库存基础设置", -1)),
                       _createVNode(_component_VAlert, {
                         type: "warning",
                         variant: "tonal",
@@ -444,7 +447,7 @@ return (_ctx, _cache) => {
                   : _createCommentVNode("", true),
                 (activeSub.value === 'filter')
                   ? (_openBlock(), _createElementBlock("div", _hoisted_15, [
-                      _cache[31] || (_cache[31] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "筛选条件", -1)),
+                      _cache[36] || (_cache[36] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "筛选条件", -1)),
                       _createVNode(_component_VRow, null, {
                         default: _withCtx(() => [
                           _createVNode(_component_VCol, {
@@ -504,6 +507,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
+                          _createVNode(_component_VCol, { cols: "12" }, {
+                            default: _withCtx(() => [...(_cache[34] || (_cache[34] = [
+                              _createElementVNode("div", { class: "condition-title" }, "条件一", -1)
+                            ]))]),
+                            _: 1
+                          }),
                           _createVNode(_component_VCol, {
                             cols: "12",
                             md: "4"
@@ -557,6 +566,65 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
+                          _createVNode(_component_VCol, { cols: "12" }, {
+                            default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
+                              _createElementVNode("div", { class: "condition-title condition-title--second" }, "条件二", -1)
+                            ]))]),
+                            _: 1
+                          }),
+                          _createVNode(_component_VCol, {
+                            cols: "12",
+                            md: "4"
+                          }, {
+                            default: _withCtx(() => [
+                              _createVNode(_component_VSelect, {
+                                modelValue: form.library_cleanup.filter_favorite_2,
+                                "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.library_cleanup.filter_favorite_2) = $event)),
+                                label: "收藏状态",
+                                items: [{ title: '全部', value: 'all' }, { title: '已收藏', value: 'fav' }, { title: '未收藏', value: 'unfav' }],
+                                density: "compact",
+                                variant: "outlined",
+                                "hide-details": ""
+                              }, null, 8, ["modelValue"])
+                            ]),
+                            _: 1
+                          }),
+                          _createVNode(_component_VCol, {
+                            cols: "12",
+                            md: "4"
+                          }, {
+                            default: _withCtx(() => [
+                              _createVNode(_component_VSelect, {
+                                modelValue: form.library_cleanup.filter_played_2,
+                                "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((form.library_cleanup.filter_played_2) = $event)),
+                                label: "看过状态",
+                                items: [{ title: '全部', value: 'all' }, { title: '已看过', value: 'played' }, { title: '未看过', value: 'unplayed' }],
+                                density: "compact",
+                                variant: "outlined",
+                                "hide-details": ""
+                              }, null, 8, ["modelValue"])
+                            ]),
+                            _: 1
+                          }),
+                          _createVNode(_component_VCol, {
+                            cols: "12",
+                            md: "4"
+                          }, {
+                            default: _withCtx(() => [
+                              _createVNode(_component_VTextField, {
+                                modelValue: form.library_cleanup.days_threshold_2,
+                                "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((form.library_cleanup.days_threshold_2) = $event)),
+                                modelModifiers: { number: true },
+                                label: "创建时间阈值（天）",
+                                type: "number",
+                                min: "1",
+                                density: "compact",
+                                variant: "outlined",
+                                "hide-details": ""
+                              }, null, 8, ["modelValue"])
+                            ]),
+                            _: 1
+                          }),
                           (optionError.value)
                             ? (_openBlock(), _createBlock(_component_VCol, {
                                 key: 0,
@@ -580,7 +648,7 @@ return (_ctx, _cache) => {
                   : _createCommentVNode("", true),
                 (activeSub.value === 'advanced')
                   ? (_openBlock(), _createElementBlock("div", _hoisted_16, [
-                      _cache[32] || (_cache[32] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "高级选项", -1)),
+                      _cache[37] || (_cache[37] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "高级选项", -1)),
                       _createVNode(_component_VAlert, {
                         type: "error",
                         variant: "tonal",
@@ -596,7 +664,7 @@ return (_ctx, _cache) => {
                             default: _withCtx(() => [
                               _createVNode(_component_VSwitch, {
                                 modelValue: form.library_cleanup.auto_delete,
-                                "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.library_cleanup.auto_delete) = $event)),
+                                "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((form.library_cleanup.auto_delete) = $event)),
                                 color: "error",
                                 label: "自动删除",
                                 "hide-details": ""
@@ -611,7 +679,7 @@ return (_ctx, _cache) => {
                             default: _withCtx(() => [
                               _createVNode(_component_VSwitch, {
                                 modelValue: form.library_cleanup.dry_run,
-                                "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((form.library_cleanup.dry_run) = $event)),
+                                "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((form.library_cleanup.dry_run) = $event)),
                                 color: "warning",
                                 label: "演练模式",
                                 "hide-details": ""
@@ -626,7 +694,7 @@ return (_ctx, _cache) => {
                             default: _withCtx(() => [
                               _createVNode(_component_VTextField, {
                                 modelValue: form.library_cleanup.auto_delete_delay,
-                                "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((form.library_cleanup.auto_delete_delay) = $event)),
+                                "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((form.library_cleanup.auto_delete_delay) = $event)),
                                 modelModifiers: { number: true },
                                 label: "删除间隔（秒）",
                                 type: "number",
@@ -645,7 +713,7 @@ return (_ctx, _cache) => {
                             default: _withCtx(() => [
                               _createVNode(_component_VTextField, {
                                 modelValue: form.library_cleanup.auto_delete_max_count,
-                                "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((form.library_cleanup.auto_delete_max_count) = $event)),
+                                "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((form.library_cleanup.auto_delete_max_count) = $event)),
                                 modelModifiers: { number: true },
                                 label: "单次删除上限",
                                 type: "number",
@@ -666,7 +734,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeMain.value === 'library_cleanup']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_17, [
-                _cache[33] || (_cache[33] = _createElementVNode("div", { class: "plugin-section-title" }, "扫描缺集按需扫描", -1)),
+                _cache[38] || (_cache[38] = _createElementVNode("div", { class: "plugin-section-title" }, "扫描缺集按需扫描", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
                   variant: "tonal",
@@ -682,7 +750,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.check_missing.notify,
-                          "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((form.check_missing.notify) = $event)),
+                          "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((form.check_missing.notify) = $event)),
                           color: "info",
                           label: "运行通知",
                           "hide-details": ""
@@ -697,7 +765,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.check_missing.skip_empty,
-                          "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((form.check_missing.skip_empty) = $event)),
+                          "onUpdate:modelValue": _cache[18] || (_cache[18] = $event => ((form.check_missing.skip_empty) = $event)),
                           color: "success",
                           label: "跳过空文件夹",
                           "hide-details": ""
@@ -709,7 +777,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextarea, {
                           modelValue: form.check_missing.scan_paths,
-                          "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((form.check_missing.scan_paths) = $event)),
+                          "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((form.check_missing.scan_paths) = $event)),
                           label: "扫描路径（一行一个）",
                           rows: "6",
                           "auto-grow": "",
@@ -727,7 +795,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeMain.value === 'check_missing']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_18, [
-                _cache[34] || (_cache[34] = _createElementVNode("div", { class: "plugin-section-title text-warning" }, "TMDB 缓存按需清理", -1)),
+                _cache[39] || (_cache[39] = _createElementVNode("div", { class: "plugin-section-title text-warning" }, "TMDB 缓存按需清理", -1)),
                 _createVNode(_component_VAlert, {
                   type: "warning",
                   variant: "tonal",
@@ -743,7 +811,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.tmdb_cache.notify,
-                          "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((form.tmdb_cache.notify) = $event)),
+                          "onUpdate:modelValue": _cache[20] || (_cache[20] = $event => ((form.tmdb_cache.notify) = $event)),
                           color: "info",
                           label: "运行通知",
                           "hide-details": ""
@@ -758,7 +826,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.tmdb_cache.auto_clear,
-                          "onUpdate:modelValue": _cache[18] || (_cache[18] = $event => ((form.tmdb_cache.auto_clear) = $event)),
+                          "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((form.tmdb_cache.auto_clear) = $event)),
                           color: "warning",
                           label: "按阈值清理",
                           "hide-details": ""
@@ -773,7 +841,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.tmdb_cache.threshold_mb,
-                          "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((form.tmdb_cache.threshold_mb) = $event)),
+                          "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((form.tmdb_cache.threshold_mb) = $event)),
                           modelModifiers: { number: true },
                           label: "阈值 MB",
                           type: "number",
@@ -800,9 +868,9 @@ return (_ctx, _cache) => {
             _createVNode(_component_VSpacer),
             _createVNode(_component_VBtn, {
               variant: "text",
-              onClick: _cache[20] || (_cache[20] = $event => (emit('close')))
+              onClick: _cache[23] || (_cache[23] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
+              default: _withCtx(() => [...(_cache[40] || (_cache[40] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -813,7 +881,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-content-save-outline",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[36] || (_cache[36] = [
+              default: _withCtx(() => [...(_cache[41] || (_cache[41] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -829,6 +897,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a91c3a28"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6030678e"]]);
 
 export { Config as default };
