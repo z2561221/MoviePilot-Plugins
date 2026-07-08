@@ -16,12 +16,15 @@ const defaults = {
     enabled: false,
     cron: '9 0 * * *',
     notify: true,
-    days_threshold: 30,
+    days_threshold: 20,
     selected_server: '',
     selected_library: '',
     selected_user: '',
     filter_played: 'played',
     filter_favorite: 'unfav',
+    filter_played_2: 'unplayed',
+    filter_favorite_2: 'unfav',
+    days_threshold_2: 40,
     auto_delete: false,
     auto_delete_delay: 60,
     dry_run: false,
@@ -214,6 +217,7 @@ function saveConfig() {
                   <VCol cols="12" md="4"><VSelect v-model="form.library_cleanup.selected_server" label="媒体服务器" :items="serverItems" :loading="loadingOptions" density="compact" variant="outlined" clearable hide-details /></VCol>
                   <VCol cols="12" md="4"><VSelect v-model="form.library_cleanup.selected_library" label="媒体库" :items="libraryItems" :loading="loadingOptions" density="compact" variant="outlined" clearable hide-details /></VCol>
                   <VCol cols="12" md="4"><VSelect v-model="form.library_cleanup.selected_user" label="用户" :items="userItems" :loading="loadingOptions" density="compact" variant="outlined" clearable hide-details /></VCol>
+                  <VCol cols="12"><div class="condition-title">条件一</div></VCol>
                   <VCol cols="12" md="4">
                     <VSelect v-model="form.library_cleanup.filter_favorite" label="收藏状态" :items="[{ title: '全部', value: 'all' }, { title: '已收藏', value: 'fav' }, { title: '未收藏', value: 'unfav' }]" density="compact" variant="outlined" hide-details />
                   </VCol>
@@ -221,6 +225,14 @@ function saveConfig() {
                     <VSelect v-model="form.library_cleanup.filter_played" label="看过状态" :items="[{ title: '全部', value: 'all' }, { title: '已看过', value: 'played' }, { title: '未看过', value: 'unplayed' }]" density="compact" variant="outlined" hide-details />
                   </VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.days_threshold" label="创建时间阈值（天）" type="number" min="1" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12"><div class="condition-title condition-title--second">条件二</div></VCol>
+                  <VCol cols="12" md="4">
+                    <VSelect v-model="form.library_cleanup.filter_favorite_2" label="收藏状态" :items="[{ title: '全部', value: 'all' }, { title: '已收藏', value: 'fav' }, { title: '未收藏', value: 'unfav' }]" density="compact" variant="outlined" hide-details />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VSelect v-model="form.library_cleanup.filter_played_2" label="看过状态" :items="[{ title: '全部', value: 'all' }, { title: '已看过', value: 'played' }, { title: '未看过', value: 'unplayed' }]" density="compact" variant="outlined" hide-details />
+                  </VCol>
+                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.days_threshold_2" label="创建时间阈值（天）" type="number" min="1" density="compact" variant="outlined" hide-details /></VCol>
                   <VCol v-if="optionError" cols="12"><VAlert type="warning" variant="tonal" density="compact" :text="`媒体服务器选项加载异常：${optionError}`" /></VCol>
                 </VRow>
               </div>
@@ -288,6 +300,8 @@ function saveConfig() {
 .plugin-window--overview { overflow-y: hidden; }
 .plugin-pane { padding: 18px 20px; }
 .plugin-section-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: rgb(var(--v-theme-primary)); }
+.condition-title { font-size: 13px; font-weight: 700; color: rgba(var(--v-theme-on-surface), .78); margin-top: 6px; }
+.condition-title--second { margin-top: 4px; }
 .plugin-hint { font-size: 12px; line-height: 1.6; color: rgba(var(--v-theme-on-surface), .68); margin-top: 2px; }
 .status-card { border-radius: 14px; min-height: 132px; }
 .plugin-actions { padding: 10px 18px; }

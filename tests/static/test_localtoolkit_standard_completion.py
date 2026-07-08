@@ -187,6 +187,21 @@ def test_localtoolkit_cleanup_notification_condition_text_is_dynamic():
     assert "符合条件(超" not in source
 
 
+def test_localtoolkit_cleanup_config_exposes_two_condition_groups():
+    """清理库存配置页必须展示两组筛选条件并匹配后端默认值。"""
+    source = CONFIG_VUE.read_text(encoding="utf-8")
+    assert "days_threshold: 20" in source
+    assert "filter_favorite_2: 'unfav'" in source
+    assert "filter_played_2: 'unplayed'" in source
+    assert "days_threshold_2: 40" in source
+    assert ">条件一<" in source
+    assert ">条件二<" in source
+    assert 'v-model="form.library_cleanup.filter_favorite_2"' in source
+    assert 'v-model="form.library_cleanup.filter_played_2"' in source
+    assert 'v-model.number="form.library_cleanup.days_threshold_2"' in source
+    assert source.find('v-model.number="form.library_cleanup.days_threshold"') < source.find('v-model="form.library_cleanup.filter_favorite_2"')
+
+
 def test_localtoolkit_mobile_primary_nav_is_horizontal():
     """移动端一级导航必须横向滚动，避免继续竖向占据首屏。"""
     source = CONFIG_VUE.read_text(encoding="utf-8")
