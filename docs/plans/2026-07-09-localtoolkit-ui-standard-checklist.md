@@ -77,7 +77,7 @@ Commit:
 
 ### 3. Page.vue Standard Detail Layout
 
-Status: pending
+Status: completed
 
 Acceptance:
 - `frontend/src/components/Page.vue` uses a standard `VToolbar` top bar rather than a hero-style `VCard` header.
@@ -90,13 +90,16 @@ Verify:
 - Run the verification baseline.
 
 Evidence:
-- 
+- `plugins.v2/localtoolkit/frontend/src/components/Page.vue:105` now uses `<VToolbar density="comfortable" class="toolkit-toolbar mb-4">`.
+- `plugins.v2/localtoolkit/frontend/src/components/Page.vue:67` requests history with `page=${page.value}&page_size=${pageSize}`.
+- Static assertions now cover toolbar usage, absence of the old hero card class, backend pagination, and mobile history/table switching.
+- Baseline command returned `10 passed in 0.07s`.
 
 Notes:
-- 
+- Supplemental `pnpm run build` precheck timed out after 124s because the frontend has no `node_modules`; leftover pnpm/node processes from that attempt were stopped. Formal build verification remains item 6.
 
 Commit:
-- 
+- pending hash after Page layout commit
 
 ### 4. AppPage.vue Standard Main Page Layout
 

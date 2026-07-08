@@ -14,6 +14,7 @@ PLUGIN_JSON = PLUGIN_DIR / "plugin.json"
 REMOTE_ENTRY = PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js"
 VITE_CONFIG = PLUGIN_DIR / "frontend" / "vite.config.js"
 CONFIG_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Config.vue"
+PAGE_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Page.vue"
 FRONTEND_API = PLUGIN_DIR / "frontend" / "src" / "api.js"
 
 ENTRYPOINT_HEAVY_METHODS = {
@@ -192,6 +193,22 @@ def test_localtoolkit_config_navigation_uses_standard_tabs():
     assert "key: 'danger'" not in source
     assert "activeSub === 'advanced'" in source
     assert "activeSub === 'danger'" not in source
+
+
+def test_localtoolkit_page_uses_standard_toolbar_and_backend_pagination():
+    """详情页必须使用标准工具栏、后端分页和移动历史降级布局。"""
+    source = PAGE_VUE.read_text(encoding="utf-8")
+    assert "<VToolbar" in source
+    assert 'class="toolkit-toolbar mb-4"' in source
+    assert '<VCard class="hero' not in source
+    assert ".hero" not in source
+    assert 'prepend-icon="mdi-refresh"' in source
+    assert 'icon="mdi-close"' in source
+    assert "history?page=${page.value}&page_size=${pageSize}" in source
+    assert ".history-mobile { display: none; }" in source
+    assert re.search(r"@media\s*\(\s*max-width:\s*600px\s*\)", source, re.S)
+    assert re.search(r"\.history-table\s*\{\s*display:\s*none", source, re.S)
+    assert re.search(r"\.history-mobile\s*\{\s*display:\s*block", source, re.S)
 
 
 def test_localtoolkit_frontend_api_uses_injected_client_only():
