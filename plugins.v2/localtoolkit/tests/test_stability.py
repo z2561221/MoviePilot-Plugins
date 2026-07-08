@@ -282,6 +282,41 @@ class LocalToolkitStabilityTest(unittest.TestCase):
 
         self.assertEqual(module.get_service(), [])
 
+    def test_library_cleanup_default_config_uses_requested_two_conditions(self):
+        from localtoolkit.modules.library_cleanup import LibraryCleanupModule
+
+        defaults = LibraryCleanupModule(self.plugin).get_default_config()
+
+        self.assertEqual(defaults["filter_favorite"], "unfav")
+        self.assertEqual(defaults["filter_played"], "played")
+        self.assertEqual(defaults["days_threshold"], 20)
+        self.assertEqual(defaults["filter_favorite_2"], "unfav")
+        self.assertEqual(defaults["filter_played_2"], "unplayed")
+        self.assertEqual(defaults["days_threshold_2"], 40)
+
+    def test_library_cleanup_legacy_saved_config_loads_with_second_condition_defaults(self):
+        module = _import_fresh_plugin()
+        plugin = module.LocalToolkit()
+
+        plugin.init_plugin(
+            {
+                "enabled": True,
+                "migration_done": True,
+                "library_cleanup": {
+                    "enabled": True,
+                    "filter_favorite": "unfav",
+                    "filter_played": "played",
+                    "days_threshold": 25,
+                },
+            }
+        )
+
+        cleanup_config = plugin._config["library_cleanup"]
+        self.assertEqual(cleanup_config["days_threshold"], 25)
+        self.assertEqual(cleanup_config["filter_favorite_2"], "unfav")
+        self.assertEqual(cleanup_config["filter_played_2"], "unplayed")
+        self.assertEqual(cleanup_config["days_threshold_2"], 40)
+
     def test_library_cleanup_uses_adapter_for_options(self):
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
 
