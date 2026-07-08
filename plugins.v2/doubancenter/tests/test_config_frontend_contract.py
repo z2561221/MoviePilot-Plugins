@@ -93,13 +93,13 @@ class ConfigFrontendContractTest(unittest.TestCase):
         for fragment in required_fragments:
             self.assertIn(fragment, text)
 
-    def test_mobile_config_dialog_uses_host_fullscreen_bounds(self):
-        """移动端设置页应吃满宿主 fullscreen 弹窗，避免双层 100vw/100dvh 计算撑裂。"""
+    def test_mobile_config_dialog_matches_download_center_shell(self):
+        """移动端设置页外壳应与下载中心保持一致。"""
         text = CONFIG_VUE.read_text(encoding="utf-8")
 
         required_fragments = [
-            ".dc-config { width: 100%; height: 100%; padding: 0; }",
-            ".dc-card { height: 100vh; height: 100dvh; max-height: 100dvh; border-radius: 0; border: none; }",
+            ".dc-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }",
+            ".dc-card { height: min(860px, calc(100dvh - 16px)); }",
             ".dc-rank-card-body { grid-template-columns: 1fr; }",
             ".dc-rank-field { grid-template-columns: 42px minmax(0, 1fr); }",
             ".dc-rank-input { width: 100%; max-width: none; }",
@@ -110,8 +110,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
         compact_css = _compact_css(_active_css_text("./Config"))
         required_css_fragments = [
             ".dc-config[data-v-",
-            "width:100%;height:100%;padding:0",
-            "height:100dvh;max-height:100dvh;border-radius:0;border:none",
+            "width:min(100%,calc(100vw-16px));padding:4px",
+            "height:min(860px,calc(100dvh-16px))",
             ".dc-rank-card-body[data-v-",
             "grid-template-columns:1fr",
             ".dc-rank-field[data-v-",
