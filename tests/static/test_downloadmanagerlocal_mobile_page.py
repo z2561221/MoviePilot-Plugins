@@ -31,3 +31,16 @@ def test_downloadmanagerlocal_mobile_hides_desktop_tables():
     assert "@media (max-width: 760px)" in source
     assert ".dm-desktop-table { display: none; }" in source
     assert ".dm-mobile-list { display: grid;" in source
+
+
+def test_downloadmanagerlocal_mobile_status_chip_keeps_full_label():
+    """Mobile card status chips must not be squeezed or ellipsized."""
+    source = _page_source()
+
+    assert source.count('class="dm-record-status"') >= 2
+    assert ".dm-record-status {" in source
+    assert "flex: 0 0 auto;" in source
+    assert ".dm-record-status :deep(.v-chip__content)" in source
+    assert "overflow: visible;" in source
+    assert "white-space: normal;" in source
+    assert "word-break: keep-all;" in source

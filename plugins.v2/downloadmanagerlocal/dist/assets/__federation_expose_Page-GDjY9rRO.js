@@ -604,6 +604,7 @@ return (_ctx, _cache) => {
                                 title: r.after_name || r.original_name
                               }, _toDisplayString(r.after_name || r.original_name || r.hash), 9, _hoisted_16),
                               _createVNode(_component_VChip, {
+                                class: "dm-record-status",
                                 size: "x-small",
                                 color: r.success ? 'success' : 'error',
                                 variant: "tonal"
@@ -806,6 +807,7 @@ return (_ctx, _cache) => {
                                   title: r.name || r.hash
                                 }, _toDisplayString(r.name || r.hash), 9, _hoisted_37),
                                 _createVNode(_component_VChip, {
+                                  class: "dm-record-status",
                                   size: "x-small",
                                   color: "warning",
                                   variant: "tonal"
@@ -1029,6 +1031,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a85c91f0"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-31fe3a40"]]);
 
 export { Page as default };

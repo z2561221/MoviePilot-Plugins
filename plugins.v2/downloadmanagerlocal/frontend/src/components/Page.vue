@@ -282,7 +282,7 @@ onMounted(loadHistory)
               <article v-for="r in records" :key="r.hash" class="dm-record-card dm-history-card">
                 <div class="dm-record-head">
                   <div class="dm-record-title" :title="r.after_name || r.original_name">{{ r.after_name || r.original_name || r.hash }}</div>
-                  <VChip size="x-small" :color="r.success ? 'success' : 'error'" variant="tonal">{{ r.success ? '成功' : (r.reason || '失败') }}</VChip>
+                  <VChip class="dm-record-status" size="x-small" :color="r.success ? 'success' : 'error'" variant="tonal">{{ r.success ? '成功' : (r.reason || '失败') }}</VChip>
                 </div>
                 <div class="dm-record-meta">
                   <div class="dm-record-row">
@@ -353,7 +353,7 @@ onMounted(loadHistory)
               <article v-for="r in archiveRecords" :key="r.hash" class="dm-record-card dm-archive-card">
                 <div class="dm-record-head">
                   <div class="dm-record-title" :title="r.name || r.hash">{{ r.name || r.hash }}</div>
-                  <VChip size="x-small" color="warning" variant="tonal">{{ r.category_label || r.category }}</VChip>
+                  <VChip class="dm-record-status" size="x-small" color="warning" variant="tonal">{{ r.category_label || r.category }}</VChip>
                 </div>
                 <div class="dm-record-meta">
                   <div class="dm-record-row">
@@ -504,6 +504,7 @@ onMounted(loadHistory)
   gap: 8px;
 }
 .dm-record-title {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -511,6 +512,21 @@ onMounted(loadHistory)
   font-size: 13px;
   font-weight: 700;
   color: rgba(var(--v-theme-on-surface), 0.88);
+}
+.dm-record-status {
+  flex: 0 0 auto;
+  max-width: 52%;
+  height: auto;
+  min-height: 22px;
+  align-self: flex-start;
+  white-space: normal;
+}
+.dm-record-status :deep(.v-chip__content) {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.25;
+  word-break: keep-all;
 }
 .dm-record-meta {
   display: grid;
