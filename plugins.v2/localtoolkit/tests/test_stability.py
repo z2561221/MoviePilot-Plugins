@@ -455,5 +455,113 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertIn("超过自动删除上限", response["summary"])
 
 
+    def test_library_cleanup_two_conditions_return_or_union_without_duplicates(self):
+        from datetime import datetime, timedelta, timezone
+        from localtoolkit.model.library_cleanup import (
+            CleanupCandidate,
+            filter_cleanup_candidates,
+        )
+
+        now = datetime(2026, 7, 9, tzinfo=timezone.utc)
+
+        def candidate(movie_id, days, played, favorite):
+            return CleanupCandidate(
+                movie_id=movie_id,
+                code=movie_id.upper(),
+                title=movie_id,
+                date_created=(now - timedelta(days=days)).isoformat(),
+                date_created_obj=now - timedelta(days=days),
+                played=played,
+                favorite=favorite,
+            )
+
+        config = {
+            "filter_favorite": "unfav",
+            "filter_played": "played",
+            "days_threshold": 20,
+            "filter_favorite_2": "unfav",
+            "filter_played_2": "unplayed",
+            "days_threshold_2": 40,
+        }
+        movies = [
+            candidate("played-25", 25, True, False),
+            candidate("unplayed-45", 45, False, False),
+            candidate("duplicate", 60, False, False),
+            candidate("duplicate", 60, False, False),
+            candidate("favorite-80", 80, True, True),
+            candidate("too-new", 30, False, False),
+        ]
+
+        result = filter_cleanup_candidates(movies, config, now=now)
+
+        self.assertEqual(
+            [movie.movie_id for movie in result.qualified_movies],
+            ["played-25", "unplayed-45", "duplicate"],
+        )
+        self.assertEqual(result.qualified_count, 3)
+
+    def test_library_cleanup_condition_label_matches_current_settings(self):
+        from localtoolkit.model.library_cleanup import (
+            build_cleanup_conditions,
+            format_conditions_label,
+        )
+
+        label = format_conditions_label(
+            build_cleanup_conditions(
+                {
+                    "filter_favorite": "unfav",
+                    "filter_played": "played",
+                    "days_threshold": 20,
+                    "filter_favorite_2": "unfav",
+                    "filter_played_2": "unplayed",
+                    "days_threshold_2": 40,
+                }
+            )
+        )
+
+        self.assertEqual(
+            label,
+            "条件一（未收藏 + 已看过 + 超过20天）或 条件二（未收藏 + 未看过 + 超过40天）",
+        )
+
+        changed_label = format_conditions_label(
+            build_cleanup_conditions(
+                {
+                    "filter_favorite": "fav",
+                    "filter_played": "played",
+                    "days_threshold": 10,
+                    "filter_favorite_2": "unfav",
+                    "filter_played_2": "played",
+                    "days_threshold_2": 15,
+                }
+            )
+        )
+
+        self.assertEqual(
+            changed_label,
+            "条件一（已收藏 + 已看过 + 超过10天）或 条件二（未收藏 + 已看过 + 超过15天）",
+        )
+
+    def test_library_cleanup_legacy_single_condition_config_stays_valid(self):
+        from localtoolkit.model.library_cleanup import (
+            build_cleanup_conditions,
+            format_conditions_label,
+        )
+
+        conditions = build_cleanup_conditions(
+            {
+                "filter_favorite": "unfav",
+                "filter_played": "played",
+                "days_threshold": 20,
+            }
+        )
+
+        self.assertEqual(len(conditions), 1)
+        self.assertEqual(
+            format_conditions_label(conditions),
+            "条件一（未收藏 + 已看过 + 超过20天）",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
