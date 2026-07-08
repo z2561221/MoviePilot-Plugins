@@ -126,7 +126,7 @@ Notes:
 - The UI subtitle still follows the existing localized text line; the data dependency for pagination is no longer frontend slicing.
 
 Commit:
-- pending hash after AppPage layout commit
+- `6c6bbfe` (`fix(localtoolkit): align app page history pagination`)
 
 ### 5. Dashboard.vue Standard Card Controls
 
