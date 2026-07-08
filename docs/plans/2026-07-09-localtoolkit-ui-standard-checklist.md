@@ -130,7 +130,7 @@ Commit:
 
 ### 5. Dashboard.vue Standard Card Controls
 
-Status: pending
+Status: completed
 
 Acceptance:
 - `frontend/src/components/Dashboard.vue` keeps `VCard variant="flat"`, 16px radius, border, `VCardItem`, `VCardTitle`, and `VCardSubtitle`.
@@ -142,13 +142,16 @@ Verify:
 - Run the verification baseline.
 
 Evidence:
-- 
+- `plugins.v2/localtoolkit/frontend/src/components/Dashboard.vue` now accepts `allowRefresh` with default `false`.
+- `Dashboard.vue` now exposes a `VCardItem` append refresh button gated by `v-if="allowRefresh"` and reloads status through `load`.
+- Static assertions cover the standard card structure, border/radius styling, append refresh control, loading state, and click handler.
+- Baseline command returned `12 passed in 0.13s`.
 
 Notes:
-- 
+- Existing flat dashboard card structure was preserved; only refresh capability and loading state were added.
 
 Commit:
-- 
+- pending hash after Dashboard refresh commit
 
 ### 6. Federation Build Assets
 

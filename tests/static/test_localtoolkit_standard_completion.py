@@ -16,6 +16,7 @@ VITE_CONFIG = PLUGIN_DIR / "frontend" / "vite.config.js"
 CONFIG_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Config.vue"
 PAGE_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Page.vue"
 APP_PAGE_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "AppPage.vue"
+DASHBOARD_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Dashboard.vue"
 FRONTEND_API = PLUGIN_DIR / "frontend" / "src" / "api.js"
 
 ENTRYPOINT_HEAVY_METHODS = {
@@ -228,6 +229,23 @@ def test_localtoolkit_app_page_matches_page_history_contract():
     assert re.search(r"@media\s*\(\s*max-width:\s*600px\s*\)", source, re.S)
     assert re.search(r"\.history-table\s*\{\s*display:\s*none", source, re.S)
     assert re.search(r"\.history-mobile\s*\{\s*display:\s*block", source, re.S)
+
+
+def test_localtoolkit_dashboard_uses_standard_card_refresh_contract():
+    """仪表盘必须保持标准卡片结构，并通过 allowRefresh 暴露刷新入口。"""
+    source = DASHBOARD_VUE.read_text(encoding="utf-8")
+    assert '<VCard class="toolkit-dashboard" variant="flat">' in source
+    assert "<VCardItem>" in source
+    assert "<VCardTitle>" in source
+    assert "<VCardSubtitle>" in source
+    assert "border-radius:16px" in source
+    assert "border:1px solid rgba(var(--v-border-color),var(--v-border-opacity))" in source
+    assert "allowRefresh: { type: Boolean, default: false }" in source
+    assert "<template #append>" in source
+    assert 'v-if="allowRefresh"' in source
+    assert 'icon="mdi-refresh"' in source
+    assert ':loading="loading"' in source
+    assert "@click=\"load\"" in source
 
 
 def test_localtoolkit_frontend_api_uses_injected_client_only():
