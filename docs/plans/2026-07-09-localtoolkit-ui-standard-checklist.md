@@ -51,7 +51,7 @@ Commit:
 
 ### 2. Config.vue Desktop And Mobile Shell
 
-Status: pending
+Status: completed
 
 Acceptance:
 - `frontend/src/components/Config.vue` desktop `.plugin-nav` width and flex basis are exactly `160px`.
@@ -64,13 +64,16 @@ Verify:
 - Run the verification baseline.
 
 Evidence:
-- 
+- `plugins.v2/localtoolkit/frontend/src/components/Config.vue:279` now has `.plugin-nav { width: 160px; flex: 0 0 160px; ... }`.
+- `plugins.v2/localtoolkit/frontend/src/components/Config.vue:294` now uses `@media (max-width: 760px)`.
+- Static assertions now reject `max-width: 1024px` and `(hover: none)` fallback in Config.
+- Baseline command returned `9 passed in 0.07s`.
 
 Notes:
-- 
+- Scope kept to Config shell CSS and static regression coverage.
 
 Commit:
-- 
+- pending hash after Config shell commit
 
 ### 3. Page.vue Standard Detail Layout
 

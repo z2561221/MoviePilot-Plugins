@@ -276,7 +276,7 @@ function saveConfig() {
 .plugin-header { padding: 14px 18px; }
 .plugin-header :deep(.v-card-subtitle) { max-width: min(560px, 52vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plugin-body { flex: 1 1 auto; min-height: 0; display: flex; }
-.plugin-nav { width: 176px; flex: 0 0 176px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), .02); }
+.plugin-nav { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), .02); }
 .plugin-nav-list { width: 100%; }
 .plugin-nav-item { margin: 2px 8px; }
 .plugin-content { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -291,7 +291,7 @@ function saveConfig() {
 .plugin-hint { font-size: 12px; line-height: 1.6; color: rgba(var(--v-theme-on-surface), .68); margin-top: 2px; }
 .status-card { border-radius: 14px; min-height: 132px; }
 .plugin-actions { padding: 10px 18px; }
-@media (max-width: 1024px), (hover: none) and (pointer: coarse) {
+@media (max-width: 760px) {
   .plugin-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
   .plugin-card { height: min(860px, calc(100dvh - 16px)); }
   .plugin-header :deep(.v-card-subtitle) { max-width: 100%; }

@@ -159,7 +159,9 @@ def test_localtoolkit_mobile_primary_nav_is_horizontal():
     """移动端一级导航必须横向滚动，避免继续竖向占据首屏。"""
     source = CONFIG_VUE.read_text(encoding="utf-8")
     assert 'class="plugin-nav-list py-2"' in source
-    assert re.search(r"@media\s*\([^)]*max-width:\s*1024px[^)]*\)\s*,\s*\([^)]*hover:\s*none[^)]*\)\s*and\s*\([^)]*pointer:\s*coarse[^)]*\)", source, re.S)
+    assert re.search(r"@media\s*\(\s*max-width:\s*760px\s*\)", source, re.S)
+    assert "max-width: 1024px" not in source
+    assert "(hover: none)" not in source
     assert re.search(r"\.plugin-nav\s*\{[^}]*overflow-x:\s*auto", source, re.S)
     assert re.search(r"\.plugin-nav-list\s*\{[^}]*display:\s*flex", source, re.S)
     assert re.search(r"\.plugin-nav-list\s*\{[^}]*flex-wrap:\s*nowrap", source, re.S)
@@ -172,6 +174,7 @@ def test_localtoolkit_config_uses_standard_stable_shell():
     assert re.search(r"\.plugin-config\s*\{[^}]*width:\s*min\(1120px,\s*calc\(100vw - 48px\)\)", source, re.S)
     assert re.search(r"\.plugin-card\s*\{[^}]*height:\s*clamp\(760px,\s*calc\(100dvh - 48px\),\s*860px\)", source, re.S)
     assert re.search(r"\.plugin-card\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*overflow:\s*hidden", source, re.S)
+    assert re.search(r"\.plugin-nav\s*\{[^}]*width:\s*160px[^}]*flex:\s*0 0 160px", source, re.S)
     assert re.search(r"\.plugin-body\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*display:\s*flex", source, re.S)
     assert re.search(r"\.plugin-content\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*display:\s*flex[^}]*flex-direction:\s*column", source, re.S)
     assert re.search(r"\.plugin-window\s*\{[^}]*flex:\s*1 1 auto[^}]*min-height:\s*0[^}]*overflow-y:\s*auto", source, re.S)
