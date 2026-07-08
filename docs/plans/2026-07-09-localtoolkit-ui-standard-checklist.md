@@ -208,7 +208,7 @@ Notes:
 - Residual risk: this evidence verifies layout CSS and representative rendered structure, not a live MoviePilot runtime session. Runtime install/reload can be performed separately before release.
 
 Commit:
-- pending hash after browser evidence commit
+- `d6f6ed6` (`test(localtoolkit): add ui standard viewport evidence`)
 
 ## Final Completion Criteria
 
