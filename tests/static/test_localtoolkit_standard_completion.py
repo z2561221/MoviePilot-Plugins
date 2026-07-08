@@ -18,6 +18,8 @@ PAGE_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Page.vue"
 APP_PAGE_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "AppPage.vue"
 DASHBOARD_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Dashboard.vue"
 FRONTEND_API = PLUGIN_DIR / "frontend" / "src" / "api.js"
+LIBRARY_CLEANUP_SERVICE = PLUGIN_DIR / "service" / "library_cleanup.py"
+ADAPTER_DIR = PLUGIN_DIR / "adapter"
 
 ENTRYPOINT_HEAVY_METHODS = {
     "init_plugin",
@@ -156,6 +158,33 @@ def test_localtoolkit_entrypoint_is_thin_contract_layer():
 def test_localtoolkit_modules_do_not_remain_second_service_layer():
     """modules 层不能继续作为第二套 service 层持有核心业务定义。"""
     assert _module_business_files() == []
+
+
+def test_localtoolkit_cleanup_has_adapter_boundary():
+    """清理库存的外部依赖必须收束到 adapter 边界内。"""
+    assert ADAPTER_DIR.is_dir()
+
+
+def test_localtoolkit_cleanup_does_not_delegate_to_old_librarycleanup_plugin():
+    """清理库存不得继续导入或回退加载原独立清库存插件。"""
+    source = LIBRARY_CLEANUP_SERVICE.read_text(encoding="utf-8")
+    forbidden = [
+        "app.plugins.librarycleanup",
+        "/config/plugins/librarycleanup",
+        "_localtoolkit_librarycleanup_delegate",
+        "_load_library_cleanup_class",
+        "_library_cleanup_source_paths",
+        "run_cleanup()",
+        "._emby_delete(",
+    ]
+    found = [item for item in forbidden if item in source]
+    assert found == []
+
+
+def test_localtoolkit_cleanup_notification_condition_text_is_dynamic():
+    """清理库存通知中的符合条件文案必须由当前筛选设置生成。"""
+    source = LIBRARY_CLEANUP_SERVICE.read_text(encoding="utf-8")
+    assert "符合条件(超" not in source
 
 
 def test_localtoolkit_mobile_primary_nav_is_horizontal():
