@@ -73,7 +73,7 @@ Notes:
 - Scope kept to Config shell CSS and static regression coverage.
 
 Commit:
-- pending hash after Config shell commit
+- `d05ae33` (`fix(localtoolkit): align config responsive shell`)
 
 ### 3. Page.vue Standard Detail Layout
 
