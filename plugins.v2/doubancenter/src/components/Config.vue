@@ -397,8 +397,8 @@ onMounted(loadOverview)
 .dc-rank-input :deep(.v-field__input) { min-height: 24px; padding-top: 1px; padding-bottom: 1px; font-size: 13px; }
 .dc-actions { padding: 10px 18px; }
 @media (max-width: 760px) {
-  .dc-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
-  .dc-card { height: min(860px, calc(100dvh - 16px)); }
+  .dc-config { width: 100%; height: 100%; padding: 0; }
+  .dc-card { height: 100vh; height: 100dvh; max-height: 100dvh; border-radius: 0; border: none; }
   .dc-header-subtitle { max-width: 100%; }
   .dc-body { flex-direction: column; }
   .dc-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
