@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as apiGet, b as apiPost } from './_plugin-vue_export-helper-DFDyaOGw.js';
+import { _ as _export_sfc, a as apiGet, b as apiPost } from './_plugin-vue_export-helper-CufXJ4_7.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "toolkit-page pa-4" };
@@ -130,78 +130,54 @@ onMounted(load);
 
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent("VIcon");
-  const _component_VAvatar = _resolveComponent("VAvatar");
-  const _component_VCardTitle = _resolveComponent("VCardTitle");
-  const _component_VCardSubtitle = _resolveComponent("VCardSubtitle");
+  const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VBtn = _resolveComponent("VBtn");
-  const _component_VCardItem = _resolveComponent("VCardItem");
-  const _component_VCard = _resolveComponent("VCard");
+  const _component_VToolbar = _resolveComponent("VToolbar");
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VChip = _resolveComponent("VChip");
   const _component_VCardText = _resolveComponent("VCardText");
+  const _component_VCard = _resolveComponent("VCard");
   const _component_VCol = _resolveComponent("VCol");
   const _component_VRow = _resolveComponent("VRow");
+  const _component_VCardTitle = _resolveComponent("VCardTitle");
+  const _component_VCardSubtitle = _resolveComponent("VCardSubtitle");
+  const _component_VCardItem = _resolveComponent("VCardItem");
   const _component_VDivider = _resolveComponent("VDivider");
   const _component_VTable = _resolveComponent("VTable");
 
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
-    _createVNode(_component_VCard, {
-      class: "hero mb-4",
-      variant: "flat"
+    _createVNode(_component_VToolbar, {
+      density: "comfortable",
+      class: "toolkit-toolbar mb-4"
     }, {
       default: _withCtx(() => [
-        _createVNode(_component_VCardItem, null, {
-          prepend: _withCtx(() => [
-            _createVNode(_component_VAvatar, {
-              color: "teal",
-              variant: "tonal",
-              rounded: "lg",
-              size: "48"
-            }, {
-              default: _withCtx(() => [
-                _createVNode(_component_VIcon, {
-                  icon: "mdi-tools",
-                  size: "28"
-                })
-              ]),
-              _: 1
-            })
-          ]),
-          append: _withCtx(() => [
-            _createVNode(_component_VBtn, {
-              size: "small",
-              variant: "tonal",
-              "prepend-icon": "mdi-refresh",
-              onClick: load
-            }, {
-              default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
-                _createTextVNode("刷新", -1)
-              ]))]),
-              _: 1
-            }),
-            _createVNode(_component_VBtn, {
-              size: "small",
-              variant: "text",
-              icon: "mdi-close",
-              onClick: _cache[0] || (_cache[0] = $event => (emit('close'))),
-              class: "ml-1"
-            })
-          ]),
-          default: _withCtx(() => [
-            _createVNode(_component_VCardTitle, { class: "text-h6" }, {
-              default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
-                _createTextVNode("工具中心", -1)
-              ]))]),
-              _: 1
-            }),
-            _createVNode(_component_VCardSubtitle, null, {
-              default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
-                _createTextVNode("清理库存保留周期运行；扫描缺集与清理TMDB改为按需单次执行。", -1)
-              ]))]),
-              _: 1
-            })
-          ]),
+        _createVNode(_component_VIcon, {
+          icon: "mdi-tools",
+          color: "primary",
+          class: "ms-4 me-3"
+        }),
+        _cache[2] || (_cache[2] = _createElementVNode("div", { class: "toolbar-copy" }, [
+          _createElementVNode("div", { class: "text-h6" }, "工具中心"),
+          _createElementVNode("div", { class: "text-caption text-medium-emphasis toolbar-subtitle" }, "清理库存保留周期运行；扫描缺集与清理 TMDB 改为按需单次执行。")
+        ], -1)),
+        _createVNode(_component_VSpacer),
+        _createVNode(_component_VBtn, {
+          size: "small",
+          variant: "tonal",
+          "prepend-icon": "mdi-refresh",
+          class: "text-none me-1",
+          onClick: load
+        }, {
+          default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
+            _createTextVNode("刷新", -1)
+          ]))]),
           _: 1
+        }),
+        _createVNode(_component_VBtn, {
+          size: "small",
+          variant: "text",
+          icon: "mdi-close",
+          onClick: _cache[0] || (_cache[0] = $event => (emit('close')))
         })
       ]),
       _: 1
@@ -316,7 +292,7 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, null, {
-              default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+              default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
                 _createTextVNode("运行历史", -1)
               ]))]),
               _: 1
@@ -366,7 +342,7 @@ return (_ctx, _cache) => {
           density: "compact"
         }, {
           default: _withCtx(() => [
-            _cache[6] || (_cache[6] = _createElementVNode("thead", null, [
+            _cache[5] || (_cache[5] = _createElementVNode("thead", null, [
               _createElementVNode("tr", null, [
                 _createElementVNode("th", null, "时间"),
                 _createElementVNode("th", null, "模块"),
@@ -399,7 +375,7 @@ return (_ctx, _cache) => {
                 ]))
               }), 128)),
               (!pagedHistory.value.length)
-                ? (_openBlock(), _createElementBlock("tr", _hoisted_14, [...(_cache[5] || (_cache[5] = [
+                ? (_openBlock(), _createElementBlock("tr", _hoisted_14, [...(_cache[4] || (_cache[4] = [
                     _createElementVNode("td", {
                       colspan: "5",
                       class: "text-center text-medium-emphasis py-6"
@@ -418,6 +394,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d97a1624"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0f601098"]]);
 
 export { Page as default };

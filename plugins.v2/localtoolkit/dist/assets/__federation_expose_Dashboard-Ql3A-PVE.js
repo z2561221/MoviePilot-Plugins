@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as apiGet } from './_plugin-vue_export-helper-DFDyaOGw.js';
+import { _ as _export_sfc, a as apiGet } from './_plugin-vue_export-helper-CufXJ4_7.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dash-row" };
@@ -12,12 +12,24 @@ const {ref,onMounted} = await importShared('vue');
 
 const _sfc_main = {
   __name: 'Dashboard',
-  props: { api: { type: Object, default: () => ({}) } },
+  props: {
+  api: { type: Object, default: () => ({}) },
+  allowRefresh: { type: Boolean, default: false },
+},
   setup(__props) {
 
 const props = __props;
 const status = ref(null);
-async function load(){ try { status.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/status'); } catch(e){} }
+const loading = ref(false);
+async function load() {
+  loading.value = true;
+  try {
+    status.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/status');
+  } catch(e) {
+  } finally {
+    loading.value = false;
+  }
+}
 onMounted(load);
 
 return (_ctx, _cache) => {
@@ -25,6 +37,7 @@ return (_ctx, _cache) => {
   const _component_VAvatar = _resolveComponent("VAvatar");
   const _component_VCardTitle = _resolveComponent("VCardTitle");
   const _component_VCardSubtitle = _resolveComponent("VCardSubtitle");
+  const _component_VBtn = _resolveComponent("VBtn");
   const _component_VCardItem = _resolveComponent("VCardItem");
   const _component_VCardText = _resolveComponent("VCardText");
   const _component_VCard = _resolveComponent("VCard");
@@ -46,6 +59,18 @@ return (_ctx, _cache) => {
             ]),
             _: 1
           })
+        ]),
+        append: _withCtx(() => [
+          (__props.allowRefresh)
+            ? (_openBlock(), _createBlock(_component_VBtn, {
+                key: 0,
+                icon: "mdi-refresh",
+                variant: "text",
+                size: "small",
+                loading: loading.value,
+                onClick: load
+              }, null, 8, ["loading"]))
+            : _createCommentVNode("", true)
         ]),
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, null, {
@@ -87,6 +112,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0ee59c41"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2f57ef6a"]]);
 
 export { Dashboard as default };

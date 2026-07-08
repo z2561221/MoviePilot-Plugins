@@ -155,7 +155,7 @@ Commit:
 
 ### 6. Federation Build Assets
 
-Status: pending
+Status: completed
 
 Acceptance:
 - `pnpm run build` succeeds in `plugins.v2/localtoolkit/frontend`.
@@ -169,13 +169,17 @@ Verify:
 - `git status --short`
 
 Evidence:
-- 
+- `pnpm install --no-lockfile` completed successfully; no `pnpm-lock.yaml` was created.
+- Initial `pnpm run build` failed because `node` was not on PATH; rerun with bundled Node in PATH succeeded with Vite `built in 752ms`.
+- `remoteEntry.js` exposes `./Page`, `./Config`, `./Dashboard`, and `./AppPage`.
+- Asset reference check returned `{"RefCount":9,...,"Missing":""}`.
+- `dist/assets` now contains only the new component hash assets from this build; old component hash assets are deleted by `emptyOutDir`.
 
 Notes:
-- 
+- `frontend/node_modules` exists only as a local ignored build dependency directory and is not part of the commit.
 
 Commit:
-- 
+- pending hash after federation build commit
 
 ### 7. Desktop And Mobile UI Evidence
 
