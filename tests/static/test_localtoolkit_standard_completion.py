@@ -15,6 +15,7 @@ REMOTE_ENTRY = PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js"
 VITE_CONFIG = PLUGIN_DIR / "frontend" / "vite.config.js"
 CONFIG_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Config.vue"
 PAGE_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "Page.vue"
+APP_PAGE_VUE = PLUGIN_DIR / "frontend" / "src" / "components" / "AppPage.vue"
 FRONTEND_API = PLUGIN_DIR / "frontend" / "src" / "api.js"
 
 ENTRYPOINT_HEAVY_METHODS = {
@@ -205,6 +206,24 @@ def test_localtoolkit_page_uses_standard_toolbar_and_backend_pagination():
     assert 'prepend-icon="mdi-refresh"' in source
     assert 'icon="mdi-close"' in source
     assert "history?page=${page.value}&page_size=${pageSize}" in source
+    assert ".history-mobile { display: none; }" in source
+    assert re.search(r"@media\s*\(\s*max-width:\s*600px\s*\)", source, re.S)
+    assert re.search(r"\.history-table\s*\{\s*display:\s*none", source, re.S)
+    assert re.search(r"\.history-mobile\s*\{\s*display:\s*block", source, re.S)
+
+
+def test_localtoolkit_app_page_matches_page_history_contract():
+    """主页面历史记录必须与详情页一样使用后端分页和移动降级布局。"""
+    source = APP_PAGE_VUE.read_text(encoding="utf-8")
+    assert "const emit = defineEmits(['close'])" in source
+    assert "<VToolbar" in source
+    assert 'class="toolkit-toolbar mb-4"' in source
+    assert '<VCard class="hero' not in source
+    assert ".hero" not in source
+    assert "const total = ref(0)" in source
+    assert "Math.ceil((total.value || 0) / pageSize)" in source
+    assert "history?page=${page.value}&page_size=${pageSize}" in source
+    assert ".slice(" not in source
     assert ".history-mobile { display: none; }" in source
     assert re.search(r"@media\s*\(\s*max-width:\s*600px\s*\)", source, re.S)
     assert re.search(r"\.history-table\s*\{\s*display:\s*none", source, re.S)

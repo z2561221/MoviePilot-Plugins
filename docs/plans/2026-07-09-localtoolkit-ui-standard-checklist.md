@@ -103,7 +103,7 @@ Commit:
 
 ### 4. AppPage.vue Standard Main Page Layout
 
-Status: pending
+Status: completed
 
 Acceptance:
 - `frontend/src/components/AppPage.vue` interaction and history behavior match `Page.vue`.
@@ -116,13 +116,17 @@ Verify:
 - Run the verification baseline.
 
 Evidence:
-- 
+- `plugins.v2/localtoolkit/frontend/src/components/AppPage.vue:67` now requests history with `page=${page.value}&page_size=${pageSize}`.
+- `AppPage.vue` now uses `total` for `totalPages` and `pagedHistory` no longer slices a full frontend list.
+- `AppPage.vue` now defines `emit` for the close action and uses the same `toolkit-toolbar` shell as `Page.vue`.
+- Static assertions cover backend pagination, absence of `.slice(`, toolbar shell, and mobile history/table switching.
+- Baseline command returned `11 passed in 0.08s`.
 
 Notes:
-- 
+- The UI subtitle still follows the existing localized text line; the data dependency for pagination is no longer frontend slicing.
 
 Commit:
-- 
+- pending hash after AppPage layout commit
 
 ### 5. Dashboard.vue Standard Card Controls
 

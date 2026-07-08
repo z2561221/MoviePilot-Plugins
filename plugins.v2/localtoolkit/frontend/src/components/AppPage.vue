@@ -3,20 +3,18 @@ import { ref, onMounted, computed } from 'vue'
 import { apiGet, apiPost } from '../api.js'
 
 const props = defineProps({ api: { type: Object, default: () => ({}) } })
+const emit = defineEmits(['close'])
 
 const status = ref(null)
 const history = ref([])
+const total = ref(0)
 const loadingModule = ref('')
 const result = ref(null)
 const page = ref(1)
 const pageSize = 10
 
-const totalPages = computed(() => Math.max(1, Math.ceil((history.value?.length || 0) / pageSize)))
-const pagedHistory = computed(() => {
-  if (!history.value?.length) return []
-  const start = (page.value - 1) * pageSize
-  return history.value.slice(start, start + pageSize)
-})
+const totalPages = computed(() => Math.max(1, Math.ceil((total.value || 0) / pageSize)))
+const pagedHistory = computed(() => history.value || [])
 
 const modules = computed(() => [
   {
@@ -66,8 +64,9 @@ const modules = computed(() => [
 async function load() {
   try {
     status.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/status')
-    history.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/history')
-    page.value = 1
+    const hist = await apiGet(props.api, `plugin/LocalToolkit/local_toolkit/history?page=${page.value}&page_size=${pageSize}`)
+    history.value = hist.items || []
+    total.value = hist.total || 0
   } catch (e) {
     result.value = { success: false, message: String(e) }
   }
@@ -85,19 +84,30 @@ async function run(moduleKey) {
   }
 }
 
-function prevPage() { if (page.value > 1) page.value-- }
-function nextPage() { if (page.value < totalPages.value) page.value++ }
+function prevPage() {
+  if (page.value > 1) {
+    page.value--
+    load()
+  }
+}
+function nextPage() {
+  if (page.value < totalPages.value) {
+    page.value++
+    load()
+  }
+}
 
 onMounted(load)
 </script>
 
 <template>
   <div class="toolkit-page pa-4">
-    <VCard class="hero mb-4" variant="flat">
-      <VCardItem>
-        <template #prepend>
-          <VAvatar color="teal" variant="tonal" rounded="lg" size="48"><VIcon icon="mdi-tools" size="28" /></VAvatar>
-        </template>
+    <VToolbar density="comfortable" class="toolkit-toolbar mb-4">
+      <VIcon icon="mdi-tools" color="primary" class="ms-4 me-3" />
+      <div class="toolbar-copy">
+        <div class="text-h6">工具中心</div>
+        <div class="text-caption text-medium-emphasis toolbar-subtitle">清理库存保留周期运行；扫描缺集与清理 TMDB 改为按需单次执行。</div>
+        <!--
         <VCardTitle class="text-h6">工具中心</VCardTitle>
         <VCardSubtitle>清理库存保留周期运行；扫描缺集与清理TMDB改为按需单次执行。</VCardSubtitle>
         <template #append>
@@ -106,6 +116,13 @@ onMounted(load)
         </template>
       </VCardItem>
     </VCard>
+
+        -->
+      </div>
+      <VSpacer />
+      <VBtn size="small" variant="tonal" prepend-icon="mdi-refresh" class="text-none me-1" @click="load">刷新</VBtn>
+      <VBtn size="small" variant="text" icon="mdi-close" @click="emit('close')" />
+    </VToolbar>
 
     <VAlert v-if="result" :type="result.success !== false ? 'success' : 'error'" variant="tonal" class="mb-4" :text="result.message || result.summary || JSON.stringify(result)" />
 
@@ -178,7 +195,10 @@ onMounted(load)
 
 <style scoped>
 .toolkit-page { background: linear-gradient(180deg, rgba(var(--v-theme-primary), .04), transparent 220px); }
-.hero, .history-card { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
+.toolkit-toolbar, .history-card { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
+.toolkit-toolbar { background: rgb(var(--v-theme-surface)); }
+.toolbar-copy { min-width: 0; }
+.toolbar-subtitle { max-width: min(720px, 58vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .module-card { border-radius: 16px; min-height: 245px; height: 100%; }
 .module-desc { font-size: 13px; line-height: 1.55; color: rgba(var(--v-theme-on-surface), .72); min-height: 42px; }
 .module-meta { font-size: 12px; line-height: 1.7; color: rgba(var(--v-theme-on-surface), .68); }
