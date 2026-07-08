@@ -14,6 +14,8 @@ from . import utils
 from .doubanapi import DoubanApi
 from .storage import records as storage
 
+WISH_NOTIFY_THROTTLE_SECONDS = 6 * 60 * 60
+
 
 def check_cookie_periodically(self) -> None:
     """定期检测豆瓣 Cookie 是否仍然可用。"""
@@ -35,7 +37,7 @@ def check_cookie_periodically(self) -> None:
                 self._last_cookie_valid_time = now
         else:
             if now - self._last_cookie_invalid_time > 600:
-                _send_folio_notification(self, False, "豆瓣cookie可能已失效，请及时更换！")
+                _send_wish_notification(self, "豆瓣 Cookie 可能已失效，请及时更换！", throttle_key="cookie_invalid")
                 self._last_cookie_invalid_time = now
         self._last_cookie_check_time = now
 
@@ -62,6 +64,7 @@ def run_wish_sync(self, api=None, request_get=None) -> None:
         state.update({"last_run": now, "last_error": f"读取想看失败：{err}"})
         storage.save_folio_wish_state(self, state)
         logger.warning(f"豆瓣想看读取失败：{err}")
+        _send_wish_notification(self, f"读取想看失败：{err}", throttle_key="wish_read_failed")
         return
 
     seen = storage.read_folio_wish_seen(self)
@@ -358,3 +361,23 @@ def _send_folio_notification(self, success: bool, message: str):
         self.post_message(mtype=NotificationType.MediaServer, title=t, text=msg)
     except Exception as e:
         logger.error(f'{self.plugin_name} 发送通知失败: {e}')
+
+
+def _send_wish_notification(self, message: str, throttle_key: str = "wish", throttle_seconds: int = WISH_NOTIFY_THROTTLE_SECONDS):
+    """通过同步想看通知开关发送失败消息，并按类型节流。"""
+    if not getattr(self, "_wish_notify", False):
+        return
+    now_ts = datetime.datetime.now().timestamp()
+    last_map = getattr(self, "_wish_notification_last_times", None)
+    if not isinstance(last_map, dict):
+        last_map = {}
+    last_ts = float(last_map.get(throttle_key, 0) or 0)
+    if throttle_seconds and now_ts - last_ts < throttle_seconds:
+        return
+    last_map[throttle_key] = now_ts
+    self._wish_notification_last_times = last_map
+    msg = message.strip() + f"\n时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    try:
+        self.post_message(mtype=NotificationType.MediaServer, title="豆瓣想看同步失败", text=msg)
+    except Exception as e:
+        logger.error(f'{self.plugin_name} 发送同步想看通知失败: {e}')
