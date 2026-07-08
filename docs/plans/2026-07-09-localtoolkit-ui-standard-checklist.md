@@ -99,7 +99,7 @@ Notes:
 - Supplemental `pnpm run build` precheck timed out after 124s because the frontend has no `node_modules`; leftover pnpm/node processes from that attempt were stopped. Formal build verification remains item 6.
 
 Commit:
-- pending hash after Page layout commit
+- `ef3c005` (`fix(localtoolkit): standardize detail page toolbar`)
 
 ### 4. AppPage.vue Standard Main Page Layout
 
