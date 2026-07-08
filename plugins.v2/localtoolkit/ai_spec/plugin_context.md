@@ -48,18 +48,25 @@ that belongs to the later MP local runtime phase.
 - `service/base.py`
   - Shared module helpers such as history recording and config storage.
 - `service/library_cleanup.py`
-  - Library cleanup behavior, options cache, media-server option loading, and
-    delegated legacy cleanup execution.
+  - Library cleanup behavior, options cache, self-owned candidate filtering,
+    notification text, result saving, and optional deletion orchestration.
 - `service/check_missing.py`
   - On-demand missing scan behavior.
 - `service/tmdb_cache.py`
   - On-demand Redis/TMDB cache status and cleanup behavior.
+- `adapter/media_server.py`
+  - External MoviePilot/media-server boundary for server, library, user,
+    candidate listing, detail enrichment, and item deletion.
+- `model/library_cleanup.py`
+  - Structured cleanup conditions, candidate normalization, OR-union filtering,
+    de-duplication, and dynamic condition labels.
 - `modules/*.py`
   - Compatibility shims only. Do not move orchestration or external boundaries
     back into `modules/`.
 
-There is currently no `adapter/` directory. If a future external boundary grows
-large enough to need one, add it deliberately and update this file and tests.
+`library_cleanup` must not import or load the old standalone `LibraryCleanup`
+plugin. The tool center owns this flow directly; old plugin config migration is
+handled only in `service/lifecycle.py`.
 
 ## API Routes
 
@@ -109,6 +116,10 @@ Important persistent fields:
 - `library_cleanup.selected_user`
 - `library_cleanup.filter_played`
 - `library_cleanup.filter_favorite`
+- `library_cleanup.days_threshold`
+- `library_cleanup.filter_played_2`
+- `library_cleanup.filter_favorite_2`
+- `library_cleanup.days_threshold_2`
 - `library_cleanup.auto_delete`
 - `library_cleanup.auto_delete_delay`
 - `library_cleanup.dry_run`

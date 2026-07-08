@@ -76,6 +76,31 @@ class _PluginManager:
         return {}
 
 
+class _CleanupAdapter:
+    def __init__(self, candidates=None, delete_results=None):
+        self.candidates = list(candidates or [])
+        self.delete_results = list(delete_results or [])
+        self.deleted = []
+
+    def list_servers(self):
+        return [{"title": "emby", "value": "emby"}]
+
+    def list_libraries(self, selected_server="", selected_user=""):
+        return [{"title": "Movies", "value": "library-1"}]
+
+    def list_users(self, selected_server=""):
+        return [{"title": "admin", "value": "admin"}]
+
+    def iter_candidates(self, config):
+        return iter(self.candidates)
+
+    def delete_item(self, candidate):
+        self.deleted.append(candidate.movie_id)
+        if self.delete_results:
+            return self.delete_results.pop(0)
+        return True
+
+
 def _install_stubs():
     app = types.ModuleType("app")
     app.__path__ = []
@@ -257,42 +282,35 @@ class LocalToolkitStabilityTest(unittest.TestCase):
 
         self.assertEqual(module.get_service(), [])
 
-    def test_library_cleanup_delegate_can_load_source_fallback(self):
+    def test_library_cleanup_uses_adapter_for_options(self):
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            source = Path(tmpdir) / "__init__.py"
-            source.write_text(
-                "\n".join(
-                    [
-                        "class LibraryCleanup:",
-                        "    def init_plugin(self, config):",
-                        "        self.loaded_config = config",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-            module = LibraryCleanupModule(self.plugin)
-            module.load_config({"enabled": True, "days_threshold": 20})
-            module._library_cleanup_source_paths = lambda: [source]
+        module = LibraryCleanupModule(self.plugin, adapter=_CleanupAdapter())
+        module.load_config({"selected_server": "emby", "selected_user": "admin"})
 
-            delegate = module._delegate()
+        options = module.get_options()
 
-            self.assertIsNotNone(delegate)
-            self.assertEqual(delegate.loaded_config["days_threshold"], 20)
+        self.assertEqual(options["servers"], [{"title": "emby", "value": "emby"}])
+        self.assertEqual(options["libraries"], [{"title": "Movies", "value": "library-1"}])
+        self.assertEqual(options["users"], [{"title": "admin", "value": "admin"}])
 
-    def test_library_cleanup_delegate_keeps_last_error(self):
+    def test_library_cleanup_keeps_last_error_when_adapter_raises(self):
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
 
-        module = LibraryCleanupModule(self.plugin)
-        module._library_cleanup_source_paths = lambda: []
+        class BrokenAdapter(_CleanupAdapter):
+            def iter_candidates(self, config):
+                raise RuntimeError("boom")
 
-        delegate = module._delegate()
+        module = LibraryCleanupModule(self.plugin, adapter=BrokenAdapter())
+        module.load_config({"enabled": True})
 
-        self.assertIsNone(delegate)
-        self.assertTrue(module.last_error)
+        response = module.run_once()
+
+        self.assertFalse(response["success"])
+        self.assertIn("boom", module.last_error)
 
     def test_library_cleanup_auto_delete_sends_only_auto_delete_notice(self):
+        self.skipTest("旧 delegate 行为已由自持 adapter 流程用例覆盖")
         from datetime import datetime, timezone
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
 
@@ -338,6 +356,7 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertIn("即将开始自动删除", self.plugin._posted[0]["text"])
 
     def test_library_cleanup_manual_mode_sends_only_delegate_notice(self):
+        self.skipTest("旧 delegate 行为已由自持 adapter 流程用例覆盖")
         from datetime import datetime, timezone
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
 
@@ -377,6 +396,7 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertNotIn("即将开始自动删除", self.plugin._posted[0]["text"])
 
     def test_library_cleanup_auto_delete_zero_match_sends_clean_notice(self):
+        self.skipTest("旧 delegate 行为已由自持 adapter 流程用例覆盖")
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
 
         class Result:
@@ -409,6 +429,7 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertIn("媒体库很干净", self.plugin._posted[0]["text"])
 
     def test_library_cleanup_auto_delete_aborts_when_over_limit(self):
+        self.skipTest("旧 delegate 行为已由自持 adapter 流程用例覆盖")
         from datetime import datetime, timezone
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
 
@@ -454,6 +475,112 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertEqual(delegate.deleted, [])
         self.assertIn("超过自动删除上限", response["summary"])
 
+
+    def test_library_cleanup_owned_auto_delete_sends_configured_notice(self):
+        from datetime import datetime, timezone
+        from localtoolkit.modules.library_cleanup import LibraryCleanupModule
+        from localtoolkit.model.library_cleanup import CleanupCandidate
+
+        movie = CleanupCandidate(
+            movie_id="movie-1",
+            code="CODE-001",
+            date_created="2026-05-29T00:00:00Z",
+            date_created_obj=datetime(2026, 5, 29, tzinfo=timezone.utc),
+            played=True,
+            favorite=False,
+        )
+        adapter = _CleanupAdapter([movie])
+        module = LibraryCleanupModule(self.plugin, adapter=adapter)
+        module.load_config({
+            "notify": True,
+            "auto_delete": True,
+            "auto_delete_delay": 0,
+            "days_threshold": 20,
+            "filter_played": "played",
+            "filter_favorite": "unfav",
+        })
+
+        response = module.run_once()
+
+        self.assertTrue(response["success"])
+        self.assertEqual(adapter.deleted, ["movie-1"])
+        self.assertEqual(self.plugin._posted[0]["title"], "清理库存检查报告")
+        self.assertIn("即将开始自动删除", self.plugin._posted[0]["text"])
+        self.assertIn("符合条件：条件一（未收藏 + 已看过 + 超过20天）", self.plugin._posted[0]["text"])
+
+    def test_library_cleanup_owned_manual_mode_sends_dynamic_notice(self):
+        from datetime import datetime, timezone
+        from localtoolkit.modules.library_cleanup import LibraryCleanupModule
+        from localtoolkit.model.library_cleanup import CleanupCandidate
+
+        movie = CleanupCandidate(
+            movie_id="movie-1",
+            code="CODE-001",
+            date_created="2026-05-29T00:00:00Z",
+            date_created_obj=datetime(2026, 5, 29, tzinfo=timezone.utc),
+            played=True,
+            favorite=False,
+        )
+        module = LibraryCleanupModule(self.plugin, adapter=_CleanupAdapter([movie]))
+        module.load_config({
+            "notify": True,
+            "auto_delete": False,
+            "days_threshold": 20,
+            "filter_played": "played",
+            "filter_favorite": "unfav",
+        })
+
+        response = module.run_once()
+
+        self.assertTrue(response["success"])
+        self.assertEqual(self.plugin._posted[0]["title"], "清理库存检查报告")
+        self.assertNotIn("即将开始自动删除", self.plugin._posted[0]["text"])
+        self.assertIn("符合条件：条件一（未收藏 + 已看过 + 超过20天）", self.plugin._posted[0]["text"])
+
+    def test_library_cleanup_owned_zero_match_sends_clean_notice(self):
+        from localtoolkit.modules.library_cleanup import LibraryCleanupModule
+
+        module = LibraryCleanupModule(self.plugin, adapter=_CleanupAdapter())
+        module.load_config({"notify": True, "auto_delete": True})
+
+        response = module.run_once()
+
+        self.assertTrue(response["success"])
+        self.assertEqual(self.plugin._posted[0]["title"], "清理库存检查报告")
+        self.assertIn("媒体库很干净", self.plugin._posted[0]["text"])
+
+    def test_library_cleanup_owned_auto_delete_aborts_when_over_limit(self):
+        from datetime import datetime, timezone
+        from localtoolkit.modules.library_cleanup import LibraryCleanupModule
+        from localtoolkit.model.library_cleanup import CleanupCandidate
+
+        movies = [
+            CleanupCandidate(
+                movie_id=f"movie-{index}",
+                code=f"CODE-{index:03d}",
+                date_created="2026-05-29T00:00:00Z",
+                date_created_obj=datetime(2026, 5, 29, tzinfo=timezone.utc),
+                played=True,
+                favorite=False,
+            )
+            for index in (1, 2)
+        ]
+        adapter = _CleanupAdapter(movies)
+        module = LibraryCleanupModule(self.plugin, adapter=adapter)
+        module.load_config({
+            "notify": True,
+            "auto_delete": True,
+            "auto_delete_delay": 0,
+            "auto_delete_max_count": 1,
+            "filter_played": "played",
+            "filter_favorite": "unfav",
+        })
+
+        response = module.run_once()
+
+        self.assertFalse(response["success"])
+        self.assertEqual(adapter.deleted, [])
+        self.assertIn("超过自动删除上限", response["summary"])
 
     def test_library_cleanup_two_conditions_return_or_union_without_duplicates(self):
         from datetime import datetime, timedelta, timezone
