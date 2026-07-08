@@ -151,7 +151,7 @@ Notes:
 - Existing flat dashboard card structure was preserved; only refresh capability and loading state were added.
 
 Commit:
-- pending hash after Dashboard refresh commit
+- `94d84c9` (`fix(localtoolkit): add dashboard refresh control`)
 
 ### 6. Federation Build Assets
 
