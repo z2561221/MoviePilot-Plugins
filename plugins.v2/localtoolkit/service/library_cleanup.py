@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from apscheduler.triggers.cron import CronTrigger
 from app.log import logger
+from app.schemas.types import NotificationType
 
 from ..adapter.media_server import MediaServerCleanupAdapter
 from ..model.library_cleanup import CleanupCandidate, CleanupResult, filter_cleanup_candidates
@@ -49,6 +50,19 @@ class LibraryCleanupModule(BaseToolModule):
             "dry_run": False,
             "auto_delete_max_count": 20,
         }
+
+    def send_notification(self, title: str, text: str) -> None:
+        """使用 Telegram MarkdownV2 发送清理库存通知。"""
+        if self.config.get("notify", True):
+            try:
+                self.plugin.post_message(
+                    mtype=NotificationType.Plugin,
+                    title=title,
+                    text=text,
+                    parse_mode="MarkdownV2",
+                )
+            except Exception as err:
+                logger.warning(f"本地工具集：发送通知失败：{err}")
 
     def get_service(self):
         """返回清理库存定时服务配置。"""
@@ -240,12 +254,19 @@ class LibraryCleanupModule(BaseToolModule):
         if movies:
             lines.append("")
             lines.append("**待处理列表**")
-            for index, movie in enumerate(movies[:20], start=1):
+            rows = []
+            names = []
+            for movie in movies[:20]:
+                name = str(movie.title or movie.code or movie.movie_id or "未知").replace("`", "'")
+                names.append(name if len(name) <= 20 else f"{name[:19]}…")
+            name_width = max(12, min(20, max((len(name) for name in names), default=12)))
+            rows.append(f"序号  {'电影名称'.ljust(name_width)}  天数   入库日期")
+            for index, (movie, name) in enumerate(zip(movies[:20], names), start=1):
                 date_text = movie.date_created[:10] if movie.date_created else "未知"
                 age = movie.age_days(checked_at)
                 age_text = f"{age}天" if age is not None else "未知"
-                name = movie.title or movie.code or movie.movie_id or "未知"
-                lines.append(f"{index}. {name} | {age_text} | {date_text}")
+                rows.append(f"{index:02d}    {name.ljust(name_width)}  {age_text.rjust(4)}   {date_text}")
+            lines.extend(["```", *rows, "```"])
             if len(movies) > 20:
                 lines.append(f"... 还有{len(movies) - 20}部")
         return "\n".join(lines)

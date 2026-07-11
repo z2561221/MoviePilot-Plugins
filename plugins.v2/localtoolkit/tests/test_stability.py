@@ -781,8 +781,22 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertIn("符合条件：1 部", text)
         self.assertIn("自动删除：未开启", text)
         self.assertIn("**待处理列表**", text)
-        self.assertIn("1. JUR-704 | 61天 | 2026-05-10", text)
-        self.assertNotIn("1. 67698 |", text)
+        self.assertIn("```", text)
+        self.assertIn("序号  电影名称", text)
+        self.assertIn("01    JUR-704", text)
+        self.assertIn("61天", text)
+        self.assertIn("2026-05-10", text)
+        self.assertNotIn("01    67698", text)
+
+    def test_library_cleanup_notification_explicitly_uses_markdown_v2(self):
+        from localtoolkit.modules.library_cleanup import LibraryCleanupModule
+
+        module = LibraryCleanupModule(self.plugin, adapter=_CleanupAdapter())
+        module.load_config({"notify": True})
+
+        module.send_notification("清理库存检查报告", "**测试**")
+
+        self.assertEqual(self.plugin._posted[0]["parse_mode"], "MarkdownV2")
 
     def test_library_cleanup_legacy_single_condition_config_stays_valid(self):
         from localtoolkit.model.library_cleanup import (
