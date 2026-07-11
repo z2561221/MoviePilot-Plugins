@@ -1,0 +1,218 @@
+# LocalToolkit UI Standard Execution Checklist
+
+Branch: `worldlinefix/localtoolkit`
+Target plugin: `plugins.v2/localtoolkit` (`LocalToolkit`, display name `工具中心`)
+Verification baseline: `& 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m pytest --confcutdir=tests/static tests/static/test_localtoolkit_standard_completion.py -q`
+
+## Scope
+
+Unify the Tool Center plugin UI with the MoviePilot plugin UI standard for desktop and mobile. Work only in `D:\AIGC\MoviePilot\MoviePilot-Plugins`; do not touch `D:\AIGC\MoviePilot\tmp\MoviePilot-Frontend-v2`, do not recreate `worldlinefix/toolcenter-ui`, and do not push, merge, amend, or publish.
+
+## Source Of Truth
+
+- `D:\AIGC\MoviePilot\.agents\skills\moviepilot-plugin-ui-design\SKILL.md`
+- `D:\AIGC\MoviePilot\.agents\skills\create-moviepilot-plugin\SKILL.md`
+- `D:\AIGC\MoviePilot\AGENTS.md`
+
+## Execution Rules
+
+- Before each work unit, confirm `git status --short --branch` shows `worldlinefix/localtoolkit`.
+- Run the verification baseline before new UI edits in a fresh turn.
+- Work only on the next pending item.
+- After a work unit passes its named verification, update only `Status`, `Evidence`, `Notes`, and `Commit` fields for that item, then create a commit for that verified unit.
+- Never commit failed verification.
+- Never push, merge, or amend automatically.
+
+## Checklist
+
+### 1. Baseline And Ledger
+
+Status: completed
+
+Acceptance:
+- This checklist exists at `docs/plans/2026-07-09-localtoolkit-ui-standard-checklist.md`.
+- Current branch is `worldlinefix/localtoolkit`.
+- Static baseline test exits 0.
+
+Verify:
+- `git status --short --branch`
+- `& 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m pytest --confcutdir=tests/static tests/static/test_localtoolkit_standard_completion.py -q`
+
+Evidence:
+- `Test-Path` for `docs/plans/2026-07-09-localtoolkit-ui-standard-checklist.md` was false before creation and the file now exists.
+- `git status --short --branch` returned `## worldlinefix/localtoolkit...origin/worldlinefix/localtoolkit`.
+- Baseline command returned `9 passed in 0.04s`.
+
+Notes:
+- Checklist was created because the active goal referenced this path but the file had not yet been written.
+
+Commit:
+- `1d1cc47` (`docs(localtoolkit): add ui standard checklist`)
+
+### 2. Config.vue Desktop And Mobile Shell
+
+Status: completed
+
+Acceptance:
+- `frontend/src/components/Config.vue` desktop `.plugin-nav` width and flex basis are exactly `160px`.
+- Config responsive breakpoint uses the standard `@media (max-width: 760px)` for mobile layout.
+- Mobile primary nav and subtabs are horizontal, non-wrapping, and horizontally scrollable.
+- Overview remains the first primary tab with key `overview` and default active state.
+
+Verify:
+- Update or add static assertions in `tests/static/test_localtoolkit_standard_completion.py`.
+- Run the verification baseline.
+
+Evidence:
+- `plugins.v2/localtoolkit/frontend/src/components/Config.vue:279` now has `.plugin-nav { width: 160px; flex: 0 0 160px; ... }`.
+- `plugins.v2/localtoolkit/frontend/src/components/Config.vue:294` now uses `@media (max-width: 760px)`.
+- Static assertions now reject `max-width: 1024px` and `(hover: none)` fallback in Config.
+- Baseline command returned `9 passed in 0.07s`.
+
+Notes:
+- Scope kept to Config shell CSS and static regression coverage.
+
+Commit:
+- `d05ae33` (`fix(localtoolkit): align config responsive shell`)
+
+### 3. Page.vue Standard Detail Layout
+
+Status: completed
+
+Acceptance:
+- `frontend/src/components/Page.vue` uses a standard `VToolbar` top bar rather than a hero-style `VCard` header.
+- The toolbar exposes refresh and close actions with standard Vuetify buttons/icons.
+- History uses backend pagination with `page` and `page_size`.
+- Mobile history cards are shown on narrow screens and the desktop table is hidden there.
+
+Verify:
+- Static assertions cover `VToolbar`, no hero header for the top shell, backend pagination request, and mobile history/table rules.
+- Run the verification baseline.
+
+Evidence:
+- `plugins.v2/localtoolkit/frontend/src/components/Page.vue:105` now uses `<VToolbar density="comfortable" class="toolkit-toolbar mb-4">`.
+- `plugins.v2/localtoolkit/frontend/src/components/Page.vue:67` requests history with `page=${page.value}&page_size=${pageSize}`.
+- Static assertions now cover toolbar usage, absence of the old hero card class, backend pagination, and mobile history/table switching.
+- Baseline command returned `10 passed in 0.07s`.
+
+Notes:
+- Supplemental `pnpm run build` precheck timed out after 124s because the frontend has no `node_modules`; leftover pnpm/node processes from that attempt were stopped. Formal build verification remains item 6.
+
+Commit:
+- `ef3c005` (`fix(localtoolkit): standardize detail page toolbar`)
+
+### 4. AppPage.vue Standard Main Page Layout
+
+Status: completed
+
+Acceptance:
+- `frontend/src/components/AppPage.vue` interaction and history behavior match `Page.vue`.
+- History no longer depends on frontend-only full-list slicing.
+- It requests history with `page` and `page_size`.
+- Mobile history cards and desktop table switch cleanly with no horizontal overflow.
+
+Verify:
+- Static assertions cover backend pagination request and absence of frontend-only slicing.
+- Run the verification baseline.
+
+Evidence:
+- `plugins.v2/localtoolkit/frontend/src/components/AppPage.vue:67` now requests history with `page=${page.value}&page_size=${pageSize}`.
+- `AppPage.vue` now uses `total` for `totalPages` and `pagedHistory` no longer slices a full frontend list.
+- `AppPage.vue` now defines `emit` for the close action and uses the same `toolkit-toolbar` shell as `Page.vue`.
+- Static assertions cover backend pagination, absence of `.slice(`, toolbar shell, and mobile history/table switching.
+- Baseline command returned `11 passed in 0.08s`.
+
+Notes:
+- The UI subtitle still follows the existing localized text line; the data dependency for pagination is no longer frontend slicing.
+
+Commit:
+- `6c6bbfe` (`fix(localtoolkit): align app page history pagination`)
+
+### 5. Dashboard.vue Standard Card Controls
+
+Status: completed
+
+Acceptance:
+- `frontend/src/components/Dashboard.vue` keeps `VCard variant="flat"`, 16px radius, border, `VCardItem`, `VCardTitle`, and `VCardSubtitle`.
+- It accepts `allowRefresh` and shows a refresh action in the `VCardItem` append slot only when refresh is allowed.
+- Refresh action reloads status through the injected API.
+
+Verify:
+- Static assertions cover `allowRefresh`, append refresh control, and standard card structure.
+- Run the verification baseline.
+
+Evidence:
+- `plugins.v2/localtoolkit/frontend/src/components/Dashboard.vue` now accepts `allowRefresh` with default `false`.
+- `Dashboard.vue` now exposes a `VCardItem` append refresh button gated by `v-if="allowRefresh"` and reloads status through `load`.
+- Static assertions cover the standard card structure, border/radius styling, append refresh control, loading state, and click handler.
+- Baseline command returned `12 passed in 0.13s`.
+
+Notes:
+- Existing flat dashboard card structure was preserved; only refresh capability and loading state were added.
+
+Commit:
+- `94d84c9` (`fix(localtoolkit): add dashboard refresh control`)
+
+### 6. Federation Build Assets
+
+Status: completed
+
+Acceptance:
+- `pnpm run build` succeeds in `plugins.v2/localtoolkit/frontend`.
+- `dist/assets/remoteEntry.js` exposes `./Config`, `./Page`, `./AppPage`, and `./Dashboard`.
+- Every JS/CSS asset referenced by `remoteEntry.js` exists.
+- Old stale Config/Page/AppPage/Dashboard hash assets are not left behind by the build.
+
+Verify:
+- `& 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\pnpm.cmd' run build`
+- PowerShell asset reference check against `plugins.v2/localtoolkit/dist/assets/remoteEntry.js`.
+- `git status --short`
+
+Evidence:
+- `pnpm install --no-lockfile` completed successfully; no `pnpm-lock.yaml` was created.
+- Initial `pnpm run build` failed because `node` was not on PATH; rerun with bundled Node in PATH succeeded with Vite `built in 752ms`.
+- `remoteEntry.js` exposes `./Page`, `./Config`, `./Dashboard`, and `./AppPage`.
+- Asset reference check returned `{"RefCount":9,...,"Missing":""}`.
+- `dist/assets` now contains only the new component hash assets from this build; old component hash assets are deleted by `emptyOutDir`.
+
+Notes:
+- `frontend/node_modules` exists only as a local ignored build dependency directory and is not part of the commit.
+
+Commit:
+- `a3ae9f0` (`build(localtoolkit): refresh ui standard assets`)
+
+### 7. Desktop And Mobile UI Evidence
+
+Status: completed
+
+Acceptance:
+- Browser evidence is recorded for Config, Page, AppPage, and Dashboard at `390x844`, `768x1024`, and `1440x900`.
+- Evidence proves no horizontal overflow, no offscreen buttons, no incoherent overlap, and correct mobile nav/table behavior.
+- Evidence files are stored under `docs/plans/localtoolkit-ui-standard-evidence/`.
+- Residual risk is documented.
+
+Verify:
+- Browser or Playwright audit command records screenshots and an `audit.json`.
+- Audit JSON has zero horizontal overflow and zero offscreen buttons for all checked views.
+
+Evidence:
+- Playwright audit with system Chrome generated 12 screenshots for Config, Page, AppPage, and Dashboard at `390x844`, `768x1024`, and `1440x900`.
+- Evidence directory: `docs/plans/localtoolkit-ui-standard-evidence/`.
+- `audit.json` summary returned `{"count":12,"failures":0,...}`.
+- Audit table showed `overflowX=0`, `offscreen=0`, and `badRects=0` for every checked view.
+- Mobile `390x844` Page/AppPage showed `tableVisible=False` and `mobileHistoryVisible=True`; tablet/desktop showed table visible and mobile history hidden.
+- Mobile Config showed primary nav `display=flex` and `flex-wrap=nowrap`.
+
+Notes:
+- Screenshots use an English static audit harness backed by the current component CSS to avoid PowerShell stdin Chinese encoding loss; source UI text remains unchanged.
+- Residual risk: this evidence verifies layout CSS and representative rendered structure, not a live MoviePilot runtime session. Runtime install/reload can be performed separately before release.
+
+Commit:
+- `d6f6ed6` (`test(localtoolkit): add ui standard viewport evidence`)
+
+## Final Completion Criteria
+
+- All checklist items are complete.
+- Every completed item has evidence and a commit hash, except external-only evidence where a commit is not applicable.
+- `git status --short --branch` has no uncommitted source or dist changes outside explicitly ignored evidence files.
+- No push, merge, amend, or `main` release action has been performed.
