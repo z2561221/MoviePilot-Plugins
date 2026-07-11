@@ -202,6 +202,19 @@ def test_localtoolkit_cleanup_config_exposes_two_condition_groups():
     assert source.find('v-model.number="form.library_cleanup.days_threshold"') < source.find('v-model="form.library_cleanup.filter_favorite_2"')
 
 
+def test_localtoolkit_cleanup_filter_order_matches_option_dependency():
+    """清理库存应先选服务器和用户，再选择该用户可见的媒体库。"""
+    source = CONFIG_VUE.read_text(encoding="utf-8")
+    server = 'v-model="form.library_cleanup.selected_server"'
+    user = 'v-model="form.library_cleanup.selected_user"'
+    library = 'v-model="form.library_cleanup.selected_library"'
+    assert source.find(server) < source.find(user) < source.find(library)
+    assert "new URLSearchParams" in source
+    assert "selected_server: form.library_cleanup.selected_server" in source
+    assert "selected_user: form.library_cleanup.selected_user" in source
+    assert "form.library_cleanup.selected_library = ''" in source
+
+
 def test_localtoolkit_mobile_primary_nav_is_horizontal():
     """移动端一级导航必须横向滚动，避免继续竖向占据首屏。"""
     source = CONFIG_VUE.read_text(encoding="utf-8")

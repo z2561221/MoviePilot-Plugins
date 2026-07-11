@@ -350,14 +350,45 @@ class LocalToolkitStabilityTest(unittest.TestCase):
     def test_library_cleanup_uses_adapter_for_options(self):
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
 
-        module = LibraryCleanupModule(self.plugin, adapter=_CleanupAdapter())
+        class TrackingAdapter(_CleanupAdapter):
+            def __init__(self):
+                super().__init__()
+                self.library_requests = []
+                self.user_requests = []
+
+            def list_libraries(self, selected_server="", selected_user=""):
+                self.library_requests.append((selected_server, selected_user))
+                return super().list_libraries(selected_server, selected_user)
+
+            def list_users(self, selected_server=""):
+                self.user_requests.append(selected_server)
+                return super().list_users(selected_server)
+
+        adapter = TrackingAdapter()
+        module = LibraryCleanupModule(self.plugin, adapter=adapter)
         module.load_config({"selected_server": "emby", "selected_user": "admin"})
+        module.invalidate_options_cache()
 
         options = module.get_options()
 
         self.assertEqual(options["servers"], [{"title": "emby", "value": "emby"}])
         self.assertEqual(options["libraries"], [{"title": "Movies", "value": "library-1"}])
         self.assertEqual(options["users"], [{"title": "admin", "value": "admin"}])
+        self.assertEqual(adapter.user_requests, ["emby"])
+        self.assertEqual(adapter.library_requests, [("emby", "admin")])
+
+        module.get_options("jellyfin", "alice")
+
+        self.assertEqual(adapter.user_requests, ["emby", "jellyfin"])
+        self.assertEqual(adapter.library_requests, [("emby", "admin"), ("jellyfin", "alice")])
+
+        module.get_options("", "")
+
+        self.assertEqual(adapter.user_requests, ["emby", "jellyfin", ""])
+        self.assertEqual(
+            adapter.library_requests,
+            [("emby", "admin"), ("jellyfin", "alice"), ("", "")],
+        )
 
     def test_library_cleanup_includes_unmatched_emby_video_without_tmdb(self):
         from localtoolkit.adapter.media_server import MediaServerCleanupAdapter

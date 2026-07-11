@@ -1,6 +1,6 @@
 """工具中心 API 路由与响应组装。"""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from app.log import logger
 
@@ -135,11 +135,15 @@ def history_response(plugin, page: Any = 1, page_size: Any = 15) -> dict:
     }
 
 
-def options_response(plugin) -> dict:
+def options_response(
+    plugin,
+    selected_server: Optional[str] = None,
+    selected_user: Optional[str] = None,
+) -> dict:
     """返回工具中心配置选项响应。"""
     return {
         "success": True,
-        "library_cleanup": plugin.library_cleanup.get_options(),
+        "library_cleanup": plugin.library_cleanup.get_options(selected_server, selected_user),
     }
 
 
