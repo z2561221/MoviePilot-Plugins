@@ -329,6 +329,36 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertEqual(options["libraries"], [{"title": "Movies", "value": "library-1"}])
         self.assertEqual(options["users"], [{"title": "admin", "value": "admin"}])
 
+    def test_library_cleanup_includes_unmatched_emby_video_without_tmdb(self):
+        from localtoolkit.adapter.media_server import MediaServerCleanupAdapter
+
+        class RawVideoAdapter(MediaServerCleanupAdapter):
+            def __init__(self):
+                super().__init__(helper=_MediaServerHelper(), chain=None)
+
+            def _library_items_by_http(self, server, library_id, selected_user):
+                return [{
+                    "Id": "video-704",
+                    "Name": "JUR-704",
+                    "Type": "Video",
+                    "DateCreated": "2026-04-01T00:00:00Z",
+                    "ProviderIds": {},
+                    "UserData": {"Played": True, "IsFavorite": False},
+                }]
+
+        movies = list(RawVideoAdapter().iter_library_candidates(
+            server="Embyserver",
+            library_id="6741",
+            library_name="Movies",
+            selected_user="Z&X",
+        ))
+
+        self.assertEqual(len(movies), 1)
+        self.assertEqual(movies[0].title, "JUR-704")
+        self.assertEqual(movies[0].movie_id, "video-704")
+        self.assertTrue(movies[0].played)
+        self.assertFalse(movies[0].favorite)
+
     def test_library_cleanup_keeps_last_error_when_adapter_raises(self):
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
 

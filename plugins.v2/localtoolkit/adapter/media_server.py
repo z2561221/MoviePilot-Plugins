@@ -80,9 +80,10 @@ class MediaServerCleanupAdapter:
         """枚举单个媒体库中的候选项。"""
         if not server or not library_id:
             return
-        items = []
-        if self.chain and hasattr(self.chain, "items"):
+        items = self._library_items_by_http(server, library_id, selected_user)
+        if items is None and self.chain and hasattr(self.chain, "items"):
             items = self.chain.items(server=server, library_id=library_id) or []
+        items = items or []
         for item in items:
             if not item:
                 continue
@@ -95,6 +96,38 @@ class MediaServerCleanupAdapter:
             if candidate.favorite is None or not candidate.date_created:
                 candidate = self._enrich_candidate(candidate, selected_user)
             yield candidate
+
+    def _library_items_by_http(
+        self,
+        server: str,
+        library_id: str,
+        selected_user: str = "",
+    ) -> Optional[List[dict]]:
+        """通过 Emby/Jellyfin 原始 API 枚举电影与未刮削普通视频。"""
+        service = self.helper.get_service(name=server) if server else None
+        instance = getattr(service, "instance", None) if service else None
+        service_type = getattr(service, "type", "") if service else ""
+        host = getattr(instance, "_host", "")
+        apikey = getattr(instance, "_apikey", "")
+        user_id = self._resolve_user_id(instance, selected_user)
+        if not host or not apikey or not user_id or not library_id:
+            return None
+        prefix = "emby/" if service_type == "emby" else ""
+        url = f"{host}{prefix}Users/{user_id}/Items"
+        params = {
+            "api_key": apikey,
+            "ParentId": library_id,
+            "Recursive": "true",
+            "IncludeItemTypes": "Movie,Video",
+            "Fields": "ProviderIds,OriginalTitle,ProductionYear,Path,ParentId,DateCreated,UserData",
+        }
+        try:
+            res = self._request_utils().get_res(url, params)
+            if res and res.status_code == 200:
+                return res.json().get("Items") or []
+        except Exception as err:
+            logger.warning(f"本地工具集：枚举媒体库原始条目失败：{err}")
+        return None
 
     def delete_item(self, candidate: CleanupCandidate) -> bool:
         """删除媒体服务器中的指定条目。"""
