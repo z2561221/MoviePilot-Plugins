@@ -571,7 +571,8 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertEqual(adapter.deleted, ["movie-1"])
         self.assertEqual(self.plugin._posted[0]["title"], "清理库存检查报告")
         self.assertIn("即将开始自动删除", self.plugin._posted[0]["text"])
-        self.assertIn("符合条件：条件一（未收藏 + 已看过 + 超过20天）", self.plugin._posted[0]["text"])
+        self.assertIn("条件一：未收藏 + 已看过 + 超过 20 天", self.plugin._posted[0]["text"])
+        self.assertIn("自动删除：已开启", self.plugin._posted[0]["text"])
         saved = self.plugin._data["library_cleanup_result"]
         self.assertEqual(saved["condition_label"], "条件一（未收藏 + 已看过 + 超过20天）")
         self.assertEqual(saved["deletion"], {"success_count": 1, "fail_count": 0})
@@ -603,7 +604,8 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         self.assertTrue(response["success"])
         self.assertEqual(self.plugin._posted[0]["title"], "清理库存检查报告")
         self.assertNotIn("即将开始自动删除", self.plugin._posted[0]["text"])
-        self.assertIn("符合条件：条件一（未收藏 + 已看过 + 超过20天）", self.plugin._posted[0]["text"])
+        self.assertIn("条件一：未收藏 + 已看过 + 超过 20 天", self.plugin._posted[0]["text"])
+        self.assertIn("自动删除：未开启", self.plugin._posted[0]["text"])
         saved = self.plugin._data["library_cleanup_result"]
         self.assertEqual(saved["condition_label"], "条件一（未收藏 + 已看过 + 超过20天）")
         self.assertEqual(saved["conditions"], ["条件一（未收藏 + 已看过 + 超过20天）"])
@@ -741,6 +743,46 @@ class LocalToolkitStabilityTest(unittest.TestCase):
             changed_label,
             "条件一（已收藏 + 已看过 + 超过10天）或 条件二（未收藏 + 已看过 + 超过15天）",
         )
+
+    def test_library_cleanup_report_uses_markdown_and_movie_titles(self):
+        from datetime import datetime, timezone
+        from localtoolkit.modules.library_cleanup import LibraryCleanupModule
+        from localtoolkit.model.library_cleanup import CleanupCandidate, filter_cleanup_candidates
+
+        checked_at = datetime(2026, 7, 11, tzinfo=timezone.utc)
+        module = LibraryCleanupModule(self.plugin, adapter=_CleanupAdapter())
+        module.load_config({
+            "auto_delete": False,
+            "filter_favorite": "unfav",
+            "filter_played": "played",
+            "days_threshold": 20,
+            "filter_favorite_2": "unfav",
+            "filter_played_2": "unplayed",
+            "days_threshold_2": 60,
+        })
+        result = filter_cleanup_candidates([
+            CleanupCandidate(
+                movie_id="67698",
+                code="67698",
+                title="JUR-704",
+                date_created="2026-05-10T15:01:30Z",
+                played=False,
+                favorite=False,
+            ),
+        ], module.config, now=checked_at)
+
+        text = module._build_report_text(result, "符合条件 1 部，删除成功 0 部，失败 0 部", checked_at)
+
+        self.assertIn("**清理库存检查报告**", text)
+        self.assertIn("**筛选条件**", text)
+        self.assertIn("条件一：未收藏 + 已看过 + 超过 20 天", text)
+        self.assertIn("条件二：未收藏 + 未看过 + 超过 60 天", text)
+        self.assertIn("**检查结果**", text)
+        self.assertIn("符合条件：1 部", text)
+        self.assertIn("自动删除：未开启", text)
+        self.assertIn("**待处理列表**", text)
+        self.assertIn("1. JUR-704 | 61天 | 2026-05-10", text)
+        self.assertNotIn("1. 67698 |", text)
 
     def test_library_cleanup_legacy_single_condition_config_stays_valid(self):
         from localtoolkit.model.library_cleanup import (

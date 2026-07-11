@@ -219,22 +219,33 @@ class LibraryCleanupModule(BaseToolModule):
         self.send_notification(title, text)
 
     def _build_report_text(self, result: CleanupResult, summary: str, checked_at: datetime) -> str:
-        """生成清理库存通知正文。"""
-        lines = [
-            f"符合条件：{result.condition_label}",
-            f"符合数量：{result.qualified_count} 部",
-            summary,
-        ]
+        """生成 Markdown 格式的清理库存通知正文。"""
+        favorite_labels = {"all": "收藏不限", "fav": "已收藏", "unfav": "未收藏"}
+        played_labels = {"all": "观看不限", "played": "已看过", "unplayed": "未看过"}
+        lines = ["**清理库存检查报告**", "", "**筛选条件**"]
+        for condition in result.conditions:
+            lines.append(
+                f"{condition.title}：{favorite_labels[condition.favorite]} + "
+                f"{played_labels[condition.played]} + 超过 {condition.days_threshold} 天"
+            )
+        lines.extend([
+            "",
+            "**检查结果**",
+            f"符合条件：{result.qualified_count} 部",
+            f"自动删除：{'已开启' if self.config.get('auto_delete', False) else '未开启'}",
+        ])
+        if summary and not summary.startswith("符合条件 "):
+            lines.append(summary)
         movies = result.qualified_movies
         if movies:
             lines.append("")
-            lines.append("待处理列表")
+            lines.append("**待处理列表**")
             for index, movie in enumerate(movies[:20], start=1):
                 date_text = movie.date_created[:10] if movie.date_created else "未知"
                 age = movie.age_days(checked_at)
                 age_text = f"{age}天" if age is not None else "未知"
-                code = movie.code or movie.movie_id or "未知"
-                lines.append(f"  {index}. {code} | {age_text} | {date_text}")
+                name = movie.title or movie.code or movie.movie_id or "未知"
+                lines.append(f"{index}. {name} | {age_text} | {date_text}")
             if len(movies) > 20:
-                lines.append(f"  ... 还有{len(movies) - 20}部")
+                lines.append(f"... 还有{len(movies) - 20}部")
         return "\n".join(lines)
