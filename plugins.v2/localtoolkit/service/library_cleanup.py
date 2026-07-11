@@ -236,7 +236,7 @@ class LibraryCleanupModule(BaseToolModule):
         """生成 Markdown 格式的清理库存通知正文。"""
         favorite_labels = {"all": "收藏不限", "fav": "已收藏", "unfav": "未收藏"}
         played_labels = {"all": "观看不限", "played": "已看过", "unplayed": "未看过"}
-        lines = ["**清理库存检查报告**", "", "**筛选条件**"]
+        lines = ["**筛选条件**"]
         for condition in result.conditions:
             lines.append(
                 f"{condition.title}：{favorite_labels[condition.favorite]} + "

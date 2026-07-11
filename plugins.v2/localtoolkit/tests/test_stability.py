@@ -773,7 +773,7 @@ class LocalToolkitStabilityTest(unittest.TestCase):
 
         text = module._build_report_text(result, "符合条件 1 部，删除成功 0 部，失败 0 部", checked_at)
 
-        self.assertIn("**清理库存检查报告**", text)
+        self.assertNotIn("**清理库存检查报告**", text)
         self.assertIn("**筛选条件**", text)
         self.assertIn("条件一：未收藏 + 已看过 + 超过 20 天", text)
         self.assertIn("条件二：未收藏 + 未看过 + 超过 60 天", text)
