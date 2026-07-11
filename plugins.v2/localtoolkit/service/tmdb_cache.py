@@ -2,6 +2,7 @@ import time
 import redis
 from app.log import logger
 from app.core.config import settings
+from ..security import redact_sensitive_text, safe_error_text
 from .base import BaseToolModule
 
 class TmdbCacheModule(BaseToolModule):
@@ -18,7 +19,7 @@ class TmdbCacheModule(BaseToolModule):
             client = redis.from_url(settings.CACHE_BACKEND_URL or 'redis://localhost:6379', decode_responses=False, socket_timeout=5)
             client.ping(); return client
         except Exception as e:
-            logger.warning(f'本地工具集：Redis连接失败：{e}')
+            logger.warning(f'本地工具集：Redis连接失败：{redact_sensitive_text(e)}')
             return None
     def get_service(self):
         """清理 TMDB 缓存只支持手动运行，不注册后台服务。"""
@@ -30,7 +31,7 @@ class TmdbCacheModule(BaseToolModule):
         keys=[]
         for pattern in self._TMDB_CACHE_PATTERNS:
             try: keys.extend(client.keys(f'region:{pattern}'))
-            except Exception as e: logger.warning(f'本地工具集：查询缓存键失败 pattern={pattern}: {e}')
+            except Exception as e: logger.warning(f'本地工具集：查询缓存键失败 pattern={pattern}: {redact_sensitive_text(e)}')
         return list(set(keys))
     def _status(self):
         client=self._redis()
@@ -59,11 +60,12 @@ class TmdbCacheModule(BaseToolModule):
         try:
             if keys: deleted=client.delete(*keys)
         except Exception as e:
-            logger.error(f'本地工具集：清理TMDB缓存失败：{e}')
-            self.add_history('failed', f'清理失败：{e}', time.time()-start)
+            logger.error(f'本地工具集：清理TMDB缓存失败：{redact_sensitive_text(e)}')
+            safe_message = safe_error_text('清理 TMDB 缓存')
+            self.add_history('failed', safe_message, time.time()-start)
             if self.config.get('notify', True):
-                self.send_notification('本地工具集 - 清理TMDB', f'清理失败：{e}')
-            return {'success': False, 'message': str(e)}
+                self.send_notification('本地工具集 - 清理TMDB', safe_message)
+            return {'success': False, 'message': safe_message}
         after=self._status(); summary=f"清理 TMDB 缓存 {deleted}/{len(keys)} 个，清理后 {after['keys']} 个键"
         logger.info('本地工具集：'+summary)
         self.plugin.save_data(key='tmdb_cache_result', value={'before':before,'after':after,'deleted':deleted})

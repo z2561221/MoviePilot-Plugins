@@ -4,6 +4,8 @@ from typing import Any, Dict
 
 from app.log import logger
 
+from ..security import redact_sensitive_text, safe_error_text
+
 
 def build_api_routes(plugin) -> list[dict]:
     """构建工具中心 API 路由声明。"""
@@ -75,8 +77,8 @@ def safe_status(key: str, module) -> dict:
         return status if isinstance(status, dict) else {"success": True, "value": status}
     except Exception as err:
         name = getattr(module, "module_name", key)
-        logger.error(f"本地工具集：获取{name}状态失败：{err}")
-        return {"success": False, "module_name": name, "error": str(err)}
+        logger.error(f"本地工具集：获取{name}状态失败：{redact_sensitive_text(err)}")
+        return {"success": False, "module_name": name, "error": "模块状态读取失败"}
 
 
 def status_response(plugin) -> dict:
@@ -101,13 +103,13 @@ def run_module(plugin, module: str) -> dict:
         return result if isinstance(result, dict) else {"success": True, "result": result}
     except Exception as err:
         name = getattr(selected, "module_name", module_key)
-        logger.error(f"本地工具集：运行{name}失败：{err}")
+        logger.error(f"本地工具集：运行{name}失败：{redact_sensitive_text(err)}")
         try:
             if hasattr(selected, "add_history"):
-                selected.add_history("failed", f"运行异常：{err}", 0)
+                selected.add_history("failed", safe_error_text(name), 0)
         except Exception as history_error:
-            logger.warning(f"本地工具集：记录{name}失败历史失败：{history_error}")
-        return {"success": False, "message": f"{name}运行失败：{err}"}
+            logger.warning(f"本地工具集：记录{name}失败历史失败：{redact_sensitive_text(history_error)}")
+        return {"success": False, "message": safe_error_text(f"{name}运行")}
 
 
 def history_response(plugin, page: Any = 1, page_size: Any = 15) -> dict:

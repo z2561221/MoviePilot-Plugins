@@ -18,6 +18,12 @@ class CheckMissingModule(BaseToolModule):
         raw=self.config.get('scan_paths') or self.config.get('paths') or ''
         if isinstance(raw, list): return raw
         return [x.strip() for x in str(raw).splitlines() if x.strip()]
+    @staticmethod
+    def _path_label(value):
+        """将完整扫描路径收敛为末三级目录标签。"""
+        path = Path(value)
+        parts = path.parts[-3:]
+        return '/'.join(parts) if parts else path.name
     def run_once(self):
         """执行一次缺集扫描。"""
         start=time.time(); results=[]; missing_total=0
@@ -25,7 +31,7 @@ class CheckMissingModule(BaseToolModule):
         for base in self._paths():
             bp=Path(base)
             if not bp.exists():
-                results.append({'path':base,'status':'not_exists','missing':[]}); continue
+                results.append({'path':self._path_label(base),'status':'not_exists','missing':[]}); continue
             # 只扫描分类目录（国漫/日番）的直接子目录作为剧集目录
             for cat in [d for d in bp.iterdir() if d.is_dir()]:
                 for sd in [d for d in cat.iterdir() if d.is_dir() and any(f.is_file() for f in d.iterdir())]:
@@ -44,7 +50,7 @@ class CheckMissingModule(BaseToolModule):
                         # 整季全部缺失说明用户不需要这季，不报缺
                         if miss and len(miss) < max(eps):
                             missing_total += len(miss)
-                            results.append({'path':str(cat),'title':sd.name,'season':s,'missing':miss})
+                            results.append({'path':self._path_label(cat),'title':sd.name,'season':s,'missing':miss})
         summary=f'扫描 {len(self._paths())} 个路径，缺失 {missing_total} 集'
         self.plugin.save_data(key='check_missing_result', value=results[:500])
         logger.info('本地工具集：'+summary)

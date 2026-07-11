@@ -3,6 +3,7 @@
 from app.log import logger
 
 from ..model.config import merge_config
+from ..security import redact_sensitive_text
 from .check_missing import CheckMissingModule
 from .library_cleanup import LibraryCleanupModule
 from .tmdb_cache import TmdbCacheModule
@@ -48,7 +49,7 @@ def migrate_old_configs(plugin) -> None:
         if changed:
             logger.info("本地工具集：已导入旧插件配置")
     except Exception as err:
-        logger.warning(f"本地工具集：旧配置迁移失败：{err}")
+        logger.warning(f"本地工具集：旧配置迁移失败：{redact_sensitive_text(err)}")
 
 
 def build_services(plugin) -> list:

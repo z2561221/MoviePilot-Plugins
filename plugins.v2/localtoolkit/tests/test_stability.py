@@ -257,7 +257,7 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         response = self.plugin.api_run("tmdb_cache")
 
         self.assertFalse(response["success"])
-        self.assertIn("boom", response["message"])
+        self.assertEqual(response["message"], "Crash运行失败，请查看插件日志")
 
     def test_api_status_keeps_other_modules_when_one_status_fails(self):
         class CrashingModule:
@@ -272,7 +272,37 @@ class LocalToolkitStabilityTest(unittest.TestCase):
 
         self.assertIn("tmdb_cache", response["modules"])
         self.assertFalse(response["modules"]["check_missing"]["success"])
-        self.assertIn("boom", response["modules"]["check_missing"]["error"])
+        self.assertEqual(response["modules"]["check_missing"]["error"], "模块状态读取失败")
+
+    def test_security_redacts_credentials_and_query_secrets(self):
+        from localtoolkit.security import redact_sensitive_text
+
+        source = (
+            "redis://admin:secret-pass@redis:6379/0 "
+            "https://emby/Items?api_key=emby-secret&token=token-secret "
+            "Authorization: Bearer bearer-secret Cookie=session=private"
+        )
+
+        sanitized = redact_sensitive_text(source)
+
+        for secret in ("secret-pass", "emby-secret", "token-secret", "bearer-secret", "private"):
+            self.assertNotIn(secret, sanitized)
+        self.assertIn("***", sanitized)
+
+    def test_api_run_does_not_return_raw_exception_secrets(self):
+        class CrashingModule:
+            module_name = "测试模块"
+
+            def run_once(self):
+                raise RuntimeError("连接失败 api_key=super-secret password=hunter2")
+
+        self.plugin.tmdb_cache = CrashingModule()
+        response = self.plugin.api_run("tmdb_cache")
+
+        self.assertFalse(response["success"])
+        self.assertEqual(response["message"], "测试模块运行失败，请查看插件日志")
+        self.assertNotIn("super-secret", str(response))
+        self.assertNotIn("hunter2", str(response))
 
     def test_invalid_cron_does_not_break_service_registration(self):
         from localtoolkit.modules.library_cleanup import LibraryCleanupModule
@@ -372,7 +402,7 @@ class LocalToolkitStabilityTest(unittest.TestCase):
         response = module.run_once()
 
         self.assertFalse(response["success"])
-        self.assertIn("boom", module.last_error)
+        self.assertEqual(module.last_error, "清理库存执行失败")
 
     def test_library_cleanup_auto_delete_sends_only_auto_delete_notice(self):
         self.skipTest("旧 delegate 行为已由自持 adapter 流程用例覆盖")

@@ -1,6 +1,7 @@
 from datetime import datetime
 from app.log import logger
 from app.schemas.types import NotificationType
+from ..security import redact_sensitive_text
 
 class BaseToolModule:
     """工具中心子模块基类，封装配置、历史和通知能力。"""
@@ -55,4 +56,4 @@ class BaseToolModule:
             try:
                 self.plugin.post_message(mtype=NotificationType.Plugin, title=title, text=text)
             except Exception as e:
-                logger.warning(f'本地工具集：发送通知失败：{e}')
+                logger.warning(f'本地工具集：发送通知失败：{redact_sensitive_text(e)}')

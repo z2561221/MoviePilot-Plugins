@@ -12,6 +12,7 @@ from app.schemas.types import NotificationType
 
 from ..adapter.media_server import MediaServerCleanupAdapter
 from ..model.library_cleanup import CleanupCandidate, CleanupResult, filter_cleanup_candidates
+from ..security import redact_sensitive_text, safe_error_text
 from .base import BaseToolModule
 
 
@@ -62,7 +63,7 @@ class LibraryCleanupModule(BaseToolModule):
                     parse_mode="MarkdownV2",
                 )
             except Exception as err:
-                logger.warning(f"本地工具集：发送通知失败：{err}")
+                logger.warning(f"本地工具集：发送通知失败：{redact_sensitive_text(err)}")
 
     def get_service(self):
         """返回清理库存定时服务配置。"""
@@ -72,7 +73,7 @@ class LibraryCleanupModule(BaseToolModule):
         try:
             trigger = CronTrigger.from_crontab(cron)
         except Exception as err:
-            logger.warning(f"本地工具集：清理库存 cron 配置无效，已跳过定时服务：{cron}，错误：{err}")
+            logger.warning(f"本地工具集：清理库存 cron 配置无效，已跳过定时服务：{cron}，错误：{redact_sensitive_text(err)}")
             return []
         return [
             {
@@ -99,8 +100,8 @@ class LibraryCleanupModule(BaseToolModule):
             options["libraries"] = self.adapter.list_libraries(selected_server, selected_user)
             options["users"] = self.adapter.list_users(selected_server)
         except Exception as err:
-            logger.error(f"本地工具集：获取清理库存媒体服务器选项失败：{err}")
-            options["error"] = str(err)
+            logger.error(f"本地工具集：获取清理库存媒体服务器选项失败：{redact_sensitive_text(err)}")
+            options["error"] = "媒体服务器选项读取失败"
 
         _options_cache["data"] = options
         _options_cache["expire"] = now + 300
@@ -121,9 +122,9 @@ class LibraryCleanupModule(BaseToolModule):
             checked_at = datetime.now(timezone.utc)
             result = filter_cleanup_candidates(candidates, self.config, now=checked_at)
         except Exception as err:
-            self.last_error = str(err)
-            message = f"清理库存模块执行失败：{err}"
-            logger.error(f"本地工具集：{message}")
+            self.last_error = "清理库存执行失败"
+            message = safe_error_text("清理库存")
+            logger.error(f"本地工具集：清理库存模块执行失败：{redact_sensitive_text(err)}")
             self.add_history("failed", message, time.time() - start)
             return {"success": False, "message": message}
 

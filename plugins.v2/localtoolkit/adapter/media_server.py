@@ -8,6 +8,7 @@ from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
 
 from ..model.library_cleanup import CleanupCandidate, candidate_from_media_item, read_value
+from ..security import redact_sensitive_text
 
 
 class MediaServerCleanupAdapter:
@@ -126,7 +127,7 @@ class MediaServerCleanupAdapter:
             if res and res.status_code == 200:
                 return res.json().get("Items") or []
         except Exception as err:
-            logger.warning(f"本地工具集：枚举媒体库原始条目失败：{err}")
+            logger.warning(f"本地工具集：枚举媒体库原始条目失败：{redact_sensitive_text(err)}")
         return None
 
     def delete_item(self, candidate: CleanupCandidate) -> bool:
@@ -143,7 +144,7 @@ class MediaServerCleanupAdapter:
                 except TypeError:
                     return bool(method(candidate.movie_id, True))
                 except Exception as err:
-                    logger.warning(f"本地工具集：删除媒体条目 {candidate.movie_id} 失败：{err}")
+                    logger.warning(f"本地工具集：删除媒体条目 {candidate.movie_id} 失败：{redact_sensitive_text(err)}")
                     return False
         return self._delete_by_http(instance, candidate.movie_id)
 
@@ -176,7 +177,7 @@ class MediaServerCleanupAdapter:
             if instance and hasattr(instance, "get_librarys"):
                 return instance.get_librarys(username=selected_user or None) or []
         except Exception as err:
-            logger.warning(f"本地工具集：获取 {server} 媒体库失败：{err}")
+            logger.warning(f"本地工具集：获取 {server} 媒体库失败：{redact_sensitive_text(err)}")
         return []
 
     def _users(self, service: Any) -> List[Any]:
@@ -212,7 +213,7 @@ class MediaServerCleanupAdapter:
             try:
                 return self.chain.iteminfo(server=server, item_id=item_id)
             except Exception as err:
-                logger.debug(f"本地工具集：通过媒体链读取条目详情失败：{err}")
+                logger.debug(f"本地工具集：通过媒体链读取条目详情失败：{redact_sensitive_text(err)}")
         service = self.helper.get_service(name=server) if server else None
         instance = getattr(service, "instance", None) if service else None
         return self._item_detail_by_http(instance, item_id, selected_user, getattr(service, "type", ""))
@@ -229,7 +230,7 @@ class MediaServerCleanupAdapter:
             if res and res.status_code == 200:
                 return res.json() or []
         except Exception as err:
-            logger.warning(f"本地工具集：读取媒体服务器用户失败：{err}")
+            logger.warning(f"本地工具集：读取媒体服务器用户失败：{redact_sensitive_text(err)}")
         return []
 
     def _item_detail_by_http(
@@ -256,7 +257,7 @@ class MediaServerCleanupAdapter:
             if res and res.status_code == 200:
                 return res.json()
         except Exception as err:
-            logger.warning(f"本地工具集：读取媒体条目详情失败：{err}")
+            logger.warning(f"本地工具集：读取媒体条目详情失败：{redact_sensitive_text(err)}")
         return None
 
     def _delete_by_http(self, instance: Any, item_id: str) -> bool:
@@ -271,7 +272,7 @@ class MediaServerCleanupAdapter:
             res = self._request_utils().delete_res(url, params={"api_key": apikey})
             return bool(res and res.status_code in (200, 204))
         except Exception as err:
-            logger.warning(f"本地工具集：删除媒体条目 {item_id} 失败：{err}")
+            logger.warning(f"本地工具集：删除媒体条目 {item_id} 失败：{redact_sensitive_text(err)}")
         return False
 
     def _resolve_user_id(self, instance: Any, selected_user: str = "") -> Optional[str]:
