@@ -104,4 +104,3 @@ def test_agentrank_sidebar_contract_targets_discovery_main():
     assert '"nav_key": "main"' in source
     assert '"section": "discovery"' in source
     assert '"permission": "discovery"' in source
-

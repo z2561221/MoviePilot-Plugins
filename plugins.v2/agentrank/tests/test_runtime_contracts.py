@@ -104,4 +104,3 @@ def test_agent_tools_take_username_and_run_id_only_from_trusted_context():
     assert "trusted_context" in source
     assert '"username"' not in source.split("args_schema", 1)[-1]
     assert '"run_id"' not in source.split("args_schema", 1)[-1]
-
