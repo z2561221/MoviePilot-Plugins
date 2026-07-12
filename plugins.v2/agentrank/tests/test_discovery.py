@@ -190,3 +190,61 @@ def test_candidate_limit_is_applied_after_normalization_and_deduplication():
     )
 
     assert len(result.candidates) == 3
+
+
+def test_media_recognition_gate_rebuilds_source_item_as_tmdb_candidate():
+    """Source identity is retained only as trace data after TMDB recognition."""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "douban": lambda count: [
+                {"title": "Source Title", "douban_id": "db-9", "type": "电影"}
+            ]
+        }
+    )
+
+    class MediaAdapter:
+        def recognize(self, candidate):
+            candidate.candidate_id = "tmdb:900"
+            candidate.source_ids["tmdb"] = "900"
+            candidate.title = "TMDB Title"
+            candidate.poster_path = "https://image.example/poster.jpg"
+            return candidate
+
+    service = CandidateCollectionService(
+        adapter, AgentRankRepository(FakePlugin()), MediaAdapter()
+    )
+
+    result = service.collect_and_freeze(
+        "alice", "run-tmdb", {"douban": True}, 10
+    )
+
+    assert [candidate.candidate_id for candidate in result.candidates] == ["tmdb:900"]
+    assert result.candidates[0].title == "TMDB Title"
+    assert result.candidates[0].source_ids == {"douban": "db-9", "tmdb": "900"}
+
+
+def test_media_recognition_gate_rejects_items_without_tmdb_identity():
+    """Unrecognized source rows never enter the frozen Agent candidate pool."""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "bangumi": lambda count: [
+                {"title": "Unknown Anime", "bangumi_id": 7, "media_type": "anime"}
+            ]
+        }
+    )
+
+    class MediaAdapter:
+        def recognize(self, candidate):
+            return None
+
+    service = CandidateCollectionService(
+        adapter, AgentRankRepository(FakePlugin()), MediaAdapter()
+    )
+
+    result = service.collect_and_freeze(
+        "alice", "run-rejected", {"bangumi": True}, 10
+    )
+
+    assert result.status == "candidate_insufficient"
+    assert result.candidates == []
+    assert result.rejected_count == 1

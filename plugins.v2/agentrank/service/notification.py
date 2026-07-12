@@ -50,3 +50,26 @@ class NotificationService:
             parse_mode="MarkdownV2",
             disable_web_page_preview=True,
         )
+
+    def send_failure(
+        self,
+        username: str,
+        status: str,
+        run_id: str,
+        message: str,
+        old_board_preserved: bool,
+    ) -> None:
+        """向目标用户发送一次简洁的 Agent 运行异常通知。"""
+        reason = _compact_text(message, 240) or "未知异常"
+        lines = [
+            f"状态：{_compact_text(status, 48)}",
+            f"运行 ID：{_compact_text(run_id, 64) or '未生成'}",
+            f"原因：{reason}",
+            "旧榜单：已保留" if old_board_preserved else "旧榜单：无可用数据",
+        ]
+        self._plugin.post_message(
+            mtype=NotificationType.Subscribe,
+            title="Agent榜单中心运行异常",
+            text="\n".join(lines),
+            username=username,
+        )

@@ -295,6 +295,37 @@ def test_runtime_notify_mode_sends_summary_after_success_without_subscribing():
     assert len(plugin.messages) == 1
 
 
+def test_runtime_failure_sends_one_subscribe_notification_with_old_board_state():
+    """A failed Agent result emits one concise Subscribe notification."""
+    plugin = FakePlugin()
+    board = RecommendationBoard(username="alice", run_id="old", status="success")
+
+    class Orchestrator:
+        async def run(self, username, config):
+            return SimpleNamespace(
+                status="agent_failed",
+                run_id="run-failed",
+                message="Agent did not produce text output",
+                board=board,
+            )
+
+    runtime = AgentRankRuntime(
+        plugin,
+        {"enabled": True, "notify": True, "users": ["alice"]},
+        Orchestrator(),
+        lambda cron: cron,
+        notification_service=NotificationService(plugin),
+    )
+
+    asyncio.run(runtime.refresh("alice"))
+
+    assert len(plugin.messages) == 1
+    assert plugin.messages[0]["mtype"] == NotificationType.Subscribe
+    assert plugin.messages[0]["title"] == "Agent榜单中心运行异常"
+    assert "run-failed" in plugin.messages[0]["text"]
+    assert "旧榜单：已保留" in plugin.messages[0]["text"]
+
+
 def test_subscribe_api_returns_service_result_after_runtime_integration():
     """The bearer controller delegates to the same manual safety service."""
     plugin = FakePlugin()

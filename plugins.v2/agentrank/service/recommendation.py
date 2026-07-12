@@ -1,5 +1,6 @@
 """按用户锁定的 Agent 榜单推荐编排服务。"""
 
+import logging
 import threading
 import time
 import uuid
@@ -14,6 +15,9 @@ from ..model.run import RecommendationRun
 from ..storage.repository import AgentRankRepository
 from .prompt import build_ranking_prompt, build_refill_prompt
 from .validation import AgentOutputError, AgentOutputParser, RecommendationValidator
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -155,6 +159,7 @@ class RecommendationOrchestrator:
         metrics: Dict[str, Any] = {"agent_calls": 0, "refill_attempted": False}
         errors: List[str] = []
         try:
+            logger.info("AgentRank 运行开始 user=%s run_id=%s", target, run_id)
             profile_input = self._profile_service.collect(
                 target,
                 profile_scope=config.get("profile_scope", "all"),
@@ -164,6 +169,14 @@ class RecommendationOrchestrator:
             )
             metrics["subscription_count"] = profile_input.sample_count
             metrics["subscription_rejected_count"] = profile_input.rejected_count
+            logger.info(
+                "AgentRank 画像样本 user=%s run_id=%s accepted=%s rejected=%s status=%s",
+                target,
+                run_id,
+                profile_input.sample_count,
+                profile_input.rejected_count,
+                profile_input.status,
+            )
             if profile_input.status != "ready":
                 return self._failure(
                     target,
@@ -186,6 +199,14 @@ class RecommendationOrchestrator:
             metrics["candidate_count"] = len(candidates)
             metrics["candidate_rejected_count"] = candidate_result.rejected_count
             metrics["source_errors"] = dict(candidate_result.source_errors)
+            logger.info(
+                "AgentRank TMDB候选 user=%s run_id=%s accepted=%s rejected=%s source_errors=%s",
+                target,
+                run_id,
+                len(candidates),
+                candidate_result.rejected_count,
+                len(candidate_result.source_errors),
+            )
             if candidate_result.status != "ready":
                 return self._failure(
                     target,
@@ -227,6 +248,13 @@ class RecommendationOrchestrator:
                         errors.append(f"attempt 1: {error}")
                         continue
                     errors.append(str(error))
+                    logger.warning(
+                        "AgentRank Agent失败 user=%s run_id=%s calls=%s reason=%s",
+                        target,
+                        run_id,
+                        metrics["agent_calls"],
+                        error,
+                    )
                     return self._failure(
                         target,
                         run_id,
@@ -359,6 +387,14 @@ class RecommendationOrchestrator:
                 board.message,
                 errors,
                 metrics,
+            )
+            logger.info(
+                "AgentRank 运行完成 user=%s run_id=%s status=%s recommendations=%s agent_calls=%s",
+                target,
+                run_id,
+                status,
+                len(accepted),
+                metrics["agent_calls"],
             )
             return RecommendationRunResult(
                 username=target,

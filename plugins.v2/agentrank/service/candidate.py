@@ -24,10 +24,16 @@ class CandidateCollectionResult:
 class CandidateCollectionService:
     """选择可信字段、合并跨来源身份并先冻结候选池。"""
 
-    def __init__(self, adapter: DiscoveryAdapter, repository: AgentRankRepository):
+    def __init__(
+        self,
+        adapter: DiscoveryAdapter,
+        repository: AgentRankRepository,
+        media_adapter: Any = None,
+    ):
         """绑定发现读取边界和持久化仓库。"""
         self._adapter = adapter
         self._repository = repository
+        self._media_adapter = media_adapter
 
     @staticmethod
     def _mapping(payload: Any) -> Dict[str, Any]:
@@ -206,6 +212,10 @@ class CandidateCollectionService:
         for raw in fetched.items:
             try:
                 candidate = self._normalize(raw)
+                if self._media_adapter is not None:
+                    candidate = self._media_adapter.recognize(candidate)
+                    if candidate is None:
+                        raise ValueError("candidate could not be recognized as TMDB media")
             except (TypeError, ValueError, KeyError):
                 rejected_count += 1
                 continue

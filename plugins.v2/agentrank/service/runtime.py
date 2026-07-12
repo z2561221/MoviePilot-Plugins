@@ -1,7 +1,11 @@
 """AgentRank 运行时依赖组装、周期服务与停止管理。"""
 
 import asyncio
+import logging
 from typing import Any, Callable, Dict, List, Mapping
+
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRankRuntime:
@@ -39,6 +43,7 @@ class AgentRankRuntime:
         """延迟导入 MoviePilot 宿主依赖并创建推荐编排器。"""
         from ..adapter.agent import AgentRankAgentAdapter
         from ..adapter.discovery import DiscoveryAdapter
+        from ..adapter.media import MediaRecognitionAdapter
         from ..adapter.subscription import SubscriptionAdapter
         from ..storage.repository import AgentRankRepository
         from .candidate import CandidateCollectionService
@@ -53,7 +58,7 @@ class AgentRankRuntime:
             repository=repository,
             profile_service=ProfileInputService(SubscriptionAdapter()),
             candidate_service=CandidateCollectionService(
-                DiscoveryAdapter(), repository
+                DiscoveryAdapter(), repository, MediaRecognitionAdapter()
             ),
             agent_adapter=AgentRankAgentAdapter(),
         )
@@ -102,13 +107,21 @@ class AgentRankRuntime:
         """执行一次手动用户刷新；停止后拒绝新任务。"""
         if self._stopped:
             raise RuntimeError("AgentRank runtime is stopped")
-        result = await self.orchestrator.run(username, self.config)
+        try:
+            result = await self.orchestrator.run(username, self.config)
+        except Exception as error:
+            logger.exception("AgentRank 手动运行异常 user=%s", username)
+            self._notify_exception(username, "manual_refresh", error)
+            raise
         self._apply_post_action(username, result)
         return result
 
     def _apply_post_action(self, username: str, result: Any) -> None:
         """按动作模式执行通知或自动订阅后处理。"""
-        if getattr(result, "status", "") not in {"success", "recommendation_incomplete"}:
+        status = getattr(result, "status", "")
+        if status not in {"success", "recommendation_incomplete"}:
+            if status not in {"", "running"}:
+                self._notify_result_failure(username, result)
             return
         mode = self.config.get("action_mode")
         board = getattr(result, "board", None)
@@ -163,6 +176,34 @@ class AgentRankRuntime:
                 errors=failures,
             )
 
+    def _notifications_enabled(self) -> bool:
+        """返回当前配置是否允许发送 AgentRank 通知。"""
+        return bool(self.config.get("notify", True))
+
+    def _notify_result_failure(self, username: str, result: Any) -> None:
+        """发送一次结构化运行失败通知。"""
+        if not self._notifications_enabled() or self.notification_service is None:
+            return
+        self.notification_service.send_failure(
+            username=username,
+            status=str(getattr(result, "status", "failed") or "failed"),
+            run_id=str(getattr(result, "run_id", "") or ""),
+            message=str(getattr(result, "message", "") or "运行失败"),
+            old_board_preserved=getattr(result, "board", None) is not None,
+        )
+
+    def _notify_exception(self, username: str, stage: str, error: Exception) -> None:
+        """发送未捕获运行异常通知。"""
+        if not self._notifications_enabled() or self.notification_service is None:
+            return
+        self.notification_service.send_failure(
+            username=username,
+            status="runtime_exception",
+            run_id="",
+            message=f"{stage}: {error}",
+            old_board_preserved=True,
+        )
+
     async def run_scheduled(self) -> List[Dict[str, Any]]:
         """顺序处理参与用户，单用户异常不阻断后续用户。"""
         if self._stopped:
@@ -187,6 +228,8 @@ class AgentRankRuntime:
                 except asyncio.CancelledError:
                     raise
                 except Exception as error:
+                    logger.exception("AgentRank 定时运行异常 user=%s", username)
+                    self._notify_exception(username, "scheduled_run", error)
                     results.append(
                         {
                             "username": username,
