@@ -8,6 +8,7 @@ COMPONENTS = ROOT / "plugins.v2" / "agentrank" / "frontend" / "src" / "component
 API = COMPONENTS / "api.js"
 STATE = COMPONENTS / "useAgentRankState.js"
 CONFIG = COMPONENTS / "Config.vue"
+APP_PAGE = COMPONENTS / "AppPage.vue"
 
 
 def test_frontend_api_uses_injected_bearer_client_without_token_or_fetch():
@@ -96,3 +97,23 @@ def test_config_has_stable_desktop_and_dedicated_mobile_layout():
     assert "overflow-x: auto" in source
     assert "min-width: max-content" in source
     assert "ar-config__window--overview" in source
+
+
+def test_app_page_is_a_vertical_top_ten_with_complete_user_actions():
+    """The recommendation center implements the specified single-board experience."""
+    source = APP_PAGE.read_text(encoding="utf-8")
+    assert "useAgentRankState" in source
+    assert "Top 10" in source
+    assert "selectedUser" in source
+    assert "clearProfile" in source
+    assert "subscribe" in source
+    assert "archive" in source
+    assert "restore" in source
+    assert "画像摘要" in source
+    assert "权重摘要" in source
+    assert "最近归档" in source
+    assert "运行历史" in source
+    assert "clearDialog" in source
+    assert "grid-template-columns: minmax(0, 1fr)" in source
+    assert "@media (max-width: 760px)" in source
+    assert "min-width: 40px" in source or "min-height: 40px" in source

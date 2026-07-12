@@ -35,6 +35,18 @@ async function getPluginApi(api, path, params = {}) {
   }
 }
 
+/**
+ * 调用 AgentRank POST 接口，并通过 injected client 自动携带 bearer。
+ */
+async function postPluginApi(api, path, payload = {}) {
+  if (!api?.post) throw new Error('MoviePilot 插件 API 未就绪')
+  try {
+    return unwrapResponse(await api.post('plugin/AgentRank/' + path, payload))
+  } catch (error) {
+    throw normalizeApiError(error)
+  }
+}
+
 const _export_sfc = (sfc, props) => {
   const target = sfc.__vccOpts || sfc;
   for (const [key, val] of props) {
@@ -43,4 +55,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, getPluginApi as g };
+export { _export_sfc as _, getPluginApi as g, postPluginApi as p };

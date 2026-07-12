@@ -256,7 +256,10 @@ class RecommendationValidator:
                     confidence=recommendation.confidence,
                     title=candidate.title,
                     media_type=candidate.media_type,
+                    year=candidate.year,
                     source_ids=dict(candidate.source_ids),
+                    sources=list(candidate.sources),
+                    poster_path=candidate.poster_path,
                     match_tags=list(recommendation.match_tags),
                 )
             )

@@ -117,12 +117,14 @@ class AgentRankApiController:
         repository = self._repository()
         profile = repository.load_profile(target)
         board = repository.load_board(target)
+        archive = repository.load_archive(target)
         history = repository.load_run_history(target)
         return self._success(
             {
                 "username": target,
                 "profile": profile.to_dict() if profile else None,
                 "board": board.to_dict() if board else None,
+                "archive": archive.to_dict(),
                 "latest_run": history[0].to_dict() if history else None,
             }
         )

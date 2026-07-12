@@ -14,7 +14,10 @@ class RecommendationItem:
     confidence: float = 0.0
     title: str = ""
     media_type: str = "unknown"
+    year: Optional[int] = None
     source_ids: Dict[str, str] = field(default_factory=dict)
+    sources: List[str] = field(default_factory=list)
+    poster_path: str = ""
     match_tags: List[str] = field(default_factory=list)
 
     @classmethod
@@ -32,7 +35,14 @@ class RecommendationItem:
             confidence=float(value.get("confidence") or 0.0),
             title=str(value.get("title") or ""),
             media_type=str(value.get("media_type") or "unknown"),
+            year=(
+                int(value.get("year"))
+                if value.get("year") not in (None, "")
+                else None
+            ),
             source_ids=dict(value.get("source_ids") or {}),
+            sources=[str(item) for item in value.get("sources") or []],
+            poster_path=str(value.get("poster_path") or ""),
             match_tags=[str(item) for item in value.get("match_tags") or []],
         )
 
