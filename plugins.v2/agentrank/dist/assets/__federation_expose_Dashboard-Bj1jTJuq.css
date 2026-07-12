@@ -1,0 +1,13 @@
+
+.ar-dashboard[data-v-865ecaa0] { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 16px; overflow: hidden;
+}
+.ar-dashboard__content[data-v-865ecaa0] { min-height: 260px;
+}
+.ar-dashboard__list[data-v-865ecaa0] { display: flex; flex-direction: column; gap: 7px;
+}
+.ar-dashboard__item[data-v-865ecaa0] { min-height: 44px; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 6px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px;
+}
+.ar-dashboard__rank[data-v-865ecaa0] { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .12); font-size: 12px; font-weight: 700;
+}
+.ar-dashboard__main[data-v-865ecaa0] { min-width: 0;
+}

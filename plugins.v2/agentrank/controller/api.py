@@ -164,12 +164,24 @@ class AgentRankApiController:
             }
         )
 
-    def run_history(self, username: Any) -> Dict[str, Any]:
+    def run_history(
+        self, username: Any, page: int = 1, page_size: int = 15
+    ) -> Dict[str, Any]:
         """返回用户有界运行历史。"""
         target = self._username(username)
         items = self._repository().load_run_history(target)
+        current_page = max(1, int(page or 1))
+        current_page_size = max(1, min(int(page_size or 15), 50))
+        start = (current_page - 1) * current_page_size
+        paged_items = items[start : start + current_page_size]
         return self._success(
-            {"username": target, "items": [item.to_dict() for item in items]}
+            {
+                "username": target,
+                "items": [item.to_dict() for item in paged_items],
+                "total": len(items),
+                "page": current_page,
+                "page_size": current_page_size,
+            }
         )
 
     async def refresh(self, payload: Any) -> Dict[str, Any]:
@@ -278,9 +290,11 @@ class AgentRankApiController:
         """FastAPI 画像入口。"""
         return self._endpoint(self.profile, username)
 
-    def endpoint_run_history(self, username: str = "") -> Dict[str, Any]:
+    def endpoint_run_history(
+        self, username: str = "", page: int = 1, page_size: int = 15
+    ) -> Dict[str, Any]:
         """FastAPI 运行历史入口。"""
-        return self._endpoint(self.run_history, username)
+        return self._endpoint(self.run_history, username, page, page_size)
 
     async def endpoint_refresh(self, payload: dict) -> Dict[str, Any]:
         """FastAPI 手动刷新入口。"""

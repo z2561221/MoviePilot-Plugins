@@ -9,6 +9,8 @@ API = COMPONENTS / "api.js"
 STATE = COMPONENTS / "useAgentRankState.js"
 CONFIG = COMPONENTS / "Config.vue"
 APP_PAGE = COMPONENTS / "AppPage.vue"
+PAGE = COMPONENTS / "Page.vue"
+DASHBOARD = COMPONENTS / "Dashboard.vue"
 
 
 def test_frontend_api_uses_injected_bearer_client_without_token_or_fetch():
@@ -117,3 +119,31 @@ def test_app_page_is_a_vertical_top_ten_with_complete_user_actions():
     assert "grid-template-columns: minmax(0, 1fr)" in source
     assert "@media (max-width: 760px)" in source
     assert "min-width: 40px" in source or "min-height: 40px" in source
+
+
+def test_page_has_five_management_tabs_and_backend_history_paging():
+    """The detail dialog covers recommendation, profile, weights, archive, and history."""
+    source = PAGE.read_text(encoding="utf-8")
+    for title in ("推荐榜单", "用户画像", "权重配置", "归档区", "运行历史"):
+        assert title in source
+    assert "useAgentRankState" in source
+    assert "subscribe" in source
+    assert "archive" in source
+    assert "restore" in source
+    assert "deleteArchive" in source
+    assert "clearDialog" in source
+    assert "historyPage" in source
+    assert "page_size" in source
+    assert "emit('close')" in source
+    assert "emit('switch')" in source
+
+
+def test_dashboard_is_a_lightweight_vertical_top_five():
+    """Dashboard stays compact and links to the complete recommendation center."""
+    source = DASHBOARD.read_text(encoding="utf-8")
+    assert "Top 5" in source
+    assert ".slice(0, 5)" in source
+    assert "flex-direction: column" in source
+    assert "allowRefresh" in source
+    assert "mdi-open-in-new" in source
+    assert "username" not in source.lower()
