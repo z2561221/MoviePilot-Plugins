@@ -14,6 +14,13 @@ from ..agent_tools.context import (
 from ..agent_tools.registry import AGENT_TOOL_CLASSES, ALLOWED_AGENT_TOOL_NAMES
 
 
+AGENTRANK_SYSTEM_PROMPT = (
+    "你是 Agent榜单中心的受限排序执行器。只能使用当前提供的四个只读工具，"
+    "并严格按照用户消息返回一个 JSON 对象。禁止委派子代理、加载技能或记忆、"
+    "管理任务、调用外部 MCP，以及使用任何未提供的工具。"
+)
+
+
 class AgentTextUnavailableError(RuntimeError):
     """表示 Agent 完成工具调用后没有产生可捕获文本。"""
 
@@ -51,6 +58,22 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
         if tuple(tool.name for tool in tools) != tuple(ALLOWED_AGENT_TOOL_NAMES):
             raise RuntimeError("AgentRank tool registry and whitelist diverged")
         return tools
+
+    async def _create_agent(self, streaming: bool = False) -> Any:
+        """构建仅含四个只读工具且无宿主扩展中间件的 Agent 图。"""
+        from langchain.agents import create_agent
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        model = await self._initialize_llm(streaming=streaming)
+        self._sync_model_profile(model)
+        self._last_agent_cache_hit = False
+        return create_agent(
+            model=model,
+            tools=self._initialize_tools(),
+            system_prompt=AGENTRANK_SYSTEM_PROMPT,
+            middleware=[],
+            checkpointer=InMemorySaver(),
+        )
 
 
 class AgentRankAgentAdapter:

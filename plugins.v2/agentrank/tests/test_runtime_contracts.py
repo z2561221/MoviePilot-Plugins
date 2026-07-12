@@ -78,6 +78,19 @@ def test_agent_adapter_is_capture_only_and_never_loads_general_tools():
     for forbidden in FORBIDDEN_AGENT_CAPABILITIES:
         assert forbidden not in source.lower()
 
+    assert "async def _create_agent" in source
+    assert "middleware=[]" in source
+    assert "tools=self._initialize_tools()" in source
+    for forbidden_graph_extension in (
+        "_initialize_mcp_tools",
+        "_initialize_subagent_tools",
+        "SkillsMiddleware",
+        "create_subagent_middlewares",
+        "JobsMiddleware",
+        "MemoryMiddleware",
+    ):
+        assert forbidden_graph_extension not in source
+
 
 def test_agent_tools_take_username_and_run_id_only_from_trusted_context():
     """Tool call schemas must not let the model choose another user or run."""

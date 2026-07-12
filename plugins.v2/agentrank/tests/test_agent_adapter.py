@@ -43,6 +43,13 @@ class MoviePilotAgent:
     async def cleanup(self):
         self.cleaned = True
 
+    async def _initialize_llm(self, streaming=False):
+        self.llm_streaming = streaming
+        return "restricted-model"
+
+    def _sync_model_profile(self, model):
+        self.synced_model = model
+
 
 class MoviePilotTool:
     """Minimal host tool with context setter hooks."""
@@ -74,6 +81,36 @@ app_module.agent = agent_module
 
 identity_module = sys.modules.setdefault("app.utils.identity", ModuleType("app.utils.identity"))
 identity_module.SYSTEM_INTERNAL_USER_ID = "system"
+
+created_agent_calls = []
+
+
+def create_agent(**kwargs):
+    """Record the exact graph construction arguments."""
+    created_agent_calls.append(kwargs)
+    return kwargs
+
+
+class InMemorySaver:
+    """Minimal LangGraph checkpointer stand-in."""
+
+
+langchain_module = sys.modules.setdefault("langchain", ModuleType("langchain"))
+langchain_agents_module = sys.modules.setdefault(
+    "langchain.agents", ModuleType("langchain.agents")
+)
+langchain_agents_module.create_agent = create_agent
+langchain_module.agents = langchain_agents_module
+langgraph_module = sys.modules.setdefault("langgraph", ModuleType("langgraph"))
+langgraph_checkpoint_module = sys.modules.setdefault(
+    "langgraph.checkpoint", ModuleType("langgraph.checkpoint")
+)
+langgraph_memory_module = sys.modules.setdefault(
+    "langgraph.checkpoint.memory", ModuleType("langgraph.checkpoint.memory")
+)
+langgraph_memory_module.InMemorySaver = InMemorySaver
+langgraph_module.checkpoint = langgraph_checkpoint_module
+langgraph_checkpoint_module.memory = langgraph_memory_module
 
 package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
@@ -208,6 +245,31 @@ def test_restricted_agent_injects_context_and_instantiates_exact_tool_classes():
     assert {tool.name for tool in tools} == {tool.name for tool in AGENT_TOOL_CLASSES}
     assert all(tool._agent_context is agent._tool_context for tool in tools)
     assert all(tool.message_attr == (None, None, None) for tool in tools)
+
+
+def test_restricted_agent_builds_graph_without_host_extension_middlewares():
+    """The graph itself must expose only four tools and no host middleware tools."""
+    created_agent_calls.clear()
+    agent = RestrictedAgentRankAgent(
+        session_id="__agentrank_run-1_alice__",
+        user_id="system",
+        username="alice",
+        trusted_context=_trusted_context(),
+        replay_mode=ReplyMode.CAPTURE_ONLY,
+        allow_message_tools=False,
+    )
+    agent._tool_context.update(asyncio.run(agent._build_tool_context(False)))
+
+    graph = asyncio.run(agent._create_agent(streaming=False))
+
+    assert graph is created_agent_calls[-1]
+    assert graph["model"] == "restricted-model"
+    assert tuple(tool.name for tool in graph["tools"]) == tuple(
+        tool.name for tool in AGENT_TOOL_CLASSES
+    )
+    assert graph["middleware"] == []
+    assert "四个只读工具" in graph["system_prompt"]
+    assert isinstance(graph["checkpointer"], InMemorySaver)
 
 
 def test_session_scope_rejects_separator_injection():
