@@ -108,5 +108,24 @@ class ArchiveService:
 
     def clear_profile(self, username: str) -> ArchiveActionResult:
         """原子清除当前用户画像和榜单，不触碰其他持久化对象。"""
+        changed = bool(
+            self._repository.load_profile(username)
+            or self._repository.load_board(username)
+        )
+        if not changed:
+            return ArchiveActionResult(False, "clear_profile")
         self._repository.clear_profile_and_board(username)
         return ArchiveActionResult(True, "clear_profile")
+
+    def delete_archive(self, username: str, candidate_id: str) -> ArchiveActionResult:
+        """仅删除一条归档反馈，不恢复榜单条目。"""
+        archive = self._repository.load_archive(username)
+        self._assert_archive_owner(username, archive)
+        remaining = [
+            entry for entry in archive.entries if entry.candidate_id != candidate_id
+        ]
+        if len(remaining) == len(archive.entries):
+            return ArchiveActionResult(False, "delete_archive", candidate_id)
+        archive.entries = remaining
+        self._repository.save_archive(archive)
+        return ArchiveActionResult(True, "delete_archive", candidate_id)
