@@ -210,53 +210,57 @@ class RecommendationOrchestrator:
                 weights=self._trusted_weights(config),
             )
 
-            raw_output = None
-            agent_error: Optional[Exception] = None
+            validation = None
             for attempt in range(2):
+                prompt = build_ranking_prompt()
+                if attempt:
+                    prompt += (
+                        "\n\n上一次输出未通过严格校验。请重新读取受限工具数据，"
+                        "这次只返回一个符合既定 schema 的 JSON 对象，禁止代码块、"
+                        "解释、前后缀或额外字段。"
+                    )
                 try:
                     metrics["agent_calls"] += 1
-                    raw_output = await self.agent_adapter.run(
-                        build_ranking_prompt(), trusted_context
-                    )
-                    agent_error = None
-                    break
+                    raw_output = await self.agent_adapter.run(prompt, trusted_context)
                 except Exception as error:
-                    agent_error = error
                     if attempt == 0 and bool(getattr(error, "retryable", False)):
+                        errors.append(f"attempt 1: {error}")
                         continue
+                    errors.append(str(error))
+                    return self._failure(
+                        target,
+                        run_id,
+                        "agent_failed",
+                        "内置 Agent 调用失败，已保留旧榜单",
+                        started_at,
+                        started_clock,
+                        metrics,
+                        errors,
+                        agent_calls=int(metrics["agent_calls"]),
+                    )
+                try:
+                    parsed = self._parser.parse(raw_output)
+                    validation = self._validator.validate(
+                        parsed, candidates, archived_ids, subscribed_ids
+                    )
                     break
-            if agent_error is not None:
-                error = agent_error
-                errors.append(str(error))
-                return self._failure(
-                    target,
-                    run_id,
-                    "agent_failed",
-                    "内置 Agent 调用失败，已保留旧榜单",
-                    started_at,
-                    started_clock,
-                    metrics,
-                    errors,
-                    agent_calls=int(metrics["agent_calls"]),
-                )
-            try:
-                parsed = self._parser.parse(raw_output)
-                validation = self._validator.validate(
-                    parsed, candidates, archived_ids, subscribed_ids
-                )
-            except AgentOutputError as error:
-                errors.append(str(error))
-                return self._failure(
-                    target,
-                    run_id,
-                    "validation_failed",
-                    "Agent 输出结构校验失败，已保留旧榜单",
-                    started_at,
-                    started_clock,
-                    metrics,
-                    errors,
-                    agent_calls=int(metrics["agent_calls"]),
-                )
+                except AgentOutputError as error:
+                    errors.append(f"attempt {attempt + 1}: {error}")
+                    if attempt == 0:
+                        continue
+                    return self._failure(
+                        target,
+                        run_id,
+                        "validation_failed",
+                        "Agent 输出结构校验失败，已保留旧榜单",
+                        started_at,
+                        started_clock,
+                        metrics,
+                        errors,
+                        agent_calls=int(metrics["agent_calls"]),
+                    )
+            if validation is None:
+                raise RuntimeError("Agent validation retry loop ended without a result")
             accepted: List[RecommendationItem] = list(validation.accepted)
             metrics["validation_drops"] = [drop.reason for drop in validation.dropped]
             if not accepted:

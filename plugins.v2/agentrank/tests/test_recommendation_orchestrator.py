@@ -228,6 +228,44 @@ def test_retryable_empty_agent_output_fails_after_one_retry():
     assert repository.load_run_history("alice")[0].metrics["agent_calls"] == 2
 
 
+def test_invalid_json_retries_once_with_stricter_prompt():
+    """Invalid JSON is rejected, then one strict retry may succeed."""
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [
+            "not-json",
+            _agent_output([f"tmdb:{index}" for index in range(1, 11)]),
+        ],
+    )
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "success"
+    assert result.agent_calls == 2
+    assert "上一次输出未通过严格校验" in orchestrator.agent_adapter.calls[1][0]
+    history = repository.load_run_history("alice")[0]
+    assert history.metrics["agent_calls"] == 2
+    assert history.errors[0].startswith("attempt 1:")
+
+
+def test_invalid_json_fails_after_one_strict_retry():
+    """Two invalid JSON outputs cannot replace the previous board."""
+    plugin = FakePlugin()
+    orchestrator, repository = _orchestrator(plugin, ["bad-one", "bad-two"])
+    repository.save_board(
+        RecommendationBoard(username="alice", run_id="old", status="success")
+    )
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "validation_failed"
+    assert result.agent_calls == 2
+    assert repository.load_board("alice").run_id == "old"
+    history = repository.load_run_history("alice")[0]
+    assert history.metrics["agent_calls"] == 2
+    assert len(history.errors) == 2
+
+
 def test_partial_valid_output_gets_exactly_one_successful_refill():
     """Eight accepted items trigger one refill for the two remaining slots."""
     first = _agent_output([f"tmdb:{index}" for index in range(1, 9)])
