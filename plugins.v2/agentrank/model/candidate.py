@@ -14,6 +14,15 @@ class Candidate:
     year: Optional[int] = None
     source_ids: Dict[str, str] = field(default_factory=dict)
     sources: List[str] = field(default_factory=list)
+    original_title: str = ""
+    overview: str = ""
+    poster_path: str = ""
+    backdrop_path: str = ""
+    rating: Optional[float] = None
+    popularity: Optional[float] = None
+    release_date: str = ""
+    genres: List[str] = field(default_factory=list)
+    regions: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     schema_version: int = 1
 
@@ -38,6 +47,23 @@ class Candidate:
             year=int(year) if year not in (None, "") else None,
             source_ids=dict(value.get("source_ids") or {}),
             sources=[str(item) for item in value.get("sources") or []],
+            original_title=str(value.get("original_title") or ""),
+            overview=str(value.get("overview") or ""),
+            poster_path=str(value.get("poster_path") or ""),
+            backdrop_path=str(value.get("backdrop_path") or ""),
+            rating=(
+                float(value.get("rating"))
+                if value.get("rating") not in (None, "")
+                else None
+            ),
+            popularity=(
+                float(value.get("popularity"))
+                if value.get("popularity") not in (None, "")
+                else None
+            ),
+            release_date=str(value.get("release_date") or ""),
+            genres=[str(item) for item in value.get("genres") or []],
+            regions=[str(item) for item in value.get("regions") or []],
             metadata=dict(value.get("metadata") or {}),
             schema_version=int(value.get("schema_version") or 1),
         )
