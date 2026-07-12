@@ -106,7 +106,9 @@ class AgentRank(_PluginBase):
     @staticmethod
     def get_agent_tools() -> List[Type]:
         """返回插件提供的 Agent 工具列表。"""
-        return []
+        from .agent_tools.registry import AGENT_TOOL_CLASSES
+
+        return list(AGENT_TOOL_CLASSES)
 
     def stop_service(self) -> None:
         """停止插件后台服务。"""
