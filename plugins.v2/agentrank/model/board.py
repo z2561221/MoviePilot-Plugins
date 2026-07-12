@@ -15,6 +15,7 @@ class RecommendationItem:
     title: str = ""
     media_type: str = "unknown"
     source_ids: Dict[str, str] = field(default_factory=dict)
+    match_tags: List[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RecommendationItem":
@@ -32,6 +33,7 @@ class RecommendationItem:
             title=str(value.get("title") or ""),
             media_type=str(value.get("media_type") or "unknown"),
             source_ids=dict(value.get("source_ids") or {}),
+            match_tags=[str(item) for item in value.get("match_tags") or []],
         )
 
 
