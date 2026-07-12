@@ -15,6 +15,7 @@ API_CONTROLLER = PLUGIN_DIR / "controller" / "api.py"
 FRONTEND_API = PLUGIN_DIR / "frontend" / "src" / "components" / "api.js"
 VITE_CONFIG = PLUGIN_DIR / "frontend" / "vite.config.js"
 REMOTE_ENTRY = PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js"
+AGENT_CONTEXT = PLUGIN_DIR / "ai_spec" / "plugin_context.md"
 
 
 def _json(path: Path) -> dict:
@@ -120,3 +121,21 @@ def test_agentrank_python_definitions_have_chinese_docstrings():
             if not docstring or not re.search(r"[\u4e00-\u9fff]", docstring):
                 gaps.append(f"{path.relative_to(ROOT).as_posix()}::{node.name}")
     assert gaps == []
+
+
+def test_agentrank_agent_context_documents_restricted_runtime_boundaries():
+    """The stable Agent context names the tool, side-effect, and validation boundaries."""
+    source = AGENT_CONTEXT.read_text(encoding="utf-8")
+    for phrase in (
+        "RestrictedAgentRankAgent",
+        "ReplyMode.CAPTURE_ONLY",
+        "read_agentrank_subscriptions",
+        "read_agentrank_candidates",
+        "read_agentrank_archive_feedback",
+        "read_agentrank_weights",
+        "禁止订阅",
+        "candidate_id",
+        "十个中文字符",
+        "recommendation_incomplete",
+    ):
+        assert phrase in source
