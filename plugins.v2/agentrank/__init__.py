@@ -6,7 +6,7 @@ from app.plugins import _PluginBase
 
 from .controller.api import build_api_routes, config_response, status_response
 from .model.config import default_config
-from .service.lifecycle import initialize_plugin
+from .service.lifecycle import build_services, initialize_plugin, stop_plugin
 
 
 class AgentRank(_PluginBase):
@@ -26,6 +26,8 @@ class AgentRank(_PluginBase):
 
     _enabled = False
     _config: Dict[str, Any] = {}
+    _runtime: Any = None
+    _repository: Any = None
 
     def init_plugin(self, config: dict = None) -> None:
         """初始化插件配置与运行状态。"""
@@ -101,7 +103,7 @@ class AgentRank(_PluginBase):
 
     def get_service(self) -> List[Dict[str, Any]]:
         """返回后台服务列表。"""
-        return []
+        return build_services(self)
 
     @staticmethod
     def get_agent_tools() -> List[Type]:
@@ -112,4 +114,4 @@ class AgentRank(_PluginBase):
 
     def stop_service(self) -> None:
         """停止插件后台服务。"""
-        return None
+        stop_plugin(self)
