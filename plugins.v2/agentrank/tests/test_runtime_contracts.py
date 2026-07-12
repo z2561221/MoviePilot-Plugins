@@ -44,10 +44,6 @@ def _assigned_string_collection(source: str, variable_name: str) -> set[str]:
     raise AssertionError(f"{variable_name} must be a module-level literal collection")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 2 has not implemented isolated domain objects and storage yet",
-)
 def test_per_user_domain_and_storage_contract_exists():
     """User/run scoped domain records and the storage boundary must be explicit."""
     required_modules = {

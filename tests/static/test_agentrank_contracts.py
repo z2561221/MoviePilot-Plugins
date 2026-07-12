@@ -104,3 +104,19 @@ def test_agentrank_sidebar_contract_targets_discovery_main():
     assert '"nav_key": "main"' in source
     assert '"section": "discovery"' in source
     assert '"permission": "discovery"' in source
+
+
+def test_agentrank_python_definitions_have_chinese_docstrings():
+    """Production Python definitions keep the repository's Chinese documentation gate."""
+    gaps = []
+    for path in PLUGIN_DIR.rglob("*.py"):
+        if "tests" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            docstring = ast.get_docstring(node) or ""
+            if not docstring or not re.search(r"[\u4e00-\u9fff]", docstring):
+                gaps.append(f"{path.relative_to(ROOT).as_posix()}::{node.name}")
+    assert gaps == []
