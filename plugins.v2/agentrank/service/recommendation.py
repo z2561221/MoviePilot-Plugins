@@ -210,12 +210,23 @@ class RecommendationOrchestrator:
                 weights=self._trusted_weights(config),
             )
 
-            try:
-                raw_output = await self.agent_adapter.run(
-                    build_ranking_prompt(), trusted_context
-                )
-                metrics["agent_calls"] = 1
-            except Exception as error:
+            raw_output = None
+            agent_error: Optional[Exception] = None
+            for attempt in range(2):
+                try:
+                    metrics["agent_calls"] += 1
+                    raw_output = await self.agent_adapter.run(
+                        build_ranking_prompt(), trusted_context
+                    )
+                    agent_error = None
+                    break
+                except Exception as error:
+                    agent_error = error
+                    if attempt == 0 and bool(getattr(error, "retryable", False)):
+                        continue
+                    break
+            if agent_error is not None:
+                error = agent_error
                 errors.append(str(error))
                 return self._failure(
                     target,
@@ -226,7 +237,7 @@ class RecommendationOrchestrator:
                     started_clock,
                     metrics,
                     errors,
-                    agent_calls=1,
+                    agent_calls=int(metrics["agent_calls"]),
                 )
             try:
                 parsed = self._parser.parse(raw_output)
@@ -244,7 +255,7 @@ class RecommendationOrchestrator:
                     started_clock,
                     metrics,
                     errors,
-                    agent_calls=1,
+                    agent_calls=int(metrics["agent_calls"]),
                 )
             accepted: List[RecommendationItem] = list(validation.accepted)
             metrics["validation_drops"] = [drop.reason for drop in validation.dropped]
@@ -258,7 +269,7 @@ class RecommendationOrchestrator:
                     started_clock,
                     metrics,
                     errors,
-                    agent_calls=1,
+                    agent_calls=int(metrics["agent_calls"]),
                 )
 
             if len(accepted) < 10:
@@ -278,7 +289,7 @@ class RecommendationOrchestrator:
                             ),
                             trusted_context,
                         )
-                        metrics["agent_calls"] = 2
+                        metrics["agent_calls"] += 1
                         refill_parsed = self._parser.parse(refill_output)
                         refill_validation = self._validator.validate(
                             refill_parsed,

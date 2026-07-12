@@ -102,6 +102,12 @@ class FakeAgentAdapter:
         return output
 
 
+class RetryableAgentError(RuntimeError):
+    """Represent a transient Agent completion without final text."""
+
+    retryable = True
+
+
 def _agent_output(candidate_ids):
     return json.dumps(
         {
@@ -183,6 +189,43 @@ def test_agent_failure_preserves_previous_profile_and_board():
     assert repository.load_profile("alice").run_id == "old"
     assert repository.load_board("alice").run_id == "old"
     assert repository.load_run_history("alice")[0].status == "agent_failed"
+
+
+def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
+    """A transient no-text completion gets one bounded retry with honest metrics."""
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [
+            RetryableAgentError("no text"),
+            _agent_output([f"tmdb:{index}" for index in range(1, 11)]),
+        ],
+    )
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "success"
+    assert result.agent_calls == 2
+    assert len(orchestrator.agent_adapter.calls) == 2
+    assert repository.load_run_history("alice")[0].metrics["agent_calls"] == 2
+
+
+def test_retryable_empty_agent_output_fails_after_one_retry():
+    """Two no-text completions preserve old data and stop after two calls."""
+    plugin = FakePlugin()
+    orchestrator, repository = _orchestrator(
+        plugin,
+        [RetryableAgentError("first"), RetryableAgentError("second")],
+    )
+    repository.save_profile(UserProfile(username="alice", summary="old", run_id="old"))
+    repository.save_board(RecommendationBoard(username="alice", run_id="old", status="success"))
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "agent_failed"
+    assert result.agent_calls == 2
+    assert repository.load_profile("alice").run_id == "old"
+    assert repository.load_board("alice").run_id == "old"
+    assert repository.load_run_history("alice")[0].metrics["agent_calls"] == 2
 
 
 def test_partial_valid_output_gets_exactly_one_successful_refill():

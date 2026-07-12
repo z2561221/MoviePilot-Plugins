@@ -14,6 +14,12 @@ from ..agent_tools.context import (
 from ..agent_tools.registry import AGENT_TOOL_CLASSES, ALLOWED_AGENT_TOOL_NAMES
 
 
+class AgentTextUnavailableError(RuntimeError):
+    """表示 Agent 完成工具调用后没有产生可捕获文本。"""
+
+    retryable = True
+
+
 class RestrictedAgentRankAgent(MoviePilotAgent):
     """只实例化 AgentRank 四工具并注入单次运行上下文的内置 Agent。"""
 
@@ -115,7 +121,7 @@ class AgentRankAgentAdapter:
                 return result
             if captured_output:
                 return captured_output
-            raise TypeError("Agent did not produce text output")
+            raise AgentTextUnavailableError("Agent did not produce text output")
         finally:
             try:
                 await agent.cleanup()
