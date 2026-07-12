@@ -90,6 +90,14 @@ class AgentRankAgentAdapter:
         if not isinstance(trusted_context, AgentRankTrustedContext):
             raise TypeError("trusted_context must be AgentRankTrustedContext")
         session_id = self._session_id(trusted_context)
+        captured_output = ""
+
+        def capture_output(text: str) -> None:
+            """保存宿主 output_callback 提供的最新完整文本。"""
+            nonlocal captured_output
+            if isinstance(text, str):
+                captured_output = text
+
         agent = self._agent_factory(
             session_id=session_id,
             user_id=self._user_id,
@@ -99,9 +107,15 @@ class AgentRankAgentAdapter:
             replay_mode=ReplyMode.CAPTURE_ONLY,
             allow_message_tools=False,
             trusted_context=trusted_context,
+            output_callback=capture_output,
         )
         try:
-            return await agent.process(str(prompt or ""))
+            result = await agent.process(str(prompt or ""))
+            if isinstance(result, str):
+                return result
+            if captured_output:
+                return captured_output
+            raise TypeError("Agent did not produce text output")
         finally:
             try:
                 await agent.cleanup()

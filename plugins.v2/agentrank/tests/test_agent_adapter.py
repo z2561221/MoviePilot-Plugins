@@ -110,6 +110,16 @@ class FakeRunner:
         self.cleaned = True
 
 
+class FakeCallbackRunner(FakeRunner):
+    """模拟当前宿主仅通过 output_callback 返回捕获文本。"""
+
+    async def process(self, prompt):
+        self.prompt = prompt
+        self.kwargs["output_callback"]("partial")
+        self.kwargs["output_callback"]("captured-json")
+        return None
+
+
 def _trusted_context(run_id="run-1", username="alice"):
     return build_trusted_context(username, run_id, [], [], {"entries": []}, {"weights": {}})
 
@@ -156,6 +166,24 @@ def test_adapter_cleans_agent_and_memory_when_process_fails():
 
     assert FakeRunner.instances[-1].cleaned is True
     assert cleared == [("__agentrank_run-2_alice__", "system")]
+
+
+def test_adapter_uses_capture_callback_when_host_process_returns_none():
+    """当前宿主成功路径返回 None 时仍应取得回调中的最终文本。"""
+    FakeCallbackRunner.instances.clear()
+    cleared = []
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeCallbackRunner,
+        memory_clearer=lambda session_id, user_id: cleared.append((session_id, user_id)),
+    )
+
+    output = asyncio.run(adapter.run("rank now", _trusted_context()))
+
+    runner = FakeCallbackRunner.instances[-1]
+    assert output == "captured-json"
+    assert callable(runner.kwargs["output_callback"])
+    assert runner.cleaned is True
+    assert cleared == [("__agentrank_run-1_alice__", "system")]
 
 
 def test_restricted_agent_injects_context_and_instantiates_exact_tool_classes():
