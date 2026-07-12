@@ -159,7 +159,8 @@ def test_dashboard_is_a_lightweight_vertical_top_five():
     assert "mdi-open-in-new" in source
     assert "fullBoardHref" in source
     assert "#/plugin-app/" in source
-    assert ':href="fullBoardHref"' in source
+    assert "window.location.hash = fullBoardHref.value.slice(1)" in source
+    assert '@click="openFullBoard"' in source
     assert "emit('action'" not in source
     assert "username" not in source.lower()
 

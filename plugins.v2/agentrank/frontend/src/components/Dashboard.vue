@@ -48,6 +48,10 @@ async function refreshBoard() {
   try { await state.refresh() } catch (_) { /* 卡片内显示共享错误 */ }
 }
 
+function openFullBoard() {
+  window.location.hash = fullBoardHref.value.slice(1)
+}
+
 onMounted(initialize)
 </script>
 
@@ -81,7 +85,7 @@ onMounted(initialize)
     <VCardActions>
       <VChip size="small" variant="tonal" :color="statusMeta.color">{{ statusMeta.text }}</VChip>
       <VSpacer />
-      <VBtn :href="fullBoardHref" variant="text" color="primary" prepend-icon="mdi-open-in-new">完整榜单</VBtn>
+      <VBtn variant="text" color="primary" prepend-icon="mdi-open-in-new" @click="openFullBoard">完整榜单</VBtn>
     </VCardActions>
   </VCard>
 </template>

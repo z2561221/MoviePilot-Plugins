@@ -68,6 +68,10 @@ async function refreshBoard() {
   try { await state.refresh(); } catch (_) { /* 卡片内显示共享错误 */ }
 }
 
+function openFullBoard() {
+  window.location.hash = fullBoardHref.value.slice(1);
+}
+
 onMounted(initialize);
 
 return (_ctx, _cache) => {
@@ -200,16 +204,16 @@ return (_ctx, _cache) => {
           }, 8, ["color"]),
           _createVNode(_component_VSpacer),
           _createVNode(_component_VBtn, {
-            href: fullBoardHref.value,
             variant: "text",
             color: "primary",
-            "prepend-icon": "mdi-open-in-new"
+            "prepend-icon": "mdi-open-in-new",
+            onClick: openFullBoard
           }, {
             default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
               _createTextVNode("完整榜单", -1)
             ]))]),
             _: 1
-          }, 8, ["href"])
+          })
         ]),
         _: 1
       })
@@ -220,6 +224,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-783fd462"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d428c16e"]]);
 
 export { Dashboard as default };
