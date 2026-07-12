@@ -212,11 +212,22 @@ class AgentRankApiController:
         return self._success(result.__dict__)
 
     def subscribe(self, payload: Any) -> Dict[str, Any]:
-        """保留手动订阅路由，具体安全链由后续任务接入。"""
+        """通过运行时安全链创建单项手动订阅。"""
         body = self._payload(payload)
-        self._username(body.get("username"))
-        self._candidate_id(body)
-        raise ApiContractError(409, "subscription_not_ready", "手动订阅安全链尚未就绪")
+        target = self._username(body.get("username"))
+        candidate_id = self._candidate_id(body)
+        runtime = getattr(self.plugin, "_runtime", None)
+        service = getattr(runtime, "subscription_service", None) if runtime else None
+        if service is None:
+            raise ApiContractError(409, "subscription_not_ready", "手动订阅安全链尚未就绪")
+        result = service.subscribe(
+            target,
+            candidate_id,
+            float(self.plugin._config.get("confidence_threshold") or 0.0),
+        )
+        if not result.success:
+            raise ApiContractError(409, result.code, result.message)
+        return self._success(result.__dict__)
 
     def _endpoint(self, method: Any, *args: Any) -> Any:
         """把纯控制器错误转换为 FastAPI HTTPException。"""

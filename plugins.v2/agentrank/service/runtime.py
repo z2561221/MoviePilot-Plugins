@@ -13,12 +13,24 @@ class AgentRankRuntime:
         config: Dict[str, Any],
         orchestrator: Any = None,
         trigger_factory: Callable[[str], Any] = None,
+        subscription_service: Any = None,
+        notification_service: Any = None,
     ):
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
         self.config = config
         self.orchestrator = orchestrator or self._build_orchestrator(plugin, config)
         self._trigger_factory = trigger_factory or self._default_trigger_factory
+        if orchestrator is None:
+            from .notification import NotificationService
+            from .subscription import SubscriptionService
+
+            subscription_service = subscription_service or SubscriptionService(
+                plugin._repository
+            )
+            notification_service = notification_service or NotificationService(plugin)
+        self.subscription_service = subscription_service
+        self.notification_service = notification_service
         self._stopped = False
         self._active_tasks: set[asyncio.Task] = set()
 
@@ -90,7 +102,21 @@ class AgentRankRuntime:
         """执行一次手动用户刷新；停止后拒绝新任务。"""
         if self._stopped:
             raise RuntimeError("AgentRank runtime is stopped")
-        return await self.orchestrator.run(username, self.config)
+        result = await self.orchestrator.run(username, self.config)
+        self._send_notification_if_needed(username, result)
+        return result
+
+    def _send_notification_if_needed(self, username: str, result: Any) -> None:
+        """通知确认模式只发送榜单摘要，不执行订阅。"""
+        if self.notification_service is None:
+            return
+        if self.config.get("action_mode") != "notify":
+            return
+        if getattr(result, "status", "") not in {"success", "recommendation_incomplete"}:
+            return
+        board = getattr(result, "board", None)
+        if board is not None:
+            self.notification_service.send_confirmation(username, board)
 
     async def run_scheduled(self) -> List[Dict[str, Any]]:
         """顺序处理参与用户，单用户异常不阻断后续用户。"""
@@ -106,6 +132,7 @@ class AgentRankRuntime:
                     break
                 try:
                     result = await self.orchestrator.run(username, self.config)
+                    self._send_notification_if_needed(username, result)
                     results.append(
                         {
                             "username": username,
