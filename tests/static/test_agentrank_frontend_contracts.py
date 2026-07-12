@@ -105,6 +105,13 @@ def test_config_has_stable_desktop_and_dedicated_mobile_layout():
     assert "ar-config__window--overview" in source
 
 
+def test_config_advanced_navigation_uses_a_host_supported_mdi_icon():
+    """Advanced settings must not reference an icon absent from MP's Iconify MDI set."""
+    source = CONFIG.read_text(encoding="utf-8")
+    assert "mdi-shield-check-outline" in source
+    assert "mdi-shield-cog-outline" not in source
+
+
 def test_app_page_is_a_vertical_top_ten_with_complete_user_actions():
     """The recommendation center implements the specified single-board experience."""
     source = APP_PAGE.read_text(encoding="utf-8")
