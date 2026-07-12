@@ -67,10 +67,6 @@ def test_agent_tool_registry_is_an_exact_read_only_whitelist():
     assert "AGENT_TOOL_CLASSES" in source
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 3 has not implemented the restricted MoviePilotAgent adapter yet",
-)
 def test_agent_adapter_is_capture_only_and_never_loads_general_tools():
     """The ranking session uses capture-only mode and opts into its exact tool set."""
     source = _source("adapter/agent.py")

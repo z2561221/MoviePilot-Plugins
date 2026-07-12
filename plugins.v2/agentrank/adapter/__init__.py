@@ -2,5 +2,6 @@
 
 from .subscription import SubscriptionAdapter
 from .discovery import DiscoveryAdapter
+from .agent import AgentRankAgentAdapter
 
-__all__ = ["DiscoveryAdapter", "SubscriptionAdapter"]
+__all__ = ["AgentRankAgentAdapter", "DiscoveryAdapter", "SubscriptionAdapter"]
