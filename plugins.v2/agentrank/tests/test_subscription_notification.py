@@ -134,8 +134,38 @@ def test_notification_confirmation_sends_summary_without_subscription_dependency
 
     assert len(plugin.messages) == 1
     assert plugin.messages[0]["username"] == "alice"
-    assert "请前往 Agent榜单中心手动订阅" in plugin.messages[0]["text"]
+    assert plugin.messages[0]["parse_mode"] == "MarkdownV2"
+    assert plugin.messages[0]["disable_web_page_preview"] is True
+    assert plugin.messages[0]["text"].startswith("本轮 Agent 推荐已生成，共 1 条：\n\n```")
+    assert "01 │ One\n   │ 悬疑迷局牵出旧日真相" in plugin.messages[0]["text"]
+    assert "请前往 **Agent榜单中心** 手动订阅" in plugin.messages[0]["text"]
     assert "One" in plugin.messages[0]["text"]
+
+
+def test_notification_confirmation_compacts_long_or_multiline_fields():
+    """MarkdownV2 榜单压缩多行文本并保持两位排名和等宽列结构。"""
+    plugin = FakePlugin()
+    board = RecommendationBoard(
+        username="alice",
+        run_id="run-mdv2",
+        status="success",
+        recommendations=[
+            RecommendationItem(
+                candidate_id="tmdb:10",
+                rank=10,
+                title="A_B [Test] (2025)! " * 5,
+                summary="第一行\n第二行   间隔",
+            )
+        ],
+    )
+
+    NotificationService(plugin).send_confirmation("alice", board)
+
+    text = plugin.messages[0]["text"]
+    assert text.count("```") == 2
+    assert "10 │ A_B [Test] (2025)!" in text
+    assert "   │ 第一行 第二行 间隔" in text
+    assert "…" in text
 
 
 def test_manual_subscription_passes_username_and_identifiers_after_all_gates():
