@@ -33,6 +33,18 @@ const archiveEntries = computed(() => overview.value?.archive?.entries || [])
 const weights = computed(() => options.value?.config?.weights || {})
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '')
 const boardStatus = computed(() => board.value?.status || 'idle')
+const weightLabels = {
+  type_weight: '媒体类型',
+  theme_weight: '题材主题',
+  actor_weight: '演员偏好',
+  director_weight: '导演偏好',
+  region_weight: '地区偏好',
+  year_weight: '年代偏好',
+  rating_weight: '评分质量',
+  heat_weight: '热门程度',
+  freshness_weight: '新鲜程度',
+  similarity_weight: '相似程度',
+}
 
 const statusMeta = computed(() => {
   const map = {
@@ -66,6 +78,14 @@ function formatTime(value) {
   if (!value) return '尚未生成'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function weightLabel(key) {
+  return weightLabels[key] || key.replace('_weight', '')
+}
+
+function formatWeight(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`
 }
 
 function mediaTypeLabel(value) {
@@ -234,7 +254,7 @@ onMounted(initialize)
               <VExpansionPanel>
                 <VExpansionPanelTitle><VIcon icon="mdi-tune-vertical" color="primary" class="mr-2" />权重摘要</VExpansionPanelTitle>
                 <VExpansionPanelText>
-                  <div v-for="(value, key) in weights" :key="key" class="ar-app-page__weight-row"><span>{{ key.replace('_weight', '') }}</span><VProgressLinear :model-value="Number(value) * 100" color="primary" height="6" rounded /><strong>{{ Number(value).toFixed(1) }}</strong></div>
+                  <div v-for="(value, key) in weights" :key="key" class="ar-app-page__weight-row"><span>{{ weightLabel(key) }}</span><VProgressLinear :model-value="Number(value) * 100" color="primary" height="6" rounded /><strong>{{ formatWeight(value) }}</strong></div>
                   <VBtn block variant="text" color="primary" prepend-icon="mdi-cog-outline" class="mt-2" @click="emit('switch')">进入设置</VBtn>
                 </VExpansionPanelText>
               </VExpansionPanel>
@@ -299,7 +319,7 @@ onMounted(initialize)
 .ar-app-page__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .ar-app-page__item-actions { display: flex; flex-direction: column; gap: 6px; }
 .ar-app-page__aside { position: sticky; top: 80px; }
-.ar-app-page__weight-row { display: grid; grid-template-columns: 76px minmax(0, 1fr) 28px; gap: 8px; align-items: center; margin-bottom: 9px; font-size: 12px; }
+.ar-app-page__weight-row { display: grid; grid-template-columns: 76px minmax(0, 1fr) 42px; gap: 8px; align-items: center; margin-bottom: 9px; font-size: 12px; }
 .ar-app-page__archive-row, .ar-app-page__history-row { min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .6)); font-size: 12px; }
 .ar-app-page__state { min-height: 480px; display: flex; align-items: center; justify-content: center; padding: 24px; }
 @media (max-width: 960px) { .ar-app-page__layout { grid-template-columns: minmax(0, 1fr); } .ar-app-page__aside { position: static; } }

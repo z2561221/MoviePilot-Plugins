@@ -91,6 +91,18 @@ const archiveEntries = computed(() => overview.value?.archive?.entries || []);
 const weights = computed(() => options.value?.config?.weights || {});
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '');
 const boardStatus = computed(() => board.value?.status || 'idle');
+const weightLabels = {
+  type_weight: '媒体类型',
+  theme_weight: '题材主题',
+  actor_weight: '演员偏好',
+  director_weight: '导演偏好',
+  region_weight: '地区偏好',
+  year_weight: '年代偏好',
+  rating_weight: '评分质量',
+  heat_weight: '热门程度',
+  freshness_weight: '新鲜程度',
+  similarity_weight: '相似程度',
+};
 
 const statusMeta = computed(() => {
   const map = {
@@ -124,6 +136,14 @@ function formatTime(value) {
   if (!value) return '尚未生成'
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function weightLabel(key) {
+  return weightLabels[key] || key.replace('_weight', '')
+}
+
+function formatWeight(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`
 }
 
 function mediaTypeLabel(value) {
@@ -554,14 +574,14 @@ return (_ctx, _cache) => {
                                     key: key,
                                     class: "ar-app-page__weight-row"
                                   }, [
-                                    _createElementVNode("span", null, _toDisplayString(key.replace('_weight', '')), 1),
+                                    _createElementVNode("span", null, _toDisplayString(weightLabel(key)), 1),
                                     _createVNode(_component_VProgressLinear, {
                                       "model-value": Number(value) * 100,
                                       color: "primary",
                                       height: "6",
                                       rounded: ""
                                     }, null, 8, ["model-value"]),
-                                    _createElementVNode("strong", null, _toDisplayString(Number(value).toFixed(1)), 1)
+                                    _createElementVNode("strong", null, _toDisplayString(formatWeight(value)), 1)
                                   ]))
                                 }), 128)),
                                 _createVNode(_component_VBtn, {
@@ -766,6 +786,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e7f58a2d"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-85ab0724"]]);
 
 export { AppPage as default };

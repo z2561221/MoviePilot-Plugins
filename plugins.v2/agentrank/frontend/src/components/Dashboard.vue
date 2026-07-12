@@ -71,8 +71,12 @@ onMounted(initialize)
       <VAlert v-else-if="state.error.value" type="error" variant="tonal">{{ state.error.value.message }}</VAlert>
       <VEmptyState v-else-if="!topItems.length" icon="mdi-format-list-numbered" title="推荐榜单尚未生成" text="打开完整榜单或点击刷新开始生成。" />
       <div v-else class="ar-dashboard__list">
-        <div v-for="item in topItems" :key="item.candidate_id" class="ar-dashboard__item">
+          <div v-for="item in topItems" :key="item.candidate_id" class="ar-dashboard__item">
           <div class="ar-dashboard__rank">{{ item.rank }}</div>
+          <div class="ar-dashboard__poster">
+            <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover />
+            <VIcon v-else icon="mdi-image-off-outline" size="18" />
+          </div>
           <div class="ar-dashboard__main">
             <div class="font-weight-medium text-truncate">{{ item.title }}</div>
             <div class="text-caption text-medium-emphasis text-truncate">{{ item.summary }}</div>
@@ -91,11 +95,13 @@ onMounted(initialize)
 </template>
 
 <style scoped>
-.ar-dashboard { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 16px; overflow: hidden; }
+.ar-dashboard { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden; }
 .ar-dashboard :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-dashboard__content { min-height: 260px; }
 .ar-dashboard__list { display: flex; flex-direction: column; gap: 7px; }
-.ar-dashboard__item { min-height: 44px; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 6px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px; }
+.ar-dashboard__item { min-height: 76px; display: grid; grid-template-columns: 28px 44px minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 6px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px; }
 .ar-dashboard__rank { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .12); font-size: 12px; font-weight: 700; }
+.ar-dashboard__poster { width: 44px; height: 64px; display: grid; place-items: center; overflow: hidden; border-radius: 4px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
+.ar-dashboard__poster :deep(.v-img) { width: 100%; height: 100%; }
 .ar-dashboard__main { min-width: 0; }
 </style>

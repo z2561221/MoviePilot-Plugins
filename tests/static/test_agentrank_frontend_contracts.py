@@ -130,6 +130,9 @@ def test_app_page_is_a_vertical_top_ten_with_complete_user_actions():
     assert "grid-template-columns: minmax(0, 1fr)" in source
     assert "@media (max-width: 760px)" in source
     assert "min-width: 40px" in source or "min-height: 40px" in source
+    assert "媒体类型" in source
+    assert "评分质量" in source
+    assert "formatWeight(value)" in source
 
 
 def test_page_has_five_management_tabs_and_backend_history_paging():
@@ -147,6 +150,13 @@ def test_page_has_five_management_tabs_and_backend_history_paging():
     assert "page_size" in source
     assert "emit('close')" in source
     assert "emit('switch')" in source
+    assert "item.poster_path" in source
+    assert "mdi-image-off-outline" in source
+    assert "statusMetaFor(run.status)" in source
+    assert "white-space: normal" in source
+    assert "overflow-wrap: anywhere" in source
+    assert "媒体类型" in source
+    assert "评分质量" in source
 
 
 def test_dashboard_is_a_lightweight_vertical_top_five():
@@ -163,6 +173,8 @@ def test_dashboard_is_a_lightweight_vertical_top_five():
     assert '@click="openFullBoard"' in source
     assert "emit('action'" not in source
     assert "username" not in source.lower()
+    assert "item.poster_path" in source
+    assert "ar-dashboard__poster" in source
 
 
 def test_primary_surface_exposes_the_complete_semantic_state_matrix():

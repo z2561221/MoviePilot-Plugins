@@ -13,25 +13,26 @@ const _hoisted_4 = {
   class: "ar-page__ranking"
 };
 const _hoisted_5 = { class: "ar-page__rank" };
-const _hoisted_6 = { class: "ar-page__rank-main" };
-const _hoisted_7 = { class: "font-weight-bold text-truncate" };
-const _hoisted_8 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_9 = { class: "text-body-2 mt-1" };
-const _hoisted_10 = { class: "ar-page__rank-actions" };
-const _hoisted_11 = { class: "ar-page__pane" };
-const _hoisted_12 = { class: "text-body-1 mb-4" };
-const _hoisted_13 = { class: "ar-page__chips" };
-const _hoisted_14 = { class: "text-caption text-medium-emphasis mt-4" };
-const _hoisted_15 = { class: "ar-page__pane" };
-const _hoisted_16 = { class: "ar-page__weights" };
-const _hoisted_17 = { class: "ar-page__pane" };
-const _hoisted_18 = {
+const _hoisted_6 = { class: "ar-page__poster" };
+const _hoisted_7 = { class: "ar-page__rank-main" };
+const _hoisted_8 = { class: "font-weight-bold text-truncate" };
+const _hoisted_9 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_10 = { class: "text-body-2 mt-1" };
+const _hoisted_11 = { class: "ar-page__rank-actions" };
+const _hoisted_12 = { class: "ar-page__pane" };
+const _hoisted_13 = { class: "text-body-1 mb-4" };
+const _hoisted_14 = { class: "ar-page__chips" };
+const _hoisted_15 = { class: "text-caption text-medium-emphasis mt-4" };
+const _hoisted_16 = { class: "ar-page__pane" };
+const _hoisted_17 = { class: "ar-page__weights" };
+const _hoisted_18 = { class: "ar-page__pane" };
+const _hoisted_19 = {
   key: 1,
   class: "ar-page__archive-list"
 };
-const _hoisted_19 = { class: "ar-page__pane" };
-const _hoisted_20 = { class: "ar-page__table-wrap" };
-const _hoisted_21 = { class: "ar-page__error-cell" };
+const _hoisted_20 = { class: "ar-page__pane" };
+const _hoisted_21 = { class: "ar-page__table-wrap" };
+const _hoisted_22 = { class: "ar-page__error-cell" };
 
 const {computed,onMounted,ref,watch} = await importShared('vue');
 
@@ -56,6 +57,29 @@ const recommendations = computed(() => state.board.value?.recommendations?.slice
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || []);
 const weights = computed(() => state.options.value?.config?.weights || {});
 const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.value.total || 0) / historyPageSize)));
+const statusMetaFor = status => ({
+  idle: { text: '待生成', color: 'default' },
+  running: { text: '运行中', color: 'primary' },
+  success: { text: '已完成', color: 'success' },
+  sample_insufficient: { text: '样本不足', color: 'warning' },
+  candidate_insufficient: { text: '候选不足', color: 'warning' },
+  recommendation_incomplete: { text: '榜单不足', color: 'warning' },
+  agent_failed: { text: 'Agent失败', color: 'error' },
+  validation_failed: { text: '校验失败', color: 'error' },
+  subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
+}[status] || { text: status || '未知', color: 'default' });
+const weightLabels = {
+  type_weight: '媒体类型',
+  theme_weight: '题材主题',
+  actor_weight: '演员偏好',
+  director_weight: '导演偏好',
+  region_weight: '地区偏好',
+  year_weight: '年代偏好',
+  rating_weight: '评分质量',
+  heat_weight: '热门程度',
+  freshness_weight: '新鲜程度',
+  similarity_weight: '相似程度',
+};
 
 const tabs = [
   { key: 'board', title: '推荐榜单', icon: 'mdi-format-list-numbered' },
@@ -69,6 +93,14 @@ function formatTime(value) {
   if (!value) return '—'
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function weightLabel(key) {
+  return weightLabels[key] || key
+}
+
+function formatWeight(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`
 }
 
 async function initialize() {
@@ -116,6 +148,7 @@ return (_ctx, _cache) => {
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VSkeletonLoader = _resolveComponent("VSkeletonLoader");
   const _component_VEmptyState = _resolveComponent("VEmptyState");
+  const _component_VImg = _resolveComponent("VImg");
   const _component_VChip = _resolveComponent("VChip");
   const _component_VCardTitle = _resolveComponent("VCardTitle");
   const _component_VCardSubtitle = _resolveComponent("VCardSubtitle");
@@ -247,9 +280,23 @@ return (_ctx, _cache) => {
                       }, [
                         _createElementVNode("div", _hoisted_5, _toDisplayString(item.rank), 1),
                         _createElementVNode("div", _hoisted_6, [
-                          _createElementVNode("div", _hoisted_7, _toDisplayString(item.title), 1),
-                          _createElementVNode("div", _hoisted_8, _toDisplayString(item.year || '年份未知') + " · " + _toDisplayString(item.media_type), 1),
-                          _createElementVNode("div", _hoisted_9, _toDisplayString(item.summary), 1)
+                          (item.poster_path)
+                            ? (_openBlock(), _createBlock(_component_VImg, {
+                                key: 0,
+                                src: item.poster_path,
+                                alt: `${item.title} 海报`,
+                                cover: ""
+                              }, null, 8, ["src", "alt"]))
+                            : (_openBlock(), _createBlock(_component_VIcon, {
+                                key: 1,
+                                icon: "mdi-image-off-outline",
+                                size: "26"
+                              }))
+                        ]),
+                        _createElementVNode("div", _hoisted_7, [
+                          _createElementVNode("div", _hoisted_8, _toDisplayString(item.title), 1),
+                          _createElementVNode("div", _hoisted_9, _toDisplayString(item.year || '年份未知') + " · " + _toDisplayString(item.media_type), 1),
+                          _createElementVNode("div", _hoisted_10, _toDisplayString(item.summary), 1)
                         ]),
                         _createVNode(_component_VChip, {
                           size: "x-small",
@@ -261,7 +308,7 @@ return (_ctx, _cache) => {
                           ]),
                           _: 2
                         }, 1024),
-                        _createElementVNode("div", _hoisted_10, [
+                        _createElementVNode("div", _hoisted_11, [
                           _createVNode(_component_VBtn, {
                             icon: "mdi-plus-circle-outline",
                             color: "primary",
@@ -288,7 +335,7 @@ return (_ctx, _cache) => {
             ], 512), [
               [_vShow, activeTab.value === 'board']
             ]),
-            _withDirectives(_createElementVNode("section", _hoisted_11, [
+            _withDirectives(_createElementVNode("section", _hoisted_12, [
               _createVNode(_component_VCard, {
                 variant: "outlined",
                 class: "ar-page__section-card"
@@ -326,8 +373,8 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode(_component_VCardText, null, {
                     default: _withCtx(() => [
-                      _createElementVNode("div", _hoisted_12, _toDisplayString(_unref(state).profile.value?.summary || '尚未生成用户画像'), 1),
-                      _createElementVNode("div", _hoisted_13, [
+                      _createElementVNode("div", _hoisted_13, _toDisplayString(_unref(state).profile.value?.summary || '尚未生成用户画像'), 1),
+                      _createElementVNode("div", _hoisted_14, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_unref(state).profile.value?.tags || [], (tag) => {
                           return (_openBlock(), _createBlock(_component_VChip, {
                             key: tag,
@@ -342,7 +389,7 @@ return (_ctx, _cache) => {
                           }, 1024))
                         }), 128))
                       ]),
-                      _createElementVNode("div", _hoisted_14, "订阅样本 " + _toDisplayString(_unref(state).profile.value?.subscription_count || 0) + " 条", 1)
+                      _createElementVNode("div", _hoisted_15, "订阅样本 " + _toDisplayString(_unref(state).profile.value?.subscription_count || 0) + " 条", 1)
                     ]),
                     _: 1
                   })
@@ -352,7 +399,7 @@ return (_ctx, _cache) => {
             ], 512), [
               [_vShow, activeTab.value === 'profile']
             ]),
-            _withDirectives(_createElementVNode("section", _hoisted_15, [
+            _withDirectives(_createElementVNode("section", _hoisted_16, [
               _createVNode(_component_VAlert, {
                 type: "info",
                 variant: "tonal",
@@ -363,20 +410,20 @@ return (_ctx, _cache) => {
                 ]))]),
                 _: 1
               }),
-              _createElementVNode("div", _hoisted_16, [
+              _createElementVNode("div", _hoisted_17, [
                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(weights.value, (value, key) => {
                   return (_openBlock(), _createElementBlock("div", {
                     key: key,
                     class: "ar-page__weight"
                   }, [
-                    _createElementVNode("span", null, _toDisplayString(key), 1),
+                    _createElementVNode("span", null, _toDisplayString(weightLabel(key)), 1),
                     _createVNode(_component_VProgressLinear, {
                       "model-value": Number(value) * 100,
                       color: "primary",
                       height: "8",
                       rounded: ""
                     }, null, 8, ["model-value"]),
-                    _createElementVNode("strong", null, _toDisplayString(Number(value).toFixed(1)), 1)
+                    _createElementVNode("strong", null, _toDisplayString(formatWeight(value)), 1)
                   ]))
                 }), 128))
               ]),
@@ -395,7 +442,7 @@ return (_ctx, _cache) => {
             ], 512), [
               [_vShow, activeTab.value === 'weights']
             ]),
-            _withDirectives(_createElementVNode("section", _hoisted_17, [
+            _withDirectives(_createElementVNode("section", _hoisted_18, [
               (!archiveEntries.value.length)
                 ? (_openBlock(), _createBlock(_component_VEmptyState, {
                     key: 0,
@@ -403,7 +450,7 @@ return (_ctx, _cache) => {
                     title: "暂无归档",
                     text: "忽略的推荐会保留原排名和恢复信息。"
                   }))
-                : (_openBlock(), _createElementBlock("div", _hoisted_18, [
+                : (_openBlock(), _createElementBlock("div", _hoisted_19, [
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(archiveEntries.value, (entry) => {
                       return (_openBlock(), _createBlock(_component_VCard, {
                         key: entry.candidate_id,
@@ -458,8 +505,8 @@ return (_ctx, _cache) => {
             ], 512), [
               [_vShow, activeTab.value === 'archive']
             ]),
-            _withDirectives(_createElementVNode("section", _hoisted_19, [
-              _createElementVNode("div", _hoisted_20, [
+            _withDirectives(_createElementVNode("section", _hoisted_20, [
+              _createElementVNode("div", _hoisted_21, [
                 _createVNode(_component_VTable, {
                   density: "compact",
                   "fixed-header": "",
@@ -486,19 +533,20 @@ return (_ctx, _cache) => {
                           _createElementVNode("td", null, [
                             _createVNode(_component_VChip, {
                               size: "x-small",
+                              color: statusMetaFor(run.status).color,
                               variant: "tonal"
                             }, {
                               default: _withCtx(() => [
-                                _createTextVNode(_toDisplayString(run.status), 1)
+                                _createTextVNode(_toDisplayString(statusMetaFor(run.status).text), 1)
                               ]),
                               _: 2
-                            }, 1024)
+                            }, 1032, ["color"])
                           ]),
                           _createElementVNode("td", null, _toDisplayString(run.metrics?.candidate_count ?? '—'), 1),
                           _createElementVNode("td", null, _toDisplayString(run.metrics?.final_count ?? '—'), 1),
                           _createElementVNode("td", null, _toDisplayString(run.metrics?.agent_calls ?? '—') + " 次", 1),
                           _createElementVNode("td", null, _toDisplayString(run.metrics?.subscription_success_count ?? 0), 1),
-                          _createElementVNode("td", _hoisted_21, _toDisplayString(run.errors?.join('；') || '—'), 1)
+                          _createElementVNode("td", _hoisted_22, _toDisplayString(run.errors?.join('；') || run.message || '—'), 1)
                         ]))
                       }), 128))
                     ])
@@ -589,6 +637,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a2d07f28"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5edebe43"]]);
 
 export { Page as default };

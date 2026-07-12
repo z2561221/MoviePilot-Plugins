@@ -16,6 +16,29 @@ const recommendations = computed(() => state.board.value?.recommendations?.slice
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || [])
 const weights = computed(() => state.options.value?.config?.weights || {})
 const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.value.total || 0) / historyPageSize)))
+const statusMetaFor = status => ({
+  idle: { text: '待生成', color: 'default' },
+  running: { text: '运行中', color: 'primary' },
+  success: { text: '已完成', color: 'success' },
+  sample_insufficient: { text: '样本不足', color: 'warning' },
+  candidate_insufficient: { text: '候选不足', color: 'warning' },
+  recommendation_incomplete: { text: '榜单不足', color: 'warning' },
+  agent_failed: { text: 'Agent失败', color: 'error' },
+  validation_failed: { text: '校验失败', color: 'error' },
+  subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
+}[status] || { text: status || '未知', color: 'default' })
+const weightLabels = {
+  type_weight: '媒体类型',
+  theme_weight: '题材主题',
+  actor_weight: '演员偏好',
+  director_weight: '导演偏好',
+  region_weight: '地区偏好',
+  year_weight: '年代偏好',
+  rating_weight: '评分质量',
+  heat_weight: '热门程度',
+  freshness_weight: '新鲜程度',
+  similarity_weight: '相似程度',
+}
 
 const tabs = [
   { key: 'board', title: '推荐榜单', icon: 'mdi-format-list-numbered' },
@@ -29,6 +52,14 @@ function formatTime(value) {
   if (!value) return '—'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function weightLabel(key) {
+  return weightLabels[key] || key
+}
+
+function formatWeight(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`
 }
 
 async function initialize() {
@@ -96,6 +127,10 @@ onMounted(initialize)
           <div v-else class="ar-page__ranking">
             <article v-for="item in recommendations" :key="item.candidate_id" class="ar-page__rank-item">
               <div class="ar-page__rank">{{ item.rank }}</div>
+              <div class="ar-page__poster">
+                <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover />
+                <VIcon v-else icon="mdi-image-off-outline" size="26" />
+              </div>
               <div class="ar-page__rank-main">
                 <div class="font-weight-bold text-truncate">{{ item.title }}</div>
                 <div class="text-caption text-medium-emphasis">{{ item.year || '年份未知' }} · {{ item.media_type }}</div>
@@ -128,7 +163,7 @@ onMounted(initialize)
         <section v-show="activeTab === 'weights'" class="ar-page__pane">
           <VAlert type="info" variant="tonal" class="mb-3">权重配置在此只读展示，请进入 Config 修改。</VAlert>
           <div class="ar-page__weights">
-            <div v-for="(value, key) in weights" :key="key" class="ar-page__weight"><span>{{ key }}</span><VProgressLinear :model-value="Number(value) * 100" color="primary" height="8" rounded /><strong>{{ Number(value).toFixed(1) }}</strong></div>
+            <div v-for="(value, key) in weights" :key="key" class="ar-page__weight"><span>{{ weightLabel(key) }}</span><VProgressLinear :model-value="Number(value) * 100" color="primary" height="8" rounded /><strong>{{ formatWeight(value) }}</strong></div>
           </div>
           <VBtn color="primary" variant="tonal" prepend-icon="mdi-cog-outline" class="mt-4" @click="emit('switch')">进入设置</VBtn>
         </section>
@@ -156,12 +191,12 @@ onMounted(initialize)
               <tbody>
                 <tr v-for="run in state.history.value" :key="`${run.run_id}-${run.finished_at}`">
                   <td>{{ formatTime(run.finished_at || run.started_at) }}</td>
-                  <td><VChip size="x-small" variant="tonal">{{ run.status }}</VChip></td>
+              <td><VChip size="x-small" :color="statusMetaFor(run.status).color" variant="tonal">{{ statusMetaFor(run.status).text }}</VChip></td>
                   <td>{{ run.metrics?.candidate_count ?? '—' }}</td>
                   <td>{{ run.metrics?.final_count ?? '—' }}</td>
                   <td>{{ run.metrics?.agent_calls ?? '—' }} 次</td>
                   <td>{{ run.metrics?.subscription_success_count ?? 0 }}</td>
-                  <td class="ar-page__error-cell">{{ run.errors?.join('；') || '—' }}</td>
+                  <td class="ar-page__error-cell">{{ run.errors?.join('；') || run.message || '—' }}</td>
                 </tr>
               </tbody>
             </VTable>
@@ -184,7 +219,7 @@ onMounted(initialize)
 </template>
 
 <style scoped>
-.ar-page { width: min(1100px, calc(100vw - 32px)); height: min(820px, calc(100dvh - 32px)); display: flex; flex-direction: column; overflow: hidden; overflow-x: hidden; }
+.ar-page { width: min(1280px, calc(100vw - 24px)); max-width: 100%; height: min(820px, calc(100dvh - 24px)); display: flex; flex-direction: column; overflow: hidden; overflow-x: hidden; }
 .ar-page__toolbar { flex: 0 0 auto; background: rgb(var(--v-theme-surface)); }
 .ar-page :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-page__heading { min-width: 0; }
@@ -193,16 +228,18 @@ onMounted(initialize)
 .ar-page__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
 .ar-page__pane { min-height: 100%; }
 .ar-page__ranking, .ar-page__archive-list { display: flex; flex-direction: column; gap: 9px; }
-.ar-page__rank-item { min-height: 76px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; }
+.ar-page__rank-item { min-height: 76px; display: grid; grid-template-columns: 34px 54px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.ar-page__poster { width: 54px; height: 78px; display: grid; place-items: center; overflow: hidden; border-radius: 5px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
+.ar-page__poster :deep(.v-img) { width: 100%; height: 100%; }
 .ar-page__rank { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .14); font-weight: 700; }
 .ar-page__rank-main { min-width: 0; }
 .ar-page__rank-actions { display: flex; gap: 4px; }
-.ar-page__section-card, .ar-page__archive-card { border-radius: 10px; }
+.ar-page__section-card, .ar-page__archive-card { border-radius: 8px; }
 .ar-page__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .ar-page__weights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
-.ar-page__weight { display: grid; grid-template-columns: 140px minmax(0, 1fr) 30px; gap: 10px; align-items: center; font-size: 12px; }
+.ar-page__weight { display: grid; grid-template-columns: 140px minmax(0, 1fr) 42px; gap: 10px; align-items: center; font-size: 12px; }
 .ar-page__table-wrap { max-width: 100%; overflow-x: auto; }
-.ar-page__error-cell { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-page__error-cell { min-width: 260px; max-width: 380px; white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
 @media (max-width: 760px) {
   .ar-page { width: min(100%, calc(100vw - 12px)); height: min(860px, calc(100dvh - 12px)); }
   .ar-page__toolbar :deep(.v-toolbar__content) { height: auto !important; min-height: 64px; flex-wrap: wrap; overflow: visible; padding-block: 6px; }
@@ -211,10 +248,10 @@ onMounted(initialize)
   .ar-page__toolbar :deep(.v-btn--icon) { order: 2; }
   .ar-page__user { order: 3; width: calc(100% - 24px); margin: 6px 12px; }
   .ar-page__content { padding: 10px; }
-  .ar-page__rank-item { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 8px; }
+  .ar-page__rank-item { grid-template-columns: 30px 54px minmax(0, 1fr); gap: 8px; }
   .ar-page__rank-actions { grid-column: 2 / -1; justify-content: flex-end; }
   .ar-page__weights { grid-template-columns: 1fr; }
-  .ar-page__weight { grid-template-columns: 120px minmax(0, 1fr) 28px; }
+  .ar-page__weight { grid-template-columns: 120px minmax(0, 1fr) 42px; }
 }
 @media (max-width: 390px) {
   .ar-page { width: 100%; height: calc(100dvh - 4px); }
@@ -223,7 +260,8 @@ onMounted(initialize)
   .ar-page__heading .text-h6 { font-size: 1rem !important; }
   .ar-page__user { width: calc(100% - 16px); margin-inline: 8px; }
   .ar-page__content { padding: 8px; }
-  .ar-page__rank-item { padding-inline: 8px; }
-  .ar-page__weight { grid-template-columns: 104px minmax(0, 1fr) 28px; gap: 6px; }
+  .ar-page__rank-item { padding-inline: 8px; grid-template-columns: 26px 48px minmax(0, 1fr); }
+  .ar-page__poster { width: 48px; height: 70px; }
+  .ar-page__weight { grid-template-columns: 104px minmax(0, 1fr) 42px; gap: 6px; }
 }
 </style>
