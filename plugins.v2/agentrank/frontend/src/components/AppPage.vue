@@ -218,7 +218,9 @@ onMounted(initialize)
               <article v-for="item in recommendations" :key="item.candidate_id" class="ar-app-page__item">
                 <div class="ar-app-page__rank" :class="{ 'ar-app-page__rank--top': item.rank <= 3 }">{{ item.rank }}</div>
                 <div class="ar-app-page__poster">
-                  <VImg v-if="posterSource(item)" :src="posterSource(item)" :alt="`${item.title} 海报`" cover />
+                  <VImg v-if="posterSource(item)" :src="posterSource(item)" :alt="`${item.title} 海报`" cover eager>
+                    <template #error><div class="ar-app-page__poster-error"><VIcon icon="mdi-image-off-outline" size="30" /></div></template>
+                  </VImg>
                   <VIcon v-else icon="mdi-image-off-outline" size="30" />
                 </div>
                 <div class="ar-app-page__item-main">
@@ -311,6 +313,7 @@ onMounted(initialize)
 .ar-app-page__rank--top { color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .14); }
 .ar-app-page__poster { width: 92px; height: 138px; display: grid; place-items: center; overflow: hidden; border-radius: 8px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
 .ar-app-page__poster :deep(.v-img) { width: 100%; height: 100%; }
+.ar-app-page__poster-error { width: 100%; height: 100%; display: grid; place-items: center; }
 .ar-app-page__item-main { min-width: 0; }
 .ar-app-page__title-row { display: flex; align-items: flex-start; gap: 8px; }
 .ar-app-page__title { min-width: 0; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 16px; font-weight: 700; line-height: 1.35; }

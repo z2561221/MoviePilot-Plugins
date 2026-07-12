@@ -128,7 +128,9 @@ onMounted(initialize)
             <article v-for="item in recommendations" :key="item.candidate_id" class="ar-page__rank-item">
               <div class="ar-page__rank">{{ item.rank }}</div>
               <div class="ar-page__poster">
-                <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover />
+                <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover eager>
+                  <template #error><div class="ar-page__poster-error"><VIcon icon="mdi-image-off-outline" size="26" /></div></template>
+                </VImg>
                 <VIcon v-else icon="mdi-image-off-outline" size="26" />
               </div>
               <div class="ar-page__rank-main">
@@ -231,6 +233,7 @@ onMounted(initialize)
 .ar-page__rank-item { min-height: 76px; display: grid; grid-template-columns: 34px 54px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
 .ar-page__poster { width: 54px; height: 78px; display: grid; place-items: center; overflow: hidden; border-radius: 5px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
 .ar-page__poster :deep(.v-img) { width: 100%; height: 100%; }
+.ar-page__poster-error { width: 100%; height: 100%; display: grid; place-items: center; }
 .ar-page__rank { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .14); font-weight: 700; }
 .ar-page__rank-main { min-width: 0; }
 .ar-page__rank-actions { display: flex; gap: 4px; }

@@ -1,0 +1,121 @@
+
+.ar-app-page[data-v-6efd60c4] { width: 100%; max-width: 1440px; margin: 0 auto; padding: 16px; overflow-x: hidden;
+}
+.ar-app-page__card[data-v-6efd60c4] { min-height: calc(100dvh - 96px); border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 16px; overflow: hidden;
+}
+.ar-app-page__toolbar[data-v-6efd60c4] { position: sticky; top: 0; z-index: 10; background: rgb(var(--v-theme-surface));
+}
+.ar-app-page[data-v-6efd60c4] .v-btn--icon { min-width: 40px; min-height: 40px;
+}
+.ar-app-page__heading[data-v-6efd60c4] { min-width: 180px;
+}
+.ar-app-page__user[data-v-6efd60c4] { max-width: 180px; min-width: 140px; margin-right: 4px;
+}
+.ar-app-page__content[data-v-6efd60c4] { padding: 16px;
+}
+.ar-app-page__alert[data-v-6efd60c4] { margin-bottom: 14px;
+}
+.ar-app-page__layout[data-v-6efd60c4] { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 16px; align-items: start;
+}
+.ar-app-page__ranking[data-v-6efd60c4], .ar-app-page__aside[data-v-6efd60c4] { min-width: 0;
+}
+.ar-app-page__section-head[data-v-6efd60c4] { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;
+}
+.ar-app-page__list[data-v-6efd60c4] { display: flex; flex-direction: column; gap: 10px;
+}
+.ar-app-page__item[data-v-6efd60c4] { display: grid; grid-template-columns: 42px 92px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; background: rgb(var(--v-theme-surface));
+}
+.ar-app-page__rank[data-v-6efd60c4] { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: rgba(var(--v-theme-on-surface), .06); font-size: 14px; font-weight: 700;
+}
+.ar-app-page__rank--top[data-v-6efd60c4] { color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .14);
+}
+.ar-app-page__poster[data-v-6efd60c4] { width: 92px; height: 138px; display: grid; place-items: center; overflow: hidden; border-radius: 8px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05);
+}
+.ar-app-page__poster[data-v-6efd60c4] .v-img { width: 100%; height: 100%;
+}
+.ar-app-page__poster-error[data-v-6efd60c4] { width: 100%; height: 100%; display: grid; place-items: center;
+}
+.ar-app-page__item-main[data-v-6efd60c4] { min-width: 0;
+}
+.ar-app-page__title-row[data-v-6efd60c4] { display: flex; align-items: flex-start; gap: 8px;
+}
+.ar-app-page__title[data-v-6efd60c4] { min-width: 0; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 16px; font-weight: 700; line-height: 1.35;
+}
+.ar-app-page__meta[data-v-6efd60c4] { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ar-app-page__summary[data-v-6efd60c4] { margin-top: 10px; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ar-app-page__tags[data-v-6efd60c4] { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px;
+}
+.ar-app-page__item-actions[data-v-6efd60c4] { display: flex; flex-direction: column; gap: 6px;
+}
+.ar-app-page__aside[data-v-6efd60c4] { position: sticky; top: 80px;
+}
+.ar-app-page__weight-row[data-v-6efd60c4] { display: grid; grid-template-columns: 76px minmax(0, 1fr) 42px; gap: 8px; align-items: center; margin-bottom: 9px; font-size: 12px;
+}
+.ar-app-page__archive-row[data-v-6efd60c4], .ar-app-page__history-row[data-v-6efd60c4] { min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .6)); font-size: 12px;
+}
+.ar-app-page__state[data-v-6efd60c4] { min-height: 480px; display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+@media (max-width: 960px) {
+.ar-app-page__layout[data-v-6efd60c4] { grid-template-columns: minmax(0, 1fr);
+}
+.ar-app-page__aside[data-v-6efd60c4] { position: static;
+}
+}
+@media (max-width: 760px) {
+.ar-app-page[data-v-6efd60c4] { padding: 8px;
+}
+.ar-app-page__card[data-v-6efd60c4] { min-height: calc(100dvh - 72px); border-radius: 12px;
+}
+.ar-app-page__toolbar[data-v-6efd60c4] { min-height: 64px;
+}
+.ar-app-page__toolbar[data-v-6efd60c4] .v-toolbar__content { min-height: 64px; height: auto !important; flex-wrap: wrap; overflow: visible; padding-block: 6px;
+}
+.ar-app-page__toolbar[data-v-6efd60c4] .v-spacer { display: none;
+}
+.ar-app-page__heading[data-v-6efd60c4] { order: 1; flex: 1 1 180px;
+}
+.ar-app-page__toolbar[data-v-6efd60c4] .v-btn--icon { order: 2;
+}
+.ar-app-page__status[data-v-6efd60c4] { order: 3;
+}
+.ar-app-page__user[data-v-6efd60c4] { order: 4; flex: 1 1 100%; max-width: none; margin: 6px 12px 0;
+}
+.ar-app-page__content[data-v-6efd60c4] { padding: 10px;
+}
+.ar-app-page__item[data-v-6efd60c4] { grid-template-columns: 30px 64px minmax(0, 1fr); gap: 9px; padding: 9px; align-items: start;
+}
+.ar-app-page__rank[data-v-6efd60c4] { width: 28px; height: 28px; font-size: 12px;
+}
+.ar-app-page__poster[data-v-6efd60c4] { width: 64px; height: 96px;
+}
+.ar-app-page__item-actions[data-v-6efd60c4] { grid-column: 2 / -1; flex-direction: row; justify-content: flex-end;
+}
+.ar-app-page__title[data-v-6efd60c4] { font-size: 14px;
+}
+.ar-app-page__summary[data-v-6efd60c4] { margin-top: 6px; font-size: 13px;
+}
+.ar-app-page__meta[data-v-6efd60c4] { white-space: normal;
+}
+.ar-app-page__section-head[data-v-6efd60c4] { align-items: flex-start;
+}
+}
+@media (max-width: 390px) {
+.ar-app-page[data-v-6efd60c4] { padding: 4px;
+}
+.ar-app-page__toolbar[data-v-6efd60c4] .v-avatar { display: none;
+}
+.ar-app-page__heading[data-v-6efd60c4] { min-width: 0; flex: 1 1 150px; margin-left: 12px;
+}
+.ar-app-page__status[data-v-6efd60c4] { order: 7; margin: 6px 12px 0 !important;
+}
+.ar-app-page__user[data-v-6efd60c4] { margin-inline: 8px;
+}
+.ar-app-page__content[data-v-6efd60c4] { padding: 8px;
+}
+.ar-app-page__item[data-v-6efd60c4] { grid-template-columns: 26px 56px minmax(0, 1fr); gap: 7px; padding: 8px;
+}
+.ar-app-page__poster[data-v-6efd60c4] { width: 56px; height: 84px;
+}
+}

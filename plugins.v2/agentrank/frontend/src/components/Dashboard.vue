@@ -74,7 +74,9 @@ onMounted(initialize)
           <div v-for="item in topItems" :key="item.candidate_id" class="ar-dashboard__item">
           <div class="ar-dashboard__rank">{{ item.rank }}</div>
           <div class="ar-dashboard__poster">
-            <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover />
+            <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover eager>
+              <template #error><div class="ar-dashboard__poster-error"><VIcon icon="mdi-image-off-outline" size="18" /></div></template>
+            </VImg>
             <VIcon v-else icon="mdi-image-off-outline" size="18" />
           </div>
           <div class="ar-dashboard__main">
@@ -103,5 +105,6 @@ onMounted(initialize)
 .ar-dashboard__rank { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .12); font-size: 12px; font-weight: 700; }
 .ar-dashboard__poster { width: 44px; height: 64px; display: grid; place-items: center; overflow: hidden; border-radius: 4px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
 .ar-dashboard__poster :deep(.v-img) { width: 100%; height: 100%; }
+.ar-dashboard__poster-error { width: 100%; height: 100%; display: grid; place-items: center; }
 .ar-dashboard__main { min-width: 0; }
 </style>

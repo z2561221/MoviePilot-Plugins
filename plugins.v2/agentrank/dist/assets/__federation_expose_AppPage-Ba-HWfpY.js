@@ -31,22 +31,23 @@ const _hoisted_10 = {
   class: "ar-app-page__list"
 };
 const _hoisted_11 = { class: "ar-app-page__poster" };
-const _hoisted_12 = { class: "ar-app-page__item-main" };
-const _hoisted_13 = { class: "ar-app-page__title-row" };
-const _hoisted_14 = { class: "ar-app-page__title" };
-const _hoisted_15 = { class: "ar-app-page__meta" };
-const _hoisted_16 = { class: "ar-app-page__summary" };
-const _hoisted_17 = { class: "ar-app-page__tags" };
-const _hoisted_18 = { class: "ar-app-page__item-actions" };
-const _hoisted_19 = { class: "ar-app-page__aside" };
-const _hoisted_20 = { class: "text-body-2 mb-3" };
-const _hoisted_21 = { class: "ar-app-page__tags" };
-const _hoisted_22 = { class: "text-caption text-medium-emphasis mt-3" };
-const _hoisted_23 = {
+const _hoisted_12 = { class: "ar-app-page__poster-error" };
+const _hoisted_13 = { class: "ar-app-page__item-main" };
+const _hoisted_14 = { class: "ar-app-page__title-row" };
+const _hoisted_15 = { class: "ar-app-page__title" };
+const _hoisted_16 = { class: "ar-app-page__meta" };
+const _hoisted_17 = { class: "ar-app-page__summary" };
+const _hoisted_18 = { class: "ar-app-page__tags" };
+const _hoisted_19 = { class: "ar-app-page__item-actions" };
+const _hoisted_20 = { class: "ar-app-page__aside" };
+const _hoisted_21 = { class: "text-body-2 mb-3" };
+const _hoisted_22 = { class: "ar-app-page__tags" };
+const _hoisted_23 = { class: "text-caption text-medium-emphasis mt-3" };
+const _hoisted_24 = {
   key: 0,
   class: "text-caption text-medium-emphasis"
 };
-const _hoisted_24 = {
+const _hoisted_25 = {
   key: 0,
   class: "text-caption text-medium-emphasis"
 };
@@ -424,17 +425,28 @@ return (_ctx, _cache) => {
                                         key: 0,
                                         src: posterSource(item),
                                         alt: `${item.title} 海报`,
-                                        cover: ""
-                                      }, null, 8, ["src", "alt"]))
+                                        cover: "",
+                                        eager: ""
+                                      }, {
+                                        error: _withCtx(() => [
+                                          _createElementVNode("div", _hoisted_12, [
+                                            _createVNode(_component_VIcon, {
+                                              icon: "mdi-image-off-outline",
+                                              size: "30"
+                                            })
+                                          ])
+                                        ]),
+                                        _: 1
+                                      }, 8, ["src", "alt"]))
                                     : (_openBlock(), _createBlock(_component_VIcon, {
                                         key: 1,
                                         icon: "mdi-image-off-outline",
                                         size: "30"
                                       }))
                                 ]),
-                                _createElementVNode("div", _hoisted_12, [
-                                  _createElementVNode("div", _hoisted_13, [
-                                    _createElementVNode("div", _hoisted_14, _toDisplayString(item.title), 1),
+                                _createElementVNode("div", _hoisted_13, [
+                                  _createElementVNode("div", _hoisted_14, [
+                                    _createElementVNode("div", _hoisted_15, _toDisplayString(item.title), 1),
                                     _createVNode(_component_VChip, {
                                       size: "x-small",
                                       variant: "tonal"
@@ -445,9 +457,9 @@ return (_ctx, _cache) => {
                                       _: 2
                                     }, 1024)
                                   ]),
-                                  _createElementVNode("div", _hoisted_15, _toDisplayString(item.year || '年份未知') + " · " + _toDisplayString(sourceLabel(item)), 1),
-                                  _createElementVNode("div", _hoisted_16, _toDisplayString(item.summary), 1),
-                                  _createElementVNode("div", _hoisted_17, [
+                                  _createElementVNode("div", _hoisted_16, _toDisplayString(item.year || '年份未知') + " · " + _toDisplayString(sourceLabel(item)), 1),
+                                  _createElementVNode("div", _hoisted_17, _toDisplayString(item.summary), 1),
+                                  _createElementVNode("div", _hoisted_18, [
                                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(item.match_tags || [], (tag) => {
                                       return (_openBlock(), _createBlock(_component_VChip, {
                                         key: tag,
@@ -472,7 +484,7 @@ return (_ctx, _cache) => {
                                     }, 1024)
                                   ])
                                 ]),
-                                _createElementVNode("div", _hoisted_18, [
+                                _createElementVNode("div", _hoisted_19, [
                                   _createVNode(_component_VTooltip, { text: "订阅推荐" }, {
                                     activator: _withCtx(({ props: tipProps }) => [
                                       _createVNode(_component_VBtn, _mergeProps({ ref_for: true }, tipProps, {
@@ -509,7 +521,7 @@ return (_ctx, _cache) => {
                             }), 128))
                           ]))
                   ]),
-                  _createElementVNode("aside", _hoisted_19, [
+                  _createElementVNode("aside", _hoisted_20, [
                     _createVNode(_component_VExpansionPanels, {
                       multiple: "",
                       variant: "accordion",
@@ -531,8 +543,8 @@ return (_ctx, _cache) => {
                             }),
                             _createVNode(_component_VExpansionPanelText, null, {
                               default: _withCtx(() => [
-                                _createElementVNode("div", _hoisted_20, _toDisplayString(_unref(profile)?.summary || '尚未生成用户画像'), 1),
-                                _createElementVNode("div", _hoisted_21, [
+                                _createElementVNode("div", _hoisted_21, _toDisplayString(_unref(profile)?.summary || '尚未生成用户画像'), 1),
+                                _createElementVNode("div", _hoisted_22, [
                                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_unref(profile)?.tags || [], (tag) => {
                                     return (_openBlock(), _createBlock(_component_VChip, {
                                       key: tag,
@@ -547,7 +559,7 @@ return (_ctx, _cache) => {
                                     }, 1024))
                                   }), 128))
                                 ]),
-                                _createElementVNode("div", _hoisted_22, "订阅样本 " + _toDisplayString(_unref(profile)?.subscription_count || 0) + " 条", 1)
+                                _createElementVNode("div", _hoisted_23, "订阅样本 " + _toDisplayString(_unref(profile)?.subscription_count || 0) + " 条", 1)
                               ]),
                               _: 1
                             })
@@ -619,7 +631,7 @@ return (_ctx, _cache) => {
                             _createVNode(_component_VExpansionPanelText, null, {
                               default: _withCtx(() => [
                                 (!archiveEntries.value.length)
-                                  ? (_openBlock(), _createElementBlock("div", _hoisted_23, "暂无忽略记录"))
+                                  ? (_openBlock(), _createElementBlock("div", _hoisted_24, "暂无忽略记录"))
                                   : _createCommentVNode("", true),
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(archiveEntries.value.slice(0, 5), (entry) => {
                                   return (_openBlock(), _createElementBlock("div", {
@@ -661,7 +673,7 @@ return (_ctx, _cache) => {
                             _createVNode(_component_VExpansionPanelText, null, {
                               default: _withCtx(() => [
                                 (!_unref(history).length)
-                                  ? (_openBlock(), _createElementBlock("div", _hoisted_24, "暂无运行记录"))
+                                  ? (_openBlock(), _createElementBlock("div", _hoisted_25, "暂无运行记录"))
                                   : _createCommentVNode("", true),
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_unref(history).slice(0, 5), (run) => {
                                   return (_openBlock(), _createElementBlock("div", {
@@ -786,6 +798,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-85ab0724"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6efd60c4"]]);
 
 export { AppPage as default };

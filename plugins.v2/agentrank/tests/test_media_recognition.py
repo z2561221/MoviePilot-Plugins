@@ -18,10 +18,16 @@ adapter_package = sys.modules.setdefault(
 adapter_package.__path__ = [str(PLUGIN_DIR / "adapter")]
 
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
+board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 media_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.media")
+poster_module = importlib.import_module(f"{PACKAGE_NAME}.service.poster")
 
 Candidate = candidate_module.Candidate
+RecommendationBoard = board_module.RecommendationBoard
+RecommendationItem = board_module.RecommendationItem
 MediaRecognitionAdapter = media_module.MediaRecognitionAdapter
+BoardPosterRepairService = poster_module.BoardPosterRepairService
+PosterImageService = poster_module.PosterImageService
 
 
 class FakeMediaType:
@@ -93,3 +99,73 @@ def test_recognition_rejects_media_without_tmdb_id():
     adapter = MediaRecognitionAdapter(FakeChain, FakeMeta, FakeMediaType)
 
     assert adapter.recognize(candidate) is None
+
+
+def test_legacy_board_repair_replaces_only_broken_poster_urls():
+    """Poster migration preserves ranking identity and skips already valid images."""
+    board = RecommendationBoard(
+        username="alice",
+        run_id="old-run",
+        status="success",
+        recommendations=[
+            RecommendationItem(
+                candidate_id="douban:7",
+                rank=1,
+                title="Legacy",
+                media_type="tv",
+                year=2026,
+                source_ids={"douban": "7"},
+                poster_path="https://img1.doubanio.com/legacy.webp",
+                summary="Keep summary",
+            ),
+            RecommendationItem(
+                candidate_id="tmdb:8",
+                rank=2,
+                title="Current",
+                poster_path="https://image.tmdb.org/current.jpg",
+            ),
+        ],
+    )
+
+    class Repository:
+        def __init__(self):
+            self.saved = None
+
+        def load_board(self, username):
+            return board if username == "alice" else None
+
+        def save_board(self, value):
+            self.saved = value
+
+    class MediaAdapter:
+        def recognize(self, candidate):
+            candidate.poster_path = "https://image.tmdb.org/repaired.jpg"
+            return candidate
+
+    repository = Repository()
+    result = BoardPosterRepairService(repository, MediaAdapter()).repair_users(
+        ["alice"]
+    )
+
+    assert result == {"alice": 1}
+    assert repository.saved is board
+    assert board.recommendations[0].candidate_id == "douban:7"
+    assert board.recommendations[0].summary == "Keep summary"
+    assert board.recommendations[0].poster_path.endswith("repaired.jpg")
+    assert board.recommendations[1].poster_path.endswith("current.jpg")
+
+
+def test_poster_image_service_returns_cached_data_url():
+    """外部图片被转换为可直接渲染的 data URL 并命中内存缓存。"""
+    calls = []
+
+    def fetcher(url):
+        calls.append(url)
+        return b"\x89PNG\r\n\x1a\nimage"
+
+    service = PosterImageService(fetcher)
+    first = service.data_url("https://image.tmdb.org/poster.jpg")
+    second = service.data_url("https://image.tmdb.org/poster.jpg")
+    assert first.startswith("data:image/png;base64,")
+    assert second == first
+    assert calls == ["https://image.tmdb.org/poster.jpg"]

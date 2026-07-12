@@ -11,9 +11,10 @@ const _hoisted_1 = {
 };
 const _hoisted_2 = { class: "ar-dashboard__rank" };
 const _hoisted_3 = { class: "ar-dashboard__poster" };
-const _hoisted_4 = { class: "ar-dashboard__main" };
-const _hoisted_5 = { class: "font-weight-medium text-truncate" };
-const _hoisted_6 = { class: "text-caption text-medium-emphasis text-truncate" };
+const _hoisted_4 = { class: "ar-dashboard__poster-error" };
+const _hoisted_5 = { class: "ar-dashboard__main" };
+const _hoisted_6 = { class: "font-weight-medium text-truncate" };
+const _hoisted_7 = { class: "text-caption text-medium-emphasis text-truncate" };
 
 const {computed,onMounted} = await importShared('vue');
 
@@ -177,17 +178,28 @@ return (_ctx, _cache) => {
                                 key: 0,
                                 src: item.poster_path,
                                 alt: `${item.title} 海报`,
-                                cover: ""
-                              }, null, 8, ["src", "alt"]))
+                                cover: "",
+                                eager: ""
+                              }, {
+                                error: _withCtx(() => [
+                                  _createElementVNode("div", _hoisted_4, [
+                                    _createVNode(_component_VIcon, {
+                                      icon: "mdi-image-off-outline",
+                                      size: "18"
+                                    })
+                                  ])
+                                ]),
+                                _: 1
+                              }, 8, ["src", "alt"]))
                             : (_openBlock(), _createBlock(_component_VIcon, {
                                 key: 1,
                                 icon: "mdi-image-off-outline",
                                 size: "18"
                               }))
                         ]),
-                        _createElementVNode("div", _hoisted_4, [
-                          _createElementVNode("div", _hoisted_5, _toDisplayString(item.title), 1),
-                          _createElementVNode("div", _hoisted_6, _toDisplayString(item.summary), 1)
+                        _createElementVNode("div", _hoisted_5, [
+                          _createElementVNode("div", _hoisted_6, _toDisplayString(item.title), 1),
+                          _createElementVNode("div", _hoisted_7, _toDisplayString(item.summary), 1)
                         ]),
                         _createVNode(_component_VChip, {
                           size: "x-small",
@@ -240,6 +252,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7743ad72"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-dfaa3a49"]]);
 
 export { Dashboard as default };

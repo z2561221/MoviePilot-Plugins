@@ -73,6 +73,12 @@ class AgentRankApiController:
             raise ApiContractError(503, "runtime_unavailable", "插件运行时尚未就绪")
         return repository
 
+    def _board_data(self, board: Any) -> Dict[str, Any]:
+        """返回经过 MoviePilot 图片缓存处理的榜单响应。"""
+        value = board.to_dict()
+        service = getattr(self.plugin, "_poster_service", None)
+        return service.enrich_board(value) if service is not None else value
+
     def status(self) -> Dict[str, Any]:
         """返回插件全局运行状态。"""
         runtime = getattr(self.plugin, "_runtime", None)
@@ -123,7 +129,7 @@ class AgentRankApiController:
             {
                 "username": target,
                 "profile": profile.to_dict() if profile else None,
-                "board": board.to_dict() if board else None,
+                "board": self._board_data(board) if board else None,
                 "archive": archive.to_dict(),
                 "latest_run": history[0].to_dict() if history else None,
             }
@@ -134,7 +140,7 @@ class AgentRankApiController:
         target = self._username(username)
         board = self._repository().load_board(target)
         if board:
-            return self._success(board.to_dict())
+            return self._success(self._board_data(board))
         return self._success(
             {
                 "username": target,

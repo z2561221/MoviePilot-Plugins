@@ -47,6 +47,7 @@ class AgentRankRuntime:
         from ..adapter.subscription import SubscriptionAdapter
         from ..storage.repository import AgentRankRepository
         from .candidate import CandidateCollectionService
+        from .poster import BoardPosterRepairService, PosterImageService
         from .profile_input import ProfileInputService
         from .recommendation import RecommendationOrchestrator
 
@@ -54,11 +55,16 @@ class AgentRankRuntime:
             plugin, history_limit=int(config.get("history_limit") or 50)
         )
         plugin._repository = repository
+        plugin._poster_service = PosterImageService()
+        media_adapter = MediaRecognitionAdapter()
+        BoardPosterRepairService(repository, media_adapter).repair_users(
+            config.get("users") or []
+        )
         return RecommendationOrchestrator(
             repository=repository,
             profile_service=ProfileInputService(SubscriptionAdapter()),
             candidate_service=CandidateCollectionService(
-                DiscoveryAdapter(), repository, MediaRecognitionAdapter()
+                DiscoveryAdapter(), repository, media_adapter
             ),
             agent_adapter=AgentRankAgentAdapter(),
         )
