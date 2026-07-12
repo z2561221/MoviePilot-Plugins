@@ -50,7 +50,9 @@ class AgentRankConfig:
     weights: Dict[str, float] = field(default_factory=lambda: dict(WEIGHT_DEFAULTS))
     media_types: List[str] = field(default_factory=lambda: ["movie", "tv", "anime"])
     profile_scope: str = "all"
+    recent_days: int = 365
     subscription_sample_limit: int = 200
+    minimum_samples: int = 5
     candidate_pool_size: int = 100
     confidence_threshold: float = 0.6
     exclude_keywords: List[str] = field(default_factory=list)
@@ -59,6 +61,8 @@ class AgentRankConfig:
     auto_subscribe_top_n: int = 0
     auto_subscribe_limit: int = 10
     history_limit: int = 50
+    profile_cache_enabled: bool = True
+    rebuild_profile_each_run: bool = False
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] = None) -> "AgentRankConfig":
@@ -182,6 +186,9 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         weights=weights,
         media_types=media_types,
         profile_scope=profile_scope,
+        recent_days=_bounded_integer(
+            raw.get("recent_days", 365), 365, 1, 3650, "recent_days", errors
+        ),
         subscription_sample_limit=_bounded_integer(
             raw.get("subscription_sample_limit", 200),
             200,
@@ -189,6 +196,9 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
             1000,
             "subscription_sample_limit",
             errors,
+        ),
+        minimum_samples=_bounded_integer(
+            raw.get("minimum_samples", 5), 5, 1, 100, "minimum_samples", errors
         ),
         candidate_pool_size=_bounded_integer(
             raw.get("candidate_pool_size", 100),
@@ -214,6 +224,8 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         history_limit=_bounded_integer(
             raw.get("history_limit", 50), 50, 1, 200, "history_limit", errors
         ),
+        profile_cache_enabled=bool(raw.get("profile_cache_enabled", True)),
+        rebuild_profile_each_run=bool(raw.get("rebuild_profile_each_run", False)),
     )
     if not config.cron:
         errors.append("cron must not be empty")

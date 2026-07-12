@@ -158,7 +158,9 @@ class RecommendationOrchestrator:
             profile_input = self._profile_service.collect(
                 target,
                 profile_scope=config.get("profile_scope", "all"),
+                recent_days=int(config.get("recent_days") or 365),
                 sample_limit=int(config.get("subscription_sample_limit") or 200),
+                minimum_samples=int(config.get("minimum_samples") or 5),
             )
             metrics["subscription_count"] = profile_input.sample_count
             metrics["subscription_rejected_count"] = profile_input.rejected_count

@@ -89,9 +89,22 @@ class AgentRankApiController:
 
     def config_options(self) -> Dict[str, Any]:
         """返回 Config 与用户切换器需要的选项和生效配置。"""
+        configured_users = list(self.plugin._config.get("users") or [])
+        available_users = list(configured_users)
+        try:
+            from app.db.user_oper import UserOper
+
+            available_users = [
+                str(user.name)
+                for user in UserOper().list()
+                if getattr(user, "name", None) and getattr(user, "is_active", True)
+            ]
+        except Exception:
+            pass
         return self._success(
             {
-                "users": list(self.plugin._config.get("users") or []),
+                "users": configured_users,
+                "available_users": available_users,
                 "default_user": str(self.plugin._config.get("default_user") or ""),
                 "config": dict(self.plugin._config),
                 "defaults": default_config(),

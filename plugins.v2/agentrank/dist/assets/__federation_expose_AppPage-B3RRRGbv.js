@@ -1,6 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { g as getPluginApi } from './api-DsxprKU3.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
+import { _ as _export_sfc, g as getPluginApi } from './_plugin-vue_export-helper-DOB58Uqo.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
 
@@ -130,6 +129,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c32790c3"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-58f7d4e3"]]);
 
 export { AppPage as default };

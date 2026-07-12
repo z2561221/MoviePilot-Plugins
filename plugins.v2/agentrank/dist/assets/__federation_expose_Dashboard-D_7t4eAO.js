@@ -1,6 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { g as getPluginApi } from './api-DsxprKU3.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
+import { _ as _export_sfc, g as getPluginApi } from './_plugin-vue_export-helper-DOB58Uqo.js';
 
 const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString} = await importShared('vue');
 
