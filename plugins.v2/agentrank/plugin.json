@@ -1,0 +1,14 @@
+{
+  "name": "Agent榜单中心",
+  "description": "调用内置Agent，从MoviePilot发现候选中生成个性化Top10榜单。",
+  "version": "1.0.0",
+  "author": "牧濑红莉栖",
+  "author_url": "https://github.com/z2561221",
+  "level": 1,
+  "v2": true,
+  "icon": "agentresourceofficer.png",
+  "color": "#7C4DFF",
+  "history": {
+    "v1.0.0": "[1]建立插件骨架;[2]接入联邦页面"
+  }
+}

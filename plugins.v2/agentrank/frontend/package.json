@@ -1,0 +1,16 @@
+{
+  "name": "agentrank-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@originjs/vite-plugin-federation": "^1.4.1",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "vite": "^5.4.11",
+    "vue": "^3.5.13",
+    "vuetify": "3.7.3"
+  }
+}
