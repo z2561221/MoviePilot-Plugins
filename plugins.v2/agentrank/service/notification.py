@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from app.schemas.types import NotificationType
+
 from ..model.board import RecommendationBoard
 
 
@@ -41,6 +43,7 @@ class NotificationService:
         text = f"本轮 Agent 推荐已生成，共 {len(board.recommendations[:10])} 条：\n\n{ranking}"
         text += "\n\n请前往 **Agent榜单中心** 手动订阅；此通知不会自动创建订阅。"
         self._plugin.post_message(
+            mtype=NotificationType.Subscribe,
             title="Agent榜单中心推荐确认",
             text=text,
             username=username,

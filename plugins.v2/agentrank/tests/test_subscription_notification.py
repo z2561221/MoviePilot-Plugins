@@ -3,6 +3,7 @@
 import importlib
 import asyncio
 import sys
+from enum import Enum
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -12,6 +13,21 @@ PACKAGE_NAME = "agentrank_subscription_test"
 
 package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
+
+app_module = sys.modules.setdefault("app", ModuleType("app"))
+schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
+types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
+
+
+class NotificationType(Enum):
+    """测试使用的最小 MoviePilot 通知类型枚举。"""
+
+    Subscribe = "订阅"
+
+
+app_module.schemas = schemas_module
+schemas_module.types = types_module
+types_module.NotificationType = NotificationType
 
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
@@ -134,6 +150,7 @@ def test_notification_confirmation_sends_summary_without_subscription_dependency
 
     assert len(plugin.messages) == 1
     assert plugin.messages[0]["username"] == "alice"
+    assert plugin.messages[0]["mtype"] is NotificationType.Subscribe
     assert plugin.messages[0]["parse_mode"] == "MarkdownV2"
     assert plugin.messages[0]["disable_web_page_preview"] is True
     assert plugin.messages[0]["text"].startswith("本轮 Agent 推荐已生成，共 1 条：\n\n```")
