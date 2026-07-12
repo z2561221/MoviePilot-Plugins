@@ -160,7 +160,7 @@ onMounted(initialize)
           <div class="text-h6">Agent榜单中心</div>
           <div class="text-caption text-medium-emphasis">最近生成：{{ formatTime(generatedAt) }}</div>
         </div>
-        <VChip :color="statusMeta.color" variant="tonal" size="small" class="ms-3">
+        <VChip :color="statusMeta.color" variant="tonal" size="small" class="ar-app-page__status ms-3">
           <VIcon :icon="statusMeta.icon" size="16" class="mr-1" />{{ statusMeta.text }}
         </VChip>
         <VSpacer />
@@ -277,6 +277,7 @@ onMounted(initialize)
 .ar-app-page { width: 100%; max-width: 1440px; margin: 0 auto; padding: 16px; overflow-x: hidden; }
 .ar-app-page__card { min-height: calc(100dvh - 96px); border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 16px; overflow: hidden; }
 .ar-app-page__toolbar { position: sticky; top: 0; z-index: 10; background: rgb(var(--v-theme-surface)); }
+.ar-app-page :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-app-page__heading { min-width: 180px; }
 .ar-app-page__user { max-width: 180px; min-width: 140px; margin-right: 4px; }
 .ar-app-page__content { padding: 16px; }
@@ -305,9 +306,13 @@ onMounted(initialize)
 @media (max-width: 760px) {
   .ar-app-page { padding: 8px; }
   .ar-app-page__card { min-height: calc(100dvh - 72px); border-radius: 12px; }
-  .ar-app-page__toolbar { min-height: 64px; flex-wrap: wrap; padding-block: 6px; }
-  .ar-app-page__heading { flex: 1 1 180px; }
-  .ar-app-page__user { order: 8; flex: 1 1 100%; max-width: none; margin: 6px 12px 0; }
+  .ar-app-page__toolbar { min-height: 64px; }
+  .ar-app-page__toolbar :deep(.v-toolbar__content) { min-height: 64px; height: auto !important; flex-wrap: wrap; overflow: visible; padding-block: 6px; }
+  .ar-app-page__toolbar :deep(.v-spacer) { display: none; }
+  .ar-app-page__heading { order: 1; flex: 1 1 180px; }
+  .ar-app-page__toolbar :deep(.v-btn--icon) { order: 2; }
+  .ar-app-page__status { order: 3; }
+  .ar-app-page__user { order: 4; flex: 1 1 100%; max-width: none; margin: 6px 12px 0; }
   .ar-app-page__content { padding: 10px; }
   .ar-app-page__item { grid-template-columns: 30px 64px minmax(0, 1fr); gap: 9px; padding: 9px; align-items: start; }
   .ar-app-page__rank { width: 28px; height: 28px; font-size: 12px; }
@@ -317,5 +322,15 @@ onMounted(initialize)
   .ar-app-page__summary { margin-top: 6px; font-size: 13px; }
   .ar-app-page__meta { white-space: normal; }
   .ar-app-page__section-head { align-items: flex-start; }
+}
+@media (max-width: 390px) {
+  .ar-app-page { padding: 4px; }
+  .ar-app-page__toolbar :deep(.v-avatar) { display: none; }
+  .ar-app-page__heading { min-width: 0; flex: 1 1 150px; margin-left: 12px; }
+  .ar-app-page__status { order: 7; margin: 6px 12px 0 !important; }
+  .ar-app-page__user { margin-inline: 8px; }
+  .ar-app-page__content { padding: 8px; }
+  .ar-app-page__item { grid-template-columns: 26px 56px minmax(0, 1fr); gap: 7px; padding: 8px; }
+  .ar-app-page__poster { width: 56px; height: 84px; }
 }
 </style>

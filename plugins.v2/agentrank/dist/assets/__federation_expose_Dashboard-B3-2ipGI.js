@@ -34,6 +34,17 @@ const state = useAgentRankState(props.api);
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5));
 const status = computed(() => state.board.value?.status || 'idle');
 const generatedAt = computed(() => state.board.value?.generated_at || '');
+const statusMeta = computed(() => ({
+  idle: { text: '待生成', color: 'default' },
+  running: { text: '运行中', color: 'primary' },
+  success: { text: '已完成', color: 'success' },
+  sample_insufficient: { text: '样本不足', color: 'warning' },
+  candidate_insufficient: { text: '候选不足', color: 'warning' },
+  recommendation_incomplete: { text: '榜单不足', color: 'warning' },
+  agent_failed: { text: 'Agent失败', color: 'error' },
+  validation_failed: { text: '校验失败', color: 'error' },
+  subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
+}[status.value] || { text: status.value, color: 'info' }));
 
 function formatTime(value) {
   if (!value) return '尚未生成'
@@ -112,7 +123,7 @@ return (_ctx, _cache) => {
           }),
           _createVNode(_component_VCardSubtitle, null, {
             default: _withCtx(() => [
-              _createTextVNode(_toDisplayString(formatTime(generatedAt.value)) + " · " + _toDisplayString(status.value), 1)
+              _createTextVNode(_toDisplayString(formatTime(generatedAt.value)) + " · " + _toDisplayString(statusMeta.value.text), 1)
             ]),
             _: 1
           })
@@ -178,10 +189,10 @@ return (_ctx, _cache) => {
           _createVNode(_component_VChip, {
             size: "small",
             variant: "tonal",
-            color: status.value === 'success' ? 'success' : 'info'
+            color: statusMeta.value.color
           }, {
             default: _withCtx(() => [
-              _createTextVNode(_toDisplayString(status.value), 1)
+              _createTextVNode(_toDisplayString(statusMeta.value.text), 1)
             ]),
             _: 1
           }, 8, ["color"]),
@@ -207,6 +218,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-865ecaa0"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cdd55ebd"]]);
 
 export { Dashboard as default };

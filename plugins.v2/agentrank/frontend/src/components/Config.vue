@@ -334,7 +334,7 @@ onMounted(loadRuntime)
 </template>
 
 <style scoped>
-.ar-config { width: min(1120px, calc(100vw - 48px)); max-width: 100%; padding: 8px; }
+.ar-config { width: min(1120px, calc(100vw - 48px)); max-width: 100%; padding: 8px; overflow-x: hidden; }
 .ar-config__card { width: 100%; height: clamp(760px, calc(100dvh - 48px), 860px); display: flex; flex-direction: column; overflow: hidden; border-radius: 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .ar-config__header { padding: 14px 18px; }
 .ar-config__header :deep(.v-card-subtitle) { max-width: min(560px, 52vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -375,6 +375,13 @@ onMounted(loadRuntime)
   .ar-config__pipeline { align-items: flex-start; flex-direction: column; }
   .ar-config__step-arrow { display: none; }
   .ar-config__overview-grid, .ar-config__source-grid, .ar-config__weight-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 390px) {
+  .ar-config { width: 100%; padding: 2px; }
+  .ar-config__header { padding-inline: 12px; }
+  .ar-config__nav-item { min-width: 88px; }
+  .ar-config__pane { padding: 12px; }
+  .ar-config__actions { flex-wrap: wrap; padding-inline: 12px; }
 }
 @media (max-height: 760px) { .ar-config__window--overview { overflow-y: auto; } }
 </style>

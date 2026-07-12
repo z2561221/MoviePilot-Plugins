@@ -263,7 +263,7 @@ return (_ctx, _cache) => {
               color: statusMeta.value.color,
               variant: "tonal",
               size: "small",
-              class: "ms-3"
+              class: "ar-app-page__status ms-3"
             }, {
               default: _withCtx(() => [
                 _createVNode(_component_VIcon, {
@@ -766,6 +766,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-93535483"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e7f58a2d"]]);
 
 export { AppPage as default };

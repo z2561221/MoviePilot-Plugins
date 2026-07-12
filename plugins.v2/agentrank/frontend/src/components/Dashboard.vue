@@ -13,6 +13,17 @@ const state = useAgentRankState(props.api)
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5))
 const status = computed(() => state.board.value?.status || 'idle')
 const generatedAt = computed(() => state.board.value?.generated_at || '')
+const statusMeta = computed(() => ({
+  idle: { text: '待生成', color: 'default' },
+  running: { text: '运行中', color: 'primary' },
+  success: { text: '已完成', color: 'success' },
+  sample_insufficient: { text: '样本不足', color: 'warning' },
+  candidate_insufficient: { text: '候选不足', color: 'warning' },
+  recommendation_incomplete: { text: '榜单不足', color: 'warning' },
+  agent_failed: { text: 'Agent失败', color: 'error' },
+  validation_failed: { text: '校验失败', color: 'error' },
+  subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
+}[status.value] || { text: status.value, color: 'info' }))
 
 function formatTime(value) {
   if (!value) return '尚未生成'
@@ -42,7 +53,7 @@ onMounted(initialize)
     <VCardItem>
       <template #prepend><VAvatar color="primary" variant="tonal" size="38"><VIcon icon="mdi-brain" /></VAvatar></template>
       <VCardTitle class="text-subtitle-1 font-weight-bold">Agent榜单中心 · Top 5</VCardTitle>
-      <VCardSubtitle>{{ formatTime(generatedAt) }} · {{ status }}</VCardSubtitle>
+      <VCardSubtitle>{{ formatTime(generatedAt) }} · {{ statusMeta.text }}</VCardSubtitle>
       <template #append>
         <VBtn icon="mdi-refresh" variant="text" size="small" :disabled="!allowRefresh || state.isRunning.value" :loading="state.loading.action === 'refresh' || state.loading.data" aria-label="刷新仪表板" @click="refreshBoard" />
       </template>
@@ -65,7 +76,7 @@ onMounted(initialize)
     </VCardText>
     <VDivider />
     <VCardActions>
-      <VChip size="small" variant="tonal" :color="status === 'success' ? 'success' : 'info'">{{ status }}</VChip>
+      <VChip size="small" variant="tonal" :color="statusMeta.color">{{ statusMeta.text }}</VChip>
       <VSpacer />
       <VBtn variant="text" color="primary" prepend-icon="mdi-open-in-new" @click="emit('action', { type: 'open-app-page' })">完整榜单</VBtn>
     </VCardActions>
@@ -74,6 +85,7 @@ onMounted(initialize)
 
 <style scoped>
 .ar-dashboard { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 16px; overflow: hidden; }
+.ar-dashboard :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-dashboard__content { min-height: 260px; }
 .ar-dashboard__list { display: flex; flex-direction: column; gap: 7px; }
 .ar-dashboard__item { min-height: 44px; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 6px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px; }

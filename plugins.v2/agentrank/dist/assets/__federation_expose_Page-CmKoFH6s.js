@@ -138,9 +138,9 @@ return (_ctx, _cache) => {
         _createVNode(_component_VIcon, {
           icon: "mdi-brain",
           color: "primary",
-          class: "ms-3 me-2"
+          class: "ar-page__brand-icon ms-3 me-2"
         }),
-        _cache[12] || (_cache[12] = _createElementVNode("div", null, [
+        _cache[12] || (_cache[12] = _createElementVNode("div", { class: "ar-page__heading" }, [
           _createElementVNode("div", { class: "text-h6" }, "Agent榜单中心详情"),
           _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "推荐、画像、归档与运行记录")
         ], -1)),
@@ -589,6 +589,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f780ef94"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a2d07f28"]]);
 
 export { Page as default };

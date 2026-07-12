@@ -68,8 +68,8 @@ onMounted(initialize)
 <template>
   <div class="ar-page">
     <VToolbar density="comfortable" class="ar-page__toolbar">
-      <VIcon icon="mdi-brain" color="primary" class="ms-3 me-2" />
-      <div>
+      <VIcon icon="mdi-brain" color="primary" class="ar-page__brand-icon ms-3 me-2" />
+      <div class="ar-page__heading">
         <div class="text-h6">Agent榜单中心详情</div>
         <div class="text-caption text-medium-emphasis">推荐、画像、归档与运行记录</div>
       </div>
@@ -184,8 +184,10 @@ onMounted(initialize)
 </template>
 
 <style scoped>
-.ar-page { width: min(1100px, calc(100vw - 32px)); height: min(820px, calc(100dvh - 32px)); display: flex; flex-direction: column; overflow: hidden; }
+.ar-page { width: min(1100px, calc(100vw - 32px)); height: min(820px, calc(100dvh - 32px)); display: flex; flex-direction: column; overflow: hidden; overflow-x: hidden; }
 .ar-page__toolbar { flex: 0 0 auto; background: rgb(var(--v-theme-surface)); }
+.ar-page :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
+.ar-page__heading { min-width: 0; }
 .ar-page__user { width: 150px; }
 .ar-page__tabs { flex: 0 0 auto; }
 .ar-page__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
@@ -203,12 +205,25 @@ onMounted(initialize)
 .ar-page__error-cell { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 760px) {
   .ar-page { width: min(100%, calc(100vw - 12px)); height: min(860px, calc(100dvh - 12px)); }
-  .ar-page__toolbar { flex-wrap: wrap; }
-  .ar-page__user { order: 8; width: calc(100% - 24px); margin: 6px 12px; }
+  .ar-page__toolbar :deep(.v-toolbar__content) { height: auto !important; min-height: 64px; flex-wrap: wrap; overflow: visible; padding-block: 6px; }
+  .ar-page__toolbar :deep(.v-spacer) { display: none; }
+  .ar-page__heading { order: 1; flex: 1 1 180px; }
+  .ar-page__toolbar :deep(.v-btn--icon) { order: 2; }
+  .ar-page__user { order: 3; width: calc(100% - 24px); margin: 6px 12px; }
   .ar-page__content { padding: 10px; }
   .ar-page__rank-item { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 8px; }
   .ar-page__rank-actions { grid-column: 2 / -1; justify-content: flex-end; }
   .ar-page__weights { grid-template-columns: 1fr; }
   .ar-page__weight { grid-template-columns: 120px minmax(0, 1fr) 28px; }
+}
+@media (max-width: 390px) {
+  .ar-page { width: 100%; height: calc(100dvh - 4px); }
+  .ar-page__brand-icon { display: none; }
+  .ar-page__heading { flex: 1 1 150px; margin-left: 10px; }
+  .ar-page__heading .text-h6 { font-size: 1rem !important; }
+  .ar-page__user { width: calc(100% - 16px); margin-inline: 8px; }
+  .ar-page__content { padding: 8px; }
+  .ar-page__rank-item { padding-inline: 8px; }
+  .ar-page__weight { grid-template-columns: 104px minmax(0, 1fr) 28px; gap: 6px; }
 }
 </style>

@@ -1,5 +1,6 @@
-"""AgentRank frontend API, shared state, and Config source contracts."""
+"""AgentRank frontend API, responsive UI, and federation asset contracts."""
 
+import re
 from pathlib import Path
 
 
@@ -11,6 +12,9 @@ CONFIG = COMPONENTS / "Config.vue"
 APP_PAGE = COMPONENTS / "AppPage.vue"
 PAGE = COMPONENTS / "Page.vue"
 DASHBOARD = COMPONENTS / "Dashboard.vue"
+FRONTEND = ROOT / "plugins.v2" / "agentrank" / "frontend"
+DIST = ROOT / "plugins.v2" / "agentrank" / "dist"
+ASSETS = DIST / "assets"
 
 
 def test_frontend_api_uses_injected_bearer_client_without_token_or_fetch():
@@ -147,3 +151,78 @@ def test_dashboard_is_a_lightweight_vertical_top_five():
     assert "allowRefresh" in source
     assert "mdi-open-in-new" in source
     assert "username" not in source.lower()
+
+
+def test_primary_surface_exposes_the_complete_semantic_state_matrix():
+    """Every backend board state has a visible label and recovery message."""
+    source = APP_PAGE.read_text(encoding="utf-8")
+    expected = {
+        "idle": "待生成",
+        "running": "运行中",
+        "success": "已完成",
+        "sample_insufficient": "样本不足",
+        "candidate_insufficient": "候选不足",
+        "recommendation_incomplete": "榜单不足",
+        "agent_failed": "Agent失败",
+        "validation_failed": "校验失败",
+        "subscription_partial_failed": "部分订阅失败",
+    }
+    for state, label in expected.items():
+        assert state in source
+        assert label in source
+
+
+def test_icon_buttons_are_named_and_all_surfaces_keep_touch_targets():
+    """Icon-only actions remain screen-reader named and at least 40 by 40 pixels."""
+    for component in (APP_PAGE, PAGE, DASHBOARD):
+        source = component.read_text(encoding="utf-8")
+        icon_buttons = re.findall(r"<VBtn\b(?=[^>]*\sicon(?:=|\s))[^>]*>", source)
+        assert icon_buttons, component.name
+        assert all("aria-label=" in button for button in icon_buttons), component.name
+        assert "min-width: 40px" in source, component.name
+        assert "min-height: 40px" in source, component.name
+
+
+def test_responsive_surfaces_have_390px_and_page_overflow_guards():
+    """Named mobile viewport gets an explicit fallback and no page-level x overflow."""
+    for component in (CONFIG, APP_PAGE, PAGE):
+        source = component.read_text(encoding="utf-8")
+        assert "@media (max-width: 390px)" in source, component.name
+        assert "overflow-x: hidden" in source, component.name
+
+
+def test_federation_exposes_and_all_built_asset_references_are_coherent():
+    """The four exposes and the index entry resolve to one closed, stale-free asset graph."""
+    vite = (FRONTEND / "vite.config.js").read_text(encoding="utf-8")
+    for expose in ("./Config", "./Dashboard", "./Page", "./AppPage"):
+        assert expose in vite
+
+    roots = [DIST / "index.html", ASSETS / "remoteEntry.js"]
+    assert all(path.exists() for path in roots)
+    referenced = {ASSETS / "remoteEntry.js"}
+    pending = list(roots)
+    visited = set()
+    pattern = re.compile(
+        r"(?:\./|/assets/)([^\"'()]+\.(?:js|css))|"
+        r"[\"']([^\"']+\.css)[\"']"
+    )
+
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        source = current.read_text(encoding="utf-8")
+        for match in pattern.findall(source):
+            name = next(part for part in match if part)
+            asset = ASSETS / name
+            if not asset.exists():
+                asset = ASSETS / Path(name).name
+            assert asset.exists(), f"missing asset referenced by {current.name}: {name}"
+            if asset not in referenced:
+                referenced.add(asset)
+                if asset.suffix == ".js":
+                    pending.append(asset)
+
+    built_assets = set(ASSETS.rglob("*.js")) | set(ASSETS.rglob("*.css"))
+    assert built_assets == referenced
