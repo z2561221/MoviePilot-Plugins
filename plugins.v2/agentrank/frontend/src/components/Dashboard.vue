@@ -7,10 +7,13 @@ const props = defineProps({
   config: { type: Object, default: () => ({}) },
   allowRefresh: { type: Boolean, default: true },
 })
-const emit = defineEmits(['action'])
 const state = useAgentRankState(props.api)
 
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5))
+const fullBoardHref = computed(() => {
+  const pluginId = String(props.config?.id || 'AgentRank').trim() || 'AgentRank'
+  return `#/plugin-app/${encodeURIComponent(pluginId)}/main`
+})
 const status = computed(() => state.board.value?.status || 'idle')
 const generatedAt = computed(() => state.board.value?.generated_at || '')
 const statusMeta = computed(() => ({
@@ -78,7 +81,7 @@ onMounted(initialize)
     <VCardActions>
       <VChip size="small" variant="tonal" :color="statusMeta.color">{{ statusMeta.text }}</VChip>
       <VSpacer />
-      <VBtn variant="text" color="primary" prepend-icon="mdi-open-in-new" @click="emit('action', { type: 'open-app-page' })">完整榜单</VBtn>
+      <VBtn :href="fullBoardHref" variant="text" color="primary" prepend-icon="mdi-open-in-new">完整榜单</VBtn>
     </VCardActions>
   </VCard>
 </template>

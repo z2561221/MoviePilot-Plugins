@@ -157,6 +157,10 @@ def test_dashboard_is_a_lightweight_vertical_top_five():
     assert "flex-direction: column" in source
     assert "allowRefresh" in source
     assert "mdi-open-in-new" in source
+    assert "fullBoardHref" in source
+    assert "#/plugin-app/" in source
+    assert ':href="fullBoardHref"' in source
+    assert "emit('action'" not in source
     assert "username" not in source.lower()
 
 

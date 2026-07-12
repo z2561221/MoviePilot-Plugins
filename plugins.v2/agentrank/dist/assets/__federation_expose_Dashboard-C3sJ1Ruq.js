@@ -24,14 +24,16 @@ const _sfc_main = {
   config: { type: Object, default: () => ({}) },
   allowRefresh: { type: Boolean, default: true },
 },
-  emits: ['action'],
-  setup(__props, { emit: __emit }) {
+  setup(__props) {
 
 const props = __props;
-const emit = __emit;
 const state = useAgentRankState(props.api);
 
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5));
+const fullBoardHref = computed(() => {
+  const pluginId = String(props.config?.id || 'AgentRank').trim() || 'AgentRank';
+  return `#/plugin-app/${encodeURIComponent(pluginId)}/main`
+});
 const status = computed(() => state.board.value?.status || 'idle');
 const generatedAt = computed(() => state.board.value?.generated_at || '');
 const statusMeta = computed(() => ({
@@ -116,7 +118,7 @@ return (_ctx, _cache) => {
         ]),
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, { class: "text-subtitle-1 font-weight-bold" }, {
-            default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
+            default: _withCtx(() => [...(_cache[0] || (_cache[0] = [
               _createTextVNode("Agent榜单中心 · Top 5", -1)
             ]))]),
             _: 1
@@ -198,16 +200,16 @@ return (_ctx, _cache) => {
           }, 8, ["color"]),
           _createVNode(_component_VSpacer),
           _createVNode(_component_VBtn, {
+            href: fullBoardHref.value,
             variant: "text",
             color: "primary",
-            "prepend-icon": "mdi-open-in-new",
-            onClick: _cache[0] || (_cache[0] = $event => (emit('action', { type: 'open-app-page' })))
+            "prepend-icon": "mdi-open-in-new"
           }, {
-            default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
+            default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
               _createTextVNode("完整榜单", -1)
             ]))]),
             _: 1
-          })
+          }, 8, ["href"])
         ]),
         _: 1
       })
@@ -218,6 +220,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cdd55ebd"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-783fd462"]]);
 
 export { Dashboard as default };
