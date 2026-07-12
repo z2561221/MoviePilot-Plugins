@@ -1,7 +1,7 @@
 """AgentRank 单项手动订阅安全服务。"""
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from ..model.candidate import Candidate
 from ..storage.repository import AgentRankRepository
@@ -16,6 +16,16 @@ class ManualSubscriptionResult:
     code: str
     message: str
     subscription_id: Optional[int] = None
+
+
+@dataclass
+class BatchSubscriptionResult:
+    """表示自动 Top-N 逐项订阅的汇总结果。"""
+
+    status: str
+    items: List[ManualSubscriptionResult]
+    success_count: int = 0
+    failure_count: int = 0
 
 
 class SubscriptionService:
@@ -158,4 +168,48 @@ class SubscriptionService:
             "subscription_created",
             str(message or "订阅创建成功"),
             int(subscription_id),
+        )
+
+    def subscribe_top_n(
+        self,
+        username: str,
+        top_n: int,
+        configured_limit: int,
+        confidence_threshold: float,
+    ) -> BatchSubscriptionResult:
+        """按榜单排名逐项执行同一套安全链，单项失败不中断后续项。"""
+        requested = int(top_n or 0)
+        limit = max(0, min(int(configured_limit or 0), 10))
+        if requested <= 0:
+            return BatchSubscriptionResult("disabled", [])
+        if requested > limit or requested > 10:
+            return BatchSubscriptionResult("invalid_limit", [], 0, requested)
+        board = self._repository.load_board(username)
+        if board is None:
+            return BatchSubscriptionResult("subscription_partial_failed", [], 0, requested)
+        ranked_items = sorted(
+            board.recommendations, key=lambda item: (item.rank, item.candidate_id)
+        )[:requested]
+        results: List[ManualSubscriptionResult] = []
+        for item in ranked_items:
+            try:
+                result = self.subscribe(
+                    username, item.candidate_id, confidence_threshold
+                )
+            except Exception as error:
+                result = ManualSubscriptionResult(
+                    False,
+                    False,
+                    "subscription_failed",
+                    str(error),
+                )
+            results.append(result)
+        success_count = sum(1 for item in results if item.success)
+        failure_count = len(results) - success_count + max(0, requested - len(results))
+        status = "success" if failure_count == 0 else "subscription_partial_failed"
+        return BatchSubscriptionResult(
+            status=status,
+            items=results,
+            success_count=success_count,
+            failure_count=failure_count,
         )

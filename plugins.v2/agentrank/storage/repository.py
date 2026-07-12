@@ -186,6 +186,44 @@ class AgentRankRepository:
                 self._record_recovery(key, "ignored_cross_user_item", run.username)
         return result
 
+    def annotate_run(
+        self,
+        username: str,
+        run_id: str,
+        status: str,
+        metrics: Dict[str, Any] = None,
+        errors: List[str] = None,
+    ) -> bool:
+        """更新指定运行记录的状态与后处理证据。"""
+        key = self._key("run_history", username)
+        value = self._plugin.get_data(key=key)
+        if not isinstance(value, list):
+            return False
+        changed = False
+        updated: List[Any] = []
+        for item in value:
+            if (
+                not changed
+                and isinstance(item, Mapping)
+                and str(item.get("username") or "") == username
+                and str(item.get("run_id") or "") == run_id
+            ):
+                current = dict(item)
+                current["status"] = status
+                current_metrics = dict(current.get("metrics") or {})
+                current_metrics.update(metrics or {})
+                current["metrics"] = current_metrics
+                current_errors = [str(error) for error in current.get("errors") or []]
+                current_errors.extend(str(error) for error in errors or [])
+                current["errors"] = current_errors
+                updated.append(current)
+                changed = True
+            else:
+                updated.append(item)
+        if changed:
+            self._plugin.save_data(key=key, value=updated[: self._history_limit])
+        return changed
+
     def delete_profile(self, username: str) -> None:
         """删除当前用户画像，不触碰其他用户或 MoviePilot 订阅。"""
         self._plugin.del_data(key=self._key("profile_snapshot", username))

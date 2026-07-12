@@ -103,20 +103,65 @@ class AgentRankRuntime:
         if self._stopped:
             raise RuntimeError("AgentRank runtime is stopped")
         result = await self.orchestrator.run(username, self.config)
-        self._send_notification_if_needed(username, result)
+        self._apply_post_action(username, result)
         return result
 
-    def _send_notification_if_needed(self, username: str, result: Any) -> None:
-        """通知确认模式只发送榜单摘要，不执行订阅。"""
-        if self.notification_service is None:
-            return
-        if self.config.get("action_mode") != "notify":
-            return
+    def _apply_post_action(self, username: str, result: Any) -> None:
+        """按动作模式执行通知或自动订阅后处理。"""
         if getattr(result, "status", "") not in {"success", "recommendation_incomplete"}:
             return
+        mode = self.config.get("action_mode")
         board = getattr(result, "board", None)
-        if board is not None:
-            self.notification_service.send_confirmation(username, board)
+        if mode == "notify":
+            if self.notification_service is not None and board is not None:
+                self.notification_service.send_confirmation(username, board)
+            return
+        if mode != "auto_subscribe" or self.subscription_service is None:
+            return
+        batch = self.subscription_service.subscribe_top_n(
+            username=username,
+            top_n=int(self.config.get("auto_subscribe_top_n") or 0),
+            configured_limit=int(self.config.get("auto_subscribe_limit") or 0),
+            confidence_threshold=float(
+                self.config.get("confidence_threshold") or 0.0
+            ),
+        )
+        result.subscription_result = batch
+        repository = getattr(self.plugin, "_repository", None)
+        failures = [
+            f"{item_index}: {item.message}"
+            for item_index, item in (
+                (
+                    getattr(board.recommendations[index], "candidate_id", str(index + 1))
+                    if board is not None and index < len(board.recommendations)
+                    else str(index + 1),
+                    item,
+                )
+                for index, item in enumerate(batch.items)
+            )
+            if not item.success
+        ]
+        if batch.failure_count and not failures:
+            failures.append(f"auto subscription: {batch.status}")
+        if batch.status not in {"success", "disabled"}:
+            result.status = "subscription_partial_failed"
+            result.message = f"自动订阅部分失败：{batch.failure_count} 项"
+            if board is not None:
+                board.status = "subscription_partial_failed"
+                board.message = result.message
+                if repository is not None:
+                    repository.save_board(board)
+        if repository is not None and getattr(result, "run_id", ""):
+            repository.annotate_run(
+                username=username,
+                run_id=result.run_id,
+                status=result.status,
+                metrics={
+                    "subscription_success_count": batch.success_count,
+                    "subscription_failure_count": batch.failure_count,
+                },
+                errors=failures,
+            )
 
     async def run_scheduled(self) -> List[Dict[str, Any]]:
         """顺序处理参与用户，单用户异常不阻断后续用户。"""
@@ -132,7 +177,7 @@ class AgentRankRuntime:
                     break
                 try:
                     result = await self.orchestrator.run(username, self.config)
-                    self._send_notification_if_needed(username, result)
+                    self._apply_post_action(username, result)
                     results.append(
                         {
                             "username": username,
