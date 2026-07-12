@@ -1,0 +1,285 @@
+"""AgentRank recommendation orchestration, refill, lock, and atomic save tests."""
+
+import asyncio
+import importlib
+import json
+import sys
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+
+
+PLUGIN_DIR = Path(__file__).resolve().parents[1]
+PACKAGE_NAME = "agentrank_orchestration_test"
+
+package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
+package.__path__ = [str(PLUGIN_DIR)]
+
+candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
+profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
+board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
+subscription_module = importlib.import_module(f"{PACKAGE_NAME}.model.subscription")
+repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
+orchestrator_module = importlib.import_module(f"{PACKAGE_NAME}.service.recommendation")
+
+Candidate = candidate_module.Candidate
+UserProfile = profile_module.UserProfile
+RecommendationBoard = board_module.RecommendationBoard
+SubscriptionSample = subscription_module.SubscriptionSample
+ProfileInputResult = subscription_module.ProfileInputResult
+AgentRankRepository = repository_module.AgentRankRepository
+RecommendationOrchestrator = orchestrator_module.RecommendationOrchestrator
+
+
+class FakePlugin:
+    """In-memory plugindata store with one-shot board-save failure."""
+
+    def __init__(self):
+        self.data = {}
+        self.fail_board_save = False
+
+    def get_data(self, key=None):
+        return self.data.get(key)
+
+    def save_data(self, key=None, value=None):
+        if self.fail_board_save and key == "recommendation_board:alice":
+            self.fail_board_save = False
+            raise RuntimeError("board save failed")
+        self.data[key] = value
+
+    def del_data(self, key=None):
+        self.data.pop(key, None)
+
+
+class FakeProfileService:
+    """Return a deterministic ready profile input."""
+
+    def collect(self, username, **kwargs):
+        return ProfileInputResult(
+            username=username,
+            status="ready",
+            minimum_samples=1,
+            samples=[
+                SubscriptionSample(
+                    stable_id="tmdb:999", title="Subscribed", media_type="movie"
+                )
+            ],
+        )
+
+
+class FakeCandidateService:
+    """Return a deterministic frozen candidate result."""
+
+    def __init__(self, count=12):
+        self.candidates = [
+            Candidate(candidate_id=f"tmdb:{index}", title=f"Title {index}", media_type="movie")
+            for index in range(1, count + 1)
+        ]
+
+    def collect_and_freeze(self, username, run_id, enabled_sources, candidate_limit):
+        return SimpleNamespace(
+            username=username,
+            run_id=run_id,
+            status="ready",
+            candidates=self.candidates[:candidate_limit],
+            source_errors={},
+            rejected_sources=[],
+            rejected_count=0,
+        )
+
+
+class FakeAgentAdapter:
+    """Return queued outputs or raise a queued exception."""
+
+    def __init__(self, outputs):
+        self.outputs = list(outputs)
+        self.calls = []
+
+    async def run(self, prompt, trusted_context):
+        self.calls.append((prompt, trusted_context))
+        output = self.outputs.pop(0)
+        if isinstance(output, Exception):
+            raise output
+        return output
+
+
+def _agent_output(candidate_ids):
+    return json.dumps(
+        {
+            "profile": {
+                "summary": "偏好高质量悬疑电影",
+                "tags": ["悬疑"],
+                "negative_tags": [],
+                "subscription_count": 1,
+            },
+            "recommendations": [
+                {
+                    "candidate_id": candidate_id,
+                    "summary": "悬疑迷局牵出旧日真相",
+                    "match_tags": ["悬疑"],
+                    "confidence": 80,
+                }
+                for candidate_id in candidate_ids
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
+def _orchestrator(plugin, outputs, candidate_count=12):
+    repository = AgentRankRepository(plugin)
+    return (
+        RecommendationOrchestrator(
+            repository=repository,
+            profile_service=FakeProfileService(),
+            candidate_service=FakeCandidateService(candidate_count),
+            agent_adapter=FakeAgentAdapter(outputs),
+            run_id_factory=lambda: "run-1",
+        ),
+        repository,
+    )
+
+
+def _config():
+    return {
+        "profile_scope": "all",
+        "subscription_sample_limit": 200,
+        "candidate_pool_size": 50,
+        "discovery_sources": {"douban": True},
+        "weights": {"rating_weight": 0.7},
+        "media_types": ["movie"],
+        "confidence_threshold": 0.6,
+        "exclude_keywords": [],
+    }
+
+
+def test_success_atomically_saves_profile_board_and_run_history():
+    """A complete valid run replaces both current objects and records metrics."""
+    plugin = FakePlugin()
+    orchestrator, repository = _orchestrator(
+        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+    )
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "success"
+    assert len(repository.load_board("alice").recommendations) == 10
+    assert repository.load_profile("alice").run_id == "run-1"
+    history = repository.load_run_history("alice")
+    assert history[0].status == "success"
+    assert history[0].metrics["final_count"] == 10
+    assert history[0].metrics["agent_calls"] == 1
+
+
+def test_agent_failure_preserves_previous_profile_and_board():
+    """An Agent exception records agent_failed without replacing old state."""
+    plugin = FakePlugin()
+    orchestrator, repository = _orchestrator(plugin, [RuntimeError("llm offline")])
+    repository.save_profile(UserProfile(username="alice", summary="old", run_id="old"))
+    repository.save_board(RecommendationBoard(username="alice", run_id="old", status="success"))
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "agent_failed"
+    assert repository.load_profile("alice").run_id == "old"
+    assert repository.load_board("alice").run_id == "old"
+    assert repository.load_run_history("alice")[0].status == "agent_failed"
+
+
+def test_partial_valid_output_gets_exactly_one_successful_refill():
+    """Eight accepted items trigger one refill for the two remaining slots."""
+    first = _agent_output([f"tmdb:{index}" for index in range(1, 9)])
+    refill = _agent_output(["tmdb:9", "tmdb:10"])
+    orchestrator, repository = _orchestrator(FakePlugin(), [first, refill])
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "success"
+    assert result.agent_calls == 2
+    assert len(repository.load_board("alice").recommendations) == 10
+    assert "tmdb:1" in orchestrator.agent_adapter.calls[1][0]
+    assert "排除" in orchestrator.agent_adapter.calls[1][0]
+
+
+def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
+    """One refill is final; remaining shortage is visible rather than padded."""
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [
+            _agent_output([f"tmdb:{index}" for index in range(1, 9)]),
+            _agent_output(["tmdb:9"]),
+        ],
+    )
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "recommendation_incomplete"
+    board = repository.load_board("alice")
+    assert board.status == "recommendation_incomplete"
+    assert len(board.recommendations) == 9
+    assert result.agent_calls == 2
+
+
+def test_zero_valid_items_preserves_old_board_and_records_validation_failure():
+    """A wholly unsafe Agent result cannot replace the previous board."""
+    plugin = FakePlugin()
+    orchestrator, repository = _orchestrator(plugin, [_agent_output(["tmdb:404"])])
+    repository.save_board(RecommendationBoard(username="alice", run_id="old", status="success"))
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "validation_failed"
+    assert repository.load_board("alice").run_id == "old"
+
+
+def test_atomic_save_failure_restores_both_previous_objects():
+    """A board write failure rolls the already-written profile back to its old value."""
+    plugin = FakePlugin()
+    orchestrator, repository = _orchestrator(
+        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+    )
+    repository.save_profile(UserProfile(username="alice", summary="old", run_id="old"))
+    repository.save_board(RecommendationBoard(username="alice", run_id="old", status="success"))
+    plugin.fail_board_save = True
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "validation_failed"
+    assert repository.load_profile("alice").run_id == "old"
+    assert repository.load_board("alice").run_id == "old"
+
+
+def test_concurrent_refresh_returns_running_without_second_agent_call():
+    """The same username cannot start two recommendation runs concurrently."""
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class BlockingAgent(FakeAgentAdapter):
+        async def run(self, prompt, trusted_context):
+            self.calls.append((prompt, trusted_context))
+            entered.set()
+            await release.wait()
+            return self.outputs.pop(0)
+
+    async def scenario():
+        plugin = FakePlugin()
+        repository = AgentRankRepository(plugin)
+        agent = BlockingAgent([_agent_output([f"tmdb:{index}" for index in range(1, 11)])])
+        orchestrator = RecommendationOrchestrator(
+            repository,
+            FakeProfileService(),
+            FakeCandidateService(),
+            agent,
+            run_id_factory=lambda: "run-lock",
+        )
+        first_task = asyncio.create_task(orchestrator.run("alice", _config()))
+        await entered.wait()
+        second = await orchestrator.run("alice", _config())
+        release.set()
+        first = await first_task
+        return first, second, agent
+
+    first, second, agent = asyncio.run(scenario())
+
+    assert first.status == "success"
+    assert second.status == "running"
+    assert len(agent.calls) == 1

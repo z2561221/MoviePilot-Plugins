@@ -219,6 +219,24 @@ class AgentRankRepository:
             self._restore_raw(archive_key, old_archive)
             raise
 
+    def save_profile_and_board(
+        self, profile: UserProfile, board: RecommendationBoard
+    ) -> None:
+        """原子替换同一用户的画像与榜单，失败时恢复两者。"""
+        if profile.username != board.username:
+            raise ValueError("profile and board username mismatch")
+        profile_key = self._key("profile_snapshot", profile.username)
+        board_key = self._key("recommendation_board", board.username)
+        old_profile = self._plugin.get_data(key=profile_key)
+        old_board = self._plugin.get_data(key=board_key)
+        try:
+            self._plugin.save_data(key=profile_key, value=profile.to_dict())
+            self._plugin.save_data(key=board_key, value=board.to_dict())
+        except Exception:
+            self._restore_raw(profile_key, old_profile)
+            self._restore_raw(board_key, old_board)
+            raise
+
     def clear_profile_and_board(self, username: str) -> None:
         """原子删除当前用户画像和榜单，失败时恢复原始数据。"""
         profile_key = self._key("profile_snapshot", username)

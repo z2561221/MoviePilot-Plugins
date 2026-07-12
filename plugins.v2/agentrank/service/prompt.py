@@ -34,3 +34,14 @@ def build_ranking_prompt(max_recommendations: int = 10) -> str:
 }}
 
 confidence 必须是零到一百的整数。summary 描述作品本身，必须恰好十个中文字符，不含英文、数字、标点、空白或换行。"""
+
+
+def build_refill_prompt(accepted_candidate_ids: list[str], remaining_slots: int) -> str:
+    """构建一次性同候选池补选指令并明确排除已接受条目。"""
+    excluded = ", ".join(str(item) for item in accepted_candidate_ids)
+    return (
+        build_ranking_prompt(max_recommendations=max(1, int(remaining_slots)))
+        + "\n\n这是唯一一次补选。必须排除已经接受的 candidate_id："
+        + excluded
+        + "。只从同一个 read_agentrank_candidates 快照选择未使用条目。"
+    )
