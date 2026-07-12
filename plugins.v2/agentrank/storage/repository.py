@@ -193,3 +193,42 @@ class AgentRankRepository:
     def delete_board(self, username: str) -> None:
         """删除当前用户榜单，不触碰归档和运行历史。"""
         self._plugin.del_data(key=self._key("recommendation_board", username))
+
+    def _restore_raw(self, key: str, value: Any) -> None:
+        """在复合写入失败后恢复单个键的原始值。"""
+        if value is None:
+            self._plugin.del_data(key=key)
+        else:
+            self._plugin.save_data(key=key, value=value)
+
+    def save_board_and_archive(
+        self, board: RecommendationBoard, archive: ArchiveFeedback
+    ) -> None:
+        """原子替换同一用户的榜单和归档，失败时恢复两者。"""
+        if board.username != archive.username:
+            raise ValueError("board and archive username mismatch")
+        board_key = self._key("recommendation_board", board.username)
+        archive_key = self._key("archive", archive.username)
+        old_board = self._plugin.get_data(key=board_key)
+        old_archive = self._plugin.get_data(key=archive_key)
+        try:
+            self._plugin.save_data(key=board_key, value=board.to_dict())
+            self._plugin.save_data(key=archive_key, value=archive.to_dict())
+        except Exception:
+            self._restore_raw(board_key, old_board)
+            self._restore_raw(archive_key, old_archive)
+            raise
+
+    def clear_profile_and_board(self, username: str) -> None:
+        """原子删除当前用户画像和榜单，失败时恢复原始数据。"""
+        profile_key = self._key("profile_snapshot", username)
+        board_key = self._key("recommendation_board", username)
+        old_profile = self._plugin.get_data(key=profile_key)
+        old_board = self._plugin.get_data(key=board_key)
+        try:
+            self._plugin.del_data(key=profile_key)
+            self._plugin.del_data(key=board_key)
+        except Exception:
+            self._restore_raw(profile_key, old_profile)
+            self._restore_raw(board_key, old_board)
+            raise
