@@ -81,7 +81,8 @@ onMounted(initialize)
           </div>
           <div class="ar-dashboard__main">
             <div class="font-weight-medium text-truncate">{{ item.title }}</div>
-            <div class="text-caption text-medium-emphasis text-truncate">{{ item.summary }}</div>
+            <div class="text-caption text-truncate">推荐：{{ item.reason || item.summary }}</div>
+            <div class="text-caption text-medium-emphasis text-truncate">简介：{{ item.summary }}</div>
           </div>
           <VChip size="x-small" color="primary" variant="tonal">{{ item.confidence }}%</VChip>
         </div>

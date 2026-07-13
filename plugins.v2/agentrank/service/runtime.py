@@ -43,6 +43,7 @@ class AgentRankRuntime:
         """延迟导入 MoviePilot 宿主依赖并创建推荐编排器。"""
         from ..adapter.agent import AgentRankAgentAdapter
         from ..adapter.discovery import DiscoveryAdapter
+        from ..adapter.library import LibraryAdapter
         from ..adapter.media import MediaRecognitionAdapter
         from ..adapter.subscription import SubscriptionAdapter
         from ..storage.repository import AgentRankRepository
@@ -67,6 +68,7 @@ class AgentRankRuntime:
                 DiscoveryAdapter(), repository, media_adapter
             ),
             agent_adapter=AgentRankAgentAdapter(),
+            library_adapter=LibraryAdapter(),
         )
 
     @staticmethod

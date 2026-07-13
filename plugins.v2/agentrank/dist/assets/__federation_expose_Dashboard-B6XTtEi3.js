@@ -14,7 +14,8 @@ const _hoisted_3 = { class: "ar-dashboard__poster" };
 const _hoisted_4 = { class: "ar-dashboard__poster-error" };
 const _hoisted_5 = { class: "ar-dashboard__main" };
 const _hoisted_6 = { class: "font-weight-medium text-truncate" };
-const _hoisted_7 = { class: "text-caption text-medium-emphasis text-truncate" };
+const _hoisted_7 = { class: "text-caption text-truncate" };
+const _hoisted_8 = { class: "text-caption text-medium-emphasis text-truncate" };
 
 const {computed,onMounted} = await importShared('vue');
 
@@ -199,7 +200,8 @@ return (_ctx, _cache) => {
                         ]),
                         _createElementVNode("div", _hoisted_5, [
                           _createElementVNode("div", _hoisted_6, _toDisplayString(item.title), 1),
-                          _createElementVNode("div", _hoisted_7, _toDisplayString(item.summary), 1)
+                          _createElementVNode("div", _hoisted_7, "推荐：" + _toDisplayString(item.reason || item.summary), 1),
+                          _createElementVNode("div", _hoisted_8, "简介：" + _toDisplayString(item.summary), 1)
                         ]),
                         _createVNode(_component_VChip, {
                           size: "x-small",
@@ -252,6 +254,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-dfaa3a49"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a70da747"]]);
 
 export { Dashboard as default };

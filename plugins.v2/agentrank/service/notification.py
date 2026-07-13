@@ -21,10 +21,12 @@ def _format_ranking_block(board: RecommendationBoard) -> str:
     for item in board.recommendations[:10]:
         title = _compact_text(item.title, 42) or "未命名条目"
         summary = _compact_text(item.summary, 64) or "暂无推荐摘要"
+        reason = _compact_text(getattr(item, "reason", ""), 32) or summary
         lines.extend(
             [
                 f"{int(item.rank):02d} │ {title}",
-                f"   │ {summary}",
+                f"   │ 推荐：{reason}",
+                f"   │ 简介：{summary}",
             ]
         )
     return "```\n" + "\n".join(lines) + "\n```"

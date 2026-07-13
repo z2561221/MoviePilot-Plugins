@@ -45,6 +45,7 @@ class RecommendationOrchestrator:
         run_id_factory: Callable[[], str] = None,
         parser: AgentOutputParser = None,
         validator: RecommendationValidator = None,
+        library_adapter: Any = None,
     ):
         """注入可测试的领域依赖并初始化用户锁集合。"""
         self._repository = repository
@@ -54,6 +55,7 @@ class RecommendationOrchestrator:
         self._run_id_factory = run_id_factory or (lambda: uuid.uuid4().hex)
         self._parser = parser or AgentOutputParser()
         self._validator = validator or RecommendationValidator()
+        self._library_adapter = library_adapter
         self._running_users: Set[str] = set()
         self._running_guard = threading.Lock()
 
@@ -196,7 +198,21 @@ class RecommendationOrchestrator:
                 int(config.get("candidate_pool_size") or 100),
             )
             candidates = list(candidate_result.candidates)
+            library_excluded = []
+            if self._library_adapter is not None:
+                library_excluded = [
+                    candidate
+                    for candidate in candidates
+                    if self._library_adapter.exists(candidate)
+                ]
+                excluded_ids = {item.candidate_id for item in library_excluded}
+                candidates = [
+                    candidate
+                    for candidate in candidates
+                    if candidate.candidate_id not in excluded_ids
+                ]
             metrics["candidate_count"] = len(candidates)
+            metrics["library_excluded_count"] = len(library_excluded)
             metrics["candidate_rejected_count"] = candidate_result.rejected_count
             metrics["source_errors"] = dict(candidate_result.source_errors)
             logger.info(
@@ -207,7 +223,7 @@ class RecommendationOrchestrator:
                 candidate_result.rejected_count,
                 len(candidate_result.source_errors),
             )
-            if candidate_result.status != "ready":
+            if candidate_result.status != "ready" or not candidates:
                 return self._failure(
                     target,
                     run_id,

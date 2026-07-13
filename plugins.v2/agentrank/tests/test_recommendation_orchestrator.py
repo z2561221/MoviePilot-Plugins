@@ -120,6 +120,7 @@ def _agent_output(candidate_ids):
             "recommendations": [
                 {
                     "candidate_id": candidate_id,
+                    "reason": "这部正好戳中你的笑点",
                     "summary": "悬疑迷局牵出旧日真相",
                     "match_tags": ["悬疑"],
                     "confidence": 80,
@@ -174,6 +175,39 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert history[0].status == "success"
     assert history[0].metrics["final_count"] == 10
     assert history[0].metrics["agent_calls"] == 1
+
+
+def test_library_items_are_removed_before_agent_context_is_built():
+    """已入库 TMDB 候选不会进入 Agent 可见候选快照。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+
+    class LibraryAdapter:
+        def exists(self, candidate):
+            return candidate.candidate_id in {"tmdb:1", "tmdb:2"}
+
+    agent = FakeAgentAdapter(
+        [_agent_output([f"tmdb:{index}" for index in range(3, 13)])]
+    )
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        profile_service=FakeProfileService(),
+        candidate_service=FakeCandidateService(12),
+        agent_adapter=agent,
+        run_id_factory=lambda: "run-library",
+        library_adapter=LibraryAdapter(),
+    )
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    assert result.status == "success"
+    candidate_ids = {
+        item["candidate_id"]
+        for item in agent.calls[0][1].candidates
+    }
+    assert "tmdb:1" not in candidate_ids
+    assert "tmdb:2" not in candidate_ids
+    assert repository.load_run_history("alice")[0].metrics["library_excluded_count"] == 2
 
 
 def test_agent_failure_preserves_previous_profile_and_board():

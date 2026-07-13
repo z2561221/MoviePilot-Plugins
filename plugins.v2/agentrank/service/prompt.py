@@ -26,6 +26,7 @@ def build_ranking_prompt(max_recommendations: int = 10) -> str:
   "recommendations": [
     {{
       "candidate_id": "候选池中的稳定ID",
+      "reason": "恰好十个中文字符",
       "summary": "恰好十个中文字符",
       "match_tags": ["匹配标签"],
       "confidence": 0
@@ -33,7 +34,7 @@ def build_ranking_prompt(max_recommendations: int = 10) -> str:
   ]
 }}
 
-confidence 必须是零到一百的整数。summary 描述作品本身，必须恰好十个中文字符，不含英文、数字、标点、空白或换行。"""
+confidence 必须是零到一百的整数。reason 说明为何适合该用户，summary 概括作品本身；两者都必须恰好十个中文字符，不含英文、数字、标点、空白或换行。文案要轻松诙谐、机灵自然，但禁止低俗、剧透和靠重复字凑数。"""
 
 
 def build_refill_prompt(accepted_candidate_ids: list[str], remaining_slots: int) -> str:

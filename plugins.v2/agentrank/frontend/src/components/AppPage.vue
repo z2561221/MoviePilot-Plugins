@@ -229,7 +229,8 @@ onMounted(initialize)
                     <VChip size="x-small" variant="tonal">{{ mediaTypeLabel(item.media_type) }}</VChip>
                   </div>
                   <div class="ar-app-page__meta">{{ item.year || '年份未知' }} · {{ sourceLabel(item) }}</div>
-                  <div class="ar-app-page__summary">{{ item.summary }}</div>
+                  <div class="ar-app-page__summary">推荐：{{ item.reason || item.summary }}</div>
+                  <div class="ar-app-page__summary ar-app-page__summary--intro">简介：{{ item.summary }}</div>
                   <div class="ar-app-page__tags">
                     <VChip v-for="tag in item.match_tags || []" :key="tag" size="x-small" variant="outlined">{{ tag }}</VChip>
                     <VChip size="x-small" color="primary" variant="tonal">置信度 {{ item.confidence }}%</VChip>

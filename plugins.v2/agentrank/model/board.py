@@ -11,6 +11,7 @@ class RecommendationItem:
     candidate_id: str
     rank: int
     summary: str = ""
+    reason: str = ""
     confidence: float = 0.0
     title: str = ""
     media_type: str = "unknown"
@@ -32,6 +33,7 @@ class RecommendationItem:
             candidate_id=candidate_id,
             rank=max(1, int(value.get("rank") or 1)),
             summary=str(value.get("summary") or ""),
+            reason=str(value.get("reason") or ""),
             confidence=float(value.get("confidence") or 0.0),
             title=str(value.get("title") or ""),
             media_type=str(value.get("media_type") or "unknown"),

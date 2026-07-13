@@ -133,6 +133,9 @@ def test_app_page_is_a_vertical_top_ten_with_complete_user_actions():
     assert "媒体类型" in source
     assert "评分质量" in source
     assert "formatWeight(value)" in source
+    assert "item.reason" in source
+    assert "推荐：" in source
+    assert "简介：" in source
     assert "#error" in source
     assert "mdi-image-off-outline" in source
 
@@ -159,6 +162,7 @@ def test_page_has_five_management_tabs_and_backend_history_paging():
     assert "overflow-wrap: anywhere" in source
     assert "媒体类型" in source
     assert "评分质量" in source
+    assert "item.reason" in source
     assert "#error" in source
 
 
@@ -179,6 +183,7 @@ def test_dashboard_is_a_lightweight_vertical_top_five():
     assert "item.poster_path" in source
     assert "ar-dashboard__poster" in source
     assert "#error" in source
+    assert "item.reason" in source
 
 
 def test_primary_surface_exposes_the_complete_semantic_state_matrix():

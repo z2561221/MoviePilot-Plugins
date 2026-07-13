@@ -32,6 +32,7 @@ class ParsedRecommendation:
 
     candidate_id: str
     summary: str
+    reason: str
     match_tags: List[str]
     confidence: int
 
@@ -155,9 +156,12 @@ class AgentOutputParser:
         for index, item in enumerate(recommendations_value):
             if not isinstance(item, dict):
                 raise AgentOutputError(f"recommendations[{index}] must be an object")
+            if "reason" not in item and "summary" in item:
+                item = dict(item)
+                item["reason"] = item["summary"]
             self._exact_keys(
                 item,
-                {"candidate_id", "summary", "match_tags", "confidence"},
+                {"candidate_id", "reason", "summary", "match_tags", "confidence"},
                 f"recommendations[{index}]",
             )
             confidence = item["confidence"]
@@ -174,6 +178,9 @@ class AgentOutputParser:
                     ),
                     summary=self._string(
                         item["summary"], f"recommendations[{index}].summary", 100
+                    ),
+                    reason=self._string(
+                        item["reason"], f"recommendations[{index}].reason", 100
                     ),
                     match_tags=self._tags(
                         item["match_tags"],
@@ -248,11 +255,17 @@ class RecommendationValidator:
                     DroppedRecommendation(candidate_id, "invalid_summary", index)
                 )
                 continue
+            if not TEN_CHINESE_PATTERN.fullmatch(recommendation.reason):
+                result.dropped.append(
+                    DroppedRecommendation(candidate_id, "invalid_reason", index)
+                )
+                continue
             result.accepted.append(
                 RecommendationItem(
                     candidate_id=candidate_id,
                     rank=len(result.accepted) + 1,
                     summary=recommendation.summary,
+                    reason=recommendation.reason,
                     confidence=recommendation.confidence,
                     title=candidate.title,
                     media_type=candidate.media_type,

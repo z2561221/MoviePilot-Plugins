@@ -136,7 +136,8 @@ onMounted(initialize)
               <div class="ar-page__rank-main">
                 <div class="font-weight-bold text-truncate">{{ item.title }}</div>
                 <div class="text-caption text-medium-emphasis">{{ item.year || '年份未知' }} · {{ item.media_type }}</div>
-                <div class="text-body-2 mt-1">{{ item.summary }}</div>
+                <div class="text-body-2 mt-1">推荐：{{ item.reason || item.summary }}</div>
+                <div class="text-body-2 text-medium-emphasis">简介：{{ item.summary }}</div>
               </div>
               <VChip size="x-small" color="primary" variant="tonal">{{ item.confidence }}%</VChip>
               <div class="ar-page__rank-actions">
