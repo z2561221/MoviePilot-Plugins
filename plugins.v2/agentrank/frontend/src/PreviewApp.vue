@@ -47,7 +47,7 @@ const config = {
   cron: '0 8 * * *',
   users: ['alice', 'bob'],
   default_user: 'alice',
-  discovery_sources: { douban: true, tmdb_movies: true, tmdb_tv: true, bangumi: true, extensions: true },
+  discovery_sources: { douban: true, tmdb_movies: true, tmdb_tv: true, bangumi: true },
   weights,
   media_types: ['movie', 'tv', 'anime'],
   profile_scope: 'all',

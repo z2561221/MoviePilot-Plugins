@@ -238,10 +238,26 @@ class RecommendationOrchestrator:
             archive = self._repository.load_archive(target)
             archived_ids = {entry.candidate_id for entry in archive.entries}
             subscribed_ids = {sample.stable_id for sample in profile_input.samples}
+            profile_cache_enabled = bool(config.get("profile_cache_enabled", True))
+            rebuild_profile = bool(config.get("rebuild_profile_each_run", False))
+            previous_profile = (
+                self._repository.load_profile(target)
+                if profile_cache_enabled and not rebuild_profile
+                else None
+            )
+            metrics["profile_mode"] = (
+                "incremental"
+                if profile_cache_enabled and not rebuild_profile
+                else "rebuild" if rebuild_profile else "stateless"
+            )
+            metrics["previous_profile_used"] = previous_profile is not None
             trusted_context = build_trusted_context(
                 username=target,
                 run_id=run_id,
                 subscriptions=[sample.to_dict() for sample in profile_input.samples],
+                previous_profile=(
+                    previous_profile.to_dict() if previous_profile is not None else None
+                ),
                 candidates=[candidate.to_dict() for candidate in candidates],
                 archive_feedback=archive.to_dict(),
                 weights=self._trusted_weights(config),

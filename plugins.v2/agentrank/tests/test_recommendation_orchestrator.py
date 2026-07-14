@@ -156,6 +156,8 @@ def _config():
         "media_types": ["movie"],
         "confidence_threshold": 0.6,
         "exclude_keywords": [],
+        "profile_cache_enabled": True,
+        "rebuild_profile_each_run": False,
     }
 
 
@@ -189,6 +191,53 @@ def test_run_uses_configured_agent_prompt():
     asyncio.run(orchestrator.run("alice", config))
 
     assert "多推荐冷门科幻并保持俏皮文风" in orchestrator.agent_adapter.calls[0][0]
+
+
+def test_cached_profile_is_passed_as_incremental_context():
+    """画像缓存开启且未要求重建时，旧画像会进入只读订阅上下文。"""
+    plugin = FakePlugin()
+    orchestrator, repository = _orchestrator(
+        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+    )
+    repository.save_profile(
+        UserProfile(username="alice", summary="old", tags=["悬疑"], run_id="old")
+    )
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    context = orchestrator.agent_adapter.calls[0][1]
+    assert context.previous_profile["summary"] == "old"
+    assert context.previous_profile["tags"] == ("悬疑",)
+    assert "禁止简单做标签并集" in orchestrator.agent_adapter.calls[0][0]
+    history = repository.load_run_history("alice")[0]
+    assert history.metrics["profile_mode"] == "incremental"
+    assert history.metrics["previous_profile_used"] is True
+    assert result.status == "success"
+
+
+def test_rebuild_or_disabled_cache_does_not_read_previous_profile():
+    """每次重建或关闭画像缓存时，旧画像不得进入 Agent 上下文。"""
+    for overrides, expected_mode in (
+        ({"rebuild_profile_each_run": True}, "rebuild"),
+        ({"profile_cache_enabled": False}, "stateless"),
+    ):
+        plugin = FakePlugin()
+        orchestrator, repository = _orchestrator(
+            plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+        )
+        repository.save_profile(
+            UserProfile(username="alice", summary="old", run_id="old")
+        )
+        config = _config()
+        config.update(overrides)
+
+        result = asyncio.run(orchestrator.run("alice", config))
+
+        assert orchestrator.agent_adapter.calls[0][1].previous_profile is None
+        history = repository.load_run_history("alice")[0]
+        assert history.metrics["profile_mode"] == expected_mode
+        assert history.metrics["previous_profile_used"] is False
+        assert result.status == "success"
 
 
 def test_library_items_are_removed_before_agent_context_is_built():

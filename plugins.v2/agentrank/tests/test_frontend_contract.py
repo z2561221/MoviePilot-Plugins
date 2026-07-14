@@ -28,6 +28,22 @@ def test_runtime_settings_exposes_discovery_page_switch_and_fifty_default():
     assert 'candidate_pool_size: 50' in config
 
 
+def test_extension_discovery_source_is_absent_from_config_ui():
+    """配置页只允许选择四个 MoviePilot 内置发现来源。"""
+    config = _read("Config.vue")
+    assert "扩展来源" not in config
+    assert "extensions: true" not in config
+    assert "选择 MoviePilot 内置发现来源" in config
+
+
+def test_profile_runtime_switches_describe_incremental_semantics():
+    """画像缓存和每次重建开关向用户说明真实运行语义。"""
+    config = _read("Config.vue")
+    assert 'v-model="form.profile_cache_enabled"' in config
+    assert 'v-model="form.rebuild_profile_each_run"' in config
+    assert "参考上一版画像持续演进" in config
+
+
 def test_discovery_cards_use_non_black_theme_surface():
     """发现页榜单条目使用主题灰面而不是黑色 surface。"""
     app_page = _read("AppPage.vue")

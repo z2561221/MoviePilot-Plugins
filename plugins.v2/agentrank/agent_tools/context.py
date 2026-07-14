@@ -40,6 +40,7 @@ class AgentRankTrustedContext:
     candidates: Any
     archive_feedback: Any
     weights: Any
+    previous_profile: Any
 
 
 def build_trusted_context(
@@ -49,6 +50,7 @@ def build_trusted_context(
     candidates: Any,
     archive_feedback: Any,
     weights: Any,
+    previous_profile: Any = None,
 ) -> AgentRankTrustedContext:
     """校验作用域并构造不可变的受信上下文。"""
     trusted_username = str(username or "").strip()
@@ -62,6 +64,7 @@ def build_trusted_context(
         candidates=_deep_freeze(candidates),
         archive_feedback=_deep_freeze(archive_feedback),
         weights=_deep_freeze(weights),
+        previous_profile=_deep_freeze(previous_profile),
     )
 
 

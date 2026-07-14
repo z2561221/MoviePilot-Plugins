@@ -35,17 +35,25 @@ class _ReadAgentRankTool(MoviePilotTool):
 
 
 class ReadAgentRankSubscriptionsTool(_ReadAgentRankTool):
-    """读取当前上下文用户的规范化订阅样本。"""
+    """读取当前订阅样本和可选的上一版画像。"""
 
     name: str = "read_agentrank_subscriptions"
     description: str = (
-        "Read the normalized subscription samples for the trusted AgentRank run. "
-        "The username and run id are fixed by the host context and take no arguments."
+        "Read normalized subscription samples and the optional previous profile for "
+        "the trusted AgentRank run. The username and run id are fixed by the host "
+        "context and take no arguments."
     )
 
     async def run(self, **kwargs: Any) -> str:
-        """返回当前运行绑定的订阅样本。"""
-        return self._slice("subscriptions", "subscriptions")
+        """返回当前运行绑定的订阅样本与受控画像演进上下文。"""
+        trusted_context = resolve_trusted_context(self._agent_context)
+        payload: Dict[str, Any] = {
+            "username": trusted_context.username,
+            "run_id": trusted_context.run_id,
+            "subscriptions": to_jsonable(trusted_context.subscriptions),
+            "previous_profile": to_jsonable(trusted_context.previous_profile),
+        }
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 class ReadAgentRankCandidatesTool(_ReadAgentRankTool):

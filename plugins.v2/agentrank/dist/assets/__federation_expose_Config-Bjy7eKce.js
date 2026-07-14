@@ -77,7 +77,6 @@ const defaults = {
     tmdb_movies: true,
     tmdb_tv: true,
     bangumi: true,
-    extensions: true,
   },
   weights: { ...weightDefaults },
   media_types: ['movie', 'tv', 'anime'],
@@ -110,7 +109,7 @@ const runtimeDefaults = ref(structuredClone(defaults));
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
   { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '配置参与用户、默认用户和运行周期。' },
-  { key: 'sources', title: '发现来源', icon: 'mdi-compass-outline', desc: '选择 MoviePilot 内置与扩展发现来源。' },
+  { key: 'sources', title: '发现来源', icon: 'mdi-compass-outline', desc: '选择 MoviePilot 内置发现来源。' },
   { key: 'weights', title: '权重设置', icon: 'mdi-tune-vertical', desc: '设置 Agent 排序时十项偏好权重。' },
   { key: 'filter', title: '条件筛选', icon: 'mdi-filter-outline', desc: '限制媒体类型、候选数量和置信度。' },
   { key: 'board', title: '榜单行为', icon: 'mdi-format-list-numbered', desc: '选择仅更新、通知确认或自动订阅。' },
@@ -135,7 +134,6 @@ const sourceDefs = [
   { key: 'tmdb_movies', title: 'TMDB电影', subtitle: '高热度电影候选', icon: 'mdi-movie-open-star-outline' },
   { key: 'tmdb_tv', title: 'TMDB剧集', subtitle: '高热度剧集候选', icon: 'mdi-television-classic' },
   { key: 'bangumi', title: 'Bangumi', subtitle: '动画与番剧候选', icon: 'mdi-animation-outline' },
-  { key: 'extensions', title: '扩展来源', subtitle: '已安装插件提供的发现源', icon: 'mdi-puzzle-outline' },
 ];
 
 const mediaTypeOptions = [
@@ -167,7 +165,9 @@ function applyConfig(value) {
   const next = cloneConfig(value);
   Object.assign(form, cloneConfig(defaults), next);
   form.weights = { ...weightDefaults, ...(next.weights || {}) };
-  form.discovery_sources = { ...defaults.discovery_sources, ...(next.discovery_sources || {}) };
+  form.discovery_sources = Object.fromEntries(
+    Object.keys(defaults.discovery_sources).map(key => [key, Boolean(next.discovery_sources?.[key] ?? defaults.discovery_sources[key])]),
+  );
   form.users = Array.isArray(next.users) ? [...new Set(next.users.filter(Boolean))] : [];
   form.media_types = Array.isArray(next.media_types) ? [...next.media_types] : [...defaults.media_types];
   form.exclude_keywords = Array.isArray(next.exclude_keywords) ? [...next.exclude_keywords] : [];
@@ -868,7 +868,7 @@ return (_ctx, _cache) => {
               _withDirectives(_createElementVNode("div", _hoisted_24, [
                 (activeAdvanced.value === 'runtime')
                   ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
-                      _cache[34] || (_cache[34] = _createElementVNode("div", { class: "ar-config__section-title" }, "运行设置", -1)),
+                      _cache[35] || (_cache[35] = _createElementVNode("div", { class: "ar-config__section-title" }, "运行设置", -1)),
                       _createVNode(_component_VRow, null, {
                         default: _withCtx(() => [
                           _createVNode(_component_VCol, {
@@ -983,11 +983,21 @@ return (_ctx, _cache) => {
                         _: 1
                       }),
                       _createVNode(_component_VAlert, {
-                        type: "warning",
+                        type: "info",
                         variant: "tonal",
                         class: "mt-4"
                       }, {
                         default: _withCtx(() => [...(_cache[33] || (_cache[33] = [
+                          _createTextVNode("画像缓存开启且关闭每次重建时，Agent 会参考上一版画像持续演进；每次重建开启或画像缓存关闭时，仅按当前订阅重新建立。", -1)
+                        ]))]),
+                        _: 1
+                      }),
+                      _createVNode(_component_VAlert, {
+                        type: "warning",
+                        variant: "tonal",
+                        class: "mt-4"
+                      }, {
+                        default: _withCtx(() => [...(_cache[34] || (_cache[34] = [
                           _createTextVNode("画像、榜单和归档清理属于用户级危险操作，请在完整榜单或详情页二次确认后执行。", -1)
                         ]))]),
                         _: 1
@@ -995,7 +1005,7 @@ return (_ctx, _cache) => {
                     ], 64))
                   : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
                       _createElementVNode("div", _hoisted_25, [
-                        _cache[36] || (_cache[36] = _createElementVNode("div", { class: "ar-config__section-title mb-0" }, "提示设置", -1)),
+                        _cache[37] || (_cache[37] = _createElementVNode("div", { class: "ar-config__section-title mb-0" }, "提示设置", -1)),
                         _createVNode(_component_VSpacer),
                         _createVNode(_component_VBtn, {
                           variant: "text",
@@ -1004,7 +1014,7 @@ return (_ctx, _cache) => {
                           size: "small",
                           onClick: restoreAgentPrompt
                         }, {
-                          default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
+                          default: _withCtx(() => [...(_cache[36] || (_cache[36] = [
                             _createTextVNode("恢复默认", -1)
                           ]))]),
                           _: 1
@@ -1026,7 +1036,7 @@ return (_ctx, _cache) => {
                         variant: "tonal",
                         class: "mt-4"
                       }, {
-                        default: _withCtx(() => [...(_cache[37] || (_cache[37] = [
+                        default: _withCtx(() => [...(_cache[38] || (_cache[38] = [
                           _createTextVNode("该提示词用于调整候选排序、画像措辞和文案风格；只读工具边界、JSON 输出协议及十字校验由插件固定保留。", -1)
                         ]))]),
                         _: 1
@@ -1055,7 +1065,7 @@ return (_ctx, _cache) => {
               variant: "text",
               onClick: _cache[21] || (_cache[21] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[38] || (_cache[38] = [
+              default: _withCtx(() => [...(_cache[39] || (_cache[39] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -1066,7 +1076,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-content-save-outline",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[39] || (_cache[39] = [
+              default: _withCtx(() => [...(_cache[40] || (_cache[40] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -1082,6 +1092,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4b7be1c5"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-97707270"]]);
 
 export { Config as default };

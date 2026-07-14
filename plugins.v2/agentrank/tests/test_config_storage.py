@@ -77,6 +77,15 @@ def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_fifty():
     defaults = AgentRankConfig.from_mapping({})
     assert defaults.discovery_page_enabled is True
     assert defaults.candidate_pool_size == 50
+    assert set(defaults.discovery_sources) == {
+        "douban",
+        "tmdb_movies",
+        "tmdb_tv",
+        "bangumi",
+    }
+    assert "extensions" not in normalize_config(
+        {"discovery_sources": {"douban": False, "extensions": True}}
+    )["discovery_sources"]
     assert AgentRankConfig.from_mapping(
         {"discovery_page_enabled": False}
     ).discovery_page_enabled is False

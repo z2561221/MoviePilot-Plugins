@@ -25,6 +25,8 @@ def build_ranking_prompt(
 
 权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。
 
+画像演进规则：read_agentrank_subscriptions 会同时返回当前 subscriptions 与可选 previous_profile。previous_profile 非空时，在旧画像基础上结合当前订阅证据演进，保留仍有证据的稳定偏好，并删除或弱化已失去证据的旧标签；禁止简单做标签并集。previous_profile 为空时按当前订阅重新建立画像。subscription_count 必须反映当前 subscriptions 数量。
+
 可配置排序指令：
 {custom_instruction}
 

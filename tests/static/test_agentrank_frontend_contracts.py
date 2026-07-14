@@ -82,9 +82,10 @@ def test_config_is_the_authoritative_complete_weight_write_surface():
         "tmdb_movies",
         "tmdb_tv",
         "bangumi",
-        "extensions",
     ):
         assert discovery_source in source
+    assert "扩展来源" not in source
+    assert "extensions: true" not in source
     assert "VCronField" in source
     assert "initialConfig" in source
     assert "emit('save'" in source

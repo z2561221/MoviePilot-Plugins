@@ -73,6 +73,7 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
     candidates = [{"candidate_id": "tmdb:2", "title": "Candidate"}]
     archive = {"entries": [{"candidate_id": "tmdb:3"}]}
     weights = {"weights": {"rating_weight": 0.7}, "media_types": ["movie"]}
+    previous_profile = {"summary": "Old", "tags": ["悬疑"]}
     context = build_trusted_context(
         username="alice",
         run_id="run-1",
@@ -80,9 +81,11 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
         candidates=candidates,
         archive_feedback=archive,
         weights=weights,
+        previous_profile=previous_profile,
     )
     subscriptions[0]["title"] = "mutated"
     candidates.append({"candidate_id": "tmdb:999"})
+    previous_profile["summary"] = "mutated"
 
     outputs = {
         tool.name: json.loads(asyncio.run(tool.run())) for tool in _tools_with_context(context)
@@ -91,6 +94,10 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
     assert outputs["read_agentrank_subscriptions"]["username"] == "alice"
     assert outputs["read_agentrank_subscriptions"]["run_id"] == "run-1"
     assert outputs["read_agentrank_subscriptions"]["subscriptions"][0]["title"] == "Subscribed"
+    assert outputs["read_agentrank_subscriptions"]["previous_profile"] == {
+        "summary": "Old",
+        "tags": ["悬疑"],
+    }
     assert len(outputs["read_agentrank_candidates"]["candidates"]) == 1
     assert outputs["read_agentrank_archive_feedback"]["archive_feedback"] == archive
     assert outputs["read_agentrank_weights"]["weights"] == weights

@@ -24,7 +24,6 @@ DISCOVERY_SOURCE_DEFAULTS: Dict[str, bool] = {
     "tmdb_movies": True,
     "tmdb_tv": True,
     "bangumi": True,
-    "extensions": True,
 }
 
 

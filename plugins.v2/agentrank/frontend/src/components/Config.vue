@@ -33,7 +33,6 @@ const defaults = {
     tmdb_movies: true,
     tmdb_tv: true,
     bangumi: true,
-    extensions: true,
   },
   weights: { ...weightDefaults },
   media_types: ['movie', 'tv', 'anime'],
@@ -66,7 +65,7 @@ const runtimeDefaults = ref(structuredClone(defaults))
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
   { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '配置参与用户、默认用户和运行周期。' },
-  { key: 'sources', title: '发现来源', icon: 'mdi-compass-outline', desc: '选择 MoviePilot 内置与扩展发现来源。' },
+  { key: 'sources', title: '发现来源', icon: 'mdi-compass-outline', desc: '选择 MoviePilot 内置发现来源。' },
   { key: 'weights', title: '权重设置', icon: 'mdi-tune-vertical', desc: '设置 Agent 排序时十项偏好权重。' },
   { key: 'filter', title: '条件筛选', icon: 'mdi-filter-outline', desc: '限制媒体类型、候选数量和置信度。' },
   { key: 'board', title: '榜单行为', icon: 'mdi-format-list-numbered', desc: '选择仅更新、通知确认或自动订阅。' },
@@ -91,7 +90,6 @@ const sourceDefs = [
   { key: 'tmdb_movies', title: 'TMDB电影', subtitle: '高热度电影候选', icon: 'mdi-movie-open-star-outline' },
   { key: 'tmdb_tv', title: 'TMDB剧集', subtitle: '高热度剧集候选', icon: 'mdi-television-classic' },
   { key: 'bangumi', title: 'Bangumi', subtitle: '动画与番剧候选', icon: 'mdi-animation-outline' },
-  { key: 'extensions', title: '扩展来源', subtitle: '已安装插件提供的发现源', icon: 'mdi-puzzle-outline' },
 ]
 
 const mediaTypeOptions = [
@@ -123,7 +121,9 @@ function applyConfig(value) {
   const next = cloneConfig(value)
   Object.assign(form, cloneConfig(defaults), next)
   form.weights = { ...weightDefaults, ...(next.weights || {}) }
-  form.discovery_sources = { ...defaults.discovery_sources, ...(next.discovery_sources || {}) }
+  form.discovery_sources = Object.fromEntries(
+    Object.keys(defaults.discovery_sources).map(key => [key, Boolean(next.discovery_sources?.[key] ?? defaults.discovery_sources[key])]),
+  )
   form.users = Array.isArray(next.users) ? [...new Set(next.users.filter(Boolean))] : []
   form.media_types = Array.isArray(next.media_types) ? [...next.media_types] : [...defaults.media_types]
   form.exclude_keywords = Array.isArray(next.exclude_keywords) ? [...next.exclude_keywords] : []
@@ -341,6 +341,7 @@ onMounted(loadRuntime)
                   <VCol cols="12" md="4"><VTextField v-model.number="form.minimum_samples" type="number" min="1" max="100" label="最少样本" density="compact" variant="outlined" hide-details /></VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.history_limit" type="number" min="1" max="200" label="历史上限" density="compact" variant="outlined" hide-details /></VCol>
                 </VRow>
+                <VAlert type="info" variant="tonal" class="mt-4">画像缓存开启且关闭每次重建时，Agent 会参考上一版画像持续演进；每次重建开启或画像缓存关闭时，仅按当前订阅重新建立。</VAlert>
                 <VAlert type="warning" variant="tonal" class="mt-4">画像、榜单和归档清理属于用户级危险操作，请在完整榜单或详情页二次确认后执行。</VAlert>
               </template>
               <template v-else>
