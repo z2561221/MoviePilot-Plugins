@@ -177,6 +177,20 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert history[0].metrics["agent_calls"] == 1
 
 
+def test_run_uses_configured_agent_prompt():
+    """初选调用会收到当前配置中的排序提示词。"""
+    plugin = FakePlugin()
+    orchestrator, _ = _orchestrator(
+        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+    )
+    config = _config()
+    config["agent_prompt"] = "多推荐冷门科幻并保持俏皮文风"
+
+    asyncio.run(orchestrator.run("alice", config))
+
+    assert "多推荐冷门科幻并保持俏皮文风" in orchestrator.agent_adapter.calls[0][0]
+
+
 def test_library_items_are_removed_before_agent_context_is_built():
     """已入库 TMDB 候选不会进入 Agent 可见候选快照。"""
     plugin = FakePlugin()

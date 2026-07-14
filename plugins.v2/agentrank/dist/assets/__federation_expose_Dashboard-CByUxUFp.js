@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState } from './useAgentRankState-DMJYFSWp.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-BKA7AlB8.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-3fbW_EAk.js';
+import { _ as _export_sfc } from './_plugin-vue_export-helper-CgBm1oih.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
 
@@ -17,7 +17,7 @@ const _hoisted_6 = { class: "font-weight-medium text-truncate" };
 const _hoisted_7 = { class: "text-caption text-truncate" };
 const _hoisted_8 = { class: "text-caption text-medium-emphasis text-truncate" };
 
-const {computed,onMounted} = await importShared('vue');
+const {computed,onMounted,ref} = await importShared('vue');
 
 
 const _sfc_main = {
@@ -31,6 +31,7 @@ const _sfc_main = {
 
 const props = __props;
 const state = useAgentRankState(props.api);
+const snackbar = ref({ show: false, message: '', color: 'success' });
 
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5));
 const fullBoardHref = computed(() => {
@@ -71,6 +72,15 @@ async function refreshBoard() {
   try { await state.refresh(); } catch (_) { /* 卡片内显示共享错误 */ }
 }
 
+async function runItemAction(action, successMessage) {
+  try {
+    await action();
+    snackbar.value = { show: true, message: successMessage, color: 'success' };
+  } catch (error) {
+    snackbar.value = { show: true, message: error?.message || '操作失败', color: 'error' };
+  }
+}
+
 function openFullBoard() {
   window.location.hash = fullBoardHref.value.slice(1);
 }
@@ -93,6 +103,7 @@ return (_ctx, _cache) => {
   const _component_VCardText = _resolveComponent("VCardText");
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VCardActions = _resolveComponent("VCardActions");
+  const _component_VSnackbar = _resolveComponent("VSnackbar");
   const _component_VCard = _resolveComponent("VCard");
 
   return (_openBlock(), _createBlock(_component_VCard, {
@@ -126,7 +137,7 @@ return (_ctx, _cache) => {
         ]),
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, { class: "text-subtitle-1 font-weight-bold" }, {
-            default: _withCtx(() => [...(_cache[0] || (_cache[0] = [
+            default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
               _createTextVNode("Agent榜单中心 · Top 5", -1)
             ]))]),
             _: 1
@@ -212,7 +223,13 @@ return (_ctx, _cache) => {
                             _createTextVNode(_toDisplayString(item.confidence) + "%", 1)
                           ]),
                           _: 2
-                        }, 1024)
+                        }, 1024),
+                        _createVNode(RecommendationActions, {
+                          item: item,
+                          "loading-action": _unref(state).loading.action,
+                          onSubscribe: _cache[0] || (_cache[0] = candidateId => runItemAction(() => _unref(state).subscribe(candidateId), '订阅操作已完成')),
+                          onArchive: _cache[1] || (_cache[1] = candidateId => runItemAction(() => _unref(state).archive(candidateId), '已忽略推荐'))
+                        }, null, 8, ["item", "loading-action"])
                       ]))
                     }), 128))
                   ]))
@@ -239,14 +256,25 @@ return (_ctx, _cache) => {
             "prepend-icon": "mdi-open-in-new",
             onClick: openFullBoard
           }, {
-            default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
+            default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
               _createTextVNode("完整榜单", -1)
             ]))]),
             _: 1
           })
         ]),
         _: 1
-      })
+      }),
+      _createVNode(_component_VSnackbar, {
+        modelValue: snackbar.value.show,
+        "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((snackbar.value.show) = $event)),
+        color: snackbar.value.color,
+        timeout: "4000"
+      }, {
+        default: _withCtx(() => [
+          _createTextVNode(_toDisplayString(snackbar.value.message), 1)
+        ]),
+        _: 1
+      }, 8, ["modelValue", "color"])
     ]),
     _: 1
   }))
@@ -254,6 +282,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a70da747"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7ffa7d59"]]);
 
 export { Dashboard as default };

@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BKA7AlB8.js';
+import { g as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-CgBm1oih.js';
 
-const {computed,reactive,ref} = await importShared('vue');
+const {computed: computed$1,reactive,ref} = await importShared('vue');
 
 /**
  * 统一管理 AgentRank 用户选择、只读数据与变更动作。
@@ -18,8 +18,8 @@ function useAgentRankState(api) {
   const error = ref(null);
   const feedback = ref(null);
 
-  const users = computed(() => options.value.users || []);
-  const isRunning = computed(() => board.value?.status === 'running' || loading.action === 'refresh');
+  const users = computed$1(() => options.value.users || []);
+  const isRunning = computed$1(() => board.value?.status === 'running' || loading.action === 'refresh');
 
   async function loadOptions() {
     loading.options = true;
@@ -184,4 +184,121 @@ function useAgentRankState(api) {
   }
 }
 
-export { useAgentRankState as u };
+const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+
+
+const _hoisted_1 = ["aria-label"];
+
+const {computed} = await importShared('vue');
+
+
+
+const _sfc_main = {
+  __name: 'RecommendationActions',
+  props: {
+  item: { type: Object, required: true },
+  loadingAction: { type: String, default: '' },
+  size: { type: String, default: 'x-small' },
+},
+  emits: ['subscribe', 'archive'],
+  setup(__props, { emit: __emit }) {
+
+const props = __props;
+const emit = __emit;
+
+const sourceIds = computed(() => props.item?.source_ids || {});
+const tmdbId = computed(() => sourceIds.value.tmdb || '');
+const doubanId = computed(() => sourceIds.value.douban || '');
+const bangumiId = computed(() => sourceIds.value.bangumi || '');
+const prefersBangumi = computed(() => props.item?.media_type === 'anime' && bangumiId.value);
+const sourceLabel = computed(() => prefersBangumi.value || (!doubanId.value && bangumiId.value) ? 'Bgm' : '豆瓣');
+const sourceId = computed(() => sourceLabel.value === 'Bgm' ? bangumiId.value : doubanId.value);
+const sourceColor = computed(() => sourceLabel.value === 'Bgm' ? '#F838A0' : '#08B810');
+
+function openExternal(url) {
+  if (url) window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function openTmdb() {
+  if (!tmdbId.value) return
+  const mediaPath = props.item?.media_type === 'movie' ? 'movie' : 'tv';
+  openExternal(`https://www.themoviedb.org/${mediaPath}/${encodeURIComponent(tmdbId.value)}`);
+}
+
+function openSource() {
+  if (!sourceId.value) return
+  if (sourceLabel.value === 'Bgm') {
+    openExternal(`https://bgm.tv/subject/${encodeURIComponent(sourceId.value)}`);
+    return
+  }
+  openExternal(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${encodeURIComponent(sourceId.value)}?from=mdouban&open=app`);
+}
+
+return (_ctx, _cache) => {
+  const _component_VBtn = _resolveComponent("VBtn");
+
+  return (_openBlock(), _createElementBlock("div", {
+    class: "ar-actions",
+    role: "group",
+    "aria-label": `${__props.item.title} 操作`
+  }, [
+    _createVNode(_component_VBtn, {
+      size: __props.size,
+      variant: "tonal",
+      color: "primary",
+      class: "ar-actions__button text-none",
+      loading: __props.loadingAction === 'subscribe',
+      onClick: _cache[0] || (_cache[0] = $event => (emit('subscribe', __props.item.candidate_id)))
+    }, {
+      default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
+        _createTextVNode("订阅", -1)
+      ]))]),
+      _: 1
+    }, 8, ["size", "loading"]),
+    _createVNode(_component_VBtn, {
+      size: __props.size,
+      variant: "tonal",
+      color: "info",
+      class: "ar-actions__button text-none",
+      disabled: !tmdbId.value,
+      onClick: openTmdb
+    }, {
+      default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
+        _createTextVNode("TMDB", -1)
+      ]))]),
+      _: 1
+    }, 8, ["size", "disabled"]),
+    _createVNode(_component_VBtn, {
+      size: __props.size,
+      variant: "tonal",
+      color: sourceColor.value,
+      class: "ar-actions__button text-none",
+      disabled: !sourceId.value,
+      onClick: openSource
+    }, {
+      default: _withCtx(() => [
+        _createTextVNode(_toDisplayString(sourceLabel.value), 1)
+      ]),
+      _: 1
+    }, 8, ["size", "color", "disabled"]),
+    _createVNode(_component_VBtn, {
+      size: __props.size,
+      variant: "tonal",
+      color: "default",
+      class: "ar-actions__button text-none",
+      loading: __props.loadingAction === 'archive',
+      onClick: _cache[1] || (_cache[1] = $event => (emit('archive', __props.item.candidate_id)))
+    }, {
+      default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+        _createTextVNode("忽略", -1)
+      ]))]),
+      _: 1
+    }, 8, ["size", "loading"])
+  ], 8, _hoisted_1))
+}
+}
+
+};
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ab00d0e5"]]);
+
+export { RecommendationActions as R, useAgentRankState as u };

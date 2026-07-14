@@ -47,6 +47,21 @@ async function postPluginApi(api, path, payload = {}) {
   }
 }
 
+/**
+ * 通过 MoviePilot 核心配置接口保存并重新加载 AgentRank。
+ */
+async function savePluginConfig(api, payload = {}) {
+  if (!api?.put) throw new Error('MoviePilot 配置 API 未就绪')
+  try {
+    const response = await api.put('plugin/AgentRank', payload);
+    const data = response?.data ?? response;
+    if (data?.success === false) throw new Error(data?.message || '插件配置保存失败')
+    return data
+  } catch (error) {
+    throw normalizeApiError(error, '插件配置保存失败')
+  }
+}
+
 const _export_sfc = (sfc, props) => {
   const target = sfc.__vccOpts || sfc;
   for (const [key, val] of props) {
@@ -55,4 +70,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, getPluginApi as g, postPluginApi as p };
+export { _export_sfc as _, getPluginApi as g, postPluginApi as p, savePluginConfig as s };

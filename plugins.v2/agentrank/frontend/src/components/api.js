@@ -46,3 +46,18 @@ export async function postPluginApi(api, path, payload = {}) {
     throw normalizeApiError(error)
   }
 }
+
+/**
+ * 通过 MoviePilot 核心配置接口保存并重新加载 AgentRank。
+ */
+export async function savePluginConfig(api, payload = {}) {
+  if (!api?.put) throw new Error('MoviePilot 配置 API 未就绪')
+  try {
+    const response = await api.put('plugin/AgentRank', payload)
+    const data = response?.data ?? response
+    if (data?.success === false) throw new Error(data?.message || '插件配置保存失败')
+    return data
+  } catch (error) {
+    throw normalizeApiError(error, '插件配置保存失败')
+  }
+}

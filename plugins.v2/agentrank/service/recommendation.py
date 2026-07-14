@@ -249,7 +249,9 @@ class RecommendationOrchestrator:
 
             validation = None
             for attempt in range(2):
-                prompt = build_ranking_prompt()
+                prompt = build_ranking_prompt(
+                    agent_prompt=str(config.get("agent_prompt") or "")
+                )
                 if attempt:
                     prompt += (
                         "\n\n上一次输出未通过严格校验。请重新读取受限工具数据，"
@@ -334,6 +336,7 @@ class RecommendationOrchestrator:
                             build_refill_prompt(
                                 [item.candidate_id for item in accepted],
                                 10 - len(accepted),
+                                agent_prompt=str(config.get("agent_prompt") or ""),
                             ),
                             trusted_context,
                         )

@@ -25,6 +25,7 @@ repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository"
 AgentRankConfig = config_module.AgentRankConfig
 ConfigValidationError = config_module.ConfigValidationError
 WEIGHT_DEFAULTS = config_module.WEIGHT_DEFAULTS
+DEFAULT_AGENT_PROMPT = config_module.DEFAULT_AGENT_PROMPT
 normalize_config = config_module.normalize_config
 UserProfile = profile_module.UserProfile
 RecommendationBoard = board_module.RecommendationBoard
@@ -105,6 +106,19 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
     corrupted = normalize_config("broken")
     assert corrupted["weights"] == WEIGHT_DEFAULTS
     assert corrupted["_validation_errors"] == ["config must be a mapping"]
+
+
+def test_agent_prompt_is_editable_but_non_empty_and_bounded():
+    """自定义排序提示词会持久化，空值或超长值则安全回退。"""
+    custom = "多推荐冷门科幻，文案俏皮但不要剧透。"
+    assert AgentRankConfig.from_mapping({"agent_prompt": custom}).agent_prompt == custom
+
+    empty = normalize_config({"agent_prompt": "  "})
+    oversized = normalize_config({"agent_prompt": "字" * 4001})
+    assert empty["agent_prompt"] == DEFAULT_AGENT_PROMPT
+    assert oversized["agent_prompt"] == DEFAULT_AGENT_PROMPT
+    assert any("agent_prompt" in error for error in empty["_validation_errors"])
+    assert any("agent_prompt" in error for error in oversized["_validation_errors"])
 
 
 def test_repository_isolates_users_and_candidate_runs():

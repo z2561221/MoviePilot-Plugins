@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
+import RecommendationActions from './RecommendationActions.vue'
 
 const props = defineProps({ api: { type: [Object, Function], default: null } })
 const emit = defineEmits(['action', 'switch', 'close'])
@@ -141,8 +142,13 @@ onMounted(initialize)
               </div>
               <VChip size="x-small" color="primary" variant="tonal">{{ item.confidence }}%</VChip>
               <div class="ar-page__rank-actions">
-                <VBtn icon="mdi-plus-circle-outline" color="primary" variant="tonal" size="small" min-width="40" height="40" :aria-label="`订阅 ${item.title}`" @click="runAction(() => state.subscribe(item.candidate_id), '订阅操作已完成')" />
-                <VBtn icon="mdi-eye-off-outline" variant="text" size="small" min-width="40" height="40" :aria-label="`忽略 ${item.title}`" @click="runAction(() => state.archive(item.candidate_id), '已忽略推荐')" />
+                <RecommendationActions
+                  :item="item"
+                  :loading-action="state.loading.action"
+                  size="small"
+                  @subscribe="candidateId => runAction(() => state.subscribe(candidateId), '订阅操作已完成')"
+                  @archive="candidateId => runAction(() => state.archive(candidateId), '已忽略推荐')"
+                />
               </div>
             </article>
           </div>
@@ -237,7 +243,7 @@ onMounted(initialize)
 .ar-page__poster-error { width: 100%; height: 100%; display: grid; place-items: center; }
 .ar-page__rank { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .14); font-weight: 700; }
 .ar-page__rank-main { min-width: 0; }
-.ar-page__rank-actions { display: flex; gap: 4px; }
+.ar-page__rank-actions { display: flex; overflow-x: auto; padding-bottom: 2px; }
 .ar-page__section-card, .ar-page__archive-card { border-radius: 8px; }
 .ar-page__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .ar-page__weights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }

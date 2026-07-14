@@ -63,6 +63,7 @@ const config = {
   history_limit: 50,
   profile_cache_enabled: true,
   rebuild_profile_each_run: false,
+  agent_prompt: '请综合用户订阅画像、榜单权重与候选特征排序，优先推荐真正贴合用户口味、同时兼顾质量、新鲜感与题材多样性的作品。推荐理由和作品简介要轻松诙谐、机灵自然，避免套话、低俗表达与剧透。',
 }
 
 const recommendations = Array.from({ length: 10 }, (_, index) => ({
@@ -74,7 +75,12 @@ const recommendations = Array.from({ length: 10 }, (_, index) => ({
   year: 2026 - (index % 6),
   media_type: ['movie', 'tv', 'anime'][index % 3],
   sources: index % 2 ? [] : ['douban', 'tmdb'],
+  source_ids: {
+    tmdb: String(1000 + index),
+    ...(index % 3 === 2 ? { bangumi: String(2000 + index) } : { douban: String(3000 + index) }),
+  },
   poster_path: '',
+  reason: '脑洞与口碑齐飞起啦',
   summary: '精准贴合画像偏好',
   match_tags: index % 3 ? ['科幻', '悬疑', '成长'] : [],
   confidence: 96 - index * 3,
@@ -126,6 +132,7 @@ const api = {
     if (path.endsWith('refresh')) status.value = 'success'
     return { data: { success: true, data: { changed: true, message: '预览操作已完成' } } }
   },
+  async put() { return { data: { success: true } } },
 }
 
 const activeComponent = computed(() => ({ app: AppPage, page: Page, config: Config, dashboard: Dashboard }[view.value]))

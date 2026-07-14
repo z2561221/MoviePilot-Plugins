@@ -1,14 +1,15 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
+import Config from './Config.vue'
+import RecommendationActions from './RecommendationActions.vue'
+import { savePluginConfig } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
   navKey: { type: String, default: 'main' },
   pluginId: { type: String, default: 'AgentRank' },
 })
-const emit = defineEmits(['action', 'switch'])
-
 const state = useAgentRankState(props.api)
 const {
   options,
@@ -24,6 +25,8 @@ const {
 } = state
 
 const clearDialog = ref(false)
+const settingsDialog = ref(false)
+const savingSettings = ref(false)
 const snackbar = ref({ show: false, message: '', color: 'success', undo: false })
 const lastArchivedId = ref('')
 const initialized = ref(false)
@@ -161,6 +164,24 @@ async function confirmClearProfile() {
   }
 }
 
+function openSettings() {
+  settingsDialog.value = true
+}
+
+async function saveSettings(payload) {
+  savingSettings.value = true
+  try {
+    await savePluginConfig(props.api, payload)
+    await state.loadOptions()
+    settingsDialog.value = false
+    snackbar.value = { show: true, message: '插件设置已保存', color: 'success', undo: false }
+  } catch (err) {
+    snackbar.value = { show: true, message: err?.message || '设置保存失败', color: 'error', undo: false }
+  } finally {
+    savingSettings.value = false
+  }
+}
+
 watch(selectedUser, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
   try { await state.loadUserData(value) } catch (_) { /* 可见错误由共享状态承载 */ }
@@ -187,7 +208,7 @@ onMounted(initialize)
         <VSelect v-if="users.length > 1" v-model="selectedUser" :items="users" label="用户" density="compact" variant="outlined" hide-details class="ar-app-page__user" aria-label="切换推荐用户" />
         <VBtn icon="mdi-refresh" variant="text" :loading="loading.action === 'refresh' || loading.data" :disabled="isRunning || !selectedUser" aria-label="刷新榜单" @click="refreshBoard" />
         <VBtn icon="mdi-account-remove-outline" variant="text" color="error" :disabled="!profile?.run_id" aria-label="清除画像" @click="clearDialog = true" />
-        <VBtn icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="emit('switch')" />
+        <VBtn icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="openSettings" />
       </VToolbar>
       <VDivider />
 
@@ -196,7 +217,7 @@ onMounted(initialize)
       </div>
       <div v-else-if="!users.length" class="ar-app-page__state">
         <VEmptyState icon="mdi-account-alert-outline" title="尚未配置参与用户" text="请先打开设置，选择参与推荐用户和默认用户。">
-          <template #actions><VBtn color="primary" variant="tonal" prepend-icon="mdi-cog-outline" @click="emit('switch')">打开设置</VBtn></template>
+          <template #actions><VBtn color="primary" variant="tonal" prepend-icon="mdi-cog-outline" @click="openSettings">打开设置</VBtn></template>
         </VEmptyState>
       </div>
       <div v-else class="ar-app-page__content">
@@ -237,8 +258,7 @@ onMounted(initialize)
                   </div>
                 </div>
                 <div class="ar-app-page__item-actions">
-                  <VTooltip text="订阅推荐"><template #activator="{ props: tipProps }"><VBtn v-bind="tipProps" icon="mdi-plus-circle-outline" color="primary" variant="tonal" size="small" min-width="40" height="40" :loading="loading.action === 'subscribe'" :aria-label="`订阅 ${item.title}`" @click="subscribeItem(item.candidate_id)" /></template></VTooltip>
-                  <VTooltip text="忽略推荐"><template #activator="{ props: tipProps }"><VBtn v-bind="tipProps" icon="mdi-eye-off-outline" variant="text" size="small" min-width="40" height="40" :loading="loading.action === 'archive'" :aria-label="`忽略 ${item.title}`" @click="archiveItem(item.candidate_id)" /></template></VTooltip>
+                  <RecommendationActions :item="item" :loading-action="loading.action" size="small" @subscribe="subscribeItem" @archive="archiveItem" />
                 </div>
               </article>
             </div>
@@ -258,7 +278,7 @@ onMounted(initialize)
                 <VExpansionPanelTitle><VIcon icon="mdi-tune-vertical" color="primary" class="mr-2" />权重摘要</VExpansionPanelTitle>
                 <VExpansionPanelText>
                   <div v-for="(value, key) in weights" :key="key" class="ar-app-page__weight-row"><span>{{ weightLabel(key) }}</span><VProgressLinear :model-value="Number(value) * 100" color="primary" height="6" rounded /><strong>{{ formatWeight(value) }}</strong></div>
-                  <VBtn block variant="text" color="primary" prepend-icon="mdi-cog-outline" class="mt-2" @click="emit('switch')">进入设置</VBtn>
+                  <VBtn block variant="text" color="primary" prepend-icon="mdi-cog-outline" class="mt-2" @click="openSettings">进入设置</VBtn>
                 </VExpansionPanelText>
               </VExpansionPanel>
               <VExpansionPanel>
@@ -287,6 +307,10 @@ onMounted(initialize)
         <VCardText>将级联删除当前用户画像与推荐榜单，但不会删除 MoviePilot 原始订阅、已创建订阅任务、归档历史或插件全局配置。</VCardText>
         <VCardActions><VSpacer /><VBtn variant="text" @click="clearDialog = false">取消</VBtn><VBtn color="error" variant="flat" :loading="loading.action === 'profile/clear'" @click="confirmClearProfile">清除画像</VBtn></VCardActions>
       </VCard>
+    </VDialog>
+
+    <VDialog v-model="settingsDialog" max-width="1160" :persistent="savingSettings">
+      <Config :api="api" :initial-config="options.config || {}" @save="saveSettings" @close="settingsDialog = false" />
     </VDialog>
 
     <VSnackbar v-model="snackbar.show" :color="snackbar.color" timeout="5000">
@@ -321,7 +345,7 @@ onMounted(initialize)
 .ar-app-page__meta { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ar-app-page__summary { margin-top: 10px; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ar-app-page__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.ar-app-page__item-actions { display: flex; flex-direction: column; gap: 6px; }
+.ar-app-page__item-actions { display: flex; align-items: center; overflow-x: auto; padding-bottom: 2px; }
 .ar-app-page__aside { position: sticky; top: 80px; }
 .ar-app-page__weight-row { display: grid; grid-template-columns: 76px minmax(0, 1fr) 42px; gap: 8px; align-items: center; margin-bottom: 9px; font-size: 12px; }
 .ar-app-page__archive-row, .ar-app-page__history-row { min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .6)); font-size: 12px; }

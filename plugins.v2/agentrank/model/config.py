@@ -3,6 +3,8 @@
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping, Tuple
 
+from ..service.prompt import DEFAULT_AGENT_PROMPT
+
 
 WEIGHT_DEFAULTS: Dict[str, float] = {
     "type_weight": 0.8,
@@ -63,6 +65,7 @@ class AgentRankConfig:
     history_limit: int = 50
     profile_cache_enabled: bool = True
     rebuild_profile_each_run: bool = False
+    agent_prompt: str = DEFAULT_AGENT_PROMPT
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] = None) -> "AgentRankConfig":
@@ -125,6 +128,24 @@ def _bounded_integer(
         return default
     if not minimum <= value <= maximum:
         errors.append(f"{field_name} must be between {minimum} and {maximum}")
+        return default
+    return value
+
+
+def _bounded_text(
+    raw: Any,
+    default: str,
+    maximum: int,
+    field_name: str,
+    errors: List[str],
+) -> str:
+    """读取非空限长文本；无效时记录错误并回退默认值。"""
+    value = str(raw or "").strip()
+    if not value:
+        errors.append(f"{field_name} must not be empty")
+        return default
+    if len(value) > maximum:
+        errors.append(f"{field_name} must not exceed {maximum} characters")
         return default
     return value
 
@@ -226,6 +247,13 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         ),
         profile_cache_enabled=bool(raw.get("profile_cache_enabled", True)),
         rebuild_profile_each_run=bool(raw.get("rebuild_profile_each_run", False)),
+        agent_prompt=_bounded_text(
+            raw.get("agent_prompt", DEFAULT_AGENT_PROMPT),
+            DEFAULT_AGENT_PROMPT,
+            4000,
+            "agent_prompt",
+            errors,
+        ),
     )
     if not config.cron:
         errors.append("cron must not be empty")

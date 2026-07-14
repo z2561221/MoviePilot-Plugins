@@ -154,7 +154,8 @@ def test_notification_confirmation_sends_summary_without_subscription_dependency
     assert plugin.messages[0]["parse_mode"] == "MarkdownV2"
     assert plugin.messages[0]["disable_web_page_preview"] is True
     assert plugin.messages[0]["text"].startswith("本轮 Agent 推荐已生成，共 1 条：\n\n```")
-    assert "01 │ One\n   │ 悬疑迷局牵出旧日真相" in plugin.messages[0]["text"]
+    assert "01 │ One\n   │ 推荐：悬疑迷局牵出旧日真相" in plugin.messages[0]["text"]
+    assert "   │ 简介：悬疑迷局牵出旧日真相" in plugin.messages[0]["text"]
     assert "请前往 **Agent榜单中心** 手动订阅" in plugin.messages[0]["text"]
     assert "One" in plugin.messages[0]["text"]
 
@@ -181,7 +182,8 @@ def test_notification_confirmation_compacts_long_or_multiline_fields():
     text = plugin.messages[0]["text"]
     assert text.count("```") == 2
     assert "10 │ A_B [Test] (2025)!" in text
-    assert "   │ 第一行 第二行 间隔" in text
+    assert "   │ 推荐：第一行 第二行 间隔" in text
+    assert "   │ 简介：第一行 第二行 间隔" in text
     assert "…" in text
 
 

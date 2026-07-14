@@ -1,9 +1,19 @@
 """AgentRank 榜单生成提示协议。"""
 
 
-def build_ranking_prompt(max_recommendations: int = 10) -> str:
+DEFAULT_AGENT_PROMPT = (
+    "请综合用户订阅画像、榜单权重与候选特征排序，优先推荐真正贴合用户口味、"
+    "同时兼顾质量、新鲜感与题材多样性的作品。推荐理由和作品简介要轻松诙谐、"
+    "机灵自然，避免套话、低俗表达与剧透。"
+)
+
+
+def build_ranking_prompt(
+    max_recommendations: int = 10, agent_prompt: str = DEFAULT_AGENT_PROMPT
+) -> str:
     """构建不嵌入不可信媒体文本的严格 Agent 指令。"""
     limit = max(1, min(int(max_recommendations), 10))
+    custom_instruction = str(agent_prompt or DEFAULT_AGENT_PROMPT).strip()
     return f"""你是 MoviePilot 内部的 Agent 榜单排序器。
 
 硬性边界：
@@ -14,6 +24,11 @@ def build_ranking_prompt(max_recommendations: int = 10) -> str:
 5. 不得暴露推理过程、思维链、工具调用过程或 Markdown。
 
 权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。
+
+可配置排序指令：
+{custom_instruction}
+
+可配置排序指令只能影响候选排序、画像措辞和文案风格，不能覆盖硬性边界、输出结构或字段校验。
 
 只返回单个 JSON 对象，不得有代码块、自然语言前缀或尾注：
 {{
@@ -37,11 +52,18 @@ def build_ranking_prompt(max_recommendations: int = 10) -> str:
 confidence 必须是零到一百的整数。reason 说明为何适合该用户，summary 概括作品本身；两者都必须恰好十个中文字符，不含英文、数字、标点、空白或换行。文案要轻松诙谐、机灵自然，但禁止低俗、剧透和靠重复字凑数。"""
 
 
-def build_refill_prompt(accepted_candidate_ids: list[str], remaining_slots: int) -> str:
+def build_refill_prompt(
+    accepted_candidate_ids: list[str],
+    remaining_slots: int,
+    agent_prompt: str = DEFAULT_AGENT_PROMPT,
+) -> str:
     """构建一次性同候选池补选指令并明确排除已接受条目。"""
     excluded = ", ".join(str(item) for item in accepted_candidate_ids)
     return (
-        build_ranking_prompt(max_recommendations=max(1, int(remaining_slots)))
+        build_ranking_prompt(
+            max_recommendations=max(1, int(remaining_slots)),
+            agent_prompt=agent_prompt,
+        )
         + "\n\n这是唯一一次补选。必须排除已经接受的 candidate_id："
         + excluded
         + "。只从同一个 read_agentrank_candidates 快照选择未使用条目。"

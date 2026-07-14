@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState } from './useAgentRankState-DMJYFSWp.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-BKA7AlB8.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-3fbW_EAk.js';
+import { _ as _export_sfc } from './_plugin-vue_export-helper-CgBm1oih.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -175,7 +175,7 @@ return (_ctx, _cache) => {
           color: "primary",
           class: "ar-page__brand-icon ms-3 me-2"
         }),
-        _cache[12] || (_cache[12] = _createElementVNode("div", { class: "ar-page__heading" }, [
+        _cache[14] || (_cache[14] = _createElementVNode("div", { class: "ar-page__heading" }, [
           _createElementVNode("div", { class: "text-h6" }, "Agent榜单中心详情"),
           _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "推荐、画像、归档与运行记录")
         ], -1)),
@@ -323,25 +323,13 @@ return (_ctx, _cache) => {
                           _: 2
                         }, 1024),
                         _createElementVNode("div", _hoisted_13, [
-                          _createVNode(_component_VBtn, {
-                            icon: "mdi-plus-circle-outline",
-                            color: "primary",
-                            variant: "tonal",
+                          _createVNode(RecommendationActions, {
+                            item: item,
+                            "loading-action": _unref(state).loading.action,
                             size: "small",
-                            "min-width": "40",
-                            height: "40",
-                            "aria-label": `订阅 ${item.title}`,
-                            onClick: $event => (runAction(() => _unref(state).subscribe(item.candidate_id), '订阅操作已完成'))
-                          }, null, 8, ["aria-label", "onClick"]),
-                          _createVNode(_component_VBtn, {
-                            icon: "mdi-eye-off-outline",
-                            variant: "text",
-                            size: "small",
-                            "min-width": "40",
-                            height: "40",
-                            "aria-label": `忽略 ${item.title}`,
-                            onClick: $event => (runAction(() => _unref(state).archive(item.candidate_id), '已忽略推荐'))
-                          }, null, 8, ["aria-label", "onClick"])
+                            onSubscribe: _cache[5] || (_cache[5] = candidateId => runAction(() => _unref(state).subscribe(candidateId), '订阅操作已完成')),
+                            onArchive: _cache[6] || (_cache[6] = candidateId => runAction(() => _unref(state).archive(candidateId), '已忽略推荐'))
+                          }, null, 8, ["item", "loading-action"])
                         ])
                       ]))
                     }), 128))
@@ -361,9 +349,9 @@ return (_ctx, _cache) => {
                         color: "error",
                         variant: "text",
                         "prepend-icon": "mdi-account-remove-outline",
-                        onClick: _cache[5] || (_cache[5] = $event => (clearDialog.value = true))
+                        onClick: _cache[7] || (_cache[7] = $event => (clearDialog.value = true))
                       }, {
-                        default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
+                        default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
                           _createTextVNode("清除画像", -1)
                         ]))]),
                         _: 1
@@ -371,7 +359,7 @@ return (_ctx, _cache) => {
                     ]),
                     default: _withCtx(() => [
                       _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                        default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+                        default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
                           _createTextVNode("画像摘要", -1)
                         ]))]),
                         _: 1
@@ -419,7 +407,7 @@ return (_ctx, _cache) => {
                 variant: "tonal",
                 class: "mb-3"
               }, {
-                default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
+                default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
                   _createTextVNode("权重配置在此只读展示，请进入 Config 修改。", -1)
                 ]))]),
                 _: 1
@@ -446,9 +434,9 @@ return (_ctx, _cache) => {
                 variant: "tonal",
                 "prepend-icon": "mdi-cog-outline",
                 class: "mt-4",
-                onClick: _cache[6] || (_cache[6] = $event => (emit('switch')))
+                onClick: _cache[8] || (_cache[8] = $event => (emit('switch')))
               }, {
-                default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
+                default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
                   _createTextVNode("进入设置", -1)
                 ]))]),
                 _: 1
@@ -481,7 +469,7 @@ return (_ctx, _cache) => {
                                 class: "mr-1",
                                 onClick: $event => (runAction(() => _unref(state).restore(entry.candidate_id), '推荐已恢复'))
                               }, {
-                                default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
+                                default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
                                   _createTextVNode("恢复", -1)
                                 ]))]),
                                 _: 1
@@ -527,7 +515,7 @@ return (_ctx, _cache) => {
                   height: "420"
                 }, {
                   default: _withCtx(() => [
-                    _cache[18] || (_cache[18] = _createElementVNode("thead", null, [
+                    _cache[20] || (_cache[20] = _createElementVNode("thead", null, [
                       _createElementVNode("tr", null, [
                         _createElementVNode("th", null, "时间"),
                         _createElementVNode("th", null, "状态"),
@@ -571,7 +559,7 @@ return (_ctx, _cache) => {
               _createVNode(_component_VPagination, {
                 modelValue: historyPage.value,
                 "onUpdate:modelValue": [
-                  _cache[7] || (_cache[7] = $event => ((historyPage).value = $event)),
+                  _cache[9] || (_cache[9] = $event => ((historyPage).value = $event)),
                   changeHistoryPage
                 ],
                 length: historyPages.value,
@@ -587,20 +575,20 @@ return (_ctx, _cache) => {
     ]),
     _createVNode(_component_VDialog, {
       modelValue: clearDialog.value,
-      "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((clearDialog).value = $event)),
+      "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((clearDialog).value = $event)),
       "max-width": "480"
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VCard, null, {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, null, {
-              default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+              default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
                 _createTextVNode("清除当前画像？", -1)
               ]))]),
               _: 1
             }),
             _createVNode(_component_VCardText, null, {
-              default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+              default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
                 _createTextVNode("会级联删除当前画像和榜单，但不会删除 MoviePilot 订阅、订阅任务、归档或全局配置。", -1)
               ]))]),
               _: 1
@@ -610,9 +598,9 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VSpacer),
                 _createVNode(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[8] || (_cache[8] = $event => (clearDialog.value = false))
+                  onClick: _cache[10] || (_cache[10] = $event => (clearDialog.value = false))
                 }, {
-                  default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+                  default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -620,9 +608,9 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VBtn, {
                   color: "error",
                   variant: "flat",
-                  onClick: _cache[9] || (_cache[9] = $event => {runAction(async () => { await _unref(state).clearProfile(); clearDialog.value = false; }, '画像与榜单已清除');})
+                  onClick: _cache[11] || (_cache[11] = $event => {runAction(async () => { await _unref(state).clearProfile(); clearDialog.value = false; }, '画像与榜单已清除');})
                 }, {
-                  default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
+                  default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
                     _createTextVNode("清除画像", -1)
                   ]))]),
                   _: 1
@@ -638,7 +626,7 @@ return (_ctx, _cache) => {
     }, 8, ["modelValue"]),
     _createVNode(_component_VSnackbar, {
       modelValue: snackbar.value.show,
-      "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((snackbar.value.show) = $event)),
+      "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((snackbar.value.show) = $event)),
       color: snackbar.value.color
     }, {
       default: _withCtx(() => [
@@ -651,6 +639,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5fa5833a"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-40627e51"]]);
 
 export { Page as default };

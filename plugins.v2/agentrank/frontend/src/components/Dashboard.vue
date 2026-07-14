@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
+import RecommendationActions from './RecommendationActions.vue'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -8,6 +9,7 @@ const props = defineProps({
   allowRefresh: { type: Boolean, default: true },
 })
 const state = useAgentRankState(props.api)
+const snackbar = ref({ show: false, message: '', color: 'success' })
 
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5))
 const fullBoardHref = computed(() => {
@@ -48,6 +50,15 @@ async function refreshBoard() {
   try { await state.refresh() } catch (_) { /* 卡片内显示共享错误 */ }
 }
 
+async function runItemAction(action, successMessage) {
+  try {
+    await action()
+    snackbar.value = { show: true, message: successMessage, color: 'success' }
+  } catch (error) {
+    snackbar.value = { show: true, message: error?.message || '操作失败', color: 'error' }
+  }
+}
+
 function openFullBoard() {
   window.location.hash = fullBoardHref.value.slice(1)
 }
@@ -85,6 +96,12 @@ onMounted(initialize)
             <div class="text-caption text-medium-emphasis text-truncate">简介：{{ item.summary }}</div>
           </div>
           <VChip size="x-small" color="primary" variant="tonal">{{ item.confidence }}%</VChip>
+          <RecommendationActions
+            :item="item"
+            :loading-action="state.loading.action"
+            @subscribe="candidateId => runItemAction(() => state.subscribe(candidateId), '订阅操作已完成')"
+            @archive="candidateId => runItemAction(() => state.archive(candidateId), '已忽略推荐')"
+          />
         </div>
       </div>
     </VCardText>
@@ -94,6 +111,7 @@ onMounted(initialize)
       <VSpacer />
       <VBtn variant="text" color="primary" prepend-icon="mdi-open-in-new" @click="openFullBoard">完整榜单</VBtn>
     </VCardActions>
+    <VSnackbar v-model="snackbar.show" :color="snackbar.color" timeout="4000">{{ snackbar.message }}</VSnackbar>
   </VCard>
 </template>
 
@@ -102,7 +120,7 @@ onMounted(initialize)
 .ar-dashboard :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-dashboard__content { min-height: 260px; }
 .ar-dashboard__list { display: flex; flex-direction: column; gap: 7px; }
-.ar-dashboard__item { min-height: 76px; display: grid; grid-template-columns: 28px 44px minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 6px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px; }
+.ar-dashboard__item { min-height: 76px; display: grid; grid-template-columns: 28px 44px minmax(0, 1fr) auto auto; gap: 9px; align-items: center; padding: 6px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px; overflow-x: auto; }
 .ar-dashboard__rank { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .12); font-size: 12px; font-weight: 700; }
 .ar-dashboard__poster { width: 44px; height: 64px; display: grid; place-items: center; overflow: hidden; border-radius: 4px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
 .ar-dashboard__poster :deep(.v-img) { width: 100%; height: 100%; }

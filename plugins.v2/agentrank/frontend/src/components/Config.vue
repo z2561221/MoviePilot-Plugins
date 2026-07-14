@@ -50,14 +50,17 @@ const defaults = {
   history_limit: 50,
   profile_cache_enabled: true,
   rebuild_profile_each_run: false,
+  agent_prompt: '请综合用户订阅画像、榜单权重与候选特征排序，优先推荐真正贴合用户口味、同时兼顾质量、新鲜感与题材多样性的作品。推荐理由和作品简介要轻松诙谐、机灵自然，避免套话、低俗表达与剧透。',
 }
 
 const form = reactive(structuredClone(defaults))
 const activeMain = ref('overview')
+const activeAdvanced = ref('runtime')
 const loading = ref(false)
 const status = ref({ state: 'stopped', validation_errors: [] })
 const availableUsers = ref([])
 const loadError = ref('')
+const runtimeDefaults = ref(structuredClone(defaults))
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
@@ -100,6 +103,10 @@ const actionOptions = [
   { title: '通知确认', value: 'notify' },
   { title: '自动订阅前 N', value: 'auto_subscribe' },
 ]
+const advancedTabs = [
+  { key: 'runtime', title: '运行设置', icon: 'mdi-cog-outline' },
+  { key: 'prompt', title: '提示设置', icon: 'mdi-text-box-edit-outline' },
+]
 
 const currentMain = computed(() => mainTabs.find(item => item.key === activeMain.value) || mainTabs[0])
 const userOptions = computed(() => {
@@ -140,6 +147,7 @@ async function loadRuntime() {
     ])
     status.value = statusData || status.value
     availableUsers.value = optionsData?.available_users || optionsData?.users || []
+    runtimeDefaults.value = { ...structuredClone(defaults), ...(optionsData?.defaults || {}) }
   } catch (error) {
     loadError.value = error?.message || '运行信息加载失败'
   } finally {
@@ -151,6 +159,10 @@ function saveConfig() {
   const payload = cloneConfig(form)
   delete payload._validation_errors
   emit('save', payload)
+}
+
+function restoreAgentPrompt() {
+  form.agent_prompt = runtimeDefaults.value.agent_prompt || defaults.agent_prompt
 }
 
 onMounted(loadRuntime)
@@ -193,8 +205,18 @@ onMounted(loadRuntime)
 
         <section class="ar-config__content">
           <div class="ar-config__subtabs">
-            <button class="ar-config__subtab ar-config__subtab--active" type="button">
+            <button v-if="activeMain !== 'advanced'" class="ar-config__subtab ar-config__subtab--active" type="button">
               <VIcon :icon="currentMain.icon" size="18" class="mr-1" />{{ currentMain.title }}
+            </button>
+            <button
+              v-for="item in activeMain === 'advanced' ? advancedTabs : []"
+              :key="item.key"
+              class="ar-config__subtab"
+              :class="{ 'ar-config__subtab--active': activeAdvanced === item.key }"
+              type="button"
+              @click="activeAdvanced = item.key"
+            >
+              <VIcon :icon="item.icon" size="18" class="mr-1" />{{ item.title }}
             </button>
           </div>
           <VDivider />
@@ -308,15 +330,35 @@ onMounted(loadRuntime)
             </div>
 
             <div v-show="activeMain === 'advanced'" class="ar-config__pane">
-              <div class="ar-config__section-title">高级选项</div>
-              <VRow>
-                <VCol cols="12" md="6"><VSwitch v-model="form.profile_cache_enabled" color="success" label="画像缓存" hide-details inset /></VCol>
-                <VCol cols="12" md="6"><VSwitch v-model="form.rebuild_profile_each_run" color="warning" label="每次重建" hide-details inset /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.subscription_sample_limit" type="number" min="1" max="1000" label="订阅样本上限" density="compact" variant="outlined" hide-details /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.minimum_samples" type="number" min="1" max="100" label="最少样本" density="compact" variant="outlined" hide-details /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.history_limit" type="number" min="1" max="200" label="历史上限" density="compact" variant="outlined" hide-details /></VCol>
-              </VRow>
-              <VAlert type="warning" variant="tonal" class="mt-4">画像、榜单和归档清理属于用户级危险操作，请在完整榜单或详情页二次确认后执行。</VAlert>
+              <template v-if="activeAdvanced === 'runtime'">
+                <div class="ar-config__section-title">运行设置</div>
+                <VRow>
+                  <VCol cols="12" md="6"><VSwitch v-model="form.profile_cache_enabled" color="success" label="画像缓存" hide-details inset /></VCol>
+                  <VCol cols="12" md="6"><VSwitch v-model="form.rebuild_profile_each_run" color="warning" label="每次重建" hide-details inset /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model.number="form.subscription_sample_limit" type="number" min="1" max="1000" label="订阅样本上限" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model.number="form.minimum_samples" type="number" min="1" max="100" label="最少样本" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model.number="form.history_limit" type="number" min="1" max="200" label="历史上限" density="compact" variant="outlined" hide-details /></VCol>
+                </VRow>
+                <VAlert type="warning" variant="tonal" class="mt-4">画像、榜单和归档清理属于用户级危险操作，请在完整榜单或详情页二次确认后执行。</VAlert>
+              </template>
+              <template v-else>
+                <div class="d-flex align-center mb-3">
+                  <div class="ar-config__section-title mb-0">提示设置</div>
+                  <VSpacer />
+                  <VBtn variant="text" color="primary" prepend-icon="mdi-restore" size="small" @click="restoreAgentPrompt">恢复默认</VBtn>
+                </div>
+                <VTextarea
+                  v-model="form.agent_prompt"
+                  label="Agent排序提示词"
+                  variant="outlined"
+                  rows="12"
+                  counter="4000"
+                  maxlength="4000"
+                  auto-grow
+                  hide-details="auto"
+                />
+                <VAlert type="info" variant="tonal" class="mt-4">该提示词用于调整候选排序、画像措辞和文案风格；只读工具边界、JSON 输出协议及十字校验由插件固定保留。</VAlert>
+              </template>
             </div>
           </div>
         </section>
@@ -344,7 +386,8 @@ onMounted(loadRuntime)
 .ar-config__nav-item { margin: 2px 8px; }
 .ar-config__content { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .ar-config__subtabs { flex: 0 0 auto; display: flex; padding: 8px 12px; }
-.ar-config__subtab { display: inline-flex; align-items: center; padding: 6px 14px; border: 0; border-radius: 8px; background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.ar-config__subtab { display: inline-flex; align-items: center; padding: 6px 14px; border: 0; border-radius: 8px; background: transparent; color: rgba(var(--v-theme-on-surface), .68); font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.ar-config__subtab--active { background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); }
 .ar-config__window { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .ar-config__window--overview { overflow-y: hidden; }
 .ar-config__pane { min-height: 100%; padding: 18px 20px; }
