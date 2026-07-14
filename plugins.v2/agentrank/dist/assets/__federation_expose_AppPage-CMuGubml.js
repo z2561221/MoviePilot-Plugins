@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-3fbW_EAk.js';
-import Config from './__federation_expose_Config-DUTqSWYt.js';
+import Config from './__federation_expose_Config-BeFlbTeZ.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-CgBm1oih.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,unref:_unref,isRef:_isRef,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass,createSlots:_createSlots} = await importShared('vue');
@@ -809,6 +809,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7c0e025b"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d3a31d43"]]);
 
 export { AppPage as default };

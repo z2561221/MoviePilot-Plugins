@@ -103,3 +103,9 @@ def test_agent_tools_take_username_and_run_id_only_from_trusted_context():
     assert "save_data" not in tools_source
     assert "SubscribeChain" not in tools_source
     assert "post_message" not in tools_source
+
+
+def test_sidebar_entry_respects_discovery_page_switch():
+    """侧栏发现入口必须同时受插件状态和独立开关控制。"""
+    source = _source("__init__.py")
+    assert 'self._config.get("discovery_page_enabled", True)' in source

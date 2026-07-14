@@ -42,6 +42,7 @@ class AgentRankConfig:
     """Agent榜单中心规范化配置。"""
 
     enabled: bool = False
+    discovery_page_enabled: bool = True
     schedule_enabled: bool = False
     cron: str = "0 8 * * *"
     users: List[str] = field(default_factory=list)
@@ -55,7 +56,7 @@ class AgentRankConfig:
     recent_days: int = 365
     subscription_sample_limit: int = 200
     minimum_samples: int = 5
-    candidate_pool_size: int = 100
+    candidate_pool_size: int = 50
     confidence_threshold: float = 0.6
     exclude_keywords: List[str] = field(default_factory=list)
     action_mode: str = "notify"
@@ -199,6 +200,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
 
     config = AgentRankConfig(
         enabled=bool(raw.get("enabled", False)),
+        discovery_page_enabled=bool(raw.get("discovery_page_enabled", True)),
         schedule_enabled=bool(raw.get("schedule_enabled", False)),
         cron=str(raw.get("cron") or "0 8 * * *").strip(),
         users=users,
@@ -222,8 +224,8 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
             raw.get("minimum_samples", 5), 5, 1, 100, "minimum_samples", errors
         ),
         candidate_pool_size=_bounded_integer(
-            raw.get("candidate_pool_size", 100),
-            100,
+            raw.get("candidate_pool_size", 50),
+            50,
             10,
             500,
             "candidate_pool_size",

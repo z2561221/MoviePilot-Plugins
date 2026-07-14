@@ -72,6 +72,16 @@ def test_config_has_exact_ten_weight_defaults_and_valid_bounds():
         AgentRankConfig.from_mapping({"weights": {"type_weight": 1.1}})
 
 
+def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_fifty():
+    """发现页入口保持兼容开启，候选池默认收缩到五十。"""
+    defaults = AgentRankConfig.from_mapping({})
+    assert defaults.discovery_page_enabled is True
+    assert defaults.candidate_pool_size == 50
+    assert AgentRankConfig.from_mapping(
+        {"discovery_page_enabled": False}
+    ).discovery_page_enabled is False
+
+
 def test_default_user_validation_is_visible_and_never_silently_reassigned():
     """An invalid default user remains visible as an error, not another user."""
     with pytest.raises(ConfigValidationError, match="default_user"):

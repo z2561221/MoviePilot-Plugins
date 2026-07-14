@@ -23,6 +23,7 @@ const weightDefaults = {
 
 const defaults = {
   enabled: false,
+  discovery_page_enabled: true,
   schedule_enabled: false,
   cron: '0 8 * * *',
   users: [],
@@ -40,7 +41,7 @@ const defaults = {
   recent_days: 365,
   subscription_sample_limit: 200,
   minimum_samples: 5,
-  candidate_pool_size: 100,
+  candidate_pool_size: 50,
   confidence_threshold: 0.6,
   exclude_keywords: [],
   action_mode: 'notify',
@@ -333,8 +334,9 @@ onMounted(loadRuntime)
               <template v-if="activeAdvanced === 'runtime'">
                 <div class="ar-config__section-title">运行设置</div>
                 <VRow>
-                  <VCol cols="12" md="6"><VSwitch v-model="form.profile_cache_enabled" color="success" label="画像缓存" hide-details inset /></VCol>
-                  <VCol cols="12" md="6"><VSwitch v-model="form.rebuild_profile_each_run" color="warning" label="每次重建" hide-details inset /></VCol>
+                  <VCol cols="12" md="4"><VSwitch v-model="form.discovery_page_enabled" color="success" label="开启发现页" hide-details inset /></VCol>
+                  <VCol cols="12" md="4"><VSwitch v-model="form.profile_cache_enabled" color="success" label="画像缓存" hide-details inset /></VCol>
+                  <VCol cols="12" md="4"><VSwitch v-model="form.rebuild_profile_each_run" color="warning" label="每次重建" hide-details inset /></VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.subscription_sample_limit" type="number" min="1" max="1000" label="订阅样本上限" density="compact" variant="outlined" hide-details /></VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.minimum_samples" type="number" min="1" max="100" label="最少样本" density="compact" variant="outlined" hide-details /></VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.history_limit" type="number" min="1" max="200" label="历史上限" density="compact" variant="outlined" hide-details /></VCol>

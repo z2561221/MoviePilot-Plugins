@@ -49,7 +49,7 @@ class AgentRank(_PluginBase):
 
     def get_sidebar_nav(self) -> List[Dict[str, Any]]:
         """返回主界面发现分区的全页入口。"""
-        if not self.get_state():
+        if not self.get_state() or not self._config.get("discovery_page_enabled", True):
             return []
         return [
             {

@@ -42,6 +42,7 @@ const weights = {
 
 const config = {
   enabled: true,
+  discovery_page_enabled: true,
   schedule_enabled: true,
   cron: '0 8 * * *',
   users: ['alice', 'bob'],
@@ -53,7 +54,7 @@ const config = {
   recent_days: 365,
   subscription_sample_limit: 200,
   minimum_samples: 5,
-  candidate_pool_size: 100,
+  candidate_pool_size: 50,
   confidence_threshold: 0.6,
   exclude_keywords: [],
   action_mode: 'notify',

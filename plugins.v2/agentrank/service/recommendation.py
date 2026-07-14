@@ -79,7 +79,7 @@ class RecommendationOrchestrator:
             "weights": dict(config.get("weights") or {}),
             "media_types": list(config.get("media_types") or []),
             "profile_scope": str(config.get("profile_scope") or "all"),
-            "candidate_pool_size": int(config.get("candidate_pool_size") or 100),
+            "candidate_pool_size": int(config.get("candidate_pool_size") or 50),
             "confidence_threshold": float(config.get("confidence_threshold") or 0.0),
             "exclude_keywords": list(config.get("exclude_keywords") or []),
         }
@@ -195,7 +195,7 @@ class RecommendationOrchestrator:
                 target,
                 run_id,
                 config.get("discovery_sources") or {},
-                int(config.get("candidate_pool_size") or 100),
+                int(config.get("candidate_pool_size") or 50),
             )
             candidates = list(candidate_result.candidates)
             library_excluded = []
