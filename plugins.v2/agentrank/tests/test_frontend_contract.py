@@ -73,3 +73,34 @@ def test_discovery_settings_open_embedded_config_and_use_core_save_api():
     assert "<Config" in app_page
     assert "emit('switch')" not in app_page
     assert "api.put('plugin/AgentRank', payload)" in api
+
+
+def test_ranking_surfaces_use_one_cached_overview_request():
+    """榜单首屏聚合读取、内存缓存并在过期后静默更新。"""
+    state = _read("useAgentRankState.js")
+    page = _read("Page.vue")
+    assert "const cacheByApi = new WeakMap()" in state
+    assert "const USER_CACHE_TTL_MS = 60 * 1000" in state
+    assert "getPluginApi(api, 'overview', { username })" in state
+    assert "getPluginApi(api, 'board'" not in state
+    assert "getPluginApi(api, 'profile'" not in state
+    assert "loading.data = !cached" in state
+    assert "void fetchUserData(username, entry)" in state
+    assert "if (!initialized.value || !value || value === oldValue) return" in page
+
+
+def test_discovery_page_has_no_profile_clear_entry():
+    """发现页不暴露清除画像按钮或确认框，危险操作仅保留在详情页。"""
+    app_page = _read("AppPage.vue")
+    detail_page = _read("Page.vue")
+    assert "清除画像" not in app_page
+    assert "profile/clear" not in app_page
+    assert "mdi-account-remove-outline" not in app_page
+    assert "清除画像" in detail_page
+
+
+def test_ranking_posters_do_not_force_eager_loading():
+    """三个榜单页面的海报均按需加载，避免首屏争抢网络。"""
+    for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
+        assert "<VImg" in _read(name)
+        assert " eager>" not in _read(name)

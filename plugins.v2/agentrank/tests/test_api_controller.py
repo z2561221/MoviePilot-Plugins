@@ -148,6 +148,9 @@ def test_options_overview_board_profile_and_history_have_stable_data_shape():
     assert options["data"]["users"] == ["alice", "bob"]
     assert options["data"]["default_user"] == "alice"
     assert overview["data"]["board"]["run_id"] == "run-old"
+    assert overview["data"]["profile"]["summary"] == "画像"
+    assert overview["data"]["history"][0]["run_id"] == "run-old"
+    assert overview["data"]["history_total"] == 1
     assert board["data"]["recommendations"][0]["candidate_id"] == "tmdb:1"
     assert profile["data"]["summary"] == "画像"
     assert history["data"]["items"][0]["run_id"] == "run-old"

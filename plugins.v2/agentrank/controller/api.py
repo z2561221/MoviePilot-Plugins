@@ -132,6 +132,8 @@ class AgentRankApiController:
                 "board": self._board_data(board) if board else None,
                 "archive": archive.to_dict(),
                 "latest_run": history[0].to_dict() if history else None,
+                "history": [item.to_dict() for item in history[:15]],
+                "history_total": len(history),
             }
         )
 

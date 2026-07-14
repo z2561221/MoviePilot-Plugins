@@ -11,6 +11,7 @@ const activeTab = ref('board')
 const clearDialog = ref(false)
 const snackbar = ref({ show: false, message: '', color: 'success' })
 const historyPage = ref(1)
+const initialized = ref(false)
 const historyPageSize = 10
 
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 10) || [])
@@ -67,7 +68,11 @@ async function initialize() {
   try {
     await state.loadOptions()
     if (state.selectedUser.value) await state.loadUserData()
-  } catch (_) { /* 共享状态承载错误 */ }
+  } catch (_) {
+    // 共享状态承载错误。
+  } finally {
+    initialized.value = true
+  }
 }
 
 async function runAction(action, successMessage) {
@@ -85,7 +90,7 @@ async function changeHistoryPage(page) {
 }
 
 watch(state.selectedUser, async (value, oldValue) => {
-  if (!value || value === oldValue) return
+  if (!initialized.value || !value || value === oldValue) return
   historyPage.value = 1
   try { await state.loadUserData(value) } catch (_) { /* 错误已保存 */ }
 })
@@ -129,7 +134,7 @@ onMounted(initialize)
             <article v-for="item in recommendations" :key="item.candidate_id" class="ar-page__rank-item">
               <div class="ar-page__rank">{{ item.rank }}</div>
               <div class="ar-page__poster">
-                <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover eager>
+                <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover>
                   <template #error><div class="ar-page__poster-error"><VIcon icon="mdi-image-off-outline" size="26" /></div></template>
                 </VImg>
                 <VIcon v-else icon="mdi-image-off-outline" size="26" />

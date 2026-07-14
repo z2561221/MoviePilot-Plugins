@@ -113,13 +113,13 @@ def test_config_advanced_navigation_uses_a_host_supported_mdi_icon():
     assert "mdi-shield-cog-outline" not in source
 
 
-def test_app_page_is_a_vertical_top_ten_with_complete_user_actions():
-    """The recommendation center implements the specified single-board experience."""
+def test_app_page_is_a_vertical_top_ten_without_profile_cleanup():
+    """The discovery page keeps daily actions but leaves profile cleanup to details."""
     source = APP_PAGE.read_text(encoding="utf-8")
     assert "useAgentRankState" in source
     assert "Top 10" in source
     assert "selectedUser" in source
-    assert "clearProfile" in source
+    assert "clearProfile" not in source
     assert "subscribe" in source
     assert "archive" in source
     assert "restore" in source
@@ -127,7 +127,8 @@ def test_app_page_is_a_vertical_top_ten_with_complete_user_actions():
     assert "权重摘要" in source
     assert "最近归档" in source
     assert "运行历史" in source
-    assert "clearDialog" in source
+    assert "clearDialog" not in source
+    assert "清除画像" in PAGE.read_text(encoding="utf-8")
     assert "grid-template-columns: minmax(0, 1fr)" in source
     assert "@media (max-width: 760px)" in source
     assert "min-width: 40px" in source or "min-height: 40px" in source

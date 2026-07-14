@@ -85,7 +85,7 @@ onMounted(initialize)
           <div v-for="item in topItems" :key="item.candidate_id" class="ar-dashboard__item">
           <div class="ar-dashboard__rank">{{ item.rank }}</div>
           <div class="ar-dashboard__poster">
-            <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover eager>
+            <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover>
               <template #error><div class="ar-dashboard__poster-error"><VIcon icon="mdi-image-off-outline" size="18" /></div></template>
             </VImg>
             <VIcon v-else icon="mdi-image-off-outline" size="18" />

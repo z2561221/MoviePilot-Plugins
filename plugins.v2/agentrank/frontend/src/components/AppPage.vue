@@ -24,7 +24,6 @@ const {
   isRunning,
 } = state
 
-const clearDialog = ref(false)
 const settingsDialog = ref(false)
 const savingSettings = ref(false)
 const snackbar = ref({ show: false, message: '', color: 'success', undo: false })
@@ -154,16 +153,6 @@ async function undoArchive() {
   }
 }
 
-async function confirmClearProfile() {
-  try {
-    await state.clearProfile()
-    clearDialog.value = false
-    snackbar.value = { show: true, message: '画像与榜单已清除', color: 'success', undo: false }
-  } catch (err) {
-    snackbar.value = { show: true, message: err?.message || '清除画像失败', color: 'error', undo: false }
-  }
-}
-
 function openSettings() {
   settingsDialog.value = true
 }
@@ -172,7 +161,7 @@ async function saveSettings(payload) {
   savingSettings.value = true
   try {
     await savePluginConfig(props.api, payload)
-    await state.loadOptions()
+    await state.loadOptions({ force: true })
     settingsDialog.value = false
     snackbar.value = { show: true, message: '插件设置已保存', color: 'success', undo: false }
   } catch (err) {
@@ -207,7 +196,6 @@ onMounted(initialize)
         <VSpacer />
         <VSelect v-if="users.length > 1" v-model="selectedUser" :items="users" label="用户" density="compact" variant="outlined" hide-details class="ar-app-page__user" aria-label="切换推荐用户" />
         <VBtn icon="mdi-refresh" variant="text" :loading="loading.action === 'refresh' || loading.data" :disabled="isRunning || !selectedUser" aria-label="刷新榜单" @click="refreshBoard" />
-        <VBtn icon="mdi-account-remove-outline" variant="text" color="error" :disabled="!profile?.run_id" aria-label="清除画像" @click="clearDialog = true" />
         <VBtn icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="openSettings" />
       </VToolbar>
       <VDivider />
@@ -239,7 +227,7 @@ onMounted(initialize)
               <article v-for="item in recommendations" :key="item.candidate_id" class="ar-app-page__item">
                 <div class="ar-app-page__rank" :class="{ 'ar-app-page__rank--top': item.rank <= 3 }">{{ item.rank }}</div>
                 <div class="ar-app-page__poster">
-                  <VImg v-if="posterSource(item)" :src="posterSource(item)" :alt="`${item.title} 海报`" cover eager>
+                  <VImg v-if="posterSource(item)" :src="posterSource(item)" :alt="`${item.title} 海报`" cover>
                     <template #error><div class="ar-app-page__poster-error"><VIcon icon="mdi-image-off-outline" size="30" /></div></template>
                   </VImg>
                   <VIcon v-else icon="mdi-image-off-outline" size="30" />
@@ -300,14 +288,6 @@ onMounted(initialize)
         </main>
       </div>
     </VCard>
-
-    <VDialog v-model="clearDialog" max-width="480">
-      <VCard>
-        <VCardTitle class="d-flex align-center"><VIcon icon="mdi-alert-outline" color="error" class="mr-2" />清除当前画像？</VCardTitle>
-        <VCardText>将级联删除当前用户画像与推荐榜单，但不会删除 MoviePilot 原始订阅、已创建订阅任务、归档历史或插件全局配置。</VCardText>
-        <VCardActions><VSpacer /><VBtn variant="text" @click="clearDialog = false">取消</VBtn><VBtn color="error" variant="flat" :loading="loading.action === 'profile/clear'" @click="confirmClearProfile">清除画像</VBtn></VCardActions>
-      </VCard>
-    </VDialog>
 
     <VDialog v-model="settingsDialog" max-width="1160" :persistent="savingSettings">
       <Config :api="api" :initial-config="options.config || {}" @save="saveSettings" @close="settingsDialog = false" />

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-3fbW_EAk.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-ChAxbzf4.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-CgBm1oih.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
@@ -55,6 +55,7 @@ const activeTab = ref('board');
 const clearDialog = ref(false);
 const snackbar = ref({ show: false, message: '', color: 'success' });
 const historyPage = ref(1);
+const initialized = ref(false);
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 10) || []);
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || []);
 const weights = computed(() => state.options.value?.config?.weights || {});
@@ -109,7 +110,11 @@ async function initialize() {
   try {
     await state.loadOptions();
     if (state.selectedUser.value) await state.loadUserData();
-  } catch (_) { /* 共享状态承载错误 */ }
+  } catch (_) {
+    // 共享状态承载错误。
+  } finally {
+    initialized.value = true;
+  }
 }
 
 async function runAction(action, successMessage) {
@@ -127,7 +132,7 @@ async function changeHistoryPage(page) {
 }
 
 watch(state.selectedUser, async (value, oldValue) => {
-  if (!value || value === oldValue) return
+  if (!initialized.value || !value || value === oldValue) return
   historyPage.value = 1;
   try { await state.loadUserData(value); } catch (_) { /* 错误已保存 */ }
 });
@@ -287,8 +292,7 @@ return (_ctx, _cache) => {
                                 key: 0,
                                 src: item.poster_path,
                                 alt: `${item.title} 海报`,
-                                cover: "",
-                                eager: ""
+                                cover: ""
                               }, {
                                 error: _withCtx(() => [
                                   _createElementVNode("div", _hoisted_7, [
@@ -639,6 +643,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-40627e51"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6051b198"]]);
 
 export { Page as default };
