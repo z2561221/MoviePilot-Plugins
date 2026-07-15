@@ -67,6 +67,13 @@ SERVICE_EXPORTS = {
         "transfer",
         "validate_config",
     },
+    "cleanup.py": {
+        "cleanup_by_hash",
+        "cleanup_by_path",
+        "handle_plugin_action_event",
+        "handle_sync_delete_by_hash_event",
+        "handle_webhook_message_event",
+    },
 }
 
 

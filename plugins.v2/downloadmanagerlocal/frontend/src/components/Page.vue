@@ -249,34 +249,63 @@ onMounted(loadHistory)
             <VIcon icon="mdi-history" size="48" color="grey-lighten-1" class="mb-2" />
             <div>暂无命名记录</div>
           </div>
-          <div v-else class="dm-table-scroll">
-            <VTable density="compact" class="dm-table">
-            <thead>
-              <tr>
-                <th class="text-caption">时间</th>
-                <th class="text-caption">原始名称</th>
-                <th class="text-caption">命名后</th>
-                <th class="text-caption">状态</th>
-                <th class="text-caption">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in records" :key="r.hash">
-                <td class="text-caption text-no-wrap">{{ r.time }}</td>
-                <td class="text-caption dm-ellipsis" :title="r.original_name">{{ r.original_name }}</td>
-                <td class="text-caption dm-ellipsis" :title="r.after_name">{{ r.after_name }}</td>
-                <td><VChip size="x-small" :color="r.success ? 'success' : 'error'" variant="tonal">{{ r.success ? '成功' : (r.reason || '失败') }}</VChip></td>
-                <td>
-                  <div class="d-flex ga-1">
-                    <VBtn size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
-                    <VBtn v-if="r.success" size="x-small" variant="tonal" color="warning" @click="doRecovery(r.hash)">恢复</VBtn>
-                    <VBtn size="x-small" variant="text" color="error" @click="doDelete(r.hash)">删除</VBtn>
+          <template v-else>
+            <div class="dm-table-scroll dm-desktop-table">
+              <VTable density="compact" class="dm-table">
+              <thead>
+                <tr>
+                  <th class="text-caption">时间</th>
+                  <th class="text-caption">原始名称</th>
+                  <th class="text-caption">命名后</th>
+                  <th class="text-caption">状态</th>
+                  <th class="text-caption">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in records" :key="r.hash">
+                  <td class="text-caption text-no-wrap">{{ r.time }}</td>
+                  <td class="text-caption dm-ellipsis" :title="r.original_name">{{ r.original_name }}</td>
+                  <td class="text-caption dm-ellipsis" :title="r.after_name">{{ r.after_name }}</td>
+                  <td><VChip size="x-small" :color="r.success ? 'success' : 'error'" variant="tonal">{{ r.success ? '成功' : (r.reason || '失败') }}</VChip></td>
+                  <td>
+                    <div class="d-flex ga-1">
+                      <VBtn size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
+                      <VBtn v-if="r.success" size="x-small" variant="tonal" color="warning" @click="doRecovery(r.hash)">恢复</VBtn>
+                      <VBtn size="x-small" variant="text" color="error" @click="doDelete(r.hash)">删除</VBtn>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+              </VTable>
+            </div>
+            <div class="dm-mobile-list dm-history-list">
+              <article v-for="r in records" :key="r.hash" class="dm-record-card dm-history-card">
+                <div class="dm-record-head">
+                  <div class="dm-record-title" :title="r.after_name || r.original_name">{{ r.after_name || r.original_name || r.hash }}</div>
+                  <VChip class="dm-record-status" size="x-small" :color="r.success ? 'success' : 'error'" variant="tonal">{{ r.success ? '成功' : (r.reason || '失败') }}</VChip>
+                </div>
+                <div class="dm-record-meta">
+                  <div class="dm-record-row">
+                    <span class="dm-record-label">时间</span>
+                    <span class="dm-record-value">{{ r.time || '-' }}</span>
                   </div>
-                </td>
-              </tr>
-            </tbody>
-            </VTable>
-          </div>
+                  <div class="dm-record-row">
+                    <span class="dm-record-label">原始</span>
+                    <span class="dm-record-value" :title="r.original_name">{{ r.original_name || '-' }}</span>
+                  </div>
+                  <div class="dm-record-row">
+                    <span class="dm-record-label">命名后</span>
+                    <span class="dm-record-value" :title="r.after_name">{{ r.after_name || '-' }}</span>
+                  </div>
+                </div>
+                <div class="dm-record-actions">
+                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
+                  <VBtn v-if="r.success" size="x-small" variant="tonal" color="warning" prepend-icon="mdi-undo" @click="doRecovery(r.hash)">恢复</VBtn>
+                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="doDelete(r.hash)">删除</VBtn>
+                </div>
+              </article>
+            </div>
+          </template>
           <div v-if="total > pageSize" class="d-flex align-center justify-center pa-3">
             <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" :disabled="page <= 1" @click="prevPage" class="mr-2" />
             <span class="text-caption mx-1">{{ page }} / {{ totalPages }}（共 {{ total }} 条）</span>
@@ -290,35 +319,63 @@ onMounted(loadHistory)
             <VIcon icon="mdi-archive-outline" size="48" color="grey-lighten-1" class="mb-2" />
             <div>暂无归档记录</div>
           </div>
-          <div v-else class="dm-table-scroll">
-            <VTable density="compact" class="dm-table">
-            <thead>
-              <tr>
-                <th class="text-caption">归档时间</th>
-                <th class="text-caption">名称</th>
-                <th class="text-caption">分类</th>
-                <th class="text-caption">次数</th>
-                <th class="text-caption">原因</th>
-                <th class="text-caption">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in archiveRecords" :key="r.hash">
-                <td class="text-caption text-no-wrap">{{ r.archived_at || r.last_failed_at }}</td>
-                <td class="text-caption dm-ellipsis" :title="r.name">{{ r.name || r.hash }}</td>
-                <td><VChip size="x-small" color="warning" variant="tonal">{{ r.category_label || r.category }}</VChip></td>
-                <td class="text-caption">{{ r.fail_count }}</td>
-                <td class="text-caption dm-ellipsis" :title="r.archive_reason || r.reason">{{ r.archive_reason || r.reason }}</td>
-                <td>
-                  <div class="d-flex ga-1">
-                    <VBtn size="x-small" variant="tonal" color="primary" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash">恢复</VBtn>
-                    <VBtn size="x-small" variant="text" color="error" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash">删除</VBtn>
+          <template v-else>
+            <div class="dm-table-scroll dm-desktop-table">
+              <VTable density="compact" class="dm-table">
+              <thead>
+                <tr>
+                  <th class="text-caption">归档时间</th>
+                  <th class="text-caption">名称</th>
+                  <th class="text-caption">分类</th>
+                  <th class="text-caption">次数</th>
+                  <th class="text-caption">原因</th>
+                  <th class="text-caption">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in archiveRecords" :key="r.hash">
+                  <td class="text-caption text-no-wrap">{{ r.archived_at || r.last_failed_at }}</td>
+                  <td class="text-caption dm-ellipsis" :title="r.name">{{ r.name || r.hash }}</td>
+                  <td><VChip size="x-small" color="warning" variant="tonal">{{ r.category_label || r.category }}</VChip></td>
+                  <td class="text-caption">{{ r.fail_count }}</td>
+                  <td class="text-caption dm-ellipsis" :title="r.archive_reason || r.reason">{{ r.archive_reason || r.reason }}</td>
+                  <td>
+                    <div class="d-flex ga-1">
+                      <VBtn size="x-small" variant="tonal" color="primary" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash">恢复</VBtn>
+                      <VBtn size="x-small" variant="text" color="error" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash">删除</VBtn>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+              </VTable>
+            </div>
+            <div class="dm-mobile-list dm-archive-list">
+              <article v-for="r in archiveRecords" :key="r.hash" class="dm-record-card dm-archive-card">
+                <div class="dm-record-head">
+                  <div class="dm-record-title" :title="r.name || r.hash">{{ r.name || r.hash }}</div>
+                  <VChip class="dm-record-status" size="x-small" color="warning" variant="tonal">{{ r.category_label || r.category }}</VChip>
+                </div>
+                <div class="dm-record-meta">
+                  <div class="dm-record-row">
+                    <span class="dm-record-label">归档</span>
+                    <span class="dm-record-value">{{ r.archived_at || r.last_failed_at || '-' }}</span>
                   </div>
-                </td>
-              </tr>
-            </tbody>
-            </VTable>
-          </div>
+                  <div class="dm-record-row">
+                    <span class="dm-record-label">次数</span>
+                    <span class="dm-record-value">{{ r.fail_count || 0 }}</span>
+                  </div>
+                  <div class="dm-record-row">
+                    <span class="dm-record-label">原因</span>
+                    <span class="dm-record-value" :title="r.archive_reason || r.reason">{{ r.archive_reason || r.reason || '-' }}</span>
+                  </div>
+                </div>
+                <div class="dm-record-actions">
+                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-archive-arrow-up-outline" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash">恢复</VBtn>
+                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash">删除</VBtn>
+                </div>
+              </article>
+            </div>
+          </template>
           <div v-if="archiveTotal > pageSize" class="d-flex align-center justify-center pa-3">
             <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" :disabled="archivePage <= 1" @click="prevArchivePage" class="mr-2" />
             <span class="text-caption mx-1">{{ archivePage }} / {{ archiveTotalPages }}（共 {{ archiveTotal }} 条）</span>
@@ -432,6 +489,74 @@ onMounted(loadHistory)
 .dm-table { min-width: 720px; }
 .dm-table :deep(th) { font-weight: 600 !important; }
 .dm-ellipsis { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-mobile-list { display: none; }
+.dm-record-card {
+  min-width: 0;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(var(--v-theme-on-surface), 0.02);
+}
+.dm-record-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dm-record-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(var(--v-theme-on-surface), 0.88);
+}
+.dm-record-status {
+  flex: 0 0 auto;
+  max-width: 52%;
+  height: auto;
+  min-height: 22px;
+  align-self: flex-start;
+  white-space: normal;
+}
+.dm-record-status :deep(.v-chip__content) {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.25;
+  word-break: keep-all;
+}
+.dm-record-meta {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+.dm-record-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.dm-record-label {
+  color: rgba(var(--v-theme-on-surface), 0.52);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.dm-record-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: rgba(var(--v-theme-on-surface), 0.78);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.dm-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
 .dm-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .dm-stat { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px; min-width: 0; }
 .dm-diagnostics-panel {
@@ -594,6 +719,18 @@ onMounted(loadHistory)
   }
   .dm-side-item :deep(.v-list-item-title) { white-space: nowrap; }
   .dm-main { padding: 10px; }
+  .dm-desktop-table { display: none; }
+  .dm-mobile-list { display: grid; gap: 10px; }
+  .dm-record-title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .dm-record-actions :deep(.v-btn) {
+    flex: 1 1 72px;
+    max-width: 128px;
+  }
   .dm-stat-grid { grid-template-columns: 1fr; }
   .dm-diagnostics-head {
     align-items: flex-start;
