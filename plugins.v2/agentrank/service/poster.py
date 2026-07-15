@@ -1,8 +1,9 @@
 """旧榜单失效海报修复服务。"""
 
-import base64
 import logging
-from typing import Any, Callable, Dict, Iterable
+import re
+from functools import lru_cache
+from typing import Any, Dict, Iterable
 
 from ..model.candidate import Candidate
 
@@ -20,9 +21,13 @@ class BoardPosterRepairService:
 
     @staticmethod
     def _needs_repair(poster_path: str) -> bool:
-        """判断海报是否为空或来自会触发防盗链的豆瓣域名。"""
+        """判断海报是否为空、内联或来自会触发防盗链的豆瓣域名。"""
         value = str(poster_path or "").lower()
-        return not value or "doubanio.com" in value
+        return (
+            not value
+            or value.startswith("data:image/")
+            or "doubanio.com" in value
+        )
 
     def repair_users(self, usernames: Iterable[str]) -> Dict[str, int]:
         """按用户修复旧榜单海报并返回每个用户的更新数量。"""
@@ -75,57 +80,29 @@ class BoardPosterRepairService:
 
 
 class PosterImageService:
-    """通过 MoviePilot 图片缓存生成浏览器可直接显示的内联海报。"""
+    """把榜单海报收敛为浏览器可直接加载的轻量图片地址。"""
 
-    def __init__(self, fetcher: Callable[[str], bytes] = None):
-        """允许测试注入图片读取器，运行时使用 MoviePilot ImageHelper。"""
-        self._fetcher = fetcher or self._fetch_image
-        self._cache: Dict[str, str] = {}
-
-    @staticmethod
-    def _fetch_image(url: str) -> bytes:
-        """通过 MoviePilot 图片助手下载并缓存海报。"""
-        from app.helper.image import ImageHelper
-
-        return ImageHelper().fetch_image(url=url, use_cache=True) or b""
+    _TMDB_POSTER_PATTERN = re.compile(
+        r"^(https://image\.tmdb\.org/t/p/)(?:original|w\d+)(/.*)$",
+        re.IGNORECASE,
+    )
 
     @staticmethod
-    def _content_type(content: bytes, url: str) -> str:
-        """按图片魔数和 URL 后缀推断内联媒体类型。"""
-        if content.startswith(b"\x89PNG"):
-            return "image/png"
-        if content.startswith((b"GIF87a", b"GIF89a")):
-            return "image/gif"
-        if content.startswith(b"RIFF") and b"WEBP" in content[:16]:
-            return "image/webp"
-        if str(url).lower().endswith(".webp"):
-            return "image/webp"
-        return "image/jpeg"
-
-    def data_url(self, url: str) -> str:
-        """返回缓存的 data URL，读取失败时返回空字符串。"""
+    @lru_cache(maxsize=512)
+    def thumbnail_url(url: str) -> str:
+        """返回至多 w200 的海报地址并拒绝高内存内联图片。"""
         source = str(url or "").strip()
         if not source:
             return ""
-        if source.startswith("data:image/"):
-            return source
-        if source in self._cache:
-            return self._cache[source]
-        try:
-            content = self._fetcher(source)
-        except Exception as error:
-            logger.warning("AgentRank 海报缓存失败 url=%s reason=%s", source, error)
-            content = b""
-        if not content:
-            self._cache[source] = ""
+        lowered = source.lower()
+        if lowered.startswith("data:image/") or "doubanio.com" in lowered:
             return ""
-        encoded = base64.b64encode(content).decode("ascii")
-        result = f"data:{self._content_type(content, source)};base64,{encoded}"
-        self._cache[source] = result
-        return result
+        return PosterImageService._TMDB_POSTER_PATTERN.sub(
+            r"\1w200\2", source
+        )
 
     def enrich_board(self, value: Dict[str, Any]) -> Dict[str, Any]:
-        """把榜单响应中的外部海报替换为内联缓存图片。"""
+        """把榜单响应中的海报替换为轻量 URL，避免 JSON 内嵌原图。"""
         for item in value.get("recommendations") or []:
-            item["poster_path"] = self.data_url(item.get("poster_path"))
+            item["poster_path"] = self.thumbnail_url(item.get("poster_path"))
         return value

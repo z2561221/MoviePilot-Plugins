@@ -103,6 +103,9 @@ def test_recognition_rejects_media_without_tmdb_id():
 
 def test_legacy_board_repair_replaces_only_broken_poster_urls():
     """Poster migration preserves ranking identity and skips already valid images."""
+    assert BoardPosterRepairService._needs_repair(
+        "data:image/jpeg;base64,legacy"
+    )
     board = RecommendationBoard(
         username="alice",
         run_id="old-run",
@@ -155,17 +158,28 @@ def test_legacy_board_repair_replaces_only_broken_poster_urls():
     assert board.recommendations[1].poster_path.endswith("current.jpg")
 
 
-def test_poster_image_service_returns_cached_data_url():
-    """外部图片被转换为可直接渲染的 data URL 并命中内存缓存。"""
-    calls = []
+def test_poster_image_service_returns_bounded_tmdb_thumbnail_url():
+    """TMDB 原图被收敛为 w200 URL，榜单响应不再内嵌 Base64。"""
+    service = PosterImageService()
+    board = {
+        "recommendations": [
+            {
+                "poster_path": (
+                    "https://image.tmdb.org/t/p/original/example.jpg"
+                )
+            },
+            {"poster_path": "https://image.example/poster.jpg"},
+            {"poster_path": "data:image/jpeg;base64,oversized"},
+        ]
+    }
 
-    def fetcher(url):
-        calls.append(url)
-        return b"\x89PNG\r\n\x1a\nimage"
+    result = service.enrich_board(board)
 
-    service = PosterImageService(fetcher)
-    first = service.data_url("https://image.tmdb.org/poster.jpg")
-    second = service.data_url("https://image.tmdb.org/poster.jpg")
-    assert first.startswith("data:image/png;base64,")
-    assert second == first
-    assert calls == ["https://image.tmdb.org/poster.jpg"]
+    assert result["recommendations"][0]["poster_path"] == (
+        "https://image.tmdb.org/t/p/w200/example.jpg"
+    )
+    assert result["recommendations"][1]["poster_path"] == (
+        "https://image.example/poster.jpg"
+    )
+    assert result["recommendations"][2]["poster_path"] == ""
+    assert PosterImageService.thumbnail_url.cache_parameters()["maxsize"] == 512

@@ -74,7 +74,7 @@ class AgentRankApiController:
         return repository
 
     def _board_data(self, board: Any) -> Dict[str, Any]:
-        """返回经过 MoviePilot 图片缓存处理的榜单响应。"""
+        """返回海报已收敛为轻量 URL 的榜单响应。"""
         value = board.to_dict()
         service = getattr(self.plugin, "_poster_service", None)
         return service.enrich_board(value) if service is not None else value
