@@ -793,7 +793,6 @@ return (_ctx, _cache) => {
                                       onClick: $event => (showActionDialog(key, item))
                                     }, [
                                       _createVNode(_component_VAvatar, {
-                                        size: "20",
                                         rounded: "sm",
                                         class: "dc-rank-poster"
                                       }, {
@@ -1251,6 +1250,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5dcd01f0"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9386247a"]]);
 
 export { Page as default };

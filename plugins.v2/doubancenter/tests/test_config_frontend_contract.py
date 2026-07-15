@@ -230,10 +230,31 @@ class ConfigFrontendContractTest(unittest.TestCase):
             text,
         )
         self.assertNotIn('<VAvatar size="28" rounded="sm" class="dc-history-poster', text)
-        self.assertIn(
-            ".dc-rank-poster { flex: 0 0 20px; width: 20px; height: 28px; border-radius: 3px;",
-            text,
-        )
+
+    def test_rank_posters_reuse_detail_rectangular_size(self):
+        """仪表盘与详情榜单应复用 24×36 矩形海报规格。"""
+        dashboard_text = DASHBOARD_VUE.read_text(encoding="utf-8")
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+
+        self.assertIn('<VAvatar rounded="sm" class="dc-rank-poster">', dashboard_text)
+        self.assertIn('<VAvatar rounded="sm" class="dc-rank-poster">', page_text)
+        self.assertNotIn('<VAvatar size="16" class="dc-rank-poster">', dashboard_text)
+        self.assertNotIn('<VAvatar size="20" rounded="sm" class="dc-rank-poster">', page_text)
+        self.assertIn(".dc-rank-row { display: flex; align-items: center; gap: 3px; min-height: 40px;", dashboard_text)
+        self.assertIn(".dc-rank-row { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 42px;", page_text)
+        for text in (dashboard_text, page_text):
+            self.assertIn(
+                ".dc-rank-poster { flex: 0 0 24px !important; width: 24px !important; height: 36px !important;",
+                text,
+            )
+
+        dashboard_css = _compact_css(_active_css_text("./Dashboard"))
+        page_css = _compact_css(_active_css_text("./Page"))
+        for css in (dashboard_css, page_css):
+            self.assertIn("flex:0024px!important;width:24px!important;height:36px!important", css)
+            self.assertIn("min-width:24px;min-height:36px;aspect-ratio:2/3", css)
+        self.assertIn("min-height:40px", dashboard_css)
+        self.assertIn("min-height:42px", page_css)
 
     def test_dashboard_timeline_scroll_is_isolated_on_mobile(self):
         """追影时间线横滑不应带动榜单，月份组在移动端也保持单行。"""

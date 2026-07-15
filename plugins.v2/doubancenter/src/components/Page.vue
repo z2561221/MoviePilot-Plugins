@@ -468,7 +468,7 @@ onMounted(loadAll)
               <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(key)" class="mr-1" /><span>{{ rankNames[key] || key }}</span></div>
               <template v-if="items && items.length">
                 <div v-for="(item, i) in items.slice(0, 5)" :key="`${key}-${i}`" class="dc-rank-row" title="订阅 / 打开详情" @click="showActionDialog(key, item)">
-                  <VAvatar size="20" rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
+                  <VAvatar rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
                   <span class="dc-rank-title">{{ item.title || '' }}</span>
                   <span v-if="key === 'coming' && item.wish_count" class="dc-rank-wish">{{ item.wish_count }}</span>
                 </div>
@@ -618,9 +618,9 @@ onMounted(loadAll)
 .dc-rank-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .dc-rank-card { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .6)); border-radius: 8px; padding: 6px; min-width: 0; }
 .dc-rank-head { display: flex; align-items: center; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
-.dc-rank-row { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
+.dc-rank-row { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 42px; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
-.dc-rank-poster { flex: 0 0 20px; width: 20px; height: 28px; border-radius: 3px; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
+.dc-rank-poster { flex: 0 0 24px !important; width: 24px !important; height: 36px !important; min-width: 24px; min-height: 36px; aspect-ratio: 2 / 3; border-radius: 3px !important; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
 .dc-history-poster { flex: 0 0 24px !important; width: 24px !important; height: 36px !important; min-width: 24px; min-height: 36px; aspect-ratio: 2 / 3; border-radius: 3px !important; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
 .dc-rank-title { flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }

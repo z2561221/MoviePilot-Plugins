@@ -528,19 +528,20 @@ return (_ctx, _cache) => {
                             onClick: $event => (showActionDialog(rk, item))
                           }, [
                             _createVNode(_component_VAvatar, {
-                              size: "16",
+                              rounded: "sm",
                               class: "dc-rank-poster"
                             }, {
                               default: _withCtx(() => [
                                 (item.poster)
                                   ? (_openBlock(), _createBlock(_component_VImg, {
                                       key: 0,
-                                      src: _unref(toPosterThumbnail)(item.poster)
+                                      src: _unref(toPosterThumbnail)(item.poster),
+                                      cover: ""
                                     }, null, 8, ["src"]))
                                   : (_openBlock(), _createBlock(_component_VIcon, {
                                       key: 1,
                                       icon: "mdi-filmstrip",
-                                      size: "10"
+                                      size: "13"
                                     }))
                               ]),
                               _: 2
@@ -673,6 +674,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7f529c81"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3c922bab"]]);
 
 export { Dashboard as default };
