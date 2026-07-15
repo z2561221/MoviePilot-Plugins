@@ -45,15 +45,17 @@ def test_profile_runtime_switches_describe_incremental_semantics():
 
 
 def test_discovery_cards_use_non_black_theme_surface():
-    """发现页榜单条目使用主题灰面而不是黑色 surface。"""
+    """发现页榜单条目常态透明，仅在悬停时显示主题反馈。"""
     app_page = _read("AppPage.vue")
     item_style = next(
         line for line in app_page.splitlines() if line.startswith(".ar-app-page__item {")
     )
     assert "surface-variant" not in item_style
-    assert "color-mix" in item_style
-    assert "--v-theme-primary" in item_style
+    assert "color-mix" not in item_style
+    assert "background: transparent;" in item_style
     assert "color: rgb(var(--v-theme-on-surface));" in item_style
+    assert ".ar-app-page__item:hover" in app_page
+    assert "background: rgba(var(--v-theme-primary), .07);" in app_page
 
 
 def test_all_ranking_surfaces_use_direct_four_button_actions():
