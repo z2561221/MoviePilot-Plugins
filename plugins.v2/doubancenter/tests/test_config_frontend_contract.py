@@ -159,6 +159,13 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("['黑名拦截', '黑名单关键词'].includes(log.reason)", text)
         self.assertNotIn("if (c) cheatLogs.value = c", text)
 
+    def test_page_labels_douban_wish_subscription_stats(self):
+        """详情页订阅统计应将豆瓣想看显示为独立分类。"""
+        text = PAGE_VUE.read_text(encoding="utf-8")
+
+        self.assertIn("douban_wish: '豆瓣想看'", text)
+        self.assertIn("douban_wish: '#10b981'", text)
+
     def test_dashboard_source_keeps_native_subscribe_behaviour(self):
         text = DASHBOARD_VUE.read_text(encoding="utf-8")
 

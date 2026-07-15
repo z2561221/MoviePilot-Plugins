@@ -161,6 +161,7 @@ const rankNames = {
   tv_global: '全球口碑',
   movie_weekly: '电影口碑',
   bangumi: 'BangumiTV',
+  douban_wish: '豆瓣想看',
   unknown: '未归类',
 };
 const rankIconColors = {
@@ -170,6 +171,7 @@ const rankIconColors = {
   tv_global: '#ef4444',
   movie_weekly: '#ec4899',
   bangumi: '#8b5cf6',
+  douban_wish: '#10b981',
   unknown: '#94a3b8',
 };
 
@@ -1246,6 +1248,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9790ee51"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7a8fc86d"]]);
 
 export { Page as default };
