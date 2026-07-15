@@ -134,6 +134,76 @@ class DashboardArchiveServiceTest(unittest.TestCase):
         saved_ids = [item["id"] for item in plugin.data["archive_records"]]
         self.assertEqual(saved_ids, ["complete-duplicate", "new"])
 
+    def test_paginate_archive_records_keeps_source_item_display_semantics(self):
+        """归档分页会按原栏目补齐展示字段并归一化观察日志状态。"""
+        plugin = _MemoryPlugin({
+            "archive_records": [
+                {
+                    "id": "sub",
+                    "source": "subscribe_history",
+                    "source_name": "订阅历史",
+                    "title": "订阅",
+                    "reason": "超过详情页显示上限归档",
+                    "archived_at": "2026-07-01 10:00:00",
+                    "record": {
+                        "title": "订阅",
+                        "time": "2026-06-30 10:00:00",
+                        "reason": "超过详情页显示上限归档",
+                        "rank_key": "tv_global",
+                        "rank_name": "全球口碑",
+                        "poster": "poster.jpg",
+                    },
+                },
+                {
+                    "id": "observe-log",
+                    "source": "anti_cheat_log",
+                    "source_name": "观察日志",
+                    "title": "观察",
+                    "reason": "观察期完成",
+                    "archived_at": "2026-07-02 10:00:00",
+                    "record": {"title": "观察", "reason": "观察期完成", "time": "2026-07-01 10:00:00"},
+                },
+                {
+                    "id": "black",
+                    "source": "anti_cheat_log",
+                    "source_name": "观察日志",
+                    "title": "黑名",
+                    "reason": "黑名单关键词",
+                    "archived_at": "2026-07-03 10:00:00",
+                    "record": {"title": "黑名", "reason": "黑名单关键词", "detail": "匹配词：测试", "time": "2026-07-01 11:00:00"},
+                },
+                {
+                    "id": "queue",
+                    "source": "observation",
+                    "source_name": "观察队列",
+                    "title": "队列",
+                    "archived_at": "2026-07-04 10:00:00",
+                    "record": {
+                        "title": "队列",
+                        "rank_key": "coming",
+                        "rank_name": "即将上映",
+                        "elapsed_days": 1,
+                        "remaining_days": 2,
+                    },
+                },
+            ]
+        })
+
+        page = archive_service.paginate_archive_records(plugin, page=1, page_size=10)
+        indexed = {item["id"]: item for item in page["items"]}
+
+        self.assertEqual(indexed["sub"]["display_status"], "订阅成功")
+        self.assertEqual(indexed["sub"]["reason"], "超过详情页显示上限归档")
+        self.assertEqual(indexed["sub"]["poster"], "poster.jpg")
+        self.assertEqual(indexed["observe-log"]["reason"], "观察完成")
+        self.assertEqual(indexed["observe-log"]["record"]["reason"], "观察完成")
+        self.assertEqual(indexed["observe-log"]["display_status"], "观察完成")
+        self.assertEqual(indexed["black"]["source_name"], "黑名拦截")
+        self.assertEqual(indexed["black"]["reason"], "黑名拦截")
+        self.assertEqual(indexed["black"]["display_status"], "匹配词：测试")
+        self.assertEqual(indexed["queue"]["display_status"], "剩余 2 天")
+        self.assertEqual(indexed["queue"]["rank_name"], "即将上映")
+
 
 if __name__ == "__main__":
     unittest.main()

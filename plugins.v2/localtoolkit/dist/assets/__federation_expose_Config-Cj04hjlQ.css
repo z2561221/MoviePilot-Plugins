@@ -1,0 +1,101 @@
+
+.plugin-config[data-v-6030678e] { width: min(1120px, calc(100vw - 48px)); max-width: 100%; padding: 8px;
+}
+.plugin-card[data-v-6030678e] { width: 100%; height: clamp(760px, calc(100dvh - 48px), 860px); display: flex; flex-direction: column; overflow: hidden; border-radius: 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+.plugin-header[data-v-6030678e] { padding: 14px 18px;
+}
+.plugin-header[data-v-6030678e] .v-card-subtitle { max-width: min(560px, 52vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plugin-body[data-v-6030678e] { flex: 1 1 auto; min-height: 0; display: flex;
+}
+.plugin-nav[data-v-6030678e] { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), .02);
+}
+.plugin-nav-list[data-v-6030678e] { width: 100%;
+}
+.plugin-nav-item[data-v-6030678e] { margin: 2px 8px;
+}
+.plugin-content[data-v-6030678e] { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+}
+.plugin-subtabs[data-v-6030678e] { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px;
+}
+.plugin-subtab[data-v-6030678e] { display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; color: rgba(var(--v-theme-on-surface), .7); background: transparent; border: none; cursor: pointer; transition: background .15s, color .15s;
+}
+.plugin-subtab[data-v-6030678e]:hover { background: rgba(var(--v-theme-primary), .08); color: rgb(var(--v-theme-primary));
+}
+.plugin-subtab--active[data-v-6030678e] { background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); font-weight: 600;
+}
+.plugin-window[data-v-6030678e] { flex: 1 1 auto; min-height: 0; overflow-y: auto;
+}
+.plugin-window--overview[data-v-6030678e] { overflow-y: hidden;
+}
+.plugin-pane[data-v-6030678e] { padding: 18px 20px;
+}
+.plugin-section-title[data-v-6030678e] { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: rgb(var(--v-theme-primary));
+}
+.condition-title[data-v-6030678e] { font-size: 13px; font-weight: 700; color: rgba(var(--v-theme-on-surface), .78); margin-top: 6px;
+}
+.condition-title--second[data-v-6030678e] { margin-top: 4px;
+}
+.plugin-hint[data-v-6030678e] { font-size: 12px; line-height: 1.6; color: rgba(var(--v-theme-on-surface), .68); margin-top: 2px;
+}
+.status-card[data-v-6030678e] { border-radius: 14px; min-height: 132px;
+}
+.plugin-actions[data-v-6030678e] { padding: 10px 18px;
+}
+@media (max-width: 760px) {
+.plugin-config[data-v-6030678e] { width: min(100%, calc(100vw - 16px)); padding: 4px;
+}
+.plugin-card[data-v-6030678e] { height: min(860px, calc(100dvh - 16px));
+}
+.plugin-header[data-v-6030678e] .v-card-subtitle { max-width: 100%;
+}
+.plugin-body[data-v-6030678e] { flex-direction: column;
+}
+.plugin-nav[data-v-6030678e] {
+    width: 100%;
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+}
+.plugin-nav[data-v-6030678e]::-webkit-scrollbar { display: none;
+}
+.plugin-nav-list[data-v-6030678e] {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    min-width: max-content;
+    padding: 8px 12px !important;
+}
+.plugin-nav-item[data-v-6030678e] {
+    flex: 0 0 auto;
+    min-width: 96px;
+    margin: 0;
+    padding-inline: 10px;
+}
+.plugin-nav-item[data-v-6030678e] .v-list-item-title { white-space: nowrap;
+}
+.plugin-subtabs[data-v-6030678e] {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    padding: 6px 12px;
+}
+.plugin-subtabs[data-v-6030678e]::-webkit-scrollbar { display: none;
+}
+.plugin-subtab[data-v-6030678e] {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    white-space: nowrap;
+}
+.plugin-window--overview[data-v-6030678e] { overflow-y: auto;
+}
+}
+@media (max-height: 760px) {
+.plugin-window--overview[data-v-6030678e] { overflow-y: auto;
+}
+}

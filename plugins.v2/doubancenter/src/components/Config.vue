@@ -28,7 +28,7 @@ const defaults = {
   region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '',
   folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false,
   folio_user: '', folio_exclude: '', folio_cookie: '',
-  folio_pc_month: 3, folio_pc_num: 50, folio_mobile_month: 2, folio_mobile_num: 15,
+  wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_onlyonce: false, wish_max_pages: 1, wish_days: 7,
   dashboard_rank_keys: [],
   blacklist_keywords: '',
   observe_days: 0,
@@ -54,7 +54,7 @@ const mainTabs = [
 const subTabs = {
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   rank: [{ key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' }, { key: 'list', title: '榜单列表', icon: 'mdi-format-list-bulleted' }, { key: 'filter', title: '订阅观察', icon: 'mdi-shield-search' }],
-  folio: [{ key: 'sync', title: '同步设置', icon: 'mdi-sync' }],
+  folio: [{ key: 'wish', title: '同步想看', icon: 'mdi-heart-plus-outline' }, { key: 'sync', title: '同步观影', icon: 'mdi-sync' }],
   dashboard: [{ key: 'view', title: '仪表盘选择', icon: 'mdi-view-dashboard-outline' }],
 }
 
@@ -95,14 +95,33 @@ const overviewCards = computed(() => {
   ]
 })
 
+function cloneConfig(value) {
+  return JSON.parse(JSON.stringify(value ?? {}))
+}
+
+function isPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeInitialConfig(value) {
+  const m = Object.assign({}, cloneConfig(defaults), cloneConfig(value))
+  if (!(m.rank_configs && typeof m.rank_configs === 'object' && !Array.isArray(m.rank_configs))) {
+    m.rank_configs = {}
+  }
+  for (const rd of rankDefs) {
+    m.rank_configs[rd.key] = {
+      ...defaults.rank_configs[rd.key],
+      ...(isPlainObject(m.rank_configs[rd.key]) ? m.rank_configs[rd.key] : {}),
+    }
+  }
+  if (!Array.isArray(m.dashboard_rank_keys)) m.dashboard_rank_keys = []
+  if (!Array.isArray(m.observe_rank_keys)) m.observe_rank_keys = [...defaults.observe_rank_keys]
+  return m
+}
+
 watch(() => props.initialConfig, val => {
   Object.keys(form).forEach(k => delete form[k])
-  const m = {}
-  Object.assign(m, defaults, JSON.parse(JSON.stringify(val || {})))
-  for (const rd of rankDefs) {
-    if (!m.rank_configs[rd.key]) m.rank_configs[rd.key] = { ...defaults.rank_configs[rd.key] }
-  }
-  Object.assign(form, m)
+  Object.assign(form, normalizeInitialConfig(val))
 }, { immediate: true, deep: true })
 
 function saveConfig() {
@@ -169,11 +188,22 @@ onMounted(loadOverview)
                 <div class="dc-flow">
                   <div v-for="flow in (overview?.flows || [])" :key="flow.label" class="dc-flow-block">
                     <div class="dc-flow-label">{{ flow.label }}</div>
-                    <div class="dc-flow-row">
+                    <div v-if="flow.steps?.length" class="dc-flow-row">
                       <template v-for="(step, idx) in flow.steps" :key="`${flow.label}-${step}`">
                         <span>{{ step }}</span>
                         <VIcon v-if="idx < flow.steps.length - 1" icon="mdi-arrow-right" size="15" />
                       </template>
+                    </div>
+                    <div v-else-if="flow.flows?.length" class="dc-flow-sub">
+                      <div v-for="subFlow in flow.flows" :key="`${flow.label}-${subFlow.label}`" class="dc-flow-sub-block">
+                        <div class="dc-flow-sub-label">{{ subFlow.label }}</div>
+                        <div class="dc-flow-row dc-flow-row--sub">
+                          <template v-for="(step, idx) in subFlow.steps" :key="`${subFlow.label}-${step}`">
+                            <span>{{ step }}</span>
+                            <VIcon v-if="idx < subFlow.steps.length - 1" icon="mdi-arrow-right" size="15" />
+                          </template>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -263,8 +293,29 @@ onMounted(loadOverview)
               </VRow>
             </div>
 
+            <div v-show="activeSub === 'wish'" class="dc-pane">
+              <div class="dc-section-title">同步想看</div>
+              <VRow>
+                <VCol cols="12" md="3"><VSwitch v-model="form.wish_enabled" color="success" inset hide-details label="启用想看同步" /></VCol>
+                <VCol cols="12" md="3"><VSwitch v-model="form.wish_onlyonce" color="warning" inset hide-details label="立即运行一次" /></VCol>
+                <VCol cols="12" md="3"><VCronField v-model="form.wish_cron" label="独立同步周期" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" md="3"><VTextField v-model.number="form.wish_days" label="最近天数" type="number" min="0" density="compact" variant="outlined" hide-details hint="默认 7 天" persistent-hint /></VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="8"><VTextField v-model="form.wish_user" label="豆瓣用户 ID" density="compact" variant="outlined" hide-details hint="读取该用户的动态 feed，仅处理「想看」条目" persistent-hint /></VCol>
+                <VCol cols="12" md="4"><VSwitch v-model="form.wish_notify" color="info" inset hide-details label="发送通知" /></VCol>
+              </VRow>
+              <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="通过豆瓣动态 feed 同步，首次只建立最近天数内的基线；后续周期只处理最近天数内新增的想看。" />
+              <div class="dc-wish-status mt-3">
+                <div class="dc-kv"><span>队列待处理</span><strong>{{ overview?.cards?.folio?.wish?.queue || 0 }}</strong></div>
+                <div class="dc-kv"><span>失败记录</span><strong>{{ overview?.cards?.folio?.wish?.failed || 0 }}</strong></div>
+                <div class="dc-kv"><span>最近运行</span><strong>{{ overview?.cards?.folio?.wish?.last_run || '尚未运行' }}</strong></div>
+                <div class="dc-kv"><span>状态错误</span><strong>{{ overview?.cards?.folio?.wish?.last_error || '无' }}</strong></div>
+              </div>
+            </div>
+
             <div v-show="activeSub === 'sync'" class="dc-pane">
-              <div class="dc-section-title">同步设置</div>
+              <div class="dc-section-title">同步观影</div>
               <VRow>
                 <VCol cols="12" md="4"><VSwitch v-model="form.folio_enabled" color="success" inset hide-details label="启用豆瓣时间" /></VCol>
                 <VCol cols="12" md="4"><VSwitch v-model="form.folio_private" color="info" inset hide-details label="仅自己可见" /></VCol>
@@ -279,12 +330,6 @@ onMounted(loadOverview)
               <div class="dc-section-title">仪表盘选择</div>
               <VAlert type="info" variant="tonal" density="compact" class="mb-2" text="先在「榜单列表」中启用榜单，此处即可选择在仪表盘并排显示。最多选 2 个。" />
               <VRow><VCol cols="12" md="6"><VSelect v-model="form.dashboard_rank_keys" label="选择要显示的榜单" :items="rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key }))" multiple chips clearable density="compact" variant="outlined" hide-details /></VCol></VRow>
-              <div class="dc-section-title mt-4">豆瓣时间线显示设置</div>
-              <VRow>
-                <VCol cols="12" md="6"><VTextField v-model="form.folio_pc_month" label="大屏显示月份数" type="number" density="compact" variant="outlined" hide-details hint="默认 3" persistent-hint /></VCol>
-                <VCol cols="12" md="6"><VTextField v-model="form.folio_pc_num" label="大屏每月最多显示数" type="number" density="compact" variant="outlined" hide-details hint="默认 50" persistent-hint /></VCol>
-              </VRow>
-              <VRow class="mt-2"><VCol cols="12" md="6"><VTextField v-model="form.folio_mobile_month" label="小屏显示月份数" type="number" density="compact" variant="outlined" hide-details hint="默认 2" persistent-hint /></VCol><VCol cols="12" md="6"><VTextField v-model="form.folio_mobile_num" label="小屏每月最多显示数" type="number" density="compact" variant="outlined" hide-details hint="默认 15" persistent-hint /></VCol></VRow>
             </div>
           </div>
         </section>
@@ -320,10 +365,16 @@ onMounted(loadOverview)
 .dc-flow { display: grid; gap: 10px; }
 .dc-flow-block { min-width: 0; }
 .dc-flow-label { font-size: 12px; font-weight: 600; color: rgb(var(--v-theme-primary)); margin-bottom: 5px; }
+.dc-flow-sub { display: grid; gap: 6px; }
+.dc-flow-sub-block { min-width: 0; padding-left: 8px; border-left: 2px solid rgba(var(--v-theme-primary), .25); }
+.dc-flow-sub-label { font-size: 12px; font-weight: 600; color: rgba(var(--v-theme-on-surface), .7); margin-bottom: 4px; }
 .dc-flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: rgba(var(--v-theme-on-surface), .78); }
+.dc-flow-row--sub { color: rgba(var(--v-theme-on-surface), .72); }
 .dc-flow-row span { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), .02); }
 .dc-kv { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .dc-kv:last-child { border-bottom: none; }
+.dc-wish-status { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 6px 10px; background: rgba(var(--v-theme-on-surface), .02); }
+.dc-wish-status strong { max-width: 70%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .dc-rank-row { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .02); font-size: 13px; }
 .dc-rank-row .v-text-field { max-height: 30px; }
 .dc-rank-row .v-text-field :deep(.v-field) { min-height: 28px; max-height: 28px; border-radius: 6px; }
@@ -346,23 +397,18 @@ onMounted(loadOverview)
 .dc-rank-input :deep(.v-field__input) { min-height: 24px; padding-top: 1px; padding-bottom: 1px; font-size: 13px; }
 .dc-actions { padding: 10px 18px; }
 @media (max-width: 760px) {
-  .dc-config { width: min(100%, calc(100vw - 16px)); padding: 2px; }
+  .dc-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
   .dc-card { height: min(860px, calc(100dvh - 16px)); }
-  .dc-header { padding: 8px 10px; }
-  .dc-header-avatar { width: 34px !important; height: 34px !important; }
-  .dc-header-title { font-size: 15px; line-height: 1.25; }
   .dc-header-subtitle { max-width: 100%; }
-  .dc-enable-switch { flex: 0 0 46px; width: 46px; min-width: 46px; overflow: hidden; }
   .dc-body { flex-direction: column; }
   .dc-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .dc-nav::-webkit-scrollbar { display: none; }
-  .dc-nav-list { display: flex; flex-wrap: nowrap; gap: 4px; min-width: max-content; padding: 5px 8px !important; }
-  .dc-nav-item { flex: 0 0 auto; min-width: 86px; min-height: 34px !important; margin: 0; padding-inline: 8px; }
-  .dc-nav-title { font-size: 12px; white-space: nowrap; }
-  .dc-nav-icon { font-size: 17px; }
-  .dc-subtabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 5px 8px; }
+  .dc-nav-list { display: flex; flex-wrap: nowrap; gap: 6px; min-width: max-content; padding: 8px 12px !important; }
+  .dc-nav-item { flex: 0 0 auto; min-width: 96px; margin: 0; padding-inline: 10px; }
+  .dc-nav-item :deep(.v-list-item-title) { white-space: nowrap; }
+  .dc-subtabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 6px 12px; }
   .dc-subtabs::-webkit-scrollbar { display: none; }
-  .dc-subtab { flex: 0 0 auto; padding: 5px 10px; font-size: 12px; }
+  .dc-subtab { flex: 0 0 auto; padding: 6px 12px; }
   .dc-pane { padding: 12px 12px; }
   .dc-pane--overview { padding: 8px 10px; }
   .dc-section-title { margin-bottom: 6px; }
@@ -370,18 +416,18 @@ onMounted(loadOverview)
   .dc-stat-grid, .dc-overview-grid, .dc-flow { gap: 6px; }
   .dc-stat, .dc-overview-section { padding: 8px; }
   .dc-flow-label { margin-bottom: 4px; }
+  .dc-flow-sub { gap: 5px; }
+  .dc-flow-sub-block { padding-left: 6px; }
   .dc-flow-row { gap: 4px; font-size: 12px; }
   .dc-flow-row span { padding: 4px 7px; }
   .dc-kv { padding: 5px 0; font-size: 12px; }
   .dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }
-  .dc-rank-card-body { grid-template-columns: repeat(2, minmax(142px, auto)); }
+  .dc-rank-card-body { grid-template-columns: 1fr; }
+  .dc-rank-field { grid-template-columns: 42px minmax(0, 1fr); }
+  .dc-rank-input { width: 100%; max-width: none; }
   .dc-actions { min-height: 44px; padding: 6px 10px; gap: 6px; }
   .dc-action-btn { min-height: 32px; font-size: 13px; }
   .dc-window--overview { overflow-y: auto; }
-}
-@media (max-width: 480px) {
-  .dc-header-subtitle { display: none; }
-  .dc-nav-item { min-width: 80px; }
 }
 @media (max-height: 760px) {
   .dc-window--overview { overflow-y: auto; }

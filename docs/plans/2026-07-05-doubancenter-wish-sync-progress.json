@@ -1,0 +1,379 @@
+{
+  "plan": "docs/plans/2026-07-05-doubancenter-wish-sync-phased-plan.md",
+  "status": {
+    "phase": "completed",
+    "task": "done",
+    "next_allowed_action": "Stop; do not push, merge, publish, or release without explicit user confirmation"
+  },
+  "execution_rules": {
+    "branch": "worldlinefix/doubancenter",
+    "smoke_check": "python -m compileall -q plugins.v2/doubancenter",
+    "commit_each_verified_task": true,
+    "no_commit_on_failed_verification": true,
+    "never_push_merge_or_amend": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "only_flip_status_fields": true
+  },
+  "decision_log": [
+    {
+      "decision": "Treat sync wish as a Douban time child feature with an independent scheduler.",
+      "reason": "Latest user direction explicitly separates product ownership from runtime chain boundaries.",
+      "rejected_alternatives": [
+        "Make sync wish a new independent module",
+        "Run sync wish from ranking subscription cron"
+      ],
+      "source": "User discussion on 2026-07-05"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "goal": "Add wish sync config/state defaults and independent scheduler contract.",
+      "acceptance": [
+        "python -m compileall -q plugins.v2/doubancenter exits 0",
+        "python -m unittest discover -s plugins.v2/doubancenter/tests -p \"test_runtime_contracts.py\" exits 0",
+        "A test proves DoubanCenterWish is declared separately from DoubanCenter",
+        "A test proves default wish max scan pages is 1"
+      ],
+      "tasks": [
+        {
+          "id": "1.1",
+          "title": "Add wish sync config/state defaults and storage helpers",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_runtime_contracts.py",
+              "result": "exit 0; Ran 11 tests OK"
+            }
+          ],
+          "commit": "9f9900f"
+        },
+        {
+          "id": "1.2",
+          "title": "Add independent scheduler declaration for DoubanCenterWish",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_runtime_contracts.py",
+              "result": "exit 0; Ran 12 tests OK"
+            }
+          ],
+          "commit": "9992adb"
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "goal": "Implement Douban wish reading and baseline/queue logic without subscriptions.",
+      "acceptance": [
+        "python -m compileall -q plugins.v2/doubancenter exits 0",
+        "New unit tests prove first run creates baseline without queued items",
+        "New unit tests prove later run adds only new wish items to queue",
+        "New unit tests prove default max pages 1 only requests the first page"
+      ],
+      "tasks": [
+        {
+          "id": "2.1",
+          "title": "Add Douban wish list access and parsing",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_doubanapi_wish.py",
+              "result": "exit 0; Ran 3 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_runtime_contracts.py",
+              "result": "exit 0; Ran 12 tests OK"
+            }
+          ],
+          "commit": "1132d5a"
+        },
+        {
+          "id": "2.2",
+          "title": "Implement baseline and queue state machine",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_folio_wish_sync.py",
+              "result": "exit 0; Ran 4 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_*.py",
+              "result": "exit 0; Ran 175 tests OK"
+            }
+          ],
+          "commit": "2f2cdd3"
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "goal": "Recognize queued wish items and create subscriptions through existing services.",
+      "acceptance": [
+        "python -m compileall -q plugins.v2/doubancenter exits 0",
+        "Unit tests prove success writes rank_key=douban_wish",
+        "Unit tests prove failed recognition is recorded and does not crash the scheduler",
+        "Unit tests prove existing subscription is not retried indefinitely"
+      ],
+      "tasks": [
+        {
+          "id": "3.1",
+          "title": "Execute queued wish subscriptions",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_folio_wish_sync.py",
+              "result": "exit 0; Ran 7 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_*.py",
+              "result": "exit 0; Ran 178 tests OK"
+            }
+          ],
+          "commit": "a6b06ac"
+        },
+        {
+          "id": "3.2",
+          "title": "Add error handling and status persistence",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_folio_wish_sync.py",
+              "result": "exit 0; Ran 9 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_*.py",
+              "result": "exit 0; Ran 180 tests OK"
+            }
+          ],
+          "commit": "af17a6d"
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "goal": "Update overview and config UI for sync wish.",
+      "acceptance": [
+        "python -m unittest discover -s plugins.v2/doubancenter/tests -p \"test_dashboard_overview_service.py\" exits 0",
+        "python -m unittest discover -s plugins.v2/doubancenter/tests -p \"test_config_frontend_contract.py\" exits 0",
+        "npm run build from plugins.v2/doubancenter exits 0 and updates dist/assets/remoteEntry.js",
+        "Static tests prove tab order is 同步想看 then 同步观影",
+        "Static tests prove flow labels use the unified text exactly"
+      ],
+      "tasks": [
+        {
+          "id": "4.1",
+          "title": "Update backend overview/config response",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_dashboard_overview_service.py",
+              "result": "exit 0; Ran 4 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_dashboard_config_service.py",
+              "result": "exit 0; Ran 3 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_config_frontend_contract.py",
+              "result": "exit 0; Ran 10 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_*.py",
+              "result": "exit 0; Ran 182 tests OK"
+            }
+          ],
+          "commit": "f1c3ea1"
+        },
+        {
+          "id": "4.2",
+          "title": "Update Vue config UI and built assets",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\pnpm.cmd run build (with bundled Node on PATH)",
+              "result": "exit 0; Vite built remoteEntry.js and updated dist/assets"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_config_frontend_contract.py",
+              "result": "exit 0; Ran 12 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_dashboard_overview_service.py",
+              "result": "exit 0; Ran 4 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_*.py",
+              "result": "exit 0; Ran 184 tests OK"
+            }
+          ],
+          "commit": "f6f42b2"
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "goal": "Run full regression and runtime validation.",
+      "acceptance": [
+        "python -m compileall -q plugins.v2/doubancenter exits 0",
+        "python -m unittest discover -s plugins.v2/doubancenter/tests -p \"test_*.py\" exits 0",
+        "python -m pytest tests/static/test_doubancenter_native_subscribe.py tests/static/test_doubancenter_observation_order.py exits 0",
+        "npm run build from plugins.v2/doubancenter exits 0",
+        "MP runtime validation is recorded, or unavailability is recorded with exact blocker"
+      ],
+      "tasks": [
+        {
+          "id": "5.1",
+          "title": "Run full local verification",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\pnpm.cmd run build (with bundled Node on PATH)",
+              "result": "exit 0; Vite built remoteEntry.js and dist/assets"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m compileall -q plugins.v2/doubancenter",
+              "result": "exit 0"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m unittest discover -s plugins.v2/doubancenter/tests -p test_*.py",
+              "result": "exit 0; Ran 184 tests OK"
+            },
+            {
+              "command": "C:\\Users\\ZhaoYu\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m pytest --confcutdir=tests/static tests/static/test_doubancenter_native_subscribe.py tests/static/test_doubancenter_observation_order.py",
+              "result": "exit 0; 7 passed"
+            },
+            {
+              "command": "version consistency check for plugin_version, package.v2.json, plugin.json, history, and author_url",
+              "result": "exit 0; plugin_version=1.2.11; package_version=1.2.11; plugin_json_version=1.2.11; history_has_version=True; author_url=https://github.com/z2561221"
+            },
+            {
+              "command": "git diff --check -- plugins.v2/doubancenter tests/static/test_doubancenter_native_subscribe.py package.v2.json",
+              "result": "exit 0"
+            }
+          ],
+          "commit": "7b26811"
+        },
+        {
+          "id": "5.2",
+          "title": "Perform MoviePilot local close-loop validation",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "robocopy D:\\AIGC\\MoviePilot\\MoviePilot-Plugins\\plugins.v2\\doubancenter \"Z:\\moviepilot-v2\\config\\local plugins\\plugins.v2\\doubancenter\" /E /XD node_modules __pycache__ .pytest_cache /XF *.pyc *.pyo",
+              "result": "exit 0; robocopy_code=3; local source synchronized without mirror deletion"
+            },
+            {
+              "command": "Copy-Item D:\\AIGC\\MoviePilot\\MoviePilot-Plugins\\package.v2.json \"Z:\\moviepilot-v2\\config\\local plugins\\package.v2.json\" -Force",
+              "result": "exit 0; package.v2.json copied to MP local plugin source"
+            },
+            {
+              "command": "GET http://192.168.50.5:3000/api/v1/plugin/reload/DoubanCenter with X-API-KEY",
+              "result": "exit 0; {\"success\":true,\"message\":null,\"data\":{}}"
+            },
+            {
+              "command": "GET http://192.168.50.5:3000/api/v1/plugin/history/DoubanCenter with X-API-KEY",
+              "result": "exit 0; installed=true; state=true; plugin_version=1.2.11; is_local=true; repo_url=local://DoubanCenter?path=/vol1/1000/docker/moviepilot-v2/config/local%20plugins&version=v2"
+            },
+            {
+              "command": "GET/PUT http://192.168.50.5:3000/api/v1/plugin/DoubanCenter with X-API-KEY",
+              "result": "exit 0; added disabled default wish config fields only: wish_enabled=false, wish_cron=*/30 * * * *, wish_user='', wish_notify=false, wish_max_pages=1"
+            },
+            {
+              "command": "GET http://192.168.50.5:3000/api/v1/plugin/DoubanCenter/config with X-API-KEY",
+              "result": "exit 0; response data contains wish_status={enabled:false, cron:'*/30 * * * *', user:'', notify:false, max_pages:1, initialized:false, queue:0, failed:0, last_error:''}"
+            },
+            {
+              "command": "GET http://192.168.50.5:3000/api/v1/plugin/DoubanCenter/overview with X-API-KEY",
+              "result": "exit 0; code=0; cards.folio.wish={enabled:false, initialized:false, queue:0, failed:0, last_run:'', last_error:''}; attention.wish_queue=0; attention.wish_failed=0"
+            },
+            {
+              "command": "GET http://192.168.50.5:3000/api/v1/dashboard/schedule2?token=<API_TOKEN>",
+              "result": "exit 0; contains_DoubanCenter=true; contains_DoubanCenterWish=false because wish_enabled=false, so validation did not trigger live wish sync or subscriptions"
+            }
+          ],
+          "commit": "runtime-only"
+        }
+      ]
+    }
+  ],
+  "turn_log": [
+    {
+      "time": "2026-07-05",
+      "entry": "Created the missing plan and progress ledger because the goal referenced paths that did not exist."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 1.1: added wish sync config defaults and folio wish storage helpers; compileall and runtime contract tests pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 1.2: added DoubanCenterWish independent scheduler declaration and wish runner entry; compileall and runtime contract tests pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 2.1: added Douban wish list access, parsing, request injection, and cookie movie headers; compileall, DoubanApi wish tests, and runtime contract tests pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 2.2: implemented wish baseline/queue state machine (first run baseline-only, later runs enqueue new items, default single page); compileall, wish sync tests, and full 175-test suite pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 3.1: process wish queue recognizes items and subscribes via existing chain writing rank_key=douban_wish, records failed recognition without crashing, and does not retry existing subscriptions indefinitely; compileall, wish sync tests, and full 178-test suite pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 3.2: persisted wish sync read errors without clearing queue/seen state, recorded subscription failures into wish failed state, and executed queue processing from the wish scheduler; compileall, wish sync tests, and full 180-test suite pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 4.1: added the Sync Wish overview flow, surfaced wish queue/failed state under the folio overview, returned wish_status from the config API, and updated backend contract tests; compileall, focused tests, config frontend contract, and full 182-test suite pass."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 4.2: added the Sync Wish tab before Sync Watching in Config.vue, exposed wish controls and status, rebuilt Vue federation assets with bundled pnpm because npm is not on PATH, and verified compileall, frontend contract, overview tests, and full 184-test suite."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 5.1: stabilized the static TMDB disabled-state assertion for the current Vite output, rebuilt assets, confirmed version metadata, and passed compileall, 184 plugin unit tests, 7 static tests, build, and diff-check."
+    },
+    {
+      "time": "2026-07-05",
+      "entry": "Completed task 5.2: synchronized DoubanCenter to the MP local plugin source over Z:, reloaded the installed local plugin, added disabled default wish config fields to the existing runtime config, verified custom config/overview APIs expose wish_status and folio wish state, and confirmed the wish scheduler remains unregistered while disabled so no live sync/subscription was triggered."
+    }
+  ]
+}

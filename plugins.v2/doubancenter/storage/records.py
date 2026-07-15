@@ -12,10 +12,15 @@ ANTI_CHEAT_LOGS_KEY = "anti_cheat_logs"
 ARCHIVE_RECORDS_KEY = "archive_records"
 FOLIO_DATA_KEY = "folio_data"
 FOLIO_WAIT_KEY = "folio_wait"
+FOLIO_WISH_STATE_KEY = "folio_wish_state"
+FOLIO_WISH_SEEN_KEY = "folio_wish_seen"
+FOLIO_WISH_QUEUE_KEY = "folio_wish_queue"
+FOLIO_WISH_PROCESSED_KEY = "folio_wish_processed"
+FOLIO_WISH_FAILED_KEY = "folio_wish_failed"
 
 
 def trim_records(records: List[dict], limit: Optional[int] = None) -> List[dict]:
-    """Return a list trimmed to the latest records."""
+    """按上限保留最新记录列表。"""
     if not isinstance(records, list):
         return []
     if not limit or limit <= 0 or len(records) <= limit:
@@ -24,20 +29,20 @@ def trim_records(records: List[dict], limit: Optional[int] = None) -> List[dict]
 
 
 def read_list(plugin, key: str) -> List[dict]:
-    """Read a list value from plugin storage."""
+    """从插件存储读取列表数据。"""
     records = plugin.get_data(key) or []
     return records if isinstance(records, list) else []
 
 
 def write_list(plugin, key: str, records: List[dict], limit: Optional[int] = None) -> List[dict]:
-    """Write a list value to plugin storage and return the stored list."""
+    """写入列表数据并返回实际保存的记录。"""
     records = trim_records(records, limit)
     plugin.save_data(key, records)
     return records
 
 
 def read_dict(plugin, key: str, plugin_id: str = "") -> Dict[str, Any]:
-    """Read a dict value from plugin storage."""
+    """从插件存储读取字典数据。"""
     if plugin_id:
         try:
             data = plugin.get_data(key, plugin_id=plugin_id) or {}
@@ -49,74 +54,138 @@ def read_dict(plugin, key: str, plugin_id: str = "") -> Dict[str, Any]:
 
 
 def write_dict(plugin, key: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    """Write a dict value to plugin storage and return the stored dict."""
+    """写入字典数据并返回实际保存的对象。"""
     data = data if isinstance(data, dict) else {}
     plugin.save_data(key, data)
     return data
 
 
 def read_folio_data(plugin, plugin_id: str = "") -> Dict[str, Any]:
+    """读取豆瓣时间持久化数据。"""
     return read_dict(plugin, FOLIO_DATA_KEY, plugin_id=plugin_id)
 
 
 def save_folio_data(plugin, data: Dict[str, Any]) -> Dict[str, Any]:
+    """保存豆瓣时间持久化数据。"""
     return write_dict(plugin, FOLIO_DATA_KEY, data)
 
 
 def read_folio_wait(plugin) -> Dict[str, Any]:
+    """读取等待处理的豆瓣时间数据。"""
     return read_dict(plugin, FOLIO_WAIT_KEY)
 
 
 def save_folio_wait(plugin, data: Dict[str, Any]) -> Dict[str, Any]:
+    """保存等待处理的豆瓣时间数据。"""
     return write_dict(plugin, FOLIO_WAIT_KEY, data)
 
 
+def read_folio_wish_state(plugin) -> Dict[str, Any]:
+    """读取豆瓣想看同步状态。"""
+    return read_dict(plugin, FOLIO_WISH_STATE_KEY)
+
+
+def save_folio_wish_state(plugin, data: Dict[str, Any]) -> Dict[str, Any]:
+    """保存豆瓣想看同步状态。"""
+    return write_dict(plugin, FOLIO_WISH_STATE_KEY, data)
+
+
+def read_folio_wish_seen(plugin) -> List[dict]:
+    """读取豆瓣想看已见条目。"""
+    return read_list(plugin, FOLIO_WISH_SEEN_KEY)
+
+
+def save_folio_wish_seen(plugin, records: List[dict]) -> List[dict]:
+    """保存豆瓣想看已见条目。"""
+    return write_list(plugin, FOLIO_WISH_SEEN_KEY, records, DETAIL_RECORD_LIMIT)
+
+
+def read_folio_wish_queue(plugin) -> List[dict]:
+    """读取豆瓣想看待处理队列。"""
+    return read_list(plugin, FOLIO_WISH_QUEUE_KEY)
+
+
+def save_folio_wish_queue(plugin, records: List[dict]) -> List[dict]:
+    """保存豆瓣想看待处理队列。"""
+    return write_list(plugin, FOLIO_WISH_QUEUE_KEY, records, DETAIL_RECORD_LIMIT)
+
+
+def read_folio_wish_processed(plugin) -> List[dict]:
+    """读取豆瓣想看已处理条目。"""
+    return read_list(plugin, FOLIO_WISH_PROCESSED_KEY)
+
+
+def save_folio_wish_processed(plugin, records: List[dict]) -> List[dict]:
+    """保存豆瓣想看已处理条目。"""
+    return write_list(plugin, FOLIO_WISH_PROCESSED_KEY, records, DETAIL_RECORD_LIMIT)
+
+
+def read_folio_wish_failed(plugin) -> List[dict]:
+    """读取豆瓣想看失败记录。"""
+    return read_list(plugin, FOLIO_WISH_FAILED_KEY)
+
+
+def save_folio_wish_failed(plugin, records: List[dict]) -> List[dict]:
+    """保存豆瓣想看失败记录。"""
+    return write_list(plugin, FOLIO_WISH_FAILED_KEY, records, DETAIL_RECORD_LIMIT)
+
+
 def read_subscribe_records(plugin) -> List[dict]:
+    """读取订阅历史记录。"""
     return read_list(plugin, SUBSCRIBE_RECORDS_KEY)
 
 
 def save_subscribe_records(plugin, records: List[dict]) -> List[dict]:
+    """保存订阅历史记录。"""
     return write_list(plugin, SUBSCRIBE_RECORDS_KEY, records, DETAIL_RECORD_LIMIT)
 
 
 def read_anti_cheat_logs(plugin) -> List[dict]:
+    """读取观察日志记录。"""
     return read_list(plugin, ANTI_CHEAT_LOGS_KEY)
 
 
 def save_anti_cheat_logs(plugin, records: List[dict]) -> List[dict]:
+    """保存观察日志记录。"""
     return write_list(plugin, ANTI_CHEAT_LOGS_KEY, records, ANTI_CHEAT_LOG_LIMIT)
 
 
 def read_archive_records(plugin) -> List[dict]:
+    """读取归档记录。"""
     return read_list(plugin, ARCHIVE_RECORDS_KEY)
 
 
 def save_archive_records(plugin, records: List[dict]) -> List[dict]:
+    """保存归档记录。"""
     return write_list(plugin, ARCHIVE_RECORDS_KEY, records, DETAIL_RECORD_LIMIT)
 
 
 def rank_history_key(rank_key: str) -> str:
-    """Return the stable storage key for a built-in rank history."""
+    """返回内置榜单历史的稳定存储 key。"""
     return "coming_history" if rank_key == "coming" else f"rank_history_{rank_key}"
 
 
 def custom_rank_history_key(source: str) -> str:
-    """Return the stable storage key for a custom RSS rank history."""
+    """返回自定义 RSS 榜单历史的稳定存储 key。"""
     digest = hashlib.sha1((source or "").encode("utf-8")).hexdigest()[:16]
     return f"rank_history_custom_{digest}"
 
 
 def read_rank_history(plugin, rank_key: str) -> List[dict]:
+    """读取内置榜单历史。"""
     return read_list(plugin, rank_history_key(rank_key))
 
 
 def save_rank_history(plugin, rank_key: str, history: List[dict]) -> List[dict]:
+    """保存内置榜单历史。"""
     return write_list(plugin, rank_history_key(rank_key), history, RANK_HISTORY_LIMIT)
 
 
 def read_custom_rank_history(plugin, source: str) -> List[dict]:
+    """读取自定义 RSS 榜单历史。"""
     return read_list(plugin, custom_rank_history_key(source))
 
 
 def save_custom_rank_history(plugin, source: str, history: List[dict]) -> List[dict]:
+    """保存自定义 RSS 榜单历史。"""
     return write_list(plugin, custom_rank_history_key(source), history, RANK_HISTORY_LIMIT)

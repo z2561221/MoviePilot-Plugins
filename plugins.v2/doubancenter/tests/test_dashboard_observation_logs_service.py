@@ -102,7 +102,7 @@ class DashboardObservationLogsServiceTest(unittest.TestCase):
         logs = result["data"]
         self.assertEqual(
             [(item["reason"], item["title"]) for item in logs],
-            [("黑名单关键词", "黑新"), ("观察期未满", "观察新")],
+            [("黑名拦截", "黑新"), ("继续观察", "观察新")],
         )
         self.assertEqual(plugin.data["anti_cheat_logs"], logs)
         archives = [(item["source_name"], item["title"]) for item in plugin.data["archive_records"]]
@@ -160,7 +160,7 @@ class DashboardObservationLogsServiceTest(unittest.TestCase):
         record = observation_service.observation_completion_log(item, rank)
 
         self.assertEqual(record["title"], "done")
-        self.assertEqual(record["reason"], "观察期完成")
+        self.assertEqual(record["reason"], "观察完成")
         self.assertEqual(record["time"], "2026-07-03 10:00:00")
         self.assertEqual(record["rank_key"], "tv_global")
         self.assertIn("2026-07-01 10:00:00", record["detail"])
@@ -195,7 +195,45 @@ class DashboardObservationLogsServiceTest(unittest.TestCase):
 
         self.assertTrue(changed)
         self.assertEqual([item["title"] for item in reconciled], ["keep", "done"])
-        self.assertEqual(reconciled[-1]["reason"], "观察期完成")
+        self.assertEqual(reconciled[-1]["reason"], "观察完成")
+
+    def test_reconcile_anti_cheat_logs_keeps_dropped_observation_status(self):
+        """观察条目跌出候选窗口后会保留跌出榜单日志。"""
+        logs = [
+            {"title": "跌出候选", "reason": "观察期未满", "detail": "已过 1 天，需要 2 天", "time": "2026-07-02 10:00:00"},
+            {"title": "继续观察", "reason": "观察期未满", "detail": "已过 1 天，需要 2 天", "time": "2026-07-02 11:00:00"},
+        ]
+        ranks = [
+            {
+                "key": "coming",
+                "name": "即将上映",
+                "history": [
+                    {
+                        "title": "跌出候选",
+                        "first_seen": "2026-07-01 10:00:00",
+                        "observing": False,
+                        "observe_dropped_at": "2026-07-03 10:00:00",
+                    },
+                    {
+                        "title": "继续观察",
+                        "first_seen": "2026-07-01 11:00:00",
+                        "observing": True,
+                    },
+                ],
+            }
+        ]
+
+        reconciled, changed = observation_service.reconcile_anti_cheat_logs(
+            logs,
+            subscribe_records=[],
+            ranks=ranks,
+            archived_completion_titles=set(),
+            existing_subscription_checker=lambda item: False,
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual([(item["title"], item["reason"]) for item in reconciled], [("继续观察", "继续观察"), ("跌出候选", "跌出榜单")])
+        self.assertEqual(reconciled[-1]["observe_dropped_reason"], "跌出榜单")
 
 
 if __name__ == "__main__":

@@ -168,10 +168,6 @@ class _Plugin:
     _genre_filters = []
     _resolution_filters = []
     _rank_configs = {}
-    _folio_pc_month = 3
-    _folio_pc_num = 50
-    _folio_mobile_month = 2
-    _folio_mobile_num = 15
     _dashboard_rank_keys = []
 
     def __init__(self):
@@ -238,10 +234,32 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertFalse(should_skip)
         logs = plugin.data["anti_cheat_logs"]
         self.assertEqual(len(logs), 1)
-        self.assertEqual(logs[0]["reason"], "观察期完成")
+        self.assertEqual(logs[0]["reason"], "观察完成")
         self.assertEqual(logs[0]["title"], "测试电影")
         self.assertIn("达到", logs[0]["detail"])
         self.assertIsNone(plugin.data.get("archive_records"))
+
+    def test_observe_restarts_when_dropped_item_returns_to_count_window(self):
+        plugin = _Plugin()
+        old_time = (datetime.datetime.now() - datetime.timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S")
+        history = [{
+            "unique": "rank:1",
+            "title": "回榜电影",
+            "time": old_time,
+            "first_seen": old_time,
+            "observing": False,
+            "observe_dropped_at": old_time,
+            "observe_dropped_reason": "跌出榜单",
+        }]
+
+        should_skip = self.feed._check_observe(plugin, "rank:1", history, title="回榜电影")
+
+        self.assertTrue(should_skip)
+        self.assertTrue(history[0]["observing"])
+        self.assertNotEqual(history[0]["first_seen"], old_time)
+        self.assertNotIn("observe_dropped_at", history[0])
+        self.assertNotIn("observe_dropped_reason", history[0])
+        self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "开始观察")
 
     def test_custom_rank_history_key_is_stable(self):
         source = "https://example.com/rss?token=abc"
@@ -470,7 +488,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertTrue(result)
         self.assertEqual([item["title"] for item in plugin.data["anti_cheat_logs"]], ["keep", "target"])
-        self.assertEqual(plugin.data["anti_cheat_logs"][1]["reason"], "\u89c2\u5bdf\u671f\u5b8c\u6210")
+        self.assertEqual(plugin.data["anti_cheat_logs"][1]["reason"], "观察完成")
 
     def test_existing_subscription_branch_cleans_observe_anti_cheat_logs(self):
         plugin = _Plugin()
@@ -548,7 +566,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.feed._process_general(plugin, "https://rsshub.example/douban/list/tv_global_best_weekly?limit=1", {"key": "tv_global", "name": "全球口碑", "route": "/douban/list/tv_global_best_weekly"})
 
         self.assertEqual(recognize_calls, [])
-        self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "黑名单关键词")
+        self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "黑名拦截")
         self.assertNotIn("observing", plugin.data["rank_history_tv_global"][0])
 
     def test_general_year_filter_skips_before_observe(self):
@@ -776,8 +794,10 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         finally:
             self.feed.logger = original_logger
 
-        self.assertTrue(any("筛选条件" in message and "评分>=9.0" in message for message in messages))
-        self.assertTrue(any("跳过《low score》：评分 7.0 < 9.0" in message for message in messages))
+        summaries = [message for message in messages if "豆瓣中心：[全球口碑] 订阅筛选完成" in message]
+        self.assertEqual(len(summaries), 1)
+        self.assertIn("筛选条件：候选 1 条；评分>=9.0；年份>=2024", summaries[0])
+        self.assertIn("- 跳过《low score》：评分 7.0 < 9.0", summaries[0])
 
     def test_process_general_subscribes_after_dashboard_refresh_history_exists(self):
         plugin = _Plugin()
@@ -964,6 +984,86 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.feed._process_coming(plugin, "https://rsshub.example/douban/tv/coming?limit=1", {"key": "coming", "name": "即将上映", "route": "/douban/tv/coming"})
 
         self.assertEqual(len(calls), 1)
+
+    def test_process_coming_drops_observations_outside_count_window(self):
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = True
+        plugin._observe_days = 2
+        plugin._observe_rank_keys = ["coming"]
+        plugin._rank_configs = {"coming": {"count": 1, "wish_count": 1000, "air_days": 7}}
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
+        )
+        plugin.data["coming_history"] = [
+            {
+                "title": "跌出候选",
+                "unique": "dc2_coming:https://example.com/old",
+                "first_seen": "2026-07-01 10:00:00",
+                "observing": True,
+            }
+        ]
+        plugin.data["anti_cheat_logs"] = [
+            {"title": "跌出候选", "reason": "观察期未满", "detail": "已过 1 天，需要 2 天", "time": "2026-07-02 10:00:00"}
+        ]
+        self.feed._fetch_coming_rss = lambda self_obj, url: [
+            {"title": "仍在候选", "link": "https://example.com/new", "year": "2026", "wish_count": 2000}
+        ]
+        self.feed.utils.get_tmdb_air_date = lambda *args, **kwargs: "2026-07-05"
+        self.feed.utils.is_within_days = lambda *args, **kwargs: True
+        self.feed._add_sub = lambda *args, **kwargs: True
+
+        self.feed._process_coming(
+            plugin,
+            "https://rsshub.example/douban/tv/coming?limit=1",
+            {"key": "coming", "name": "即将上映", "route": "/douban/tv/coming"},
+        )
+
+        dropped = plugin.data["coming_history"][0]
+        self.assertFalse(dropped["observing"])
+        self.assertIn("observe_dropped_at", dropped)
+        self.assertEqual(dropped["observe_dropped_reason"], "跌出榜单")
+
+    def test_process_coming_snapshots_drops_observations_outside_count_window(self):
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = True
+        plugin._observe_days = 2
+        plugin._observe_rank_keys = ["coming"]
+        plugin._rank_configs = {"coming": {"count": 1, "wish_count": 1000, "air_days": 7}}
+        plugin.chain = types.SimpleNamespace()
+        plugin.data["coming_history"] = [
+            {
+                "title": "快照跌出候选",
+                "unique": "dc2_coming:https://example.com/old-snapshot",
+                "first_seen": "2026-07-01 10:00:00",
+                "observing": True,
+            }
+        ]
+        snapshots = [
+            {
+                "raw": {"title": "快照仍在候选", "link": "https://example.com/new-snapshot", "year": "2026", "wish_count": 2000},
+                "entry": {
+                    "title": "快照仍在候选",
+                    "link": "https://example.com/new-snapshot",
+                    "year": "2026",
+                    "wish_count": 2000,
+                    "unique": "dc2_coming:https://example.com/new-snapshot",
+                },
+                "mediainfo": _MediaInfo(title="快照仍在候选", year="2026", mtype=_MediaType.TV, tmdb_id=67890),
+            }
+        ]
+        self.feed.utils.get_tmdb_air_date = lambda *args, **kwargs: "2026-07-05"
+        self.feed.utils.is_within_days = lambda *args, **kwargs: True
+        self.feed._add_sub = lambda *args, **kwargs: True
+
+        self.feed._process_coming_snapshots(
+            plugin,
+            snapshots,
+            {"key": "coming", "name": "即将上映", "route": "/douban/tv/coming", "coming": True},
+        )
+
+        dropped = plugin.data["coming_history"][0]
+        self.assertFalse(dropped["observing"])
+        self.assertIn("observe_dropped_at", dropped)
 
     def test_pending_observations_returns_observing_rank_items(self):
         dashboard = _import_dashboard()
@@ -1354,7 +1454,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         indexed = {item["unique"]: item for item in plugin.data["rank_history_tv_global"]}
         self.assertFalse(indexed["dc2_rank:https://example.com/old"].get("observing"))
-        self.assertEqual(indexed["dc2_rank:https://example.com/old"]["observe_dropped_reason"], "跌出当前自动订阅候选")
+        self.assertEqual(indexed["dc2_rank:https://example.com/old"]["observe_dropped_reason"], "跌出榜单")
 
     def test_dashboard_subscribe_ignores_library_exists_when_item_has_none(self):
         dashboard = _import_dashboard()
@@ -1583,8 +1683,8 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         page_js = self._active_asset_text("./Page", ".js")
         page_css = self._active_css_text("./Page").replace(" ", "")
 
-        self.assertIn("cheatLogs.value = logs.filter(log => !log || log.reason !== '黑名单关键词').slice(-5);", page_js)
-        self.assertIn("blacklistEntries.value = logs.filter(log => log && log.reason === '黑名单关键词').slice().reverse().slice(0, 5);", page_js)
+        self.assertIn("cheatLogs.value = logs.filter(log => !log || !['黑名拦截', '黑名单关键词'].includes(log.reason)).slice(-5);", page_js)
+        self.assertIn("blacklistEntries.value = logs.filter(log => log && ['黑名拦截', '黑名单关键词'].includes(log.reason)).slice().reverse().slice(0, 5);", page_js)
         self.assertNotIn('class: "dc-history-row dc-log-row"', page_js)
         self.assertIn('class: "dc-history-row dc-status-row"', page_js)
         self.assertIn('class: "dc-history-row dc-status-row dc-history-row--clickable"', page_js)
@@ -1646,7 +1746,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         logs = dashboard.api_anti_cheat_logs(plugin)["data"]
 
         self.assertEqual([item["title"] for item in logs], ["done", "keep"])
-        self.assertEqual(logs[0]["reason"], "观察期完成")
+        self.assertEqual(logs[0]["reason"], "观察完成")
         self.assertIn("2026-06-20 10:00:00", logs[0]["detail"])
         self.assertEqual(logs[1]["count"], 2)
         self.assertIsNone(plugin.data.get("archive_records"))
@@ -1690,7 +1790,9 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         result = dashboard.api_overview(plugin)
 
         self.assertEqual(result["code"], 0)
-        self.assertEqual([item["label"] for item in result["flows"]], ["榜单订阅", "归档治理", "豆瓣时间"])
+        self.assertEqual([item["label"] for item in result["flows"]], ["榜单订阅", "豆瓣时间", "公共归档"])
+        folio_group = next(item for item in result["flows"] if item["label"] == "豆瓣时间")
+        self.assertEqual([item["label"] for item in folio_group["flows"]], ["同步想看", "同步观影"])
         self.assertEqual(result["cards"]["rss"]["enabled"], 2)
         self.assertEqual(result["cards"]["archive"]["total"], 1)
         self.assertEqual(result["attention"]["blacklist_hits"], 1)
@@ -1759,7 +1861,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
                 "source_name": "观察完成",
                 "title": "旧完成",
                 "time": "2026-06-22 10:00:00",
-                "reason": "观察期完成",
+                "reason": "观察完成",
                 "archived_at": "2026-06-28 10:00:00",
                 "record": {"title": "旧完成", "time": "2026-06-22 10:00:00", "reason": "观察期完成", "detail": "已过 2 天，达到 2 天"},
             }
@@ -1769,7 +1871,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         archives = dashboard.api_archive_records(plugin)["data"]
 
         self.assertEqual([item["title"] for item in logs], ["旧完成"])
-        self.assertEqual(logs[0]["reason"], "观察期完成")
+        self.assertEqual(logs[0]["reason"], "观察完成")
         self.assertEqual(archives["total"], 0)
         self.assertEqual(plugin.data["archive_records"], [])
 
@@ -1805,8 +1907,8 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(history["total"], 5)
         self.assertEqual([item["title"] for item in history["items"]], ["订阅6", "订阅5", "订阅4", "订阅3", "订阅2"])
         self.assertEqual(len(logs), 10)
-        self.assertEqual(len([item for item in logs if item["reason"] == "黑名单关键词"]), 5)
-        self.assertEqual(len([item for item in logs if item["reason"] != "黑名单关键词"]), 5)
+        self.assertEqual(len([item for item in logs if item["reason"] == "黑名拦截"]), 5)
+        self.assertEqual(len([item for item in logs if item["reason"] != "黑名拦截"]), 5)
         self.assertEqual([item["title"] for item in pending], ["观察6", "观察5", "观察4", "观察3", "观察2"])
         self.assertFalse(plugin.data["rank_history_tv_global"][0]["observing"])
         self.assertTrue(plugin.data["rank_history_tv_global"][0]["observe_deleted"])
@@ -1934,7 +2036,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(history[0]["unique"], "rank:1")
         self.assertEqual(history[0]["title"], "测试电影")
         self.assertTrue(history[0]["observing"])
-        self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "观察期首次记录")
+        self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "开始观察")
 
     def test_subscription_service_deduplicates_records(self):
         service = _import_service("subscription")

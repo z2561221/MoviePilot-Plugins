@@ -8,6 +8,7 @@ CONFIG_VUE = PLUGIN_DIR / "src" / "components" / "Config.vue"
 PAGE_VUE = PLUGIN_DIR / "src" / "components" / "Page.vue"
 DASHBOARD_VUE = PLUGIN_DIR / "src" / "components" / "Dashboard.vue"
 DIST_ASSETS = PLUGIN_DIR / "dist" / "assets"
+OVERVIEW_SERVICE = PLUGIN_DIR / "service" / "dashboard_overview.py"
 
 
 def _compact_css(text: str) -> str:
@@ -69,7 +70,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
         )
         self.assertIn("@media (max-width: 760px)", text)
         self.assertIn(".dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }", text)
-        self.assertIn(".dc-rank-card-body { grid-template-columns: repeat(2, minmax(142px, auto)); }", text)
+        self.assertIn(".dc-rank-card-body { grid-template-columns: 1fr; }", text)
 
         compact_css = _compact_css(_active_css_text("./Config"))
         self.assertIn("gap:4px", compact_css)
@@ -77,7 +78,49 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("border-radius:8px;padding:5px10px", compact_css)
         self.assertIn("grid-template-columns:repeat(auto-fit,minmax(142px,auto))", compact_css)
         self.assertIn("@media(max-width:760px)", compact_css)
-        self.assertIn("grid-template-columns:repeat(2,minmax(142px,auto))", compact_css)
+        self.assertIn("grid-template-columns:1fr", compact_css)
+
+    def test_config_normalizes_legacy_null_nested_config(self):
+        """旧配置中的空嵌套对象不应导致 Vue 设置页白屏。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            "function normalizeInitialConfig",
+            "m.rank_configs && typeof m.rank_configs === 'object' && !Array.isArray(m.rank_configs)",
+            "m.rank_configs = {}",
+            "form.rank_configs[rd.key]",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
+
+    def test_mobile_config_dialog_matches_download_center_shell(self):
+        """移动端设置页外壳应与下载中心保持一致。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            ".dc-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }",
+            ".dc-card { height: min(860px, calc(100dvh - 16px)); }",
+            ".dc-rank-card-body { grid-template-columns: 1fr; }",
+            ".dc-rank-field { grid-template-columns: 42px minmax(0, 1fr); }",
+            ".dc-rank-input { width: 100%; max-width: none; }",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
+
+        compact_css = _compact_css(_active_css_text("./Config"))
+        required_css_fragments = [
+            ".dc-config[data-v-",
+            "width:min(100%,calc(100vw-16px));padding:4px",
+            "height:min(860px,calc(100dvh-16px))",
+            ".dc-rank-card-body[data-v-",
+            "grid-template-columns:1fr",
+            ".dc-rank-field[data-v-",
+            "grid-template-columns:42pxminmax(0,1fr)",
+            ".dc-rank-input[data-v-",
+            "width:100%;max-width:none",
+        ]
+        for fragment in required_css_fragments:
+            self.assertIn(fragment, compact_css)
 
     def test_dist_assets_do_not_keep_unreachable_old_chunks(self):
         stale_assets = [
@@ -112,8 +155,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
         for fragment in required_fragments:
             self.assertIn(fragment, text)
 
-        self.assertIn("log.reason !== '黑名单关键词'", text)
-        self.assertIn("log.reason === '黑名单关键词'", text)
+        self.assertIn("!['黑名拦截', '黑名单关键词'].includes(log.reason)", text)
+        self.assertIn("['黑名拦截', '黑名单关键词'].includes(log.reason)", text)
         self.assertNotIn("if (c) cheatLogs.value = c", text)
 
     def test_dashboard_source_keeps_native_subscribe_behaviour(self):
@@ -132,6 +175,125 @@ class ConfigFrontendContractTest(unittest.TestCase):
             self.assertIn(fragment, text)
 
         self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
+
+    def test_dashboard_timeline_scroll_is_isolated_on_mobile(self):
+        """追影时间线横滑不应带动榜单，月份组在移动端也保持单行。"""
+        text = DASHBOARD_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            'class="dc-timeline-scroll"',
+            'class="dc-timeline-months"',
+            'class="dc-timeline-month"',
+            ".dc-card { border-radius: 16px;",
+            "max-width: 100%;",
+            ".dc-rank-grid { display: grid;",
+            "overflow-x: hidden;",
+            ".dc-tl-cell { overflow: hidden;",
+            ".dc-timeline-scroll {",
+            "overflow-x: auto;",
+            "overscroll-behavior-x: contain;",
+            "touch-action: pan-x;",
+            ".dc-timeline-months {",
+            "flex-wrap: nowrap;",
+            ".dc-timeline-month { flex: 0 0 auto;",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
+
+        self.assertNotIn('class="d-flex flex-wrap" style="gap: 8px"', text)
+
+    def test_dashboard_timeline_display_options_are_removed_from_config_ui(self):
+        """仪表显示不再提供豆瓣时间线显示数量设置。"""
+        config_text = CONFIG_VUE.read_text(encoding="utf-8")
+        dashboard_text = DASHBOARD_VUE.read_text(encoding="utf-8")
+
+        removed_fragments = [
+            "豆瓣时间线显示设置",
+            "大屏显示月份数",
+            "大屏每月最多显示数",
+            "小屏显示月份数",
+            "小屏每月最多显示数",
+            "folio_pc_month",
+            "folio_pc_num",
+            "folio_mobile_month",
+            "folio_mobile_num",
+        ]
+        for fragment in removed_fragments:
+            self.assertNotIn(fragment, config_text)
+
+        self.assertNotIn("config.value?.folio_pc_month", dashboard_text)
+        self.assertNotIn("config.value?.folio_pc_num", dashboard_text)
+        self.assertIn("const TIMELINE_MONTH_LIMIT = 3", dashboard_text)
+        self.assertIn("const TIMELINE_ITEM_LIMIT = 50", dashboard_text)
+
+    def test_folio_sync_wish_tabs_and_controls_contract(self):
+        """豆瓣时间配置页会先显示同步想看，再显示同步观影。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        self.assertIn("wish_enabled: false", text)
+        self.assertIn("wish_cron: '*/30 * * * *'", text)
+        self.assertIn("wish_user: ''", text)
+        self.assertIn("wish_notify: false", text)
+        self.assertIn("wish_onlyonce: false", text)
+        self.assertIn("wish_days: 7", text)
+        self.assertIn("title: '同步想看'", text)
+        self.assertIn("title: '同步观影'", text)
+        self.assertLess(text.index("title: '同步想看'"), text.index("title: '同步观影'"))
+        self.assertNotIn("title: '同步设置'", text)
+
+        required_controls = [
+            'v-model="form.wish_enabled"',
+            'v-model="form.wish_cron"',
+            'v-model="form.wish_user"',
+            'v-model="form.wish_notify"',
+            'v-model="form.wish_onlyonce"',
+            'v-model.number="form.wish_days"',
+            "立即运行一次",
+            "overview?.cards?.folio?.wish",
+            "通过豆瓣动态 feed 同步",
+        ]
+        for fragment in required_controls:
+            self.assertIn(fragment, text)
+
+    def test_overview_flow_labels_use_grouped_contract(self):
+        """运行链路使用榜单、豆瓣时间、公共归档三组结构。"""
+        text = OVERVIEW_SERVICE.read_text(encoding="utf-8")
+
+        required_labels = [
+            "榜单订阅",
+            "豆瓣时间",
+            "同步想看",
+            "周期触发",
+            "读取想看",
+            "新增入队",
+            "媒体识别",
+            "创建订阅",
+            "同步观影",
+            "媒体事件",
+            "条目识别",
+            "豆瓣同步",
+            "写入时间",
+            "公共归档",
+            "条目删除",
+            "归档入库",
+            "手动恢复",
+            "记录清理",
+        ]
+        for label in required_labels:
+            self.assertIn(label, text)
+
+    def test_overview_flow_frontend_supports_nested_flows(self):
+        """运行链路前端支持豆瓣时间下的子链路渲染。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        required_fragments = [
+            "flow.flows",
+            "subFlow in flow.flows",
+            "dc-flow-sub",
+            "subFlow.steps",
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, text)
 
     def test_overview_and_rank_header_visual_contract(self):
         config_text = CONFIG_VUE.read_text(encoding="utf-8")

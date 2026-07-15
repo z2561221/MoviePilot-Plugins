@@ -5,6 +5,9 @@ from typing import Callable, Dict, List, Optional
 
 from ..storage import records as storage
 
+TIMELINE_MONTH_LIMIT = 3
+TIMELINE_ITEM_LIMIT = 50
+
 
 def get_folio_data(plugin) -> dict:
     """读取豆瓣时间数据，当前插件无数据时回退到原 DoubanCenter 数据。"""
@@ -19,15 +22,13 @@ def get_timeline_items(
     mobile: bool = False,
     poster_resolver: Optional[Callable[[dict], Optional[str]]] = None,
 ) -> List[dict]:
-    """按插件配置构建豆瓣时间线条目。"""
+    """按固定单排策略构建豆瓣时间线条目。"""
     data = storage.read_folio_data(plugin)
-    month_limit = getattr(plugin, "_folio_mobile_month" if mobile else "_folio_pc_month")
-    item_limit = getattr(plugin, "_folio_mobile_num" if mobile else "_folio_pc_num")
     return build_timeline_items(
         data,
         mobile=mobile,
-        month_limit=int(month_limit or 0),
-        item_limit=int(item_limit or 0),
+        month_limit=TIMELINE_MONTH_LIMIT,
+        item_limit=TIMELINE_ITEM_LIMIT,
         poster_resolver=poster_resolver,
     )
 

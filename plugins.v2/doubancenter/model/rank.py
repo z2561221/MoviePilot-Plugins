@@ -52,12 +52,12 @@ BUILTIN_RANKS: List[Dict[str, Any]] = [
 
 
 def builtin_ranks() -> List[Dict[str, Any]]:
-    """Return rank definitions as a fresh list."""
+    """返回内置榜单定义副本。"""
     return deepcopy(BUILTIN_RANKS)
 
 
 def default_observe_rank_keys() -> List[str]:
-    """Return default observe-enabled volatile rank keys."""
+    """返回默认启用观察期的高波动榜单 key。"""
     return list(DEFAULT_OBSERVE_RANK_KEYS)
 
 

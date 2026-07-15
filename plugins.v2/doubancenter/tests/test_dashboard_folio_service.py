@@ -14,10 +14,6 @@ class _MemoryPlugin:
     def __init__(self, data=None):
         """初始化内存存储和时间线配置。"""
         self.data = data or {}
-        self._folio_pc_month = 2
-        self._folio_pc_num = 1
-        self._folio_mobile_month = 1
-        self._folio_mobile_num = 2
 
     def get_data(self, key, **kwargs):
         """读取指定存储键。"""

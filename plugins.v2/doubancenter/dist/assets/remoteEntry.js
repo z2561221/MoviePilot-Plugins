@@ -2,14 +2,14 @@ const currentImports = {};
       const exportSet = new Set(['Module', '__esModule', 'default', '_export_sfc']);
       let moduleMap = {
 "./Config":()=>{
-      dynamicLoadingCss(["__federation_expose_Config-BOoqbgS0.css"], false, './Config');
-      return __federation_import('./__federation_expose_Config-BBhFKuSq.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Config-B59fUjEK.css"], false, './Config');
+      return __federation_import('./__federation_expose_Config-CWBrE0kV.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Page":()=>{
-      dynamicLoadingCss(["__federation_expose_Page-CX1pgaUu.css"], false, './Page');
-      return __federation_import('./__federation_expose_Page-DwgnTluy.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Page-DHpDGtou.css"], false, './Page');
+      return __federation_import('./__federation_expose_Page-yWU8B4wU.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Dashboard":()=>{
-      dynamicLoadingCss(["__federation_expose_Dashboard-Cf-xa3bO.css"], false, './Dashboard');
-      return __federation_import('./__federation_expose_Dashboard-CRFprvtM.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_Dashboard-DNunnFNc.css"], false, './Dashboard');
+      return __federation_import('./__federation_expose_Dashboard-BnLsUzC4.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;
@@ -48,9 +48,9 @@ const currentImports = {};
          } else {
            href = cssPath;
          }
-
+         
           if (dontAppendStylesToHead) {
-            const key = 'css__DoubanCenterV121__' + exposeItemName;
+            const key = 'css__DoubanCenter__' + exposeItemName;
             window[key] = window[key] || [];
             window[key].push(href);
             return;
