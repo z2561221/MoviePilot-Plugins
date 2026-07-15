@@ -65,6 +65,7 @@ class DoubanCenter(_PluginBase):
     _wish_max_pages = 1
     _wish_days = 7
     _dashboard_rank_keys: List[str] = []
+    _discovery_page_enabled = False
     _blacklist_keywords: str = ""
     _observe_days: int = 0
     _observe_rank_keys: List[str] = []
@@ -109,6 +110,7 @@ class DoubanCenter(_PluginBase):
         self._wish_max_pages = max(1, int(config.get("wish_max_pages", 1) or 1))
         self._wish_days = max(0, int(config.get("wish_days", 7) or 7))
         self._dashboard_rank_keys = config.get("dashboard_rank_keys") or []
+        self._discovery_page_enabled = bool(config.get("discovery_page_enabled", False))
         self._blacklist_keywords = config.get("blacklist_keywords") or ""
         self._observe_days = int(config.get("observe_days", 0) or 0)
         self._observe_rank_keys = config.get("observe_rank_keys") if "observe_rank_keys" in config else feed.default_observe_rank_keys()
@@ -163,6 +165,7 @@ class DoubanCenter(_PluginBase):
             "wish_max_pages": self._wish_max_pages,
             "wish_days": self._wish_days,
             "dashboard_rank_keys": self._dashboard_rank_keys,
+            "discovery_page_enabled": self._discovery_page_enabled,
             "blacklist_keywords": self._blacklist_keywords,
             "observe_days": self._observe_days,
             "observe_rank_keys": self._observe_rank_keys,
@@ -265,6 +268,21 @@ class DoubanCenter(_PluginBase):
     def get_render_mode() -> Tuple[str, str]:
         """声明插件使用 Vue 联邦组件渲染。"""
         return "vue", "dist/assets"
+
+    def get_sidebar_nav(self) -> List[Dict[str, Any]]:
+        """返回主界面发现分区的豆瓣中心全页入口。"""
+        if not self.get_state() or not self._discovery_page_enabled:
+            return []
+        return [
+            {
+                "nav_key": "main",
+                "title": "豆瓣中心",
+                "icon": "mdi-book-open-page-variant-outline",
+                "section": "discovery",
+                "permission": "discovery",
+                "order": 20,
+            }
+        ]
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """返回 Vue 模式下的默认配置模型。"""

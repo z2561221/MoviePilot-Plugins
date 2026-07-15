@@ -6,6 +6,7 @@ import unittest
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 CONFIG_VUE = PLUGIN_DIR / "src" / "components" / "Config.vue"
 PAGE_VUE = PLUGIN_DIR / "src" / "components" / "Page.vue"
+APP_PAGE_VUE = PLUGIN_DIR / "src" / "components" / "AppPage.vue"
 DASHBOARD_VUE = PLUGIN_DIR / "src" / "components" / "Dashboard.vue"
 API_JS = PLUGIN_DIR / "src" / "components" / "api.js"
 DIST_ASSETS = PLUGIN_DIR / "dist" / "assets"
@@ -159,6 +160,31 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("!['黑名拦截', '黑名单关键词'].includes(log.reason)", text)
         self.assertIn("['黑名拦截', '黑名单关键词'].includes(log.reason)", text)
         self.assertNotIn("if (c) cheatLogs.value = c", text)
+
+    def test_discovery_page_switch_reuses_detail_page(self):
+        """发现页开关应暴露全页组件，并复用详情页而非复制业务逻辑。"""
+        config_text = CONFIG_VUE.read_text(encoding="utf-8")
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+        app_page_text = APP_PAGE_VUE.read_text(encoding="utf-8")
+        remote_text = (DIST_ASSETS / "remoteEntry.js").read_text(encoding="utf-8")
+
+        self.assertIn("discovery_page_enabled: false", config_text)
+        self.assertIn('v-model="form.discovery_page_enabled"', config_text)
+        self.assertIn('label="开启发现页"', config_text)
+        self.assertIn("保存并刷新 MP 页面", config_text)
+        self.assertIn("import Page from './Page.vue'", app_page_text)
+        self.assertIn(':api="props.api" app-page', app_page_text)
+        self.assertNotIn("getPluginApi", app_page_text)
+        self.assertIn("appPage: { type: Boolean, default: false }", page_text)
+        self.assertEqual(page_text.count('v-if="!props.appPage"'), 2)
+        self.assertIn('"./AppPage"', remote_text)
+        app_page_css = re.search(
+            r'dynamicLoadingCss\(\[([^\]]+)\], false, \'\./AppPage\'\)',
+            remote_text,
+        )
+        self.assertIsNotNone(app_page_css)
+        self.assertIn("__federation_expose_AppPage-", app_page_css.group(1))
+        self.assertIn("__federation_expose_Page-", app_page_css.group(1))
 
     def test_page_labels_douban_wish_subscription_stats(self):
         """详情页订阅统计应将豆瓣想看显示为独立分类。"""

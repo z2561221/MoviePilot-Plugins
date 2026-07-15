@@ -25,6 +25,7 @@ export default defineConfig({
         './Config': './src/components/Config.vue',
         './Page': './src/components/Page.vue',
         './Dashboard': './src/components/Dashboard.vue',
+        './AppPage': './src/components/AppPage.vue',
       },
       shared: {
         vue: { requiredVersion: false, generate: false },

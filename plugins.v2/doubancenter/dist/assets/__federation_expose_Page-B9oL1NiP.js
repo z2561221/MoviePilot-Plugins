@@ -130,6 +130,7 @@ const _sfc_main = {
   props: {
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
+  appPage: { type: Boolean, default: false },
 },
   emits: ['close', 'switch'],
   setup(__props, { emit: __emit }) {
@@ -544,7 +545,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock(), _createBlock(_component_VCard, {
     flat: "",
-    class: "dc-page"
+    class: _normalizeClass(["dc-page", { 'dc-page--app': props.appPage }])
   }, {
     default: _withCtx(() => [
       _createVNode(_component_VToolbar, {
@@ -594,24 +595,30 @@ return (_ctx, _cache) => {
             ]),
             _: 1
           }, 8, ["prepend-icon", "color"]),
-          _createVNode(_component_VBtn, {
-            variant: "text",
-            size: "small",
-            "prepend-icon": "mdi-cog-outline",
-            class: "text-none me-1",
-            onClick: _cache[2] || (_cache[2] = $event => (emit('switch')))
-          }, {
-            default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
-              _createTextVNode("设置", -1)
-            ]))]),
-            _: 1
-          }),
-          _createVNode(_component_VBtn, {
-            icon: "mdi-close",
-            variant: "text",
-            size: "small",
-            onClick: _cache[3] || (_cache[3] = $event => (emit('close')))
-          })
+          (!props.appPage)
+            ? (_openBlock(), _createBlock(_component_VBtn, {
+                key: 0,
+                variant: "text",
+                size: "small",
+                "prepend-icon": "mdi-cog-outline",
+                class: "text-none me-1",
+                onClick: _cache[2] || (_cache[2] = $event => (emit('switch')))
+              }, {
+                default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
+                  _createTextVNode("设置", -1)
+                ]))]),
+                _: 1
+              }))
+            : _createCommentVNode("", true),
+          (!props.appPage)
+            ? (_openBlock(), _createBlock(_component_VBtn, {
+                key: 1,
+                icon: "mdi-close",
+                variant: "text",
+                size: "small",
+                onClick: _cache[3] || (_cache[3] = $event => (emit('close')))
+              }))
+            : _createCommentVNode("", true)
         ]),
         _: 1
       }),
@@ -1245,11 +1252,11 @@ return (_ctx, _cache) => {
       }, 8, ["modelValue"])
     ]),
     _: 1
-  }))
+  }, 8, ["class"]))
 }
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1a847a64"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c9e31737"]]);
 
 export { Page as default };

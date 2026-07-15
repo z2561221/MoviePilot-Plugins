@@ -5,6 +5,7 @@ import { getPluginApi, postPluginApi, toPosterThumbnail } from './api'
 const props = defineProps({
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
+  appPage: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'switch'])
 
@@ -397,7 +398,7 @@ onMounted(loadAll)
 </script>
 
 <template>
-  <VCard flat class="dc-page">
+  <VCard flat class="dc-page" :class="{ 'dc-page--app': props.appPage }">
     <VToolbar density="comfortable" class="dc-page-toolbar">
       <VAvatar color="primary" variant="tonal" rounded="lg" class="ms-3 me-2"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
       <div class="dc-page-heading">
@@ -407,8 +408,8 @@ onMounted(loadAll)
       <VSpacer />
       <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-1" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">刷新</VBtn>
       <VBtn variant="text" size="small" :prepend-icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" class="text-none me-1" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">{{ archivePage ? '返回' : '归档' }}</VBtn>
-      <VBtn variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1" @click="emit('switch')">设置</VBtn>
-      <VBtn icon="mdi-close" variant="text" size="small" @click="emit('close')" />
+      <VBtn v-if="!props.appPage" variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1" @click="emit('switch')">设置</VBtn>
+      <VBtn v-if="!props.appPage" icon="mdi-close" variant="text" size="small" @click="emit('close')" />
     </VToolbar>
     <VDivider />
     <VCardText class="pa-3 dc-flow">
@@ -586,6 +587,7 @@ onMounted(loadAll)
 
 <style scoped>
 .dc-page { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
+.dc-page--app { width: 100%; min-height: calc(100dvh - 104px); border-radius: 14px; }
 .dc-page-toolbar { background: rgb(var(--v-theme-surface)); padding-right: 8px; }
 .dc-page-heading { min-width: 0; }
 .dc-page-heading .text-h6,

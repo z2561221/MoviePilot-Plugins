@@ -151,6 +151,7 @@ class DoubanCenterWishOnlyOnceTest(unittest.TestCase):
         plugin.init_plugin({"enabled": True})
 
         self.assertFalse(plugin.saved_config["wish_onlyonce"])
+        self.assertFalse(plugin.saved_config["discovery_page_enabled"])
 
     def test_init_plugin_runs_wish_once_and_resets_flag(self):
         """想看立即运行开关会触发一次同步并写回关闭。"""
@@ -162,6 +163,32 @@ class DoubanCenterWishOnlyOnceTest(unittest.TestCase):
         self.assertEqual(calls["wish"], [plugin])
         self.assertEqual(calls["rank"], [])
         self.assertFalse(plugin.saved_config["wish_onlyonce"])
+
+    def test_discovery_page_nav_respects_plugin_state_and_switch(self):
+        """发现页入口应同时受插件启用状态与独立开关控制。"""
+        module, _calls = _load_plugin_entry()
+        plugin = module.DoubanCenter()
+
+        plugin.init_plugin({"enabled": False, "discovery_page_enabled": True})
+        self.assertEqual(plugin.get_sidebar_nav(), [])
+
+        plugin.init_plugin({"enabled": True, "discovery_page_enabled": False})
+        self.assertEqual(plugin.get_sidebar_nav(), [])
+
+        plugin.init_plugin({"enabled": True, "discovery_page_enabled": True})
+        self.assertEqual(
+            plugin.get_sidebar_nav(),
+            [
+                {
+                    "nav_key": "main",
+                    "title": "豆瓣中心",
+                    "icon": "mdi-book-open-page-variant-outline",
+                    "section": "discovery",
+                    "permission": "discovery",
+                    "order": 20,
+                }
+            ],
+        )
 
 
 if __name__ == "__main__":

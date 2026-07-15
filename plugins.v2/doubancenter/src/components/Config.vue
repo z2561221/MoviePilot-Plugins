@@ -30,6 +30,7 @@ const defaults = {
   folio_user: '', folio_exclude: '', folio_cookie: '',
   wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_onlyonce: false, wish_max_pages: 1, wish_days: 7,
   dashboard_rank_keys: [],
+  discovery_page_enabled: false,
   blacklist_keywords: '',
   observe_days: 0,
   observe_rank_keys: ['coming', 'tv_real_time'],
@@ -328,8 +329,11 @@ onMounted(loadOverview)
 
             <div v-show="activeSub === 'view'" class="dc-pane">
               <div class="dc-section-title">仪表盘选择</div>
-              <VAlert type="info" variant="tonal" density="compact" class="mb-2" text="先在「榜单列表」中启用榜单，此处即可选择在仪表盘并排显示。最多选 2 个。" />
-              <VRow><VCol cols="12" md="6"><VSelect v-model="form.dashboard_rank_keys" label="选择要显示的榜单" :items="rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key }))" multiple chips clearable density="compact" variant="outlined" hide-details /></VCol></VRow>
+              <VAlert type="info" variant="tonal" density="compact" class="mb-2" text="仪表盘最多选择 2 个已启用榜单；开启发现页后，保存并刷新 MP 页面即可从左侧「发现」分组进入豆瓣中心。" />
+              <VRow>
+                <VCol cols="12" md="6"><VSelect v-model="form.dashboard_rank_keys" label="选择要显示的榜单" :items="rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key }))" multiple chips clearable density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" md="6"><VSwitch v-model="form.discovery_page_enabled" color="success" inset hide-details label="开启发现页" /></VCol>
+              </VRow>
             </div>
           </div>
         </section>

@@ -90,9 +90,25 @@ class DoubanCenterRuntimeContractsTest(unittest.TestCase):
 
     def test_vue_runtime_asset_contract_is_preserved(self):
         init_text = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8-sig")
+        vite_text = (PLUGIN_DIR / "vite.config.js").read_text(encoding="utf-8")
+        remote_text = (PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js").read_text(encoding="utf-8")
 
         self.assertIn('return "vue", "dist/assets"', init_text)
         self.assertTrue((PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js").exists())
+        self.assertTrue((PLUGIN_DIR / "src" / "components" / "AppPage.vue").exists())
+        self.assertIn("'./AppPage': './src/components/AppPage.vue'", vite_text)
+        self.assertIn('"./AppPage"', remote_text)
+
+    def test_discovery_page_config_and_sidebar_contract_are_declared(self):
+        """发现页开关应进入默认配置、运行配置和发现分区侧栏声明。"""
+        config_text = (PLUGIN_DIR / "model" / "config.py").read_text(encoding="utf-8")
+        init_text = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8-sig")
+
+        self.assertIn('"discovery_page_enabled": False', config_text)
+        self.assertIn('config.get("discovery_page_enabled", False)', init_text)
+        self.assertIn('if not self.get_state() or not self._discovery_page_enabled:', init_text)
+        self.assertIn('"section": "discovery"', init_text)
+        self.assertIn('"permission": "discovery"', init_text)
 
     def test_frontend_metadata_and_page_toolbar_are_standardized(self):
         init_text = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8-sig")
