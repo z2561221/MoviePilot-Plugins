@@ -646,8 +646,8 @@ return (_ctx, _cache) => {
                           class: "dc-history-row dc-archive-row"
                         }, [
                           _createVNode(_component_VAvatar, {
-                            size: "28",
-                            class: "mr-2 flex-shrink-0",
+                            rounded: "sm",
+                            class: "dc-history-poster mr-2 flex-shrink-0",
                             color: archiveColor(item),
                             variant: "tonal"
                           }, {
@@ -655,7 +655,8 @@ return (_ctx, _cache) => {
                               (archivePoster(item))
                                 ? (_openBlock(), _createBlock(_component_VImg, {
                                     key: 0,
-                                    src: archivePoster(item)
+                                    src: archivePoster(item),
+                                    cover: ""
                                   }, null, 8, ["src"]))
                                 : (_openBlock(), _createBlock(_component_VIcon, {
                                     key: 1,
@@ -976,14 +977,15 @@ return (_ctx, _cache) => {
                               class: "dc-history-row dc-status-row"
                             }, [
                               _createVNode(_component_VAvatar, {
-                                size: "28",
-                                class: "mr-2 flex-shrink-0"
+                                rounded: "sm",
+                                class: "dc-history-poster mr-2 flex-shrink-0"
                               }, {
                                 default: _withCtx(() => [
                                   (item.poster)
                                     ? (_openBlock(), _createBlock(_component_VImg, {
                                         key: 0,
-                                        src: _unref(toPosterThumbnail)(item.poster)
+                                        src: _unref(toPosterThumbnail)(item.poster),
+                                        cover: ""
                                       }, null, 8, ["src"]))
                                     : (_openBlock(), _createBlock(_component_VIcon, {
                                         key: 1,
@@ -1077,14 +1079,15 @@ return (_ctx, _cache) => {
                               class: "dc-history-row dc-status-row"
                             }, [
                               _createVNode(_component_VAvatar, {
-                                size: "28",
-                                class: "mr-2 flex-shrink-0"
+                                rounded: "sm",
+                                class: "dc-history-poster mr-2 flex-shrink-0"
                               }, {
                                 default: _withCtx(() => [
                                   (log.poster)
                                     ? (_openBlock(), _createBlock(_component_VImg, {
                                         key: 0,
-                                        src: _unref(toPosterThumbnail)(log.poster)
+                                        src: _unref(toPosterThumbnail)(log.poster),
+                                        cover: ""
                                       }, null, 8, ["src"]))
                                     : (_openBlock(), _createBlock(_component_VIcon, {
                                         key: 1,
@@ -1248,6 +1251,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4ef359c5"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5dcd01f0"]]);
 
 export { Page as default };

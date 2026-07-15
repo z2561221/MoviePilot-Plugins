@@ -217,6 +217,24 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertNotIn(" eager", dashboard_text)
         self.assertNotIn(" eager", page_text)
 
+    def test_detail_history_posters_use_compact_rectangular_style(self):
+        """归档、订阅历史和观察日志海报应统一为紧凑矩形。"""
+        text = PAGE_VUE.read_text(encoding="utf-8")
+
+        self.assertEqual(
+            text.count('<VAvatar rounded="sm" class="dc-history-poster'),
+            3,
+        )
+        self.assertIn(
+            ".dc-history-poster { flex: 0 0 24px !important; width: 24px !important; height: 36px !important;",
+            text,
+        )
+        self.assertNotIn('<VAvatar size="28" rounded="sm" class="dc-history-poster', text)
+        self.assertIn(
+            ".dc-rank-poster { flex: 0 0 20px; width: 20px; height: 28px; border-radius: 3px;",
+            text,
+        )
+
     def test_dashboard_timeline_scroll_is_isolated_on_mobile(self):
         """追影时间线横滑不应带动榜单，月份组在移动端也保持单行。"""
         text = DASHBOARD_VUE.read_text(encoding="utf-8")

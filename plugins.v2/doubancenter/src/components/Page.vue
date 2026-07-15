@@ -420,8 +420,8 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">归档记录 <span class="text-caption font-weight-regular text-medium-emphasis">（共 {{ archiveData.total || 0 }} 条）</span></div>
           <div v-if="archiveData.items && archiveData.items.length" class="dc-history-list">
             <div v-for="(item, i) in archiveData.items" :key="item.id || i" class="dc-history-row dc-archive-row">
-              <VAvatar size="28" class="mr-2 flex-shrink-0" :color="archiveColor(item)" variant="tonal">
-                <VImg v-if="archivePoster(item)" :src="archivePoster(item)" />
+              <VAvatar rounded="sm" class="dc-history-poster mr-2 flex-shrink-0" :color="archiveColor(item)" variant="tonal">
+                <VImg v-if="archivePoster(item)" :src="archivePoster(item)" cover />
                 <VIcon v-else :icon="archiveIcon(item)" size="14" />
               </VAvatar>
               <div class="dc-history-info">
@@ -521,7 +521,7 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">订阅历史 <span class="text-caption font-weight-regular text-medium-emphasis">（共 {{ historyData.total }} 条）</span></div>
           <div v-if="historyData.items && historyData.items.length" class="dc-history-list">
             <div v-for="(item, i) in historyData.items" :key="i" class="dc-history-row dc-status-row">
-              <VAvatar size="28" class="mr-2 flex-shrink-0"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
+              <VAvatar rounded="sm" class="dc-history-poster mr-2 flex-shrink-0"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ item.title }}</div>
                 <div class="dc-history-meta">
@@ -545,7 +545,7 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">观察日志 <span class="text-caption font-weight-regular text-medium-emphasis">（最近 {{ cheatLogs.length }} 条）</span></div>
           <div v-if="cheatLogs && cheatLogs.length" class="dc-history-list">
             <div v-for="(log, i) in cheatLogs.slice().reverse()" :key="i" class="dc-history-row dc-status-row">
-              <VAvatar size="28" class="mr-2 flex-shrink-0"><VImg v-if="log.poster" :src="toPosterThumbnail(log.poster)" /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
+              <VAvatar rounded="sm" class="dc-history-poster mr-2 flex-shrink-0"><VImg v-if="log.poster" :src="toPosterThumbnail(log.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ log.title }}</div>
                 <div class="dc-history-meta">
@@ -621,6 +621,7 @@ onMounted(loadAll)
 .dc-rank-row { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
 .dc-rank-poster { flex: 0 0 20px; width: 20px; height: 28px; border-radius: 3px; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
+.dc-history-poster { flex: 0 0 24px !important; width: 24px !important; height: 36px !important; min-width: 24px; min-height: 36px; aspect-ratio: 2 / 3; border-radius: 3px !important; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
 .dc-rank-title { flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
 .dc-rank-empty { font-size: 12px; color: rgba(var(--v-theme-on-surface), .5); padding: 8px; text-align: center; }
