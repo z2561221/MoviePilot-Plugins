@@ -256,6 +256,30 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("min-height:40px", dashboard_css)
         self.assertIn("min-height:42px", page_css)
 
+    def test_rank_titles_wrap_to_two_lines(self):
+        """仪表盘与详情榜单长标题应自适应换行并限制为两行。"""
+        for source_path, expose_name in (
+            (DASHBOARD_VUE, "./Dashboard"),
+            (PAGE_VUE, "./Page"),
+        ):
+            text = source_path.read_text(encoding="utf-8")
+            match = re.search(r"\.dc-rank-title \{([^}]+)\}", text)
+            self.assertIsNotNone(match)
+            title_css = _compact_css(match.group(1))
+            self.assertIn("display:-webkit-box", title_css)
+            self.assertIn("-webkit-box-orient:vertical", title_css)
+            self.assertIn("-webkit-line-clamp:2", title_css)
+            self.assertIn("white-space:normal", title_css)
+            self.assertIn("overflow-wrap:anywhere", title_css)
+            self.assertNotIn("white-space:nowrap", title_css)
+
+            built_css = _compact_css(_active_css_text(expose_name))
+            self.assertIn("display:-webkit-box", built_css)
+            self.assertIn("-webkit-box-orient:vertical", built_css)
+            self.assertIn("-webkit-line-clamp:2", built_css)
+            self.assertIn("white-space:normal", built_css)
+            self.assertIn("overflow-wrap:anywhere", built_css)
+
     def test_dashboard_timeline_scroll_is_isolated_on_mobile(self):
         """追影时间线横滑不应带动榜单，月份组在移动端也保持单行。"""
         text = DASHBOARD_VUE.read_text(encoding="utf-8")
