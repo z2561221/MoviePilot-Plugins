@@ -16,6 +16,25 @@ const historyPageSize = 10
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 10) || [])
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || [])
 const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.value.total || 0) / historyPageSize)))
+const positiveTags = computed(() => state.profile.value?.tags || [])
+const negativeTags = computed(() => state.profile.value?.negative_tags || [])
+const profileStats = computed(() => [
+  { label: '订阅样本', value: state.profile.value?.subscription_count || 0, suffix: '条', icon: 'mdi-database-check-outline' },
+  { label: '偏好标签', value: positiveTags.value.length, suffix: '个', icon: 'mdi-heart-outline' },
+  { label: '避雷标签', value: negativeTags.value.length, suffix: '个', icon: 'mdi-shield-alert-outline' },
+])
+const boardMatchTags = computed(() => {
+  const counts = new Map()
+  recommendations.value.forEach(item => {
+    const tags = item.match_tags || []
+    tags.forEach(tag => counts.set(tag, (counts.get(tag) || 0) + 1))
+  })
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'zh-CN'))
+    .slice(0, 10)
+    .map(([tag, count]) => ({ tag, count }))
+})
+const profileRunId = computed(() => String(state.profile.value?.run_id || '').slice(0, 8) || '—')
 const detailStats = computed(() => [
   { label: '榜单条目', value: recommendations.value.length, suffix: '部', icon: 'mdi-format-list-numbered' },
   { label: '画像样本', value: state.profile.value?.subscription_count || 0, suffix: '条', icon: 'mdi-account-heart-outline' },
@@ -213,8 +232,9 @@ onMounted(initialize)
           <div class="ar-page__section-head">
             <div>
               <div class="ar-page__section-title">用户画像</div>
-              <div class="ar-page__section-desc">画像来自当前订阅样本，用于约束推荐方向。</div>
+              <div class="ar-page__section-desc">用订阅样本描述偏好、避雷方向与本轮榜单命中。</div>
             </div>
+            <VChip size="small" variant="tonal" prepend-icon="mdi-clock-outline">{{ formatTime(state.profile.value?.generated_at) }}</VChip>
           </div>
 
           <VCard variant="outlined" class="ar-page__section-card">
@@ -223,18 +243,46 @@ onMounted(initialize)
                 <VAvatar color="primary" variant="tonal" size="44"><VIcon icon="mdi-account-heart-outline" /></VAvatar>
               </template>
               <VCardTitle class="text-subtitle-1 font-weight-bold">画像摘要</VCardTitle>
-              <VCardSubtitle>生成于 {{ formatTime(state.profile.value?.generated_at) }}</VCardSubtitle>
+              <VCardSubtitle>用户 {{ state.selectedUser.value || '—' }} · 运行 {{ profileRunId }}</VCardSubtitle>
             </VCardItem>
             <VDivider />
             <VCardText class="ar-page__profile-body">
-              <div class="ar-page__profile-summary">{{ state.profile.value?.summary || '尚未生成用户画像' }}</div>
-              <div class="ar-page__profile-sample">
-                <VIcon icon="mdi-database-check-outline" color="primary" size="20" />
-                <div><strong>{{ state.profile.value?.subscription_count || 0 }}</strong><span>订阅样本</span></div>
+              <div class="ar-page__profile-summary-panel">
+                <div class="ar-page__profile-label"><VIcon icon="mdi-text-box-search-outline" size="18" />口味摘要</div>
+                <div class="ar-page__profile-summary">{{ state.profile.value?.summary || '尚未生成用户画像' }}</div>
               </div>
-              <div class="ar-page__chips">
-                <VChip v-for="tag in state.profile.value?.tags || []" :key="tag" color="primary" variant="tonal" size="small">{{ tag }}</VChip>
-                <span v-if="!state.profile.value?.tags?.length" class="text-caption text-medium-emphasis">暂无画像标签</span>
+
+              <div class="ar-page__profile-metrics">
+                <div v-for="stat in profileStats" :key="stat.label" class="ar-page__profile-metric">
+                  <VIcon :icon="stat.icon" color="primary" size="19" />
+                  <div><strong>{{ stat.value }}<span>{{ stat.suffix }}</span></strong><small>{{ stat.label }}</small></div>
+                </div>
+              </div>
+
+              <div class="ar-page__profile-groups">
+                <div class="ar-page__profile-group">
+                  <div class="ar-page__profile-label"><VIcon icon="mdi-heart-outline" size="18" />偏好标签</div>
+                  <div class="ar-page__chips">
+                    <VChip v-for="tag in positiveTags" :key="tag" color="primary" variant="tonal" size="small">{{ tag }}</VChip>
+                    <span v-if="!positiveTags.length" class="text-caption text-medium-emphasis">暂无偏好标签</span>
+                  </div>
+                </div>
+                <div class="ar-page__profile-group">
+                  <div class="ar-page__profile-label ar-page__profile-label--negative"><VIcon icon="mdi-shield-alert-outline" size="18" />避雷标签</div>
+                  <div class="ar-page__chips">
+                    <VChip v-for="tag in negativeTags" :key="tag" color="error" variant="tonal" size="small">{{ tag }}</VChip>
+                    <span v-if="!negativeTags.length" class="text-caption text-medium-emphasis">暂无避雷标签</span>
+                  </div>
+                </div>
+                <div class="ar-page__profile-group">
+                  <div class="ar-page__profile-label"><VIcon icon="mdi-target-account" size="18" />本轮命中</div>
+                  <div class="ar-page__chips">
+                    <VChip v-for="item in boardMatchTags" :key="item.tag" color="info" variant="tonal" size="small">
+                      {{ item.tag }}<span v-if="item.count > 1" class="ar-page__tag-count">×{{ item.count }}</span>
+                    </VChip>
+                    <span v-if="!boardMatchTags.length" class="text-caption text-medium-emphasis">暂无命中标签</span>
+                  </div>
+                </div>
               </div>
             </VCardText>
           </VCard>
@@ -309,22 +357,24 @@ onMounted(initialize)
 </template>
 
 <style scoped>
-.ar-page { width: min(1240px, calc(100vw - 32px)); max-width: 100%; height: min(840px, calc(100dvh - 32px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 14px; background: rgb(var(--v-theme-surface)); }
+.ar-page { width: min(1240px, calc(100vw - 32px)); max-width: 100%; height: min(840px, calc(100dvh - 32px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 14px; background: transparent; }
 .ar-page__toolbar { flex: 0 0 auto; background: transparent; }
 .ar-page :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
+.ar-page :deep(.v-tabs), .ar-page :deep(.v-table), .ar-page :deep(.v-skeleton-loader), .ar-page :deep(.v-empty-state) { background: transparent; }
+.ar-page__table-wrap :deep(.v-table__wrapper > table > thead > tr > th) { background: rgba(var(--v-theme-on-surface), .018) !important; }
 .ar-page__brand { flex: 0 0 auto; }
 .ar-page__heading { min-width: 0; }
 .ar-page__title { font-size: 1.08rem; font-weight: 700; line-height: 1.35; }
 .ar-page__subtitle { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; }
 .ar-page__user { width: 150px; margin-right: 4px; }
-.ar-page__summary-bar { min-height: 68px; display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)) auto; align-items: center; gap: 10px; padding: 10px 16px; background: rgba(var(--v-theme-on-surface), .018); }
+.ar-page__summary-bar { min-height: 68px; display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)) auto; align-items: center; gap: 10px; padding: 10px 16px; background: transparent; }
 .ar-page__stat { min-width: 0; display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .7)); }
 .ar-page__stat-value { font-size: 17px; font-weight: 700; line-height: 1.2; }
 .ar-page__stat-value span { margin-left: 2px; color: rgba(var(--v-theme-on-surface), .48); font-size: 11px; font-weight: 500; }
 .ar-page__stat-label { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .55); font-size: 11px; }
 .ar-page__runtime-chip { margin-inline: 8px; }
-.ar-page__tabs { flex: 0 0 auto; min-height: 44px; }
-.ar-page__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 18px 18px; }
+.ar-page__tabs { flex: 0 0 auto; min-height: 44px; background: transparent; }
+.ar-page__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 18px 18px; background: transparent; }
 .ar-page__pane { min-height: 100%; }
 .ar-page__section-head { min-height: 46px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .ar-page__section-title { font-size: 15px; font-weight: 700; }
@@ -347,12 +397,22 @@ onMounted(initialize)
 .ar-page__rank-actions { display: flex; align-items: center; overflow-x: auto; padding-bottom: 2px; }
 .ar-page__section-card, .ar-page__archive-card, .ar-page__table-card { border-radius: 10px; background: transparent; }
 .ar-page__profile-head { padding: 14px 16px; }
-.ar-page__profile-body { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 16px 22px; padding: 18px; }
-.ar-page__profile-summary { font-size: 14px; line-height: 1.75; }
-.ar-page__profile-sample { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px; background: rgba(var(--v-theme-primary), .07); }
-.ar-page__profile-sample strong { display: block; font-size: 18px; line-height: 1.2; }
-.ar-page__profile-sample span { color: rgba(var(--v-theme-on-surface), .55); font-size: 11px; }
-.ar-page__chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.ar-page__profile-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 12px; padding: 14px; }
+.ar-page__profile-summary-panel, .ar-page__profile-metrics, .ar-page__profile-group { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .72)); border-radius: 9px; background: transparent; }
+.ar-page__profile-summary-panel { min-height: 118px; padding: 12px 14px; }
+.ar-page__profile-summary { margin-top: 8px; font-size: 14px; line-height: 1.7; }
+.ar-page__profile-label { display: flex; align-items: center; gap: 6px; color: rgb(var(--v-theme-primary)); font-size: 12px; font-weight: 700; }
+.ar-page__profile-label--negative { color: rgb(var(--v-theme-error)); }
+.ar-page__profile-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; overflow: hidden; }
+.ar-page__profile-metric { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 10px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .62)); }
+.ar-page__profile-metric:last-child { border-right: 0; }
+.ar-page__profile-metric strong { display: block; font-size: 17px; line-height: 1.2; }
+.ar-page__profile-metric strong span { margin-left: 2px; color: rgba(var(--v-theme-on-surface), .48); font-size: 10px; font-weight: 500; }
+.ar-page__profile-metric small { display: block; margin-top: 2px; color: rgba(var(--v-theme-on-surface), .55); font-size: 10px; white-space: nowrap; }
+.ar-page__profile-groups { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ar-page__profile-group { min-height: 108px; padding: 11px 12px; }
+.ar-page__chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.ar-page__tag-count { margin-left: 3px; opacity: .66; font-size: 10px; }
 .ar-page__archive-card :deep(.v-card-item) { padding: 12px 14px; }
 .ar-page__archive-rank { min-width: 38px; height: 32px; display: grid; place-items: center; border-radius: 8px; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .1); font-size: 12px; font-weight: 700; }
 .ar-page__archive-summary { padding-top: 0; color: rgba(var(--v-theme-on-surface), .62); font-size: 12px; }
@@ -368,6 +428,9 @@ onMounted(initialize)
   .ar-page__rank-item { grid-template-columns: 34px 60px minmax(0, 1fr); }
   .ar-page__poster { width: 60px; height: 90px; }
   .ar-page__rank-actions { grid-column: 2 / -1; justify-content: flex-end; }
+  .ar-page__profile-body { grid-template-columns: 1fr; }
+  .ar-page__profile-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ar-page__profile-group:last-child { grid-column: 1 / -1; }
 }
 @media (max-width: 760px) {
   .ar-page { width: min(100%, calc(100vw - 12px)); height: min(880px, calc(100dvh - 12px)); }
@@ -388,8 +451,12 @@ onMounted(initialize)
   .ar-page__rank { width: 28px; height: 28px; }
   .ar-page__rank-actions { grid-column: 2 / -1; justify-content: flex-end; }
   .ar-page__profile-head :deep(.v-card-item__append) { align-self: flex-start; }
-  .ar-page__profile-body { grid-template-columns: 1fr; padding: 14px; }
-  .ar-page__chips { grid-column: auto; }
+  .ar-page__profile-body { padding: 12px; }
+  .ar-page__profile-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ar-page__profile-metric { justify-content: center; padding: 9px 6px; }
+  .ar-page__profile-metric :deep(.v-icon) { display: none; }
+  .ar-page__profile-groups { grid-template-columns: 1fr; }
+  .ar-page__profile-group:last-child { grid-column: auto; }
 }
 @media (max-width: 430px) {
   .ar-page { width: 100%; height: calc(100dvh - 4px); border-radius: 10px; }

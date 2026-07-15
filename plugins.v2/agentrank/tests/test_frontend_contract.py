@@ -121,6 +121,34 @@ def test_detail_page_focuses_on_four_data_views_without_weights():
     assert "ar-page__rank-copy" in page
 
 
+def test_detail_page_uses_transparent_root_and_data_surfaces():
+    """详情页根容器、工具栏、统计栏、页签和表格均继承宿主背景。"""
+    page = _read("Page.vue")
+    root_style = next(line for line in page.splitlines() if line.startswith(".ar-page {"))
+    summary_style = next(
+        line for line in page.splitlines() if line.startswith(".ar-page__summary-bar {")
+    )
+    assert "background: transparent;" in root_style
+    assert "v-theme-surface" not in root_style
+    assert "background: transparent;" in summary_style
+    assert ".ar-page__toolbar { flex: 0 0 auto; background: transparent; }" in page
+    assert ".ar-page :deep(.v-tabs), .ar-page :deep(.v-table)" in page
+    assert ".ar-page__content" in page and "background: transparent;" in page
+
+
+def test_profile_view_shows_preferences_avoidances_and_board_matches():
+    """画像页使用现有字段展示偏好、避雷和本轮榜单命中，不新增接口请求。"""
+    page = _read("Page.vue")
+    state = _read("useAgentRankState.js")
+    assert "state.profile.value?.negative_tags" in page
+    assert "item.match_tags || []" in page
+    for label in ("订阅样本", "偏好标签", "避雷标签", "本轮命中"):
+        assert label in page
+    assert "ar-page__profile-groups" in page
+    assert "getPluginApi(api, 'overview', { username })" in state
+    assert "getPluginApi(props.api" not in page
+
+
 def test_ranking_posters_do_not_force_eager_loading():
     """三个榜单页面的海报均按需加载，避免首屏争抢网络。"""
     for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
