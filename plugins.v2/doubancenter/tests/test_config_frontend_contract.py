@@ -7,6 +7,7 @@ PLUGIN_DIR = Path(__file__).resolve().parents[1]
 CONFIG_VUE = PLUGIN_DIR / "src" / "components" / "Config.vue"
 PAGE_VUE = PLUGIN_DIR / "src" / "components" / "Page.vue"
 DASHBOARD_VUE = PLUGIN_DIR / "src" / "components" / "Dashboard.vue"
+API_JS = PLUGIN_DIR / "src" / "components" / "api.js"
 DIST_ASSETS = PLUGIN_DIR / "dist" / "assets"
 OVERVIEW_SERVICE = PLUGIN_DIR / "service" / "dashboard_overview.py"
 
@@ -182,6 +183,39 @@ class ConfigFrontendContractTest(unittest.TestCase):
             self.assertIn(fragment, text)
 
         self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
+
+    def test_dashboard_loads_initial_data_concurrently(self):
+        """仪表盘首次挂载应并发请求配置、榜单历史和豆瓣时间。"""
+        text = DASHBOARD_VUE.read_text(encoding="utf-8")
+        load_block = re.search(r"async function load\(\) \{.*?^\}", text, re.MULTILINE | re.DOTALL)
+
+        self.assertIsNotNone(load_block)
+        load_text = load_block.group(0)
+        self.assertIn("const [nextConfig, nextRankHistory, nextFolioData] = await Promise.all([", load_text)
+        self.assertIn("getPluginApi(props.api, 'config')", load_text)
+        self.assertIn("getPluginApi(props.api, 'rank_history')", load_text)
+        self.assertIn("getPluginApi(props.api, 'folio_data')", load_text)
+        self.assertNotIn("config.value = await getPluginApi(props.api, 'config')", load_text)
+        self.assertNotIn("rankHistory.value = await getPluginApi(props.api, 'rank_history')", load_text)
+        self.assertNotIn("folioData.value = await getPluginApi(props.api, 'folio_data')", load_text)
+
+    def test_small_posters_share_w200_url_conversion_and_lazy_loading(self):
+        """仪表盘与详情页小海报应统一降到 w200 并保持 VImg 懒加载。"""
+        api_text = API_JS.read_text(encoding="utf-8")
+        dashboard_text = DASHBOARD_VUE.read_text(encoding="utf-8")
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+
+        self.assertIn("export function toPosterThumbnail(url)", api_text)
+        self.assertIn("replace(/\\/(?:original|w500)\\//, '/w200/')", api_text)
+        self.assertNotIn("data:image", api_text)
+        self.assertNotIn(".replace('/original/', '/w200/')", dashboard_text)
+        self.assertGreaterEqual(dashboard_text.count("toPosterThumbnail("), 3)
+        self.assertGreaterEqual(page_text.count("toPosterThumbnail("), 5)
+        self.assertIn(':src="toPosterThumbnail(item.poster)"', dashboard_text)
+        self.assertNotIn(':src="item.poster"', page_text)
+        self.assertNotIn(':src="log.poster"', page_text)
+        self.assertNotIn(" eager", dashboard_text)
+        self.assertNotIn(" eager", page_text)
 
     def test_dashboard_timeline_scroll_is_isolated_on_mobile(self):
         """追影时间线横滑不应带动榜单，月份组在移动端也保持单行。"""

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getPluginApi, postPluginApi } from './api'
+import { getPluginApi, postPluginApi, toPosterThumbnail } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -89,7 +89,7 @@ function archiveSourceName(item) {
 
 function archivePoster(item) {
   const record = archiveRecord(item)
-  return item?.poster || record.poster || record.cover || ''
+  return toPosterThumbnail(item?.poster || record.poster || record.cover)
 }
 
 function archiveRankKey(item) {
@@ -294,7 +294,7 @@ function showActionDialog(rk, item) {
 
 function dialogPoster() {
   const item = dialogItem.value?.item || {}
-  return item.poster || item.poster_path || item.cover || ''
+  return toPosterThumbnail(item.poster || item.poster_path || item.cover)
 }
 
 async function subscribeViaNativeDialog(rk, item) {
@@ -468,7 +468,7 @@ onMounted(loadAll)
               <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(key)" class="mr-1" /><span>{{ rankNames[key] || key }}</span></div>
               <template v-if="items && items.length">
                 <div v-for="(item, i) in items.slice(0, 5)" :key="`${key}-${i}`" class="dc-rank-row" title="订阅 / 打开详情" @click="showActionDialog(key, item)">
-                  <VAvatar size="20" rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="item.poster" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
+                  <VAvatar size="20" rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
                   <span class="dc-rank-title">{{ item.title || '' }}</span>
                   <span v-if="key === 'coming' && item.wish_count" class="dc-rank-wish">{{ item.wish_count }}</span>
                 </div>
@@ -521,7 +521,7 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">订阅历史 <span class="text-caption font-weight-regular text-medium-emphasis">（共 {{ historyData.total }} 条）</span></div>
           <div v-if="historyData.items && historyData.items.length" class="dc-history-list">
             <div v-for="(item, i) in historyData.items" :key="i" class="dc-history-row dc-status-row">
-              <VAvatar size="28" class="mr-2 flex-shrink-0"><VImg v-if="item.poster" :src="item.poster" /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
+              <VAvatar size="28" class="mr-2 flex-shrink-0"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ item.title }}</div>
                 <div class="dc-history-meta">
@@ -545,7 +545,7 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">观察日志 <span class="text-caption font-weight-regular text-medium-emphasis">（最近 {{ cheatLogs.length }} 条）</span></div>
           <div v-if="cheatLogs && cheatLogs.length" class="dc-history-list">
             <div v-for="(log, i) in cheatLogs.slice().reverse()" :key="i" class="dc-history-row dc-status-row">
-              <VAvatar size="28" class="mr-2 flex-shrink-0"><VImg v-if="log.poster" :src="log.poster" /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
+              <VAvatar size="28" class="mr-2 flex-shrink-0"><VImg v-if="log.poster" :src="toPosterThumbnail(log.poster)" /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ log.title }}</div>
                 <div class="dc-history-meta">

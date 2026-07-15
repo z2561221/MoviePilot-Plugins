@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BHpYs4LN.js';
+import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-C4gmM98O.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,withModifiers:_withModifiers} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,unref:_unref,withModifiers:_withModifiers} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dc-page-heading" };
@@ -218,7 +218,7 @@ function archiveSourceName(item) {
 
 function archivePoster(item) {
   const record = archiveRecord(item);
-  return item?.poster || record.poster || record.cover || ''
+  return toPosterThumbnail(item?.poster || record.poster || record.cover)
 }
 
 function archiveRankKey(item) {
@@ -423,7 +423,7 @@ function showActionDialog(rk, item) {
 
 function dialogPoster() {
   const item = dialogItem.value?.item || {};
-  return item.poster || item.poster_path || item.cover || ''
+  return toPosterThumbnail(item.poster || item.poster_path || item.cover)
 }
 
 async function subscribeViaNativeDialog(rk, item) {
@@ -800,7 +800,7 @@ return (_ctx, _cache) => {
                                           (item.poster)
                                             ? (_openBlock(), _createBlock(_component_VImg, {
                                                 key: 0,
-                                                src: item.poster,
+                                                src: _unref(toPosterThumbnail)(item.poster),
                                                 cover: ""
                                               }, null, 8, ["src"]))
                                             : (_openBlock(), _createBlock(_component_VIcon, {
@@ -983,7 +983,7 @@ return (_ctx, _cache) => {
                                   (item.poster)
                                     ? (_openBlock(), _createBlock(_component_VImg, {
                                         key: 0,
-                                        src: item.poster
+                                        src: _unref(toPosterThumbnail)(item.poster)
                                       }, null, 8, ["src"]))
                                     : (_openBlock(), _createBlock(_component_VIcon, {
                                         key: 1,
@@ -1084,7 +1084,7 @@ return (_ctx, _cache) => {
                                   (log.poster)
                                     ? (_openBlock(), _createBlock(_component_VImg, {
                                         key: 0,
-                                        src: log.poster
+                                        src: _unref(toPosterThumbnail)(log.poster)
                                       }, null, 8, ["src"]))
                                     : (_openBlock(), _createBlock(_component_VIcon, {
                                         key: 1,
@@ -1248,6 +1248,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7a8fc86d"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4ef359c5"]]);
 
 export { Page as default };

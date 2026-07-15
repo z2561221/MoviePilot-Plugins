@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BHpYs4LN.js';
+import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-C4gmM98O.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,normalizeStyle:_normalizeStyle} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,normalizeStyle:_normalizeStyle,unref:_unref} = await importShared('vue');
 
 
 const _hoisted_1 = {
@@ -169,13 +169,19 @@ async function resolveRankMedia(rk, item) {
 async function load() {
   loading.value = true;
   try {
-    config.value = await getPluginApi(props.api, 'config') || {};
-    rankHistory.value = await getPluginApi(props.api, 'rank_history') || {};
-    folioData.value = await getPluginApi(props.api, 'folio_data') || {};
+    const [nextConfig, nextRankHistory, nextFolioData] = await Promise.all([
+      getPluginApi(props.api, 'config'),
+      getPluginApi(props.api, 'rank_history'),
+      getPluginApi(props.api, 'folio_data'),
+    ]);
+    config.value = nextConfig || {};
+    rankHistory.value = nextRankHistory || {};
+    folioData.value = nextFolioData || {};
   } catch (e) {
     console.error(e);
+  } finally {
+    loading.value = false;
   }
-  loading.value = false;
 }
 
 async function refreshRss() {
@@ -204,7 +210,7 @@ function showActionDialog(rk, item) {
 
 function dialogPoster() {
   const item = dialogItem.value?.item || {};
-  return item.poster || item.poster_path || item.cover || ''
+  return toPosterThumbnail(item.poster || item.poster_path || item.cover)
 }
 
 async function subscribeViaNativeDialog(rk, item) {
@@ -318,7 +324,7 @@ const timelineGroups = computed(() => {
       groups.push(currentGroup);
     }
     if (currentGroup.items.length < limitNum) {
-      const poster = (entry.poster_path || '').replace('/original/', '/w200/');
+      const poster = toPosterThumbnail(entry.poster_path);
       currentGroup.items.push({ key: entry.key, subject_name: entry.subject_name || entry.key, subject_id: entry.subject_id, poster, type: entry.type });
     }
   }
@@ -529,7 +535,7 @@ return (_ctx, _cache) => {
                                 (item.poster)
                                   ? (_openBlock(), _createBlock(_component_VImg, {
                                       key: 0,
-                                      src: item.poster
+                                      src: _unref(toPosterThumbnail)(item.poster)
                                     }, null, 8, ["src"]))
                                   : (_openBlock(), _createBlock(_component_VIcon, {
                                       key: 1,
@@ -667,6 +673,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b113fdb2"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7f529c81"]]);
 
 export { Dashboard as default };

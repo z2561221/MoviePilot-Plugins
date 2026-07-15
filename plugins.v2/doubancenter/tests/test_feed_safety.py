@@ -1698,7 +1698,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn('class: "dc-history-row dc-status-row"', log_block_text)
         self.assertNotIn('class: "dc-cheat-row', log_block_text)
         self.assertIn("(log.poster)", log_block_text)
-        self.assertIn("src: log.poster", log_block_text)
+        self.assertIn("src: _unref(toPosterThumbnail)(log.poster)", log_block_text)
         self.assertIn('icon: "mdi-filmstrip"', log_block_text)
         self.assertIn("rankChipStyle(log.rank_key)", log_block_text)
         self.assertIn('class: "dc-rank-chip mr-1"', log_block_text)

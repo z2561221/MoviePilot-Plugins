@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getPluginApi, postPluginApi } from './api'
+import { getPluginApi, postPluginApi, toPosterThumbnail } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -117,13 +117,19 @@ async function resolveRankMedia(rk, item) {
 async function load() {
   loading.value = true
   try {
-    config.value = await getPluginApi(props.api, 'config') || {}
-    rankHistory.value = await getPluginApi(props.api, 'rank_history') || {}
-    folioData.value = await getPluginApi(props.api, 'folio_data') || {}
+    const [nextConfig, nextRankHistory, nextFolioData] = await Promise.all([
+      getPluginApi(props.api, 'config'),
+      getPluginApi(props.api, 'rank_history'),
+      getPluginApi(props.api, 'folio_data'),
+    ])
+    config.value = nextConfig || {}
+    rankHistory.value = nextRankHistory || {}
+    folioData.value = nextFolioData || {}
   } catch (e) {
     console.error(e)
+  } finally {
+    loading.value = false
   }
-  loading.value = false
 }
 
 async function refreshRss() {
@@ -152,7 +158,7 @@ function showActionDialog(rk, item) {
 
 function dialogPoster() {
   const item = dialogItem.value?.item || {}
-  return item.poster || item.poster_path || item.cover || ''
+  return toPosterThumbnail(item.poster || item.poster_path || item.cover)
 }
 
 async function subscribeViaNativeDialog(rk, item) {
@@ -266,7 +272,7 @@ const timelineGroups = computed(() => {
       groups.push(currentGroup)
     }
     if (currentGroup.items.length < limitNum) {
-      const poster = (entry.poster_path || '').replace('/original/', '/w200/')
+      const poster = toPosterThumbnail(entry.poster_path)
       currentGroup.items.push({ key: entry.key, subject_name: entry.subject_name || entry.key, subject_id: entry.subject_id, poster, type: entry.type })
     }
   }
@@ -328,7 +334,7 @@ onMounted(load)
             <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(rk)" class="mr-1" /><span>{{ rankDefs[rk]?.name || rk }}</span></div>
             <div class="dc-rank-body">
               <div v-for="(item, i) in (rankHistory[rk] || []).slice(0, 5)" :key="i" class="dc-rank-row" :title="item.title" @click="showActionDialog(rk, item)">
-                <VAvatar size="16" class="dc-rank-poster"><VImg v-if="item.poster" :src="item.poster" /><VIcon v-else icon="mdi-filmstrip" size="10" /></VAvatar>
+                <VAvatar size="16" class="dc-rank-poster"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" /><VIcon v-else icon="mdi-filmstrip" size="10" /></VAvatar>
                 <span class="dc-rank-title">{{ item.title }}</span>
                 <span v-if="rk === 'coming' && item.wish_count" class="dc-rank-wish">{{ item.wish_count }}</span>
               </div>

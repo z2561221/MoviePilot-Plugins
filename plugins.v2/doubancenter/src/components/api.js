@@ -4,6 +4,10 @@ export function unwrapResponse(response) {
   return data
 }
 
+export function toPosterThumbnail(url) {
+  return String(url || '').replace(/\/(?:original|w500)\//, '/w200/')
+}
+
 export async function getPluginApi(api, path) {
   if (!api?.get) throw new Error('缺少 MoviePilot 注入的 api.get')
   return unwrapResponse(await api.get(`plugin/DoubanCenter/${path}`))
