@@ -50,8 +50,10 @@ def test_discovery_cards_use_non_black_theme_surface():
     item_style = next(
         line for line in app_page.splitlines() if line.startswith(".ar-app-page__item {")
     )
-    assert "surface-variant" in item_style
-    assert "background: rgb(var(--v-theme-surface));" not in item_style
+    assert "surface-variant" not in item_style
+    assert "color-mix" in item_style
+    assert "--v-theme-primary" in item_style
+    assert "color: rgb(var(--v-theme-on-surface));" in item_style
 
 
 def test_all_ranking_surfaces_use_direct_four_button_actions():
