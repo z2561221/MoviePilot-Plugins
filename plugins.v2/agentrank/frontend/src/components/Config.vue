@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { getPluginApi } from './api'
+import { getPluginApi, postPluginApi } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -61,6 +61,10 @@ const status = ref({ state: 'stopped', validation_errors: [] })
 const availableUsers = ref([])
 const loadError = ref('')
 const runtimeDefaults = ref(structuredClone(defaults))
+const clearProfileSwitch = ref(false)
+const clearProfileDialog = ref(false)
+const clearProfileLoading = ref(false)
+const actionFeedback = reactive({ show: false, message: '', color: 'success' })
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
@@ -108,6 +112,7 @@ const advancedTabs = [
 ]
 
 const currentMain = computed(() => mainTabs.find(item => item.key === activeMain.value) || mainTabs[0])
+const clearProfileUser = computed(() => form.default_user || form.users[0] || '')
 const userOptions = computed(() => {
   const values = availableUsers.value.length ? availableUsers.value : form.users
   return values.map(name => ({ title: name, value: name }))
@@ -164,6 +169,40 @@ function saveConfig() {
 
 function restoreAgentPrompt() {
   form.agent_prompt = runtimeDefaults.value.agent_prompt || defaults.agent_prompt
+}
+
+function requestClearProfile(value) {
+  if (!value) return
+  if (!clearProfileUser.value) {
+    clearProfileSwitch.value = false
+    actionFeedback.show = true
+    actionFeedback.color = 'warning'
+    actionFeedback.message = '请先选择默认用户'
+    return
+  }
+  clearProfileDialog.value = true
+}
+
+function cancelClearProfile() {
+  clearProfileDialog.value = false
+  clearProfileSwitch.value = false
+}
+
+async function confirmClearProfile() {
+  clearProfileLoading.value = true
+  try {
+    await postPluginApi(props.api, 'profile/clear', { username: clearProfileUser.value, confirm: true })
+    actionFeedback.color = 'success'
+    actionFeedback.message = `${clearProfileUser.value} 的画像与榜单已清除`
+  } catch (error) {
+    actionFeedback.color = 'error'
+    actionFeedback.message = error?.message || '清除画像失败'
+  } finally {
+    actionFeedback.show = true
+    clearProfileLoading.value = false
+    clearProfileDialog.value = false
+    clearProfileSwitch.value = false
+  }
 }
 
 onMounted(loadRuntime)
@@ -342,7 +381,21 @@ onMounted(loadRuntime)
                   <VCol cols="12" md="4"><VTextField v-model.number="form.history_limit" type="number" min="1" max="200" label="历史上限" density="compact" variant="outlined" hide-details /></VCol>
                 </VRow>
                 <VAlert type="info" variant="tonal" class="mt-4">画像缓存开启且关闭每次重建时，Agent 会参考上一版画像持续演进；每次重建开启或画像缓存关闭时，仅按当前订阅重新建立。</VAlert>
-                <VAlert type="warning" variant="tonal" class="mt-4">画像、榜单和归档清理属于用户级危险操作，请在完整榜单或详情页二次确认后执行。</VAlert>
+                <div class="ar-config__danger-row mt-4">
+                  <div>
+                    <div class="ar-config__danger-title">清除画像</div>
+                    <div class="ar-config__hint">清除默认用户“{{ clearProfileUser || '未选择' }}”的画像与榜单，不影响 MoviePilot 订阅和归档。</div>
+                  </div>
+                  <VSwitch
+                    v-model="clearProfileSwitch"
+                    color="error"
+                    label="清除画像"
+                    hide-details
+                    inset
+                    :disabled="clearProfileLoading"
+                    @update:model-value="requestClearProfile"
+                  />
+                </div>
               </template>
               <template v-else>
                 <div class="d-flex align-center mb-3">
@@ -375,6 +428,21 @@ onMounted(loadRuntime)
         <VBtn color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="saveConfig">保存配置</VBtn>
       </VCardActions>
     </VCard>
+
+    <VDialog v-model="clearProfileDialog" max-width="480" persistent>
+      <VCard>
+        <VCardTitle>清除用户画像？</VCardTitle>
+        <VCardText>
+          将清除“{{ clearProfileUser }}”的画像与当前榜单。MoviePilot 订阅、订阅任务、忽略归档和插件配置不会被删除。
+        </VCardText>
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" :disabled="clearProfileLoading" @click="cancelClearProfile">取消</VBtn>
+          <VBtn color="error" variant="flat" :loading="clearProfileLoading" @click="confirmClearProfile">确认清除</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
+    <VSnackbar v-model="actionFeedback.show" :color="actionFeedback.color">{{ actionFeedback.message }}</VSnackbar>
   </div>
 </template>
 
@@ -406,6 +474,9 @@ onMounted(loadRuntime)
 .ar-config__weight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
 .ar-config__weight-item { padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; }
 .ar-config__default { margin-top: -2px; text-align: right; }
+.ar-config__danger-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; border: 1px solid rgba(var(--v-theme-error), .32); border-radius: 10px; background: rgba(var(--v-theme-error), .045); }
+.ar-config__danger-title { color: rgb(var(--v-theme-error)); font-size: 13px; font-weight: 700; }
+.ar-config__danger-row :deep(.v-switch) { flex: 0 0 auto; }
 .ar-config__actions { flex: 0 0 auto; padding: 10px 18px; }
 @media (max-width: 760px) {
   .ar-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
@@ -421,6 +492,7 @@ onMounted(loadRuntime)
   .ar-config__pipeline { align-items: flex-start; flex-direction: column; }
   .ar-config__step-arrow { display: none; }
   .ar-config__overview-grid, .ar-config__source-grid, .ar-config__weight-grid { grid-template-columns: 1fr; }
+  .ar-config__danger-row { align-items: flex-start; flex-direction: column; }
 }
 @media (max-width: 390px) {
   .ar-config { width: 100%; padding: 2px; }

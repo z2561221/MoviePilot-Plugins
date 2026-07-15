@@ -93,14 +93,32 @@ def test_ranking_surfaces_use_one_cached_overview_request():
     assert "if (!initialized.value || !value || value === oldValue) return" in page
 
 
-def test_discovery_page_has_no_profile_clear_entry():
-    """发现页不暴露清除画像按钮或确认框，危险操作仅保留在详情页。"""
+def test_profile_clear_only_lives_in_advanced_runtime_settings():
+    """发现页和详情页不暴露清除入口，危险操作集中在高级运行设置并二次确认。"""
     app_page = _read("AppPage.vue")
     detail_page = _read("Page.vue")
-    assert "清除画像" not in app_page
-    assert "profile/clear" not in app_page
-    assert "mdi-account-remove-outline" not in app_page
-    assert "清除画像" in detail_page
+    config = _read("Config.vue")
+    for page in (app_page, detail_page):
+        assert "清除画像" not in page
+        assert "profile/clear" not in page
+        assert "mdi-account-remove-outline" not in page
+    assert 'v-model="clearProfileSwitch"' in config
+    assert '@update:model-value="requestClearProfile"' in config
+    assert "postPluginApi(props.api, 'profile/clear'" in config
+    assert "username: clearProfileUser.value, confirm: true" in config
+    assert 'v-model="clearProfileDialog"' in config
+    assert "确认清除" in config
+
+
+def test_detail_page_focuses_on_four_data_views_without_weights():
+    """详情页只展示榜单、画像、归档和历史，不重复承载权重配置。"""
+    page = _read("Page.vue")
+    for title in ("推荐榜单", "用户画像", "忽略归档", "运行历史"):
+        assert title in page
+    assert "权重配置" not in page
+    assert "weightLabels" not in page
+    assert "ar-page__summary-bar" in page
+    assert "ar-page__rank-copy" in page
 
 
 def test_ranking_posters_do_not_force_eager_loading():
