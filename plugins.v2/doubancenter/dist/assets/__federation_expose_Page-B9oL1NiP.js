@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BHpYs4LN.js';
+import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-C4gmM98O.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,withModifiers:_withModifiers} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,unref:_unref,withModifiers:_withModifiers} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dc-page-heading" };
@@ -130,6 +130,7 @@ const _sfc_main = {
   props: {
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
+  appPage: { type: Boolean, default: false },
 },
   emits: ['close', 'switch'],
   setup(__props, { emit: __emit }) {
@@ -161,6 +162,7 @@ const rankNames = {
   tv_global: '全球口碑',
   movie_weekly: '电影口碑',
   bangumi: 'BangumiTV',
+  douban_wish: '豆瓣想看',
   unknown: '未归类',
 };
 const rankIconColors = {
@@ -170,6 +172,7 @@ const rankIconColors = {
   tv_global: '#ef4444',
   movie_weekly: '#ec4899',
   bangumi: '#8b5cf6',
+  douban_wish: '#10b981',
   unknown: '#94a3b8',
 };
 
@@ -216,7 +219,7 @@ function archiveSourceName(item) {
 
 function archivePoster(item) {
   const record = archiveRecord(item);
-  return item?.poster || record.poster || record.cover || ''
+  return toPosterThumbnail(item?.poster || record.poster || record.cover)
 }
 
 function archiveRankKey(item) {
@@ -421,7 +424,7 @@ function showActionDialog(rk, item) {
 
 function dialogPoster() {
   const item = dialogItem.value?.item || {};
-  return item.poster || item.poster_path || item.cover || ''
+  return toPosterThumbnail(item.poster || item.poster_path || item.cover)
 }
 
 async function subscribeViaNativeDialog(rk, item) {
@@ -542,7 +545,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock(), _createBlock(_component_VCard, {
     flat: "",
-    class: "dc-page"
+    class: _normalizeClass(["dc-page", { 'dc-page--app': props.appPage }])
   }, {
     default: _withCtx(() => [
       _createVNode(_component_VToolbar, {
@@ -592,24 +595,30 @@ return (_ctx, _cache) => {
             ]),
             _: 1
           }, 8, ["prepend-icon", "color"]),
-          _createVNode(_component_VBtn, {
-            variant: "text",
-            size: "small",
-            "prepend-icon": "mdi-cog-outline",
-            class: "text-none me-1",
-            onClick: _cache[2] || (_cache[2] = $event => (emit('switch')))
-          }, {
-            default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
-              _createTextVNode("设置", -1)
-            ]))]),
-            _: 1
-          }),
-          _createVNode(_component_VBtn, {
-            icon: "mdi-close",
-            variant: "text",
-            size: "small",
-            onClick: _cache[3] || (_cache[3] = $event => (emit('close')))
-          })
+          (!props.appPage)
+            ? (_openBlock(), _createBlock(_component_VBtn, {
+                key: 0,
+                variant: "text",
+                size: "small",
+                "prepend-icon": "mdi-cog-outline",
+                class: "text-none me-1",
+                onClick: _cache[2] || (_cache[2] = $event => (emit('switch')))
+              }, {
+                default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
+                  _createTextVNode("设置", -1)
+                ]))]),
+                _: 1
+              }))
+            : _createCommentVNode("", true),
+          (!props.appPage)
+            ? (_openBlock(), _createBlock(_component_VBtn, {
+                key: 1,
+                icon: "mdi-close",
+                variant: "text",
+                size: "small",
+                onClick: _cache[3] || (_cache[3] = $event => (emit('close')))
+              }))
+            : _createCommentVNode("", true)
         ]),
         _: 1
       }),
@@ -644,8 +653,8 @@ return (_ctx, _cache) => {
                           class: "dc-history-row dc-archive-row"
                         }, [
                           _createVNode(_component_VAvatar, {
-                            size: "28",
-                            class: "mr-2 flex-shrink-0",
+                            rounded: "sm",
+                            class: "dc-history-poster mr-2 flex-shrink-0",
                             color: archiveColor(item),
                             variant: "tonal"
                           }, {
@@ -653,7 +662,8 @@ return (_ctx, _cache) => {
                               (archivePoster(item))
                                 ? (_openBlock(), _createBlock(_component_VImg, {
                                     key: 0,
-                                    src: archivePoster(item)
+                                    src: archivePoster(item),
+                                    cover: ""
                                   }, null, 8, ["src"]))
                                 : (_openBlock(), _createBlock(_component_VIcon, {
                                     key: 1,
@@ -790,7 +800,6 @@ return (_ctx, _cache) => {
                                       onClick: $event => (showActionDialog(key, item))
                                     }, [
                                       _createVNode(_component_VAvatar, {
-                                        size: "20",
                                         rounded: "sm",
                                         class: "dc-rank-poster"
                                       }, {
@@ -798,7 +807,7 @@ return (_ctx, _cache) => {
                                           (item.poster)
                                             ? (_openBlock(), _createBlock(_component_VImg, {
                                                 key: 0,
-                                                src: item.poster,
+                                                src: _unref(toPosterThumbnail)(item.poster),
                                                 cover: ""
                                               }, null, 8, ["src"]))
                                             : (_openBlock(), _createBlock(_component_VIcon, {
@@ -974,14 +983,15 @@ return (_ctx, _cache) => {
                               class: "dc-history-row dc-status-row"
                             }, [
                               _createVNode(_component_VAvatar, {
-                                size: "28",
-                                class: "mr-2 flex-shrink-0"
+                                rounded: "sm",
+                                class: "dc-history-poster mr-2 flex-shrink-0"
                               }, {
                                 default: _withCtx(() => [
                                   (item.poster)
                                     ? (_openBlock(), _createBlock(_component_VImg, {
                                         key: 0,
-                                        src: item.poster
+                                        src: _unref(toPosterThumbnail)(item.poster),
+                                        cover: ""
                                       }, null, 8, ["src"]))
                                     : (_openBlock(), _createBlock(_component_VIcon, {
                                         key: 1,
@@ -1075,14 +1085,15 @@ return (_ctx, _cache) => {
                               class: "dc-history-row dc-status-row"
                             }, [
                               _createVNode(_component_VAvatar, {
-                                size: "28",
-                                class: "mr-2 flex-shrink-0"
+                                rounded: "sm",
+                                class: "dc-history-poster mr-2 flex-shrink-0"
                               }, {
                                 default: _withCtx(() => [
                                   (log.poster)
                                     ? (_openBlock(), _createBlock(_component_VImg, {
                                         key: 0,
-                                        src: log.poster
+                                        src: _unref(toPosterThumbnail)(log.poster),
+                                        cover: ""
                                       }, null, 8, ["src"]))
                                     : (_openBlock(), _createBlock(_component_VIcon, {
                                         key: 1,
@@ -1241,11 +1252,11 @@ return (_ctx, _cache) => {
       }, 8, ["modelValue"])
     ]),
     _: 1
-  }))
+  }, 8, ["class"]))
 }
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9790ee51"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c9e31737"]]);
 
 export { Page as default };

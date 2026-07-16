@@ -70,6 +70,30 @@ class DashboardStatsServiceTest(unittest.TestCase):
         self.assertEqual(result["type_dist"], {"电影": 1, "电视剧": 0})
         self.assertEqual(result["month_new"], 1)
 
+    def test_build_stats_classifies_douban_wish_separately(self):
+        """豆瓣想看订阅应使用独立分类而不是落入未归类。"""
+        result = dashboard_stats.build_stats(
+            [
+                {
+                    "rank_key": "douban_wish",
+                    "rank_name": "豆瓣想看",
+                    "media_type": "电影",
+                    "time": "2026-07-15 10:00:00",
+                }
+            ],
+            [{"key": "coming", "name": "即将上映"}],
+            now=datetime.datetime(2026, 7, 15, 12, 0, 0),
+        )
+
+        self.assertEqual(result["rank_dist"], {"coming": 0, "douban_wish": 1})
+        self.assertEqual(
+            result["rank_stats"],
+            [
+                {"key": "coming", "name": "即将上映", "count": 0},
+                {"key": "douban_wish", "name": "豆瓣想看", "count": 1},
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

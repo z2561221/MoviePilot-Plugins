@@ -1,0 +1,7 @@
+
+.dc-app-page[data-v-50106498] { width: 100%; min-width: 0; max-width: 1800px; margin: 0 auto; padding: 16px; background: transparent;
+}
+@media (max-width: 600px) {
+.dc-app-page[data-v-50106498] { padding: 8px;
+}
+}

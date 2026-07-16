@@ -143,6 +143,7 @@ def default_config() -> Dict[str, Any]:
         "wish_max_pages": 1,
         "wish_days": 7,
         "dashboard_rank_keys": [],
+        "discovery_page_enabled": False,
         "blacklist_keywords": "",
         "observe_days": 0,
         "observe_rank_keys": default_observe_rank_keys(),

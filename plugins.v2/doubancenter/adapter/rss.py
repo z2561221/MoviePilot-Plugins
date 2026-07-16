@@ -50,6 +50,7 @@ def fetch_coming(plugin, addr: str) -> List[dict]:
                     "title": title,
                     "link": link,
                     "description": desc,
+                    "category": cat,
                     "wish_count": utils.parse_wish_count(desc),
                     "year": utils.parse_year(cat),
                     "regions": regions,
@@ -76,6 +77,7 @@ def fetch_rank(plugin, addr: str) -> List[dict]:
             title = DomUtils.tag_value(item, "title", default="")
             link = DomUtils.tag_value(item, "link", default="")
             desc = DomUtils.tag_value(item, "description", default="")
+            cat = DomUtils.tag_value(item, "category", default="")
             if not title:
                 continue
             mtype = default_mtype
@@ -91,13 +93,18 @@ def fetch_rank(plugin, addr: str) -> List[dict]:
                 match = re.search(r"\b(19|20)\d{2}\b", desc)
                 if match:
                     year = match.group(0)
+            regions, genres = utils.parse_regions_and_genres(cat)
             result.append(
                 {
                     "title": title,
                     "link": link,
+                    "description": desc,
+                    "category": cat,
                     "mtype": mtype,
                     "doubanid": doubanid,
                     "year": year,
+                    "regions": regions,
+                    "genres": genres,
                 }
             )
         return result

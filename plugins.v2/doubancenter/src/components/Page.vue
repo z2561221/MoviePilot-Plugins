@@ -1,10 +1,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getPluginApi, postPluginApi } from './api'
+import { getPluginApi, postPluginApi, toPosterThumbnail } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
+  appPage: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'switch'])
 
@@ -32,6 +33,7 @@ const rankNames = {
   tv_global: '全球口碑',
   movie_weekly: '电影口碑',
   bangumi: 'BangumiTV',
+  douban_wish: '豆瓣想看',
   unknown: '未归类',
 }
 const rankIconColors = {
@@ -41,6 +43,7 @@ const rankIconColors = {
   tv_global: '#ef4444',
   movie_weekly: '#ec4899',
   bangumi: '#8b5cf6',
+  douban_wish: '#10b981',
   unknown: '#94a3b8',
 }
 
@@ -87,7 +90,7 @@ function archiveSourceName(item) {
 
 function archivePoster(item) {
   const record = archiveRecord(item)
-  return item?.poster || record.poster || record.cover || ''
+  return toPosterThumbnail(item?.poster || record.poster || record.cover)
 }
 
 function archiveRankKey(item) {
@@ -292,7 +295,7 @@ function showActionDialog(rk, item) {
 
 function dialogPoster() {
   const item = dialogItem.value?.item || {}
-  return item.poster || item.poster_path || item.cover || ''
+  return toPosterThumbnail(item.poster || item.poster_path || item.cover)
 }
 
 async function subscribeViaNativeDialog(rk, item) {
@@ -395,7 +398,7 @@ onMounted(loadAll)
 </script>
 
 <template>
-  <VCard flat class="dc-page">
+  <VCard flat class="dc-page" :class="{ 'dc-page--app': props.appPage }">
     <VToolbar density="comfortable" class="dc-page-toolbar">
       <VAvatar color="primary" variant="tonal" rounded="lg" class="ms-3 me-2"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
       <div class="dc-page-heading">
@@ -405,8 +408,8 @@ onMounted(loadAll)
       <VSpacer />
       <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-1" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">刷新</VBtn>
       <VBtn variant="text" size="small" :prepend-icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" class="text-none me-1" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">{{ archivePage ? '返回' : '归档' }}</VBtn>
-      <VBtn variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1" @click="emit('switch')">设置</VBtn>
-      <VBtn icon="mdi-close" variant="text" size="small" @click="emit('close')" />
+      <VBtn v-if="!props.appPage" variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1" @click="emit('switch')">设置</VBtn>
+      <VBtn v-if="!props.appPage" icon="mdi-close" variant="text" size="small" @click="emit('close')" />
     </VToolbar>
     <VDivider />
     <VCardText class="pa-3 dc-flow">
@@ -418,8 +421,8 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">归档记录 <span class="text-caption font-weight-regular text-medium-emphasis">（共 {{ archiveData.total || 0 }} 条）</span></div>
           <div v-if="archiveData.items && archiveData.items.length" class="dc-history-list">
             <div v-for="(item, i) in archiveData.items" :key="item.id || i" class="dc-history-row dc-archive-row">
-              <VAvatar size="28" class="mr-2 flex-shrink-0" :color="archiveColor(item)" variant="tonal">
-                <VImg v-if="archivePoster(item)" :src="archivePoster(item)" />
+              <VAvatar rounded="sm" class="dc-history-poster mr-2 flex-shrink-0" :color="archiveColor(item)" variant="tonal">
+                <VImg v-if="archivePoster(item)" :src="archivePoster(item)" cover />
                 <VIcon v-else :icon="archiveIcon(item)" size="14" />
               </VAvatar>
               <div class="dc-history-info">
@@ -466,7 +469,7 @@ onMounted(loadAll)
               <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(key)" class="mr-1" /><span>{{ rankNames[key] || key }}</span></div>
               <template v-if="items && items.length">
                 <div v-for="(item, i) in items.slice(0, 5)" :key="`${key}-${i}`" class="dc-rank-row" title="订阅 / 打开详情" @click="showActionDialog(key, item)">
-                  <VAvatar size="20" rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="item.poster" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
+                  <VAvatar rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
                   <span class="dc-rank-title">{{ item.title || '' }}</span>
                   <span v-if="key === 'coming' && item.wish_count" class="dc-rank-wish">{{ item.wish_count }}</span>
                 </div>
@@ -519,7 +522,7 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">订阅历史 <span class="text-caption font-weight-regular text-medium-emphasis">（共 {{ historyData.total }} 条）</span></div>
           <div v-if="historyData.items && historyData.items.length" class="dc-history-list">
             <div v-for="(item, i) in historyData.items" :key="i" class="dc-history-row dc-status-row">
-              <VAvatar size="28" class="mr-2 flex-shrink-0"><VImg v-if="item.poster" :src="item.poster" /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
+              <VAvatar rounded="sm" class="dc-history-poster mr-2 flex-shrink-0"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ item.title }}</div>
                 <div class="dc-history-meta">
@@ -543,7 +546,7 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">观察日志 <span class="text-caption font-weight-regular text-medium-emphasis">（最近 {{ cheatLogs.length }} 条）</span></div>
           <div v-if="cheatLogs && cheatLogs.length" class="dc-history-list">
             <div v-for="(log, i) in cheatLogs.slice().reverse()" :key="i" class="dc-history-row dc-status-row">
-              <VAvatar size="28" class="mr-2 flex-shrink-0"><VImg v-if="log.poster" :src="log.poster" /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
+              <VAvatar rounded="sm" class="dc-history-poster mr-2 flex-shrink-0"><VImg v-if="log.poster" :src="toPosterThumbnail(log.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ log.title }}</div>
                 <div class="dc-history-meta">
@@ -584,6 +587,7 @@ onMounted(loadAll)
 
 <style scoped>
 .dc-page { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
+.dc-page--app { width: 100%; min-height: calc(100dvh - 104px); border-radius: 14px; }
 .dc-page-toolbar { background: rgb(var(--v-theme-surface)); padding-right: 8px; }
 .dc-page-heading { min-width: 0; }
 .dc-page-heading .text-h6,
@@ -616,10 +620,11 @@ onMounted(loadAll)
 .dc-rank-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .dc-rank-card { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .6)); border-radius: 8px; padding: 6px; min-width: 0; }
 .dc-rank-head { display: flex; align-items: center; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
-.dc-rank-row { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
+.dc-rank-row { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 42px; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
-.dc-rank-poster { flex: 0 0 20px; width: 20px; height: 28px; border-radius: 3px; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
-.dc-rank-title { flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-rank-poster { flex: 0 0 24px !important; width: 24px !important; height: 36px !important; min-width: 24px; min-height: 36px; aspect-ratio: 2 / 3; border-radius: 3px !important; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
+.dc-history-poster { flex: 0 0 24px !important; width: 24px !important; height: 36px !important; min-width: 24px; min-height: 36px; aspect-ratio: 2 / 3; border-radius: 3px !important; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
+.dc-rank-title { display: -webkit-box; flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 500; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; }
 .dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
 .dc-rank-empty { font-size: 12px; color: rgba(var(--v-theme-on-surface), .5); padding: 8px; text-align: center; }
 .dc-history-list { display: flex; flex-direction: column; gap: 4px; }

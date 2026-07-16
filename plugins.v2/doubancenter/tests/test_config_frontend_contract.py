@@ -6,7 +6,9 @@ import unittest
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 CONFIG_VUE = PLUGIN_DIR / "src" / "components" / "Config.vue"
 PAGE_VUE = PLUGIN_DIR / "src" / "components" / "Page.vue"
+APP_PAGE_VUE = PLUGIN_DIR / "src" / "components" / "AppPage.vue"
 DASHBOARD_VUE = PLUGIN_DIR / "src" / "components" / "Dashboard.vue"
+API_JS = PLUGIN_DIR / "src" / "components" / "api.js"
 DIST_ASSETS = PLUGIN_DIR / "dist" / "assets"
 OVERVIEW_SERVICE = PLUGIN_DIR / "service" / "dashboard_overview.py"
 
@@ -159,6 +161,38 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("['黑名拦截', '黑名单关键词'].includes(log.reason)", text)
         self.assertNotIn("if (c) cheatLogs.value = c", text)
 
+    def test_discovery_page_switch_reuses_detail_page(self):
+        """发现页开关应暴露全页组件，并复用详情页而非复制业务逻辑。"""
+        config_text = CONFIG_VUE.read_text(encoding="utf-8")
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+        app_page_text = APP_PAGE_VUE.read_text(encoding="utf-8")
+        remote_text = (DIST_ASSETS / "remoteEntry.js").read_text(encoding="utf-8")
+
+        self.assertIn("discovery_page_enabled: false", config_text)
+        self.assertIn('v-model="form.discovery_page_enabled"', config_text)
+        self.assertIn('label="开启发现页"', config_text)
+        self.assertIn("保存并刷新 MP 页面", config_text)
+        self.assertIn("import Page from './Page.vue'", app_page_text)
+        self.assertIn(':api="props.api" app-page', app_page_text)
+        self.assertNotIn("getPluginApi", app_page_text)
+        self.assertIn("appPage: { type: Boolean, default: false }", page_text)
+        self.assertEqual(page_text.count('v-if="!props.appPage"'), 2)
+        self.assertIn('"./AppPage"', remote_text)
+        app_page_css = re.search(
+            r'dynamicLoadingCss\(\[([^\]]+)\], false, \'\./AppPage\'\)',
+            remote_text,
+        )
+        self.assertIsNotNone(app_page_css)
+        self.assertIn("__federation_expose_AppPage-", app_page_css.group(1))
+        self.assertIn("__federation_expose_Page-", app_page_css.group(1))
+
+    def test_page_labels_douban_wish_subscription_stats(self):
+        """详情页订阅统计应将豆瓣想看显示为独立分类。"""
+        text = PAGE_VUE.read_text(encoding="utf-8")
+
+        self.assertIn("douban_wish: '豆瓣想看'", text)
+        self.assertIn("douban_wish: '#10b981'", text)
+
     def test_dashboard_source_keeps_native_subscribe_behaviour(self):
         text = DASHBOARD_VUE.read_text(encoding="utf-8")
 
@@ -175,6 +209,102 @@ class ConfigFrontendContractTest(unittest.TestCase):
             self.assertIn(fragment, text)
 
         self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
+
+    def test_dashboard_loads_initial_data_concurrently(self):
+        """仪表盘首次挂载应并发请求配置、榜单历史和豆瓣时间。"""
+        text = DASHBOARD_VUE.read_text(encoding="utf-8")
+        load_block = re.search(r"async function load\(\) \{.*?^\}", text, re.MULTILINE | re.DOTALL)
+
+        self.assertIsNotNone(load_block)
+        load_text = load_block.group(0)
+        self.assertIn("const [nextConfig, nextRankHistory, nextFolioData] = await Promise.all([", load_text)
+        self.assertIn("getPluginApi(props.api, 'config')", load_text)
+        self.assertIn("getPluginApi(props.api, 'rank_history')", load_text)
+        self.assertIn("getPluginApi(props.api, 'folio_data')", load_text)
+        self.assertNotIn("config.value = await getPluginApi(props.api, 'config')", load_text)
+        self.assertNotIn("rankHistory.value = await getPluginApi(props.api, 'rank_history')", load_text)
+        self.assertNotIn("folioData.value = await getPluginApi(props.api, 'folio_data')", load_text)
+
+    def test_small_posters_share_w200_url_conversion_and_lazy_loading(self):
+        """仪表盘与详情页小海报应统一降到 w200 并保持 VImg 懒加载。"""
+        api_text = API_JS.read_text(encoding="utf-8")
+        dashboard_text = DASHBOARD_VUE.read_text(encoding="utf-8")
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+
+        self.assertIn("export function toPosterThumbnail(url)", api_text)
+        self.assertIn("replace(/\\/(?:original|w500)\\//, '/w200/')", api_text)
+        self.assertNotIn("data:image", api_text)
+        self.assertNotIn(".replace('/original/', '/w200/')", dashboard_text)
+        self.assertGreaterEqual(dashboard_text.count("toPosterThumbnail("), 3)
+        self.assertGreaterEqual(page_text.count("toPosterThumbnail("), 5)
+        self.assertIn(':src="toPosterThumbnail(item.poster)"', dashboard_text)
+        self.assertNotIn(':src="item.poster"', page_text)
+        self.assertNotIn(':src="log.poster"', page_text)
+        self.assertNotIn(" eager", dashboard_text)
+        self.assertNotIn(" eager", page_text)
+
+    def test_detail_history_posters_use_compact_rectangular_style(self):
+        """归档、订阅历史和观察日志海报应统一为紧凑矩形。"""
+        text = PAGE_VUE.read_text(encoding="utf-8")
+
+        self.assertEqual(
+            text.count('<VAvatar rounded="sm" class="dc-history-poster'),
+            3,
+        )
+        self.assertIn(
+            ".dc-history-poster { flex: 0 0 24px !important; width: 24px !important; height: 36px !important;",
+            text,
+        )
+        self.assertNotIn('<VAvatar size="28" rounded="sm" class="dc-history-poster', text)
+
+    def test_rank_posters_reuse_detail_rectangular_size(self):
+        """仪表盘与详情榜单应复用 24×36 矩形海报规格。"""
+        dashboard_text = DASHBOARD_VUE.read_text(encoding="utf-8")
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+
+        self.assertIn('<VAvatar rounded="sm" class="dc-rank-poster">', dashboard_text)
+        self.assertIn('<VAvatar rounded="sm" class="dc-rank-poster">', page_text)
+        self.assertNotIn('<VAvatar size="16" class="dc-rank-poster">', dashboard_text)
+        self.assertNotIn('<VAvatar size="20" rounded="sm" class="dc-rank-poster">', page_text)
+        self.assertIn(".dc-rank-row { display: flex; align-items: center; gap: 3px; min-height: 40px;", dashboard_text)
+        self.assertIn(".dc-rank-row { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 42px;", page_text)
+        for text in (dashboard_text, page_text):
+            self.assertIn(
+                ".dc-rank-poster { flex: 0 0 24px !important; width: 24px !important; height: 36px !important;",
+                text,
+            )
+
+        dashboard_css = _compact_css(_active_css_text("./Dashboard"))
+        page_css = _compact_css(_active_css_text("./Page"))
+        for css in (dashboard_css, page_css):
+            self.assertIn("flex:0024px!important;width:24px!important;height:36px!important", css)
+            self.assertIn("min-width:24px;min-height:36px;aspect-ratio:2/3", css)
+        self.assertIn("min-height:40px", dashboard_css)
+        self.assertIn("min-height:42px", page_css)
+
+    def test_rank_titles_wrap_to_two_lines(self):
+        """仪表盘与详情榜单长标题应自适应换行并限制为两行。"""
+        for source_path, expose_name in (
+            (DASHBOARD_VUE, "./Dashboard"),
+            (PAGE_VUE, "./Page"),
+        ):
+            text = source_path.read_text(encoding="utf-8")
+            match = re.search(r"\.dc-rank-title \{([^}]+)\}", text)
+            self.assertIsNotNone(match)
+            title_css = _compact_css(match.group(1))
+            self.assertIn("display:-webkit-box", title_css)
+            self.assertIn("-webkit-box-orient:vertical", title_css)
+            self.assertIn("-webkit-line-clamp:2", title_css)
+            self.assertIn("white-space:normal", title_css)
+            self.assertIn("overflow-wrap:anywhere", title_css)
+            self.assertNotIn("white-space:nowrap", title_css)
+
+            built_css = _compact_css(_active_css_text(expose_name))
+            self.assertIn("display:-webkit-box", built_css)
+            self.assertIn("-webkit-box-orient:vertical", built_css)
+            self.assertIn("-webkit-line-clamp:2", built_css)
+            self.assertIn("white-space:normal", built_css)
+            self.assertIn("overflow-wrap:anywhere", built_css)
 
     def test_dashboard_timeline_scroll_is_isolated_on_mobile(self):
         """追影时间线横滑不应带动榜单，月份组在移动端也保持单行。"""

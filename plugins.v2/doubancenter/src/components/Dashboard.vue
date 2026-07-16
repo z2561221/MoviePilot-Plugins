@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getPluginApi, postPluginApi } from './api'
+import { getPluginApi, postPluginApi, toPosterThumbnail } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -117,13 +117,19 @@ async function resolveRankMedia(rk, item) {
 async function load() {
   loading.value = true
   try {
-    config.value = await getPluginApi(props.api, 'config') || {}
-    rankHistory.value = await getPluginApi(props.api, 'rank_history') || {}
-    folioData.value = await getPluginApi(props.api, 'folio_data') || {}
+    const [nextConfig, nextRankHistory, nextFolioData] = await Promise.all([
+      getPluginApi(props.api, 'config'),
+      getPluginApi(props.api, 'rank_history'),
+      getPluginApi(props.api, 'folio_data'),
+    ])
+    config.value = nextConfig || {}
+    rankHistory.value = nextRankHistory || {}
+    folioData.value = nextFolioData || {}
   } catch (e) {
     console.error(e)
+  } finally {
+    loading.value = false
   }
-  loading.value = false
 }
 
 async function refreshRss() {
@@ -152,7 +158,7 @@ function showActionDialog(rk, item) {
 
 function dialogPoster() {
   const item = dialogItem.value?.item || {}
-  return item.poster || item.poster_path || item.cover || ''
+  return toPosterThumbnail(item.poster || item.poster_path || item.cover)
 }
 
 async function subscribeViaNativeDialog(rk, item) {
@@ -266,7 +272,7 @@ const timelineGroups = computed(() => {
       groups.push(currentGroup)
     }
     if (currentGroup.items.length < limitNum) {
-      const poster = (entry.poster_path || '').replace('/original/', '/w200/')
+      const poster = toPosterThumbnail(entry.poster_path)
       currentGroup.items.push({ key: entry.key, subject_name: entry.subject_name || entry.key, subject_id: entry.subject_id, poster, type: entry.type })
     }
   }
@@ -328,7 +334,7 @@ onMounted(load)
             <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(rk)" class="mr-1" /><span>{{ rankDefs[rk]?.name || rk }}</span></div>
             <div class="dc-rank-body">
               <div v-for="(item, i) in (rankHistory[rk] || []).slice(0, 5)" :key="i" class="dc-rank-row" :title="item.title" @click="showActionDialog(rk, item)">
-                <VAvatar size="16" class="dc-rank-poster"><VImg v-if="item.poster" :src="item.poster" /><VIcon v-else icon="mdi-filmstrip" size="10" /></VAvatar>
+                <VAvatar rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
                 <span class="dc-rank-title">{{ item.title }}</span>
                 <span v-if="rk === 'coming' && item.wish_count" class="dc-rank-wish">{{ item.wish_count }}</span>
               </div>
@@ -379,10 +385,10 @@ onMounted(load)
 .dc-timeline-months { display: flex; flex-wrap: nowrap; gap: 8px; width: max-content; min-width: 100%; }
 .dc-timeline-month { flex: 0 0 auto; min-width: 0; }
 .dc-timeline-posters { display: flex; flex-wrap: nowrap; gap: 3px; }
-.dc-rank-row { display: flex; align-items: center; gap: 3px; padding: 2px 3px; border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1.4; transition: background .12s; overflow: hidden; }
+.dc-rank-row { display: flex; align-items: center; gap: 3px; min-height: 40px; padding: 2px 3px; border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1.4; transition: background .12s; overflow: hidden; }
 .dc-rank-row:hover { background: rgba(var(--v-theme-primary), .07); }
-.dc-rank-poster { flex: 0 0 18px; width: 18px; height: 24px; border-radius: 3px; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
-.dc-rank-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-rank-poster { flex: 0 0 24px !important; width: 24px !important; height: 36px !important; min-width: 24px; min-height: 36px; aspect-ratio: 2 / 3; border-radius: 3px !important; background: rgba(var(--v-theme-on-surface), .08); overflow: hidden; }
+.dc-rank-title { display: -webkit-box; flex: 1 1 auto; min-width: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; }
 .dc-rank-num { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; }
 .dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
 .dc-dialog-action { flex: 1 1 0; min-width: 0; height: 36px; }

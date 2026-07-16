@@ -4,11 +4,19 @@ import datetime
 from typing import Any, Dict, List, Optional
 
 
+EXTRA_SUBSCRIPTION_RANK_NAMES = {
+    "douban_wish": "豆瓣想看",
+}
+
+
 def build_stats(records: List[dict], builtin_ranks: List[dict], now: Optional[datetime.datetime] = None) -> Dict[str, Any]:
     """基于订阅记录聚合仪表盘统计数据。"""
     records = [record for record in records if isinstance(record, dict)]
     rank_names = {rank["key"]: rank["name"] for rank in builtin_ranks if isinstance(rank, dict) and "key" in rank}
-    rank_dist = {rank["key"]: 0 for rank in builtin_ranks if isinstance(rank, dict) and "key" in rank}
+    for rank_key, rank_name in EXTRA_SUBSCRIPTION_RANK_NAMES.items():
+        if any(record.get("rank_key") == rank_key for record in records):
+            rank_names[rank_key] = rank_name
+    rank_dist = {rank_key: 0 for rank_key in rank_names}
     unknown_count = 0
     type_dist = {"电影": 0, "电视剧": 0}
     month_new = 0
@@ -35,9 +43,8 @@ def build_stats(records: List[dict], builtin_ranks: List[dict], now: Optional[da
                 pass
 
     rank_stats = [
-        {"key": rank["key"], "name": rank_names.get(rank["key"], rank["key"]), "count": rank_dist.get(rank["key"], 0)}
-        for rank in builtin_ranks
-        if isinstance(rank, dict) and "key" in rank
+        {"key": rank_key, "name": rank_name, "count": rank_dist.get(rank_key, 0)}
+        for rank_key, rank_name in rank_names.items()
     ]
     if unknown_count:
         rank_dist["unknown"] = unknown_count

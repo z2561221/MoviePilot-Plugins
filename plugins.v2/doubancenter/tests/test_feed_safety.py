@@ -39,6 +39,15 @@ class _MetaInfo:
 
 
 def _install_stubs():
+    def parse_regions_and_genres(category):
+        """按豆瓣 RSS 分类格式解析地区与类型。"""
+        parts = [part.strip() for part in str(category or "").split("/") if part.strip()]
+        region_text = parts[1] if len(parts) > 1 else ""
+        genre_text = parts[2] if len(parts) > 2 else ""
+        regions = [value.strip() for value in re.split(r"[\s、,，]+", region_text) if value.strip()]
+        genres = [value.strip() for value in re.split(r"[\s、,，]+", genre_text) if value.strip()]
+        return regions, genres
+
     app = types.ModuleType("app")
     app.__path__ = []
 
@@ -91,6 +100,7 @@ def _install_stubs():
     local_utils.is_within_days = lambda *args, **kwargs: True
     local_utils.normalize_rss_domain = lambda value: value
     local_utils.build_resolution_rule = lambda filters: None
+    local_utils.parse_regions_and_genres = parse_regions_and_genres
 
     sys.modules.update(
         {
@@ -312,7 +322,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
     def test_fetch_rss_uses_default_media_type_from_url(self):
         rss = """<?xml version="1.0"?>
-<rss><channel><item><title>Test Movie</title><link>https://movie.douban.com/subject/1234567/</link><description>2026</description></item></channel></rss>"""
+<rss><channel><item><title>Test Movie</title><link>https://movie.douban.com/subject/1234567/</link><description>剧情简介 2026</description><category>2026 / 英国 / 剧情 惊悚</category></item></channel></rss>"""
 
         class RequestUtils:
             def __init__(self, *args, **kwargs):
@@ -337,6 +347,10 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["mtype"], "movie")
         self.assertEqual(items[0]["doubanid"], "1234567")
+        self.assertEqual(items[0]["description"], "剧情简介 2026")
+        self.assertEqual(items[0]["category"], "2026 / 英国 / 剧情 惊悚")
+        self.assertEqual(items[0]["regions"], ["英国"])
+        self.assertEqual(items[0]["genres"], ["剧情", "惊悚"])
 
     def test_record_history_item_replaces_observe_placeholder(self):
         history = [{"unique": "rank:1", "title": "旧标题", "time": "2026-01-01 00:00:00", "observing": True}]
@@ -410,6 +424,25 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertTrue(token_hit)
         self.assertFalse(miss)
         self.assertEqual(plugin.data["anti_cheat_logs"][0]["link"], "https://rsshub.example/a")
+
+    def test_blacklist_matches_category_region_and_genre_fields(self):
+        plugin = _Plugin()
+        plugin._blacklist_keywords = "惊悚\n同性"
+
+        thriller_text = self.feed._blacklist_description({
+            "category": "2026 / 英国 / 剧情 惊悚",
+            "regions": ["英国"],
+            "genres": ["剧情", "惊悚"],
+        })
+        queer_text = self.feed._blacklist_description({
+            "original_title": "Beyond the Door",
+            "description": "一段普通剧情简介",
+            "regions": ["泰国"],
+            "genres": ["剧情", "同性"],
+        })
+
+        self.assertTrue(self.feed._check_blacklist(plugin, "流人 第六季", description=thriller_text))
+        self.assertTrue(self.feed._check_blacklist(plugin, "心门之外", description=queer_text))
 
     def test_global_subscription_filter_ignores_legacy_score_flags(self):
         plugin = _Plugin()
@@ -568,6 +601,57 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(recognize_calls, [])
         self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "黑名拦截")
         self.assertNotIn("observing", plugin.data["rank_history_tv_global"][0])
+
+    def test_general_blacklist_skips_genre_before_media_recognition(self):
+        plugin = _Plugin()
+        plugin._blacklist_keywords = "惊悚"
+        recognize_calls = []
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: recognize_calls.append(meta.title) or _MediaInfo(title=meta.title, year=meta.year, mtype=mtype)
+        )
+        plugin.data["rank_history_tv_global"] = [
+            {"title": "流人 第六季", "unique": "dc2_rank:https://example.com/slow-horses", "rank_index": 0}
+        ]
+        self.feed._fetch_rss = lambda self_obj, url: [{
+            "title": "流人 第六季",
+            "link": "https://example.com/slow-horses",
+            "description": "一群间谍踏上逃亡之路",
+            "category": "2026 / 英国 / 剧情 惊悚",
+            "regions": ["英国"],
+            "genres": ["剧情", "惊悚"],
+            "mtype": "tv",
+            "year": "2026",
+        }]
+
+        self.feed._process_general(plugin, "https://rsshub.example/douban/list/tv_global_best_weekly?limit=1", {"key": "tv_global", "name": "全球口碑", "route": "/douban/list/tv_global_best_weekly"})
+
+        self.assertEqual(recognize_calls, [])
+        self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "黑名拦截")
+        self.assertEqual(plugin.data["anti_cheat_logs"][0]["detail"], "匹配词：惊悚")
+
+    def test_coming_blacklist_skips_genre_before_media_recognition(self):
+        plugin = _Plugin()
+        plugin._blacklist_keywords = "同性"
+        recognize_calls = []
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: recognize_calls.append(meta.title) or _MediaInfo(title=meta.title, year=meta.year, mtype=mtype)
+        )
+        self.feed._fetch_coming_rss = lambda self_obj, url: [{
+            "title": "心门之外",
+            "link": "https://example.com/beyond-the-door",
+            "description": "一段普通剧情简介",
+            "category": "2026 / 泰国 / 剧情 同性",
+            "regions": ["泰国"],
+            "genres": ["剧情", "同性"],
+            "wish_count": 20000,
+            "year": "2026",
+        }]
+
+        self.feed._process_coming(plugin, "https://rsshub.example/douban/tv/coming?limit=1", {"key": "coming", "name": "即将播出", "route": "/douban/tv/coming"})
+
+        self.assertEqual(recognize_calls, [])
+        self.assertEqual(plugin.data["anti_cheat_logs"][0]["reason"], "黑名拦截")
+        self.assertEqual(plugin.data["anti_cheat_logs"][0]["detail"], "匹配词：同性")
 
     def test_general_year_filter_skips_before_observe(self):
         plugin = _Plugin()
@@ -1698,7 +1782,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn('class: "dc-history-row dc-status-row"', log_block_text)
         self.assertNotIn('class: "dc-cheat-row', log_block_text)
         self.assertIn("(log.poster)", log_block_text)
-        self.assertIn("src: log.poster", log_block_text)
+        self.assertIn("src: _unref(toPosterThumbnail)(log.poster)", log_block_text)
         self.assertIn('icon: "mdi-filmstrip"', log_block_text)
         self.assertIn("rankChipStyle(log.rank_key)", log_block_text)
         self.assertIn('class: "dc-rank-chip mr-1"', log_block_text)
