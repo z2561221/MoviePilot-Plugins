@@ -117,8 +117,25 @@ def _match_blacklist_line(line: str, haystack: str) -> bool:
     return all(token in source for token in tokens)
 
 
+def _blacklist_description(*sources: Any) -> str:
+    """汇总 RSS 原名、摘要、分类、地区与类型字段供黑名单匹配。"""
+    values: List[str] = []
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key in ("original_title", "description", "category", "regions", "genres"):
+            value = source.get(key)
+            if isinstance(value, (list, tuple, set)):
+                text = " ".join(str(item).strip() for item in value if str(item).strip())
+            else:
+                text = str(value or "").strip()
+            if text:
+                values.append(text)
+    return "\n".join(values)
+
+
 def _check_blacklist(self, title: str, description: str = "", link: str = "") -> bool:
-    """标题或摘要匹配黑名单关键词时返回 True。"""
+    """标题或 RSS 文本字段匹配黑名单关键词时返回 True。"""
     kw = (self._blacklist_keywords or "").strip()
     if not kw:
         return False
@@ -536,7 +553,7 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
         if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
             _log_rank_skip(rd, title, "历史中已订阅或已存在", result_lines=result_lines)
             continue
-        blacklist_description = "\n".join([str(entry.get("original_title") or ""), str(item.get("description") or "")])
+        blacklist_description = _blacklist_description(entry, item)
         if _check_blacklist(self, title, description=blacklist_description, link=link):
             _log_rank_skip(rd, title, "命中黑名单", result_lines=result_lines)
             continue
@@ -614,7 +631,7 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
             _log_rank_skip(rd, title, "历史中已订阅或已存在", result_lines=result_lines)
             continue
-        blacklist_description = "\n".join([str(entry.get("original_title") or ""), str(item.get("description") or "")])
+        blacklist_description = _blacklist_description(entry, item)
         if _check_blacklist(self, title, description=blacklist_description, link=link):
             _log_rank_skip(rd, title, "命中黑名单", result_lines=result_lines)
             continue
@@ -708,7 +725,7 @@ def _process_coming(self, url: str, rd: dict) -> None:
         current_candidates.add(unique)
         if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
             continue
-        if _check_blacklist(self, title, description=item.get("description", ""), link=link):
+        if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
             continue
         if wish < min_wish:
             continue
@@ -761,7 +778,7 @@ def _process_general(self, url: str, rd: dict) -> None:
         current_candidates.add(unique)
         if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
             continue
-        if _check_blacklist(self, title, description=item.get("description", ""), link=link):
+        if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
             continue
         if _year_below_min(year, min_year):
             continue
@@ -805,7 +822,7 @@ def _process_items(self, items: List[dict], source: str) -> None:
         unique = f"dc2_rank:{link or title}"
         if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
             continue
-        if _check_blacklist(self, title, description=item.get("description", ""), link=link):
+        if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
             continue
         meta = MetaInfo(title)
         if year:
