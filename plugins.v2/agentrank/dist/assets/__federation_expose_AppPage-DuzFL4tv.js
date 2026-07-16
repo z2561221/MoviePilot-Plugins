@@ -1,9 +1,9 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CBQjsTdv.js';
-import Config from './__federation_expose_Config-BiFOl3ZR.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-BpIYbzqo.js';
+import Config from './__federation_expose_Config-ChUPfsNX.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,unref:_unref,isRef:_isRef,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass,createSlots:_createSlots} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,unref:_unref,isRef:_isRef,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass,createSlots:_createSlots} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "ar-app-page" };
@@ -41,18 +41,6 @@ const _hoisted_17 = { class: "ar-app-page__summary" };
 const _hoisted_18 = { class: "ar-app-page__summary ar-app-page__summary--intro" };
 const _hoisted_19 = { class: "ar-app-page__tags" };
 const _hoisted_20 = { class: "ar-app-page__item-actions" };
-const _hoisted_21 = { class: "ar-app-page__aside" };
-const _hoisted_22 = { class: "text-body-2 mb-3" };
-const _hoisted_23 = { class: "ar-app-page__tags" };
-const _hoisted_24 = { class: "text-caption text-medium-emphasis mt-3" };
-const _hoisted_25 = {
-  key: 0,
-  class: "text-caption text-medium-emphasis"
-};
-const _hoisted_26 = {
-  key: 0,
-  class: "text-caption text-medium-emphasis"
-};
 
 const {computed,onMounted,ref,watch} = await importShared('vue');
 
@@ -74,8 +62,6 @@ const {
   selectedUser,
   overview,
   board,
-  profile,
-  history,
   loading,
   error,
   isRunning,
@@ -88,22 +74,8 @@ const lastArchivedId = ref('');
 const initialized = ref(false);
 
 const recommendations = computed(() => board.value?.recommendations?.slice(0, 10) || []);
-const archiveEntries = computed(() => overview.value?.archive?.entries || []);
-const weights = computed(() => options.value?.config?.weights || {});
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '');
 const boardStatus = computed(() => board.value?.status || 'idle');
-const weightLabels = {
-  type_weight: '媒体类型',
-  theme_weight: '题材主题',
-  actor_weight: '演员偏好',
-  director_weight: '导演偏好',
-  region_weight: '地区偏好',
-  year_weight: '年代偏好',
-  rating_weight: '评分质量',
-  heat_weight: '热门程度',
-  freshness_weight: '新鲜程度',
-  similarity_weight: '相似程度',
-};
 
 const statusMeta = computed(() => {
   const map = {
@@ -130,21 +102,13 @@ const stateMessage = computed(() => {
     validation_failed: '本轮输出未通过安全校验，旧榜单已保留。',
     subscription_partial_failed: '部分自动订阅失败，成功项不受影响。',
   };
-  return messages[boardStatus.value] || board.value?.message || ''
+  return messages[boardStatus.value] || ''
 });
 
 function formatTime(value) {
   if (!value) return '尚未生成'
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
-}
-
-function weightLabel(key) {
-  return weightLabels[key] || key.replace('_weight', '')
-}
-
-function formatWeight(value) {
-  return `${Math.round(Number(value || 0) * 100)}%`
 }
 
 function mediaTypeLabel(value) {
@@ -174,7 +138,6 @@ async function initialize() {
 async function refreshBoard() {
   try {
     await state.refresh();
-    snackbar.value = { show: true, message: '榜单刷新已完成', color: 'success', undo: false };
   } catch (err) {
     snackbar.value = { show: true, message: err?.message || '榜单刷新失败', color: 'error', undo: false };
   }
@@ -248,11 +211,6 @@ return (_ctx, _cache) => {
   const _component_VEmptyState = _resolveComponent("VEmptyState");
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VImg = _resolveComponent("VImg");
-  const _component_VExpansionPanelTitle = _resolveComponent("VExpansionPanelTitle");
-  const _component_VExpansionPanelText = _resolveComponent("VExpansionPanelText");
-  const _component_VExpansionPanel = _resolveComponent("VExpansionPanel");
-  const _component_VProgressLinear = _resolveComponent("VProgressLinear");
-  const _component_VExpansionPanels = _resolveComponent("VExpansionPanels");
   const _component_VCard = _resolveComponent("VCard");
   const _component_VDialog = _resolveComponent("VDialog");
   const _component_VSnackbar = _resolveComponent("VSnackbar");
@@ -284,26 +242,29 @@ return (_ctx, _cache) => {
               _cache[4] || (_cache[4] = _createElementVNode("div", { class: "text-h6" }, "Agent榜单中心", -1)),
               _createElementVNode("div", _hoisted_3, "最近生成：" + _toDisplayString(formatTime(generatedAt.value)), 1)
             ]),
-            _createVNode(_component_VChip, {
-              color: statusMeta.value.color,
-              variant: "tonal",
-              size: "small",
-              class: "ar-app-page__status ms-3"
-            }, {
-              default: _withCtx(() => [
-                _createVNode(_component_VIcon, {
-                  icon: statusMeta.value.icon,
-                  size: "16",
-                  class: "mr-1"
-                }, null, 8, ["icon"]),
-                _createTextVNode(_toDisplayString(statusMeta.value.text), 1)
-              ]),
-              _: 1
-            }, 8, ["color"]),
+            (boardStatus.value !== 'success')
+              ? (_openBlock(), _createBlock(_component_VChip, {
+                  key: 0,
+                  color: statusMeta.value.color,
+                  variant: "tonal",
+                  size: "small",
+                  class: "ar-app-page__status ms-3"
+                }, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_VIcon, {
+                      icon: statusMeta.value.icon,
+                      size: "16",
+                      class: "mr-1"
+                    }, null, 8, ["icon"]),
+                    _createTextVNode(_toDisplayString(statusMeta.value.text), 1)
+                  ]),
+                  _: 1
+                }, 8, ["color"]))
+              : _createCommentVNode("", true),
             _createVNode(_component_VSpacer),
             (_unref(users).length > 1)
               ? (_openBlock(), _createBlock(_component_VSelect, {
-                  key: 0,
+                  key: 1,
                   modelValue: _unref(selectedUser),
                   "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => (_isRef(selectedUser) ? (selectedUser).value = $event : null)),
                   items: _unref(users),
@@ -492,187 +453,6 @@ return (_ctx, _cache) => {
                               ]))
                             }), 128))
                           ]))
-                  ]),
-                  _createElementVNode("aside", _hoisted_21, [
-                    _createVNode(_component_VExpansionPanels, {
-                      multiple: "",
-                      variant: "accordion",
-                      "model-value": [0, 1]
-                    }, {
-                      default: _withCtx(() => [
-                        _createVNode(_component_VExpansionPanel, null, {
-                          default: _withCtx(() => [
-                            _createVNode(_component_VExpansionPanelTitle, null, {
-                              default: _withCtx(() => [
-                                _createVNode(_component_VIcon, {
-                                  icon: "mdi-account-heart-outline",
-                                  color: "primary",
-                                  class: "mr-2"
-                                }),
-                                _cache[7] || (_cache[7] = _createTextVNode("画像摘要", -1))
-                              ]),
-                              _: 1
-                            }),
-                            _createVNode(_component_VExpansionPanelText, null, {
-                              default: _withCtx(() => [
-                                _createElementVNode("div", _hoisted_22, _toDisplayString(_unref(profile)?.summary || '尚未生成用户画像'), 1),
-                                _createElementVNode("div", _hoisted_23, [
-                                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_unref(profile)?.tags || [], (tag) => {
-                                    return (_openBlock(), _createBlock(_component_VChip, {
-                                      key: tag,
-                                      size: "small",
-                                      color: "primary",
-                                      variant: "tonal"
-                                    }, {
-                                      default: _withCtx(() => [
-                                        _createTextVNode(_toDisplayString(tag), 1)
-                                      ]),
-                                      _: 2
-                                    }, 1024))
-                                  }), 128))
-                                ]),
-                                _createElementVNode("div", _hoisted_24, "订阅样本 " + _toDisplayString(_unref(profile)?.subscription_count || 0) + " 条", 1)
-                              ]),
-                              _: 1
-                            })
-                          ]),
-                          _: 1
-                        }),
-                        _createVNode(_component_VExpansionPanel, null, {
-                          default: _withCtx(() => [
-                            _createVNode(_component_VExpansionPanelTitle, null, {
-                              default: _withCtx(() => [
-                                _createVNode(_component_VIcon, {
-                                  icon: "mdi-tune-vertical",
-                                  color: "primary",
-                                  class: "mr-2"
-                                }),
-                                _cache[8] || (_cache[8] = _createTextVNode("权重摘要", -1))
-                              ]),
-                              _: 1
-                            }),
-                            _createVNode(_component_VExpansionPanelText, null, {
-                              default: _withCtx(() => [
-                                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(weights.value, (value, key) => {
-                                  return (_openBlock(), _createElementBlock("div", {
-                                    key: key,
-                                    class: "ar-app-page__weight-row"
-                                  }, [
-                                    _createElementVNode("span", null, _toDisplayString(weightLabel(key)), 1),
-                                    _createVNode(_component_VProgressLinear, {
-                                      "model-value": Number(value) * 100,
-                                      color: "primary",
-                                      height: "6",
-                                      rounded: ""
-                                    }, null, 8, ["model-value"]),
-                                    _createElementVNode("strong", null, _toDisplayString(formatWeight(value)), 1)
-                                  ]))
-                                }), 128)),
-                                _createVNode(_component_VBtn, {
-                                  block: "",
-                                  variant: "text",
-                                  color: "primary",
-                                  "prepend-icon": "mdi-cog-outline",
-                                  class: "mt-2",
-                                  onClick: openSettings
-                                }, {
-                                  default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
-                                    _createTextVNode("进入设置", -1)
-                                  ]))]),
-                                  _: 1
-                                })
-                              ]),
-                              _: 1
-                            })
-                          ]),
-                          _: 1
-                        }),
-                        _createVNode(_component_VExpansionPanel, null, {
-                          default: _withCtx(() => [
-                            _createVNode(_component_VExpansionPanelTitle, null, {
-                              default: _withCtx(() => [
-                                _createVNode(_component_VIcon, {
-                                  icon: "mdi-archive-outline",
-                                  color: "primary",
-                                  class: "mr-2"
-                                }),
-                                _cache[10] || (_cache[10] = _createTextVNode("最近归档", -1))
-                              ]),
-                              _: 1
-                            }),
-                            _createVNode(_component_VExpansionPanelText, null, {
-                              default: _withCtx(() => [
-                                (!archiveEntries.value.length)
-                                  ? (_openBlock(), _createElementBlock("div", _hoisted_25, "暂无忽略记录"))
-                                  : _createCommentVNode("", true),
-                                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(archiveEntries.value.slice(0, 5), (entry) => {
-                                  return (_openBlock(), _createElementBlock("div", {
-                                    key: entry.candidate_id,
-                                    class: "ar-app-page__archive-row"
-                                  }, [
-                                    _createElementVNode("span", null, _toDisplayString(entry.recommendation?.title || entry.candidate_id), 1),
-                                    _createVNode(_component_VBtn, {
-                                      size: "small",
-                                      variant: "text",
-                                      onClick: $event => (_unref(state).restore(entry.candidate_id))
-                                    }, {
-                                      default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
-                                        _createTextVNode("恢复", -1)
-                                      ]))]),
-                                      _: 1
-                                    }, 8, ["onClick"])
-                                  ]))
-                                }), 128))
-                              ]),
-                              _: 1
-                            })
-                          ]),
-                          _: 1
-                        }),
-                        _createVNode(_component_VExpansionPanel, null, {
-                          default: _withCtx(() => [
-                            _createVNode(_component_VExpansionPanelTitle, null, {
-                              default: _withCtx(() => [
-                                _createVNode(_component_VIcon, {
-                                  icon: "mdi-history",
-                                  color: "primary",
-                                  class: "mr-2"
-                                }),
-                                _cache[12] || (_cache[12] = _createTextVNode("运行历史", -1))
-                              ]),
-                              _: 1
-                            }),
-                            _createVNode(_component_VExpansionPanelText, null, {
-                              default: _withCtx(() => [
-                                (!_unref(history).length)
-                                  ? (_openBlock(), _createElementBlock("div", _hoisted_26, "暂无运行记录"))
-                                  : _createCommentVNode("", true),
-                                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_unref(history).slice(0, 5), (run) => {
-                                  return (_openBlock(), _createElementBlock("div", {
-                                    key: `${run.run_id}-${run.finished_at}`,
-                                    class: "ar-app-page__history-row"
-                                  }, [
-                                    _createVNode(_component_VChip, {
-                                      size: "x-small",
-                                      variant: "tonal"
-                                    }, {
-                                      default: _withCtx(() => [
-                                        _createTextVNode(_toDisplayString(run.status), 1)
-                                      ]),
-                                      _: 2
-                                    }, 1024),
-                                    _createElementVNode("span", null, _toDisplayString(formatTime(run.finished_at || run.started_at)), 1)
-                                  ]))
-                                }), 128))
-                              ]),
-                              _: 1
-                            })
-                          ]),
-                          _: 1
-                        })
-                      ]),
-                      _: 1
-                    })
                   ])
                 ])
               ]))
@@ -714,7 +494,7 @@ return (_ctx, _cache) => {
                 variant: "text",
                 onClick: undoArchive
               }, {
-                default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+                default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
                   _createTextVNode("撤销", -1)
                 ]))]),
                 _: 1
@@ -729,6 +509,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4d4b5062"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-42c87556"]]);
 
 export { AppPage as default };

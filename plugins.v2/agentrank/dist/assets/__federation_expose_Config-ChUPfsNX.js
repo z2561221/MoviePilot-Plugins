@@ -1088,7 +1088,7 @@ return (_ctx, _cache) => {
                         class: "mt-4"
                       }, {
                         default: _withCtx(() => [...(_cache[41] || (_cache[41] = [
-                          _createTextVNode("该提示词用于调整候选排序、画像措辞和文案风格；只读工具边界、JSON 输出协议及十字校验由插件固定保留。", -1)
+                          _createTextVNode("该提示词用于调整候选排序、画像措辞和文案风格；只读工具边界、JSON 输出协议及十五字校验由插件固定保留。", -1)
                         ]))]),
                         _: 1
                       })
@@ -1207,6 +1207,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2c8f6ed7"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-87bb05bf"]]);
 
 export { Config as default };

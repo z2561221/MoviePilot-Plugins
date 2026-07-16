@@ -74,6 +74,12 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
     archive = {"entries": [{"candidate_id": "tmdb:3"}]}
     weights = {"weights": {"rating_weight": 0.7}, "media_types": ["movie"]}
     previous_profile = {"summary": "Old", "tags": ["悬疑"]}
+    profile_preferences = {
+        "custom_tags": ["冷门佳作"],
+        "custom_negative_tags": ["过度煽情"],
+        "suppressed_tags": ["悬疑"],
+        "suppressed_negative_tags": [],
+    }
     context = build_trusted_context(
         username="alice",
         run_id="run-1",
@@ -82,6 +88,7 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
         archive_feedback=archive,
         weights=weights,
         previous_profile=previous_profile,
+        profile_preferences=profile_preferences,
     )
     subscriptions[0]["title"] = "mutated"
     candidates.append({"candidate_id": "tmdb:999"})
@@ -98,6 +105,7 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
         "summary": "Old",
         "tags": ["悬疑"],
     }
+    assert outputs["read_agentrank_subscriptions"]["profile_preferences"] == profile_preferences
     assert len(outputs["read_agentrank_candidates"]["candidates"]) == 1
     assert outputs["read_agentrank_archive_feedback"]["archive_feedback"] == archive
     assert outputs["read_agentrank_weights"]["weights"] == weights

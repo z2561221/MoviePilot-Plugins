@@ -1,6 +1,7 @@
 """MoviePilot 内置发现源适配器。"""
 
 from dataclasses import dataclass, field
+from math import ceil
 from typing import Any, Callable, Dict, List, Mapping
 
 
@@ -20,6 +21,7 @@ class DiscoveryFetchResult:
     items: List[RawDiscoveredItem] = field(default_factory=list)
     source_errors: Dict[str, str] = field(default_factory=dict)
     rejected_sources: List[str] = field(default_factory=list)
+    source_counts: Dict[str, int] = field(default_factory=dict)
 
 
 class DiscoveryAdapter:
@@ -119,17 +121,26 @@ class DiscoveryAdapter:
         )
 
     def fetch(self, enabled_sources: Mapping[str, Any], count: int) -> DiscoveryFetchResult:
-        """逐来源读取，隔离失败并给每条数据附加受信来源。"""
+        """按启用来源均分带余量配额，隔离失败并附加受信来源。"""
         result = DiscoveryFetchResult()
-        per_source_count = max(1, int(count))
+        enabled_names = [
+            name
+            for name in self._source_fetchers
+            if enabled_sources.get(name, False)
+        ]
+        if not enabled_names:
+            return result
+        base_quota = max(1, ceil(max(1, int(count)) / len(enabled_names)))
+        per_source_count = base_quota + min(5, base_quota)
         for source_name, fetcher in self._source_fetchers.items():
-            if not enabled_sources.get(source_name, False):
+            if source_name not in enabled_names:
                 continue
             try:
                 rows = fetcher(per_source_count) or []
             except Exception as error:
                 result.source_errors[source_name] = str(error)
                 continue
+            result.source_counts[source_name] = len(rows)
             result.items.extend(
                 RawDiscoveredItem(source=source_name, payload=row) for row in rows
             )

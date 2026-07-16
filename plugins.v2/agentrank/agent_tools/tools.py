@@ -52,6 +52,9 @@ class ReadAgentRankSubscriptionsTool(_ReadAgentRankTool):
             "run_id": trusted_context.run_id,
             "subscriptions": to_jsonable(trusted_context.subscriptions),
             "previous_profile": to_jsonable(trusted_context.previous_profile),
+            "profile_preferences": to_jsonable(
+                trusted_context.profile_preferences
+            ),
         }
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 

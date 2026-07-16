@@ -16,6 +16,7 @@ package.__path__ = [str(PLUGIN_DIR)]
 
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
+preferences_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile_preferences")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 subscription_module = importlib.import_module(f"{PACKAGE_NAME}.model.subscription")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
@@ -23,6 +24,7 @@ orchestrator_module = importlib.import_module(f"{PACKAGE_NAME}.service.recommend
 
 Candidate = candidate_module.Candidate
 UserProfile = profile_module.UserProfile
+ProfilePreferences = preferences_module.ProfilePreferences
 RecommendationBoard = board_module.RecommendationBoard
 SubscriptionSample = subscription_module.SubscriptionSample
 ProfileInputResult = subscription_module.ProfileInputResult
@@ -120,8 +122,8 @@ def _agent_output(candidate_ids):
             "recommendations": [
                 {
                     "candidate_id": candidate_id,
-                    "reason": "这部正好戳中你的笑点",
-                    "summary": "悬疑迷局牵出旧日真相",
+                    "reason": "这部作品正戳中你的独特审美偏好",
+                    "summary": "悬疑迷局层层牵出尘封往事与真相",
                     "match_tags": ["悬疑"],
                     "confidence": 80,
                 }
@@ -202,16 +204,29 @@ def test_cached_profile_is_passed_as_incremental_context():
     repository.save_profile(
         UserProfile(username="alice", summary="old", tags=["悬疑"], run_id="old")
     )
+    repository.save_profile_preferences(
+        ProfilePreferences(
+            username="alice",
+            custom_tags=["冷门佳作"],
+            custom_negative_tags=["过度煽情"],
+        )
+    )
 
     result = asyncio.run(orchestrator.run("alice", _config()))
 
     context = orchestrator.agent_adapter.calls[0][1]
     assert context.previous_profile["summary"] == "old"
     assert context.previous_profile["tags"] == ("悬疑",)
+    assert context.profile_preferences["custom_tags"] == ("冷门佳作",)
+    assert context.profile_preferences["custom_negative_tags"] == ("过度煽情",)
     assert "禁止简单做标签并集" in orchestrator.agent_adapter.calls[0][0]
+    assert "用户明确偏好" in orchestrator.agent_adapter.calls[0][0]
     history = repository.load_run_history("alice")[0]
     assert history.metrics["profile_mode"] == "incremental"
     assert history.metrics["previous_profile_used"] is True
+    assert history.metrics["custom_preference_count"] == 2
+    for metric in ("profile_collect_ms", "candidate_collect_ms", "library_check_ms", "agent_ms", "save_ms"):
+        assert history.metrics[metric] >= 0
     assert result.status == "success"
 
 

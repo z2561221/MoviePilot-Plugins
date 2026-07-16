@@ -258,6 +258,16 @@ export function useAgentRankState(api) {
     return result
   }
 
+  async function updateProfileTag(kind, action, tag) {
+    const result = await runAction(
+      'profile/tags',
+      { username: selectedUser.value, kind, action, tag },
+      action === 'add' ? '添加标签' : '删除标签',
+    )
+    await loadUserData(selectedUser.value, { force: true })
+    return result
+  }
+
   async function subscribe(candidateId) {
     const result = await runAction(
       'subscribe',
@@ -289,6 +299,7 @@ export function useAgentRankState(api) {
     restore,
     deleteArchive,
     clearProfile,
+    updateProfileTag,
     subscribe,
   }
 }

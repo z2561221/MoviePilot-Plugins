@@ -43,6 +43,7 @@ def test_shared_state_covers_all_read_and_mutation_surfaces():
         "restore",
         "archive/delete",
         "profile/clear",
+        "profile/tags",
         "subscribe",
     ):
         assert path in source
@@ -113,8 +114,8 @@ def test_config_advanced_navigation_uses_a_host_supported_mdi_icon():
     assert "mdi-shield-cog-outline" not in source
 
 
-def test_app_page_is_a_vertical_top_ten_without_profile_cleanup():
-    """The discovery page keeps daily actions but leaves profile cleanup to details."""
+def test_app_page_is_a_ranking_only_vertical_top_ten():
+    """The discovery page keeps ranking actions and removes all right-side summaries."""
     source = APP_PAGE.read_text(encoding="utf-8")
     assert "useAgentRankState" in source
     assert "Top 10" in source
@@ -123,18 +124,17 @@ def test_app_page_is_a_vertical_top_ten_without_profile_cleanup():
     assert "subscribe" in source
     assert "archive" in source
     assert "restore" in source
-    assert "画像摘要" in source
-    assert "权重摘要" in source
-    assert "最近归档" in source
-    assert "运行历史" in source
+    assert "画像摘要" not in source
+    assert "权重摘要" not in source
+    assert "最近归档" not in source
+    assert "运行历史" not in source
+    assert "ar-app-page__aside" not in source
+    assert "榜单刷新已完成" not in source
     assert "clearDialog" not in source
-    assert "清除画像" in PAGE.read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 1fr)" in source
+    assert "清除画像" in CONFIG.read_text(encoding="utf-8")
+    assert ".ar-app-page__layout { display: block; }" in source
     assert "@media (max-width: 760px)" in source
     assert "min-width: 40px" in source or "min-height: 40px" in source
-    assert "媒体类型" in source
-    assert "评分质量" in source
-    assert "formatWeight(value)" in source
     assert "item.reason" in source
     assert "推荐：" in source
     assert "简介：" in source
@@ -142,17 +142,18 @@ def test_app_page_is_a_vertical_top_ten_without_profile_cleanup():
     assert "mdi-image-off-outline" in source
 
 
-def test_page_has_five_management_tabs_and_backend_history_paging():
-    """The detail dialog covers recommendation, profile, weights, archive, and history."""
+def test_page_has_four_management_tabs_editable_tags_and_backend_history_paging():
+    """The detail dialog covers ranking, editable profile, archive, and history."""
     source = PAGE.read_text(encoding="utf-8")
-    for title in ("推荐榜单", "用户画像", "权重配置", "归档区", "运行历史"):
+    for title in ("推荐榜单", "用户画像", "忽略归档", "运行历史"):
         assert title in source
     assert "useAgentRankState" in source
     assert "subscribe" in source
     assert "archive" in source
     assert "restore" in source
     assert "deleteArchive" in source
-    assert "clearDialog" in source
+    assert "updateProfileTag" in source
+    assert "closable" in source
     assert "historyPage" in source
     assert "page_size" in source
     assert "emit('close')" in source
@@ -162,8 +163,6 @@ def test_page_has_five_management_tabs_and_backend_history_paging():
     assert "statusMetaFor(run.status)" in source
     assert "white-space: normal" in source
     assert "overflow-wrap: anywhere" in source
-    assert "媒体类型" in source
-    assert "评分质量" in source
     assert "item.reason" in source
     assert "#error" in source
 

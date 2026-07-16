@@ -107,6 +107,7 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/restore",
         "/archive/delete",
         "/profile/clear",
+        "/profile/tags",
         "/run-history",
         "/subscribe",
     }
@@ -211,6 +212,50 @@ def test_clear_profile_requires_explicit_confirmation():
         controller.clear_profile({"username": "alice", "confirm": False})
     assert caught.value.status_code == 409
     assert caught.value.code == "confirmation_required"
+
+
+def test_profile_tags_are_merged_and_deleted_agent_tags_stay_suppressed():
+    """人工标签独立持久化，删除 Agent 标签后画像响应不再显示它。"""
+    plugin = FakePlugin()
+    plugin._repository.save_profile(
+        UserProfile(
+            username="alice",
+            summary="画像",
+            tags=["悬疑", "科幻"],
+            negative_tags=["拖沓"],
+        )
+    )
+    controller = AgentRankApiController(plugin)
+
+    added = controller.update_profile_tag(
+        {"username": "alice", "kind": "positive", "action": "add", "tag": "冷门佳作"}
+    )
+    removed = controller.update_profile_tag(
+        {"username": "alice", "kind": "positive", "action": "remove", "tag": "悬疑"}
+    )
+    negative = controller.update_profile_tag(
+        {"username": "alice", "kind": "negative", "action": "add", "tag": "过度煽情"}
+    )
+
+    assert added["data"]["changed"] is True
+    assert removed["data"]["profile"]["tags"] == ["科幻", "冷门佳作"]
+    assert negative["data"]["profile"]["negative_tags"] == ["拖沓", "过度煽情"]
+    preferences = plugin._repository.load_profile_preferences("alice")
+    assert preferences.custom_tags == ["冷门佳作"]
+    assert preferences.suppressed_tags == ["悬疑", "过度煽情"]
+
+
+def test_profile_tag_rejects_invalid_kind_action_and_multiline_text():
+    """人工标签 API 拒绝未知类别、动作和带换行的文本。"""
+    controller = AgentRankApiController(FakePlugin())
+    for payload in (
+        {"username": "alice", "kind": "other", "action": "add", "tag": "科幻"},
+        {"username": "alice", "kind": "positive", "action": "move", "tag": "科幻"},
+        {"username": "alice", "kind": "positive", "action": "add", "tag": "科幻\n悬疑"},
+    ):
+        with pytest.raises(ApiContractError) as caught:
+            controller.update_profile_tag(payload)
+        assert caught.value.code == "invalid_profile_tag"
 
 
 def test_subscribe_route_is_stable_but_deferred_to_safety_task():

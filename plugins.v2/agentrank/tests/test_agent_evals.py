@@ -51,7 +51,7 @@ def _output(candidate_ids):
             "recommendations": [
                 {
                     "candidate_id": candidate_id,
-                    "summary": "光影故事铺展人物命运",
+                    "summary": "光影故事缓缓铺展人物命运新篇章",
                     "match_tags": ["科幻"],
                     "confidence": 88,
                 }

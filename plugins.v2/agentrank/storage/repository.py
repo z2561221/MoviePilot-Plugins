@@ -8,6 +8,7 @@ from ..model.archive import ArchiveFeedback
 from ..model.board import RecommendationBoard
 from ..model.candidate import Candidate
 from ..model.profile import UserProfile
+from ..model.profile_preferences import ProfilePreferences
 from ..model.run import RecommendationRun
 
 
@@ -100,6 +101,20 @@ class AgentRankRepository:
             UserProfile,
             legacy_keys=[self._key("profile", username)],
         )
+
+    def save_profile_preferences(self, preferences: ProfilePreferences) -> None:
+        """保存当前用户人工画像标签偏好。"""
+        self._plugin.save_data(
+            key=self._key("profile_preferences", preferences.username),
+            value=preferences.to_dict(),
+        )
+
+    def load_profile_preferences(self, username: str) -> ProfilePreferences:
+        """读取人工画像标签偏好；不存在或损坏时返回空偏好。"""
+        preferences = self._load_model(
+            self._key("profile_preferences", username), ProfilePreferences
+        )
+        return preferences or ProfilePreferences(username=username)
 
     def save_board(self, board: RecommendationBoard) -> None:
         """保存当前用户榜单。"""

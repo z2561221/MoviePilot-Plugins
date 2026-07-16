@@ -164,6 +164,66 @@ def test_candidate_limit_is_applied_after_normalization_and_deduplication():
     assert len(result.candidates) == 3
 
 
+def test_enabled_sources_receive_balanced_fetch_quota_with_small_reserve():
+    """总候选上限按启用来源均分，而不是每个来源都抓完整上限。"""
+    requested = {}
+
+    def fetcher(name):
+        def fetch(count):
+            requested[name] = count
+            return []
+
+        return fetch
+
+    adapter = DiscoveryAdapter(
+        source_fetchers={name: fetcher(name) for name in ("douban", "tmdb_movies", "tmdb_tv", "bangumi")}
+    )
+    adapter.fetch(
+        {"douban": True, "tmdb_movies": True, "tmdb_tv": True, "bangumi": True},
+        50,
+    )
+
+    assert requested == {name: 18 for name in requested}
+
+
+def test_candidate_limit_round_robins_sources_before_global_cutoff():
+    """固定上限下各来源轮询入池，豆瓣不能再独占前排候选。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            source: lambda count, source=source: [
+                {
+                    "title": f"{source}-{index}",
+                    "tmdb_id": f"{source}-{index}",
+                    "media_type": "movie",
+                }
+                for index in range(4)
+            ]
+            for source in ("douban", "tmdb_movies", "tmdb_tv", "bangumi")
+        }
+    )
+    service = CandidateCollectionService(adapter, AgentRankRepository(FakePlugin()))
+
+    result = service.collect_and_freeze(
+        "alice",
+        "run-balanced",
+        {"douban": True, "tmdb_movies": True, "tmdb_tv": True, "bangumi": True},
+        candidate_limit=4,
+    )
+
+    assert [candidate.sources[0] for candidate in result.candidates] == [
+        "douban",
+        "tmdb_movies",
+        "tmdb_tv",
+        "bangumi",
+    ]
+    assert result.accepted_source_counts == {
+        "douban": 1,
+        "tmdb_movies": 1,
+        "tmdb_tv": 1,
+        "bangumi": 1,
+    }
+
+
 def test_media_recognition_gate_rebuilds_source_item_as_tmdb_candidate():
     """Source identity is retained only as trace data after TMDB recognition."""
     adapter = DiscoveryAdapter(

@@ -25,7 +25,7 @@ def build_ranking_prompt(
 
 权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。
 
-画像演进规则：read_agentrank_subscriptions 会同时返回当前 subscriptions 与可选 previous_profile。previous_profile 非空时，在旧画像基础上结合当前订阅证据演进，保留仍有证据的稳定偏好，并删除或弱化已失去证据的旧标签；禁止简单做标签并集。previous_profile 为空时按当前订阅重新建立画像。subscription_count 必须反映当前 subscriptions 数量。
+画像演进规则：read_agentrank_subscriptions 会同时返回当前 subscriptions、可选 previous_profile 与受信 profile_preferences。previous_profile 非空时，在旧画像基础上结合当前订阅证据演进，保留仍有证据的稳定偏好，并删除或弱化已失去证据的旧标签；禁止简单做标签并集。previous_profile 为空时按当前订阅重新建立画像。profile_preferences 中 custom_tags 是用户明确偏好，必须参与画像与排序；custom_negative_tags 是用户明确避雷，必须降低相关候选排序；suppressed_tags 与 suppressed_negative_tags 是用户已删除的 Agent 标签，不得重新写回对应画像标签。subscription_count 必须反映当前 subscriptions 数量。
 
 可配置排序指令：
 {custom_instruction}
@@ -43,15 +43,15 @@ def build_ranking_prompt(
   "recommendations": [
     {{
       "candidate_id": "候选池中的稳定ID",
-      "reason": "恰好十个中文字符",
-      "summary": "恰好十个中文字符",
+      "reason": "恰好十五个中文字符",
+      "summary": "恰好十五个中文字符",
       "match_tags": ["匹配标签"],
       "confidence": 0
     }}
   ]
 }}
 
-confidence 必须是零到一百的整数。reason 说明为何适合该用户，summary 概括作品本身；两者都必须恰好十个中文字符，不含英文、数字、标点、空白或换行。文案要轻松诙谐、机灵自然，但禁止低俗、剧透和靠重复字凑数。"""
+confidence 必须是零到一百的整数。reason 说明为何适合该用户，summary 概括作品本身；两者都必须恰好十五个中文字符，不含英文、数字、标点、空白或换行。文案要轻松诙谐、机灵自然，但禁止低俗、剧透和靠重复字凑数。"""
 
 
 def build_refill_prompt(

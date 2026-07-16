@@ -1,7 +1,8 @@
 """多来源候选规范化、去重与快照服务。"""
 
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from ..adapter.discovery import DiscoveryAdapter, RawDiscoveredItem
 from ..model.candidate import Candidate
@@ -19,6 +20,8 @@ class CandidateCollectionResult:
     source_errors: Dict[str, str] = field(default_factory=dict)
     rejected_sources: List[str] = field(default_factory=list)
     rejected_count: int = 0
+    fetched_source_counts: Dict[str, int] = field(default_factory=dict)
+    accepted_source_counts: Dict[str, int] = field(default_factory=dict)
 
 
 class CandidateCollectionService:
@@ -197,6 +200,32 @@ class CandidateCollectionService:
                     values.append(item)
         target.metadata.update(incoming.metadata)
 
+    @staticmethod
+    def _round_robin(items: Iterable[RawDiscoveredItem]) -> Iterable[RawDiscoveredItem]:
+        """按来源轮询原始候选，避免固定来源顺序抢占全局上限。"""
+        queues: Dict[str, Deque[RawDiscoveredItem]] = {}
+        for item in items:
+            queues.setdefault(item.source, deque()).append(item)
+        active_sources = list(queues)
+        while active_sources:
+            next_sources: List[str] = []
+            for source in active_sources:
+                queue = queues[source]
+                if queue:
+                    yield queue.popleft()
+                if queue:
+                    next_sources.append(source)
+            active_sources = next_sources
+
+    @staticmethod
+    def _source_counts(candidates: Iterable[Candidate]) -> Dict[str, int]:
+        """统计最终候选中每个受信来源的覆盖数量。"""
+        counts: Dict[str, int] = {}
+        for candidate in candidates:
+            for source in candidate.sources:
+                counts[source] = counts.get(source, 0) + 1
+        return counts
+
     def collect_and_freeze(
         self,
         username: str,
@@ -209,7 +238,10 @@ class CandidateCollectionService:
         candidates: List[Candidate] = []
         by_id: Dict[str, Candidate] = {}
         rejected_count = 0
-        for raw in fetched.items:
+        limit = max(1, int(candidate_limit))
+        for raw in self._round_robin(fetched.items):
+            if len(candidates) >= limit:
+                break
             try:
                 candidate = self._normalize(raw)
                 if self._media_adapter is not None:
@@ -223,8 +255,6 @@ class CandidateCollectionService:
             if existing:
                 self._merge(existing, candidate)
                 continue
-            if len(candidates) >= max(1, int(candidate_limit)):
-                continue
             by_id[candidate.candidate_id] = candidate
             candidates.append(candidate)
         self._repository.save_candidate_snapshot(run_id, username, candidates)
@@ -236,4 +266,6 @@ class CandidateCollectionService:
             source_errors=fetched.source_errors,
             rejected_sources=fetched.rejected_sources,
             rejected_count=rejected_count,
+            fetched_source_counts=dict(fetched.source_counts),
+            accepted_source_counts=self._source_counts(candidates),
         )

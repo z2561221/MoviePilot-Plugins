@@ -136,17 +136,30 @@ def test_detail_page_uses_transparent_root_and_data_surfaces():
     assert ".ar-page__content" in page and "background: transparent;" in page
 
 
-def test_profile_view_shows_preferences_avoidances_and_board_matches():
-    """画像页使用现有字段展示偏好、避雷和本轮榜单命中，不新增接口请求。"""
+def test_profile_view_edits_preferences_and_shows_board_matches():
+    """画像页支持人工偏好与避雷标签增删，并继续展示本轮命中。"""
     page = _read("Page.vue")
     state = _read("useAgentRankState.js")
     assert "state.profile.value?.negative_tags" in page
     assert "item.match_tags || []" in page
+    assert "state.updateProfileTag(kind, 'add', tag)" in page
+    assert "state.updateProfileTag(kind, 'remove', tag)" in page
+    assert "closable" in page
     for label in ("订阅样本", "偏好标签", "避雷标签", "本轮命中"):
         assert label in page
     assert "ar-page__profile-groups" in page
     assert "getPluginApi(api, 'overview', { username })" in state
-    assert "getPluginApi(props.api" not in page
+    assert "'profile/tags'" in state
+
+
+def test_discovery_page_contains_only_ranking_content_and_no_success_banner():
+    """发现页移除右栏摘要，并且成功状态不展示提示文案。"""
+    app_page = _read("AppPage.vue")
+    for label in ("画像摘要", "权重摘要", "最近归档", "运行历史"):
+        assert label not in app_page
+    assert "ar-app-page__aside" not in app_page
+    assert "榜单刷新已完成" not in app_page
+    assert "board.value?.message" not in app_page
 
 
 def test_ranking_posters_do_not_force_eager_loading():

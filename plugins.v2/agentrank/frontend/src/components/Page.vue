@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
 import RecommendationActions from './RecommendationActions.vue'
 
@@ -11,6 +11,7 @@ const activeTab = ref('board')
 const snackbar = ref({ show: false, message: '', color: 'success' })
 const historyPage = ref(1)
 const initialized = ref(false)
+const tagDrafts = reactive({ positive: '', negative: '' })
 const historyPageSize = 10
 
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 10) || [])
@@ -93,6 +94,23 @@ async function runAction(action, successMessage) {
 async function changeHistoryPage(page) {
   historyPage.value = page
   try { await state.loadHistory(page, historyPageSize) } catch (_) { /* 错误已保存 */ }
+}
+
+async function addProfileTag(kind) {
+  const tag = String(tagDrafts[kind] || '').trim()
+  if (!tag) return
+  await runAction(
+    () => state.updateProfileTag(kind, 'add', tag),
+    kind === 'positive' ? '偏好标签已添加' : '避雷标签已添加',
+  )
+  tagDrafts[kind] = ''
+}
+
+async function removeProfileTag(kind, tag) {
+  await runAction(
+    () => state.updateProfileTag(kind, 'remove', tag),
+    kind === 'positive' ? '偏好标签已删除' : '避雷标签已删除',
+  )
 }
 
 watch(state.selectedUser, async (value, oldValue) => {
@@ -263,15 +281,23 @@ onMounted(initialize)
                 <div class="ar-page__profile-group">
                   <div class="ar-page__profile-label"><VIcon icon="mdi-heart-outline" size="18" />偏好标签</div>
                   <div class="ar-page__chips">
-                    <VChip v-for="tag in positiveTags" :key="tag" color="primary" variant="tonal" size="small">{{ tag }}</VChip>
+                    <VChip v-for="tag in positiveTags" :key="tag" color="primary" variant="tonal" size="small" closable @click:close="removeProfileTag('positive', tag)">{{ tag }}</VChip>
                     <span v-if="!positiveTags.length" class="text-caption text-medium-emphasis">暂无偏好标签</span>
+                  </div>
+                  <div class="ar-page__tag-editor">
+                    <VTextField v-model="tagDrafts.positive" label="添加偏好标签" density="compact" variant="outlined" hide-details maxlength="20" @keyup.enter="addProfileTag('positive')" />
+                    <VBtn color="primary" variant="tonal" size="small" :loading="state.loading.action === 'profile/tags'" @click="addProfileTag('positive')">添加</VBtn>
                   </div>
                 </div>
                 <div class="ar-page__profile-group">
                   <div class="ar-page__profile-label ar-page__profile-label--negative"><VIcon icon="mdi-shield-alert-outline" size="18" />避雷标签</div>
                   <div class="ar-page__chips">
-                    <VChip v-for="tag in negativeTags" :key="tag" color="error" variant="tonal" size="small">{{ tag }}</VChip>
+                    <VChip v-for="tag in negativeTags" :key="tag" color="error" variant="tonal" size="small" closable @click:close="removeProfileTag('negative', tag)">{{ tag }}</VChip>
                     <span v-if="!negativeTags.length" class="text-caption text-medium-emphasis">暂无避雷标签</span>
+                  </div>
+                  <div class="ar-page__tag-editor">
+                    <VTextField v-model="tagDrafts.negative" label="添加避雷标签" density="compact" variant="outlined" hide-details maxlength="20" @keyup.enter="addProfileTag('negative')" />
+                    <VBtn color="error" variant="tonal" size="small" :loading="state.loading.action === 'profile/tags'" @click="addProfileTag('negative')">添加</VBtn>
                   </div>
                 </div>
                 <div class="ar-page__profile-group">
@@ -357,7 +383,7 @@ onMounted(initialize)
 </template>
 
 <style scoped>
-.ar-page { width: min(1240px, calc(100vw - 32px)); max-width: 100%; height: min(840px, calc(100dvh - 32px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 14px; background: transparent; }
+.ar-page { width: min(1240px, calc(100vw - 32px)); max-width: 100%; height: min(840px, calc(100dvh - 32px)); display: flex; flex-direction: column; overflow: hidden; overflow-x: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 14px; background: transparent; }
 .ar-page__toolbar { flex: 0 0 auto; background: transparent; }
 .ar-page :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-page :deep(.v-tabs), .ar-page :deep(.v-table), .ar-page :deep(.v-skeleton-loader), .ar-page :deep(.v-empty-state) { background: transparent; }
@@ -412,6 +438,7 @@ onMounted(initialize)
 .ar-page__profile-groups { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .ar-page__profile-group { min-height: 108px; padding: 11px 12px; }
 .ar-page__chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.ar-page__tag-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; margin-top: 10px; }
 .ar-page__tag-count { margin-left: 3px; opacity: .66; font-size: 10px; }
 .ar-page__archive-card :deep(.v-card-item) { padding: 12px 14px; }
 .ar-page__archive-rank { min-width: 38px; height: 32px; display: grid; place-items: center; border-radius: 8px; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .1); font-size: 12px; font-weight: 700; }
@@ -458,7 +485,7 @@ onMounted(initialize)
   .ar-page__profile-groups { grid-template-columns: 1fr; }
   .ar-page__profile-group:last-child { grid-column: auto; }
 }
-@media (max-width: 430px) {
+@media (max-width: 390px) {
   .ar-page { width: 100%; height: calc(100dvh - 4px); border-radius: 10px; }
   .ar-page__brand { display: none; }
   .ar-page__heading { flex: 1 1 150px; margin-left: 10px; }

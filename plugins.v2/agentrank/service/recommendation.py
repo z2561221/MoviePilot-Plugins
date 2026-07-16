@@ -1,5 +1,6 @@
 """按用户锁定的 Agent 榜单推荐编排服务。"""
 
+import asyncio
 import logging
 import threading
 import time
@@ -111,6 +112,25 @@ class RecommendationOrchestrator:
             )
         )
 
+    def _exclude_library_candidates(
+        self, candidates: List[Any]
+    ) -> tuple[List[Any], List[Any]]:
+        """同步检查媒体库并返回保留候选与已存在候选。"""
+        if self._library_adapter is None:
+            return list(candidates), []
+        excluded = [
+            candidate
+            for candidate in candidates
+            if self._library_adapter.exists(candidate)
+        ]
+        excluded_ids = {item.candidate_id for item in excluded}
+        remaining = [
+            candidate
+            for candidate in candidates
+            if candidate.candidate_id not in excluded_ids
+        ]
+        return remaining, excluded
+
     def _failure(
         self,
         username: str,
@@ -162,12 +182,17 @@ class RecommendationOrchestrator:
         errors: List[str] = []
         try:
             logger.info("AgentRank 运行开始 user=%s run_id=%s", target, run_id)
-            profile_input = self._profile_service.collect(
+            stage_clock = time.monotonic()
+            profile_input = await asyncio.to_thread(
+                self._profile_service.collect,
                 target,
                 profile_scope=config.get("profile_scope", "all"),
                 recent_days=int(config.get("recent_days") or 365),
                 sample_limit=int(config.get("subscription_sample_limit") or 200),
                 minimum_samples=int(config.get("minimum_samples") or 5),
+            )
+            metrics["profile_collect_ms"] = max(
+                0, int((time.monotonic() - stage_clock) * 1000)
             )
             metrics["subscription_count"] = profile_input.sample_count
             metrics["subscription_rejected_count"] = profile_input.rejected_count
@@ -191,30 +216,35 @@ class RecommendationOrchestrator:
                     errors,
                 )
 
-            candidate_result = self._candidate_service.collect_and_freeze(
+            stage_clock = time.monotonic()
+            candidate_result = await asyncio.to_thread(
+                self._candidate_service.collect_and_freeze,
                 target,
                 run_id,
                 config.get("discovery_sources") or {},
                 int(config.get("candidate_pool_size") or 50),
             )
+            metrics["candidate_collect_ms"] = max(
+                0, int((time.monotonic() - stage_clock) * 1000)
+            )
             candidates = list(candidate_result.candidates)
-            library_excluded = []
-            if self._library_adapter is not None:
-                library_excluded = [
-                    candidate
-                    for candidate in candidates
-                    if self._library_adapter.exists(candidate)
-                ]
-                excluded_ids = {item.candidate_id for item in library_excluded}
-                candidates = [
-                    candidate
-                    for candidate in candidates
-                    if candidate.candidate_id not in excluded_ids
-                ]
+            stage_clock = time.monotonic()
+            candidates, library_excluded = await asyncio.to_thread(
+                self._exclude_library_candidates, candidates
+            )
+            metrics["library_check_ms"] = max(
+                0, int((time.monotonic() - stage_clock) * 1000)
+            )
             metrics["candidate_count"] = len(candidates)
             metrics["library_excluded_count"] = len(library_excluded)
             metrics["candidate_rejected_count"] = candidate_result.rejected_count
             metrics["source_errors"] = dict(candidate_result.source_errors)
+            metrics["fetched_source_counts"] = dict(
+                getattr(candidate_result, "fetched_source_counts", {}) or {}
+            )
+            metrics["candidate_source_counts"] = dict(
+                getattr(candidate_result, "accepted_source_counts", {}) or {}
+            )
             logger.info(
                 "AgentRank TMDB候选 user=%s run_id=%s accepted=%s rejected=%s source_errors=%s",
                 target,
@@ -245,12 +275,16 @@ class RecommendationOrchestrator:
                 if profile_cache_enabled and not rebuild_profile
                 else None
             )
+            profile_preferences = self._repository.load_profile_preferences(target)
             metrics["profile_mode"] = (
                 "incremental"
                 if profile_cache_enabled and not rebuild_profile
                 else "rebuild" if rebuild_profile else "stateless"
             )
             metrics["previous_profile_used"] = previous_profile is not None
+            metrics["custom_preference_count"] = len(
+                profile_preferences.custom_tags
+            ) + len(profile_preferences.custom_negative_tags)
             trusted_context = build_trusted_context(
                 username=target,
                 run_id=run_id,
@@ -261,6 +295,7 @@ class RecommendationOrchestrator:
                 candidates=[candidate.to_dict() for candidate in candidates],
                 archive_feedback=archive.to_dict(),
                 weights=self._trusted_weights(config),
+                profile_preferences=profile_preferences.to_dict(),
             )
 
             validation = None
@@ -276,8 +311,15 @@ class RecommendationOrchestrator:
                     )
                 try:
                     metrics["agent_calls"] += 1
+                    stage_clock = time.monotonic()
                     raw_output = await self.agent_adapter.run(prompt, trusted_context)
+                    metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
+                        0, int((time.monotonic() - stage_clock) * 1000)
+                    )
                 except Exception as error:
+                    metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
+                        0, int((time.monotonic() - stage_clock) * 1000)
+                    )
                     if attempt == 0 and bool(getattr(error, "retryable", False)):
                         errors.append(f"attempt 1: {error}")
                         continue
@@ -347,6 +389,8 @@ class RecommendationOrchestrator:
                 ]
                 if remaining_candidates:
                     metrics["refill_attempted"] = True
+                    stage_clock = time.monotonic()
+                    metrics["agent_calls"] += 1
                     try:
                         refill_output = await self.agent_adapter.run(
                             build_refill_prompt(
@@ -356,7 +400,6 @@ class RecommendationOrchestrator:
                             ),
                             trusted_context,
                         )
-                        metrics["agent_calls"] += 1
                         refill_parsed = self._parser.parse(refill_output)
                         refill_validation = self._validator.validate(
                             refill_parsed,
@@ -372,6 +415,10 @@ class RecommendationOrchestrator:
                         ]
                     except Exception as error:
                         errors.append(f"refill: {error}")
+                    finally:
+                        metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
+                            0, int((time.monotonic() - stage_clock) * 1000)
+                        )
 
             status = "success" if len(accepted) >= 10 else "recommendation_incomplete"
             generated_at = datetime.now(timezone.utc).isoformat()
@@ -397,6 +444,7 @@ class RecommendationOrchestrator:
                     else None
                 ),
             )
+            stage_clock = time.monotonic()
             try:
                 self._repository.save_profile_and_board(profile, board)
             except Exception as error:
@@ -412,6 +460,9 @@ class RecommendationOrchestrator:
                     errors,
                     agent_calls=int(metrics["agent_calls"]),
                 )
+            metrics["save_ms"] = max(
+                0, int((time.monotonic() - stage_clock) * 1000)
+            )
             metrics["final_count"] = len(accepted)
             self._append_run(
                 target,

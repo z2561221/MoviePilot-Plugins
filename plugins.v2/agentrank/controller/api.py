@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Mapping
 
 from ..model.config import default_config
 from ..service.archive import ArchiveService
+from ..service.profile_preferences import ProfilePreferenceService
 
 
 class ApiContractError(Exception):
@@ -79,6 +80,42 @@ class AgentRankApiController:
         service = getattr(self.plugin, "_poster_service", None)
         return service.enrich_board(value) if service is not None else value
 
+    def _profile_data(self, username: str, profile: Any = None) -> Dict[str, Any]:
+        """合并 Agent 原始画像与人工标签覆盖层。"""
+        value = (
+            profile.to_dict()
+            if profile is not None
+            else {
+                "username": username,
+                "summary": "",
+                "tags": [],
+                "negative_tags": [],
+                "subscription_count": 0,
+                "run_id": "",
+                "generated_at": "",
+            }
+        )
+        preferences = self._repository().load_profile_preferences(username)
+        agent_tags = list(value.get("tags") or [])
+        agent_negative_tags = list(value.get("negative_tags") or [])
+        value.update(
+            {
+                "agent_tags": agent_tags,
+                "agent_negative_tags": agent_negative_tags,
+                "tags": preferences.effective_tags(agent_tags),
+                "negative_tags": preferences.effective_negative_tags(
+                    agent_negative_tags
+                ),
+                "custom_tags": list(preferences.custom_tags),
+                "custom_negative_tags": list(preferences.custom_negative_tags),
+                "suppressed_tags": list(preferences.suppressed_tags),
+                "suppressed_negative_tags": list(
+                    preferences.suppressed_negative_tags
+                ),
+            }
+        )
+        return value
+
     def status(self) -> Dict[str, Any]:
         """返回插件全局运行状态。"""
         runtime = getattr(self.plugin, "_runtime", None)
@@ -128,7 +165,7 @@ class AgentRankApiController:
         return self._success(
             {
                 "username": target,
-                "profile": profile.to_dict() if profile else None,
+                "profile": self._profile_data(target, profile),
                 "board": self._board_data(board) if board else None,
                 "archive": archive.to_dict(),
                 "latest_run": history[0].to_dict() if history else None,
@@ -158,19 +195,7 @@ class AgentRankApiController:
         """返回用户当前画像或显式空画像。"""
         target = self._username(username)
         profile = self._repository().load_profile(target)
-        if profile:
-            return self._success(profile.to_dict())
-        return self._success(
-            {
-                "username": target,
-                "summary": "",
-                "tags": [],
-                "negative_tags": [],
-                "subscription_count": 0,
-                "run_id": "",
-                "generated_at": "",
-            }
-        )
+        return self._success(self._profile_data(target, profile))
 
     def run_history(
         self, username: Any, page: int = 1, page_size: int = 15
@@ -245,6 +270,30 @@ class AgentRankApiController:
             raise ApiContractError(409, "confirmation_required", "清除画像需要明确确认")
         result = ArchiveService(self._repository()).clear_profile(target)
         return self._success(result.__dict__)
+
+    def update_profile_tag(self, payload: Any) -> Dict[str, Any]:
+        """添加或删除当前用户的人工偏好或避雷标签。"""
+        body = self._payload(payload)
+        target = self._username(body.get("username"))
+        try:
+            result = ProfilePreferenceService(self._repository()).update(
+                username=target,
+                kind=str(body.get("kind") or "").strip(),
+                action=str(body.get("action") or "").strip(),
+                raw_tag=body.get("tag"),
+            )
+        except ValueError as error:
+            raise ApiContractError(422, "invalid_profile_tag", str(error)) from error
+        profile = self._repository().load_profile(target)
+        return self._success(
+            {
+                "changed": result.changed,
+                "action": result.action,
+                "kind": result.kind,
+                "tag": result.tag,
+                "profile": self._profile_data(target, profile),
+            }
+        )
 
     def subscribe(self, payload: Any) -> Dict[str, Any]:
         """通过运行时安全链创建单项手动订阅。"""
@@ -324,6 +373,10 @@ class AgentRankApiController:
         """FastAPI 清除画像入口。"""
         return self._endpoint(self.clear_profile, payload)
 
+    def endpoint_update_profile_tag(self, payload: dict) -> Dict[str, Any]:
+        """FastAPI 人工画像标签变更入口。"""
+        return self._endpoint(self.update_profile_tag, payload)
+
     def endpoint_subscribe(self, payload: dict) -> Dict[str, Any]:
         """FastAPI 手动订阅入口。"""
         return self._endpoint(self.subscribe, payload)
@@ -344,6 +397,12 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
         ("/restore", controller.endpoint_restore, ["POST"], "恢复推荐"),
         ("/archive/delete", controller.endpoint_delete_archive, ["POST"], "删除归档"),
         ("/profile/clear", controller.endpoint_clear_profile, ["POST"], "清除画像"),
+        (
+            "/profile/tags",
+            controller.endpoint_update_profile_tag,
+            ["POST"],
+            "更新人工画像标签",
+        ),
         ("/run-history", controller.endpoint_run_history, ["GET"], "获取运行历史"),
         ("/subscribe", controller.endpoint_subscribe, ["POST"], "手动订阅推荐"),
     ]

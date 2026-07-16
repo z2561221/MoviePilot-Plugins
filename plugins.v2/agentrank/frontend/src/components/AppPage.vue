@@ -17,8 +17,6 @@ const {
   selectedUser,
   overview,
   board,
-  profile,
-  history,
   loading,
   error,
   isRunning,
@@ -31,22 +29,8 @@ const lastArchivedId = ref('')
 const initialized = ref(false)
 
 const recommendations = computed(() => board.value?.recommendations?.slice(0, 10) || [])
-const archiveEntries = computed(() => overview.value?.archive?.entries || [])
-const weights = computed(() => options.value?.config?.weights || {})
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '')
 const boardStatus = computed(() => board.value?.status || 'idle')
-const weightLabels = {
-  type_weight: '媒体类型',
-  theme_weight: '题材主题',
-  actor_weight: '演员偏好',
-  director_weight: '导演偏好',
-  region_weight: '地区偏好',
-  year_weight: '年代偏好',
-  rating_weight: '评分质量',
-  heat_weight: '热门程度',
-  freshness_weight: '新鲜程度',
-  similarity_weight: '相似程度',
-}
 
 const statusMeta = computed(() => {
   const map = {
@@ -73,21 +57,13 @@ const stateMessage = computed(() => {
     validation_failed: '本轮输出未通过安全校验，旧榜单已保留。',
     subscription_partial_failed: '部分自动订阅失败，成功项不受影响。',
   }
-  return messages[boardStatus.value] || board.value?.message || ''
+  return messages[boardStatus.value] || ''
 })
 
 function formatTime(value) {
   if (!value) return '尚未生成'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
-}
-
-function weightLabel(key) {
-  return weightLabels[key] || key.replace('_weight', '')
-}
-
-function formatWeight(value) {
-  return `${Math.round(Number(value || 0) * 100)}%`
 }
 
 function mediaTypeLabel(value) {
@@ -117,7 +93,6 @@ async function initialize() {
 async function refreshBoard() {
   try {
     await state.refresh()
-    snackbar.value = { show: true, message: '榜单刷新已完成', color: 'success', undo: false }
   } catch (err) {
     snackbar.value = { show: true, message: err?.message || '榜单刷新失败', color: 'error', undo: false }
   }
@@ -190,7 +165,7 @@ onMounted(initialize)
           <div class="text-h6">Agent榜单中心</div>
           <div class="text-caption text-medium-emphasis">最近生成：{{ formatTime(generatedAt) }}</div>
         </div>
-        <VChip :color="statusMeta.color" variant="tonal" size="small" class="ar-app-page__status ms-3">
+        <VChip v-if="boardStatus !== 'success'" :color="statusMeta.color" variant="tonal" size="small" class="ar-app-page__status ms-3">
           <VIcon :icon="statusMeta.icon" size="16" class="mr-1" />{{ statusMeta.text }}
         </VChip>
         <VSpacer />
@@ -251,40 +226,6 @@ onMounted(initialize)
               </article>
             </div>
           </section>
-
-          <aside class="ar-app-page__aside">
-            <VExpansionPanels multiple variant="accordion" :model-value="[0, 1]">
-              <VExpansionPanel>
-                <VExpansionPanelTitle><VIcon icon="mdi-account-heart-outline" color="primary" class="mr-2" />画像摘要</VExpansionPanelTitle>
-                <VExpansionPanelText>
-                  <div class="text-body-2 mb-3">{{ profile?.summary || '尚未生成用户画像' }}</div>
-                  <div class="ar-app-page__tags"><VChip v-for="tag in profile?.tags || []" :key="tag" size="small" color="primary" variant="tonal">{{ tag }}</VChip></div>
-                  <div class="text-caption text-medium-emphasis mt-3">订阅样本 {{ profile?.subscription_count || 0 }} 条</div>
-                </VExpansionPanelText>
-              </VExpansionPanel>
-              <VExpansionPanel>
-                <VExpansionPanelTitle><VIcon icon="mdi-tune-vertical" color="primary" class="mr-2" />权重摘要</VExpansionPanelTitle>
-                <VExpansionPanelText>
-                  <div v-for="(value, key) in weights" :key="key" class="ar-app-page__weight-row"><span>{{ weightLabel(key) }}</span><VProgressLinear :model-value="Number(value) * 100" color="primary" height="6" rounded /><strong>{{ formatWeight(value) }}</strong></div>
-                  <VBtn block variant="text" color="primary" prepend-icon="mdi-cog-outline" class="mt-2" @click="openSettings">进入设置</VBtn>
-                </VExpansionPanelText>
-              </VExpansionPanel>
-              <VExpansionPanel>
-                <VExpansionPanelTitle><VIcon icon="mdi-archive-outline" color="primary" class="mr-2" />最近归档</VExpansionPanelTitle>
-                <VExpansionPanelText>
-                  <div v-if="!archiveEntries.length" class="text-caption text-medium-emphasis">暂无忽略记录</div>
-                  <div v-for="entry in archiveEntries.slice(0, 5)" :key="entry.candidate_id" class="ar-app-page__archive-row"><span>{{ entry.recommendation?.title || entry.candidate_id }}</span><VBtn size="small" variant="text" @click="state.restore(entry.candidate_id)">恢复</VBtn></div>
-                </VExpansionPanelText>
-              </VExpansionPanel>
-              <VExpansionPanel>
-                <VExpansionPanelTitle><VIcon icon="mdi-history" color="primary" class="mr-2" />运行历史</VExpansionPanelTitle>
-                <VExpansionPanelText>
-                  <div v-if="!history.length" class="text-caption text-medium-emphasis">暂无运行记录</div>
-                  <div v-for="run in history.slice(0, 5)" :key="`${run.run_id}-${run.finished_at}`" class="ar-app-page__history-row"><VChip size="x-small" variant="tonal">{{ run.status }}</VChip><span>{{ formatTime(run.finished_at || run.started_at) }}</span></div>
-                </VExpansionPanelText>
-              </VExpansionPanel>
-            </VExpansionPanels>
-          </aside>
         </main>
       </div>
     </VCard>
@@ -309,8 +250,8 @@ onMounted(initialize)
 .ar-app-page__user { max-width: 180px; min-width: 140px; margin-right: 4px; }
 .ar-app-page__content { padding: 16px; }
 .ar-app-page__alert { margin-bottom: 14px; }
-.ar-app-page__layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 16px; align-items: start; }
-.ar-app-page__ranking, .ar-app-page__aside { min-width: 0; }
+.ar-app-page__layout { display: block; }
+.ar-app-page__ranking { min-width: 0; }
 .ar-app-page__section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .ar-app-page__list { display: flex; flex-direction: column; gap: 10px; }
 .ar-app-page__item { display: grid; grid-template-columns: 42px 92px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; background: transparent; color: rgb(var(--v-theme-on-surface)); transition: background .12s; }
@@ -327,11 +268,7 @@ onMounted(initialize)
 .ar-app-page__summary { margin-top: 10px; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ar-app-page__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .ar-app-page__item-actions { display: flex; align-items: center; overflow-x: auto; padding-bottom: 2px; }
-.ar-app-page__aside { position: sticky; top: 80px; }
-.ar-app-page__weight-row { display: grid; grid-template-columns: 76px minmax(0, 1fr) 42px; gap: 8px; align-items: center; margin-bottom: 9px; font-size: 12px; }
-.ar-app-page__archive-row, .ar-app-page__history-row { min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .6)); font-size: 12px; }
 .ar-app-page__state { min-height: 480px; display: flex; align-items: center; justify-content: center; padding: 24px; }
-@media (max-width: 960px) { .ar-app-page__layout { grid-template-columns: minmax(0, 1fr); } .ar-app-page__aside { position: static; } }
 @media (max-width: 760px) {
   .ar-app-page { padding: 8px; }
   .ar-app-page__card { min-height: calc(100dvh - 72px); border-radius: 12px; }

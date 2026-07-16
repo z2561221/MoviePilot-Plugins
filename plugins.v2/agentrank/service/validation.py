@@ -9,7 +9,7 @@ from ..model.board import RecommendationItem
 from ..model.candidate import Candidate
 
 
-TEN_CHINESE_PATTERN = re.compile(r"^[\u4e00-\u9fff]{10}$")
+FIFTEEN_CHINESE_PATTERN = re.compile(r"^[\u4e00-\u9fff]{15}$")
 
 
 class AgentOutputError(ValueError):
@@ -194,13 +194,13 @@ class AgentOutputParser:
 
 
 def fallback_summary(candidate: Candidate) -> str:
-    """按媒体类型返回确定、可读且恰好十字的中文作品简介。"""
+    """按媒体类型返回确定、可读且恰好十五字的中文作品简介。"""
     summaries = {
-        "movie": "光影故事铺展人物命运",
-        "tv": "连环剧情揭开人物命运",
-        "anime": "动画世界展开青春冒险",
+        "movie": "光影故事缓缓铺展人物命运新篇章",
+        "tv": "连环剧情逐步揭开人物命运新篇章",
+        "anime": "动画世界热烈展开青春奇幻冒险路",
     }
-    return summaries.get(candidate.media_type, "精彩故事呈现人物命运")
+    return summaries.get(candidate.media_type, "精彩故事生动呈现人物命运新篇章")
 
 
 class RecommendationValidator:
@@ -250,12 +250,12 @@ class RecommendationValidator:
                     DroppedRecommendation(candidate_id, "invalid_confidence", index)
                 )
                 continue
-            if not TEN_CHINESE_PATTERN.fullmatch(recommendation.summary):
+            if not FIFTEEN_CHINESE_PATTERN.fullmatch(recommendation.summary):
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_summary", index)
                 )
                 continue
-            if not TEN_CHINESE_PATTERN.fullmatch(recommendation.reason):
+            if not FIFTEEN_CHINESE_PATTERN.fullmatch(recommendation.reason):
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_reason", index)
                 )

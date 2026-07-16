@@ -413,7 +413,7 @@ onMounted(loadRuntime)
                   auto-grow
                   hide-details="auto"
                 />
-                <VAlert type="info" variant="tonal" class="mt-4">该提示词用于调整候选排序、画像措辞和文案风格；只读工具边界、JSON 输出协议及十字校验由插件固定保留。</VAlert>
+                <VAlert type="info" variant="tonal" class="mt-4">该提示词用于调整候选排序、画像措辞和文案风格；只读工具边界、JSON 输出协议及十五字校验由插件固定保留。</VAlert>
               </template>
             </div>
           </div>

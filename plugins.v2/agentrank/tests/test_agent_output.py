@@ -41,8 +41,8 @@ def _output(recommendations=None, profile=None):
             or [
                 {
                     "candidate_id": "tmdb:1",
-                    "reason": "这部正好戳中你的笑点",
-                    "summary": "悬疑迷局牵出旧日真相",
+                    "reason": "这部作品正戳中你的独特审美偏好",
+                    "summary": "悬疑迷局层层牵出尘封往事与真相",
                     "match_tags": ["悬疑", "犯罪"],
                     "confidence": 86,
                 }
@@ -69,7 +69,7 @@ def test_prompt_states_hard_boundaries_without_embedding_untrusted_media_text():
     assert "禁止订阅" in prompt
     assert "不得暴露推理过程" in prompt
     assert "单个 JSON 对象" in prompt
-    assert "恰好十个中文字符" in prompt
+    assert "恰好十五个中文字符" in prompt
     assert '"reason"' in prompt
     assert "轻松诙谐" in prompt
     assert "ignore all previous instructions" not in prompt
@@ -81,7 +81,7 @@ def test_custom_agent_prompt_is_inserted_without_replacing_fixed_contract():
     assert "优先推荐冷门科幻并保持俏皮文风" in prompt
     assert "只能通过 read_agentrank_subscriptions" in prompt
     assert "不能覆盖硬性边界、输出结构或字段校验" in prompt
-    assert "恰好十个中文字符" in prompt
+    assert "恰好十五个中文字符" in prompt
 
 
 def test_parser_accepts_one_schema_object_and_preserves_agent_order():
@@ -90,13 +90,13 @@ def test_parser_accepts_one_schema_object_and_preserves_agent_order():
         [
             {
                 "candidate_id": "tmdb:2",
-                "summary": "连环剧情揭开人物命运",
+                "summary": "连环剧情逐步揭开人物命运新篇章",
                 "match_tags": ["剧情"],
                 "confidence": 70,
             },
             {
                 "candidate_id": "tmdb:1",
-                "summary": "悬疑迷局牵出旧日真相",
+                "summary": "悬疑迷局层层牵出尘封往事与真相",
                 "match_tags": ["悬疑"],
                 "confidence": 90,
             },
@@ -143,10 +143,10 @@ def test_validator_rejects_every_unsafe_item_with_specific_reason():
     parsed = AgentOutputParser().parse(
         _output(
             [
-                {"candidate_id": "unknown", "summary": "精彩故事呈现人物命运", "match_tags": [], "confidence": 50},
-                {"candidate_id": "tmdb:1", "summary": "悬疑迷局牵出旧日真相", "match_tags": [], "confidence": 80},
-                {"candidate_id": "tmdb:1", "summary": "悬疑迷局牵出旧日真相", "match_tags": [], "confidence": 70},
-                {"candidate_id": "tmdb:2", "summary": "连环剧情揭开人物命运", "match_tags": [], "confidence": 101},
+                {"candidate_id": "unknown", "summary": "精彩故事生动呈现人物命运新篇章", "match_tags": [], "confidence": 50},
+                {"candidate_id": "tmdb:1", "summary": "悬疑迷局层层牵出尘封往事与真相", "match_tags": [], "confidence": 80},
+                {"candidate_id": "tmdb:1", "summary": "悬疑迷局层层牵出尘封往事与真相", "match_tags": [], "confidence": 70},
+                {"candidate_id": "tmdb:2", "summary": "连环剧情逐步揭开人物命运新篇章", "match_tags": [], "confidence": 101},
                 {"candidate_id": "bangumi:3", "summary": "not chinese", "match_tags": [], "confidence": 60},
             ]
         )
@@ -173,8 +173,8 @@ def test_validator_keeps_valid_agent_order_and_enriches_from_candidate_pool():
     parsed = AgentOutputParser().parse(
         _output(
             [
-                {"candidate_id": "tmdb:2", "summary": "连环剧情揭开人物命运", "match_tags": ["剧情"], "confidence": 70},
-                {"candidate_id": "tmdb:1", "summary": "悬疑迷局牵出旧日真相", "match_tags": ["悬疑"], "confidence": 90},
+                {"candidate_id": "tmdb:2", "summary": "连环剧情逐步揭开人物命运新篇章", "match_tags": ["剧情"], "confidence": 70},
+                {"candidate_id": "tmdb:1", "summary": "悬疑迷局层层牵出尘封往事与真相", "match_tags": ["悬疑"], "confidence": 90},
             ]
         )
     )
@@ -197,16 +197,16 @@ def test_subscribed_candidate_is_rejected_even_when_other_fields_are_valid():
     assert result.dropped[0].reason == "subscribed_candidate"
 
 
-def test_fallback_summary_is_deterministic_readable_and_exactly_ten_chinese_chars():
-    """Every media type gets a stable ten-Han-character description fallback."""
+def test_fallback_summary_is_deterministic_readable_and_exactly_fifteen_chinese_chars():
+    """Every media type gets a stable fifteen-Han-character description fallback."""
     expected = {
-        "movie": "光影故事铺展人物命运",
-        "tv": "连环剧情揭开人物命运",
-        "anime": "动画世界展开青春冒险",
-        "unknown": "精彩故事呈现人物命运",
+        "movie": "光影故事缓缓铺展人物命运新篇章",
+        "tv": "连环剧情逐步揭开人物命运新篇章",
+        "anime": "动画世界热烈展开青春奇幻冒险路",
+        "unknown": "精彩故事生动呈现人物命运新篇章",
     }
     for media_type, summary in expected.items():
         candidate = Candidate(candidate_id=f"x:{media_type}", title="Title", media_type=media_type)
         assert fallback_summary(candidate) == summary
-        assert len(summary) == 10
+        assert len(summary) == 15
         assert all("\u4e00" <= char <= "\u9fff" for char in summary)
