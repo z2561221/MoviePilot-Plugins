@@ -103,35 +103,6 @@ class TelegramSelectionService:
             raise ValueError("telegram callback_data exceeds 64 bytes")
         return value
 
-    @staticmethod
-    def _external_buttons(item: RecommendationItem) -> List[Dict[str, str]]:
-        """按当前条目的来源 ID 生成外部详情链接按钮。"""
-        ids = dict(item.source_ids or {})
-        buttons: List[Dict[str, str]] = []
-        if ids.get("tmdb"):
-            media_path = "movie" if item.media_type == "movie" else "tv"
-            buttons.append(
-                {
-                    "text": "TMDB",
-                    "url": f"https://www.themoviedb.org/{media_path}/{ids['tmdb']}",
-                }
-            )
-        if ids.get("douban"):
-            buttons.append(
-                {
-                    "text": "豆瓣",
-                    "url": f"https://movie.douban.com/subject/{ids['douban']}/",
-                }
-            )
-        if ids.get("bangumi"):
-            buttons.append(
-                {
-                    "text": "Bangumi",
-                    "url": f"https://bgm.tv/subject/{ids['bangumi']}",
-                }
-            )
-        return buttons
-
     def _carousel_payload(
         self,
         session: TelegramSelectionSession,
@@ -176,44 +147,35 @@ class TelegramSelectionService:
         buttons: List[List[Dict[str, str]]] = [
             [
                 {
-                    "text": f"⬅️ {(session.current_index - 1) % total + 1} / {total}",
+                    "text": "‹",
                     "callback_data": self._callback(session.token, "p"),
                 },
                 {
-                    "text": f"{(session.current_index + 1) % total + 1} / {total} ➡️",
+                    "text": "›",
                     "callback_data": self._callback(session.token, "n"),
                 },
             ],
             [
                 {
-                    "text": "✓ 已加入 · 点击撤销" if selected else "＋ 加入待订阅",
+                    "text": "✓ 已加入" if selected else "＋ 待订阅",
                     "callback_data": self._callback(session.token, "t"),
-                }
+                },
+                {
+                    "text": f"清单 {len(session.selected_ids)}",
+                    "callback_data": self._callback(session.token, "s"),
+                },
+            ],
+            [
+                {
+                    "text": "确认",
+                    "callback_data": self._callback(session.token, "c"),
+                },
+                {
+                    "text": "关闭",
+                    "callback_data": self._callback(session.token, "x"),
+                },
             ],
         ]
-        external = self._external_buttons(item)
-        if external:
-            buttons.append(external)
-        buttons.extend(
-            [
-                [
-                    {
-                        "text": f"🧺 查看已选（{len(session.selected_ids)}）",
-                        "callback_data": self._callback(session.token, "s"),
-                    },
-                    {
-                        "text": "✅ 确认订阅",
-                        "callback_data": self._callback(session.token, "c"),
-                    },
-                ],
-                [
-                    {
-                        "text": "关闭",
-                        "callback_data": self._callback(session.token, "x"),
-                    }
-                ],
-            ]
-        )
         return "\n".join(lines), buttons, self._poster_url(item)
 
     def _selected_payload(
@@ -225,7 +187,7 @@ class TelegramSelectionService:
         """生成待订阅清单正文、移除按钮与保留海报。"""
         item_map = self._item_map(board)
         lines = ["<b>🧺 本轮待订阅清单</b>", ""]
-        buttons: List[List[Dict[str, str]]] = []
+        remove_buttons: List[Dict[str, str]] = []
         selected = [
             candidate_id
             for candidate_id in session.candidate_ids
@@ -237,37 +199,39 @@ class TelegramSelectionService:
                 index = session.candidate_ids.index(candidate_id)
                 title = _compact_text(item.title, 30) or "未命名条目"
                 lines.append(f"✓ {index + 1:02d}　{html.escape(title)}")
-                buttons.append(
-                    [
-                        {
-                            "text": f"移除 {index + 1:02d} · {_compact_text(title, 18)}",
-                            "callback_data": self._callback(
-                                session.token, "d", str(index)
-                            ),
-                        }
-                    ]
+                remove_buttons.append(
+                    {
+                        "text": f"移除 {index + 1:02d}",
+                        "callback_data": self._callback(
+                            session.token, "d", str(index)
+                        ),
+                    }
                 )
         else:
             lines.append("尚未加入任何作品，可以返回轮播继续挑选。")
         lines.extend(["", f"共选择 <b>{len(selected)}</b> 部作品。"])
         if notice:
             lines.extend(["", f"<i>{html.escape(_compact_text(notice, 120))}</i>"])
+        buttons = [
+            remove_buttons[index : index + 3]
+            for index in range(0, len(remove_buttons), 3)
+        ]
         buttons.extend(
             [
                 [
                     {
-                        "text": "↩️ 返回浏览",
+                        "text": "返回",
                         "callback_data": self._callback(session.token, "b"),
                     },
                     {
-                        "text": "✅ 确认订阅",
-                        "callback_data": self._callback(session.token, "c"),
+                        "text": "清空",
+                        "callback_data": self._callback(session.token, "e"),
                     },
                 ],
                 [
                     {
-                        "text": "清空选择",
-                        "callback_data": self._callback(session.token, "e"),
+                        "text": "确认",
+                        "callback_data": self._callback(session.token, "c"),
                     },
                     {
                         "text": "关闭",

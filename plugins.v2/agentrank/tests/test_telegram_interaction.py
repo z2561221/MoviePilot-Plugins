@@ -192,8 +192,14 @@ def test_start_sends_first_poster_card_with_compact_callbacks():
     assert message["userid"] == "1001"
     assert message["image"].endswith("/a.jpg")
     assert "01 / 02" in message["text"]
-    assert "＋ 加入待订阅" in str(message["buttons"])
-    assert "TMDB" in str(message["buttons"])
+    assert "＋ 待订阅" in str(message["buttons"])
+    assert "TMDB" not in str(message["buttons"])
+    assert "豆瓣" not in str(message["buttons"])
+    assert "Bangumi" not in str(message["buttons"])
+    assert all("url" not in button for row in message["buttons"] for button in row)
+    assert len(message["buttons"]) == 3
+    assert all(len(row) <= 2 for row in message["buttons"])
+    assert message["mtype"] is NotificationType.Subscribe
     assert all(len(value.encode("utf-8")) <= 64 for value in _callbacks(message))
     session = repository.load_telegram_session("token123")
     assert session.candidate_ids == ["tmdb:1", "tmdb:2"]
@@ -224,7 +230,7 @@ def test_carousel_toggle_selected_list_and_remove_update_original_message():
     service.handle_callback(_event("t"))
     session = repository.load_telegram_session("token123")
     assert session.selected_ids == ["tmdb:2"]
-    assert "✓ 已加入 · 点击撤销" in str(plugin.messages[-1]["buttons"])
+    assert "✓ 已加入" in str(plugin.messages[-1]["buttons"])
 
     service.handle_callback(_event("s"))
     assert "本轮待订阅清单" in plugin.messages[-1]["text"]
@@ -234,6 +240,9 @@ def test_carousel_toggle_selected_list_and_remove_update_original_message():
     session = repository.load_telegram_session("token123")
     assert session.selected_ids == []
     assert "尚未加入任何作品" in plugin.messages[-1]["text"]
+    assert all(
+        message["mtype"] is NotificationType.Subscribe for message in plugin.messages
+    )
 
 
 def test_confirm_subscribes_only_selected_items_and_is_idempotent():
