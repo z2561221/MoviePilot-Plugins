@@ -45,10 +45,15 @@ class FakePlugin:
         self._config = {}
         self._enabled = False
         self.stop_calls = 0
+        self.saved_config = None
 
     def stop_service(self):
         self.stop_calls += 1
         stop_plugin(self)
+
+    def update_config(self, config=None):
+        """记录生命周期自动复位后持久化的配置。"""
+        self.saved_config = dict(config or {})
 
 
 def _config(**overrides):
@@ -89,6 +94,25 @@ def test_valid_schedule_registers_one_stable_service():
     assert services[0]["id"] == "AgentRank.Recommendation"
     assert services[0]["trigger"] == "trigger:0 8 * * *"
     assert services[0]["func"] == runtime.run_scheduled
+
+
+def test_run_once_registers_one_date_service_and_is_consumed():
+    """立即运行不依赖周期设置，并且同一运行时只登记一次。"""
+    runtime = AgentRankRuntime(
+        FakePlugin(),
+        _config(schedule_enabled=False, onlyonce=True),
+        FakeOrchestrator(),
+        lambda cron: f"trigger:{cron}",
+        date_trigger_factory=lambda: "trigger:once",
+    )
+
+    services = runtime.get_services()
+
+    assert len(services) == 1
+    assert services[0]["id"] == "AgentRank.Recommendation.Once"
+    assert services[0]["trigger"] == "trigger:once"
+    assert services[0]["func"] == runtime.run_scheduled
+    assert runtime.get_services() == []
 
 
 def test_invalid_cron_is_visible_and_runtime_stays_loadable():
@@ -135,6 +159,28 @@ def test_initialize_normalizes_config_and_replaces_previous_runtime():
     assert plugin._enabled is True
     assert plugin._runtime is created[0]
     assert plugin._config["default_user"] == "alice"
+
+
+def test_initialize_persists_run_once_reset_but_runtime_keeps_request():
+    """初始化会关闭持久化开关，同时把本次请求交给新运行时。"""
+    plugin = FakePlugin()
+    created = []
+
+    def runtime_factory(plugin_arg, config_arg):
+        runtime = SimpleNamespace(plugin=plugin_arg, config=config_arg)
+        created.append(runtime)
+        return runtime
+
+    initialize_plugin(
+        plugin,
+        _config(schedule_enabled=False, onlyonce=True),
+        runtime_factory=runtime_factory,
+    )
+
+    assert plugin._config["onlyonce"] is False
+    assert plugin.saved_config["onlyonce"] is False
+    assert "_validation_errors" not in plugin.saved_config
+    assert created[0].config["onlyonce"] is True
 
 
 def test_stop_is_idempotent_cancels_active_task_and_blocks_refresh():

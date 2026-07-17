@@ -19,12 +19,16 @@ class AgentRankRuntime:
         trigger_factory: Callable[[str], Any] = None,
         subscription_service: Any = None,
         notification_service: Any = None,
+        date_trigger_factory: Callable[[], Any] = None,
     ):
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
         self.config = config
         self.orchestrator = orchestrator or self._build_orchestrator(plugin, config)
         self._trigger_factory = trigger_factory or self._default_trigger_factory
+        self._date_trigger_factory = (
+            date_trigger_factory or self._default_date_trigger_factory
+        )
         if orchestrator is None:
             from .notification import NotificationService
             from .subscription import SubscriptionService
@@ -78,6 +82,15 @@ class AgentRankRuntime:
 
         return CronTrigger.from_crontab(cron)
 
+    @staticmethod
+    def _default_date_trigger_factory() -> Any:
+        """创建延迟三秒执行的一次性调度触发器。"""
+        from datetime import datetime, timedelta
+
+        from apscheduler.triggers.date import DateTrigger
+
+        return DateTrigger(run_date=datetime.now() + timedelta(seconds=3))
+
     def _config_errors(self) -> List[str]:
         """返回可原地追加的配置错误列表。"""
         errors = self.config.get("_validation_errors")
@@ -87,29 +100,50 @@ class AgentRankRuntime:
         return errors
 
     def get_services(self) -> List[Dict[str, Any]]:
-        """按启用状态返回一个宿主管理的稳定周期服务。"""
+        """按启用状态返回一次性任务与稳定周期服务。"""
         if self._stopped:
             return []
-        if not self.config.get("enabled") or not self.config.get("schedule_enabled"):
+        if not self.config.get("enabled"):
             return []
-        cron = str(self.config.get("cron") or "").strip()
-        try:
-            trigger = self._trigger_factory(cron)
-        except Exception as error:
-            message = f"cron invalid: {error}"
-            errors = self._config_errors()
-            if message not in errors:
-                errors.append(message)
-            return []
-        return [
-            {
-                "id": "AgentRank.Recommendation",
-                "name": "Agent榜单中心周期生成",
-                "trigger": trigger,
-                "func": self.run_scheduled,
-                "kwargs": {},
-            }
-        ]
+        services: List[Dict[str, Any]] = []
+        run_once_requested = bool(self.config.get("onlyonce"))
+        self.config["onlyonce"] = False
+        if run_once_requested:
+            try:
+                services.append(
+                    {
+                        "id": "AgentRank.Recommendation.Once",
+                        "name": "Agent榜单中心立即生成",
+                        "trigger": self._date_trigger_factory(),
+                        "func": self.run_scheduled,
+                        "kwargs": {},
+                    }
+                )
+            except Exception as error:
+                message = f"date trigger invalid: {error}"
+                errors = self._config_errors()
+                if message not in errors:
+                    errors.append(message)
+        if self.config.get("schedule_enabled"):
+            cron = str(self.config.get("cron") or "").strip()
+            try:
+                trigger = self._trigger_factory(cron)
+            except Exception as error:
+                message = f"cron invalid: {error}"
+                errors = self._config_errors()
+                if message not in errors:
+                    errors.append(message)
+            else:
+                services.append(
+                    {
+                        "id": "AgentRank.Recommendation",
+                        "name": "Agent榜单中心周期生成",
+                        "trigger": trigger,
+                        "func": self.run_scheduled,
+                        "kwargs": {},
+                    }
+                )
+        return services
 
     async def refresh(self, username: str) -> Any:
         """执行一次手动用户刷新；停止后拒绝新任务。"""

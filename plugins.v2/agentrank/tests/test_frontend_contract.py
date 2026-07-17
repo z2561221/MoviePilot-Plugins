@@ -28,6 +28,16 @@ def test_runtime_settings_exposes_discovery_page_switch_and_fifty_default():
     assert 'candidate_pool_size: 50' in config
 
 
+def test_basic_settings_exposes_run_once_switch_with_safe_constraints():
+    """基础设置提供仅在插件启用且已有参与用户时可用的一次性运行开关。"""
+    config = _read("Config.vue")
+    assert 'onlyonce: false' in config
+    assert 'v-model="form.onlyonce"' in config
+    assert 'label="立即运行一次"' in config
+    assert ':disabled="!form.enabled || !form.users.length"' in config
+    assert "立即运行触发后会自动关闭" in config
+
+
 def test_extension_discovery_source_is_absent_from_config_ui():
     """配置页只允许选择四个 MoviePilot 内置发现来源。"""
     config = _read("Config.vue")

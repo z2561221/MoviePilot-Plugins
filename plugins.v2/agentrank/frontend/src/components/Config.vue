@@ -24,6 +24,7 @@ const weightDefaults = {
 const defaults = {
   enabled: false,
   discovery_page_enabled: true,
+  onlyonce: false,
   schedule_enabled: false,
   cron: '0 8 * * *',
   users: [],
@@ -68,7 +69,7 @@ const actionFeedback = reactive({ show: false, message: '', color: 'success' })
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
-  { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '配置参与用户、默认用户和运行周期。' },
+  { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '配置参与用户、立即运行和运行周期。' },
   { key: 'sources', title: '发现来源', icon: 'mdi-compass-outline', desc: '选择 MoviePilot 内置发现来源。' },
   { key: 'weights', title: '权重设置', icon: 'mdi-tune-vertical', desc: '设置 Agent 排序时十项偏好权重。' },
   { key: 'filter', title: '条件筛选', icon: 'mdi-filter-outline', desc: '限制媒体类型、候选数量和置信度。' },
@@ -305,10 +306,11 @@ onMounted(loadRuntime)
                 <VCol cols="12" md="5">
                   <VSelect v-model="form.default_user" :items="form.users" label="默认用户" density="compact" variant="outlined" hide-details :disabled="!form.users.length" />
                 </VCol>
+                <VCol cols="12" md="4"><VSwitch v-model="form.onlyonce" color="warning" label="立即运行一次" hide-details inset :disabled="!form.enabled || !form.users.length" /></VCol>
                 <VCol cols="12" md="4"><VSwitch v-model="form.schedule_enabled" color="success" label="周期运行" hide-details inset /></VCol>
-                <VCol cols="12" md="8"><VCronField v-model="form.cron" label="运行周期" density="compact" variant="outlined" hide-details :disabled="!form.schedule_enabled" /></VCol>
+                <VCol cols="12" md="4"><VCronField v-model="form.cron" label="运行周期" density="compact" variant="outlined" hide-details :disabled="!form.schedule_enabled" /></VCol>
               </VRow>
-              <VAlert type="info" variant="tonal" class="mt-4">周期任务按参与用户顺序执行，单用户失败不会阻断后续用户。</VAlert>
+              <VAlert type="info" variant="tonal" class="mt-4">立即运行和周期任务均按参与用户顺序执行，单用户失败不会阻断后续用户；立即运行触发后会自动关闭。</VAlert>
             </div>
 
             <div v-show="activeMain === 'sources'" class="ar-config__pane">

@@ -42,6 +42,7 @@ class AgentRankConfig:
 
     enabled: bool = False
     discovery_page_enabled: bool = True
+    onlyonce: bool = False
     schedule_enabled: bool = False
     cron: str = "0 8 * * *"
     users: List[str] = field(default_factory=list)
@@ -200,6 +201,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
     config = AgentRankConfig(
         enabled=bool(raw.get("enabled", False)),
         discovery_page_enabled=bool(raw.get("discovery_page_enabled", True)),
+        onlyonce=bool(raw.get("onlyonce", False)),
         schedule_enabled=bool(raw.get("schedule_enabled", False)),
         cron=str(raw.get("cron") or "0 8 * * *").strip(),
         users=users,

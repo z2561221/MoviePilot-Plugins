@@ -91,6 +91,12 @@ def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_fifty():
     ).discovery_page_enabled is False
 
 
+def test_run_once_switch_defaults_off_and_accepts_explicit_request():
+    """立即运行开关默认关闭，并可作为一次性配置请求持久化。"""
+    assert AgentRankConfig.from_mapping({}).onlyonce is False
+    assert AgentRankConfig.from_mapping({"onlyonce": True}).onlyonce is True
+
+
 def test_default_user_validation_is_visible_and_never_silently_reassigned():
     """An invalid default user remains visible as an error, not another user."""
     with pytest.raises(ConfigValidationError, match="default_user"):
