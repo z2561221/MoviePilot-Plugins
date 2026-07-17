@@ -150,6 +150,48 @@ def test_batch_continues_across_created_existing_and_failed_items():
     assert all(call["username"] == "alice" for call in chain.add_calls)
 
 
+def test_animation_movie_subscribes_with_recognized_moviepilot_base_type():
+    """榜单显示为动漫时，动画电影仍必须按电影创建订阅。"""
+    repository = AgentRankRepository(FakePlugin())
+    repository.save_board(
+        RecommendationBoard(
+            username="alice",
+            run_id="run-animation-movie",
+            status="success",
+            recommendations=[
+                RecommendationItem(
+                    candidate_id="tmdb:16",
+                    rank=1,
+                    title="Animation Movie",
+                    media_type="anime",
+                    confidence=90,
+                    source_ids={"tmdb": "16"},
+                )
+            ],
+        )
+    )
+    repository.save_candidate_snapshot(
+        "run-animation-movie",
+        "alice",
+        [
+            Candidate(
+                candidate_id="tmdb:16",
+                title="Animation Movie",
+                media_type="anime",
+                source_ids={"tmdb": "16"},
+                metadata={"mp_media_type": "电影"},
+            )
+        ],
+    )
+    chain = SequencedChain(add_results=[(16, "created")])
+
+    result = _service(repository, chain).subscribe("alice", "tmdb:16", 0.6)
+
+    assert result.success is True
+    assert chain.exists_calls[0].type == "movie"
+    assert chain.add_calls[0]["mtype"] == "movie"
+
+
 def test_runtime_marks_board_and_latest_history_on_partial_auto_failure():
     """Automatic partial failure is visible on the board and original run record."""
     plugin = FakePlugin()

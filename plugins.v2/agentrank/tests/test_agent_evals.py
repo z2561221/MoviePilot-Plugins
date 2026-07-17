@@ -51,8 +51,9 @@ def _output(candidate_ids):
             "recommendations": [
                 {
                     "candidate_id": candidate_id,
+                    "reason": "你持续订阅科幻题材，这部以未来设定和人物抉择延续相同兴趣。",
                     "summary": "光影故事缓缓铺展人物命运新篇章",
-                    "match_tags": ["科幻"],
+                    "match_tags": ["科幻题材", "未来设定"],
                     "confidence": 88,
                 }
                 for candidate_id in candidate_ids

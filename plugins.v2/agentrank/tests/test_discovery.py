@@ -107,6 +107,37 @@ def test_partial_source_failure_preserves_other_candidates_and_error_evidence():
     assert result.source_errors == {"douban": "network down"}
 
 
+def test_source_name_never_overrides_payload_media_type():
+    """Bangumi、豆瓣和 TMDB 分区都不能被硬编码成固定展示类型。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "bangumi": lambda count: [
+                {"title": "Live Action", "type": "电视剧", "bangumi_id": 1}
+            ],
+            "douban": lambda count: [
+                {"title": "Movie", "type": "电影", "douban_id": 2}
+            ],
+            "tmdb_tv": lambda count: [
+                {"title": "Animation", "media_type": "anime", "tmdb_id": 3}
+            ],
+        }
+    )
+    service = CandidateCollectionService(adapter, AgentRankRepository(FakePlugin()))
+
+    result = service.collect_and_freeze(
+        "alice",
+        "run-source-types",
+        {"bangumi": True, "douban": True, "tmdb_tv": True},
+        10,
+    )
+
+    assert {item.sources[0]: item.media_type for item in result.candidates} == {
+        "bangumi": "tv",
+        "douban": "movie",
+        "tmdb_tv": "anime",
+    }
+
+
 def test_all_sources_empty_returns_candidate_insufficient_and_empty_snapshot():
     """No valid candidate produces an explicit pre-Agent insufficient state."""
     adapter = DiscoveryAdapter(source_fetchers={"douban": lambda count: []})

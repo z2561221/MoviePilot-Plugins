@@ -23,6 +23,8 @@ class Candidate:
     release_date: str = ""
     genres: List[str] = field(default_factory=list)
     regions: List[str] = field(default_factory=list)
+    actors: List[str] = field(default_factory=list)
+    directors: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     schema_version: int = 1
 
@@ -64,6 +66,8 @@ class Candidate:
             release_date=str(value.get("release_date") or ""),
             genres=[str(item) for item in value.get("genres") or []],
             regions=[str(item) for item in value.get("regions") or []],
+            actors=[str(item) for item in value.get("actors") or []],
+            directors=[str(item) for item in value.get("directors") or []],
             metadata=dict(value.get("metadata") or {}),
             schema_version=int(value.get("schema_version") or 1),
         )

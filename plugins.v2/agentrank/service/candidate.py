@@ -99,9 +99,9 @@ class CandidateCollectionService:
 
     @classmethod
     def _media_type(cls, data: Mapping[str, Any], source: str) -> str:
-        """规范化候选媒体类型。"""
+        """仅按来源载荷规范化候选媒体类型，不把来源名称当作类型。"""
         raw = str(cls._first(data, "media_type", "type", "category") or "").lower()
-        if "bangumi" in source or any(token in raw for token in ("anime", "动漫", "动画")):
+        if any(token in raw for token in ("anime", "动漫", "动画")):
             return "anime"
         if any(token in raw for token in ("movie", "电影")):
             return "movie"
@@ -168,6 +168,8 @@ class CandidateCollectionService:
             release_date=release_date,
             genres=cls._strings(cls._first(data, "genres", "genre")),
             regions=cls._strings(cls._first(data, "regions", "region", "countries")),
+            actors=cls._strings(cls._first(data, "actors", "actor", "casts")),
+            directors=cls._strings(cls._first(data, "directors", "director")),
             metadata=safe_metadata,
         )
 
@@ -193,7 +195,7 @@ class CandidateCollectionService:
             target.rating = incoming.rating
         if target.popularity is None:
             target.popularity = incoming.popularity
-        for name in ("genres", "regions"):
+        for name in ("genres", "regions", "actors", "directors"):
             values = getattr(target, name)
             for item in getattr(incoming, name):
                 if item not in values:

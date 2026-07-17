@@ -21,7 +21,10 @@ class LibraryAdapter:
         tmdb_id = candidate.source_ids.get("tmdb")
         if not tmdb_id:
             return False
+        media_type = str(candidate.metadata.get("mp_media_type") or "").strip()
+        if media_type not in {"电影", "电视剧"}:
+            media_type = "电影" if candidate.media_type == "movie" else "电视剧"
         try:
-            return bool(self._oper.exists(tmdbid=int(tmdb_id)))
+            return bool(self._oper.exists(tmdbid=int(tmdb_id), mtype=media_type))
         except (TypeError, ValueError):
             return False

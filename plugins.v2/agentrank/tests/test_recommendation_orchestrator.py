@@ -122,9 +122,9 @@ def _agent_output(candidate_ids):
             "recommendations": [
                 {
                     "candidate_id": candidate_id,
-                    "reason": "这部作品正戳中你的独特审美偏好",
+                    "reason": "你持续订阅悬疑电影，这部以密室追凶和双线叙事延续相同兴趣。",
                     "summary": "悬疑迷局层层牵出尘封往事与真相",
-                    "match_tags": ["悬疑"],
+                    "match_tags": ["悬疑电影", "双线叙事"],
                     "confidence": 80,
                 }
                 for candidate_id in candidate_ids

@@ -26,6 +26,7 @@ AgentRankConfig = config_module.AgentRankConfig
 ConfigValidationError = config_module.ConfigValidationError
 WEIGHT_DEFAULTS = config_module.WEIGHT_DEFAULTS
 DEFAULT_AGENT_PROMPT = config_module.DEFAULT_AGENT_PROMPT
+LEGACY_DEFAULT_AGENT_PROMPT = config_module.LEGACY_DEFAULT_AGENT_PROMPT
 normalize_config = config_module.normalize_config
 UserProfile = profile_module.UserProfile
 RecommendationBoard = board_module.RecommendationBoard
@@ -144,6 +145,16 @@ def test_agent_prompt_is_editable_but_non_empty_and_bounded():
     assert oversized["agent_prompt"] == DEFAULT_AGENT_PROMPT
     assert any("agent_prompt" in error for error in empty["_validation_errors"])
     assert any("agent_prompt" in error for error in oversized["_validation_errors"])
+
+
+def test_legacy_default_prompt_migrates_without_overwriting_custom_prompt():
+    """仅旧版内置默认值自动升级，用户真正自定义的提示词保持不变。"""
+    custom = "只推荐我没看过的冷门历史剧。"
+
+    assert normalize_config({"agent_prompt": LEGACY_DEFAULT_AGENT_PROMPT})[
+        "agent_prompt"
+    ] == DEFAULT_AGENT_PROMPT
+    assert normalize_config({"agent_prompt": custom})["agent_prompt"] == custom
 
 
 def test_repository_isolates_users_and_candidate_runs():

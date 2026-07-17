@@ -9,7 +9,8 @@ from ..model.board import RecommendationItem
 from ..model.candidate import Candidate
 
 
-FIFTEEN_CHINESE_PATTERN = re.compile(r"^[\u4e00-\u9fff]{15}$")
+FILLER_END_PATTERN = re.compile(r"(?:哈|呀|嘛|哒|喂)[。！？!?]?$")
+VAGUE_REASON_PHRASES = ("神作", "必看", "肯定喜欢", "不能错过")
 
 
 class AgentOutputError(ValueError):
@@ -194,7 +195,7 @@ class AgentOutputParser:
 
 
 def fallback_summary(candidate: Candidate) -> str:
-    """按媒体类型返回确定、可读且恰好十五字的中文作品简介。"""
+    """按媒体类型返回确定、可读的中文作品简介。"""
     summaries = {
         "movie": "光影故事缓缓铺展人物命运新篇章",
         "tv": "连环剧情逐步揭开人物命运新篇章",
@@ -205,6 +206,22 @@ def fallback_summary(candidate: Candidate) -> str:
 
 class RecommendationValidator:
     """依据冻结候选、订阅和归档集合执行确定性安全校验。"""
+
+    @staticmethod
+    def _bounded_text(value: str, minimum: int, maximum: int) -> bool:
+        """校验自然文案的非空长度边界。"""
+        text = str(value or "").strip()
+        return minimum <= len(text) <= maximum
+
+    @staticmethod
+    def _match_tags(tags: Sequence[str]) -> List[str]:
+        """返回非空、去重且保持顺序的匹配证据标签。"""
+        result: List[str] = []
+        for item in tags or []:
+            text = str(item or "").strip()
+            if text and text not in result:
+                result.append(text)
+        return result
 
     def validate(
         self,
@@ -250,22 +267,37 @@ class RecommendationValidator:
                     DroppedRecommendation(candidate_id, "invalid_confidence", index)
                 )
                 continue
-            if not FIFTEEN_CHINESE_PATTERN.fullmatch(recommendation.summary):
+            summary = recommendation.summary.strip()
+            reason = recommendation.reason.strip()
+            match_tags = self._match_tags(recommendation.match_tags)
+            if not self._bounded_text(summary, 12, 40):
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_summary", index)
                 )
                 continue
-            if not FIFTEEN_CHINESE_PATTERN.fullmatch(recommendation.reason):
+            if (
+                not self._bounded_text(reason, 20, 60)
+                or reason == summary
+                or any(phrase in reason for phrase in VAGUE_REASON_PHRASES)
+                or FILLER_END_PATTERN.search(reason)
+            ):
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_reason", index)
+                )
+                continue
+            if len(match_tags) < 2 or not any(tag in reason for tag in match_tags):
+                result.dropped.append(
+                    DroppedRecommendation(
+                        candidate_id, "insufficient_match_evidence", index
+                    )
                 )
                 continue
             result.accepted.append(
                 RecommendationItem(
                     candidate_id=candidate_id,
                     rank=len(result.accepted) + 1,
-                    summary=recommendation.summary,
-                    reason=recommendation.reason,
+                    summary=summary,
+                    reason=reason,
                     confidence=recommendation.confidence,
                     title=candidate.title,
                     media_type=candidate.media_type,
@@ -273,7 +305,7 @@ class RecommendationValidator:
                     source_ids=dict(candidate.source_ids),
                     sources=list(candidate.sources),
                     poster_path=candidate.poster_path,
-                    match_tags=list(recommendation.match_tags),
+                    match_tags=match_tags,
                 )
             )
         return result

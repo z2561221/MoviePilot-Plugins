@@ -68,6 +68,16 @@ class SubscriptionService:
         return MediaType.TV
 
     @staticmethod
+    def _candidate_media_type(candidate: Candidate) -> str:
+        """优先使用识别阶段保存的 MoviePilot 基础类型。"""
+        media_type = str(candidate.metadata.get("mp_media_type") or "").strip()
+        if media_type in {"电影", "movie"}:
+            return "movie"
+        if media_type in {"电视剧", "tv"}:
+            return "tv"
+        return "movie" if candidate.media_type == "movie" else "tv"
+
+    @staticmethod
     def _integer(value: Any) -> Optional[int]:
         """安全转换可选整数媒体标识。"""
         try:
@@ -133,7 +143,7 @@ class SubscriptionService:
         identifiers = self._identifier_kwargs(candidate)
         if not identifiers:
             return self._failure("candidate_unrecognizable", "候选缺少可识别媒体 ID")
-        media_type = self._media_type_factory(candidate.media_type)
+        media_type = self._media_type_factory(self._candidate_media_type(candidate))
         media = self._media_factory(
             title=candidate.title,
             year=str(candidate.year or ""),

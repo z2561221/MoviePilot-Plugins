@@ -56,11 +56,20 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
             return SimpleNamespace(
                 tmdb_id=900,
                 title="TMDB 标准标题",
+                type=FakeMediaType.MOVIE,
                 year="2026",
                 original_title="Original",
                 overview="Overview",
                 poster_path="https://image.example/poster.jpg",
                 backdrop_path="https://image.example/backdrop.jpg",
+                category="剧情",
+                genres=[{"id": 18, "name": "剧情"}],
+                genre_ids=[18],
+                actors=[{"name": "演员甲"}],
+                directors=[{"name": "导演乙"}],
+                origin_country=["中国大陆"],
+                vote_average=8.6,
+                popularity=123.4,
             )
 
     candidate = Candidate(
@@ -81,7 +90,64 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
     assert result.year == 2026
     assert result.poster_path.endswith("poster.jpg")
     assert result.source_ids == {"douban": "db-9", "tmdb": "900"}
+    assert result.media_type == "movie"
+    assert result.metadata["mp_media_type"] == "电影"
+    assert result.genres == ["剧情"]
+    assert result.actors == ["演员甲"]
+    assert result.directors == ["导演乙"]
+    assert result.regions == ["中国大陆"]
+    assert result.rating == 8.6
+    assert result.popularity == 123.4
     assert result.metadata["recognized_by"] == "moviepilot"
+
+
+def test_recognition_uses_actual_type_and_animation_features_not_source_name():
+    """Bangumi 也可识别为真人剧，动画电影则保留电影订阅基础类型。"""
+    results = [
+        SimpleNamespace(
+            tmdb_id=901,
+            title="Bangumi 真人剧",
+            type=FakeMediaType.TV,
+            category="剧情",
+            genres=[{"id": 18, "name": "剧情"}],
+            genre_ids=[18],
+        ),
+        SimpleNamespace(
+            tmdb_id=902,
+            title="动画电影",
+            type=FakeMediaType.MOVIE,
+            category="动画",
+            genres=[{"id": 16, "name": "动画"}],
+            genre_ids=[16],
+        ),
+    ]
+
+    class FakeChain:
+        def recognize_media(self, **kwargs):
+            return results.pop(0)
+
+    adapter = MediaRecognitionAdapter(FakeChain, FakeMeta, FakeMediaType)
+    bangumi = adapter.recognize(
+        Candidate(
+            candidate_id="bangumi:1",
+            title="Bangumi 真人剧",
+            media_type="anime",
+            source_ids={"bangumi": "1"},
+        )
+    )
+    animation_movie = adapter.recognize(
+        Candidate(
+            candidate_id="douban:2",
+            title="动画电影",
+            media_type="movie",
+            source_ids={"douban": "2"},
+        )
+    )
+
+    assert bangumi.media_type == "tv"
+    assert bangumi.metadata["mp_media_type"] == "电视剧"
+    assert animation_movie.media_type == "anime"
+    assert animation_movie.metadata["mp_media_type"] == "电影"
 
 
 def test_recognition_rejects_media_without_tmdb_id():
