@@ -104,7 +104,7 @@ const mediaTypeOptions = [
 ]
 const actionOptions = [
   { title: '仅更新榜单', value: 'update' },
-  { title: '通知确认', value: 'notify' },
+  { title: '通知内选择', value: 'notify' },
   { title: '自动订阅前 N', value: 'auto_subscribe' },
 ]
 const advancedTabs = [
@@ -367,7 +367,7 @@ onMounted(loadRuntime)
                 <VCol cols="12"><VSwitch v-model="form.notify" color="info" label="发送通知" hide-details inset :disabled="form.action_mode === 'update'" /></VCol>
               </VRow>
               <VAlert :type="form.action_mode === 'auto_subscribe' ? 'warning' : 'info'" variant="tonal" class="mt-4">
-                {{ form.action_mode === 'auto_subscribe' ? '自动订阅仍会逐项检查候选快照、归档、置信度、识别 ID 和重复订阅。' : '通知确认只发送摘要，用户仍需从榜单界面手动订阅。' }}
+                {{ form.action_mode === 'auto_subscribe' ? '自动订阅仍会逐项检查候选快照、归档、置信度、识别 ID 和重复订阅。' : 'Telegram 通知以海报轮播展示榜单，可自由加入待订阅清单，最终确认后再逐项执行安全检查。' }}
               </VAlert>
             </div>
 

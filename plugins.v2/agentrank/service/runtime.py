@@ -19,6 +19,7 @@ class AgentRankRuntime:
         trigger_factory: Callable[[str], Any] = None,
         subscription_service: Any = None,
         notification_service: Any = None,
+        interaction_service: Any = None,
         date_trigger_factory: Callable[[], Any] = None,
     ):
         """组装真实依赖或接受测试注入。"""
@@ -32,13 +33,23 @@ class AgentRankRuntime:
         if orchestrator is None:
             from .notification import NotificationService
             from .subscription import SubscriptionService
+            from .telegram_interaction import TelegramSelectionService
 
             subscription_service = subscription_service or SubscriptionService(
                 plugin._repository
             )
-            notification_service = notification_service or NotificationService(plugin)
+            interaction_service = interaction_service or TelegramSelectionService(
+                plugin=plugin,
+                repository=plugin._repository,
+                subscription_service=subscription_service,
+                config=config,
+            )
+            notification_service = notification_service or NotificationService(
+                plugin, interaction_service
+            )
         self.subscription_service = subscription_service
         self.notification_service = notification_service
+        self.interaction_service = interaction_service
         self._stopped = False
         self._active_tasks: set[asyncio.Task] = set()
 

@@ -10,6 +10,7 @@ from ..model.candidate import Candidate
 from ..model.profile import UserProfile
 from ..model.profile_preferences import ProfilePreferences
 from ..model.run import RecommendationRun
+from ..model.telegram_selection import TelegramSelectionSession
 
 
 ModelType = TypeVar("ModelType")
@@ -19,6 +20,7 @@ class AgentRankRepository:
     """统一封装 AgentRank 的隔离键、迁移与容错读取。"""
 
     recovery_log_key = "agentrank_recovery_log"
+    telegram_sessions_key = "telegram_selection_sessions"
 
     def __init__(self, plugin: Any, history_limit: int = 50):
         """绑定插件数据接口并设置历史上限。"""
@@ -200,6 +202,39 @@ class AgentRankRepository:
             else:
                 self._record_recovery(key, "ignored_cross_user_item", run.username)
         return result
+
+    def save_telegram_session(self, session: TelegramSelectionSession) -> None:
+        """保存一个 Telegram 选择会话并裁剪过期记录。"""
+        raw = self._plugin.get_data(key=self.telegram_sessions_key)
+        sessions = dict(raw) if isinstance(raw, Mapping) else {}
+        retained: Dict[str, Any] = {}
+        for token, value in sessions.items():
+            try:
+                current = TelegramSelectionSession.from_dict(value)
+            except (TypeError, ValueError, KeyError):
+                continue
+            if not current.is_expired() or current.status == "processing":
+                retained[str(token)] = current.to_dict()
+        retained[session.token] = session.to_dict()
+        self._plugin.save_data(key=self.telegram_sessions_key, value=retained)
+
+    def load_telegram_session(self, token: str) -> Optional[TelegramSelectionSession]:
+        """按不可猜令牌读取 Telegram 选择会话。"""
+        raw = self._plugin.get_data(key=self.telegram_sessions_key)
+        if not isinstance(raw, Mapping):
+            return None
+        value = raw.get(str(token or "").strip())
+        if value is None:
+            return None
+        try:
+            return TelegramSelectionSession.from_dict(value)
+        except (TypeError, ValueError, KeyError) as error:
+            self._record_recovery(
+                f"{self.telegram_sessions_key}:{token}",
+                "ignored_corrupt_data",
+                str(error),
+            )
+            return None
 
     def annotate_run(
         self,

@@ -150,7 +150,7 @@ const mediaTypeOptions = [
 ];
 const actionOptions = [
   { title: '仅更新榜单', value: 'update' },
-  { title: '通知确认', value: 'notify' },
+  { title: '通知内选择', value: 'notify' },
   { title: '自动订阅前 N', value: 'auto_subscribe' },
 ];
 const advancedTabs = [
@@ -919,7 +919,7 @@ return (_ctx, _cache) => {
                   class: "mt-4"
                 }, {
                   default: _withCtx(() => [
-                    _createTextVNode(_toDisplayString(form.action_mode === 'auto_subscribe' ? '自动订阅仍会逐项检查候选快照、归档、置信度、识别 ID 和重复订阅。' : '通知确认只发送摘要，用户仍需从榜单界面手动订阅。'), 1)
+                    _createTextVNode(_toDisplayString(form.action_mode === 'auto_subscribe' ? '自动订阅仍会逐项检查候选快照、归档、置信度、识别 ID 和重复订阅。' : 'Telegram 通知以海报轮播展示榜单，可自由加入待订阅清单，最终确认后再逐项执行安全检查。'), 1)
                   ]),
                   _: 1
                 }, 8, ["type"])
@@ -1225,6 +1225,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5f730289"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-aacb684f"]]);
 
 export { Config as default };

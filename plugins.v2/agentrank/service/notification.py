@@ -1,10 +1,14 @@
 """Agent 榜单通知确认服务。"""
 
+import logging
 from typing import Any
 
 from app.schemas.types import NotificationType
 
 from ..model.board import RecommendationBoard
+
+
+logger = logging.getLogger(__name__)
 
 
 def _compact_text(value: Any, limit: int) -> str:
@@ -33,14 +37,24 @@ def _format_ranking_block(board: RecommendationBoard) -> str:
 
 
 class NotificationService:
-    """只发送榜单摘要和 UI 操作指引，不建立订阅回调。"""
+    """优先发送 Telegram 自选订阅卡片，并保留摘要降级。"""
 
-    def __init__(self, plugin: Any):
-        """绑定插件通知扩展点。"""
+    def __init__(self, plugin: Any, interaction_service: Any = None):
+        """绑定插件通知扩展点与可选 Telegram 交互服务。"""
         self._plugin = plugin
+        self._interaction_service = interaction_service
 
     def send_confirmation(self, username: str, board: RecommendationBoard) -> None:
-        """向目标用户发送最多十条推荐摘要。"""
+        """发送海报轮播；用户未绑定 Telegram 时降级为摘要。"""
+        if self._interaction_service is not None:
+            try:
+                if self._interaction_service.start(username, board):
+                    return
+            except Exception:
+                # Telegram 交互异常不得阻断榜单通知的摘要降级路径。
+                logger.exception(
+                    "AgentRank Telegram 交互通知失败，回退摘要 user=%s", username
+                )
         ranking = _format_ranking_block(board)
         text = f"本轮 Agent 推荐已生成，共 {len(board.recommendations[:10])} 条：\n\n{ranking}"
         text += "\n\n请前往 **Agent榜单中心** 手动订阅；此通知不会自动创建订阅。"

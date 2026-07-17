@@ -12,6 +12,7 @@ AgentRank 是 MoviePilot V2 本地插件。它按参与用户读取订阅样本�
 - 提示协议：`service/prompt.py`；候选标题、简介、标签和归档文本始终是不可信数据。
 - 输出解析与安全校验：`service/validation.py`；只接受单个有界 JSON 对象，并保持 Agent 最终顺序。
 - 订阅副作用：仅允许 `service/subscription.py` 在 Agent 已结束后执行，Agent 适配器不得持有该服务。
+- Telegram 自选订阅：`service/telegram_interaction.py` 使用海报轮播和一次性会话令牌处理 `MessageAction`；按钮点击只维护待订阅清单，最终确认才调用 `service/subscription.py`。
 
 ## 唯一允许的 Agent 工具
 
@@ -31,6 +32,7 @@ AgentRank 会话只能加载以下四个只读工具，工具参数不能选择 
 - 只返回一个 JSON 对象，根键固定为 `profile` 与 `recommendations`。
 - `recommendations[].candidate_id` 必须来自冻结候选快照。
 - 推荐不得重复，不得包含已归档或已订阅候选。
+- Telegram 回调必须校验目标用户 ID、会话有效期和当前榜单 `run_id`；旧榜单、越权用户和重复确认不得创建订阅。
 - `confidence` 必须为 0 到 100 的整数。
 - 每条作品 `reason` 与 `summary` 必须各自恰好十五个中文字符，不含英文、数字、标点或空白。
 - 不输出 Markdown、自然语言前后缀、工具过程、推理过程或思维链。

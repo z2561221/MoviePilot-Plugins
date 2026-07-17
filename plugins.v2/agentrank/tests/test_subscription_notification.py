@@ -187,6 +187,29 @@ def test_notification_confirmation_compacts_long_or_multiline_fields():
     assert "…" in text
 
 
+def test_notification_confirmation_prefers_interactive_card_when_available():
+    """Telegram 自选卡片发送成功后不再重复发送摘要。"""
+    plugin = FakePlugin()
+    board = RecommendationBoard(username="alice", run_id="run-1", status="success")
+
+    class InteractionService:
+        """记录自选卡片启动参数。"""
+
+        def __init__(self):
+            self.calls = []
+
+        def start(self, username, current_board):
+            """模拟已发送交互卡片。"""
+            self.calls.append((username, current_board.run_id))
+            return True
+
+    interaction = InteractionService()
+    NotificationService(plugin, interaction).send_confirmation("alice", board)
+
+    assert interaction.calls == [("alice", "run-1")]
+    assert plugin.messages == []
+
+
 def test_manual_subscription_passes_username_and_identifiers_after_all_gates():
     """A valid board item calls exists then add with the target username."""
     plugin = FakePlugin()

@@ -2,7 +2,9 @@
 
 from typing import Any, Dict, List, Optional, Tuple, Type
 
+from app.core.event import Event, eventmanager
 from app.plugins import _PluginBase
+from app.schemas.types import EventType
 
 from .controller.api import build_api_routes, config_response, status_response
 from .model.config import default_config
@@ -36,6 +38,17 @@ class AgentRank(_PluginBase):
     def get_state(self) -> bool:
         """返回插件启用状态。"""
         return self._enabled
+
+    @eventmanager.register(EventType.MessageAction)
+    def message_action(self, event: Event) -> None:
+        """转发属于当前插件的 Telegram 榜单按钮回调。"""
+        event_data = event.event_data or {}
+        if event_data.get("plugin_id") != self.__class__.__name__:
+            return
+        runtime = getattr(self, "_runtime", None)
+        interaction = getattr(runtime, "interaction_service", None)
+        if interaction is not None:
+            interaction.handle_callback(event_data)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
