@@ -1,4 +1,4 @@
-"""AgentRank Telegram 海报轮播与自选订阅交互测试。"""
+"""AgentRank Telegram 单页榜单与自选订阅交互测试。"""
 
 import importlib
 import sys
@@ -106,7 +106,7 @@ class FakeSubscriptionService:
 
 
 def _board(run_id="run-1"):
-    """构造两条带海报与来源链接的推荐榜单。"""
+    """构造两条带榜首海报与匹配标签的推荐榜单。"""
     return RecommendationBoard(
         username="alice",
         run_id=run_id,
@@ -123,6 +123,7 @@ def _board(run_id="run-1"):
                 summary="第一部简介",
                 poster_path="https://image.tmdb.org/t/p/w200/a.jpg",
                 source_ids={"tmdb": "1", "douban": "11"},
+                match_tags=["悬疑", "成长"],
             ),
             RecommendationItem(
                 candidate_id="tmdb:2",
@@ -135,9 +136,31 @@ def _board(run_id="run-1"):
                 summary="第二部简介",
                 poster_path="https://image.tmdb.org/t/p/w200/b.jpg",
                 source_ids={"tmdb": "2", "bangumi": "22"},
+                match_tags=["科幻", "群像"],
             ),
         ],
     )
+
+
+def _ten_item_board():
+    """构造十条长字段榜单以验证单页 caption 与按钮上限。"""
+    board = _board()
+    board.recommendations = [
+        RecommendationItem(
+            candidate_id=f"tmdb:{index}",
+            rank=index,
+            title=f"第{index:02d}部具有较长中文标题的推荐作品",
+            media_type="anime" if index % 2 else "tv",
+            year=2020 + index,
+            confidence=90 - index,
+            reason="较长推荐理由不会进入紧凑单页通知正文",
+            summary="较长剧情简介也不会挤占移动端通知空间",
+            poster_path=f"https://image.tmdb.org/t/p/w200/{index}.jpg",
+            match_tags=["日本动画偏好", "古装历史题材"],
+        )
+        for index in range(1, 11)
+    ]
+    return board
 
 
 def _service(now=None, target="1001"):
@@ -181,8 +204,8 @@ def _callbacks(message):
     ]
 
 
-def test_start_sends_first_poster_card_with_compact_callbacks():
-    """初始通知展示第一张海报、轮播导航和待订阅入口。"""
+def test_start_sends_single_page_top_list_with_first_poster():
+    """初始通知用榜首海报展示全部条目与紧凑编号按钮。"""
     plugin, repository, _, service, _ = _service()
 
     assert service.start("alice", _board()) is True
@@ -193,19 +216,43 @@ def test_start_sends_first_poster_card_with_compact_callbacks():
     assert message["username"] == "alice"
     assert message["targets"] == {"telegram_userid": "1001"}
     assert message["image"].endswith("/a.jpg")
-    assert "01 / 02" in message["text"]
-    assert "＋ 待订阅" in str(message["buttons"])
+    assert "第一部电影" in message["text"]
+    assert "第二部剧集" in message["text"]
+    assert "悬疑/成长" in message["text"]
+    assert "科幻/群像" in message["text"]
+    assert "确认 0" in str(message["buttons"])
+    assert ":t:0" in str(message["buttons"])
+    assert ":t:1" in str(message["buttons"])
+    assert ":p" not in str(message["buttons"])
+    assert ":n" not in str(message["buttons"])
     assert "TMDB" not in str(message["buttons"])
     assert "豆瓣" not in str(message["buttons"])
     assert "Bangumi" not in str(message["buttons"])
     assert all("url" not in button for row in message["buttons"] for button in row)
-    assert len(message["buttons"]) == 3
-    assert all(len(row) <= 2 for row in message["buttons"])
+    assert len(message["buttons"]) == 2
+    assert max(len(row) for row in message["buttons"]) == 3
+    assert len(message["text"]) <= service.caption_limit
     assert message["mtype"] is NotificationType.Subscribe
     assert all(len(value.encode("utf-8")) <= 64 for value in _callbacks(message))
     session = repository.load_telegram_session("token123")
     assert session.candidate_ids == ["tmdb:1", "tmdb:2"]
     assert session.selected_ids == []
+
+
+def test_ten_items_fit_one_caption_and_two_choice_rows():
+    """十条长字段在桌面和移动端均保持单消息、两行编号布局。"""
+    plugin, repository, _, service, _ = _service()
+    board = _ten_item_board()
+    repository.save_board(board)
+
+    service.start("alice", board)
+
+    message = plugin.messages[-1]
+    assert len(message["text"]) <= service.caption_limit
+    assert len(message["buttons"]) == 3
+    assert [len(row) for row in message["buttons"]] == [5, 5, 3]
+    assert all(f"{index:02d}" in message["text"] for index in range(1, 11))
+    assert message["image"].endswith("/1.jpg")
 
 
 def test_relative_or_missing_poster_uses_absolute_placeholder():
@@ -220,28 +267,30 @@ def test_relative_or_missing_poster_uses_absolute_placeholder():
     assert plugin.messages[-1]["image"].endswith("/no-image.jpeg")
 
 
-def test_carousel_toggle_selected_list_and_remove_update_original_message():
-    """翻页、加入、查看清单和移除均只编辑原消息。"""
+def test_number_toggle_and_clear_update_single_original_message():
+    """编号选择与清空均在原单页消息中更新状态。"""
     plugin, repository, _, service, _ = _service()
     service.start("alice", _board())
 
-    assert service.handle_callback(_event("n")) is True
-    assert plugin.messages[-1]["image"].endswith("/b.jpg")
+    assert service.handle_callback(_event("t:1")) is True
+    assert plugin.messages[-1]["image"].endswith("/a.jpg")
     assert plugin.messages[-1]["original_message_id"] == 77
-
-    service.handle_callback(_event("t"))
     session = repository.load_telegram_session("token123")
     assert session.selected_ids == ["tmdb:2"]
-    assert "✓ 已加入" in str(plugin.messages[-1]["buttons"])
+    assert "✓02" in str(plugin.messages[-1]["buttons"])
+    assert "确认 1" in str(plugin.messages[-1]["buttons"])
 
-    service.handle_callback(_event("s"))
-    assert "本轮待订阅清单" in plugin.messages[-1]["text"]
-    assert "第二部剧集" in plugin.messages[-1]["text"]
+    service.handle_callback(_event("t:0"))
+    session = repository.load_telegram_session("token123")
+    assert session.selected_ids == ["tmdb:1", "tmdb:2"]
+    assert "✓01" in str(plugin.messages[-1]["buttons"])
+    assert "✓02" in str(plugin.messages[-1]["buttons"])
 
-    service.handle_callback(_event("d:1"))
+    service.handle_callback(_event("e"))
     session = repository.load_telegram_session("token123")
     assert session.selected_ids == []
-    assert "尚未加入任何作品" in plugin.messages[-1]["text"]
+    assert "已清空本轮选择" in plugin.messages[-1]["text"]
+    assert "确认 0" in str(plugin.messages[-1]["buttons"])
     assert all(
         message["mtype"] is NotificationType.Subscribe for message in plugin.messages
     )
@@ -256,9 +305,8 @@ def test_confirm_subscribes_only_selected_items_and_is_idempotent():
     """最终确认只处理已选作品，重复点击不会再次订阅。"""
     plugin, repository, subscription, service, _ = _service()
     service.start("alice", _board())
-    service.handle_callback(_event("t"))
-    service.handle_callback(_event("n"))
-    service.handle_callback(_event("t"))
+    service.handle_callback(_event("t:0"))
+    service.handle_callback(_event("t:1"))
 
     service.handle_callback(_event("c"))
 
@@ -287,6 +335,8 @@ def test_empty_confirmation_keeps_session_open_and_prompts_selection():
     assert subscription.calls == []
     assert repository.load_telegram_session("token123").status == "open"
     assert "请至少选择一部作品" in plugin.messages[-1]["text"]
+    assert "第一部电影" in plugin.messages[-1]["text"]
+    assert "第二部剧集" in plugin.messages[-1]["text"]
 
 
 def test_wrong_user_stale_board_and_expired_session_are_rejected():

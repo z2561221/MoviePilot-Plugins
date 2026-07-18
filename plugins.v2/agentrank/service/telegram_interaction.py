@@ -1,4 +1,4 @@
-"""Telegram 海报轮播与待订阅选择交互服务。"""
+"""Telegram 单页榜单与待订阅选择交互服务。"""
 
 import html
 import logging
@@ -31,10 +31,11 @@ def _compact_text(value: Any, limit: int) -> str:
 
 
 class TelegramSelectionService:
-    """管理 Telegram 海报轮播、待订阅清单与最终确认。"""
+    """管理 Telegram 单页榜单、待订阅选择与最终确认。"""
 
     callback_prefix = "ar"
     session_ttl_hours = 24
+    caption_limit = 900
 
     def __init__(
         self,
@@ -103,149 +104,83 @@ class TelegramSelectionService:
             raise ValueError("telegram callback_data exceeds 64 bytes")
         return value
 
-    def _carousel_payload(
+    def _single_page_payload(
         self,
         session: TelegramSelectionSession,
         board: RecommendationBoard,
         notice: str = "",
     ) -> Tuple[str, List[List[Dict[str, str]]], str]:
-        """生成海报轮播正文、按钮与当前海报。"""
-        items = self._item_map(board)
-        candidate_id = session.candidate_ids[session.current_index]
-        item = items[candidate_id]
-        total = len(session.candidate_ids)
-        selected = candidate_id in session.selected_ids
-        media_labels = {"movie": "电影", "tv": "剧集", "anime": "动漫"}
-        meta = " · ".join(
-            value
-            for value in (
-                media_labels.get(item.media_type, "媒体"),
-                str(item.year or "").strip(),
-                f"置信度 {self._confidence(item.confidence)}%",
-            )
-            if value
-        )
-        reason = _compact_text(item.reason or item.summary, 180) or "暂无推荐理由"
-        summary = _compact_text(item.summary, 220)
-        lines = [
-            f"<b>{session.current_index + 1:02d} / {total:02d}　{html.escape(_compact_text(item.title, 48) or '未命名条目')}</b>",
-            html.escape(meta),
-            "",
-            f"<b>推荐理由</b>　{html.escape(reason)}",
+        """生成固定榜首封面的 Top10 单页正文与编号按钮。"""
+        item_map = self._item_map(board)
+        items = [
+            item_map[candidate_id]
+            for candidate_id in session.candidate_ids
+            if candidate_id in item_map
         ]
-        if summary and summary != reason:
-            lines.extend(["", f"<b>简介</b>　{html.escape(summary)}"])
-        lines.extend(
-            [
-                "",
-                f"<b>待订阅</b>　已选 {len(session.selected_ids)} / {total} 部",
-                "点击加入只保存选择，最终确认后才会创建订阅。",
-            ]
-        )
+        total = len(items)
+        media_labels = {"movie": "电影", "tv": "剧集", "anime": "动漫"}
+        lines = [
+            f"已选 <b>{len(session.selected_ids)}</b> / {total}",
+            "",
+        ]
+        buttons: List[List[Dict[str, str]]] = []
+        choice_buttons: List[Dict[str, str]] = []
+        for index, item in enumerate(items):
+            candidate_id = str(item.candidate_id)
+            selected = candidate_id in session.selected_ids
+            marker = "✓" if selected else "·"
+            title = html.escape(_compact_text(item.title, 18) or "未命名条目")
+            meta = "·".join(
+                value
+                for value in (
+                    media_labels.get(item.media_type, "媒体"),
+                    str(item.year or "").strip(),
+                    f"{self._confidence(item.confidence)}%",
+                )
+                if value
+            )
+            tags = "/".join(
+                html.escape(_compact_text(tag, 6))
+                for tag in list(item.match_tags or [])[:2]
+                if _compact_text(tag, 6)
+            )
+            suffix = f"｜{html.escape(meta)}"
+            if tags:
+                suffix += f"｜{tags}"
+            lines.append(f"{marker} <code>{index + 1:02d}</code> {title}{suffix}")
+            choice_buttons.append(
+                {
+                    "text": f"✓{index + 1:02d}" if selected else f"{index + 1:02d}",
+                    "callback_data": self._callback(session.token, "t", str(index)),
+                }
+            )
         if notice:
             lines.extend(["", f"<i>{html.escape(_compact_text(notice, 120))}</i>"])
-        buttons: List[List[Dict[str, str]]] = [
+        lines.extend(["", "点击编号选择，确认后创建订阅。"])
+        buttons.extend(
+            choice_buttons[index : index + 5]
+            for index in range(0, len(choice_buttons), 5)
+        )
+        buttons.append(
             [
                 {
-                    "text": "‹",
-                    "callback_data": self._callback(session.token, "p"),
+                    "text": "清空",
+                    "callback_data": self._callback(session.token, "e"),
                 },
                 {
-                    "text": "›",
-                    "callback_data": self._callback(session.token, "n"),
-                },
-            ],
-            [
-                {
-                    "text": "✓ 已加入" if selected else "＋ 待订阅",
-                    "callback_data": self._callback(session.token, "t"),
-                },
-                {
-                    "text": f"清单 {len(session.selected_ids)}",
-                    "callback_data": self._callback(session.token, "s"),
-                },
-            ],
-            [
-                {
-                    "text": "确认",
+                    "text": f"确认 {len(session.selected_ids)}",
                     "callback_data": self._callback(session.token, "c"),
                 },
                 {
                     "text": "关闭",
                     "callback_data": self._callback(session.token, "x"),
                 },
-            ],
-        ]
-        return "\n".join(lines), buttons, self._poster_url(item)
-
-    def _selected_payload(
-        self,
-        session: TelegramSelectionSession,
-        board: RecommendationBoard,
-        notice: str = "",
-    ) -> Tuple[str, List[List[Dict[str, str]]], str]:
-        """生成待订阅清单正文、移除按钮与保留海报。"""
-        item_map = self._item_map(board)
-        lines = ["<b>🧺 本轮待订阅清单</b>", ""]
-        remove_buttons: List[Dict[str, str]] = []
-        selected = [
-            candidate_id
-            for candidate_id in session.candidate_ids
-            if candidate_id in session.selected_ids and candidate_id in item_map
-        ]
-        if selected:
-            for candidate_id in selected:
-                item = item_map[candidate_id]
-                index = session.candidate_ids.index(candidate_id)
-                title = _compact_text(item.title, 30) or "未命名条目"
-                lines.append(f"✓ {index + 1:02d}　{html.escape(title)}")
-                remove_buttons.append(
-                    {
-                        "text": f"移除 {index + 1:02d}",
-                        "callback_data": self._callback(
-                            session.token, "d", str(index)
-                        ),
-                    }
-                )
-        else:
-            lines.append("尚未加入任何作品，可以返回轮播继续挑选。")
-        lines.extend(["", f"共选择 <b>{len(selected)}</b> 部作品。"])
-        if notice:
-            lines.extend(["", f"<i>{html.escape(_compact_text(notice, 120))}</i>"])
-        buttons = [
-            remove_buttons[index : index + 3]
-            for index in range(0, len(remove_buttons), 3)
-        ]
-        buttons.extend(
-            [
-                [
-                    {
-                        "text": "返回",
-                        "callback_data": self._callback(session.token, "b"),
-                    },
-                    {
-                        "text": "清空",
-                        "callback_data": self._callback(session.token, "e"),
-                    },
-                ],
-                [
-                    {
-                        "text": "确认",
-                        "callback_data": self._callback(session.token, "c"),
-                    },
-                    {
-                        "text": "关闭",
-                        "callback_data": self._callback(session.token, "x"),
-                    },
-                ],
             ]
         )
-        current = item_map.get(session.candidate_ids[session.current_index])
-        return (
-            "\n".join(lines),
-            buttons,
-            self._poster_url(current) if current is not None else NO_IMAGE_URL,
-        )
+        text = "\n".join(lines)
+        if len(text) > self.caption_limit:
+            raise ValueError("telegram single-page caption exceeds safe character limit")
+        return text, buttons, self._poster_url(items[0])
 
     def _post(
         self,
@@ -254,18 +189,15 @@ class TelegramSelectionService:
         event_data: Dict[str, Any] = None,
         notice: str = "",
     ) -> None:
-        """发送新卡片或原地编辑当前交互消息。"""
+        """发送 Top10 单页卡片或原地更新选择状态。"""
         event_data = event_data or {}
-        if session.view == "selected":
-            text, buttons, image = self._selected_payload(session, board, notice)
-        else:
-            text, buttons, image = self._carousel_payload(session, board, notice)
+        text, buttons, image = self._single_page_payload(session, board, notice)
         original_message_id = event_data.get("original_message_id")
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
             mtype=NotificationType.Subscribe,
-            title="Agent榜单中心 · 自选订阅",
+            title=f"Agent榜单中心 · Top {len(session.candidate_ids):02d}",
             text=text,
             image=image,
             username=session.username,
@@ -285,13 +217,12 @@ class TelegramSelectionService:
         title: str,
         text: str,
     ) -> None:
-        """编辑为无按钮终态并保留当前海报。"""
+        """编辑为无按钮终态并保留榜首海报。"""
         board = self._repository.load_board(session.username)
         item = None
         if board is not None:
-            item = self._item_map(board).get(
-                session.candidate_ids[min(session.current_index, len(session.candidate_ids) - 1)]
-            )
+            items = self._ranked_items(board)
+            item = items[0] if items else None
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
@@ -324,7 +255,7 @@ class TelegramSelectionService:
 
     @staticmethod
     def _parse_callback(text: str) -> Optional[Tuple[str, str, str]]:
-        """解析插件消息事件中的紧凑轮播回调。"""
+        """解析插件消息事件中的紧凑选择回调。"""
         parts = str(text or "").split(":", 3)
         if len(parts) < 3 or parts[0] != TelegramSelectionService.callback_prefix:
             return None
@@ -336,7 +267,7 @@ class TelegramSelectionService:
         return token, action, argument
 
     def start(self, username: str, board: RecommendationBoard) -> bool:
-        """为目标用户创建并发送一条 Telegram 海报轮播通知。"""
+        """为目标用户创建并发送一条 Telegram Top10 单页通知。"""
         items = self._ranked_items(board)
         if not items:
             return False
@@ -373,7 +304,6 @@ class TelegramSelectionService:
     ) -> None:
         """逐项执行既有订阅安全链并把原消息编辑为结果摘要。"""
         if not session.selected_ids:
-            session.view = "selected"
             self._repository.save_telegram_session(session)
             board = self._repository.load_board(session.username)
             if board is not None:
@@ -515,17 +445,17 @@ class TelegramSelectionService:
                 return True
             total = len(session.candidate_ids)
             notice = ""
-            if action == "p":
-                session.current_index = (session.current_index - 1) % total
-                session.view = "carousel"
-            elif action == "n":
-                session.current_index = (session.current_index + 1) % total
-                session.view = "carousel"
-            elif action == "t":
-                candidate_id = session.candidate_ids[session.current_index]
+            if action == "t":
+                try:
+                    index = int(argument) if argument else session.current_index
+                except (TypeError, ValueError):
+                    index = -1
+                if not 0 <= index < total:
+                    return False
+                candidate_id = session.candidate_ids[index]
                 if candidate_id in session.selected_ids:
                     session.selected_ids.remove(candidate_id)
-                    notice = "已从待订阅清单移除。"
+                    notice = f"已取消 {index + 1:02d}。"
                 else:
                     session.selected_ids.append(candidate_id)
                     session.selected_ids = [
@@ -533,15 +463,9 @@ class TelegramSelectionService:
                         for value in session.candidate_ids
                         if value in session.selected_ids
                     ]
-                    notice = "已加入待订阅清单。"
-                session.view = "carousel"
-            elif action == "s":
-                session.view = "selected"
-            elif action == "b":
-                session.view = "carousel"
+                    notice = f"已选择 {index + 1:02d}。"
             elif action == "e":
                 session.selected_ids = []
-                session.view = "selected"
                 notice = "已清空本轮选择。"
             elif action == "d":
                 try:
@@ -552,8 +476,9 @@ class TelegramSelectionService:
                     candidate_id = session.candidate_ids[index]
                     if candidate_id in session.selected_ids:
                         session.selected_ids.remove(candidate_id)
-                        notice = "已从待订阅清单移除。"
-                session.view = "selected"
+                        notice = f"已取消 {index + 1:02d}。"
+            elif action in {"p", "n", "s", "b"}:
+                notice = "通知已升级为单页，请直接点击编号选择。"
             elif action == "c":
                 self._confirm(session, event_data)
                 return True
