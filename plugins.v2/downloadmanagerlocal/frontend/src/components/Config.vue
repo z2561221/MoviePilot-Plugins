@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, ref, computed, watch, onMounted } from 'vue'
-import { getPluginApi } from './api'
+import { getPluginApi, postPluginJsonApi } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -14,6 +14,14 @@ const activeSub = ref('overview')
 const downloaderItems = ref([])
 const siteItems = ref([])
 const overview = ref(null)
+const cleanupDownloaders = ref([])
+const cleanupScan = ref(null)
+const cleanupKeep = reactive({})
+const cleanupScanning = ref(false)
+const cleanupExecuting = ref(false)
+const cleanupDialog = ref(false)
+const cleanupMessage = ref('')
+const cleanupStatus = ref('info')
 
 onMounted(async () => {
   try {
@@ -81,7 +89,10 @@ const subTabs = {
     { key: 'iyuu_advanced', title: '高级选项', icon: 'mdi-tune' },
   ],
   rename: [{ key: 'format', title: '命名格式', icon: 'mdi-format-text' }],
-  tag: [{ key: 'mapping', title: 'Tracker 映射', icon: 'mdi-link-variant' }],
+  tag: [
+    { key: 'mapping', title: 'Tracker 映射', icon: 'mdi-link-variant' },
+    { key: 'tag_cleanup', title: '标签清理', icon: 'mdi-tag-remove-outline' },
+  ],
   seed: [{ key: 'seed_basic', title: '基础设置', icon: 'mdi-tune-variant' }],
 }
 
@@ -91,6 +102,21 @@ const selectedToDownloaderType = computed(() => {
   const selected = downloaderItems.value.find(item => item.value === form.todownloader)
   return selected?.type || ''
 })
+const qbDownloaderItems = computed(() => downloaderItems.value.filter(item => item.type === 'qbittorrent'))
+const cleanupGroups = computed(() => cleanupScan.value?.downloaders || [])
+const cleanupAutoRemovedCount = computed(() => cleanupScan.value?.auto_removed?.length || 0)
+const cleanupRemovals = computed(() => {
+  const removals = []
+  for (const group of cleanupGroups.value) {
+    for (const item of group.tags || []) {
+      if (!cleanupKeep[tagSelectionKey(group.name, item.tag)]) {
+        removals.push({ downloader: group.name, tag: item.tag, hashes: [...(item.hashes || [])] })
+      }
+    }
+  }
+  return removals
+})
+const cleanupRemovalAssociations = computed(() => cleanupRemovals.value.reduce((total, item) => total + item.hashes.length, 0))
 const overviewCards = computed(() => {
   const cards = overview.value?.cards || {}
   const archive = overview.value?.archive || {}
@@ -154,6 +180,84 @@ function selectMain(key) {
   if (activeMain.value === key) return
   activeMain.value = key
   activeSub.value = subTabs[key]?.[0]?.key || ''
+}
+
+function tagSelectionKey(downloader, tag) {
+  return `${downloader}\u0000${tag}`
+}
+
+function resetCleanupKeep(groups) {
+  Object.keys(cleanupKeep).forEach(key => delete cleanupKeep[key])
+  for (const group of groups || []) {
+    for (const item of group.tags || []) cleanupKeep[tagSelectionKey(group.name, item.tag)] = true
+  }
+}
+
+function setAllCleanupTags(keep) {
+  for (const group of cleanupGroups.value) {
+    for (const item of group.tags || []) cleanupKeep[tagSelectionKey(group.name, item.tag)] = keep
+  }
+}
+
+function cleanupKindMeta(kind) {
+  return {
+    site: { label: '站点', color: 'primary' },
+    managed: { label: '业务', color: 'success' },
+    temporary: { label: '临时', color: 'warning' },
+    legacy_temporary: { label: '旧临时', color: 'warning' },
+    active_temporary: { label: '使用中', color: 'info' },
+    other: { label: '其他', color: 'default' },
+  }[kind] || { label: '其他', color: 'default' }
+}
+
+async function scanCleanupTags() {
+  cleanupMessage.value = ''
+  if (!cleanupDownloaders.value.length) {
+    cleanupStatus.value = 'warning'
+    cleanupMessage.value = '请先选择下载器'
+    return
+  }
+  cleanupScanning.value = true
+  try {
+    const response = await postPluginJsonApi(props.api, 'tag_cleanup_scan', { downloaders: cleanupDownloaders.value })
+    cleanupScan.value = response || null
+    resetCleanupKeep(response?.downloaders || [])
+    const errorCount = response?.errors?.length || 0
+    cleanupStatus.value = response?.code === 0 ? (errorCount ? 'warning' : 'success') : 'error'
+    cleanupMessage.value = response?.code === 0
+      ? `扫描完成 · 自动清理 ${response?.auto_removed?.length || 0} 个临时标签`
+      : (response?.msg || '扫描失败')
+  } catch (error) {
+    cleanupStatus.value = 'error'
+    cleanupMessage.value = error?.message || '扫描失败'
+  } finally {
+    cleanupScanning.value = false
+  }
+}
+
+function previewCleanupTags() {
+  if (!cleanupRemovals.value.length) {
+    cleanupStatus.value = 'warning'
+    cleanupMessage.value = '没有需要清理的标签'
+    return
+  }
+  cleanupDialog.value = true
+}
+
+async function executeCleanupTags() {
+  cleanupExecuting.value = true
+  try {
+    const response = await postPluginJsonApi(props.api, 'tag_cleanup_execute', { removals: cleanupRemovals.value })
+    cleanupDialog.value = false
+    await scanCleanupTags()
+    cleanupStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
+    cleanupMessage.value = response?.msg || '清理完成'
+  } catch (error) {
+    cleanupStatus.value = 'error'
+    cleanupMessage.value = error?.message || '清理失败'
+  } finally {
+    cleanupExecuting.value = false
+  }
 }
 </script>
 <template>
@@ -477,6 +581,79 @@ function selectMain(key) {
               </VRow>
             </div>
 
+            <!-- ═══ 站点标签 · 标签清理 ═══ -->
+            <div v-show="activeSub === 'tag_cleanup'" class="dm-pane">
+              <div class="dm-section-title">标签清理</div>
+              <div class="dm-cleanup-toolbar">
+                <VSelect v-model="cleanupDownloaders" label="下载器" density="compact" variant="outlined" hide-details
+                  :items="qbDownloaderItems" multiple chips closable-chips class="dm-cleanup-select" />
+                <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="cleanupScanning"
+                  :disabled="!cleanupDownloaders.length" @click="scanCleanupTags">扫描标签</VBtn>
+              </div>
+
+              <VAlert v-if="cleanupMessage" :type="cleanupStatus" variant="tonal" density="compact" closable class="mt-3"
+                @click:close="cleanupMessage = ''">{{ cleanupMessage }}</VAlert>
+
+              <div v-if="cleanupScan" class="dm-cleanup-results mt-4">
+                <div class="dm-cleanup-summary">
+                  <div>
+                    <div class="text-subtitle-2">扫描结果</div>
+                    <div class="text-caption text-medium-emphasis">
+                      {{ cleanupGroups.length }} 个下载器 · 自动清理 {{ cleanupAutoRemovedCount }} 个临时标签
+                    </div>
+                  </div>
+                  <div class="d-flex ga-1 flex-wrap justify-end">
+                    <VBtn size="small" variant="text" prepend-icon="mdi-check-all" @click="setAllCleanupTags(true)">全部保留</VBtn>
+                    <VBtn size="small" variant="text" color="warning" prepend-icon="mdi-checkbox-blank-outline"
+                      @click="setAllCleanupTags(false)">取消全选</VBtn>
+                  </div>
+                </div>
+
+                <VAlert v-for="item in cleanupScan.errors || []" :key="`${item.downloader}-${item.message}`"
+                  type="warning" variant="tonal" density="compact" class="mb-2">
+                  {{ item.downloader }} · {{ item.message }}
+                </VAlert>
+
+                <div v-for="group in cleanupGroups" :key="group.name" class="dm-tag-group">
+                  <div class="dm-tag-group-head">
+                    <div class="d-flex align-center ga-2 min-w-0">
+                      <VIcon icon="mdi-download-network-outline" size="19" color="primary" />
+                      <strong class="text-body-2">{{ group.name }}</strong>
+                    </div>
+                    <span class="text-caption text-medium-emphasis">{{ group.task_count }} 个任务 · {{ group.tags.length }} 个标签</span>
+                  </div>
+
+                  <div v-if="!group.tags.length" class="dm-cleanup-empty">
+                    <VIcon icon="mdi-tag-check-outline" size="28" color="success" />
+                    <span>没有待选择标签</span>
+                  </div>
+                  <div v-else class="dm-tag-list">
+                    <label v-for="item in group.tags" :key="`${group.name}-${item.tag}`" class="dm-tag-row">
+                      <VCheckboxBtn v-model="cleanupKeep[tagSelectionKey(group.name, item.tag)]" color="success" />
+                      <div class="dm-tag-content">
+                        <div class="dm-tag-line">
+                          <span class="dm-tag-name" :title="item.tag">{{ item.tag }}</span>
+                          <VChip size="x-small" variant="tonal" :color="cleanupKindMeta(item.kind).color">
+                            {{ cleanupKindMeta(item.kind).label }}
+                          </VChip>
+                          <span class="text-caption text-medium-emphasis">{{ item.count }} 个任务</span>
+                        </div>
+                        <div class="dm-tag-samples" :title="(item.samples || []).join(' · ')">{{ (item.samples || []).join(' · ') }}</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="dm-cleanup-actions">
+                  <div class="text-caption text-medium-emphasis">
+                    待清理 {{ cleanupRemovals.length }} 个标签 · {{ cleanupRemovalAssociations }} 条任务关联
+                  </div>
+                  <VBtn color="warning" variant="tonal" prepend-icon="mdi-eye-outline"
+                    :disabled="!cleanupRemovals.length" @click="previewCleanupTags">预览清理</VBtn>
+                </div>
+              </div>
+            </div>
+
             <!-- ═══ 做种校验 v3.0.15 · 基础设置 ═══ -->
             <div v-show="activeSub === 'seed_basic'" class="dm-pane">
               <div class="dm-section-title">做种校验设置</div>
@@ -509,6 +686,33 @@ function selectMain(key) {
         <VBtn color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="saveConfig">保存配置</VBtn>
       </VCardActions>
     </VCard>
+
+    <VDialog v-model="cleanupDialog" max-width="620">
+      <VCard>
+        <VCardItem>
+          <template #prepend>
+            <VAvatar color="warning" variant="tonal" size="40" rounded="lg"><VIcon icon="mdi-tag-remove-outline" /></VAvatar>
+          </template>
+          <VCardTitle class="text-subtitle-1">确认标签清理</VCardTitle>
+          <VCardSubtitle>{{ cleanupRemovals.length }} 个标签 · {{ cleanupRemovalAssociations }} 条任务关联</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VList density="compact" class="dm-cleanup-preview-list">
+          <VListItem v-for="item in cleanupRemovals" :key="`${item.downloader}-${item.tag}`">
+            <template #prepend><VIcon icon="mdi-tag-outline" size="18" /></template>
+            <VListItemTitle>{{ item.tag }}</VListItemTitle>
+            <VListItemSubtitle>{{ item.downloader }} · {{ item.hashes.length }} 个任务</VListItemSubtitle>
+          </VListItem>
+        </VList>
+        <VDivider />
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" :disabled="cleanupExecuting" @click="cleanupDialog = false">取消</VBtn>
+          <VBtn color="error" variant="flat" prepend-icon="mdi-tag-remove-outline" :loading="cleanupExecuting"
+            @click="executeCleanupTags">确认清理</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
   </div>
 </template>
 <style scoped>
@@ -558,6 +762,23 @@ function selectMain(key) {
 .dm-flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.78); }
 .dm-flow-step { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), 0.02); white-space: nowrap; }
 .dm-flow-arrow { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), 0.44); }
+.dm-cleanup-toolbar { display: flex; align-items: center; gap: 10px; }
+.dm-cleanup-select { flex: 1 1 auto; min-width: 0; }
+.dm-cleanup-results { display: grid; gap: 10px; }
+.dm-cleanup-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dm-tag-group { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden; }
+.dm-tag-group-head { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), 0.02); }
+.dm-tag-list { max-height: 280px; overflow-y: auto; }
+.dm-tag-row { min-height: 54px; display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * 0.7)); cursor: pointer; }
+.dm-tag-row:last-child { border-bottom: none; }
+.dm-tag-row:hover { background: rgba(var(--v-theme-primary), 0.05); }
+.dm-tag-content { flex: 1 1 auto; min-width: 0; }
+.dm-tag-line { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.dm-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.dm-tag-samples { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(var(--v-theme-on-surface), 0.55); font-size: 11px; }
+.dm-cleanup-empty { min-height: 82px; display: flex; align-items: center; justify-content: center; gap: 8px; color: rgba(var(--v-theme-on-surface), 0.6); font-size: 13px; }
+.dm-cleanup-actions { position: sticky; bottom: -18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0 0; background: rgb(var(--v-theme-surface)); }
+.dm-cleanup-preview-list { max-height: 360px; overflow-y: auto; }
 .dm-actions { padding: 10px 18px; }
 @media (max-width: 760px) {
   .dm-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
@@ -573,6 +794,10 @@ function selectMain(key) {
   .dm-subtabs::-webkit-scrollbar { display: none; }
   .dm-subtab { flex: 0 0 auto; padding: 6px 12px; }
   .dm-stat-grid, .dm-overview-grid { grid-template-columns: 1fr; }
+  .dm-cleanup-toolbar, .dm-cleanup-summary, .dm-cleanup-actions, .dm-tag-group-head { align-items: stretch; flex-direction: column; }
+  .dm-cleanup-toolbar :deep(.v-btn), .dm-cleanup-actions :deep(.v-btn) { width: 100%; }
+  .dm-tag-line { flex-wrap: wrap; }
+  .dm-tag-name { width: 100%; }
   .dm-window--overview { overflow-y: auto; }
 }
 @media (max-height: 760px) {

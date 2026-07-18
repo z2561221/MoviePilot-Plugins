@@ -14,6 +14,11 @@ async function postPluginApi(api, path, payload = {}) {
   const response = await api.post(url, payload);
   return unwrapResponse(response)
 }
+async function postPluginJsonApi(api, path, payload = {}) {
+  if (!api?.post) throw new Error('MoviePilot 插件 API 未就绪')
+  const response = await api.post(`plugin/DownloadManagerLocal/${path}`, payload);
+  return unwrapResponse(response)
+}
 async function getPluginApi(api, path) {
   if (!api?.get) throw new Error('MoviePilot 插件 API 未就绪')
   const response = await api.get(`plugin/DownloadManagerLocal/${path}`);
@@ -28,4 +33,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, getPluginApi as g, postPluginApi as p };
+export { _export_sfc as _, postPluginApi as a, getPluginApi as g, postPluginJsonApi as p };
