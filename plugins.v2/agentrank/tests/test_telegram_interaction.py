@@ -189,7 +189,9 @@ def test_start_sends_first_poster_card_with_compact_callbacks():
 
     message = plugin.messages[-1]
     assert message["channel"] is MessageChannel.Telegram
-    assert message["userid"] == "1001"
+    assert message.get("userid") is None
+    assert message["username"] == "alice"
+    assert message["targets"] == {"telegram_userid": "1001"}
     assert message["image"].endswith("/a.jpg")
     assert "01 / 02" in message["text"]
     assert "＋ 待订阅" in str(message["buttons"])
@@ -243,6 +245,11 @@ def test_carousel_toggle_selected_list_and_remove_update_original_message():
     assert all(
         message["mtype"] is NotificationType.Subscribe for message in plugin.messages
     )
+    assert all(message.get("userid") is None for message in plugin.messages)
+    assert all(
+        message["targets"] == {"telegram_userid": "1001"}
+        for message in plugin.messages
+    )
 
 
 def test_confirm_subscribes_only_selected_items_and_is_idempotent():
@@ -289,6 +296,8 @@ def test_wrong_user_stale_board_and_expired_session_are_rejected():
 
     service.handle_callback(_event("t", userid="9999"))
     assert "这不是发送给你的榜单" in plugin.messages[-1]["text"]
+    assert plugin.messages[-1]["targets"] == {"telegram_userid": "9999"}
+    assert plugin.messages[-1].get("userid") is None
     assert repository.load_telegram_session("token123").selected_ids == []
 
     repository.save_board(_board(run_id="run-2"))
