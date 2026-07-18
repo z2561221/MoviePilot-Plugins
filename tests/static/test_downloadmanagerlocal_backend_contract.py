@@ -48,6 +48,8 @@ EXPECTED_ROUTES = {
     "/delete_rename_archive": {"auth": "bear", "methods": ("POST",), "summary": "删除补刀归档记录"},
     "/recovery_torrent": {"auth": "bear", "methods": ("POST",), "summary": "恢复种子原始名称"},
     "/sites": {"auth": "bear", "methods": ("GET",), "summary": "获取站点列表（用于辅种站点选择）"},
+    "/tag_cleanup_scan": {"auth": "bear", "methods": ("POST",), "summary": "扫描下载器标签并清理临时标签"},
+    "/tag_cleanup_execute": {"auth": "bear", "methods": ("POST",), "summary": "按扫描快照清理标签"},
 }
 
 
@@ -145,6 +147,8 @@ def test_downloadmanagerlocal_api_handlers_keep_compatibility_shim():
     assert "def api_overview(plugin):" in handler_source
     assert "def api_retry_rename(plugin, hash: str = \"\"):" in handler_source
     assert "def api_diagnostics(plugin):" in handler_source
+    assert "def api_tag_cleanup_scan(plugin, payload: dict = None):" in handler_source
+    assert "def api_tag_cleanup_execute(plugin, payload: dict = None):" in handler_source
 
 
 def test_downloadmanagerlocal_init_plugin_delegates_lifecycle_initialization():

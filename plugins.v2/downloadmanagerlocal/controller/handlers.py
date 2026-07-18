@@ -6,6 +6,7 @@ from app.log import logger
 
 from ..adapter.moviepilot import get_downloader_config, list_builtin_sites
 from ..model.state import RENAME_RECORDS_KEY, RENAME_RETRY_STATE_KEY
+from ..service.site_tag import execute_tag_cleanup, scan_and_clean_tags
 
 
 def api_retry_renames(plugin):
@@ -107,6 +108,26 @@ def api_sites(plugin):
     except Exception as e:
         logger.error(f"获取站点列表失败: {e}")
         return {"data": []}
+
+
+def api_tag_cleanup_scan(plugin, payload: dict = None):
+    """扫描所选 qBittorrent 下载器并自动清理明确的临时标签。"""
+    try:
+        request = payload if isinstance(payload, dict) else {}
+        return scan_and_clean_tags(plugin, request.get("downloaders") or [])
+    except Exception as e:
+        logger.error(f"标签清理扫描失败: {e}")
+        return {"code": 1, "msg": f"扫描失败: {e}", "downloaders": [], "auto_removed": []}
+
+
+def api_tag_cleanup_execute(plugin, payload: dict = None):
+    """按用户确认的扫描快照清理其余标签。"""
+    try:
+        request = payload if isinstance(payload, dict) else {}
+        return execute_tag_cleanup(plugin, request.get("removals") or [])
+    except Exception as e:
+        logger.error(f"标签清理执行失败: {e}")
+        return {"code": 1, "msg": f"清理失败: {e}", "removed": [], "failed": []}
 
 
 def api_rename_history(plugin, page: int = 1, page_size: int = 15):

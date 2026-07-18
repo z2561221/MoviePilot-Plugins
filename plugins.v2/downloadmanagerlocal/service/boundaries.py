@@ -35,7 +35,7 @@ SERVICE_BOUNDARIES = {
         "service": "service/site_tag.py",
         "legacy_name": "site_tag",
         "legacy_module": "modules/site_tag.py",
-        "owner": "站点识别与下载器标签写入",
+        "owner": "站点识别、标签写入、临时标签回收与人工清理",
     },
     "transfer": {
         "service": "service/transfer.py",
