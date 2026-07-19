@@ -19,6 +19,7 @@ profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
 preferences_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile_preferences")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 subscription_module = importlib.import_module(f"{PACKAGE_NAME}.model.subscription")
+playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 orchestrator_module = importlib.import_module(f"{PACKAGE_NAME}.service.recommendation")
 
@@ -28,6 +29,8 @@ ProfilePreferences = preferences_module.ProfilePreferences
 RecommendationBoard = board_module.RecommendationBoard
 SubscriptionSample = subscription_module.SubscriptionSample
 ProfileInputResult = subscription_module.ProfileInputResult
+PlaybackSample = playback_module.PlaybackSample
+PlaybackSnapshot = playback_module.PlaybackSnapshot
 AgentRankRepository = repository_module.AgentRankRepository
 RecommendationOrchestrator = orchestrator_module.RecommendationOrchestrator
 
@@ -228,6 +231,94 @@ def test_cached_profile_is_passed_as_incremental_context():
     for metric in ("profile_collect_ms", "candidate_collect_ms", "library_check_ms", "agent_ms", "save_ms"):
         assert history.metrics[metric] >= 0
     assert result.status == "success"
+
+
+def test_playback_evidence_is_collected_and_passed_to_restricted_context():
+    """播放画像只以规范化快照进入受信上下文，并记录数据源指标。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+
+    class PlaybackService:
+        def collect(self, username, config):
+            return PlaybackSnapshot(
+                username=username,
+                source="playback_reporting",
+                confidence="high",
+                status="ready",
+                samples=[
+                    PlaybackSample(
+                        "tmdb:movie:99",
+                        "Watched",
+                        "movie",
+                        tmdb_id="99",
+                        completed=True,
+                        play_count=2,
+                        watch_minutes=220,
+                    )
+                ],
+            )
+
+    agent = FakeAgentAdapter(
+        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+    )
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        profile_service=FakeProfileService(),
+        candidate_service=FakeCandidateService(),
+        agent_adapter=agent,
+        run_id_factory=lambda: "run-playback",
+        playback_service=PlaybackService(),
+    )
+
+    result = asyncio.run(orchestrator.run("alice", _config()))
+
+    context = agent.calls[0][1]
+    assert context.playback["source"] == "playback_reporting"
+    assert context.playback["samples"][0]["completed"] is True
+    metrics = repository.load_run_history("alice")[0].metrics
+    assert metrics["playback_source"] == "playback_reporting"
+    assert metrics["playback_count"] == 1
+    assert result.status == "success"
+
+
+def test_playback_samples_can_satisfy_profile_minimum_without_subscriptions():
+    """订阅不足但真实播放样本充足时，推荐主链继续执行。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+
+    class EmptyProfileService:
+        def collect(self, username, **kwargs):
+            return ProfileInputResult(username, "sample_insufficient", [], minimum_samples=5)
+
+    class PlaybackService:
+        def collect(self, username, config):
+            return PlaybackSnapshot(
+                username=username,
+                source="emby_native",
+                confidence="medium",
+                status="ready",
+                samples=[
+                    PlaybackSample(f"tmdb:movie:{index}", f"Watched {index}", "movie", tmdb_id=str(index))
+                    for index in range(1, 6)
+                ],
+            )
+
+    agent = FakeAgentAdapter([_agent_output([f"tmdb:{index}" for index in range(1, 11)])])
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        profile_service=EmptyProfileService(),
+        candidate_service=FakeCandidateService(),
+        agent_adapter=agent,
+        run_id_factory=lambda: "run-playback-only",
+        playback_service=PlaybackService(),
+    )
+    config = _config()
+    config["minimum_samples"] = 5
+
+    result = asyncio.run(orchestrator.run("alice", config))
+
+    assert result.status == "success"
+    assert repository.load_run_history("alice")[0].metrics["profile_evidence_count"] == 5
 
 
 def test_rebuild_or_disabled_cache_does_not_read_previous_profile():

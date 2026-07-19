@@ -99,3 +99,17 @@ class ReadAgentRankWeightsTool(_ReadAgentRankTool):
     async def run(self, **kwargs: Any) -> str:
         """返回当前用户绑定的权重与筛选。"""
         return self._slice("weights", "weights")
+
+
+class ReadAgentRankPlaybackTool(_ReadAgentRankTool):
+    """读取当前用户受信的播放画像证据。"""
+
+    name: str = "read_agentrank_playback"
+    description: str = (
+        "Read normalized playback evidence for the trusted AgentRank user. "
+        "The source and confidence describe data quality; no device or credential fields are exposed."
+    )
+
+    async def run(self, **kwargs: Any) -> str:
+        """返回当前运行绑定的播放数据源、置信度与行为样本。"""
+        return self._slice("playback", "playback")

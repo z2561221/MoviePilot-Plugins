@@ -26,6 +26,8 @@ DISCOVERY_SOURCE_DEFAULTS: Dict[str, bool] = {
     "bangumi": True,
 }
 
+PLAYBACK_SOURCE_MODES = {"auto", "playback_reporting", "emby_native"}
+
 
 class ConfigValidationError(ValueError):
     """表示配置包含一个或多个可见校验错误。"""
@@ -66,6 +68,13 @@ class AgentRankConfig:
     history_limit: int = 50
     profile_cache_enabled: bool = True
     rebuild_profile_each_run: bool = False
+    playback_enabled: bool = True
+    playback_source_mode: str = "auto"
+    playback_user_map: Dict[str, str] = field(default_factory=dict)
+    playback_recent_days: int = 180
+    playback_completion_threshold: float = 0.85
+    playback_abandon_minutes: int = 20
+    playback_cache_days: int = 7
     agent_prompt: str = DEFAULT_AGENT_PROMPT
 
     @classmethod
@@ -151,6 +160,17 @@ def _bounded_text(
     return value
 
 
+def _string_mapping(value: Any) -> Dict[str, str]:
+    """清洗用户映射，只保留非空的字符串键值。"""
+    if not isinstance(value, Mapping):
+        return {}
+    return {
+        str(key).strip(): str(item).strip()
+        for key, item in value.items()
+        if str(key or "").strip() and str(item or "").strip()
+    }
+
+
 def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, List[str]]:
     """生成安全配置并同时返回全部校验错误。"""
     raw = dict(value) if isinstance(value, Mapping) else {}
@@ -192,6 +212,11 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
     if action_mode not in {"update", "notify", "auto_subscribe"}:
         errors.append("action_mode must be update, notify, or auto_subscribe")
         action_mode = "notify"
+
+    playback_source_mode = str(raw.get("playback_source_mode") or "auto").strip()
+    if playback_source_mode not in PLAYBACK_SOURCE_MODES:
+        errors.append("playback_source_mode must be auto, playback_reporting, or emby_native")
+        playback_source_mode = "auto"
 
     auto_limit = _bounded_integer(
         raw.get("auto_subscribe_limit", 10), 10, 0, 10, "auto_subscribe_limit", errors
@@ -252,6 +277,26 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         ),
         profile_cache_enabled=bool(raw.get("profile_cache_enabled", True)),
         rebuild_profile_each_run=bool(raw.get("rebuild_profile_each_run", False)),
+        playback_enabled=bool(raw.get("playback_enabled", True)),
+        playback_source_mode=playback_source_mode,
+        playback_user_map=_string_mapping(raw.get("playback_user_map", {})),
+        playback_recent_days=_bounded_integer(
+            raw.get("playback_recent_days", 180), 180, 1, 3650, "playback_recent_days", errors
+        ),
+        playback_completion_threshold=_bounded_number(
+            raw.get("playback_completion_threshold", 0.85),
+            0.85,
+            0.5,
+            1.0,
+            "playback_completion_threshold",
+            errors,
+        ),
+        playback_abandon_minutes=_bounded_integer(
+            raw.get("playback_abandon_minutes", 20), 20, 1, 240, "playback_abandon_minutes", errors
+        ),
+        playback_cache_days=_bounded_integer(
+            raw.get("playback_cache_days", 7), 7, 1, 30, "playback_cache_days", errors
+        ),
         agent_prompt=_bounded_text(
             raw.get("agent_prompt", DEFAULT_AGENT_PROMPT),
             DEFAULT_AGENT_PROMPT,

@@ -12,6 +12,7 @@ def stop_plugin(plugin: Any) -> None:
     if runtime is not None and hasattr(runtime, "stop"):
         runtime.stop()
     plugin._runtime = None
+    plugin._playback_service = None
 
 
 def initialize_plugin(

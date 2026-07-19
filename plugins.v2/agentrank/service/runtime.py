@@ -60,11 +60,14 @@ class AgentRankRuntime:
         from ..adapter.discovery import DiscoveryAdapter
         from ..adapter.library import LibraryAdapter
         from ..adapter.media import MediaRecognitionAdapter
+        from ..adapter.emby_playback import EmbyServiceAccess, EmbyPlaybackAdapter
+        from ..adapter.playback_reporting import PlaybackReportingAdapter
         from ..adapter.subscription import SubscriptionAdapter
         from ..storage.repository import AgentRankRepository
         from .candidate import CandidateCollectionService
         from .poster import BoardPosterRepairService, PosterImageService
         from .profile_input import ProfileInputService
+        from .playback_profile import PlaybackProfileService
         from .recommendation import RecommendationOrchestrator
 
         repository = AgentRankRepository(
@@ -72,6 +75,13 @@ class AgentRankRuntime:
         )
         plugin._repository = repository
         plugin._poster_service = PosterImageService()
+        playback_access = EmbyServiceAccess()
+        playback_service = PlaybackProfileService(
+            repository=repository,
+            reporting_adapter=PlaybackReportingAdapter(playback_access),
+            native_adapter=EmbyPlaybackAdapter(playback_access),
+        )
+        plugin._playback_service = playback_service
         media_adapter = MediaRecognitionAdapter()
         BoardPosterRepairService(repository, media_adapter).repair_users(
             config.get("users") or []
@@ -84,6 +94,7 @@ class AgentRankRuntime:
             ),
             agent_adapter=AgentRankAgentAdapter(),
             library_adapter=LibraryAdapter(),
+            playback_service=playback_service,
         )
 
     @staticmethod

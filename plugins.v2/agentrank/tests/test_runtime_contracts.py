@@ -12,6 +12,7 @@ EXPECTED_TOOL_NAMES = {
     "read_agentrank_candidates",
     "read_agentrank_archive_feedback",
     "read_agentrank_weights",
+    "read_agentrank_playback",
 }
 FORBIDDEN_AGENT_CAPABILITIES = {
     "subscribe",
@@ -61,7 +62,7 @@ def test_per_user_domain_and_storage_contract_exists():
 
 
 def test_agent_tool_registry_is_an_exact_read_only_whitelist():
-    """The Agent tool registry contains exactly the four trusted read tools."""
+    """The Agent tool registry contains exactly the five trusted read tools."""
     source = _source("agent_tools/registry.py")
     assert _assigned_string_collection(source, "ALLOWED_AGENT_TOOL_NAMES") == EXPECTED_TOOL_NAMES
     assert "AGENT_TOOL_CLASSES" in source

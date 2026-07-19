@@ -38,6 +38,18 @@ def test_basic_settings_exposes_run_once_switch_with_safe_constraints():
     assert "立即运行触发后会自动关闭" in config
 
 
+def test_playback_settings_expose_priority_mode_mapping_and_manual_sync():
+    """配置页暴露播放画像开关、数据源模式、用户映射和手动同步。"""
+    config = _read("Config.vue")
+    assert "playback_enabled: true" in config
+    assert "playback_source_mode: 'auto'" in config
+    assert "Playback Reporting" in config
+    assert "Emby 原生状态" in config
+    assert "form.playback_user_map[user]" in config
+    assert "postPluginApi(props.api, 'playback/sync'" in config
+    assert "自动使用 Emby 原生完播" in config
+
+
 def test_extension_discovery_source_is_absent_from_config_ui():
     """配置页只允许选择四个 MoviePilot 内置发现来源。"""
     config = _read("Config.vue")

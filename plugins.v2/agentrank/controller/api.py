@@ -1,5 +1,6 @@
 """Agent榜单中心 bearer API 控制器与稳定响应契约。"""
 
+import asyncio
 from typing import Any, Dict, List, Mapping
 
 from ..model.config import default_config
@@ -119,6 +120,8 @@ class AgentRankApiController:
     def status(self) -> Dict[str, Any]:
         """返回插件全局运行状态。"""
         runtime = getattr(self.plugin, "_runtime", None)
+        playback_service = getattr(self.plugin, "_playback_service", None)
+        default_user = str(self.plugin._config.get("default_user") or "")
         return self._success(
             {
                 "enabled": bool(self.plugin.get_state()),
@@ -127,6 +130,9 @@ class AgentRankApiController:
                 "validation_errors": list(
                     self.plugin._config.get("_validation_errors") or []
                 ),
+                "playback": playback_service.status(default_user).to_dict()
+                if playback_service and default_user
+                else None,
             }
         )
 
@@ -151,6 +157,11 @@ class AgentRankApiController:
                 "default_user": str(self.plugin._config.get("default_user") or ""),
                 "config": dict(self.plugin._config),
                 "defaults": default_config(),
+                "playback_status": {
+                    username: self.plugin._playback_service.status(username).to_dict()
+                    for username in configured_users
+                    if getattr(self.plugin, "_playback_service", None) is not None
+                },
             }
         )
 
@@ -162,6 +173,7 @@ class AgentRankApiController:
         board = repository.load_board(target)
         archive = repository.load_archive(target)
         history = repository.load_run_history(target)
+        playback_service = getattr(self.plugin, "_playback_service", None)
         return self._success(
             {
                 "username": target,
@@ -171,6 +183,9 @@ class AgentRankApiController:
                 "latest_run": history[0].to_dict() if history else None,
                 "history": [item.to_dict() for item in history[:15]],
                 "history_total": len(history),
+                "playback": playback_service.status(target).to_dict()
+                if playback_service is not None
+                else None,
             }
         )
 
@@ -295,6 +310,19 @@ class AgentRankApiController:
             }
         )
 
+    async def playback_sync(self, payload: Any) -> Dict[str, Any]:
+        """立即同步指定用户播放画像并返回数据源状态。"""
+        body = self._payload(payload)
+        target = self._username(body.get("username"))
+        service = getattr(self.plugin, "_playback_service", None)
+        if service is None:
+            raise ApiContractError(503, "playback_unavailable", "播放画像服务尚未就绪")
+        try:
+            snapshot = await asyncio.to_thread(service.collect, target, self.plugin._config)
+        except Exception as error:
+            raise ApiContractError(502, "playback_sync_failed", "播放画像同步失败") from error
+        return self._success(snapshot.to_dict())
+
     def subscribe(self, payload: Any) -> Dict[str, Any]:
         """通过运行时安全链创建单项手动订阅。"""
         body = self._payload(payload)
@@ -357,6 +385,10 @@ class AgentRankApiController:
         """FastAPI 手动刷新入口。"""
         return await self._endpoint_async(self.refresh, payload)
 
+    async def endpoint_playback_sync(self, payload: dict) -> Dict[str, Any]:
+        """FastAPI 播放画像立即同步入口。"""
+        return await self._endpoint_async(self.playback_sync, payload)
+
     def endpoint_archive(self, payload: dict) -> Dict[str, Any]:
         """FastAPI 忽略入口。"""
         return self._endpoint(self.archive, payload)
@@ -393,6 +425,7 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
         ("/board", controller.endpoint_board, ["GET"], "获取推荐榜单"),
         ("/profile", controller.endpoint_profile, ["GET"], "获取用户画像"),
         ("/refresh", controller.endpoint_refresh, ["POST"], "刷新推荐榜单"),
+        ("/playback/sync", controller.endpoint_playback_sync, ["POST"], "同步播放画像"),
         ("/archive", controller.endpoint_archive, ["POST"], "忽略推荐"),
         ("/restore", controller.endpoint_restore, ["POST"], "恢复推荐"),
         ("/archive/delete", controller.endpoint_delete_archive, ["POST"], "删除归档"),

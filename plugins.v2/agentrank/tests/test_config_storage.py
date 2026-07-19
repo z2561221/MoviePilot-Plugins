@@ -98,6 +98,43 @@ def test_run_once_switch_defaults_off_and_accepts_explicit_request():
     assert AgentRankConfig.from_mapping({"onlyonce": True}).onlyonce is True
 
 
+def test_playback_source_defaults_and_user_mapping_are_bounded():
+    """播放画像默认自动探测，用户映射和阈值进入规范化配置。"""
+    config = AgentRankConfig.from_mapping(
+        {
+            "users": ["alice"],
+            "playback_user_map": {"alice": "Emby Alice", "": "ignored", "bob": ""},
+            "playback_source_mode": "emby_native",
+            "playback_completion_threshold": 0.9,
+        }
+    )
+    assert config.playback_source_mode == "emby_native"
+    assert config.playback_user_map == {"alice": "Emby Alice"}
+    assert config.playback_completion_threshold == 0.9
+    assert AgentRankConfig.from_mapping({}).playback_source_mode == "auto"
+
+
+def test_playback_snapshot_is_scoped_and_does_not_store_sensitive_fields():
+    """播放快照按用户隔离，持久化字段不包含设备、地址或凭据。"""
+    from agentrank_contract_test.model.playback import PlaybackSample, PlaybackSnapshot
+
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    repository.save_playback_snapshot(
+        PlaybackSnapshot(
+            username="alice",
+            source="playback_reporting",
+            confidence="high",
+            status="ready",
+            samples=[PlaybackSample("tmdb:movie:1", "One", "movie", tmdb_id="1", completed=True)],
+        )
+    )
+    stored = plugin.data["playback_snapshot:alice"]
+    assert repository.load_playback_snapshot("alice").samples[0].completed is True
+    assert repository.load_playback_snapshot("bob") is None
+    assert "api_key" not in stored and "device" not in stored and "client" not in stored
+
+
 def test_default_user_validation_is_visible_and_never_silently_reassigned():
     """An invalid default user remains visible as an error, not another user."""
     with pytest.raises(ConfigValidationError, match="default_user"):

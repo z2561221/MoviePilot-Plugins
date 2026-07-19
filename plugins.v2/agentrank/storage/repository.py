@@ -9,6 +9,7 @@ from ..model.board import RecommendationBoard
 from ..model.candidate import Candidate
 from ..model.profile import UserProfile
 from ..model.profile_preferences import ProfilePreferences
+from ..model.playback import PlaybackSnapshot
 from ..model.run import RecommendationRun
 from ..model.telegram_selection import TelegramSelectionSession
 
@@ -21,6 +22,7 @@ class AgentRankRepository:
 
     recovery_log_key = "agentrank_recovery_log"
     telegram_sessions_key = "telegram_selection_sessions"
+    playback_snapshot_prefix = "playback_snapshot"
 
     def __init__(self, plugin: Any, history_limit: int = 50):
         """绑定插件数据接口并设置历史上限。"""
@@ -117,6 +119,19 @@ class AgentRankRepository:
             self._key("profile_preferences", username), ProfilePreferences
         )
         return preferences or ProfilePreferences(username=username)
+
+    def save_playback_snapshot(self, snapshot: PlaybackSnapshot) -> None:
+        """保存按用户隔离的播放画像快照。"""
+        self._plugin.save_data(
+            key=self._key(self.playback_snapshot_prefix, snapshot.username),
+            value=snapshot.to_dict(),
+        )
+
+    def load_playback_snapshot(self, username: str) -> Optional[PlaybackSnapshot]:
+        """读取播放画像快照；损坏或不存在时返回空。"""
+        return self._load_model(
+            self._key(self.playback_snapshot_prefix, username), PlaybackSnapshot
+        )
 
     def save_board(self, board: RecommendationBoard) -> None:
         """保存当前用户榜单。"""

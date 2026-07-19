@@ -1,4 +1,4 @@
-"""AgentRank trusted context and four read-only Agent tool tests."""
+"""AgentRank trusted context and five read-only Agent tool tests."""
 
 import asyncio
 import importlib
@@ -54,13 +54,14 @@ def _tools_with_context(context):
     return tools
 
 
-def test_registry_contains_exact_four_read_only_tools_with_empty_call_schemas():
+def test_registry_contains_exact_five_read_only_tools_with_empty_call_schemas():
     """The model can choose only a tool name, never username or run_id."""
     assert set(ALLOWED_AGENT_TOOL_NAMES) == {
         "read_agentrank_subscriptions",
         "read_agentrank_candidates",
         "read_agentrank_archive_feedback",
         "read_agentrank_weights",
+        "read_agentrank_playback",
     }
     assert {tool.name for tool in AGENT_TOOL_CLASSES} == set(ALLOWED_AGENT_TOOL_NAMES)
     for tool_class in AGENT_TOOL_CLASSES:
@@ -80,6 +81,11 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
         "suppressed_tags": ["悬疑"],
         "suppressed_negative_tags": [],
     }
+    playback = {
+        "source": "playback_reporting",
+        "confidence": "high",
+        "samples": [{"stable_id": "tmdb:tv:2", "title": "Watched", "completed": True}],
+    }
     context = build_trusted_context(
         username="alice",
         run_id="run-1",
@@ -89,6 +95,7 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
         weights=weights,
         previous_profile=previous_profile,
         profile_preferences=profile_preferences,
+        playback=playback,
     )
     subscriptions[0]["title"] = "mutated"
     candidates.append({"candidate_id": "tmdb:999"})
@@ -109,6 +116,7 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
     assert len(outputs["read_agentrank_candidates"]["candidates"]) == 1
     assert outputs["read_agentrank_archive_feedback"]["archive_feedback"] == archive
     assert outputs["read_agentrank_weights"]["weights"] == weights
+    assert outputs["read_agentrank_playback"]["playback"] == playback
 
 
 def test_tools_reject_missing_or_wrong_trusted_context():

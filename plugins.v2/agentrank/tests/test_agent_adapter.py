@@ -224,7 +224,7 @@ def test_adapter_uses_capture_callback_when_host_process_returns_none():
 
 
 def test_restricted_agent_injects_context_and_instantiates_exact_tool_classes():
-    """The dedicated subclass bypasses the general factory and creates only four tools."""
+    """The dedicated subclass bypasses the general factory and creates only five tools."""
     trusted = _trusted_context()
     agent = RestrictedAgentRankAgent(
         session_id="__agentrank_run-1_alice__",
@@ -248,7 +248,7 @@ def test_restricted_agent_injects_context_and_instantiates_exact_tool_classes():
 
 
 def test_restricted_agent_builds_graph_without_host_extension_middlewares():
-    """The graph itself must expose only four tools and no host middleware tools."""
+    """The graph itself must expose only five tools and no host middleware tools."""
     created_agent_calls.clear()
     agent = RestrictedAgentRankAgent(
         session_id="__agentrank_run-1_alice__",
@@ -268,7 +268,7 @@ def test_restricted_agent_builds_graph_without_host_extension_middlewares():
         tool.name for tool in AGENT_TOOL_CLASSES
     )
     assert graph["middleware"] == []
-    assert "四个只读工具" in graph["system_prompt"]
+    assert "五个只读工具" in graph["system_prompt"]
     assert isinstance(graph["checkpointer"], InMemorySaver)
 
 

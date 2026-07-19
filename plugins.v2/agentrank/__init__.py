@@ -30,6 +30,7 @@ class AgentRank(_PluginBase):
     _config: Dict[str, Any] = {}
     _runtime: Any = None
     _repository: Any = None
+    _playback_service: Any = None
 
     def init_plugin(self, config: dict = None) -> None:
         """初始化插件配置与运行状态。"""

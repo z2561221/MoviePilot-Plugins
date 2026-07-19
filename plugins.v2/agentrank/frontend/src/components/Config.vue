@@ -51,6 +51,13 @@ const defaults = {
   history_limit: 50,
   profile_cache_enabled: true,
   rebuild_profile_each_run: false,
+  playback_enabled: true,
+  playback_source_mode: 'auto',
+  playback_user_map: {},
+  playback_recent_days: 180,
+  playback_completion_threshold: 0.85,
+  playback_abandon_minutes: 20,
+  playback_cache_days: 7,
   agent_prompt: '请综合用户订阅画像、榜单权重与候选特征排序，优先推荐真正贴合用户口味、同时兼顾质量、新鲜感与题材多样性的作品。推荐理由和作品简介要轻松诙谐、机灵自然，避免套话、低俗表达与剧透。',
 }
 
@@ -58,7 +65,7 @@ const form = reactive(structuredClone(defaults))
 const activeMain = ref('overview')
 const activeAdvanced = ref('runtime')
 const loading = ref(false)
-const status = ref({ state: 'stopped', validation_errors: [] })
+const status = ref({ state: 'stopped', validation_errors: [], playback: null })
 const availableUsers = ref([])
 const loadError = ref('')
 const runtimeDefaults = ref(structuredClone(defaults))
@@ -70,6 +77,7 @@ const actionFeedback = reactive({ show: false, message: '', color: 'success' })
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
   { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '配置参与用户、立即运行和运行周期。' },
+  { key: 'playback', title: '播放画像', icon: 'mdi-play-circle-outline', desc: '优先读取 Playback Reporting，自动降级到 Emby 原生状态。' },
   { key: 'sources', title: '发现来源', icon: 'mdi-compass-outline', desc: '选择 MoviePilot 内置发现来源。' },
   { key: 'weights', title: '权重设置', icon: 'mdi-tune-vertical', desc: '设置 Agent 排序时十项偏好权重。' },
   { key: 'filter', title: '条件筛选', icon: 'mdi-filter-outline', desc: '限制媒体类型、候选数量和置信度。' },
@@ -107,6 +115,11 @@ const actionOptions = [
   { title: '通知内选择', value: 'notify' },
   { title: '自动订阅前 N', value: 'auto_subscribe' },
 ]
+const playbackSourceOptions = [
+  { title: '自动选择', value: 'auto' },
+  { title: 'Playback Reporting', value: 'playback_reporting' },
+  { title: 'Emby 原生状态', value: 'emby_native' },
+]
 const advancedTabs = [
   { key: 'runtime', title: '运行设置', icon: 'mdi-cog-outline' },
   { key: 'prompt', title: '提示设置', icon: 'mdi-text-box-edit-outline' },
@@ -133,6 +146,7 @@ function applyConfig(value) {
   form.users = Array.isArray(next.users) ? [...new Set(next.users.filter(Boolean))] : []
   form.media_types = Array.isArray(next.media_types) ? [...next.media_types] : [...defaults.media_types]
   form.exclude_keywords = Array.isArray(next.exclude_keywords) ? [...next.exclude_keywords] : []
+  form.playback_user_map = { ...(next.playback_user_map || {}) }
 }
 
 watch(() => props.initialConfig, applyConfig, { immediate: true, deep: true })
@@ -166,6 +180,39 @@ function saveConfig() {
   const payload = cloneConfig(form)
   delete payload._validation_errors
   emit('save', payload)
+}
+
+async function syncPlayback() {
+  if (!props.api?.post || !clearProfileUser.value) return
+  loading.value = true
+  try {
+    const snapshot = await postPluginApi(props.api, 'playback/sync', { username: clearProfileUser.value })
+    status.value = { ...status.value, playback: snapshot }
+    actionFeedback.show = true
+    actionFeedback.color = snapshot?.status === 'ready' || snapshot?.status === 'cached' ? 'success' : 'warning'
+    actionFeedback.message = snapshot?.message || '播放画像同步完成'
+  } catch (error) {
+    actionFeedback.show = true
+    actionFeedback.color = 'error'
+    actionFeedback.message = error?.message || '播放画像同步失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function playbackStatusText(snapshot) {
+  const labels = {
+    idle: '尚未同步',
+    ready: '已就绪',
+    cached: '使用最近快照',
+    fallback: '订阅画像兜底',
+    not_installed: '未安装 Playback Reporting',
+    permission_error: '权限不足，已尝试降级',
+    transient_error: '服务暂时不可用',
+    user_unmapped: '用户未映射',
+    disabled: '已关闭',
+  }
+  return labels[snapshot?.status] || snapshot?.status || '尚未同步'
 }
 
 function restoreAgentPrompt() {
@@ -311,6 +358,46 @@ onMounted(loadRuntime)
                 <VCol cols="12" md="4"><VCronField v-model="form.cron" label="运行周期" density="compact" variant="outlined" hide-details :disabled="!form.schedule_enabled" /></VCol>
               </VRow>
               <VAlert type="info" variant="tonal" class="mt-4">立即运行和周期任务均按参与用户顺序执行，单用户失败不会阻断后续用户；立即运行触发后会自动关闭。</VAlert>
+            </div>
+
+            <div v-show="activeMain === 'playback'" class="ar-config__pane">
+              <div class="d-flex align-center mb-3">
+                <div class="ar-config__section-title mb-0">播放画像</div>
+                <VSpacer />
+                <VBtn size="small" variant="tonal" color="primary" prepend-icon="mdi-sync" :loading="loading" :disabled="!form.enabled || !clearProfileUser" @click="syncPlayback">同步数据</VBtn>
+              </div>
+              <VAlert
+                :type="['ready', 'cached'].includes(status.playback?.status) ? 'success' : 'info'"
+                variant="tonal"
+                class="mb-4"
+              >
+                <div class="d-flex align-center flex-wrap ga-2">
+                  <strong>{{ playbackStatusText(status.playback) }}</strong>
+                  <VChip v-if="status.playback?.source" size="x-small" variant="outlined">{{ status.playback.source }}</VChip>
+                  <VChip v-if="status.playback?.confidence" size="x-small" variant="outlined">{{ status.playback.confidence }}</VChip>
+                </div>
+                <div class="mt-1">{{ status.playback?.message || '保存配置后，立即运行或手动同步会自动探测最佳数据源。' }}</div>
+                <div v-if="status.playback?.synced_at" class="text-caption mt-1">最近同步：{{ status.playback.synced_at }} · 已映射 {{ status.playback.mapped_count || 0 }} · 未映射 {{ status.playback.unmapped_count || 0 }}</div>
+              </VAlert>
+              <VRow>
+                <VCol cols="12" md="4"><VSwitch v-model="form.playback_enabled" color="success" label="启用播放画像" hide-details inset /></VCol>
+                <VCol cols="12" md="8"><VSelect v-model="form.playback_source_mode" :items="playbackSourceOptions" label="数据源模式" density="compact" variant="outlined" hide-details :disabled="!form.playback_enabled" /></VCol>
+                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_recent_days" type="number" min="1" max="3650" label="回溯天数" density="compact" variant="outlined" hide-details :disabled="!form.playback_enabled" /></VCol>
+                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_abandon_minutes" type="number" min="1" max="240" label="弃看分钟" density="compact" variant="outlined" hide-details :disabled="!form.playback_enabled" /></VCol>
+                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_cache_days" type="number" min="1" max="30" label="快照天数" density="compact" variant="outlined" hide-details :disabled="!form.playback_enabled" /></VCol>
+                <VCol cols="12">
+                  <div class="text-caption mb-1">完播阈值 {{ Math.round(form.playback_completion_threshold * 100) }}%</div>
+                  <VSlider v-model="form.playback_completion_threshold" :min="0.5" :max="1" :step="0.05" color="primary" hide-details thumb-label :disabled="!form.playback_enabled" />
+                </VCol>
+              </VRow>
+              <div class="ar-config__section-title mt-5">用户映射</div>
+              <VAlert v-if="!form.users.length" type="warning" variant="tonal">请先在基础设置选择参与用户。</VAlert>
+              <VRow v-else>
+                <VCol v-for="user in form.users" :key="user" cols="12" md="6">
+                  <VTextField v-model="form.playback_user_map[user]" :label="`${user} 对应的 Emby 用户`" :placeholder="user" density="compact" variant="outlined" hide-details clearable />
+                </VCol>
+              </VRow>
+              <VAlert type="info" variant="tonal" class="mt-4">留空时按 MoviePilot 用户同名匹配。未安装 Playback Reporting 时会自动使用 Emby 原生完播、次数、进度和最近播放；仍不可用时只使用 MP 订阅画像与媒体库库存。</VAlert>
             </div>
 
             <div v-show="activeMain === 'sources'" class="ar-config__pane">

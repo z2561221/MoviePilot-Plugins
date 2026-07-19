@@ -47,6 +47,7 @@ class RecommendationOrchestrator:
         parser: AgentOutputParser = None,
         validator: RecommendationValidator = None,
         library_adapter: Any = None,
+        playback_service: Any = None,
     ):
         """注入可测试的领域依赖并初始化用户锁集合。"""
         self._repository = repository
@@ -57,6 +58,7 @@ class RecommendationOrchestrator:
         self._parser = parser or AgentOutputParser()
         self._validator = validator or RecommendationValidator()
         self._library_adapter = library_adapter
+        self._playback_service = playback_service
         self._running_users: Set[str] = set()
         self._running_guard = threading.Lock()
 
@@ -204,12 +206,36 @@ class RecommendationOrchestrator:
                 profile_input.rejected_count,
                 profile_input.status,
             )
-            if profile_input.status != "ready":
+            playback_snapshot = None
+            if self._playback_service is not None:
+                stage_clock = time.monotonic()
+                try:
+                    playback_snapshot = await asyncio.to_thread(
+                        self._playback_service.collect, target, config
+                    )
+                    metrics["playback_source"] = playback_snapshot.source
+                    metrics["playback_status"] = playback_snapshot.status
+                    metrics["playback_confidence"] = playback_snapshot.confidence
+                    metrics["playback_count"] = playback_snapshot.sample_count
+                    metrics["playback_unmapped_count"] = playback_snapshot.unmapped_count
+                except Exception as error:
+                    errors.append(f"playback: {error}")
+                    metrics["playback_source"] = "subscription"
+                    metrics["playback_status"] = "error"
+                metrics["playback_collect_ms"] = max(
+                    0, int((time.monotonic() - stage_clock) * 1000)
+                )
+            playback_count = playback_snapshot.sample_count if playback_snapshot is not None else 0
+            evidence_count = profile_input.sample_count + playback_count
+            metrics["profile_evidence_count"] = evidence_count
+            if profile_input.status != "ready" and evidence_count < int(
+                config.get("minimum_samples") or 5
+            ):
                 return self._failure(
                     target,
                     run_id,
                     "sample_insufficient",
-                    "订阅样本不足，未调用 Agent",
+                    "订阅与真实播放样本均不足，未调用 Agent",
                     started_at,
                     started_clock,
                     metrics,
@@ -296,6 +322,14 @@ class RecommendationOrchestrator:
                 archive_feedback=archive.to_dict(),
                 weights=self._trusted_weights(config),
                 profile_preferences=profile_preferences.to_dict(),
+                playback=(
+                    playback_snapshot.to_dict() if playback_snapshot is not None else {
+                        "source": "subscription",
+                        "confidence": "low",
+                        "status": "unavailable",
+                        "samples": [],
+                    }
+                ),
             )
 
             validation = None

@@ -19,6 +19,7 @@ board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
 run_module = importlib.import_module(f"{PACKAGE_NAME}.model.run")
 archive_module = importlib.import_module(f"{PACKAGE_NAME}.model.archive")
+playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 controller_module = importlib.import_module(f"{PACKAGE_NAME}.controller.api")
 
@@ -28,6 +29,7 @@ UserProfile = profile_module.UserProfile
 RecommendationRun = run_module.RecommendationRun
 ArchiveFeedback = archive_module.ArchiveFeedback
 ArchiveEntry = archive_module.ArchiveEntry
+PlaybackSnapshot = playback_module.PlaybackSnapshot
 AgentRankRepository = repository_module.AgentRankRepository
 AgentRankApiController = controller_module.AgentRankApiController
 ApiContractError = controller_module.ApiContractError
@@ -103,6 +105,7 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/board",
         "/profile",
         "/refresh",
+        "/playback/sync",
         "/archive",
         "/restore",
         "/archive/delete",
@@ -173,6 +176,25 @@ def test_refresh_maps_running_and_downstream_failure_to_stable_contracts():
         asyncio.run(controller.refresh({"username": "alice"}))
     assert caught.value.status_code == 502
     assert caught.value.code == "refresh_failed"
+
+
+def test_playback_sync_uses_current_user_scope_and_returns_status():
+    """手动同步只读取参与用户，并返回统一播放快照契约。"""
+    plugin = FakePlugin()
+    calls = []
+
+    class PlaybackService:
+        def collect(self, username, config):
+            calls.append((username, config["default_user"]))
+            return PlaybackSnapshot(username, "emby_native", "medium", "ready")
+
+        def status(self, username):
+            return PlaybackSnapshot(username, "subscription", "low", "idle")
+
+    plugin._playback_service = PlaybackService()
+    result = asyncio.run(AgentRankApiController(plugin).playback_sync({"username": "alice"}))
+    assert result["data"]["source"] == "emby_native"
+    assert calls == [("alice", "alice")]
 
 
 def test_archive_restore_delete_and_clear_are_idempotent():
