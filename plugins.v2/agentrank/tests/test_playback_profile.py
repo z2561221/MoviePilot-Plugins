@@ -14,11 +14,13 @@ package.__path__ = [str(PLUGIN_DIR)]
 model = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 service_module = importlib.import_module(f"{PACKAGE_NAME}.service.playback_profile")
 reporting_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.playback_reporting")
+emby_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.emby_playback")
 
 PlaybackSample = model.PlaybackSample
 PlaybackSnapshot = model.PlaybackSnapshot
 PlaybackProfileService = service_module.PlaybackProfileService
 PlaybackReportingAdapter = reporting_module.PlaybackReportingAdapter
+within_recent_days = emby_module._within_recent_days
 
 
 class FakeRepository:
@@ -133,3 +135,10 @@ def test_playback_adapters_use_mp_synced_item_identity_before_agent_context():
     assert "synced_item" in emby_source
     assert "synced_item" in reporting_source
     assert "MediaServerItem.get_by_server_itemid" in emby_source
+
+
+def test_emby_native_respects_recent_playback_window():
+    """Emby 原生分支只保留回溯窗口内的最近播放时间。"""
+    assert within_recent_days("2099-01-01T00:00:00Z", 180) is True
+    assert within_recent_days("2000-01-01T00:00:00Z", 180) is False
+    assert within_recent_days("", 180) is True

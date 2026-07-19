@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from ..model.playback import PlaybackSample, PlaybackSnapshot
@@ -101,6 +102,20 @@ def _ticks_to_minutes(value: Any) -> int:
         return 0
 
 
+def _within_recent_days(value: Any, recent_days: int) -> bool:
+    """判断 Emby 最近播放时间是否落在回溯窗口内。"""
+    text = str(value or "").strip()
+    if not text:
+        return True
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        parsed = parsed.replace(tzinfo=parsed.tzinfo or timezone.utc)
+    except (TypeError, ValueError):
+        return True
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(recent_days)))
+    return parsed.astimezone(timezone.utc) >= cutoff
+
+
 def merge_playback_samples(samples: Iterable[PlaybackSample]) -> List[PlaybackSample]:
     """按 TMDB 身份合并多服务器和多集播放证据。"""
     merged: Dict[str, PlaybackSample] = {}
@@ -184,6 +199,9 @@ class EmbyPlaybackAdapter:
                 played = bool(user_data.get("Played"))
                 play_count = max(0, int(user_data.get("PlayCount") or 0))
                 percentage = float(user_data.get("PlayedPercentage") or 0)
+                last_played_at = str(user_data.get("LastPlayedDate") or "")
+                if not _within_recent_days(last_played_at, recent_days):
+                    continue
                 if not played and play_count <= 0 and percentage <= 0:
                     continue
                 synced = self._access.synced_item(server_name, str(item.get("Id") or ""))
@@ -207,7 +225,7 @@ class EmbyPlaybackAdapter:
                         completed=completed,
                         play_count=play_count,
                         watch_minutes=watch_minutes,
-                        last_played_at=str(user_data.get("LastPlayedDate") or ""),
+                        last_played_at=last_played_at,
                         abandoned=not completed and watch_minutes >= max(1, int(abandon_minutes)),
                     )
                 )
