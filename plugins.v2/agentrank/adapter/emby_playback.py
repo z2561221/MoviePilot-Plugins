@@ -46,6 +46,26 @@ class EmbyServiceAccess:
         except Exception:
             return ""
 
+    @staticmethod
+    def synced_item(server: str, item_id: str) -> Dict[str, Any]:
+        """读取 MP 媒体库同步表中的条目身份，不触碰播放状态。"""
+        if not server or not item_id:
+            return {}
+        try:
+            from app.db.models.mediaserver import MediaServerItem
+
+            item = MediaServerItem.get_by_server_itemid(server, str(item_id))
+            if not item:
+                return {}
+            return {
+                "tmdbid": getattr(item, "tmdbid", None),
+                "title": getattr(item, "title", ""),
+                "item_type": getattr(item, "item_type", ""),
+                "year": getattr(item, "year", None),
+            }
+        except Exception:
+            return {}
+
     def request(self, timeout: int = 8) -> Any:
         """创建带短超时的宿主 HTTP 客户端。"""
         if self._request_factory is not None:
@@ -130,7 +150,7 @@ class EmbyPlaybackAdapter:
         permission_error = False
         transient_error = False
         mapped_user = False
-        for service in services.values():
+        for server_name, service in services.items():
             host, api_key, instance = self._access.credentials(service)
             user_id = self._access.resolve_user(instance, target)
             if not host or not api_key or not user_id:
@@ -166,7 +186,12 @@ class EmbyPlaybackAdapter:
                 percentage = float(user_data.get("PlayedPercentage") or 0)
                 if not played and play_count <= 0 and percentage <= 0:
                     continue
-                tmdb_id = str((item.get("ProviderIds") or {}).get("Tmdb") or "")
+                synced = self._access.synced_item(server_name, str(item.get("Id") or ""))
+                tmdb_id = str(
+                    (item.get("ProviderIds") or {}).get("Tmdb")
+                    or synced.get("tmdbid")
+                    or ""
+                )
                 if not tmdb_id:
                     unmapped += 1
                     continue
@@ -176,7 +201,7 @@ class EmbyPlaybackAdapter:
                 samples.append(
                     PlaybackSample(
                         stable_id=f"tmdb:{_media_type(item.get('Type'))}:{tmdb_id}",
-                        title=str(item.get("Name") or "未知媒体"),
+                        title=str(item.get("Name") or synced.get("title") or "未知媒体"),
                         media_type=_media_type(item.get("Type")),
                         tmdb_id=tmdb_id,
                         completed=completed,

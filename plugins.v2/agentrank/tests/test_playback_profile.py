@@ -112,3 +112,12 @@ def test_reporting_query_is_read_only_and_excludes_device_fields():
     assert "LIMIT 500" in query
     assert "DELETE" not in query.upper()
     assert "ClientName" not in query and "DeviceName" not in query
+
+
+def test_playback_adapters_use_mp_synced_item_identity_before_agent_context():
+    """适配器源码明确通过 MP 媒体库同步身份完成 ItemId 到 TMDB 的映射。"""
+    emby_source = Path(PLUGIN_DIR / "adapter/emby_playback.py").read_text(encoding="utf-8")
+    reporting_source = Path(PLUGIN_DIR / "adapter/playback_reporting.py").read_text(encoding="utf-8")
+    assert "synced_item" in emby_source
+    assert "synced_item" in reporting_source
+    assert "MediaServerItem.get_by_server_itemid" in emby_source

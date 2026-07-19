@@ -42,7 +42,12 @@ class PlaybackReportingAdapter:
         return rows
 
     def _fetch_details(
-        self, host: str, api_key: str, user_id: str, item_ids: Iterable[str]
+        self,
+        server_name: str,
+        host: str,
+        api_key: str,
+        user_id: str,
+        item_ids: Iterable[str],
     ) -> Dict[str, Dict[str, Any]]:
         """批量读取播放条目及其剧集父级的 TMDB 身份与时长。"""
         ids = [str(item) for item in item_ids if str(item or "").strip()][:500]
@@ -64,6 +69,14 @@ class PlaybackReportingAdapter:
             for item in (response.json() or {}).get("Items") or []
             if item.get("Id")
         }
+        for item_id in ids:
+            synced = self._access.synced_item(server_name, item_id)
+            if synced and item_id in details:
+                details[item_id].setdefault("ProviderIds", {})
+                if synced.get("tmdbid") and not details[item_id]["ProviderIds"].get("Tmdb"):
+                    details[item_id]["ProviderIds"]["Tmdb"] = str(synced["tmdbid"])
+                if synced.get("title") and not details[item_id].get("Name"):
+                    details[item_id]["Name"] = synced["title"]
         series_ids = {
             str(item.get("SeriesId"))
             for item in details.values()
@@ -88,6 +101,12 @@ class PlaybackReportingAdapter:
                         if item.get("Id")
                     }
                 )
+                for series_id in missing_series:
+                    synced = self._access.synced_item(server_name, series_id)
+                    if synced and series_id in details:
+                        details[series_id].setdefault("ProviderIds", {})
+                        if synced.get("tmdbid") and not details[series_id]["ProviderIds"].get("Tmdb"):
+                            details[series_id]["ProviderIds"]["Tmdb"] = str(synced["tmdbid"])
         return details
 
     def collect(
@@ -108,7 +127,7 @@ class PlaybackReportingAdapter:
         permission_error = False
         transient_error = False
         mapped_user = False
-        for service in services.values():
+        for server_name, service in services.items():
             host, api_key, instance = self._access.credentials(service)
             user_id = self._access.resolve_user(instance, target)
             if not host or not api_key or not user_id:
@@ -146,7 +165,7 @@ class PlaybackReportingAdapter:
                 for row in self._rows(payload)
                 if str(row.get("UserName") or row.get("UserId") or "").strip() == target
             ]
-            details = self._fetch_details(host, api_key, user_id, [row.get("ItemId") for row in rows])
+            details = self._fetch_details(server_name, host, api_key, user_id, [row.get("ItemId") for row in rows])
             for row in rows:
                 item_id = str(row.get("ItemId") or "")
                 detail = details.get(item_id) or {}
