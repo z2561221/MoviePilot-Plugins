@@ -177,3 +177,37 @@ def test_ranking_posters_do_not_force_eager_loading():
     for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
         assert "<VImg" in _read(name)
         assert " eager>" not in _read(name)
+
+
+def test_mobile_ranking_copy_wraps_and_can_expand():
+    """发现页理由和简介使用多行截断并提供展开，不再强制单行省略。"""
+    app_page = _read("AppPage.vue")
+    assert "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" not in next(
+        line for line in app_page.splitlines() if line.startswith(".ar-app-page__copy")
+    )
+    assert "ar-app-page__copy-text--reason" in app_page
+    assert "-webkit-line-clamp: 3" in app_page
+    assert "ar-app-page__copy-text--intro" in app_page
+    assert "-webkit-line-clamp: 4" in app_page
+    assert "toggleCopy(item, 'reason')" in app_page
+    assert "toggleCopy(item, 'summary')" in app_page
+
+
+def test_mobile_detail_tabs_scroll_without_arrow_controls():
+    """详情页移动端页签使用原生横向滚动，不为左右箭头牺牲文字空间。"""
+    page = _read("Page.vue")
+    assert '<nav class="ar-page__tabs"' in page
+    assert "show-arrows" not in page
+    assert "overflow-x: auto" in page
+    assert "scroll-snap-type: x proximity" in page
+    assert "ar-page__tab-icon { display: none; }" in page
+
+
+def test_compact_actions_keep_primary_commands_and_tooltip_links():
+    """移动端保留订阅和忽略文字命令，外链收为带提示的图标按钮。"""
+    actions = _read("RecommendationActions.vue")
+    assert 'prepend-icon="mdi-bookmark-plus-outline"' in actions
+    assert 'prepend-icon="mdi-eye-off-outline"' in actions
+    assert '<VTooltip text="打开 TMDB"' in actions
+    assert 'icon="mdi-movie-open-outline"' in actions
+    assert 'icon="mdi-open-in-new"' in actions

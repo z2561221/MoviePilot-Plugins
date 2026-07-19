@@ -1,0 +1,13 @@
+
+.ar-actions[data-v-3193b651] { width: max-content; max-width: 100%; display: flex; flex-wrap: nowrap; align-items: center; gap: 5px;
+}
+.ar-actions__button--command[data-v-3193b651] { min-width: 72px; padding-inline: 8px;
+}
+.ar-actions__icon[data-v-3193b651] { flex: 0 0 auto;
+}
+@media (max-width: 760px) {
+.ar-actions[data-v-3193b651] { width: 100%; justify-content: flex-end;
+}
+.ar-actions__button--command[data-v-3193b651] { min-width: 68px;
+}
+}

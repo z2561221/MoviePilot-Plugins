@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-BpIYbzqo.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-Dwl-jeVl.js';
 import Config from './__federation_expose_Config-CKPc1HGF.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
@@ -37,8 +37,8 @@ const _hoisted_13 = { class: "ar-app-page__item-main" };
 const _hoisted_14 = { class: "ar-app-page__title-row" };
 const _hoisted_15 = { class: "ar-app-page__title" };
 const _hoisted_16 = { class: "ar-app-page__meta" };
-const _hoisted_17 = { class: "ar-app-page__summary" };
-const _hoisted_18 = { class: "ar-app-page__summary ar-app-page__summary--intro" };
+const _hoisted_17 = { class: "ar-app-page__copy" };
+const _hoisted_18 = { class: "ar-app-page__copy ar-app-page__copy--intro" };
 const _hoisted_19 = { class: "ar-app-page__tags" };
 const _hoisted_20 = { class: "ar-app-page__item-actions" };
 
@@ -72,6 +72,7 @@ const savingSettings = ref(false);
 const snackbar = ref({ show: false, message: '', color: 'success', undo: false });
 const lastArchivedId = ref('');
 const initialized = ref(false);
+const expandedCopyKeys = ref(new Set());
 
 const recommendations = computed(() => board.value?.recommendations?.slice(0, 10) || []);
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '');
@@ -122,6 +123,26 @@ function sourceLabel(item) {
 
 function posterSource(item) {
   return item?.poster_path || ''
+}
+
+function copyKey(item, field) {
+  return `${item?.candidate_id || item?.rank || ''}:${field}`
+}
+
+function isCopyExpanded(item, field) {
+  return expandedCopyKeys.value.has(copyKey(item, field))
+}
+
+function toggleCopy(item, field) {
+  const key = copyKey(item, field);
+  const next = new Set(expandedCopyKeys.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedCopyKeys.value = next;
+}
+
+function needsCopyToggle(value, threshold) {
+  return String(value || '').trim().length > threshold
 }
 
 async function initialize() {
@@ -414,8 +435,46 @@ return (_ctx, _cache) => {
                                     }, 1024)
                                   ]),
                                   _createElementVNode("div", _hoisted_16, _toDisplayString(item.year || '年份未知') + " · " + _toDisplayString(sourceLabel(item)), 1),
-                                  _createElementVNode("div", _hoisted_17, "推荐：" + _toDisplayString(item.reason || item.summary), 1),
-                                  _createElementVNode("div", _hoisted_18, "简介：" + _toDisplayString(item.summary), 1),
+                                  _createElementVNode("div", _hoisted_17, [
+                                    _cache[7] || (_cache[7] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "推荐", -1)),
+                                    _createElementVNode("span", {
+                                      class: _normalizeClass(["ar-app-page__copy-text ar-app-page__copy-text--reason", { 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'reason') }])
+                                    }, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 3),
+                                    (needsCopyToggle(item.reason || item.summary, 40))
+                                      ? (_openBlock(), _createBlock(_component_VBtn, {
+                                          key: 0,
+                                          size: "x-small",
+                                          variant: "text",
+                                          class: "ar-app-page__copy-toggle",
+                                          onClick: $event => (toggleCopy(item, 'reason'))
+                                        }, {
+                                          default: _withCtx(() => [
+                                            _createTextVNode(_toDisplayString(isCopyExpanded(item, 'reason') ? '收起' : '展开'), 1)
+                                          ]),
+                                          _: 2
+                                        }, 1032, ["onClick"]))
+                                      : _createCommentVNode("", true)
+                                  ]),
+                                  _createElementVNode("div", _hoisted_18, [
+                                    _cache[8] || (_cache[8] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "简介", -1)),
+                                    _createElementVNode("span", {
+                                      class: _normalizeClass(["ar-app-page__copy-text ar-app-page__copy-text--intro", { 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'summary') }])
+                                    }, _toDisplayString(item.summary || '暂无简介'), 3),
+                                    (needsCopyToggle(item.summary, 56))
+                                      ? (_openBlock(), _createBlock(_component_VBtn, {
+                                          key: 0,
+                                          size: "x-small",
+                                          variant: "text",
+                                          class: "ar-app-page__copy-toggle",
+                                          onClick: $event => (toggleCopy(item, 'summary'))
+                                        }, {
+                                          default: _withCtx(() => [
+                                            _createTextVNode(_toDisplayString(isCopyExpanded(item, 'summary') ? '收起' : '展开'), 1)
+                                          ]),
+                                          _: 2
+                                        }, 1032, ["onClick"]))
+                                      : _createCommentVNode("", true)
+                                  ]),
                                   _createElementVNode("div", _hoisted_19, [
                                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(item.match_tags || [], (tag) => {
                                       return (_openBlock(), _createBlock(_component_VChip, {
@@ -494,7 +553,7 @@ return (_ctx, _cache) => {
                 variant: "text",
                 onClick: undoArchive
               }, {
-                default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
+                default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
                   _createTextVNode("撤销", -1)
                 ]))]),
                 _: 1
@@ -509,6 +568,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-42c87556"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-56c1ac17"]]);
 
 export { AppPage as default };

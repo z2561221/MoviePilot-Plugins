@@ -27,6 +27,7 @@ const savingSettings = ref(false)
 const snackbar = ref({ show: false, message: '', color: 'success', undo: false })
 const lastArchivedId = ref('')
 const initialized = ref(false)
+const expandedCopyKeys = ref(new Set())
 
 const recommendations = computed(() => board.value?.recommendations?.slice(0, 10) || [])
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '')
@@ -77,6 +78,26 @@ function sourceLabel(item) {
 
 function posterSource(item) {
   return item?.poster_path || ''
+}
+
+function copyKey(item, field) {
+  return `${item?.candidate_id || item?.rank || ''}:${field}`
+}
+
+function isCopyExpanded(item, field) {
+  return expandedCopyKeys.value.has(copyKey(item, field))
+}
+
+function toggleCopy(item, field) {
+  const key = copyKey(item, field)
+  const next = new Set(expandedCopyKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedCopyKeys.value = next
+}
+
+function needsCopyToggle(value, threshold) {
+  return String(value || '').trim().length > threshold
 }
 
 async function initialize() {
@@ -213,8 +234,16 @@ onMounted(initialize)
                     <VChip size="x-small" variant="tonal">{{ mediaTypeLabel(item.media_type) }}</VChip>
                   </div>
                   <div class="ar-app-page__meta">{{ item.year || '年份未知' }} · {{ sourceLabel(item) }}</div>
-                  <div class="ar-app-page__summary">推荐：{{ item.reason || item.summary }}</div>
-                  <div class="ar-app-page__summary ar-app-page__summary--intro">简介：{{ item.summary }}</div>
+                  <div class="ar-app-page__copy">
+                    <span class="ar-app-page__copy-label">推荐</span>
+                    <span class="ar-app-page__copy-text ar-app-page__copy-text--reason" :class="{ 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'reason') }">{{ item.reason || item.summary || '等待 Agent 补充推荐理由' }}</span>
+                    <VBtn v-if="needsCopyToggle(item.reason || item.summary, 40)" size="x-small" variant="text" class="ar-app-page__copy-toggle" @click="toggleCopy(item, 'reason')">{{ isCopyExpanded(item, 'reason') ? '收起' : '展开' }}</VBtn>
+                  </div>
+                  <div class="ar-app-page__copy ar-app-page__copy--intro">
+                    <span class="ar-app-page__copy-label">简介</span>
+                    <span class="ar-app-page__copy-text ar-app-page__copy-text--intro" :class="{ 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'summary') }">{{ item.summary || '暂无简介' }}</span>
+                    <VBtn v-if="needsCopyToggle(item.summary, 56)" size="x-small" variant="text" class="ar-app-page__copy-toggle" @click="toggleCopy(item, 'summary')">{{ isCopyExpanded(item, 'summary') ? '收起' : '展开' }}</VBtn>
+                  </div>
                   <div class="ar-app-page__tags">
                     <VChip v-for="tag in item.match_tags || []" :key="tag" size="x-small" variant="outlined">{{ tag }}</VChip>
                     <VChip size="x-small" color="primary" variant="tonal">置信度 {{ item.confidence }}%</VChip>
@@ -265,7 +294,14 @@ onMounted(initialize)
 .ar-app-page__title-row { display: flex; align-items: flex-start; gap: 8px; }
 .ar-app-page__title { min-width: 0; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 16px; font-weight: 700; line-height: 1.35; }
 .ar-app-page__meta { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ar-app-page__summary { margin-top: 10px; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-app-page__copy { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: start; gap: 7px; margin-top: 10px; font-size: 14px; line-height: 1.55; }
+.ar-app-page__copy--intro { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .64); }
+.ar-app-page__copy-label { color: rgb(var(--v-theme-primary)); font-size: 12px; font-weight: 700; line-height: 1.8; }
+.ar-app-page__copy-text { min-width: 0; display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; }
+.ar-app-page__copy-text--reason { -webkit-line-clamp: 3; font-weight: 600; }
+.ar-app-page__copy-text--intro { -webkit-line-clamp: 4; }
+.ar-app-page__copy-text--expanded { display: block; overflow: visible; -webkit-line-clamp: initial; }
+.ar-app-page__copy-toggle { align-self: end; min-width: 36px !important; min-height: 28px !important; margin: -3px -5px -3px 0; padding-inline: 5px !important; }
 .ar-app-page__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .ar-app-page__item-actions { display: flex; align-items: center; overflow-x: auto; padding-bottom: 2px; }
 .ar-app-page__state { min-height: 480px; display: flex; align-items: center; justify-content: center; padding: 24px; }
@@ -283,9 +319,11 @@ onMounted(initialize)
   .ar-app-page__item { grid-template-columns: 30px 64px minmax(0, 1fr); gap: 9px; padding: 9px; align-items: start; }
   .ar-app-page__rank { width: 28px; height: 28px; font-size: 12px; }
   .ar-app-page__poster { width: 64px; height: 96px; }
-  .ar-app-page__item-actions { grid-column: 2 / -1; flex-direction: row; justify-content: flex-end; }
+  .ar-app-page__item-actions { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; padding-top: 2px; border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
   .ar-app-page__title { font-size: 14px; }
-  .ar-app-page__summary { margin-top: 6px; font-size: 13px; }
+  .ar-app-page__copy { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 5px; margin-top: 7px; font-size: 13px; line-height: 1.5; }
+  .ar-app-page__copy--intro { margin-top: 4px; }
+  .ar-app-page__copy-label { font-size: 11px; }
   .ar-app-page__meta { white-space: normal; }
   .ar-app-page__section-head { align-items: flex-start; }
 }

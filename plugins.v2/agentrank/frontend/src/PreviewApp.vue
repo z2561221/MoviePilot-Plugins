@@ -81,8 +81,12 @@ const recommendations = Array.from({ length: 10 }, (_, index) => ({
     ...(index % 3 === 2 ? { bangumi: String(2000 + index) } : { douban: String(3000 + index) }),
   },
   poster_path: '',
-  reason: '脑洞与口碑齐飞起啦',
-  summary: '精准贴合画像偏好',
+  reason: index === 0
+    ? '你最近看完了多部悬疑科幻短剧，这部同样采用封闭空间调查、多线追凶和高密度反转，但人物成长更扎实，适合作为下一部。'
+    : '结合近期订阅和高频偏好标签，题材、叙事节奏与口碑均接近你持续关注的作品。',
+  summary: index === 0
+    ? '一群研究员在封闭实验设施中调查异常信号，却发现每一次修正都会创造新的记忆分歧。他们必须在真相、同伴和原本的世界之间作出选择。'
+    : '围绕一场意外展开的群像故事，在紧凑悬念中兼顾人物成长与情感关系。',
   match_tags: index % 3 ? ['科幻', '悬疑', '成长'] : [],
   confidence: 96 - index * 3,
 }))
@@ -113,7 +117,21 @@ const history = Array.from({ length: 12 }, (_, index) => ({
 function dataFor(path) {
   if (path.endsWith('config/options')) return { users: ['alice', 'bob'], available_users: ['alice', 'bob'], default_user: 'alice', config }
   if (path.endsWith('status')) return { state: 'ready', validation_errors: [] }
-  if (path.endsWith('overview')) return { archive, latest_run: history[0] }
+  if (path.endsWith('overview')) {
+    const visible = status.value === 'idle'
+      ? []
+      : status.value === 'recommendation_incomplete'
+        ? recommendations.slice(0, 7)
+        : recommendations
+    return {
+      archive,
+      latest_run: history[0],
+      history: history.slice(0, 10),
+      history_total: history.length,
+      profile,
+      board: { status: status.value, generated_at: '2026-07-12T10:20:30+08:00', recommendations: visible },
+    }
+  }
   if (path.endsWith('board')) {
     const visible = status.value === 'idle'
       ? []

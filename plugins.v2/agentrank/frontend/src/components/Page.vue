@@ -179,11 +179,20 @@ onMounted(initialize)
       </VChip>
     </div>
 
-    <VTabs v-model="activeTab" color="primary" density="compact" class="ar-page__tabs" show-arrows>
-      <VTab v-for="tab in tabs" :key="tab.key" :value="tab.key" class="text-none">
-        <VIcon :icon="tab.icon" size="18" class="mr-1" />{{ tab.title }}
-      </VTab>
-    </VTabs>
+    <nav class="ar-page__tabs" aria-label="详情视图">
+      <button
+        v-for="tab in tabs"
+        :key="tab.key"
+        type="button"
+        class="ar-page__tab"
+        :class="{ 'ar-page__tab--active': activeTab === tab.key }"
+        :aria-current="activeTab === tab.key ? 'page' : undefined"
+        @click="activeTab = tab.key"
+      >
+        <VIcon :icon="tab.icon" size="17" class="ar-page__tab-icon" />
+        <span>{{ tab.title }}</span>
+      </button>
+    </nav>
     <VDivider />
 
     <div class="ar-page__content">
@@ -231,6 +240,9 @@ onMounted(initialize)
                 <div class="ar-page__rank-copy ar-page__rank-copy--muted">
                   <span class="ar-page__copy-label">简介</span>
                   <span>{{ item.summary || '暂无简介' }}</span>
+                </div>
+                <div v-if="item.match_tags?.length" class="ar-page__match-tags">
+                  <VChip v-for="tag in item.match_tags" :key="tag" size="x-small" variant="outlined">{{ tag }}</VChip>
                 </div>
               </div>
               <div class="ar-page__rank-actions">
@@ -399,7 +411,13 @@ onMounted(initialize)
 .ar-page__stat-value span { margin-left: 2px; color: rgba(var(--v-theme-on-surface), .48); font-size: 11px; font-weight: 500; }
 .ar-page__stat-label { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .55); font-size: 11px; }
 .ar-page__runtime-chip { margin-inline: 8px; }
-.ar-page__tabs { flex: 0 0 auto; min-height: 44px; background: transparent; }
+.ar-page__tabs { flex: 0 0 auto; min-height: 44px; display: flex; align-items: stretch; gap: 2px; overflow-x: auto; overflow-y: hidden; padding: 0 10px; background: transparent; scrollbar-width: none; overscroll-behavior-inline: contain; }
+.ar-page__tabs::-webkit-scrollbar { display: none; }
+.ar-page__tab { position: relative; flex: 0 0 auto; min-width: 112px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 14px; border: 0; color: rgba(var(--v-theme-on-surface), .68); background: transparent; font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0; white-space: nowrap; cursor: pointer; }
+.ar-page__tab::after { position: absolute; right: 12px; bottom: 0; left: 12px; height: 2px; border-radius: 2px 2px 0 0; background: rgb(var(--v-theme-primary)); content: ''; opacity: 0; transform: scaleX(.6); transition: opacity .15s, transform .15s; }
+.ar-page__tab:hover { color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .05); }
+.ar-page__tab--active { color: rgb(var(--v-theme-primary)); }
+.ar-page__tab--active::after { opacity: 1; transform: scaleX(1); }
 .ar-page__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 18px 18px; background: transparent; }
 .ar-page__pane { min-height: 100%; }
 .ar-page__section-head { min-height: 46px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
@@ -415,11 +433,13 @@ onMounted(initialize)
 .ar-page__rank--top { color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .14); }
 .ar-page__rank-main { min-width: 0; }
 .ar-page__title-row { display: flex; align-items: flex-start; gap: 8px; }
-.ar-page__media-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 700; }
+.ar-page__media-title { min-width: 0; display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 15px; font-weight: 700; line-height: 1.4; }
 .ar-page__meta-row { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 3px; color: rgba(var(--v-theme-on-surface), .52); font-size: 11px; }
 .ar-page__rank-copy { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 7px; margin-top: 7px; font-size: 12px; line-height: 1.45; }
 .ar-page__rank-copy--muted { margin-top: 3px; color: rgba(var(--v-theme-on-surface), .62); }
 .ar-page__copy-label { color: rgb(var(--v-theme-primary)); font-size: 11px; font-weight: 600; }
+.ar-page__rank-copy > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.ar-page__match-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .ar-page__rank-actions { display: flex; align-items: center; overflow-x: auto; padding-bottom: 2px; }
 .ar-page__section-card, .ar-page__archive-card, .ar-page__table-card { border-radius: 10px; background: transparent; }
 .ar-page__profile-head { padding: 14px 16px; }
@@ -471,12 +491,16 @@ onMounted(initialize)
   .ar-page__stat { gap: 6px; padding-inline: 6px; }
   .ar-page__stat :deep(.v-icon) { display: none; }
   .ar-page__runtime-chip { justify-self: stretch; justify-content: center; margin: 2px 4px 0; }
+  .ar-page__tabs { min-height: 40px; padding-inline: 4px; scroll-snap-type: x proximity; }
+  .ar-page__tab { min-width: 96px; min-height: 40px; padding-inline: 10px; scroll-snap-align: start; }
+  .ar-page__tab::after { right: 8px; left: 8px; }
+  .ar-page__tab-icon { display: none; }
   .ar-page__content { padding: 12px 10px; }
   .ar-page__section-head { min-height: 42px; }
   .ar-page__rank-item { grid-template-columns: 30px 54px minmax(0, 1fr); gap: 8px; padding: 9px; }
   .ar-page__poster { width: 54px; height: 81px; }
   .ar-page__rank { width: 28px; height: 28px; }
-  .ar-page__rank-actions { grid-column: 2 / -1; justify-content: flex-end; }
+  .ar-page__rank-actions { grid-column: 1 / -1; justify-content: flex-end; padding-top: 2px; border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
   .ar-page__profile-head :deep(.v-card-item__append) { align-self: flex-start; }
   .ar-page__profile-body { padding: 12px; }
   .ar-page__profile-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }

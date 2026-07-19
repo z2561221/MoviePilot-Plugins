@@ -306,7 +306,7 @@ function useAgentRankState(api) {
   }
 }
 
-const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,mergeProps:_mergeProps,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = ["aria-label"];
@@ -358,6 +358,7 @@ function openSource() {
 
 return (_ctx, _cache) => {
   const _component_VBtn = _resolveComponent("VBtn");
+  const _component_VTooltip = _resolveComponent("VTooltip");
 
   return (_openBlock(), _createElementBlock("div", {
     class: "ar-actions",
@@ -368,7 +369,8 @@ return (_ctx, _cache) => {
       size: __props.size,
       variant: "tonal",
       color: "primary",
-      class: "ar-actions__button text-none",
+      class: "ar-actions__button ar-actions__button--command text-none",
+      "prepend-icon": "mdi-bookmark-plus-outline",
       loading: __props.loadingAction === 'subscribe',
       onClick: _cache[0] || (_cache[0] = $event => (emit('subscribe', __props.item.candidate_id)))
     }, {
@@ -377,41 +379,52 @@ return (_ctx, _cache) => {
       ]))]),
       _: 1
     }, 8, ["size", "loading"]),
-    _createVNode(_component_VBtn, {
-      size: __props.size,
-      variant: "tonal",
-      color: "info",
-      class: "ar-actions__button text-none",
-      disabled: !tmdbId.value,
-      onClick: openTmdb
+    _createVNode(_component_VTooltip, {
+      text: "打开 TMDB",
+      location: "top"
     }, {
-      default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
-        _createTextVNode("TMDB", -1)
-      ]))]),
-      _: 1
-    }, 8, ["size", "disabled"]),
-    _createVNode(_component_VBtn, {
-      size: __props.size,
-      variant: "tonal",
-      color: sourceColor.value,
-      class: "ar-actions__button text-none",
-      disabled: !sourceId.value,
-      onClick: openSource
-    }, {
-      default: _withCtx(() => [
-        _createTextVNode(_toDisplayString(sourceLabel.value), 1)
+      activator: _withCtx(({ props: tooltipProps }) => [
+        _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
+          size: __props.size,
+          icon: "mdi-movie-open-outline",
+          variant: "tonal",
+          color: "info",
+          class: "ar-actions__icon",
+          disabled: !tmdbId.value,
+          "aria-label": "打开 TMDB",
+          onClick: openTmdb
+        }), null, 16, ["size", "disabled"])
       ]),
       _: 1
-    }, 8, ["size", "color", "disabled"]),
+    }),
+    _createVNode(_component_VTooltip, {
+      text: `打开${sourceLabel.value}`,
+      location: "top"
+    }, {
+      activator: _withCtx(({ props: tooltipProps }) => [
+        _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
+          size: __props.size,
+          icon: "mdi-open-in-new",
+          variant: "tonal",
+          color: sourceColor.value,
+          class: "ar-actions__icon",
+          disabled: !sourceId.value,
+          "aria-label": `打开${sourceLabel.value}`,
+          onClick: openSource
+        }), null, 16, ["size", "color", "disabled", "aria-label"])
+      ]),
+      _: 1
+    }, 8, ["text"]),
     _createVNode(_component_VBtn, {
       size: __props.size,
       variant: "tonal",
       color: "default",
-      class: "ar-actions__button text-none",
+      class: "ar-actions__button ar-actions__button--command text-none",
+      "prepend-icon": "mdi-eye-off-outline",
       loading: __props.loadingAction === 'archive',
       onClick: _cache[1] || (_cache[1] = $event => (emit('archive', __props.item.candidate_id)))
     }, {
-      default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+      default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
         _createTextVNode("忽略", -1)
       ]))]),
       _: 1
@@ -421,6 +434,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-097d7fb5"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3193b651"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };
