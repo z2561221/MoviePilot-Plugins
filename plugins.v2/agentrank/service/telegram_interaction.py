@@ -16,12 +16,6 @@ from ..model.telegram_selection import TelegramSelectionSession
 
 logger = logging.getLogger(__name__)
 
-NO_IMAGE_URL = (
-    "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/"
-    "v2/src/assets/images/no-image.jpeg"
-)
-
-
 def _compact_text(value: Any, limit: int) -> str:
     """压缩连续空白并限制 Telegram 卡片字段长度。"""
     text = " ".join(str(value or "").split())
@@ -35,7 +29,7 @@ class TelegramSelectionService:
 
     callback_prefix = "ar"
     session_ttl_hours = 24
-    caption_limit = 900
+    caption_limit = 3500
 
     def __init__(
         self,
@@ -83,15 +77,29 @@ class TelegramSelectionService:
         number = number * 100 if number <= 1 else number
         return max(0, min(int(round(number)), 100))
 
-    def _poster_url(self, item: RecommendationItem) -> str:
-        """返回 Telegram 可抓取的轻量海报或稳定占位图。"""
+    @staticmethod
+    def _linked_title(item: RecommendationItem) -> str:
+        """返回带 TMDB 详情链接的安全标题，缺少有效 ID 时使用纯文本。"""
+        title = html.escape(_compact_text(item.title, 14) or "未命名条目")
+        tmdb_id = str((item.source_ids or {}).get("tmdb") or "").strip()
+        if not tmdb_id.isdigit():
+            return title
+        media_path = "movie" if item.media_type == "movie" else "tv"
+        url = f"https://www.themoviedb.org/{media_path}/{tmdb_id}"
+        return f'<a href="{html.escape(url, quote=True)}">{title}</a>'
+
+    def _image_url(self, item: RecommendationItem) -> Optional[str]:
+        """返回榜首横版封面，缺失时回退到可抓取的海报地址。"""
+        backdrop = str(getattr(item, "backdrop_path", "") or "").strip()
+        if backdrop.lower().startswith(("http://", "https://")):
+            return backdrop
         service = getattr(self._plugin, "_poster_service", None)
-        source = str(item.poster_path or "").strip()
+        poster = str(item.poster_path or "").strip()
         if service is not None and hasattr(service, "thumbnail_url"):
-            source = str(service.thumbnail_url(source) or "").strip()
-        if not source.lower().startswith(("http://", "https://")):
-            return NO_IMAGE_URL
-        return source
+            poster = str(service.thumbnail_url(poster) or "").strip()
+        if poster.lower().startswith(("http://", "https://")):
+            return poster
+        return None
 
     def _callback(self, token: str, action: str, argument: str = "") -> str:
         """生成符合 MoviePilot 插件格式且不超过 64 字节的回调。"""
@@ -109,8 +117,8 @@ class TelegramSelectionService:
         session: TelegramSelectionSession,
         board: RecommendationBoard,
         notice: str = "",
-    ) -> Tuple[str, List[List[Dict[str, str]]], str]:
-        """生成固定榜首封面的 Top10 单页正文与编号按钮。"""
+    ) -> Tuple[str, List[List[Dict[str, str]]], Optional[str]]:
+        """生成横版封面与紧凑单行 Top10 正文及编号按钮。"""
         item_map = self._item_map(board)
         items = [
             item_map[candidate_id]
@@ -118,7 +126,6 @@ class TelegramSelectionService:
             if candidate_id in item_map
         ]
         total = len(items)
-        media_labels = {"movie": "电影", "tv": "剧集", "anime": "动漫"}
         lines = [
             f"已选 <b>{len(session.selected_ids)}</b> / {total}",
             "",
@@ -128,26 +135,18 @@ class TelegramSelectionService:
         for index, item in enumerate(items):
             candidate_id = str(item.candidate_id)
             selected = candidate_id in session.selected_ids
-            marker = "✓" if selected else "·"
-            title = html.escape(_compact_text(item.title, 18) or "未命名条目")
-            meta = "·".join(
+            title = self._linked_title(item)
+            meta = " · ".join(
                 value
                 for value in (
-                    media_labels.get(item.media_type, "媒体"),
                     str(item.year or "").strip(),
                     f"{self._confidence(item.confidence)}%",
                 )
                 if value
             )
-            tags = "/".join(
-                html.escape(_compact_text(tag, 6))
-                for tag in list(item.match_tags or [])[:2]
-                if _compact_text(tag, 6)
+            lines.append(
+                f"<code>{index + 1:02d}</code> {title} · {html.escape(meta)}"
             )
-            suffix = f"｜{html.escape(meta)}"
-            if tags:
-                suffix += f"｜{tags}"
-            lines.append(f"{marker} <code>{index + 1:02d}</code> {title}{suffix}")
             choice_buttons.append(
                 {
                     "text": f"✓{index + 1:02d}" if selected else f"{index + 1:02d}",
@@ -180,7 +179,7 @@ class TelegramSelectionService:
         text = "\n".join(lines)
         if len(text) > self.caption_limit:
             raise ValueError("telegram single-page caption exceeds safe character limit")
-        return text, buttons, self._poster_url(items[0])
+        return text, buttons, self._image_url(items[0]) if items else None
 
     def _post(
         self,
@@ -217,19 +216,17 @@ class TelegramSelectionService:
         title: str,
         text: str,
     ) -> None:
-        """编辑为无按钮终态并保留榜首海报。"""
+        """编辑为无按钮终态并保留榜首横版封面。"""
         board = self._repository.load_board(session.username)
-        item = None
-        if board is not None:
-            items = self._ranked_items(board)
-            item = items[0] if items else None
+        items = self._ranked_items(board) if board is not None else []
+        image = self._image_url(items[0]) if items else None
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
             mtype=NotificationType.Subscribe,
             title=title,
             text=text,
-            image=self._poster_url(item) if item is not None else NO_IMAGE_URL,
+            image=image,
             username=session.username,
             targets={"telegram_userid": session.telegram_userid},
             buttons=None,

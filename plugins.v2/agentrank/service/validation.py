@@ -305,6 +305,7 @@ class RecommendationValidator:
                     source_ids=dict(candidate.source_ids),
                     sources=list(candidate.sources),
                     poster_path=candidate.poster_path,
+                    backdrop_path=candidate.backdrop_path,
                     match_tags=match_tags,
                 )
             )

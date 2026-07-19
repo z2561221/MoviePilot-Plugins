@@ -106,7 +106,7 @@ class FakeSubscriptionService:
 
 
 def _board(run_id="run-1"):
-    """构造两条带榜首海报与匹配标签的推荐榜单。"""
+    """构造两条带 TMDB 标识与匹配标签的推荐榜单。"""
     return RecommendationBoard(
         username="alice",
         run_id=run_id,
@@ -122,6 +122,7 @@ def _board(run_id="run-1"):
                 reason="第一部推荐理由",
                 summary="第一部简介",
                 poster_path="https://image.tmdb.org/t/p/w200/a.jpg",
+                backdrop_path="https://image.tmdb.org/t/p/w1280/backdrop-a.jpg",
                 source_ids={"tmdb": "1", "douban": "11"},
                 match_tags=["悬疑", "成长"],
             ),
@@ -135,6 +136,7 @@ def _board(run_id="run-1"):
                 reason="第二部推荐理由",
                 summary="第二部简介",
                 poster_path="https://image.tmdb.org/t/p/w200/b.jpg",
+                backdrop_path="https://image.tmdb.org/t/p/w1280/backdrop-b.jpg",
                 source_ids={"tmdb": "2", "bangumi": "22"},
                 match_tags=["科幻", "群像"],
             ),
@@ -156,6 +158,8 @@ def _ten_item_board():
             reason="较长推荐理由不会进入紧凑单页通知正文",
             summary="较长剧情简介也不会挤占移动端通知空间",
             poster_path=f"https://image.tmdb.org/t/p/w200/{index}.jpg",
+            backdrop_path=f"https://image.tmdb.org/t/p/w1280/backdrop-{index}.jpg",
+            source_ids={"tmdb": str(index)},
             match_tags=["日本动画偏好", "古装历史题材"],
         )
         for index in range(1, 11)
@@ -204,8 +208,8 @@ def _callbacks(message):
     ]
 
 
-def test_start_sends_single_page_top_list_with_first_poster():
-    """初始通知用榜首海报展示全部条目与紧凑编号按钮。"""
+def test_start_sends_linked_single_line_top_list_with_horizontal_cover():
+    """初始通知用榜首横版封面和紧凑单行榜单展示 TMDB 标题链接。"""
     plugin, repository, _, service, _ = _service()
 
     assert service.start("alice", _board()) is True
@@ -215,11 +219,22 @@ def test_start_sends_single_page_top_list_with_first_poster():
     assert message.get("userid") is None
     assert message["username"] == "alice"
     assert message["targets"] == {"telegram_userid": "1001"}
-    assert message["image"].endswith("/a.jpg")
+    assert message["image"].endswith("/backdrop-a.jpg")
+    assert (
+        '<code>01</code> <a href="https://www.themoviedb.org/movie/1">'
+        '第一部电影</a> · 2025 · 92%'
+    ) in message["text"]
+    assert (
+        '<code>02</code> <a href="https://www.themoviedb.org/tv/2">'
+        '第二部剧集</a> · 2026 · 88%'
+    ) in message["text"]
+    assert "<code>01</code> 第一部电影｜" not in message["text"]
     assert "第一部电影" in message["text"]
     assert "第二部剧集" in message["text"]
-    assert "悬疑/成长" in message["text"]
-    assert "科幻/群像" in message["text"]
+    assert "悬疑/成长" not in message["text"]
+    assert " · 影 · " not in message["text"]
+    assert " · 剧 · " not in message["text"]
+    assert "科幻/群像" not in message["text"]
     assert "确认 0" in str(message["buttons"])
     assert ":t:0" in str(message["buttons"])
     assert ":t:1" in str(message["buttons"])
@@ -252,19 +267,34 @@ def test_ten_items_fit_one_caption_and_two_choice_rows():
     assert len(message["buttons"]) == 3
     assert [len(row) for row in message["buttons"]] == [5, 5, 3]
     assert all(f"{index:02d}" in message["text"] for index in range(1, 11))
-    assert message["image"].endswith("/1.jpg")
+    assert message["image"].endswith("/backdrop-1.jpg")
+    assert message["text"].count("<code>") == 10
+    assert "\n　　" not in message["text"]
+    assert "日本动画" not in message["text"]
 
 
-def test_relative_or_missing_poster_uses_absolute_placeholder():
-    """相对海报不能交给 Telegram 编辑媒体接口，必须回退绝对占位图。"""
+def test_missing_tmdb_id_keeps_plain_title_and_cover():
+    """缺少有效 TMDB ID 时标题保持纯文本但通知仍保留横版封面。"""
     plugin, _, _, service, _ = _service()
     board = _board()
-    board.recommendations[0].poster_path = "/api/v1/system/cache/image/example"
+    board.recommendations[0].source_ids.pop("tmdb")
 
     service.start("alice", board)
 
-    assert plugin.messages[-1]["image"].startswith("https://")
-    assert plugin.messages[-1]["image"].endswith("/no-image.jpeg")
+    assert plugin.messages[-1]["image"].endswith("/backdrop-a.jpg")
+    assert "第一部电影" in plugin.messages[-1]["text"]
+    assert "themoviedb.org/movie/1" not in plugin.messages[-1]["text"]
+
+
+def test_missing_backdrop_falls_back_to_poster():
+    """榜首缺少横版封面时回退到可抓取的海报地址。"""
+    plugin, _, _, service, _ = _service()
+    board = _board()
+    board.recommendations[0].backdrop_path = ""
+
+    service.start("alice", board)
+
+    assert plugin.messages[-1]["image"].endswith("/a.jpg")
 
 
 def test_number_toggle_and_clear_update_single_original_message():
@@ -273,7 +303,7 @@ def test_number_toggle_and_clear_update_single_original_message():
     service.start("alice", _board())
 
     assert service.handle_callback(_event("t:1")) is True
-    assert plugin.messages[-1]["image"].endswith("/a.jpg")
+    assert plugin.messages[-1]["image"].endswith("/backdrop-a.jpg")
     assert plugin.messages[-1]["original_message_id"] == 77
     session = repository.load_telegram_session("token123")
     assert session.selected_ids == ["tmdb:2"]

@@ -19,6 +19,7 @@ class RecommendationItem:
     source_ids: Dict[str, str] = field(default_factory=dict)
     sources: List[str] = field(default_factory=list)
     poster_path: str = ""
+    backdrop_path: str = ""
     match_tags: List[str] = field(default_factory=list)
 
     @classmethod
@@ -45,6 +46,7 @@ class RecommendationItem:
             source_ids=dict(value.get("source_ids") or {}),
             sources=[str(item) for item in value.get("sources") or []],
             poster_path=str(value.get("poster_path") or ""),
+            backdrop_path=str(value.get("backdrop_path") or ""),
             match_tags=[str(item) for item in value.get("match_tags") or []],
         )
 
