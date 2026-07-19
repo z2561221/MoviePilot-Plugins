@@ -89,6 +89,18 @@ def test_auto_falls_back_to_native_when_reporting_is_not_installed():
     assert result.fallback_from == ["playback_reporting:not_installed"]
 
 
+def test_auto_falls_back_to_native_when_reporting_has_no_usable_rows():
+    """已安装但没有可用记录时，自动模式继续读取 Emby 原生状态。"""
+    repo = FakeRepository()
+    reporting = FakeAdapter(PlaybackSnapshot("alice", "playback_reporting", "high", "ready"))
+    native = FakeAdapter(_ready("emby_native", "medium"))
+    result = PlaybackProfileService(repo, reporting, native).collect(
+        "alice", {"playback_enabled": True, "playback_source_mode": "auto"}
+    )
+    assert result.source == "emby_native"
+    assert result.fallback_from == ["playback_reporting:empty"]
+
+
 def test_transient_reporting_uses_recent_snapshot_before_native():
     """Playback Reporting 暂时故障时优先保留最近成功快照。"""
     repo = FakeRepository()

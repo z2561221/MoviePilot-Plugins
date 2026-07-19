@@ -67,10 +67,15 @@ class PlaybackProfileService:
         if mode in {"auto", "playback_reporting"}:
             reporting_result = self._reporting.collect(source_username, **options)
             reporting_result.username = target
-            if reporting_result.status == "ready":
+            if reporting_result.status == "ready" and (
+                reporting_result.sample_count > 0 or mode == "playback_reporting"
+            ):
                 self._repository.save_playback_snapshot(reporting_result)
                 return reporting_result
-            failures.append(f"playback_reporting:{reporting_result.status}")
+            if reporting_result.status == "ready":
+                failures.append("playback_reporting:empty")
+            else:
+                failures.append(f"playback_reporting:{reporting_result.status}")
             if reporting_result.status == "transient_error" and self._fresh(
                 previous, int(config.get("playback_cache_days") or 7)
             ):
