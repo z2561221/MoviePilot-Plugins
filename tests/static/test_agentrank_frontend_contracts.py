@@ -259,4 +259,11 @@ def test_federation_exposes_and_all_built_asset_references_are_coherent():
                     pending.append(asset)
 
     built_assets = set(ASSETS.rglob("*.js")) | set(ASSETS.rglob("*.css"))
+    shared_assets = {
+        asset
+        for asset in built_assets
+        if asset.relative_to(ASSETS).parts[0].startswith("__federation_shared_")
+    }
+    assert len(shared_assets) <= 1
+    referenced.update(shared_assets)
     assert built_assets == referenced

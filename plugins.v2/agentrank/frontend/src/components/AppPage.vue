@@ -235,12 +235,12 @@ onMounted(initialize)
                   </div>
                   <div class="ar-app-page__meta">{{ item.year || '年份未知' }} · {{ sourceLabel(item) }}</div>
                   <div class="ar-app-page__copy">
-                    <span class="ar-app-page__copy-label">推荐</span>
+                    <span class="ar-app-page__copy-label">推荐：</span>
                     <span class="ar-app-page__copy-text ar-app-page__copy-text--reason" :class="{ 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'reason') }">{{ item.reason || item.summary || '等待 Agent 补充推荐理由' }}</span>
                     <VBtn v-if="needsCopyToggle(item.reason || item.summary, 40)" size="x-small" variant="text" class="ar-app-page__copy-toggle" @click="toggleCopy(item, 'reason')">{{ isCopyExpanded(item, 'reason') ? '收起' : '展开' }}</VBtn>
                   </div>
                   <div class="ar-app-page__copy ar-app-page__copy--intro">
-                    <span class="ar-app-page__copy-label">简介</span>
+                    <span class="ar-app-page__copy-label">简介：</span>
                     <span class="ar-app-page__copy-text ar-app-page__copy-text--intro" :class="{ 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'summary') }">{{ item.summary || '暂无简介' }}</span>
                     <VBtn v-if="needsCopyToggle(item.summary, 56)" size="x-small" variant="text" class="ar-app-page__copy-toggle" @click="toggleCopy(item, 'summary')">{{ isCopyExpanded(item, 'summary') ? '收起' : '展开' }}</VBtn>
                   </div>

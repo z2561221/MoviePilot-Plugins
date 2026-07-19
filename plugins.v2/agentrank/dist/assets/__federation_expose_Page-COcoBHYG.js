@@ -446,11 +446,11 @@ return (_ctx, _cache) => {
                             _createElementVNode("span", null, "置信度 " + _toDisplayString(item.confidence) + "%", 1)
                           ]),
                           _createElementVNode("div", _hoisted_17, [
-                            _cache[16] || (_cache[16] = _createElementVNode("span", { class: "ar-page__copy-label" }, "推荐", -1)),
+                            _cache[16] || (_cache[16] = _createElementVNode("span", { class: "ar-page__copy-label" }, "推荐：", -1)),
                             _createElementVNode("span", null, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 1)
                           ]),
                           _createElementVNode("div", _hoisted_18, [
-                            _cache[17] || (_cache[17] = _createElementVNode("span", { class: "ar-page__copy-label" }, "简介", -1)),
+                            _cache[17] || (_cache[17] = _createElementVNode("span", { class: "ar-page__copy-label" }, "简介：", -1)),
                             _createElementVNode("span", null, _toDisplayString(item.summary || '暂无简介'), 1)
                           ]),
                           (item.match_tags?.length)
@@ -923,6 +923,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-312b39cc"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0feba4fe"]]);
 
 export { Page as default };

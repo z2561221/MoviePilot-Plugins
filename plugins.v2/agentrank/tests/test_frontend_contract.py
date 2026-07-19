@@ -194,9 +194,13 @@ def test_ranking_posters_do_not_force_eager_loading():
 def test_mobile_ranking_copy_wraps_and_can_expand():
     """发现页理由和简介使用多行截断并提供展开，不再强制单行省略。"""
     app_page = _read("AppPage.vue")
+    page = _read("Page.vue")
     assert "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" not in next(
         line for line in app_page.splitlines() if line.startswith(".ar-app-page__copy")
     )
+    for source in (app_page, page):
+        assert "推荐：" in source
+        assert "简介：" in source
     assert "ar-app-page__copy-text--reason" in app_page
     assert "-webkit-line-clamp: 3" in app_page
     assert "ar-app-page__copy-text--intro" in app_page

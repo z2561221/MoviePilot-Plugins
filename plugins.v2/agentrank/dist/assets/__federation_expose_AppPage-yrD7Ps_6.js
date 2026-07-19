@@ -436,7 +436,7 @@ return (_ctx, _cache) => {
                                   ]),
                                   _createElementVNode("div", _hoisted_16, _toDisplayString(item.year || '年份未知') + " · " + _toDisplayString(sourceLabel(item)), 1),
                                   _createElementVNode("div", _hoisted_17, [
-                                    _cache[7] || (_cache[7] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "推荐", -1)),
+                                    _cache[7] || (_cache[7] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "推荐：", -1)),
                                     _createElementVNode("span", {
                                       class: _normalizeClass(["ar-app-page__copy-text ar-app-page__copy-text--reason", { 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'reason') }])
                                     }, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 3),
@@ -456,7 +456,7 @@ return (_ctx, _cache) => {
                                       : _createCommentVNode("", true)
                                   ]),
                                   _createElementVNode("div", _hoisted_18, [
-                                    _cache[8] || (_cache[8] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "简介", -1)),
+                                    _cache[8] || (_cache[8] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "简介：", -1)),
                                     _createElementVNode("span", {
                                       class: _normalizeClass(["ar-app-page__copy-text ar-app-page__copy-text--intro", { 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'summary') }])
                                     }, _toDisplayString(item.summary || '暂无简介'), 3),
@@ -568,6 +568,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-56c1ac17"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a9f62e8f"]]);
 
 export { AppPage as default };

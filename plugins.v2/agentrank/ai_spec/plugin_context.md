@@ -16,16 +16,19 @@ AgentRank 是 MoviePilot V2 本地插件。它按参与用户读取订阅样本�
 
 ## 唯一允许的 Agent 工具
 
-AgentRank 会话只能加载以下四个只读工具，工具参数不能选择 username 或 run_id：
+AgentRank 会话只能加载以下五个只读工具，工具参数不能选择 username 或 run_id：
 
 1. `read_agentrank_subscriptions`
 2. `read_agentrank_candidates`
 3. `read_agentrank_archive_feedback`
 4. `read_agentrank_weights`
+5. `read_agentrank_playback`
 
 受信上下文锁定本轮 username 与 run_id。禁止订阅、禁止写插件数据、禁止修改配置、禁止访问文件、禁止发送消息，也禁止加载通用 ToolFactory 工具。
 
 订阅工具同时返回当前订阅样本、可选的上一版画像和人工画像标签偏好。画像缓存开启且未要求每次重建时，Agent 在旧画像基础上按当前证据演进；每次重建开启或画像缓存关闭时不读取旧画像。人工偏好必须参与画像与排序，人工避雷必须降低相关候选排序，用户删除的 Agent 标签不得重新写回。禁止用标签集合并集替代画像更新。
+
+播放画像工具只返回当前用户的受信快照。自动模式按 `Playback Reporting -> Emby 原生 UserData -> MP 订阅画像与媒体库库存` 降级；Playback Reporting 的成功样本置信度最高，Emby 原生状态次之，订阅画像只作辅助。不得把订阅记录冒充已观看记录，也不得持久化密钥、Cookie、客户端、设备或地址信息。
 
 ## 输出协议
 

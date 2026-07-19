@@ -234,11 +234,11 @@ onMounted(initialize)
                   <span>置信度 {{ item.confidence }}%</span>
                 </div>
                 <div class="ar-page__rank-copy">
-                  <span class="ar-page__copy-label">推荐</span>
+                  <span class="ar-page__copy-label">推荐：</span>
                   <span>{{ item.reason || item.summary || '等待 Agent 补充推荐理由' }}</span>
                 </div>
                 <div class="ar-page__rank-copy ar-page__rank-copy--muted">
-                  <span class="ar-page__copy-label">简介</span>
+                  <span class="ar-page__copy-label">简介：</span>
                   <span>{{ item.summary || '暂无简介' }}</span>
                 </div>
                 <div v-if="item.match_tags?.length" class="ar-page__match-tags">
