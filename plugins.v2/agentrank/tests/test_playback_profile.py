@@ -48,6 +48,45 @@ class FakeAdapter:
         return PlaybackSnapshot.from_dict(self.result.to_dict())
 
 
+class FakeResponse:
+    """提供适配器状态分类所需的最小 HTTP 响应。"""
+
+    def __init__(self, status_code, payload=None):
+        self.status_code = status_code
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+
+class FakeReportingAccess:
+    """按队列返回 Playback Reporting HTTP 响应。"""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+
+    def services(self):
+        return {"Emby": object()}
+
+    def credentials(self, service):
+        return "http://emby/", "secret", object()
+
+    def resolve_user(self, instance, username):
+        return "user-id"
+
+    def request(self):
+        return self
+
+    def post_res(self, url, params=None, json=None):
+        return self.responses.pop(0)
+
+    def get_res(self, url, params=None):
+        return FakeResponse(200, {"Items": []})
+
+    def synced_item(self, server, item_id):
+        return {}
+
+
 def _ready(source, confidence="high"):
     return PlaybackSnapshot(
         username="alice",
@@ -142,3 +181,34 @@ def test_emby_native_respects_recent_playback_window():
     assert within_recent_days("2099-01-01T00:00:00Z", 180) is True
     assert within_recent_days("2000-01-01T00:00:00Z", 180) is False
     assert within_recent_days("", 180) is True
+
+
+def test_reporting_permission_error_is_not_misclassified_as_missing_plugin():
+    """401/403 明确返回 permission_error，而不是 not_installed。"""
+    for status_code in (401, 403):
+        result = PlaybackReportingAdapter(
+            FakeReportingAccess([FakeResponse(status_code)])
+        ).collect("alice")
+        assert result.status == "permission_error"
+
+
+def test_reporting_requires_both_routes_to_return_404_before_not_installed():
+    """两个兼容端点均为 404 时才判定未安装。"""
+    result = PlaybackReportingAdapter(
+        FakeReportingAccess([FakeResponse(404), FakeResponse(404)])
+    ).collect("alice")
+    assert result.status == "not_installed"
+
+
+def test_transient_reporting_without_cache_continues_to_native():
+    """瞬时错误且没有成功快照时继续读取 Emby 原生状态。"""
+    repo = FakeRepository()
+    reporting = FakeAdapter(
+        PlaybackSnapshot("alice", "playback_reporting", "high", "transient_error")
+    )
+    native = FakeAdapter(_ready("emby_native", "medium"))
+    result = PlaybackProfileService(repo, reporting, native).collect(
+        "alice", {"playback_enabled": True, "playback_source_mode": "auto"}
+    )
+    assert result.source == "emby_native"
+    assert result.fallback_from == ["playback_reporting:transient_error"]
