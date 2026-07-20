@@ -62,10 +62,12 @@ class AgentRankRuntime:
         from ..adapter.discovery import DiscoveryAdapter
         from ..adapter.library import LibraryAdapter
         from ..adapter.media import MediaRecognitionAdapter
+        from ..adapter.tmdb_keyword import TmdbKeywordAdapter
         from ..adapter.emby import EmbyServiceAccess
         from ..adapter.playback_reporting import PlaybackReportingAdapter
         from ..storage.repository import AgentRankRepository
         from .candidate import CandidateCollectionService
+        from .keyword_resolution import ControlledRetrievalPlanResolver
         from .poster import BoardPosterRepairService, PosterImageService
         from .playback_profile import PlaybackProfileService
         from .recommendation import RecommendationOrchestrator
@@ -93,6 +95,9 @@ class AgentRankRuntime:
             agent_adapter=AgentRankAgentAdapter(),
             library_adapter=LibraryAdapter(),
             playback_service=playback_service,
+            retrieval_plan_resolver=ControlledRetrievalPlanResolver(
+                keyword_searcher=TmdbKeywordAdapter().search
+            ),
         )
 
     @staticmethod

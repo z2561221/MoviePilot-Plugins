@@ -16,10 +16,18 @@ from ..agent_tools.context import (
 )
 from ..model.config import configured_identities
 from ..model.board import RecommendationBoard, RecommendationItem
-from ..model.profile import PROFILE_SCHEMA_VERSION, UserProfile
+from ..model.profile import (
+    PROFILE_SCHEMA_VERSION,
+    RETRIEVAL_RESOLUTION_VERSION,
+    UserProfile,
+)
 from ..model.run import RecommendationRun
 from ..storage.repository import AgentRankRepository
 from .prompt import build_profile_prompt, build_ranking_prompt, build_refill_prompt
+from .keyword_resolution import (
+    ControlledRetrievalPlanResolver,
+    RetrievalPlanResolution,
+)
 from .validation import (
     AgentOutputError,
     ProfileOutputParser,
@@ -60,6 +68,7 @@ class RecommendationOrchestrator:
         validator: RecommendationValidator = None,
         library_adapter: Any = None,
         playback_service: Any = None,
+        retrieval_plan_resolver: Any = None,
     ):
         """注入可测试的领域依赖并初始化用户锁集合。"""
         self._repository = repository
@@ -71,6 +80,9 @@ class RecommendationOrchestrator:
         self._validator = validator or RecommendationValidator()
         self._library_adapter = library_adapter
         self._playback_service = playback_service
+        self._retrieval_plan_resolver = (
+            retrieval_plan_resolver or ControlledRetrievalPlanResolver()
+        )
         self._running_profiles: Set[str] = set()
         self._running_guard = threading.Lock()
 
@@ -308,6 +320,8 @@ class RecommendationOrchestrator:
                 previous_profile
                 if previous_profile is not None
                 and previous_profile.schema_version >= PROFILE_SCHEMA_VERSION
+                and previous_profile.retrieval_resolution_version
+                >= RETRIEVAL_RESOLUTION_VERSION
                 and previous_profile.playback_fingerprint == playback_fingerprint
                 else None
             )
@@ -389,6 +403,19 @@ class RecommendationOrchestrator:
                         )
                 if parsed_profile is None:
                     raise RuntimeError("profile Agent ended without a validated profile")
+                try:
+                    plan_resolution = await asyncio.to_thread(
+                        self._retrieval_plan_resolver.resolve,
+                        parsed_profile.retrieval_plan,
+                    )
+                except Exception as error:
+                    errors.append(f"retrieval resolution fallback: {error}")
+                    plan_resolution = RetrievalPlanResolution(
+                        plan=parsed_profile.retrieval_plan
+                    )
+                metrics.update(plan_resolution.metrics())
+                resolved_plan = plan_resolution.plan
+                metrics["ranking_tag_count"] = len(resolved_plan.ranking_tags)
                 generated_at = datetime.now(timezone.utc).isoformat()
                 current_profile = UserProfile(
                     profile_id=target,
@@ -398,8 +425,8 @@ class RecommendationOrchestrator:
                     negative_tags=list(parsed_profile.profile.negative_tags),
                     playback_count=parsed_profile.profile.playback_count,
                     playback_fingerprint=playback_fingerprint,
-                    filters=parsed_profile.filters.to_dict(),
-                    ranking_tags=list(parsed_profile.ranking_tags),
+                    filters=resolved_plan.filters.to_dict(),
+                    ranking_tags=list(resolved_plan.ranking_tags),
                     run_id=run_id,
                     generated_at=generated_at,
                 )

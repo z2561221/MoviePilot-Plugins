@@ -21,6 +21,7 @@ board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 orchestrator_module = importlib.import_module(f"{PACKAGE_NAME}.service.recommendation")
+keyword_module = importlib.import_module(f"{PACKAGE_NAME}.service.keyword_resolution")
 
 Candidate = candidate_module.Candidate
 UserProfile = profile_module.UserProfile
@@ -30,6 +31,7 @@ PlaybackSample = playback_module.PlaybackSample
 PlaybackSnapshot = playback_module.PlaybackSnapshot
 AgentRankRepository = repository_module.AgentRankRepository
 RecommendationOrchestrator = orchestrator_module.RecommendationOrchestrator
+ControlledRetrievalPlanResolver = keyword_module.ControlledRetrievalPlanResolver
 
 PROFILE_ID = "emby:home:user-1"
 IDENTITY_CONFIG = {
@@ -159,7 +161,7 @@ class RetryableAgentError(RuntimeError):
     retryable = True
 
 
-def _profile_output(playback_count=5):
+def _profile_output(playback_count=5, filters=None, ranking_tags=None):
     return json.dumps(
         {
             "profile": {
@@ -168,7 +170,7 @@ def _profile_output(playback_count=5):
                 "negative_tags": [],
                 "playback_count": playback_count,
             },
-            "filters": {
+            "filters": filters or {
                 "media_types": ["movie"],
                 "genre_ids": [80],
                 "keyword_ids": [],
@@ -179,7 +181,7 @@ def _profile_output(playback_count=5):
                 "vote_count_min": 100,
                 "sort_by": "popularity.desc",
             },
-            "ranking_tags": ["高质量悬疑"],
+            "ranking_tags": ranking_tags or ["高质量悬疑"],
         },
         ensure_ascii=False,
     )
@@ -203,7 +205,13 @@ def _agent_output(candidate_ids):
     )
 
 
-def _orchestrator(plugin, outputs, candidate_count=12, profile_outputs=None):
+def _orchestrator(
+    plugin,
+    outputs,
+    candidate_count=12,
+    profile_outputs=None,
+    retrieval_plan_resolver=None,
+):
     repository = AgentRankRepository(plugin)
     return (
         RecommendationOrchestrator(
@@ -212,6 +220,7 @@ def _orchestrator(plugin, outputs, candidate_count=12, profile_outputs=None):
             agent_adapter=FakeAgentAdapter(outputs, profile_outputs=profile_outputs),
             run_id_factory=lambda: "run-1",
             playback_service=FakePlaybackService(),
+            retrieval_plan_resolver=retrieval_plan_resolver,
         ),
         repository,
     )
@@ -333,6 +342,63 @@ def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches
     assert result.status == "success"
     assert len(orchestrator.agent_adapter.profile_calls) == 1
     assert repository.load_profile(PROFILE_ID).schema_version == 4
+
+
+def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches():
+    """3.2 画像尚未经过受控解析时必须重建，不能直接复用。"""
+    plugin = FakePlugin()
+    playback = FakePlaybackService()
+    snapshot = playback.collect(PROFILE_ID, _config())
+    repository = AgentRankRepository(plugin)
+    repository.save_profile(
+        UserProfile(
+            profile_id=PROFILE_ID,
+            username="Alice",
+            summary="old",
+            playback_count=len(snapshot.samples),
+            playback_fingerprint=snapshot.fingerprint(),
+            schema_version=4,
+            retrieval_resolution_version=0,
+            run_id="old",
+        )
+    )
+    orchestrator, _ = _orchestrator(
+        plugin,
+        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert len(orchestrator.agent_adapter.profile_calls) == 1
+    assert repository.load_profile(PROFILE_ID).retrieval_resolution_version == 1
+
+
+def test_controlled_resolution_is_persisted_and_exposed_to_ranking_context():
+    """唯一关键词 ID 写入画像，排序上下文只看到解析后的计划。"""
+    resolver = ControlledRetrievalPlanResolver(
+        keyword_searcher=lambda term: [{"id": 321, "name": "cyberpunk"}]
+    )
+    profile_output = _profile_output(ranking_tags=["赛博朋克", "英文"])
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+        profile_outputs=[profile_output],
+        retrieval_plan_resolver=resolver,
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    profile = repository.load_profile(PROFILE_ID)
+    ranking_profile = orchestrator.agent_adapter.ranking_calls[0][1].profile
+    metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    assert result.status == "success"
+    assert profile.filters["keyword_ids"] == [321]
+    assert profile.filters["original_languages"] == ["zh", "en"]
+    assert profile.ranking_tags == []
+    assert ranking_profile["filters"]["keyword_ids"] == (321,)
+    assert metrics["resolved_keyword_count"] == 1
+    assert metrics["resolved_language_count"] == 1
 
 
 def test_run_uses_configured_agent_prompt():

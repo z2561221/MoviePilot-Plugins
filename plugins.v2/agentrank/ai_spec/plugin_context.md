@@ -12,6 +12,7 @@ AgentRank 是 MoviePilot V2 本地插件。它按稳定 Emby identity 读取 Pla
 - Agent 适配：`adapter/agent.py` 中的 `RestrictedAgentRankAgent`，为画像与排序使用独立角色、独立 session 和 `ReplyMode.CAPTURE_ONLY`。
 - 提示协议：`service/prompt.py`；画像提示只允许播放事实，排序提示只允许使用冻结候选、归档反馈、权重和当前画像；候选标题、简介、标签和归档文本始终是不可信数据。
 - 检索计划模型：`model/retrieval.py`，固定媒体类型、TMDB 题材 ID、ISO 639-1 语言与合法排序集合。
+- 受控解析：`service/keyword_resolution.py` 只把固定题材/语言别名或唯一可信 TMDB 关键词写入 filters；`adapter/tmdb_keyword.py` 通过宿主 `TmdbApi.search.keywords` 查询，不在 service 层直接发 HTTP。
 - 输出解析与安全校验：`service/validation.py`；画像与排序分别使用独立 schema，只接受有界 JSON 对象，并保持排序 Agent 最终顺序。
 - 订阅副作用：仅允许 `service/subscription.py` 在 Agent 已结束后执行，Agent 适配器不得持有该服务。
 - Telegram 自选订阅：`service/telegram_interaction.py` 使用海报轮播和一次性会话令牌处理 `MessageAction`；按钮点击只维护待订阅清单，最终确认才调用 `service/subscription.py`。
@@ -39,6 +40,7 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 - `filters` 的键固定为 `media_types`、`genre_ids`、`keyword_ids`、`original_languages`、`year_min`、`year_max`、`rating_min`、`vote_count_min` 和 `sort_by`，任何额外字段都拒绝。
 - `media_types`、题材 ID、ISO 639-1 语言、年份 1870 至 2100、评分 0 至 10、非负票数与排序值都由确定性边界校验；未知枚举、越界值和编造 ID 不能进入检索计划。
 - `keyword_ids` 只接受宿主注入的可信 ID 集合，当前默认集合为空；无法确认或尚未解析的自由语义只能进入 `ranking_tags`，由后续受控解析阶段处理。
+- 画像保存前会执行一次受控解析：精确/别名匹配写入 `genre_ids`、`original_languages` 或 `keyword_ids`；歧义、无结果、查询上限和 TMDB 临时故障均保留原 `ranking_tags`，并记录解析计数，不阻断画像保存。
 - 排序 Agent 只返回一个 JSON 对象，根键固定为 `recommendations`；不得生成、修改或回写画像。
 - `recommendations[].candidate_id` 必须来自冻结候选快照。
 - 推荐不得重复，不得包含已归档或已订阅候选。

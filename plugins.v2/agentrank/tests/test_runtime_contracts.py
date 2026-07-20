@@ -126,6 +126,18 @@ def test_agent_tools_take_username_and_run_id_only_from_trusted_context():
     assert "post_message" not in tools_source
 
 
+def test_runtime_injects_controlled_tmdb_keyword_resolution():
+    """运行时通过宿主适配器注入唯一关键词解析，不在 service 直接发 HTTP。"""
+    runtime_source = _source("service/runtime.py")
+    resolver_source = _source("service/keyword_resolution.py")
+    adapter_source = _source("adapter/tmdb_keyword.py")
+    assert "ControlledRetrievalPlanResolver" in runtime_source
+    assert "TmdbKeywordAdapter().search" in runtime_source
+    assert "TmdbApi" not in resolver_source
+    assert "TmdbApi" in adapter_source
+    assert "requests" not in adapter_source
+
+
 def test_sidebar_entry_respects_discovery_page_switch():
     """侧栏发现入口必须同时受插件状态和独立开关控制。"""
     source = _source("__init__.py")
