@@ -8,6 +8,7 @@ AgentRank 是 MoviePilot V2 本地插件。它按稳定 Emby identity 读取 Pla
 
 - 插件入口：`__init__.py`，只声明元数据、生命周期和扩展点。
 - 推荐编排：`service/recommendation.py`，负责用户锁、一次补选、失败保留旧榜单和原子保存。
+- 依赖探测：`adapter/playback_reporting.py` 只返回 `ready`、`not_installed`、`permission_error`、`transient_error` 或 `emby_unavailable`，且不暴露 Emby 地址与凭据。
 - Agent 适配：`adapter/agent.py` 中的 `RestrictedAgentRankAgent`，使用独立后台会话与 `ReplyMode.CAPTURE_ONLY`。
 - 提示协议：`service/prompt.py`；候选标题、简介、标签和归档文本始终是不可信数据。
 - 输出解析与安全校验：`service/validation.py`；只接受单个有界 JSON 对象，并保持 Agent 最终顺序。

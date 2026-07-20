@@ -5,6 +5,70 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping
 
 
+PLAYBACK_CAPABILITY_STATUSES = frozenset(
+    {
+        "ready",
+        "not_installed",
+        "permission_error",
+        "transient_error",
+        "emby_unavailable",
+    }
+)
+
+
+@dataclass
+class PlaybackCapability:
+    """表示指定 Emby identity 的 Playback Reporting 当前可用性。"""
+
+    profile_id: str
+    status: str
+    message: str = ""
+    checked_at: str = ""
+    source: str = "playback_reporting"
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        """规范化能力状态并拒绝未知分类。"""
+        self.profile_id = str(self.profile_id or "").strip()
+        self.status = str(self.status or "").strip()
+        self.message = str(self.message or "").strip()
+        self.source = str(self.source or "playback_reporting").strip()
+        self.schema_version = int(self.schema_version)
+        if not self.profile_id:
+            raise ValueError("playback capability profile_id is required")
+        if self.status not in PLAYBACK_CAPABILITY_STATUSES:
+            raise ValueError("unknown playback capability status")
+        if self.source != "playback_reporting":
+            raise ValueError("playback capability source must be playback_reporting")
+        if self.schema_version < 1:
+            raise ValueError("schema_version must be positive")
+        if not self.checked_at:
+            self.checked_at = datetime.now(timezone.utc).isoformat()
+
+    @property
+    def ready(self) -> bool:
+        """返回 Playback Reporting 是否可供当前 identity 使用。"""
+        return self.status == "ready"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """返回不包含地址、凭据或用户显示名的安全能力字典。"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "PlaybackCapability":
+        """从安全字典恢复 Playback Reporting 能力状态。"""
+        if not isinstance(value, Mapping):
+            raise ValueError("playback capability must be a mapping")
+        return cls(
+            profile_id=value.get("profile_id"),
+            status=value.get("status"),
+            message=value.get("message") or "",
+            checked_at=value.get("checked_at") or "",
+            source=value.get("source") or "playback_reporting",
+            schema_version=value.get("schema_version") or 1,
+        )
+
+
 @dataclass
 class PlaybackSample:
     """表示一条已映射到媒体身份的用户播放证据。"""

@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping
 
 from .emby import EmbyServiceAccess, media_type, merge_playback_samples
 from ..model.identity import EmbyIdentity
-from ..model.playback import PlaybackSample, PlaybackSnapshot
+from ..model.playback import PlaybackCapability, PlaybackSample, PlaybackSnapshot
+
+
+@dataclass
+class _QueryResult:
+    """保存一次受控查询的安全分类与后续采集上下文。"""
+
+    capability: PlaybackCapability
+    payload: Dict[str, Any] = field(default_factory=dict)
+    server_name: str = ""
+    host: str = ""
+    api_key: str = ""
 
 
 class PlaybackReportingAdapter:
@@ -41,6 +53,123 @@ class PlaybackReportingAdapter:
             if isinstance(raw, (list, tuple)) and len(raw) == len(columns):
                 rows.append(dict(zip(columns, raw)))
         return rows
+
+    @staticmethod
+    def _probe_query() -> str:
+        """构建不读取播放明细的最小只读能力探测 SQL。"""
+        return "SELECT COUNT(1) AS ActivityCount FROM PlaybackActivity LIMIT 1"
+
+    @staticmethod
+    def _capability(
+        identity: EmbyIdentity, status: str, message: str
+    ) -> PlaybackCapability:
+        """为指定 identity 创建不含敏感字段的能力状态。"""
+        return PlaybackCapability(
+            profile_id=identity.profile_id,
+            status=status,
+            message=message,
+        )
+
+    def _request_query(self, identity: EmbyIdentity, query: str) -> _QueryResult:
+        """执行兼容端点查询并精确分类依赖与传输状态。"""
+        if not isinstance(identity, EmbyIdentity):
+            raise TypeError("identity must be EmbyIdentity")
+        configured_server_name, service = self._access.resolve_service(
+            identity.server_name
+        )
+        if service is None:
+            return _QueryResult(
+                self._capability(
+                    identity, "emby_unavailable", "指定 Emby 服务不可用"
+                )
+            )
+        host, api_key, _instance = self._access.credentials(service)
+        if not host or not api_key:
+            return _QueryResult(
+                self._capability(
+                    identity, "emby_unavailable", "Emby 连接信息不可用"
+                )
+            )
+        for path in (
+            "user_usage_stats/submit_custom_query",
+            "emby/user_usage_stats/submit_custom_query",
+        ):
+            try:
+                response = self._access.request().post_res(
+                    f"{host}{path}",
+                    params={"api_key": api_key},
+                    json={"CustomQueryString": query, "ReplaceUserId": True},
+                )
+            except Exception:
+                return _QueryResult(
+                    self._capability(
+                        identity,
+                        "transient_error",
+                        "Playback Reporting 暂时不可用",
+                    )
+                )
+            if response is None:
+                return _QueryResult(
+                    self._capability(
+                        identity,
+                        "transient_error",
+                        "Playback Reporting 暂时不可用",
+                    )
+                )
+            try:
+                status_code = int(getattr(response, "status_code", 0))
+            except (TypeError, ValueError):
+                status_code = 0
+            if status_code == 404:
+                continue
+            if status_code in {401, 403}:
+                return _QueryResult(
+                    self._capability(
+                        identity,
+                        "permission_error",
+                        "Playback Reporting 读取权限不足",
+                    )
+                )
+            if status_code != 200:
+                return _QueryResult(
+                    self._capability(
+                        identity,
+                        "transient_error",
+                        "Playback Reporting 暂时不可用",
+                    )
+                )
+            try:
+                payload = response.json() or {}
+            except Exception:
+                payload = None
+            if not isinstance(payload, Mapping) or str(
+                payload.get("message") or ""
+            ).strip():
+                return _QueryResult(
+                    self._capability(
+                        identity,
+                        "transient_error",
+                        "Playback Reporting 返回异常",
+                    )
+                )
+            return _QueryResult(
+                capability=self._capability(
+                    identity, "ready", "Playback Reporting 可访问"
+                ),
+                payload=dict(payload),
+                server_name=configured_server_name,
+                host=host,
+                api_key=api_key,
+            )
+        return _QueryResult(
+            self._capability(
+                identity, "not_installed", "未安装 Playback Reporting"
+            )
+        )
+
+    def probe(self, identity: EmbyIdentity) -> PlaybackCapability:
+        """探测指定 Emby identity 的 Playback Reporting 可用性。"""
+        return self._request_query(identity, self._probe_query()).capability
 
     def _fetch_details(
         self,
@@ -118,147 +247,84 @@ class PlaybackReportingAdapter:
         abandon_minutes: int = 20,
     ) -> PlaybackSnapshot:
         """读取 Playback Reporting，并将会话映射为 TMDB 级播放证据。"""
-        if not isinstance(identity, EmbyIdentity):
-            raise TypeError("identity must be EmbyIdentity")
+        query_result = self._request_query(identity, self._query(recent_days))
         target = identity.profile_id
-        configured_server_name, service = self._access.resolve_service(
-            identity.server_name
-        )
-        if service is None:
+        capability = query_result.capability
+        if not capability.ready:
             return PlaybackSnapshot(
                 target,
                 self.source,
-                "high",
-                "unavailable",
+                "low" if capability.status == "emby_unavailable" else "high",
+                capability.status,
                 username=identity.username,
-                message="指定 Emby 服务不可用",
+                message=capability.message,
             )
         collected: List[PlaybackSample] = []
         unmapped = 0
-        detected = False
-        permission_error = False
-        transient_error = False
-        mapped_user = False
-        for server_name, service in ((configured_server_name, service),):
-            host, api_key, _instance = self._access.credentials(service)
-            user_id = identity.user_id
-            if not host or not api_key or not user_id:
-                continue
-            mapped_user = True
-            response = None
-            for path in ("user_usage_stats/submit_custom_query", "emby/user_usage_stats/submit_custom_query"):
-                response = self._access.request().post_res(
-                    f"{host}{path}",
-                    params={"api_key": api_key},
-                    json={"CustomQueryString": self._query(recent_days), "ReplaceUserId": True},
-                )
-                if response is None or response.status_code != 404:
-                    break
-            if response is None:
-                transient_error = True
-                continue
-            if response.status_code == 404:
-                continue
-            if response.status_code in {401, 403}:
-                permission_error = True
-                continue
-            if response.status_code >= 500:
-                transient_error = True
-                continue
-            if response.status_code != 200:
-                continue
-            detected = True
-            payload = response.json() or {}
-            if str(payload.get("message") or "").strip():
-                transient_error = True
-                continue
-            rows = [
-                row
-                for row in self._rows(payload)
-                if {
-                    str(row.get("UserId") or "").strip(),
-                    str(row.get("UserName") or "").strip(),
-                }
-                & {identity.user_id, identity.username}
-            ]
-            details = self._fetch_details(server_name, host, api_key, user_id, [row.get("ItemId") for row in rows])
-            for row in rows:
-                item_id = str(row.get("ItemId") or "")
-                detail = details.get(item_id) or {}
-                parent = details.get(str(detail.get("SeriesId") or "")) or {}
-                media_identity = (
-                    parent
-                    if media_type(row.get("ItemType")) == "tv" and parent
-                    else detail
-                )
-                tmdb_id = str(
-                    (media_identity.get("ProviderIds") or {}).get("Tmdb") or ""
-                )
-                if not tmdb_id:
-                    unmapped += 1
-                    continue
-                try:
-                    watch_seconds = max(0, int(float(row.get("WatchSeconds") or 0)))
-                    play_count = max(0, int(row.get("PlayCount") or 0))
-                    runtime_seconds = max(0, int(float(detail.get("RunTimeTicks") or 0) / 10_000_000))
-                except (TypeError, ValueError):
-                    unmapped += 1
-                    continue
-                completed = bool(runtime_seconds and watch_seconds >= runtime_seconds * completion_threshold)
-                item_media_type = media_type(row.get("ItemType"))
-                collected.append(
-                    PlaybackSample(
-                        stable_id=f"tmdb:{item_media_type}:{tmdb_id}",
-                        title=str(
-                            media_identity.get("Name")
-                            or detail.get("SeriesName")
-                            or row.get("ItemName")
-                            or "未知媒体"
-                        ),
-                        media_type=item_media_type,
-                        tmdb_id=tmdb_id,
-                        completed=completed,
-                        play_count=play_count,
-                        watch_minutes=watch_seconds // 60,
-                        last_played_at=str(row.get("LastPlayedAt") or ""),
-                        abandoned=not completed and watch_seconds >= max(1, int(abandon_minutes)) * 60,
-                    )
-                )
-        if not mapped_user:
-            return PlaybackSnapshot(
-                target,
-                self.source,
-                "high",
-                "user_unmapped",
-                username=identity.username,
-                message="Emby 用户身份不可用",
+        payload = query_result.payload
+        rows = [
+            row
+            for row in self._rows(payload)
+            if {
+                str(row.get("UserId") or "").strip(),
+                str(row.get("UserName") or "").strip(),
+            }
+            & {identity.user_id, identity.username}
+        ]
+        details = self._fetch_details(
+            query_result.server_name,
+            query_result.host,
+            query_result.api_key,
+            identity.user_id,
+            [row.get("ItemId") for row in rows],
+        )
+        for row in rows:
+            item_id = str(row.get("ItemId") or "")
+            detail = details.get(item_id) or {}
+            parent = details.get(str(detail.get("SeriesId") or "")) or {}
+            media_identity = (
+                parent
+                if media_type(row.get("ItemType")) == "tv" and parent
+                else detail
             )
-        if not detected:
-            if permission_error:
-                return PlaybackSnapshot(
-                    target,
-                    self.source,
-                    "high",
-                    "permission_error",
-                    username=identity.username,
-                    message="Playback Reporting 读取权限不足",
+            tmdb_id = str(
+                (media_identity.get("ProviderIds") or {}).get("Tmdb") or ""
+            )
+            if not tmdb_id:
+                unmapped += 1
+                continue
+            try:
+                watch_seconds = max(0, int(float(row.get("WatchSeconds") or 0)))
+                play_count = max(0, int(row.get("PlayCount") or 0))
+                runtime_seconds = max(
+                    0, int(float(detail.get("RunTimeTicks") or 0) / 10_000_000)
                 )
-            if transient_error:
-                return PlaybackSnapshot(
-                    target,
-                    self.source,
-                    "high",
-                    "transient_error",
-                    username=identity.username,
-                    message="Playback Reporting 暂时不可用",
+            except (TypeError, ValueError):
+                unmapped += 1
+                continue
+            completed = bool(
+                runtime_seconds
+                and watch_seconds >= runtime_seconds * completion_threshold
+            )
+            item_media_type = media_type(row.get("ItemType"))
+            collected.append(
+                PlaybackSample(
+                    stable_id=f"tmdb:{item_media_type}:{tmdb_id}",
+                    title=str(
+                        media_identity.get("Name")
+                        or detail.get("SeriesName")
+                        or row.get("ItemName")
+                        or "未知媒体"
+                    ),
+                    media_type=item_media_type,
+                    tmdb_id=tmdb_id,
+                    completed=completed,
+                    play_count=play_count,
+                    watch_minutes=watch_seconds // 60,
+                    last_played_at=str(row.get("LastPlayedAt") or ""),
+                    abandoned=not completed
+                    and watch_seconds >= max(1, int(abandon_minutes)) * 60,
                 )
-            return PlaybackSnapshot(
-                target,
-                self.source,
-                "high",
-                "not_installed",
-                username=identity.username,
-                message="未安装 Playback Reporting",
             )
         merged = merge_playback_samples(collected)
         return PlaybackSnapshot(

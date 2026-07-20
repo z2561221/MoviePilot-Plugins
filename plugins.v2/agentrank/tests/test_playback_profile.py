@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 PACKAGE_NAME = "agentrank_playback_test"
@@ -17,6 +19,7 @@ service_module = importlib.import_module(f"{PACKAGE_NAME}.service.playback_profi
 reporting_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.playback_reporting")
 
 EmbyIdentity = identity_module.EmbyIdentity
+PlaybackCapability = model.PlaybackCapability
 PlaybackSample = model.PlaybackSample
 PlaybackSnapshot = model.PlaybackSnapshot
 PlaybackProfileService = service_module.PlaybackProfileService
@@ -53,13 +56,19 @@ class FakeRepository:
 class FakeAdapter:
     """返回预设快照并记录传入的稳定 Emby identity。"""
 
-    def __init__(self, result):
+    def __init__(self, result, capability=None):
         self.result = result
+        self.capability = capability
         self.identities = []
+        self.probe_identities = []
 
     def collect(self, identity, **kwargs):
         self.identities.append(identity)
         return PlaybackSnapshot.from_dict(self.result.to_dict())
+
+    def probe(self, identity):
+        self.probe_identities.append(identity)
+        return PlaybackCapability.from_dict(self.capability.to_dict())
 
 
 class FakeResponse:
@@ -76,21 +85,27 @@ class FakeResponse:
 class FakeReportingAccess:
     """按队列返回指定 identity 的 Playback Reporting HTTP 响应。"""
 
-    def __init__(self, responses, details=None):
+    def __init__(self, responses, details=None, credentials=None):
         self.responses = list(responses)
         self.details = list(details or [])
+        self.connection = credentials or ("http://emby/", "secret", object())
+        self.post_calls = []
 
     def resolve_service(self, server_name):
         return ("home", object()) if server_name == "home" else ("", None)
 
     def credentials(self, service):
-        return "http://emby/", "secret", object()
+        return self.connection
 
     def request(self):
         return self
 
     def post_res(self, url, params=None, json=None):
-        return self.responses.pop(0)
+        self.post_calls.append((url, dict(params or {}), dict(json or {})))
+        response = self.responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
 
     def get_res(self, url, params=None):
         if self.details:
@@ -128,6 +143,30 @@ def test_profile_service_passes_the_exact_configured_identity():
     assert reporting.identities == [IDENTITY]
     assert result.profile_id == PROFILE_ID
     assert result.username == "Alice"
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "ready",
+        "not_installed",
+        "permission_error",
+        "transient_error",
+        "emby_unavailable",
+    ],
+)
+def test_profile_service_preserves_every_probe_status_for_exact_identity(status):
+    """画像服务按精确 identity 原样返回全部五类能力状态。"""
+    capability = PlaybackCapability(PROFILE_ID, status, "探测结果")
+    reporting = FakeAdapter(_ready(), capability=capability)
+
+    result = PlaybackProfileService(FakeRepository(), reporting).probe(
+        PROFILE_ID, _config()
+    )
+
+    assert result.status == status
+    assert result.profile_id == PROFILE_ID
+    assert reporting.probe_identities == [IDENTITY]
 
 
 def test_not_installed_result_is_preserved_without_native_userdata_fallback():
@@ -183,6 +222,77 @@ def test_reporting_query_is_read_only_and_excludes_device_fields():
     assert "LIMIT 500" in query
     assert "DELETE" not in query.upper()
     assert "ClientName" not in query and "DeviceName" not in query
+
+
+def test_reporting_probe_query_is_minimal_and_read_only():
+    """能力探测只验证 PlaybackActivity 可读性，不读取播放明细。"""
+    query = PlaybackReportingAdapter._probe_query()
+    assert query.startswith("SELECT COUNT(1)")
+    assert "FROM PlaybackActivity" in query
+    assert "DELETE" not in query.upper()
+    assert "UserId" not in query and "ItemId" not in query
+
+
+@pytest.mark.parametrize(
+    ("responses", "expected_status"),
+    [
+        ([FakeResponse(200, {})], "ready"),
+        ([FakeResponse(404), FakeResponse(404)], "not_installed"),
+        ([FakeResponse(401)], "permission_error"),
+        ([FakeResponse(403)], "permission_error"),
+        ([FakeResponse(500)], "transient_error"),
+        ([FakeResponse(404), FakeResponse(503)], "transient_error"),
+        ([None], "transient_error"),
+        ([TimeoutError("timeout")], "transient_error"),
+    ],
+)
+def test_reporting_probe_classifies_http_and_transport_states(
+    responses, expected_status
+):
+    """探测必须区分可用、双 404、权限失败与所有瞬时故障。"""
+    access = FakeReportingAccess(responses)
+
+    capability = PlaybackReportingAdapter(access).probe(IDENTITY)
+
+    assert capability.status == expected_status
+    assert capability.ready is (expected_status == "ready")
+    assert capability.profile_id == PROFILE_ID
+    assert "secret" not in capability.to_dict().values()
+    if expected_status == "not_installed":
+        assert [call[0] for call in access.post_calls] == [
+            "http://emby/user_usage_stats/submit_custom_query",
+            "http://emby/emby/user_usage_stats/submit_custom_query",
+        ]
+
+
+def test_reporting_probe_classifies_missing_emby_and_credentials():
+    """服务离线或连接信息缺失都属于 Emby 不可用，而非插件未安装。"""
+    offline_access = FakeReportingAccess([])
+    missing_credentials = FakeReportingAccess(
+        [], credentials=("", "", object())
+    )
+
+    offline = PlaybackReportingAdapter(offline_access).probe(
+        EmbyIdentity("offline", "user-1", "Alice")
+    )
+    unavailable = PlaybackReportingAdapter(missing_credentials).probe(IDENTITY)
+
+    assert offline.status == "emby_unavailable"
+    assert unavailable.status == "emby_unavailable"
+    assert offline_access.post_calls == []
+    assert missing_credentials.post_calls == []
+
+
+def test_playback_capability_round_trip_rejects_unknown_status():
+    """能力状态可安全往返，且未知分类不能进入后续门禁。"""
+    capability = PlaybackCapability(PROFILE_ID, "ready", "可访问")
+
+    restored = PlaybackCapability.from_dict(capability.to_dict())
+
+    assert restored.to_dict() == capability.to_dict()
+    assert "username" not in restored.to_dict()
+    with pytest.raises(ValueError, match="unknown playback capability status"):
+        PlaybackCapability(PROFILE_ID, "unknown")
 
 
 def test_reporting_uses_shared_emby_synced_item_identity():

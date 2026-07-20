@@ -5,7 +5,7 @@ from typing import Any, Mapping, Optional
 
 from ..model.config import configured_identities
 from ..model.identity import EmbyIdentity
-from ..model.playback import PlaybackSnapshot
+from ..model.playback import PlaybackCapability, PlaybackSnapshot
 
 
 class PlaybackProfileService:
@@ -47,8 +47,17 @@ class PlaybackProfileService:
             message="尚未同步播放画像",
         )
 
+    def probe(
+        self, profile_id: str, config: Mapping[str, Any]
+    ) -> PlaybackCapability:
+        """探测受控 identity 的 Playback Reporting 当前能力状态。"""
+        target = str(profile_id or "").strip()
+        if not target:
+            raise ValueError("profile_id is required")
+        return self._reporting.probe(self._identity(target, config))
+
     def collect(self, profile_id: str, config: Mapping[str, Any]) -> PlaybackSnapshot:
-        """按配置执行数据源探测、快照回退和订阅兜底。"""
+        """按配置采集 Playback Reporting，并执行瞬时故障快照回退。"""
         target = str(profile_id or "").strip()
         if not target:
             raise ValueError("profile_id is required")
