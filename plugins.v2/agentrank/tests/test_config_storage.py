@@ -114,18 +114,19 @@ def test_emby_identity_config_replaces_mp_user_mapping():
             "enabled": True,
             "emby_identities": [HOME_IDENTITY],
             "default_profile_id": "emby:home:user-1",
+            # 旧字段可以留在历史配置中，但不再进入运行时模型。
             "playback_source_mode": "emby_native",
             "playback_completion_threshold": 0.9,
         }
     )
-    assert config.playback_source_mode == "emby_native"
     assert config.emby_identities == [HOME_IDENTITY]
     assert config.default_profile_id == "emby:home:user-1"
     assert config.playback_completion_threshold == 0.9
+    assert "playback_source_mode" not in config.to_dict()
     assert "users" not in config.to_dict()
     assert "default_user" not in config.to_dict()
     assert "playback_user_map" not in config.to_dict()
-    assert AgentRankConfig.from_mapping({}).playback_source_mode == "auto"
+    assert "playback_source_mode" not in default_config()
 
 
 def test_playback_snapshot_is_scoped_and_does_not_store_sensitive_fields():

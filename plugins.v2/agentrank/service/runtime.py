@@ -62,7 +62,7 @@ class AgentRankRuntime:
         from ..adapter.discovery import DiscoveryAdapter
         from ..adapter.library import LibraryAdapter
         from ..adapter.media import MediaRecognitionAdapter
-        from ..adapter.emby_playback import EmbyServiceAccess, EmbyPlaybackAdapter
+        from ..adapter.emby import EmbyServiceAccess
         from ..adapter.playback_reporting import PlaybackReportingAdapter
         from ..storage.repository import AgentRankRepository
         from .candidate import CandidateCollectionService
@@ -79,7 +79,6 @@ class AgentRankRuntime:
         playback_service = PlaybackProfileService(
             repository=repository,
             reporting_adapter=PlaybackReportingAdapter(playback_access),
-            native_adapter=EmbyPlaybackAdapter(playback_access),
         )
         plugin._playback_service = playback_service
         media_adapter = MediaRecognitionAdapter()

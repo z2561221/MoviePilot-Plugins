@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Mapping
 
-from .emby_playback import EmbyServiceAccess, _media_type, merge_playback_samples
+from .emby import EmbyServiceAccess, media_type, merge_playback_samples
+from ..model.identity import EmbyIdentity
 from ..model.playback import PlaybackSample, PlaybackSnapshot
 
 
@@ -111,25 +112,36 @@ class PlaybackReportingAdapter:
 
     def collect(
         self,
-        username: str,
+        identity: EmbyIdentity,
         recent_days: int = 180,
         completion_threshold: float = 0.85,
         abandon_minutes: int = 20,
     ) -> PlaybackSnapshot:
         """读取 Playback Reporting，并将会话映射为 TMDB 级播放证据。"""
-        target = str(username or "").strip()
-        services = self._access.services()
-        if not services:
-            return PlaybackSnapshot(target, self.source, "high", "unavailable", message="未发现可用 Emby 服务")
+        if not isinstance(identity, EmbyIdentity):
+            raise TypeError("identity must be EmbyIdentity")
+        target = identity.profile_id
+        configured_server_name, service = self._access.resolve_service(
+            identity.server_name
+        )
+        if service is None:
+            return PlaybackSnapshot(
+                target,
+                self.source,
+                "high",
+                "unavailable",
+                username=identity.username,
+                message="指定 Emby 服务不可用",
+            )
         collected: List[PlaybackSample] = []
         unmapped = 0
         detected = False
         permission_error = False
         transient_error = False
         mapped_user = False
-        for server_name, service in services.items():
-            host, api_key, instance = self._access.credentials(service)
-            user_id = self._access.resolve_user(instance, target)
+        for server_name, service in ((configured_server_name, service),):
+            host, api_key, _instance = self._access.credentials(service)
+            user_id = identity.user_id
             if not host or not api_key or not user_id:
                 continue
             mapped_user = True
@@ -163,15 +175,25 @@ class PlaybackReportingAdapter:
             rows = [
                 row
                 for row in self._rows(payload)
-                if str(row.get("UserName") or row.get("UserId") or "").strip() == target
+                if {
+                    str(row.get("UserId") or "").strip(),
+                    str(row.get("UserName") or "").strip(),
+                }
+                & {identity.user_id, identity.username}
             ]
             details = self._fetch_details(server_name, host, api_key, user_id, [row.get("ItemId") for row in rows])
             for row in rows:
                 item_id = str(row.get("ItemId") or "")
                 detail = details.get(item_id) or {}
                 parent = details.get(str(detail.get("SeriesId") or "")) or {}
-                identity = parent if _media_type(row.get("ItemType")) == "tv" and parent else detail
-                tmdb_id = str((identity.get("ProviderIds") or {}).get("Tmdb") or "")
+                media_identity = (
+                    parent
+                    if media_type(row.get("ItemType")) == "tv" and parent
+                    else detail
+                )
+                tmdb_id = str(
+                    (media_identity.get("ProviderIds") or {}).get("Tmdb") or ""
+                )
                 if not tmdb_id:
                     unmapped += 1
                     continue
@@ -183,12 +205,17 @@ class PlaybackReportingAdapter:
                     unmapped += 1
                     continue
                 completed = bool(runtime_seconds and watch_seconds >= runtime_seconds * completion_threshold)
-                media_type = _media_type(row.get("ItemType"))
+                item_media_type = media_type(row.get("ItemType"))
                 collected.append(
                     PlaybackSample(
-                        stable_id=f"tmdb:{media_type}:{tmdb_id}",
-                        title=str(identity.get("Name") or detail.get("SeriesName") or row.get("ItemName") or "未知媒体"),
-                        media_type=media_type,
+                        stable_id=f"tmdb:{item_media_type}:{tmdb_id}",
+                        title=str(
+                            media_identity.get("Name")
+                            or detail.get("SeriesName")
+                            or row.get("ItemName")
+                            or "未知媒体"
+                        ),
+                        media_type=item_media_type,
                         tmdb_id=tmdb_id,
                         completed=completed,
                         play_count=play_count,
@@ -198,19 +225,48 @@ class PlaybackReportingAdapter:
                     )
                 )
         if not mapped_user:
-            return PlaybackSnapshot(target, self.source, "high", "user_unmapped", message="未找到对应的 Emby 用户")
+            return PlaybackSnapshot(
+                target,
+                self.source,
+                "high",
+                "user_unmapped",
+                username=identity.username,
+                message="Emby 用户身份不可用",
+            )
         if not detected:
             if permission_error:
-                return PlaybackSnapshot(target, self.source, "high", "permission_error", message="Playback Reporting 读取权限不足")
+                return PlaybackSnapshot(
+                    target,
+                    self.source,
+                    "high",
+                    "permission_error",
+                    username=identity.username,
+                    message="Playback Reporting 读取权限不足",
+                )
             if transient_error:
-                return PlaybackSnapshot(target, self.source, "high", "transient_error", message="Playback Reporting 暂时不可用")
-            return PlaybackSnapshot(target, self.source, "high", "not_installed", message="未安装 Playback Reporting")
+                return PlaybackSnapshot(
+                    target,
+                    self.source,
+                    "high",
+                    "transient_error",
+                    username=identity.username,
+                    message="Playback Reporting 暂时不可用",
+                )
+            return PlaybackSnapshot(
+                target,
+                self.source,
+                "high",
+                "not_installed",
+                username=identity.username,
+                message="未安装 Playback Reporting",
+            )
         merged = merge_playback_samples(collected)
         return PlaybackSnapshot(
             target,
             self.source,
             "high",
             "ready",
+            username=identity.username,
             samples=merged,
             mapped_count=len(merged),
             unmapped_count=unmapped,

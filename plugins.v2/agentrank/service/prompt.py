@@ -34,7 +34,7 @@ def build_ranking_prompt(
 
 画像演进规则：read_agentrank_playback 会同时返回规范化 playback、可选 previous_profile 与受信 profile_preferences。previous_profile 非空时，在旧画像基础上结合真实播放证据演进，保留仍有证据的稳定偏好，并删除或弱化已失去证据的旧标签；禁止简单做标签并集。previous_profile 为空时只根据当前播放证据建立画像。profile_preferences 中 custom_tags 是用户明确偏好，必须参与画像与排序；custom_negative_tags 是用户明确避雷，必须降低相关候选排序；suppressed_tags 与 suppressed_negative_tags 是用户已删除的 Agent 标签，不得重新写回对应画像标签。playback_count 必须反映当前 playback 样本数量。
 
-播放画像规则：先读取 read_agentrank_playback。confidence=high 的 Playback Reporting 是最强行为证据，medium 的 Emby 原生状态次之，low 或 source=unavailable 只能辅助判断。completed、play_count、watch_minutes 和 last_played_at 可支持“看完、重看、近期观看”类理由；abandoned 只能作为负向信号，不能把一次早退直接解释成讨厌。播放画像没有样本时不得编造观看行为，也不得把其他媒体列表说成已观看记录。
+播放画像规则：先读取 read_agentrank_playback。只有 source=playback_reporting 且 status 为 ready 或 cached 的样本可以作为行为证据。completed、play_count、watch_minutes 和 last_played_at 可支持“看完、重看、近期观看”类理由；abandoned 只能作为负向信号，不能把一次早退直接解释成讨厌。播放画像没有样本时不得编造观看行为，也不得把其他媒体列表说成已观看记录。
 
 可配置排序指令：
 {custom_instruction}

@@ -27,9 +27,6 @@ DISCOVERY_SOURCE_DEFAULTS: Dict[str, bool] = {
     "bangumi": True,
 }
 
-PLAYBACK_SOURCE_MODES = {"auto", "playback_reporting", "emby_native"}
-
-
 class ConfigValidationError(ValueError):
     """表示配置包含一个或多个可见校验错误。"""
 
@@ -67,7 +64,6 @@ class AgentRankConfig:
     profile_cache_enabled: bool = True
     rebuild_profile_each_run: bool = False
     playback_enabled: bool = True
-    playback_source_mode: str = "auto"
     playback_recent_days: int = 180
     playback_completion_threshold: float = 0.85
     playback_abandon_minutes: int = 20
@@ -235,11 +231,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         errors.append("action_mode must be update, notify, or auto_subscribe")
         action_mode = "notify"
 
-    playback_source_mode = str(raw.get("playback_source_mode") or "auto").strip()
-    if playback_source_mode not in PLAYBACK_SOURCE_MODES:
-        errors.append("playback_source_mode must be auto, playback_reporting, or emby_native")
-        playback_source_mode = "auto"
-
     auto_limit = _bounded_integer(
         raw.get("auto_subscribe_limit", 10), 10, 0, 10, "auto_subscribe_limit", errors
     )
@@ -288,7 +279,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         profile_cache_enabled=bool(raw.get("profile_cache_enabled", True)),
         rebuild_profile_each_run=bool(raw.get("rebuild_profile_each_run", False)),
         playback_enabled=bool(raw.get("playback_enabled", True)),
-        playback_source_mode=playback_source_mode,
         playback_recent_days=_bounded_integer(
             raw.get("playback_recent_days", 180), 180, 1, 3650, "playback_recent_days", errors
         ),

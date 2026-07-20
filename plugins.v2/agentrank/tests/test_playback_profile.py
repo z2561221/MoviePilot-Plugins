@@ -1,4 +1,4 @@
-"""AgentRank 播放数据源优先级与快照回退测试。"""
+"""AgentRank Playback Reporting 身份作用域与快照回退测试。"""
 
 import importlib
 import sys
@@ -11,35 +11,27 @@ PACKAGE_NAME = "agentrank_playback_test"
 package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
 
+identity_module = importlib.import_module(f"{PACKAGE_NAME}.model.identity")
 model = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 service_module = importlib.import_module(f"{PACKAGE_NAME}.service.playback_profile")
 reporting_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.playback_reporting")
-emby_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.emby_playback")
 
+EmbyIdentity = identity_module.EmbyIdentity
 PlaybackSample = model.PlaybackSample
 PlaybackSnapshot = model.PlaybackSnapshot
 PlaybackProfileService = service_module.PlaybackProfileService
 PlaybackReportingAdapter = reporting_module.PlaybackReportingAdapter
-within_recent_days = emby_module._within_recent_days
 
-PROFILE_ID = "emby:home:user-1"
+IDENTITY = EmbyIdentity("home", "user-1", "Alice")
+PROFILE_ID = IDENTITY.profile_id
 
 
 def _config(**overrides):
     """返回包含一个受控 Emby identity 的播放测试配置。"""
     config = {
-        "emby_identities": [
-            {
-                "server_name": "home",
-                "user_id": "user-1",
-                "username": "Alice",
-                "profile_id": PROFILE_ID,
-                "schema_version": 1,
-            }
-        ],
+        "emby_identities": [IDENTITY.to_dict()],
         "default_profile_id": PROFILE_ID,
         "playback_enabled": True,
-        "playback_source_mode": "auto",
     }
     config.update(overrides)
     return config
@@ -51,22 +43,22 @@ class FakeRepository:
     def __init__(self):
         self.snapshots = {}
 
-    def load_playback_snapshot(self, username):
-        return self.snapshots.get(username)
+    def load_playback_snapshot(self, profile_id):
+        return self.snapshots.get(profile_id)
 
     def save_playback_snapshot(self, snapshot):
         self.snapshots[snapshot.profile_id] = snapshot
 
 
 class FakeAdapter:
-    """返回预设快照并记录传入的 Emby 用户名。"""
+    """返回预设快照并记录传入的稳定 Emby identity。"""
 
     def __init__(self, result):
         self.result = result
-        self.usernames = []
+        self.identities = []
 
-    def collect(self, username, **kwargs):
-        self.usernames.append(username)
+    def collect(self, identity, **kwargs):
+        self.identities.append(identity)
         return PlaybackSnapshot.from_dict(self.result.to_dict())
 
 
@@ -82,19 +74,17 @@ class FakeResponse:
 
 
 class FakeReportingAccess:
-    """按队列返回 Playback Reporting HTTP 响应。"""
+    """按队列返回指定 identity 的 Playback Reporting HTTP 响应。"""
 
-    def __init__(self, responses):
+    def __init__(self, responses, details=None):
         self.responses = list(responses)
+        self.details = list(details or [])
 
-    def services(self):
-        return {"Emby": object()}
+    def resolve_service(self, server_name):
+        return ("home", object()) if server_name == "home" else ("", None)
 
     def credentials(self, service):
         return "http://emby/", "secret", object()
-
-    def resolve_user(self, instance, username):
-        return "user-id"
 
     def request(self):
         return self
@@ -103,73 +93,85 @@ class FakeReportingAccess:
         return self.responses.pop(0)
 
     def get_res(self, url, params=None):
+        if self.details:
+            return FakeResponse(200, {"Items": self.details})
         return FakeResponse(200, {"Items": []})
 
     def synced_item(self, server, item_id):
         return {}
 
 
-def _ready(source, confidence="high"):
+def _ready():
     return PlaybackSnapshot(
         profile_id=PROFILE_ID,
         username="Alice",
-        source=source,
-        confidence=confidence,
+        source="playback_reporting",
+        confidence="high",
         status="ready",
-        samples=[PlaybackSample("tmdb:movie:1", "One", "movie", tmdb_id="1", completed=True)],
+        samples=[
+            PlaybackSample(
+                "tmdb:movie:1", "One", "movie", tmdb_id="1", completed=True
+            )
+        ],
     )
 
 
-def test_auto_prefers_playback_reporting_and_uses_identity_username():
-    """自动模式使用受控 identity 显示名读取 Playback Reporting。"""
+def test_profile_service_passes_the_exact_configured_identity():
+    """播放服务按 profile_id 传递完整 identity，不再按显示名猜用户。"""
     repo = FakeRepository()
-    reporting = FakeAdapter(_ready("playback_reporting"))
-    native = FakeAdapter(_ready("emby_native", "medium"))
-    service = PlaybackProfileService(repo, reporting, native)
+    reporting = FakeAdapter(_ready())
+    service = PlaybackProfileService(repo, reporting)
 
     result = service.collect(PROFILE_ID, _config())
 
     assert result.source == "playback_reporting"
-    assert reporting.usernames == ["Alice"]
-    assert native.usernames == []
+    assert reporting.identities == [IDENTITY]
+    assert result.profile_id == PROFILE_ID
+    assert result.username == "Alice"
 
 
-def test_auto_falls_back_to_native_when_reporting_is_not_installed():
-    """404/未安装结果自动切换 Emby 原生状态。"""
+def test_not_installed_result_is_preserved_without_native_userdata_fallback():
+    """未安装结果直接保留，不再读取 Emby 原生 UserData。"""
     repo = FakeRepository()
-    reporting = FakeAdapter(PlaybackSnapshot("alice", "playback_reporting", "high", "not_installed"))
-    native = FakeAdapter(_ready("emby_native", "medium"))
-    result = PlaybackProfileService(repo, reporting, native).collect(
-        PROFILE_ID, _config()
+    reporting = FakeAdapter(
+        PlaybackSnapshot(PROFILE_ID, "playback_reporting", "high", "not_installed")
     )
-    assert result.source == "emby_native"
-    assert result.fallback_from == ["playback_reporting:not_installed"]
+
+    result = PlaybackProfileService(repo, reporting).collect(PROFILE_ID, _config())
+
+    assert result.status == "not_installed"
+    assert result.source == "playback_reporting"
+    assert repo.load_playback_snapshot(PROFILE_ID).status == "not_installed"
 
 
-def test_auto_falls_back_to_native_when_reporting_has_no_usable_rows():
-    """已安装但没有可用记录时，自动模式继续读取 Emby 原生状态。"""
+def test_ready_empty_result_remains_playback_reporting_evidence():
+    """已安装但无记录时保留空快照，由编排器执行样本门槛。"""
     repo = FakeRepository()
-    reporting = FakeAdapter(PlaybackSnapshot("alice", "playback_reporting", "high", "ready"))
-    native = FakeAdapter(_ready("emby_native", "medium"))
-    result = PlaybackProfileService(repo, reporting, native).collect(
-        PROFILE_ID, _config()
+    reporting = FakeAdapter(
+        PlaybackSnapshot(PROFILE_ID, "playback_reporting", "high", "ready")
     )
-    assert result.source == "emby_native"
-    assert result.fallback_from == ["playback_reporting:empty"]
+
+    result = PlaybackProfileService(repo, reporting).collect(PROFILE_ID, _config())
+
+    assert result.status == "ready"
+    assert result.sample_count == 0
+    assert result.source == "playback_reporting"
 
 
-def test_transient_reporting_uses_recent_snapshot_before_native():
-    """Playback Reporting 暂时故障时优先保留最近成功快照。"""
+def test_transient_reporting_uses_recent_success_snapshot():
+    """Playback Reporting 暂时故障时保留最近成功快照。"""
     repo = FakeRepository()
-    repo.save_playback_snapshot(_ready("playback_reporting"))
-    reporting = FakeAdapter(PlaybackSnapshot("alice", "playback_reporting", "high", "transient_error"))
-    native = FakeAdapter(_ready("emby_native", "medium"))
-    result = PlaybackProfileService(repo, reporting, native).collect(
+    repo.save_playback_snapshot(_ready())
+    reporting = FakeAdapter(
+        PlaybackSnapshot(PROFILE_ID, "playback_reporting", "high", "transient_error")
+    )
+
+    result = PlaybackProfileService(repo, reporting).collect(
         PROFILE_ID, _config(playback_cache_days=7)
     )
+
     assert result.status == "cached"
     assert result.source == "playback_reporting"
-    assert native.usernames == []
 
 
 def test_reporting_query_is_read_only_and_excludes_device_fields():
@@ -183,20 +185,15 @@ def test_reporting_query_is_read_only_and_excludes_device_fields():
     assert "ClientName" not in query and "DeviceName" not in query
 
 
-def test_playback_adapters_use_mp_synced_item_identity_before_agent_context():
-    """适配器源码明确通过 MP 媒体库同步身份完成 ItemId 到 TMDB 的映射。"""
-    emby_source = Path(PLUGIN_DIR / "adapter/emby_playback.py").read_text(encoding="utf-8")
-    reporting_source = Path(PLUGIN_DIR / "adapter/playback_reporting.py").read_text(encoding="utf-8")
+def test_reporting_uses_shared_emby_synced_item_identity():
+    """Playback Reporting 通过共享访问器映射 ItemId 到 TMDB。"""
+    emby_source = Path(PLUGIN_DIR / "adapter/emby.py").read_text(encoding="utf-8")
+    reporting_source = Path(
+        PLUGIN_DIR / "adapter/playback_reporting.py"
+    ).read_text(encoding="utf-8")
     assert "synced_item" in emby_source
     assert "synced_item" in reporting_source
     assert "MediaServerItem.get_by_server_itemid" in emby_source
-
-
-def test_emby_native_respects_recent_playback_window():
-    """Emby 原生分支只保留回溯窗口内的最近播放时间。"""
-    assert within_recent_days("2099-01-01T00:00:00Z", 180) is True
-    assert within_recent_days("2000-01-01T00:00:00Z", 180) is False
-    assert within_recent_days("", 180) is True
 
 
 def test_reporting_permission_error_is_not_misclassified_as_missing_plugin():
@@ -204,27 +201,74 @@ def test_reporting_permission_error_is_not_misclassified_as_missing_plugin():
     for status_code in (401, 403):
         result = PlaybackReportingAdapter(
             FakeReportingAccess([FakeResponse(status_code)])
-        ).collect("alice")
+        ).collect(IDENTITY)
         assert result.status == "permission_error"
+        assert result.profile_id == PROFILE_ID
 
 
 def test_reporting_requires_both_routes_to_return_404_before_not_installed():
     """两个兼容端点均为 404 时才判定未安装。"""
     result = PlaybackReportingAdapter(
         FakeReportingAccess([FakeResponse(404), FakeResponse(404)])
-    ).collect("alice")
+    ).collect(IDENTITY)
     assert result.status == "not_installed"
 
 
-def test_transient_reporting_without_cache_continues_to_native():
-    """瞬时错误且没有成功快照时继续读取 Emby 原生状态。"""
+def test_reporting_ready_snapshot_keeps_identity_and_matches_stable_user_id():
+    """成功采样按稳定 UserId 命中，并保留原始 profile_id 与显示名。"""
+    payload = {
+        "columns": [
+            "UserId",
+            "UserName",
+            "ItemId",
+            "ItemType",
+            "ItemName",
+            "PlayCount",
+            "WatchSeconds",
+            "LastPlayedAt",
+        ],
+        "results": [
+            [
+                "user-1",
+                "Renamed Alice",
+                "item-1",
+                "Movie",
+                "One",
+                1,
+                6000,
+                "2026-07-20T00:00:00Z",
+            ]
+        ],
+    }
+    access = FakeReportingAccess(
+        [FakeResponse(200, payload)],
+        details=[
+            {
+                "Id": "item-1",
+                "Name": "One",
+                "ProviderIds": {"Tmdb": "1"},
+                "RunTimeTicks": 6_000 * 10_000_000,
+            }
+        ],
+    )
+
+    result = PlaybackReportingAdapter(access).collect(IDENTITY)
+
+    assert result.status == "ready"
+    assert result.profile_id == PROFILE_ID
+    assert result.username == "Alice"
+    assert result.samples[0].stable_id == "tmdb:movie:1"
+    assert result.samples[0].completed is True
+
+
+def test_transient_reporting_without_cache_stays_transient():
+    """瞬时错误且没有成功快照时不得降级到原生 UserData。"""
     repo = FakeRepository()
     reporting = FakeAdapter(
-        PlaybackSnapshot("alice", "playback_reporting", "high", "transient_error")
+        PlaybackSnapshot(PROFILE_ID, "playback_reporting", "high", "transient_error")
     )
-    native = FakeAdapter(_ready("emby_native", "medium"))
-    result = PlaybackProfileService(repo, reporting, native).collect(
-        PROFILE_ID, _config()
-    )
-    assert result.source == "emby_native"
-    assert result.fallback_from == ["playback_reporting:transient_error"]
+
+    result = PlaybackProfileService(repo, reporting).collect(PROFILE_ID, _config())
+
+    assert result.status == "transient_error"
+    assert result.source == "playback_reporting"
