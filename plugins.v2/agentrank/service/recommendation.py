@@ -42,7 +42,6 @@ class RecommendationOrchestrator:
     def __init__(
         self,
         repository: AgentRankRepository,
-        profile_service: Any,
         candidate_service: Any,
         agent_adapter: Any,
         run_id_factory: Callable[[], str] = None,
@@ -53,7 +52,6 @@ class RecommendationOrchestrator:
     ):
         """注入可测试的领域依赖并初始化用户锁集合。"""
         self._repository = repository
-        self._profile_service = profile_service
         self._candidate_service = candidate_service
         self.agent_adapter = agent_adapter
         self._run_id_factory = run_id_factory or (lambda: uuid.uuid4().hex)
@@ -91,7 +89,6 @@ class RecommendationOrchestrator:
         return {
             "weights": dict(config.get("weights") or {}),
             "media_types": list(config.get("media_types") or []),
-            "profile_scope": str(config.get("profile_scope") or "all"),
             "candidate_pool_size": int(config.get("candidate_pool_size") or 50),
             "confidence_threshold": float(config.get("confidence_threshold") or 0.0),
             "exclude_keywords": list(config.get("exclude_keywords") or []),
@@ -206,28 +203,6 @@ class RecommendationOrchestrator:
         errors: List[str] = []
         try:
             logger.info("AgentRank 运行开始 profile_id=%s run_id=%s", target, run_id)
-            stage_clock = time.monotonic()
-            profile_input = await asyncio.to_thread(
-                self._profile_service.collect,
-                target,
-                profile_scope=config.get("profile_scope", "all"),
-                recent_days=int(config.get("recent_days") or 365),
-                sample_limit=int(config.get("subscription_sample_limit") or 200),
-                minimum_samples=int(config.get("minimum_samples") or 5),
-            )
-            metrics["profile_collect_ms"] = max(
-                0, int((time.monotonic() - stage_clock) * 1000)
-            )
-            metrics["subscription_count"] = profile_input.sample_count
-            metrics["subscription_rejected_count"] = profile_input.rejected_count
-            logger.info(
-                "AgentRank 画像样本 profile_id=%s run_id=%s accepted=%s rejected=%s status=%s",
-                target,
-                run_id,
-                profile_input.sample_count,
-                profile_input.rejected_count,
-                profile_input.status,
-            )
             playback_snapshot = None
             if self._playback_service is not None:
                 stage_clock = time.monotonic()
@@ -242,15 +217,19 @@ class RecommendationOrchestrator:
                     metrics["playback_unmapped_count"] = playback_snapshot.unmapped_count
                 except Exception as error:
                     errors.append(f"playback: {error}")
-                    metrics["playback_source"] = "subscription"
+                    metrics["playback_source"] = "unavailable"
                     metrics["playback_status"] = "error"
                 metrics["playback_collect_ms"] = max(
                     0, int((time.monotonic() - stage_clock) * 1000)
                 )
-            playback_count = playback_snapshot.sample_count if playback_snapshot is not None else 0
-            evidence_count = profile_input.sample_count + playback_count
-            metrics["profile_evidence_count"] = evidence_count
-            if profile_input.status != "ready" and evidence_count < int(
+            playback_count = (
+                playback_snapshot.sample_count if playback_snapshot is not None else 0
+            )
+            metrics["profile_evidence_count"] = playback_count
+            playback_status = (
+                playback_snapshot.status if playback_snapshot is not None else "unavailable"
+            )
+            if playback_status not in {"ready", "cached"} or playback_count < int(
                 config.get("minimum_samples") or 5
             ):
                 return self._failure(
@@ -258,7 +237,7 @@ class RecommendationOrchestrator:
                     username,
                     run_id,
                     "sample_insufficient",
-                    "订阅与真实播放样本均不足，未调用 Agent",
+                    "真实播放样本不足，未调用 Agent",
                     started_at,
                     started_clock,
                     metrics,
@@ -317,7 +296,7 @@ class RecommendationOrchestrator:
 
             archive = self._repository.load_archive(target)
             archived_ids = {entry.candidate_id for entry in archive.entries}
-            subscribed_ids = {sample.stable_id for sample in profile_input.samples}
+            subscribed_ids: Set[str] = set()
             profile_cache_enabled = bool(config.get("profile_cache_enabled", True))
             rebuild_profile = bool(config.get("rebuild_profile_each_run", False))
             previous_profile = (
@@ -338,7 +317,6 @@ class RecommendationOrchestrator:
             trusted_context = build_trusted_context(
                 username=username,
                 run_id=run_id,
-                subscriptions=[sample.to_dict() for sample in profile_input.samples],
                 previous_profile=(
                     previous_profile.to_dict() if previous_profile is not None else None
                 ),
@@ -348,7 +326,7 @@ class RecommendationOrchestrator:
                 profile_preferences=profile_preferences.to_dict(),
                 playback=(
                     playback_snapshot.to_dict() if playback_snapshot is not None else {
-                        "source": "subscription",
+                        "source": "unavailable",
                         "confidence": "low",
                         "status": "unavailable",
                         "samples": [],
@@ -489,7 +467,7 @@ class RecommendationOrchestrator:
                 summary=validation.profile.summary,
                 tags=list(validation.profile.tags),
                 negative_tags=list(validation.profile.negative_tags),
-                subscription_count=validation.profile.subscription_count,
+                playback_count=validation.profile.playback_count,
                 run_id=run_id,
                 generated_at=generated_at,
             )

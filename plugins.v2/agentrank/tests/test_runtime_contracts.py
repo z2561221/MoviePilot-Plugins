@@ -8,7 +8,6 @@ import pytest
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 EXPECTED_TOOL_NAMES = {
-    "read_agentrank_subscriptions",
     "read_agentrank_candidates",
     "read_agentrank_archive_feedback",
     "read_agentrank_weights",
@@ -62,10 +61,30 @@ def test_per_user_domain_and_storage_contract_exists():
 
 
 def test_agent_tool_registry_is_an_exact_read_only_whitelist():
-    """The Agent tool registry contains exactly the five trusted read tools."""
+    """The Agent tool registry contains exactly the four trusted read tools."""
     source = _source("agent_tools/registry.py")
     assert _assigned_string_collection(source, "ALLOWED_AGENT_TOOL_NAMES") == EXPECTED_TOOL_NAMES
     assert "AGENT_TOOL_CLASSES" in source
+
+
+def test_subscription_profile_input_chain_is_removed():
+    """订阅样本画像服务、模型和编排依赖不得回到生产链。"""
+    assert not (PLUGIN_DIR / "service" / "profile_input.py").exists()
+    assert not (PLUGIN_DIR / "model" / "subscription.py").exists()
+    for relative_path in (
+        "service/recommendation.py",
+        "service/runtime.py",
+        "agent_tools/tools.py",
+        "agent_tools/registry.py",
+    ):
+        source = _source(relative_path)
+        for forbidden in (
+            "ProfileInputService",
+            "ProfileInputResult",
+            "SubscriptionSample",
+            "read_agentrank_subscriptions",
+        ):
+            assert forbidden not in source
 
 
 def test_agent_adapter_is_capture_only_and_never_loads_general_tools():

@@ -41,7 +41,7 @@ class PlaybackProfileService:
         return self._repository.load_playback_snapshot(profile_id) or PlaybackSnapshot(
             profile_id=profile_id,
             username=profile_id,
-            source="subscription",
+            source="unavailable",
             confidence="low",
             status="idle",
             message="尚未同步播放画像",
@@ -56,7 +56,7 @@ class PlaybackProfileService:
         if not bool(config.get("playback_enabled", True)):
             snapshot = PlaybackSnapshot(
                 target,
-                "subscription",
+                "unavailable",
                 "low",
                 "disabled",
                 username=source_username,
@@ -115,11 +115,11 @@ class PlaybackProfileService:
                 return native_result
         snapshot = PlaybackSnapshot(
             target,
-            "subscription",
+            "unavailable",
             "low",
             "fallback",
             username=source_username,
-            message="播放记录不可用，当前仅使用 MP 订阅画像与媒体库库存",
+            message="播放记录不可用，未生成新的画像证据",
             fallback_from=failures,
         )
         self._repository.save_playback_snapshot(snapshot)

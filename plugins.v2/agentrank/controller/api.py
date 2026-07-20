@@ -113,7 +113,7 @@ class AgentRankApiController:
                 "summary": "",
                 "tags": [],
                 "negative_tags": [],
-                "subscription_count": 0,
+                "playback_count": 0,
                 "run_id": "",
                 "generated_at": "",
             }

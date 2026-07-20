@@ -36,7 +36,6 @@ class AgentRankTrustedContext:
 
     username: str
     run_id: str
-    subscriptions: Any
     candidates: Any
     archive_feedback: Any
     weights: Any
@@ -48,7 +47,6 @@ class AgentRankTrustedContext:
 def build_trusted_context(
     username: str,
     run_id: str,
-    subscriptions: Any,
     candidates: Any,
     archive_feedback: Any,
     weights: Any,
@@ -64,7 +62,6 @@ def build_trusted_context(
     return AgentRankTrustedContext(
         username=trusted_username,
         run_id=trusted_run_id,
-        subscriptions=_deep_freeze(subscriptions),
         candidates=_deep_freeze(candidates),
         archive_feedback=_deep_freeze(archive_feedback),
         weights=_deep_freeze(weights),

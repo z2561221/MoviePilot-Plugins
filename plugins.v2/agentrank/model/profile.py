@@ -13,10 +13,10 @@ class UserProfile:
     summary: str = ""
     tags: List[str] = field(default_factory=list)
     negative_tags: List[str] = field(default_factory=list)
-    subscription_count: int = 0
+    playback_count: int = 0
     run_id: str = ""
     generated_at: str = ""
-    schema_version: int = 2
+    schema_version: int = 3
 
     def __post_init__(self) -> None:
         """规范化画像归属并拒绝空 profile_id。"""
@@ -43,8 +43,8 @@ class UserProfile:
             summary=str(value.get("summary") or ""),
             tags=[str(item) for item in value.get("tags") or []],
             negative_tags=[str(item) for item in value.get("negative_tags") or []],
-            subscription_count=max(0, int(value.get("subscription_count") or 0)),
+            playback_count=max(0, int(value.get("playback_count") or 0)),
             run_id=str(value.get("run_id") or ""),
             generated_at=str(value.get("generated_at") or ""),
-            schema_version=int(value.get("schema_version") or 2),
+            schema_version=int(value.get("schema_version") or 3),
         )

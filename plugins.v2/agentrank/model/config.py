@@ -55,9 +55,6 @@ class AgentRankConfig:
     )
     weights: Dict[str, float] = field(default_factory=lambda: dict(WEIGHT_DEFAULTS))
     media_types: List[str] = field(default_factory=lambda: ["movie", "tv", "anime"])
-    profile_scope: str = "all"
-    recent_days: int = 365
-    subscription_sample_limit: int = 200
     minimum_samples: int = 5
     candidate_pool_size: int = 50
     confidence_threshold: float = 0.6
@@ -233,11 +230,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         errors.append("media_types must contain only movie, tv, or anime")
         media_types = ["movie", "tv", "anime"]
 
-    profile_scope = str(raw.get("profile_scope") or "all")
-    if profile_scope not in {"recent", "all"}:
-        errors.append("profile_scope must be recent or all")
-        profile_scope = "all"
-
     action_mode = str(raw.get("action_mode") or "notify")
     if action_mode not in {"update", "notify", "auto_subscribe"}:
         errors.append("action_mode must be update, notify, or auto_subscribe")
@@ -266,18 +258,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         discovery_sources=discovery_sources,
         weights=weights,
         media_types=media_types,
-        profile_scope=profile_scope,
-        recent_days=_bounded_integer(
-            raw.get("recent_days", 365), 365, 1, 3650, "recent_days", errors
-        ),
-        subscription_sample_limit=_bounded_integer(
-            raw.get("subscription_sample_limit", 200),
-            200,
-            1,
-            1000,
-            "subscription_sample_limit",
-            errors,
-        ),
         minimum_samples=_bounded_integer(
             raw.get("minimum_samples", 5), 5, 1, 100, "minimum_samples", errors
         ),

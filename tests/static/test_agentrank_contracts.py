@@ -129,7 +129,7 @@ def test_agentrank_agent_context_documents_restricted_runtime_boundaries():
     for phrase in (
         "RestrictedAgentRankAgent",
         "ReplyMode.CAPTURE_ONLY",
-        "read_agentrank_subscriptions",
+        "read_agentrank_playback",
         "read_agentrank_candidates",
         "read_agentrank_archive_feedback",
         "read_agentrank_weights",

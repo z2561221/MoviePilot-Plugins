@@ -18,7 +18,6 @@ candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
 preferences_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile_preferences")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
-subscription_module = importlib.import_module(f"{PACKAGE_NAME}.model.subscription")
 playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 orchestrator_module = importlib.import_module(f"{PACKAGE_NAME}.service.recommendation")
@@ -27,8 +26,6 @@ Candidate = candidate_module.Candidate
 UserProfile = profile_module.UserProfile
 ProfilePreferences = preferences_module.ProfilePreferences
 RecommendationBoard = board_module.RecommendationBoard
-SubscriptionSample = subscription_module.SubscriptionSample
-ProfileInputResult = subscription_module.ProfileInputResult
 PlaybackSample = playback_module.PlaybackSample
 PlaybackSnapshot = playback_module.PlaybackSnapshot
 AgentRankRepository = repository_module.AgentRankRepository
@@ -69,18 +66,25 @@ class FakePlugin:
         self.data.pop(key, None)
 
 
-class FakeProfileService:
-    """Return a deterministic ready profile input."""
+class FakePlaybackService:
+    """Return deterministic Playback Reporting evidence."""
 
-    def collect(self, profile_id, **kwargs):
-        return ProfileInputResult(
+    def collect(self, profile_id, config):
+        return PlaybackSnapshot(
+            profile_id=profile_id,
             username="Alice",
+            source="playback_reporting",
+            confidence="high",
             status="ready",
-            minimum_samples=1,
             samples=[
-                SubscriptionSample(
-                    stable_id="tmdb:999", title="Subscribed", media_type="movie"
+                PlaybackSample(
+                    f"tmdb:movie:{index}",
+                    f"Watched {index}",
+                    "movie",
+                    tmdb_id=str(index),
+                    completed=True,
                 )
+                for index in range(1, 6)
             ],
         )
 
@@ -134,7 +138,7 @@ def _agent_output(candidate_ids):
                 "summary": "偏好高质量悬疑电影",
                 "tags": ["悬疑"],
                 "negative_tags": [],
-                "subscription_count": 1,
+                "playback_count": 5,
             },
             "recommendations": [
                 {
@@ -156,10 +160,10 @@ def _orchestrator(plugin, outputs, candidate_count=12):
     return (
         RecommendationOrchestrator(
             repository=repository,
-            profile_service=FakeProfileService(),
             candidate_service=FakeCandidateService(candidate_count),
             agent_adapter=FakeAgentAdapter(outputs),
             run_id_factory=lambda: "run-1",
+            playback_service=FakePlaybackService(),
         ),
         repository,
     )
@@ -168,8 +172,6 @@ def _orchestrator(plugin, outputs, candidate_count=12):
 def _config():
     return {
         **IDENTITY_CONFIG,
-        "profile_scope": "all",
-        "subscription_sample_limit": 200,
         "candidate_pool_size": 50,
         "discovery_sources": {"douban": True},
         "weights": {"rating_weight": 0.7},
@@ -217,7 +219,7 @@ def test_run_uses_configured_agent_prompt():
 
 
 def test_cached_profile_is_passed_as_incremental_context():
-    """画像缓存开启且未要求重建时，旧画像会进入只读订阅上下文。"""
+    """画像缓存开启且未要求重建时，旧画像会进入只读播放上下文。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(
         plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
@@ -253,7 +255,7 @@ def test_cached_profile_is_passed_as_incremental_context():
     assert history.metrics["profile_mode"] == "incremental"
     assert history.metrics["previous_profile_used"] is True
     assert history.metrics["custom_preference_count"] == 2
-    for metric in ("profile_collect_ms", "candidate_collect_ms", "library_check_ms", "agent_ms", "save_ms"):
+    for metric in ("playback_collect_ms", "candidate_collect_ms", "library_check_ms", "agent_ms", "save_ms"):
         assert history.metrics[metric] >= 0
     assert result.status == "success"
 
@@ -289,14 +291,15 @@ def test_playback_evidence_is_collected_and_passed_to_restricted_context():
     )
     orchestrator = RecommendationOrchestrator(
         repository=repository,
-        profile_service=FakeProfileService(),
         candidate_service=FakeCandidateService(),
         agent_adapter=agent,
         run_id_factory=lambda: "run-playback",
         playback_service=PlaybackService(),
     )
 
-    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+    config = _config()
+    config["minimum_samples"] = 1
+    result = asyncio.run(orchestrator.run(PROFILE_ID, config))
 
     context = agent.calls[0][1]
     assert context.playback["source"] == "playback_reporting"
@@ -307,14 +310,10 @@ def test_playback_evidence_is_collected_and_passed_to_restricted_context():
     assert result.status == "success"
 
 
-def test_playback_samples_can_satisfy_profile_minimum_without_subscriptions():
-    """订阅不足但真实播放样本充足时，推荐主链继续执行。"""
+def test_playback_samples_are_the_only_profile_evidence():
+    """真实播放样本达到门槛时推荐主链继续执行。"""
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
-
-    class EmptyProfileService:
-        def collect(self, profile_id, **kwargs):
-            return ProfileInputResult("Alice", "sample_insufficient", [], minimum_samples=5)
 
     class PlaybackService:
         def collect(self, profile_id, config):
@@ -333,7 +332,6 @@ def test_playback_samples_can_satisfy_profile_minimum_without_subscriptions():
     agent = FakeAgentAdapter([_agent_output([f"tmdb:{index}" for index in range(1, 11)])])
     orchestrator = RecommendationOrchestrator(
         repository=repository,
-        profile_service=EmptyProfileService(),
         candidate_service=FakeCandidateService(),
         agent_adapter=agent,
         run_id_factory=lambda: "run-playback-only",
@@ -346,6 +344,51 @@ def test_playback_samples_can_satisfy_profile_minimum_without_subscriptions():
 
     assert result.status == "success"
     assert repository.load_run_history(PROFILE_ID)[0].metrics["profile_evidence_count"] == 5
+
+
+def test_insufficient_playback_never_calls_agent_or_uses_subscription_fallback():
+    """播放样本不足时停止运行，订阅记录不得成为画像兜底。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+
+    class InsufficientPlaybackService:
+        def collect(self, profile_id, config):
+            return PlaybackSnapshot(
+                profile_id=profile_id,
+                username="Alice",
+                source="playback_reporting",
+                confidence="high",
+                status="ready",
+                samples=[
+                    PlaybackSample(
+                        f"tmdb:movie:{index}",
+                        f"Watched {index}",
+                        "movie",
+                        tmdb_id=str(index),
+                    )
+                    for index in range(1, 5)
+                ],
+            )
+
+    agent = FakeAgentAdapter([_agent_output(["tmdb:1"])])
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=FakeCandidateService(),
+        agent_adapter=agent,
+        run_id_factory=lambda: "run-insufficient-playback",
+        playback_service=InsufficientPlaybackService(),
+    )
+    config = _config()
+    config["minimum_samples"] = 5
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, config))
+
+    assert result.status == "sample_insufficient"
+    assert result.agent_calls == 0
+    assert agent.calls == []
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["profile_evidence_count"] == 4
+    assert "subscription_count" not in history.metrics
 
 
 def test_rebuild_or_disabled_cache_does_not_read_previous_profile():
@@ -392,11 +435,11 @@ def test_library_items_are_removed_before_agent_context_is_built():
     )
     orchestrator = RecommendationOrchestrator(
         repository=repository,
-        profile_service=FakeProfileService(),
         candidate_service=FakeCandidateService(12),
         agent_adapter=agent,
         run_id_factory=lambda: "run-library",
         library_adapter=LibraryAdapter(),
+        playback_service=FakePlaybackService(),
     )
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
@@ -582,10 +625,10 @@ def test_concurrent_refresh_returns_running_without_second_agent_call():
         agent = BlockingAgent([_agent_output([f"tmdb:{index}" for index in range(1, 11)])])
         orchestrator = RecommendationOrchestrator(
             repository,
-            FakeProfileService(),
             FakeCandidateService(),
             agent,
             run_id_factory=lambda: "run-lock",
+            playback_service=FakePlaybackService(),
         )
         first_task = asyncio.create_task(orchestrator.run(PROFILE_ID, _config()))
         await entered.wait()

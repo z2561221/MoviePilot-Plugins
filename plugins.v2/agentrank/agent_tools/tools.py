@@ -34,23 +34,23 @@ class _ReadAgentRankTool(MoviePilotTool):
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
-class ReadAgentRankSubscriptionsTool(_ReadAgentRankTool):
-    """读取当前订阅样本和可选的上一版画像。"""
+class ReadAgentRankPlaybackTool(_ReadAgentRankTool):
+    """读取播放画像证据与可选的上一版画像上下文。"""
 
-    name: str = "read_agentrank_subscriptions"
+    name: str = "read_agentrank_playback"
     description: str = (
-        "Read normalized subscription samples and the optional previous profile for "
+        "Read normalized playback evidence and the optional previous profile for "
         "the trusted AgentRank run. The username and run id are fixed by the host "
         "context and take no arguments."
     )
 
     async def run(self, **kwargs: Any) -> str:
-        """返回当前运行绑定的订阅样本与受控画像演进上下文。"""
+        """返回当前运行绑定的播放证据与画像演进上下文。"""
         trusted_context = resolve_trusted_context(self._agent_context)
         payload: Dict[str, Any] = {
             "username": trusted_context.username,
             "run_id": trusted_context.run_id,
-            "subscriptions": to_jsonable(trusted_context.subscriptions),
+            "playback": to_jsonable(trusted_context.playback),
             "previous_profile": to_jsonable(trusted_context.previous_profile),
             "profile_preferences": to_jsonable(
                 trusted_context.profile_preferences
@@ -99,17 +99,3 @@ class ReadAgentRankWeightsTool(_ReadAgentRankTool):
     async def run(self, **kwargs: Any) -> str:
         """返回当前用户绑定的权重与筛选。"""
         return self._slice("weights", "weights")
-
-
-class ReadAgentRankPlaybackTool(_ReadAgentRankTool):
-    """读取当前用户受信的播放画像证据。"""
-
-    name: str = "read_agentrank_playback"
-    description: str = (
-        "Read normalized playback evidence for the trusted AgentRank user. "
-        "The source and confidence describe data quality; no device or credential fields are exposed."
-    )
-
-    async def run(self, **kwargs: Any) -> str:
-        """返回当前运行绑定的播放数据源、置信度与行为样本。"""
-        return self._slice("playback", "playback")

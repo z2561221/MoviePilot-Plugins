@@ -232,7 +232,7 @@ def test_playback_sync_uses_profile_scope_and_returns_status():
 
         def status(self, profile_id):
             return PlaybackSnapshot(
-                profile_id, "subscription", "low", "idle", username="Alice"
+                profile_id, "unavailable", "low", "idle", username="Alice"
             )
 
     plugin._playback_service = PlaybackService()

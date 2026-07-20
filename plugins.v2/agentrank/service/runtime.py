@@ -64,11 +64,9 @@ class AgentRankRuntime:
         from ..adapter.media import MediaRecognitionAdapter
         from ..adapter.emby_playback import EmbyServiceAccess, EmbyPlaybackAdapter
         from ..adapter.playback_reporting import PlaybackReportingAdapter
-        from ..adapter.subscription import SubscriptionAdapter
         from ..storage.repository import AgentRankRepository
         from .candidate import CandidateCollectionService
         from .poster import BoardPosterRepairService, PosterImageService
-        from .profile_input import ProfileInputService
         from .playback_profile import PlaybackProfileService
         from .recommendation import RecommendationOrchestrator
 
@@ -90,7 +88,6 @@ class AgentRankRuntime:
         )
         return RecommendationOrchestrator(
             repository=repository,
-            profile_service=ProfileInputService(SubscriptionAdapter()),
             candidate_service=CandidateCollectionService(
                 DiscoveryAdapter(), repository, media_adapter
             ),

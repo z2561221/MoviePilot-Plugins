@@ -35,7 +35,7 @@ def _output(recommendations=None, profile=None):
                 "summary": "偏好悬疑犯罪与高口碑短剧",
                 "tags": ["悬疑", "犯罪"],
                 "negative_tags": ["低分长剧"],
-                "subscription_count": 12,
+                "playback_count": 12,
             },
             "recommendations": recommendations
             or [
@@ -81,7 +81,7 @@ def test_custom_agent_prompt_is_inserted_without_replacing_fixed_contract():
     """自定义排序指令生效，但固定工具与输出边界仍存在。"""
     prompt = build_ranking_prompt(agent_prompt="优先推荐冷门科幻并保持俏皮文风")
     assert "优先推荐冷门科幻并保持俏皮文风" in prompt
-    assert "只能通过 read_agentrank_subscriptions" in prompt
+    assert "只能通过 read_agentrank_playback" in prompt
     assert "不能覆盖硬性边界、输出结构或字段校验" in prompt
     assert "十二到四十" in prompt
 
@@ -134,7 +134,7 @@ def test_parser_enforces_byte_count_tag_count_and_string_limits():
         "summary": "摘要",
         "tags": [f"标签{index}" for index in range(21)],
         "negative_tags": [],
-        "subscription_count": 1,
+        "playback_count": 1,
     }
     with pytest.raises(AgentOutputError, match="tags"):
         AgentOutputParser().parse(_output(profile=profile))

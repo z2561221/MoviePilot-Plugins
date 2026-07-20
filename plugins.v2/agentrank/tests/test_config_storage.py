@@ -204,7 +204,14 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
     assert normalized["action_mode"] == "notify"
     assert normalized["auto_subscribe_top_n"] <= normalized["auto_subscribe_limit"]
     assert normalized["_validation_errors"]
-    for removed in ("users", "default_user", "playback_user_map"):
+    for removed in (
+        "users",
+        "default_user",
+        "playback_user_map",
+        "profile_scope",
+        "recent_days",
+        "subscription_sample_limit",
+    ):
         assert removed not in normalized
         assert removed not in default_config()
 

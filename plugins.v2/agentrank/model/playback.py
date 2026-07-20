@@ -50,7 +50,7 @@ class PlaybackSnapshot:
     """表示一次按稳定 Emby 画像身份隔离的播放事实快照。"""
 
     profile_id: str
-    source: str = "subscription"
+    source: str = "unavailable"
     confidence: str = "low"
     status: str = "fallback"
     username: str = ""
@@ -106,7 +106,7 @@ class PlaybackSnapshot:
             raise ValueError("playback snapshot profile_id is required")
         return cls(
             profile_id=profile_id,
-            source=str(value.get("source") or "subscription"),
+            source=str(value.get("source") or "unavailable"),
             confidence=str(value.get("confidence") or "low"),
             status=str(value.get("status") or "fallback"),
             username=str(value.get("username") or "").strip(),

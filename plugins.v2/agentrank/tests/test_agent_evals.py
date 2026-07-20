@@ -46,7 +46,7 @@ def _output(candidate_ids):
                 "summary": "偏爱高质量科幻作品",
                 "tags": ["科幻", "口碑"],
                 "negative_tags": [],
-                "subscription_count": 12,
+                "playback_count": 12,
             },
             "recommendations": [
                 {

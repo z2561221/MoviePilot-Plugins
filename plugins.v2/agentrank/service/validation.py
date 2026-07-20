@@ -24,7 +24,7 @@ class ParsedProfile:
     summary: str
     tags: List[str]
     negative_tags: List[str]
-    subscription_count: int
+    playback_count: int
 
 
 @dataclass(frozen=True)
@@ -129,21 +129,21 @@ class AgentOutputParser:
             raise AgentOutputError("profile must be an object")
         self._exact_keys(
             profile_value,
-            {"summary", "tags", "negative_tags", "subscription_count"},
+            {"summary", "tags", "negative_tags", "playback_count"},
             "profile",
         )
-        subscription_count = profile_value["subscription_count"]
-        if isinstance(subscription_count, bool) or not isinstance(subscription_count, int):
-            raise AgentOutputError("profile.subscription_count must be an integer")
-        if subscription_count < 0:
-            raise AgentOutputError("profile.subscription_count must be non-negative")
+        playback_count = profile_value["playback_count"]
+        if isinstance(playback_count, bool) or not isinstance(playback_count, int):
+            raise AgentOutputError("profile.playback_count must be an integer")
+        if playback_count < 0:
+            raise AgentOutputError("profile.playback_count must be non-negative")
         profile = ParsedProfile(
             summary=self._string(profile_value["summary"], "profile.summary"),
             tags=self._tags(profile_value["tags"], "profile.tags"),
             negative_tags=self._tags(
                 profile_value["negative_tags"], "profile.negative_tags"
             ),
-            subscription_count=subscription_count,
+            playback_count=playback_count,
         )
 
         recommendations_value = value["recommendations"]
