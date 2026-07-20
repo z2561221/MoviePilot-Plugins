@@ -213,7 +213,7 @@ def test_legacy_board_repair_replaces_only_broken_poster_urls():
             return candidate
 
     repository = Repository()
-    result = BoardPosterRepairService(repository, MediaAdapter()).repair_users(
+    result = BoardPosterRepairService(repository, MediaAdapter()).repair_profiles(
         ["alice"]
     )
 

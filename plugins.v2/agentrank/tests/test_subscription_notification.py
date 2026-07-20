@@ -49,6 +49,20 @@ NotificationService = notification_module.NotificationService
 AgentRankRuntime = runtime_module.AgentRankRuntime
 AgentRankApiController = controller_module.AgentRankApiController
 
+PROFILE_ID = "emby:home:user-1"
+IDENTITY_CONFIG = {
+    "emby_identities": [
+        {
+            "server_name": "home",
+            "user_id": "user-1",
+            "username": "Alice",
+            "profile_id": PROFILE_ID,
+            "schema_version": 1,
+        }
+    ],
+    "default_profile_id": PROFILE_ID,
+}
+
 
 class FakePlugin:
     """In-memory plugindata and notification recorder."""
@@ -99,8 +113,8 @@ def _seed(repository, confidence=80, source_ids=None):
     source_ids = source_ids if source_ids is not None else {"tmdb": "1"}
     repository.save_board(
         RecommendationBoard(
-            profile_id="alice",
-            username="alice",
+            profile_id=PROFILE_ID,
+            username="Alice",
             run_id="run-1",
             status="success",
             recommendations=[
@@ -117,7 +131,7 @@ def _seed(repository, confidence=80, source_ids=None):
     )
     repository.save_candidate_snapshot(
         "run-1",
-        "alice",
+        PROFILE_ID,
         [
             Candidate(
                 candidate_id="tmdb:1",
@@ -134,8 +148,8 @@ def test_notification_confirmation_sends_summary_without_subscription_dependency
     """Notify mode posts a UI-directed summary and cannot create subscriptions."""
     plugin = FakePlugin()
     board = RecommendationBoard(
-        profile_id="alice",
-        username="alice",
+        profile_id=PROFILE_ID,
+        username="Alice",
         run_id="run-1",
         status="success",
         recommendations=[
@@ -148,10 +162,10 @@ def test_notification_confirmation_sends_summary_without_subscription_dependency
         ],
     )
 
-    NotificationService(plugin).send_confirmation("alice", board)
+    NotificationService(plugin).send_confirmation("Alice", board)
 
     assert len(plugin.messages) == 1
-    assert plugin.messages[0]["username"] == "alice"
+    assert plugin.messages[0]["username"] == "Alice"
     assert plugin.messages[0]["mtype"] is NotificationType.Subscribe
     assert plugin.messages[0]["parse_mode"] == "MarkdownV2"
     assert plugin.messages[0]["disable_web_page_preview"] is True
@@ -166,8 +180,8 @@ def test_notification_confirmation_compacts_long_or_multiline_fields():
     """MarkdownV2 榜单压缩多行文本并保持两位排名和等宽列结构。"""
     plugin = FakePlugin()
     board = RecommendationBoard(
-        profile_id="alice",
-        username="alice",
+        profile_id=PROFILE_ID,
+        username="Alice",
         run_id="run-mdv2",
         status="success",
         recommendations=[
@@ -180,7 +194,7 @@ def test_notification_confirmation_compacts_long_or_multiline_fields():
         ],
     )
 
-    NotificationService(plugin).send_confirmation("alice", board)
+    NotificationService(plugin).send_confirmation("Alice", board)
 
     text = plugin.messages[0]["text"]
     assert text.count("```") == 2
@@ -193,7 +207,7 @@ def test_notification_confirmation_compacts_long_or_multiline_fields():
 def test_notification_confirmation_prefers_interactive_card_when_available():
     """Telegram 自选卡片发送成功后不再重复发送摘要。"""
     plugin = FakePlugin()
-    board = RecommendationBoard(profile_id="alice", username="alice", run_id="run-1", status="success")
+    board = RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="run-1", status="success")
 
     class InteractionService:
         """记录自选卡片启动参数。"""
@@ -207,9 +221,9 @@ def test_notification_confirmation_prefers_interactive_card_when_available():
             return True
 
     interaction = InteractionService()
-    NotificationService(plugin, interaction).send_confirmation("alice", board)
+    NotificationService(plugin, interaction).send_confirmation("Alice", board)
 
-    assert interaction.calls == [("alice", "run-1")]
+    assert interaction.calls == [("Alice", "run-1")]
     assert plugin.messages == []
 
 
@@ -226,12 +240,12 @@ def test_manual_subscription_passes_username_and_identifiers_after_all_gates():
         media_type_factory=lambda value: value,
     )
 
-    result = service.subscribe("alice", "tmdb:1", confidence_threshold=0.6)
+    result = service.subscribe(PROFILE_ID, "tmdb:1", confidence_threshold=0.6)
 
     assert result.success is True
     assert result.changed is True
     assert len(chain.exists_calls) == 1
-    assert chain.add_calls[0]["username"] == "alice"
+    assert chain.add_calls[0]["username"] == "Alice"
     assert chain.add_calls[0]["tmdbid"] == 1
     assert chain.add_calls[0]["message"] is False
     assert chain.add_calls[0]["exist_ok"] is False
@@ -245,7 +259,7 @@ def test_existing_subscription_is_idempotent_and_never_calls_add():
     chain = FakeSubscribeChain(exists=True)
     service = SubscriptionService(repository, chain, FakeMedia, lambda value: value)
 
-    result = service.subscribe("alice", "tmdb:1", 0.6)
+    result = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
 
     assert result.success is True
     assert result.changed is False
@@ -261,25 +275,25 @@ def test_manual_subscription_rejects_missing_snapshot_archive_and_low_confidence
     chain = FakeSubscribeChain()
     service = SubscriptionService(repository, chain, FakeMedia, lambda value: value)
 
-    low = service.subscribe("alice", "tmdb:1", 0.6)
+    low = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
     assert low.code == "confidence_below_threshold"
 
-    board = repository.load_board("alice")
+    board = repository.load_board(PROFILE_ID)
     board.recommendations[0].confidence = 80
     repository.save_board(board)
     repository.save_archive(
         ArchiveFeedback(
-            profile_id="alice",
-            username="alice",
+            profile_id=PROFILE_ID,
+            username="Alice",
             entries=[ArchiveEntry(candidate_id="tmdb:1", original_rank=1)],
         )
     )
-    archived = service.subscribe("alice", "tmdb:1", 0.6)
+    archived = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
     assert archived.code == "candidate_archived"
 
-    repository.save_archive(ArchiveFeedback(profile_id="alice", username="alice"))
-    plugin.del_data(key="candidate_snapshot:profile:alice:run:run-1")
-    missing = service.subscribe("alice", "tmdb:1", 0.6)
+    repository.save_archive(ArchiveFeedback(profile_id=PROFILE_ID, username="Alice"))
+    plugin.del_data(key=repository._candidate_key("run-1", PROFILE_ID))
+    missing = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
     assert missing.code == "candidate_not_in_snapshot"
     assert chain.add_calls == []
 
@@ -292,11 +306,11 @@ def test_unrecognizable_candidate_and_add_failure_are_visible():
     chain = FakeSubscribeChain(add_result=(None, "recognition failed"))
     service = SubscriptionService(repository, chain, FakeMedia, lambda value: value)
 
-    unrecognizable = service.subscribe("alice", "tmdb:1", 0.6)
+    unrecognizable = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
     assert unrecognizable.code == "candidate_unrecognizable"
 
     _seed(repository, source_ids={"douban": "db-1"})
-    failed = service.subscribe("alice", "tmdb:1", 0.6)
+    failed = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
     assert failed.success is False
     assert failed.code == "subscription_failed"
     assert failed.message == "recognition failed"
@@ -305,21 +319,21 @@ def test_unrecognizable_candidate_and_add_failure_are_visible():
 def test_runtime_notify_mode_sends_summary_after_success_without_subscribing():
     """Runtime post-processing invokes only NotificationService in notify mode."""
     plugin = FakePlugin()
-    board = RecommendationBoard(profile_id="alice", username="alice", run_id="run-1", status="success")
+    board = RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="run-1", status="success")
 
     class Orchestrator:
-        async def run(self, username, config):
+        async def run(self, profile_id, config):
             return SimpleNamespace(status="success", board=board)
 
     runtime = AgentRankRuntime(
         plugin,
-        {"enabled": True, "action_mode": "notify", "users": ["alice"]},
+        {"enabled": True, "action_mode": "notify", **IDENTITY_CONFIG},
         Orchestrator(),
         lambda cron: cron,
         notification_service=NotificationService(plugin),
     )
 
-    asyncio.run(runtime.refresh("alice"))
+    asyncio.run(runtime.refresh(PROFILE_ID))
 
     assert len(plugin.messages) == 1
 
@@ -327,10 +341,10 @@ def test_runtime_notify_mode_sends_summary_after_success_without_subscribing():
 def test_runtime_failure_sends_one_subscribe_notification_with_old_board_state():
     """A failed Agent result emits one concise Subscribe notification."""
     plugin = FakePlugin()
-    board = RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success")
+    board = RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success")
 
     class Orchestrator:
-        async def run(self, username, config):
+        async def run(self, profile_id, config):
             return SimpleNamespace(
                 status="agent_failed",
                 run_id="run-failed",
@@ -340,13 +354,13 @@ def test_runtime_failure_sends_one_subscribe_notification_with_old_board_state()
 
     runtime = AgentRankRuntime(
         plugin,
-        {"enabled": True, "notify": True, "users": ["alice"]},
+        {"enabled": True, "notify": True, **IDENTITY_CONFIG},
         Orchestrator(),
         lambda cron: cron,
         notification_service=NotificationService(plugin),
     )
 
-    asyncio.run(runtime.refresh("alice"))
+    asyncio.run(runtime.refresh(PROFILE_ID))
 
     assert len(plugin.messages) == 1
     assert plugin.messages[0]["mtype"] == NotificationType.Subscribe
@@ -369,13 +383,12 @@ def test_subscribe_api_returns_service_result_after_runtime_integration():
     plugin._repository = repository
     plugin._runtime = SimpleNamespace(subscription_service=service)
     plugin._config = {
-        "users": ["alice"],
-        "default_user": "alice",
+        **IDENTITY_CONFIG,
         "confidence_threshold": 0.6,
     }
 
     response = AgentRankApiController(plugin).subscribe(
-        {"username": "alice", "candidate_id": "tmdb:1"}
+        {"profile_id": PROFILE_ID, "candidate_id": "tmdb:1"}
     )
 
     assert response["success"] is True

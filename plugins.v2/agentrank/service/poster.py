@@ -29,14 +29,14 @@ class BoardPosterRepairService:
             or "doubanio.com" in value
         )
 
-    def repair_users(self, usernames: Iterable[str]) -> Dict[str, int]:
-        """按用户修复旧榜单海报并返回每个用户的更新数量。"""
+    def repair_profiles(self, profile_ids: Iterable[str]) -> Dict[str, int]:
+        """按画像身份修复旧榜单海报并返回每个身份的更新数量。"""
         results: Dict[str, int] = {}
-        for raw_username in usernames:
-            username = str(raw_username or "").strip()
-            if not username:
+        for raw_profile_id in profile_ids:
+            profile_id = str(raw_profile_id or "").strip()
+            if not profile_id:
                 continue
-            board = self._repository.load_board(username)
+            board = self._repository.load_board(profile_id)
             if board is None:
                 continue
             repaired = 0
@@ -56,8 +56,8 @@ class BoardPosterRepairService:
                     recognized = self._media_adapter.recognize(candidate)
                 except Exception as error:
                     logger.warning(
-                        "AgentRank 海报修复失败 user=%s candidate=%s reason=%s",
-                        username,
+                        "AgentRank 海报修复失败 profile_id=%s candidate=%s reason=%s",
+                        profile_id,
                         item.candidate_id,
                         error,
                     )
@@ -71,11 +71,11 @@ class BoardPosterRepairService:
             if repaired:
                 self._repository.save_board(board)
                 logger.info(
-                    "AgentRank 旧榜单海报修复 user=%s repaired=%s",
-                    username,
+                    "AgentRank 旧榜单海报修复 profile_id=%s repaired=%s",
+                    profile_id,
                     repaired,
                 )
-            results[username] = repaired
+            results[profile_id] = repaired
         return results
 
 

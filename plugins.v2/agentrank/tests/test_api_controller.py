@@ -35,6 +35,23 @@ AgentRankApiController = controller_module.AgentRankApiController
 ApiContractError = controller_module.ApiContractError
 build_api_routes = controller_module.build_api_routes
 
+HOME_PROFILE = "emby:home:user-1"
+REMOTE_PROFILE = "emby:remote:user-1"
+HOME_IDENTITY = {
+    "server_name": "home",
+    "user_id": "user-1",
+    "username": "Alice",
+    "profile_id": HOME_PROFILE,
+    "schema_version": 1,
+}
+REMOTE_IDENTITY = {
+    "server_name": "remote",
+    "user_id": "user-1",
+    "username": "Alice",
+    "profile_id": REMOTE_PROFILE,
+    "schema_version": 1,
+}
+
 
 class FakePlugin:
     """In-memory plugin with configurable runtime refresh results."""
@@ -46,8 +63,8 @@ class FakePlugin:
         self._enabled = True
         self._config = {
             "enabled": True,
-            "users": ["alice", "bob"],
-            "default_user": "alice",
+            "emby_identities": [HOME_IDENTITY, REMOTE_IDENTITY],
+            "default_profile_id": HOME_PROFILE,
             "weights": {"rating_weight": 0.7},
             "_validation_errors": [],
         }
@@ -69,7 +86,7 @@ class FakePlugin:
     def del_data(self, key=None):
         self.data.pop(key, None)
 
-    async def _refresh(self, username):
+    async def _refresh(self, profile_id):
         if isinstance(self.refresh_result, Exception):
             raise self.refresh_result
         return self.refresh_result
@@ -77,12 +94,17 @@ class FakePlugin:
 
 def _seed(plugin):
     plugin._repository.save_profile(
-        UserProfile(profile_id="alice", username="alice", summary="画像", run_id="run-old")
+        UserProfile(
+            profile_id=HOME_PROFILE,
+            username="Alice",
+            summary="画像",
+            run_id="run-old",
+        )
     )
     plugin._repository.save_board(
         RecommendationBoard(
-            profile_id="alice",
-            username="alice",
+            profile_id=HOME_PROFILE,
+            username="Alice",
             run_id="run-old",
             status="success",
             recommendations=[
@@ -92,7 +114,10 @@ def _seed(plugin):
     )
     plugin._repository.append_run(
         RecommendationRun(
-            profile_id="alice", username="alice", run_id="run-old", status="success"
+            profile_id=HOME_PROFILE,
+            username="Alice",
+            run_id="run-old",
+            status="success",
         )
     )
 
@@ -120,23 +145,31 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
     assert all(route["auth"] == "bear" for route in routes)
 
 
-@pytest.mark.parametrize("username", ["", None])
-def test_user_endpoints_reject_missing_username_without_default_fallback(username):
-    """Sensitive reads never silently replace a missing username with default_user."""
+@pytest.mark.parametrize("profile_id", ["", None])
+def test_profile_endpoints_reject_missing_id_without_default_fallback(profile_id):
+    """敏感读取不得用 default_profile_id 替换缺失的显式身份。"""
     controller = AgentRankApiController(FakePlugin())
     with pytest.raises(ApiContractError) as caught:
-        controller.board(username)
+        controller.board(profile_id)
     assert caught.value.status_code == 422
-    assert caught.value.code == "username_required"
+    assert caught.value.code == "profile_id_required"
 
 
-def test_unknown_user_returns_stable_404_error():
-    """A logged-in but non-participating username cannot read another profile."""
+def test_unknown_profile_returns_stable_404_error():
+    """未配置的 profile_id 不能读取其他 Emby 身份数据。"""
     controller = AgentRankApiController(FakePlugin())
     with pytest.raises(ApiContractError) as caught:
-        controller.profile("mallory")
+        controller.profile("emby:other:user-9")
     assert caught.value.status_code == 404
-    assert caught.value.code == "unknown_user"
+    assert caught.value.code == "unknown_profile"
+
+
+def test_legacy_username_payload_is_not_accepted_as_profile_identity():
+    """旧 username 请求字段不得回退或猜测为 profile_id。"""
+    controller = AgentRankApiController(FakePlugin())
+    with pytest.raises(ApiContractError) as caught:
+        asyncio.run(controller.refresh({"username": "alice"}))
+    assert caught.value.code == "profile_id_required"
 
 
 def test_options_overview_board_profile_and_history_have_stable_data_shape():
@@ -146,14 +179,18 @@ def test_options_overview_board_profile_and_history_have_stable_data_shape():
     controller = AgentRankApiController(plugin)
 
     options = controller.config_options()
-    overview = controller.overview("alice")
-    board = controller.board("alice")
-    profile = controller.profile("alice")
-    history = controller.run_history("alice")
+    overview = controller.overview(HOME_PROFILE)
+    board = controller.board(HOME_PROFILE)
+    profile = controller.profile(HOME_PROFILE)
+    history = controller.run_history(HOME_PROFILE)
 
     assert options["success"] is True
-    assert options["data"]["users"] == ["alice", "bob"]
-    assert options["data"]["default_user"] == "alice"
+    assert options["data"]["emby_identities"] == [HOME_IDENTITY, REMOTE_IDENTITY]
+    assert options["data"]["default_profile_id"] == HOME_PROFILE
+    assert "users" not in options["data"]
+    assert "default_user" not in options["data"]
+    assert overview["data"]["profile_id"] == HOME_PROFILE
+    assert overview["data"]["username"] == "Alice"
     assert overview["data"]["board"]["run_id"] == "run-old"
     assert overview["data"]["profile"]["summary"] == "画像"
     assert overview["data"]["history"][0]["run_id"] == "run-old"
@@ -171,33 +208,39 @@ def test_refresh_maps_running_and_downstream_failure_to_stable_contracts():
         status="running", message="busy", run_id="", final_count=0
     )
 
-    running = asyncio.run(controller.refresh({"username": "alice"}))
+    running = asyncio.run(controller.refresh({"profile_id": HOME_PROFILE}))
     assert running["data"]["status"] == "running"
 
     plugin.refresh_result = RuntimeError("boom")
     with pytest.raises(ApiContractError) as caught:
-        asyncio.run(controller.refresh({"username": "alice"}))
+        asyncio.run(controller.refresh({"profile_id": HOME_PROFILE}))
     assert caught.value.status_code == 502
     assert caught.value.code == "refresh_failed"
 
 
-def test_playback_sync_uses_current_user_scope_and_returns_status():
-    """手动同步只读取参与用户，并返回统一播放快照契约。"""
+def test_playback_sync_uses_profile_scope_and_returns_status():
+    """手动同步只读取受控 profile_id，并返回统一播放快照契约。"""
     plugin = FakePlugin()
     calls = []
 
     class PlaybackService:
-        def collect(self, username, config):
-            calls.append((username, config["default_user"]))
-            return PlaybackSnapshot(username, "emby_native", "medium", "ready")
+        def collect(self, profile_id, config):
+            calls.append((profile_id, config["default_profile_id"]))
+            return PlaybackSnapshot(
+                profile_id, "emby_native", "medium", "ready", username="Alice"
+            )
 
-        def status(self, username):
-            return PlaybackSnapshot(username, "subscription", "low", "idle")
+        def status(self, profile_id):
+            return PlaybackSnapshot(
+                profile_id, "subscription", "low", "idle", username="Alice"
+            )
 
     plugin._playback_service = PlaybackService()
-    result = asyncio.run(AgentRankApiController(plugin).playback_sync({"username": "alice"}))
+    result = asyncio.run(
+        AgentRankApiController(plugin).playback_sync({"profile_id": HOME_PROFILE})
+    )
     assert result["data"]["source"] == "emby_native"
-    assert calls == [("alice", "alice")]
+    assert calls == [(HOME_PROFILE, HOME_PROFILE)]
 
 
 def test_archive_restore_delete_and_clear_are_idempotent():
@@ -206,19 +249,19 @@ def test_archive_restore_delete_and_clear_are_idempotent():
     _seed(plugin)
     controller = AgentRankApiController(plugin)
 
-    first_archive = controller.archive({"username": "alice", "candidate_id": "tmdb:1"})
-    second_archive = controller.archive({"username": "alice", "candidate_id": "tmdb:1"})
-    first_restore = controller.restore({"username": "alice", "candidate_id": "tmdb:1"})
-    second_restore = controller.restore({"username": "alice", "candidate_id": "tmdb:1"})
-    controller.archive({"username": "alice", "candidate_id": "tmdb:1"})
+    first_archive = controller.archive({"profile_id": HOME_PROFILE, "candidate_id": "tmdb:1"})
+    second_archive = controller.archive({"profile_id": HOME_PROFILE, "candidate_id": "tmdb:1"})
+    first_restore = controller.restore({"profile_id": HOME_PROFILE, "candidate_id": "tmdb:1"})
+    second_restore = controller.restore({"profile_id": HOME_PROFILE, "candidate_id": "tmdb:1"})
+    controller.archive({"profile_id": HOME_PROFILE, "candidate_id": "tmdb:1"})
     first_delete = controller.delete_archive(
-        {"username": "alice", "candidate_id": "tmdb:1"}
+        {"profile_id": HOME_PROFILE, "candidate_id": "tmdb:1"}
     )
     second_delete = controller.delete_archive(
-        {"username": "alice", "candidate_id": "tmdb:1"}
+        {"profile_id": HOME_PROFILE, "candidate_id": "tmdb:1"}
     )
-    first_clear = controller.clear_profile({"username": "alice", "confirm": True})
-    second_clear = controller.clear_profile({"username": "alice", "confirm": True})
+    first_clear = controller.clear_profile({"profile_id": HOME_PROFILE, "confirm": True})
+    second_clear = controller.clear_profile({"profile_id": HOME_PROFILE, "confirm": True})
 
     assert first_archive["data"]["changed"] is True
     assert second_archive["data"]["changed"] is False
@@ -234,7 +277,7 @@ def test_clear_profile_requires_explicit_confirmation():
     """Destructive profile cleanup has a hard confirmation parameter gate."""
     controller = AgentRankApiController(FakePlugin())
     with pytest.raises(ApiContractError) as caught:
-        controller.clear_profile({"username": "alice", "confirm": False})
+        controller.clear_profile({"profile_id": HOME_PROFILE, "confirm": False})
     assert caught.value.status_code == 409
     assert caught.value.code == "confirmation_required"
 
@@ -244,8 +287,8 @@ def test_profile_tags_are_merged_and_deleted_agent_tags_stay_suppressed():
     plugin = FakePlugin()
     plugin._repository.save_profile(
         UserProfile(
-            profile_id="alice",
-            username="alice",
+            profile_id=HOME_PROFILE,
+            username="Alice",
             summary="画像",
             tags=["悬疑", "科幻"],
             negative_tags=["拖沓"],
@@ -254,19 +297,19 @@ def test_profile_tags_are_merged_and_deleted_agent_tags_stay_suppressed():
     controller = AgentRankApiController(plugin)
 
     added = controller.update_profile_tag(
-        {"username": "alice", "kind": "positive", "action": "add", "tag": "冷门佳作"}
+        {"profile_id": HOME_PROFILE, "kind": "positive", "action": "add", "tag": "冷门佳作"}
     )
     removed = controller.update_profile_tag(
-        {"username": "alice", "kind": "positive", "action": "remove", "tag": "悬疑"}
+        {"profile_id": HOME_PROFILE, "kind": "positive", "action": "remove", "tag": "悬疑"}
     )
     negative = controller.update_profile_tag(
-        {"username": "alice", "kind": "negative", "action": "add", "tag": "过度煽情"}
+        {"profile_id": HOME_PROFILE, "kind": "negative", "action": "add", "tag": "过度煽情"}
     )
 
     assert added["data"]["changed"] is True
     assert removed["data"]["profile"]["tags"] == ["科幻", "冷门佳作"]
     assert negative["data"]["profile"]["negative_tags"] == ["拖沓", "过度煽情"]
-    preferences = plugin._repository.load_profile_preferences("alice")
+    preferences = plugin._repository.load_profile_preferences(HOME_PROFILE)
     assert preferences.custom_tags == ["冷门佳作"]
     assert preferences.suppressed_tags == ["悬疑", "过度煽情"]
 
@@ -275,9 +318,9 @@ def test_profile_tag_rejects_invalid_kind_action_and_multiline_text():
     """人工标签 API 拒绝未知类别、动作和带换行的文本。"""
     controller = AgentRankApiController(FakePlugin())
     for payload in (
-        {"username": "alice", "kind": "other", "action": "add", "tag": "科幻"},
-        {"username": "alice", "kind": "positive", "action": "move", "tag": "科幻"},
-        {"username": "alice", "kind": "positive", "action": "add", "tag": "科幻\n悬疑"},
+        {"profile_id": HOME_PROFILE, "kind": "other", "action": "add", "tag": "科幻"},
+        {"profile_id": HOME_PROFILE, "kind": "positive", "action": "move", "tag": "科幻"},
+        {"profile_id": HOME_PROFILE, "kind": "positive", "action": "add", "tag": "科幻\n悬疑"},
     ):
         with pytest.raises(ApiContractError) as caught:
             controller.update_profile_tag(payload)
@@ -288,6 +331,6 @@ def test_subscribe_route_is_stable_but_deferred_to_safety_task():
     """The route exists now and returns a stable unavailable error until Task 4.3."""
     controller = AgentRankApiController(FakePlugin())
     with pytest.raises(ApiContractError) as caught:
-        controller.subscribe({"username": "alice", "candidate_id": "tmdb:1"})
+        controller.subscribe({"profile_id": HOME_PROFILE, "candidate_id": "tmdb:1"})
     assert caught.value.status_code == 409
     assert caught.value.code == "subscription_not_ready"

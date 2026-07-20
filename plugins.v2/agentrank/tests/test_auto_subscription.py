@@ -28,6 +28,8 @@ AgentRankRepository = repository_module.AgentRankRepository
 SubscriptionService = subscription_module.SubscriptionService
 AgentRankRuntime = runtime_module.AgentRankRuntime
 
+PROFILE_ID = "emby:home:user-1"
+
 
 class FakePlugin:
     """In-memory plugindata store."""
@@ -96,14 +98,14 @@ def _seed(repository, count=3):
         )
     repository.save_board(
         RecommendationBoard(
-            profile_id="alice",
-            username="alice",
+            profile_id=PROFILE_ID,
+            username="Alice",
             run_id="run-1",
             status="success",
             recommendations=items,
         )
     )
-    repository.save_candidate_snapshot("run-1", "alice", candidates)
+    repository.save_candidate_snapshot("run-1", PROFILE_ID, candidates)
 
 
 def _service(repository, chain):
@@ -117,8 +119,8 @@ def test_top_n_zero_is_disabled_and_over_limit_is_rejected_without_calls():
     chain = SequencedChain()
     service = _service(repository, chain)
 
-    disabled = service.subscribe_top_n("alice", 0, 3, 0.6)
-    over_limit = service.subscribe_top_n("alice", 4, 3, 0.6)
+    disabled = service.subscribe_top_n(PROFILE_ID, 0, 3, 0.6)
+    over_limit = service.subscribe_top_n(PROFILE_ID, 4, 3, 0.6)
 
     assert disabled.status == "disabled"
     assert over_limit.status == "invalid_limit"
@@ -136,7 +138,7 @@ def test_batch_continues_across_created_existing_and_failed_items():
     )
     service = _service(repository, chain)
 
-    result = service.subscribe_top_n("alice", 3, 3, 0.6)
+    result = service.subscribe_top_n(PROFILE_ID, 3, 3, 0.6)
 
     assert result.status == "subscription_partial_failed"
     assert result.success_count == 2
@@ -148,7 +150,7 @@ def test_batch_continues_across_created_existing_and_failed_items():
     ]
     assert len(chain.exists_calls) == 3
     assert len(chain.add_calls) == 2
-    assert all(call["username"] == "alice" for call in chain.add_calls)
+    assert all(call["username"] == "Alice" for call in chain.add_calls)
 
 
 def test_animation_movie_subscribes_with_recognized_moviepilot_base_type():
@@ -156,8 +158,8 @@ def test_animation_movie_subscribes_with_recognized_moviepilot_base_type():
     repository = AgentRankRepository(FakePlugin())
     repository.save_board(
         RecommendationBoard(
-            profile_id="alice",
-            username="alice",
+            profile_id=PROFILE_ID,
+            username="Alice",
             run_id="run-animation-movie",
             status="success",
             recommendations=[
@@ -174,7 +176,7 @@ def test_animation_movie_subscribes_with_recognized_moviepilot_base_type():
     )
     repository.save_candidate_snapshot(
         "run-animation-movie",
-        "alice",
+        PROFILE_ID,
         [
             Candidate(
                 candidate_id="tmdb:16",
@@ -187,7 +189,7 @@ def test_animation_movie_subscribes_with_recognized_moviepilot_base_type():
     )
     chain = SequencedChain(add_results=[(16, "created")])
 
-    result = _service(repository, chain).subscribe("alice", "tmdb:16", 0.6)
+    result = _service(repository, chain).subscribe(PROFILE_ID, "tmdb:16", 0.6)
 
     assert result.success is True
     assert chain.exists_calls[0].type == "movie"
@@ -202,7 +204,7 @@ def test_runtime_marks_board_and_latest_history_on_partial_auto_failure():
     _seed(repository)
     repository.append_run(
         RecommendationRun(
-            profile_id="alice", username="alice", run_id="run-1", status="success"
+            profile_id=PROFILE_ID, username="Alice", run_id="run-1", status="success"
         )
     )
     chain = SequencedChain(
@@ -210,10 +212,10 @@ def test_runtime_marks_board_and_latest_history_on_partial_auto_failure():
         add_results=[(1, "ok"), (None, "failed")],
     )
     service = _service(repository, chain)
-    board = repository.load_board("alice")
+    board = repository.load_board(PROFILE_ID)
 
     class Orchestrator:
-        async def run(self, username, config):
+        async def run(self, profile_id, config):
             return SimpleNamespace(
                 status="success",
                 board=board,
@@ -226,7 +228,16 @@ def test_runtime_marks_board_and_latest_history_on_partial_auto_failure():
         plugin,
         {
             "enabled": True,
-            "users": ["alice"],
+            "emby_identities": [
+                {
+                    "server_name": "home",
+                    "user_id": "user-1",
+                    "username": "Alice",
+                    "profile_id": PROFILE_ID,
+                    "schema_version": 1,
+                }
+            ],
+            "default_profile_id": PROFILE_ID,
             "action_mode": "auto_subscribe",
             "auto_subscribe_top_n": 2,
             "auto_subscribe_limit": 3,
@@ -237,11 +248,11 @@ def test_runtime_marks_board_and_latest_history_on_partial_auto_failure():
         subscription_service=service,
     )
 
-    result = asyncio.run(runtime.refresh("alice"))
+    result = asyncio.run(runtime.refresh(PROFILE_ID))
 
     assert result.status == "subscription_partial_failed"
-    assert repository.load_board("alice").status == "subscription_partial_failed"
-    history = repository.load_run_history("alice")[0]
+    assert repository.load_board(PROFILE_ID).status == "subscription_partial_failed"
+    history = repository.load_run_history(PROFILE_ID)[0]
     assert history.status == "subscription_partial_failed"
     assert history.metrics["subscription_failure_count"] == 1
     assert history.errors == ["tmdb:2: failed"]

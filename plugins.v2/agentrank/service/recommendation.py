@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set
 
 from ..agent_tools.context import build_trusted_context
+from ..model.config import configured_identities
 from ..model.board import RecommendationBoard, RecommendationItem
 from ..model.profile import UserProfile
 from ..model.run import RecommendationRun
@@ -25,9 +26,10 @@ logger = logging.getLogger(__name__)
 class RecommendationRunResult:
     """表示一次推荐请求的最终状态。"""
 
-    username: str
+    profile_id: str
     run_id: str
     status: str
+    username: str = ""
     message: str = ""
     final_count: int = 0
     agent_calls: int = 0
@@ -59,21 +61,29 @@ class RecommendationOrchestrator:
         self._validator = validator or RecommendationValidator()
         self._library_adapter = library_adapter
         self._playback_service = playback_service
-        self._running_users: Set[str] = set()
+        self._running_profiles: Set[str] = set()
         self._running_guard = threading.Lock()
 
-    def _enter_user(self, username: str) -> bool:
-        """原子登记运行用户；已运行时返回假。"""
+    def _enter_profile(self, profile_id: str) -> bool:
+        """原子登记运行画像身份；已运行时返回假。"""
         with self._running_guard:
-            if username in self._running_users:
+            if profile_id in self._running_profiles:
                 return False
-            self._running_users.add(username)
+            self._running_profiles.add(profile_id)
             return True
 
-    def _leave_user(self, username: str) -> None:
-        """释放用户运行标记。"""
+    def _leave_profile(self, profile_id: str) -> None:
+        """释放画像身份运行标记。"""
         with self._running_guard:
-            self._running_users.discard(username)
+            self._running_profiles.discard(profile_id)
+
+    @staticmethod
+    def _display_name(profile_id: str, config: Mapping[str, Any]) -> str:
+        """返回 profile_id 对应的 Emby 显示名。"""
+        for identity in configured_identities(config):
+            if identity.profile_id == profile_id:
+                return identity.username
+        return ""
 
     @staticmethod
     def _trusted_weights(config: Mapping[str, Any]) -> Dict[str, Any]:
@@ -89,6 +99,7 @@ class RecommendationOrchestrator:
 
     def _append_run(
         self,
+        profile_id: str,
         username: str,
         run_id: str,
         status: str,
@@ -103,7 +114,7 @@ class RecommendationOrchestrator:
         final_metrics["elapsed_ms"] = max(0, int((time.monotonic() - started_clock) * 1000))
         self._repository.append_run(
             RecommendationRun(
-                profile_id=username,
+                profile_id=profile_id,
                 username=username,
                 run_id=run_id,
                 status=status,
@@ -136,6 +147,7 @@ class RecommendationOrchestrator:
 
     def _failure(
         self,
+        profile_id: str,
         username: str,
         run_id: str,
         status: str,
@@ -150,6 +162,7 @@ class RecommendationOrchestrator:
         metrics["agent_calls"] = agent_calls
         metrics["final_count"] = 0
         self._append_run(
+            profile_id,
             username,
             run_id,
             status,
@@ -159,8 +172,9 @@ class RecommendationOrchestrator:
             errors,
             metrics,
         )
-        old_board = self._repository.load_board(username)
+        old_board = self._repository.load_board(profile_id)
         return RecommendationRunResult(
+            profile_id=profile_id,
             username=username,
             run_id=run_id,
             status=status,
@@ -170,21 +184,28 @@ class RecommendationOrchestrator:
         )
 
     async def run(
-        self, username: str, config: Mapping[str, Any]
+        self, profile_id: str, config: Mapping[str, Any]
     ) -> RecommendationRunResult:
-        """为一个用户执行完整推荐；同用户并发请求立即返回 running。"""
-        target = str(username or "").strip()
+        """为一个画像身份执行完整推荐；同身份并发请求立即返回 running。"""
+        target = str(profile_id or "").strip()
         if not target:
-            raise ValueError("username is required")
-        if not self._enter_user(target):
-            return RecommendationRunResult(target, "", "running", "该用户榜单正在生成")
+            raise ValueError("profile_id is required")
+        username = self._display_name(target, config)
+        if not self._enter_profile(target):
+            return RecommendationRunResult(
+                target,
+                "",
+                "running",
+                username=username,
+                message="该画像榜单正在生成",
+            )
         run_id = str(self._run_id_factory())
         started_at = datetime.now(timezone.utc).isoformat()
         started_clock = time.monotonic()
         metrics: Dict[str, Any] = {"agent_calls": 0, "refill_attempted": False}
         errors: List[str] = []
         try:
-            logger.info("AgentRank 运行开始 user=%s run_id=%s", target, run_id)
+            logger.info("AgentRank 运行开始 profile_id=%s run_id=%s", target, run_id)
             stage_clock = time.monotonic()
             profile_input = await asyncio.to_thread(
                 self._profile_service.collect,
@@ -200,7 +221,7 @@ class RecommendationOrchestrator:
             metrics["subscription_count"] = profile_input.sample_count
             metrics["subscription_rejected_count"] = profile_input.rejected_count
             logger.info(
-                "AgentRank 画像样本 user=%s run_id=%s accepted=%s rejected=%s status=%s",
+                "AgentRank 画像样本 profile_id=%s run_id=%s accepted=%s rejected=%s status=%s",
                 target,
                 run_id,
                 profile_input.sample_count,
@@ -234,6 +255,7 @@ class RecommendationOrchestrator:
             ):
                 return self._failure(
                     target,
+                    username,
                     run_id,
                     "sample_insufficient",
                     "订阅与真实播放样本均不足，未调用 Agent",
@@ -273,7 +295,7 @@ class RecommendationOrchestrator:
                 getattr(candidate_result, "accepted_source_counts", {}) or {}
             )
             logger.info(
-                "AgentRank TMDB候选 user=%s run_id=%s accepted=%s rejected=%s source_errors=%s",
+                "AgentRank TMDB候选 profile_id=%s run_id=%s accepted=%s rejected=%s source_errors=%s",
                 target,
                 run_id,
                 len(candidates),
@@ -283,6 +305,7 @@ class RecommendationOrchestrator:
             if candidate_result.status != "ready" or not candidates:
                 return self._failure(
                     target,
+                    username,
                     run_id,
                     "candidate_insufficient",
                     "发现候选不足，未调用 Agent",
@@ -313,7 +336,7 @@ class RecommendationOrchestrator:
                 profile_preferences.custom_tags
             ) + len(profile_preferences.custom_negative_tags)
             trusted_context = build_trusted_context(
-                username=target,
+                username=username,
                 run_id=run_id,
                 subscriptions=[sample.to_dict() for sample in profile_input.samples],
                 previous_profile=(
@@ -360,7 +383,7 @@ class RecommendationOrchestrator:
                         continue
                     errors.append(str(error))
                     logger.warning(
-                        "AgentRank Agent失败 user=%s run_id=%s calls=%s reason=%s",
+                        "AgentRank Agent失败 profile_id=%s run_id=%s calls=%s reason=%s",
                         target,
                         run_id,
                         metrics["agent_calls"],
@@ -368,6 +391,7 @@ class RecommendationOrchestrator:
                     )
                     return self._failure(
                         target,
+                        username,
                         run_id,
                         "agent_failed",
                         "内置 Agent 调用失败，已保留旧榜单",
@@ -389,6 +413,7 @@ class RecommendationOrchestrator:
                         continue
                     return self._failure(
                         target,
+                        username,
                         run_id,
                         "validation_failed",
                         "Agent 输出结构校验失败，已保留旧榜单",
@@ -405,6 +430,7 @@ class RecommendationOrchestrator:
             if not accepted:
                 return self._failure(
                     target,
+                    username,
                     run_id,
                     "validation_failed",
                     "Agent 输出没有安全可用推荐，已保留旧榜单",
@@ -459,7 +485,7 @@ class RecommendationOrchestrator:
             generated_at = datetime.now(timezone.utc).isoformat()
             profile = UserProfile(
                 profile_id=target,
-                username=target,
+                username=username,
                 summary=validation.profile.summary,
                 tags=list(validation.profile.tags),
                 negative_tags=list(validation.profile.negative_tags),
@@ -469,7 +495,7 @@ class RecommendationOrchestrator:
             )
             board = RecommendationBoard(
                 profile_id=target,
-                username=target,
+                username=username,
                 run_id=run_id,
                 status=status,
                 recommendations=accepted,
@@ -488,6 +514,7 @@ class RecommendationOrchestrator:
                 errors.append(str(error))
                 return self._failure(
                     target,
+                    username,
                     run_id,
                     "validation_failed",
                     "画像与榜单保存失败，已恢复旧数据",
@@ -503,6 +530,7 @@ class RecommendationOrchestrator:
             metrics["final_count"] = len(accepted)
             self._append_run(
                 target,
+                username,
                 run_id,
                 status,
                 started_at,
@@ -512,7 +540,7 @@ class RecommendationOrchestrator:
                 metrics,
             )
             logger.info(
-                "AgentRank 运行完成 user=%s run_id=%s status=%s recommendations=%s agent_calls=%s",
+                "AgentRank 运行完成 profile_id=%s run_id=%s status=%s recommendations=%s agent_calls=%s",
                 target,
                 run_id,
                 status,
@@ -520,7 +548,8 @@ class RecommendationOrchestrator:
                 metrics["agent_calls"],
             )
             return RecommendationRunResult(
-                username=target,
+                profile_id=target,
+                username=username,
                 run_id=run_id,
                 status=status,
                 message=board.message,
@@ -529,4 +558,4 @@ class RecommendationOrchestrator:
                 board=board,
             )
         finally:
-            self._leave_user(target)
+            self._leave_profile(target)

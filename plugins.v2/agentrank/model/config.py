@@ -3,6 +3,7 @@
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping, Tuple
 
+from .identity import EmbyIdentity
 from ..service.prompt import DEFAULT_AGENT_PROMPT, LEGACY_DEFAULT_AGENT_PROMPT
 
 
@@ -47,8 +48,8 @@ class AgentRankConfig:
     onlyonce: bool = False
     schedule_enabled: bool = False
     cron: str = "0 8 * * *"
-    users: List[str] = field(default_factory=list)
-    default_user: str = ""
+    emby_identities: List[Dict[str, Any]] = field(default_factory=list)
+    default_profile_id: str = ""
     discovery_sources: Dict[str, bool] = field(
         default_factory=lambda: dict(DISCOVERY_SOURCE_DEFAULTS)
     )
@@ -70,7 +71,6 @@ class AgentRankConfig:
     rebuild_profile_each_run: bool = False
     playback_enabled: bool = True
     playback_source_mode: str = "auto"
-    playback_user_map: Dict[str, str] = field(default_factory=dict)
     playback_recent_days: int = 180
     playback_completion_threshold: float = 0.85
     playback_abandon_minutes: int = 20
@@ -160,15 +160,39 @@ def _bounded_text(
     return value
 
 
-def _string_mapping(value: Any) -> Dict[str, str]:
-    """清洗用户映射，只保留非空的字符串键值。"""
-    if not isinstance(value, Mapping):
-        return {}
-    return {
-        str(key).strip(): str(item).strip()
-        for key, item in value.items()
-        if str(key or "").strip() and str(item or "").strip()
-    }
+def _emby_identities(value: Any, errors: List[str]) -> List[Dict[str, Any]]:
+    """校验并去重不含凭据的 Emby identity 配置。"""
+    if value in (None, []):
+        return []
+    if not isinstance(value, (list, tuple)):
+        errors.append("emby_identities must be a list")
+        return []
+    identities: List[Dict[str, Any]] = []
+    seen = set()
+    for index, item in enumerate(value):
+        try:
+            identity = EmbyIdentity.from_dict(item)
+        except (TypeError, ValueError) as error:
+            errors.append(f"emby_identities[{index}] is invalid: {error}")
+            continue
+        if identity.profile_id in seen:
+            errors.append(
+                f"emby_identities[{index}] duplicates profile_id {identity.profile_id}"
+            )
+            continue
+        seen.add(identity.profile_id)
+        identities.append(identity.to_dict())
+    return identities
+
+
+def configured_identities(config: Mapping[str, Any]) -> List[EmbyIdentity]:
+    """从规范化配置返回有效 Emby identity 列表。"""
+    errors: List[str] = []
+    values = _emby_identities(
+        config.get("emby_identities") if isinstance(config, Mapping) else [],
+        errors,
+    )
+    return [EmbyIdentity.from_dict(value) for value in values]
 
 
 def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, List[str]]:
@@ -179,10 +203,16 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
     errors: List[str] = [] if value is None or isinstance(value, Mapping) else [
         "config must be a mapping"
     ]
-    users = _unique_strings(raw.get("users", []))
-    default_user = str(raw.get("default_user") or "").strip()
-    if default_user and default_user not in users:
-        errors.append("default_user must belong to users")
+    identities = _emby_identities(raw.get("emby_identities", []), errors)
+    profile_ids = {str(item["profile_id"]) for item in identities}
+    default_profile_id = str(raw.get("default_profile_id") or "").strip()
+    if default_profile_id and default_profile_id not in profile_ids:
+        errors.append("default_profile_id must belong to emby_identities")
+    enabled = bool(raw.get("enabled", False))
+    if enabled and not identities:
+        errors.append("emby_identities must select at least one identity when enabled")
+    if enabled and identities and not default_profile_id:
+        errors.append("default_profile_id is required when enabled")
 
     raw_weights = raw.get("weights") if isinstance(raw.get("weights"), Mapping) else {}
     weights: Dict[str, float] = {}
@@ -226,13 +256,13 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
     )
 
     config = AgentRankConfig(
-        enabled=bool(raw.get("enabled", False)),
+        enabled=enabled,
         discovery_page_enabled=bool(raw.get("discovery_page_enabled", True)),
         onlyonce=bool(raw.get("onlyonce", False)),
         schedule_enabled=bool(raw.get("schedule_enabled", False)),
         cron=str(raw.get("cron") or "0 8 * * *").strip(),
-        users=users,
-        default_user=default_user,
+        emby_identities=identities,
+        default_profile_id=default_profile_id,
         discovery_sources=discovery_sources,
         weights=weights,
         media_types=media_types,
@@ -279,7 +309,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         rebuild_profile_each_run=bool(raw.get("rebuild_profile_each_run", False)),
         playback_enabled=bool(raw.get("playback_enabled", True)),
         playback_source_mode=playback_source_mode,
-        playback_user_map=_string_mapping(raw.get("playback_user_map", {})),
         playback_recent_days=_bounded_integer(
             raw.get("playback_recent_days", 180), 180, 1, 3650, "playback_recent_days", errors
         ),

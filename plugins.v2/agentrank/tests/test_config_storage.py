@@ -28,12 +28,21 @@ WEIGHT_DEFAULTS = config_module.WEIGHT_DEFAULTS
 DEFAULT_AGENT_PROMPT = config_module.DEFAULT_AGENT_PROMPT
 LEGACY_DEFAULT_AGENT_PROMPT = config_module.LEGACY_DEFAULT_AGENT_PROMPT
 normalize_config = config_module.normalize_config
+default_config = config_module.default_config
 UserProfile = profile_module.UserProfile
 RecommendationBoard = board_module.RecommendationBoard
 ArchiveFeedback = archive_module.ArchiveFeedback
 RecommendationRun = run_module.RecommendationRun
 Candidate = candidate_module.Candidate
 AgentRankRepository = repository_module.AgentRankRepository
+
+HOME_IDENTITY = {
+    "server_name": "home",
+    "user_id": "user-1",
+    "username": "Alice",
+    "profile_id": "emby:home:user-1",
+    "schema_version": 1,
+}
 
 
 class FakePlugin:
@@ -98,19 +107,24 @@ def test_run_once_switch_defaults_off_and_accepts_explicit_request():
     assert AgentRankConfig.from_mapping({"onlyonce": True}).onlyonce is True
 
 
-def test_playback_source_defaults_and_user_mapping_are_bounded():
-    """播放画像默认自动探测，用户映射和阈值进入规范化配置。"""
+def test_emby_identity_config_replaces_mp_user_mapping():
+    """配置只保存受控 Emby identity，不再暴露 MP 用户或映射字段。"""
     config = AgentRankConfig.from_mapping(
         {
-            "users": ["alice"],
-            "playback_user_map": {"alice": "Emby Alice", "": "ignored", "bob": ""},
+            "enabled": True,
+            "emby_identities": [HOME_IDENTITY],
+            "default_profile_id": "emby:home:user-1",
             "playback_source_mode": "emby_native",
             "playback_completion_threshold": 0.9,
         }
     )
     assert config.playback_source_mode == "emby_native"
-    assert config.playback_user_map == {"alice": "Emby Alice"}
+    assert config.emby_identities == [HOME_IDENTITY]
+    assert config.default_profile_id == "emby:home:user-1"
     assert config.playback_completion_threshold == 0.9
+    assert "users" not in config.to_dict()
+    assert "default_user" not in config.to_dict()
+    assert "playback_user_map" not in config.to_dict()
     assert AgentRankConfig.from_mapping({}).playback_source_mode == "auto"
 
 
@@ -136,21 +150,45 @@ def test_playback_snapshot_is_scoped_and_does_not_store_sensitive_fields():
     assert "api_key" not in stored and "device" not in stored and "client" not in stored
 
 
-def test_default_user_validation_is_visible_and_never_silently_reassigned():
-    """An invalid default user remains visible as an error, not another user."""
-    with pytest.raises(ConfigValidationError, match="default_user"):
-        AgentRankConfig.from_mapping({"users": ["alice"], "default_user": "bob"})
+def test_default_profile_validation_is_visible_and_never_silently_reassigned():
+    """无效默认身份必须报错，不得静默选择另一个 Emby 用户。"""
+    invalid = {
+        "enabled": True,
+        "emby_identities": [HOME_IDENTITY],
+        "default_profile_id": "emby:remote:user-1",
+    }
+    with pytest.raises(ConfigValidationError, match="default_profile_id"):
+        AgentRankConfig.from_mapping(invalid)
 
-    normalized = normalize_config({"users": ["alice"], "default_user": "bob"})
-    assert normalized["default_user"] == "bob"
-    assert any("default_user" in error for error in normalized["_validation_errors"])
+    normalized = normalize_config(invalid)
+    assert normalized["default_profile_id"] == "emby:remote:user-1"
+    assert any(
+        "default_profile_id" in error for error in normalized["_validation_errors"]
+    )
+
+
+def test_empty_and_invalid_emby_identity_config_is_explicit():
+    """停用时允许空身份，启用时空身份或非法身份必须留下错误。"""
+    assert AgentRankConfig.from_mapping({}).emby_identities == []
+    empty = normalize_config({"enabled": True})
+    invalid = normalize_config(
+        {
+            "emby_identities": [
+                {"server_name": "home/server", "user_id": "id-1", "username": "Alice"}
+            ]
+        }
+    )
+    assert any("emby_identities" in error for error in empty["_validation_errors"])
+    assert invalid["emby_identities"] == []
+    assert any("is invalid" in error for error in invalid["_validation_errors"])
 
 
 def test_config_normalization_recovers_invalid_values_without_load_failure():
     """Plugin initialization gets safe values plus recoverable validation evidence."""
     normalized = normalize_config(
         {
-            "users": ["alice", "alice", "", None],
+            "emby_identities": [HOME_IDENTITY],
+            "default_profile_id": "emby:home:user-1",
             "weights": {"rating_weight": "broken"},
             "candidate_pool_size": -5,
             "confidence_threshold": 9,
@@ -159,13 +197,16 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
         }
     )
 
-    assert normalized["users"] == ["alice"]
+    assert normalized["emby_identities"] == [HOME_IDENTITY]
     assert normalized["weights"]["rating_weight"] == WEIGHT_DEFAULTS["rating_weight"]
     assert normalized["candidate_pool_size"] >= 10
     assert 0 <= normalized["confidence_threshold"] <= 1
     assert normalized["action_mode"] == "notify"
     assert normalized["auto_subscribe_top_n"] <= normalized["auto_subscribe_limit"]
     assert normalized["_validation_errors"]
+    for removed in ("users", "default_user", "playback_user_map"):
+        assert removed not in normalized
+        assert removed not in default_config()
 
     corrupted = normalize_config("broken")
     assert corrupted["weights"] == WEIGHT_DEFAULTS

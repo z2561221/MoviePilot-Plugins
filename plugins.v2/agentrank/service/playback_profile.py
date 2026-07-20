@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
 
+from ..model.config import configured_identities
 from ..model.playback import PlaybackSnapshot
 
 
@@ -16,12 +17,12 @@ class PlaybackProfileService:
         self._native = native_adapter
 
     @staticmethod
-    def _mapped_username(username: str, config: Mapping[str, Any]) -> str:
-        """应用显式用户映射，否则按同名用户尝试。"""
-        mapping = config.get("playback_user_map")
-        if isinstance(mapping, Mapping):
-            return str(mapping.get(username) or username).strip()
-        return username
+    def _identity_username(profile_id: str, config: Mapping[str, Any]) -> str:
+        """从受控配置解析 profile_id 对应的 Emby 显示名。"""
+        for identity in configured_identities(config):
+            if identity.profile_id == profile_id:
+                return identity.username
+        raise ValueError("profile_id is not configured")
 
     @staticmethod
     def _fresh(snapshot: Optional[PlaybackSnapshot], cache_days: int) -> bool:
@@ -51,19 +52,19 @@ class PlaybackProfileService:
         target = str(profile_id or "").strip()
         if not target:
             raise ValueError("profile_id is required")
+        source_username = self._identity_username(target, config)
         if not bool(config.get("playback_enabled", True)):
             snapshot = PlaybackSnapshot(
                 target,
                 "subscription",
                 "low",
                 "disabled",
-                username=target,
+                username=source_username,
                 message="播放画像已关闭",
             )
             self._repository.save_playback_snapshot(snapshot)
             return snapshot
         mode = str(config.get("playback_source_mode") or "auto")
-        source_username = self._mapped_username(target, config)
         options = {
             "recent_days": int(config.get("playback_recent_days") or 180),
             "completion_threshold": float(config.get("playback_completion_threshold") or 0.85),
@@ -75,7 +76,7 @@ class PlaybackProfileService:
         if mode in {"auto", "playback_reporting"}:
             reporting_result = self._reporting.collect(source_username, **options)
             reporting_result.profile_id = target
-            reporting_result.username = target
+            reporting_result.username = source_username
             if reporting_result.status == "ready" and (
                 reporting_result.sample_count > 0 or mode == "playback_reporting"
             ):
@@ -100,7 +101,7 @@ class PlaybackProfileService:
         if mode in {"auto", "emby_native"}:
             native_result = self._native.collect(source_username, **options)
             native_result.profile_id = target
-            native_result.username = target
+            native_result.username = source_username
             if native_result.status == "ready":
                 native_result.fallback_from = failures
                 if failures:
@@ -117,7 +118,7 @@ class PlaybackProfileService:
             "subscription",
             "low",
             "fallback",
-            username=target,
+            username=source_username,
             message="播放记录不可用，当前仅使用 MP 订阅画像与媒体库库存",
             fallback_from=failures,
         )

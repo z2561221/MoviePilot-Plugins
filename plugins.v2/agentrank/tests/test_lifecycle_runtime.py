@@ -22,6 +22,20 @@ AgentRankRuntime = runtime_module.AgentRankRuntime
 initialize_plugin = lifecycle_module.initialize_plugin
 stop_plugin = lifecycle_module.stop_plugin
 
+HOME_PROFILE = "emby:home:user-1"
+REMOTE_PROFILE = "emby:remote:user-1"
+
+
+def _identity(server_name, user_id, username):
+    """构造测试使用的无凭据 Emby identity。"""
+    return {
+        "server_name": server_name,
+        "user_id": user_id,
+        "username": username,
+        "profile_id": f"emby:{server_name}:{user_id}",
+        "schema_version": 1,
+    }
+
 
 class FakeOrchestrator:
     """Record user order and optionally fail selected users."""
@@ -30,11 +44,11 @@ class FakeOrchestrator:
         self.failures = set(failures or [])
         self.calls = []
 
-    async def run(self, username, config):
-        self.calls.append(username)
-        if username in self.failures:
-            raise RuntimeError(f"{username} failed")
-        return SimpleNamespace(username=username, status="success")
+    async def run(self, profile_id, config):
+        self.calls.append(profile_id)
+        if profile_id in self.failures:
+            raise RuntimeError(f"{profile_id} failed")
+        return SimpleNamespace(profile_id=profile_id, status="success")
 
 
 class FakePlugin:
@@ -61,8 +75,11 @@ def _config(**overrides):
         "enabled": True,
         "schedule_enabled": True,
         "cron": "0 8 * * *",
-        "users": ["alice", "bob"],
-        "default_user": "alice",
+        "emby_identities": [
+            _identity("home", "user-1", "Alice"),
+            _identity("remote", "user-1", "Alice"),
+        ],
+        "default_profile_id": HOME_PROFILE,
     }
     config.update(overrides)
     return config
@@ -129,15 +146,17 @@ def test_invalid_cron_is_visible_and_runtime_stays_loadable():
 
 def test_scheduled_users_run_sequentially_and_partial_failure_does_not_abort():
     """A failed Alice run is recorded while Bob still executes afterwards."""
-    orchestrator = FakeOrchestrator(failures={"alice"})
+    orchestrator = FakeOrchestrator(failures={HOME_PROFILE})
     runtime = AgentRankRuntime(FakePlugin(), _config(), orchestrator, lambda cron: cron)
 
     results = asyncio.run(runtime.run_scheduled())
 
-    assert orchestrator.calls == ["alice", "bob"]
-    assert results[0]["username"] == "alice"
+    assert orchestrator.calls == [HOME_PROFILE, REMOTE_PROFILE]
+    assert results[0]["profile_id"] == HOME_PROFILE
+    assert results[0]["username"] == "Alice"
     assert results[0]["status"] == "failed"
-    assert results[1]["username"] == "bob"
+    assert results[1]["profile_id"] == REMOTE_PROFILE
+    assert results[1]["username"] == "Alice"
     assert results[1]["status"] == "success"
 
 
@@ -158,7 +177,7 @@ def test_initialize_normalizes_config_and_replaces_previous_runtime():
     assert old_runtime.stopped is True
     assert plugin._enabled is True
     assert plugin._runtime is created[0]
-    assert plugin._config["default_user"] == "alice"
+    assert plugin._config["default_profile_id"] == HOME_PROFILE
 
 
 def test_initialize_persists_run_once_reset_but_runtime_keeps_request():
@@ -188,15 +207,18 @@ def test_stop_is_idempotent_cancels_active_task_and_blocks_refresh():
     entered = asyncio.Event()
 
     class BlockingOrchestrator(FakeOrchestrator):
-        async def run(self, username, config):
-            self.calls.append(username)
+        async def run(self, profile_id, config):
+            self.calls.append(profile_id)
             entered.set()
             await asyncio.Event().wait()
 
     async def scenario():
         runtime = AgentRankRuntime(
             FakePlugin(),
-            _config(users=["alice"]),
+            _config(
+                emby_identities=[_identity("home", "user-1", "Alice")],
+                default_profile_id=HOME_PROFILE,
+            ),
             BlockingOrchestrator(),
             lambda cron: cron,
         )
@@ -207,6 +229,6 @@ def test_stop_is_idempotent_cancels_active_task_and_blocks_refresh():
         with pytest.raises(asyncio.CancelledError):
             await task
         with pytest.raises(RuntimeError, match="stopped"):
-            await runtime.refresh("alice")
+            await runtime.refresh(HOME_PROFILE)
 
     asyncio.run(scenario())

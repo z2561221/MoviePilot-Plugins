@@ -3,7 +3,7 @@
 import asyncio
 from typing import Any, Dict, List, Mapping
 
-from ..model.config import default_config
+from ..model.config import configured_identities, default_config
 from ..service.archive import ArchiveService
 from ..service.profile_preferences import ProfilePreferenceService
 
@@ -34,7 +34,7 @@ def _http_error(error: ApiContractError) -> None:
 
 
 class AgentRankApiController:
-    """验证参与用户并协调只读与状态变更 API。"""
+    """验证 Emby 画像身份并协调只读与状态变更 API。"""
 
     def __init__(self, plugin: Any):
         """绑定运行中插件实例。"""
@@ -45,15 +45,26 @@ class AgentRankApiController:
         """包装稳定成功响应。"""
         return {"success": True, "data": data}
 
-    def _username(self, value: Any) -> str:
-        """要求显式用户名且必须属于参与用户。"""
-        username = str(value or "").strip()
-        if not username:
-            raise ApiContractError(422, "username_required", "必须指定参与推荐的用户名")
-        users = list(self.plugin._config.get("users") or [])
-        if username not in users:
-            raise ApiContractError(404, "unknown_user", "用户不在 Agent 榜单参与列表中")
-        return username
+    def _identity_map(self) -> Dict[str, Any]:
+        """返回配置中以 profile_id 索引的受控 Emby identity。"""
+        return {
+            identity.profile_id: identity
+            for identity in configured_identities(self.plugin._config)
+        }
+
+    def _profile_id(self, value: Any) -> str:
+        """要求显式 profile_id 且必须属于受控 Emby identity。"""
+        profile_id = str(value or "").strip()
+        if not profile_id:
+            raise ApiContractError(422, "profile_id_required", "必须指定 profile_id")
+        if profile_id not in self._identity_map():
+            raise ApiContractError(404, "unknown_profile", "画像身份不在已选 Emby 用户中")
+        return profile_id
+
+    def _display_name(self, profile_id: str) -> str:
+        """返回 profile_id 对应的安全 Emby 显示名。"""
+        identity = self._identity_map().get(str(profile_id or ""))
+        return identity.username if identity is not None else ""
 
     def _payload(self, value: Any) -> Mapping[str, Any]:
         """要求 POST 请求体为对象。"""
@@ -81,13 +92,24 @@ class AgentRankApiController:
         service = getattr(self.plugin, "_poster_service", None)
         return service.enrich_board(value) if service is not None else value
 
-    def _profile_data(self, username: str, profile: Any = None) -> Dict[str, Any]:
+    def _playback_data(self, profile_id: str) -> Any:
+        """返回带安全 Emby 显示名的播放状态。"""
+        service = getattr(self.plugin, "_playback_service", None)
+        if service is None or not profile_id:
+            return None
+        value = service.status(profile_id).to_dict()
+        value["profile_id"] = profile_id
+        value["username"] = self._display_name(profile_id)
+        return value
+
+    def _profile_data(self, profile_id: str, profile: Any = None) -> Dict[str, Any]:
         """合并 Agent 原始画像与人工标签覆盖层。"""
         value = (
             profile.to_dict()
             if profile is not None
             else {
-                "username": username,
+                "profile_id": profile_id,
+                "username": self._display_name(profile_id),
                 "summary": "",
                 "tags": [],
                 "negative_tags": [],
@@ -96,7 +118,9 @@ class AgentRankApiController:
                 "generated_at": "",
             }
         )
-        preferences = self._repository().load_profile_preferences(username)
+        value["profile_id"] = profile_id
+        value["username"] = self._display_name(profile_id)
+        preferences = self._repository().load_profile_preferences(profile_id)
         agent_tags = list(value.get("tags") or [])
         agent_negative_tags = list(value.get("negative_tags") or [])
         value.update(
@@ -120,8 +144,9 @@ class AgentRankApiController:
     def status(self) -> Dict[str, Any]:
         """返回插件全局运行状态。"""
         runtime = getattr(self.plugin, "_runtime", None)
-        playback_service = getattr(self.plugin, "_playback_service", None)
-        default_user = str(self.plugin._config.get("default_user") or "")
+        default_profile_id = str(
+            self.plugin._config.get("default_profile_id") or ""
+        )
         return self._success(
             {
                 "enabled": bool(self.plugin.get_state()),
@@ -130,74 +155,65 @@ class AgentRankApiController:
                 "validation_errors": list(
                     self.plugin._config.get("_validation_errors") or []
                 ),
-                "playback": playback_service.status(default_user).to_dict()
-                if playback_service and default_user
-                else None,
+                "default_profile_id": default_profile_id,
+                "playback": self._playback_data(default_profile_id),
             }
         )
 
     def config_options(self) -> Dict[str, Any]:
-        """返回 Config 与用户切换器需要的选项和生效配置。"""
-        configured_users = list(self.plugin._config.get("users") or [])
-        available_users = list(configured_users)
-        try:
-            from app.db.user_oper import UserOper
-
-            available_users = [
-                str(user.name)
-                for user in UserOper().list()
-                if getattr(user, "name", None) and getattr(user, "is_active", True)
-            ]
-        except Exception:
-            pass
+        """返回 Config 与 Emby 身份切换器需要的安全选项。"""
+        identities = [
+            identity.to_dict()
+            for identity in configured_identities(self.plugin._config)
+        ]
         return self._success(
             {
-                "users": configured_users,
-                "available_users": available_users,
-                "default_user": str(self.plugin._config.get("default_user") or ""),
+                "emby_identities": identities,
+                "default_profile_id": str(
+                    self.plugin._config.get("default_profile_id") or ""
+                ),
                 "config": dict(self.plugin._config),
                 "defaults": default_config(),
                 "playback_status": {
-                    username: self.plugin._playback_service.status(username).to_dict()
-                    for username in configured_users
+                    identity["profile_id"]: self._playback_data(identity["profile_id"])
+                    for identity in identities
                     if getattr(self.plugin, "_playback_service", None) is not None
                 },
             }
         )
 
-    def overview(self, username: Any) -> Dict[str, Any]:
-        """返回一个用户的画像、榜单和最近运行摘要。"""
-        target = self._username(username)
+    def overview(self, profile_id: Any) -> Dict[str, Any]:
+        """返回一个 Emby 画像身份的画像、榜单和最近运行摘要。"""
+        target = self._profile_id(profile_id)
         repository = self._repository()
         profile = repository.load_profile(target)
         board = repository.load_board(target)
         archive = repository.load_archive(target)
         history = repository.load_run_history(target)
-        playback_service = getattr(self.plugin, "_playback_service", None)
         return self._success(
             {
-                "username": target,
+                "profile_id": target,
+                "username": self._display_name(target),
                 "profile": self._profile_data(target, profile),
                 "board": self._board_data(board) if board else None,
                 "archive": archive.to_dict(),
                 "latest_run": history[0].to_dict() if history else None,
                 "history": [item.to_dict() for item in history[:15]],
                 "history_total": len(history),
-                "playback": playback_service.status(target).to_dict()
-                if playback_service is not None
-                else None,
+                "playback": self._playback_data(target),
             }
         )
 
-    def board(self, username: Any) -> Dict[str, Any]:
-        """返回用户当前榜单或显式空榜单。"""
-        target = self._username(username)
+    def board(self, profile_id: Any) -> Dict[str, Any]:
+        """返回画像身份当前榜单或显式空榜单。"""
+        target = self._profile_id(profile_id)
         board = self._repository().load_board(target)
         if board:
             return self._success(self._board_data(board))
         return self._success(
             {
-                "username": target,
+                "profile_id": target,
+                "username": self._display_name(target),
                 "run_id": "",
                 "status": "idle",
                 "recommendations": [],
@@ -206,17 +222,17 @@ class AgentRankApiController:
             }
         )
 
-    def profile(self, username: Any) -> Dict[str, Any]:
-        """返回用户当前画像或显式空画像。"""
-        target = self._username(username)
+    def profile(self, profile_id: Any) -> Dict[str, Any]:
+        """返回画像身份当前画像或显式空画像。"""
+        target = self._profile_id(profile_id)
         profile = self._repository().load_profile(target)
         return self._success(self._profile_data(target, profile))
 
     def run_history(
-        self, username: Any, page: int = 1, page_size: int = 15
+        self, profile_id: Any, page: int = 1, page_size: int = 15
     ) -> Dict[str, Any]:
         """返回用户有界运行历史。"""
-        target = self._username(username)
+        target = self._profile_id(profile_id)
         items = self._repository().load_run_history(target)
         current_page = max(1, int(page or 1))
         current_page_size = max(1, min(int(page_size or 15), 50))
@@ -224,7 +240,8 @@ class AgentRankApiController:
         paged_items = items[start : start + current_page_size]
         return self._success(
             {
-                "username": target,
+                "profile_id": target,
+                "username": self._display_name(target),
                 "items": [item.to_dict() for item in paged_items],
                 "total": len(items),
                 "page": current_page,
@@ -235,7 +252,7 @@ class AgentRankApiController:
     async def refresh(self, payload: Any) -> Dict[str, Any]:
         """触发一次手动推荐并映射运行结果。"""
         body = self._payload(payload)
-        target = self._username(body.get("username"))
+        target = self._profile_id(body.get("profile_id"))
         runtime = getattr(self.plugin, "_runtime", None)
         if runtime is None:
             raise ApiContractError(503, "runtime_unavailable", "插件运行时尚未就绪")
@@ -245,7 +262,8 @@ class AgentRankApiController:
             raise ApiContractError(502, "refresh_failed", f"榜单刷新失败：{error}") from error
         return self._success(
             {
-                "username": target,
+                "profile_id": target,
+                "username": self._display_name(target),
                 "status": result.status,
                 "message": getattr(result, "message", ""),
                 "run_id": getattr(result, "run_id", ""),
@@ -256,7 +274,7 @@ class AgentRankApiController:
     def archive(self, payload: Any) -> Dict[str, Any]:
         """忽略当前榜单中的一个推荐。"""
         body = self._payload(payload)
-        target = self._username(body.get("username"))
+        target = self._profile_id(body.get("profile_id"))
         candidate_id = self._candidate_id(body)
         result = ArchiveService(self._repository()).ignore(target, candidate_id)
         return self._success(result.__dict__)
@@ -264,7 +282,7 @@ class AgentRankApiController:
     def restore(self, payload: Any) -> Dict[str, Any]:
         """恢复一个已忽略推荐。"""
         body = self._payload(payload)
-        target = self._username(body.get("username"))
+        target = self._profile_id(body.get("profile_id"))
         candidate_id = self._candidate_id(body)
         result = ArchiveService(self._repository()).restore(target, candidate_id)
         return self._success(result.__dict__)
@@ -272,7 +290,7 @@ class AgentRankApiController:
     def delete_archive(self, payload: Any) -> Dict[str, Any]:
         """永久删除一条归档反馈但不恢复榜单。"""
         body = self._payload(payload)
-        target = self._username(body.get("username"))
+        target = self._profile_id(body.get("profile_id"))
         candidate_id = self._candidate_id(body)
         result = ArchiveService(self._repository()).delete_archive(target, candidate_id)
         return self._success(result.__dict__)
@@ -280,7 +298,7 @@ class AgentRankApiController:
     def clear_profile(self, payload: Any) -> Dict[str, Any]:
         """经明确确认后原子清除用户画像和榜单。"""
         body = self._payload(payload)
-        target = self._username(body.get("username"))
+        target = self._profile_id(body.get("profile_id"))
         if body.get("confirm") is not True:
             raise ApiContractError(409, "confirmation_required", "清除画像需要明确确认")
         result = ArchiveService(self._repository()).clear_profile(target)
@@ -289,7 +307,7 @@ class AgentRankApiController:
     def update_profile_tag(self, payload: Any) -> Dict[str, Any]:
         """添加或删除当前用户的人工偏好或避雷标签。"""
         body = self._payload(payload)
-        target = self._username(body.get("username"))
+        target = self._profile_id(body.get("profile_id"))
         try:
             result = ProfilePreferenceService(self._repository()).update(
                 profile_id=target,
@@ -313,7 +331,7 @@ class AgentRankApiController:
     async def playback_sync(self, payload: Any) -> Dict[str, Any]:
         """立即同步指定用户播放画像并返回数据源状态。"""
         body = self._payload(payload)
-        target = self._username(body.get("username"))
+        target = self._profile_id(body.get("profile_id"))
         service = getattr(self.plugin, "_playback_service", None)
         if service is None:
             raise ApiContractError(503, "playback_unavailable", "播放画像服务尚未就绪")
@@ -326,7 +344,7 @@ class AgentRankApiController:
     def subscribe(self, payload: Any) -> Dict[str, Any]:
         """通过运行时安全链创建单项手动订阅。"""
         body = self._payload(payload)
-        target = self._username(body.get("username"))
+        target = self._profile_id(body.get("profile_id"))
         candidate_id = self._candidate_id(body)
         runtime = getattr(self.plugin, "_runtime", None)
         service = getattr(runtime, "subscription_service", None) if runtime else None
@@ -363,23 +381,23 @@ class AgentRankApiController:
         """FastAPI 配置选项入口。"""
         return self._endpoint(self.config_options)
 
-    def endpoint_overview(self, username: str = "") -> Dict[str, Any]:
+    def endpoint_overview(self, profile_id: str = "") -> Dict[str, Any]:
         """FastAPI 总览入口。"""
-        return self._endpoint(self.overview, username)
+        return self._endpoint(self.overview, profile_id)
 
-    def endpoint_board(self, username: str = "") -> Dict[str, Any]:
+    def endpoint_board(self, profile_id: str = "") -> Dict[str, Any]:
         """FastAPI 榜单入口。"""
-        return self._endpoint(self.board, username)
+        return self._endpoint(self.board, profile_id)
 
-    def endpoint_profile(self, username: str = "") -> Dict[str, Any]:
+    def endpoint_profile(self, profile_id: str = "") -> Dict[str, Any]:
         """FastAPI 画像入口。"""
-        return self._endpoint(self.profile, username)
+        return self._endpoint(self.profile, profile_id)
 
     def endpoint_run_history(
-        self, username: str = "", page: int = 1, page_size: int = 15
+        self, profile_id: str = "", page: int = 1, page_size: int = 15
     ) -> Dict[str, Any]:
         """FastAPI 运行历史入口。"""
-        return self._endpoint(self.run_history, username, page, page_size)
+        return self._endpoint(self.run_history, profile_id, page, page_size)
 
     async def endpoint_refresh(self, payload: dict) -> Dict[str, Any]:
         """FastAPI 手动刷新入口。"""

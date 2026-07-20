@@ -22,6 +22,28 @@ PlaybackProfileService = service_module.PlaybackProfileService
 PlaybackReportingAdapter = reporting_module.PlaybackReportingAdapter
 within_recent_days = emby_module._within_recent_days
 
+PROFILE_ID = "emby:home:user-1"
+
+
+def _config(**overrides):
+    """返回包含一个受控 Emby identity 的播放测试配置。"""
+    config = {
+        "emby_identities": [
+            {
+                "server_name": "home",
+                "user_id": "user-1",
+                "username": "Alice",
+                "profile_id": PROFILE_ID,
+                "schema_version": 1,
+            }
+        ],
+        "default_profile_id": PROFILE_ID,
+        "playback_enabled": True,
+        "playback_source_mode": "auto",
+    }
+    config.update(overrides)
+    return config
+
 
 class FakeRepository:
     """提供播放快照所需的最小内存仓库。"""
@@ -89,8 +111,8 @@ class FakeReportingAccess:
 
 def _ready(source, confidence="high"):
     return PlaybackSnapshot(
-        profile_id="alice",
-        username="alice",
+        profile_id=PROFILE_ID,
+        username="Alice",
         source=source,
         confidence=confidence,
         status="ready",
@@ -98,24 +120,17 @@ def _ready(source, confidence="high"):
     )
 
 
-def test_auto_prefers_playback_reporting_and_applies_user_mapping():
-    """自动模式优先使用高置信 Playback Reporting。"""
+def test_auto_prefers_playback_reporting_and_uses_identity_username():
+    """自动模式使用受控 identity 显示名读取 Playback Reporting。"""
     repo = FakeRepository()
     reporting = FakeAdapter(_ready("playback_reporting"))
     native = FakeAdapter(_ready("emby_native", "medium"))
     service = PlaybackProfileService(repo, reporting, native)
 
-    result = service.collect(
-        "alice",
-        {
-            "playback_enabled": True,
-            "playback_source_mode": "auto",
-            "playback_user_map": {"alice": "emby-alice"},
-        },
-    )
+    result = service.collect(PROFILE_ID, _config())
 
     assert result.source == "playback_reporting"
-    assert reporting.usernames == ["emby-alice"]
+    assert reporting.usernames == ["Alice"]
     assert native.usernames == []
 
 
@@ -125,7 +140,7 @@ def test_auto_falls_back_to_native_when_reporting_is_not_installed():
     reporting = FakeAdapter(PlaybackSnapshot("alice", "playback_reporting", "high", "not_installed"))
     native = FakeAdapter(_ready("emby_native", "medium"))
     result = PlaybackProfileService(repo, reporting, native).collect(
-        "alice", {"playback_enabled": True, "playback_source_mode": "auto"}
+        PROFILE_ID, _config()
     )
     assert result.source == "emby_native"
     assert result.fallback_from == ["playback_reporting:not_installed"]
@@ -137,7 +152,7 @@ def test_auto_falls_back_to_native_when_reporting_has_no_usable_rows():
     reporting = FakeAdapter(PlaybackSnapshot("alice", "playback_reporting", "high", "ready"))
     native = FakeAdapter(_ready("emby_native", "medium"))
     result = PlaybackProfileService(repo, reporting, native).collect(
-        "alice", {"playback_enabled": True, "playback_source_mode": "auto"}
+        PROFILE_ID, _config()
     )
     assert result.source == "emby_native"
     assert result.fallback_from == ["playback_reporting:empty"]
@@ -150,7 +165,7 @@ def test_transient_reporting_uses_recent_snapshot_before_native():
     reporting = FakeAdapter(PlaybackSnapshot("alice", "playback_reporting", "high", "transient_error"))
     native = FakeAdapter(_ready("emby_native", "medium"))
     result = PlaybackProfileService(repo, reporting, native).collect(
-        "alice", {"playback_enabled": True, "playback_source_mode": "auto", "playback_cache_days": 7}
+        PROFILE_ID, _config(playback_cache_days=7)
     )
     assert result.status == "cached"
     assert result.source == "playback_reporting"
@@ -209,7 +224,7 @@ def test_transient_reporting_without_cache_continues_to_native():
     )
     native = FakeAdapter(_ready("emby_native", "medium"))
     result = PlaybackProfileService(repo, reporting, native).collect(
-        "alice", {"playback_enabled": True, "playback_source_mode": "auto"}
+        PROFILE_ID, _config()
     )
     assert result.source == "emby_native"
     assert result.fallback_from == ["playback_reporting:transient_error"]

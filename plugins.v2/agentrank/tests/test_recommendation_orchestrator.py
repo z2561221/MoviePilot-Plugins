@@ -34,6 +34,20 @@ PlaybackSnapshot = playback_module.PlaybackSnapshot
 AgentRankRepository = repository_module.AgentRankRepository
 RecommendationOrchestrator = orchestrator_module.RecommendationOrchestrator
 
+PROFILE_ID = "emby:home:user-1"
+IDENTITY_CONFIG = {
+    "emby_identities": [
+        {
+            "server_name": "home",
+            "user_id": "user-1",
+            "username": "Alice",
+            "profile_id": PROFILE_ID,
+            "schema_version": 1,
+        }
+    ],
+    "default_profile_id": PROFILE_ID,
+}
+
 
 class FakePlugin:
     """In-memory plugindata store with one-shot board-save failure."""
@@ -46,7 +60,7 @@ class FakePlugin:
         return self.data.get(key)
 
     def save_data(self, key=None, value=None):
-        if self.fail_board_save and key == "recommendation_board:profile:alice":
+        if self.fail_board_save and key == f"recommendation_board:profile:{PROFILE_ID.replace(':', '%3A')}":
             self.fail_board_save = False
             raise RuntimeError("board save failed")
         self.data[key] = value
@@ -58,9 +72,9 @@ class FakePlugin:
 class FakeProfileService:
     """Return a deterministic ready profile input."""
 
-    def collect(self, username, **kwargs):
+    def collect(self, profile_id, **kwargs):
         return ProfileInputResult(
-            username=username,
+            username="Alice",
             status="ready",
             minimum_samples=1,
             samples=[
@@ -80,9 +94,9 @@ class FakeCandidateService:
             for index in range(1, count + 1)
         ]
 
-    def collect_and_freeze(self, username, run_id, enabled_sources, candidate_limit):
+    def collect_and_freeze(self, profile_id, run_id, enabled_sources, candidate_limit):
         return SimpleNamespace(
-            username=username,
+            profile_id=profile_id,
             run_id=run_id,
             status="ready",
             candidates=self.candidates[:candidate_limit],
@@ -153,6 +167,7 @@ def _orchestrator(plugin, outputs, candidate_count=12):
 
 def _config():
     return {
+        **IDENTITY_CONFIG,
         "profile_scope": "all",
         "subscription_sample_limit": 200,
         "candidate_pool_size": 50,
@@ -172,13 +187,16 @@ def test_success_atomically_saves_profile_board_and_run_history():
     orchestrator, repository = _orchestrator(
         plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
     )
-
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    config = _config()
+    result = asyncio.run(orchestrator.run(PROFILE_ID, config))
 
     assert result.status == "success"
-    assert len(repository.load_board("alice").recommendations) == 10
-    assert repository.load_profile("alice").run_id == "run-1"
-    history = repository.load_run_history("alice")
+    assert result.profile_id == PROFILE_ID
+    assert result.username == "Alice"
+    assert orchestrator.agent_adapter.calls[0][1].username == "Alice"
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 10
+    assert repository.load_profile(PROFILE_ID).run_id == "run-1"
+    history = repository.load_run_history(PROFILE_ID)
     assert history[0].status == "success"
     assert history[0].metrics["final_count"] == 10
     assert history[0].metrics["agent_calls"] == 1
@@ -193,7 +211,7 @@ def test_run_uses_configured_agent_prompt():
     config = _config()
     config["agent_prompt"] = "多推荐冷门科幻并保持俏皮文风"
 
-    asyncio.run(orchestrator.run("alice", config))
+    asyncio.run(orchestrator.run(PROFILE_ID, config))
 
     assert "多推荐冷门科幻并保持俏皮文风" in orchestrator.agent_adapter.calls[0][0]
 
@@ -206,19 +224,23 @@ def test_cached_profile_is_passed_as_incremental_context():
     )
     repository.save_profile(
         UserProfile(
-            profile_id="alice", username="alice", summary="old", tags=["悬疑"], run_id="old"
+            profile_id=PROFILE_ID,
+            username="Alice",
+            summary="old",
+            tags=["悬疑"],
+            run_id="old",
         )
     )
     repository.save_profile_preferences(
         ProfilePreferences(
-            profile_id="alice",
-            username="alice",
+            profile_id=PROFILE_ID,
+            username="Alice",
             custom_tags=["冷门佳作"],
             custom_negative_tags=["过度煽情"],
         )
     )
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     context = orchestrator.agent_adapter.calls[0][1]
     assert context.previous_profile["summary"] == "old"
@@ -227,7 +249,7 @@ def test_cached_profile_is_passed_as_incremental_context():
     assert context.profile_preferences["custom_negative_tags"] == ("过度煽情",)
     assert "禁止简单做标签并集" in orchestrator.agent_adapter.calls[0][0]
     assert "用户明确偏好" in orchestrator.agent_adapter.calls[0][0]
-    history = repository.load_run_history("alice")[0]
+    history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["profile_mode"] == "incremental"
     assert history.metrics["previous_profile_used"] is True
     assert history.metrics["custom_preference_count"] == 2
@@ -242,10 +264,10 @@ def test_playback_evidence_is_collected_and_passed_to_restricted_context():
     repository = AgentRankRepository(plugin)
 
     class PlaybackService:
-        def collect(self, username, config):
+        def collect(self, profile_id, config):
             return PlaybackSnapshot(
-                profile_id=username,
-                username=username,
+                profile_id=profile_id,
+                username="Alice",
                 source="playback_reporting",
                 confidence="high",
                 status="ready",
@@ -274,12 +296,12 @@ def test_playback_evidence_is_collected_and_passed_to_restricted_context():
         playback_service=PlaybackService(),
     )
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     context = agent.calls[0][1]
     assert context.playback["source"] == "playback_reporting"
     assert context.playback["samples"][0]["completed"] is True
-    metrics = repository.load_run_history("alice")[0].metrics
+    metrics = repository.load_run_history(PROFILE_ID)[0].metrics
     assert metrics["playback_source"] == "playback_reporting"
     assert metrics["playback_count"] == 1
     assert result.status == "success"
@@ -291,14 +313,14 @@ def test_playback_samples_can_satisfy_profile_minimum_without_subscriptions():
     repository = AgentRankRepository(plugin)
 
     class EmptyProfileService:
-        def collect(self, username, **kwargs):
-            return ProfileInputResult(username, "sample_insufficient", [], minimum_samples=5)
+        def collect(self, profile_id, **kwargs):
+            return ProfileInputResult("Alice", "sample_insufficient", [], minimum_samples=5)
 
     class PlaybackService:
-        def collect(self, username, config):
+        def collect(self, profile_id, config):
             return PlaybackSnapshot(
-                profile_id=username,
-                username=username,
+                profile_id=profile_id,
+                username="Alice",
                 source="emby_native",
                 confidence="medium",
                 status="ready",
@@ -320,10 +342,10 @@ def test_playback_samples_can_satisfy_profile_minimum_without_subscriptions():
     config = _config()
     config["minimum_samples"] = 5
 
-    result = asyncio.run(orchestrator.run("alice", config))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, config))
 
     assert result.status == "success"
-    assert repository.load_run_history("alice")[0].metrics["profile_evidence_count"] == 5
+    assert repository.load_run_history(PROFILE_ID)[0].metrics["profile_evidence_count"] == 5
 
 
 def test_rebuild_or_disabled_cache_does_not_read_previous_profile():
@@ -337,15 +359,20 @@ def test_rebuild_or_disabled_cache_does_not_read_previous_profile():
             plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
         )
         repository.save_profile(
-            UserProfile(profile_id="alice", username="alice", summary="old", run_id="old")
+            UserProfile(
+                profile_id=PROFILE_ID,
+                username="Alice",
+                summary="old",
+                run_id="old",
+            )
         )
         config = _config()
         config.update(overrides)
 
-        result = asyncio.run(orchestrator.run("alice", config))
+        result = asyncio.run(orchestrator.run(PROFILE_ID, config))
 
         assert orchestrator.agent_adapter.calls[0][1].previous_profile is None
-        history = repository.load_run_history("alice")[0]
+        history = repository.load_run_history(PROFILE_ID)[0]
         assert history.metrics["profile_mode"] == expected_mode
         assert history.metrics["previous_profile_used"] is False
         assert result.status == "success"
@@ -372,7 +399,7 @@ def test_library_items_are_removed_before_agent_context_is_built():
         library_adapter=LibraryAdapter(),
     )
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "success"
     candidate_ids = {
@@ -381,22 +408,22 @@ def test_library_items_are_removed_before_agent_context_is_built():
     }
     assert "tmdb:1" not in candidate_ids
     assert "tmdb:2" not in candidate_ids
-    assert repository.load_run_history("alice")[0].metrics["library_excluded_count"] == 2
+    assert repository.load_run_history(PROFILE_ID)[0].metrics["library_excluded_count"] == 2
 
 
 def test_agent_failure_preserves_previous_profile_and_board():
     """An Agent exception records agent_failed without replacing old state."""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, [RuntimeError("llm offline")])
-    repository.save_profile(UserProfile(profile_id="alice", username="alice", summary="old", run_id="old"))
-    repository.save_board(RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success"))
+    repository.save_profile(UserProfile(profile_id=PROFILE_ID, username="Alice", summary="old", run_id="old"))
+    repository.save_board(RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success"))
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "agent_failed"
-    assert repository.load_profile("alice").run_id == "old"
-    assert repository.load_board("alice").run_id == "old"
-    assert repository.load_run_history("alice")[0].status == "agent_failed"
+    assert repository.load_profile(PROFILE_ID).run_id == "old"
+    assert repository.load_board(PROFILE_ID).run_id == "old"
+    assert repository.load_run_history(PROFILE_ID)[0].status == "agent_failed"
 
 
 def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
@@ -409,12 +436,12 @@ def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
         ],
     )
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "success"
     assert result.agent_calls == 2
     assert len(orchestrator.agent_adapter.calls) == 2
-    assert repository.load_run_history("alice")[0].metrics["agent_calls"] == 2
+    assert repository.load_run_history(PROFILE_ID)[0].metrics["agent_calls"] == 2
 
 
 def test_retryable_empty_agent_output_fails_after_one_retry():
@@ -424,16 +451,16 @@ def test_retryable_empty_agent_output_fails_after_one_retry():
         plugin,
         [RetryableAgentError("first"), RetryableAgentError("second")],
     )
-    repository.save_profile(UserProfile(profile_id="alice", username="alice", summary="old", run_id="old"))
-    repository.save_board(RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success"))
+    repository.save_profile(UserProfile(profile_id=PROFILE_ID, username="Alice", summary="old", run_id="old"))
+    repository.save_board(RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success"))
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "agent_failed"
     assert result.agent_calls == 2
-    assert repository.load_profile("alice").run_id == "old"
-    assert repository.load_board("alice").run_id == "old"
-    assert repository.load_run_history("alice")[0].metrics["agent_calls"] == 2
+    assert repository.load_profile(PROFILE_ID).run_id == "old"
+    assert repository.load_board(PROFILE_ID).run_id == "old"
+    assert repository.load_run_history(PROFILE_ID)[0].metrics["agent_calls"] == 2
 
 
 def test_invalid_json_retries_once_with_stricter_prompt():
@@ -446,12 +473,12 @@ def test_invalid_json_retries_once_with_stricter_prompt():
         ],
     )
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "success"
     assert result.agent_calls == 2
     assert "上一次输出未通过严格校验" in orchestrator.agent_adapter.calls[1][0]
-    history = repository.load_run_history("alice")[0]
+    history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["agent_calls"] == 2
     assert history.errors[0].startswith("attempt 1:")
 
@@ -461,15 +488,15 @@ def test_invalid_json_fails_after_one_strict_retry():
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, ["bad-one", "bad-two"])
     repository.save_board(
-        RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success")
+        RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success")
     )
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "validation_failed"
     assert result.agent_calls == 2
-    assert repository.load_board("alice").run_id == "old"
-    history = repository.load_run_history("alice")[0]
+    assert repository.load_board(PROFILE_ID).run_id == "old"
+    history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["agent_calls"] == 2
     assert len(history.errors) == 2
 
@@ -480,11 +507,11 @@ def test_partial_valid_output_gets_exactly_one_successful_refill():
     refill = _agent_output(["tmdb:9", "tmdb:10"])
     orchestrator, repository = _orchestrator(FakePlugin(), [first, refill])
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "success"
     assert result.agent_calls == 2
-    assert len(repository.load_board("alice").recommendations) == 10
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 10
     assert "tmdb:1" in orchestrator.agent_adapter.calls[1][0]
     assert "排除" in orchestrator.agent_adapter.calls[1][0]
 
@@ -499,10 +526,10 @@ def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
         ],
     )
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "recommendation_incomplete"
-    board = repository.load_board("alice")
+    board = repository.load_board(PROFILE_ID)
     assert board.status == "recommendation_incomplete"
     assert len(board.recommendations) == 9
     assert result.agent_calls == 2
@@ -512,12 +539,12 @@ def test_zero_valid_items_preserves_old_board_and_records_validation_failure():
     """A wholly unsafe Agent result cannot replace the previous board."""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, [_agent_output(["tmdb:404"])])
-    repository.save_board(RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success"))
+    repository.save_board(RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success"))
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "validation_failed"
-    assert repository.load_board("alice").run_id == "old"
+    assert repository.load_board(PROFILE_ID).run_id == "old"
 
 
 def test_atomic_save_failure_restores_both_previous_objects():
@@ -526,19 +553,19 @@ def test_atomic_save_failure_restores_both_previous_objects():
     orchestrator, repository = _orchestrator(
         plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
     )
-    repository.save_profile(UserProfile(profile_id="alice", username="alice", summary="old", run_id="old"))
-    repository.save_board(RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success"))
+    repository.save_profile(UserProfile(profile_id=PROFILE_ID, username="Alice", summary="old", run_id="old"))
+    repository.save_board(RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success"))
     plugin.fail_board_save = True
 
-    result = asyncio.run(orchestrator.run("alice", _config()))
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "validation_failed"
-    assert repository.load_profile("alice").run_id == "old"
-    assert repository.load_board("alice").run_id == "old"
+    assert repository.load_profile(PROFILE_ID).run_id == "old"
+    assert repository.load_board(PROFILE_ID).run_id == "old"
 
 
 def test_concurrent_refresh_returns_running_without_second_agent_call():
-    """The same username cannot start two recommendation runs concurrently."""
+    """The same profile identity cannot start two recommendation runs concurrently."""
     entered = asyncio.Event()
     release = asyncio.Event()
 
@@ -560,9 +587,9 @@ def test_concurrent_refresh_returns_running_without_second_agent_call():
             agent,
             run_id_factory=lambda: "run-lock",
         )
-        first_task = asyncio.create_task(orchestrator.run("alice", _config()))
+        first_task = asyncio.create_task(orchestrator.run(PROFILE_ID, _config()))
         await entered.wait()
-        second = await orchestrator.run("alice", _config())
+        second = await orchestrator.run(PROFILE_ID, _config())
         release.set()
         first = await first_task
         return first, second, agent
