@@ -7,32 +7,35 @@ AgentRank 是 MoviePilot V2 本地插件。它按稳定 Emby identity 读取 Pla
 ## 运行边界
 
 - 插件入口：`__init__.py`，只声明元数据、生命周期和扩展点。
-- 推荐编排：`service/recommendation.py`，负责用户锁、一次补选、失败保留旧榜单和原子保存。
+- 推荐编排：`service/recommendation.py`，负责用户锁、播放快照、画像复用、候选冻结、一次补选、失败保留旧数据和分阶段保存。
 - 依赖探测：`adapter/playback_reporting.py` 只返回 `ready`、`not_installed`、`permission_error`、`transient_error` 或 `emby_unavailable`，且不暴露 Emby 地址与凭据。
-- Agent 适配：`adapter/agent.py` 中的 `RestrictedAgentRankAgent`，使用独立后台会话与 `ReplyMode.CAPTURE_ONLY`。
-- 提示协议：`service/prompt.py`；候选标题、简介、标签和归档文本始终是不可信数据。
-- 输出解析与安全校验：`service/validation.py`；只接受单个有界 JSON 对象，并保持 Agent 最终顺序。
+- Agent 适配：`adapter/agent.py` 中的 `RestrictedAgentRankAgent`，为画像与排序使用独立角色、独立 session 和 `ReplyMode.CAPTURE_ONLY`。
+- 提示协议：`service/prompt.py`；画像提示只允许播放事实，排序提示只允许使用冻结候选、归档反馈、权重和当前画像；候选标题、简介、标签和归档文本始终是不可信数据。
+- 输出解析与安全校验：`service/validation.py`；画像与排序分别使用独立 schema，只接受有界 JSON 对象，并保持排序 Agent 最终顺序。
 - 订阅副作用：仅允许 `service/subscription.py` 在 Agent 已结束后执行，Agent 适配器不得持有该服务。
 - Telegram 自选订阅：`service/telegram_interaction.py` 使用海报轮播和一次性会话令牌处理 `MessageAction`；按钮点击只维护待订阅清单，最终确认才调用 `service/subscription.py`。
 
-## 唯一允许的 Agent 工具
+## Agent 角色与工具边界
 
-AgentRank 会话只能加载以下四个只读工具，工具参数不能选择 username 或 run_id：
+AgentRank 全局只允许以下四个只读工具，工具参数不能选择 username 或 run_id：
 
 1. `read_agentrank_playback`
 2. `read_agentrank_candidates`
 3. `read_agentrank_archive_feedback`
 4. `read_agentrank_weights`
 
-受信上下文锁定本轮 username 与 run_id。禁止订阅、禁止写插件数据、禁止修改配置、禁止访问文件、禁止发送消息，也禁止加载通用 ToolFactory 工具。
+受信上下文锁定本轮 username、run_id 与 agent role。画像 Agent 只能加载 `read_agentrank_playback`，看不到候选、归档和权重；排序 Agent 才能加载四个工具。禁止订阅、禁止写插件数据、禁止修改配置、禁止访问文件、禁止发送消息，也禁止加载通用 ToolFactory 工具。
 
-播放画像工具同时返回当前播放快照、可选的上一版画像和人工画像标签偏好。画像缓存开启且未要求每次重建时，Agent 在旧画像基础上按真实播放证据演进；每次重建开启或画像缓存关闭时不读取旧画像。人工偏好必须参与画像与排序，人工避雷必须降低相关候选排序，用户删除的 Agent 标签不得重新写回。禁止用标签集合并集替代画像更新。
+画像 Agent 的播放工具返回当前播放快照、可选的上一版画像、人工画像标签偏好和当前只读画像。画像缓存开启且播放指纹未变化时直接复用画像，不调用画像 Agent；候选变化不能重写画像。播放指纹只由稳定播放事实构成，不包含 `synced_at` 等易变字段。
+
+人工偏好必须参与画像与排序，人工避雷必须降低相关候选排序，用户删除的 Agent 标签不得重新写回。禁止用标签集合并集替代画像更新。
 
 播放画像工具只返回当前 identity 的 Playback Reporting 受信快照，不再读取 Emby 原生 UserData。不得把其他媒体列表冒充已观看记录，也不得持久化密钥、Cookie、客户端、设备或地址信息。
 
 ## 输出协议
 
-- 只返回一个 JSON 对象，根键固定为 `profile` 与 `recommendations`。
+- 画像 Agent 只返回一个 JSON 对象，根键固定为 `profile`；不得包含候选或推荐字段。
+- 排序 Agent 只返回一个 JSON 对象，根键固定为 `recommendations`；不得生成、修改或回写画像。
 - `recommendations[].candidate_id` 必须来自冻结候选快照。
 - 推荐不得重复，不得包含已归档或已订阅候选。
 - Telegram 回调必须校验目标用户 ID、会话有效期和当前榜单 `run_id`；旧榜单、越权用户和重复确认不得创建订阅。
@@ -46,8 +49,9 @@ AgentRank 会话只能加载以下四个只读工具，工具参数不能选择 
 - `playback_unavailable`：运行中播放依赖瞬时故障时停止本轮，不调用 Agent，不覆盖旧画像或旧榜单。
 - `sample_insufficient`：播放样本不足，不调用 Agent。
 - `candidate_insufficient`：发现候选不足，不调用 Agent。
-- `agent_failed`：Agent 调用或宿主契约失败，保留旧画像与旧榜单。
-- `validation_failed`：没有安全有效项或原子保存失败，保留旧数据。
+- `profile_agent_failed` / `profile_validation_failed` / `profile_save_failed`：画像阶段失败，保留旧画像与旧榜单。
+- `ranking_agent_failed` / `ranking_validation_failed` / `ranking_save_failed`：排序阶段失败；新画像可以保留，但旧榜单不被覆盖。
+- `validation_failed`：仅作为历史兼容状态，不作为生产组合输出链路。
 - `recommendation_incomplete`：唯一一次补选后仍不足十条，保存实际安全条数，不填充伪推荐。
 - `subscription_partial_failed`：自动订阅逐条继续，成功项保留，失败项进入运行历史。
 

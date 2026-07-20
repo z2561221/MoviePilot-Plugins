@@ -20,14 +20,16 @@ prompt_module = importlib.import_module(f"{PACKAGE_NAME}.service.prompt")
 validation_module = importlib.import_module(f"{PACKAGE_NAME}.service.validation")
 
 Candidate = candidate_module.Candidate
-AgentOutputParser = validation_module.AgentOutputParser
+ProfileOutputParser = validation_module.ProfileOutputParser
+RankingOutputParser = validation_module.RankingOutputParser
+AgentOutputParser = RankingOutputParser
 RecommendationValidator = validation_module.RecommendationValidator
 AgentOutputError = validation_module.AgentOutputError
 fallback_summary = validation_module.fallback_summary
 build_ranking_prompt = prompt_module.build_ranking_prompt
 
 
-def _output(recommendations=None, profile=None):
+def _profile_output(profile=None):
     return json.dumps(
         {
             "profile": profile
@@ -36,7 +38,15 @@ def _output(recommendations=None, profile=None):
                 "tags": ["悬疑", "犯罪"],
                 "negative_tags": ["低分长剧"],
                 "playback_count": 12,
-            },
+            }
+        },
+        ensure_ascii=False,
+    )
+
+
+def _output(recommendations=None):
+    return json.dumps(
+        {
             "recommendations": recommendations
             or [
                 {
@@ -137,7 +147,15 @@ def test_parser_enforces_byte_count_tag_count_and_string_limits():
         "playback_count": 1,
     }
     with pytest.raises(AgentOutputError, match="tags"):
-        AgentOutputParser().parse(_output(profile=profile))
+        ProfileOutputParser().parse(_profile_output(profile=profile))
+
+
+def test_profile_and_ranking_parsers_reject_each_others_schema():
+    """两个 Agent parser 不接受对方的根字段。"""
+    with pytest.raises(AgentOutputError):
+        ProfileOutputParser().parse(_output())
+    with pytest.raises(AgentOutputError):
+        RankingOutputParser().parse(_profile_output())
 
 
 def test_validator_rejects_every_unsafe_item_with_specific_reason():

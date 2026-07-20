@@ -39,10 +39,9 @@ class ParsedRecommendation:
 
 
 @dataclass(frozen=True)
-class ParsedAgentOutput:
-    """表示一个完整且结构受限的 Agent JSON 对象。"""
+class ParsedRankingOutput:
+    """表示排序 Agent 结构受限的推荐 JSON 对象。"""
 
-    profile: ParsedProfile
     recommendations: List[ParsedRecommendation]
 
 
@@ -59,13 +58,12 @@ class DroppedRecommendation:
 class RecommendationValidationResult:
     """表示保持 Agent 顺序的通过项与丢弃证据。"""
 
-    profile: ParsedProfile
     accepted: List[RecommendationItem] = field(default_factory=list)
     dropped: List[DroppedRecommendation] = field(default_factory=list)
 
 
-class AgentOutputParser:
-    """仅接受一个有界 JSON 对象并执行嵌套结构校验。"""
+class _StrictOutputParser:
+    """提供两个 Agent 输出 parser 共用的资源与字段边界。"""
 
     def __init__(
         self,
@@ -89,6 +87,25 @@ class AgentOutputParser:
                 f"{label} keys must be exactly {sorted(expected)}; got {sorted(actual)}"
             )
 
+    def _object(self, output: str) -> Dict[str, Any]:
+        """解析一个有界 JSON 对象，拒绝 Markdown、前缀和多值。"""
+        if not isinstance(output, str):
+            raise AgentOutputError("Agent output must be text")
+        byte_count = len(output.encode("utf-8"))
+        if byte_count > self._max_bytes:
+            raise AgentOutputError(
+                f"Agent output exceeds {self._max_bytes} bytes ({byte_count} bytes)"
+            )
+        try:
+            value = json.loads(output)
+        except json.JSONDecodeError as error:
+            raise AgentOutputError(
+                f"Agent output must be one JSON object: {error.msg}"
+            ) from error
+        if not isinstance(value, dict):
+            raise AgentOutputError("Agent output root must be an object")
+        return value
+
     def _string(self, value: Any, label: str, maximum: int = None) -> str:
         """读取有界字符串并拒绝非字符串值。"""
         if not isinstance(value, str):
@@ -107,23 +124,14 @@ class AgentOutputParser:
             raise AgentOutputError(f"{label} exceeds {limit} tags")
         return [self._string(item, f"{label} item", 20) for item in value]
 
-    def parse(self, output: str) -> ParsedAgentOutput:
-        """解析严格单对象输出，拒绝 Markdown、前缀、尾注和多值。"""
-        if not isinstance(output, str):
-            raise AgentOutputError("Agent output must be text")
-        byte_count = len(output.encode("utf-8"))
-        if byte_count > self._max_bytes:
-            raise AgentOutputError(
-                f"Agent output exceeds {self._max_bytes} bytes ({byte_count} bytes)"
-            )
-        try:
-            value = json.loads(output)
-        except json.JSONDecodeError as error:
-            raise AgentOutputError(f"Agent output must be one JSON object: {error.msg}") from error
-        if not isinstance(value, dict):
-            raise AgentOutputError("Agent output root must be an object")
-        self._exact_keys(value, {"profile", "recommendations"}, "root")
 
+class ProfileOutputParser(_StrictOutputParser):
+    """只接受画像 Agent 的独立 profile 根对象。"""
+
+    def parse(self, output: str) -> ParsedProfile:
+        """解析画像输出并拒绝任何候选或推荐字段。"""
+        value = self._object(output)
+        self._exact_keys(value, {"profile"}, "root")
         profile_value = value["profile"]
         if not isinstance(profile_value, dict):
             raise AgentOutputError("profile must be an object")
@@ -137,7 +145,7 @@ class AgentOutputParser:
             raise AgentOutputError("profile.playback_count must be an integer")
         if playback_count < 0:
             raise AgentOutputError("profile.playback_count must be non-negative")
-        profile = ParsedProfile(
+        return ParsedProfile(
             summary=self._string(profile_value["summary"], "profile.summary"),
             tags=self._tags(profile_value["tags"], "profile.tags"),
             negative_tags=self._tags(
@@ -146,6 +154,14 @@ class AgentOutputParser:
             playback_count=playback_count,
         )
 
+
+class RankingOutputParser(_StrictOutputParser):
+    """只接受排序 Agent 的独立 recommendations 根对象。"""
+
+    def parse(self, output: str) -> ParsedRankingOutput:
+        """解析推荐列表并拒绝任何画像字段。"""
+        value = self._object(output)
+        self._exact_keys(value, {"recommendations"}, "root")
         recommendations_value = value["recommendations"]
         if not isinstance(recommendations_value, list):
             raise AgentOutputError("recommendations must be a list")
@@ -191,7 +207,7 @@ class AgentOutputParser:
                     confidence=confidence,
                 )
             )
-        return ParsedAgentOutput(profile=profile, recommendations=recommendations)
+        return ParsedRankingOutput(recommendations=recommendations)
 
 
 def fallback_summary(candidate: Candidate) -> str:
@@ -225,7 +241,7 @@ class RecommendationValidator:
 
     def validate(
         self,
-        parsed: ParsedAgentOutput,
+        parsed: ParsedRankingOutput,
         candidates: Sequence[Candidate],
         archived_candidate_ids: Set[str],
         subscribed_candidate_ids: Set[str],
@@ -237,7 +253,7 @@ class RecommendationValidator:
         archived = set(archived_candidate_ids or set())
         subscribed = set(subscribed_candidate_ids or set())
         seen: Set[str] = set()
-        result = RecommendationValidationResult(profile=parsed.profile)
+        result = RecommendationValidationResult()
         for index, recommendation in enumerate(parsed.recommendations):
             candidate_id = recommendation.candidate_id
             candidate = candidate_map.get(candidate_id)

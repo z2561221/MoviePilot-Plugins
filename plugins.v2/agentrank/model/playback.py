@@ -1,5 +1,7 @@
 """AgentRank 播放画像领域对象。"""
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping
@@ -141,6 +143,20 @@ class PlaybackSnapshot:
     def sample_count(self) -> int:
         """返回可交给 Agent 的播放证据数量。"""
         return len(self.samples)
+
+    def fingerprint(self) -> str:
+        """返回排除同步时间和故障文案后的确定性播放事实指纹。"""
+        facts = {
+            "profile_id": self.profile_id,
+            "source": self.source,
+            "samples": [sample.to_dict() for sample in self.samples],
+            "mapped_count": self.mapped_count,
+            "unmapped_count": self.unmapped_count,
+        }
+        payload = json.dumps(
+            facts, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
 
     def to_dict(self) -> Dict[str, Any]:
         """返回可持久化且不包含敏感字段的播放快照。"""

@@ -9,14 +9,23 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set
 
-from ..agent_tools.context import build_trusted_context
+from ..agent_tools.context import (
+    PROFILE_AGENT_ROLE,
+    RANKING_AGENT_ROLE,
+    build_trusted_context,
+)
 from ..model.config import configured_identities
 from ..model.board import RecommendationBoard, RecommendationItem
 from ..model.profile import UserProfile
 from ..model.run import RecommendationRun
 from ..storage.repository import AgentRankRepository
-from .prompt import build_ranking_prompt, build_refill_prompt
-from .validation import AgentOutputError, AgentOutputParser, RecommendationValidator
+from .prompt import build_profile_prompt, build_ranking_prompt, build_refill_prompt
+from .validation import (
+    AgentOutputError,
+    ProfileOutputParser,
+    RankingOutputParser,
+    RecommendationValidator,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -45,7 +54,9 @@ class RecommendationOrchestrator:
         candidate_service: Any,
         agent_adapter: Any,
         run_id_factory: Callable[[], str] = None,
-        parser: AgentOutputParser = None,
+        parser: Any = None,
+        profile_parser: ProfileOutputParser = None,
+        ranking_parser: RankingOutputParser = None,
         validator: RecommendationValidator = None,
         library_adapter: Any = None,
         playback_service: Any = None,
@@ -55,7 +66,8 @@ class RecommendationOrchestrator:
         self._candidate_service = candidate_service
         self.agent_adapter = agent_adapter
         self._run_id_factory = run_id_factory or (lambda: uuid.uuid4().hex)
-        self._parser = parser or AgentOutputParser()
+        self._profile_parser = profile_parser or ProfileOutputParser()
+        self._ranking_parser = ranking_parser or parser or RankingOutputParser()
         self._validator = validator or RecommendationValidator()
         self._library_adapter = library_adapter
         self._playback_service = playback_service
@@ -74,6 +86,23 @@ class RecommendationOrchestrator:
         """释放画像身份运行标记。"""
         with self._running_guard:
             self._running_profiles.discard(profile_id)
+
+    async def _run_agent_role(
+        self,
+        role: str,
+        prompt: str,
+        trusted_context: Any,
+    ) -> str:
+        """调用指定角色 Agent，并拒绝跨角色上下文。"""
+        if trusted_context.agent_role != role:
+            raise ValueError("AgentRank role and trusted context do not match")
+        method_name = (
+            "run_profile" if role == PROFILE_AGENT_ROLE else "run_ranking"
+        )
+        method = getattr(self.agent_adapter, method_name, None)
+        if callable(method):
+            return await method(prompt, trusted_context)
+        return await self.agent_adapter.run(prompt, trusted_context)
 
     @staticmethod
     def _display_name(profile_id: str, config: Mapping[str, Any]) -> str:
@@ -257,6 +286,137 @@ class RecommendationOrchestrator:
                     errors,
                 )
 
+            profile_cache_enabled = bool(config.get("profile_cache_enabled", True))
+            rebuild_profile = bool(config.get("rebuild_profile_each_run", False))
+            previous_profile = (
+                self._repository.load_profile(target)
+                if profile_cache_enabled and not rebuild_profile
+                else None
+            )
+            profile_preferences = self._repository.load_profile_preferences(target)
+            metrics["profile_mode"] = (
+                "incremental"
+                if profile_cache_enabled and not rebuild_profile
+                else "rebuild" if rebuild_profile else "stateless"
+            )
+            metrics["previous_profile_used"] = previous_profile is not None
+            metrics["custom_preference_count"] = len(
+                profile_preferences.custom_tags
+            ) + len(profile_preferences.custom_negative_tags)
+            playback_fingerprint = playback_snapshot.fingerprint()
+            current_profile = (
+                previous_profile
+                if previous_profile is not None
+                and previous_profile.playback_fingerprint == playback_fingerprint
+                else None
+            )
+            metrics["profile_agent_reused"] = current_profile is not None
+            if current_profile is None:
+                profile_context = build_trusted_context(
+                    username=username,
+                    run_id=run_id,
+                    candidates=[],
+                    archive_feedback={"entries": []},
+                    weights={},
+                    previous_profile=(
+                        previous_profile.to_dict()
+                        if previous_profile is not None
+                        else None
+                    ),
+                    profile_preferences=profile_preferences.to_dict(),
+                    playback=playback_snapshot.to_dict(),
+                    profile=None,
+                    agent_role=PROFILE_AGENT_ROLE,
+                )
+                parsed_profile = None
+                for attempt in range(2):
+                    stage_clock = time.monotonic()
+                    metrics["agent_calls"] += 1
+                    metrics["profile_agent_calls"] = (
+                        metrics.get("profile_agent_calls", 0) + 1
+                    )
+                    try:
+                        raw_profile = await self._run_agent_role(
+                            PROFILE_AGENT_ROLE,
+                            build_profile_prompt(
+                                agent_prompt=str(config.get("agent_prompt") or "")
+                            ),
+                            profile_context,
+                        )
+                        parsed_profile = self._profile_parser.parse(raw_profile)
+                        if parsed_profile.playback_count != playback_count:
+                            raise AgentOutputError(
+                                "profile.playback_count does not match playback sample count"
+                            )
+                        break
+                    except AgentOutputError as error:
+                        errors.append(f"profile attempt {attempt + 1}: {error}")
+                        if attempt == 0:
+                            continue
+                        return self._failure(
+                            target,
+                            username,
+                            run_id,
+                            "profile_validation_failed",
+                            "画像 Agent 输出校验失败，已保留旧画像和旧榜单",
+                            started_at,
+                            started_clock,
+                            metrics,
+                            errors,
+                            agent_calls=int(metrics["agent_calls"]),
+                        )
+                    except Exception as error:
+                        if attempt == 0 and bool(getattr(error, "retryable", False)):
+                            errors.append(f"profile attempt 1: {error}")
+                            continue
+                        errors.append(str(error))
+                        return self._failure(
+                            target,
+                            username,
+                            run_id,
+                            "profile_agent_failed",
+                            "画像 Agent 调用失败，已保留旧画像和旧榜单",
+                            started_at,
+                            started_clock,
+                            metrics,
+                            errors,
+                            agent_calls=int(metrics["agent_calls"]),
+                        )
+                    finally:
+                        metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
+                            0, int((time.monotonic() - stage_clock) * 1000)
+                        )
+                if parsed_profile is None:
+                    raise RuntimeError("profile Agent ended without a validated profile")
+                generated_at = datetime.now(timezone.utc).isoformat()
+                current_profile = UserProfile(
+                    profile_id=target,
+                    username=username,
+                    summary=parsed_profile.summary,
+                    tags=list(parsed_profile.tags),
+                    negative_tags=list(parsed_profile.negative_tags),
+                    playback_count=parsed_profile.playback_count,
+                    playback_fingerprint=playback_fingerprint,
+                    run_id=run_id,
+                    generated_at=generated_at,
+                )
+                try:
+                    self._repository.save_profile(current_profile)
+                except Exception as error:
+                    errors.append(str(error))
+                    return self._failure(
+                        target,
+                        username,
+                        run_id,
+                        "profile_save_failed",
+                        "画像保存失败，已保留旧榜单",
+                        started_at,
+                        started_clock,
+                        metrics,
+                        errors,
+                        agent_calls=int(metrics["agent_calls"]),
+                    )
+
             stage_clock = time.monotonic()
             candidate_result = await asyncio.to_thread(
                 self._candidate_service.collect_and_freeze,
@@ -310,41 +470,17 @@ class RecommendationOrchestrator:
             archive = self._repository.load_archive(target)
             archived_ids = {entry.candidate_id for entry in archive.entries}
             subscribed_ids: Set[str] = set()
-            profile_cache_enabled = bool(config.get("profile_cache_enabled", True))
-            rebuild_profile = bool(config.get("rebuild_profile_each_run", False))
-            previous_profile = (
-                self._repository.load_profile(target)
-                if profile_cache_enabled and not rebuild_profile
-                else None
-            )
-            profile_preferences = self._repository.load_profile_preferences(target)
-            metrics["profile_mode"] = (
-                "incremental"
-                if profile_cache_enabled and not rebuild_profile
-                else "rebuild" if rebuild_profile else "stateless"
-            )
-            metrics["previous_profile_used"] = previous_profile is not None
-            metrics["custom_preference_count"] = len(
-                profile_preferences.custom_tags
-            ) + len(profile_preferences.custom_negative_tags)
-            trusted_context = build_trusted_context(
+            ranking_context = build_trusted_context(
                 username=username,
                 run_id=run_id,
-                previous_profile=(
-                    previous_profile.to_dict() if previous_profile is not None else None
-                ),
                 candidates=[candidate.to_dict() for candidate in candidates],
                 archive_feedback=archive.to_dict(),
                 weights=self._trusted_weights(config),
+                previous_profile=None,
                 profile_preferences=profile_preferences.to_dict(),
-                playback=(
-                    playback_snapshot.to_dict() if playback_snapshot is not None else {
-                        "source": "unavailable",
-                        "confidence": "low",
-                        "status": "unavailable",
-                        "samples": [],
-                    }
-                ),
+                playback=playback_snapshot.to_dict(),
+                profile=current_profile.to_dict(),
+                agent_role=RANKING_AGENT_ROLE,
             )
 
             validation = None
@@ -360,8 +496,13 @@ class RecommendationOrchestrator:
                     )
                 try:
                     metrics["agent_calls"] += 1
+                    metrics["ranking_agent_calls"] = (
+                        metrics.get("ranking_agent_calls", 0) + 1
+                    )
                     stage_clock = time.monotonic()
-                    raw_output = await self.agent_adapter.run(prompt, trusted_context)
+                    raw_output = await self._run_agent_role(
+                        RANKING_AGENT_ROLE, prompt, ranking_context
+                    )
                     metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
                         0, int((time.monotonic() - stage_clock) * 1000)
                     )
@@ -384,8 +525,8 @@ class RecommendationOrchestrator:
                         target,
                         username,
                         run_id,
-                        "agent_failed",
-                        "内置 Agent 调用失败，已保留旧榜单",
+                        "ranking_agent_failed",
+                        "排序 Agent 调用失败，已保留当前画像和旧榜单",
                         started_at,
                         started_clock,
                         metrics,
@@ -393,7 +534,7 @@ class RecommendationOrchestrator:
                         agent_calls=int(metrics["agent_calls"]),
                     )
                 try:
-                    parsed = self._parser.parse(raw_output)
+                    parsed = self._ranking_parser.parse(raw_output)
                     validation = self._validator.validate(
                         parsed, candidates, archived_ids, subscribed_ids
                     )
@@ -406,8 +547,8 @@ class RecommendationOrchestrator:
                         target,
                         username,
                         run_id,
-                        "validation_failed",
-                        "Agent 输出结构校验失败，已保留旧榜单",
+                        "ranking_validation_failed",
+                        "排序 Agent 输出校验失败，已保留当前画像和旧榜单",
                         started_at,
                         started_clock,
                         metrics,
@@ -423,8 +564,8 @@ class RecommendationOrchestrator:
                     target,
                     username,
                     run_id,
-                    "validation_failed",
-                    "Agent 输出没有安全可用推荐，已保留旧榜单",
+                    "ranking_validation_failed",
+                    "排序 Agent 没有安全可用推荐，已保留当前画像和旧榜单",
                     started_at,
                     started_clock,
                     metrics,
@@ -443,16 +584,20 @@ class RecommendationOrchestrator:
                     metrics["refill_attempted"] = True
                     stage_clock = time.monotonic()
                     metrics["agent_calls"] += 1
+                    metrics["ranking_agent_calls"] = (
+                        metrics.get("ranking_agent_calls", 0) + 1
+                    )
                     try:
-                        refill_output = await self.agent_adapter.run(
+                        refill_output = await self._run_agent_role(
+                            RANKING_AGENT_ROLE,
                             build_refill_prompt(
                                 [item.candidate_id for item in accepted],
                                 10 - len(accepted),
                                 agent_prompt=str(config.get("agent_prompt") or ""),
                             ),
-                            trusted_context,
+                            ranking_context,
                         )
-                        refill_parsed = self._parser.parse(refill_output)
+                        refill_parsed = self._ranking_parser.parse(refill_output)
                         refill_validation = self._validator.validate(
                             refill_parsed,
                             remaining_candidates,
@@ -474,16 +619,7 @@ class RecommendationOrchestrator:
 
             status = "success" if len(accepted) >= 10 else "recommendation_incomplete"
             generated_at = datetime.now(timezone.utc).isoformat()
-            profile = UserProfile(
-                profile_id=target,
-                username=username,
-                summary=validation.profile.summary,
-                tags=list(validation.profile.tags),
-                negative_tags=list(validation.profile.negative_tags),
-                playback_count=validation.profile.playback_count,
-                run_id=run_id,
-                generated_at=generated_at,
-            )
+            previous_board = self._repository.load_board(target)
             board = RecommendationBoard(
                 profile_id=target,
                 username=username,
@@ -492,23 +628,19 @@ class RecommendationOrchestrator:
                 recommendations=accepted,
                 generated_at=generated_at,
                 message=("榜单生成成功" if status == "success" else f"仅生成 {len(accepted)} 条有效推荐"),
-                previous_run_id=(
-                    self._repository.load_board(target).run_id
-                    if self._repository.load_board(target)
-                    else None
-                ),
+                previous_run_id=previous_board.run_id if previous_board else None,
             )
             stage_clock = time.monotonic()
             try:
-                self._repository.save_profile_and_board(profile, board)
+                self._repository.save_board(board)
             except Exception as error:
                 errors.append(str(error))
                 return self._failure(
                     target,
                     username,
                     run_id,
-                    "validation_failed",
-                    "画像与榜单保存失败，已恢复旧数据",
+                    "ranking_save_failed",
+                    "榜单保存失败，已保留当前画像和旧榜单",
                     started_at,
                     started_clock,
                     metrics,

@@ -18,6 +18,16 @@ class _ReadAgentRankTool(MoviePilotTool):
     """四个只读工具共用的上下文与序列化逻辑。"""
 
     args_schema: Type[BaseModel] = ReadAgentRankInput
+    allowed_roles = ("profile", "ranking")
+
+    def _trusted_context(self):
+        """读取并校验当前工具允许访问的角色上下文。"""
+        trusted_context = resolve_trusted_context(self._agent_context)
+        if trusted_context.agent_role not in self.allowed_roles:
+            raise PermissionError(
+                f"{self.name} is not allowed for {trusted_context.agent_role} Agent"
+            )
+        return trusted_context
 
     def get_tool_message(self, **kwargs: Any) -> Optional[str]:
         """返回不泄露用户名与运行标识的读取提示。"""
@@ -25,7 +35,7 @@ class _ReadAgentRankTool(MoviePilotTool):
 
     def _slice(self, field_name: str, output_name: str) -> str:
         """读取一个上下文切片并返回稳定 JSON。"""
-        trusted_context = resolve_trusted_context(self._agent_context)
+        trusted_context = self._trusted_context()
         payload: Dict[str, Any] = {
             "username": trusted_context.username,
             "run_id": trusted_context.run_id,
@@ -38,6 +48,7 @@ class ReadAgentRankPlaybackTool(_ReadAgentRankTool):
     """读取播放画像证据与可选的上一版画像上下文。"""
 
     name: str = "read_agentrank_playback"
+    allowed_roles = ("profile", "ranking")
     description: str = (
         "Read normalized playback evidence and the optional previous profile for "
         "the trusted AgentRank run. The username and run id are fixed by the host "
@@ -46,7 +57,7 @@ class ReadAgentRankPlaybackTool(_ReadAgentRankTool):
 
     async def run(self, **kwargs: Any) -> str:
         """返回当前运行绑定的播放证据与画像演进上下文。"""
-        trusted_context = resolve_trusted_context(self._agent_context)
+        trusted_context = self._trusted_context()
         payload: Dict[str, Any] = {
             "username": trusted_context.username,
             "run_id": trusted_context.run_id,
@@ -55,6 +66,7 @@ class ReadAgentRankPlaybackTool(_ReadAgentRankTool):
             "profile_preferences": to_jsonable(
                 trusted_context.profile_preferences
             ),
+            "profile": to_jsonable(trusted_context.profile),
         }
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
@@ -63,6 +75,7 @@ class ReadAgentRankCandidatesTool(_ReadAgentRankTool):
     """读取当前运行已冻结的规范化候选池。"""
 
     name: str = "read_agentrank_candidates"
+    allowed_roles = ("ranking",)
     description: str = (
         "Read the frozen candidate pool for the trusted AgentRank run. "
         "Recommendations must only reference candidate_id values from this result."
@@ -77,6 +90,7 @@ class ReadAgentRankArchiveFeedbackTool(_ReadAgentRankTool):
     """读取当前用户有效的忽略归档反馈。"""
 
     name: str = "read_agentrank_archive_feedback"
+    allowed_roles = ("ranking",)
     description: str = (
         "Read active archive feedback for the trusted AgentRank user. "
         "This tool cannot restore or mutate archive entries."
@@ -91,6 +105,7 @@ class ReadAgentRankWeightsTool(_ReadAgentRankTool):
     """读取当前用户生效权重与筛选条件。"""
 
     name: str = "read_agentrank_weights"
+    allowed_roles = ("ranking",)
     description: str = (
         "Read effective ranking weights and filters for the trusted AgentRank run. "
         "This tool cannot update plugin configuration."

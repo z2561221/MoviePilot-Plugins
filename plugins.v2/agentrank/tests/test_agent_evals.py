@@ -21,7 +21,7 @@ validation_module = importlib.import_module(f"{PACKAGE_NAME}.service.validation"
 
 Candidate = candidate_module.Candidate
 AgentOutputError = validation_module.AgentOutputError
-AgentOutputParser = validation_module.AgentOutputParser
+AgentOutputParser = validation_module.RankingOutputParser
 RecommendationValidator = validation_module.RecommendationValidator
 build_ranking_prompt = prompt_module.build_ranking_prompt
 build_refill_prompt = prompt_module.build_refill_prompt
@@ -42,12 +42,6 @@ def _output(candidate_ids):
     """构造满足单对象 schema 的模拟 Agent 输出。"""
     return json.dumps(
         {
-            "profile": {
-                "summary": "偏爱高质量科幻作品",
-                "tags": ["科幻", "口碑"],
-                "negative_tags": [],
-                "playback_count": 12,
-            },
             "recommendations": [
                 {
                     "candidate_id": candidate_id,

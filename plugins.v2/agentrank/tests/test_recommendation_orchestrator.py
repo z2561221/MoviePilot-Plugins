@@ -111,18 +111,46 @@ class FakeCandidateService:
 
 
 class FakeAgentAdapter:
-    """Return queued outputs or raise a queued exception."""
+    """分别返回画像与排序角色的排队输出或异常。"""
 
-    def __init__(self, outputs):
-        self.outputs = list(outputs)
+    def __init__(self, outputs, profile_outputs=None):
+        self.ranking_outputs = list(outputs)
+        self.profile_outputs = (
+            None if profile_outputs is None else list(profile_outputs)
+        )
         self.calls = []
+        self.profile_calls = []
+        self.ranking_calls = []
 
-    async def run(self, prompt, trusted_context):
-        self.calls.append((prompt, trusted_context))
-        output = self.outputs.pop(0)
+    @staticmethod
+    def _result(output):
+        """返回测试输出或抛出排队异常。"""
         if isinstance(output, Exception):
             raise output
         return output
+
+    async def run_profile(self, prompt, trusted_context):
+        """执行画像角色测试调用。"""
+        self.calls.append(("profile", prompt, trusted_context))
+        self.profile_calls.append((prompt, trusted_context))
+        output = (
+            self.profile_outputs.pop(0)
+            if self.profile_outputs is not None
+            else _profile_output(len(trusted_context.playback["samples"]))
+        )
+        return self._result(output)
+
+    async def run_ranking(self, prompt, trusted_context):
+        """执行排序角色测试调用。"""
+        self.calls.append(("ranking", prompt, trusted_context))
+        self.ranking_calls.append((prompt, trusted_context))
+        return self._result(self.ranking_outputs.pop(0))
+
+    async def run(self, prompt, trusted_context):
+        """按受信上下文角色兼容分发测试调用。"""
+        if trusted_context.agent_role == "profile":
+            return await self.run_profile(prompt, trusted_context)
+        return await self.run_ranking(prompt, trusted_context)
 
 
 class RetryableAgentError(RuntimeError):
@@ -131,15 +159,23 @@ class RetryableAgentError(RuntimeError):
     retryable = True
 
 
-def _agent_output(candidate_ids):
+def _profile_output(playback_count=5):
     return json.dumps(
         {
             "profile": {
                 "summary": "偏好高质量悬疑电影",
                 "tags": ["悬疑"],
                 "negative_tags": [],
-                "playback_count": 5,
-            },
+                "playback_count": playback_count,
+            }
+        },
+        ensure_ascii=False,
+    )
+
+
+def _agent_output(candidate_ids):
+    return json.dumps(
+        {
             "recommendations": [
                 {
                     "candidate_id": candidate_id,
@@ -155,13 +191,13 @@ def _agent_output(candidate_ids):
     )
 
 
-def _orchestrator(plugin, outputs, candidate_count=12):
+def _orchestrator(plugin, outputs, candidate_count=12, profile_outputs=None):
     repository = AgentRankRepository(plugin)
     return (
         RecommendationOrchestrator(
             repository=repository,
             candidate_service=FakeCandidateService(candidate_count),
-            agent_adapter=FakeAgentAdapter(outputs),
+            agent_adapter=FakeAgentAdapter(outputs, profile_outputs=profile_outputs),
             run_id_factory=lambda: "run-1",
             playback_service=FakePlaybackService(),
         ),
@@ -195,13 +231,65 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert result.status == "success"
     assert result.profile_id == PROFILE_ID
     assert result.username == "Alice"
-    assert orchestrator.agent_adapter.calls[0][1].username == "Alice"
+    assert orchestrator.agent_adapter.profile_calls[0][1].username == "Alice"
+    assert orchestrator.agent_adapter.profile_calls[0][1].agent_role == "profile"
+    assert orchestrator.agent_adapter.profile_calls[0][1].candidates == ()
+    assert orchestrator.agent_adapter.ranking_calls[0][1].agent_role == "ranking"
+    assert orchestrator.agent_adapter.ranking_calls[0][1].profile["run_id"] == (
+        "run-1"
+    )
     assert len(repository.load_board(PROFILE_ID).recommendations) == 10
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     history = repository.load_run_history(PROFILE_ID)
     assert history[0].status == "success"
     assert history[0].metrics["final_count"] == 10
-    assert history[0].metrics["agent_calls"] == 1
+    assert history[0].metrics["agent_calls"] == 2
+    assert history[0].metrics["profile_agent_calls"] == 1
+    assert history[0].metrics["ranking_agent_calls"] == 1
+
+
+def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
+    """播放事实相同而候选池变化时只重新排序，不改写画像。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    candidates = FakeCandidateService(12)
+    agent = FakeAgentAdapter(
+        [
+            _agent_output([f"tmdb:{index}" for index in range(1, 11)]),
+            _agent_output([f"tmdb:{index}" for index in range(20, 30)]),
+        ]
+    )
+    run_ids = iter(["run-profile", "run-ranking-only"])
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=candidates,
+        agent_adapter=agent,
+        run_id_factory=lambda: next(run_ids),
+        playback_service=FakePlaybackService(),
+    )
+
+    first = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+    candidates.candidates = [
+        Candidate(
+            candidate_id=f"tmdb:{index}",
+            title=f"Changed {index}",
+            media_type="movie",
+        )
+        for index in range(20, 32)
+    ]
+    second = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    profile = repository.load_profile(PROFILE_ID)
+    assert first.status == "success"
+    assert second.status == "success"
+    assert len(agent.profile_calls) == 1
+    assert len(agent.ranking_calls) == 2
+    assert profile.run_id == "run-profile"
+    assert profile.playback_fingerprint
+    assert repository.load_board(PROFILE_ID).run_id == "run-ranking-only"
+    latest_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    assert latest_metrics["profile_agent_reused"] is True
+    assert latest_metrics.get("profile_agent_calls", 0) == 0
 
 
 def test_run_uses_configured_agent_prompt():
@@ -215,7 +303,9 @@ def test_run_uses_configured_agent_prompt():
 
     asyncio.run(orchestrator.run(PROFILE_ID, config))
 
-    assert "多推荐冷门科幻并保持俏皮文风" in orchestrator.agent_adapter.calls[0][0]
+    assert "多推荐冷门科幻并保持俏皮文风" in (
+        orchestrator.agent_adapter.profile_calls[0][0]
+    )
 
 
 def test_cached_profile_is_passed_as_incremental_context():
@@ -244,13 +334,13 @@ def test_cached_profile_is_passed_as_incremental_context():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    context = orchestrator.agent_adapter.calls[0][1]
+    context = orchestrator.agent_adapter.profile_calls[0][1]
     assert context.previous_profile["summary"] == "old"
     assert context.previous_profile["tags"] == ("悬疑",)
     assert context.profile_preferences["custom_tags"] == ("冷门佳作",)
     assert context.profile_preferences["custom_negative_tags"] == ("过度煽情",)
-    assert "禁止简单做标签并集" in orchestrator.agent_adapter.calls[0][0]
-    assert "用户明确偏好" in orchestrator.agent_adapter.calls[0][0]
+    assert "禁止简单合并标签" in orchestrator.agent_adapter.profile_calls[0][0]
+    assert "明确偏好" in orchestrator.agent_adapter.profile_calls[0][0]
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["profile_mode"] == "incremental"
     assert history.metrics["previous_profile_used"] is True
@@ -301,7 +391,7 @@ def test_playback_evidence_is_collected_and_passed_to_restricted_context():
     config["minimum_samples"] = 1
     result = asyncio.run(orchestrator.run(PROFILE_ID, config))
 
-    context = agent.calls[0][1]
+    context = agent.profile_calls[0][1]
     assert context.playback["source"] == "playback_reporting"
     assert context.playback["samples"][0]["completed"] is True
     metrics = repository.load_run_history(PROFILE_ID)[0].metrics
@@ -320,8 +410,8 @@ def test_playback_samples_are_the_only_profile_evidence():
             return PlaybackSnapshot(
                 profile_id=profile_id,
                 username="Alice",
-                source="emby_native",
-                confidence="medium",
+                source="playback_reporting",
+                confidence="high",
                 status="ready",
                 samples=[
                     PlaybackSample(f"tmdb:movie:{index}", f"Watched {index}", "movie", tmdb_id=str(index))
@@ -414,7 +504,7 @@ def test_rebuild_or_disabled_cache_does_not_read_previous_profile():
 
         result = asyncio.run(orchestrator.run(PROFILE_ID, config))
 
-        assert orchestrator.agent_adapter.calls[0][1].previous_profile is None
+        assert orchestrator.agent_adapter.profile_calls[0][1].previous_profile is None
         history = repository.load_run_history(PROFILE_ID)[0]
         assert history.metrics["profile_mode"] == expected_mode
         assert history.metrics["previous_profile_used"] is False
@@ -447,15 +537,15 @@ def test_library_items_are_removed_before_agent_context_is_built():
     assert result.status == "success"
     candidate_ids = {
         item["candidate_id"]
-        for item in agent.calls[0][1].candidates
+        for item in agent.ranking_calls[0][1].candidates
     }
     assert "tmdb:1" not in candidate_ids
     assert "tmdb:2" not in candidate_ids
     assert repository.load_run_history(PROFILE_ID)[0].metrics["library_excluded_count"] == 2
 
 
-def test_agent_failure_preserves_previous_profile_and_board():
-    """An Agent exception records agent_failed without replacing old state."""
+def test_ranking_failure_keeps_generated_profile_and_previous_board():
+    """排序异常不回滚独立画像，也不覆盖旧榜单。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, [RuntimeError("llm offline")])
     repository.save_profile(UserProfile(profile_id=PROFILE_ID, username="Alice", summary="old", run_id="old"))
@@ -463,10 +553,40 @@ def test_agent_failure_preserves_previous_profile_and_board():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "agent_failed"
+    assert result.status == "ranking_agent_failed"
+    assert repository.load_profile(PROFILE_ID).run_id == "run-1"
+    assert repository.load_board(PROFILE_ID).run_id == "old"
+    assert repository.load_run_history(PROFILE_ID)[0].status == "ranking_agent_failed"
+
+
+def test_profile_failure_preserves_previous_profile_and_skips_ranking():
+    """画像异常保留旧画像与旧榜单，并且排序 Agent 完全不启动。"""
+    plugin = FakePlugin()
+    orchestrator, repository = _orchestrator(
+        plugin,
+        [_agent_output(["tmdb:1"])],
+        profile_outputs=[RuntimeError("profile offline")],
+    )
+    repository.save_profile(
+        UserProfile(
+            profile_id=PROFILE_ID, username="Alice", summary="old", run_id="old"
+        )
+    )
+    repository.save_board(
+        RecommendationBoard(
+            profile_id=PROFILE_ID,
+            username="Alice",
+            run_id="old",
+            status="success",
+        )
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "profile_agent_failed"
     assert repository.load_profile(PROFILE_ID).run_id == "old"
     assert repository.load_board(PROFILE_ID).run_id == "old"
-    assert repository.load_run_history(PROFILE_ID)[0].status == "agent_failed"
+    assert orchestrator.agent_adapter.ranking_calls == []
 
 
 def test_transient_playback_failure_preserves_previous_profile_and_board():
@@ -532,9 +652,9 @@ def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "success"
-    assert result.agent_calls == 2
-    assert len(orchestrator.agent_adapter.calls) == 2
-    assert repository.load_run_history(PROFILE_ID)[0].metrics["agent_calls"] == 2
+    assert result.agent_calls == 3
+    assert len(orchestrator.agent_adapter.ranking_calls) == 2
+    assert repository.load_run_history(PROFILE_ID)[0].metrics["agent_calls"] == 3
 
 
 def test_retryable_empty_agent_output_fails_after_one_retry():
@@ -549,11 +669,11 @@ def test_retryable_empty_agent_output_fails_after_one_retry():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "agent_failed"
-    assert result.agent_calls == 2
-    assert repository.load_profile(PROFILE_ID).run_id == "old"
+    assert result.status == "ranking_agent_failed"
+    assert result.agent_calls == 3
+    assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     assert repository.load_board(PROFILE_ID).run_id == "old"
-    assert repository.load_run_history(PROFILE_ID)[0].metrics["agent_calls"] == 2
+    assert repository.load_run_history(PROFILE_ID)[0].metrics["agent_calls"] == 3
 
 
 def test_invalid_json_retries_once_with_stricter_prompt():
@@ -569,10 +689,10 @@ def test_invalid_json_retries_once_with_stricter_prompt():
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "success"
-    assert result.agent_calls == 2
-    assert "上一次输出未通过严格校验" in orchestrator.agent_adapter.calls[1][0]
+    assert result.agent_calls == 3
+    assert "上一次输出未通过严格校验" in orchestrator.agent_adapter.ranking_calls[1][0]
     history = repository.load_run_history(PROFILE_ID)[0]
-    assert history.metrics["agent_calls"] == 2
+    assert history.metrics["agent_calls"] == 3
     assert history.errors[0].startswith("attempt 1:")
 
 
@@ -586,11 +706,11 @@ def test_invalid_json_fails_after_one_strict_retry():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "validation_failed"
-    assert result.agent_calls == 2
+    assert result.status == "ranking_validation_failed"
+    assert result.agent_calls == 3
     assert repository.load_board(PROFILE_ID).run_id == "old"
     history = repository.load_run_history(PROFILE_ID)[0]
-    assert history.metrics["agent_calls"] == 2
+    assert history.metrics["agent_calls"] == 3
     assert len(history.errors) == 2
 
 
@@ -603,10 +723,10 @@ def test_partial_valid_output_gets_exactly_one_successful_refill():
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "success"
-    assert result.agent_calls == 2
+    assert result.agent_calls == 3
     assert len(repository.load_board(PROFILE_ID).recommendations) == 10
-    assert "tmdb:1" in orchestrator.agent_adapter.calls[1][0]
-    assert "排除" in orchestrator.agent_adapter.calls[1][0]
+    assert "tmdb:1" in orchestrator.agent_adapter.ranking_calls[1][0]
+    assert "排除" in orchestrator.agent_adapter.ranking_calls[1][0]
 
 
 def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
@@ -625,7 +745,7 @@ def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
     board = repository.load_board(PROFILE_ID)
     assert board.status == "recommendation_incomplete"
     assert len(board.recommendations) == 9
-    assert result.agent_calls == 2
+    assert result.agent_calls == 3
 
 
 def test_zero_valid_items_preserves_old_board_and_records_validation_failure():
@@ -636,12 +756,12 @@ def test_zero_valid_items_preserves_old_board_and_records_validation_failure():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "validation_failed"
+    assert result.status == "ranking_validation_failed"
     assert repository.load_board(PROFILE_ID).run_id == "old"
 
 
-def test_atomic_save_failure_restores_both_previous_objects():
-    """A board write failure rolls the already-written profile back to its old value."""
+def test_board_save_failure_keeps_new_profile_and_previous_board():
+    """排序榜单写入失败不回滚已经独立保存的画像。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(
         plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
@@ -652,8 +772,8 @@ def test_atomic_save_failure_restores_both_previous_objects():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "validation_failed"
-    assert repository.load_profile(PROFILE_ID).run_id == "old"
+    assert result.status == "ranking_save_failed"
+    assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     assert repository.load_board(PROFILE_ID).run_id == "old"
 
 
@@ -663,11 +783,12 @@ def test_concurrent_refresh_returns_running_without_second_agent_call():
     release = asyncio.Event()
 
     class BlockingAgent(FakeAgentAdapter):
-        async def run(self, prompt, trusted_context):
-            self.calls.append((prompt, trusted_context))
+        async def run_profile(self, prompt, trusted_context):
+            self.calls.append(("profile", prompt, trusted_context))
+            self.profile_calls.append((prompt, trusted_context))
             entered.set()
             await release.wait()
-            return self.outputs.pop(0)
+            return _profile_output(len(trusted_context.playback["samples"]))
 
     async def scenario():
         plugin = FakePlugin()
@@ -691,4 +812,4 @@ def test_concurrent_refresh_returns_running_without_second_agent_call():
 
     assert first.status == "success"
     assert second.status == "running"
-    assert len(agent.calls) == 1
+    assert len(agent.profile_calls) == 1

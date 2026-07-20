@@ -157,7 +157,7 @@ class FakeCallbackRunner(FakeRunner):
         return None
 
 
-def _trusted_context(run_id="run-1", username="alice"):
+def _trusted_context(run_id="run-1", username="alice", agent_role="ranking"):
     return build_trusted_context(
         username,
         run_id,
@@ -165,6 +165,7 @@ def _trusted_context(run_id="run-1", username="alice"):
         {"entries": []},
         {"weights": {}},
         playback={"source": "playback_reporting", "samples": []},
+        agent_role=agent_role,
     )
 
 
@@ -182,13 +183,13 @@ def test_adapter_uses_exact_capture_only_session_and_cleans_success():
 
     runner = FakeRunner.instances[-1]
     assert output == "captured-json"
-    assert runner.kwargs["session_id"] == "__agentrank_run-1_alice__"
+    assert runner.kwargs["session_id"] == "__agentrank_ranking_run-1_alice__"
     assert runner.kwargs["replay_mode"] == ReplyMode.CAPTURE_ONLY
     assert runner.kwargs["allow_message_tools"] is False
     assert runner.kwargs["channel"] is None
     assert runner.kwargs["source"] is None
     assert runner.cleaned is True
-    assert cleared == [("__agentrank_run-1_alice__", "system")]
+    assert cleared == [("__agentrank_ranking_run-1_alice__", "system")]
 
 
 def test_adapter_cleans_agent_and_memory_when_process_fails():
@@ -209,7 +210,7 @@ def test_adapter_cleans_agent_and_memory_when_process_fails():
         raise AssertionError("agent failure was swallowed")
 
     assert FakeRunner.instances[-1].cleaned is True
-    assert cleared == [("__agentrank_run-2_alice__", "system")]
+    assert cleared == [("__agentrank_ranking_run-2_alice__", "system")]
 
 
 def test_adapter_uses_capture_callback_when_host_process_returns_none():
@@ -227,7 +228,24 @@ def test_adapter_uses_capture_callback_when_host_process_returns_none():
     assert output == "captured-json"
     assert callable(runner.kwargs["output_callback"])
     assert runner.cleaned is True
-    assert cleared == [("__agentrank_run-1_alice__", "system")]
+    assert cleared == [("__agentrank_ranking_run-1_alice__", "system")]
+
+
+def test_profile_role_uses_separate_session_and_single_playback_tool():
+    """画像角色使用独立 session，并且只能实例化播放工具。"""
+    FakeRunner.instances.clear()
+    FakeRunner.fail = False
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeRunner, memory_clearer=lambda *_: None
+    )
+    trusted = _trusted_context(agent_role="profile")
+
+    output = asyncio.run(adapter.run_profile("profile", trusted))
+
+    assert output == "captured-json"
+    runner = FakeRunner.instances[-1]
+    assert runner.kwargs["session_id"] == "__agentrank_profile_run-1_alice__"
+    assert runner.kwargs["trusted_context"].agent_role == "profile"
 
 
 def test_restricted_agent_injects_context_and_instantiates_exact_tool_classes():
@@ -252,6 +270,24 @@ def test_restricted_agent_injects_context_and_instantiates_exact_tool_classes():
     assert {tool.name for tool in tools} == {tool.name for tool in AGENT_TOOL_CLASSES}
     assert all(tool._agent_context is agent._tool_context for tool in tools)
     assert all(tool.message_attr == (None, None, None) for tool in tools)
+
+
+def test_restricted_profile_agent_instantiates_only_playback_tool():
+    """画像 Agent 的图中不得出现候选、归档或权重工具。"""
+    trusted = _trusted_context(agent_role="profile")
+    agent = RestrictedAgentRankAgent(
+        session_id="__agentrank_profile_run-1_alice__",
+        user_id="system",
+        username="alice",
+        trusted_context=trusted,
+        replay_mode=ReplyMode.CAPTURE_ONLY,
+        allow_message_tools=False,
+    )
+
+    agent._tool_context.update(asyncio.run(agent._build_tool_context(False)))
+    tools = agent._initialize_tools()
+
+    assert [tool.name for tool in tools] == ["read_agentrank_playback"]
 
 
 def test_restricted_agent_builds_graph_without_host_extension_middlewares():

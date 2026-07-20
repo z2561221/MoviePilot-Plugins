@@ -8,17 +8,23 @@ from app.agent import MoviePilotAgent, ReplyMode
 from app.utils.identity import SYSTEM_INTERNAL_USER_ID
 
 from ..agent_tools.context import (
+    PROFILE_AGENT_ROLE,
+    RANKING_AGENT_ROLE,
     TRUSTED_CONTEXT_KEY,
     AgentRankTrustedContext,
 )
-from ..agent_tools.registry import AGENT_TOOL_CLASSES, ALLOWED_AGENT_TOOL_NAMES
-
-
-AGENTRANK_SYSTEM_PROMPT = (
-    "你是 Agent榜单中心的受限排序执行器。只能使用当前提供的四个只读工具，"
-    "并严格按照用户消息返回一个 JSON 对象。禁止委派子代理、加载技能或记忆、"
-    "管理任务、调用外部 MCP，以及使用任何未提供的工具。"
+from ..agent_tools.registry import (
+    ALLOWED_AGENT_TOOL_NAMES,
+    tool_classes_for_role,
+    tool_names_for_role,
 )
+
+
+AGENTRANK_SYSTEM_PROMPTS = {
+    PROFILE_AGENT_ROLE: "你是 Agent榜单中心的受限用户画像执行器，只能使用播放只读工具。",
+    RANKING_AGENT_ROLE: "你是 Agent榜单中心的受限排序执行器，只能使用四个只读工具。",
+}
+AGENTRANK_SYSTEM_PROMPT = "你是 Agent榜单中心的受限执行器。"
 
 
 class AgentTextUnavailableError(RuntimeError):
@@ -47,20 +53,28 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
         return context
 
     def _initialize_tools(self) -> List[Any]:
-        """绕过通用工具工厂，仅创建白名单中的四个只读工具。"""
+        """绕过通用工具工厂，仅创建当前角色允许的只读工具。"""
         tools: List[Any] = []
-        for tool_class in AGENT_TOOL_CLASSES:
+        tool_classes = tool_classes_for_role(
+            self._agentrank_trusted_context.agent_role
+        )
+        for tool_class in tool_classes:
             tool = tool_class(session_id=self.session_id, user_id=self.user_id)
             tool.set_message_attr(channel=None, source=None, username=None)
             tool.set_stream_handler(stream_handler=self.stream_handler)
             tool.set_agent_context(agent_context=self._tool_context)
             tools.append(tool)
-        if tuple(tool.name for tool in tools) != tuple(ALLOWED_AGENT_TOOL_NAMES):
-            raise RuntimeError("AgentRank tool registry and whitelist diverged")
+        expected_names = tool_names_for_role(
+            self._agentrank_trusted_context.agent_role
+        )
+        if not set(expected_names).issubset(set(ALLOWED_AGENT_TOOL_NAMES)):
+            raise RuntimeError("AgentRank role whitelist exceeds global whitelist")
+        if tuple(tool.name for tool in tools) != tuple(expected_names):
+            raise RuntimeError("AgentRank tool registry and role whitelist diverged")
         return tools
 
     async def _create_agent(self, streaming: bool = False) -> Any:
-        """构建仅含四个只读工具且无宿主扩展中间件的 Agent 图。"""
+        """构建当前角色专用只读工具且无宿主扩展中间件的 Agent 图。"""
         from langchain.agents import create_agent
         from langgraph.checkpoint.memory import InMemorySaver
 
@@ -70,7 +84,14 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
         return create_agent(
             model=model,
             tools=self._initialize_tools(),
-            system_prompt=AGENTRANK_SYSTEM_PROMPT,
+            system_prompt=(
+                AGENTRANK_SYSTEM_PROMPTS.get(
+                    self._agentrank_trusted_context.agent_role,
+                    AGENTRANK_SYSTEM_PROMPT,
+                )
+                + " 严格按照用户消息返回 JSON；禁止委派子代理、加载技能或记忆、"
+                "管理任务、调用外部 MCP，以及使用任何未提供的工具。"
+            ),
             middleware=[],
             checkpointer=InMemorySaver(),
         )
@@ -106,7 +127,12 @@ class AgentRankAgentAdapter:
             trusted_context.username
         ):
             raise ValueError("AgentRank session scope contains unsafe characters")
-        return f"__agentrank_{trusted_context.run_id}_{trusted_context.username}__"
+        if not cls._safe_scope.fullmatch(trusted_context.agent_role):
+            raise ValueError("AgentRank role scope contains unsafe characters")
+        return (
+            f"__agentrank_{trusted_context.agent_role}_"
+            f"{trusted_context.run_id}_{trusted_context.username}__"
+        )
 
     async def _clear_memory(self, session_id: str) -> None:
         """兼容同步与异步测试/宿主清理器。"""
@@ -150,3 +176,19 @@ class AgentRankAgentAdapter:
                 await agent.cleanup()
             finally:
                 await self._clear_memory(session_id)
+
+    async def run_profile(
+        self, prompt: str, trusted_context: AgentRankTrustedContext
+    ) -> str:
+        """执行只允许读取播放事实的画像 Agent。"""
+        if trusted_context.agent_role != PROFILE_AGENT_ROLE:
+            raise ValueError("profile Agent requires profile trusted context")
+        return await self.run(prompt, trusted_context)
+
+    async def run_ranking(
+        self, prompt: str, trusted_context: AgentRankTrustedContext
+    ) -> str:
+        """执行只允许排序冻结候选的排序 Agent。"""
+        if trusted_context.agent_role != RANKING_AGENT_ROLE:
+            raise ValueError("ranking Agent requires ranking trusted context")
+        return await self.run(prompt, trusted_context)

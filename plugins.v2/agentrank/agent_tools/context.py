@@ -6,6 +6,9 @@ from typing import Any, Mapping
 
 
 TRUSTED_CONTEXT_KEY = "agentrank_trusted_context"
+PROFILE_AGENT_ROLE = "profile"
+RANKING_AGENT_ROLE = "ranking"
+AGENT_ROLES = frozenset({PROFILE_AGENT_ROLE, RANKING_AGENT_ROLE})
 
 
 def _deep_freeze(value: Any) -> Any:
@@ -42,6 +45,8 @@ class AgentRankTrustedContext:
     previous_profile: Any
     profile_preferences: Any
     playback: Any
+    profile: Any = None
+    agent_role: str = RANKING_AGENT_ROLE
 
 
 def build_trusted_context(
@@ -53,12 +58,17 @@ def build_trusted_context(
     previous_profile: Any = None,
     profile_preferences: Any = None,
     playback: Any = None,
+    profile: Any = None,
+    agent_role: str = RANKING_AGENT_ROLE,
 ) -> AgentRankTrustedContext:
-    """校验作用域并构造不可变的受信上下文。"""
+    """校验作用域与 Agent 角色并构造不可变的受信上下文。"""
     trusted_username = str(username or "").strip()
     trusted_run_id = str(run_id or "").strip()
     if not trusted_username or not trusted_run_id:
         raise ValueError("trusted_context requires username and run_id")
+    trusted_role = str(agent_role or "").strip()
+    if trusted_role not in AGENT_ROLES:
+        raise ValueError("trusted_context agent_role is invalid")
     return AgentRankTrustedContext(
         username=trusted_username,
         run_id=trusted_run_id,
@@ -68,6 +78,8 @@ def build_trusted_context(
         previous_profile=_deep_freeze(previous_profile),
         profile_preferences=_deep_freeze(profile_preferences),
         playback=_deep_freeze(playback),
+        profile=_deep_freeze(profile),
+        agent_role=trusted_role,
     )
 
 
@@ -82,4 +94,6 @@ def resolve_trusted_context(agent_context: Mapping[str, Any]) -> AgentRankTruste
         raise PermissionError("AgentRank trusted context is missing or invalid")
     if not trusted_context.username or not trusted_context.run_id:
         raise PermissionError("AgentRank trusted context scope is invalid")
+    if trusted_context.agent_role not in AGENT_ROLES:
+        raise PermissionError("AgentRank trusted context role is invalid")
     return trusted_context

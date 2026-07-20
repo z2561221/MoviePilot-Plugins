@@ -14,6 +14,7 @@ class UserProfile:
     tags: List[str] = field(default_factory=list)
     negative_tags: List[str] = field(default_factory=list)
     playback_count: int = 0
+    playback_fingerprint: str = ""
     run_id: str = ""
     generated_at: str = ""
     schema_version: int = 3
@@ -44,6 +45,7 @@ class UserProfile:
             tags=[str(item) for item in value.get("tags") or []],
             negative_tags=[str(item) for item in value.get("negative_tags") or []],
             playback_count=max(0, int(value.get("playback_count") or 0)),
+            playback_fingerprint=str(value.get("playback_fingerprint") or ""),
             run_id=str(value.get("run_id") or ""),
             generated_at=str(value.get("generated_at") or ""),
             schema_version=int(value.get("schema_version") or 3),

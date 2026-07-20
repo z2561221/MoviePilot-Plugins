@@ -128,6 +128,30 @@ def test_tools_reject_missing_or_wrong_trusted_context():
                 raise AssertionError(f"{tool.name} accepted an untrusted context")
 
 
+def test_profile_role_cannot_read_candidate_slices():
+    """画像角色即使拿到同一组工具实例也不能读取候选、归档或权重。"""
+    context = build_trusted_context(
+        username="alice",
+        run_id="run-profile",
+        candidates=[],
+        archive_feedback={"entries": []},
+        weights={},
+        playback={"source": "playback_reporting", "samples": []},
+        agent_role="profile",
+    )
+    for tool in _tools_with_context(context):
+        if tool.name == "read_agentrank_playback":
+            payload = json.loads(asyncio.run(tool.run()))
+            assert payload["profile"] is None
+            continue
+        try:
+            asyncio.run(tool.run())
+        except PermissionError as error:
+            assert "profile" in str(error)
+        else:
+            raise AssertionError(f"{tool.name} leaked data to profile Agent")
+
+
 def test_agent_tool_sources_have_no_side_effect_dependencies():
     """Tool modules may transform trusted data but cannot import mutation surfaces."""
     source = "\n".join(
