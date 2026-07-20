@@ -66,7 +66,7 @@ def test_multi_source_candidates_are_deduplicated_and_frozen_before_use():
     service = CandidateCollectionService(adapter, repository)
 
     result = service.collect_and_freeze(
-        username="alice",
+        profile_id="alice",
         run_id="run-1",
         enabled_sources={"douban": True, "tmdb_movies": True},
         candidate_limit=10,

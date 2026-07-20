@@ -77,10 +77,11 @@ class FakePlugin:
 
 def _seed(plugin):
     plugin._repository.save_profile(
-        UserProfile(username="alice", summary="画像", run_id="run-old")
+        UserProfile(profile_id="alice", username="alice", summary="画像", run_id="run-old")
     )
     plugin._repository.save_board(
         RecommendationBoard(
+            profile_id="alice",
             username="alice",
             run_id="run-old",
             status="success",
@@ -90,7 +91,9 @@ def _seed(plugin):
         )
     )
     plugin._repository.append_run(
-        RecommendationRun(username="alice", run_id="run-old", status="success")
+        RecommendationRun(
+            profile_id="alice", username="alice", run_id="run-old", status="success"
+        )
     )
 
 
@@ -241,6 +244,7 @@ def test_profile_tags_are_merged_and_deleted_agent_tags_stay_suppressed():
     plugin = FakePlugin()
     plugin._repository.save_profile(
         UserProfile(
+            profile_id="alice",
             username="alice",
             summary="画像",
             tags=["悬疑", "科幻"],

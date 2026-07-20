@@ -1,4 +1,4 @@
-"""基于 MoviePilot 插件数据接口的每用户存储仓库。"""
+"""基于 MoviePilot 插件数据接口的稳定画像身份存储仓库。"""
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Type, TypeVar
@@ -18,7 +18,7 @@ ModelType = TypeVar("ModelType")
 
 
 class AgentRankRepository:
-    """统一封装 AgentRank 的隔离键、迁移与容错读取。"""
+    """统一封装 AgentRank 的 profile_id 隔离键与容错读取。"""
 
     recovery_log_key = "agentrank_recovery_log"
     telegram_sessions_key = "telegram_selection_sessions"
@@ -31,21 +31,21 @@ class AgentRankRepository:
 
     @staticmethod
     def _scope(value: str, field_name: str) -> str:
-        """校验并转义用户名或运行标识，避免键空间碰撞。"""
+        """校验并转义画像 ID 或运行标识，避免键空间碰撞。"""
         text = str(value or "").strip()
         if not text:
             raise ValueError(f"{field_name} is required")
         return quote(text, safe="@._-")
 
-    def _key(self, prefix: str, username: str) -> str:
-        """生成按用户名隔离的持久化键。"""
-        return f"{prefix}:{self._scope(username, 'username')}"
+    def _profile_key(self, prefix: str, profile_id: str) -> str:
+        """生成带新命名空间的 profile_id 持久化键。"""
+        return f"{prefix}:profile:{self._scope(profile_id, 'profile_id')}"
 
-    def _candidate_key(self, run_id: str, username: str) -> str:
-        """生成按运行和用户名双重隔离的候选快照键。"""
+    def _candidate_key(self, run_id: str, profile_id: str) -> str:
+        """生成按运行和 profile_id 双重隔离的候选快照键。"""
         return (
-            f"candidate_snapshot:{self._scope(run_id, 'run_id')}:"
-            f"{self._scope(username, 'username')}"
+            f"candidate_snapshot:profile:{self._scope(profile_id, 'profile_id')}:"
+            f"run:{self._scope(run_id, 'run_id')}"
         )
 
     def _record_recovery(self, key: str, action: str, detail: str = "") -> None:
@@ -69,110 +69,127 @@ class AgentRankRepository:
         self,
         key: str,
         model_type: Type[ModelType],
-        legacy_keys: List[str] = None,
     ) -> Optional[ModelType]:
-        """容错读取模型，并在命中旧键时迁移到当前键。"""
+        """容错读取新命名空间模型，不触碰旧 username 键。"""
         value = self._plugin.get_data(key=key)
-        source_key = key
-        if value is None:
-            for legacy_key in legacy_keys or []:
-                value = self._plugin.get_data(key=legacy_key)
-                if value is not None:
-                    source_key = legacy_key
-                    break
         if value is None:
             return None
         try:
             model = model_type.from_dict(value)
         except (TypeError, ValueError, KeyError) as error:
-            self._record_recovery(source_key, "ignored_corrupt_data", str(error))
+            self._record_recovery(key, "ignored_corrupt_data", str(error))
             return None
-        if source_key != key:
-            self._plugin.save_data(key=key, value=model.to_dict())
-            self._record_recovery(source_key, "migrated_legacy_key", f"to {key}")
+        return model
+
+    def _load_scoped_model(
+        self,
+        key: str,
+        model_type: Type[ModelType],
+        profile_id: str,
+    ) -> Optional[ModelType]:
+        """读取并校验载荷 profile_id 与请求作用域完全一致。"""
+        model = self._load_model(key, model_type)
+        if model is None:
+            return None
+        stored_profile_id = str(getattr(model, "profile_id", "") or "")
+        if stored_profile_id != str(profile_id):
+            self._record_recovery(
+                key,
+                "ignored_cross_profile_data",
+                stored_profile_id,
+            )
+            return None
         return model
 
     def save_profile(self, profile: UserProfile) -> None:
         """保存当前用户画像快照。"""
         self._plugin.save_data(
-            key=self._key("profile_snapshot", profile.username), value=profile.to_dict()
+            key=self._profile_key("profile_snapshot", profile.profile_id),
+            value=profile.to_dict(),
         )
 
-    def load_profile(self, username: str) -> Optional[UserProfile]:
+    def load_profile(self, profile_id: str) -> Optional[UserProfile]:
         """读取当前用户画像；损坏或不存在时返回空。"""
-        return self._load_model(
-            self._key("profile_snapshot", username),
-            UserProfile,
-            legacy_keys=[self._key("profile", username)],
+        return self._load_scoped_model(
+            self._profile_key("profile_snapshot", profile_id), UserProfile, profile_id
         )
 
     def save_profile_preferences(self, preferences: ProfilePreferences) -> None:
         """保存当前用户人工画像标签偏好。"""
         self._plugin.save_data(
-            key=self._key("profile_preferences", preferences.username),
+            key=self._profile_key("profile_preferences", preferences.profile_id),
             value=preferences.to_dict(),
         )
 
-    def load_profile_preferences(self, username: str) -> ProfilePreferences:
+    def load_profile_preferences(self, profile_id: str) -> ProfilePreferences:
         """读取人工画像标签偏好；不存在或损坏时返回空偏好。"""
-        preferences = self._load_model(
-            self._key("profile_preferences", username), ProfilePreferences
+        preferences = self._load_scoped_model(
+            self._profile_key("profile_preferences", profile_id),
+            ProfilePreferences,
+            profile_id,
         )
-        return preferences or ProfilePreferences(username=username)
+        return preferences or ProfilePreferences(profile_id=profile_id)
 
     def save_playback_snapshot(self, snapshot: PlaybackSnapshot) -> None:
         """保存按用户隔离的播放画像快照。"""
         self._plugin.save_data(
-            key=self._key(self.playback_snapshot_prefix, snapshot.username),
+            key=self._profile_key(self.playback_snapshot_prefix, snapshot.profile_id),
             value=snapshot.to_dict(),
         )
 
-    def load_playback_snapshot(self, username: str) -> Optional[PlaybackSnapshot]:
+    def load_playback_snapshot(self, profile_id: str) -> Optional[PlaybackSnapshot]:
         """读取播放画像快照；损坏或不存在时返回空。"""
-        return self._load_model(
-            self._key(self.playback_snapshot_prefix, username), PlaybackSnapshot
+        return self._load_scoped_model(
+            self._profile_key(self.playback_snapshot_prefix, profile_id),
+            PlaybackSnapshot,
+            profile_id,
         )
 
     def save_board(self, board: RecommendationBoard) -> None:
         """保存当前用户榜单。"""
         self._plugin.save_data(
-            key=self._key("recommendation_board", board.username), value=board.to_dict()
+            key=self._profile_key("recommendation_board", board.profile_id),
+            value=board.to_dict(),
         )
 
-    def load_board(self, username: str) -> Optional[RecommendationBoard]:
+    def load_board(self, profile_id: str) -> Optional[RecommendationBoard]:
         """读取当前用户榜单；损坏或不存在时返回空。"""
-        return self._load_model(
-            self._key("recommendation_board", username), RecommendationBoard
+        return self._load_scoped_model(
+            self._profile_key("recommendation_board", profile_id),
+            RecommendationBoard,
+            profile_id,
         )
 
     def save_archive(self, archive: ArchiveFeedback) -> None:
         """保存当前用户忽略归档。"""
         self._plugin.save_data(
-            key=self._key("archive", archive.username), value=archive.to_dict()
+            key=self._profile_key("archive", archive.profile_id), value=archive.to_dict()
         )
 
-    def load_archive(self, username: str) -> ArchiveFeedback:
+    def load_archive(self, profile_id: str) -> ArchiveFeedback:
         """读取当前用户归档；不存在或损坏时返回空归档。"""
-        archive = self._load_model(self._key("archive", username), ArchiveFeedback)
-        return archive or ArchiveFeedback(username=username)
+        archive = self._load_scoped_model(
+            self._profile_key("archive", profile_id), ArchiveFeedback, profile_id
+        )
+        return archive or ArchiveFeedback(profile_id=profile_id)
 
     def save_candidate_snapshot(
-        self, run_id: str, username: str, candidates: List[Candidate]
+        self, run_id: str, profile_id: str, candidates: List[Candidate]
     ) -> None:
         """保存冻结的本轮候选快照。"""
         self._plugin.save_data(
-            key=self._candidate_key(run_id, username),
+            key=self._candidate_key(run_id, profile_id),
             value={
-                "schema_version": 1,
+                "schema_version": 2,
                 "run_id": run_id,
-                "username": username,
+                "profile_id": profile_id,
                 "candidates": [candidate.to_dict() for candidate in candidates],
             },
         )
 
-    def load_candidate_snapshot(self, run_id: str, username: str) -> List[Candidate]:
+    def load_candidate_snapshot(self, run_id: str, profile_id: str) -> List[Candidate]:
         """读取本轮候选快照；损坏时返回空列表并记录证据。"""
-        key = self._candidate_key(run_id, username)
+        key = self._candidate_key(run_id, profile_id)
         value = self._plugin.get_data(key=key)
         if value is None:
             return []
@@ -181,8 +198,8 @@ class AgentRankRepository:
                 raise ValueError("candidate snapshot must be a mapping")
             if str(value.get("run_id") or "") != str(run_id):
                 raise ValueError("candidate snapshot run_id mismatch")
-            if str(value.get("username") or "") != str(username):
-                raise ValueError("candidate snapshot username mismatch")
+            if str(value.get("profile_id") or "") != str(profile_id):
+                raise ValueError("candidate snapshot profile_id mismatch")
             return [Candidate.from_dict(item) for item in value.get("candidates") or []]
         except (TypeError, ValueError, KeyError) as error:
             self._record_recovery(key, "ignored_corrupt_data", str(error))
@@ -190,15 +207,15 @@ class AgentRankRepository:
 
     def append_run(self, run: RecommendationRun) -> None:
         """把运行记录写入对应用户历史头部并执行上限裁剪。"""
-        key = self._key("run_history", run.username)
+        key = self._profile_key("run_history", run.profile_id)
         raw_history = self._plugin.get_data(key=key)
         history = list(raw_history) if isinstance(raw_history, list) else []
         history.insert(0, run.to_dict())
         self._plugin.save_data(key=key, value=history[: self._history_limit])
 
-    def load_run_history(self, username: str) -> List[RecommendationRun]:
+    def load_run_history(self, profile_id: str) -> List[RecommendationRun]:
         """容错读取当前用户的有界运行历史。"""
-        key = self._key("run_history", username)
+        key = self._profile_key("run_history", profile_id)
         value = self._plugin.get_data(key=key)
         if value is None:
             return []
@@ -212,10 +229,10 @@ class AgentRankRepository:
             except (TypeError, ValueError, KeyError) as error:
                 self._record_recovery(key, "ignored_corrupt_item", str(error))
                 continue
-            if run.username == username:
+            if run.profile_id == profile_id:
                 result.append(run)
             else:
-                self._record_recovery(key, "ignored_cross_user_item", run.username)
+                self._record_recovery(key, "ignored_cross_profile_item", run.profile_id)
         return result
 
     def save_telegram_session(self, session: TelegramSelectionSession) -> None:
@@ -253,14 +270,14 @@ class AgentRankRepository:
 
     def annotate_run(
         self,
-        username: str,
+        profile_id: str,
         run_id: str,
         status: str,
         metrics: Dict[str, Any] = None,
         errors: List[str] = None,
     ) -> bool:
         """更新指定运行记录的状态与后处理证据。"""
-        key = self._key("run_history", username)
+        key = self._profile_key("run_history", profile_id)
         value = self._plugin.get_data(key=key)
         if not isinstance(value, list):
             return False
@@ -270,7 +287,7 @@ class AgentRankRepository:
             if (
                 not changed
                 and isinstance(item, Mapping)
-                and str(item.get("username") or "") == username
+                and str(item.get("profile_id") or "") == profile_id
                 and str(item.get("run_id") or "") == run_id
             ):
                 current = dict(item)
@@ -289,13 +306,13 @@ class AgentRankRepository:
             self._plugin.save_data(key=key, value=updated[: self._history_limit])
         return changed
 
-    def delete_profile(self, username: str) -> None:
+    def delete_profile(self, profile_id: str) -> None:
         """删除当前用户画像，不触碰其他用户或 MoviePilot 订阅。"""
-        self._plugin.del_data(key=self._key("profile_snapshot", username))
+        self._plugin.del_data(key=self._profile_key("profile_snapshot", profile_id))
 
-    def delete_board(self, username: str) -> None:
+    def delete_board(self, profile_id: str) -> None:
         """删除当前用户榜单，不触碰归档和运行历史。"""
-        self._plugin.del_data(key=self._key("recommendation_board", username))
+        self._plugin.del_data(key=self._profile_key("recommendation_board", profile_id))
 
     def _restore_raw(self, key: str, value: Any) -> None:
         """在复合写入失败后恢复单个键的原始值。"""
@@ -308,10 +325,10 @@ class AgentRankRepository:
         self, board: RecommendationBoard, archive: ArchiveFeedback
     ) -> None:
         """原子替换同一用户的榜单和归档，失败时恢复两者。"""
-        if board.username != archive.username:
-            raise ValueError("board and archive username mismatch")
-        board_key = self._key("recommendation_board", board.username)
-        archive_key = self._key("archive", archive.username)
+        if board.profile_id != archive.profile_id:
+            raise ValueError("board and archive profile_id mismatch")
+        board_key = self._profile_key("recommendation_board", board.profile_id)
+        archive_key = self._profile_key("archive", archive.profile_id)
         old_board = self._plugin.get_data(key=board_key)
         old_archive = self._plugin.get_data(key=archive_key)
         try:
@@ -326,10 +343,10 @@ class AgentRankRepository:
         self, profile: UserProfile, board: RecommendationBoard
     ) -> None:
         """原子替换同一用户的画像与榜单，失败时恢复两者。"""
-        if profile.username != board.username:
-            raise ValueError("profile and board username mismatch")
-        profile_key = self._key("profile_snapshot", profile.username)
-        board_key = self._key("recommendation_board", board.username)
+        if profile.profile_id != board.profile_id:
+            raise ValueError("profile and board profile_id mismatch")
+        profile_key = self._profile_key("profile_snapshot", profile.profile_id)
+        board_key = self._profile_key("recommendation_board", board.profile_id)
         old_profile = self._plugin.get_data(key=profile_key)
         old_board = self._plugin.get_data(key=board_key)
         try:
@@ -340,10 +357,10 @@ class AgentRankRepository:
             self._restore_raw(board_key, old_board)
             raise
 
-    def clear_profile_and_board(self, username: str) -> None:
+    def clear_profile_and_board(self, profile_id: str) -> None:
         """原子删除当前用户画像和榜单，失败时恢复原始数据。"""
-        profile_key = self._key("profile_snapshot", username)
-        board_key = self._key("recommendation_board", username)
+        profile_key = self._profile_key("profile_snapshot", profile_id)
+        board_key = self._profile_key("recommendation_board", profile_id)
         old_profile = self._plugin.get_data(key=profile_key)
         old_board = self._plugin.get_data(key=board_key)
         try:

@@ -292,7 +292,7 @@ class AgentRankApiController:
         target = self._username(body.get("username"))
         try:
             result = ProfilePreferenceService(self._repository()).update(
-                username=target,
+                profile_id=target,
                 kind=str(body.get("kind") or "").strip(),
                 action=str(body.get("action") or "").strip(),
                 raw_tag=body.get("tag"),

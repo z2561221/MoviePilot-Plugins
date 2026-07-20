@@ -8,12 +8,20 @@ from typing import Any, Dict, Iterable, List, Mapping
 class ProfilePreferences:
     """保存人工标签及对 Agent 标签的显式屏蔽规则。"""
 
-    username: str
+    profile_id: str
+    username: str = ""
     custom_tags: List[str] = field(default_factory=list)
     custom_negative_tags: List[str] = field(default_factory=list)
     suppressed_tags: List[str] = field(default_factory=list)
     suppressed_negative_tags: List[str] = field(default_factory=list)
-    schema_version: int = 1
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        """规范化偏好归属并拒绝空 profile_id。"""
+        self.profile_id = str(self.profile_id or "").strip()
+        self.username = str(self.username or "").strip()
+        if not self.profile_id:
+            raise ValueError("profile preferences profile_id is required")
 
     @staticmethod
     def _unique(values: Iterable[Any]) -> List[str]:
@@ -34,11 +42,12 @@ class ProfilePreferences:
         """从持久化字典恢复人工偏好。"""
         if not isinstance(value, Mapping):
             raise ValueError("profile preferences must be a mapping")
-        username = str(value.get("username") or "").strip()
-        if not username:
-            raise ValueError("profile preferences username is required")
+        profile_id = str(value.get("profile_id") or "").strip()
+        if not profile_id:
+            raise ValueError("profile preferences profile_id is required")
         return cls(
-            username=username,
+            profile_id=profile_id,
+            username=str(value.get("username") or "").strip(),
             custom_tags=cls._unique(value.get("custom_tags") or []),
             custom_negative_tags=cls._unique(
                 value.get("custom_negative_tags") or []
@@ -47,7 +56,7 @@ class ProfilePreferences:
             suppressed_negative_tags=cls._unique(
                 value.get("suppressed_negative_tags") or []
             ),
-            schema_version=int(value.get("schema_version") or 1),
+            schema_version=int(value.get("schema_version") or 2),
         )
 
     @staticmethod

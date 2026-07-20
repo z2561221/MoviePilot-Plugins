@@ -33,7 +33,7 @@ class FakeRepository:
         return self.snapshots.get(username)
 
     def save_playback_snapshot(self, snapshot):
-        self.snapshots[snapshot.username] = snapshot
+        self.snapshots[snapshot.profile_id] = snapshot
 
 
 class FakeAdapter:
@@ -89,6 +89,7 @@ class FakeReportingAccess:
 
 def _ready(source, confidence="high"):
     return PlaybackSnapshot(
+        profile_id="alice",
         username="alice",
         source=source,
         confidence=confidence,

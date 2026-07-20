@@ -108,6 +108,7 @@ class FakeSubscriptionService:
 def _board(run_id="run-1"):
     """构造两条带 TMDB 标识与匹配标签的推荐榜单。"""
     return RecommendationBoard(
+        profile_id="alice",
         username="alice",
         run_id=run_id,
         status="success",

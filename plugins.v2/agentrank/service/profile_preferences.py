@@ -58,7 +58,7 @@ class ProfilePreferenceService:
         raise ValueError("标签类别必须是 positive 或 negative")
 
     def update(
-        self, username: str, kind: str, action: str, raw_tag: object
+        self, profile_id: str, kind: str, action: str, raw_tag: object
     ) -> ProfilePreferenceActionResult:
         """添加或删除人工标签，并持久化稳定覆盖规则。"""
         tag = self._tag(raw_tag)
@@ -67,7 +67,7 @@ class ProfilePreferenceService:
         )
         if action not in {"add", "remove"}:
             raise ValueError("标签操作必须是 add 或 remove")
-        preferences = self._repository.load_profile_preferences(username)
+        preferences = self._repository.load_profile_preferences(profile_id)
         before = preferences.to_dict()
         custom = getattr(preferences, custom_field)
         suppressed = getattr(preferences, suppressed_field)

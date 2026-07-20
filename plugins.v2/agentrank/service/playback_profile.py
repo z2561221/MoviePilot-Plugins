@@ -35,23 +35,31 @@ class PlaybackProfileService:
         synced_at = synced_at.replace(tzinfo=synced_at.tzinfo or timezone.utc)
         return synced_at >= datetime.now(timezone.utc) - timedelta(days=max(1, cache_days))
 
-    def status(self, username: str) -> PlaybackSnapshot:
+    def status(self, profile_id: str) -> PlaybackSnapshot:
         """读取当前用户最后一次播放画像状态，不触发外部请求。"""
-        return self._repository.load_playback_snapshot(username) or PlaybackSnapshot(
-            username=username,
+        return self._repository.load_playback_snapshot(profile_id) or PlaybackSnapshot(
+            profile_id=profile_id,
+            username=profile_id,
             source="subscription",
             confidence="low",
             status="idle",
             message="尚未同步播放画像",
         )
 
-    def collect(self, username: str, config: Mapping[str, Any]) -> PlaybackSnapshot:
+    def collect(self, profile_id: str, config: Mapping[str, Any]) -> PlaybackSnapshot:
         """按配置执行数据源探测、快照回退和订阅兜底。"""
-        target = str(username or "").strip()
+        target = str(profile_id or "").strip()
         if not target:
-            raise ValueError("username is required")
+            raise ValueError("profile_id is required")
         if not bool(config.get("playback_enabled", True)):
-            snapshot = PlaybackSnapshot(target, "subscription", "low", "disabled", message="播放画像已关闭")
+            snapshot = PlaybackSnapshot(
+                target,
+                "subscription",
+                "low",
+                "disabled",
+                username=target,
+                message="播放画像已关闭",
+            )
             self._repository.save_playback_snapshot(snapshot)
             return snapshot
         mode = str(config.get("playback_source_mode") or "auto")
@@ -66,6 +74,7 @@ class PlaybackProfileService:
         reporting_result = None
         if mode in {"auto", "playback_reporting"}:
             reporting_result = self._reporting.collect(source_username, **options)
+            reporting_result.profile_id = target
             reporting_result.username = target
             if reporting_result.status == "ready" and (
                 reporting_result.sample_count > 0 or mode == "playback_reporting"
@@ -90,6 +99,7 @@ class PlaybackProfileService:
                 return reporting_result
         if mode in {"auto", "emby_native"}:
             native_result = self._native.collect(source_username, **options)
+            native_result.profile_id = target
             native_result.username = target
             if native_result.status == "ready":
                 native_result.fallback_from = failures
@@ -107,6 +117,7 @@ class PlaybackProfileService:
             "subscription",
             "low",
             "fallback",
+            username=target,
             message="播放记录不可用，当前仅使用 MP 订阅画像与媒体库库存",
             fallback_from=failures,
         )

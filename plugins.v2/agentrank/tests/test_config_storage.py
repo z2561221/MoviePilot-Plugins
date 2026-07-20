@@ -122,16 +122,17 @@ def test_playback_snapshot_is_scoped_and_does_not_store_sensitive_fields():
     repository = AgentRankRepository(plugin)
     repository.save_playback_snapshot(
         PlaybackSnapshot(
-            username="alice",
+            profile_id="emby:home:user-1",
+            username="Alice",
             source="playback_reporting",
             confidence="high",
             status="ready",
             samples=[PlaybackSample("tmdb:movie:1", "One", "movie", tmdb_id="1", completed=True)],
         )
     )
-    stored = plugin.data["playback_snapshot:alice"]
-    assert repository.load_playback_snapshot("alice").samples[0].completed is True
-    assert repository.load_playback_snapshot("bob") is None
+    stored = plugin.data["playback_snapshot:profile:emby%3Ahome%3Auser-1"]
+    assert repository.load_playback_snapshot("emby:home:user-1").samples[0].completed is True
+    assert repository.load_playback_snapshot("emby:remote:user-1") is None
     assert "api_key" not in stored and "device" not in stored and "client" not in stored
 
 
@@ -194,46 +195,84 @@ def test_legacy_default_prompt_migrates_without_overwriting_custom_prompt():
     assert normalize_config({"agent_prompt": custom})["agent_prompt"] == custom
 
 
-def test_repository_isolates_users_and_candidate_runs():
-    """Every persisted object is scoped by username and candidate run id."""
+def test_repository_isolates_profiles_and_candidate_runs():
+    """Every persisted object is scoped by profile_id and candidate run id."""
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
+    home = "emby:home:user-1"
+    remote = "emby:remote:user-1"
 
-    repository.save_profile(UserProfile(username="alice", summary="A"))
-    repository.save_profile(UserProfile(username="bob", summary="B"))
-    repository.save_board(RecommendationBoard(username="alice", run_id="run-a"))
-    repository.save_archive(ArchiveFeedback(username="alice"))
-    repository.save_candidate_snapshot("run-a", "alice", [Candidate(candidate_id="c1", title="One")])
-    repository.save_candidate_snapshot("run-b", "alice", [Candidate(candidate_id="c2", title="Two")])
+    repository.save_profile(UserProfile(profile_id=home, username="Alice", summary="A"))
+    repository.save_profile(UserProfile(profile_id=remote, username="Alice", summary="B"))
+    repository.save_board(RecommendationBoard(profile_id=home, username="Alice", run_id="run-a"))
+    repository.save_archive(ArchiveFeedback(profile_id=home, username="Alice"))
+    repository.save_candidate_snapshot("run-a", home, [Candidate(candidate_id="c1", title="One")])
+    repository.save_candidate_snapshot("run-b", home, [Candidate(candidate_id="c2", title="Two")])
 
-    assert repository.load_profile("alice").summary == "A"
-    assert repository.load_profile("bob").summary == "B"
-    assert repository.load_board("bob") is None
-    assert repository.load_archive("bob").username == "bob"
-    assert repository.load_candidate_snapshot("run-a", "alice")[0].candidate_id == "c1"
-    assert repository.load_candidate_snapshot("run-b", "alice")[0].candidate_id == "c2"
+    assert repository.load_profile(home).summary == "A"
+    assert repository.load_profile(remote).summary == "B"
+    assert repository.load_board(remote) is None
+    assert repository.load_archive(remote).profile_id == remote
+    assert repository.load_candidate_snapshot("run-a", home)[0].candidate_id == "c1"
+    assert repository.load_candidate_snapshot("run-b", home)[0].candidate_id == "c2"
 
 
 def test_corrupted_storage_recovers_and_records_evidence():
     """Malformed stored values do not break loading and leave an audit record."""
-    plugin = FakePlugin({"profile_snapshot:alice": "not-a-mapping"})
+    key = "profile_snapshot:profile:emby%3Ahome%3Auser-1"
+    plugin = FakePlugin({key: "not-a-mapping"})
     repository = AgentRankRepository(plugin)
 
-    assert repository.load_profile("alice") is None
+    assert repository.load_profile("emby:home:user-1") is None
     recovery_log = plugin.data["agentrank_recovery_log"]
-    assert recovery_log[-1]["key"] == "profile_snapshot:alice"
+    assert recovery_log[-1]["key"] == key
     assert recovery_log[-1]["action"] == "ignored_corrupt_data"
 
 
-def test_legacy_profile_migrates_to_current_key_with_evidence():
-    """A valid legacy record is copied to the current key and migration is logged."""
-    plugin = FakePlugin({"profile:alice": {"username": "alice", "summary": "legacy"}})
+def test_legacy_username_keys_remain_isolated_and_untouched():
+    """旧 username 键不被新 profile_id 读取、迁移或删除。"""
+    legacy = {"username": "alice", "summary": "legacy"}
+    plugin = FakePlugin(
+        {
+            "profile:alice": legacy,
+            "profile_snapshot:alice": {"username": "alice", "summary": "old"},
+        }
+    )
     repository = AgentRankRepository(plugin)
 
-    profile = repository.load_profile("alice")
-    assert profile.summary == "legacy"
-    assert plugin.data["profile_snapshot:alice"]["schema_version"] >= 1
-    assert plugin.data["agentrank_recovery_log"][-1]["action"] == "migrated_legacy_key"
+    assert repository.load_profile("emby:home:user-1") is None
+    repository.clear_profile_and_board("emby:home:user-1")
+    assert plugin.data["profile:alice"] == legacy
+    assert plugin.data["profile_snapshot:alice"]["username"] == "alice"
+    assert "agentrank_recovery_log" not in plugin.data
+
+
+def test_candidate_snapshot_rejects_cross_profile_and_run_payloads():
+    """候选载荷必须同时匹配请求的 profile_id 与 run_id。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    home = "emby:home:user-1"
+    remote = "emby:remote:user-1"
+    source_key = "candidate_snapshot:profile:emby%3Ahome%3Auser-1:run:run-a"
+    repository.save_candidate_snapshot(
+        "run-a", home, [Candidate(candidate_id="c1", title="One")]
+    )
+
+    cross_profile_key = (
+        "candidate_snapshot:profile:emby%3Aremote%3Auser-1:run:run-a"
+    )
+    plugin.data[cross_profile_key] = dict(plugin.data[source_key])
+    assert repository.load_candidate_snapshot("run-a", remote) == []
+    assert plugin.data["agentrank_recovery_log"][-1]["detail"] == (
+        "candidate snapshot profile_id mismatch"
+    )
+
+    cross_run_key = "candidate_snapshot:profile:emby%3Ahome%3Auser-1:run:run-b"
+    plugin.data[cross_run_key] = dict(plugin.data[source_key])
+    assert repository.load_candidate_snapshot("run-b", home) == []
+    assert plugin.data["agentrank_recovery_log"][-1]["detail"] == (
+        "candidate snapshot run_id mismatch"
+    )
 
 
 def test_run_history_is_user_scoped_and_bounded():
@@ -241,12 +280,18 @@ def test_run_history_is_user_scoped_and_bounded():
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin, history_limit=3)
     for index in range(5):
-        repository.append_run(RecommendationRun(username="alice", run_id=f"run-{index}"))
-    repository.append_run(RecommendationRun(username="bob", run_id="bob-run"))
+        repository.append_run(
+            RecommendationRun(profile_id="emby:home:user-1", username="Alice", run_id=f"run-{index}")
+        )
+    repository.append_run(
+        RecommendationRun(profile_id="emby:remote:user-1", username="Alice", run_id="remote-run")
+    )
 
-    assert [item.run_id for item in repository.load_run_history("alice")] == [
+    assert [item.run_id for item in repository.load_run_history("emby:home:user-1")] == [
         "run-4",
         "run-3",
         "run-2",
     ]
-    assert [item.run_id for item in repository.load_run_history("bob")] == ["bob-run"]
+    assert [item.run_id for item in repository.load_run_history("emby:remote:user-1")] == [
+        "remote-run"
+    ]

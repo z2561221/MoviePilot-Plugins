@@ -99,6 +99,7 @@ def _seed(repository, confidence=80, source_ids=None):
     source_ids = source_ids if source_ids is not None else {"tmdb": "1"}
     repository.save_board(
         RecommendationBoard(
+            profile_id="alice",
             username="alice",
             run_id="run-1",
             status="success",
@@ -133,6 +134,7 @@ def test_notification_confirmation_sends_summary_without_subscription_dependency
     """Notify mode posts a UI-directed summary and cannot create subscriptions."""
     plugin = FakePlugin()
     board = RecommendationBoard(
+        profile_id="alice",
         username="alice",
         run_id="run-1",
         status="success",
@@ -164,6 +166,7 @@ def test_notification_confirmation_compacts_long_or_multiline_fields():
     """MarkdownV2 榜单压缩多行文本并保持两位排名和等宽列结构。"""
     plugin = FakePlugin()
     board = RecommendationBoard(
+        profile_id="alice",
         username="alice",
         run_id="run-mdv2",
         status="success",
@@ -190,7 +193,7 @@ def test_notification_confirmation_compacts_long_or_multiline_fields():
 def test_notification_confirmation_prefers_interactive_card_when_available():
     """Telegram 自选卡片发送成功后不再重复发送摘要。"""
     plugin = FakePlugin()
-    board = RecommendationBoard(username="alice", run_id="run-1", status="success")
+    board = RecommendationBoard(profile_id="alice", username="alice", run_id="run-1", status="success")
 
     class InteractionService:
         """记录自选卡片启动参数。"""
@@ -266,6 +269,7 @@ def test_manual_subscription_rejects_missing_snapshot_archive_and_low_confidence
     repository.save_board(board)
     repository.save_archive(
         ArchiveFeedback(
+            profile_id="alice",
             username="alice",
             entries=[ArchiveEntry(candidate_id="tmdb:1", original_rank=1)],
         )
@@ -273,8 +277,8 @@ def test_manual_subscription_rejects_missing_snapshot_archive_and_low_confidence
     archived = service.subscribe("alice", "tmdb:1", 0.6)
     assert archived.code == "candidate_archived"
 
-    repository.save_archive(ArchiveFeedback(username="alice"))
-    plugin.del_data(key="candidate_snapshot:run-1:alice")
+    repository.save_archive(ArchiveFeedback(profile_id="alice", username="alice"))
+    plugin.del_data(key="candidate_snapshot:profile:alice:run:run-1")
     missing = service.subscribe("alice", "tmdb:1", 0.6)
     assert missing.code == "candidate_not_in_snapshot"
     assert chain.add_calls == []
@@ -301,7 +305,7 @@ def test_unrecognizable_candidate_and_add_failure_are_visible():
 def test_runtime_notify_mode_sends_summary_after_success_without_subscribing():
     """Runtime post-processing invokes only NotificationService in notify mode."""
     plugin = FakePlugin()
-    board = RecommendationBoard(username="alice", run_id="run-1", status="success")
+    board = RecommendationBoard(profile_id="alice", username="alice", run_id="run-1", status="success")
 
     class Orchestrator:
         async def run(self, username, config):
@@ -323,7 +327,7 @@ def test_runtime_notify_mode_sends_summary_after_success_without_subscribing():
 def test_runtime_failure_sends_one_subscribe_notification_with_old_board_state():
     """A failed Agent result emits one concise Subscribe notification."""
     plugin = FakePlugin()
-    board = RecommendationBoard(username="alice", run_id="old", status="success")
+    board = RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success")
 
     class Orchestrator:
         async def run(self, username, config):

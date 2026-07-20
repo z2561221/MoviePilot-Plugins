@@ -196,7 +196,7 @@ class AgentRankRuntime:
         if mode != "auto_subscribe" or self.subscription_service is None:
             return
         batch = self.subscription_service.subscribe_top_n(
-            username=username,
+            profile_id=username,
             top_n=int(self.config.get("auto_subscribe_top_n") or 0),
             configured_limit=int(self.config.get("auto_subscribe_limit") or 0),
             confidence_threshold=float(
@@ -230,7 +230,7 @@ class AgentRankRuntime:
                     repository.save_board(board)
         if repository is not None and getattr(result, "run_id", ""):
             repository.annotate_run(
-                username=username,
+                profile_id=username,
                 run_id=result.run_id,
                 status=result.status,
                 metrics={

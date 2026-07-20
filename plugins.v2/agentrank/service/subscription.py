@@ -107,11 +107,11 @@ class SubscriptionService:
         return ManualSubscriptionResult(False, False, code, message)
 
     def subscribe(
-        self, username: str, candidate_id: str, confidence_threshold: float
+        self, profile_id: str, candidate_id: str, confidence_threshold: float
     ) -> ManualSubscriptionResult:
-        """按目标用户名执行单项订阅的完整安全链。"""
-        board = self._repository.load_board(username)
-        if board is None or board.username != username:
+        """按稳定画像身份执行单项订阅的完整安全链。"""
+        board = self._repository.load_board(profile_id)
+        if board is None or board.profile_id != profile_id:
             return self._failure("board_unavailable", "当前用户没有可用榜单")
         item = next(
             (
@@ -123,7 +123,7 @@ class SubscriptionService:
         )
         if item is None:
             return self._failure("candidate_not_in_board", "候选不在当前榜单中")
-        candidates = self._repository.load_candidate_snapshot(board.run_id, username)
+        candidates = self._repository.load_candidate_snapshot(board.run_id, profile_id)
         candidate = next(
             (value for value in candidates if value.candidate_id == candidate_id), None
         )
@@ -131,7 +131,7 @@ class SubscriptionService:
             return self._failure(
                 "candidate_not_in_snapshot", "候选不属于当前榜单绑定的发现快照"
             )
-        archive = self._repository.load_archive(username)
+        archive = self._repository.load_archive(profile_id)
         if any(entry.candidate_id == candidate_id for entry in archive.entries):
             return self._failure("candidate_archived", "候选已被当前用户归档")
         threshold = float(confidence_threshold or 0.0)
@@ -160,7 +160,7 @@ class SubscriptionService:
             title=candidate.title,
             year=str(candidate.year or ""),
             mtype=media_type,
-            username=username,
+            username=board.username or profile_id,
             message=False,
             exist_ok=False,
             **identifiers,
@@ -182,7 +182,7 @@ class SubscriptionService:
 
     def subscribe_top_n(
         self,
-        username: str,
+        profile_id: str,
         top_n: int,
         configured_limit: int,
         confidence_threshold: float,
@@ -194,7 +194,7 @@ class SubscriptionService:
             return BatchSubscriptionResult("disabled", [])
         if requested > limit or requested > 10:
             return BatchSubscriptionResult("invalid_limit", [], 0, requested)
-        board = self._repository.load_board(username)
+        board = self._repository.load_board(profile_id)
         if board is None:
             return BatchSubscriptionResult("subscription_partial_failed", [], 0, requested)
         ranked_items = sorted(
@@ -204,7 +204,7 @@ class SubscriptionService:
         for item in ranked_items:
             try:
                 result = self.subscribe(
-                    username, item.candidate_id, confidence_threshold
+                    profile_id, item.candidate_id, confidence_threshold
                 )
             except Exception as error:
                 result = ManualSubscriptionResult(

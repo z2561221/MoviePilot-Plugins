@@ -103,6 +103,7 @@ class RecommendationOrchestrator:
         final_metrics["elapsed_ms"] = max(0, int((time.monotonic() - started_clock) * 1000))
         self._repository.append_run(
             RecommendationRun(
+                profile_id=username,
                 username=username,
                 run_id=run_id,
                 status=status,
@@ -457,6 +458,7 @@ class RecommendationOrchestrator:
             status = "success" if len(accepted) >= 10 else "recommendation_incomplete"
             generated_at = datetime.now(timezone.utc).isoformat()
             profile = UserProfile(
+                profile_id=target,
                 username=target,
                 summary=validation.profile.summary,
                 tags=list(validation.profile.tags),
@@ -466,6 +468,7 @@ class RecommendationOrchestrator:
                 generated_at=generated_at,
             )
             board = RecommendationBoard(
+                profile_id=target,
                 username=target,
                 run_id=run_id,
                 status=status,

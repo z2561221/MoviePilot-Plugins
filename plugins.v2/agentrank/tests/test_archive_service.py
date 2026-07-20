@@ -48,8 +48,9 @@ class FakePlugin:
         self.data.pop(key, None)
 
 
-def _board(username="alice"):
+def _board(profile_id="alice", username="alice"):
     return RecommendationBoard(
+        profile_id=profile_id,
         username=username,
         run_id="run-1",
         status="success",
@@ -130,26 +131,32 @@ def test_ignore_and_restore_are_idempotent():
     assert service.restore("alice", "c2").changed is False
 
 
-def test_cross_user_board_payload_is_rejected():
-    """A mismatched stored owner cannot be mutated through another user's key."""
+def test_cross_profile_board_payload_is_rejected():
+    """A mismatched stored owner cannot be mutated through another profile key."""
     plugin = FakePlugin()
-    plugin.data["recommendation_board:alice"] = _board(username="bob").to_dict()
+    key = "recommendation_board:profile:alice"
+    plugin.data[key] = _board(profile_id="bob", username="Alice").to_dict()
     repository = AgentRankRepository(plugin)
     service = ArchiveService(repository)
 
-    with pytest.raises(PermissionError, match="username"):
-        service.ignore("alice", "c1")
+    result = service.ignore("alice", "c1")
 
-    assert plugin.data["recommendation_board:alice"]["username"] == "bob"
+    assert result.changed is False
+    assert plugin.data[key]["profile_id"] == "bob"
+    assert plugin.data["agentrank_recovery_log"][-1][
+        "action"
+    ] == "ignored_cross_profile_data"
 
 
 def test_profile_cleanup_rolls_back_both_objects_when_second_delete_fails():
     """A partial deletion restores both profile and board exactly."""
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
-    repository.save_profile(UserProfile(username="alice", summary="keep"))
+    repository.save_profile(
+        UserProfile(profile_id="alice", username="alice", summary="keep")
+    )
     repository.save_board(_board())
-    plugin.fail_delete_key = "recommendation_board:alice"
+    plugin.fail_delete_key = "recommendation_board:profile:alice"
     service = ArchiveService(repository)
 
     with pytest.raises(RuntimeError, match="injected delete failure"):
@@ -163,9 +170,13 @@ def test_profile_cleanup_leaves_archive_history_and_global_config_untouched():
     """Successful cleanup deletes only the current profile and board keys."""
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
-    repository.save_profile(UserProfile(username="alice", summary="remove"))
+    repository.save_profile(
+        UserProfile(profile_id="alice", username="alice", summary="remove")
+    )
     repository.save_board(_board())
-    repository.append_run(RecommendationRun(username="alice", run_id="run-1"))
+    repository.append_run(
+        RecommendationRun(profile_id="alice", username="alice", run_id="run-1")
+    )
     archive = repository.load_archive("alice")
     repository.save_archive(archive)
     plugin.data["plugin_global_config"] = {"enabled": True}
@@ -176,6 +187,6 @@ def test_profile_cleanup_leaves_archive_history_and_global_config_untouched():
     assert result.changed is True
     assert repository.load_profile("alice") is None
     assert repository.load_board("alice") is None
-    assert "archive:alice" in plugin.data
-    assert "run_history:alice" in plugin.data
+    assert "archive:profile:alice" in plugin.data
+    assert "run_history:profile:alice" in plugin.data
     assert plugin.data["plugin_global_config"] == {"enabled": True}

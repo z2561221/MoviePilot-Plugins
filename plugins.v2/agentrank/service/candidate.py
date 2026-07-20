@@ -13,7 +13,7 @@ from ..storage.repository import AgentRankRepository
 class CandidateCollectionResult:
     """表示候选采集结果及来源级错误。"""
 
-    username: str
+    profile_id: str
     run_id: str
     status: str
     candidates: List[Candidate] = field(default_factory=list)
@@ -230,7 +230,7 @@ class CandidateCollectionService:
 
     def collect_and_freeze(
         self,
-        username: str,
+        profile_id: str,
         run_id: str,
         enabled_sources: Mapping[str, Any],
         candidate_limit: int,
@@ -259,9 +259,9 @@ class CandidateCollectionService:
                 continue
             by_id[candidate.candidate_id] = candidate
             candidates.append(candidate)
-        self._repository.save_candidate_snapshot(run_id, username, candidates)
+        self._repository.save_candidate_snapshot(run_id, profile_id, candidates)
         return CandidateCollectionResult(
-            username=username,
+            profile_id=profile_id,
             run_id=run_id,
             status="ready" if candidates else "candidate_insufficient",
             candidates=candidates,

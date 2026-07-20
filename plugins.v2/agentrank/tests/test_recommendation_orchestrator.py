@@ -46,7 +46,7 @@ class FakePlugin:
         return self.data.get(key)
 
     def save_data(self, key=None, value=None):
-        if self.fail_board_save and key == "recommendation_board:alice":
+        if self.fail_board_save and key == "recommendation_board:profile:alice":
             self.fail_board_save = False
             raise RuntimeError("board save failed")
         self.data[key] = value
@@ -205,10 +205,13 @@ def test_cached_profile_is_passed_as_incremental_context():
         plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
     )
     repository.save_profile(
-        UserProfile(username="alice", summary="old", tags=["悬疑"], run_id="old")
+        UserProfile(
+            profile_id="alice", username="alice", summary="old", tags=["悬疑"], run_id="old"
+        )
     )
     repository.save_profile_preferences(
         ProfilePreferences(
+            profile_id="alice",
             username="alice",
             custom_tags=["冷门佳作"],
             custom_negative_tags=["过度煽情"],
@@ -241,6 +244,7 @@ def test_playback_evidence_is_collected_and_passed_to_restricted_context():
     class PlaybackService:
         def collect(self, username, config):
             return PlaybackSnapshot(
+                profile_id=username,
                 username=username,
                 source="playback_reporting",
                 confidence="high",
@@ -293,6 +297,7 @@ def test_playback_samples_can_satisfy_profile_minimum_without_subscriptions():
     class PlaybackService:
         def collect(self, username, config):
             return PlaybackSnapshot(
+                profile_id=username,
                 username=username,
                 source="emby_native",
                 confidence="medium",
@@ -332,7 +337,7 @@ def test_rebuild_or_disabled_cache_does_not_read_previous_profile():
             plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
         )
         repository.save_profile(
-            UserProfile(username="alice", summary="old", run_id="old")
+            UserProfile(profile_id="alice", username="alice", summary="old", run_id="old")
         )
         config = _config()
         config.update(overrides)
@@ -383,8 +388,8 @@ def test_agent_failure_preserves_previous_profile_and_board():
     """An Agent exception records agent_failed without replacing old state."""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, [RuntimeError("llm offline")])
-    repository.save_profile(UserProfile(username="alice", summary="old", run_id="old"))
-    repository.save_board(RecommendationBoard(username="alice", run_id="old", status="success"))
+    repository.save_profile(UserProfile(profile_id="alice", username="alice", summary="old", run_id="old"))
+    repository.save_board(RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success"))
 
     result = asyncio.run(orchestrator.run("alice", _config()))
 
@@ -419,8 +424,8 @@ def test_retryable_empty_agent_output_fails_after_one_retry():
         plugin,
         [RetryableAgentError("first"), RetryableAgentError("second")],
     )
-    repository.save_profile(UserProfile(username="alice", summary="old", run_id="old"))
-    repository.save_board(RecommendationBoard(username="alice", run_id="old", status="success"))
+    repository.save_profile(UserProfile(profile_id="alice", username="alice", summary="old", run_id="old"))
+    repository.save_board(RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success"))
 
     result = asyncio.run(orchestrator.run("alice", _config()))
 
@@ -456,7 +461,7 @@ def test_invalid_json_fails_after_one_strict_retry():
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, ["bad-one", "bad-two"])
     repository.save_board(
-        RecommendationBoard(username="alice", run_id="old", status="success")
+        RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success")
     )
 
     result = asyncio.run(orchestrator.run("alice", _config()))
@@ -507,7 +512,7 @@ def test_zero_valid_items_preserves_old_board_and_records_validation_failure():
     """A wholly unsafe Agent result cannot replace the previous board."""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, [_agent_output(["tmdb:404"])])
-    repository.save_board(RecommendationBoard(username="alice", run_id="old", status="success"))
+    repository.save_board(RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success"))
 
     result = asyncio.run(orchestrator.run("alice", _config()))
 
@@ -521,8 +526,8 @@ def test_atomic_save_failure_restores_both_previous_objects():
     orchestrator, repository = _orchestrator(
         plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
     )
-    repository.save_profile(UserProfile(username="alice", summary="old", run_id="old"))
-    repository.save_board(RecommendationBoard(username="alice", run_id="old", status="success"))
+    repository.save_profile(UserProfile(profile_id="alice", username="alice", summary="old", run_id="old"))
+    repository.save_board(RecommendationBoard(profile_id="alice", username="alice", run_id="old", status="success"))
     plugin.fail_board_save = True
 
     result = asyncio.run(orchestrator.run("alice", _config()))

@@ -33,11 +33,19 @@ class ArchiveEntry:
 
 @dataclass
 class ArchiveFeedback:
-    """表示按用户名隔离的完整归档反馈。"""
+    """表示按稳定 Emby 画像身份隔离的完整归档反馈。"""
 
-    username: str
+    profile_id: str
+    username: str = ""
     entries: List[ArchiveEntry] = field(default_factory=list)
-    schema_version: int = 1
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        """规范化归档归属并拒绝空 profile_id。"""
+        self.profile_id = str(self.profile_id or "").strip()
+        self.username = str(self.username or "").strip()
+        if not self.profile_id:
+            raise ValueError("archive profile_id is required")
 
     def to_dict(self) -> Dict[str, Any]:
         """返回可持久化字典。"""
@@ -48,11 +56,12 @@ class ArchiveFeedback:
         """从持久化字典恢复归档反馈。"""
         if not isinstance(value, Mapping):
             raise ValueError("archive must be a mapping")
-        username = str(value.get("username") or "").strip()
-        if not username:
-            raise ValueError("archive username is required")
+        profile_id = str(value.get("profile_id") or "").strip()
+        if not profile_id:
+            raise ValueError("archive profile_id is required")
         return cls(
-            username=username,
+            profile_id=profile_id,
+            username=str(value.get("username") or "").strip(),
             entries=[ArchiveEntry.from_dict(item) for item in value.get("entries") or []],
-            schema_version=int(value.get("schema_version") or 1),
+            schema_version=int(value.get("schema_version") or 2),
         )

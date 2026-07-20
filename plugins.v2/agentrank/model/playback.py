@@ -47,22 +47,27 @@ class PlaybackSample:
 
 @dataclass
 class PlaybackSnapshot:
-    """表示一次按用户隔离的播放画像采集结果。"""
+    """表示一次按稳定 Emby 画像身份隔离的播放事实快照。"""
 
-    username: str
+    profile_id: str
     source: str = "subscription"
     confidence: str = "low"
     status: str = "fallback"
+    username: str = ""
     samples: List[PlaybackSample] = field(default_factory=list)
     mapped_count: int = 0
     unmapped_count: int = 0
     synced_at: str = ""
     message: str = ""
     fallback_from: List[str] = field(default_factory=list)
-    schema_version: int = 1
+    schema_version: int = 2
 
     def __post_init__(self) -> None:
         """为新采集结果补充稳定时间和映射计数。"""
+        self.profile_id = str(self.profile_id or "").strip()
+        self.username = str(self.username or "").strip()
+        if not self.profile_id:
+            raise ValueError("playback snapshot profile_id is required")
         if not self.synced_at:
             self.synced_at = datetime.now(timezone.utc).isoformat()
         if not self.mapped_count:
@@ -76,6 +81,7 @@ class PlaybackSnapshot:
     def to_dict(self) -> Dict[str, Any]:
         """返回可持久化且不包含敏感字段的播放快照。"""
         return {
+            "profile_id": self.profile_id,
             "username": self.username,
             "source": self.source,
             "confidence": self.confidence,
@@ -95,19 +101,20 @@ class PlaybackSnapshot:
         """从持久化字典恢复播放画像快照。"""
         if not isinstance(value, Mapping):
             raise ValueError("playback snapshot must be a mapping")
-        username = str(value.get("username") or "").strip()
-        if not username:
-            raise ValueError("playback snapshot username is required")
+        profile_id = str(value.get("profile_id") or "").strip()
+        if not profile_id:
+            raise ValueError("playback snapshot profile_id is required")
         return cls(
-            username=username,
+            profile_id=profile_id,
             source=str(value.get("source") or "subscription"),
             confidence=str(value.get("confidence") or "low"),
             status=str(value.get("status") or "fallback"),
+            username=str(value.get("username") or "").strip(),
             samples=[PlaybackSample.from_dict(item) for item in value.get("samples") or []],
             mapped_count=max(0, int(value.get("mapped_count") or 0)),
             unmapped_count=max(0, int(value.get("unmapped_count") or 0)),
             synced_at=str(value.get("synced_at") or ""),
             message=str(value.get("message") or ""),
             fallback_from=[str(item) for item in value.get("fallback_from") or []],
-            schema_version=int(value.get("schema_version") or 1),
+            schema_version=int(value.get("schema_version") or 2),
         )

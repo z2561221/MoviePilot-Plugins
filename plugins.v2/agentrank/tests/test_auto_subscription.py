@@ -96,6 +96,7 @@ def _seed(repository, count=3):
         )
     repository.save_board(
         RecommendationBoard(
+            profile_id="alice",
             username="alice",
             run_id="run-1",
             status="success",
@@ -155,6 +156,7 @@ def test_animation_movie_subscribes_with_recognized_moviepilot_base_type():
     repository = AgentRankRepository(FakePlugin())
     repository.save_board(
         RecommendationBoard(
+            profile_id="alice",
             username="alice",
             run_id="run-animation-movie",
             status="success",
@@ -199,7 +201,9 @@ def test_runtime_marks_board_and_latest_history_on_partial_auto_failure():
     plugin._repository = repository
     _seed(repository)
     repository.append_run(
-        RecommendationRun(username="alice", run_id="run-1", status="success")
+        RecommendationRun(
+            profile_id="alice", username="alice", run_id="run-1", status="success"
+        )
     )
     chain = SequencedChain(
         exists_results=[False, False],

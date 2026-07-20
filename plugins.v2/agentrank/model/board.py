@@ -53,16 +53,24 @@ class RecommendationItem:
 
 @dataclass
 class RecommendationBoard:
-    """表示某个用户当前可见的推荐榜单。"""
+    """表示某个稳定 Emby 画像身份当前可见的推荐榜单。"""
 
-    username: str
+    profile_id: str
     run_id: str
+    username: str = ""
     status: str = "idle"
     recommendations: List[RecommendationItem] = field(default_factory=list)
     generated_at: str = ""
     message: str = ""
     previous_run_id: Optional[str] = None
-    schema_version: int = 1
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        """规范化榜单归属并拒绝空 profile_id。"""
+        self.profile_id = str(self.profile_id or "").strip()
+        self.username = str(self.username or "").strip()
+        if not self.profile_id:
+            raise ValueError("board profile_id is required")
 
     def to_dict(self) -> Dict[str, Any]:
         """返回可持久化字典。"""
@@ -73,12 +81,13 @@ class RecommendationBoard:
         """从持久化字典恢复榜单。"""
         if not isinstance(value, Mapping):
             raise ValueError("board must be a mapping")
-        username = str(value.get("username") or "").strip()
-        if not username:
-            raise ValueError("board username is required")
+        profile_id = str(value.get("profile_id") or "").strip()
+        if not profile_id:
+            raise ValueError("board profile_id is required")
         return cls(
-            username=username,
+            profile_id=profile_id,
             run_id=str(value.get("run_id") or ""),
+            username=str(value.get("username") or "").strip(),
             status=str(value.get("status") or "idle"),
             recommendations=[
                 RecommendationItem.from_dict(item)
@@ -91,5 +100,5 @@ class RecommendationBoard:
                 if value.get("previous_run_id") is not None
                 else None
             ),
-            schema_version=int(value.get("schema_version") or 1),
+            schema_version=int(value.get("schema_version") or 2),
         )

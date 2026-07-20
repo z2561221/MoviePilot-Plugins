@@ -173,6 +173,7 @@ def test_legacy_board_repair_replaces_only_broken_poster_urls():
         "data:image/jpeg;base64,legacy"
     )
     board = RecommendationBoard(
+        profile_id="alice",
         username="alice",
         run_id="old-run",
         status="success",
