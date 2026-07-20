@@ -1,12 +1,21 @@
 """Agent 输出严格解析与确定性推荐校验。"""
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Sequence, Set
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
 
 from ..model.board import RecommendationItem
 from ..model.candidate import Candidate
+from ..model.retrieval import (
+    ISO_639_1_CODES,
+    MEDIA_TYPES,
+    SORT_OPTIONS,
+    TMDB_GENRE_IDS,
+    RetrievalFilters,
+    RetrievalPlan,
+)
 
 
 FILLER_END_PATTERN = re.compile(r"(?:哈|呀|嘛|哒|喂)[。！？!?]?$")
@@ -25,6 +34,28 @@ class ParsedProfile:
     tags: List[str]
     negative_tags: List[str]
     playback_count: int
+
+
+@dataclass(frozen=True)
+class ParsedProfilePlan:
+    """表示通过结构、枚举和 ID 安全门的画像与检索计划。"""
+
+    profile: ParsedProfile
+    retrieval_plan: RetrievalPlan
+
+    @property
+    def filters(self) -> RetrievalFilters:
+        """返回已校验的结构化过滤条件。"""
+        return self.retrieval_plan.filters
+
+    @property
+    def ranking_tags(self) -> List[str]:
+        """返回自由排序标签的独立列表。"""
+        return list(self.retrieval_plan.ranking_tags)
+
+
+# 兼容调用方对“画像输出”名称的语义引用，同时保持新 schema 名称明确。
+ParsedProfileOutput = ParsedProfilePlan
 
 
 @dataclass(frozen=True)
@@ -126,32 +157,226 @@ class _StrictOutputParser:
 
 
 class ProfileOutputParser(_StrictOutputParser):
-    """只接受画像 Agent 的独立 profile 根对象。"""
+    """只接受画像 Agent 的 profile、filters、ranking_tags 根对象。"""
 
-    def parse(self, output: str) -> ParsedProfile:
-        """解析画像输出并拒绝任何候选或推荐字段。"""
-        value = self._object(output)
-        self._exact_keys(value, {"profile"}, "root")
-        profile_value = value["profile"]
-        if not isinstance(profile_value, dict):
+    def __init__(
+        self,
+        max_bytes: int = 262_144,
+        max_recommendations: int = 10,
+        max_tags: int = 20,
+        max_string_chars: int = 200,
+        allowed_keyword_ids: Optional[Iterable[int]] = None,
+        allowed_genre_ids: Optional[Iterable[int]] = None,
+        known_keyword_ids: Optional[Iterable[int]] = None,
+    ):
+        """设置画像与检索计划的资源边界及可信 ID 集合。"""
+        super().__init__(max_bytes, max_recommendations, max_tags, max_string_chars)
+        keyword_ids = (
+            allowed_keyword_ids
+            if allowed_keyword_ids is not None
+            else known_keyword_ids
+        )
+        self._allowed_keyword_ids = frozenset(
+            self._positive_ids(keyword_ids or (), "allowed_keyword_ids")
+        )
+        self._allowed_genre_ids = frozenset(
+            self._positive_ids(
+                allowed_genre_ids if allowed_genre_ids is not None else TMDB_GENRE_IDS,
+                "allowed_genre_ids",
+            )
+        )
+
+    @staticmethod
+    def _positive_ids(value: Iterable[int], label: str) -> List[int]:
+        """校验 parser 自身使用的可信正整数 ID 集合。"""
+        result: List[int] = []
+        for item in value:
+            if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
+                raise ValueError(f"{label} must contain positive integers")
+            if item not in result:
+                result.append(item)
+        return result
+
+    def _id_list(
+        self, value: Any, label: str, allowed: Set[int], maximum: int = 20
+    ) -> List[int]:
+        """读取只允许来自可信集合的唯一整数 ID 列表。"""
+        if not isinstance(value, list):
+            raise AgentOutputError(f"{label} must be a list")
+        if len(value) > maximum:
+            raise AgentOutputError(f"{label} exceeds {maximum} ids")
+        result: List[int] = []
+        for item in value:
+            if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
+                raise AgentOutputError(f"{label} must contain positive integer ids")
+            if item not in allowed:
+                raise AgentOutputError(f"{label} contains unknown id {item}")
+            if item in result:
+                raise AgentOutputError(f"{label} contains duplicate id {item}")
+            result.append(item)
+        return result
+
+    def _enum_list(
+        self, value: Any, label: str, allowed: Set[str], maximum: int
+    ) -> List[str]:
+        """读取只允许固定枚举且保持顺序的字符串列表。"""
+        if not isinstance(value, list):
+            raise AgentOutputError(f"{label} must be a list")
+        if len(value) > maximum:
+            raise AgentOutputError(f"{label} exceeds {maximum} items")
+        result: List[str] = []
+        for item in value:
+            if not isinstance(item, str) or item not in allowed:
+                raise AgentOutputError(f"{label} contains unknown enum {item!r}")
+            if item in result:
+                raise AgentOutputError(f"{label} contains duplicate enum {item!r}")
+            result.append(item)
+        return result
+
+    @staticmethod
+    def _optional_integer(
+        value: Any, label: str, minimum: int, maximum: int
+    ) -> Optional[int]:
+        """读取允许为空且处于边界内的整数。"""
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise AgentOutputError(f"{label} must be an integer or null")
+        if not minimum <= value <= maximum:
+            raise AgentOutputError(f"{label} must be between {minimum} and {maximum}")
+        return value
+
+    @staticmethod
+    def _optional_number(
+        value: Any, label: str, minimum: float, maximum: float
+    ) -> Optional[float]:
+        """读取允许为空且处于边界内的有限数值。"""
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise AgentOutputError(f"{label} must be a number or null")
+        numeric = float(value)
+        if not math.isfinite(numeric) or not minimum <= numeric <= maximum:
+            raise AgentOutputError(f"{label} must be between {minimum} and {maximum}")
+        return numeric
+
+    def _ranking_tags(self, value: Any) -> List[str]:
+        """读取仅供排序语义使用的自由标签。"""
+        if not isinstance(value, list):
+            raise AgentOutputError("ranking_tags must be a list")
+        if len(value) > self._max_tags:
+            raise AgentOutputError(f"ranking_tags exceeds {self._max_tags} tags")
+        result: List[str] = []
+        for index, item in enumerate(value):
+            if not isinstance(item, str):
+                raise AgentOutputError(f"ranking_tags[{index}] must be a string")
+            text = item.strip()
+            if not 1 <= len(text) <= 40:
+                raise AgentOutputError(
+                    f"ranking_tags[{index}] must contain 1 to 40 characters"
+                )
+            if any(ord(char) < 32 for char in text):
+                raise AgentOutputError(
+                    f"ranking_tags[{index}] contains control characters"
+                )
+            if text in result:
+                raise AgentOutputError(f"ranking_tags contains duplicate tag {text!r}")
+            result.append(text)
+        return result
+
+    def _filters(self, value: Any) -> RetrievalFilters:
+        """解析结构化过滤条件并拒绝自由语义与未知字段。"""
+        if not isinstance(value, dict):
+            raise AgentOutputError("filters must be an object")
+        expected = {
+            "media_types",
+            "genre_ids",
+            "keyword_ids",
+            "original_languages",
+            "year_min",
+            "year_max",
+            "rating_min",
+            "vote_count_min",
+            "sort_by",
+        }
+        self._exact_keys(value, expected, "filters")
+        media_types = self._enum_list(
+            value["media_types"], "filters.media_types", set(MEDIA_TYPES), 3
+        )
+        genre_ids = self._id_list(
+            value["genre_ids"], "filters.genre_ids", set(self._allowed_genre_ids)
+        )
+        keyword_ids = self._id_list(
+            value["keyword_ids"],
+            "filters.keyword_ids",
+            set(self._allowed_keyword_ids),
+        )
+        languages = self._enum_list(
+            value["original_languages"],
+            "filters.original_languages",
+            set(ISO_639_1_CODES),
+            10,
+        )
+        year_min = self._optional_integer(
+            value["year_min"], "filters.year_min", 1870, 2100
+        )
+        year_max = self._optional_integer(
+            value["year_max"], "filters.year_max", 1870, 2100
+        )
+        if year_min is not None and year_max is not None and year_min > year_max:
+            raise AgentOutputError("filters.year_min must not exceed year_max")
+        rating_min = self._optional_number(
+            value["rating_min"], "filters.rating_min", 0.0, 10.0
+        )
+        vote_count_min = self._optional_integer(
+            value["vote_count_min"], "filters.vote_count_min", 0, 2_000_000_000
+        )
+        sort_by = value["sort_by"]
+        if not isinstance(sort_by, str) or sort_by not in SORT_OPTIONS:
+            raise AgentOutputError(f"filters.sort_by contains unknown enum {sort_by!r}")
+        return RetrievalFilters(
+            media_types=tuple(media_types),
+            genre_ids=tuple(genre_ids),
+            keyword_ids=tuple(keyword_ids),
+            original_languages=tuple(languages),
+            year_min=year_min,
+            year_max=year_max,
+            rating_min=rating_min,
+            vote_count_min=vote_count_min,
+            sort_by=sort_by,
+        )
+
+    def _profile(self, value: Any) -> ParsedProfile:
+        """解析画像主体字段并保持既有播放计数校验。"""
+        if not isinstance(value, dict):
             raise AgentOutputError("profile must be an object")
         self._exact_keys(
-            profile_value,
+            value,
             {"summary", "tags", "negative_tags", "playback_count"},
             "profile",
         )
-        playback_count = profile_value["playback_count"]
+        playback_count = value["playback_count"]
         if isinstance(playback_count, bool) or not isinstance(playback_count, int):
             raise AgentOutputError("profile.playback_count must be an integer")
         if playback_count < 0:
             raise AgentOutputError("profile.playback_count must be non-negative")
         return ParsedProfile(
-            summary=self._string(profile_value["summary"], "profile.summary"),
-            tags=self._tags(profile_value["tags"], "profile.tags"),
-            negative_tags=self._tags(
-                profile_value["negative_tags"], "profile.negative_tags"
-            ),
+            summary=self._string(value["summary"], "profile.summary"),
+            tags=self._tags(value["tags"], "profile.tags"),
+            negative_tags=self._tags(value["negative_tags"], "profile.negative_tags"),
             playback_count=playback_count,
+        )
+
+    def parse(self, output: str) -> ParsedProfilePlan:
+        """解析画像与检索计划并拒绝额外根字段。"""
+        value = self._object(output)
+        self._exact_keys(value, {"profile", "filters", "ranking_tags"}, "root")
+        return ParsedProfilePlan(
+            profile=self._profile(value["profile"]),
+            retrieval_plan=RetrievalPlan(
+                filters=self._filters(value["filters"]),
+                ranking_tags=tuple(self._ranking_tags(value["ranking_tags"])),
+            ),
         )
 
 

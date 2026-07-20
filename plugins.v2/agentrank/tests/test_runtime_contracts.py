@@ -49,6 +49,7 @@ def test_per_user_domain_and_storage_contract_exists():
     required_modules = {
         "model/candidate.py": {"Candidate"},
         "model/profile.py": {"UserProfile"},
+        "model/retrieval.py": {"RetrievalFilters", "RetrievalPlan"},
         "model/board.py": {"RecommendationBoard"},
         "model/archive.py": {"ArchiveFeedback"},
         "model/run.py": {"RecommendationRun"},

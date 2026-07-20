@@ -167,7 +167,19 @@ def _profile_output(playback_count=5):
                 "tags": ["悬疑"],
                 "negative_tags": [],
                 "playback_count": playback_count,
-            }
+            },
+            "filters": {
+                "media_types": ["movie"],
+                "genre_ids": [80],
+                "keyword_ids": [],
+                "original_languages": ["zh"],
+                "year_min": None,
+                "year_max": None,
+                "rating_min": 7.0,
+                "vote_count_min": 100,
+                "sort_by": "popularity.desc",
+            },
+            "ranking_tags": ["高质量悬疑"],
         },
         ensure_ascii=False,
     )
@@ -240,6 +252,8 @@ def test_success_atomically_saves_profile_board_and_run_history():
     )
     assert len(repository.load_board(PROFILE_ID).recommendations) == 10
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
+    assert repository.load_profile(PROFILE_ID).filters["genre_ids"] == [80]
+    assert repository.load_profile(PROFILE_ID).ranking_tags == ["高质量悬疑"]
     history = repository.load_run_history(PROFILE_ID)
     assert history[0].status == "success"
     assert history[0].metrics["final_count"] == 10
@@ -290,6 +304,35 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
     latest_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
     assert latest_metrics["profile_agent_reused"] is True
     assert latest_metrics.get("profile_agent_calls", 0) == 0
+
+
+def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches():
+    """旧画像没有检索计划时不能因相同指纹跳过画像 Agent。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    playback = FakePlaybackService()
+    snapshot = playback.collect(PROFILE_ID, _config())
+    repository.save_profile(
+        UserProfile(
+            profile_id=PROFILE_ID,
+            username="Alice",
+            summary="old",
+            playback_count=len(snapshot.samples),
+            playback_fingerprint=snapshot.fingerprint(),
+            schema_version=3,
+            run_id="old",
+        )
+    )
+    orchestrator, _ = _orchestrator(
+        plugin,
+        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert len(orchestrator.agent_adapter.profile_calls) == 1
+    assert repository.load_profile(PROFILE_ID).schema_version == 4
 
 
 def test_run_uses_configured_agent_prompt():

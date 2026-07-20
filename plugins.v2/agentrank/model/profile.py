@@ -4,6 +4,9 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping
 
 
+PROFILE_SCHEMA_VERSION = 4
+
+
 @dataclass
 class UserProfile:
     """表示某个稳定 Emby 画像身份的当前推荐画像。"""
@@ -15,9 +18,11 @@ class UserProfile:
     negative_tags: List[str] = field(default_factory=list)
     playback_count: int = 0
     playback_fingerprint: str = ""
+    filters: Dict[str, Any] = field(default_factory=dict)
+    ranking_tags: List[str] = field(default_factory=list)
     run_id: str = ""
     generated_at: str = ""
-    schema_version: int = 3
+    schema_version: int = PROFILE_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
         """规范化画像归属并拒绝空 profile_id。"""
@@ -46,6 +51,8 @@ class UserProfile:
             negative_tags=[str(item) for item in value.get("negative_tags") or []],
             playback_count=max(0, int(value.get("playback_count") or 0)),
             playback_fingerprint=str(value.get("playback_fingerprint") or ""),
+            filters=dict(value.get("filters") or {}),
+            ranking_tags=[str(item) for item in value.get("ranking_tags") or []],
             run_id=str(value.get("run_id") or ""),
             generated_at=str(value.get("generated_at") or ""),
             schema_version=int(value.get("schema_version") or 3),

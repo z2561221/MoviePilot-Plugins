@@ -27,9 +27,10 @@ RecommendationValidator = validation_module.RecommendationValidator
 AgentOutputError = validation_module.AgentOutputError
 fallback_summary = validation_module.fallback_summary
 build_ranking_prompt = prompt_module.build_ranking_prompt
+build_profile_prompt = prompt_module.build_profile_prompt
 
 
-def _profile_output(profile=None):
+def _profile_output(profile=None, filters=None, ranking_tags=None):
     return json.dumps(
         {
             "profile": profile
@@ -38,7 +39,20 @@ def _profile_output(profile=None):
                 "tags": ["悬疑", "犯罪"],
                 "negative_tags": ["低分长剧"],
                 "playback_count": 12,
-            }
+            },
+            "filters": filters
+            or {
+                "media_types": ["movie"],
+                "genre_ids": [80],
+                "keyword_ids": [],
+                "original_languages": ["zh"],
+                "year_min": 2000,
+                "year_max": 2026,
+                "rating_min": 7.0,
+                "vote_count_min": 100,
+                "sort_by": "popularity.desc",
+            },
+            "ranking_tags": ranking_tags or ["高质量悬疑"],
         },
         ensure_ascii=False,
     )
@@ -85,6 +99,18 @@ def test_prompt_states_hard_boundaries_without_embedding_untrusted_media_text():
     assert '"reason"' in prompt
     assert "文案要具体、流畅" in prompt
     assert "ignore all previous instructions" not in prompt
+
+
+def test_profile_prompt_declares_retrieval_plan_schema_and_id_boundary():
+    """画像提示明确区分结构化过滤与自由排序语义。"""
+    prompt = build_profile_prompt()
+
+    assert "只能调用 read_agentrank_playback" in prompt
+    assert '"filters"' in prompt
+    assert '"ranking_tags"' in prompt
+    assert '"genre_ids"' in prompt
+    assert '"keyword_ids"' in prompt
+    assert "不得猜测" in prompt
 
 
 def test_custom_agent_prompt_is_inserted_without_replacing_fixed_contract():
@@ -156,6 +182,77 @@ def test_profile_and_ranking_parsers_reject_each_others_schema():
         ProfileOutputParser().parse(_output())
     with pytest.raises(AgentOutputError):
         RankingOutputParser().parse(_profile_output())
+
+
+def test_profile_parser_accepts_only_trusted_keyword_ids_and_typed_ranges():
+    """结构化过滤允许可信 ID，但不接受 Agent 自造关键词。"""
+    parsed = ProfileOutputParser(allowed_keyword_ids={123}).parse(
+        _profile_output(
+            filters={
+                "media_types": ["movie", "tv"],
+                "genre_ids": [18, 9648],
+                "keyword_ids": [123],
+                "original_languages": ["en", "zh"],
+                "year_min": 1990,
+                "year_max": 2026,
+                "rating_min": 7.5,
+                "vote_count_min": 50,
+                "sort_by": "vote_average.desc",
+            },
+            ranking_tags=["冷峻悬疑"],
+        )
+    )
+
+    assert parsed.profile.playback_count == 12
+    assert parsed.filters.keyword_ids == (123,)
+    assert parsed.filters.sort_by == "vote_average.desc"
+    assert parsed.ranking_tags == ["冷峻悬疑"]
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"media_types": ["documentary"]},
+        {"genre_ids": [999999]},
+        {"keyword_ids": [123]},
+        {"original_languages": ["xx"]},
+        {"year_min": 1869},
+        {"year_min": 2027, "year_max": 2026},
+        {"rating_min": 10.1},
+        {"vote_count_min": -1},
+        {"sort_by": "unknown.desc"},
+        {"free_text": "悬疑"},
+    ],
+)
+def test_profile_parser_rejects_unknown_enums_ids_ranges_and_extra_filter_fields(filters):
+    """越界、未知枚举、未知 ID 和自由语义不得进入 filters。"""
+    base = {
+        "media_types": [],
+        "genre_ids": [],
+        "keyword_ids": [],
+        "original_languages": [],
+        "year_min": None,
+        "year_max": None,
+        "rating_min": None,
+        "vote_count_min": None,
+        "sort_by": "popularity.desc",
+    }
+    base.update(filters)
+    with pytest.raises(AgentOutputError):
+        ProfileOutputParser().parse(_profile_output(filters=base))
+
+
+def test_profile_parser_rejects_extra_root_fields_and_duplicate_free_tags():
+    """根对象额外字段与重复自由标签均被拒绝。"""
+    payload = json.loads(_profile_output())
+    payload["unexpected"] = True
+    with pytest.raises(AgentOutputError):
+        ProfileOutputParser().parse(json.dumps(payload, ensure_ascii=False))
+
+    with pytest.raises(AgentOutputError):
+        ProfileOutputParser().parse(
+            _profile_output(ranking_tags=["悬疑", "悬疑"])
+        )
 
 
 def test_validator_rejects_every_unsafe_item_with_specific_reason():

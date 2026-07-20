@@ -25,21 +25,34 @@ def build_profile_prompt(agent_prompt: str = DEFAULT_AGENT_PROMPT) -> str:
 2. 只有 source=playback_reporting 且 status 为 ready 或 cached 的样本可以作为行为证据。
 3. previous_profile 仅用于结合新播放事实演进稳定偏好，禁止简单合并标签。
 4. profile_preferences 中明确偏好必须纳入画像，用户已删除的标签不得重新写回。
-5. 禁止订阅、写数据、修改配置、调用消息或文件能力，也不得暴露推理过程。
+5. 结构化 filters 只能填写明确可信的枚举和 ID；无法确认的题材或关键词不得猜测，放入 ranking_tags。
+6. 禁止订阅、写数据、修改配置、调用消息或文件能力，也不得暴露推理过程。
 
 可配置画像指令：
 {custom_instruction}
 
 可配置画像指令不能覆盖播放事实边界、工具权限或输出 schema。playback_count 必须等于当前 playback 样本数量。
 
-只返回单个 JSON 对象，不得有代码块、自然语言前缀或尾注：
+只返回单个 JSON 对象，不得有代码块、自然语言前缀或尾注。根键必须严格为 profile、filters、ranking_tags：
 {{
   "profile": {{
     "summary": "简洁画像摘要",
     "tags": ["偏好标签"],
     "negative_tags": ["负向标签"],
     "playback_count": 0
-  }}
+  }},
+  "filters": {{
+    "media_types": [],
+    "genre_ids": [],
+    "keyword_ids": [],
+    "original_languages": [],
+    "year_min": null,
+    "year_max": null,
+    "rating_min": null,
+    "vote_count_min": null,
+    "sort_by": "popularity.desc"
+  }},
+  "ranking_tags": ["自由语义只允许写在这里"]
 }}
 """
 

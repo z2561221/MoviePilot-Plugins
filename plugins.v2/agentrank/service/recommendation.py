@@ -16,7 +16,7 @@ from ..agent_tools.context import (
 )
 from ..model.config import configured_identities
 from ..model.board import RecommendationBoard, RecommendationItem
-from ..model.profile import UserProfile
+from ..model.profile import PROFILE_SCHEMA_VERSION, UserProfile
 from ..model.run import RecommendationRun
 from ..storage.repository import AgentRankRepository
 from .prompt import build_profile_prompt, build_ranking_prompt, build_refill_prompt
@@ -307,6 +307,7 @@ class RecommendationOrchestrator:
             current_profile = (
                 previous_profile
                 if previous_profile is not None
+                and previous_profile.schema_version >= PROFILE_SCHEMA_VERSION
                 and previous_profile.playback_fingerprint == playback_fingerprint
                 else None
             )
@@ -344,7 +345,7 @@ class RecommendationOrchestrator:
                             profile_context,
                         )
                         parsed_profile = self._profile_parser.parse(raw_profile)
-                        if parsed_profile.playback_count != playback_count:
+                        if parsed_profile.profile.playback_count != playback_count:
                             raise AgentOutputError(
                                 "profile.playback_count does not match playback sample count"
                             )
@@ -392,11 +393,13 @@ class RecommendationOrchestrator:
                 current_profile = UserProfile(
                     profile_id=target,
                     username=username,
-                    summary=parsed_profile.summary,
-                    tags=list(parsed_profile.tags),
-                    negative_tags=list(parsed_profile.negative_tags),
-                    playback_count=parsed_profile.playback_count,
+                    summary=parsed_profile.profile.summary,
+                    tags=list(parsed_profile.profile.tags),
+                    negative_tags=list(parsed_profile.profile.negative_tags),
+                    playback_count=parsed_profile.profile.playback_count,
                     playback_fingerprint=playback_fingerprint,
+                    filters=parsed_profile.filters.to_dict(),
+                    ranking_tags=list(parsed_profile.ranking_tags),
                     run_id=run_id,
                     generated_at=generated_at,
                 )

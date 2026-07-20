@@ -11,6 +11,7 @@ AgentRank 是 MoviePilot V2 本地插件。它按稳定 Emby identity 读取 Pla
 - 依赖探测：`adapter/playback_reporting.py` 只返回 `ready`、`not_installed`、`permission_error`、`transient_error` 或 `emby_unavailable`，且不暴露 Emby 地址与凭据。
 - Agent 适配：`adapter/agent.py` 中的 `RestrictedAgentRankAgent`，为画像与排序使用独立角色、独立 session 和 `ReplyMode.CAPTURE_ONLY`。
 - 提示协议：`service/prompt.py`；画像提示只允许播放事实，排序提示只允许使用冻结候选、归档反馈、权重和当前画像；候选标题、简介、标签和归档文本始终是不可信数据。
+- 检索计划模型：`model/retrieval.py`，固定媒体类型、TMDB 题材 ID、ISO 639-1 语言与合法排序集合。
 - 输出解析与安全校验：`service/validation.py`；画像与排序分别使用独立 schema，只接受有界 JSON 对象，并保持排序 Agent 最终顺序。
 - 订阅副作用：仅允许 `service/subscription.py` 在 Agent 已结束后执行，Agent 适配器不得持有该服务。
 - Telegram 自选订阅：`service/telegram_interaction.py` 使用海报轮播和一次性会话令牌处理 `MessageAction`；按钮点击只维护待订阅清单，最终确认才调用 `service/subscription.py`。
@@ -26,7 +27,7 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 
 受信上下文锁定本轮 username、run_id 与 agent role。画像 Agent 只能加载 `read_agentrank_playback`，看不到候选、归档和权重；排序 Agent 才能加载四个工具。禁止订阅、禁止写插件数据、禁止修改配置、禁止访问文件、禁止发送消息，也禁止加载通用 ToolFactory 工具。
 
-画像 Agent 的播放工具返回当前播放快照、可选的上一版画像、人工画像标签偏好和当前只读画像。画像缓存开启且播放指纹未变化时直接复用画像，不调用画像 Agent；候选变化不能重写画像。播放指纹只由稳定播放事实构成，不包含 `synced_at` 等易变字段。
+画像 Agent 的播放工具返回当前播放快照、可选的上一版画像、人工画像标签偏好和当前只读画像。画像缓存开启、画像 schema 为当前版本且播放指纹未变化时直接复用画像，不调用画像 Agent；候选变化不能重写画像。旧 schema 画像必须先重建检索计划。播放指纹只由稳定播放事实构成，不包含 `synced_at` 等易变字段。
 
 人工偏好必须参与画像与排序，人工避雷必须降低相关候选排序，用户删除的 Agent 标签不得重新写回。禁止用标签集合并集替代画像更新。
 
@@ -34,7 +35,10 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 
 ## 输出协议
 
-- 画像 Agent 只返回一个 JSON 对象，根键固定为 `profile`；不得包含候选或推荐字段。
+- 画像 Agent 只返回一个 JSON 对象，根键固定为 `profile`、`filters` 与 `ranking_tags`；不得包含候选或推荐字段。
+- `filters` 的键固定为 `media_types`、`genre_ids`、`keyword_ids`、`original_languages`、`year_min`、`year_max`、`rating_min`、`vote_count_min` 和 `sort_by`，任何额外字段都拒绝。
+- `media_types`、题材 ID、ISO 639-1 语言、年份 1870 至 2100、评分 0 至 10、非负票数与排序值都由确定性边界校验；未知枚举、越界值和编造 ID 不能进入检索计划。
+- `keyword_ids` 只接受宿主注入的可信 ID 集合，当前默认集合为空；无法确认或尚未解析的自由语义只能进入 `ranking_tags`，由后续受控解析阶段处理。
 - 排序 Agent 只返回一个 JSON 对象，根键固定为 `recommendations`；不得生成、修改或回写画像。
 - `recommendations[].candidate_id` 必须来自冻结候选快照。
 - 推荐不得重复，不得包含已归档或已订阅候选。
