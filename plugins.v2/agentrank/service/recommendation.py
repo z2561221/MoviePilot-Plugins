@@ -229,9 +229,22 @@ class RecommendationOrchestrator:
             playback_status = (
                 playback_snapshot.status if playback_snapshot is not None else "unavailable"
             )
-            if playback_status not in {"ready", "cached"} or playback_count < int(
-                config.get("minimum_samples") or 5
-            ):
+            if playback_status not in {"ready", "cached"}:
+                return self._failure(
+                    target,
+                    username,
+                    run_id,
+                    "playback_unavailable",
+                    str(
+                        getattr(playback_snapshot, "message", "")
+                        or "Playback Reporting 不可用，未调用 Agent"
+                    ),
+                    started_at,
+                    started_clock,
+                    metrics,
+                    errors,
+                )
+            if playback_count < int(config.get("minimum_samples") or 5):
                 return self._failure(
                     target,
                     username,

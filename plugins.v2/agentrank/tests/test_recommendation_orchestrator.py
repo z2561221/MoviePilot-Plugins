@@ -469,6 +469,56 @@ def test_agent_failure_preserves_previous_profile_and_board():
     assert repository.load_run_history(PROFILE_ID)[0].status == "agent_failed"
 
 
+def test_transient_playback_failure_preserves_previous_profile_and_board():
+    """运行中 Playback Reporting 瞬时故障不得覆盖旧画像与旧榜单。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+
+    class TransientPlaybackService:
+        def collect(self, profile_id, config):
+            return PlaybackSnapshot(
+                profile_id=profile_id,
+                username="Alice",
+                source="playback_reporting",
+                confidence="high",
+                status="transient_error",
+                message="Playback Reporting 暂时不可用",
+            )
+
+    agent = FakeAgentAdapter([_agent_output(["tmdb:1"])])
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=FakeCandidateService(),
+        agent_adapter=agent,
+        run_id_factory=lambda: "run-transient-playback",
+        playback_service=TransientPlaybackService(),
+    )
+    repository.save_profile(
+        UserProfile(
+            profile_id=PROFILE_ID, username="Alice", summary="old", run_id="old"
+        )
+    )
+    repository.save_board(
+        RecommendationBoard(
+            profile_id=PROFILE_ID,
+            username="Alice",
+            run_id="old",
+            status="success",
+        )
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "playback_unavailable"
+    assert result.board.run_id == "old"
+    assert repository.load_profile(PROFILE_ID).run_id == "old"
+    assert repository.load_board(PROFILE_ID).run_id == "old"
+    assert repository.load_run_history(PROFILE_ID)[0].metrics["playback_status"] == (
+        "transient_error"
+    )
+    assert agent.calls == []
+
+
 def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
     """A transient no-text completion gets one bounded retry with honest metrics."""
     orchestrator, repository = _orchestrator(

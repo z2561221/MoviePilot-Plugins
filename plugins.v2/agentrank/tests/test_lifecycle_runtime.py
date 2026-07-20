@@ -17,10 +17,12 @@ package.__path__ = [str(PLUGIN_DIR)]
 
 runtime_module = importlib.import_module(f"{PACKAGE_NAME}.service.runtime")
 lifecycle_module = importlib.import_module(f"{PACKAGE_NAME}.service.lifecycle")
+playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 
 AgentRankRuntime = runtime_module.AgentRankRuntime
 initialize_plugin = lifecycle_module.initialize_plugin
 stop_plugin = lifecycle_module.stop_plugin
+PlaybackCapability = playback_module.PlaybackCapability
 
 HOME_PROFILE = "emby:home:user-1"
 REMOTE_PROFILE = "emby:remote:user-1"
@@ -58,8 +60,13 @@ class FakePlugin:
         self._runtime = None
         self._config = {}
         self._enabled = False
+        self._enablement = {}
         self.stop_calls = 0
         self.saved_config = None
+
+    def get_state(self):
+        """返回测试插件当前硬门禁状态。"""
+        return self._enabled
 
     def stop_service(self):
         self.stop_calls += 1
@@ -68,6 +75,24 @@ class FakePlugin:
     def update_config(self, config=None):
         """记录生命周期自动复位后持久化的配置。"""
         self.saved_config = dict(config or {})
+
+
+class FakePlaybackService:
+    """返回指定状态的 Playback Reporting 能力结果。"""
+
+    def __init__(self, status="ready"):
+        self.status = status
+        self.calls = []
+
+    def probe(self, profile_id, config):
+        """记录精确 identity 并返回 mock 能力。"""
+        self.calls.append((profile_id, config))
+        status = (
+            self.status.get(profile_id, "transient_error")
+            if isinstance(self.status, dict)
+            else self.status
+        )
+        return PlaybackCapability(profile_id, status, "mock probe")
 
 
 def _config(**overrides):
@@ -168,7 +193,9 @@ def test_initialize_normalizes_config_and_replaces_previous_runtime():
     created = []
 
     def runtime_factory(plugin_arg, config_arg):
+        plugin_arg._playback_service = FakePlaybackService()
         runtime = SimpleNamespace(plugin=plugin_arg, config=config_arg, stopped=False)
+        runtime.stop = lambda: setattr(runtime, "stopped", True)
         created.append(runtime)
         return runtime
 
@@ -186,7 +213,9 @@ def test_initialize_persists_run_once_reset_but_runtime_keeps_request():
     created = []
 
     def runtime_factory(plugin_arg, config_arg):
+        plugin_arg._playback_service = FakePlaybackService()
         runtime = SimpleNamespace(plugin=plugin_arg, config=config_arg)
+        runtime.stop = lambda: None
         created.append(runtime)
         return runtime
 
@@ -200,6 +229,85 @@ def test_initialize_persists_run_once_reset_but_runtime_keeps_request():
     assert plugin.saved_config["onlyonce"] is False
     assert "_validation_errors" not in plugin.saved_config
     assert created[0].config["onlyonce"] is True
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["not_installed", "permission_error", "transient_error", "emby_unavailable"],
+)
+def test_initialize_blocks_all_unready_playback_reporting_states(status):
+    """依赖未就绪时保留配置意图但关闭实际插件和调度副本。"""
+    plugin = FakePlugin()
+    probes = []
+
+    def runtime_factory(plugin_arg, config_arg):
+        playback = FakePlaybackService(status)
+        plugin_arg._playback_service = playback
+        probes.append(playback)
+        return SimpleNamespace(plugin=plugin_arg, config=config_arg, stop=lambda: None)
+
+    initialize_plugin(plugin, _config(), runtime_factory=runtime_factory)
+
+    assert plugin._config["enabled"] is True
+    assert plugin.get_state() is False
+    assert plugin._enablement["allowed"] is False
+    assert plugin._enablement["status"] == status
+    assert plugin._enablement["capabilities"][HOME_PROFILE]["status"] == status
+    assert plugin._runtime.config["enabled"] is False
+    assert len(probes[0].calls) == 2
+
+
+def test_initialize_ready_playback_reporting_allows_runtime():
+    """所有已选 identity 都可访问时才允许插件启用。"""
+    plugin = FakePlugin()
+
+    def runtime_factory(plugin_arg, config_arg):
+        plugin_arg._playback_service = FakePlaybackService("ready")
+        return SimpleNamespace(plugin=plugin_arg, config=config_arg, stop=lambda: None)
+
+    initialize_plugin(plugin, _config(), runtime_factory=runtime_factory)
+
+    assert plugin.get_state() is True
+    assert plugin._enablement["status"] == "ready"
+    assert plugin._runtime.config["enabled"] is True
+
+
+def test_initialize_requires_every_selected_identity_to_be_ready():
+    """任一已选 identity 被阻断时，整个插件都不得进入运行态。"""
+    plugin = FakePlugin()
+
+    def runtime_factory(plugin_arg, config_arg):
+        plugin_arg._playback_service = FakePlaybackService(
+            {HOME_PROFILE: "transient_error", REMOTE_PROFILE: "not_installed"}
+        )
+        return SimpleNamespace(plugin=plugin_arg, config=config_arg, stop=lambda: None)
+
+    initialize_plugin(plugin, _config(), runtime_factory=runtime_factory)
+
+    assert plugin.get_state() is False
+    assert plugin._enablement["status"] == "not_installed"
+    assert plugin._enablement["capabilities"][HOME_PROFILE]["status"] == (
+        "transient_error"
+    )
+    assert plugin._enablement["capabilities"][REMOTE_PROFILE]["status"] == (
+        "not_installed"
+    )
+
+
+def test_runtime_refresh_rejects_direct_bypass_when_gate_is_blocked():
+    """即使绕过控制器直接调用 runtime，硬门禁仍拒绝执行。"""
+    plugin = FakePlugin()
+    plugin._enablement = {
+        "allowed": False,
+        "status": "not_installed",
+        "message": "未安装 Playback Reporting，插件无法启用",
+    }
+    runtime = AgentRankRuntime(
+        plugin, _config(), FakeOrchestrator(), lambda cron: cron
+    )
+
+    with pytest.raises(RuntimeError, match="未安装 Playback Reporting"):
+        asyncio.run(runtime.refresh(HOME_PROFILE))
 
 
 def test_stop_is_idempotent_cancels_active_task_and_blocks_refresh():

@@ -177,6 +177,12 @@ class AgentRankRuntime:
         """执行一次手动身份刷新；停止后拒绝新任务。"""
         if self._stopped:
             raise RuntimeError("AgentRank runtime is stopped")
+        get_state = getattr(self.plugin, "get_state", None)
+        if callable(get_state) and not get_state():
+            enablement = getattr(self.plugin, "_enablement", {}) or {}
+            raise RuntimeError(
+                str(enablement.get("message") or "AgentRank 插件当前不可用")
+            )
         try:
             result = await self.orchestrator.run(profile_id, self.config)
         except Exception as error:
@@ -280,7 +286,7 @@ class AgentRankRuntime:
 
     async def run_scheduled(self) -> List[Dict[str, Any]]:
         """顺序处理画像身份，单个身份异常不阻断后续身份。"""
-        if self._stopped:
+        if self._stopped or not self.config.get("enabled"):
             return []
         task = asyncio.current_task()
         if task is not None:

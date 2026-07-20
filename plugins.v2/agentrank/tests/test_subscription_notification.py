@@ -71,6 +71,10 @@ class FakePlugin:
         self.data = {}
         self.messages = []
 
+    def get_state(self):
+        """模拟已通过硬依赖门禁的运行中插件。"""
+        return True
+
     def get_data(self, key=None):
         return self.data.get(key)
 

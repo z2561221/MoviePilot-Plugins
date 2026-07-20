@@ -68,6 +68,13 @@ class FakePlugin:
             "weights": {"rating_weight": 0.7},
             "_validation_errors": [],
         }
+        self._enablement = {
+            "requested": True,
+            "allowed": True,
+            "status": "ready",
+            "message": "Playback Reporting 已就绪",
+            "capabilities": {},
+        }
         self._repository = AgentRankRepository(self)
         self.refresh_result = SimpleNamespace(
             status="success", message="ok", run_id="run-new", final_count=10
@@ -187,6 +194,7 @@ def test_options_overview_board_profile_and_history_have_stable_data_shape():
     assert options["success"] is True
     assert options["data"]["emby_identities"] == [HOME_IDENTITY, REMOTE_IDENTITY]
     assert options["data"]["default_profile_id"] == HOME_PROFILE
+    assert options["data"]["enablement"]["status"] == "ready"
     assert "users" not in options["data"]
     assert "default_user" not in options["data"]
     assert overview["data"]["profile_id"] == HOME_PROFILE
@@ -198,6 +206,43 @@ def test_options_overview_board_profile_and_history_have_stable_data_shape():
     assert board["data"]["recommendations"][0]["candidate_id"] == "tmdb:1"
     assert profile["data"]["summary"] == "画像"
     assert history["data"]["items"][0]["run_id"] == "run-old"
+
+
+def test_status_and_overview_expose_gate_reason_and_preserve_old_board():
+    """依赖阻断原因可见，且只读总览仍能查看旧画像和榜单。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    plugin._enabled = False
+    plugin._enablement = {
+        "requested": True,
+        "allowed": False,
+        "status": "not_installed",
+        "message": "未安装 Playback Reporting，插件无法启用",
+        "capabilities": {
+            HOME_PROFILE: {
+                "profile_id": HOME_PROFILE,
+                "status": "not_installed",
+                "message": "未安装 Playback Reporting",
+                "source": "playback_reporting",
+            }
+        },
+    }
+    controller = AgentRankApiController(plugin)
+
+    status = controller.status()
+    overview = controller.overview(HOME_PROFILE)
+
+    assert status["data"]["enabled"] is False
+    assert status["data"]["state"] == "blocked"
+    assert status["data"]["enablement"]["status"] == "not_installed"
+    assert overview["data"]["enablement"]["message"] == plugin._enablement["message"]
+    assert overview["data"]["board"]["run_id"] == "run-old"
+    assert overview["data"]["profile"]["run_id"] == "run-old"
+
+    with pytest.raises(ApiContractError) as caught:
+        asyncio.run(controller.refresh({"profile_id": HOME_PROFILE}))
+    assert caught.value.status_code == 409
+    assert caught.value.code == "plugin_blocked"
 
 
 def test_refresh_maps_running_and_downstream_failure_to_stable_contracts():

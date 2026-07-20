@@ -66,6 +66,38 @@ class AgentRankApiController:
         identity = self._identity_map().get(str(profile_id or ""))
         return identity.username if identity is not None else ""
 
+    def _enablement_data(self) -> Dict[str, Any]:
+        """返回安全的插件启用门禁状态与各 identity 探测结果。"""
+        raw = getattr(self.plugin, "_enablement", None)
+        if not isinstance(raw, Mapping):
+            enabled = bool(self.plugin.get_state())
+            return {
+                "requested": enabled,
+                "allowed": enabled,
+                "status": "ready" if enabled else "stopped",
+                "message": "" if enabled else "插件当前未运行",
+                "capabilities": {},
+            }
+        value = dict(raw)
+        capabilities = value.get("capabilities")
+        value["capabilities"] = {
+            str(profile_id): dict(capability)
+            for profile_id, capability in (capabilities or {}).items()
+            if isinstance(capability, Mapping)
+        }
+        return value
+
+    def _require_enabled(self) -> None:
+        """拒绝在硬依赖未满足时执行会产生副作用的操作。"""
+        if self.plugin.get_state():
+            return
+        enablement = self._enablement_data()
+        raise ApiContractError(
+            409,
+            "plugin_blocked",
+            str(enablement.get("message") or "插件当前不可用"),
+        )
+
     def _payload(self, value: Any) -> Mapping[str, Any]:
         """要求 POST 请求体为对象。"""
         if not isinstance(value, Mapping):
@@ -147,16 +179,27 @@ class AgentRankApiController:
         default_profile_id = str(
             self.plugin._config.get("default_profile_id") or ""
         )
+        enablement = self._enablement_data()
+        state = (
+            "ready"
+            if self.plugin.get_state()
+            else "blocked"
+            if enablement.get("status") not in {"disabled", "stopped"}
+            else "stopped"
+        )
+        if runtime is None and state != "blocked":
+            state = "stopped"
         return self._success(
             {
                 "enabled": bool(self.plugin.get_state()),
-                "state": "ready" if runtime is not None else "stopped",
+                "state": state,
                 "plugin_version": self.plugin.plugin_version,
                 "validation_errors": list(
                     self.plugin._config.get("_validation_errors") or []
                 ),
                 "default_profile_id": default_profile_id,
                 "playback": self._playback_data(default_profile_id),
+                "enablement": enablement,
             }
         )
 
@@ -174,6 +217,7 @@ class AgentRankApiController:
                 ),
                 "config": dict(self.plugin._config),
                 "defaults": default_config(),
+                "enablement": self._enablement_data(),
                 "playback_status": {
                     identity["profile_id"]: self._playback_data(identity["profile_id"])
                     for identity in identities
@@ -201,6 +245,7 @@ class AgentRankApiController:
                 "history": [item.to_dict() for item in history[:15]],
                 "history_total": len(history),
                 "playback": self._playback_data(target),
+                "enablement": self._enablement_data(),
             }
         )
 
@@ -253,6 +298,7 @@ class AgentRankApiController:
         """触发一次手动推荐并映射运行结果。"""
         body = self._payload(payload)
         target = self._profile_id(body.get("profile_id"))
+        self._require_enabled()
         runtime = getattr(self.plugin, "_runtime", None)
         if runtime is None:
             raise ApiContractError(503, "runtime_unavailable", "插件运行时尚未就绪")
@@ -345,6 +391,7 @@ class AgentRankApiController:
         """通过运行时安全链创建单项手动订阅。"""
         body = self._payload(payload)
         target = self._profile_id(body.get("profile_id"))
+        self._require_enabled()
         candidate_id = self._candidate_id(body)
         runtime = getattr(self.plugin, "_runtime", None)
         service = getattr(runtime, "subscription_service", None) if runtime else None

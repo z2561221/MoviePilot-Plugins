@@ -31,6 +31,7 @@ class AgentRank(_PluginBase):
     _runtime: Any = None
     _repository: Any = None
     _playback_service: Any = None
+    _enablement: Dict[str, Any] = {}
 
     def init_plugin(self, config: dict = None) -> None:
         """初始化插件配置与运行状态。"""
@@ -43,6 +44,8 @@ class AgentRank(_PluginBase):
     @eventmanager.register(EventType.MessageAction)
     def message_action(self, event: Event) -> None:
         """转发属于当前插件的 Telegram 榜单按钮回调。"""
+        if not self.get_state():
+            return
         event_data = event.event_data or {}
         if event_data.get("plugin_id") != self.__class__.__name__:
             return

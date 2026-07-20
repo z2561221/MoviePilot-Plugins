@@ -42,6 +42,8 @@ AgentRank 会话只能加载以下四个只读工具，工具参数不能选择 
 
 ## 状态与恢复
 
+- 启用门禁：只有所有已选 Emby identity 的 Playback Reporting 探测为 `ready` 才允许运行；阻断状态保留配置意图、旧画像与旧榜单，并通过状态 API 返回原因。
+- `playback_unavailable`：运行中播放依赖瞬时故障时停止本轮，不调用 Agent，不覆盖旧画像或旧榜单。
 - `sample_insufficient`：播放样本不足，不调用 Agent。
 - `candidate_insufficient`：发现候选不足，不调用 Agent。
 - `agent_failed`：Agent 调用或宿主契约失败，保留旧画像与旧榜单。
