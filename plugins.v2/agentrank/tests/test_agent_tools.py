@@ -1,5 +1,6 @@
 """AgentRank trusted context and four read-only Agent tool tests."""
 
+import ast
 import asyncio
 import importlib
 import json
@@ -170,3 +171,24 @@ def test_agent_tool_sources_have_no_side_effect_dependencies():
         "send_message",
     }
     assert [name for name in sorted(forbidden) if name in source] == []
+
+
+def test_agent_tool_role_whitelists_are_class_variables():
+    """角色白名单必须声明为 ClassVar，避免被 Pydantic 识别为模型字段。"""
+    source = (PLUGIN_DIR / "agent_tools" / "tools.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    role_assignments = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AnnAssign):
+            continue
+        if not isinstance(node.target, ast.Name) or node.target.id != "allowed_roles":
+            continue
+        role_assignments.append(ast.unparse(node.annotation))
+
+    assert len(role_assignments) == 5
+    assert set(role_assignments) == {"ClassVar[Tuple[str, ...]]"}
+    assert not any(
+        isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "allowed_roles" for target in node.targets)
+        for node in ast.walk(tree)
+    )

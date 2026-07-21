@@ -1,7 +1,7 @@
 """读取 AgentRank 受信上下文的 MoviePilotTool 实现。"""
 
 import json
-from typing import Any, Dict, Optional, Type
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 from pydantic import BaseModel
 
@@ -18,7 +18,7 @@ class _ReadAgentRankTool(MoviePilotTool):
     """四个只读工具共用的上下文与序列化逻辑。"""
 
     args_schema: Type[BaseModel] = ReadAgentRankInput
-    allowed_roles = ("profile", "ranking")
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("profile", "ranking")
 
     def _trusted_context(self):
         """读取并校验当前工具允许访问的角色上下文。"""
@@ -48,7 +48,7 @@ class ReadAgentRankPlaybackTool(_ReadAgentRankTool):
     """读取播放画像证据与可选的上一版画像上下文。"""
 
     name: str = "read_agentrank_playback"
-    allowed_roles = ("profile", "ranking")
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("profile", "ranking")
     description: str = (
         "Read normalized playback evidence and the optional previous profile for "
         "the trusted AgentRank run. The username and run id are fixed by the host "
@@ -75,7 +75,7 @@ class ReadAgentRankCandidatesTool(_ReadAgentRankTool):
     """读取当前运行已冻结的规范化候选池。"""
 
     name: str = "read_agentrank_candidates"
-    allowed_roles = ("ranking",)
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("ranking",)
     description: str = (
         "Read the frozen candidate pool for the trusted AgentRank run. "
         "Recommendations must only reference candidate_id values from this result."
@@ -90,7 +90,7 @@ class ReadAgentRankArchiveFeedbackTool(_ReadAgentRankTool):
     """读取当前用户有效的忽略归档反馈。"""
 
     name: str = "read_agentrank_archive_feedback"
-    allowed_roles = ("ranking",)
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("ranking",)
     description: str = (
         "Read active archive feedback for the trusted AgentRank user. "
         "This tool cannot restore or mutate archive entries."
@@ -105,7 +105,7 @@ class ReadAgentRankWeightsTool(_ReadAgentRankTool):
     """读取当前用户生效权重与筛选条件。"""
 
     name: str = "read_agentrank_weights"
-    allowed_roles = ("ranking",)
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("ranking",)
     description: str = (
         "Read effective ranking weights and filters for the trusted AgentRank run. "
         "This tool cannot update plugin configuration."
