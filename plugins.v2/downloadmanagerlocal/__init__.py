@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.2.6 - MoviePilot 本地插件
+DownloadManagerLocal v3.2.7 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 from threading import Event as ThreadEvent
@@ -43,7 +43,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.2.6"
+    plugin_version = "3.2.7"
     # 插件作者
     plugin_author = "牧濑红莉栖"
     # 作者主页

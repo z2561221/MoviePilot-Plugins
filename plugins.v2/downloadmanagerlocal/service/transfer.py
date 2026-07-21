@@ -16,9 +16,10 @@ from app.log import logger
 from app.schemas import NotificationType, ServiceInfo
 from app.schemas.types import EventType
 
-from ..adapter.moviepilot import generate_random_tag, is_downloader_type
+from ..adapter.moviepilot import is_downloader_type
 from ..utils.name_cleaner import is_dirty_renamed_torrent_name
 from .rename import _get_torrent_content_name, resolve_retry_original_name
+from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
 
 
 def validate_config(plugin) -> bool:
@@ -42,30 +43,36 @@ def download_torrent(plugin, service: ServiceInfo, content: bytes,
     downloader = service.instance
     from_service = plugin.service_info(plugin._fromdownloader)
     if is_downloader_type("qbittorrent", service=service):
-        tag = generate_random_tag(10)
-        if plugin._remainoldtag:
-            torrent_labels = plugin.get_label(torrent, from_service.type)
-            new_tag = list(set(torrent_labels + plugin._torrent_tags + [tag]))
-        else:
-            new_tag = plugin._torrent_tags + [tag]
-        if plugin._remainoldcat:
-            torrent_category = plugin.get_category(torrent, from_service.type)
-        else:
-            torrent_category = None
-        state = downloader.add_torrent(content=content,
-                                       download_dir=save_path,
-                                       is_paused=True,
-                                       tag=new_tag,
-                                       category=torrent_category,
-                                       is_skip_checking=plugin._seed_skipverify)
-        if not state:
-            return None
-        else:
+        tag = create_temporary_tag(plugin)
+        torrent_hash = None
+        try:
+            if plugin._remainoldtag:
+                torrent_labels = plugin.get_label(torrent, from_service.type)
+                new_tag = list(set(torrent_labels + plugin._torrent_tags + [tag]))
+            else:
+                new_tag = plugin._torrent_tags + [tag]
+            if plugin._remainoldcat:
+                torrent_category = plugin.get_category(torrent, from_service.type)
+            else:
+                torrent_category = None
+            state = downloader.add_torrent(content=content,
+                                           download_dir=save_path,
+                                           is_paused=True,
+                                           tag=new_tag,
+                                           category=torrent_category,
+                                           is_skip_checking=plugin._seed_skipverify)
+            if not state:
+                return None
             torrent_hash = downloader.get_torrent_id_by_tag(tags=tag)
             if not torrent_hash:
                 logger.error(f"{downloader} 下载任务添加成功，但获取任务信息失败！")
                 return None
-        return torrent_hash
+            return torrent_hash
+        finally:
+            if torrent_hash:
+                release_temporary_tag(plugin, downloader, torrent_hash, tag, "转移做种")
+            else:
+                forget_temporary_tag(plugin, tag)
     elif is_downloader_type("transmission", service=service):
         if plugin._remainoldtag:
             torrent_labels = plugin.get_label(torrent, from_service.type)

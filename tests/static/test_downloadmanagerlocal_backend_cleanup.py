@@ -57,7 +57,15 @@ SERVICE_EXPORTS = {
         "retry_rename_by_hash",
         "save_rename_record",
     },
-    "site_tag.py": {"find_site_by_domain", "tag_torrent"},
+    "site_tag.py": {
+        "create_temporary_tag",
+        "execute_tag_cleanup",
+        "find_site_by_domain",
+        "forget_temporary_tag",
+        "release_temporary_tag",
+        "scan_and_clean_tags",
+        "tag_torrent",
+    },
     "transfer.py": {
         "delayed_transfer",
         "download_torrent",

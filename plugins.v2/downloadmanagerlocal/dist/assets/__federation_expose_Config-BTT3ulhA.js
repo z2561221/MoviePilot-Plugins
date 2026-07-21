@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi } from './_plugin-vue_export-helper-DxfxZJCG.js';
+import { _ as _export_sfc, g as getPluginApi, p as postPluginJsonApi } from './_plugin-vue_export-helper-DvQ3Xe9d.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -37,6 +37,34 @@ const _hoisted_30 = { class: "dm-hint" };
 const _hoisted_31 = { class: "dm-hint" };
 const _hoisted_32 = { class: "dm-pane" };
 const _hoisted_33 = { class: "dm-pane" };
+const _hoisted_34 = { class: "dm-cleanup-toolbar" };
+const _hoisted_35 = {
+  key: 1,
+  class: "dm-cleanup-results mt-4"
+};
+const _hoisted_36 = { class: "dm-cleanup-summary" };
+const _hoisted_37 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_38 = { class: "d-flex ga-1 flex-wrap justify-end" };
+const _hoisted_39 = { class: "dm-tag-group-head" };
+const _hoisted_40 = { class: "d-flex align-center ga-2 min-w-0" };
+const _hoisted_41 = { class: "text-body-2" };
+const _hoisted_42 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_43 = {
+  key: 0,
+  class: "dm-cleanup-empty"
+};
+const _hoisted_44 = {
+  key: 1,
+  class: "dm-tag-list"
+};
+const _hoisted_45 = { class: "dm-tag-content" };
+const _hoisted_46 = { class: "dm-tag-line" };
+const _hoisted_47 = ["title"];
+const _hoisted_48 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_49 = ["title"];
+const _hoisted_50 = { class: "dm-cleanup-actions" };
+const _hoisted_51 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_52 = { class: "dm-pane" };
 
 const {reactive,ref,computed,watch,onMounted} = await importShared('vue');
 
@@ -59,6 +87,14 @@ const activeSub = ref('overview');
 const downloaderItems = ref([]);
 const siteItems = ref([]);
 const overview = ref(null);
+const cleanupDownloaders = ref([]);
+const cleanupScan = ref(null);
+const cleanupKeep = reactive({});
+const cleanupScanning = ref(false);
+const cleanupExecuting = ref(false);
+const cleanupDialog = ref(false);
+const cleanupMessage = ref('');
+const cleanupStatus = ref('info');
 
 onMounted(async () => {
   try {
@@ -126,7 +162,10 @@ const subTabs = {
     { key: 'iyuu_advanced', title: '高级选项', icon: 'mdi-tune' },
   ],
   rename: [{ key: 'format', title: '命名格式', icon: 'mdi-format-text' }],
-  tag: [{ key: 'mapping', title: 'Tracker 映射', icon: 'mdi-link-variant' }],
+  tag: [
+    { key: 'mapping', title: 'Tracker 映射', icon: 'mdi-link-variant' },
+    { key: 'tag_cleanup', title: '标签清理', icon: 'mdi-tag-remove-outline' },
+  ],
   seed: [{ key: 'seed_basic', title: '基础设置', icon: 'mdi-tune-variant' }],
 };
 
@@ -136,6 +175,21 @@ const selectedToDownloaderType = computed(() => {
   const selected = downloaderItems.value.find(item => item.value === form.todownloader);
   return selected?.type || ''
 });
+const qbDownloaderItems = computed(() => downloaderItems.value.filter(item => item.type === 'qbittorrent'));
+const cleanupGroups = computed(() => cleanupScan.value?.downloaders || []);
+const cleanupAutoRemovedCount = computed(() => cleanupScan.value?.auto_removed?.length || 0);
+const cleanupRemovals = computed(() => {
+  const removals = [];
+  for (const group of cleanupGroups.value) {
+    for (const item of group.tags || []) {
+      if (!cleanupKeep[tagSelectionKey(group.name, item.tag)]) {
+        removals.push({ downloader: group.name, tag: item.tag, hashes: [...(item.hashes || [])] });
+      }
+    }
+  }
+  return removals
+});
+const cleanupRemovalAssociations = computed(() => cleanupRemovals.value.reduce((total, item) => total + item.hashes.length, 0));
 const overviewCards = computed(() => {
   const cards = overview.value?.cards || {};
   const archive = overview.value?.archive || {};
@@ -201,6 +255,84 @@ function selectMain(key) {
   activeSub.value = subTabs[key]?.[0]?.key || '';
 }
 
+function tagSelectionKey(downloader, tag) {
+  return `${downloader}\u0000${tag}`
+}
+
+function resetCleanupKeep(groups) {
+  Object.keys(cleanupKeep).forEach(key => delete cleanupKeep[key]);
+  for (const group of groups || []) {
+    for (const item of group.tags || []) cleanupKeep[tagSelectionKey(group.name, item.tag)] = true;
+  }
+}
+
+function setAllCleanupTags(keep) {
+  for (const group of cleanupGroups.value) {
+    for (const item of group.tags || []) cleanupKeep[tagSelectionKey(group.name, item.tag)] = keep;
+  }
+}
+
+function cleanupKindMeta(kind) {
+  return {
+    site: { label: '站点', color: 'primary' },
+    managed: { label: '业务', color: 'success' },
+    temporary: { label: '临时', color: 'warning' },
+    legacy_temporary: { label: '旧临时', color: 'warning' },
+    active_temporary: { label: '使用中', color: 'info' },
+    other: { label: '其他', color: 'default' },
+  }[kind] || { label: '其他', color: 'default' }
+}
+
+async function scanCleanupTags() {
+  cleanupMessage.value = '';
+  if (!cleanupDownloaders.value.length) {
+    cleanupStatus.value = 'warning';
+    cleanupMessage.value = '请先选择下载器';
+    return
+  }
+  cleanupScanning.value = true;
+  try {
+    const response = await postPluginJsonApi(props.api, 'tag_cleanup_scan', { downloaders: cleanupDownloaders.value });
+    cleanupScan.value = response || null;
+    resetCleanupKeep(response?.downloaders || []);
+    const errorCount = response?.errors?.length || 0;
+    cleanupStatus.value = response?.code === 0 ? (errorCount ? 'warning' : 'success') : 'error';
+    cleanupMessage.value = response?.code === 0
+      ? `扫描完成 · 自动清理 ${response?.auto_removed?.length || 0} 个临时标签`
+      : (response?.msg || '扫描失败');
+  } catch (error) {
+    cleanupStatus.value = 'error';
+    cleanupMessage.value = error?.message || '扫描失败';
+  } finally {
+    cleanupScanning.value = false;
+  }
+}
+
+function previewCleanupTags() {
+  if (!cleanupRemovals.value.length) {
+    cleanupStatus.value = 'warning';
+    cleanupMessage.value = '没有需要清理的标签';
+    return
+  }
+  cleanupDialog.value = true;
+}
+
+async function executeCleanupTags() {
+  cleanupExecuting.value = true;
+  try {
+    const response = await postPluginJsonApi(props.api, 'tag_cleanup_execute', { removals: cleanupRemovals.value });
+    cleanupDialog.value = false;
+    await scanCleanupTags();
+    cleanupStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
+    cleanupMessage.value = response?.msg || '清理完成';
+  } catch (error) {
+    cleanupStatus.value = 'error';
+    cleanupMessage.value = error?.message || '清理失败';
+  } finally {
+    cleanupExecuting.value = false;
+  }
+}
+
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent("VIcon");
   const _component_VAvatar = _resolveComponent("VAvatar");
@@ -219,10 +351,14 @@ return (_ctx, _cache) => {
   const _component_VTextField = _resolveComponent("VTextField");
   const _component_VTextarea = _resolveComponent("VTextarea");
   const _component_VCronField = _resolveComponent("VCronField");
-  const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VBtn = _resolveComponent("VBtn");
+  const _component_VCheckboxBtn = _resolveComponent("VCheckboxBtn");
+  const _component_VChip = _resolveComponent("VChip");
+  const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VCardActions = _resolveComponent("VCardActions");
   const _component_VCard = _resolveComponent("VCard");
+  const _component_VListItemSubtitle = _resolveComponent("VListItemSubtitle");
+  const _component_VDialog = _resolveComponent("VDialog");
 
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     _createVNode(_component_VCard, {
@@ -259,7 +395,7 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-h6" }, {
-              default: _withCtx(() => [...(_cache[48] || (_cache[48] = [
+              default: _withCtx(() => [...(_cache[54] || (_cache[54] = [
                 _createTextVNode("下载中心", -1)
               ]))]),
               _: 1
@@ -335,7 +471,7 @@ return (_ctx, _cache) => {
             }, [
               _withDirectives(_createElementVNode("div", _hoisted_7, [
                 _createElementVNode("div", _hoisted_8, [
-                  _cache[49] || (_cache[49] = _createElementVNode("div", { class: "dm-section-title" }, "运行链路", -1)),
+                  _cache[55] || (_cache[55] = _createElementVNode("div", { class: "dm-section-title" }, "运行链路", -1)),
                   _createElementVNode("div", _hoisted_9, [
                     (_openBlock(), _createElementBlock(_Fragment, null, _renderList(runtimeFlows, (flow) => {
                       return _createElementVNode("div", {
@@ -394,11 +530,11 @@ return (_ctx, _cache) => {
                 ]),
                 _createElementVNode("div", _hoisted_18, [
                   _createElementVNode("div", _hoisted_19, [
-                    _cache[50] || (_cache[50] = _createElementVNode("div", { class: "dm-section-title" }, "命名概况", -1)),
+                    _cache[56] || (_cache[56] = _createElementVNode("div", { class: "dm-section-title" }, "命名概况", -1)),
                     _createElementVNode("div", _hoisted_20, "成功 " + _toDisplayString(overview.value?.rename_history?.success || 0) + " · 失败 " + _toDisplayString(overview.value?.rename_history?.failed || 0) + " · 脏名 " + _toDisplayString(overview.value?.rename_history?.dirty || 0), 1)
                   ]),
                   _createElementVNode("div", _hoisted_21, [
-                    _cache[51] || (_cache[51] = _createElementVNode("div", { class: "dm-section-title" }, "待办关注", -1)),
+                    _cache[57] || (_cache[57] = _createElementVNode("div", { class: "dm-section-title" }, "待办关注", -1)),
                     _createElementVNode("div", _hoisted_22, "连续失败 " + _toDisplayString(overview.value?.archive?.active_failed || 0) + " · 接近归档 " + _toDisplayString(overview.value?.archive?.near_archive || 0) + " · 已归档 " + _toDisplayString(overview.value?.archive?.archived || 0), 1)
                   ])
                 ])
@@ -406,7 +542,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'overview']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_23, [
-                _cache[53] || (_cache[53] = _createElementVNode("div", { class: "dm-section-title" }, "基础设置", -1)),
+                _cache[59] || (_cache[59] = _createElementVNode("div", { class: "dm-section-title" }, "基础设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -458,7 +594,7 @@ return (_ctx, _cache) => {
                       density: "compact",
                       class: "mt-2"
                     }, {
-                      default: _withCtx(() => [...(_cache[52] || (_cache[52] = [
+                      default: _withCtx(() => [...(_cache[58] || (_cache[58] = [
                         _createTextVNode(" Transmission 当前不支持种子重命名，命名补刀与恢复原名不会生效；转移做种、IYUU 辅种和做种校验不受影响。 ", -1)
                       ]))]),
                       _: 1
@@ -666,7 +802,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'basic']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_24, [
-                _cache[54] || (_cache[54] = _createElementVNode("div", { class: "dm-section-title" }, "筛选条件", -1)),
+                _cache[60] || (_cache[60] = _createElementVNode("div", { class: "dm-section-title" }, "筛选条件", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -770,7 +906,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'filter']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_25, [
-                _cache[55] || (_cache[55] = _createElementVNode("div", { class: "dm-section-title" }, "高级选项", -1)),
+                _cache[61] || (_cache[61] = _createElementVNode("div", { class: "dm-section-title" }, "高级选项", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -849,7 +985,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'advanced']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_26, [
-                _cache[56] || (_cache[56] = _createElementVNode("div", { class: "dm-section-title" }, "IYUU 辅种设置", -1)),
+                _cache[62] || (_cache[62] = _createElementVNode("div", { class: "dm-section-title" }, "IYUU 辅种设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1042,7 +1178,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'iyuu_basic']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_27, [
-                _cache[57] || (_cache[57] = _createElementVNode("div", { class: "dm-section-title" }, "辅种筛选", -1)),
+                _cache[63] || (_cache[63] = _createElementVNode("div", { class: "dm-section-title" }, "辅种筛选", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1130,7 +1266,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'iyuu_filter']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_28, [
-                _cache[58] || (_cache[58] = _createElementVNode("div", { class: "dm-section-title" }, "辅种高级选项", -1)),
+                _cache[64] || (_cache[64] = _createElementVNode("div", { class: "dm-section-title" }, "辅种高级选项", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1156,7 +1292,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'iyuu_advanced']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_29, [
-                _cache[59] || (_cache[59] = _createElementVNode("div", { class: "dm-section-title" }, "重命名设置", -1)),
+                _cache[65] || (_cache[65] = _createElementVNode("div", { class: "dm-section-title" }, "重命名设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1241,7 +1377,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'format']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_32, [
-                _cache[61] || (_cache[61] = _createElementVNode("div", { class: "dm-section-title" }, "站点标签设置", -1)),
+                _cache[67] || (_cache[67] = _createElementVNode("div", { class: "dm-section-title" }, "站点标签设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1292,7 +1428,7 @@ return (_ctx, _cache) => {
                           "hide-details": "",
                           rows: "4"
                         }, null, 8, ["modelValue"]),
-                        _cache[60] || (_cache[60] = _createElementVNode("div", { class: "dm-hint" }, "例: tracker.example.com -> example", -1))
+                        _cache[66] || (_cache[66] = _createElementVNode("div", { class: "dm-hint" }, "例: tracker.example.com -> example", -1))
                       ]),
                       _: 1
                     })
@@ -1303,14 +1439,191 @@ return (_ctx, _cache) => {
                 [_vShow, activeSub.value === 'mapping']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_33, [
-                _cache[63] || (_cache[63] = _createElementVNode("div", { class: "dm-section-title" }, "做种校验设置", -1)),
+                _cache[74] || (_cache[74] = _createElementVNode("div", { class: "dm-section-title" }, "标签清理", -1)),
+                _createElementVNode("div", _hoisted_34, [
+                  _createVNode(_component_VSelect, {
+                    modelValue: cleanupDownloaders.value,
+                    "onUpdate:modelValue": _cache[43] || (_cache[43] = $event => ((cleanupDownloaders).value = $event)),
+                    label: "下载器",
+                    density: "compact",
+                    variant: "outlined",
+                    "hide-details": "",
+                    items: qbDownloaderItems.value,
+                    multiple: "",
+                    chips: "",
+                    "closable-chips": "",
+                    class: "dm-cleanup-select"
+                  }, null, 8, ["modelValue", "items"]),
+                  _createVNode(_component_VBtn, {
+                    color: "primary",
+                    variant: "tonal",
+                    "prepend-icon": "mdi-radar",
+                    loading: cleanupScanning.value,
+                    disabled: !cleanupDownloaders.value.length,
+                    onClick: scanCleanupTags
+                  }, {
+                    default: _withCtx(() => [...(_cache[68] || (_cache[68] = [
+                      _createTextVNode("扫描标签", -1)
+                    ]))]),
+                    _: 1
+                  }, 8, ["loading", "disabled"])
+                ]),
+                (cleanupMessage.value)
+                  ? (_openBlock(), _createBlock(_component_VAlert, {
+                      key: 0,
+                      type: cleanupStatus.value,
+                      variant: "tonal",
+                      density: "compact",
+                      closable: "",
+                      class: "mt-3",
+                      "onClick:close": _cache[44] || (_cache[44] = $event => (cleanupMessage.value = ''))
+                    }, {
+                      default: _withCtx(() => [
+                        _createTextVNode(_toDisplayString(cleanupMessage.value), 1)
+                      ]),
+                      _: 1
+                    }, 8, ["type"]))
+                  : _createCommentVNode("", true),
+                (cleanupScan.value)
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_35, [
+                      _createElementVNode("div", _hoisted_36, [
+                        _createElementVNode("div", null, [
+                          _cache[69] || (_cache[69] = _createElementVNode("div", { class: "text-subtitle-2" }, "扫描结果", -1)),
+                          _createElementVNode("div", _hoisted_37, _toDisplayString(cleanupGroups.value.length) + " 个下载器 · 自动清理 " + _toDisplayString(cleanupAutoRemovedCount.value) + " 个临时标签 ", 1)
+                        ]),
+                        _createElementVNode("div", _hoisted_38, [
+                          _createVNode(_component_VBtn, {
+                            size: "small",
+                            variant: "text",
+                            "prepend-icon": "mdi-check-all",
+                            onClick: _cache[45] || (_cache[45] = $event => (setAllCleanupTags(true)))
+                          }, {
+                            default: _withCtx(() => [...(_cache[70] || (_cache[70] = [
+                              _createTextVNode("全部保留", -1)
+                            ]))]),
+                            _: 1
+                          }),
+                          _createVNode(_component_VBtn, {
+                            size: "small",
+                            variant: "text",
+                            color: "warning",
+                            "prepend-icon": "mdi-checkbox-blank-outline",
+                            onClick: _cache[46] || (_cache[46] = $event => (setAllCleanupTags(false)))
+                          }, {
+                            default: _withCtx(() => [...(_cache[71] || (_cache[71] = [
+                              _createTextVNode("取消全选", -1)
+                            ]))]),
+                            _: 1
+                          })
+                        ])
+                      ]),
+                      (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(cleanupScan.value.errors || [], (item) => {
+                        return (_openBlock(), _createBlock(_component_VAlert, {
+                          key: `${item.downloader}-${item.message}`,
+                          type: "warning",
+                          variant: "tonal",
+                          density: "compact",
+                          class: "mb-2"
+                        }, {
+                          default: _withCtx(() => [
+                            _createTextVNode(_toDisplayString(item.downloader) + " · " + _toDisplayString(item.message), 1)
+                          ]),
+                          _: 2
+                        }, 1024))
+                      }), 128)),
+                      (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(cleanupGroups.value, (group) => {
+                        return (_openBlock(), _createElementBlock("div", {
+                          key: group.name,
+                          class: "dm-tag-group"
+                        }, [
+                          _createElementVNode("div", _hoisted_39, [
+                            _createElementVNode("div", _hoisted_40, [
+                              _createVNode(_component_VIcon, {
+                                icon: "mdi-download-network-outline",
+                                size: "19",
+                                color: "primary"
+                              }),
+                              _createElementVNode("strong", _hoisted_41, _toDisplayString(group.name), 1)
+                            ]),
+                            _createElementVNode("span", _hoisted_42, _toDisplayString(group.task_count) + " 个任务 · " + _toDisplayString(group.tags.length) + " 个标签", 1)
+                          ]),
+                          (!group.tags.length)
+                            ? (_openBlock(), _createElementBlock("div", _hoisted_43, [
+                                _createVNode(_component_VIcon, {
+                                  icon: "mdi-tag-check-outline",
+                                  size: "28",
+                                  color: "success"
+                                }),
+                                _cache[72] || (_cache[72] = _createElementVNode("span", null, "没有待选择标签", -1))
+                              ]))
+                            : (_openBlock(), _createElementBlock("div", _hoisted_44, [
+                                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(group.tags, (item) => {
+                                  return (_openBlock(), _createElementBlock("label", {
+                                    key: `${group.name}-${item.tag}`,
+                                    class: "dm-tag-row"
+                                  }, [
+                                    _createVNode(_component_VCheckboxBtn, {
+                                      modelValue: cleanupKeep[tagSelectionKey(group.name, item.tag)],
+                                      "onUpdate:modelValue": $event => ((cleanupKeep[tagSelectionKey(group.name, item.tag)]) = $event),
+                                      color: "success"
+                                    }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                                    _createElementVNode("div", _hoisted_45, [
+                                      _createElementVNode("div", _hoisted_46, [
+                                        _createElementVNode("span", {
+                                          class: "dm-tag-name",
+                                          title: item.tag
+                                        }, _toDisplayString(item.tag), 9, _hoisted_47),
+                                        _createVNode(_component_VChip, {
+                                          size: "x-small",
+                                          variant: "tonal",
+                                          color: cleanupKindMeta(item.kind).color
+                                        }, {
+                                          default: _withCtx(() => [
+                                            _createTextVNode(_toDisplayString(cleanupKindMeta(item.kind).label), 1)
+                                          ]),
+                                          _: 2
+                                        }, 1032, ["color"]),
+                                        _createElementVNode("span", _hoisted_48, _toDisplayString(item.count) + " 个任务", 1)
+                                      ]),
+                                      _createElementVNode("div", {
+                                        class: "dm-tag-samples",
+                                        title: (item.samples || []).join(' · ')
+                                      }, _toDisplayString((item.samples || []).join(' · ')), 9, _hoisted_49)
+                                    ])
+                                  ]))
+                                }), 128))
+                              ]))
+                        ]))
+                      }), 128)),
+                      _createElementVNode("div", _hoisted_50, [
+                        _createElementVNode("div", _hoisted_51, " 待清理 " + _toDisplayString(cleanupRemovals.value.length) + " 个标签 · " + _toDisplayString(cleanupRemovalAssociations.value) + " 条任务关联 ", 1),
+                        _createVNode(_component_VBtn, {
+                          color: "warning",
+                          variant: "tonal",
+                          "prepend-icon": "mdi-eye-outline",
+                          disabled: !cleanupRemovals.value.length,
+                          onClick: previewCleanupTags
+                        }, {
+                          default: _withCtx(() => [...(_cache[73] || (_cache[73] = [
+                            _createTextVNode("预览清理", -1)
+                          ]))]),
+                          _: 1
+                        }, 8, ["disabled"])
+                      ])
+                    ]))
+                  : _createCommentVNode("", true)
+              ], 512), [
+                [_vShow, activeSub.value === 'tag_cleanup']
+              ]),
+              _withDirectives(_createElementVNode("div", _hoisted_52, [
+                _cache[76] || (_cache[76] = _createElementVNode("div", { class: "dm-section-title" }, "做种校验设置", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
                   variant: "tonal",
                   density: "compact",
                   class: "mb-4"
                 }, {
-                  default: _withCtx(() => [...(_cache[62] || (_cache[62] = [
+                  default: _withCtx(() => [...(_cache[75] || (_cache[75] = [
                     _createTextVNode("做种校验采用按需触发：仅在转移做种、IYUU铺种或手动补刀添加种子后启动。队列为空后自动停止。", -1)
                   ]))]),
                   _: 1
@@ -1324,7 +1637,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.seed_autostart,
-                          "onUpdate:modelValue": _cache[43] || (_cache[43] = $event => ((form.seed_autostart) = $event)),
+                          "onUpdate:modelValue": _cache[47] || (_cache[47] = $event => ((form.seed_autostart) = $event)),
                           color: "success",
                           inset: "",
                           "hide-details": "",
@@ -1340,7 +1653,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSwitch, {
                           modelValue: form.seed_skipverify,
-                          "onUpdate:modelValue": _cache[44] || (_cache[44] = $event => ((form.seed_skipverify) = $event)),
+                          "onUpdate:modelValue": _cache[48] || (_cache[48] = $event => ((form.seed_skipverify) = $event)),
                           color: "info",
                           inset: "",
                           "hide-details": "",
@@ -1361,7 +1674,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.seed_check_interval,
-                          "onUpdate:modelValue": _cache[45] || (_cache[45] = $event => ((form.seed_check_interval) = $event)),
+                          "onUpdate:modelValue": _cache[49] || (_cache[49] = $event => ((form.seed_check_interval) = $event)),
                           modelModifiers: { number: true },
                           label: "校验检查间隔（秒）",
                           type: "number",
@@ -1381,7 +1694,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: form.seed_max_wait_minutes,
-                          "onUpdate:modelValue": _cache[46] || (_cache[46] = $event => ((form.seed_max_wait_minutes) = $event)),
+                          "onUpdate:modelValue": _cache[50] || (_cache[50] = $event => ((form.seed_max_wait_minutes) = $event)),
                           modelModifiers: { number: true },
                           label: "最大等待时间（分钟）",
                           type: "number",
@@ -1409,9 +1722,9 @@ return (_ctx, _cache) => {
             _createVNode(_component_VSpacer),
             _createVNode(_component_VBtn, {
               variant: "text",
-              onClick: _cache[47] || (_cache[47] = $event => (emit('close')))
+              onClick: _cache[51] || (_cache[51] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[64] || (_cache[64] = [
+              default: _withCtx(() => [...(_cache[77] || (_cache[77] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -1422,7 +1735,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-content-save-outline",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[65] || (_cache[65] = [
+              default: _withCtx(() => [...(_cache[78] || (_cache[78] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -1432,12 +1745,121 @@ return (_ctx, _cache) => {
         })
       ]),
       _: 1
-    })
+    }),
+    _createVNode(_component_VDialog, {
+      modelValue: cleanupDialog.value,
+      "onUpdate:modelValue": _cache[53] || (_cache[53] = $event => ((cleanupDialog).value = $event)),
+      "max-width": "620"
+    }, {
+      default: _withCtx(() => [
+        _createVNode(_component_VCard, null, {
+          default: _withCtx(() => [
+            _createVNode(_component_VCardItem, null, {
+              prepend: _withCtx(() => [
+                _createVNode(_component_VAvatar, {
+                  color: "warning",
+                  variant: "tonal",
+                  size: "40",
+                  rounded: "lg"
+                }, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_VIcon, { icon: "mdi-tag-remove-outline" })
+                  ]),
+                  _: 1
+                })
+              ]),
+              default: _withCtx(() => [
+                _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
+                  default: _withCtx(() => [...(_cache[79] || (_cache[79] = [
+                    _createTextVNode("确认标签清理", -1)
+                  ]))]),
+                  _: 1
+                }),
+                _createVNode(_component_VCardSubtitle, null, {
+                  default: _withCtx(() => [
+                    _createTextVNode(_toDisplayString(cleanupRemovals.value.length) + " 个标签 · " + _toDisplayString(cleanupRemovalAssociations.value) + " 条任务关联", 1)
+                  ]),
+                  _: 1
+                })
+              ]),
+              _: 1
+            }),
+            _createVNode(_component_VDivider),
+            _createVNode(_component_VList, {
+              density: "compact",
+              class: "dm-cleanup-preview-list"
+            }, {
+              default: _withCtx(() => [
+                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(cleanupRemovals.value, (item) => {
+                  return (_openBlock(), _createBlock(_component_VListItem, {
+                    key: `${item.downloader}-${item.tag}`
+                  }, {
+                    prepend: _withCtx(() => [
+                      _createVNode(_component_VIcon, {
+                        icon: "mdi-tag-outline",
+                        size: "18"
+                      })
+                    ]),
+                    default: _withCtx(() => [
+                      _createVNode(_component_VListItemTitle, null, {
+                        default: _withCtx(() => [
+                          _createTextVNode(_toDisplayString(item.tag), 1)
+                        ]),
+                        _: 2
+                      }, 1024),
+                      _createVNode(_component_VListItemSubtitle, null, {
+                        default: _withCtx(() => [
+                          _createTextVNode(_toDisplayString(item.downloader) + " · " + _toDisplayString(item.hashes.length) + " 个任务", 1)
+                        ]),
+                        _: 2
+                      }, 1024)
+                    ]),
+                    _: 2
+                  }, 1024))
+                }), 128))
+              ]),
+              _: 1
+            }),
+            _createVNode(_component_VDivider),
+            _createVNode(_component_VCardActions, null, {
+              default: _withCtx(() => [
+                _createVNode(_component_VSpacer),
+                _createVNode(_component_VBtn, {
+                  variant: "text",
+                  disabled: cleanupExecuting.value,
+                  onClick: _cache[52] || (_cache[52] = $event => (cleanupDialog.value = false))
+                }, {
+                  default: _withCtx(() => [...(_cache[80] || (_cache[80] = [
+                    _createTextVNode("取消", -1)
+                  ]))]),
+                  _: 1
+                }, 8, ["disabled"]),
+                _createVNode(_component_VBtn, {
+                  color: "error",
+                  variant: "flat",
+                  "prepend-icon": "mdi-tag-remove-outline",
+                  loading: cleanupExecuting.value,
+                  onClick: executeCleanupTags
+                }, {
+                  default: _withCtx(() => [...(_cache[81] || (_cache[81] = [
+                    _createTextVNode("确认清理", -1)
+                  ]))]),
+                  _: 1
+                }, 8, ["loading"])
+              ]),
+              _: 1
+            })
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
+    }, 8, ["modelValue"])
   ]))
 }
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-90d938ea"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0df63f38"]]);
 
 export { Config as default };

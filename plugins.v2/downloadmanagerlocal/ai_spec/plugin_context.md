@@ -75,6 +75,8 @@
 | `/delete_rename_archive` | POST | 删除补刀归档记录 | `api_delete_rename_archive` |
 | `/recovery_torrent` | POST | 恢复种子原始名称 | `api_recovery_torrent` |
 | `/sites` | GET | 获取站点列表（用于辅种站点选择） | `api_sites` |
+| `/tag_cleanup_scan` | POST | 扫描下载器标签并清理临时标签 | `api_tag_cleanup_scan` |
+| `/tag_cleanup_execute` | POST | 按扫描快照清理标签 | `api_tag_cleanup_execute` |
 
 守护测试：
 
@@ -116,11 +118,12 @@
 - `service/rename.py`：重命名模板、原始发布名候选、下载历史候选、补刀和单 hash 补刀。
 - `service/archive.py`：失败分类、连续失败归档、恢复、删除、列表和统计。
 - `service/recheck.py`：做种校验队列、后台线程、状态判断和超时判断。
-- `service/site_tag.py`：tracker 域名解析和站点标签写入。
+- `service/site_tag.py`：tracker 域名解析、站点标签写入、临时标签回收和人工标签清理。
 - `service/diagnostics.py`：诊断数据构建。
 - `modules/*.py`：兼容 shim，只重导出 service 实现；不得新增业务判断。
 - `utils/config.py`：启用状态、安全整数、转移/IYUU 活跃判定。
 - `utils/torrent_adapter.py`：qBittorrent 和 Transmission 的 hash、标签、分类、保存路径和大小适配。
+- `utils/tag_cleanup.py`：临时标签归属判定和标签类型分类。
 - `utils/name_cleaner.py`：发布名清洗、污染名检测和补刀 hash 收集。
 - `utils/path.py`、`utils/tracker.py`、`utils/sensitive.py`：无状态工具函数。
 - `iyuu_helper.py`：IYUU API 请求与响应解析。

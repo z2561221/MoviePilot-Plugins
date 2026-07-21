@@ -73,3 +73,14 @@ def test_downloadmanagerlocal_diagnostics_and_recovery_response_inventory():
     assert "def api_recovery_torrent(plugin, hash: str = \"\"):" in source
     for message in ['"缺少 hash 参数"', '"未找到成功的重命名记录"', '"原始名称为空"']:
         assert message in source
+
+
+def test_downloadmanagerlocal_tag_cleanup_response_inventory():
+    source = _handler_source()
+
+    assert "def api_tag_cleanup_scan(plugin, payload: dict = None):" in source
+    assert 'request.get("downloaders")' in source
+    assert "scan_and_clean_tags(plugin," in source
+    assert "def api_tag_cleanup_execute(plugin, payload: dict = None):" in source
+    assert 'request.get("removals")' in source
+    assert "execute_tag_cleanup(plugin," in source

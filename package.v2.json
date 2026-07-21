@@ -45,7 +45,7 @@
   "DownloadManagerLocal": {
     "name": "下载中心",
     "description": "转移做种 + IYUU辅种 + 种子重命名 + 站点标签，一站式下载管理。",
-    "version": "3.2.6",
+    "version": "3.2.7",
     "author": "牧濑红莉栖",
     "icon": "download.png",
     "color": "#4CAF50",
@@ -54,6 +54,7 @@
     "release": true,
     "author_url": "https://github.com/z2561221",
     "history": {
+      "v3.2.7": "[1]清理临时标签;[2]新增标签清理",
       "v3.2.6": "[1]补齐同步删除;[2]优化移动端",
       "v3.2.5": "[1]优化诊断面板;[2]适配移动端",
       "v3.2.4": "[1]后端拆层;[2]契约守护;[3]服务边界",

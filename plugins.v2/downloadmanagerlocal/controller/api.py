@@ -1,6 +1,9 @@
 """下载中心 API 路由声明。"""
 
+from functools import partial
 from typing import Any, Dict, List
+
+from .handlers import api_tag_cleanup_execute, api_tag_cleanup_scan
 
 
 def build_api_routes(plugin) -> List[Dict[str, Any]]:
@@ -89,5 +92,19 @@ def build_api_routes(plugin) -> List[Dict[str, Any]]:
             "auth": "bear",
             "methods": ["GET"],
             "summary": "获取站点列表（用于辅种站点选择）",
+        },
+        {
+            "path": "/tag_cleanup_scan",
+            "endpoint": partial(api_tag_cleanup_scan, plugin),
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "扫描下载器标签并清理临时标签",
+        },
+        {
+            "path": "/tag_cleanup_execute",
+            "endpoint": partial(api_tag_cleanup_execute, plugin),
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "按扫描快照清理标签",
         },
     ]

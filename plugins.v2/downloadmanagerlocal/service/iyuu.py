@@ -16,7 +16,6 @@ from app.schemas import NotificationType, ServiceInfo
 from ..adapter.moviepilot import (
     check_site,
     download_torrent_content,
-    generate_random_tag,
     get_downloader_service,
     get_downloader_services,
     get_plugin_config,
@@ -27,6 +26,7 @@ from ..adapter.moviepilot import (
     request_get_res,
     request_post_res,
 )
+from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
 from ..model.state import iyuu_history_key, iyuu_source_key
 from ..utils.sensitive import mask_sensitive_url
 
@@ -508,8 +508,9 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
         torrent_tags.append(site_name)
 
     if service.type == "qbittorrent":
-        tag = generate_random_tag(10)
+        tag = create_temporary_tag(plugin)
         torrent_tags.append(tag)
+        confirmed_hash = None
 
         def __find_torrent_hash():
             """通过 expected_hash 或临时标签确认新任务 hash。"""
@@ -528,33 +529,39 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
                 logger.warning(f"IYUU辅种：按临时标签查询任务失败：tag={tag}，{err}")
             return None
 
-        state = service.instance.add_torrent(content=content, download_dir=save_path,
-                                             is_paused=True, tag=torrent_tags,
-                                             category=save_category,
-                                             is_skip_checking=plugin._seed_skipverify)
-        if not state:
+        try:
+            state = service.instance.add_torrent(content=content, download_dir=save_path,
+                                                 is_paused=True, tag=torrent_tags,
+                                                 category=save_category,
+                                                 is_skip_checking=plugin._seed_skipverify)
+            if not state:
+                logger.error(
+                    f"IYUU辅种：{service.name} 下载任务添加失败：expected_hash={expected_hash}，"
+                    f"url={safe_torrent_url}，save_path={save_path}，category={save_category}"
+                )
+                return None
+
+            for index in range(6):
+                confirmed_hash = __find_torrent_hash()
+                if confirmed_hash:
+                    logger.info(
+                        f"IYUU辅种：成功添加下载任务：hash={confirmed_hash}，站点={site_name}，"
+                        f"确认方式={'expected_hash' if expected_hash and confirmed_hash == expected_hash else 'tag'}"
+                    )
+                    return confirmed_hash
+                time.sleep(2)
+
             logger.error(
-                f"IYUU辅种：{service.name} 下载任务添加失败：expected_hash={expected_hash}，"
-                f"url={safe_torrent_url}，save_path={save_path}，category={save_category}"
+                f"IYUU辅种：{service.name} 下载器返回已接收，但未能确认任务入库："
+                f"expected_hash={expected_hash}，tag={tag}，url={safe_torrent_url}，"
+                f"save_path={save_path}，category={save_category}"
             )
             return None
-
-        for index in range(6):
-            torrent_hash = __find_torrent_hash()
-            if torrent_hash:
-                logger.info(
-                    f"IYUU辅种：成功添加下载任务：hash={torrent_hash}，站点={site_name}，"
-                    f"确认方式={'expected_hash' if expected_hash and torrent_hash == expected_hash else 'tag'}"
-                )
-                return torrent_hash
-            time.sleep(2)
-
-        logger.error(
-            f"IYUU辅种：{service.name} 下载器返回已接收，但未能确认任务入库："
-            f"expected_hash={expected_hash}，tag={tag}，url={safe_torrent_url}，"
-            f"save_path={save_path}，category={save_category}"
-        )
-        return None
+        finally:
+            if confirmed_hash:
+                release_temporary_tag(plugin, service.instance, confirmed_hash, tag, "IYUU辅种")
+            else:
+                forget_temporary_tag(plugin, tag)
     elif service.type == "transmission":
         torrent = service.instance.add_torrent(content=content, download_dir=save_path,
                                                is_paused=True, labels=torrent_tags)
