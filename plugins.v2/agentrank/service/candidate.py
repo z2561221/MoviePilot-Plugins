@@ -2,10 +2,10 @@
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 from ..adapter.discovery import DiscoveryAdapter, RawDiscoveredItem
-from ..model.candidate import Candidate
+from ..model.candidate import Candidate, typed_tmdb_candidate_id
 from ..model.retrieval import RetrievalPlan
 from ..storage.repository import AgentRankRepository
 
@@ -28,6 +28,8 @@ class CandidateCollectionResult:
     accepted_source_counts: Dict[str, int] = field(default_factory=dict)
     request_recipes: List[Dict[str, Any]] = field(default_factory=list)
     layer_counts: Dict[str, int] = field(default_factory=dict)
+    exclusion_counts: Dict[str, int] = field(default_factory=dict)
+    filter_errors: Dict[str, str] = field(default_factory=dict)
     minimum_frozen_candidates: int = DEFAULT_MINIMUM_FROZEN_CANDIDATES
 
 
@@ -39,11 +41,15 @@ class CandidateCollectionService:
         adapter: DiscoveryAdapter,
         repository: AgentRankRepository,
         media_adapter: Any = None,
+        library_adapter: Any = None,
+        subscription_adapter: Any = None,
     ):
         """绑定发现读取边界和持久化仓库。"""
         self._adapter = adapter
         self._repository = repository
         self._media_adapter = media_adapter
+        self._library_adapter = library_adapter
+        self._subscription_adapter = subscription_adapter
 
     @staticmethod
     def _mapping(payload: Any) -> Dict[str, Any]:
@@ -94,13 +100,15 @@ class CandidateCollectionService:
         return ids
 
     @staticmethod
-    def _candidate_id(ids: Mapping[str, str]) -> str:
-        """按稳定平台优先级生成唯一候选标识。"""
-        for name in ("tmdb", "douban", "bangumi", "tvdb", "imdb"):
+    def _candidate_id(ids: Mapping[str, str], media_type: str) -> str:
+        """优先生成类型化 TMDB 身份，否则保留待识别来源身份。"""
+        if ids.get("tmdb"):
+            try:
+                return typed_tmdb_candidate_id(ids["tmdb"], media_type)
+            except ValueError:
+                pass
+        for name in ("douban", "bangumi", "tvdb", "imdb"):
             if ids.get(name):
-                return f"{name}:{ids[name]}"
-        for name in sorted(ids):
-            if ids[name]:
                 return f"{name}:{ids[name]}"
         raise ValueError("candidate requires a traceable media id")
 
@@ -113,6 +121,10 @@ class CandidateCollectionService:
         if any(token in raw for token in ("movie", "电影")):
             return "movie"
         if any(token in raw for token in ("tv", "电视剧", "剧集")):
+            return "tv"
+        if source == "tmdb_movies":
+            return "movie"
+        if source in {"tmdb_tv", "bangumi"}:
             return "tv"
         return "unknown"
 
@@ -159,10 +171,11 @@ class CandidateCollectionService:
         original_language = cls._first(data, "original_language", "language")
         if original_language:
             safe_metadata["original_language"] = str(original_language)
+        media_type = cls._media_type(data, raw.source)
         return Candidate(
-            candidate_id=cls._candidate_id(ids),
+            candidate_id=cls._candidate_id(ids, media_type),
             title=title,
-            media_type=cls._media_type(data, raw.source),
+            media_type=media_type,
             year=year,
             source_ids=ids,
             sources=[raw.source],
@@ -235,6 +248,79 @@ class CandidateCollectionService:
                 counts[source] = counts.get(source, 0) + 1
         return counts
 
+    @staticmethod
+    def _field(value: Any, name: str) -> Any:
+        """兼容映射与领域对象读取安全字段。"""
+        if isinstance(value, Mapping):
+            return value.get(name)
+        return getattr(value, name, None)
+
+    @classmethod
+    def _completed_candidate_ids(cls, samples: Iterable[Any]) -> Set[str]:
+        """从 Playback Reporting 样本提取已看完的类型化身份。"""
+        result: Set[str] = set()
+        for sample in samples:
+            if not bool(cls._field(sample, "completed")):
+                continue
+            stable_id = cls._field(sample, "stable_id")
+            try:
+                result.add(typed_tmdb_candidate_id(stable_id))
+                continue
+            except ValueError:
+                pass
+            try:
+                result.add(
+                    typed_tmdb_candidate_id(
+                        cls._field(sample, "tmdb_id"),
+                        cls._field(sample, "media_type"),
+                    )
+                )
+            except ValueError:
+                continue
+        return result
+
+    @staticmethod
+    def _negative_match(candidate: Candidate, keywords: Iterable[Any]) -> bool:
+        """对可信候选文本执行大小写与空白无关的负向关键词匹配。"""
+        values = [
+            candidate.title,
+            candidate.original_title,
+            candidate.overview,
+            *candidate.genres,
+            *candidate.regions,
+            *candidate.actors,
+            *candidate.directors,
+            candidate.metadata.get("category", ""),
+        ]
+        searchable = [
+            "".join(str(value or "").casefold().split())
+            for value in values
+            if str(value or "").strip()
+        ]
+        for keyword in keywords:
+            needle = "".join(str(keyword or "").casefold().split())
+            if needle and any(needle in value for value in searchable):
+                return True
+        return False
+
+    @staticmethod
+    def _typed_identity(candidate: Candidate) -> str:
+        """从 TMDB ID 与基础媒体类型生成候选最终身份。"""
+        return typed_tmdb_candidate_id(
+            candidate.source_ids.get("tmdb"),
+            candidate.media_type,
+            candidate.metadata.get("mp_media_type", ""),
+        )
+
+    def _subscribed_candidate_ids(self) -> Set[str]:
+        """通过全局订阅适配器读取所有用户名下的类型化身份。"""
+        if self._subscription_adapter is None:
+            return set()
+        candidate_ids = getattr(self._subscription_adapter, "candidate_ids", None)
+        if not callable(candidate_ids):
+            raise RuntimeError("subscription adapter does not expose candidate_ids")
+        return set(candidate_ids() or set())
+
     def collect_and_freeze(
         self,
         profile_id: str,
@@ -243,9 +329,11 @@ class CandidateCollectionService:
         candidate_limit: int,
         retrieval_plan: Optional[RetrievalPlan] = None,
         raw_limit: Optional[int] = None,
-        playback_samples: Optional[Iterable[Mapping[str, Any]]] = None,
+        playback_samples: Optional[Iterable[Any]] = None,
+        archived_candidate_ids: Optional[Iterable[str]] = None,
+        negative_keywords: Optional[Iterable[str]] = None,
     ) -> CandidateCollectionResult:
-        """采集、规范化、去重并在返回前冻结候选快照。"""
+        """采集、类型化去重、硬过滤并在返回前冻结候选快照。"""
         playback_samples = list(playback_samples or ())
         if hasattr(self._adapter, "fetch_layered") and (
             retrieval_plan is not None or playback_samples
@@ -264,19 +352,18 @@ class CandidateCollectionService:
                 retrieval_plan=retrieval_plan,
                 raw_limit=raw_limit,
             )
-        candidates: List[Candidate] = []
+        normalized_candidates: List[Candidate] = []
         by_id: Dict[str, Candidate] = {}
         rejected_count = 0
         limit = max(1, int(candidate_limit))
         for raw in self._round_robin(fetched.items):
-            if len(candidates) >= limit:
-                break
             try:
                 candidate = self._normalize(raw)
                 if self._media_adapter is not None:
                     candidate = self._media_adapter.recognize(candidate)
                     if candidate is None:
                         raise ValueError("candidate could not be recognized as TMDB media")
+                candidate.candidate_id = self._typed_identity(candidate)
             except (TypeError, ValueError, KeyError):
                 rejected_count += 1
                 continue
@@ -285,12 +372,71 @@ class CandidateCollectionService:
                 self._merge(existing, candidate)
                 continue
             by_id[candidate.candidate_id] = candidate
-            candidates.append(candidate)
-        self._repository.save_candidate_snapshot(run_id, profile_id, candidates)
+            normalized_candidates.append(candidate)
+
+        exclusion_counts = {
+            "invalid_or_unrecognized": rejected_count,
+            "watched_completed": 0,
+            "library": 0,
+            "subscribed": 0,
+            "archived": 0,
+            "negative_keyword": 0,
+        }
+        filter_errors: Dict[str, str] = {}
+        watched_ids = self._completed_candidate_ids(playback_samples)
+        archived_ids = {
+            str(candidate_id or "").strip()
+            for candidate_id in archived_candidate_ids or ()
+            if str(candidate_id or "").strip()
+        }
+        try:
+            subscribed_ids = self._subscribed_candidate_ids()
+        except Exception as error:
+            filter_errors["subscriptions"] = str(error)
+            subscribed_ids = set()
+
+        candidates: List[Candidate] = []
+        if not filter_errors:
+            for candidate in normalized_candidates:
+                candidate_id = candidate.candidate_id
+                if candidate_id in watched_ids:
+                    exclusion_counts["watched_completed"] += 1
+                    continue
+                try:
+                    in_library = bool(
+                        self._library_adapter is not None
+                        and self._library_adapter.exists(candidate)
+                    )
+                except Exception as error:
+                    filter_errors["library"] = str(error)
+                    candidates = []
+                    break
+                if in_library:
+                    exclusion_counts["library"] += 1
+                    continue
+                if candidate_id in subscribed_ids:
+                    exclusion_counts["subscribed"] += 1
+                    continue
+                if candidate_id in archived_ids:
+                    exclusion_counts["archived"] += 1
+                    continue
+                if self._negative_match(candidate, negative_keywords or ()):
+                    exclusion_counts["negative_keyword"] += 1
+                    continue
+                candidates.append(candidate)
+                if len(candidates) >= limit:
+                    break
+
+        if filter_errors:
+            status = "candidate_filter_failed"
+        else:
+            status = "ready" if candidates else "candidate_insufficient"
+        if not filter_errors:
+            self._repository.save_candidate_snapshot(run_id, profile_id, candidates)
         return CandidateCollectionResult(
             profile_id=profile_id,
             run_id=run_id,
-            status="ready" if candidates else "candidate_insufficient",
+            status=status,
             candidates=candidates,
             source_errors=fetched.source_errors,
             rejected_sources=fetched.rejected_sources,
@@ -299,5 +445,7 @@ class CandidateCollectionService:
             accepted_source_counts=self._source_counts(candidates),
             request_recipes=list(getattr(fetched, "request_recipes", []) or []),
             layer_counts=dict(getattr(fetched, "layer_counts", {}) or {}),
+            exclusion_counts=exclusion_counts,
+            filter_errors=filter_errors,
             minimum_frozen_candidates=min(DEFAULT_MINIMUM_FROZEN_CANDIDATES, limit),
         )

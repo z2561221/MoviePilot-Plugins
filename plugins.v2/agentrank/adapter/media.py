@@ -2,7 +2,7 @@
 
 from typing import Any, Callable, Iterable, List, Mapping, Optional
 
-from ..model.candidate import Candidate
+from ..model.candidate import Candidate, typed_tmdb_candidate_id
 
 
 class MediaRecognitionAdapter:
@@ -145,7 +145,6 @@ class MediaRecognitionAdapter:
             return None
 
         candidate.source_ids["tmdb"] = str(resolved_tmdb_id)
-        candidate.candidate_id = f"tmdb:{resolved_tmdb_id}"
         candidate.title = str(getattr(mediainfo, "title", "") or candidate.title)
         resolved_year = getattr(mediainfo, "year", None)
         try:
@@ -192,6 +191,11 @@ class MediaRecognitionAdapter:
         if release_date:
             candidate.release_date = release_date
         moviepilot_type = self._moviepilot_type(mediainfo, media_type, media_type_cls)
+        candidate.candidate_id = typed_tmdb_candidate_id(
+            resolved_tmdb_id,
+            candidate.media_type,
+            moviepilot_type,
+        )
         candidate.metadata["mp_media_type"] = moviepilot_type
         category = str(getattr(mediainfo, "category", "") or "").strip()
         if category:

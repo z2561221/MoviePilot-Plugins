@@ -1,7 +1,38 @@
 """发现候选领域对象。"""
 
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
+
+
+_TYPED_TMDB_ID = re.compile(r"^tmdb:(movie|tv):([1-9]\d*)$")
+
+
+def canonical_media_type(media_type: Any, mp_media_type: Any = "") -> Optional[str]:
+    """把候选或 MoviePilot 类型收敛为 movie/tv 基础类型。"""
+    for value in (mp_media_type, media_type):
+        raw = str(getattr(value, "value", value) or "").strip().casefold()
+        if raw in {"movie", "电影"} or "movie" in raw:
+            return "movie"
+        if raw in {"tv", "电视剧", "剧集", "电视"} or raw.startswith("tv"):
+            return "tv"
+    return None
+
+
+def typed_tmdb_candidate_id(
+    tmdb_id: Any, media_type: Any = "", mp_media_type: Any = ""
+) -> str:
+    """生成或校验 `tmdb:movie:<id>` / `tmdb:tv:<id>` 身份。"""
+    raw_id = str(tmdb_id or "").strip()
+    matched = _TYPED_TMDB_ID.fullmatch(raw_id)
+    if matched:
+        return f"tmdb:{matched.group(1)}:{int(matched.group(2))}"
+    if not raw_id.isdigit() or int(raw_id) <= 0:
+        raise ValueError("candidate requires a positive TMDB id")
+    normalized_type = canonical_media_type(media_type, mp_media_type)
+    if normalized_type is None:
+        raise ValueError("candidate requires a movie or tv TMDB type")
+    return f"tmdb:{normalized_type}:{int(raw_id)}"
 
 
 @dataclass

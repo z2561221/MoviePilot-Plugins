@@ -109,9 +109,13 @@ class FakeCandidateService:
         candidate_limit,
         retrieval_plan=None,
         playback_samples=None,
+        archived_candidate_ids=None,
+        negative_keywords=None,
     ):
         self.retrieval_plan = retrieval_plan
         self.playback_samples = list(playback_samples or [])
+        self.archived_candidate_ids = set(archived_candidate_ids or set())
+        self.negative_keywords = list(negative_keywords or [])
         values = dict(
             profile_id=profile_id,
             run_id=run_id,

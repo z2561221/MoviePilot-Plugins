@@ -35,7 +35,7 @@ def test_library_lookup_uses_tmdb_id_and_recognized_moviepilot_type():
     """媒体库联合索引需要 TMDB ID 与实际基础类型同时命中。"""
     oper = RecordingOper()
     candidate = Candidate(
-        candidate_id="tmdb:42509",
+        candidate_id="tmdb:tv:42509",
         title="Steins Gate",
         media_type="anime",
         source_ids={"tmdb": "42509"},
@@ -50,7 +50,7 @@ def test_animation_movie_library_lookup_uses_movie_type():
     """展示为动漫的电影不能误查电视剧索引。"""
     oper = RecordingOper()
     candidate = Candidate(
-        candidate_id="tmdb:16",
+        candidate_id="tmdb:movie:16",
         title="Animation Movie",
         media_type="anime",
         source_ids={"tmdb": "16"},

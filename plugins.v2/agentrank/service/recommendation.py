@@ -14,6 +14,7 @@ from ..agent_tools.context import (
     RANKING_AGENT_ROLE,
     build_trusted_context,
 )
+from ..model.candidate import typed_tmdb_candidate_id
 from ..model.config import configured_identities
 from ..model.board import RecommendationBoard, RecommendationItem
 from ..model.profile import (
@@ -183,6 +184,34 @@ class RecommendationOrchestrator:
             if candidate.candidate_id not in excluded_ids
         ]
         return remaining, excluded
+
+    @staticmethod
+    def _archive_candidate_ids(archive: Any) -> Set[str]:
+        """从新旧归档载荷中提取可证明类型的 TMDB 身份。"""
+        result: Set[str] = set()
+        for entry in getattr(archive, "entries", []) or []:
+            candidate_id = str(getattr(entry, "candidate_id", "") or "").strip()
+            try:
+                result.add(typed_tmdb_candidate_id(candidate_id))
+                continue
+            except ValueError:
+                pass
+            recommendation = getattr(entry, "recommendation", {}) or {}
+            if not isinstance(recommendation, Mapping):
+                continue
+            source_ids = recommendation.get("source_ids") or {}
+            metadata = recommendation.get("metadata") or {}
+            try:
+                result.add(
+                    typed_tmdb_candidate_id(
+                        source_ids.get("tmdb"),
+                        recommendation.get("media_type"),
+                        metadata.get("mp_media_type"),
+                    )
+                )
+            except (AttributeError, ValueError):
+                continue
+        return result
 
     def _failure(
         self,
@@ -448,6 +477,14 @@ class RecommendationOrchestrator:
                         agent_calls=int(metrics["agent_calls"]),
                     )
 
+            archive = self._repository.load_archive(target)
+            archived_ids = self._archive_candidate_ids(archive)
+            negative_keywords = list(config.get("exclude_keywords") or [])
+            negative_keywords.extend(
+                profile_preferences.effective_negative_tags(
+                    current_profile.negative_tags
+                )
+            )
             stage_clock = time.monotonic()
             candidate_result = await asyncio.to_thread(
                 self._candidate_service.collect_and_freeze,
@@ -462,6 +499,8 @@ class RecommendationOrchestrator:
                     }
                 ),
                 playback_samples=playback_snapshot.samples,
+                archived_candidate_ids=archived_ids,
+                negative_keywords=negative_keywords,
             )
             metrics["candidate_collect_ms"] = max(
                 0, int((time.monotonic() - stage_clock) * 1000)
@@ -490,6 +529,12 @@ class RecommendationOrchestrator:
             metrics["candidate_layer_counts"] = dict(
                 getattr(candidate_result, "layer_counts", {}) or {}
             )
+            metrics["candidate_exclusion_counts"] = dict(
+                getattr(candidate_result, "exclusion_counts", {}) or {}
+            )
+            metrics["candidate_filter_errors"] = dict(
+                getattr(candidate_result, "filter_errors", {}) or {}
+            )
             minimum_frozen_candidates = max(
                 0,
                 int(
@@ -514,20 +559,27 @@ class RecommendationOrchestrator:
                 candidate_result.status != "ready"
                 or len(candidates) < minimum_frozen_candidates
             ):
+                filter_failed = candidate_result.status == "candidate_filter_failed"
                 return self._failure(
                     target,
                     username,
                     run_id,
-                    "candidate_insufficient",
-                    "发现候选不足，未调用 Agent",
+                    (
+                        "candidate_filter_failed"
+                        if filter_failed
+                        else "candidate_insufficient"
+                    ),
+                    (
+                        "候选硬过滤失败，未调用 Agent"
+                        if filter_failed
+                        else "发现候选不足，未调用 Agent"
+                    ),
                     started_at,
                     started_clock,
                     metrics,
                     errors,
                 )
 
-            archive = self._repository.load_archive(target)
-            archived_ids = {entry.candidate_id for entry in archive.entries}
             subscribed_ids: Set[str] = set()
             ranking_context = build_trusted_context(
                 username=username,

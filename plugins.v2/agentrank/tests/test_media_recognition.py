@@ -85,7 +85,7 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
 
     assert calls[0]["tmdbid"] == "900"
     assert calls[0]["mtype"] == FakeMediaType.MOVIE
-    assert result.candidate_id == "tmdb:900"
+    assert result.candidate_id == "tmdb:movie:900"
     assert result.title == "TMDB 标准标题"
     assert result.year == 2026
     assert result.poster_path.endswith("poster.jpg")

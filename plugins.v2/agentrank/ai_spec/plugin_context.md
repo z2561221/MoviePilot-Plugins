@@ -31,7 +31,7 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 
 画像 Agent 的播放工具返回当前播放快照、可选的上一版画像、人工画像标签偏好和当前只读画像。画像缓存开启、画像 schema 为当前版本且播放指纹未变化时直接复用画像，不调用画像 Agent；候选变化不能重写画像。旧 schema 画像必须先重建检索计划。播放指纹只由稳定播放事实构成，不包含 `synced_at` 等易变字段。
 
-人工偏好必须参与画像与排序，人工避雷必须降低相关候选排序，用户删除的 Agent 标签不得重新写回。禁止用标签集合并集替代画像更新。
+人工偏好必须参与画像与排序；人工避雷与未被屏蔽的 Agent 负向标签作为插件硬过滤关键词，用户删除的 Agent 标签不得重新写回。禁止用标签集合并集替代画像更新。
 
 播放画像工具只返回当前 identity 的 Playback Reporting 受信快照，不再读取 Emby 原生 UserData。不得把其他媒体列表冒充已观看记录，也不得持久化密钥、Cookie、客户端、设备或地址信息。
 
@@ -44,6 +44,8 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 - 画像保存前会执行一次受控解析：精确/别名匹配写入 `genre_ids`、`original_languages` 或 `keyword_ids`；歧义、无结果、查询上限和 TMDB 临时故障均保留原 `ranking_tags`，并记录解析计数，不阻断画像保存。
 - Provider 请求只允许固定 chain 方法与白名单参数；来源失败按 request_id 隔离，不会丢弃其他来源结果。`fetch_recommendations()` 只接受播放快照中的正整数电影/剧集 TMDB 种子。
 - 默认冻结目标 50 条按精确探索 25、放宽探索 10、相邻题材 5、公共推荐 10 分层召回；层级不足时只从其余有效层补足，并保持来源轮询。低于 20 条不会调用排序 Agent。
+- 最终候选身份固定为 `tmdb:movie:<id>` 或 `tmdb:tv:<id>`；电影与剧集的相同数字 ID 不冲突，跨来源只按类型化身份合并，不按标题兜底。
+- 插件在冻结前排除已看完、已入库、全部用户名下已有订阅、当前画像归档项和命中负向关键词的候选；任一硬过滤依赖读取失败时闭锁本轮，不调用排序 Agent。
 - 排序 Agent 只返回一个 JSON 对象，根键固定为 `recommendations`；不得生成、修改或回写画像。
 - `recommendations[].candidate_id` 必须来自冻结候选快照。
 - 推荐不得重复，不得包含已归档或已订阅候选。
@@ -58,6 +60,7 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 - `playback_unavailable`：运行中播放依赖瞬时故障时停止本轮，不调用 Agent，不覆盖旧画像或旧榜单。
 - `sample_insufficient`：播放样本不足，不调用 Agent。
 - `candidate_insufficient`：发现候选不足，不调用 Agent。
+- `candidate_filter_failed`：媒体库或全局订阅硬过滤无法可靠完成，不调用 Agent，也不保存风险候选快照。
 - `profile_agent_failed` / `profile_validation_failed` / `profile_save_failed`：画像阶段失败，保留旧画像与旧榜单。
 - `ranking_agent_failed` / `ranking_validation_failed` / `ranking_save_failed`：排序阶段失败；新画像可以保留，但旧榜单不被覆盖。
 - `validation_failed`：仅作为历史兼容状态，不作为生产组合输出链路。

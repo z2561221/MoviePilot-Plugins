@@ -77,13 +77,16 @@ def test_multi_source_candidates_are_deduplicated_and_frozen_before_use():
 
     assert result.status == "ready"
     assert [candidate.candidate_id for candidate in result.candidates] == [
-        "tmdb:100",
-        "tmdb:101",
+        "tmdb:movie:100",
+        "tmdb:movie:101",
     ]
     assert result.candidates[0].sources == ["douban", "tmdb_movies"]
     assert result.candidates[0].source_ids == {"tmdb": "100", "douban": "db-100"}
     frozen = repository.load_candidate_snapshot("run-1", "alice")
-    assert [candidate.candidate_id for candidate in frozen] == ["tmdb:100", "tmdb:101"]
+    assert [candidate.candidate_id for candidate in frozen] == [
+        "tmdb:movie:100",
+        "tmdb:movie:101",
+    ]
 
 
 def test_partial_source_failure_preserves_other_candidates_and_error_evidence():
@@ -95,7 +98,12 @@ def test_partial_source_failure_preserves_other_candidates_and_error_evidence():
         source_fetchers={
             "douban": failed,
             "bangumi": lambda count: [
-                {"title": "Anime", "media_type": "anime", "bangumi_id": 7}
+                {
+                    "title": "Anime",
+                    "media_type": "tv",
+                    "tmdb_id": 7,
+                    "bangumi_id": 7,
+                }
             ],
         }
     )
@@ -106,7 +114,9 @@ def test_partial_source_failure_preserves_other_candidates_and_error_evidence():
     )
 
     assert result.status == "ready"
-    assert [candidate.candidate_id for candidate in result.candidates] == ["bangumi:7"]
+    assert [candidate.candidate_id for candidate in result.candidates] == [
+        "tmdb:tv:7"
+    ]
     assert result.source_errors == {"douban": "network down"}
 
 
@@ -115,13 +125,23 @@ def test_source_name_never_overrides_payload_media_type():
     adapter = DiscoveryAdapter(
         source_fetchers={
             "bangumi": lambda count: [
-                {"title": "Live Action", "type": "电视剧", "bangumi_id": 1}
+                {
+                    "title": "Live Action",
+                    "type": "电视剧",
+                    "tmdb_id": 1,
+                    "bangumi_id": 1,
+                }
             ],
             "douban": lambda count: [
-                {"title": "Movie", "type": "电影", "douban_id": 2}
+                {
+                    "title": "Movie",
+                    "type": "电影",
+                    "tmdb_id": 2,
+                    "douban_id": 2,
+                }
             ],
             "tmdb_tv": lambda count: [
-                {"title": "Animation", "media_type": "anime", "tmdb_id": 3}
+                {"title": "Series", "tmdb_id": 3}
             ],
         }
     )
@@ -137,7 +157,7 @@ def test_source_name_never_overrides_payload_media_type():
     assert {item.sources[0]: item.media_type for item in result.candidates} == {
         "bangumi": "tv",
         "douban": "movie",
-        "tmdb_tv": "anime",
+        "tmdb_tv": "tv",
     }
 
 
@@ -233,7 +253,12 @@ def test_candidate_limit_round_robins_sources_before_global_cutoff():
             source: lambda count, source=source: [
                 {
                     "title": f"{source}-{index}",
-                    "tmdb_id": f"{source}-{index}",
+                    "tmdb_id": 1000 * (
+                        ("douban", "tmdb_movies", "tmdb_tv", "bangumi").index(source)
+                        + 1
+                    )
+                    + index
+                    + 1,
                     "media_type": "movie",
                 }
                 for index in range(4)
@@ -272,7 +297,7 @@ def test_layered_recall_preserves_source_round_robin_order():
             source: lambda count, source=source: [
                 {
                     "title": f"{source}-{index}",
-                    "tmdb_id": f"{source}-{index}",
+                    "tmdb_id": 1000 * (source_order.index(source) + 1) + index + 1,
                     "media_type": "movie",
                 }
                 for index in range(count)
@@ -329,7 +354,9 @@ def test_media_recognition_gate_rebuilds_source_item_as_tmdb_candidate():
         "alice", "run-tmdb", {"douban": True}, 10
     )
 
-    assert [candidate.candidate_id for candidate in result.candidates] == ["tmdb:900"]
+    assert [candidate.candidate_id for candidate in result.candidates] == [
+        "tmdb:movie:900"
+    ]
     assert result.candidates[0].title == "TMDB Title"
     assert result.candidates[0].source_ids == {"douban": "db-9", "tmdb": "900"}
 
@@ -359,3 +386,146 @@ def test_media_recognition_gate_rejects_items_without_tmdb_identity():
     assert result.status == "candidate_insufficient"
     assert result.candidates == []
     assert result.rejected_count == 1
+
+
+def test_movie_and_tv_with_same_tmdb_number_do_not_collide():
+    """相同数字 TMDB ID 的电影和剧集必须保留为两个候选。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {"title": "Shared Number Movie", "media_type": "movie", "tmdb_id": 42}
+            ],
+            "tmdb_tv": lambda count: [
+                {"title": "Shared Number TV", "media_type": "tv", "tmdb_id": 42}
+            ],
+        }
+    )
+    result = CandidateCollectionService(
+        adapter, AgentRankRepository(FakePlugin())
+    ).collect_and_freeze(
+        "alice",
+        "run-type-safe",
+        {"tmdb_movies": True, "tmdb_tv": True},
+        10,
+    )
+
+    assert [item.candidate_id for item in result.candidates] == [
+        "tmdb:movie:42",
+        "tmdb:tv:42",
+    ]
+
+
+def test_same_title_with_different_tmdb_ids_is_never_merged():
+    """标题相同但 TMDB 身份不同的作品不得使用标题兜底合并。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {"title": "The Same Title", "media_type": "movie", "tmdb_id": 51},
+                {"title": "The Same Title", "media_type": "movie", "tmdb_id": 52},
+            ]
+        }
+    )
+    result = CandidateCollectionService(
+        adapter, AgentRankRepository(FakePlugin())
+    ).collect_and_freeze(
+        "alice", "run-no-title-dedup", {"tmdb_movies": True}, 10
+    )
+
+    assert [item.candidate_id for item in result.candidates] == [
+        "tmdb:movie:51",
+        "tmdb:movie:52",
+    ]
+
+
+def test_hard_filters_run_after_deduplication_and_before_snapshot():
+    """已看、入库、订阅、归档和负向词候选均不得进入冻结快照。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {
+                    "title": f"Movie {index}",
+                    "media_type": "movie",
+                    "tmdb_id": index,
+                    "overview": "包含真人秀桥段" if index == 5 else "安全剧情",
+                }
+                for index in range(1, 7)
+            ]
+        }
+    )
+
+    class LibraryAdapter:
+        def exists(self, candidate):
+            return candidate.candidate_id == "tmdb:movie:2"
+
+    class SubscriptionAdapter:
+        def candidate_ids(self):
+            return {"tmdb:movie:3"}
+
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    service = CandidateCollectionService(
+        adapter,
+        repository,
+        library_adapter=LibraryAdapter(),
+        subscription_adapter=SubscriptionAdapter(),
+    )
+
+    result = service.collect_and_freeze(
+        "alice",
+        "run-hard-filter",
+        {"tmdb_movies": True},
+        50,
+        playback_samples=[
+            {
+                "stable_id": "tmdb:movie:1",
+                "tmdb_id": "1",
+                "media_type": "movie",
+                "completed": True,
+            }
+        ],
+        archived_candidate_ids={"tmdb:movie:4"},
+        negative_keywords=["真人秀"],
+    )
+
+    assert [item.candidate_id for item in result.candidates] == ["tmdb:movie:6"]
+    assert result.exclusion_counts == {
+        "invalid_or_unrecognized": 0,
+        "watched_completed": 1,
+        "library": 1,
+        "subscribed": 1,
+        "archived": 1,
+        "negative_keyword": 1,
+    }
+    assert [item.candidate_id for item in repository.load_candidate_snapshot(
+        "run-hard-filter", "alice"
+    )] == ["tmdb:movie:6"]
+
+
+def test_subscription_filter_failure_stops_before_snapshot():
+    """全局订阅无法读取时必须闭锁候选池，不能带风险继续排序。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {"title": "Movie", "media_type": "movie", "tmdb_id": 70}
+            ]
+        }
+    )
+
+    class BrokenSubscriptionAdapter:
+        def candidate_ids(self):
+            raise RuntimeError("database unavailable")
+
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    result = CandidateCollectionService(
+        adapter,
+        repository,
+        subscription_adapter=BrokenSubscriptionAdapter(),
+    ).collect_and_freeze(
+        "alice", "run-filter-failed", {"tmdb_movies": True}, 10
+    )
+
+    assert result.status == "candidate_filter_failed"
+    assert result.candidates == []
+    assert result.filter_errors == {"subscriptions": "database unavailable"}
+    assert repository.load_candidate_snapshot("run-filter-failed", "alice") == []

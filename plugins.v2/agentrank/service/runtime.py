@@ -62,6 +62,7 @@ class AgentRankRuntime:
         from ..adapter.discovery import DiscoveryAdapter
         from ..adapter.library import LibraryAdapter
         from ..adapter.media import MediaRecognitionAdapter
+        from ..adapter.subscription import SubscriptionAdapter
         from ..adapter.tmdb_keyword import TmdbKeywordAdapter
         from ..adapter.emby import EmbyServiceAccess
         from ..adapter.playback_reporting import PlaybackReportingAdapter
@@ -84,16 +85,20 @@ class AgentRankRuntime:
         )
         plugin._playback_service = playback_service
         media_adapter = MediaRecognitionAdapter()
+        library_adapter = LibraryAdapter()
         BoardPosterRepairService(repository, media_adapter).repair_profiles(
             [identity.profile_id for identity in configured_identities(config)]
         )
         return RecommendationOrchestrator(
             repository=repository,
             candidate_service=CandidateCollectionService(
-                DiscoveryAdapter(), repository, media_adapter
+                DiscoveryAdapter(),
+                repository,
+                media_adapter,
+                library_adapter=library_adapter,
+                subscription_adapter=SubscriptionAdapter(),
             ),
             agent_adapter=AgentRankAgentAdapter(),
-            library_adapter=LibraryAdapter(),
             playback_service=playback_service,
             retrieval_plan_resolver=ControlledRetrievalPlanResolver(
                 keyword_searcher=TmdbKeywordAdapter().search
