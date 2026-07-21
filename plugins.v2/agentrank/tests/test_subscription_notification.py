@@ -115,6 +115,23 @@ class FakeMedia:
         self.__dict__.update(kwargs)
 
 
+class FakeSubscriptionAdapter:
+    """返回跨全部用户名聚合后的类型化订阅身份。"""
+
+    def __init__(self, candidate_ids=None, error=None):
+        """配置已有订阅集合或模拟查重故障。"""
+        self.values = set(candidate_ids or set())
+        self.error = error
+        self.calls = 0
+
+    def candidate_ids(self):
+        """返回全局订阅身份，或抛出配置的数据库异常。"""
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return set(self.values)
+
+
 def _legacy_snapshot(run_id, candidates):
     """构造供旧榜单订阅兼容测试使用的 schema 2 快照。"""
     return CandidateSnapshot(
@@ -264,7 +281,7 @@ def test_manual_subscription_passes_username_and_identifiers_after_all_gates():
     assert result.success is True
     assert result.changed is True
     assert len(chain.exists_calls) == 1
-    assert chain.add_calls[0]["username"] == "Alice"
+    assert chain.add_calls[0]["username"] == "AgentRank"
     assert chain.add_calls[0]["tmdbid"] == 1
     assert chain.add_calls[0]["message"] is False
     assert chain.add_calls[0]["exist_ok"] is False
@@ -283,6 +300,56 @@ def test_existing_subscription_is_idempotent_and_never_calls_add():
     assert result.success is True
     assert result.changed is False
     assert result.code == "already_subscribed"
+    assert chain.add_calls == []
+
+
+def test_other_username_subscription_blocks_creation_before_chain_calls():
+    """其他用户名下的同类型 TMDB 订阅必须阻止 AgentRank 重复创建。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    _seed(repository)
+    chain = FakeSubscribeChain()
+    adapter = FakeSubscriptionAdapter({"tmdb:movie:1"})
+    service = SubscriptionService(
+        repository,
+        chain,
+        FakeMedia,
+        lambda value: value,
+        subscription_adapter=adapter,
+    )
+
+    result = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
+
+    assert result.success is True
+    assert result.changed is False
+    assert result.code == "already_subscribed"
+    assert adapter.calls == 1
+    assert chain.exists_calls == []
+    assert chain.add_calls == []
+
+
+def test_global_duplicate_check_failure_stops_closed_without_creation():
+    """全局订阅读取失败时不得绕过查重继续创建订阅。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    _seed(repository)
+    chain = FakeSubscribeChain()
+    adapter = FakeSubscriptionAdapter(error=RuntimeError("database unavailable"))
+    service = SubscriptionService(
+        repository,
+        chain,
+        FakeMedia,
+        lambda value: value,
+        subscription_adapter=adapter,
+    )
+
+    result = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
+
+    assert result.success is False
+    assert result.changed is False
+    assert result.code == "subscription_duplicate_check_failed"
+    assert adapter.calls == 1
+    assert chain.exists_calls == []
     assert chain.add_calls == []
 
 

@@ -36,9 +36,11 @@ class AgentRankRuntime:
             from .notification import NotificationService
             from .subscription import SubscriptionService
             from .telegram_interaction import TelegramSelectionService
+            from ..adapter.subscription import SubscriptionAdapter
 
             subscription_service = subscription_service or SubscriptionService(
-                plugin._repository
+                plugin._repository,
+                subscription_adapter=SubscriptionAdapter(),
             )
             interaction_service = interaction_service or TelegramSelectionService(
                 plugin=plugin,

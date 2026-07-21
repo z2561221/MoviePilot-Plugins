@@ -3,8 +3,11 @@
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from ..model.candidate import Candidate
+from ..model.candidate import Candidate, typed_tmdb_candidate_id
 from ..storage.repository import AgentRankRepository
+
+
+SUBSCRIPTION_USERNAME = "AgentRank"
 
 
 @dataclass
@@ -37,12 +40,17 @@ class SubscriptionService:
         subscribe_chain: Any = None,
         media_factory: Callable[..., Any] = None,
         media_type_factory: Callable[[str], Any] = None,
+        subscription_adapter: Any = None,
     ):
         """允许测试注入宿主订阅链和媒体类型工厂。"""
+        use_default_chain = subscribe_chain is None
         self._repository = repository
         self._subscribe_chain = subscribe_chain or self._default_subscribe_chain()
         self._media_factory = media_factory or self._default_media_factory()
         self._media_type_factory = media_type_factory or self._default_media_type
+        self._subscription_adapter = subscription_adapter
+        if self._subscription_adapter is None and use_default_chain:
+            self._subscription_adapter = self._default_subscription_adapter()
 
     @staticmethod
     def _default_subscribe_chain() -> Any:
@@ -57,6 +65,13 @@ class SubscriptionService:
         from app.core.context import MediaInfo
 
         return MediaInfo
+
+    @staticmethod
+    def _default_subscription_adapter() -> Any:
+        """创建跨全部用户名的订阅读取适配器。"""
+        from ..adapter.subscription import SubscriptionAdapter
+
+        return SubscriptionAdapter()
 
     @staticmethod
     def _default_media_type(value: str) -> Any:
@@ -102,6 +117,37 @@ class SubscriptionService:
         return {key: value for key, value in kwargs.items() if value not in (None, "")}
 
     @staticmethod
+    def _candidate_identity(candidate: Candidate) -> Optional[str]:
+        """返回候选可证明的类型化 TMDB 身份，旧快照也可安全兼容。"""
+        try:
+            return typed_tmdb_candidate_id(
+                candidate.candidate_id,
+                candidate.media_type,
+                candidate.metadata.get("mp_media_type"),
+            )
+        except ValueError:
+            try:
+                return typed_tmdb_candidate_id(
+                    candidate.source_ids.get("tmdb"),
+                    candidate.media_type,
+                    candidate.metadata.get("mp_media_type"),
+                )
+            except ValueError:
+                return None
+
+    def _globally_subscribed(self, candidate: Candidate) -> Optional[bool]:
+        """按媒体身份检查所有用户名下的订阅；无法检查时闭锁。"""
+        if self._subscription_adapter is None:
+            return False
+        candidate_id = self._candidate_identity(candidate)
+        if candidate_id is None:
+            return False
+        try:
+            return candidate_id in self._subscription_adapter.candidate_ids()
+        except Exception as error:
+            raise RuntimeError("global subscription duplicate check unavailable") from error
+
+    @staticmethod
     def _failure(code: str, message: str) -> ManualSubscriptionResult:
         """构造未改变状态的失败结果。"""
         return ManualSubscriptionResult(False, False, code, message)
@@ -143,6 +189,16 @@ class SubscriptionService:
         identifiers = self._identifier_kwargs(candidate)
         if not identifiers:
             return self._failure("candidate_unrecognizable", "候选缺少可识别媒体 ID")
+        try:
+            if self._globally_subscribed(candidate):
+                return ManualSubscriptionResult(
+                    True, False, "already_subscribed", "订阅已存在"
+                )
+        except Exception:
+            return self._failure(
+                "subscription_duplicate_check_failed",
+                "全局订阅查重不可用，未创建订阅",
+            )
         media_type = self._media_type_factory(self._candidate_media_type(candidate))
         media = self._media_factory(
             title=candidate.title,
@@ -160,7 +216,7 @@ class SubscriptionService:
             title=candidate.title,
             year=str(candidate.year or ""),
             mtype=media_type,
-            username=board.username or profile_id,
+            username=SUBSCRIPTION_USERNAME,
             message=False,
             exist_ok=False,
             **identifiers,
