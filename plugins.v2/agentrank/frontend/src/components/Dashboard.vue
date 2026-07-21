@@ -39,10 +39,10 @@ function formatTime(value) {
 async function initialize() {
   try {
     await state.loadOptions()
-    if (props.config?.default_user && state.users.value.includes(props.config.default_user)) {
-      state.selectedUser.value = props.config.default_user
+    if (props.config?.default_profile_id && state.identities.value.some(identity => identity.profile_id === props.config.default_profile_id)) {
+      state.selectedProfileId.value = props.config.default_profile_id
     }
-    if (state.selectedUser.value) await state.loadUserData()
+    if (state.selectedProfileId.value) await state.loadProfileData()
   } catch (_) { /* 卡片内显示共享错误 */ }
 }
 

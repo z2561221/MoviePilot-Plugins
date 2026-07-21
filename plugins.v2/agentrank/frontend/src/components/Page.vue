@@ -20,7 +20,7 @@ const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.val
 const positiveTags = computed(() => state.profile.value?.tags || [])
 const negativeTags = computed(() => state.profile.value?.negative_tags || [])
 const profileStats = computed(() => [
-  { label: '订阅样本', value: state.profile.value?.subscription_count || 0, suffix: '条', icon: 'mdi-database-check-outline' },
+  { label: '播放样本', value: state.profile.value?.playback_count || 0, suffix: '条', icon: 'mdi-database-check-outline' },
   { label: '偏好标签', value: positiveTags.value.length, suffix: '个', icon: 'mdi-heart-outline' },
   { label: '避雷标签', value: negativeTags.value.length, suffix: '个', icon: 'mdi-shield-alert-outline' },
 ])
@@ -38,7 +38,7 @@ const boardMatchTags = computed(() => {
 const profileRunId = computed(() => String(state.profile.value?.run_id || '').slice(0, 8) || '—')
 const detailStats = computed(() => [
   { label: '榜单条目', value: recommendations.value.length, suffix: '部', icon: 'mdi-format-list-numbered' },
-  { label: '画像样本', value: state.profile.value?.subscription_count || 0, suffix: '条', icon: 'mdi-account-heart-outline' },
+  { label: '画像样本', value: state.profile.value?.playback_count || 0, suffix: '条', icon: 'mdi-account-heart-outline' },
   { label: '忽略归档', value: archiveEntries.value.length, suffix: '部', icon: 'mdi-archive-outline' },
 ])
 
@@ -74,7 +74,7 @@ function mediaTypeLabel(value) {
 async function initialize() {
   try {
     await state.loadOptions()
-    if (state.selectedUser.value) await state.loadUserData()
+    if (state.selectedProfileId.value) await state.loadProfileData()
   } catch (_) {
     // 共享状态承载错误。
   } finally {
@@ -113,10 +113,10 @@ async function removeProfileTag(kind, tag) {
   )
 }
 
-watch(state.selectedUser, async (value, oldValue) => {
+watch(state.selectedProfileId, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
   historyPage.value = 1
-  try { await state.loadUserData(value) } catch (_) { /* 错误已保存 */ }
+  try { await state.loadProfileData(value) } catch (_) { /* 错误已保存 */ }
 })
 
 watch(activeTab, async value => {
@@ -138,14 +138,17 @@ onMounted(initialize)
       </div>
       <VSpacer />
       <VSelect
-        v-if="state.users.value.length > 1"
-        v-model="state.selectedUser.value"
-        :items="state.users.value"
+        v-if="state.identities.value.length > 1"
+        v-model="state.selectedProfileId.value"
+        :items="state.identityOptions.value"
+        item-title="title"
+        item-value="value"
         density="compact"
         variant="outlined"
         hide-details
-        label="用户"
-        class="ar-page__user"
+        label="Emby 用户"
+        class="ar-page__identity"
+        aria-label="切换 Emby 画像身份"
       />
       <VBtn
         icon="mdi-refresh"
@@ -213,7 +216,7 @@ onMounted(initialize)
             v-if="!recommendations.length"
             icon="mdi-format-list-numbered"
             title="推荐榜单尚未生成"
-            text="点击右上角刷新，为当前用户生成 Top 10。"
+            text="点击右上角刷新，根据播放画像生成 Top 10。"
           />
           <div v-else class="ar-page__ranking">
             <article v-for="item in recommendations" :key="item.candidate_id" class="ar-page__rank-item">
@@ -262,7 +265,7 @@ onMounted(initialize)
           <div class="ar-page__section-head">
             <div>
               <div class="ar-page__section-title">用户画像</div>
-              <div class="ar-page__section-desc">用订阅样本描述偏好、避雷方向与本轮榜单命中。</div>
+              <div class="ar-page__section-desc">用播放样本描述偏好、避雷方向与本轮榜单命中。</div>
             </div>
             <VChip size="small" variant="tonal" prepend-icon="mdi-clock-outline">{{ formatTime(state.profile.value?.generated_at) }}</VChip>
           </div>
@@ -273,7 +276,7 @@ onMounted(initialize)
                 <VAvatar color="primary" variant="tonal" size="44"><VIcon icon="mdi-account-heart-outline" /></VAvatar>
               </template>
               <VCardTitle class="text-subtitle-1 font-weight-bold">画像摘要</VCardTitle>
-              <VCardSubtitle>用户 {{ state.selectedUser.value || '—' }} · 运行 {{ profileRunId }}</VCardSubtitle>
+              <VCardSubtitle>Emby 用户 {{ state.selectedUsername.value || '—' }} · 运行 {{ profileRunId }}</VCardSubtitle>
             </VCardItem>
             <VDivider />
             <VCardText class="ar-page__profile-body">
@@ -404,7 +407,7 @@ onMounted(initialize)
 .ar-page__heading { min-width: 0; }
 .ar-page__title { font-size: 1.08rem; font-weight: 700; line-height: 1.35; }
 .ar-page__subtitle { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; }
-.ar-page__user { width: 150px; margin-right: 4px; }
+.ar-page__identity { width: 210px; margin-right: 4px; }
 .ar-page__summary-bar { min-height: 68px; display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)) auto; align-items: center; gap: 10px; padding: 10px 16px; background: transparent; }
 .ar-page__stat { min-width: 0; display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .7)); }
 .ar-page__stat-value { font-size: 17px; font-weight: 700; line-height: 1.2; }
@@ -486,7 +489,7 @@ onMounted(initialize)
   .ar-page__brand { order: 1; }
   .ar-page__heading { order: 1; flex: 1 1 180px; }
   .ar-page__toolbar :deep(.v-btn--icon) { order: 2; }
-  .ar-page__user { order: 3; width: calc(100% - 24px); margin: 6px 12px; }
+  .ar-page__identity { order: 3; width: calc(100% - 24px); margin: 6px 12px; }
   .ar-page__summary-bar { min-height: 60px; gap: 4px; padding: 8px 10px; }
   .ar-page__stat { gap: 6px; padding-inline: 6px; }
   .ar-page__stat :deep(.v-icon) { display: none; }

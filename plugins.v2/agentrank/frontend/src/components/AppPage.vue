@@ -13,8 +13,9 @@ const props = defineProps({
 const state = useAgentRankState(props.api)
 const {
   options,
-  users,
-  selectedUser,
+  identities,
+  identityOptions,
+  selectedProfileId,
   overview,
   board,
   loading,
@@ -51,7 +52,7 @@ const statusMeta = computed(() => {
 const stateMessage = computed(() => {
   if (error.value) return error.value.message
   const messages = {
-    sample_insufficient: '当前用户需要更多订阅样本，旧榜单不会被覆盖。',
+    sample_insufficient: '当前 Emby identity 需要更多播放样本，旧榜单不会被覆盖。',
     candidate_insufficient: '当前发现来源没有足够候选，请检查来源设置。',
     recommendation_incomplete: `本轮仅生成 ${recommendations.value.length} 条安全推荐。`,
     agent_failed: '本轮 Agent 调用失败，正在展示上一次成功榜单。',
@@ -103,7 +104,7 @@ function needsCopyToggle(value, threshold) {
 async function initialize() {
   try {
     await state.loadOptions()
-    if (selectedUser.value) await state.loadUserData()
+    if (selectedProfileId.value) await state.loadProfileData()
   } catch (_) {
     // 共享状态已保存可见错误。
   } finally {
@@ -167,9 +168,9 @@ async function saveSettings(payload) {
   }
 }
 
-watch(selectedUser, async (value, oldValue) => {
+watch(selectedProfileId, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
-  try { await state.loadUserData(value) } catch (_) { /* 可见错误由共享状态承载 */ }
+  try { await state.loadProfileData(value) } catch (_) { /* 可见错误由共享状态承载 */ }
 })
 
 onMounted(initialize)
@@ -190,8 +191,8 @@ onMounted(initialize)
           <VIcon :icon="statusMeta.icon" size="16" class="mr-1" />{{ statusMeta.text }}
         </VChip>
         <VSpacer />
-        <VSelect v-if="users.length > 1" v-model="selectedUser" :items="users" label="用户" density="compact" variant="outlined" hide-details class="ar-app-page__user" aria-label="切换推荐用户" />
-        <VBtn icon="mdi-refresh" variant="text" :loading="loading.action === 'refresh' || loading.data" :disabled="isRunning || !selectedUser" aria-label="刷新榜单" @click="refreshBoard" />
+        <VSelect v-if="identities.length > 1" v-model="selectedProfileId" :items="identityOptions" item-title="title" item-value="value" label="Emby 用户" density="compact" variant="outlined" hide-details class="ar-app-page__identity" aria-label="切换 Emby 画像身份" />
+        <VBtn icon="mdi-refresh" variant="text" :loading="loading.action === 'refresh' || loading.data" :disabled="isRunning || !selectedProfileId" aria-label="刷新榜单" @click="refreshBoard" />
         <VBtn icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="openSettings" />
       </VToolbar>
       <VDivider />
@@ -199,8 +200,8 @@ onMounted(initialize)
       <div v-if="loading.options && !initialized" class="ar-app-page__state">
         <VSkeletonLoader type="article, article, article" width="100%" />
       </div>
-      <div v-else-if="!users.length" class="ar-app-page__state">
-        <VEmptyState icon="mdi-account-alert-outline" title="尚未配置参与用户" text="请先打开设置，选择参与推荐用户和默认用户。">
+      <div v-else-if="!identities.length" class="ar-app-page__state">
+        <VEmptyState icon="mdi-account-alert-outline" title="尚未配置 Emby identity" text="请先打开设置，选择画像身份和默认身份。">
           <template #actions><VBtn color="primary" variant="tonal" prepend-icon="mdi-cog-outline" @click="openSettings">打开设置</VBtn></template>
         </VEmptyState>
       </div>
@@ -218,7 +219,7 @@ onMounted(initialize)
             </div>
 
             <VSkeletonLoader v-if="loading.data" type="list-item-avatar-three-line@5" />
-            <VEmptyState v-else-if="!recommendations.length" icon="mdi-format-list-numbered" title="推荐榜单尚未生成" text="点击刷新，Agent 将基于当前用户订阅与 MP 发现候选生成榜单。" />
+            <VEmptyState v-else-if="!recommendations.length" icon="mdi-format-list-numbered" title="推荐榜单尚未生成" text="点击刷新，Agent 将根据播放画像对冻结候选池排序。" />
             <div v-else class="ar-app-page__list">
               <article v-for="item in recommendations" :key="item.candidate_id" class="ar-app-page__item">
                 <div class="ar-app-page__rank" :class="{ 'ar-app-page__rank--top': item.rank <= 3 }">{{ item.rank }}</div>
@@ -276,7 +277,7 @@ onMounted(initialize)
 .ar-app-page__toolbar { position: sticky; top: 0; z-index: 10; background: rgb(var(--v-theme-surface)); }
 .ar-app-page :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-app-page__heading { min-width: 180px; }
-.ar-app-page__user { max-width: 180px; min-width: 140px; margin-right: 4px; }
+.ar-app-page__identity { max-width: 220px; min-width: 160px; margin-right: 4px; }
 .ar-app-page__content { padding: 16px; }
 .ar-app-page__alert { margin-bottom: 14px; }
 .ar-app-page__layout { display: block; }
@@ -314,7 +315,7 @@ onMounted(initialize)
   .ar-app-page__heading { order: 1; flex: 1 1 180px; }
   .ar-app-page__toolbar :deep(.v-btn--icon) { order: 2; }
   .ar-app-page__status { order: 3; }
-  .ar-app-page__user { order: 4; flex: 1 1 100%; max-width: none; margin: 6px 12px 0; }
+  .ar-app-page__identity { order: 4; flex: 1 1 100%; max-width: none; margin: 6px 12px 0; }
   .ar-app-page__content { padding: 10px; }
   .ar-app-page__item { grid-template-columns: 30px 64px minmax(0, 1fr); gap: 9px; padding: 9px; align-items: start; }
   .ar-app-page__rank { width: 28px; height: 28px; font-size: 12px; }
@@ -332,7 +333,7 @@ onMounted(initialize)
   .ar-app-page__toolbar :deep(.v-avatar) { display: none; }
   .ar-app-page__heading { min-width: 0; flex: 1 1 150px; margin-left: 12px; }
   .ar-app-page__status { order: 7; margin: 6px 12px 0 !important; }
-  .ar-app-page__user { margin-inline: 8px; }
+  .ar-app-page__identity { margin-inline: 8px; }
   .ar-app-page__content { padding: 8px; }
   .ar-app-page__item { grid-template-columns: 26px 56px minmax(0, 1fr); gap: 7px; padding: 8px; }
   .ar-app-page__poster { width: 56px; height: 84px; }

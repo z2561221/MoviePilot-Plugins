@@ -2,7 +2,7 @@ import { computed, reactive, ref } from 'vue'
 import { getPluginApi, postPluginApi } from './api'
 
 const OPTIONS_CACHE_TTL_MS = 5 * 60 * 1000
-const USER_CACHE_TTL_MS = 60 * 1000
+const PROFILE_CACHE_TTL_MS = 60 * 1000
 const cacheByApi = new WeakMap()
 const fallbackCache = createSharedCache()
 
@@ -11,7 +11,7 @@ function createSharedCache() {
     options: null,
     optionsUpdatedAt: 0,
     optionsRequest: null,
-    users: new Map(),
+    profiles: new Map(),
   }
 }
 
@@ -25,8 +25,9 @@ function isFresh(updatedAt, ttl) {
   return updatedAt > 0 && Date.now() - updatedAt < ttl
 }
 
-function emptyBoard(username) {
+function emptyBoard(profileId, username = '') {
   return {
+    profile_id: profileId,
     username,
     run_id: '',
     status: 'idle',
@@ -36,25 +37,26 @@ function emptyBoard(username) {
   }
 }
 
-function emptyProfile(username) {
+function emptyProfile(profileId, username = '') {
   return {
+    profile_id: profileId,
     username,
     summary: '',
     tags: [],
     negative_tags: [],
-    subscription_count: 0,
+    playback_count: 0,
     run_id: '',
     generated_at: '',
   }
 }
 
 /**
- * 统一管理 AgentRank 用户选择、只读数据与变更动作。
+ * 统一管理 AgentRank Emby identity 选择、只读数据与变更动作。
  */
 export function useAgentRankState(api) {
   const sharedCache = sharedCacheFor(api)
-  const options = ref({ users: [], available_users: [], default_user: '', config: {} })
-  const selectedUser = ref('')
+  const options = ref({ emby_identities: [], default_profile_id: '', config: {} })
+  const selectedProfileId = ref('')
   const overview = ref(null)
   const board = ref(null)
   const profile = ref(null)
@@ -64,14 +66,23 @@ export function useAgentRankState(api) {
   const error = ref(null)
   const feedback = ref(null)
 
-  const users = computed(() => options.value.users || [])
+  const identities = computed(() => {
+    const configured = options.value.config?.emby_identities
+    return Array.isArray(configured) ? configured : (options.value.emby_identities || [])
+  })
+  const identityOptions = computed(() => identities.value.map(identity => ({
+    title: [identity.username, identity.server_name].filter(Boolean).join(' · '),
+    value: identity.profile_id,
+  })))
+  const selectedIdentity = computed(() => identities.value.find(identity => identity.profile_id === selectedProfileId.value) || null)
+  const selectedUsername = computed(() => overview.value?.username || selectedIdentity.value?.username || '')
   const isRunning = computed(() => board.value?.status === 'running' || loading.action === 'refresh')
 
   function applyOptions(value) {
     options.value = value || options.value
-    const candidates = options.value.users || []
-    if (!candidates.includes(selectedUser.value)) {
-      selectedUser.value = options.value.default_user || candidates[0] || ''
+    const candidates = identities.value.map(identity => identity.profile_id)
+    if (!candidates.includes(selectedProfileId.value)) {
+      selectedProfileId.value = options.value.default_profile_id || options.value.config?.default_profile_id || candidates[0] || ''
     }
     return options.value
   }
@@ -112,21 +123,22 @@ export function useAgentRankState(api) {
     }
   }
 
-  function userCacheEntry(username) {
-    if (!sharedCache.users.has(username)) {
-      sharedCache.users.set(username, { value: null, updatedAt: 0, request: null })
+  function profileCacheEntry(profileId) {
+    if (!sharedCache.profiles.has(profileId)) {
+      sharedCache.profiles.set(profileId, { value: null, updatedAt: 0, request: null })
     }
-    return sharedCache.users.get(username)
+    return sharedCache.profiles.get(profileId)
   }
 
-  function applyUserData(data, username) {
-    const overviewData = data || { username }
+  function applyProfileData(data, profileId) {
+    const username = selectedIdentity.value?.username || ''
+    const overviewData = data || { profile_id: profileId, username }
     const recentHistory = Array.isArray(overviewData.history)
       ? overviewData.history
       : overviewData.latest_run ? [overviewData.latest_run] : []
     overview.value = overviewData
-    board.value = overviewData.board || emptyBoard(username)
-    profile.value = overviewData.profile || emptyProfile(username)
+    board.value = overviewData.board || emptyBoard(profileId, username)
+    profile.value = overviewData.profile || emptyProfile(profileId, username)
     history.value = recentHistory
     historyMeta.value = {
       total: Number(overviewData.history_total ?? recentHistory.length),
@@ -136,9 +148,9 @@ export function useAgentRankState(api) {
     return overviewData
   }
 
-  function fetchUserData(username, entry) {
+  function fetchProfileData(profileId, entry) {
     if (!entry.request) {
-      entry.request = getPluginApi(api, 'overview', { username })
+      entry.request = getPluginApi(api, 'overview', { profile_id: profileId })
         .then(value => {
           entry.value = value
           entry.updatedAt = Date.now()
@@ -149,17 +161,17 @@ export function useAgentRankState(api) {
     return entry.request
   }
 
-  async function loadUserData(username = selectedUser.value, { force = false } = {}) {
-    if (!username) return null
-    const entry = userCacheEntry(username)
+  async function loadProfileData(profileId = selectedProfileId.value, { force = false } = {}) {
+    if (!profileId) return null
+    const entry = profileCacheEntry(profileId)
     const cached = entry.value
     if (cached) {
-      applyUserData(cached, username)
+      applyProfileData(cached, profileId)
       if (!force) {
-        if (!isFresh(entry.updatedAt, USER_CACHE_TTL_MS)) {
-          void fetchUserData(username, entry)
+        if (!isFresh(entry.updatedAt, PROFILE_CACHE_TTL_MS)) {
+          void fetchProfileData(profileId, entry)
             .then(value => {
-              if (selectedUser.value === username) applyUserData(value, username)
+              if (selectedProfileId.value === profileId) applyProfileData(value, profileId)
             })
             .catch(() => {})
         }
@@ -169,7 +181,9 @@ export function useAgentRankState(api) {
     loading.data = !cached
     error.value = null
     try {
-      return applyUserData(await fetchUserData(username, entry), username)
+      const value = await fetchProfileData(profileId, entry)
+      if (selectedProfileId.value !== profileId) return value
+      return applyProfileData(value, profileId)
     } catch (err) {
       error.value = err
       throw err
@@ -179,9 +193,9 @@ export function useAgentRankState(api) {
   }
 
   async function loadHistory(page = 1, pageSize = 15) {
-    if (!selectedUser.value) return []
+    if (!selectedProfileId.value) return []
     const result = await getPluginApi(api, 'run-history', {
-      username: selectedUser.value,
+      profile_id: selectedProfileId.value,
       page,
       page_size: pageSize,
     })
@@ -213,75 +227,54 @@ export function useAgentRankState(api) {
   }
 
   async function refresh() {
-    const result = await runAction('refresh', { username: selectedUser.value }, '刷新')
-    await loadUserData(selectedUser.value, { force: true })
+    const result = await runAction('refresh', { profile_id: selectedProfileId.value }, '刷新')
+    await loadProfileData(selectedProfileId.value, { force: true })
     return result
   }
 
   async function archive(candidateId) {
-    const result = await runAction(
-      'archive',
-      { username: selectedUser.value, candidate_id: candidateId },
-      '忽略',
-    )
-    await loadUserData(selectedUser.value, { force: true })
+    const result = await runAction('archive', { profile_id: selectedProfileId.value, candidate_id: candidateId }, '忽略')
+    await loadProfileData(selectedProfileId.value, { force: true })
     return result
   }
 
   async function restore(candidateId) {
-    const result = await runAction(
-      'restore',
-      { username: selectedUser.value, candidate_id: candidateId },
-      '恢复',
-    )
-    await loadUserData(selectedUser.value, { force: true })
+    const result = await runAction('restore', { profile_id: selectedProfileId.value, candidate_id: candidateId }, '恢复')
+    await loadProfileData(selectedProfileId.value, { force: true })
     return result
   }
 
   async function deleteArchive(candidateId) {
-    const result = await runAction(
-      'archive/delete',
-      { username: selectedUser.value, candidate_id: candidateId },
-      '删除归档',
-    )
-    await loadUserData(selectedUser.value, { force: true })
+    const result = await runAction('archive/delete', { profile_id: selectedProfileId.value, candidate_id: candidateId }, '删除归档')
+    await loadProfileData(selectedProfileId.value, { force: true })
     return result
   }
 
   async function clearProfile() {
-    const result = await runAction(
-      'profile/clear',
-      { username: selectedUser.value, confirm: true },
-      '清除画像',
-    )
-    await loadUserData(selectedUser.value, { force: true })
+    const result = await runAction('profile/clear', { profile_id: selectedProfileId.value, confirm: true }, '清除画像')
+    await loadProfileData(selectedProfileId.value, { force: true })
     return result
   }
 
   async function updateProfileTag(kind, action, tag) {
-    const result = await runAction(
-      'profile/tags',
-      { username: selectedUser.value, kind, action, tag },
-      action === 'add' ? '添加标签' : '删除标签',
-    )
-    await loadUserData(selectedUser.value, { force: true })
+    const result = await runAction('profile/tags', { profile_id: selectedProfileId.value, kind, action, tag }, action === 'add' ? '添加标签' : '删除标签')
+    await loadProfileData(selectedProfileId.value, { force: true })
     return result
   }
 
   async function subscribe(candidateId) {
-    const result = await runAction(
-      'subscribe',
-      { username: selectedUser.value, candidate_id: candidateId },
-      '订阅',
-    )
-    await loadUserData(selectedUser.value, { force: true })
+    const result = await runAction('subscribe', { profile_id: selectedProfileId.value, candidate_id: candidateId }, '订阅')
+    await loadProfileData(selectedProfileId.value, { force: true })
     return result
   }
 
   return {
     options,
-    users,
-    selectedUser,
+    identities,
+    identityOptions,
+    selectedProfileId,
+    selectedIdentity,
+    selectedUsername,
     overview,
     board,
     profile,
@@ -292,7 +285,7 @@ export function useAgentRankState(api) {
     feedback,
     isRunning,
     loadOptions,
-    loadUserData,
+    loadProfileData,
     loadHistory,
     refresh,
     archive,

@@ -113,17 +113,17 @@ def test_discovery_settings_open_embedded_config_and_use_core_save_api():
     assert "api.put('plugin/AgentRank', payload)" in api
 
 
-def test_ranking_surfaces_use_one_cached_overview_request():
-    """榜单首屏聚合读取、内存缓存并在过期后静默更新。"""
+def test_ranking_surfaces_cache_overview_by_stable_profile_id():
+    """榜单首屏按稳定 profile_id 聚合缓存并在过期后静默更新。"""
     state = _read("useAgentRankState.js")
     page = _read("Page.vue")
     assert "const cacheByApi = new WeakMap()" in state
-    assert "const USER_CACHE_TTL_MS = 60 * 1000" in state
-    assert "getPluginApi(api, 'overview', { username })" in state
+    assert "const PROFILE_CACHE_TTL_MS = 60 * 1000" in state
+    assert "getPluginApi(api, 'overview', { profile_id: profileId })" in state
     assert "getPluginApi(api, 'board'" not in state
     assert "getPluginApi(api, 'profile'" not in state
     assert "loading.data = !cached" in state
-    assert "void fetchUserData(username, entry)" in state
+    assert "void fetchProfileData(profileId, entry)" in state
     assert "if (!initialized.value || !value || value === oldValue) return" in page
 
 
@@ -179,10 +179,10 @@ def test_profile_view_edits_preferences_and_shows_board_matches():
     assert "state.updateProfileTag(kind, 'add', tag)" in page
     assert "state.updateProfileTag(kind, 'remove', tag)" in page
     assert "closable" in page
-    for label in ("订阅样本", "偏好标签", "避雷标签", "本轮命中"):
+    for label in ("播放样本", "偏好标签", "避雷标签", "本轮命中"):
         assert label in page
     assert "ar-page__profile-groups" in page
-    assert "getPluginApi(api, 'overview', { username })" in state
+    assert "getPluginApi(api, 'overview', { profile_id: profileId })" in state
     assert "'profile/tags'" in state
 
 

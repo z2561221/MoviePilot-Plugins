@@ -40,19 +40,21 @@ const weights = {
   similarity_weight: 0.8,
 }
 
+const identities = [
+  { server_name: 'home', user_id: 'user-alice', username: 'Alice', profile_id: 'emby:home:user-alice', schema_version: 1 },
+  { server_name: 'remote', user_id: 'user-bob', username: 'Bob', profile_id: 'emby:remote:user-bob', schema_version: 1 },
+]
+
 const config = {
   enabled: true,
   discovery_page_enabled: true,
   schedule_enabled: true,
   cron: '0 8 * * *',
-  users: ['alice', 'bob'],
-  default_user: 'alice',
+  emby_identities: identities,
+  default_profile_id: identities[0].profile_id,
   discovery_sources: { douban: true, tmdb_movies: true, tmdb_tv: true, bangumi: true },
   weights,
   media_types: ['movie', 'tv', 'anime'],
-  profile_scope: 'all',
-  recent_days: 365,
-  subscription_sample_limit: 200,
   minimum_samples: 5,
   candidate_pool_size: 50,
   confidence_threshold: 0.6,
@@ -64,11 +66,16 @@ const config = {
   history_limit: 50,
   profile_cache_enabled: true,
   rebuild_profile_each_run: false,
-  agent_prompt: '请综合用户订阅画像、榜单权重与候选特征排序，优先推荐真正贴合用户口味、同时兼顾质量、新鲜感与题材多样性的作品。推荐理由和作品简介要轻松诙谐、机灵自然，避免套话、低俗表达与剧透。',
+  playback_enabled: true,
+  playback_recent_days: 180,
+  playback_completion_threshold: 0.85,
+  playback_abandon_minutes: 20,
+  playback_cache_days: 7,
+  agent_prompt: '以用户真实播放记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。',
 }
 
 const recommendations = Array.from({ length: 10 }, (_, index) => ({
-  candidate_id: `candidate-${index + 1}`,
+  candidate_id: `tmdb:${index % 3 === 0 ? 'movie' : 'tv'}:${1000 + index}`,
   rank: index + 1,
   title: index === 0
     ? '这是一部用于验证超长标题在三种视口下都不会挤出主要操作按钮的电影名称'
@@ -83,7 +90,7 @@ const recommendations = Array.from({ length: 10 }, (_, index) => ({
   poster_path: '',
   reason: index === 0
     ? '你最近看完了多部悬疑科幻短剧，这部同样采用封闭空间调查、多线追凶和高密度反转，但人物成长更扎实，适合作为下一部。'
-    : '结合近期订阅和高频偏好标签，题材、叙事节奏与口碑均接近你持续关注的作品。',
+    : '结合近期播放和高频偏好标签，题材、叙事节奏与口碑均接近你持续关注的作品。',
   summary: index === 0
     ? '一群研究员在封闭实验设施中调查异常信号，却发现每一次修正都会创造新的记忆分歧。他们必须在真相、同伴和原本的世界之间作出选择。'
     : '围绕一场意外展开的群像故事，在紧凑悬念中兼顾人物成长与情感关系。',
@@ -92,11 +99,18 @@ const recommendations = Array.from({ length: 10 }, (_, index) => ({
 }))
 
 const profile = {
+  profile_id: identities[0].profile_id,
+  username: identities[0].username,
   run_id: 'preview-run',
   generated_at: '2026-07-12T10:20:30+08:00',
   summary: '偏爱科幻、悬疑与人物成长，也会关注高口碑的新作。',
   tags: ['科幻', '悬疑', '成长', '高口碑'],
-  subscription_count: 36,
+  negative_tags: ['套路化续作'],
+  playback_count: 36,
+  filters: { genres: ['科幻', '悬疑'], languages: ['zh', 'en'], release_year_min: 2018 },
+  ranking_tags: ['封闭空间', '群像成长'],
+  retrieval_resolution_version: 1,
+  schema_version: 4,
 }
 const archive = {
   entries: [{
@@ -107,16 +121,31 @@ const archive = {
   }],
 }
 const history = Array.from({ length: 12 }, (_, index) => ({
+  profile_id: identities[0].profile_id,
+  username: identities[0].username,
   run_id: `run-${index}`,
   status: index ? 'success' : status.value,
   finished_at: `2026-07-${String(12 - Math.min(index, 9)).padStart(2, '0')}T08:00:00+08:00`,
-  metrics: { candidate_count: 100, final_count: 10, agent_calls: 1, subscription_success_count: 0 },
+  metrics: {
+    candidate_count: 50,
+    final_count: 10,
+    agent_calls: 2,
+    subscription_success_count: 0,
+    stage_status: { probe: 'ready', playback_snapshot: 'ready', profile: 'generated', candidate: 'ready', ranking: 'success', save: 'saved' },
+    stage_ms: { probe: 24, playback_snapshot: 318, profile: 1260, candidate: 842, ranking: 965, save: 18 },
+    candidate_source_counts: { douban: 18, tmdb_movies: 14, tmdb_tv: 12, bangumi: 6 },
+    candidate_exclusion_counts: { watched: 7, library: 3, subscribed: 2, archived: 1 },
+    source_errors: {},
+  },
   errors: [],
 }))
 
-function dataFor(path) {
-  if (path.endsWith('config/options')) return { users: ['alice', 'bob'], available_users: ['alice', 'bob'], default_user: 'alice', config }
-  if (path.endsWith('status')) return { state: 'ready', validation_errors: [] }
+function dataFor(path, params = {}) {
+  const identity = identities.find(item => item.profile_id === params.profile_id) || identities[0]
+  const playback = { profile_id: identity.profile_id, username: identity.username, source: 'playback_reporting', confidence: 'high', status: 'ready', sample_count: 36, mapped_count: 36, unmapped_count: 4, synced_at: '2026-07-12T10:18:00+08:00', message: 'Playback Reporting 已同步' }
+  const enablement = { requested: true, allowed: true, status: 'ready', message: 'Playback Reporting 已就绪', capabilities: {} }
+  if (path.endsWith('config/options')) return { emby_identities: identities, default_profile_id: identities[0].profile_id, config, defaults: config, enablement, playback_status: { [identities[0].profile_id]: playback } }
+  if (path.endsWith('status')) return { state: 'ready', validation_errors: [], default_profile_id: identities[0].profile_id, playback, enablement }
   if (path.endsWith('overview')) {
     const visible = status.value === 'idle'
       ? []
@@ -124,12 +153,16 @@ function dataFor(path) {
         ? recommendations.slice(0, 7)
         : recommendations
     return {
+      profile_id: identity.profile_id,
+      username: identity.username,
       archive,
       latest_run: history[0],
-      history: history.slice(0, 10),
+      history: history.slice(0, 10).map(item => ({ ...item, profile_id: identity.profile_id, username: identity.username })),
       history_total: history.length,
-      profile,
-      board: { status: status.value, generated_at: '2026-07-12T10:20:30+08:00', recommendations: visible },
+      profile: { ...profile, profile_id: identity.profile_id, username: identity.username },
+      playback,
+      enablement,
+      board: { profile_id: identity.profile_id, username: identity.username, status: status.value, generated_at: '2026-07-12T10:20:30+08:00', recommendations: visible },
     }
   }
   if (path.endsWith('board')) {
@@ -141,12 +174,12 @@ function dataFor(path) {
     return { status: status.value, generated_at: '2026-07-12T10:20:30+08:00', recommendations: visible }
   }
   if (path.endsWith('profile')) return profile
-  if (path.endsWith('run-history')) return { items: history.slice(0, 10), total: history.length, page: 1, page_size: 10 }
+  if (path.endsWith('run-history')) return { items: history.slice(0, 10).map(item => ({ ...item, profile_id: identity.profile_id, username: identity.username })), total: history.length, page: 1, page_size: 10 }
   return {}
 }
 
 const api = {
-  async get(path) { return { data: { success: true, data: dataFor(path) } } },
+  async get(path, request = {}) { return { data: { success: true, data: dataFor(path, request.params || {}) } } },
   async post(path) {
     if (path.endsWith('refresh')) status.value = 'success'
     return { data: { success: true, data: { changed: true, message: '预览操作已完成' } } }

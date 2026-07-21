@@ -13,6 +13,7 @@ APP_PAGE = COMPONENTS / "AppPage.vue"
 PAGE = COMPONENTS / "Page.vue"
 DASHBOARD = COMPONENTS / "Dashboard.vue"
 FRONTEND = ROOT / "plugins.v2" / "agentrank" / "frontend"
+PREVIEW = FRONTEND / "src" / "PreviewApp.vue"
 DIST = ROOT / "plugins.v2" / "agentrank" / "dist"
 ASSETS = DIST / "assets"
 
@@ -28,8 +29,8 @@ def test_frontend_api_uses_injected_bearer_client_without_token_or_fetch():
     assert "token=" not in source
 
 
-def test_shared_state_covers_all_read_and_mutation_surfaces():
-    """One composable owns username selection, data loading, and actions."""
+def test_shared_state_owns_profile_id_selection_reads_and_actions():
+    """One composable owns Emby identity selection, data loading, and actions."""
     assert STATE.exists()
     source = STATE.read_text(encoding="utf-8")
     for path in (
@@ -47,7 +48,10 @@ def test_shared_state_covers_all_read_and_mutation_surfaces():
         "subscribe",
     ):
         assert path in source
-    assert "selectedUser" in source
+    assert "selectedProfileId" in source
+    assert "identityOptions" in source
+    assert "profile_id: selectedProfileId.value" in source
+    assert "{ username:" not in source
     assert "loading" in source
     assert "error" in source
 
@@ -139,6 +143,36 @@ def test_config_runtime_overview_exposes_identity_gate_and_frozen_pool_evidence(
         assert step in source
 
 
+def test_ranking_surfaces_and_preview_use_emby_identity_contracts_only():
+    """Page/AppPage/Dashboard 与预览均以 profile_id 运行并只显示安全名称。"""
+    state = STATE.read_text(encoding="utf-8")
+    page = PAGE.read_text(encoding="utf-8")
+    app_page = APP_PAGE.read_text(encoding="utf-8")
+    dashboard = DASHBOARD.read_text(encoding="utf-8")
+    preview = PREVIEW.read_text(encoding="utf-8")
+    assert "selectedProfileId" in state
+    assert "profiles: new Map()" in state
+    assert "profile_id: selectedProfileId.value" in state
+    assert "Emby 用户" in page and "state.selectedUsername.value" in page
+    assert "Emby 用户" in app_page and "identityOptions" in app_page
+    assert "default_profile_id" in dashboard
+    assert "emby_identities: identities" in preview
+    assert "playback_count: 36" in preview
+    assert "function dataFor(path, params = {})" in preview
+    assert "params.profile_id" in preview
+    for source in (state, page, app_page, dashboard, preview):
+        for legacy in (
+            "selectedUser.value",
+            "const selectedUser =",
+            "loadUserData",
+            "default_user",
+            "available_users",
+            "playback_user_map",
+            "subscription_count",
+        ):
+            assert legacy not in source
+
+
 def test_config_has_stable_desktop_and_dedicated_mobile_layout():
     """Config follows the shared stable-window and mobile navigation pattern."""
     source = CONFIG.read_text(encoding="utf-8")
@@ -162,7 +196,8 @@ def test_app_page_is_a_ranking_only_vertical_top_ten():
     source = APP_PAGE.read_text(encoding="utf-8")
     assert "useAgentRankState" in source
     assert "Top 10" in source
-    assert "selectedUser" in source
+    assert "selectedProfileId" in source
+    assert "identityOptions" in source
     assert "clearProfile" not in source
     assert "subscribe" in source
     assert "archive" in source
