@@ -150,6 +150,25 @@ def test_discovery_provider_contract_has_global_raw_cap_and_recipe_boundary():
     assert "requests.get" not in source
 
 
+def test_layered_recall_contract_has_fixed_default_quotas_and_minimum_gate():
+    """分层召回必须固定默认配额并在排序前执行 20 条门槛。"""
+    discovery = _source("adapter/discovery.py")
+    candidate = _source("service/candidate.py")
+    recommendation = _source("service/recommendation.py")
+    for layer, quota in {
+        '"exact": 25': 25,
+        '"relaxed": 10': 10,
+        '"adjacent": 5': 5,
+        '"public_recommend": 10': 10,
+    }.items():
+        assert layer in discovery
+        assert quota > 0
+    assert "def fetch_layered(" in discovery
+    assert 'marked["recall_pass"] = recall_pass' in discovery
+    assert "DEFAULT_MINIMUM_FROZEN_CANDIDATES = 20" in candidate
+    assert "len(candidates) < minimum_frozen_candidates" in recommendation
+
+
 def test_sidebar_entry_respects_discovery_page_switch():
     """侧栏发现入口必须同时受插件状态和独立开关控制。"""
     source = _source("__init__.py")

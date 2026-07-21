@@ -15,6 +15,43 @@ from ..model.retrieval import (
 
 
 DEFAULT_RAW_FETCH_LIMIT = 150
+RECALL_LAYER_ORDER = ("exact", "relaxed", "adjacent", "public_recommend")
+DEFAULT_RECALL_LAYER_QUOTAS = {
+    "exact": 25,
+    "relaxed": 10,
+    "adjacent": 5,
+    "public_recommend": 10,
+}
+RECALL_LAYER_NAMES = frozenset(RECALL_LAYER_ORDER)
+ADJACENT_GENRE_IDS = {
+    12: (14, 28, 878),
+    14: (12, 16, 27),
+    16: (12, 35, 10751),
+    18: (36, 80, 10749),
+    27: (53, 9648, 18),
+    28: (12, 53, 878),
+    35: (16, 10749, 10751),
+    36: (18, 37, 99),
+    37: (36, 18, 28),
+    53: (27, 9648, 80),
+    80: (18, 53, 9648),
+    99: (18, 36, 10770),
+    878: (12, 14, 28, 9648),
+    9648: (27, 53, 80, 878),
+    10402: (18, 35, 10749),
+    10749: (18, 35, 10751),
+    10751: (16, 35, 10749),
+    10752: (28, 36, 18),
+    10759: (18, 28, 10765),
+    10762: (16, 10751, 35),
+    10763: (99, 10764, 10766),
+    10764: (99, 10763, 10766),
+    10765: (14, 878, 9648),
+    10766: (18, 10759, 10765),
+    10767: (10759, 10765, 16),
+    10768: (36, 10752, 18),
+    10770: (35, 18, 10751),
+}
 PROVIDER_METHOD_CONTRACTS = {
     "douban_public": {
         "provider": "douban",
@@ -87,6 +124,7 @@ class ProviderRequest:
     media_type: str
     limit: int
     params: Mapping[str, Any] = field(default_factory=dict)
+    layer: str = "exact"
 
     def __post_init__(self) -> None:
         """校验方法契约、媒体类型、配额和参数键值。"""
@@ -96,6 +134,9 @@ class ProviderRequest:
             raise ValueError("provider request_id is invalid")
         if not re.fullmatch(r"[a-z0-9:_-]{1,64}", source):
             raise ValueError("provider source is invalid")
+        layer = str(self.layer or "").strip()
+        if layer not in RECALL_LAYER_NAMES:
+            raise ValueError("provider recall layer is invalid")
         contract = PROVIDER_METHOD_CONTRACTS.get(self.method)
         if contract is None:
             raise ValueError("provider method is not allowed")
@@ -115,13 +156,20 @@ class ProviderRequest:
         self._validate_params(params)
         object.__setattr__(self, "request_id", request_id)
         object.__setattr__(self, "source", source)
+        object.__setattr__(self, "layer", layer)
         object.__setattr__(self, "params", MappingProxyType(params))
 
     def _validate_params(self, params: Dict[str, Any]) -> None:
         """按 MoviePilot chain 签名校验白名单参数值。"""
         if self.method == "douban_public":
-            if self.media_type != "mixed" or params["page"] != 1:
-                raise ValueError("douban public page must be 1")
+            page = params["page"]
+            if (
+                self.media_type != "mixed"
+                or isinstance(page, bool)
+                or not isinstance(page, int)
+                or not 1 <= page <= 10
+            ):
+                raise ValueError("douban public page is invalid")
             return
         if self.method == "bangumi_discover":
             if (
@@ -129,9 +177,15 @@ class ProviderRequest:
                 or params["type"] != 2
                 or params["cat"] is not None
                 or params["sort"] != "rank"
-                or params["offset"] != 0
             ):
                 raise ValueError("bangumi discovery params are invalid")
+            offset = params["offset"]
+            if (
+                isinstance(offset, bool)
+                or not isinstance(offset, int)
+                or not 0 <= offset <= 1500
+            ):
+                raise ValueError("bangumi discovery offset is invalid")
             year = params["year"]
             if year is not None and (
                 isinstance(year, bool)
@@ -174,8 +228,13 @@ class ProviderRequest:
                 raise ValueError("tmdb release_date is invalid")
             if not 1870 <= int(release_date[:4]) <= 2100:
                 raise ValueError("tmdb release_date is out of range")
-        if params["page"] != 1:
-            raise ValueError("tmdb discovery page must be 1")
+        page = params["page"]
+        if (
+            isinstance(page, bool)
+            or not isinstance(page, int)
+            or not 1 <= page <= 10
+        ):
+            raise ValueError("tmdb discovery page is invalid")
 
     def recipe(self) -> Dict[str, Any]:
         """返回不含秘密、可写入运行历史的请求配方。"""
@@ -186,6 +245,7 @@ class ProviderRequest:
             "mode": self.mode,
             "method": self.method,
             "media_type": self.media_type,
+            "layer": self.layer,
             "limit": self.limit,
             "params": dict(self.params),
         }
@@ -198,6 +258,7 @@ class RawDiscoveredItem:
     source: str
     payload: Any
     mediaid_prefix: str = ""
+    layer: str = "exact"
 
 
 @dataclass
@@ -210,6 +271,7 @@ class DiscoveryFetchResult:
     source_counts: Dict[str, int] = field(default_factory=dict)
     request_recipes: List[Dict[str, Any]] = field(default_factory=list)
     raw_limit: int = DEFAULT_RAW_FETCH_LIMIT
+    layer_counts: Dict[str, int] = field(default_factory=dict)
 
 
 class MoviePilotProvider:
@@ -228,9 +290,10 @@ class MoviePilotProvider:
 
         chain = DoubanChain()
         each_count = max(1, (request.limit + 2) // 3)
-        rows = list(chain.movie_hot(page=1, count=each_count) or [])
-        rows.extend(chain.tv_hot(page=1, count=each_count) or [])
-        rows.extend(chain.tv_animation(page=1, count=each_count) or [])
+        page = int(request.params["page"])
+        rows = list(chain.movie_hot(page=page, count=each_count) or [])
+        rows.extend(chain.tv_hot(page=page, count=each_count) or [])
+        rows.extend(chain.tv_animation(page=page, count=each_count) or [])
         return rows[: request.limit]
 
     @staticmethod
@@ -332,18 +395,72 @@ class DiscoveryAdapter:
             "page": 1,
         }
 
+    @staticmethod
+    def _relaxed_tmdb_params(params: Mapping[str, Any]) -> Dict[str, Any]:
+        """构造放宽探索参数，移除高约束条件但保留媒体类型与语言。"""
+        relaxed = dict(params)
+        relaxed.update(
+            {
+                "with_genres": "",
+                "with_keywords": "",
+                "vote_average": 0.0,
+                "vote_count": 0,
+                "release_date": "",
+            }
+        )
+        return relaxed
+
+    @staticmethod
+    def _adjacent_genres(genre_ids: Iterable[int]) -> List[int]:
+        """按固定白名单将画像题材映射为相邻题材。"""
+        selected = {int(item) for item in genre_ids or ()}
+        result: List[int] = []
+        for genre_id in sorted(selected):
+            for adjacent in ADJACENT_GENRE_IDS.get(genre_id, ()):
+                if adjacent not in selected and adjacent not in result:
+                    result.append(adjacent)
+        return result[:20]
+
+    def _layer_tmdb_params(
+        self, plan: Optional[RetrievalPlan], layer: str
+    ) -> Optional[Dict[str, Any]]:
+        """按召回层生成受控 TMDB 参数；无相邻题材时跳过该层。"""
+        params = self._tmdb_params(plan)
+        if layer == "exact":
+            return params
+        if layer == "relaxed":
+            return self._relaxed_tmdb_params(params)
+        if layer == "adjacent":
+            filters = plan.filters if isinstance(plan, RetrievalPlan) else None
+            adjacent = self._adjacent_genres(filters.genre_ids if filters else ())
+            if not adjacent:
+                return None
+            params = self._relaxed_tmdb_params(params)
+            params["with_genres"] = "|".join(str(item) for item in adjacent)
+            return params
+        raise ValueError("unsupported discovery layer")
+
     def _default_requests(
         self,
         enabled_sources: Mapping[str, Any],
         plan: Optional[RetrievalPlan],
         raw_limit: int,
+        layer: str = "exact",
+        request_suffix: str = "",
+        page: int = 1,
     ) -> List[ProviderRequest]:
-        """构造公共探索请求；推荐请求由独立入口接收播放种子。"""
+        """构造指定召回层的公共探索请求。"""
         filters = plan.filters if isinstance(plan, RetrievalPlan) else None
         media_types = set(filters.media_types if filters else ())
+        tmdb_params = self._layer_tmdb_params(plan, layer)
+        if layer != "exact" and tmdb_params is None:
+            return []
+        source_order = self.DEFAULT_SOURCE_ORDER
+        if layer in {"relaxed", "adjacent"}:
+            source_order = ("tmdb_movies", "tmdb_tv")
         enabled_names = [
             name
-            for name in self.DEFAULT_SOURCE_ORDER
+            for name in source_order
             if enabled_sources.get(name, False)
             and not (
                 (name == "tmdb_movies" and media_types and "movie" not in media_types)
@@ -360,39 +477,45 @@ class DiscoveryAdapter:
             )
         ]
         quotas = self._quotas(enabled_names, raw_limit)
-        tmdb_params = self._tmdb_params(plan)
         requests: List[ProviderRequest] = []
         for name, limit in quotas.items():
+            request_id = (
+                name
+                if layer == "exact" and not request_suffix
+                else f"{layer}:{name}{request_suffix}"
+            )
             if name == "douban":
                 requests.append(
                     ProviderRequest(
-                        request_id=name,
+                        request_id=request_id,
                         source=name,
                         provider="douban",
                         mode="discover",
                         method="douban_public",
                         media_type="mixed",
                         limit=limit,
-                        params={"page": 1},
+                        params={"page": page},
+                        layer=layer,
                     )
                 )
             elif name in {"tmdb_movies", "tmdb_tv"}:
                 requests.append(
                     ProviderRequest(
-                        request_id=name,
+                        request_id=request_id,
                         source=name,
                         provider="tmdb",
                         mode="discover",
                         method="tmdb_discover",
                         media_type="movie" if name == "tmdb_movies" else "tv",
                         limit=limit,
-                        params=tmdb_params,
+                        params={**tmdb_params, "page": page},
+                        layer=layer,
                     )
                 )
             else:
                 requests.append(
                     ProviderRequest(
-                        request_id=name,
+                        request_id=request_id,
                         source=name,
                         provider="bangumi",
                         mode="discover",
@@ -404,8 +527,9 @@ class DiscoveryAdapter:
                             "cat": None,
                             "sort": "rank",
                             "year": filters.year_min if filters else None,
-                            "offset": 0,
+                            "offset": 0 if page == 1 else (page - 1) * limit,
                         },
+                        layer=layer,
                     )
                 )
         return requests
@@ -428,23 +552,36 @@ class DiscoveryAdapter:
         return list(fetcher(limit) or [])[:limit]
 
     def _fetch_legacy(
-        self, enabled_sources: Mapping[str, Any], raw_limit: int
+        self,
+        enabled_sources: Mapping[str, Any],
+        raw_limit: int,
+        layer: str = "exact",
+        source_names: Optional[Sequence[str]] = None,
+        request_suffix: str = "",
     ) -> DiscoveryFetchResult:
-        """为已有单参数测试 fetcher 提供同等来源隔离与 recipe 证据。"""
+        """为已有单参数 fetcher 提供分层来源隔离与 recipe 证据。"""
         result = DiscoveryFetchResult(raw_limit=raw_limit)
+        allowed = set(source_names) if source_names is not None else None
         enabled_names = [
             name
             for name in self._source_fetchers or {}
             if enabled_sources.get(name, False)
+            and (allowed is None or name in allowed)
         ]
         for source, limit in self._quotas(enabled_names, raw_limit).items():
+            request_id = (
+                source
+                if layer == "exact" and not request_suffix
+                else f"{layer}:{source}{request_suffix}"
+            )
             recipe = {
-                "request_id": source,
+                "request_id": request_id,
                 "source": source,
                 "provider": "injected",
                 "mode": "discover",
                 "method": "test_fetcher",
                 "media_type": "mixed",
+                "layer": layer,
                 "limit": limit,
                 "params": {},
             }
@@ -452,12 +589,14 @@ class DiscoveryAdapter:
             try:
                 rows = self._invoke_legacy(self._source_fetchers[source], limit)
             except Exception as error:
-                result.source_errors[source] = str(error)
+                result.source_errors[request_id] = str(error)
                 continue
             result.source_counts[source] = len(rows)
             result.items.extend(
-                RawDiscoveredItem(source=source, payload=row) for row in rows
+                RawDiscoveredItem(source=source, payload=row, layer=layer)
+                for row in rows
             )
+            result.layer_counts[layer] = result.layer_counts.get(layer, 0) + len(rows)
         return result
 
     def fetch_requests(
@@ -494,7 +633,13 @@ class DiscoveryAdapter:
                 result.source_counts.get(effective.source, 0) + len(rows)
             )
             result.items.extend(
-                RawDiscoveredItem(source=effective.source, payload=row) for row in rows
+                RawDiscoveredItem(
+                    source=effective.source, payload=row, layer=effective.layer
+                )
+                for row in rows
+            )
+            result.layer_counts[effective.layer] = (
+                result.layer_counts.get(effective.layer, 0) + len(rows)
             )
         return result
 
@@ -516,16 +661,20 @@ class DiscoveryAdapter:
             ),
         )
         if self._source_fetchers is not None:
-            return self._fetch_legacy(enabled_sources, limit)
-        requests = self._default_requests(enabled_sources, retrieval_plan, limit)
+            return self._fetch_legacy(enabled_sources, limit, layer="exact")
+        requests = self._default_requests(
+            enabled_sources, retrieval_plan, limit, layer="exact"
+        )
         return self.fetch_requests(requests, raw_limit=limit)
 
     def fetch_recommendations(
         self,
         playback_samples: Iterable[Mapping[str, Any]],
         raw_limit: Optional[int] = None,
+        layer: str = "public_recommend",
+        request_suffix: str = "",
     ) -> DiscoveryFetchResult:
-        """按类型化 TMDB 播放种子执行公共推荐 Provider。"""
+        """按类型化 TMDB 播放种子执行指定层的公共推荐 Provider。"""
         limit = max(
             1,
             min(
@@ -535,6 +684,8 @@ class DiscoveryAdapter:
         )
         seeds: List[tuple[str, int]] = []
         for sample in playback_samples or ():
+            if not isinstance(sample, Mapping) and hasattr(sample, "to_dict"):
+                sample = sample.to_dict()
             if not isinstance(sample, Mapping):
                 continue
             media_type = str(sample.get("media_type") or "").strip()
@@ -555,7 +706,7 @@ class DiscoveryAdapter:
         )
         requests = [
             ProviderRequest(
-                request_id=f"tmdb_recommend:{media_type}:{tmdbid}",
+                request_id=f"tmdb_recommend:{media_type}:{tmdbid}{request_suffix}",
                 source="tmdb_recommend",
                 provider="tmdb",
                 mode="recommend",
@@ -563,8 +714,169 @@ class DiscoveryAdapter:
                 media_type=media_type,
                 limit=quotas[f"{media_type}:{tmdbid}"],
                 params={"tmdbid": tmdbid},
+                layer=layer,
             )
             for media_type, tmdbid in seeds
             if f"{media_type}:{tmdbid}" in quotas
         ]
         return self.fetch_requests(requests, raw_limit=limit)
+
+    @staticmethod
+    def _scaled_layer_quotas(target: int) -> Dict[str, int]:
+        """将默认 25/10/5/10 配额按目标池大小做最大余数缩放。"""
+        target = max(0, int(target))
+        total = sum(DEFAULT_RECALL_LAYER_QUOTAS.values())
+        if not target or not total:
+            return {name: 0 for name in RECALL_LAYER_ORDER}
+        base = {
+            name: target * quota // total
+            for name, quota in DEFAULT_RECALL_LAYER_QUOTAS.items()
+        }
+        remainder = target - sum(base.values())
+        ranked = sorted(
+            RECALL_LAYER_ORDER,
+            key=lambda name: (
+                -(target * DEFAULT_RECALL_LAYER_QUOTAS[name] % total),
+                RECALL_LAYER_ORDER.index(name),
+            ),
+        )
+        for name in ranked[:remainder]:
+            base[name] += 1
+        return base
+
+    @staticmethod
+    def _merge_fetch_result(
+        target: DiscoveryFetchResult,
+        incoming: DiscoveryFetchResult,
+        recall_pass: str,
+    ) -> None:
+        """合并一次召回结果并标注初始或补足轮次。"""
+        target.items.extend(incoming.items)
+        target.source_errors.update(incoming.source_errors)
+        target.rejected_sources.extend(
+            source
+            for source in incoming.rejected_sources
+            if source not in target.rejected_sources
+        )
+        for source, count in incoming.source_counts.items():
+            target.source_counts[source] = target.source_counts.get(source, 0) + count
+        for layer, count in incoming.layer_counts.items():
+            target.layer_counts[layer] = target.layer_counts.get(layer, 0) + count
+        for recipe in incoming.request_recipes:
+            marked = dict(recipe)
+            marked["recall_pass"] = recall_pass
+            target.request_recipes.append(marked)
+
+    def _run_recall_layer(
+        self,
+        layer: str,
+        enabled_sources: Mapping[str, Any],
+        plan: Optional[RetrievalPlan],
+        playback_samples: Iterable[Mapping[str, Any]],
+        limit: int,
+        fallback: bool,
+    ) -> DiscoveryFetchResult:
+        """执行一层召回并保持同一来源与参数边界。"""
+        suffix = ":fallback" if fallback else ""
+        if layer == "public_recommend":
+            allowed_samples = []
+            for sample in playback_samples or ():
+                value = sample.to_dict() if hasattr(sample, "to_dict") else sample
+                if not isinstance(value, Mapping):
+                    continue
+                media_type = str(value.get("media_type") or "")
+                if (
+                    (media_type == "movie" and enabled_sources.get("tmdb_movies", False))
+                    or (media_type == "tv" and enabled_sources.get("tmdb_tv", False))
+                ):
+                    allowed_samples.append(value)
+            return self.fetch_recommendations(
+                allowed_samples,
+                raw_limit=limit,
+                layer=layer,
+                request_suffix=suffix,
+            )
+        source_names = None
+        if layer in {"relaxed", "adjacent"}:
+            source_names = ("tmdb_movies", "tmdb_tv")
+        if self._source_fetchers is not None:
+            return self._fetch_legacy(
+                enabled_sources,
+                limit,
+                layer=layer,
+                source_names=source_names,
+                request_suffix=suffix,
+            )
+        requests = self._default_requests(
+            enabled_sources,
+            plan,
+            limit,
+            layer=layer,
+            request_suffix=suffix,
+            page=2 if fallback else 1,
+        )
+        return self.fetch_requests(requests, raw_limit=limit)
+
+    def fetch_layered(
+        self,
+        enabled_sources: Mapping[str, Any],
+        candidate_limit: int,
+        retrieval_plan: Optional[RetrievalPlan] = None,
+        playback_samples: Iterable[Mapping[str, Any]] = (),
+        raw_limit: Optional[int] = None,
+    ) -> DiscoveryFetchResult:
+        """按四层配额召回候选，并在短缺时从有效层补足。"""
+        if not isinstance(enabled_sources, Mapping):
+            return DiscoveryFetchResult(raw_limit=self._raw_fetch_limit)
+        playback_samples = list(playback_samples or ())
+        limit = max(
+            1,
+            min(int(raw_limit or self._raw_fetch_limit), DEFAULT_RAW_FETCH_LIMIT),
+        )
+        target = min(max(1, int(candidate_limit)), limit)
+        quotas = self._scaled_layer_quotas(target)
+        result = DiscoveryFetchResult(raw_limit=limit)
+        valid_layers: List[str] = []
+        initial_budgets: Dict[str, int] = {}
+        consumed = 0
+        for layer in RECALL_LAYER_ORDER:
+            budget = min(quotas.get(layer, 0), max(0, limit - consumed))
+            if budget <= 0:
+                continue
+            incoming = self._run_recall_layer(
+                layer,
+                enabled_sources,
+                retrieval_plan,
+                playback_samples,
+                budget,
+                fallback=False,
+            )
+            if not incoming.request_recipes:
+                continue
+            valid_layers.append(layer)
+            initial_budgets[layer] = budget
+            self._merge_fetch_result(result, incoming, "initial")
+            consumed += sum(int(item.get("limit") or 0) for item in incoming.request_recipes)
+        shortfall = max(0, target - len(result.items))
+        if shortfall and valid_layers and consumed < limit:
+            full_layers = [
+                layer
+                for layer in valid_layers
+                if result.layer_counts.get(layer, 0) >= initial_budgets[layer]
+            ]
+            eligible = full_layers or valid_layers
+            extra = min(shortfall, limit - consumed)
+            for layer, budget in self._quotas(eligible, extra).items():
+                incoming = self._run_recall_layer(
+                    layer,
+                    enabled_sources,
+                    retrieval_plan,
+                    playback_samples,
+                    budget,
+                    fallback=True,
+                )
+                self._merge_fetch_result(result, incoming, "fallback")
+                consumed += sum(
+                    int(item.get("limit") or 0) for item in incoming.request_recipes
+                )
+        return result

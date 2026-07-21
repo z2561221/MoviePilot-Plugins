@@ -10,6 +10,9 @@ from ..model.retrieval import RetrievalPlan
 from ..storage.repository import AgentRankRepository
 
 
+DEFAULT_MINIMUM_FROZEN_CANDIDATES = 20
+
+
 @dataclass
 class CandidateCollectionResult:
     """表示候选采集结果及来源级错误。"""
@@ -24,6 +27,8 @@ class CandidateCollectionResult:
     fetched_source_counts: Dict[str, int] = field(default_factory=dict)
     accepted_source_counts: Dict[str, int] = field(default_factory=dict)
     request_recipes: List[Dict[str, Any]] = field(default_factory=list)
+    layer_counts: Dict[str, int] = field(default_factory=dict)
+    minimum_frozen_candidates: int = DEFAULT_MINIMUM_FROZEN_CANDIDATES
 
 
 class CandidateCollectionService:
@@ -238,14 +243,27 @@ class CandidateCollectionService:
         candidate_limit: int,
         retrieval_plan: Optional[RetrievalPlan] = None,
         raw_limit: Optional[int] = None,
+        playback_samples: Optional[Iterable[Mapping[str, Any]]] = None,
     ) -> CandidateCollectionResult:
         """采集、规范化、去重并在返回前冻结候选快照。"""
-        fetched = self._adapter.fetch(
-            enabled_sources,
-            max(1, int(candidate_limit)),
-            retrieval_plan=retrieval_plan,
-            raw_limit=raw_limit,
-        )
+        playback_samples = list(playback_samples or ())
+        if hasattr(self._adapter, "fetch_layered") and (
+            retrieval_plan is not None or playback_samples
+        ):
+            fetched = self._adapter.fetch_layered(
+                enabled_sources,
+                max(1, int(candidate_limit)),
+                retrieval_plan=retrieval_plan,
+                playback_samples=playback_samples,
+                raw_limit=raw_limit,
+            )
+        else:
+            fetched = self._adapter.fetch(
+                enabled_sources,
+                max(1, int(candidate_limit)),
+                retrieval_plan=retrieval_plan,
+                raw_limit=raw_limit,
+            )
         candidates: List[Candidate] = []
         by_id: Dict[str, Candidate] = {}
         rejected_count = 0
@@ -280,4 +298,6 @@ class CandidateCollectionService:
             fetched_source_counts=dict(fetched.source_counts),
             accepted_source_counts=self._source_counts(candidates),
             request_recipes=list(getattr(fetched, "request_recipes", []) or []),
+            layer_counts=dict(getattr(fetched, "layer_counts", {}) or {}),
+            minimum_frozen_candidates=min(DEFAULT_MINIMUM_FROZEN_CANDIDATES, limit),
         )

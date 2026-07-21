@@ -99,6 +99,7 @@ class FakeCandidateService:
             Candidate(candidate_id=f"tmdb:{index}", title=f"Title {index}", media_type="movie")
             for index in range(1, count + 1)
         ]
+        self.minimum_frozen_candidates = None
 
     def collect_and_freeze(
         self,
@@ -107,9 +108,11 @@ class FakeCandidateService:
         enabled_sources,
         candidate_limit,
         retrieval_plan=None,
+        playback_samples=None,
     ):
         self.retrieval_plan = retrieval_plan
-        return SimpleNamespace(
+        self.playback_samples = list(playback_samples or [])
+        values = dict(
             profile_id=profile_id,
             run_id=run_id,
             status="ready",
@@ -119,6 +122,9 @@ class FakeCandidateService:
             rejected_count=0,
             request_recipes=[],
         )
+        if self.minimum_frozen_candidates is not None:
+            values["minimum_frozen_candidates"] = self.minimum_frozen_candidates
+        return SimpleNamespace(**values)
 
 
 class FakeAgentAdapter:
@@ -269,6 +275,13 @@ def test_success_atomically_saves_profile_board_and_run_history():
         "run-1"
     )
     assert orchestrator._candidate_service.retrieval_plan.filters.genre_ids == (80,)
+    assert [item.tmdb_id for item in orchestrator._candidate_service.playback_samples] == [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+    ]
     assert len(repository.load_board(PROFILE_ID).recommendations) == 10
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     assert repository.load_profile(PROFILE_ID).filters["genre_ids"] == [80]
@@ -279,6 +292,25 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert history[0].metrics["agent_calls"] == 2
     assert history[0].metrics["profile_agent_calls"] == 1
     assert history[0].metrics["ranking_agent_calls"] == 1
+
+
+def test_fewer_than_twenty_frozen_candidates_skips_ranking_agent():
+    """冻结候选低于默认 20 条时保留画像但不调用排序 Agent。"""
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+        candidate_count=19,
+    )
+    orchestrator._candidate_service.minimum_frozen_candidates = 20
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "candidate_insufficient"
+    assert len(orchestrator.agent_adapter.profile_calls) == 1
+    assert orchestrator.agent_adapter.ranking_calls == []
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["candidate_count"] == 19
+    assert history.metrics["minimum_frozen_candidates"] == 20
 
 
 def test_same_playback_fingerprint_reuses_profile_when_candidates_change():

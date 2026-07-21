@@ -461,6 +461,7 @@ class RecommendationOrchestrator:
                         "ranking_tags": current_profile.ranking_tags,
                     }
                 ),
+                playback_samples=playback_snapshot.samples,
             )
             metrics["candidate_collect_ms"] = max(
                 0, int((time.monotonic() - stage_clock) * 1000)
@@ -486,6 +487,21 @@ class RecommendationOrchestrator:
             metrics["request_recipes"] = list(
                 getattr(candidate_result, "request_recipes", []) or []
             )
+            metrics["candidate_layer_counts"] = dict(
+                getattr(candidate_result, "layer_counts", {}) or {}
+            )
+            minimum_frozen_candidates = max(
+                0,
+                int(
+                    getattr(
+                        candidate_result,
+                        "minimum_frozen_candidates",
+                        0,
+                    )
+                    or 0
+                ),
+            )
+            metrics["minimum_frozen_candidates"] = minimum_frozen_candidates
             logger.info(
                 "AgentRank TMDB候选 profile_id=%s run_id=%s accepted=%s rejected=%s source_errors=%s",
                 target,
@@ -494,7 +510,10 @@ class RecommendationOrchestrator:
                 candidate_result.rejected_count,
                 len(candidate_result.source_errors),
             )
-            if candidate_result.status != "ready" or not candidates:
+            if (
+                candidate_result.status != "ready"
+                or len(candidates) < minimum_frozen_candidates
+            ):
                 return self._failure(
                     target,
                     username,

@@ -43,6 +43,7 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 - `keyword_ids` 只接受宿主注入的可信 ID 集合，当前默认集合为空；无法确认或尚未解析的自由语义只能进入 `ranking_tags`，由后续受控解析阶段处理。
 - 画像保存前会执行一次受控解析：精确/别名匹配写入 `genre_ids`、`original_languages` 或 `keyword_ids`；歧义、无结果、查询上限和 TMDB 临时故障均保留原 `ranking_tags`，并记录解析计数，不阻断画像保存。
 - Provider 请求只允许固定 chain 方法与白名单参数；来源失败按 request_id 隔离，不会丢弃其他来源结果。`fetch_recommendations()` 只接受播放快照中的正整数电影/剧集 TMDB 种子。
+- 默认冻结目标 50 条按精确探索 25、放宽探索 10、相邻题材 5、公共推荐 10 分层召回；层级不足时只从其余有效层补足，并保持来源轮询。低于 20 条不会调用排序 Agent。
 - 排序 Agent 只返回一个 JSON 对象，根键固定为 `recommendations`；不得生成、修改或回写画像。
 - `recommendations[].candidate_id` 必须来自冻结候选快照。
 - 推荐不得重复，不得包含已归档或已订阅候选。

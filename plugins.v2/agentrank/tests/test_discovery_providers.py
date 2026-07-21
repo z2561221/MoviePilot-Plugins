@@ -63,7 +63,7 @@ def test_provider_request_rejects_unknown_keys_enums_ids_and_ranges():
     invalid_params.append({**base, "vote_average": 11})
     invalid_params.append({**base, "vote_count": -1})
     invalid_params.append({**base, "release_date": "1800-01-01"})
-    invalid_params.append({**base, "page": 2})
+    invalid_params.append({**base, "page": 11})
 
     for params in invalid_params:
         with pytest.raises(ValueError):
@@ -241,6 +241,123 @@ def test_recommend_provider_uses_only_valid_typed_playback_seeds():
         "tmdb_recommend",
     ]
     assert all(recipe["method"] == "tmdb_recommend" for recipe in result.request_recipes)
+
+
+def test_default_layered_recall_uses_25_10_5_10_quotas():
+    """默认 50 候选按精确、放宽、相邻和公共推荐四层分配。"""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        base = (len(calls) + 1) * 1000
+        return [
+            {
+                "title": f"{request.layer}-{index}",
+                "tmdb_id": base + index,
+                "media_type": request.media_type,
+            }
+            for index in range(request.limit)
+        ]
+
+    plan = RetrievalPlan(
+        filters=RetrievalFilters(
+            media_types=("movie",),
+            genre_ids=(878,),
+            keyword_ids=(123,),
+            rating_min=7.0,
+            vote_count_min=100,
+            year_min=2000,
+        )
+    )
+    adapter = DiscoveryAdapter(
+        provider=MoviePilotProvider(
+            {"tmdb_discover": handler, "tmdb_recommend": handler}
+        )
+    )
+
+    result = adapter.fetch_layered(
+        {"tmdb_movies": True},
+        candidate_limit=50,
+        retrieval_plan=plan,
+        playback_samples=[{"media_type": "movie", "tmdb_id": "10"}],
+    )
+
+    initial_totals = {}
+    for recipe in result.request_recipes:
+        if recipe["recall_pass"] == "initial":
+            initial_totals[recipe["layer"]] = (
+                initial_totals.get(recipe["layer"], 0) + recipe["limit"]
+            )
+    assert initial_totals == {
+        "exact": 25,
+        "relaxed": 10,
+        "adjacent": 5,
+        "public_recommend": 10,
+    }
+    request_ids = [item["request_id"] for item in result.request_recipes]
+    assert len(request_ids) == len(set(request_ids))
+    assert len(result.items) == 50
+    relaxed = next(item for item in calls if item.layer == "relaxed")
+    assert dict(relaxed.params) == {
+        "sort_by": "popularity.desc",
+        "with_genres": "",
+        "with_original_language": "",
+        "with_keywords": "",
+        "with_watch_providers": "",
+        "vote_average": 0.0,
+        "vote_count": 0,
+        "release_date": "",
+        "page": 1,
+    }
+    adjacent = next(item for item in calls if item.layer == "adjacent")
+    assert adjacent.params["with_genres"] == "12|14|28|9648"
+
+
+def test_layer_shortfall_is_refilled_from_other_valid_layers():
+    """精确层不足时由其余有效层按稳定轮询配额补足。"""
+    call_index = 0
+
+    def handler(request):
+        nonlocal call_index
+        call_index += 1
+        if request.layer == "exact" and ":fallback" not in request.request_id:
+            return []
+        return [
+            {
+                "title": f"{request.request_id}-{index}",
+                "tmdb_id": call_index * 1000 + index,
+                "media_type": request.media_type,
+            }
+            for index in range(request.limit)
+        ]
+
+    adapter = DiscoveryAdapter(
+        provider=MoviePilotProvider(
+            {"tmdb_discover": handler, "tmdb_recommend": handler}
+        )
+    )
+    plan = RetrievalPlan(
+        filters=RetrievalFilters(media_types=("movie",), genre_ids=(878,))
+    )
+
+    result = adapter.fetch_layered(
+        {"tmdb_movies": True},
+        candidate_limit=50,
+        retrieval_plan=plan,
+        playback_samples=[{"media_type": "movie", "tmdb_id": "10"}],
+    )
+
+    fallback = [
+        item for item in result.request_recipes if item["recall_pass"] == "fallback"
+    ]
+    assert len(result.items) == 50
+    assert sum(item["limit"] for item in fallback) == 25
+    assert sum(item["limit"] for item in result.request_recipes) <= 150
+    assert {item["layer"] for item in fallback} == {
+        "relaxed",
+        "adjacent",
+        "public_recommend",
+    }
 
 
 def test_discovery_adapter_contains_no_frontend_scraping_path():

@@ -15,10 +15,13 @@ package.__path__ = [str(PLUGIN_DIR)]
 adapter_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.discovery")
 service_module = importlib.import_module(f"{PACKAGE_NAME}.service.candidate")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
+retrieval_module = importlib.import_module(f"{PACKAGE_NAME}.model.retrieval")
 
 DiscoveryAdapter = adapter_module.DiscoveryAdapter
 CandidateCollectionService = service_module.CandidateCollectionService
 AgentRankRepository = repository_module.AgentRankRepository
+RetrievalFilters = retrieval_module.RetrievalFilters
+RetrievalPlan = retrieval_module.RetrievalPlan
 
 
 class FakePlugin:
@@ -258,6 +261,45 @@ def test_candidate_limit_round_robins_sources_before_global_cutoff():
         "tmdb_movies": 1,
         "tmdb_tv": 1,
         "bangumi": 1,
+    }
+
+
+def test_layered_recall_preserves_source_round_robin_order():
+    """分层结果进入候选池时仍先轮询来源，单一来源不能抢占前排。"""
+    source_order = ("douban", "tmdb_movies", "tmdb_tv", "bangumi")
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            source: lambda count, source=source: [
+                {
+                    "title": f"{source}-{index}",
+                    "tmdb_id": f"{source}-{index}",
+                    "media_type": "movie",
+                }
+                for index in range(count)
+            ]
+            for source in source_order
+        }
+    )
+    service = CandidateCollectionService(adapter, AgentRankRepository(FakePlugin()))
+    plan = RetrievalPlan(
+        filters=RetrievalFilters(media_types=("movie",), genre_ids=(878,))
+    )
+
+    result = service.collect_and_freeze(
+        "alice",
+        "run-layered-balanced",
+        {source: True for source in source_order},
+        candidate_limit=50,
+        retrieval_plan=plan,
+    )
+
+    assert [candidate.sources[0] for candidate in result.candidates[:4]] == list(
+        source_order
+    )
+    assert {recipe["layer"] for recipe in result.request_recipes} >= {
+        "exact",
+        "relaxed",
+        "adjacent",
     }
 
 
