@@ -94,6 +94,49 @@ def test_config_is_the_authoritative_complete_weight_write_surface():
     assert "candidate_pool_size" in source
     assert "confidence_threshold" in source
     assert "exclude_keywords" in source
+    assert "emby_identities" in source
+    assert "default_profile_id" in source
+    for legacy in (
+        "form.users",
+        "form.default_user",
+        "profile_scope",
+        "subscription_sample_limit",
+        "playback_source_mode",
+        "playback_user_map",
+    ):
+        assert legacy not in source
+
+
+def test_config_runtime_overview_exposes_identity_gate_and_frozen_pool_evidence():
+    """运行总览展示硬依赖、画像、检索计划和冻结候选证据链。"""
+    source = CONFIG.read_text(encoding="utf-8")
+    for marker in (
+        "Emby 画像身份",
+        "Playback Reporting 硬依赖未满足",
+        "profile_id: selectedProfileId.value",
+        "sample_count",
+        "mapped_count",
+        "unmapped_count",
+        "映射率",
+        "schema_version",
+        "retrieval_resolution_version",
+        "ranking_tags",
+        "candidate_source_counts",
+        "candidate_exclusion_counts",
+        "source_errors",
+    ):
+        assert marker in source
+    assert "currentEnablement && !currentEnablement.allowed" in source
+    assert "['ready', 'cached'].includes(currentPlayback?.status)" in source
+    for step in (
+        "探测依赖",
+        "冻结播放",
+        "生成画像",
+        "冻结候选",
+        "池内排序",
+        "校验保存",
+    ):
+        assert step in source
 
 
 def test_config_has_stable_desktop_and_dedicated_mobile_layout():

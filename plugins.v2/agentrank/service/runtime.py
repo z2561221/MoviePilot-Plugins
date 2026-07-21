@@ -81,6 +81,7 @@ class AgentRankRuntime:
         plugin._repository = repository
         plugin._poster_service = PosterImageService()
         playback_access = EmbyServiceAccess()
+        plugin._emby_access = playback_access
         playback_service = PlaybackProfileService(
             repository=repository,
             reporting_adapter=PlaybackReportingAdapter(playback_access),

@@ -205,10 +205,21 @@ class AgentRankApiController:
 
     def config_options(self) -> Dict[str, Any]:
         """返回 Config 与 Emby 身份切换器需要的安全选项。"""
-        identities = [
+        selected_identities = [
             identity.to_dict()
             for identity in configured_identities(self.plugin._config)
         ]
+        identity_map = {
+            identity["profile_id"]: identity for identity in selected_identities
+        }
+        access = getattr(self.plugin, "_emby_access", None)
+        if access is not None and hasattr(access, "enumerate_identities"):
+            try:
+                for identity in access.enumerate_identities() or []:
+                    identity_map[identity.profile_id] = identity.to_dict()
+            except Exception:
+                pass
+        identities = list(identity_map.values())
         return self._success(
             {
                 "emby_identities": identities,
@@ -220,7 +231,7 @@ class AgentRankApiController:
                 "enablement": self._enablement_data(),
                 "playback_status": {
                     identity["profile_id"]: self._playback_data(identity["profile_id"])
-                    for identity in identities
+                    for identity in selected_identities
                     if getattr(self.plugin, "_playback_service", None) is not None
                 },
             }

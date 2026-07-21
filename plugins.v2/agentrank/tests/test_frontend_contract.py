@@ -28,26 +28,37 @@ def test_runtime_settings_exposes_discovery_page_switch_and_fifty_default():
     assert 'candidate_pool_size: 50' in config
 
 
-def test_basic_settings_exposes_run_once_switch_with_safe_constraints():
-    """基础设置提供仅在插件启用且已有参与用户时可用的一次性运行开关。"""
+def test_basic_settings_selects_stable_emby_identities_for_run_once():
+    """基础设置以稳定 Emby identity 取代 MoviePilot 用户和用户名映射。"""
     config = _read("Config.vue")
     assert 'onlyonce: false' in config
+    assert 'emby_identities: []' in config
+    assert "default_profile_id: ''" in config
+    assert 'v-model="selectedProfileIds"' in config
+    assert 'v-model="form.default_profile_id"' in config
     assert 'v-model="form.onlyonce"' in config
     assert 'label="立即运行一次"' in config
-    assert ':disabled="!form.enabled || !form.users.length"' in config
+    assert "!form.emby_identities.length" in config
     assert "立即运行触发后会自动关闭" in config
+    for legacy in ("form.users", "form.default_user", "playback_user_map"):
+        assert legacy not in config
 
 
-def test_playback_settings_expose_priority_mode_mapping_and_manual_sync():
-    """配置页暴露播放画像开关、数据源模式、用户映射和手动同步。"""
+def test_playback_settings_enforce_reporting_and_sync_by_profile_id():
+    """配置页明确 Playback Reporting 硬阻断且所有动作使用 profile_id。"""
     config = _read("Config.vue")
     assert "playback_enabled: true" in config
-    assert "playback_source_mode: 'auto'" in config
+    assert "form.playback_enabled = true" in config
+    assert 'v-model="form.playback_enabled"' not in config
     assert "Playback Reporting" in config
-    assert "Emby 原生状态" in config
-    assert "form.playback_user_map[user]" in config
+    assert "Playback Reporting 硬依赖未满足" in config
+    assert "插件无法开启" in config
     assert "postPluginApi(props.api, 'playback/sync'" in config
-    assert "自动使用 Emby 原生完播" in config
+    assert "{ profile_id: selectedProfileId.value }" in config
+    assert "playback_source_mode" not in config
+    assert "playback_user_map" not in config
+    assert "不会切换到其他画像来源" in config
+    assert "Emby 原生" not in config
 
 
 def test_extension_discovery_source_is_absent_from_config_ui():
@@ -63,7 +74,8 @@ def test_profile_runtime_switches_describe_incremental_semantics():
     config = _read("Config.vue")
     assert 'v-model="form.profile_cache_enabled"' in config
     assert 'v-model="form.rebuild_profile_each_run"' in config
-    assert "参考上一版画像持续演进" in config
+    assert "播放快照未变化时复用当前画像" in config
+    assert "按冻结的 Playback Reporting 快照重新生成" in config
 
 
 def test_discovery_cards_use_non_black_theme_surface():
@@ -127,7 +139,7 @@ def test_profile_clear_only_lives_in_advanced_runtime_settings():
     assert 'v-model="clearProfileSwitch"' in config
     assert '@update:model-value="requestClearProfile"' in config
     assert "postPluginApi(props.api, 'profile/clear'" in config
-    assert "username: clearProfileUser.value, confirm: true" in config
+    assert "profile_id: selectedProfileId.value, confirm: true" in config
     assert 'v-model="clearProfileDialog"' in config
     assert "确认清除" in config
 

@@ -27,8 +27,8 @@ const defaults = {
   onlyonce: false,
   schedule_enabled: false,
   cron: '0 8 * * *',
-  users: [],
-  default_user: '',
+  emby_identities: [],
+  default_profile_id: '',
   discovery_sources: {
     douban: true,
     tmdb_movies: true,
@@ -37,9 +37,6 @@ const defaults = {
   },
   weights: { ...weightDefaults },
   media_types: ['movie', 'tv', 'anime'],
-  profile_scope: 'all',
-  recent_days: 365,
-  subscription_sample_limit: 200,
   minimum_samples: 5,
   candidate_pool_size: 50,
   confidence_threshold: 0.6,
@@ -52,21 +49,20 @@ const defaults = {
   profile_cache_enabled: true,
   rebuild_profile_each_run: false,
   playback_enabled: true,
-  playback_source_mode: 'auto',
-  playback_user_map: {},
   playback_recent_days: 180,
   playback_completion_threshold: 0.85,
   playback_abandon_minutes: 20,
   playback_cache_days: 7,
-  agent_prompt: '请综合用户订阅画像、榜单权重与候选特征排序，优先推荐真正贴合用户口味、同时兼顾质量、新鲜感与题材多样性的作品。推荐理由和作品简介要轻松诙谐、机灵自然，避免套话、低俗表达与剧透。',
+  agent_prompt: '以用户真实播放记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名；相关性明显不足时宁可少推。推荐理由要点明用户偏好与作品题材、主创、地区、年代或风格之间的具体联系，避免空泛夸赞。',
 }
 
 const form = reactive(structuredClone(defaults))
 const activeMain = ref('overview')
 const activeAdvanced = ref('runtime')
 const loading = ref(false)
-const status = ref({ state: 'stopped', validation_errors: [], playback: null })
-const availableUsers = ref([])
+const status = ref({ state: 'stopped', validation_errors: [], playback: null, enablement: null })
+const overview = ref(null)
+const availableIdentities = ref([])
 const loadError = ref('')
 const runtimeDefaults = ref(structuredClone(defaults))
 const clearProfileSwitch = ref(false)
@@ -76,8 +72,8 @@ const actionFeedback = reactive({ show: false, message: '', color: 'success' })
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
-  { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '配置参与用户、立即运行和运行周期。' },
-  { key: 'playback', title: '播放画像', icon: 'mdi-play-circle-outline', desc: '优先读取 Playback Reporting，自动降级到 Emby 原生状态。' },
+  { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '配置 Emby 画像身份、立即运行和运行周期。' },
+  { key: 'playback', title: '播放画像', icon: 'mdi-play-circle-outline', desc: 'Playback Reporting 是插件运行的强制依赖。' },
   { key: 'sources', title: '发现来源', icon: 'mdi-compass-outline', desc: '选择 MoviePilot 内置发现来源。' },
   { key: 'weights', title: '权重设置', icon: 'mdi-tune-vertical', desc: '设置 Agent 排序时十项偏好权重。' },
   { key: 'filter', title: '条件筛选', icon: 'mdi-filter-outline', desc: '限制媒体类型、候选数量和置信度。' },
@@ -115,22 +111,67 @@ const actionOptions = [
   { title: '通知内选择', value: 'notify' },
   { title: '自动订阅前 N', value: 'auto_subscribe' },
 ]
-const playbackSourceOptions = [
-  { title: '自动选择', value: 'auto' },
-  { title: 'Playback Reporting', value: 'playback_reporting' },
-  { title: 'Emby 原生状态', value: 'emby_native' },
-]
 const advancedTabs = [
   { key: 'runtime', title: '运行设置', icon: 'mdi-cog-outline' },
   { key: 'prompt', title: '提示设置', icon: 'mdi-text-box-edit-outline' },
 ]
 
 const currentMain = computed(() => mainTabs.find(item => item.key === activeMain.value) || mainTabs[0])
-const clearProfileUser = computed(() => form.default_user || form.users[0] || '')
-const userOptions = computed(() => {
-  const values = availableUsers.value.length ? availableUsers.value : form.users
-  return values.map(name => ({ title: name, value: name }))
+const identityOptions = computed(() => availableIdentities.value.map(identity => ({
+  title: [identity.username, identity.server_name].filter(Boolean).join(' · '),
+  value: identity.profile_id,
+})))
+const selectedIdentityOptions = computed(() => form.emby_identities.map(identity => ({
+  title: [identity.username, identity.server_name].filter(Boolean).join(' · '),
+  value: identity.profile_id,
+})))
+const selectedProfileIds = computed({
+  get: () => form.emby_identities.map(identity => identity.profile_id),
+  set: profileIds => {
+    const selected = new Set(profileIds || [])
+    form.emby_identities = availableIdentities.value.filter(identity => selected.has(identity.profile_id))
+  },
 })
+const selectedProfileId = computed(() => form.default_profile_id || form.emby_identities[0]?.profile_id || '')
+const selectedIdentity = computed(() => form.emby_identities.find(identity => identity.profile_id === selectedProfileId.value) || null)
+const latestMetrics = computed(() => overview.value?.latest_run?.metrics || {})
+const currentPlayback = computed(() => overview.value?.playback || status.value.playback || null)
+const currentEnablement = computed(() => overview.value?.enablement || status.value.enablement || null)
+const runtimeStateText = computed(() => ({ ready: '运行中', blocked: '已阻断', stopped: '已停用' })[status.value.state] || status.value.state || '未知')
+const runtimeStateColor = computed(() => ({ ready: 'success', blocked: 'error', stopped: 'default' })[status.value.state] || 'warning')
+const playbackMappingRate = computed(() => {
+  const mapped = Number(currentPlayback.value?.mapped_count || 0)
+  const total = mapped + Number(currentPlayback.value?.unmapped_count || 0)
+  return total ? `${Math.round((mapped / total) * 100)}%` : '-'
+})
+const candidateSourceEntries = computed(() => Object.entries(latestMetrics.value.candidate_source_counts || {}))
+const candidateExclusionEntries = computed(() => Object.entries(latestMetrics.value.candidate_exclusion_counts || {}))
+const sourceErrorEntries = computed(() => Object.entries(latestMetrics.value.source_errors || {}))
+const sourceErrorsText = computed(() => sourceErrorEntries.value.map(([key, value]) => `${key}: ${value}`).join('；'))
+const retrievalFilterEntries = computed(() => Object.entries(overview.value?.profile?.filters || {}))
+const pipelineSteps = [
+  { key: 'probe', title: '探测依赖' },
+  { key: 'playback_snapshot', title: '冻结播放' },
+  { key: 'profile', title: '生成画像' },
+  { key: 'candidate', title: '冻结候选' },
+  { key: 'ranking', title: '池内排序' },
+  { key: 'save', title: '校验保存' },
+]
+
+function displayValue(value) {
+  if (Array.isArray(value)) return value.join('、') || '无'
+  if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${key}:${item}`).join('、') || '无'
+  return String(value ?? '') || '无'
+}
+
+function stageStatus(step) {
+  return latestMetrics.value.stage_status?.[step.key] || ''
+}
+
+function stageDuration(step) {
+  const value = latestMetrics.value.stage_ms?.[step.key]
+  return Number.isFinite(Number(value)) ? `${Number(value)} ms` : ''
+}
 
 function cloneConfig(value) {
   return JSON.parse(JSON.stringify(value || {}))
@@ -139,23 +180,34 @@ function cloneConfig(value) {
 function applyConfig(value) {
   const next = cloneConfig(value)
   Object.assign(form, cloneConfig(defaults), next)
+  form.playback_enabled = true
   form.weights = { ...weightDefaults, ...(next.weights || {}) }
   form.discovery_sources = Object.fromEntries(
     Object.keys(defaults.discovery_sources).map(key => [key, Boolean(next.discovery_sources?.[key] ?? defaults.discovery_sources[key])]),
   )
-  form.users = Array.isArray(next.users) ? [...new Set(next.users.filter(Boolean))] : []
+  form.emby_identities = Array.isArray(next.emby_identities)
+    ? next.emby_identities.filter(identity => identity?.profile_id)
+    : []
+  form.default_profile_id = next.default_profile_id || form.emby_identities[0]?.profile_id || ''
   form.media_types = Array.isArray(next.media_types) ? [...next.media_types] : [...defaults.media_types]
   form.exclude_keywords = Array.isArray(next.exclude_keywords) ? [...next.exclude_keywords] : []
-  form.playback_user_map = { ...(next.playback_user_map || {}) }
 }
 
 watch(() => props.initialConfig, applyConfig, { immediate: true, deep: true })
 watch(
-  () => [...form.users],
-  users => {
-    if (!users.includes(form.default_user)) form.default_user = users[0] || ''
+  () => form.emby_identities.map(identity => identity.profile_id),
+  profileIds => {
+    if (!profileIds.includes(form.default_profile_id)) form.default_profile_id = profileIds[0] || ''
   },
 )
+
+async function loadOverview(profileId = selectedProfileId.value) {
+  if (!props.api?.get || !profileId) {
+    overview.value = null
+    return
+  }
+  overview.value = await getPluginApi(props.api, 'overview', { profile_id: profileId })
+}
 
 async function loadRuntime() {
   if (!props.api?.get) return
@@ -167,8 +219,10 @@ async function loadRuntime() {
       getPluginApi(props.api, 'config/options'),
     ])
     status.value = statusData || status.value
-    availableUsers.value = optionsData?.available_users || optionsData?.users || []
+    availableIdentities.value = Array.isArray(optionsData?.emby_identities) ? optionsData.emby_identities : []
     runtimeDefaults.value = { ...structuredClone(defaults), ...(optionsData?.defaults || {}) }
+    applyConfig(optionsData?.config || props.initialConfig)
+    await loadOverview(optionsData?.default_profile_id || selectedProfileId.value)
   } catch (error) {
     loadError.value = error?.message || '运行信息加载失败'
   } finally {
@@ -183,11 +237,12 @@ function saveConfig() {
 }
 
 async function syncPlayback() {
-  if (!props.api?.post || !clearProfileUser.value) return
+  if (!props.api?.post || !selectedProfileId.value) return
   loading.value = true
   try {
-    const snapshot = await postPluginApi(props.api, 'playback/sync', { username: clearProfileUser.value })
+    const snapshot = await postPluginApi(props.api, 'playback/sync', { profile_id: selectedProfileId.value })
     status.value = { ...status.value, playback: snapshot }
+    await loadOverview(selectedProfileId.value)
     actionFeedback.show = true
     actionFeedback.color = snapshot?.status === 'ready' || snapshot?.status === 'cached' ? 'success' : 'warning'
     actionFeedback.message = snapshot?.message || '播放画像同步完成'
@@ -205,12 +260,10 @@ function playbackStatusText(snapshot) {
     idle: '尚未同步',
     ready: '已就绪',
     cached: '使用最近快照',
-    fallback: '订阅画像兜底',
     not_installed: '未安装 Playback Reporting',
-    permission_error: '权限不足，已尝试降级',
+    permission_error: 'Playback Reporting 权限不足',
     transient_error: '服务暂时不可用',
-    user_unmapped: '用户未映射',
-    disabled: '已关闭',
+    emby_unavailable: 'Emby 服务不可用',
   }
   return labels[snapshot?.status] || snapshot?.status || '尚未同步'
 }
@@ -221,11 +274,11 @@ function restoreAgentPrompt() {
 
 function requestClearProfile(value) {
   if (!value) return
-  if (!clearProfileUser.value) {
+  if (!selectedProfileId.value) {
     clearProfileSwitch.value = false
     actionFeedback.show = true
     actionFeedback.color = 'warning'
-    actionFeedback.message = '请先选择默认用户'
+    actionFeedback.message = '请先选择默认 Emby identity'
     return
   }
   clearProfileDialog.value = true
@@ -239,9 +292,10 @@ function cancelClearProfile() {
 async function confirmClearProfile() {
   clearProfileLoading.value = true
   try {
-    await postPluginApi(props.api, 'profile/clear', { username: clearProfileUser.value, confirm: true })
+    await postPluginApi(props.api, 'profile/clear', { profile_id: selectedProfileId.value, confirm: true })
     actionFeedback.color = 'success'
-    actionFeedback.message = `${clearProfileUser.value} 的画像与榜单已清除`
+    actionFeedback.message = `${selectedIdentity.value?.username || selectedProfileId.value} 的画像与榜单已清除`
+    await loadOverview(selectedProfileId.value)
   } catch (error) {
     actionFeedback.color = 'error'
     actionFeedback.message = error?.message || '清除画像失败'
@@ -268,7 +322,10 @@ onMounted(loadRuntime)
         <VCardTitle class="text-h6">Agent榜单中心</VCardTitle>
         <VCardSubtitle>{{ currentMain.desc }}</VCardSubtitle>
         <template #append>
-          <VSwitch v-model="form.enabled" color="success" hide-details inset label="启用插件" />
+          <div class="ar-config__header-state">
+            <VChip :color="runtimeStateColor" variant="tonal" size="small">{{ runtimeStateText }}</VChip>
+            <VSwitch v-model="form.enabled" color="success" hide-details inset label="启用插件" />
+          </div>
         </template>
       </VCardItem>
       <VDivider />
@@ -313,91 +370,129 @@ onMounted(loadRuntime)
             <div v-show="activeMain === 'overview'" class="ar-config__pane ar-config__pane--overview">
               <div class="ar-config__section-title">运行链路步骤</div>
               <div class="ar-config__pipeline">
-                <div v-for="(step, index) in ['读取用户订阅', '冻结发现候选', '受限Agent排序', '确定性安全校验', '更新榜单与动作']" :key="step" class="ar-config__step">
+                <div v-for="(step, index) in pipelineSteps" :key="step.key" class="ar-config__step">
                   <VAvatar size="28" color="primary" variant="tonal">{{ index + 1 }}</VAvatar>
-                  <span>{{ step }}</span>
-                  <VIcon v-if="index < 4" icon="mdi-chevron-right" size="18" class="ar-config__step-arrow" />
+                  <div class="ar-config__step-copy">
+                    <span>{{ step.title }}</span>
+                    <small>{{ stageStatus(step) || '待运行' }}<template v-if="stageDuration(step)"> · {{ stageDuration(step) }}</template></small>
+                  </div>
                 </div>
               </div>
+              <VAlert
+                v-if="currentEnablement && !currentEnablement.allowed && currentEnablement.status !== 'disabled'"
+                type="error"
+                variant="tonal"
+                density="compact"
+                class="mt-3"
+                icon="mdi-alert-octagon-outline"
+              >
+                <strong>Playback Reporting 硬依赖未满足</strong>：{{ currentEnablement.message || '插件无法启用' }}
+              </VAlert>
               <div class="ar-config__overview-grid">
-                <VCard variant="outlined" class="ar-config__overview-card">
-                  <VCardText>
-                    <div class="d-flex align-center justify-space-between mb-2">
-                      <span class="text-subtitle-2">当前状态</span>
-                      <VChip :color="status.state === 'ready' ? 'success' : 'warning'" variant="tonal" size="small">
-                        {{ status.state === 'ready' ? '已就绪' : '未运行' }}
-                      </VChip>
+                <div class="ar-config__overview-panel">
+                  <div class="ar-config__panel-head">
+                    <span>播放样本</span>
+                    <VChip :color="['ready', 'cached'].includes(currentPlayback?.status) ? 'success' : 'warning'" variant="tonal" size="x-small">{{ playbackStatusText(currentPlayback) }}</VChip>
+                  </div>
+                  <div class="ar-config__stats">
+                    <span>样本 <strong>{{ currentPlayback?.sample_count || 0 }}</strong></span>
+                    <span>映射 <strong>{{ currentPlayback?.mapped_count || 0 }}</strong></span>
+                    <span>映射率 <strong>{{ playbackMappingRate }}</strong></span>
+                    <span>未映射 <strong>{{ currentPlayback?.unmapped_count || 0 }}</strong></span>
+                  </div>
+                  <div class="ar-config__hint">{{ selectedIdentity?.username || '未选择 identity' }} · {{ currentPlayback?.synced_at || '尚未同步' }}</div>
+                </div>
+                <div class="ar-config__overview-panel">
+                  <div class="ar-config__panel-head"><span>画像版本</span><VChip size="x-small" variant="outlined">Schema {{ overview?.profile?.schema_version || '-' }}</VChip></div>
+                  <div class="ar-config__hint">检索解析版本 {{ overview?.profile?.retrieval_resolution_version || '-' }} · 播放证据 {{ overview?.profile?.playback_count || 0 }} 条</div>
+                  <div class="ar-config__tag-row">
+                    <VChip v-for="tag in overview?.profile?.ranking_tags || []" :key="tag" size="x-small" variant="tonal" color="primary">{{ tag }}</VChip>
+                    <span v-if="!(overview?.profile?.ranking_tags || []).length" class="ar-config__empty">暂无排序标签</span>
+                  </div>
+                </div>
+                <div class="ar-config__overview-panel">
+                  <div class="ar-config__panel-head"><span>检索计划</span><small>{{ retrievalFilterEntries.length }} 项过滤</small></div>
+                  <div class="ar-config__metric-list">
+                    <span v-for="([key, value]) in retrievalFilterEntries" :key="key"><b>{{ key }}</b>{{ displayValue(value) }}</span>
+                    <span v-if="!retrievalFilterEntries.length" class="ar-config__empty">暂无已解析过滤条件</span>
+                  </div>
+                </div>
+                <div class="ar-config__overview-panel">
+                  <div class="ar-config__panel-head"><span>冻结候选</span><small>{{ latestMetrics.candidate_count || 0 }} 项</small></div>
+                  <div class="ar-config__metric-columns">
+                    <div>
+                      <small>候选来源</small>
+                      <span v-for="([key, value]) in candidateSourceEntries" :key="key">{{ key }} <b>{{ value }}</b></span>
+                      <span v-if="!candidateSourceEntries.length" class="ar-config__empty">暂无统计</span>
                     </div>
-                    <div class="ar-config__hint">{{ form.enabled ? '插件已启用，等待手动或周期刷新。' : '启用并保存后才会生成榜单。' }}</div>
-                  </VCardText>
-                </VCard>
-                <VCard variant="outlined" class="ar-config__overview-card">
-                  <VCardText>
-                    <div class="text-subtitle-2 mb-2">失败兜底</div>
-                    <div class="ar-config__hint">Agent、候选或保存失败时保留旧画像与旧榜单，不执行订阅。</div>
-                  </VCardText>
-                </VCard>
+                    <div>
+                      <small>排除统计</small>
+                      <span v-for="([key, value]) in candidateExclusionEntries" :key="key">{{ key }} <b>{{ value }}</b></span>
+                      <span v-if="!candidateExclusionEntries.length" class="ar-config__empty">暂无统计</span>
+                    </div>
+                  </div>
+                  <div v-if="sourceErrorEntries.length" class="ar-config__source-errors">
+                    <VIcon icon="mdi-alert-circle-outline" size="15" color="warning" />
+                    <span>{{ sourceErrorsText }}</span>
+                  </div>
+                </div>
               </div>
               <VAlert v-if="loadError" type="error" variant="tonal" class="mt-3">{{ loadError }}</VAlert>
               <VAlert v-if="status.validation_errors?.length" type="warning" variant="tonal" class="mt-3">
                 <div v-for="item in status.validation_errors" :key="item">{{ item }}</div>
               </VAlert>
+              <div class="ar-config__overview-foot">
+                <VIcon icon="mdi-shield-refresh-outline" size="17" color="primary" />
+                <span>Agent、候选或保存失败时保留旧画像与旧榜单，不执行订阅。</span>
+                <VChip v-if="overview?.latest_run?.status" size="x-small" variant="outlined">最近运行 {{ overview.latest_run.status }}</VChip>
+              </div>
             </div>
 
             <div v-show="activeMain === 'basic'" class="ar-config__pane">
               <div class="ar-config__section-title">基础设置</div>
               <VRow>
                 <VCol cols="12" md="7">
-                  <VAutocomplete v-model="form.users" :items="userOptions" item-title="title" item-value="value" label="参与用户" multiple chips closable-chips density="compact" variant="outlined" hide-details />
+                  <VAutocomplete v-model="selectedProfileIds" :items="identityOptions" item-title="title" item-value="value" label="Emby 画像身份" multiple chips closable-chips density="compact" variant="outlined" hide-details />
                 </VCol>
                 <VCol cols="12" md="5">
-                  <VSelect v-model="form.default_user" :items="form.users" label="默认用户" density="compact" variant="outlined" hide-details :disabled="!form.users.length" />
+                  <VSelect v-model="form.default_profile_id" :items="selectedIdentityOptions" label="默认画像身份" density="compact" variant="outlined" hide-details :disabled="!form.emby_identities.length" @update:model-value="loadOverview" />
                 </VCol>
-                <VCol cols="12" md="4"><VSwitch v-model="form.onlyonce" color="warning" label="立即运行一次" hide-details inset :disabled="!form.enabled || !form.users.length" /></VCol>
+                <VCol cols="12" md="4"><VSwitch v-model="form.onlyonce" color="warning" label="立即运行一次" hide-details inset :disabled="!form.enabled || !form.emby_identities.length || currentEnablement?.allowed === false" /></VCol>
                 <VCol cols="12" md="4"><VSwitch v-model="form.schedule_enabled" color="success" label="周期运行" hide-details inset /></VCol>
                 <VCol cols="12" md="4"><VCronField v-model="form.cron" label="运行周期" density="compact" variant="outlined" hide-details :disabled="!form.schedule_enabled" /></VCol>
               </VRow>
-              <VAlert type="info" variant="tonal" class="mt-4">立即运行和周期任务均按参与用户顺序执行，单用户失败不会阻断后续用户；立即运行触发后会自动关闭。</VAlert>
+              <VAlert type="info" variant="tonal" class="mt-4">每个已选 Emby identity 独立生成画像与榜单；立即运行触发后会自动关闭。Playback Reporting 未就绪时插件保持停用。</VAlert>
             </div>
 
             <div v-show="activeMain === 'playback'" class="ar-config__pane">
               <div class="d-flex align-center mb-3">
                 <div class="ar-config__section-title mb-0">播放画像</div>
                 <VSpacer />
-                <VBtn size="small" variant="tonal" color="primary" prepend-icon="mdi-sync" :loading="loading" :disabled="!form.enabled || !clearProfileUser" @click="syncPlayback">同步数据</VBtn>
+                <VBtn size="small" variant="tonal" color="primary" prepend-icon="mdi-sync" :loading="loading" :disabled="!form.enabled || !selectedProfileId" @click="syncPlayback">同步数据</VBtn>
               </div>
               <VAlert
-                :type="['ready', 'cached'].includes(status.playback?.status) ? 'success' : 'info'"
+                :type="['ready', 'cached'].includes(currentPlayback?.status) ? 'success' : currentEnablement?.allowed === false ? 'error' : 'info'"
                 variant="tonal"
                 class="mb-4"
               >
                 <div class="d-flex align-center flex-wrap ga-2">
-                  <strong>{{ playbackStatusText(status.playback) }}</strong>
-                  <VChip v-if="status.playback?.source" size="x-small" variant="outlined">{{ status.playback.source }}</VChip>
-                  <VChip v-if="status.playback?.confidence" size="x-small" variant="outlined">{{ status.playback.confidence }}</VChip>
+                  <strong>{{ playbackStatusText(currentPlayback) }}</strong>
+                  <VChip v-if="currentPlayback?.source" size="x-small" variant="outlined">{{ currentPlayback.source }}</VChip>
+                  <VChip v-if="currentPlayback?.confidence" size="x-small" variant="outlined">{{ currentPlayback.confidence }}</VChip>
                 </div>
-                <div class="mt-1">{{ status.playback?.message || '保存配置后，立即运行或手动同步会自动探测最佳数据源。' }}</div>
-                <div v-if="status.playback?.synced_at" class="text-caption mt-1">最近同步：{{ status.playback.synced_at }} · 已映射 {{ status.playback.mapped_count || 0 }} · 未映射 {{ status.playback.unmapped_count || 0 }}</div>
+                <div class="mt-1">{{ currentEnablement?.message || currentPlayback?.message || 'Playback Reporting 是硬依赖；未安装或无权限时插件无法开启。' }}</div>
+                <div v-if="currentPlayback?.synced_at" class="text-caption mt-1">最近同步：{{ currentPlayback.synced_at }} · 样本 {{ currentPlayback.sample_count || 0 }} · 已映射 {{ currentPlayback.mapped_count || 0 }} · 未映射 {{ currentPlayback.unmapped_count || 0 }}</div>
               </VAlert>
               <VRow>
-                <VCol cols="12" md="4"><VSwitch v-model="form.playback_enabled" color="success" label="启用播放画像" hide-details inset /></VCol>
-                <VCol cols="12" md="8"><VSelect v-model="form.playback_source_mode" :items="playbackSourceOptions" label="数据源模式" density="compact" variant="outlined" hide-details :disabled="!form.playback_enabled" /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_recent_days" type="number" min="1" max="3650" label="回溯天数" density="compact" variant="outlined" hide-details :disabled="!form.playback_enabled" /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_abandon_minutes" type="number" min="1" max="240" label="弃看分钟" density="compact" variant="outlined" hide-details :disabled="!form.playback_enabled" /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_cache_days" type="number" min="1" max="30" label="快照天数" density="compact" variant="outlined" hide-details :disabled="!form.playback_enabled" /></VCol>
+                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_recent_days" type="number" min="1" max="3650" label="回溯天数" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_abandon_minutes" type="number" min="1" max="240" label="弃看分钟" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_cache_days" type="number" min="1" max="30" label="快照天数" density="compact" variant="outlined" hide-details /></VCol>
                 <VCol cols="12">
                   <div class="text-caption mb-1">完播阈值 {{ Math.round(form.playback_completion_threshold * 100) }}%</div>
-                  <VSlider v-model="form.playback_completion_threshold" :min="0.5" :max="1" :step="0.05" color="primary" hide-details thumb-label :disabled="!form.playback_enabled" />
+                  <VSlider v-model="form.playback_completion_threshold" :min="0.5" :max="1" :step="0.05" color="primary" hide-details thumb-label />
                 </VCol>
               </VRow>
-              <div class="ar-config__section-title mt-5">用户映射</div>
-              <VAlert v-if="!form.users.length" type="warning" variant="tonal">请先在基础设置选择参与用户。</VAlert>
-              <VRow v-else>
-                <VCol v-for="user in form.users" :key="user" cols="12" md="6">
-                  <VTextField v-model="form.playback_user_map[user]" :label="`${user} 对应的 Emby 用户`" :placeholder="user" density="compact" variant="outlined" hide-details clearable />
-                </VCol>
-              </VRow>
-              <VAlert type="info" variant="tonal" class="mt-4">留空时按 MoviePilot 用户同名匹配。未安装 Playback Reporting 时会自动使用 Emby 原生完播、次数、进度和最近播放；仍不可用时只使用 MP 订阅画像与媒体库库存。</VAlert>
+              <VAlert type="info" variant="tonal" class="mt-4">播放样本只来自 Playback Reporting；未就绪时插件保持停用，不会切换到其他画像来源。</VAlert>
             </div>
 
             <div v-show="activeMain === 'sources'" class="ar-config__pane">
@@ -435,7 +530,6 @@ onMounted(loadRuntime)
               <div class="ar-config__section-title">条件筛选</div>
               <VRow>
                 <VCol cols="12" md="6"><VSelect v-model="form.media_types" :items="mediaTypeOptions" label="媒体类型" multiple chips density="compact" variant="outlined" hide-details /></VCol>
-                <VCol cols="12" md="6"><VSelect v-model="form.profile_scope" :items="[{ title: '全部订阅', value: 'all' }, { title: '近期订阅', value: 'recent' }]" label="画像范围" density="compact" variant="outlined" hide-details /></VCol>
                 <VCol cols="12" md="4"><VTextField v-model.number="form.candidate_pool_size" type="number" min="10" max="500" label="候选池数量" density="compact" variant="outlined" hide-details /></VCol>
                 <VCol cols="12" md="8">
                   <div class="text-caption mb-1">置信度阈值 {{ Math.round(form.confidence_threshold * 100) }}%</div>
@@ -465,15 +559,14 @@ onMounted(loadRuntime)
                   <VCol cols="12" md="4"><VSwitch v-model="form.discovery_page_enabled" color="success" label="开启发现页" hide-details inset /></VCol>
                   <VCol cols="12" md="4"><VSwitch v-model="form.profile_cache_enabled" color="success" label="画像缓存" hide-details inset /></VCol>
                   <VCol cols="12" md="4"><VSwitch v-model="form.rebuild_profile_each_run" color="warning" label="每次重建" hide-details inset /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model.number="form.subscription_sample_limit" type="number" min="1" max="1000" label="订阅样本上限" density="compact" variant="outlined" hide-details /></VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.minimum_samples" type="number" min="1" max="100" label="最少样本" density="compact" variant="outlined" hide-details /></VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.history_limit" type="number" min="1" max="200" label="历史上限" density="compact" variant="outlined" hide-details /></VCol>
                 </VRow>
-                <VAlert type="info" variant="tonal" class="mt-4">画像缓存开启且关闭每次重建时，Agent 会参考上一版画像持续演进；每次重建开启或画像缓存关闭时，仅按当前订阅重新建立。</VAlert>
+                <VAlert type="info" variant="tonal" class="mt-4">画像缓存开启且关闭每次重建时，Agent 会在播放快照未变化时复用当前画像；每次重建开启或缓存关闭时，按冻结的 Playback Reporting 快照重新生成。</VAlert>
                 <div class="ar-config__danger-row mt-4">
                   <div>
                     <div class="ar-config__danger-title">清除画像</div>
-                    <div class="ar-config__hint">清除默认用户“{{ clearProfileUser || '未选择' }}”的画像与榜单，不影响 MoviePilot 订阅和归档。</div>
+                    <div class="ar-config__hint">清除默认画像身份“{{ selectedIdentity?.username || '未选择' }}”的画像与榜单，不影响 MoviePilot 订阅和归档。</div>
                   </div>
                   <VSwitch
                     v-model="clearProfileSwitch"
@@ -502,7 +595,7 @@ onMounted(loadRuntime)
                   auto-grow
                   hide-details="auto"
                 />
-                <VAlert type="info" variant="tonal" class="mt-4">该提示词用于调整候选排序、画像措辞和文案风格；只读工具边界、JSON 输出协议及十五字校验由插件固定保留。</VAlert>
+                <VAlert type="info" variant="tonal" class="mt-4">该提示词只调整冻结候选池内的排序与文案风格；画像生成提示、只读工具边界和 JSON 输出协议由插件固定保留。</VAlert>
               </template>
             </div>
           </div>
@@ -522,7 +615,7 @@ onMounted(loadRuntime)
       <VCard>
         <VCardTitle>清除用户画像？</VCardTitle>
         <VCardText>
-          将清除“{{ clearProfileUser }}”的画像与当前榜单。MoviePilot 订阅、订阅任务、忽略归档和插件配置不会被删除。
+          将清除“{{ selectedIdentity?.username || selectedProfileId }}”的画像与当前榜单。MoviePilot 订阅、订阅任务、忽略归档和插件配置不会被删除。
         </VCardText>
         <VCardActions>
           <VSpacer />
@@ -540,6 +633,7 @@ onMounted(loadRuntime)
 .ar-config__card { width: 100%; height: clamp(760px, calc(100dvh - 48px), 860px); display: flex; flex-direction: column; overflow: hidden; border-radius: 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .ar-config__header { padding: 14px 18px; }
 .ar-config__header :deep(.v-card-subtitle) { max-width: min(560px, 52vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-config__header-state { display: flex; align-items: center; gap: 10px; }
 .ar-config__body { flex: 1 1 auto; min-height: 0; display: flex; }
 .ar-config__nav { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), .02); }
 .ar-config__nav-list { width: 100%; }
@@ -553,11 +647,30 @@ onMounted(loadRuntime)
 .ar-config__pane { min-height: 100%; padding: 18px 20px; }
 .ar-config__pane--overview { padding: 12px 16px; }
 .ar-config__section-title { color: rgb(var(--v-theme-primary)); font-size: 14px; font-weight: 600; margin-bottom: 12px; }
-.ar-config__pipeline { display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; background: rgba(var(--v-theme-on-surface), .02); }
-.ar-config__step { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; font-weight: 500; }
-.ar-config__step-arrow { color: rgba(var(--v-theme-on-surface), .35); }
+.ar-config__pipeline { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; padding: 10px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .02); }
+.ar-config__step { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; font-weight: 500; }
+.ar-config__step-copy { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.ar-config__step-copy span, .ar-config__step-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-config__step-copy small { color: rgba(var(--v-theme-on-surface), .55); font-size: 10px; font-weight: 400; }
 .ar-config__overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
-.ar-config__overview-card, .ar-config__source-card { border-radius: 10px; }
+.ar-config__overview-panel { min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .015); }
+.ar-config__panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+.ar-config__panel-head small { color: rgba(var(--v-theme-on-surface), .55); font-size: 11px; font-weight: 400; }
+.ar-config__stats { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 4px; font-size: 12px; }
+.ar-config__stats strong { color: rgb(var(--v-theme-primary)); }
+.ar-config__tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; max-height: 46px; overflow: hidden; }
+.ar-config__metric-list { display: flex; flex-wrap: wrap; gap: 4px 10px; max-height: 64px; overflow: hidden; font-size: 11px; }
+.ar-config__metric-list span { display: inline-flex; gap: 4px; }
+.ar-config__metric-list b { color: rgba(var(--v-theme-on-surface), .62); font-weight: 500; }
+.ar-config__metric-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ar-config__metric-columns > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 11px; }
+.ar-config__metric-columns small { color: rgba(var(--v-theme-on-surface), .55); margin-bottom: 2px; }
+.ar-config__metric-columns span { display: flex; justify-content: space-between; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-config__empty { color: rgba(var(--v-theme-on-surface), .48); font-size: 11px; }
+.ar-config__source-errors { display: flex; align-items: flex-start; gap: 5px; margin-top: 6px; color: rgb(var(--v-theme-warning)); font-size: 10px; line-height: 1.35; }
+.ar-config__overview-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; color: rgba(var(--v-theme-on-surface), .62); font-size: 11px; }
+.ar-config__overview-foot .v-chip { margin-left: auto; }
+.ar-config__source-card { border-radius: 8px; }
 .ar-config__hint, .ar-config__default { color: rgba(var(--v-theme-on-surface), .62); font-size: 12px; line-height: 1.5; }
 .ar-config__source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .ar-config__weight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
@@ -571,6 +684,7 @@ onMounted(loadRuntime)
   .ar-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
   .ar-config__card { height: min(860px, calc(100dvh - 16px)); }
   .ar-config__header :deep(.v-card-subtitle) { max-width: 100%; }
+  .ar-config__header-state { gap: 4px; }
   .ar-config__body { flex-direction: column; }
   .ar-config__nav { width: 100%; flex: 0 0 auto; border-right: 0; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .ar-config__nav::-webkit-scrollbar { display: none; }
@@ -578,14 +692,14 @@ onMounted(loadRuntime)
   .ar-config__nav-item { flex: 0 0 auto; min-width: 96px; margin: 0; padding-inline: 10px; }
   .ar-config__subtabs { overflow-x: auto; }
   .ar-config__window--overview { overflow-y: auto; }
-  .ar-config__pipeline { align-items: flex-start; flex-direction: column; }
-  .ar-config__step-arrow { display: none; }
+  .ar-config__pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-config__overview-grid, .ar-config__source-grid, .ar-config__weight-grid { grid-template-columns: 1fr; }
   .ar-config__danger-row { align-items: flex-start; flex-direction: column; }
 }
 @media (max-width: 390px) {
   .ar-config { width: 100%; padding: 2px; }
   .ar-config__header { padding-inline: 12px; }
+  .ar-config__header-state .v-chip { display: none; }
   .ar-config__nav-item { min-width: 88px; }
   .ar-config__pane { padding: 12px; }
   .ar-config__actions { flex-wrap: wrap; padding-inline: 12px; }

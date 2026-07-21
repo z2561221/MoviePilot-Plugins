@@ -20,6 +20,7 @@ profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
 run_module = importlib.import_module(f"{PACKAGE_NAME}.model.run")
 archive_module = importlib.import_module(f"{PACKAGE_NAME}.model.archive")
 playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
+identity_module = importlib.import_module(f"{PACKAGE_NAME}.model.identity")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 controller_module = importlib.import_module(f"{PACKAGE_NAME}.controller.api")
 
@@ -30,6 +31,7 @@ RecommendationRun = run_module.RecommendationRun
 ArchiveFeedback = archive_module.ArchiveFeedback
 ArchiveEntry = archive_module.ArchiveEntry
 PlaybackSnapshot = playback_module.PlaybackSnapshot
+EmbyIdentity = identity_module.EmbyIdentity
 AgentRankRepository = repository_module.AgentRankRepository
 AgentRankApiController = controller_module.AgentRankApiController
 ApiContractError = controller_module.ApiContractError
@@ -206,6 +208,21 @@ def test_options_overview_board_profile_and_history_have_stable_data_shape():
     assert board["data"]["recommendations"][0]["candidate_id"] == "tmdb:1"
     assert profile["data"]["summary"] == "画像"
     assert history["data"]["items"][0]["run_id"] == "run-old"
+
+
+def test_config_options_merges_online_emby_identities_with_selected_offline_values():
+    """配置选择器可显示在线用户，同时保留离线但已选的稳定身份。"""
+    plugin = FakePlugin()
+
+    class EmbyAccess:
+        def enumerate_identities(self):
+            return [EmbyIdentity("home", "user-2", "Bob")]
+
+    plugin._emby_access = EmbyAccess()
+    data = AgentRankApiController(plugin).config_options()["data"]
+    profile_ids = {item["profile_id"] for item in data["emby_identities"]}
+    assert profile_ids == {HOME_PROFILE, REMOTE_PROFILE, "emby:home:user-2"}
+    assert data["config"]["emby_identities"] == [HOME_IDENTITY, REMOTE_IDENTITY]
 
 
 def test_status_and_overview_expose_gate_reason_and_preserve_old_board():

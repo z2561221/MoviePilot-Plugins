@@ -31,6 +31,7 @@ class AgentRank(_PluginBase):
     _runtime: Any = None
     _repository: Any = None
     _playback_service: Any = None
+    _emby_access: Any = None
     _enablement: Dict[str, Any] = {}
 
     def init_plugin(self, config: dict = None) -> None:

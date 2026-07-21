@@ -109,6 +109,7 @@ def stop_plugin(plugin: Any) -> None:
         runtime.stop()
     plugin._runtime = None
     plugin._playback_service = None
+    plugin._emby_access = None
     plugin._enabled = False
     plugin._enablement = _enablement(False, False, "stopped", "插件已停止")
 
