@@ -10,6 +10,7 @@ REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "localtoolkit"
 ENTRYPOINT = PLUGIN_DIR / "__init__.py"
 PACKAGE = REPO / "package.v2.json"
+LOCAL_PACKAGE = REPO / "package.local.v2.json"
 PLUGIN_JSON = PLUGIN_DIR / "plugin.json"
 REMOTE_ENTRY = PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js"
 VITE_CONFIG = PLUGIN_DIR / "frontend" / "vite.config.js"
@@ -129,9 +130,12 @@ def _entrypoint_plugin_version() -> str:
 def test_localtoolkit_metadata_versions_are_consistent():
     """确认 package、plugin.json 与入口版本保持一致。"""
     package = _load_json(PACKAGE)
+    local_package = _load_json(LOCAL_PACKAGE)
     plugin_json = _load_json(PLUGIN_JSON)
-    assert package["LocalToolkit"]["version"] == plugin_json["version"] == _entrypoint_plugin_version()
-    assert package["LocalToolkit"]["author_url"] == "https://github.com/z2561221"
+    assert "LocalToolkit" not in package
+    assert local_package["LocalToolkit"] == plugin_json
+    assert local_package["LocalToolkit"]["version"] == plugin_json["version"] == _entrypoint_plugin_version()
+    assert local_package["LocalToolkit"]["author_url"] == "https://github.com/z2561221"
 
 
 def test_localtoolkit_vue_federation_contract_is_present():

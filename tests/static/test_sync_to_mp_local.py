@@ -117,6 +117,29 @@ class SyncToMpLocalTest(unittest.TestCase):
             self.assertIn("plugin:DownloadManagerLocal", actions)
             self.assertIn("icon:download.png", actions)
 
+    def test_merges_local_only_index_for_explicit_local_plugin_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            target = root / "target"
+            (source / "plugins.v2" / "localtoolkit").mkdir(parents=True)
+            (target / "plugins.v2").mkdir(parents=True)
+            (source / "package.v2.json").write_text("{}", encoding="utf-8")
+            (source / "package.local.v2.json").write_text(
+                json.dumps({"LocalToolkit": {"name": "工具中心", "version": "1.2.13"}}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (target / "package.v2.json").write_text("{}", encoding="utf-8")
+            (source / "plugins.v2" / "localtoolkit" / "__init__.py").write_text(
+                "plugin_version = '1.2.13'\n", encoding="utf-8"
+            )
+
+            actions = sync_to_target(source, target, ["LocalToolkit"])
+
+            merged = json.loads((target / "package.v2.json").read_text(encoding="utf-8"))
+            self.assertEqual(merged["LocalToolkit"]["version"], "1.2.13")
+            self.assertIn("package:LocalToolkit", actions)
+
 
 if __name__ == "__main__":
     unittest.main()
