@@ -251,16 +251,43 @@ def test_notification_confirmation_prefers_interactive_card_when_available():
         def __init__(self):
             self.calls = []
 
-        def start(self, username, current_board):
+        def start(self, profile_id, username, current_board):
             """模拟已发送交互卡片。"""
-            self.calls.append((username, current_board.run_id))
+            self.calls.append((profile_id, username, current_board.run_id))
             return True
 
     interaction = InteractionService()
     NotificationService(plugin, interaction).send_confirmation("Alice", board)
 
-    assert interaction.calls == [("Alice", "run-1")]
+    assert interaction.calls == [(PROFILE_ID, "Alice", "run-1")]
     assert plugin.messages == []
+
+
+def test_failure_notification_hides_addresses_credentials_and_emby_identity():
+    """运行失败通知只展示安全原因，不泄露 Emby 连接或身份细节。"""
+    plugin = FakePlugin()
+
+    NotificationService(plugin).send_failure(
+        username="Alice",
+        status="playback_unavailable",
+        run_id="run-1",
+        message=(
+            "emby:home:user-1 http://192.168.50.5:8096 "
+            "10.0.0.8:8096 host=emby.local:8096 "
+            "token=secret-value userid=user-1"
+        ),
+        old_board_preserved=True,
+    )
+
+    text = plugin.messages[-1]["text"]
+    assert "Alice" not in text
+    assert "emby:home:user-1" not in text
+    assert "192.168.50.5" not in text
+    assert "10.0.0.8" not in text
+    assert "emby.local" not in text
+    assert "secret-value" not in text
+    assert "user-1" not in text
+    assert "已隐藏" in text
 
 
 def test_manual_subscription_passes_username_and_identifiers_after_all_gates():

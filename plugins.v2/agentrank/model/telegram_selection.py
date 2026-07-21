@@ -14,12 +14,23 @@ class TelegramSelectionSession:
     telegram_userid: str
     run_id: str
     candidate_ids: List[str]
+    profile_id: str = ""
     selected_ids: List[str] = field(default_factory=list)
     current_index: int = 0
     view: str = "carousel"
     status: str = "open"
     created_at: str = ""
     expires_at: str = ""
+
+    def __post_init__(self) -> None:
+        """规范化会话归属；缺少 profile_id 的旧会话保持可识别失效态。"""
+        self.token = str(self.token or "").strip()
+        self.username = str(self.username or "").strip()
+        self.profile_id = str(self.profile_id or "").strip()
+        self.telegram_userid = str(self.telegram_userid or "").strip()
+        self.run_id = str(self.run_id or "").strip()
+        if not self.token or not self.username:
+            raise ValueError("telegram selection identity is incomplete")
 
     def to_dict(self) -> Dict[str, Any]:
         """返回可持久化字典。"""
@@ -32,6 +43,7 @@ class TelegramSelectionSession:
             raise ValueError("telegram selection session must be a mapping")
         token = str(value.get("token") or "").strip()
         username = str(value.get("username") or "").strip()
+        profile_id = str(value.get("profile_id") or "").strip()
         telegram_userid = str(value.get("telegram_userid") or "").strip()
         run_id = str(value.get("run_id") or "").strip()
         candidate_ids = [
@@ -51,6 +63,7 @@ class TelegramSelectionSession:
         return cls(
             token=token,
             username=username,
+            profile_id=profile_id,
             telegram_userid=telegram_userid,
             run_id=run_id,
             candidate_ids=candidate_ids,

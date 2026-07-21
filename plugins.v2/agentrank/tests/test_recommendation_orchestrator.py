@@ -303,6 +303,9 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert history[0].metrics["agent_calls"] == 2
     assert history[0].metrics["profile_agent_calls"] == 1
     assert history[0].metrics["ranking_agent_calls"] == 1
+    assert "candidate_source_counts" in history[0].metrics
+    assert "candidate_exclusion_counts" in history[0].metrics
+    assert "source_errors" in history[0].metrics
     expected_stages = [
         "probe",
         "playback_snapshot",
@@ -372,6 +375,7 @@ def test_candidate_stage_exception_preserves_previous_board_and_records_failure(
     assert result.board.run_id == "old"
     assert agent.ranking_calls == []
     history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.errors == ["candidate: provider chain offline"]
     assert history.metrics["stage_order"] == [
         "probe",
         "playback_snapshot",

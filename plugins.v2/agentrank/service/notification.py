@@ -1,6 +1,7 @@
 """Agent 榜单通知确认服务。"""
 
 import logging
+import re
 from typing import Any
 
 from app.schemas.types import NotificationType
@@ -9,6 +10,25 @@ from ..model.board import RecommendationBoard
 
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_notice_text(value: Any) -> str:
+    """移除异常消息中的地址、凭据与稳定 Emby 身份细节。"""
+    text = str(value or "")
+    text = re.sub(r"https?://[^\s,;]+", "[地址已隐藏]", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b",
+        "[地址已隐藏]",
+        text,
+    )
+    text = re.sub(r"\bemby:[^\s,;]+", "[Emby身份已隐藏]", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\b(?:api[_ -]?key|token|password|authorization|user[_ -]?id|userid|host|address|base[_ -]?url)\s*[:=]\s*[^\s,;]+",
+        "[敏感信息已隐藏]",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
 
 
 def _compact_text(value: Any, limit: int) -> str:
@@ -48,7 +68,7 @@ class NotificationService:
         """发送海报轮播；用户未绑定 Telegram 时降级为摘要。"""
         if self._interaction_service is not None:
             try:
-                if self._interaction_service.start(username, board):
+                if self._interaction_service.start(board.profile_id, username, board):
                     return
             except Exception:
                 # Telegram 交互异常不得阻断榜单通知的摘要降级路径。
@@ -76,7 +96,7 @@ class NotificationService:
         old_board_preserved: bool,
     ) -> None:
         """向目标用户发送一次简洁的 Agent 运行异常通知。"""
-        reason = _compact_text(message, 240) or "未知异常"
+        reason = _compact_text(_safe_notice_text(message), 240) or "未知异常"
         lines = [
             f"状态：{_compact_text(status, 48)}",
             f"运行 ID：{_compact_text(run_id, 64) or '未生成'}",

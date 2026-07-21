@@ -217,7 +217,11 @@ class TelegramSelectionService:
         text: str,
     ) -> None:
         """编辑为无按钮终态并保留榜首横版封面。"""
-        board = self._repository.load_board(session.username)
+        board = (
+            self._repository.load_board(session.profile_id)
+            if session.profile_id
+            else None
+        )
         items = self._ranked_items(board) if board is not None else []
         image = self._image_url(items[0]) if items else None
         self._plugin.post_message(
@@ -263,8 +267,11 @@ class TelegramSelectionService:
             return None
         return token, action, argument
 
-    def start(self, username: str, board: RecommendationBoard) -> bool:
-        """为目标用户创建并发送一条 Telegram Top10 单页通知。"""
+    def start(self, profile_id: str, username: str, board: RecommendationBoard) -> bool:
+        """为指定画像创建 Telegram 卡片，显示名只用于发送目标。"""
+        target = str(profile_id or "").strip()
+        if not target or board.profile_id != target:
+            raise ValueError("telegram selection profile_id does not match board")
         items = self._ranked_items(board)
         if not items:
             return False
@@ -283,6 +290,7 @@ class TelegramSelectionService:
         session = TelegramSelectionSession(
             token=token,
             username=username,
+            profile_id=target,
             telegram_userid=str(telegram_userid),
             run_id=board.run_id,
             candidate_ids=[str(item.candidate_id) for item in items],
@@ -302,7 +310,7 @@ class TelegramSelectionService:
         """逐项执行既有订阅安全链并把原消息编辑为结果摘要。"""
         if not session.selected_ids:
             self._repository.save_telegram_session(session)
-            board = self._repository.load_board(session.username)
+            board = self._repository.load_board(session.profile_id)
             if board is not None:
                 self._post(session, board, event_data, "请至少选择一部作品后再确认。")
             return
@@ -310,7 +318,7 @@ class TelegramSelectionService:
         self._repository.save_telegram_session(session)
         results = []
         threshold = float(self._config.get("confidence_threshold") or 0.0)
-        board = self._repository.load_board(session.username)
+        board = self._repository.load_board(session.profile_id)
         item_map = self._item_map(board) if board is not None else {}
         for candidate_id in session.candidate_ids:
             if candidate_id not in session.selected_ids:
@@ -318,7 +326,7 @@ class TelegramSelectionService:
             item = item_map.get(candidate_id)
             try:
                 result = self._subscription_service.subscribe(
-                    session.username, candidate_id, threshold
+                    session.profile_id, candidate_id, threshold
                 )
                 if result.success and result.changed:
                     label = "✅ 已创建"
@@ -329,7 +337,7 @@ class TelegramSelectionService:
             except Exception as error:
                 logger.exception(
                     "AgentRank Telegram 订阅异常 user=%s candidate=%s",
-                    session.username,
+                    session.profile_id,
                     candidate_id,
                 )
                 label = f"❌ {_compact_text(error, 36) or '订阅异常'}"
@@ -362,6 +370,16 @@ class TelegramSelectionService:
                 return True
             if str(event_data.get("userid") or "") != session.telegram_userid:
                 self._post_rejection(event_data, "这不是发送给你的榜单，无法操作。")
+                return True
+            if not session.profile_id:
+                session.status = "stale"
+                self._repository.save_telegram_session(session)
+                self._post_terminal(
+                    session,
+                    event_data,
+                    "Agent榜单中心 · 会话已失效",
+                    "旧版选择会话缺少稳定画像身份，无法继续创建订阅。",
+                )
                 return True
             if session.is_expired(self._now_factory()):
                 session.status = "expired"
@@ -418,7 +436,7 @@ class TelegramSelectionService:
                     "插件当前已停用，旧榜单不会继续创建订阅。",
                 )
                 return True
-            board = self._repository.load_board(session.username)
+            board = self._repository.load_board(session.profile_id)
             if board is None or board.run_id != session.run_id:
                 session.status = "stale"
                 self._repository.save_telegram_session(session)

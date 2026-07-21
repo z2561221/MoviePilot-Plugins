@@ -213,7 +213,7 @@ def test_start_sends_linked_single_line_top_list_with_horizontal_cover():
     """初始通知用榜首横版封面和紧凑单行榜单展示 TMDB 标题链接。"""
     plugin, repository, _, service, _ = _service()
 
-    assert service.start("alice", _board()) is True
+    assert service.start("alice", "alice", _board()) is True
 
     message = plugin.messages[-1]
     assert message["channel"] is MessageChannel.Telegram
@@ -261,7 +261,7 @@ def test_ten_items_fit_one_caption_and_two_choice_rows():
     board = _ten_item_board()
     repository.save_board(board)
 
-    service.start("alice", board)
+    service.start("alice", "alice", board)
 
     message = plugin.messages[-1]
     assert len(message["text"]) <= service.caption_limit
@@ -280,7 +280,7 @@ def test_missing_tmdb_id_keeps_plain_title_and_cover():
     board = _board()
     board.recommendations[0].source_ids.pop("tmdb")
 
-    service.start("alice", board)
+    service.start("alice", "alice", board)
 
     assert plugin.messages[-1]["image"].endswith("/backdrop-a.jpg")
     assert "第一部电影" in plugin.messages[-1]["text"]
@@ -293,7 +293,7 @@ def test_missing_backdrop_falls_back_to_poster():
     board = _board()
     board.recommendations[0].backdrop_path = ""
 
-    service.start("alice", board)
+    service.start("alice", "alice", board)
 
     assert plugin.messages[-1]["image"].endswith("/a.jpg")
 
@@ -301,7 +301,7 @@ def test_missing_backdrop_falls_back_to_poster():
 def test_number_toggle_and_clear_update_single_original_message():
     """编号选择与清空均在原单页消息中更新状态。"""
     plugin, repository, _, service, _ = _service()
-    service.start("alice", _board())
+    service.start("alice", "alice", _board())
 
     assert service.handle_callback(_event("t:1")) is True
     assert plugin.messages[-1]["image"].endswith("/backdrop-a.jpg")
@@ -335,7 +335,7 @@ def test_number_toggle_and_clear_update_single_original_message():
 def test_confirm_subscribes_only_selected_items_and_is_idempotent():
     """最终确认只处理已选作品，重复点击不会再次订阅。"""
     plugin, repository, subscription, service, _ = _service()
-    service.start("alice", _board())
+    service.start("alice", "alice", _board())
     service.handle_callback(_event("t:0"))
     service.handle_callback(_event("t:1"))
 
@@ -356,10 +356,70 @@ def test_confirm_subscribes_only_selected_items_and_is_idempotent():
     assert "不会重复提交" in plugin.messages[-1]["text"]
 
 
+def test_profile_id_scopes_telegram_confirmation_while_username_is_display_only():
+    """显示名与稳定画像不同也必须读取并订阅同一 profile_id 榜单。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    board = _board()
+    board.profile_id = "emby:home:user-1"
+    board.username = "Alice"
+    repository.save_board(board)
+    subscription = FakeSubscriptionService()
+    service = TelegramSelectionService(
+        plugin=plugin,
+        repository=repository,
+        subscription_service=subscription,
+        config={"confidence_threshold": 0.6},
+        target_adapter=FakeTargetAdapter(),
+        token_factory=lambda: "token123",
+    )
+
+    assert service.start("emby:home:user-1", "Alice", board) is True
+    session = repository.load_telegram_session("token123")
+    assert session.profile_id == "emby:home:user-1"
+    assert session.username == "Alice"
+    service.handle_callback(_event("t:0"))
+    service.handle_callback(_event("c"))
+
+    assert subscription.calls == [("emby:home:user-1", "tmdb:1", 0.6)]
+    assert plugin.messages[-1]["username"] == "Alice"
+
+
+def test_telegram_start_rejects_cross_profile_board():
+    """通知请求身份与榜单归属不一致时不得创建可操作会话。"""
+    plugin, repository, subscription, service, _ = _service()
+
+    try:
+        service.start("emby:home:user-2", "Alice", _board())
+    except ValueError as error:
+        assert "profile_id does not match board" in str(error)
+    else:
+        raise AssertionError("cross-profile board must be rejected")
+
+    assert repository.load_telegram_session("token123") is None
+    assert plugin.messages == []
+    assert subscription.calls == []
+
+
+def test_legacy_telegram_session_without_profile_id_is_stale_and_cannot_subscribe():
+    """缺失稳定画像身份的旧会话不得借显示名继续订阅。"""
+    plugin, repository, subscription, service, _ = _service()
+    service.start("alice", "alice", _board())
+    raw = plugin.data[repository.telegram_sessions_key]["token123"]
+    raw.pop("profile_id")
+    plugin.data[repository.telegram_sessions_key]["token123"] = raw
+
+    service.handle_callback(_event("t:0"))
+
+    assert repository.load_telegram_session("token123").status == "stale"
+    assert subscription.calls == []
+    assert "缺少稳定画像身份" in plugin.messages[-1]["text"]
+
+
 def test_empty_confirmation_keeps_session_open_and_prompts_selection():
     """空选择不会触发订阅，并切换到清单提示。"""
     plugin, repository, subscription, service, _ = _service()
-    service.start("alice", _board())
+    service.start("alice", "alice", _board())
 
     service.handle_callback(_event("c"))
 
@@ -373,7 +433,7 @@ def test_empty_confirmation_keeps_session_open_and_prompts_selection():
 def test_wrong_user_stale_board_and_expired_session_are_rejected():
     """越权、旧榜单和过期会话都不能进入订阅安全链。"""
     plugin, repository, subscription, service, clock = _service()
-    service.start("alice", _board())
+    service.start("alice", "alice", _board())
 
     service.handle_callback(_event("t", userid="9999"))
     assert "这不是发送给你的榜单" in plugin.messages[-1]["text"]
@@ -388,7 +448,7 @@ def test_wrong_user_stale_board_and_expired_session_are_rejected():
     assert subscription.calls == []
 
     plugin2, repository2, subscription2, service2, clock2 = _service()
-    service2.start("alice", _board())
+    service2.start("alice", "alice", _board())
     clock2[0] += timedelta(hours=25)
     service2.handle_callback(_event("t"))
     assert repository2.load_telegram_session("token123").status == "expired"
@@ -400,7 +460,7 @@ def test_missing_telegram_mapping_returns_summary_fallback_signal():
     """用户未绑定 Telegram 时不发送交互卡片并要求通知服务降级。"""
     plugin, _, subscription, service, _ = _service(target=None)
 
-    assert service.start("alice", _board()) is False
+    assert service.start("alice", "alice", _board()) is False
     assert plugin.messages == []
     assert subscription.calls == []
 
@@ -408,7 +468,7 @@ def test_missing_telegram_mapping_returns_summary_fallback_signal():
 def test_disabled_plugin_and_closed_session_cannot_subscribe():
     """插件停用或会话关闭后，旧按钮不再进入订阅安全链。"""
     plugin, repository, subscription, service, _ = _service()
-    service.start("alice", _board())
+    service.start("alice", "alice", _board())
     plugin.enabled = False
 
     service.handle_callback(_event("t"))
@@ -418,7 +478,7 @@ def test_disabled_plugin_and_closed_session_cannot_subscribe():
     assert subscription.calls == []
 
     plugin2, repository2, subscription2, service2, _ = _service()
-    service2.start("alice", _board())
+    service2.start("alice", "alice", _board())
     service2.handle_callback(_event("x"))
     service2.handle_callback(_event("t"))
 
