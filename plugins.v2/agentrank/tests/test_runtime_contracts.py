@@ -138,6 +138,18 @@ def test_runtime_injects_controlled_tmdb_keyword_resolution():
     assert "requests" not in adapter_source
 
 
+def test_discovery_provider_contract_has_global_raw_cap_and_recipe_boundary():
+    """发现 Provider 必须保留 150 原始上限与 recipe 观测边界。"""
+    source = _source("adapter/discovery.py")
+    assert "DEFAULT_RAW_FETCH_LIMIT = 150" in source
+    assert "class ProviderRequest" in source
+    assert "class MoviePilotProvider" in source
+    assert "request_recipes" in source
+    assert "fetch_recommendations" in source
+    assert "BeautifulSoup" not in source
+    assert "requests.get" not in source
+
+
 def test_sidebar_entry_respects_discovery_page_switch():
     """侧栏发现入口必须同时受插件状态和独立开关控制。"""
     source = _source("__init__.py")

@@ -8,6 +8,7 @@ AgentRank 是 MoviePilot V2 本地插件。它按稳定 Emby identity 读取 Pla
 
 - 插件入口：`__init__.py`，只声明元数据、生命周期和扩展点。
 - 推荐编排：`service/recommendation.py`，负责用户锁、播放快照、画像复用、候选冻结、一次补选、失败保留旧数据和分阶段保存。
+- MP Provider：`adapter/discovery.py` 复用 DoubanChain、TmdbChain、BangumiChain；公共探索默认全局原始上限 150，并把 source、mode、method、params、limit 写入 request recipe。
 - 依赖探测：`adapter/playback_reporting.py` 只返回 `ready`、`not_installed`、`permission_error`、`transient_error` 或 `emby_unavailable`，且不暴露 Emby 地址与凭据。
 - Agent 适配：`adapter/agent.py` 中的 `RestrictedAgentRankAgent`，为画像与排序使用独立角色、独立 session 和 `ReplyMode.CAPTURE_ONLY`。
 - 提示协议：`service/prompt.py`；画像提示只允许播放事实，排序提示只允许使用冻结候选、归档反馈、权重和当前画像；候选标题、简介、标签和归档文本始终是不可信数据。
@@ -41,6 +42,7 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 - `media_types`、题材 ID、ISO 639-1 语言、年份 1870 至 2100、评分 0 至 10、非负票数与排序值都由确定性边界校验；未知枚举、越界值和编造 ID 不能进入检索计划。
 - `keyword_ids` 只接受宿主注入的可信 ID 集合，当前默认集合为空；无法确认或尚未解析的自由语义只能进入 `ranking_tags`，由后续受控解析阶段处理。
 - 画像保存前会执行一次受控解析：精确/别名匹配写入 `genre_ids`、`original_languages` 或 `keyword_ids`；歧义、无结果、查询上限和 TMDB 临时故障均保留原 `ranking_tags`，并记录解析计数，不阻断画像保存。
+- Provider 请求只允许固定 chain 方法与白名单参数；来源失败按 request_id 隔离，不会丢弃其他来源结果。`fetch_recommendations()` 只接受播放快照中的正整数电影/剧集 TMDB 种子。
 - 排序 Agent 只返回一个 JSON 对象，根键固定为 `recommendations`；不得生成、修改或回写画像。
 - `recommendations[].candidate_id` 必须来自冻结候选快照。
 - 推荐不得重复，不得包含已归档或已订阅候选。

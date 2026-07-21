@@ -195,8 +195,8 @@ def test_candidate_limit_is_applied_after_normalization_and_deduplication():
     assert len(result.candidates) == 3
 
 
-def test_enabled_sources_receive_balanced_fetch_quota_with_small_reserve():
-    """总候选上限按启用来源均分，而不是每个来源都抓完整上限。"""
+def test_enabled_sources_share_the_default_global_raw_fetch_limit():
+    """默认 150 条原始上限在来源间无损均分，不按来源重复放大。"""
     requested = {}
 
     def fetcher(name):
@@ -214,7 +214,13 @@ def test_enabled_sources_receive_balanced_fetch_quota_with_small_reserve():
         50,
     )
 
-    assert requested == {name: 18 for name in requested}
+    assert requested == {
+        "douban": 38,
+        "tmdb_movies": 38,
+        "tmdb_tv": 37,
+        "bangumi": 37,
+    }
+    assert sum(requested.values()) == 150
 
 
 def test_candidate_limit_round_robins_sources_before_global_cutoff():

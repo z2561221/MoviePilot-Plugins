@@ -100,7 +100,15 @@ class FakeCandidateService:
             for index in range(1, count + 1)
         ]
 
-    def collect_and_freeze(self, profile_id, run_id, enabled_sources, candidate_limit):
+    def collect_and_freeze(
+        self,
+        profile_id,
+        run_id,
+        enabled_sources,
+        candidate_limit,
+        retrieval_plan=None,
+    ):
+        self.retrieval_plan = retrieval_plan
         return SimpleNamespace(
             profile_id=profile_id,
             run_id=run_id,
@@ -109,6 +117,7 @@ class FakeCandidateService:
             source_errors={},
             rejected_sources=[],
             rejected_count=0,
+            request_recipes=[],
         )
 
 
@@ -259,6 +268,7 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert orchestrator.agent_adapter.ranking_calls[0][1].profile["run_id"] == (
         "run-1"
     )
+    assert orchestrator._candidate_service.retrieval_plan.filters.genre_ids == (80,)
     assert len(repository.load_board(PROFILE_ID).recommendations) == 10
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     assert repository.load_profile(PROFILE_ID).filters["genre_ids"] == [80]

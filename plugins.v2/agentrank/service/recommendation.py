@@ -21,6 +21,7 @@ from ..model.profile import (
     RETRIEVAL_RESOLUTION_VERSION,
     UserProfile,
 )
+from ..model.retrieval import RetrievalPlan
 from ..model.run import RecommendationRun
 from ..storage.repository import AgentRankRepository
 from .prompt import build_profile_prompt, build_ranking_prompt, build_refill_prompt
@@ -454,6 +455,12 @@ class RecommendationOrchestrator:
                 run_id,
                 config.get("discovery_sources") or {},
                 int(config.get("candidate_pool_size") or 50),
+                RetrievalPlan.from_dict(
+                    {
+                        "filters": current_profile.filters,
+                        "ranking_tags": current_profile.ranking_tags,
+                    }
+                ),
             )
             metrics["candidate_collect_ms"] = max(
                 0, int((time.monotonic() - stage_clock) * 1000)
@@ -475,6 +482,9 @@ class RecommendationOrchestrator:
             )
             metrics["candidate_source_counts"] = dict(
                 getattr(candidate_result, "accepted_source_counts", {}) or {}
+            )
+            metrics["request_recipes"] = list(
+                getattr(candidate_result, "request_recipes", []) or []
             )
             logger.info(
                 "AgentRank TMDB候选 profile_id=%s run_id=%s accepted=%s rejected=%s source_errors=%s",

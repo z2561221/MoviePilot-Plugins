@@ -6,6 +6,7 @@ from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from ..adapter.discovery import DiscoveryAdapter, RawDiscoveredItem
 from ..model.candidate import Candidate
+from ..model.retrieval import RetrievalPlan
 from ..storage.repository import AgentRankRepository
 
 
@@ -22,6 +23,7 @@ class CandidateCollectionResult:
     rejected_count: int = 0
     fetched_source_counts: Dict[str, int] = field(default_factory=dict)
     accepted_source_counts: Dict[str, int] = field(default_factory=dict)
+    request_recipes: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class CandidateCollectionService:
@@ -234,9 +236,16 @@ class CandidateCollectionService:
         run_id: str,
         enabled_sources: Mapping[str, Any],
         candidate_limit: int,
+        retrieval_plan: Optional[RetrievalPlan] = None,
+        raw_limit: Optional[int] = None,
     ) -> CandidateCollectionResult:
         """采集、规范化、去重并在返回前冻结候选快照。"""
-        fetched = self._adapter.fetch(enabled_sources, max(1, int(candidate_limit)))
+        fetched = self._adapter.fetch(
+            enabled_sources,
+            max(1, int(candidate_limit)),
+            retrieval_plan=retrieval_plan,
+            raw_limit=raw_limit,
+        )
         candidates: List[Candidate] = []
         by_id: Dict[str, Candidate] = {}
         rejected_count = 0
@@ -270,4 +279,5 @@ class CandidateCollectionService:
             rejected_count=rejected_count,
             fetched_source_counts=dict(fetched.source_counts),
             accepted_source_counts=self._source_counts(candidates),
+            request_recipes=list(getattr(fetched, "request_recipes", []) or []),
         )
