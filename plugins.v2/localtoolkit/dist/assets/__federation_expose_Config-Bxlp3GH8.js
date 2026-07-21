@@ -68,6 +68,7 @@ const activeSub = ref('overview');
 const loadingOptions = ref(false);
 const optionError = ref('');
 const cleanupOptions = reactive({ servers: [], libraries: [], users: [] });
+let optionsRequestId = 0;
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '统一管理三个本地维护模块。', color: 'primary' },
@@ -116,19 +117,26 @@ watch(() => props.initialConfig, value => {
 }, { immediate: true, deep: true });
 
 async function loadOptions() {
+  const requestId = ++optionsRequestId;
   loadingOptions.value = true;
   optionError.value = '';
   try {
-    const res = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/options');
+    const params = new URLSearchParams({
+      selected_server: form.library_cleanup.selected_server || '',
+      selected_user: form.library_cleanup.selected_user || '',
+    });
+    const res = await apiGet(props.api, `plugin/LocalToolkit/local_toolkit/options?${params.toString()}`);
+    if (requestId !== optionsRequestId) return
     const data = res?.library_cleanup || res || {};
     cleanupOptions.servers = data.servers || [];
     cleanupOptions.libraries = data.libraries || [];
     cleanupOptions.users = data.users || [];
     optionError.value = data.error || '';
   } catch (e) {
+    if (requestId !== optionsRequestId) return
     optionError.value = String(e);
   } finally {
-    loadingOptions.value = false;
+    if (requestId === optionsRequestId) loadingOptions.value = false;
   }
 }
 
@@ -138,13 +146,27 @@ function selectMain(key) {
   if (key === 'library_cleanup') loadOptions();
 }
 
-watch(() => form.library_cleanup.selected_server, (next, prev) => {
-  if (next !== prev && prev !== undefined) {
-    cleanupOptions.libraries = [];
-    cleanupOptions.users = [];
-    loadOptions();
-  }
-});
+watch(
+  () => [form.library_cleanup.selected_server, form.library_cleanup.selected_user],
+  ([server, user], [previousServer, previousUser]) => {
+    if (server !== previousServer) {
+      form.library_cleanup.selected_library = '';
+      cleanupOptions.libraries = [];
+      cleanupOptions.users = [];
+      if (form.library_cleanup.selected_user) {
+        form.library_cleanup.selected_user = '';
+        return
+      }
+      loadOptions();
+      return
+    }
+    if (user !== previousUser) {
+      form.library_cleanup.selected_library = '';
+      cleanupOptions.libraries = [];
+      loadOptions();
+    }
+  },
+);
 
 onMounted(loadOptions);
 
@@ -475,10 +497,10 @@ return (_ctx, _cache) => {
                           }, {
                             default: _withCtx(() => [
                               _createVNode(_component_VSelect, {
-                                modelValue: form.library_cleanup.selected_library,
-                                "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.library_cleanup.selected_library) = $event)),
-                                label: "媒体库",
-                                items: libraryItems.value,
+                                modelValue: form.library_cleanup.selected_user,
+                                "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.library_cleanup.selected_user) = $event)),
+                                label: "用户",
+                                items: userItems.value,
                                 loading: loadingOptions.value,
                                 density: "compact",
                                 variant: "outlined",
@@ -494,10 +516,10 @@ return (_ctx, _cache) => {
                           }, {
                             default: _withCtx(() => [
                               _createVNode(_component_VSelect, {
-                                modelValue: form.library_cleanup.selected_user,
-                                "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((form.library_cleanup.selected_user) = $event)),
-                                label: "用户",
-                                items: userItems.value,
+                                modelValue: form.library_cleanup.selected_library,
+                                "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((form.library_cleanup.selected_library) = $event)),
+                                label: "媒体库",
+                                items: libraryItems.value,
                                 loading: loadingOptions.value,
                                 density: "compact",
                                 variant: "outlined",
@@ -897,6 +919,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6030678e"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-71b04d1f"]]);
 
 export { Config as default };

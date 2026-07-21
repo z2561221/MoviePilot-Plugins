@@ -28,7 +28,7 @@ const pageSize = 10;
 
 
 const _sfc_main = {
-  __name: 'Page',
+  __name: 'AppPage',
   props: { api: { type: Object, default: () => ({}) } },
   emits: ['close'],
   setup(__props, { emit: __emit }) {
@@ -299,7 +299,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode(_component_VCardSubtitle, null, {
               default: _withCtx(() => [
-                _createTextVNode("每页 10 条，共 " + _toDisplayString(total.value || 0) + " 条记录。", 1)
+                _createTextVNode("每页 10 条，共 " + _toDisplayString(history.value?.length || 0) + " 条记录。", 1)
               ]),
               _: 1
             })
@@ -394,6 +394,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0f601098"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7ac532a6"]]);
 
-export { Page as default };
+export { AppPage as default };

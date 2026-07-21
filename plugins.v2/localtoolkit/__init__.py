@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from app.plugins import _PluginBase
 from .controller.api import (
     build_api_routes,
@@ -60,9 +60,13 @@ class LocalToolkit(_PluginBase):
         """返回工具中心历史记录。"""
         return history_response(self, page, page_size)
 
-    def api_options(self):
+    def api_options(
+        self,
+        selected_server: Optional[str] = None,
+        selected_user: Optional[str] = None,
+    ):
         """返回工具中心配置选项。"""
-        return options_response(self)
+        return options_response(self, selected_server, selected_user)
 
     def api_invalidate_cache(self):
         """清除选项缓存"""

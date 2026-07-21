@@ -38,6 +38,7 @@ const activeSub = ref('overview')
 const loadingOptions = ref(false)
 const optionError = ref('')
 const cleanupOptions = reactive({ servers: [], libraries: [], users: [] })
+let optionsRequestId = 0
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '统一管理三个本地维护模块。', color: 'primary' },
@@ -86,19 +87,26 @@ watch(() => props.initialConfig, value => {
 }, { immediate: true, deep: true })
 
 async function loadOptions() {
+  const requestId = ++optionsRequestId
   loadingOptions.value = true
   optionError.value = ''
   try {
-    const res = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/options')
+    const params = new URLSearchParams({
+      selected_server: form.library_cleanup.selected_server || '',
+      selected_user: form.library_cleanup.selected_user || '',
+    })
+    const res = await apiGet(props.api, `plugin/LocalToolkit/local_toolkit/options?${params.toString()}`)
+    if (requestId !== optionsRequestId) return
     const data = res?.library_cleanup || res || {}
     cleanupOptions.servers = data.servers || []
     cleanupOptions.libraries = data.libraries || []
     cleanupOptions.users = data.users || []
     optionError.value = data.error || ''
   } catch (e) {
+    if (requestId !== optionsRequestId) return
     optionError.value = String(e)
   } finally {
-    loadingOptions.value = false
+    if (requestId === optionsRequestId) loadingOptions.value = false
   }
 }
 
@@ -108,13 +116,27 @@ function selectMain(key) {
   if (key === 'library_cleanup') loadOptions()
 }
 
-watch(() => form.library_cleanup.selected_server, (next, prev) => {
-  if (next !== prev && prev !== undefined) {
-    cleanupOptions.libraries = []
-    cleanupOptions.users = []
-    loadOptions()
-  }
-})
+watch(
+  () => [form.library_cleanup.selected_server, form.library_cleanup.selected_user],
+  ([server, user], [previousServer, previousUser]) => {
+    if (server !== previousServer) {
+      form.library_cleanup.selected_library = ''
+      cleanupOptions.libraries = []
+      cleanupOptions.users = []
+      if (form.library_cleanup.selected_user) {
+        form.library_cleanup.selected_user = ''
+        return
+      }
+      loadOptions()
+      return
+    }
+    if (user !== previousUser) {
+      form.library_cleanup.selected_library = ''
+      cleanupOptions.libraries = []
+      loadOptions()
+    }
+  },
+)
 
 onMounted(loadOptions)
 
@@ -215,8 +237,8 @@ function saveConfig() {
                 <div class="plugin-section-title text-error">筛选条件</div>
                 <VRow>
                   <VCol cols="12" md="4"><VSelect v-model="form.library_cleanup.selected_server" label="媒体服务器" :items="serverItems" :loading="loadingOptions" density="compact" variant="outlined" clearable hide-details /></VCol>
-                  <VCol cols="12" md="4"><VSelect v-model="form.library_cleanup.selected_library" label="媒体库" :items="libraryItems" :loading="loadingOptions" density="compact" variant="outlined" clearable hide-details /></VCol>
                   <VCol cols="12" md="4"><VSelect v-model="form.library_cleanup.selected_user" label="用户" :items="userItems" :loading="loadingOptions" density="compact" variant="outlined" clearable hide-details /></VCol>
+                  <VCol cols="12" md="4"><VSelect v-model="form.library_cleanup.selected_library" label="媒体库" :items="libraryItems" :loading="loadingOptions" density="compact" variant="outlined" clearable hide-details /></VCol>
                   <VCol cols="12"><div class="condition-title">条件一</div></VCol>
                   <VCol cols="12" md="4">
                     <VSelect v-model="form.library_cleanup.filter_favorite" label="收藏状态" :items="[{ title: '全部', value: 'all' }, { title: '已收藏', value: 'fav' }, { title: '未收藏', value: 'unfav' }]" density="compact" variant="outlined" hide-details />

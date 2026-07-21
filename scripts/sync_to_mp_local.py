@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 PACKAGE_FILE = "package.v2.json"
+LOCAL_PACKAGE_FILE = "package.local.v2.json"
 PLUGINS_DIR = "plugins.v2"
 ICONS_DIR = "icons"
 DEFAULT_TARGET = Path(r"Z:\moviepilot-v2\config\local plugins")
@@ -30,6 +31,18 @@ def read_package(path: Path) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"{path} must be a JSON object keyed by plugin id")
     return data
+
+
+def read_source_package(source_root: Path) -> dict:
+    """读取在线索引与本地专用索引，并合并为同步清单。"""
+    package = read_package(source_root / PACKAGE_FILE)
+    local_package = read_package(source_root / LOCAL_PACKAGE_FILE)
+    duplicate_ids = set(package).intersection(local_package)
+    if duplicate_ids:
+        names = ", ".join(sorted(duplicate_ids))
+        raise ValueError(f"Plugin ids must not be duplicated across package indexes: {names}")
+    package.update(local_package)
+    return package
 
 
 def write_package(path: Path, data: dict) -> None:
@@ -133,7 +146,7 @@ def sync_to_target(
     if not target_root.exists():
         raise FileNotFoundError(f"Target local plugin repo does not exist: {target_root}")
 
-    source_package = read_package(source_root / PACKAGE_FILE)
+    source_package = read_source_package(source_root)
     target_package_path = target_root / PACKAGE_FILE
     target_package = read_package(target_package_path)
     selected_plugins = normalize_plugin_ids(source_package, plugin_ids)

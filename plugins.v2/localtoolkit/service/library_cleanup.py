@@ -16,7 +16,7 @@ from ..security import redact_sensitive_text, safe_error_text
 from .base import BaseToolModule
 
 
-_options_cache = {"data": None, "expire": 0}
+_options_cache = {}
 
 
 class LibraryCleanupModule(BaseToolModule):
@@ -85,32 +85,37 @@ class LibraryCleanupModule(BaseToolModule):
             }
         ]
 
-    def get_options(self):
+    def get_options(
+        self,
+        selected_server: Optional[str] = None,
+        selected_user: Optional[str] = None,
+    ):
         """返回清理库存模块的媒体服务器、媒体库和用户选项。"""
         global _options_cache
+        server = (self.config.get("selected_server") or "") if selected_server is None else selected_server
+        user = (self.config.get("selected_user") or "") if selected_user is None else selected_user
+        cache_key = (str(server), str(user))
         now = time.time()
-        if now < _options_cache["expire"] and _options_cache["data"] is not None:
-            return _options_cache["data"]
+        cached = _options_cache.get(cache_key)
+        if cached and now < cached["expire"]:
+            return cached["data"]
 
         options = {"servers": [], "libraries": [], "users": []}
         try:
-            selected_server = self.config.get("selected_server") or ""
-            selected_user = self.config.get("selected_user") or ""
             options["servers"] = self.adapter.list_servers()
-            options["libraries"] = self.adapter.list_libraries(selected_server, selected_user)
-            options["users"] = self.adapter.list_users(selected_server)
+            options["users"] = self.adapter.list_users(str(server))
+            options["libraries"] = self.adapter.list_libraries(str(server), str(user))
         except Exception as err:
             logger.error(f"本地工具集：获取清理库存媒体服务器选项失败：{redact_sensitive_text(err)}")
             options["error"] = "媒体服务器选项读取失败"
 
-        _options_cache["data"] = options
-        _options_cache["expire"] = now + 300
+        _options_cache[cache_key] = {"data": options, "expire": now + 300}
         return options
 
     def invalidate_options_cache(self):
         """手动清除选项缓存。"""
         global _options_cache
-        _options_cache = {"data": None, "expire": 0}
+        _options_cache = {}
 
     def run_once(self):
         """执行一次清理库存检查和可选自动删除。"""
