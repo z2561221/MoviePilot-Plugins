@@ -137,6 +137,30 @@ class RecommendationOrchestrator:
             "exclude_keywords": list(config.get("exclude_keywords") or []),
         }
 
+    @staticmethod
+    def _start_stage(metrics: Dict[str, Any], stage: str) -> None:
+        """开始一个可审计运行阶段，并记录稳定执行顺序。"""
+        if metrics.get("_stage_name"):
+            raise RuntimeError("previous recommendation stage is still active")
+        metrics.setdefault("stage_order", []).append(stage)
+        metrics["_stage_name"] = stage
+        metrics["_stage_started_at"] = time.monotonic()
+
+    @staticmethod
+    def _finish_stage(metrics: Dict[str, Any], status: str) -> None:
+        """完成当前运行阶段并记录毫秒耗时和安全状态。"""
+        stage = str(metrics.pop("_stage_name", "") or "")
+        started_at = metrics.pop("_stage_started_at", None)
+        if not stage:
+            return
+        elapsed_ms = (
+            max(0, int((time.monotonic() - started_at) * 1000))
+            if isinstance(started_at, (int, float))
+            else 0
+        )
+        metrics.setdefault("stage_status", {})[stage] = str(status)
+        metrics.setdefault("stage_ms", {})[stage] = elapsed_ms
+
     def _append_run(
         self,
         profile_id: str,
@@ -151,6 +175,8 @@ class RecommendationOrchestrator:
     ) -> None:
         """写入包含耗时和关键计数的有界运行历史。"""
         final_metrics = dict(metrics)
+        final_metrics.pop("_stage_name", None)
+        final_metrics.pop("_stage_started_at", None)
         final_metrics["elapsed_ms"] = max(0, int((time.monotonic() - started_clock) * 1000))
         self._repository.append_run(
             RecommendationRun(
@@ -227,6 +253,7 @@ class RecommendationOrchestrator:
         agent_calls: int = 0,
     ) -> RecommendationRunResult:
         """记录失败并返回旧榜单，不覆盖当前画像。"""
+        self._finish_stage(metrics, status)
         metrics["agent_calls"] = agent_calls
         metrics["final_count"] = 0
         self._append_run(
@@ -270,10 +297,71 @@ class RecommendationOrchestrator:
         run_id = str(self._run_id_factory())
         started_at = datetime.now(timezone.utc).isoformat()
         started_clock = time.monotonic()
-        metrics: Dict[str, Any] = {"agent_calls": 0, "refill_attempted": False}
+        metrics: Dict[str, Any] = {
+            "agent_calls": 0,
+            "refill_attempted": False,
+            "stage_order": [],
+            "stage_status": {},
+            "stage_ms": {},
+        }
         errors: List[str] = []
         try:
             logger.info("AgentRank 运行开始 profile_id=%s run_id=%s", target, run_id)
+
+            self._start_stage(metrics, "probe")
+            probe = getattr(self._playback_service, "probe", None)
+            if callable(probe):
+                try:
+                    capability = await asyncio.to_thread(probe, target, config)
+                    metrics["playback_probe_status"] = str(capability.status)
+                    metrics["playback_probe_message"] = str(capability.message or "")
+                except Exception as error:
+                    errors.append(f"playback probe: {error}")
+                    metrics["playback_probe_status"] = "transient_error"
+                    metrics["playback_probe_message"] = "Playback Reporting 探测失败"
+                    return self._failure(
+                        target,
+                        username,
+                        run_id,
+                        "playback_unavailable",
+                        "Playback Reporting 探测失败，未调用 Agent",
+                        started_at,
+                        started_clock,
+                        metrics,
+                        errors,
+                    )
+                if not bool(getattr(capability, "ready", False)):
+                    return self._failure(
+                        target,
+                        username,
+                        run_id,
+                        "playback_unavailable",
+                        str(
+                            getattr(capability, "message", "")
+                            or "Playback Reporting 不可用，未调用 Agent"
+                        ),
+                        started_at,
+                        started_clock,
+                        metrics,
+                        errors,
+                    )
+                self._finish_stage(metrics, "ready")
+            else:
+                metrics["playback_probe_status"] = "unavailable"
+                metrics["playback_probe_message"] = "Playback Reporting 探测服务不可用"
+                return self._failure(
+                    target,
+                    username,
+                    run_id,
+                    "playback_unavailable",
+                    "Playback Reporting 探测服务不可用，未调用 Agent",
+                    started_at,
+                    started_clock,
+                    metrics,
+                    errors,
+                )
+
+            self._start_stage(metrics, "playback_snapshot")
             playback_snapshot = None
             if self._playback_service is not None:
                 stage_clock = time.monotonic()
@@ -327,7 +415,9 @@ class RecommendationOrchestrator:
                     metrics,
                     errors,
                 )
+            self._finish_stage(metrics, "ready")
 
+            self._start_stage(metrics, "profile")
             profile_cache_enabled = bool(config.get("profile_cache_enabled", True))
             rebuild_profile = bool(config.get("rebuild_profile_each_run", False))
             previous_profile = (
@@ -477,6 +567,12 @@ class RecommendationOrchestrator:
                         agent_calls=int(metrics["agent_calls"]),
                     )
 
+            self._finish_stage(
+                metrics,
+                "reused" if metrics["profile_agent_reused"] else "generated",
+            )
+
+            self._start_stage(metrics, "candidate")
             archive = self._repository.load_archive(target)
             archived_ids = self._archive_candidate_ids(archive)
             negative_keywords = list(config.get("exclude_keywords") or [])
@@ -486,29 +582,44 @@ class RecommendationOrchestrator:
                 )
             )
             stage_clock = time.monotonic()
-            candidate_result = await asyncio.to_thread(
-                self._candidate_service.collect_and_freeze,
-                target,
-                run_id,
-                config.get("discovery_sources") or {},
-                int(config.get("candidate_pool_size") or 50),
-                RetrievalPlan.from_dict(
-                    {
-                        "filters": current_profile.filters,
-                        "ranking_tags": current_profile.ranking_tags,
-                    }
-                ),
-                playback_samples=playback_snapshot.samples,
-                archived_candidate_ids=archived_ids,
-                negative_keywords=negative_keywords,
-                profile_version={
-                    "run_id": current_profile.run_id,
-                    "schema_version": current_profile.schema_version,
-                    "retrieval_resolution_version": (
-                        current_profile.retrieval_resolution_version
+            try:
+                candidate_result = await asyncio.to_thread(
+                    self._candidate_service.collect_and_freeze,
+                    target,
+                    run_id,
+                    config.get("discovery_sources") or {},
+                    int(config.get("candidate_pool_size") or 50),
+                    RetrievalPlan.from_dict(
+                        {
+                            "filters": current_profile.filters,
+                            "ranking_tags": current_profile.ranking_tags,
+                        }
                     ),
-                },
-            )
+                    playback_samples=playback_snapshot.samples,
+                    archived_candidate_ids=archived_ids,
+                    negative_keywords=negative_keywords,
+                    profile_version={
+                        "run_id": current_profile.run_id,
+                        "schema_version": current_profile.schema_version,
+                        "retrieval_resolution_version": (
+                            current_profile.retrieval_resolution_version
+                        ),
+                    },
+                )
+            except Exception as error:
+                errors.append(f"candidate: {error}")
+                return self._failure(
+                    target,
+                    username,
+                    run_id,
+                    "candidate_failed",
+                    "候选采集失败，已保留当前画像和旧榜单",
+                    started_at,
+                    started_clock,
+                    metrics,
+                    errors,
+                    agent_calls=int(metrics["agent_calls"]),
+                )
             metrics["candidate_collect_ms"] = max(
                 0, int((time.monotonic() - stage_clock) * 1000)
             )
@@ -601,20 +712,24 @@ class RecommendationOrchestrator:
                         )
                     ),
                     (
-                        "候选硬过滤失败，未调用 Agent"
+                        "候选硬过滤失败，未调用排序 Agent"
                         if filter_failed
                         else (
-                            "候选快照保存失败，未调用 Agent"
+                            "候选快照保存失败，未调用排序 Agent"
                             if snapshot_failed
-                            else "发现候选不足，未调用 Agent"
+                            else "发现候选不足，未调用排序 Agent"
                         )
                     ),
                     started_at,
                     started_clock,
                     metrics,
                     errors,
+                    agent_calls=int(metrics["agent_calls"]),
                 )
 
+            self._finish_stage(metrics, "ready")
+
+            self._start_stage(metrics, "ranking")
             subscribed_ids: Set[str] = set()
             ranking_context = build_trusted_context(
                 username=username,
@@ -764,6 +879,8 @@ class RecommendationOrchestrator:
                         )
 
             status = "success" if len(accepted) >= 10 else "recommendation_incomplete"
+            self._finish_stage(metrics, status)
+            self._start_stage(metrics, "save")
             generated_at = datetime.now(timezone.utc).isoformat()
             previous_board = self._repository.load_board(target)
             board = RecommendationBoard(
@@ -796,6 +913,7 @@ class RecommendationOrchestrator:
             metrics["save_ms"] = max(
                 0, int((time.monotonic() - stage_clock) * 1000)
             )
+            self._finish_stage(metrics, "saved")
             metrics["final_count"] = len(accepted)
             self._append_run(
                 target,

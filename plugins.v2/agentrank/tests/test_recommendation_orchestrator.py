@@ -29,6 +29,7 @@ ProfilePreferences = preferences_module.ProfilePreferences
 RecommendationBoard = board_module.RecommendationBoard
 PlaybackSample = playback_module.PlaybackSample
 PlaybackSnapshot = playback_module.PlaybackSnapshot
+PlaybackCapability = playback_module.PlaybackCapability
 AgentRankRepository = repository_module.AgentRankRepository
 RecommendationOrchestrator = orchestrator_module.RecommendationOrchestrator
 ControlledRetrievalPlanResolver = keyword_module.ControlledRetrievalPlanResolver
@@ -70,6 +71,10 @@ class FakePlugin:
 
 class FakePlaybackService:
     """Return deterministic Playback Reporting evidence."""
+
+    def probe(self, profile_id, config):
+        """返回可用的 Playback Reporting 测试能力。"""
+        return PlaybackCapability(profile_id, "ready", "mock probe")
 
     def collect(self, profile_id, config):
         return PlaybackSnapshot(
@@ -298,6 +303,21 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert history[0].metrics["agent_calls"] == 2
     assert history[0].metrics["profile_agent_calls"] == 1
     assert history[0].metrics["ranking_agent_calls"] == 1
+    expected_stages = [
+        "probe",
+        "playback_snapshot",
+        "profile",
+        "candidate",
+        "ranking",
+        "save",
+    ]
+    assert history[0].metrics["stage_order"] == expected_stages
+    assert set(history[0].metrics["stage_status"]) == set(expected_stages)
+    assert set(history[0].metrics["stage_ms"]) == set(expected_stages)
+    assert all(
+        history[0].metrics["stage_ms"][stage] >= 0 for stage in expected_stages
+    )
+    assert history[0].metrics["playback_probe_status"] == "ready"
 
 
 def test_fewer_than_twenty_frozen_candidates_skips_ranking_agent():
@@ -317,6 +337,48 @@ def test_fewer_than_twenty_frozen_candidates_skips_ranking_agent():
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["candidate_count"] == 19
     assert history.metrics["minimum_frozen_candidates"] == 20
+
+
+def test_candidate_stage_exception_preserves_previous_board_and_records_failure():
+    """候选采集异常必须闭锁排序，并留下可审计阶段失败记录。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+
+    class FailedCandidateService(FakeCandidateService):
+        def collect_and_freeze(self, *args, **kwargs):
+            """模拟候选采集阶段抛出不可恢复异常。"""
+            raise RuntimeError("provider chain offline")
+
+    agent = FakeAgentAdapter([_agent_output(["tmdb:1"])])
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=FailedCandidateService(),
+        agent_adapter=agent,
+        run_id_factory=lambda: "run-candidate-failed",
+        playback_service=FakePlaybackService(),
+    )
+    repository.save_board(
+        RecommendationBoard(
+            profile_id=PROFILE_ID,
+            username="Alice",
+            run_id="old",
+            status="success",
+        )
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "candidate_failed"
+    assert result.board.run_id == "old"
+    assert agent.ranking_calls == []
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["stage_order"] == [
+        "probe",
+        "playback_snapshot",
+        "profile",
+        "candidate",
+    ]
+    assert history.metrics["stage_status"]["candidate"] == "candidate_failed"
 
 
 def test_ranking_context_prefers_persisted_snapshot_candidates():
@@ -552,7 +614,7 @@ def test_playback_evidence_is_collected_and_passed_to_restricted_context():
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
 
-    class PlaybackService:
+    class PlaybackService(FakePlaybackService):
         def collect(self, profile_id, config):
             return PlaybackSnapshot(
                 profile_id=profile_id,
@@ -602,7 +664,7 @@ def test_playback_samples_are_the_only_profile_evidence():
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
 
-    class PlaybackService:
+    class PlaybackService(FakePlaybackService):
         def collect(self, profile_id, config):
             return PlaybackSnapshot(
                 profile_id=profile_id,
@@ -638,7 +700,7 @@ def test_insufficient_playback_never_calls_agent_or_uses_subscription_fallback()
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
 
-    class InsufficientPlaybackService:
+    class InsufficientPlaybackService(FakePlaybackService):
         def collect(self, profile_id, config):
             return PlaybackSnapshot(
                 profile_id=profile_id,
@@ -791,7 +853,7 @@ def test_transient_playback_failure_preserves_previous_profile_and_board():
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
 
-    class TransientPlaybackService:
+    class TransientPlaybackService(FakePlaybackService):
         def collect(self, profile_id, config):
             return PlaybackSnapshot(
                 profile_id=profile_id,
@@ -834,6 +896,60 @@ def test_transient_playback_failure_preserves_previous_profile_and_board():
         "transient_error"
     )
     assert agent.calls == []
+
+
+def test_non_ready_probe_stops_before_collection_and_preserves_old_data():
+    """运行前探测未就绪时不得采集、调用 Agent 或覆盖旧数据。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+
+    class BlockedPlaybackService:
+        def __init__(self):
+            """初始化采集调用计数。"""
+            self.collect_calls = 0
+
+        def probe(self, profile_id, config):
+            """返回权限不足的探测结果。"""
+            return PlaybackCapability(profile_id, "permission_error", "无权访问")
+
+        def collect(self, profile_id, config):
+            """拒绝在失败探测之后执行播放采集。"""
+            self.collect_calls += 1
+            raise AssertionError("collect must not run after a blocked probe")
+
+    playback_service = BlockedPlaybackService()
+    agent = FakeAgentAdapter([_agent_output(["tmdb:1"])])
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=FakeCandidateService(),
+        agent_adapter=agent,
+        run_id_factory=lambda: "run-probe-blocked",
+        playback_service=playback_service,
+    )
+    repository.save_profile(
+        UserProfile(profile_id=PROFILE_ID, username="Alice", summary="old", run_id="old")
+    )
+    repository.save_board(
+        RecommendationBoard(
+            profile_id=PROFILE_ID,
+            username="Alice",
+            run_id="old",
+            status="success",
+        )
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "playback_unavailable"
+    assert result.board.run_id == "old"
+    assert repository.load_profile(PROFILE_ID).run_id == "old"
+    assert repository.load_board(PROFILE_ID).run_id == "old"
+    assert playback_service.collect_calls == 0
+    assert agent.calls == []
+    metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    assert metrics["stage_order"] == ["probe"]
+    assert metrics["stage_status"] == {"probe": "playback_unavailable"}
+    assert metrics["playback_probe_status"] == "permission_error"
 
 
 def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
@@ -1010,3 +1126,69 @@ def test_concurrent_refresh_returns_running_without_second_agent_call():
     assert first.status == "success"
     assert second.status == "running"
     assert len(agent.profile_calls) == 1
+
+
+def test_different_profiles_can_enter_profile_stage_concurrently():
+    """不同画像身份使用独立互斥键，可同时进入画像 Agent 阶段。"""
+    other_profile_id = "emby:home:user-2"
+    entered = {PROFILE_ID: asyncio.Event(), other_profile_id: asyncio.Event()}
+    release = asyncio.Event()
+
+    class ConcurrentAgent(FakeAgentAdapter):
+        async def run_profile(self, prompt, trusted_context):
+            """等待两个画像同时进入后再释放 Agent 输出。"""
+            self.calls.append(("profile", prompt, trusted_context))
+            self.profile_calls.append((prompt, trusted_context))
+            profile_id = trusted_context.playback["profile_id"]
+            entered[profile_id].set()
+            await asyncio.wait_for(
+                asyncio.gather(*(event.wait() for event in entered.values())),
+                timeout=1,
+            )
+            await release.wait()
+            return _profile_output(len(trusted_context.playback["samples"]))
+
+    async def scenario():
+        """并发运行两个不同 profile_id 的完整推荐任务。"""
+        plugin = FakePlugin()
+        repository = AgentRankRepository(plugin)
+        agent = ConcurrentAgent(
+            [
+                _agent_output([f"tmdb:{index}" for index in range(1, 11)]),
+                _agent_output([f"tmdb:{index}" for index in range(1, 11)]),
+            ]
+        )
+        run_ids = iter(("run-profile-1", "run-profile-2"))
+        orchestrator = RecommendationOrchestrator(
+            repository,
+            FakeCandidateService(),
+            agent,
+            run_id_factory=lambda: next(run_ids),
+            playback_service=FakePlaybackService(),
+        )
+        config = _config()
+        config["emby_identities"] = [
+            *config["emby_identities"],
+            {
+                "server_name": "home",
+                "user_id": "user-2",
+                "username": "Bob",
+                "profile_id": other_profile_id,
+                "schema_version": 1,
+            },
+        ]
+        tasks = [
+            asyncio.create_task(orchestrator.run(PROFILE_ID, config)),
+            asyncio.create_task(orchestrator.run(other_profile_id, config)),
+        ]
+        await asyncio.wait_for(
+            asyncio.gather(*(event.wait() for event in entered.values())),
+            timeout=1,
+        )
+        release.set()
+        return await asyncio.gather(*tasks), agent
+
+    results, agent = asyncio.run(scenario())
+
+    assert [result.status for result in results] == ["success", "success"]
+    assert len(agent.profile_calls) == 2
