@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-Dwl-jeVl.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CNOZEMen.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
@@ -61,10 +61,10 @@ function formatTime(value) {
 async function initialize() {
   try {
     await state.loadOptions();
-    if (props.config?.default_user && state.users.value.includes(props.config.default_user)) {
-      state.selectedUser.value = props.config.default_user;
+    if (props.config?.default_profile_id && state.identities.value.some(identity => identity.profile_id === props.config.default_profile_id)) {
+      state.selectedProfileId.value = props.config.default_profile_id;
     }
-    if (state.selectedUser.value) await state.loadUserData();
+    if (state.selectedProfileId.value) await state.loadProfileData();
   } catch (_) { /* 卡片内显示共享错误 */ }
 }
 
@@ -281,6 +281,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-15b84a9d"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-051ea84c"]]);
 
 export { Dashboard as default };

@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-Dwl-jeVl.js';
-import Config from './__federation_expose_Config-0hl79ZCB.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CNOZEMen.js';
+import Config from './__federation_expose_Config-gAAa7gyQ.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,unref:_unref,isRef:_isRef,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass,createSlots:_createSlots} = await importShared('vue');
@@ -58,8 +58,9 @@ const props = __props;
 const state = useAgentRankState(props.api);
 const {
   options,
-  users,
-  selectedUser,
+  identities,
+  identityOptions,
+  selectedProfileId,
   overview,
   board,
   loading,
@@ -96,7 +97,7 @@ const statusMeta = computed(() => {
 const stateMessage = computed(() => {
   if (error.value) return error.value.message
   const messages = {
-    sample_insufficient: '当前用户需要更多订阅样本，旧榜单不会被覆盖。',
+    sample_insufficient: '当前 Emby identity 需要更多播放样本，旧榜单不会被覆盖。',
     candidate_insufficient: '当前发现来源没有足够候选，请检查来源设置。',
     recommendation_incomplete: `本轮仅生成 ${recommendations.value.length} 条安全推荐。`,
     agent_failed: '本轮 Agent 调用失败，正在展示上一次成功榜单。',
@@ -148,7 +149,7 @@ function needsCopyToggle(value, threshold) {
 async function initialize() {
   try {
     await state.loadOptions();
-    if (selectedUser.value) await state.loadUserData();
+    if (selectedProfileId.value) await state.loadProfileData();
   } catch (_) {
     // 共享状态已保存可见错误。
   } finally {
@@ -212,9 +213,9 @@ async function saveSettings(payload) {
   }
 }
 
-watch(selectedUser, async (value, oldValue) => {
+watch(selectedProfileId, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
-  try { await state.loadUserData(value); } catch (_) { /* 可见错误由共享状态承载 */ }
+  try { await state.loadProfileData(value); } catch (_) { /* 可见错误由共享状态承载 */ }
 });
 
 onMounted(initialize);
@@ -283,25 +284,27 @@ return (_ctx, _cache) => {
                 }, 8, ["color"]))
               : _createCommentVNode("", true),
             _createVNode(_component_VSpacer),
-            (_unref(users).length > 1)
+            (_unref(identities).length > 1)
               ? (_openBlock(), _createBlock(_component_VSelect, {
                   key: 1,
-                  modelValue: _unref(selectedUser),
-                  "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => (_isRef(selectedUser) ? (selectedUser).value = $event : null)),
-                  items: _unref(users),
-                  label: "用户",
+                  modelValue: _unref(selectedProfileId),
+                  "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => (_isRef(selectedProfileId) ? (selectedProfileId).value = $event : null)),
+                  items: _unref(identityOptions),
+                  "item-title": "title",
+                  "item-value": "value",
+                  label: "Emby 用户",
                   density: "compact",
                   variant: "outlined",
                   "hide-details": "",
-                  class: "ar-app-page__user",
-                  "aria-label": "切换推荐用户"
+                  class: "ar-app-page__identity",
+                  "aria-label": "切换 Emby 画像身份"
                 }, null, 8, ["modelValue", "items"]))
               : _createCommentVNode("", true),
             _createVNode(_component_VBtn, {
               icon: "mdi-refresh",
               variant: "text",
               loading: _unref(loading).action === 'refresh' || _unref(loading).data,
-              disabled: _unref(isRunning) || !_unref(selectedUser),
+              disabled: _unref(isRunning) || !_unref(selectedProfileId),
               "aria-label": "刷新榜单",
               onClick: refreshBoard
             }, null, 8, ["loading", "disabled"]),
@@ -322,12 +325,12 @@ return (_ctx, _cache) => {
                 width: "100%"
               })
             ]))
-          : (!_unref(users).length)
+          : (!_unref(identities).length)
             ? (_openBlock(), _createElementBlock("div", _hoisted_5, [
                 _createVNode(_component_VEmptyState, {
                   icon: "mdi-account-alert-outline",
-                  title: "尚未配置参与用户",
-                  text: "请先打开设置，选择参与推荐用户和默认用户。"
+                  title: "尚未配置 Emby identity",
+                  text: "请先打开设置，选择画像身份和默认身份。"
                 }, {
                   actions: _withCtx(() => [
                     _createVNode(_component_VBtn, {
@@ -386,7 +389,7 @@ return (_ctx, _cache) => {
                             key: 1,
                             icon: "mdi-format-list-numbered",
                             title: "推荐榜单尚未生成",
-                            text: "点击刷新，Agent 将基于当前用户订阅与 MP 发现候选生成榜单。"
+                            text: "点击刷新，Agent 将根据播放画像对冻结候选池排序。"
                           }))
                         : (_openBlock(), _createElementBlock("div", _hoisted_10, [
                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(recommendations.value, (item) => {
@@ -568,6 +571,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a9f62e8f"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-62792cf9"]]);
 
 export { AppPage as default };

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-Dwl-jeVl.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CNOZEMen.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives,withKeys:_withKeys} = await importShared('vue');
@@ -107,7 +107,7 @@ const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.val
 const positiveTags = computed(() => state.profile.value?.tags || []);
 const negativeTags = computed(() => state.profile.value?.negative_tags || []);
 const profileStats = computed(() => [
-  { label: '订阅样本', value: state.profile.value?.subscription_count || 0, suffix: '条', icon: 'mdi-database-check-outline' },
+  { label: '播放样本', value: state.profile.value?.playback_count || 0, suffix: '条', icon: 'mdi-database-check-outline' },
   { label: '偏好标签', value: positiveTags.value.length, suffix: '个', icon: 'mdi-heart-outline' },
   { label: '避雷标签', value: negativeTags.value.length, suffix: '个', icon: 'mdi-shield-alert-outline' },
 ]);
@@ -125,7 +125,7 @@ const boardMatchTags = computed(() => {
 const profileRunId = computed(() => String(state.profile.value?.run_id || '').slice(0, 8) || '—');
 const detailStats = computed(() => [
   { label: '榜单条目', value: recommendations.value.length, suffix: '部', icon: 'mdi-format-list-numbered' },
-  { label: '画像样本', value: state.profile.value?.subscription_count || 0, suffix: '条', icon: 'mdi-account-heart-outline' },
+  { label: '画像样本', value: state.profile.value?.playback_count || 0, suffix: '条', icon: 'mdi-account-heart-outline' },
   { label: '忽略归档', value: archiveEntries.value.length, suffix: '部', icon: 'mdi-archive-outline' },
 ]);
 
@@ -161,7 +161,7 @@ function mediaTypeLabel(value) {
 async function initialize() {
   try {
     await state.loadOptions();
-    if (state.selectedUser.value) await state.loadUserData();
+    if (state.selectedProfileId.value) await state.loadProfileData();
   } catch (_) {
     // 共享状态承载错误。
   } finally {
@@ -200,10 +200,10 @@ async function removeProfileTag(kind, tag) {
   );
 }
 
-watch(state.selectedUser, async (value, oldValue) => {
+watch(state.selectedProfileId, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
   historyPage.value = 1;
-  try { await state.loadUserData(value); } catch (_) { /* 错误已保存 */ }
+  try { await state.loadProfileData(value); } catch (_) { /* 错误已保存 */ }
 });
 
 watch(activeTab, async value => {
@@ -261,17 +261,20 @@ return (_ctx, _cache) => {
           _createElementVNode("div", { class: "ar-page__subtitle" }, "推荐结果、用户画像与运行记录")
         ], -1)),
         _createVNode(_component_VSpacer),
-        (_unref(state).users.value.length > 1)
+        (_unref(state).identities.value.length > 1)
           ? (_openBlock(), _createBlock(_component_VSelect, {
               key: 0,
-              modelValue: _unref(state).selectedUser.value,
-              "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((_unref(state).selectedUser.value) = $event)),
-              items: _unref(state).users.value,
+              modelValue: _unref(state).selectedProfileId.value,
+              "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((_unref(state).selectedProfileId.value) = $event)),
+              items: _unref(state).identityOptions.value,
+              "item-title": "title",
+              "item-value": "value",
               density: "compact",
               variant: "outlined",
               "hide-details": "",
-              label: "用户",
-              class: "ar-page__user"
+              label: "Emby 用户",
+              class: "ar-page__identity",
+              "aria-label": "切换 Emby 画像身份"
             }, null, 8, ["modelValue", "items"]))
           : _createCommentVNode("", true),
         _createVNode(_component_VBtn, {
@@ -393,7 +396,7 @@ return (_ctx, _cache) => {
                     key: 0,
                     icon: "mdi-format-list-numbered",
                     title: "推荐榜单尚未生成",
-                    text: "点击右上角刷新，为当前用户生成 Top 10。"
+                    text: "点击右上角刷新，根据播放画像生成 Top 10。"
                   }))
                 : (_openBlock(), _createElementBlock("div", _hoisted_10, [
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(recommendations.value, (item) => {
@@ -489,7 +492,7 @@ return (_ctx, _cache) => {
               _createElementVNode("div", _hoisted_22, [
                 _cache[18] || (_cache[18] = _createElementVNode("div", null, [
                   _createElementVNode("div", { class: "ar-page__section-title" }, "用户画像"),
-                  _createElementVNode("div", { class: "ar-page__section-desc" }, "用订阅样本描述偏好、避雷方向与本轮榜单命中。")
+                  _createElementVNode("div", { class: "ar-page__section-desc" }, "用播放样本描述偏好、避雷方向与本轮榜单命中。")
                 ], -1)),
                 _createVNode(_component_VChip, {
                   size: "small",
@@ -529,7 +532,7 @@ return (_ctx, _cache) => {
                       }),
                       _createVNode(_component_VCardSubtitle, null, {
                         default: _withCtx(() => [
-                          _createTextVNode("用户 " + _toDisplayString(_unref(state).selectedUser.value || '—') + " · 运行 " + _toDisplayString(profileRunId.value), 1)
+                          _createTextVNode("Emby 用户 " + _toDisplayString(_unref(state).selectedUsername.value || '—') + " · 运行 " + _toDisplayString(profileRunId.value), 1)
                         ]),
                         _: 1
                       })
@@ -923,6 +926,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0feba4fe"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-852dc91c"]]);
 
 export { Page as default };
