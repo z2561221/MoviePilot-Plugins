@@ -111,11 +111,13 @@ class FakeCandidateService:
         playback_samples=None,
         archived_candidate_ids=None,
         negative_keywords=None,
+        profile_version=None,
     ):
         self.retrieval_plan = retrieval_plan
         self.playback_samples = list(playback_samples or [])
         self.archived_candidate_ids = set(archived_candidate_ids or set())
         self.negative_keywords = list(negative_keywords or [])
+        self.profile_version = dict(profile_version or {})
         values = dict(
             profile_id=profile_id,
             run_id=run_id,
@@ -315,6 +317,46 @@ def test_fewer_than_twenty_frozen_candidates_skips_ranking_agent():
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["candidate_count"] == 19
     assert history.metrics["minimum_frozen_candidates"] == 20
+
+
+def test_ranking_context_prefers_persisted_snapshot_candidates():
+    """候选结果与快照分叉时，排序 Agent 必须只读取持久化快照内容。"""
+    class SnapshotCandidateService(FakeCandidateService):
+        def collect_and_freeze(self, *args, **kwargs):
+            result = super().collect_and_freeze(*args, **kwargs)
+            persisted = Candidate(
+                candidate_id="tmdb:movie:99",
+                title="Persisted",
+                media_type="movie",
+            )
+            result.snapshot = SimpleNamespace(
+                candidates=[persisted],
+                content_hash="snapshot-hash",
+                generated_at="2026-07-21T00:00:00+00:00",
+            )
+            result.minimum_frozen_candidates = 1
+            return result
+
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    agent = FakeAgentAdapter([_agent_output(["tmdb:movie:99"])])
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=SnapshotCandidateService(),
+        agent_adapter=agent,
+        run_id_factory=lambda: "run-snapshot-context",
+        playback_service=FakePlaybackService(),
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    visible_ids = [
+        item["candidate_id"] for item in agent.ranking_calls[0][1].candidates
+    ]
+    assert visible_ids == ["tmdb:movie:99"]
+    assert result.status == "recommendation_incomplete"
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["candidate_snapshot_hash"] == "snapshot-hash"
 
 
 def test_same_playback_fingerprint_reuses_profile_when_candidates_change():

@@ -488,6 +488,14 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
     )
 
     assert [item.candidate_id for item in result.candidates] == ["tmdb:movie:6"]
+    assert result.snapshot is not None
+    assert result.snapshot.content_hash
+    assert result.snapshot.to_dict() == plugin.data[
+        "candidate_snapshot:profile:alice:run:run-hard-filter"
+    ]
+    assert [item.to_dict() for item in result.candidates] == [
+        item.to_dict() for item in result.snapshot.candidates
+    ]
     assert result.exclusion_counts == {
         "invalid_or_unrecognized": 0,
         "watched_completed": 1,

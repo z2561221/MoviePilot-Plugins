@@ -501,15 +501,30 @@ class RecommendationOrchestrator:
                 playback_samples=playback_snapshot.samples,
                 archived_candidate_ids=archived_ids,
                 negative_keywords=negative_keywords,
+                profile_version={
+                    "run_id": current_profile.run_id,
+                    "schema_version": current_profile.schema_version,
+                    "retrieval_resolution_version": (
+                        current_profile.retrieval_resolution_version
+                    ),
+                },
             )
             metrics["candidate_collect_ms"] = max(
                 0, int((time.monotonic() - stage_clock) * 1000)
             )
-            candidates = list(candidate_result.candidates)
-            stage_clock = time.monotonic()
-            candidates, library_excluded = await asyncio.to_thread(
-                self._exclude_library_candidates, candidates
+            candidate_snapshot = getattr(candidate_result, "snapshot", None)
+            candidates = (
+                list(candidate_snapshot.candidates)
+                if candidate_snapshot is not None
+                else list(candidate_result.candidates)
             )
+            stage_clock = time.monotonic()
+            if candidate_snapshot is None:
+                candidates, library_excluded = await asyncio.to_thread(
+                    self._exclude_library_candidates, candidates
+                )
+            else:
+                library_excluded = []
             metrics["library_check_ms"] = max(
                 0, int((time.monotonic() - stage_clock) * 1000)
             )
@@ -534,6 +549,15 @@ class RecommendationOrchestrator:
             )
             metrics["candidate_filter_errors"] = dict(
                 getattr(candidate_result, "filter_errors", {}) or {}
+            )
+            metrics["candidate_snapshot_hash"] = str(
+                getattr(candidate_snapshot, "content_hash", "") or ""
+            )
+            metrics["candidate_snapshot_generated_at"] = str(
+                getattr(candidate_snapshot, "generated_at", "") or ""
+            )
+            metrics["candidate_snapshot_error"] = str(
+                getattr(candidate_result, "snapshot_error", "") or ""
             )
             minimum_frozen_candidates = max(
                 0,
@@ -560,6 +584,9 @@ class RecommendationOrchestrator:
                 or len(candidates) < minimum_frozen_candidates
             ):
                 filter_failed = candidate_result.status == "candidate_filter_failed"
+                snapshot_failed = (
+                    candidate_result.status == "candidate_snapshot_failed"
+                )
                 return self._failure(
                     target,
                     username,
@@ -567,12 +594,20 @@ class RecommendationOrchestrator:
                     (
                         "candidate_filter_failed"
                         if filter_failed
-                        else "candidate_insufficient"
+                        else (
+                            "candidate_snapshot_failed"
+                            if snapshot_failed
+                            else "candidate_insufficient"
+                        )
                     ),
                     (
                         "候选硬过滤失败，未调用 Agent"
                         if filter_failed
-                        else "发现候选不足，未调用 Agent"
+                        else (
+                            "候选快照保存失败，未调用 Agent"
+                            if snapshot_failed
+                            else "发现候选不足，未调用 Agent"
+                        )
                     ),
                     started_at,
                     started_clock,

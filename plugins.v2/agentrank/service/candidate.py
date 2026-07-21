@@ -6,6 +6,7 @@ from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Set, Tup
 
 from ..adapter.discovery import DiscoveryAdapter, RawDiscoveredItem
 from ..model.candidate import Candidate, typed_tmdb_candidate_id
+from ..model.candidate_snapshot import CandidateSnapshot
 from ..model.retrieval import RetrievalPlan
 from ..storage.repository import AgentRankRepository
 
@@ -30,6 +31,8 @@ class CandidateCollectionResult:
     layer_counts: Dict[str, int] = field(default_factory=dict)
     exclusion_counts: Dict[str, int] = field(default_factory=dict)
     filter_errors: Dict[str, str] = field(default_factory=dict)
+    snapshot: Optional[CandidateSnapshot] = None
+    snapshot_error: str = ""
     minimum_frozen_candidates: int = DEFAULT_MINIMUM_FROZEN_CANDIDATES
 
 
@@ -332,6 +335,7 @@ class CandidateCollectionService:
         playback_samples: Optional[Iterable[Any]] = None,
         archived_candidate_ids: Optional[Iterable[str]] = None,
         negative_keywords: Optional[Iterable[str]] = None,
+        profile_version: Optional[Mapping[str, Any]] = None,
     ) -> CandidateCollectionResult:
         """采集、类型化去重、硬过滤并在返回前冻结候选快照。"""
         playback_samples = list(playback_samples or ())
@@ -431,8 +435,41 @@ class CandidateCollectionService:
             status = "candidate_filter_failed"
         else:
             status = "ready" if candidates else "candidate_insufficient"
+        snapshot = None
+        snapshot_error = ""
         if not filter_errors:
-            self._repository.save_candidate_snapshot(run_id, profile_id, candidates)
+            source_stats = {
+                "fetched_source_counts": dict(fetched.source_counts),
+                "accepted_source_counts": self._source_counts(candidates),
+                "layer_counts": dict(getattr(fetched, "layer_counts", {}) or {}),
+                "source_error_count": len(fetched.source_errors),
+            }
+            try:
+                pending_snapshot = CandidateSnapshot.create(
+                    profile_id=profile_id,
+                    run_id=run_id,
+                    profile_version=(
+                        profile_version
+                        or {"run_id": run_id, "schema_version": 1}
+                    ),
+                    retrieval_plan=(
+                        retrieval_plan.to_dict() if retrieval_plan is not None else {}
+                    ),
+                    candidates=candidates,
+                    source_stats=source_stats,
+                    exclusion_counts=exclusion_counts,
+                )
+                self._repository.save_candidate_snapshot(pending_snapshot)
+                snapshot = self._repository.load_candidate_snapshot_record(
+                    run_id, profile_id
+                )
+                if snapshot is None:
+                    raise ValueError("candidate snapshot readback failed")
+                candidates = list(snapshot.candidates)
+            except Exception as error:
+                snapshot_error = str(error)
+                status = "candidate_snapshot_failed"
+                candidates = []
         return CandidateCollectionResult(
             profile_id=profile_id,
             run_id=run_id,
@@ -447,5 +484,7 @@ class CandidateCollectionService:
             layer_counts=dict(getattr(fetched, "layer_counts", {}) or {}),
             exclusion_counts=exclusion_counts,
             filter_errors=filter_errors,
+            snapshot=snapshot,
+            snapshot_error=snapshot_error,
             minimum_frozen_candidates=min(DEFAULT_MINIMUM_FROZEN_CANDIDATES, limit),
         )

@@ -20,6 +20,7 @@ board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 archive_module = importlib.import_module(f"{PACKAGE_NAME}.model.archive")
 run_module = importlib.import_module(f"{PACKAGE_NAME}.model.run")
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
+snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 
 AgentRankConfig = config_module.AgentRankConfig
@@ -34,6 +35,7 @@ RecommendationBoard = board_module.RecommendationBoard
 ArchiveFeedback = archive_module.ArchiveFeedback
 RecommendationRun = run_module.RecommendationRun
 Candidate = candidate_module.Candidate
+CandidateSnapshot = snapshot_module.CandidateSnapshot
 AgentRankRepository = repository_module.AgentRankRepository
 
 HOME_IDENTITY = {
@@ -59,6 +61,17 @@ class FakePlugin:
 
     def del_data(self, key=None):
         self.data.pop(key, None)
+
+
+def _candidate_snapshot(run_id, profile_id, candidates):
+    """构造包含最小真实画像版本信息的 schema 3 候选快照。"""
+    return CandidateSnapshot.create(
+        profile_id=profile_id,
+        run_id=run_id,
+        profile_version={"run_id": f"profile-{run_id}", "schema_version": 4},
+        retrieval_plan={},
+        candidates=candidates,
+    )
 
 
 def test_config_has_exact_ten_weight_defaults_and_valid_bounds():
@@ -255,15 +268,31 @@ def test_repository_isolates_profiles_and_candidate_runs():
     repository.save_profile(UserProfile(profile_id=remote, username="Alice", summary="B"))
     repository.save_board(RecommendationBoard(profile_id=home, username="Alice", run_id="run-a"))
     repository.save_archive(ArchiveFeedback(profile_id=home, username="Alice"))
-    repository.save_candidate_snapshot("run-a", home, [Candidate(candidate_id="c1", title="One")])
-    repository.save_candidate_snapshot("run-b", home, [Candidate(candidate_id="c2", title="Two")])
+    repository.save_candidate_snapshot(
+        _candidate_snapshot(
+            "run-a",
+            home,
+            [Candidate(candidate_id="tmdb:movie:1", title="One")],
+        )
+    )
+    repository.save_candidate_snapshot(
+        _candidate_snapshot(
+            "run-b",
+            home,
+            [Candidate(candidate_id="tmdb:tv:2", title="Two")],
+        )
+    )
 
     assert repository.load_profile(home).summary == "A"
     assert repository.load_profile(remote).summary == "B"
     assert repository.load_board(remote) is None
     assert repository.load_archive(remote).profile_id == remote
-    assert repository.load_candidate_snapshot("run-a", home)[0].candidate_id == "c1"
-    assert repository.load_candidate_snapshot("run-b", home)[0].candidate_id == "c2"
+    assert repository.load_candidate_snapshot("run-a", home)[0].candidate_id == (
+        "tmdb:movie:1"
+    )
+    assert repository.load_candidate_snapshot("run-b", home)[0].candidate_id == (
+        "tmdb:tv:2"
+    )
 
 
 def test_corrupted_storage_recovers_and_records_evidence():
@@ -304,7 +333,11 @@ def test_candidate_snapshot_rejects_cross_profile_and_run_payloads():
     remote = "emby:remote:user-1"
     source_key = "candidate_snapshot:profile:emby%3Ahome%3Auser-1:run:run-a"
     repository.save_candidate_snapshot(
-        "run-a", home, [Candidate(candidate_id="c1", title="One")]
+        _candidate_snapshot(
+            "run-a",
+            home,
+            [Candidate(candidate_id="tmdb:movie:1", title="One")],
+        )
     )
 
     cross_profile_key = (

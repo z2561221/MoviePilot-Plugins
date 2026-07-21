@@ -46,6 +46,7 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 - 默认冻结目标 50 条按精确探索 25、放宽探索 10、相邻题材 5、公共推荐 10 分层召回；层级不足时只从其余有效层补足，并保持来源轮询。低于 20 条不会调用排序 Agent。
 - 最终候选身份固定为 `tmdb:movie:<id>` 或 `tmdb:tv:<id>`；电影与剧集的相同数字 ID 不冲突，跨来源只按类型化身份合并，不按标题兜底。
 - 插件在冻结前排除已看完、已入库、全部用户名下已有订阅、当前画像归档项和命中负向关键词的候选；任一硬过滤依赖读取失败时闭锁本轮，不调用排序 Agent。
+- schema 3 候选快照记录画像版本、检索计划、候选、来源统计、排除统计、生成时间和内容 hash；同一 profile_id/run_id 只允许首次写入，保存后必须回读校验，排序 Agent 只读取回读快照。
 - 排序 Agent 只返回一个 JSON 对象，根键固定为 `recommendations`；不得生成、修改或回写画像。
 - `recommendations[].candidate_id` 必须来自冻结候选快照。
 - 推荐不得重复，不得包含已归档或已订阅候选。
@@ -61,6 +62,7 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 - `sample_insufficient`：播放样本不足，不调用 Agent。
 - `candidate_insufficient`：发现候选不足，不调用 Agent。
 - `candidate_filter_failed`：媒体库或全局订阅硬过滤无法可靠完成，不调用 Agent，也不保存风险候选快照。
+- `candidate_snapshot_failed`：最终候选快照无法安全保存或回读，不调用排序 Agent，且不覆盖已有运行快照。
 - `profile_agent_failed` / `profile_validation_failed` / `profile_save_failed`：画像阶段失败，保留旧画像与旧榜单。
 - `ranking_agent_failed` / `ranking_validation_failed` / `ranking_save_failed`：排序阶段失败；新画像可以保留，但旧榜单不被覆盖。
 - `validation_failed`：仅作为历史兼容状态，不作为生产组合输出链路。

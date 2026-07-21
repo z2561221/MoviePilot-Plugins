@@ -7,6 +7,7 @@ from urllib.parse import quote
 from ..model.archive import ArchiveFeedback
 from ..model.board import RecommendationBoard
 from ..model.candidate import Candidate
+from ..model.candidate_snapshot import CandidateSnapshot
 from ..model.profile import UserProfile
 from ..model.profile_preferences import ProfilePreferences
 from ..model.playback import PlaybackSnapshot
@@ -173,37 +174,46 @@ class AgentRankRepository:
         )
         return archive or ArchiveFeedback(profile_id=profile_id)
 
-    def save_candidate_snapshot(
-        self, run_id: str, profile_id: str, candidates: List[Candidate]
-    ) -> None:
-        """保存冻结的本轮候选快照。"""
-        self._plugin.save_data(
-            key=self._candidate_key(run_id, profile_id),
-            value={
-                "schema_version": 2,
-                "run_id": run_id,
-                "profile_id": profile_id,
-                "candidates": [candidate.to_dict() for candidate in candidates],
-            },
-        )
+    def save_candidate_snapshot(self, snapshot: CandidateSnapshot) -> None:
+        """首次保存候选快照，拒绝覆盖并在写入失败时清除半快照。"""
+        if not isinstance(snapshot, CandidateSnapshot):
+            raise TypeError("snapshot must be CandidateSnapshot")
+        key = self._candidate_key(snapshot.run_id, snapshot.profile_id)
+        if self._plugin.get_data(key=key) is not None:
+            raise ValueError("candidate snapshot already exists")
+        try:
+            self._plugin.save_data(key=key, value=snapshot.to_dict())
+            stored = self._plugin.get_data(key=key)
+            verified = CandidateSnapshot.from_dict(stored)
+            if verified.content_hash != snapshot.content_hash:
+                raise ValueError("candidate snapshot readback mismatch")
+        except Exception:
+            self._plugin.del_data(key=key)
+            raise
 
-    def load_candidate_snapshot(self, run_id: str, profile_id: str) -> List[Candidate]:
-        """读取本轮候选快照；损坏时返回空列表并记录证据。"""
+    def load_candidate_snapshot_record(
+        self, run_id: str, profile_id: str
+    ) -> Optional[CandidateSnapshot]:
+        """读取并校验完整候选快照记录；损坏时返回空。"""
         key = self._candidate_key(run_id, profile_id)
         value = self._plugin.get_data(key=key)
         if value is None:
-            return []
+            return None
         try:
-            if not isinstance(value, Mapping):
-                raise ValueError("candidate snapshot must be a mapping")
-            if str(value.get("run_id") or "") != str(run_id):
+            snapshot = CandidateSnapshot.from_dict(value)
+            if snapshot.run_id != str(run_id):
                 raise ValueError("candidate snapshot run_id mismatch")
-            if str(value.get("profile_id") or "") != str(profile_id):
+            if snapshot.profile_id != str(profile_id):
                 raise ValueError("candidate snapshot profile_id mismatch")
-            return [Candidate.from_dict(item) for item in value.get("candidates") or []]
+            return snapshot
         except (TypeError, ValueError, KeyError) as error:
             self._record_recovery(key, "ignored_corrupt_data", str(error))
-            return []
+            return None
+
+    def load_candidate_snapshot(self, run_id: str, profile_id: str) -> List[Candidate]:
+        """读取本轮候选快照；损坏时返回空列表并记录证据。"""
+        snapshot = self.load_candidate_snapshot_record(run_id, profile_id)
+        return list(snapshot.candidates) if snapshot is not None else []
 
     def append_run(self, run: RecommendationRun) -> None:
         """把运行记录写入对应用户历史头部并执行上限裁剪。"""

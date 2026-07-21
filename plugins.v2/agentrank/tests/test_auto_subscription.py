@@ -14,6 +14,7 @@ package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
 
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
+snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 run_module = importlib.import_module(f"{PACKAGE_NAME}.model.run")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
@@ -21,6 +22,7 @@ subscription_module = importlib.import_module(f"{PACKAGE_NAME}.service.subscript
 runtime_module = importlib.import_module(f"{PACKAGE_NAME}.service.runtime")
 
 Candidate = candidate_module.Candidate
+CandidateSnapshot = snapshot_module.CandidateSnapshot
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
 RecommendationRun = run_module.RecommendationRun
@@ -73,6 +75,18 @@ class FakeMedia:
         self.__dict__.update(kwargs)
 
 
+def _legacy_snapshot(run_id, candidates):
+    """构造供旧榜单兼容测试使用的 schema 2 快照。"""
+    return CandidateSnapshot(
+        profile_id=PROFILE_ID,
+        run_id=run_id,
+        profile_version={},
+        retrieval_plan={},
+        candidates=candidates,
+        schema_version=2,
+    ).seal()
+
+
 def _seed(repository, count=3):
     items = []
     candidates = []
@@ -105,7 +119,7 @@ def _seed(repository, count=3):
             recommendations=items,
         )
     )
-    repository.save_candidate_snapshot("run-1", PROFILE_ID, candidates)
+    repository.save_candidate_snapshot(_legacy_snapshot("run-1", candidates))
 
 
 def _service(repository, chain):
@@ -175,8 +189,8 @@ def test_animation_movie_subscribes_with_recognized_moviepilot_base_type():
         )
     )
     repository.save_candidate_snapshot(
-        "run-animation-movie",
-        PROFILE_ID,
+        _legacy_snapshot(
+            "run-animation-movie",
         [
             Candidate(
                 candidate_id="tmdb:16",
@@ -186,6 +200,7 @@ def test_animation_movie_subscribes_with_recognized_moviepilot_base_type():
                 metadata={"mp_media_type": "电影"},
             )
         ],
+        )
     )
     chain = SequencedChain(add_results=[(16, "created")])
 

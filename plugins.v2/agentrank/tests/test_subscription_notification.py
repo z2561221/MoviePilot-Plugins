@@ -30,6 +30,7 @@ schemas_module.types = types_module
 types_module.NotificationType = NotificationType
 
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
+snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 archive_module = importlib.import_module(f"{PACKAGE_NAME}.model.archive")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
@@ -39,6 +40,7 @@ runtime_module = importlib.import_module(f"{PACKAGE_NAME}.service.runtime")
 controller_module = importlib.import_module(f"{PACKAGE_NAME}.controller.api")
 
 Candidate = candidate_module.Candidate
+CandidateSnapshot = snapshot_module.CandidateSnapshot
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
 ArchiveFeedback = archive_module.ArchiveFeedback
@@ -113,13 +115,25 @@ class FakeMedia:
         self.__dict__.update(kwargs)
 
 
-def _seed(repository, confidence=80, source_ids=None):
+def _legacy_snapshot(run_id, candidates):
+    """构造供旧榜单订阅兼容测试使用的 schema 2 快照。"""
+    return CandidateSnapshot(
+        profile_id=PROFILE_ID,
+        run_id=run_id,
+        profile_version={},
+        retrieval_plan={},
+        candidates=candidates,
+        schema_version=2,
+    ).seal()
+
+
+def _seed(repository, confidence=80, source_ids=None, run_id="run-1"):
     source_ids = source_ids if source_ids is not None else {"tmdb": "1"}
     repository.save_board(
         RecommendationBoard(
             profile_id=PROFILE_ID,
             username="Alice",
-            run_id="run-1",
+            run_id=run_id,
             status="success",
             recommendations=[
                 RecommendationItem(
@@ -134,8 +148,8 @@ def _seed(repository, confidence=80, source_ids=None):
         )
     )
     repository.save_candidate_snapshot(
-        "run-1",
-        PROFILE_ID,
+        _legacy_snapshot(
+            run_id,
         [
             Candidate(
                 candidate_id="tmdb:1",
@@ -145,6 +159,7 @@ def _seed(repository, confidence=80, source_ids=None):
                 source_ids=source_ids,
             )
         ],
+        )
     )
 
 
@@ -313,7 +328,7 @@ def test_unrecognizable_candidate_and_add_failure_are_visible():
     unrecognizable = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
     assert unrecognizable.code == "candidate_unrecognizable"
 
-    _seed(repository, source_ids={"douban": "db-1"})
+    _seed(repository, source_ids={"douban": "db-1"}, run_id="run-2")
     failed = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
     assert failed.success is False
     assert failed.code == "subscription_failed"
