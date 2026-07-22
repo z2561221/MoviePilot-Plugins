@@ -210,20 +210,46 @@ class ConfigFrontendContractTest(unittest.TestCase):
 
         self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
 
-    def test_dashboard_loads_initial_data_concurrently(self):
-        """仪表盘首次挂载应并发请求配置、榜单历史和豆瓣时间。"""
+    def test_dashboard_initial_load_times_out_and_keeps_partial_data(self):
+        """仪表盘首次挂载应限时并发请求，且允许核心数据先于时间线收口。"""
         text = DASHBOARD_VUE.read_text(encoding="utf-8")
         load_block = re.search(r"async function load\(\) \{.*?^\}", text, re.MULTILINE | re.DOTALL)
 
         self.assertIsNotNone(load_block)
         load_text = load_block.group(0)
-        self.assertIn("const [nextConfig, nextRankHistory, nextFolioData] = await Promise.all([", load_text)
-        self.assertIn("getPluginApi(props.api, 'config')", load_text)
-        self.assertIn("getPluginApi(props.api, 'rank_history')", load_text)
-        self.assertIn("getPluginApi(props.api, 'folio_data')", load_text)
-        self.assertNotIn("config.value = await getPluginApi(props.api, 'config')", load_text)
-        self.assertNotIn("rankHistory.value = await getPluginApi(props.api, 'rank_history')", load_text)
-        self.assertNotIn("folioData.value = await getPluginApi(props.api, 'folio_data')", load_text)
+        self.assertIn("const folioRequest = getPluginApi(props.api, 'folio_data', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS })", load_text)
+        self.assertIn("getPluginApi(props.api, 'config', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS })", load_text)
+        self.assertIn("getPluginApi(props.api, 'rank_history', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS })", load_text)
+        self.assertIn("await Promise.allSettled(coreRequests.map(item => item.run))", load_text)
+        self.assertIn("await Promise.allSettled([folioRequest])", load_text)
+        self.assertIn("loading.value = false", load_text)
+        self.assertIn("loadError.value = errors.length", load_text)
+        self.assertNotIn("await Promise.all([", load_text)
+
+        self.assertIn('<VProgressLinear v-if="loading || folioLoading"', text)
+        self.assertIn('@click="load">重试</VBtn>', text)
+        self.assertNotIn('<VProgressCircular v-if="loading"', text)
+
+    def test_discovery_initial_load_times_out_and_keeps_partial_data(self):
+        """发现页请求应独立收口，失败时保留成功数据并提供重试。"""
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+        api_text = API_JS.read_text(encoding="utf-8")
+        load_block = re.search(r"async function loadAll\(\) \{.*?^\}", page_text, re.MULTILINE | re.DOTALL)
+
+        self.assertIsNotNone(load_block)
+        load_text = load_block.group(0)
+        self.assertIn("await Promise.allSettled(requests.map(async request =>", load_text)
+        self.assertIn("{ timeoutMs: INITIAL_LOAD_TIMEOUT_MS }", load_text)
+        self.assertIn("request.apply(value)", load_text)
+        self.assertIn("loadError.value = failed.length", load_text)
+        self.assertNotIn("archive_records", load_text)
+        self.assertNotIn("await Promise.all([", load_text)
+
+        self.assertIn('<VProgressLinear v-if="loading"', page_text)
+        self.assertIn("archivePage ? loadArchive() : loadAll()", page_text)
+        self.assertNotIn('<VProgressCircular v-if="loading"', page_text)
+        self.assertIn("error.code = 'PLUGIN_API_TIMEOUT'", api_text)
+        self.assertIn("return await Promise.race([request, timeout])", api_text)
 
     def test_small_posters_share_w200_url_conversion_and_lazy_loading(self):
         """仪表盘与详情页小海报应统一降到 w200 并保持 VImg 懒加载。"""

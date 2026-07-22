@@ -11,9 +11,11 @@ const config = ref({})
 const rankHistory = ref({})
 const folioData = ref({})
 const loading = ref(false)
+const folioLoading = ref(false)
 const refreshing = ref(false)
 const subscribeResult = ref('')
 const refreshResult = ref('')
+const loadError = ref('')
 const dialogItem = ref(null)
 const showDialog = ref(false)
 
@@ -36,6 +38,7 @@ const rankIconColors = {
 }
 const TIMELINE_MONTH_LIMIT = 3
 const TIMELINE_ITEM_LIMIT = 50
+const INITIAL_LOAD_TIMEOUT_MS = 8000
 
 function rankColorOf(key) {
   return rankIconColors[key] || rankIconColors.unknown
@@ -116,20 +119,36 @@ async function resolveRankMedia(rk, item) {
 
 async function load() {
   loading.value = true
-  try {
-    const [nextConfig, nextRankHistory, nextFolioData] = await Promise.all([
-      getPluginApi(props.api, 'config'),
-      getPluginApi(props.api, 'rank_history'),
-      getPluginApi(props.api, 'folio_data'),
-    ])
-    config.value = nextConfig || {}
-    rankHistory.value = nextRankHistory || {}
-    folioData.value = nextFolioData || {}
-  } catch (e) {
-    console.error(e)
-  } finally {
-    loading.value = false
+  folioLoading.value = true
+  loadError.value = ''
+  const errors = []
+  const folioRequest = getPluginApi(props.api, 'folio_data', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS })
+  const coreRequests = [
+    { label: '仪表配置', run: getPluginApi(props.api, 'config', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS }) },
+    { label: '榜单快照', run: getPluginApi(props.api, 'rank_history', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS }) },
+  ]
+  const coreResults = await Promise.allSettled(coreRequests.map(item => item.run))
+
+  coreResults.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      if (index === 0) config.value = result.value || {}
+      else rankHistory.value = result.value || {}
+      return
+    }
+    errors.push(coreRequests[index].label)
+    console.error(`[DoubanCenter] ${coreRequests[index].label}加载失败`, result.reason)
+  })
+  loading.value = false
+
+  const [folioResult] = await Promise.allSettled([folioRequest])
+  if (folioResult.status === 'fulfilled') {
+    folioData.value = folioResult.value || {}
+  } else {
+    errors.push('追影时间线')
+    console.error('[DoubanCenter] 追影时间线加载失败', folioResult.reason)
   }
+  folioLoading.value = false
+  loadError.value = errors.length ? `部分数据加载失败：${errors.join('、')}` : ''
 }
 
 async function refreshRss() {
@@ -293,8 +312,14 @@ onMounted(load)
       </template>
     </VCardItem>
     <VDivider />
+    <VProgressLinear v-if="loading || folioLoading" indeterminate color="primary" height="2" />
     <VCardText class="pa-3">
-      <VProgressCircular v-if="loading" indeterminate color="primary" class="d-block mx-auto my-6" />
+      <VAlert v-if="loadError" type="warning" variant="tonal" density="compact" class="mb-2 dc-load-alert">
+        <div class="dc-load-alert__content">
+          <span>{{ loadError }}</span>
+          <VBtn variant="text" size="x-small" prepend-icon="mdi-refresh" class="text-none" :loading="loading || folioLoading" @click="load">重试</VBtn>
+        </div>
+      </VAlert>
       <VAlert v-if="subscribeResult" :type="subscribeResult.includes('失败') ? 'error' : 'success'" variant="tonal" class="mb-2" :text="subscribeResult" density="compact" closable />
       <VAlert v-if="refreshResult" :type="refreshResult.includes('已刷新') ? 'success' : 'error'" variant="tonal" class="mb-2" :text="refreshResult" density="compact" closable />
 
@@ -344,7 +369,7 @@ onMounted(load)
         </div>
       </div>
 
-      <div v-if="!loading && !config.dashboard_rank_keys?.length && !timelineGroups.length" class="text-center text-medium-emphasis py-4 text-caption">
+      <div v-if="!loading && !folioLoading && !config.dashboard_rank_keys?.length && !timelineGroups.length" class="text-center text-medium-emphasis py-4 text-caption">
         请在配置页「仪表显示」中选择要显示的榜单
       </div>
     </VCardText>
@@ -373,6 +398,8 @@ onMounted(load)
 
 <style scoped>
 .dc-card { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; max-width: 100%; }
+.dc-load-alert__content { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 12px; }
+.dc-load-alert__content span { min-width: 0; overflow-wrap: anywhere; }
 .dc-poster { text-decoration: none; transition: transform .15s; display: block; border-radius: 4px; overflow: hidden; }
 .dc-poster:hover { transform: translateY(-2px); }
 .dc-ph { width: 60px; height: 90px; display: flex; align-items: center; justify-content: center; background: rgba(var(--v-theme-on-surface), .05); color: rgba(var(--v-theme-on-surface), .25); border-radius: 4px; }
