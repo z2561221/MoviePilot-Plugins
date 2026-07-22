@@ -315,13 +315,25 @@ def test_adapter_unwraps_only_a_complete_json_object_fence():
         adapter._normalize_captured_text(
             "结果如下：\n```json\n{\"recommendations\": []}\n```"
         )
-        == "结果如下：\n```json\n{\"recommendations\": []}\n```"
+        == '{"recommendations": []}'
     )
     assert (
         adapter._normalize_captured_text(
             "```json\n{\"recommendations\": []}\n```\n额外说明"
         )
         == "```json\n{\"recommendations\": []}\n```\n额外说明"
+    )
+    assert (
+        adapter._normalize_captured_text(
+            "结果如下：\n{\"recommendations\": []}\n```"
+        )
+        == '{"recommendations": []}'
+    )
+    assert (
+        adapter._normalize_captured_text(
+            '{"recommendations": []}\n{"recommendations": []}'
+        )
+        == '{"recommendations": []}\n{"recommendations": []}'
     )
 
 

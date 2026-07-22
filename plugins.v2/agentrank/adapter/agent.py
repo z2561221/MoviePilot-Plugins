@@ -1,6 +1,7 @@
 """受限 MoviePilotAgent 会话适配器。"""
 
 import inspect
+import json
 import re
 from typing import Any, Callable, List, Optional, Type
 
@@ -131,6 +132,7 @@ class AgentRankAgentAdapter:
         r"\A```(?:json)?[ \t]*\r?\n(?P<body>\{.*\})\r?\n```[ \t]*\Z",
         flags=re.IGNORECASE | re.DOTALL,
     )
+    _json_object_trailing = re.compile(r"\A(?:```[ \t]*)?\Z")
 
     def __init__(
         self,
@@ -179,6 +181,15 @@ class AgentRankAgentAdapter:
         match = cls._json_object_fence.fullmatch(text)
         if match:
             return match.group("body").strip()
+        start = text.find("{")
+        if start >= 0:
+            try:
+                _, end = json.JSONDecoder().raw_decode(text[start:])
+            except json.JSONDecodeError:
+                return text
+            trailing = text[start + end :].strip()
+            if cls._json_object_trailing.fullmatch(trailing):
+                return text[start : start + end].strip()
         return text
 
     async def run(self, prompt: str, trusted_context: AgentRankTrustedContext) -> str:
