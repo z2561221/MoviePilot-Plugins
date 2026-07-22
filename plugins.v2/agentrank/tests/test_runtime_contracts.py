@@ -106,6 +106,7 @@ def test_agent_adapter_is_capture_only_and_never_loads_general_tools():
     assert "_send_agent_tokens_usage_event" in source
     assert "AgentLLMProvider" not in source
     assert "_resolve_llm_runtime_config" not in source
+    assert "_json_object_fence.fullmatch" in source
     assert "middleware=[]" in source
     assert "tools=self._initialize_tools()" in source
     for forbidden_graph_extension in (

@@ -127,6 +127,10 @@ class AgentRankAgentAdapter:
     """运行一次独立榜单 Agent 并在所有路径清理图与会话记忆。"""
 
     _safe_scope = re.compile(r"^[A-Za-z0-9@._-]{1,96}$")
+    _json_object_fence = re.compile(
+        r"\A```(?:json)?[ \t]*\r?\n(?P<body>\{.*\})\r?\n```[ \t]*\Z",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
 
     def __init__(
         self,
@@ -166,6 +170,17 @@ class AgentRankAgentAdapter:
         if inspect.isawaitable(result):
             await result
 
+    @classmethod
+    def _normalize_captured_text(cls, value: Any) -> str:
+        """仅剥离包住单个 JSON 对象的完整 Markdown 代码围栏。"""
+        if not isinstance(value, str):
+            return ""
+        text = value.strip()
+        match = cls._json_object_fence.fullmatch(text)
+        if match:
+            return match.group("body").strip()
+        return text
+
     async def run(self, prompt: str, trusted_context: AgentRankTrustedContext) -> str:
         """执行捕获式 Agent 调用，并在成功或异常后清理全部会话状态。"""
         if not isinstance(trusted_context, AgentRankTrustedContext):
@@ -192,10 +207,12 @@ class AgentRankAgentAdapter:
         )
         try:
             result = await agent.process(str(prompt or ""))
-            if isinstance(result, str) and result.strip():
-                return result.strip()
-            if captured_output.strip():
-                return captured_output.strip()
+            result_text = self._normalize_captured_text(result)
+            if result_text:
+                return result_text
+            captured_text = self._normalize_captured_text(captured_output)
+            if captured_text:
+                return captured_text
             raise AgentTextUnavailableError("Agent did not produce text output")
         finally:
             try:

@@ -195,6 +195,18 @@ class FakeEmptyRunner(FakeRunner):
         return "\n\t"
 
 
+class FakeFencedRunner(FakeRunner):
+    """Return one JSON object wrapped by a model-generated code fence."""
+
+    async def process(self, prompt):
+        """Simulate a strict payload with only presentation wrapping."""
+        self.prompt = prompt
+        self.kwargs["output_callback"](
+            "```json\n{\"recommendations\": []}\n```"
+        )
+        return None
+
+
 def _trusted_context(run_id="run-1", username="alice", agent_role="ranking"):
     return build_trusted_context(
         username,
@@ -287,6 +299,30 @@ def test_adapter_rejects_blank_process_and_callback_output():
 
     assert FakeEmptyRunner.instances[-1].cleaned is True
     assert cleared == [("__agentrank_ranking_run-1_alice__", "system")]
+
+
+def test_adapter_unwraps_only_a_complete_json_object_fence():
+    """One full JSON fence is normalized without accepting prose wrappers."""
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeFencedRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    output = asyncio.run(adapter.run("rank now", _trusted_context()))
+
+    assert output == '{"recommendations": []}'
+    assert (
+        adapter._normalize_captured_text(
+            "结果如下：\n```json\n{\"recommendations\": []}\n```"
+        )
+        == "结果如下：\n```json\n{\"recommendations\": []}\n```"
+    )
+    assert (
+        adapter._normalize_captured_text(
+            "```json\n{\"recommendations\": []}\n```\n额外说明"
+        )
+        == "```json\n{\"recommendations\": []}\n```\n额外说明"
+    )
 
 
 def test_profile_role_uses_separate_session_and_single_playback_tool():
