@@ -2,7 +2,7 @@
 
 import inspect
 import re
-from typing import Any, Callable, List, Type
+from typing import Any, Callable, List, Optional, Type
 
 from app.agent import MoviePilotAgent, ReplyMode
 from app.utils.identity import SYSTEM_INTERNAL_USER_ID
@@ -72,6 +72,32 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
         if tuple(tool.name for tool in tools) != tuple(expected_names):
             raise RuntimeError("AgentRank tool registry and role whitelist diverged")
         return tools
+
+    async def _initialize_llm(self, streaming: bool = False) -> Any:
+        """直接使用 MoviePilot 内置 LLM 配置，绕过外部供应商分配事件。"""
+        from app.agent.llm import LLMHelper
+        from app.core.config import settings
+
+        return await LLMHelper.get_llm(
+            streaming=streaming,
+            provider=settings.LLM_PROVIDER,
+            model=settings.LLM_MODEL,
+            api_key=settings.LLM_API_KEY,
+            base_url=settings.LLM_BASE_URL,
+            base_url_preset=settings.LLM_BASE_URL_PRESET,
+            user_agent=settings.LLM_USER_AGENT,
+            use_proxy=settings.LLM_USE_PROXY,
+        )
+
+    def _send_agent_tokens_usage_event(
+        self,
+        *,
+        success: bool,
+        error: Optional[str] = None,
+    ) -> None:
+        """禁止 AgentRank 会话向 Agent Tokens 广播用量。"""
+        del success, error
+        return None
 
     async def _create_agent(self, streaming: bool = False) -> Any:
         """构建当前角色专用只读工具且无宿主扩展中间件的 Agent 图。"""
@@ -166,10 +192,10 @@ class AgentRankAgentAdapter:
         )
         try:
             result = await agent.process(str(prompt or ""))
-            if isinstance(result, str):
-                return result
-            if captured_output:
-                return captured_output
+            if isinstance(result, str) and result.strip():
+                return result.strip()
+            if captured_output.strip():
+                return captured_output.strip()
             raise AgentTextUnavailableError("Agent did not produce text output")
         finally:
             try:

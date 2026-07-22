@@ -5,7 +5,7 @@ import importlib
 import sys
 from enum import Enum
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
@@ -51,6 +51,18 @@ class MoviePilotAgent:
         self.synced_model = model
 
 
+class LLMHelper:
+    """Record direct use of the host's built-in LLM configuration."""
+
+    calls = []
+
+    @classmethod
+    async def get_llm(cls, **kwargs):
+        """Return a deterministic model while preserving call arguments."""
+        cls.calls.append(kwargs)
+        return "builtin-model"
+
+
 class MoviePilotTool:
     """Minimal host tool with context setter hooks."""
 
@@ -72,12 +84,28 @@ app_module = sys.modules.setdefault("app", ModuleType("app"))
 agent_module = sys.modules.setdefault("app.agent", ModuleType("app.agent"))
 agent_module.MoviePilotAgent = MoviePilotAgent
 agent_module.ReplyMode = ReplyMode
+llm_module = sys.modules.setdefault("app.agent.llm", ModuleType("app.agent.llm"))
+llm_module.LLMHelper = LLMHelper
 tools_package = sys.modules.setdefault("app.agent.tools", ModuleType("app.agent.tools"))
 base_module = sys.modules.setdefault("app.agent.tools.base", ModuleType("app.agent.tools.base"))
 base_module.MoviePilotTool = MoviePilotTool
 agent_module.tools = tools_package
 tools_package.base = base_module
 app_module.agent = agent_module
+
+core_module = sys.modules.setdefault("app.core", ModuleType("app.core"))
+config_module = sys.modules.setdefault("app.core.config", ModuleType("app.core.config"))
+config_module.settings = SimpleNamespace(
+    LLM_PROVIDER="builtin-provider",
+    LLM_MODEL="builtin-model-id",
+    LLM_API_KEY="builtin-key",
+    LLM_BASE_URL="https://builtin.invalid/v1",
+    LLM_BASE_URL_PRESET="builtin-preset",
+    LLM_USER_AGENT="MoviePilot-test",
+    LLM_USE_PROXY=True,
+)
+core_module.config = config_module
+app_module.core = core_module
 
 identity_module = sys.modules.setdefault("app.utils.identity", ModuleType("app.utils.identity"))
 identity_module.SYSTEM_INTERNAL_USER_ID = "system"
@@ -157,6 +185,16 @@ class FakeCallbackRunner(FakeRunner):
         return None
 
 
+class FakeEmptyRunner(FakeRunner):
+    """Return only blank process and callback output."""
+
+    async def process(self, prompt):
+        """Simulate a completed Agent call without usable text."""
+        self.prompt = prompt
+        self.kwargs["output_callback"]("   ")
+        return "\n\t"
+
+
 def _trusted_context(run_id="run-1", username="alice", agent_role="ranking"):
     return build_trusted_context(
         username,
@@ -231,6 +269,26 @@ def test_adapter_uses_capture_callback_when_host_process_returns_none():
     assert cleared == [("__agentrank_ranking_run-1_alice__", "system")]
 
 
+def test_adapter_rejects_blank_process_and_callback_output():
+    """Blank host output is a retryable Agent failure, not invalid JSON."""
+    FakeEmptyRunner.instances.clear()
+    cleared = []
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeEmptyRunner,
+        memory_clearer=lambda session_id, user_id: cleared.append((session_id, user_id)),
+    )
+
+    try:
+        asyncio.run(adapter.run("rank now", _trusted_context()))
+    except adapter_module.AgentTextUnavailableError as error:
+        assert error.retryable is True
+    else:
+        raise AssertionError("blank Agent output was accepted")
+
+    assert FakeEmptyRunner.instances[-1].cleaned is True
+    assert cleared == [("__agentrank_ranking_run-1_alice__", "system")]
+
+
 def test_profile_role_uses_separate_session_and_single_playback_tool():
     """画像角色使用独立 session，并且只能实例化播放工具。"""
     FakeRunner.instances.clear()
@@ -293,6 +351,7 @@ def test_restricted_profile_agent_instantiates_only_playback_tool():
 def test_restricted_agent_builds_graph_without_host_extension_middlewares():
     """The graph itself must expose only four tools and no host middleware tools."""
     created_agent_calls.clear()
+    LLMHelper.calls.clear()
     agent = RestrictedAgentRankAgent(
         session_id="__agentrank_run-1_alice__",
         user_id="system",
@@ -306,13 +365,41 @@ def test_restricted_agent_builds_graph_without_host_extension_middlewares():
     graph = asyncio.run(agent._create_agent(streaming=False))
 
     assert graph is created_agent_calls[-1]
-    assert graph["model"] == "restricted-model"
+    assert graph["model"] == "builtin-model"
+    assert LLMHelper.calls == [
+        {
+            "streaming": False,
+            "provider": "builtin-provider",
+            "model": "builtin-model-id",
+            "api_key": "builtin-key",
+            "base_url": "https://builtin.invalid/v1",
+            "base_url_preset": "builtin-preset",
+            "user_agent": "MoviePilot-test",
+            "use_proxy": True,
+        }
+    ]
+    assert not hasattr(agent, "llm_streaming")
     assert tuple(tool.name for tool in graph["tools"]) == tuple(
         tool.name for tool in AGENT_TOOL_CLASSES
     )
     assert graph["middleware"] == []
     assert "四个只读工具" in graph["system_prompt"]
     assert isinstance(graph["checkpointer"], InMemorySaver)
+
+
+def test_restricted_agent_does_not_broadcast_agent_tokens_usage():
+    """AgentRank's dedicated Agent has no Agent Tokens usage side effect."""
+    agent = RestrictedAgentRankAgent(
+        session_id="__agentrank_run-1_alice__",
+        user_id="system",
+        username="alice",
+        trusted_context=_trusted_context(),
+        replay_mode=ReplyMode.CAPTURE_ONLY,
+        allow_message_tools=False,
+    )
+
+    assert agent._send_agent_tokens_usage_event(success=True) is None
+    assert agent._send_agent_tokens_usage_event(success=False, error="failed") is None
 
 
 def test_session_scope_rejects_separator_injection():
