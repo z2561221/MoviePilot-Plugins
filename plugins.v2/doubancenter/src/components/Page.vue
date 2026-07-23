@@ -606,7 +606,7 @@ onMounted(loadAll)
         <VDivider />
         <VCardActions class="pa-3 pt-2" style="gap: 8px">
           <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
-          <VBtn variant="tonal" color="info" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
+          <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
           <VBtn variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" class="dc-dialog-action text-none" @click="doOpenSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>
@@ -672,6 +672,10 @@ onMounted(loadAll)
 .dc-row-status { max-width: 160px; }
 .dc-row-action { flex: 0 0 auto; }
 .dc-dialog-action { flex: 1 1 0; min-width: 0; height: 36px; }
+.dc-dialog-action--tmdb {
+  color: #0288d1 !important;
+  color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;
+}
 @media (max-width: 760px) {
   .dc-flow { grid-template-columns: 1fr; }
   .dc-section { grid-column: 1 / -1; padding: 10px; }

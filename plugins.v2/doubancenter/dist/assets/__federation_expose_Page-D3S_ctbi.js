@@ -1280,9 +1280,8 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
-                    color: "info",
                     "prepend-icon": "mdi-movie-open-outline",
-                    class: "dc-dialog-action text-none",
+                    class: "dc-dialog-action dc-dialog-action--tmdb text-none",
                     disabled: !(dialogItem.value?.item?.tmdbid || dialogItem.value?.item?.tmdb_id),
                     onClick: doOpenTmdb
                   }, {
@@ -1319,6 +1318,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e300741b"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4b4907fc"]]);
 
 export { Page as default };

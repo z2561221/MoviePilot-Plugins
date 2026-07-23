@@ -684,9 +684,8 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
-                    color: "info",
                     "prepend-icon": "mdi-movie-open-outline",
-                    class: "dc-dialog-action text-none",
+                    class: "dc-dialog-action dc-dialog-action--tmdb text-none",
                     disabled: !(dialogItem.value?.item?.tmdbid || dialogItem.value?.item?.tmdb_id),
                     onClick: doOpenTmdb
                   }, {
@@ -723,6 +722,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e7967857"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-92240983"]]);
 
 export { Dashboard as default };

@@ -360,6 +360,37 @@ class ConfigFrontendContractTest(unittest.TestCase):
 
         self.assertNotIn('class="d-flex flex-wrap" style="gap: 8px"', text)
 
+    def test_tmdb_actions_use_theme_adaptive_contrast_color(self):
+        """TMDB 操作按钮不应继承宿主主题中偏淡的 info 色。"""
+        for path in (PAGE_VUE, DASHBOARD_VUE):
+            text = path.read_text(encoding="utf-8")
+
+            self.assertIn(
+                'class="dc-dialog-action dc-dialog-action--tmdb text-none"',
+                text,
+                path.name,
+            )
+            self.assertNotIn(
+                'color="info" prepend-icon="mdi-movie-open-outline"',
+                text,
+                path.name,
+            )
+            self.assertIn(
+                ".dc-dialog-action--tmdb {",
+                text,
+                path.name,
+            )
+            self.assertIn(
+                "color: #0288d1 !important;",
+                text,
+                path.name,
+            )
+            self.assertIn(
+                "color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;",
+                text,
+                path.name,
+            )
+
     def test_dashboard_timeline_display_options_are_removed_from_config_ui(self):
         """仪表显示不再提供豆瓣时间线显示数量设置。"""
         config_text = CONFIG_VUE.read_text(encoding="utf-8")
