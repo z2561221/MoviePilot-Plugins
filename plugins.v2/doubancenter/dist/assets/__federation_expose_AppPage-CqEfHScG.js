@@ -12,6 +12,7 @@ const _sfc_main = {
   __name: 'AppPage',
   props: {
   api: { type: [Object, Function], default: null },
+  nativeSubscribe: { type: Function, default: null },
   navKey: { type: String, default: 'main' },
   pluginId: { type: String, default: 'DoubanCenter' },
 },
@@ -24,13 +25,14 @@ return (_ctx, _cache) => {
     (_openBlock(), _createBlock(Page, {
       key: `${props.pluginId}-${props.navKey}`,
       api: props.api,
+      "native-subscribe": props.nativeSubscribe,
       "app-page": ""
-    }, null, 8, ["api"]))
+    }, null, 8, ["api", "native-subscribe"]))
   ]))
 }
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-50106498"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e22e2f44"]]);
 
 export { AppPage as default };
