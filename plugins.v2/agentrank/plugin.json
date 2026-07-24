@@ -9,6 +9,6 @@
   "icon": "agentresourceofficer.png",
   "color": "#7C4DFF",
   "history": {
-    "v1.0.0": "[1]建立插件骨架;[2]接入联邦页面"
+    "v1.0.0": "[1]完成播放画像榜单;[2]完善订阅与跨源操作;[3]兼容AniList和Agent校验"
   }
 }

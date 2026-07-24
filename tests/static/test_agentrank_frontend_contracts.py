@@ -195,7 +195,8 @@ def test_app_page_is_a_ranking_only_vertical_top_ten():
     """The discovery page keeps ranking actions and removes all right-side summaries."""
     source = APP_PAGE.read_text(encoding="utf-8")
     assert "useAgentRankState" in source
-    assert "Top 10" in source
+    assert "个性化前10名" in source
+    assert "Top 10" not in source
     assert "selectedProfileId" in source
     assert "identityOptions" in source
     assert "clearProfile" not in source
@@ -248,7 +249,8 @@ def test_page_has_four_management_tabs_editable_tags_and_backend_history_paging(
 def test_dashboard_is_a_lightweight_vertical_top_five():
     """Dashboard stays compact and links to the complete recommendation center."""
     source = DASHBOARD.read_text(encoding="utf-8")
-    assert "Top 5" in source
+    assert "精选前5名" in source
+    assert "Top 5" not in source
     assert ".slice(0, 5)" in source
     assert "flex-direction: column" in source
     assert "allowRefresh" in source
