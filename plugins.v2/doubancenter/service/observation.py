@@ -247,8 +247,9 @@ def pending_observations(
     archive_record_callback: Callable[..., Optional[dict]],
     now: Optional[datetime.datetime] = None,
     limit: int = DETAIL_SECTION_LIMIT,
+    read_only: bool = False,
 ) -> dict:
-    """获取观察期内等待自动订阅的榜单条目。"""
+    """获取观察期内等待自动订阅的榜单条目；只读模式不识别或写入。"""
     observe_days = int(getattr(plugin, "_observe_days", 0) or 0)
     if observe_days <= 0:
         return {"data": []}
@@ -276,7 +277,7 @@ def pending_observations(
                 or item_existing_subscription_checker(item)
             ):
                 continue
-            if observed_subscription_exists_checker(item, rank_key=rank_key):
+            if not read_only and observed_subscription_exists_checker(item, rank_key=rank_key):
                 item["observing"] = False
                 item["existing"] = True
                 item["existing_at"] = now_text
@@ -306,32 +307,34 @@ def pending_observations(
     if limit and len(items) > limit:
         overflow = items[limit:]
         items = items[:limit]
-        for pending in overflow:
-            if not isinstance(pending, dict):
-                continue
-            rank_key = pending.get("rank_key") or ""
-            history = histories.get(rank_key, [])
-            target_unique = pending.get("unique")
-            target_title = pending.get("title")
-            for item in history:
-                if not isinstance(item, dict):
+        if not read_only:
+            for pending in overflow:
+                if not isinstance(pending, dict):
                     continue
-                same_unique = target_unique and item.get("unique") == target_unique
-                same_title = not target_unique and target_title and item.get("title") == target_title
-                if not (same_unique or same_title):
-                    continue
-                item["observing"] = False
-                item["observe_deleted"] = True
-                item["observe_deleted_at"] = now_text
-                item["observe_deleted_reason"] = DETAIL_OVERFLOW_REASON
-                changed_rank_keys.add(rank_key)
-                break
-            record = dict(pending)
-            record["reason"] = DETAIL_OVERFLOW_REASON
-            archive_record_callback(plugin, OBSERVATION_SOURCE, record, OBSERVATION_SOURCE_NAME, dedupe=True)
-    for rank_key in changed_rank_keys:
-        if rank_key:
-            storage.save_rank_history(plugin, rank_key, histories.get(rank_key, []))
+                rank_key = pending.get("rank_key") or ""
+                history = histories.get(rank_key, [])
+                target_unique = pending.get("unique")
+                target_title = pending.get("title")
+                for item in history:
+                    if not isinstance(item, dict):
+                        continue
+                    same_unique = target_unique and item.get("unique") == target_unique
+                    same_title = not target_unique and target_title and item.get("title") == target_title
+                    if not (same_unique or same_title):
+                        continue
+                    item["observing"] = False
+                    item["observe_deleted"] = True
+                    item["observe_deleted_at"] = now_text
+                    item["observe_deleted_reason"] = DETAIL_OVERFLOW_REASON
+                    changed_rank_keys.add(rank_key)
+                    break
+                record = dict(pending)
+                record["reason"] = DETAIL_OVERFLOW_REASON
+                archive_record_callback(plugin, OBSERVATION_SOURCE, record, OBSERVATION_SOURCE_NAME, dedupe=True)
+    if not read_only:
+        for rank_key in changed_rank_keys:
+            if rank_key:
+                storage.save_rank_history(plugin, rank_key, histories.get(rank_key, []))
     return {"data": items}
 
 
@@ -435,9 +438,11 @@ def list_anti_cheat_logs(
     ranks: list,
     existing_subscription_checker: Callable[[dict], bool],
     limit: int = DETAIL_SECTION_LIMIT,
+    read_only: bool = False,
 ) -> dict:
-    """返回已修正、去重并治理溢出的观察日志列表。"""
-    archive_service.remove_legacy_observation_completed_archives(plugin)
+    """返回观察日志列表；只读模式仅在内存中修正、去重和截断。"""
+    if not read_only:
+        archive_service.remove_legacy_observation_completed_archives(plugin)
     logs = storage.read_anti_cheat_logs(plugin)
     logs, changed = reconcile_anti_cheat_logs(
         logs,
@@ -446,10 +451,39 @@ def list_anti_cheat_logs(
         archived_completion_titles=archived_completion_titles(plugin),
         existing_subscription_checker=existing_subscription_checker,
     )
+    if read_only:
+        return {"data": _limit_anti_cheat_logs_for_display(logs, limit)}
     logs, overflow_changed = archive_service.archive_anti_cheat_overflow(plugin, logs, limit)
     if changed or overflow_changed:
         storage.save_anti_cheat_logs(plugin, logs)
     return {"data": logs}
+
+
+def _limit_anti_cheat_logs_for_display(logs: list, limit: int) -> list:
+    """按黑名与观察两类分别保留最新展示记录，不修改持久化数据。"""
+    if not isinstance(logs, list):
+        return []
+    valid_logs = [log for log in logs if isinstance(log, dict)]
+    if not limit or limit <= 0:
+        return valid_logs
+
+    blacklist_indexes = []
+    observe_indexes = []
+    for index, log in enumerate(valid_logs):
+        if normalize_log_reason(log.get("reason") or "") == BLACKLIST_REASON:
+            blacklist_indexes.append(index)
+        else:
+            observe_indexes.append(index)
+
+    keep_indexes = set()
+    for indexes in (blacklist_indexes, observe_indexes):
+        ordered = sorted(
+            indexes,
+            key=lambda item_index: (archive_service.detail_record_time(valid_logs[item_index]), item_index),
+            reverse=True,
+        )
+        keep_indexes.update(ordered[:limit])
+    return [log for index, log in enumerate(valid_logs) if index in keep_indexes]
 
 
 def dedupe_anti_cheat_logs(logs: list) -> tuple:
