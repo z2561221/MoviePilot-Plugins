@@ -24,6 +24,7 @@ PlaybackSample = model.PlaybackSample
 PlaybackSnapshot = model.PlaybackSnapshot
 PlaybackProfileService = service_module.PlaybackProfileService
 PlaybackReportingAdapter = reporting_module.PlaybackReportingAdapter
+merge_playback_samples = reporting_module.merge_playback_samples
 
 IDENTITY = EmbyIdentity("home", "user-1", "Alice")
 PROFILE_ID = IDENTITY.profile_id
@@ -60,10 +61,12 @@ class FakeAdapter:
         self.result = result
         self.capability = capability
         self.identities = []
+        self.collect_options = []
         self.probe_identities = []
 
     def collect(self, identity, **kwargs):
         self.identities.append(identity)
+        self.collect_options.append(kwargs)
         return PlaybackSnapshot.from_dict(self.result.to_dict())
 
     def probe(self, identity):
@@ -143,6 +146,21 @@ def test_profile_service_passes_the_exact_configured_identity():
     assert reporting.identities == [IDENTITY]
     assert result.profile_id == PROFILE_ID
     assert result.username == "Alice"
+
+
+def test_profile_service_passes_selected_content_libraries_and_keeps_legacy_all():
+    """新配置传入所选内容库，旧配置缺失字段时保持全库兼容。"""
+    reporting = FakeAdapter(_ready())
+    service = PlaybackProfileService(FakeRepository(), reporting)
+
+    service.collect(
+        PROFILE_ID,
+        _config(emby_library_ids={PROFILE_ID: ["movies", "tv"]}),
+    )
+    service.collect(PROFILE_ID, _config())
+
+    assert reporting.collect_options[0]["library_ids"] == ["movies", "tv"]
+    assert reporting.collect_options[1]["library_ids"] is None
 
 
 @pytest.mark.parametrize(
@@ -358,6 +376,8 @@ def test_reporting_ready_snapshot_keeps_identity_and_matches_stable_user_id():
                 "Name": "One",
                 "ProviderIds": {"Tmdb": "1"},
                 "RunTimeTicks": 6_000 * 10_000_000,
+                "Overview": "一名侦探追查旧案。",
+                "Genres": ["悬疑", "剧情"],
             }
         ],
     )
@@ -369,6 +389,82 @@ def test_reporting_ready_snapshot_keeps_identity_and_matches_stable_user_id():
     assert result.username == "Alice"
     assert result.samples[0].stable_id == "tmdb:movie:1"
     assert result.samples[0].completed is True
+    assert result.samples[0].overview == "一名侦探追查旧案。"
+    assert result.samples[0].genres == ["悬疑", "剧情"]
+
+
+def test_tv_episode_events_aggregate_as_episode_counts_not_series_completions():
+    """多集播放只累计集数与事件数，不能变成整剧看完次数。"""
+    samples = [
+        PlaybackSample(
+            stable_id="tmdb:tv:100",
+            title="百集剧",
+            media_type="tv",
+            tmdb_id="100",
+            completed=False,
+            play_count=1,
+            watched_episode_count=1,
+            completed_episode_count=1,
+            total_episode_count=100,
+            watch_minutes=45,
+            last_played_at=f"2026-07-{day:02d}",
+            abandoned=False,
+        )
+        for day in range(1, 4)
+    ]
+
+    [merged] = merge_playback_samples(samples)
+
+    assert merged.play_count == 3
+    assert merged.watched_episode_count == 3
+    assert merged.completed_episode_count == 3
+    assert merged.total_episode_count == 100
+    assert merged.completed is False
+    assert merged.abandoned is False
+    assert merged.to_dict()["play_event_count"] == 3
+
+
+def test_reporting_filters_item_details_by_selected_content_library():
+    """播放行只有在所选内容库查询返回对应条目时才进入画像。"""
+    payload = {
+        "columns": [
+            "UserId", "ItemId", "ItemType", "ItemName", "PlayCount",
+            "WatchSeconds", "LastPlayedAt",
+        ],
+        "results": [
+            ["user-1", "movie-1", "Movie", "保留", 1, 6000, "2026-07-20"],
+            ["user-1", "tv-1", "Movie", "排除", 1, 6000, "2026-07-20"],
+        ],
+    }
+
+    class LibraryAwareAccess(FakeReportingAccess):
+        def __init__(self):
+            super().__init__([FakeResponse(200, payload)])
+            self.get_calls = []
+
+        def get_res(self, url, params=None):
+            params = dict(params or {})
+            self.get_calls.append((url, params))
+            if params.get("ParentId") == "movies":
+                return FakeResponse(
+                    200,
+                    {"Items": [{
+                        "Id": "movie-1", "Name": "保留",
+                        "ProviderIds": {"Tmdb": "1"},
+                        "RunTimeTicks": 6_000 * 10_000_000,
+                    }]},
+                )
+            return FakeResponse(200, {"Items": []})
+
+    access = LibraryAwareAccess()
+    result = PlaybackReportingAdapter(access).collect(
+        IDENTITY, library_ids=["movies"]
+    )
+
+    assert [sample.stable_id for sample in result.samples] == ["tmdb:movie:1"]
+    assert result.unmapped_count == 0
+    assert access.get_calls[0][1]["ParentId"] == "movies"
+    assert access.get_calls[0][1]["Recursive"] is True
 
 
 def test_transient_reporting_without_cache_stays_transient():

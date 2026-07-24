@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CNOZEMen.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DrwCXO8X.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
@@ -16,6 +16,7 @@ const _hoisted_5 = { class: "ar-dashboard__main" };
 const _hoisted_6 = { class: "font-weight-medium text-truncate" };
 const _hoisted_7 = { class: "text-caption text-truncate" };
 const _hoisted_8 = { class: "text-caption text-medium-emphasis text-truncate" };
+const _hoisted_9 = { class: "ar-dashboard__controls" };
 
 const {computed,onMounted,ref} = await importShared('vue');
 
@@ -50,7 +51,7 @@ const statusMeta = computed(() => ({
   agent_failed: { text: 'Agent失败', color: 'error' },
   validation_failed: { text: '校验失败', color: 'error' },
   subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
-}[status.value] || { text: status.value, color: 'info' }));
+}[status.value] || { text: '未知状态', color: 'info' }));
 
 function formatTime(value) {
   if (!value) return '尚未生成'
@@ -138,7 +139,7 @@ return (_ctx, _cache) => {
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, { class: "text-subtitle-1 font-weight-bold" }, {
             default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
-              _createTextVNode("Agent榜单中心 · Top 5", -1)
+              _createTextVNode("Agent榜单中心 · 精选前5名", -1)
             ]))]),
             _: 1
           }),
@@ -213,22 +214,25 @@ return (_ctx, _cache) => {
                           _createElementVNode("div", _hoisted_7, "推荐：" + _toDisplayString(item.reason || item.summary), 1),
                           _createElementVNode("div", _hoisted_8, "简介：" + _toDisplayString(item.summary), 1)
                         ]),
-                        _createVNode(_component_VChip, {
-                          size: "x-small",
-                          color: "primary",
-                          variant: "tonal"
-                        }, {
-                          default: _withCtx(() => [
-                            _createTextVNode(_toDisplayString(item.confidence) + "%", 1)
-                          ]),
-                          _: 2
-                        }, 1024),
-                        _createVNode(RecommendationActions, {
-                          item: item,
-                          "loading-action": _unref(state).loading.action,
-                          onSubscribe: _cache[0] || (_cache[0] = candidateId => runItemAction(() => _unref(state).subscribe(candidateId), '订阅操作已完成')),
-                          onArchive: _cache[1] || (_cache[1] = candidateId => runItemAction(() => _unref(state).archive(candidateId), '已忽略推荐'))
-                        }, null, 8, ["item", "loading-action"])
+                        _createElementVNode("div", _hoisted_9, [
+                          _createVNode(_component_VChip, {
+                            size: "x-small",
+                            color: "primary",
+                            variant: "tonal",
+                            class: "ar-dashboard__confidence"
+                          }, {
+                            default: _withCtx(() => [
+                              _createTextVNode("置信度 " + _toDisplayString(item.confidence) + "%", 1)
+                            ]),
+                            _: 2
+                          }, 1024),
+                          _createVNode(RecommendationActions, {
+                            item: item,
+                            "loading-action": _unref(state).loading.action,
+                            onSubscribe: _cache[0] || (_cache[0] = candidateId => runItemAction(() => _unref(state).subscribe(candidateId), '订阅操作已完成')),
+                            onArchive: _cache[1] || (_cache[1] = candidateId => runItemAction(() => _unref(state).archive(candidateId), '已忽略推荐'))
+                          }, null, 8, ["item", "loading-action"])
+                        ])
                       ]))
                     }), 128))
                   ]))
@@ -281,6 +285,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-051ea84c"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9d93047a"]]);
 
 export { Dashboard as default };

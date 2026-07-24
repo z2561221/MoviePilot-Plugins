@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CNOZEMen.js';
-import Config from './__federation_expose_Config-gAAa7gyQ.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DrwCXO8X.js';
+import Config from './__federation_expose_Config-BnP58-QU.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,unref:_unref,isRef:_isRef,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass,createSlots:_createSlots} = await importShared('vue');
@@ -24,7 +24,7 @@ const _hoisted_6 = {
 const _hoisted_7 = { class: "ar-app-page__layout" };
 const _hoisted_8 = {
   class: "ar-app-page__ranking",
-  "aria-label": "Top 10 推荐榜单"
+  "aria-label": "前10名推荐榜单"
 };
 const _hoisted_9 = { class: "ar-app-page__section-head" };
 const _hoisted_10 = {
@@ -91,13 +91,13 @@ const statusMeta = computed(() => {
     validation_failed: { text: '校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
     subscription_partial_failed: { text: '部分订阅失败', color: 'warning', icon: 'mdi-alert-circle-outline' },
   };
-  return map[boardStatus.value] || { text: boardStatus.value, color: 'info', icon: 'mdi-information-outline' }
+  return map[boardStatus.value] || { text: '未知状态', color: 'info', icon: 'mdi-information-outline' }
 });
 
 const stateMessage = computed(() => {
   if (error.value) return error.value.message
   const messages = {
-    sample_insufficient: '当前 Emby identity 需要更多播放样本，旧榜单不会被覆盖。',
+    sample_insufficient: '当前 Emby 画像身份需要更多播放样本，旧榜单不会被覆盖。',
     candidate_insufficient: '当前发现来源没有足够候选，请检查来源设置。',
     recommendation_incomplete: `本轮仅生成 ${recommendations.value.length} 条安全推荐。`,
     agent_failed: '本轮 Agent 调用失败，正在展示上一次成功榜单。',
@@ -117,9 +117,19 @@ function mediaTypeLabel(value) {
   return { movie: '电影', tv: '剧集', anime: '动漫' }[value] || '媒体'
 }
 
+const sourceLabels = {
+  douban: '豆瓣发现',
+  tmdb: 'TMDB',
+  tmdb_recommend: 'TMDB 推荐',
+  tmdb_movies: 'TMDB 电影',
+  tmdb_tv: 'TMDB 剧集',
+  bangumi: 'Bangumi',
+  anilist: 'AniList',
+};
+
 function sourceLabel(item) {
   const sources = item?.sources || Object.keys(item?.source_ids || {});
-  return sources.length ? sources.join(' · ') : 'MP发现'
+  return sources.length ? sources.map(source => sourceLabels[source] || source).join(' · ') : 'MP 发现'
 }
 
 function posterSource(item) {
@@ -140,10 +150,6 @@ function toggleCopy(item, field) {
   if (next.has(key)) next.delete(key);
   else next.add(key);
   expandedCopyKeys.value = next;
-}
-
-function needsCopyToggle(value, threshold) {
-  return String(value || '').trim().length > threshold
 }
 
 async function initialize() {
@@ -329,7 +335,7 @@ return (_ctx, _cache) => {
             ? (_openBlock(), _createElementBlock("div", _hoisted_5, [
                 _createVNode(_component_VEmptyState, {
                   icon: "mdi-account-alert-outline",
-                  title: "尚未配置 Emby identity",
+                  title: "尚未配置 Emby 画像身份",
                   text: "请先打开设置，选择画像身份和默认身份。"
                 }, {
                   actions: _withCtx(() => [
@@ -366,7 +372,7 @@ return (_ctx, _cache) => {
                   _createElementVNode("section", _hoisted_8, [
                     _createElementVNode("div", _hoisted_9, [
                       _cache[6] || (_cache[6] = _createElementVNode("div", null, [
-                        _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "个性化 Top 10"),
+                        _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "个性化前10名"),
                         _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "保持 Agent 最终顺序，仅展示通过安全校验的候选")
                       ], -1)),
                       _createVNode(_component_VChip, {
@@ -443,7 +449,7 @@ return (_ctx, _cache) => {
                                     _createElementVNode("span", {
                                       class: _normalizeClass(["ar-app-page__copy-text ar-app-page__copy-text--reason", { 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'reason') }])
                                     }, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 3),
-                                    (needsCopyToggle(item.reason || item.summary, 40))
+                                    (item.reason || item.summary)
                                       ? (_openBlock(), _createBlock(_component_VBtn, {
                                           key: 0,
                                           size: "x-small",
@@ -463,7 +469,7 @@ return (_ctx, _cache) => {
                                     _createElementVNode("span", {
                                       class: _normalizeClass(["ar-app-page__copy-text ar-app-page__copy-text--intro", { 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'summary') }])
                                     }, _toDisplayString(item.summary || '暂无简介'), 3),
-                                    (needsCopyToggle(item.summary, 56))
+                                    (item.summary)
                                       ? (_openBlock(), _createBlock(_component_VBtn, {
                                           key: 0,
                                           size: "x-small",
@@ -490,20 +496,21 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 2
                                       }, 1024))
-                                    }), 128)),
-                                    _createVNode(_component_VChip, {
-                                      size: "x-small",
-                                      color: "primary",
-                                      variant: "tonal"
-                                    }, {
-                                      default: _withCtx(() => [
-                                        _createTextVNode("置信度 " + _toDisplayString(item.confidence) + "%", 1)
-                                      ]),
-                                      _: 2
-                                    }, 1024)
+                                    }), 128))
                                   ])
                                 ]),
                                 _createElementVNode("div", _hoisted_20, [
+                                  _createVNode(_component_VChip, {
+                                    size: "x-small",
+                                    color: "primary",
+                                    variant: "tonal",
+                                    class: "ar-app-page__confidence"
+                                  }, {
+                                    default: _withCtx(() => [
+                                      _createTextVNode("置信度 " + _toDisplayString(item.confidence) + "%", 1)
+                                    ]),
+                                    _: 2
+                                  }, 1024),
                                   _createVNode(RecommendationActions, {
                                     item: item,
                                     "loading-action": _unref(loading).action,
@@ -571,6 +578,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-62792cf9"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3107e83a"]]);
 
 export { AppPage as default };

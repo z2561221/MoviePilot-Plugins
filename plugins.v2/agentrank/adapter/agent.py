@@ -29,7 +29,7 @@ AGENTRANK_SYSTEM_PROMPT = "你是 Agent榜单中心的受限执行器。"
 
 
 class AgentTextUnavailableError(RuntimeError):
-    """表示 Agent 完成工具调用后没有产生可捕获文本。"""
+    """表示 Agent 完成工具调用后没有产生可捕获的合法 JSON。"""
 
     retryable = True
 
@@ -133,6 +133,10 @@ class AgentRankAgentAdapter:
         flags=re.IGNORECASE | re.DOTALL,
     )
     _json_object_trailing = re.compile(r"\A(?:```[ \t]*)?\Z")
+    _host_failure_markers = (
+        "智能助手执行失败",
+        "处理消息时发生错误",
+    )
 
     def __init__(
         self,
@@ -192,18 +196,35 @@ class AgentRankAgentAdapter:
                 return text[start : start + end].strip()
         return text
 
+    @classmethod
+    def _is_json_object_text(cls, value: str) -> bool:
+        """判断捕获文本是否恰好包含一个完整 JSON 对象。"""
+        text = cls._normalize_captured_text(value)
+        if not text.startswith("{"):
+            return False
+        try:
+            payload, end = json.JSONDecoder().raw_decode(text)
+        except json.JSONDecodeError:
+            return False
+        return isinstance(payload, dict) and not text[end:].strip()
+
+    @classmethod
+    def _host_failure_marker(cls, value: str) -> str:
+        """识别宿主以普通文本返回的 Agent 执行失败标记。"""
+        text = str(value or "").strip()
+        return next((marker for marker in cls._host_failure_markers if marker in text), "")
+
     async def run(self, prompt: str, trusted_context: AgentRankTrustedContext) -> str:
         """执行捕获式 Agent 调用，并在成功或异常后清理全部会话状态。"""
         if not isinstance(trusted_context, AgentRankTrustedContext):
             raise TypeError("trusted_context must be AgentRankTrustedContext")
         session_id = self._session_id(trusted_context)
-        captured_output = ""
+        captured_outputs: List[str] = []
 
         def capture_output(text: str) -> None:
-            """保存宿主 output_callback 提供的最新完整文本。"""
-            nonlocal captured_output
+            """保存宿主 output_callback 提供的候选完整文本。"""
             if isinstance(text, str):
-                captured_output = text
+                captured_outputs.append(text)
 
         agent = self._agent_factory(
             session_id=session_id,
@@ -218,12 +239,25 @@ class AgentRankAgentAdapter:
         )
         try:
             result = await agent.process(str(prompt or ""))
-            result_text = self._normalize_captured_text(result)
-            if result_text:
-                return result_text
-            captured_text = self._normalize_captured_text(captured_output)
-            if captured_text:
-                return captured_text
+            candidates = [result, *reversed(captured_outputs)]
+            normalized = [
+                self._normalize_captured_text(value)
+                for value in candidates
+                if isinstance(value, str) and value.strip()
+            ]
+            for text in normalized:
+                if self._is_json_object_text(text):
+                    return text
+            failure_marker = next(
+                (self._host_failure_marker(text) for text in normalized if self._host_failure_marker(text)),
+                "",
+            )
+            if failure_marker:
+                raise AgentTextUnavailableError(
+                    f"MoviePilot Agent 调用失败（{failure_marker}）"
+                )
+            if normalized:
+                raise AgentTextUnavailableError("Agent did not produce a JSON object")
             raise AgentTextUnavailableError("Agent did not produce text output")
         finally:
             try:

@@ -46,13 +46,13 @@ const statusMeta = computed(() => {
     validation_failed: { text: '校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
     subscription_partial_failed: { text: '部分订阅失败', color: 'warning', icon: 'mdi-alert-circle-outline' },
   }
-  return map[boardStatus.value] || { text: boardStatus.value, color: 'info', icon: 'mdi-information-outline' }
+  return map[boardStatus.value] || { text: '未知状态', color: 'info', icon: 'mdi-information-outline' }
 })
 
 const stateMessage = computed(() => {
   if (error.value) return error.value.message
   const messages = {
-    sample_insufficient: '当前 Emby identity 需要更多播放样本，旧榜单不会被覆盖。',
+    sample_insufficient: '当前 Emby 画像身份需要更多播放样本，旧榜单不会被覆盖。',
     candidate_insufficient: '当前发现来源没有足够候选，请检查来源设置。',
     recommendation_incomplete: `本轮仅生成 ${recommendations.value.length} 条安全推荐。`,
     agent_failed: '本轮 Agent 调用失败，正在展示上一次成功榜单。',
@@ -72,9 +72,19 @@ function mediaTypeLabel(value) {
   return { movie: '电影', tv: '剧集', anime: '动漫' }[value] || '媒体'
 }
 
+const sourceLabels = {
+  douban: '豆瓣发现',
+  tmdb: 'TMDB',
+  tmdb_recommend: 'TMDB 推荐',
+  tmdb_movies: 'TMDB 电影',
+  tmdb_tv: 'TMDB 剧集',
+  bangumi: 'Bangumi',
+  anilist: 'AniList',
+}
+
 function sourceLabel(item) {
   const sources = item?.sources || Object.keys(item?.source_ids || {})
-  return sources.length ? sources.join(' · ') : 'MP发现'
+  return sources.length ? sources.map(source => sourceLabels[source] || source).join(' · ') : 'MP 发现'
 }
 
 function posterSource(item) {
@@ -95,10 +105,6 @@ function toggleCopy(item, field) {
   if (next.has(key)) next.delete(key)
   else next.add(key)
   expandedCopyKeys.value = next
-}
-
-function needsCopyToggle(value, threshold) {
-  return String(value || '').trim().length > threshold
 }
 
 async function initialize() {
@@ -201,7 +207,7 @@ onMounted(initialize)
         <VSkeletonLoader type="article, article, article" width="100%" />
       </div>
       <div v-else-if="!identities.length" class="ar-app-page__state">
-        <VEmptyState icon="mdi-account-alert-outline" title="尚未配置 Emby identity" text="请先打开设置，选择画像身份和默认身份。">
+        <VEmptyState icon="mdi-account-alert-outline" title="尚未配置 Emby 画像身份" text="请先打开设置，选择画像身份和默认身份。">
           <template #actions><VBtn color="primary" variant="tonal" prepend-icon="mdi-cog-outline" @click="openSettings">打开设置</VBtn></template>
         </VEmptyState>
       </div>
@@ -209,10 +215,10 @@ onMounted(initialize)
         <VAlert v-if="stateMessage" :type="['agent_failed', 'validation_failed'].includes(boardStatus) ? 'error' : 'warning'" variant="tonal" class="ar-app-page__alert">{{ stateMessage }}</VAlert>
 
         <main class="ar-app-page__layout">
-          <section class="ar-app-page__ranking" aria-label="Top 10 推荐榜单">
+          <section class="ar-app-page__ranking" aria-label="前10名推荐榜单">
             <div class="ar-app-page__section-head">
               <div>
-                <div class="text-subtitle-1 font-weight-bold">个性化 Top 10</div>
+                <div class="text-subtitle-1 font-weight-bold">个性化前10名</div>
                 <div class="text-caption text-medium-emphasis">保持 Agent 最终顺序，仅展示通过安全校验的候选</div>
               </div>
               <VChip size="small" variant="outlined">{{ recommendations.length }} / 10</VChip>
@@ -238,19 +244,19 @@ onMounted(initialize)
                   <div class="ar-app-page__copy">
                     <span class="ar-app-page__copy-label">推荐：</span>
                     <span class="ar-app-page__copy-text ar-app-page__copy-text--reason" :class="{ 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'reason') }">{{ item.reason || item.summary || '等待 Agent 补充推荐理由' }}</span>
-                    <VBtn v-if="needsCopyToggle(item.reason || item.summary, 40)" size="x-small" variant="text" class="ar-app-page__copy-toggle" @click="toggleCopy(item, 'reason')">{{ isCopyExpanded(item, 'reason') ? '收起' : '展开' }}</VBtn>
+                    <VBtn v-if="item.reason || item.summary" size="x-small" variant="text" class="ar-app-page__copy-toggle" @click="toggleCopy(item, 'reason')">{{ isCopyExpanded(item, 'reason') ? '收起' : '展开' }}</VBtn>
                   </div>
                   <div class="ar-app-page__copy ar-app-page__copy--intro">
                     <span class="ar-app-page__copy-label">简介：</span>
                     <span class="ar-app-page__copy-text ar-app-page__copy-text--intro" :class="{ 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'summary') }">{{ item.summary || '暂无简介' }}</span>
-                    <VBtn v-if="needsCopyToggle(item.summary, 56)" size="x-small" variant="text" class="ar-app-page__copy-toggle" @click="toggleCopy(item, 'summary')">{{ isCopyExpanded(item, 'summary') ? '收起' : '展开' }}</VBtn>
+                    <VBtn v-if="item.summary" size="x-small" variant="text" class="ar-app-page__copy-toggle" @click="toggleCopy(item, 'summary')">{{ isCopyExpanded(item, 'summary') ? '收起' : '展开' }}</VBtn>
                   </div>
                   <div class="ar-app-page__tags">
                     <VChip v-for="tag in item.match_tags || []" :key="tag" size="x-small" variant="outlined">{{ tag }}</VChip>
-                    <VChip size="x-small" color="primary" variant="tonal">置信度 {{ item.confidence }}%</VChip>
                   </div>
                 </div>
                 <div class="ar-app-page__item-actions">
+                  <VChip size="x-small" color="primary" variant="tonal" class="ar-app-page__confidence">置信度 {{ item.confidence }}%</VChip>
                   <RecommendationActions :item="item" :loading-action="loading.action" size="small" @subscribe="subscribeItem" @archive="archiveItem" />
                 </div>
               </article>
@@ -299,12 +305,12 @@ onMounted(initialize)
 .ar-app-page__copy--intro { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .64); }
 .ar-app-page__copy-label { color: rgb(var(--v-theme-primary)); font-size: 12px; font-weight: 700; line-height: 1.8; }
 .ar-app-page__copy-text { min-width: 0; display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; }
-.ar-app-page__copy-text--reason { -webkit-line-clamp: 3; font-weight: 600; }
-.ar-app-page__copy-text--intro { -webkit-line-clamp: 4; }
+.ar-app-page__copy-text--reason { font-weight: 600; }
 .ar-app-page__copy-text--expanded { display: block; overflow: visible; -webkit-line-clamp: initial; }
-.ar-app-page__copy-toggle { align-self: end; min-width: 36px !important; min-height: 28px !important; margin: -3px -5px -3px 0; padding-inline: 5px !important; }
+.ar-app-page__copy-toggle { display: none; align-self: end; min-width: 36px !important; min-height: 28px !important; margin: -3px -5px -3px 0; padding-inline: 5px !important; }
 .ar-app-page__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.ar-app-page__item-actions { display: flex; align-items: center; overflow-x: auto; padding-bottom: 2px; }
+.ar-app-page__item-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
+.ar-app-page__confidence { flex: 0 0 auto; }
 .ar-app-page__state { min-height: 480px; display: flex; align-items: center; justify-content: center; padding: 24px; }
 @media (max-width: 760px) {
   .ar-app-page { padding: 8px; }
@@ -325,6 +331,9 @@ onMounted(initialize)
   .ar-app-page__copy { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 5px; margin-top: 7px; font-size: 13px; line-height: 1.5; }
   .ar-app-page__copy--intro { margin-top: 4px; }
   .ar-app-page__copy-label { font-size: 11px; }
+  .ar-app-page__copy-text--reason { -webkit-line-clamp: 2; }
+  .ar-app-page__copy-text--intro { -webkit-line-clamp: 1; }
+  .ar-app-page__copy-toggle { display: inline-flex; }
   .ar-app-page__meta { white-space: normal; }
   .ar-app-page__section-head { align-items: flex-start; }
 }

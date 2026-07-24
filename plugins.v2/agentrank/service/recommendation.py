@@ -161,6 +161,22 @@ class RecommendationOrchestrator:
         metrics.setdefault("stage_status", {})[stage] = str(status)
         metrics.setdefault("stage_ms", {})[stage] = elapsed_ms
 
+    @staticmethod
+    def _record_retry(
+        metrics: Dict[str, Any], stage: str, attempt: int, error: BaseException
+    ) -> None:
+        """记录一次已进入重试的瞬时失败，不把它伪装成最终运行错误。"""
+        stage_name = str(stage or "agent")
+        metrics.setdefault("retry_events", []).append(
+            {
+                "stage": stage_name,
+                "attempt": int(attempt),
+                "reason": str(error)[:240],
+            }
+        )
+        counter_key = f"{stage_name}_retry_count"
+        metrics[counter_key] = int(metrics.get(counter_key, 0) or 0) + 1
+
     def _append_run(
         self,
         profile_id: str,
@@ -447,6 +463,16 @@ class RecommendationOrchestrator:
             )
             metrics["profile_agent_reused"] = current_profile is not None
             if current_profile is None:
+                profile_parser = self._profile_parser
+                if (
+                    previous_profile is not None
+                    and previous_profile.retrieval_resolution_version
+                    >= RETRIEVAL_RESOLUTION_VERSION
+                    and isinstance(profile_parser, ProfileOutputParser)
+                ):
+                    profile_parser = profile_parser.with_allowed_keyword_ids(
+                        previous_profile.filters.get("keyword_ids") or []
+                    )
                 profile_context = build_trusted_context(
                     username=username,
                     run_id=run_id,
@@ -464,6 +490,10 @@ class RecommendationOrchestrator:
                     agent_role=PROFILE_AGENT_ROLE,
                 )
                 parsed_profile = None
+                profile_prompt = build_profile_prompt(
+                    agent_prompt=str(config.get("agent_prompt") or "")
+                )
+                profile_attempt_errors: List[str] = []
                 for attempt in range(2):
                     stage_clock = time.monotonic()
                     metrics["agent_calls"] += 1
@@ -473,21 +503,30 @@ class RecommendationOrchestrator:
                     try:
                         raw_profile = await self._run_agent_role(
                             PROFILE_AGENT_ROLE,
-                            build_profile_prompt(
-                                agent_prompt=str(config.get("agent_prompt") or "")
+                            profile_prompt
+                            + (
+                                "\n\n上一次输出未通过严格校验。请重新读取受限工具数据，"
+                                "这次只返回一个符合既定 schema 的 JSON 对象，禁止代码块、"
+                                "解释、前后缀或额外字段。"
+                                if attempt > 0
+                                else ""
                             ),
                             profile_context,
                         )
-                        parsed_profile = self._profile_parser.parse(raw_profile)
+                        parsed_profile = profile_parser.parse(raw_profile)
                         if parsed_profile.profile.playback_count != playback_count:
                             raise AgentOutputError(
                                 "profile.playback_count does not match playback sample count"
                             )
                         break
                     except AgentOutputError as error:
-                        errors.append(f"profile attempt {attempt + 1}: {error}")
+                        detail = f"profile attempt {attempt + 1}: {error}"
                         if attempt == 0:
+                            profile_attempt_errors.append(detail)
+                            self._record_retry(metrics, "profile", attempt + 1, error)
                             continue
+                        errors.extend(profile_attempt_errors)
+                        errors.append(detail)
                         return self._failure(
                             target,
                             username,
@@ -501,10 +540,13 @@ class RecommendationOrchestrator:
                             agent_calls=int(metrics["agent_calls"]),
                         )
                     except Exception as error:
+                        detail = f"profile attempt {attempt + 1}: {error}"
                         if attempt == 0 and bool(getattr(error, "retryable", False)):
-                            errors.append(f"profile attempt 1: {error}")
+                            profile_attempt_errors.append(detail)
+                            self._record_retry(metrics, "profile", attempt + 1, error)
                             continue
-                        errors.append(str(error))
+                        errors.extend(profile_attempt_errors)
+                        errors.append(detail)
                         return self._failure(
                             target,
                             username,
@@ -745,6 +787,7 @@ class RecommendationOrchestrator:
             )
 
             validation = None
+            ranking_attempt_errors: List[str] = []
             for attempt in range(2):
                 prompt = build_ranking_prompt(
                     agent_prompt=str(config.get("agent_prompt") or "")
@@ -771,10 +814,13 @@ class RecommendationOrchestrator:
                     metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
                         0, int((time.monotonic() - stage_clock) * 1000)
                     )
+                    detail = f"attempt {attempt + 1}: {error}"
                     if attempt == 0 and bool(getattr(error, "retryable", False)):
-                        errors.append(f"attempt 1: {error}")
+                        ranking_attempt_errors.append(detail)
+                        self._record_retry(metrics, "ranking", attempt + 1, error)
                         continue
-                    errors.append(str(error))
+                    errors.extend(ranking_attempt_errors)
+                    errors.append(detail)
                     logger.warning(
                         "AgentRank Agent失败 profile_id=%s run_id=%s calls=%s reason=%s",
                         target,
@@ -797,13 +843,24 @@ class RecommendationOrchestrator:
                 try:
                     parsed = self._ranking_parser.parse(raw_output)
                     validation = self._validator.validate(
-                        parsed, candidates, archived_ids, subscribed_ids
+                        parsed,
+                        candidates,
+                        archived_ids,
+                        subscribed_ids,
+                        preference_evidence=[
+                            *current_profile.tags,
+                            *current_profile.ranking_tags,
+                        ],
                     )
                     break
                 except AgentOutputError as error:
-                    errors.append(f"attempt {attempt + 1}: {error}")
+                    detail = f"attempt {attempt + 1}: {error}"
                     if attempt == 0:
+                        ranking_attempt_errors.append(detail)
+                        self._record_retry(metrics, "ranking", attempt + 1, error)
                         continue
+                    errors.extend(ranking_attempt_errors)
+                    errors.append(detail)
                     return self._failure(
                         target,
                         username,
@@ -843,43 +900,81 @@ class RecommendationOrchestrator:
                 ]
                 if remaining_candidates:
                     metrics["refill_attempted"] = True
-                    stage_clock = time.monotonic()
-                    metrics["agent_calls"] += 1
-                    metrics["ranking_agent_calls"] = (
-                        metrics.get("ranking_agent_calls", 0) + 1
+                    refill_slots = 10 - len(accepted)
+                    refill_prompt = build_refill_prompt(
+                        [item.candidate_id for item in accepted],
+                        refill_slots,
+                        agent_prompt=str(config.get("agent_prompt") or ""),
                     )
-                    try:
-                        refill_output = await self._run_agent_role(
-                            RANKING_AGENT_ROLE,
-                            build_refill_prompt(
-                                [item.candidate_id for item in accepted],
-                                10 - len(accepted),
-                                agent_prompt=str(config.get("agent_prompt") or ""),
-                            ),
-                            ranking_context,
+                    refill_attempt_errors: List[str] = []
+                    for refill_attempt in range(2):
+                        stage_clock = time.monotonic()
+                        metrics["agent_calls"] += 1
+                        metrics["ranking_agent_calls"] = (
+                            metrics.get("ranking_agent_calls", 0) + 1
                         )
-                        refill_parsed = self._ranking_parser.parse(refill_output)
-                        refill_validation = self._validator.validate(
-                            refill_parsed,
-                            remaining_candidates,
-                            archived_ids,
-                            subscribed_ids,
-                        )
-                        for item in refill_validation.accepted[: 10 - len(accepted)]:
-                            item.rank = len(accepted) + 1
-                            accepted.append(item)
-                        metrics["refill_drops"] = [
-                            drop.reason for drop in refill_validation.dropped
-                        ]
-                    except Exception as error:
-                        errors.append(f"refill: {error}")
-                    finally:
-                        metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
-                            0, int((time.monotonic() - stage_clock) * 1000)
-                        )
+                        current_refill_prompt = refill_prompt
+                        if refill_attempt:
+                            current_refill_prompt += (
+                                "\n\n上一轮补选输出未通过严格校验。请重新读取同一个受限候选快照，"
+                                "这次只返回一个符合既定 schema 的 JSON 对象，禁止代码块、"
+                                "解释、前后缀或额外字段。"
+                            )
+                        try:
+                            refill_output = await self._run_agent_role(
+                                RANKING_AGENT_ROLE,
+                                current_refill_prompt,
+                                ranking_context,
+                            )
+                            refill_parsed = self._ranking_parser.parse(refill_output)
+                            refill_validation = self._validator.validate(
+                                refill_parsed,
+                                remaining_candidates,
+                                archived_ids,
+                                subscribed_ids,
+                                preference_evidence=[
+                                    *current_profile.tags,
+                                    *current_profile.ranking_tags,
+                                ],
+                            )
+                            for item in refill_validation.accepted[:refill_slots]:
+                                item.rank = len(accepted) + 1
+                                accepted.append(item)
+                            metrics["refill_drops"] = [
+                                drop.reason for drop in refill_validation.dropped
+                            ]
+                            break
+                        except AgentOutputError as error:
+                            detail = f"refill attempt {refill_attempt + 1}: {error}"
+                            if refill_attempt == 0:
+                                refill_attempt_errors.append(detail)
+                                self._record_retry(
+                                    metrics, "refill", refill_attempt + 1, error
+                                )
+                                continue
+                            errors.extend(refill_attempt_errors)
+                            errors.append(detail)
+                        except Exception as error:
+                            detail = f"refill attempt {refill_attempt + 1}: {error}"
+                            if refill_attempt == 0 and bool(
+                                getattr(error, "retryable", False)
+                            ):
+                                refill_attempt_errors.append(detail)
+                                self._record_retry(
+                                    metrics, "refill", refill_attempt + 1, error
+                                )
+                                continue
+                            errors.extend(refill_attempt_errors)
+                            errors.append(detail)
+                            break
+                        finally:
+                            metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
+                                0, int((time.monotonic() - stage_clock) * 1000)
+                            )
 
             status = "success" if len(accepted) >= 10 else "recommendation_incomplete"
             self._finish_stage(metrics, status)
+            self._candidate_service.enrich_recommendation_sources(accepted)
             self._start_stage(metrics, "save")
             generated_at = datetime.now(timezone.utc).isoformat()
             previous_board = self._repository.load_board(target)

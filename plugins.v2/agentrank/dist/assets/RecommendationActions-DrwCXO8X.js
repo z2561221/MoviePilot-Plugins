@@ -299,10 +299,11 @@ function useAgentRankState(api) {
   }
 }
 
-const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,mergeProps:_mergeProps,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = ["aria-label"];
+const _hoisted_2 = { class: "ar-actions__label" };
 
 const {computed} = await importShared('vue');
 
@@ -329,6 +330,9 @@ const prefersBangumi = computed(() => props.item?.media_type === 'anime' && bang
 const sourceLabel = computed(() => prefersBangumi.value || (!doubanId.value && bangumiId.value) ? 'Bgm' : '豆瓣');
 const sourceId = computed(() => sourceLabel.value === 'Bgm' ? bangumiId.value : doubanId.value);
 const sourceColor = computed(() => sourceLabel.value === 'Bgm' ? '#F838A0' : '#08B810');
+const doubanSearchText = computed(() => [props.item?.title, props.item?.year].filter(Boolean).join(' '));
+const sourceAvailable = computed(() => sourceLabel.value === 'Bgm' ? Boolean(sourceId.value) : Boolean(sourceId.value || doubanSearchText.value));
+const sourceTooltip = computed(() => sourceLabel.value === 'Bgm' || sourceId.value ? `打开${sourceLabel.value}` : '搜索豆瓣');
 
 function openExternal(url) {
   if (url) window.open(url, '_blank', 'noopener,noreferrer');
@@ -341,12 +345,18 @@ function openTmdb() {
 }
 
 function openSource() {
-  if (!sourceId.value) return
   if (sourceLabel.value === 'Bgm') {
+    if (!sourceId.value) return
     openExternal(`https://bgm.tv/subject/${encodeURIComponent(sourceId.value)}`);
     return
   }
-  openExternal(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${encodeURIComponent(sourceId.value)}?from=mdouban&open=app`);
+  if (sourceId.value) {
+    openExternal(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${encodeURIComponent(sourceId.value)}?from=mdouban&open=app`);
+    return
+  }
+  if (doubanSearchText.value) {
+    openExternal(`https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(doubanSearchText.value)}&cat=1002`);
+  }
 }
 
 return (_ctx, _cache) => {
@@ -358,20 +368,29 @@ return (_ctx, _cache) => {
     role: "group",
     "aria-label": `${__props.item.title} 操作`
   }, [
-    _createVNode(_component_VBtn, {
-      size: __props.size,
-      variant: "tonal",
-      color: "primary",
-      class: "ar-actions__button ar-actions__button--command text-none",
-      "prepend-icon": "mdi-bookmark-plus-outline",
-      loading: __props.loadingAction === 'subscribe',
-      onClick: _cache[0] || (_cache[0] = $event => (emit('subscribe', __props.item.candidate_id)))
+    _createVNode(_component_VTooltip, {
+      text: "订阅",
+      location: "top"
     }, {
-      default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
-        _createTextVNode("订阅", -1)
-      ]))]),
+      activator: _withCtx(({ props: tooltipProps }) => [
+        _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
+          size: __props.size,
+          variant: "tonal",
+          color: "primary",
+          class: "ar-actions__button text-none",
+          "prepend-icon": "mdi-bookmark-plus-outline",
+          loading: __props.loadingAction === 'subscribe',
+          "aria-label": "订阅",
+          onClick: _cache[0] || (_cache[0] = $event => (emit('subscribe', __props.item.candidate_id)))
+        }), {
+          default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
+            _createElementVNode("span", { class: "ar-actions__label" }, "订阅", -1)
+          ]))]),
+          _: 1
+        }, 16, ["size", "loading"])
+      ]),
       _: 1
-    }, 8, ["size", "loading"]),
+    }),
     _createVNode(_component_VTooltip, {
       text: "打开 TMDB",
       location: "top"
@@ -379,54 +398,72 @@ return (_ctx, _cache) => {
       activator: _withCtx(({ props: tooltipProps }) => [
         _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
           size: __props.size,
-          icon: "mdi-movie-open-outline",
+          "prepend-icon": "mdi-movie-open-outline",
           variant: "tonal",
-          color: "info",
-          class: "ar-actions__icon",
+          class: "ar-actions__button ar-actions__button--tmdb text-none",
           disabled: !tmdbId.value,
           "aria-label": "打开 TMDB",
           onClick: openTmdb
-        }), null, 16, ["size", "disabled"])
+        }), {
+          default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
+            _createElementVNode("span", { class: "ar-actions__label" }, "TMDB", -1)
+          ]))]),
+          _: 1
+        }, 16, ["size", "disabled"])
       ]),
       _: 1
     }),
     _createVNode(_component_VTooltip, {
-      text: `打开${sourceLabel.value}`,
+      text: sourceTooltip.value,
       location: "top"
     }, {
       activator: _withCtx(({ props: tooltipProps }) => [
         _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
           size: __props.size,
-          icon: "mdi-open-in-new",
+          "prepend-icon": "mdi-open-in-new",
           variant: "tonal",
           color: sourceColor.value,
-          class: "ar-actions__icon",
-          disabled: !sourceId.value,
-          "aria-label": `打开${sourceLabel.value}`,
+          class: "ar-actions__button text-none",
+          disabled: !sourceAvailable.value,
+          "aria-label": sourceTooltip.value,
           onClick: openSource
-        }), null, 16, ["size", "color", "disabled", "aria-label"])
+        }), {
+          default: _withCtx(() => [
+            _createElementVNode("span", _hoisted_2, _toDisplayString(sourceLabel.value), 1)
+          ]),
+          _: 1
+        }, 16, ["size", "color", "disabled", "aria-label"])
       ]),
       _: 1
     }, 8, ["text"]),
-    _createVNode(_component_VBtn, {
-      size: __props.size,
-      variant: "tonal",
-      color: "default",
-      class: "ar-actions__button ar-actions__button--command text-none",
-      "prepend-icon": "mdi-eye-off-outline",
-      loading: __props.loadingAction === 'archive',
-      onClick: _cache[1] || (_cache[1] = $event => (emit('archive', __props.item.candidate_id)))
+    _createVNode(_component_VTooltip, {
+      text: "忽略",
+      location: "top"
     }, {
-      default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
-        _createTextVNode("忽略", -1)
-      ]))]),
+      activator: _withCtx(({ props: tooltipProps }) => [
+        _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
+          size: __props.size,
+          variant: "tonal",
+          color: "default",
+          class: "ar-actions__button text-none",
+          "prepend-icon": "mdi-eye-off-outline",
+          loading: __props.loadingAction === 'archive',
+          "aria-label": "忽略",
+          onClick: _cache[1] || (_cache[1] = $event => (emit('archive', __props.item.candidate_id)))
+        }), {
+          default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+            _createElementVNode("span", { class: "ar-actions__label" }, "忽略", -1)
+          ]))]),
+          _: 1
+        }, 16, ["size", "loading"])
+      ]),
       _: 1
-    }, 8, ["size", "loading"])
+    })
   ], 8, _hoisted_1))
 }
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3193b651"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2b7696f2"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };

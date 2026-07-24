@@ -19,7 +19,36 @@ from ..model.retrieval import (
 
 
 FILLER_END_PATTERN = re.compile(r"(?:哈|呀|嘛|哒|喂)[。！？!?]?$")
+# 播放事件数不能被文案伪装成“看完 X 次”；电视剧的完成语义由集数与整剧状态表达。
+AMBIGUOUS_WATCH_COUNT_PATTERN = re.compile(
+    r"(?:看完|看了|看过|重看|观看)(?:了)?\s*\d+\s*次"
+)
 VAGUE_REASON_PHRASES = ("神作", "必看", "肯定喜欢", "不能错过")
+REGION_LABELS = {
+    "CN": "中国",
+    "HK": "中国香港",
+    "TW": "中国台湾",
+    "JP": "日本",
+    "KR": "韩国",
+    "US": "美国",
+    "GB": "英国",
+    "FR": "法国",
+    "DE": "德国",
+    "IN": "印度",
+    "TH": "泰国",
+}
+
+
+def compact_text(value: str, maximum: int) -> str:
+    """优先在自然标点处截断文本，必要时按字符上限硬裁剪。"""
+    text = " ".join(str(value or "").split()).strip()
+    if len(text) <= maximum:
+        return text
+    window = text[:maximum]
+    boundary = max(window.rfind(mark) for mark in "。！？；，、")
+    if boundary >= max(1, maximum // 2):
+        return window[: boundary + 1].strip().rstrip("，、；：")
+    return window.strip()
 
 
 class AgentOutputError(ValueError):
@@ -184,6 +213,24 @@ class ProfileOutputParser(_StrictOutputParser):
                 allowed_genre_ids if allowed_genre_ids is not None else TMDB_GENRE_IDS,
                 "allowed_genre_ids",
             )
+        )
+
+    def with_allowed_keyword_ids(
+        self, allowed_keyword_ids: Optional[Iterable[int]] = None
+    ) -> "ProfileOutputParser":
+        """返回继承当前边界并追加可信关键词 ID 的独立解析器。"""
+        return ProfileOutputParser(
+            max_bytes=self._max_bytes,
+            max_recommendations=self._max_recommendations,
+            max_tags=self._max_tags,
+            max_string_chars=self._max_string_chars,
+            allowed_keyword_ids={
+                *self._allowed_keyword_ids,
+                *self._positive_ids(
+                    allowed_keyword_ids or (), "allowed_keyword_ids"
+                ),
+            },
+            allowed_genre_ids=self._allowed_genre_ids,
         )
 
     @staticmethod
@@ -361,7 +408,9 @@ class ProfileOutputParser(_StrictOutputParser):
         if playback_count < 0:
             raise AgentOutputError("profile.playback_count must be non-negative")
         return ParsedProfile(
-            summary=self._string(value["summary"], "profile.summary"),
+            summary=compact_text(
+                self._string(value["summary"], "profile.summary", 2000), 200
+            ),
             tags=self._tags(value["tags"], "profile.tags"),
             negative_tags=self._tags(value["negative_tags"], "profile.negative_tags"),
             playback_count=playback_count,
@@ -401,6 +450,9 @@ class RankingOutputParser(_StrictOutputParser):
             if "reason" not in item and "summary" in item:
                 item = dict(item)
                 item["reason"] = item["summary"]
+            if "summary" not in item and "reason" in item:
+                item = dict(item)
+                item["summary"] = ""
             self._exact_keys(
                 item,
                 {"candidate_id", "reason", "summary", "match_tags", "confidence"},
@@ -437,6 +489,9 @@ class RankingOutputParser(_StrictOutputParser):
 
 def fallback_summary(candidate: Candidate) -> str:
     """按媒体类型返回确定、可读的中文作品简介。"""
+    overview = compact_text(candidate.overview, 20)
+    if overview:
+        return overview
     summaries = {
         "movie": "光影故事缓缓铺展人物命运新篇章",
         "tv": "连环剧情逐步揭开人物命运新篇章",
@@ -449,20 +504,206 @@ class RecommendationValidator:
     """依据冻结候选、订阅和归档集合执行确定性安全校验。"""
 
     @staticmethod
-    def _bounded_text(value: str, minimum: int, maximum: int) -> bool:
-        """校验自然文案的非空长度边界。"""
-        text = str(value or "").strip()
-        return minimum <= len(text) <= maximum
+    def _compact_text(value: str, maximum: int) -> str:
+        """复用共享文本裁剪规则。"""
+        return compact_text(value, maximum)
 
     @staticmethod
     def _match_tags(tags: Sequence[str]) -> List[str]:
-        """返回非空、去重且保持顺序的匹配证据标签。"""
+        """返回单项不超过五字、去重且保持顺序的标签。"""
         result: List[str] = []
         for item in tags or []:
-            text = str(item or "").strip()
+            text = "".join(str(item or "").split()).strip("，。；、|/")[:5]
+            text = REGION_LABELS.get(text.upper(), text)
             if text and text not in result:
                 result.append(text)
         return result
+
+    @staticmethod
+    def _supported_tag(tag: str, evidence: Sequence[str]) -> bool:
+        """判断短标签能否回溯到一项明确证据。"""
+        normalized = ["".join(str(item or "").split()) for item in evidence]
+        return any(tag in item or item in tag for item in normalized if item)
+
+    @staticmethod
+    def _mentioned_in_reason(label: str, reason: str) -> bool:
+        """判断理由是否明确提到完整标签或其地区与主题组合。"""
+        normalized_label = "".join(str(label or "").split())
+        normalized_reason = "".join(str(reason or "").split())
+        if not normalized_label or not normalized_reason:
+            return False
+        if normalized_label in normalized_reason:
+            return True
+        regions = tuple(REGION_LABELS.values()) + ("国产", "国漫")
+        region = next((item for item in regions if item in normalized_label), "")
+        theme = normalized_label.replace(region, "", 1) if region else ""
+        return bool(region and len(theme) >= 2 and region in normalized_reason and theme in normalized_reason)
+
+    def _preference_label_in_reason(self, value: str, reason: str) -> str:
+        """从画像证据与理由共同提炼不超过五字的偏好标签。"""
+        label = self._evidence_label(value)
+        if label and self._mentioned_in_reason(label, reason):
+            return label
+        evidence = "".join(str(value or "").split())
+        normalized_reason = "".join(str(reason or "").split())
+        region_groups = (
+            (("日本", "日式"), "日本"),
+            (("中国香港", "香港", "港式"), "港式"),
+            (("韩国", "韩式", "韩剧"), "韩国"),
+            (("中国", "国产", "国漫"), "国产"),
+        )
+        has_region = any(
+            alias in evidence
+            for aliases, _ in region_groups
+            for alias in aliases
+        )
+        themes = (
+            "修仙玄幻",
+            "真人秀",
+            "纪录片",
+            "科幻",
+            "奇幻",
+            "悬疑",
+            "复仇",
+            "古装",
+            "动画",
+            "动作",
+            "喜剧",
+            "剧情",
+        )
+        for aliases, region_label in region_groups:
+            if not any(alias in evidence for alias in aliases):
+                continue
+            if not any(alias in normalized_reason for alias in aliases):
+                continue
+            for theme in themes:
+                if theme in evidence and theme in normalized_reason:
+                    combined = f"{region_label}{theme}"
+                    if len(combined) <= 5:
+                        return combined
+        if has_region:
+            return ""
+        for theme in themes:
+            if theme in evidence and theme in normalized_reason:
+                return theme[:5]
+        return ""
+
+    @staticmethod
+    def _evidence_label(value: str) -> str:
+        """把结构化证据收束为不超过五字的可读标签。"""
+        text = "".join(str(value or "").split()).strip("，。；、|/")
+        text = REGION_LABELS.get(text.upper(), text)
+        original_text = text
+        for suffix in ("偏好", "题材", "类型", "作品"):
+            if text.endswith(suffix) and len(text) - len(suffix) >= 2:
+                text = text[: -len(suffix)]
+        if len(text) > 5:
+            for suffix in ("动画", "电影", "剧集"):
+                if text.endswith(suffix) and len(text) - len(suffix) >= 2:
+                    text = text[: -len(suffix)]
+                    break
+        if len(text) > 5 and text == original_text:
+            return ""
+        return text[:5]
+
+    def _evidence_tags(
+        self,
+        tags: Sequence[str],
+        reason: str,
+        candidate: Candidate,
+        preference_evidence: Sequence[str],
+    ) -> List[str]:
+        """固定收束为一枚用户证据标签和一枚作品事实标签。"""
+        normalized = self._match_tags(tags)
+        if not preference_evidence:
+            return normalized[:2]
+        preference_tag_evidence = [
+            item for item in preference_evidence if self._evidence_label(item)
+        ]
+        candidate_evidence = [
+            *candidate.genres,
+            *candidate.regions,
+            *candidate.actors,
+            *candidate.directors,
+            candidate.title,
+            candidate.overview,
+            str(candidate.year or ""),
+        ]
+        if not any(
+            str(item or "").strip()
+            for item in [
+                *candidate.genres,
+                *candidate.regions,
+                *candidate.actors,
+                *candidate.directors,
+                candidate.overview,
+            ]
+        ):
+            return normalized[:2]
+        preference = next(
+            (
+                label
+                for item in preference_tag_evidence
+                if (label := self._preference_label_in_reason(item, reason))
+            ),
+            "",
+        )
+        if not preference:
+            preference = next(
+                (
+                    tag
+                    for tag in normalized
+                    if self._supported_tag(tag, preference_tag_evidence)
+                    and self._mentioned_in_reason(tag, reason)
+                ),
+                "",
+            )
+        fact = next(
+            (
+                tag
+                for tag in normalized
+                if tag != preference
+                and not self._supported_tag(tag, preference_tag_evidence)
+                and self._supported_tag(tag, candidate_evidence)
+                and self._mentioned_in_reason(tag, reason)
+            ),
+            "",
+        )
+        if not fact:
+            structured_facts = [
+                *candidate.genres,
+                *candidate.regions,
+                *candidate.actors,
+                *candidate.directors,
+            ]
+            fact = next(
+                (
+                    label
+                    for item in structured_facts
+                    if (label := self._evidence_label(item))
+                    and label != preference
+                    and self._mentioned_in_reason(label, reason)
+                ),
+                "",
+            )
+        if not preference:
+            preference = ""
+        if not fact:
+            fact = next(
+                (
+                    self._evidence_label(item)
+                    for item in [
+                        *candidate.genres,
+                        *candidate.regions,
+                        *candidate.actors,
+                        *candidate.directors,
+                    ]
+                    if self._evidence_label(item)
+                    and self._evidence_label(item) != preference
+                ),
+                "",
+            )
+        return [tag for tag in (preference, fact) if tag]
 
     def validate(
         self,
@@ -470,6 +711,7 @@ class RecommendationValidator:
         candidates: Sequence[Candidate],
         archived_candidate_ids: Set[str],
         subscribed_candidate_ids: Set[str],
+        preference_evidence: Sequence[str] = (),
     ) -> RecommendationValidationResult:
         """按 Agent 原顺序校验并丰富通过项，绝不按媒体属性重排。"""
         candidate_map: Dict[str, Candidate] = {
@@ -508,25 +750,39 @@ class RecommendationValidator:
                     DroppedRecommendation(candidate_id, "invalid_confidence", index)
                 )
                 continue
-            summary = recommendation.summary.strip()
-            reason = recommendation.reason.strip()
-            match_tags = self._match_tags(recommendation.match_tags)
-            if not self._bounded_text(summary, 12, 40):
+            summary = self._compact_text(recommendation.summary, 20) or fallback_summary(
+                candidate
+            )
+            reason = self._compact_text(recommendation.reason, 40)
+            match_tags = self._evidence_tags(
+                recommendation.match_tags,
+                reason,
+                candidate,
+                preference_evidence,
+            )
+            if not summary:
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_summary", index)
                 )
                 continue
             if (
-                not self._bounded_text(reason, 20, 60)
+                not reason
                 or reason == summary
                 or any(phrase in reason for phrase in VAGUE_REASON_PHRASES)
                 or FILLER_END_PATTERN.search(reason)
+                or AMBIGUOUS_WATCH_COUNT_PATTERN.search(reason)
             ):
                 result.dropped.append(
-                    DroppedRecommendation(candidate_id, "invalid_reason", index)
+                    DroppedRecommendation(
+                        candidate_id,
+                        "ambiguous_playback_count"
+                        if AMBIGUOUS_WATCH_COUNT_PATTERN.search(reason)
+                        else "invalid_reason",
+                        index,
+                    )
                 )
                 continue
-            if len(match_tags) < 2 or not any(tag in reason for tag in match_tags):
+            if len(match_tags) < 2:
                 result.dropped.append(
                     DroppedRecommendation(
                         candidate_id, "insufficient_match_evidence", index

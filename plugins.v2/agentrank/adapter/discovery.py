@@ -80,6 +80,11 @@ PROVIDER_METHOD_CONTRACTS = {
         "mode": "discover",
         "params": frozenset({"type", "cat", "sort", "year", "offset"}),
     },
+    "anilist_public": {
+        "provider": "anilist",
+        "mode": "recommend",
+        "params": frozenset({"page"}),
+    },
     "tmdb_recommend": {
         "provider": "tmdb",
         "mode": "recommend",
@@ -193,6 +198,16 @@ class ProviderRequest:
                 or not 1870 <= year <= 2100
             ):
                 raise ValueError("bangumi year is invalid")
+            return
+        if self.method == "anilist_public":
+            page = params["page"]
+            if (
+                self.media_type != "anime"
+                or isinstance(page, bool)
+                or not isinstance(page, int)
+                or not 1 <= page <= 10
+            ):
+                raise ValueError("anilist public page is invalid")
             return
         if self.method == "tmdb_recommend":
             _positive_integer(params["tmdbid"], "tmdbid")
@@ -315,6 +330,20 @@ class MoviePilotProvider:
         return list(rows or [])[: request.limit]
 
     @staticmethod
+    def _anilist_public(request: ProviderRequest) -> List[Any]:
+        """读取 MoviePilot 内置 AniList 趋势榜与本季热门榜。"""
+        from app.chain.anilist import AniListChain
+
+        chain = AniListChain()
+        each_count = max(1, (request.limit + 1) // 2)
+        page = int(request.params["page"])
+        rows = list(chain.trending(page=page, count=each_count) or [])
+        rows.extend(
+            chain.popular_this_season(page=page, count=each_count) or []
+        )
+        return rows[: request.limit]
+
+    @staticmethod
     def _tmdb_recommend(request: ProviderRequest) -> List[Any]:
         """通过 TmdbChain 按播放种子读取相关推荐。"""
         from app.chain.tmdb import TmdbChain
@@ -338,6 +367,7 @@ class MoviePilotProvider:
                 "douban_public": self._douban_public,
                 "tmdb_discover": self._tmdb_discover,
                 "bangumi_discover": self._bangumi_discover,
+                "anilist_public": self._anilist_public,
                 "tmdb_recommend": self._tmdb_recommend,
             }[request.method]
         return list(handler(request) or [])[: request.limit]
@@ -346,7 +376,66 @@ class MoviePilotProvider:
 class DiscoveryAdapter:
     """编排 MoviePilot Provider 请求并隔离来源级故障。"""
 
-    DEFAULT_SOURCE_ORDER = ("douban", "tmdb_movies", "tmdb_tv", "bangumi")
+    DEFAULT_SOURCE_ORDER = (
+        "douban",
+        "tmdb_movies",
+        "tmdb_tv",
+        "bangumi",
+        "anilist",
+    )
+
+    @staticmethod
+    def source_options() -> List[Dict[str, Any]]:
+        """返回当前插件支持且由宿主能力探测确认的发现来源。"""
+        options = [
+            {
+                "key": "douban",
+                "title": "豆瓣发现",
+                "subtitle": "热门电影、剧集与动画",
+                "icon": "mdi-alpha-d-circle-outline",
+                "available": True,
+            },
+            {
+                "key": "tmdb_movies",
+                "title": "TMDB电影",
+                "subtitle": "高热度电影候选",
+                "icon": "mdi-movie-open-star-outline",
+                "available": True,
+            },
+            {
+                "key": "tmdb_tv",
+                "title": "TMDB剧集",
+                "subtitle": "高热度剧集候选",
+                "icon": "mdi-television-classic",
+                "available": True,
+            },
+            {
+                "key": "bangumi",
+                "title": "Bangumi",
+                "subtitle": "动画与番剧候选",
+                "icon": "mdi-animation-outline",
+                "available": True,
+            },
+        ]
+        try:
+            from app.chain.anilist import AniListChain
+
+            available = all(
+                callable(getattr(AniListChain, name, None))
+                for name in ("trending", "popular_this_season")
+            )
+        except (ImportError, AttributeError):
+            available = False
+        options.append(
+            {
+                "key": "anilist",
+                "title": "AniList",
+                "subtitle": "趋势动画与本季热门",
+                "icon": "mdi-alpha-a-circle-outline",
+                "available": available,
+            }
+        )
+        return options
 
     def __init__(
         self,
@@ -474,6 +563,11 @@ class DiscoveryAdapter:
                     and media_types
                     and not media_types.intersection({"tv", "anime"})
                 )
+                or (
+                    name == "anilist"
+                    and media_types
+                    and not media_types.intersection({"tv", "anime"})
+                )
             )
         ]
         quotas = self._quotas(enabled_names, raw_limit)
@@ -512,7 +606,7 @@ class DiscoveryAdapter:
                         layer=layer,
                     )
                 )
-            else:
+            elif name == "bangumi":
                 requests.append(
                     ProviderRequest(
                         request_id=request_id,
@@ -529,6 +623,20 @@ class DiscoveryAdapter:
                             "year": filters.year_min if filters else None,
                             "offset": 0 if page == 1 else (page - 1) * limit,
                         },
+                        layer=layer,
+                    )
+                )
+            else:
+                requests.append(
+                    ProviderRequest(
+                        request_id=request_id,
+                        source=name,
+                        provider="anilist",
+                        mode="recommend",
+                        method="anilist_public",
+                        media_type="anime",
+                        limit=limit,
+                        params={"page": page},
                         layer=layer,
                     )
                 )

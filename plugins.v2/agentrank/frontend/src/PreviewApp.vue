@@ -16,15 +16,16 @@ const views = [
   { title: '仪表板', value: 'dashboard' },
 ]
 const statuses = [
-  'idle',
-  'running',
-  'success',
-  'sample_insufficient',
-  'candidate_insufficient',
-  'recommendation_incomplete',
-  'agent_failed',
-  'validation_failed',
-  'subscription_partial_failed',
+  { title: '待加载', value: 'idle' },
+  { title: '运行中', value: 'running' },
+  { title: '已完成', value: 'success' },
+  { title: '播放样本不足', value: 'sample_insufficient' },
+  { title: '候选数量不足', value: 'candidate_insufficient' },
+  { title: '推荐榜单不足', value: 'recommendation_incomplete' },
+  { title: '画像输出校验失败', value: 'profile_validation_failed' },
+  { title: 'Agent 调用失败', value: 'agent_failed' },
+  { title: '输出校验失败', value: 'validation_failed' },
+  { title: '部分订阅失败', value: 'subscription_partial_failed' },
 ]
 
 const weights = {
@@ -52,7 +53,7 @@ const config = {
   cron: '0 8 * * *',
   emby_identities: identities,
   default_profile_id: identities[0].profile_id,
-  discovery_sources: { douban: true, tmdb_movies: true, tmdb_tv: true, bangumi: true },
+  discovery_sources: { douban: true, tmdb_movies: true, tmdb_tv: true, bangumi: true, anilist: true },
   weights,
   media_types: ['movie', 'tv', 'anime'],
   minimum_samples: 5,
@@ -67,7 +68,7 @@ const config = {
   profile_cache_enabled: true,
   rebuild_profile_each_run: false,
   playback_enabled: true,
-  playback_recent_days: 180,
+  playback_recent_days: 60,
   playback_completion_threshold: 0.85,
   playback_abandon_minutes: 20,
   playback_cache_days: 7,

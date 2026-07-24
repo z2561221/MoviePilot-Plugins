@@ -11,6 +11,8 @@ const activeTab = ref('board')
 const snackbar = ref({ show: false, message: '', color: 'success' })
 const historyPage = ref(1)
 const initialized = ref(false)
+const expandedCopyKeys = ref(new Set())
+const expandedHistoryKeys = ref(new Set())
 const tagDrafts = reactive({ positive: '', negative: '' })
 const historyPageSize = 10
 
@@ -52,7 +54,44 @@ const statusMetaFor = status => ({
   agent_failed: { text: 'Agent失败', color: 'error' },
   validation_failed: { text: '校验失败', color: 'error' },
   subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
+  profile_agent_failed: { text: '画像生成失败', color: 'error' },
+  profile_validation_failed: { text: '画像校验失败', color: 'error' },
+  candidate_failed: { text: '候选采集失败', color: 'error' },
+  candidate_filter_failed: { text: '候选过滤失败', color: 'error' },
+  candidate_snapshot_failed: { text: '候选快照失败', color: 'error' },
+  ranking_agent_failed: { text: '排序生成失败', color: 'error' },
+  ranking_validation_failed: { text: '排序校验失败', color: 'error' },
+  ranking_save_failed: { text: '榜单保存失败', color: 'error' },
 }[status] || { text: status || '未知', color: 'default' })
+
+const historyStageLabels = {
+  probe: '依赖探测',
+  playback_snapshot: '冻结播放',
+  profile: '生成画像',
+  candidate: '冻结候选',
+  ranking: 'Agent排序',
+  save: '保存榜单',
+}
+const historyStageStatusLabels = {
+  ready: '完成', generated: '已生成', reused: '复用', cached: '使用缓存', saved: '已保存',
+  success: '成功', pending: '等待', running: '进行中', stopped: '停止', failed: '失败',
+  sample_insufficient: '样本不足', candidate_insufficient: '候选不足',
+  recommendation_incomplete: '榜单不足', agent_failed: 'Agent失败',
+  validation_failed: '校验失败', subscription_partial_failed: '部分订阅失败',
+  profile_agent_failed: '画像生成失败', profile_validation_failed: '画像校验失败',
+  candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败',
+  candidate_snapshot_failed: '候选快照失败', ranking_agent_failed: '排序生成失败',
+  ranking_validation_failed: '排序校验失败', ranking_save_failed: '榜单保存失败',
+}
+const historySourceLabels = {
+  douban: '豆瓣', tmdb: 'TMDB', tmdb_movies: 'TMDB电影', tmdb_tv: 'TMDB剧集',
+  tmdb_recommend: 'TMDB相关', bangumi: 'Bangumi', anilist: 'AniList',
+}
+const historyExclusionLabels = {
+  invalid_or_unrecognized: '未识别', watched: '已观看', watched_completed: '已看完', library: '已入库',
+  subscribed: '已订阅', archived: '已忽略', negative_keyword: '排除词',
+  ambiguous_playback_count: '播放次数误写为看完次数',
+}
 
 const tabs = [
   { key: 'board', title: '推荐榜单', icon: 'mdi-format-list-numbered' },
@@ -69,6 +108,79 @@ function formatTime(value) {
 
 function mediaTypeLabel(value) {
   return ({ movie: '电影', tv: '剧集', anime: '动漫' })[value] || value || '未知'
+}
+
+function copyKey(item, field) { return `${item?.candidate_id || item?.rank || ''}:${field}` }
+function isCopyExpanded(item, field) { return expandedCopyKeys.value.has(copyKey(item, field)) }
+function toggleCopy(item, field) {
+  const key = copyKey(item, field)
+  const next = new Set(expandedCopyKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedCopyKeys.value = next
+}
+
+function historyKey(run) { return `${run?.run_id || ''}:${run?.finished_at || run?.started_at || ''}` }
+function isHistoryExpanded(run) { return expandedHistoryKeys.value.has(historyKey(run)) }
+function toggleHistory(run) {
+  const key = historyKey(run)
+  const next = new Set(expandedHistoryKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedHistoryKeys.value = next
+}
+function formatDuration(value) {
+  const ms = Number(value)
+  if (!Number.isFinite(ms) || ms < 0) return '—'
+  if (ms < 1000) return `${Math.round(ms)} 毫秒`
+  return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} 秒`
+}
+function historyStages(run) {
+  const metrics = run?.metrics || {}
+  return (Array.isArray(metrics.stage_order) ? metrics.stage_order : []).map(key => ({
+    key,
+    title: historyStageLabels[key] || key,
+    status: historyStageStatusLabels[metrics.stage_status?.[key]] || metrics.stage_status?.[key] || '—',
+    duration: formatDuration(metrics.stage_ms?.[key]),
+    failed: /failed|error|insufficient|validation/i.test(String(metrics.stage_status?.[key] || '')),
+  }))
+}
+function translateHistoryError(value) {
+  let text = String(value || '')
+  text = text
+    .replace(/Agent output must be one JSON object:\s*Expecting value/gi, 'Agent 输出不是有效的 JSON 对象：内容为空或格式错误')
+    .replace(/Agent output must be one JSON object/gi, 'Agent 输出不是有效的 JSON 对象')
+    .replace(/Agent output must be text/gi, 'Agent 输出不是文本')
+    .replace(/Expecting value/gi, '内容为空或格式错误')
+    .replace(/Extra data/gi, '存在多余内容')
+    .replace(/Invalid control character/gi, '包含无效控制字符')
+    .replace(/Unterminated string/gi, '字符串未闭合')
+  return text
+}
+function historyErrorText(run) {
+  const errors = Array.isArray(run?.errors) ? run.errors : []
+  if (errors.length) {
+    return errors.map(error => translateHistoryError(String(error)
+      .replace(/^profile attempt\s+(\d+):/i, '画像第 $1 次：')
+      .replace(/^refill attempt\s+(\d+):/i, '补选第 $1 次：')
+      .replace(/^attempt\s+(\d+):/i, '排序第 $1 次：')
+      .replace(/^profile:/i, '画像阶段：')
+      .replace(/^candidate:/i, '候选阶段：')
+      .replace(/^ranking:/i, '排序阶段：')
+      .replace(/^refill:/i, '补选阶段：'))).join('；')
+  }
+  return translateHistoryError(run?.message || '本轮没有错误')
+}
+function historySourceText(run) {
+  const sources = run?.metrics?.candidate_source_counts || run?.metrics?.fetched_source_counts || {}
+  return Object.entries(sources).map(([key, value]) => `${historySourceLabels[key] || key} ${value}`).join('、') || '无来源统计'
+}
+function historyExclusionText(run) {
+  const exclusions = run?.metrics?.candidate_exclusion_counts || {}
+  return Object.entries(exclusions).map(([key, value]) => `${historyExclusionLabels[key] || key} ${value}`).join('、') || '无'
+}
+function historyPlaybackStatus(value) {
+  return ({ ready: '已就绪', cached: '使用缓存', disabled: '已停用', error: '失败', transient_error: '临时错误' })[value] || value || '未知'
 }
 
 async function initialize() {
@@ -207,7 +319,7 @@ onMounted(initialize)
           <div class="ar-page__section-head">
             <div>
               <div class="ar-page__section-title">个性推荐榜单</div>
-              <div class="ar-page__section-desc">Agent 根据订阅画像，从发现候选中挑出的 Top 10。</div>
+              <div class="ar-page__section-desc">Agent 根据订阅画像，从发现候选中挑出的前10名。</div>
             </div>
             <VChip size="small" color="primary" variant="tonal">{{ recommendations.length }} 部</VChip>
           </div>
@@ -216,7 +328,7 @@ onMounted(initialize)
             v-if="!recommendations.length"
             icon="mdi-format-list-numbered"
             title="推荐榜单尚未生成"
-            text="点击右上角刷新，根据播放画像生成 Top 10。"
+            text="点击右上角刷新，根据播放画像生成前10名。"
           />
           <div v-else class="ar-page__ranking">
             <article v-for="item in recommendations" :key="item.candidate_id" class="ar-page__rank-item">
@@ -234,21 +346,23 @@ onMounted(initialize)
                 </div>
                 <div class="ar-page__meta-row">
                   <span>{{ item.year || '年份未知' }}</span>
-                  <span>置信度 {{ item.confidence }}%</span>
                 </div>
                 <div class="ar-page__rank-copy">
                   <span class="ar-page__copy-label">推荐：</span>
-                  <span>{{ item.reason || item.summary || '等待 Agent 补充推荐理由' }}</span>
+                  <span class="ar-page__copy-text ar-page__copy-text--reason" :class="{ 'ar-page__copy-text--expanded': isCopyExpanded(item, 'reason') }">{{ item.reason || item.summary || '等待 Agent 补充推荐理由' }}</span>
+                  <VBtn v-if="item.reason || item.summary" size="x-small" variant="text" class="ar-page__copy-toggle" @click="toggleCopy(item, 'reason')">{{ isCopyExpanded(item, 'reason') ? '收起' : '展开' }}</VBtn>
                 </div>
                 <div class="ar-page__rank-copy ar-page__rank-copy--muted">
                   <span class="ar-page__copy-label">简介：</span>
-                  <span>{{ item.summary || '暂无简介' }}</span>
+                  <span class="ar-page__copy-text ar-page__copy-text--intro" :class="{ 'ar-page__copy-text--expanded': isCopyExpanded(item, 'summary') }">{{ item.summary || '暂无简介' }}</span>
+                  <VBtn v-if="item.summary" size="x-small" variant="text" class="ar-page__copy-toggle" @click="toggleCopy(item, 'summary')">{{ isCopyExpanded(item, 'summary') ? '收起' : '展开' }}</VBtn>
                 </div>
                 <div v-if="item.match_tags?.length" class="ar-page__match-tags">
                   <VChip v-for="tag in item.match_tags" :key="tag" size="x-small" variant="outlined">{{ tag }}</VChip>
                 </div>
               </div>
               <div class="ar-page__rank-actions">
+                <VChip size="x-small" color="primary" variant="tonal" class="ar-page__confidence">置信度 {{ item.confidence }}%</VChip>
                 <RecommendationActions
                   :item="item"
                   :loading-action="state.loading.action"
@@ -368,24 +482,48 @@ onMounted(initialize)
 
           <VEmptyState v-if="!state.history.value.length" icon="mdi-history" title="暂无运行记录" text="榜单生成后，这里会记录每次执行结果。" />
           <template v-else>
-            <VCard variant="outlined" class="ar-page__table-card">
-              <div class="ar-page__table-wrap">
-                <VTable density="compact" fixed-header height="430">
-                  <thead><tr><th>时间</th><th>状态</th><th>候选</th><th>推荐</th><th>Agent</th><th>自动订阅</th><th>失败原因</th></tr></thead>
-                  <tbody>
-                    <tr v-for="run in state.history.value" :key="`${run.run_id}-${run.finished_at}`">
-                      <td class="ar-page__time-cell">{{ formatTime(run.finished_at || run.started_at) }}</td>
-                      <td><VChip size="x-small" :color="statusMetaFor(run.status).color" variant="tonal">{{ statusMetaFor(run.status).text }}</VChip></td>
-                      <td>{{ run.metrics?.candidate_count ?? '—' }}</td>
-                      <td>{{ run.metrics?.final_count ?? '—' }}</td>
-                      <td>{{ run.metrics?.agent_calls ?? '—' }} 次</td>
-                      <td>{{ run.metrics?.subscription_success_count ?? 0 }}</td>
-                      <td class="ar-page__error-cell">{{ run.errors?.join('；') || run.message || '—' }}</td>
-                    </tr>
-                  </tbody>
-                </VTable>
-              </div>
-            </VCard>
+            <div class="ar-page__history-list">
+              <article v-for="run in state.history.value" :key="historyKey(run)" class="ar-page__history-item">
+                <div class="ar-page__history-head">
+                  <div class="ar-page__history-time">
+                    <VIcon icon="mdi-clock-outline" size="17" color="primary" />
+                    <strong>{{ formatTime(run.finished_at || run.started_at) }}</strong>
+                    <span v-if="run.metrics?.elapsed_ms">耗时 {{ formatDuration(run.metrics.elapsed_ms) }}</span>
+                  </div>
+                  <VChip size="small" :color="statusMetaFor(run.status).color" variant="tonal">
+                    {{ statusMetaFor(run.status).text }}
+                  </VChip>
+                </div>
+                <div class="ar-page__history-message">{{ run.message || '本轮运行已记录' }}</div>
+                <div class="ar-page__history-metrics">
+                  <div><strong>{{ run.metrics?.candidate_count ?? 0 }}</strong><span>候选</span></div>
+                  <div><strong>{{ run.metrics?.final_count ?? 0 }}</strong><span>推荐</span></div>
+                  <div><strong>{{ run.metrics?.agent_calls ?? 0 }}</strong><span>Agent调用</span></div>
+                  <div><strong>{{ run.metrics?.subscription_success_count ?? 0 }}</strong><span>自动订阅</span></div>
+                </div>
+                <div v-if="historyStages(run).length" class="ar-page__history-pipeline">
+                  <div v-for="stage in historyStages(run)" :key="stage.key" class="ar-page__history-stage" :class="{ 'ar-page__history-stage--failed': stage.failed }">
+                    <VIcon :icon="stage.failed ? 'mdi-alert-circle-outline' : 'mdi-check-circle-outline'" :color="stage.failed ? 'error' : 'success'" size="17" />
+                    <div><strong>{{ stage.title }}</strong><small>{{ stage.status }} · {{ stage.duration }}</small></div>
+                  </div>
+                </div>
+                <div class="ar-page__history-error" :class="{ 'ar-page__history-error--ok': !run.errors?.length && run.status === 'success' }">
+                  <VIcon :icon="run.errors?.length ? 'mdi-alert-outline' : 'mdi-information-outline'" size="16" />
+                  <span>{{ historyErrorText(run) }}</span>
+                </div>
+                <div class="ar-page__history-footer">
+                  <span>来源：{{ historySourceText(run) }}</span>
+                  <VBtn size="x-small" variant="text" :append-icon="isHistoryExpanded(run) ? 'mdi-chevron-up' : 'mdi-chevron-down'" @click="toggleHistory(run)">
+                    {{ isHistoryExpanded(run) ? '收起细节' : '查看细节' }}
+                  </VBtn>
+                </div>
+                <div v-if="isHistoryExpanded(run)" class="ar-page__history-details">
+                  <div><span>运行编号</span><code>{{ run.run_id || '—' }}</code></div>
+                  <div><span>播放快照</span><span>{{ run.metrics?.playback_count ?? 0 }} 条，{{ historyPlaybackStatus(run.metrics?.playback_status) }}</span></div>
+                  <div><span>候选排除</span><span>{{ historyExclusionText(run) }}</span></div>
+                </div>
+              </article>
+            </div>
             <VPagination v-model="historyPage" :length="historyPages" density="compact" total-visible="7" class="mt-3" @update:model-value="changeHistoryPage" />
           </template>
           <span class="d-none">page_size={{ historyPageSize }}</span>
@@ -438,12 +576,14 @@ onMounted(initialize)
 .ar-page__title-row { display: flex; align-items: flex-start; gap: 8px; }
 .ar-page__media-title { min-width: 0; display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 15px; font-weight: 700; line-height: 1.4; }
 .ar-page__meta-row { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 3px; color: rgba(var(--v-theme-on-surface), .52); font-size: 11px; }
-.ar-page__rank-copy { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 7px; margin-top: 7px; font-size: 12px; line-height: 1.45; }
+.ar-page__rank-copy { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 7px; margin-top: 7px; font-size: 12px; line-height: 1.45; }
 .ar-page__rank-copy--muted { margin-top: 3px; color: rgba(var(--v-theme-on-surface), .62); }
 .ar-page__copy-label { color: rgb(var(--v-theme-primary)); font-size: 11px; font-weight: 600; }
-.ar-page__rank-copy > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.ar-page__copy-text { min-width: 0; overflow-wrap: anywhere; }
+.ar-page__copy-toggle { display: none; min-width: 36px !important; min-height: 26px !important; margin: -4px -5px -4px 0; padding-inline: 5px !important; }
 .ar-page__match-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-.ar-page__rank-actions { display: flex; align-items: center; overflow-x: auto; padding-bottom: 2px; }
+.ar-page__rank-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
+.ar-page__confidence { flex: 0 0 auto; }
 .ar-page__section-card, .ar-page__archive-card, .ar-page__table-card { border-radius: 10px; background: transparent; }
 .ar-page__profile-head { padding: 14px 16px; }
 .ar-page__profile-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 12px; padding: 14px; }
@@ -472,6 +612,32 @@ onMounted(initialize)
 .ar-page__table-wrap :deep(td) { font-size: 12px; }
 .ar-page__time-cell { min-width: 150px; white-space: nowrap; }
 .ar-page__error-cell { min-width: 240px; max-width: 360px; white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
+.ar-page__history-list { display: flex; flex-direction: column; gap: 10px; }
+.ar-page__history-item { padding: 12px 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; background: transparent; }
+.ar-page__history-head, .ar-page__history-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ar-page__history-time { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.ar-page__history-time strong { font-size: 13px; }
+.ar-page__history-time span, .ar-page__history-footer { color: rgba(var(--v-theme-on-surface), .55); font-size: 11px; }
+.ar-page__history-message { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .72); font-size: 12px; line-height: 1.5; }
+.ar-page__history-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 10px; overflow: hidden; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .68)); border-radius: 8px; }
+.ar-page__history-metrics > div { display: flex; align-items: baseline; justify-content: center; gap: 4px; padding: 8px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .58)); }
+.ar-page__history-metrics > div:last-child { border-right: 0; }
+.ar-page__history-metrics strong { font-size: 15px; }
+.ar-page__history-metrics span { color: rgba(var(--v-theme-on-surface), .55); font-size: 10px; }
+.ar-page__history-pipeline { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); gap: 6px; margin-top: 10px; overflow-x: auto; }
+.ar-page__history-stage { min-width: 90px; display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 8px; background: rgba(var(--v-theme-success), .055); }
+.ar-page__history-stage--failed { background: rgba(var(--v-theme-error), .07); }
+.ar-page__history-stage strong, .ar-page__history-stage small { display: block; white-space: nowrap; }
+.ar-page__history-stage strong { font-size: 10px; }
+.ar-page__history-stage small { margin-top: 1px; color: rgba(var(--v-theme-on-surface), .52); font-size: 9px; }
+.ar-page__history-error { display: flex; align-items: flex-start; gap: 6px; margin-top: 9px; padding: 7px 9px; border-radius: 8px; color: rgb(var(--v-theme-error)); background: rgba(var(--v-theme-error), .065); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.ar-page__history-error--ok { color: rgba(var(--v-theme-on-surface), .62); background: rgba(var(--v-theme-on-surface), .035); }
+.ar-page__history-footer { margin-top: 6px; }
+.ar-page__history-footer > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-page__history-details { display: grid; gap: 6px; margin-top: 7px; padding-top: 8px; border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .62)); font-size: 11px; }
+.ar-page__history-details > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; }
+.ar-page__history-details > div > span:first-child { color: rgba(var(--v-theme-on-surface), .55); }
+.ar-page__history-details code { overflow-wrap: anywhere; white-space: normal; }
 @media (max-width: 900px) {
   .ar-page__summary-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ar-page__runtime-chip { grid-column: 1 / -1; justify-self: end; margin-top: -2px; }
@@ -504,6 +670,11 @@ onMounted(initialize)
   .ar-page__poster { width: 54px; height: 81px; }
   .ar-page__rank { width: 28px; height: 28px; }
   .ar-page__rank-actions { grid-column: 1 / -1; justify-content: flex-end; padding-top: 2px; border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
+  .ar-page__copy-text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; }
+  .ar-page__copy-text--reason { -webkit-line-clamp: 2; }
+  .ar-page__copy-text--intro { -webkit-line-clamp: 1; }
+  .ar-page__copy-text--expanded { display: block; overflow: visible; -webkit-line-clamp: initial; }
+  .ar-page__copy-toggle { display: inline-flex; }
   .ar-page__profile-head :deep(.v-card-item__append) { align-self: flex-start; }
   .ar-page__profile-body { padding: 12px; }
   .ar-page__profile-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -511,6 +682,12 @@ onMounted(initialize)
   .ar-page__profile-metric :deep(.v-icon) { display: none; }
   .ar-page__profile-groups { grid-template-columns: 1fr; }
   .ar-page__profile-group:last-child { grid-column: auto; }
+  .ar-page__history-item { padding: 10px; }
+  .ar-page__history-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ar-page__history-metrics > div:nth-child(2) { border-right: 0; }
+  .ar-page__history-metrics > div:nth-child(-n + 2) { border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .58)); }
+  .ar-page__history-pipeline { grid-template-columns: repeat(6, minmax(105px, 1fr)); }
+  .ar-page__history-footer { align-items: flex-start; }
 }
 @media (max-width: 390px) {
   .ar-page { width: 100%; height: calc(100dvh - 4px); border-radius: 10px; }
@@ -524,7 +701,7 @@ onMounted(initialize)
   .ar-page__content { padding: 10px 8px; }
   .ar-page__rank-item { grid-template-columns: 26px 48px minmax(0, 1fr); gap: 7px; padding-inline: 7px; }
   .ar-page__poster { width: 48px; height: 72px; }
-  .ar-page__rank-copy { grid-template-columns: 32px minmax(0, 1fr); }
+  .ar-page__rank-copy { grid-template-columns: 32px minmax(0, 1fr) auto; }
   .ar-page__profile-head :deep(.v-card-item__prepend) { display: none; }
 }
 </style>

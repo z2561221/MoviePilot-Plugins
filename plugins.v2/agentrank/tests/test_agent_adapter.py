@@ -169,7 +169,7 @@ class FakeRunner:
         self.prompt = prompt
         if self.__class__.fail:
             raise RuntimeError("agent failed")
-        return "captured-json"
+        return '{"recommendations": []}'
 
     async def cleanup(self):
         self.cleaned = True
@@ -181,7 +181,7 @@ class FakeCallbackRunner(FakeRunner):
     async def process(self, prompt):
         self.prompt = prompt
         self.kwargs["output_callback"]("partial")
-        self.kwargs["output_callback"]("captured-json")
+        self.kwargs["output_callback"]('{"recommendations": []}')
         return None
 
 
@@ -205,6 +205,34 @@ class FakeFencedRunner(FakeRunner):
             "```json\n{\"recommendations\": []}\n```"
         )
         return None
+
+
+class FakeHostErrorRunner(FakeRunner):
+    """模拟宿主把执行异常包装成普通文本返回。"""
+
+    async def process(self, prompt):
+        """返回 MoviePilot 当前使用的 Agent 失败文案。"""
+        self.prompt = prompt
+        return "智能助手执行失败: upstream unavailable"
+
+
+class FakeProseRunner(FakeRunner):
+    """模拟模型返回解释性自然语言而不是 JSON。"""
+
+    async def process(self, prompt):
+        """返回一段不应进入领域 parser 的自然语言。"""
+        self.prompt = prompt
+        return "我会先分析这些候选，然后给出推荐。"
+
+
+class FakeErrorResultWithJsonCallbackRunner(FakeRunner):
+    """模拟返回值失败但最终回调已经包含合法 JSON。"""
+
+    async def process(self, prompt):
+        """同时提供宿主错误返回值与合法 JSON 回调。"""
+        self.prompt = prompt
+        self.kwargs["output_callback"]('{"recommendations": []}')
+        return "处理消息时发生错误: stale host result"
 
 
 def _trusted_context(run_id="run-1", username="alice", agent_role="ranking"):
@@ -232,7 +260,7 @@ def test_adapter_uses_exact_capture_only_session_and_cleans_success():
     output = asyncio.run(adapter.run("rank now", _trusted_context()))
 
     runner = FakeRunner.instances[-1]
-    assert output == "captured-json"
+    assert output == '{"recommendations": []}'
     assert runner.kwargs["session_id"] == "__agentrank_ranking_run-1_alice__"
     assert runner.kwargs["replay_mode"] == ReplyMode.CAPTURE_ONLY
     assert runner.kwargs["allow_message_tools"] is False
@@ -275,7 +303,7 @@ def test_adapter_uses_capture_callback_when_host_process_returns_none():
     output = asyncio.run(adapter.run("rank now", _trusted_context()))
 
     runner = FakeCallbackRunner.instances[-1]
-    assert output == "captured-json"
+    assert output == '{"recommendations": []}'
     assert callable(runner.kwargs["output_callback"])
     assert runner.cleaned is True
     assert cleared == [("__agentrank_ranking_run-1_alice__", "system")]
@@ -305,6 +333,51 @@ def test_adapter_unwraps_only_a_complete_json_object_fence():
     """One full JSON fence is normalized without accepting prose wrappers."""
     adapter = AgentRankAgentAdapter(
         agent_factory=FakeFencedRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    output = asyncio.run(adapter.run("rank now", _trusted_context()))
+
+    assert output == '{"recommendations": []}'
+
+
+def test_adapter_classifies_host_failure_text_as_retryable_agent_error():
+    """宿主失败文案不得伪装成 JSON 校验错误。"""
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeHostErrorRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    try:
+        asyncio.run(adapter.run("rank now", _trusted_context()))
+    except adapter_module.AgentTextUnavailableError as error:
+        assert error.retryable is True
+        assert "智能助手执行失败" in str(error)
+        assert "upstream unavailable" not in str(error)
+    else:
+        raise AssertionError("host Agent failure text was accepted")
+
+
+def test_adapter_rejects_prose_as_retryable_agent_error():
+    """自然语言不能再落入 JSON parser 形成误导性的校验失败。"""
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeProseRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    try:
+        asyncio.run(adapter.run("rank now", _trusted_context()))
+    except adapter_module.AgentTextUnavailableError as error:
+        assert error.retryable is True
+        assert str(error) == "Agent did not produce a JSON object"
+    else:
+        raise AssertionError("prose Agent output was accepted")
+
+
+def test_adapter_prefers_valid_callback_json_over_host_error_result():
+    """返回值与回调冲突时优先采用完整 JSON 对象。"""
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeErrorResultWithJsonCallbackRunner,
         memory_clearer=lambda *_: None,
     )
 
@@ -348,7 +421,7 @@ def test_profile_role_uses_separate_session_and_single_playback_tool():
 
     output = asyncio.run(adapter.run_profile("profile", trusted))
 
-    assert output == "captured-json"
+    assert output == '{"recommendations": []}'
     runner = FakeRunner.instances[-1]
     assert runner.kwargs["session_id"] == "__agentrank_profile_run-1_alice__"
     assert runner.kwargs["trusted_context"].agent_role == "profile"

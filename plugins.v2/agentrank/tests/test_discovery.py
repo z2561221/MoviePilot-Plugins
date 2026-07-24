@@ -388,6 +388,38 @@ def test_media_recognition_gate_rejects_items_without_tmdb_identity():
     assert result.rejected_count == 1
 
 
+def test_anilist_candidate_is_recognized_to_typed_tmdb_identity():
+    """AniList 原生 ID 经 MoviePilot 识别后进入统一 TMDB 动漫候选池。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "anilist": lambda count: [
+                {"title": "AniList 动画", "anilist_id": 321}
+            ]
+        }
+    )
+
+    class MediaAdapter:
+        def recognize(self, candidate):
+            assert candidate.media_type == "anime"
+            assert candidate.source_ids == {"anilist": "321"}
+            candidate.source_ids["tmdb"] = "654"
+            candidate.metadata["mp_media_type"] = "电视剧"
+            candidate.candidate_id = "tmdb:tv:654"
+            return candidate
+
+    result = CandidateCollectionService(
+        adapter,
+        AgentRankRepository(FakePlugin()),
+        MediaAdapter(),
+    ).collect_and_freeze(
+        "alice", "run-anilist", {"anilist": True}, 10
+    )
+
+    assert result.status == "ready"
+    assert result.candidates[0].candidate_id == "tmdb:tv:654"
+    assert result.candidates[0].source_ids == {"anilist": "321", "tmdb": "654"}
+
+
 def test_movie_and_tv_with_same_tmdb_number_do_not_collide():
     """相同数字 TMDB ID 的电影和剧集必须保留为两个候选。"""
     adapter = DiscoveryAdapter(

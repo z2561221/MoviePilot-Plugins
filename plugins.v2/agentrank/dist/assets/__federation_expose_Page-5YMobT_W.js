@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CNOZEMen.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DrwCXO8X.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives,withKeys:_withKeys} = await importShared('vue');
@@ -77,9 +77,21 @@ const _hoisted_45 = {
 const _hoisted_46 = { class: "ar-page__archive-rank" };
 const _hoisted_47 = { class: "ar-page__pane" };
 const _hoisted_48 = { class: "ar-page__section-head" };
-const _hoisted_49 = { class: "ar-page__table-wrap" };
-const _hoisted_50 = { class: "ar-page__time-cell" };
-const _hoisted_51 = { class: "ar-page__error-cell" };
+const _hoisted_49 = { class: "ar-page__history-list" };
+const _hoisted_50 = { class: "ar-page__history-head" };
+const _hoisted_51 = { class: "ar-page__history-time" };
+const _hoisted_52 = { key: 0 };
+const _hoisted_53 = { class: "ar-page__history-message" };
+const _hoisted_54 = { class: "ar-page__history-metrics" };
+const _hoisted_55 = {
+  key: 0,
+  class: "ar-page__history-pipeline"
+};
+const _hoisted_56 = { class: "ar-page__history-footer" };
+const _hoisted_57 = {
+  key: 1,
+  class: "ar-page__history-details"
+};
 
 const {computed,onMounted,reactive,ref,watch} = await importShared('vue');
 
@@ -100,6 +112,8 @@ const activeTab = ref('board');
 const snackbar = ref({ show: false, message: '', color: 'success' });
 const historyPage = ref(1);
 const initialized = ref(false);
+const expandedCopyKeys = ref(new Set());
+const expandedHistoryKeys = ref(new Set());
 const tagDrafts = reactive({ positive: '', negative: '' });
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 10) || []);
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || []);
@@ -139,7 +153,44 @@ const statusMetaFor = status => ({
   agent_failed: { text: 'Agent失败', color: 'error' },
   validation_failed: { text: '校验失败', color: 'error' },
   subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
+  profile_agent_failed: { text: '画像生成失败', color: 'error' },
+  profile_validation_failed: { text: '画像校验失败', color: 'error' },
+  candidate_failed: { text: '候选采集失败', color: 'error' },
+  candidate_filter_failed: { text: '候选过滤失败', color: 'error' },
+  candidate_snapshot_failed: { text: '候选快照失败', color: 'error' },
+  ranking_agent_failed: { text: '排序生成失败', color: 'error' },
+  ranking_validation_failed: { text: '排序校验失败', color: 'error' },
+  ranking_save_failed: { text: '榜单保存失败', color: 'error' },
 }[status] || { text: status || '未知', color: 'default' });
+
+const historyStageLabels = {
+  probe: '依赖探测',
+  playback_snapshot: '冻结播放',
+  profile: '生成画像',
+  candidate: '冻结候选',
+  ranking: 'Agent排序',
+  save: '保存榜单',
+};
+const historyStageStatusLabels = {
+  ready: '完成', generated: '已生成', reused: '复用', cached: '使用缓存', saved: '已保存',
+  success: '成功', pending: '等待', running: '进行中', stopped: '停止', failed: '失败',
+  sample_insufficient: '样本不足', candidate_insufficient: '候选不足',
+  recommendation_incomplete: '榜单不足', agent_failed: 'Agent失败',
+  validation_failed: '校验失败', subscription_partial_failed: '部分订阅失败',
+  profile_agent_failed: '画像生成失败', profile_validation_failed: '画像校验失败',
+  candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败',
+  candidate_snapshot_failed: '候选快照失败', ranking_agent_failed: '排序生成失败',
+  ranking_validation_failed: '排序校验失败', ranking_save_failed: '榜单保存失败',
+};
+const historySourceLabels = {
+  douban: '豆瓣', tmdb: 'TMDB', tmdb_movies: 'TMDB电影', tmdb_tv: 'TMDB剧集',
+  tmdb_recommend: 'TMDB相关', bangumi: 'Bangumi', anilist: 'AniList',
+};
+const historyExclusionLabels = {
+  invalid_or_unrecognized: '未识别', watched: '已观看', watched_completed: '已看完', library: '已入库',
+  subscribed: '已订阅', archived: '已忽略', negative_keyword: '排除词',
+  ambiguous_playback_count: '播放次数误写为看完次数',
+};
 
 const tabs = [
   { key: 'board', title: '推荐榜单', icon: 'mdi-format-list-numbered' },
@@ -156,6 +207,79 @@ function formatTime(value) {
 
 function mediaTypeLabel(value) {
   return ({ movie: '电影', tv: '剧集', anime: '动漫' })[value] || value || '未知'
+}
+
+function copyKey(item, field) { return `${item?.candidate_id || item?.rank || ''}:${field}` }
+function isCopyExpanded(item, field) { return expandedCopyKeys.value.has(copyKey(item, field)) }
+function toggleCopy(item, field) {
+  const key = copyKey(item, field);
+  const next = new Set(expandedCopyKeys.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedCopyKeys.value = next;
+}
+
+function historyKey(run) { return `${run?.run_id || ''}:${run?.finished_at || run?.started_at || ''}` }
+function isHistoryExpanded(run) { return expandedHistoryKeys.value.has(historyKey(run)) }
+function toggleHistory(run) {
+  const key = historyKey(run);
+  const next = new Set(expandedHistoryKeys.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedHistoryKeys.value = next;
+}
+function formatDuration(value) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms) || ms < 0) return '—'
+  if (ms < 1000) return `${Math.round(ms)} 毫秒`
+  return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} 秒`
+}
+function historyStages(run) {
+  const metrics = run?.metrics || {};
+  return (Array.isArray(metrics.stage_order) ? metrics.stage_order : []).map(key => ({
+    key,
+    title: historyStageLabels[key] || key,
+    status: historyStageStatusLabels[metrics.stage_status?.[key]] || metrics.stage_status?.[key] || '—',
+    duration: formatDuration(metrics.stage_ms?.[key]),
+    failed: /failed|error|insufficient|validation/i.test(String(metrics.stage_status?.[key] || '')),
+  }))
+}
+function translateHistoryError(value) {
+  let text = String(value || '');
+  text = text
+    .replace(/Agent output must be one JSON object:\s*Expecting value/gi, 'Agent 输出不是有效的 JSON 对象：内容为空或格式错误')
+    .replace(/Agent output must be one JSON object/gi, 'Agent 输出不是有效的 JSON 对象')
+    .replace(/Agent output must be text/gi, 'Agent 输出不是文本')
+    .replace(/Expecting value/gi, '内容为空或格式错误')
+    .replace(/Extra data/gi, '存在多余内容')
+    .replace(/Invalid control character/gi, '包含无效控制字符')
+    .replace(/Unterminated string/gi, '字符串未闭合');
+  return text
+}
+function historyErrorText(run) {
+  const errors = Array.isArray(run?.errors) ? run.errors : [];
+  if (errors.length) {
+    return errors.map(error => translateHistoryError(String(error)
+      .replace(/^profile attempt\s+(\d+):/i, '画像第 $1 次：')
+      .replace(/^refill attempt\s+(\d+):/i, '补选第 $1 次：')
+      .replace(/^attempt\s+(\d+):/i, '排序第 $1 次：')
+      .replace(/^profile:/i, '画像阶段：')
+      .replace(/^candidate:/i, '候选阶段：')
+      .replace(/^ranking:/i, '排序阶段：')
+      .replace(/^refill:/i, '补选阶段：'))).join('；')
+  }
+  return translateHistoryError(run?.message || '本轮没有错误')
+}
+function historySourceText(run) {
+  const sources = run?.metrics?.candidate_source_counts || run?.metrics?.fetched_source_counts || {};
+  return Object.entries(sources).map(([key, value]) => `${historySourceLabels[key] || key} ${value}`).join('、') || '无来源统计'
+}
+function historyExclusionText(run) {
+  const exclusions = run?.metrics?.candidate_exclusion_counts || {};
+  return Object.entries(exclusions).map(([key, value]) => `${historyExclusionLabels[key] || key} ${value}`).join('、') || '无'
+}
+function historyPlaybackStatus(value) {
+  return ({ ready: '已就绪', cached: '使用缓存', disabled: '已停用', error: '失败', transient_error: '临时错误' })[value] || value || '未知'
 }
 
 async function initialize() {
@@ -231,7 +355,6 @@ return (_ctx, _cache) => {
   const _component_VTextField = _resolveComponent("VTextField");
   const _component_VCardText = _resolveComponent("VCardText");
   const _component_VCard = _resolveComponent("VCard");
-  const _component_VTable = _resolveComponent("VTable");
   const _component_VPagination = _resolveComponent("VPagination");
   const _component_VSnackbar = _resolveComponent("VSnackbar");
 
@@ -378,7 +501,7 @@ return (_ctx, _cache) => {
               _createElementVNode("div", _hoisted_9, [
                 _cache[15] || (_cache[15] = _createElementVNode("div", null, [
                   _createElementVNode("div", { class: "ar-page__section-title" }, "个性推荐榜单"),
-                  _createElementVNode("div", { class: "ar-page__section-desc" }, "Agent 根据订阅画像，从发现候选中挑出的 Top 10。")
+                  _createElementVNode("div", { class: "ar-page__section-desc" }, "Agent 根据订阅画像，从发现候选中挑出的前10名。")
                 ], -1)),
                 _createVNode(_component_VChip, {
                   size: "small",
@@ -396,7 +519,7 @@ return (_ctx, _cache) => {
                     key: 0,
                     icon: "mdi-format-list-numbered",
                     title: "推荐榜单尚未生成",
-                    text: "点击右上角刷新，根据播放画像生成 Top 10。"
+                    text: "点击右上角刷新，根据播放画像生成前10名。"
                   }))
                 : (_openBlock(), _createElementBlock("div", _hoisted_10, [
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(recommendations.value, (item) => {
@@ -445,16 +568,47 @@ return (_ctx, _cache) => {
                             }, 1024)
                           ]),
                           _createElementVNode("div", _hoisted_16, [
-                            _createElementVNode("span", null, _toDisplayString(item.year || '年份未知'), 1),
-                            _createElementVNode("span", null, "置信度 " + _toDisplayString(item.confidence) + "%", 1)
+                            _createElementVNode("span", null, _toDisplayString(item.year || '年份未知'), 1)
                           ]),
                           _createElementVNode("div", _hoisted_17, [
                             _cache[16] || (_cache[16] = _createElementVNode("span", { class: "ar-page__copy-label" }, "推荐：", -1)),
-                            _createElementVNode("span", null, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 1)
+                            _createElementVNode("span", {
+                              class: _normalizeClass(["ar-page__copy-text ar-page__copy-text--reason", { 'ar-page__copy-text--expanded': isCopyExpanded(item, 'reason') }])
+                            }, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 3),
+                            (item.reason || item.summary)
+                              ? (_openBlock(), _createBlock(_component_VBtn, {
+                                  key: 0,
+                                  size: "x-small",
+                                  variant: "text",
+                                  class: "ar-page__copy-toggle",
+                                  onClick: $event => (toggleCopy(item, 'reason'))
+                                }, {
+                                  default: _withCtx(() => [
+                                    _createTextVNode(_toDisplayString(isCopyExpanded(item, 'reason') ? '收起' : '展开'), 1)
+                                  ]),
+                                  _: 2
+                                }, 1032, ["onClick"]))
+                              : _createCommentVNode("", true)
                           ]),
                           _createElementVNode("div", _hoisted_18, [
                             _cache[17] || (_cache[17] = _createElementVNode("span", { class: "ar-page__copy-label" }, "简介：", -1)),
-                            _createElementVNode("span", null, _toDisplayString(item.summary || '暂无简介'), 1)
+                            _createElementVNode("span", {
+                              class: _normalizeClass(["ar-page__copy-text ar-page__copy-text--intro", { 'ar-page__copy-text--expanded': isCopyExpanded(item, 'summary') }])
+                            }, _toDisplayString(item.summary || '暂无简介'), 3),
+                            (item.summary)
+                              ? (_openBlock(), _createBlock(_component_VBtn, {
+                                  key: 0,
+                                  size: "x-small",
+                                  variant: "text",
+                                  class: "ar-page__copy-toggle",
+                                  onClick: $event => (toggleCopy(item, 'summary'))
+                                }, {
+                                  default: _withCtx(() => [
+                                    _createTextVNode(_toDisplayString(isCopyExpanded(item, 'summary') ? '收起' : '展开'), 1)
+                                  ]),
+                                  _: 2
+                                }, 1032, ["onClick"]))
+                              : _createCommentVNode("", true)
                           ]),
                           (item.match_tags?.length)
                             ? (_openBlock(), _createElementBlock("div", _hoisted_19, [
@@ -474,6 +628,17 @@ return (_ctx, _cache) => {
                             : _createCommentVNode("", true)
                         ]),
                         _createElementVNode("div", _hoisted_20, [
+                          _createVNode(_component_VChip, {
+                            size: "x-small",
+                            color: "primary",
+                            variant: "tonal",
+                            class: "ar-page__confidence"
+                          }, {
+                            default: _withCtx(() => [
+                              _createTextVNode("置信度 " + _toDisplayString(item.confidence) + "%", 1)
+                            ]),
+                            _: 2
+                          }, 1024),
                           _createVNode(RecommendationActions, {
                             item: item,
                             "loading-action": _unref(state).loading.action,
@@ -837,62 +1002,116 @@ return (_ctx, _cache) => {
                     text: "榜单生成后，这里会记录每次执行结果。"
                   }))
                 : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
-                    _createVNode(_component_VCard, {
-                      variant: "outlined",
-                      class: "ar-page__table-card"
-                    }, {
-                      default: _withCtx(() => [
-                        _createElementVNode("div", _hoisted_49, [
-                          _createVNode(_component_VTable, {
-                            density: "compact",
-                            "fixed-header": "",
-                            height: "430"
-                          }, {
-                            default: _withCtx(() => [
-                              _cache[29] || (_cache[29] = _createElementVNode("thead", null, [
-                                _createElementVNode("tr", null, [
-                                  _createElementVNode("th", null, "时间"),
-                                  _createElementVNode("th", null, "状态"),
-                                  _createElementVNode("th", null, "候选"),
-                                  _createElementVNode("th", null, "推荐"),
-                                  _createElementVNode("th", null, "Agent"),
-                                  _createElementVNode("th", null, "自动订阅"),
-                                  _createElementVNode("th", null, "失败原因")
-                                ])
-                              ], -1)),
-                              _createElementVNode("tbody", null, [
-                                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_unref(state).history.value, (run) => {
-                                  return (_openBlock(), _createElementBlock("tr", {
-                                    key: `${run.run_id}-${run.finished_at}`
-                                  }, [
-                                    _createElementVNode("td", _hoisted_50, _toDisplayString(formatTime(run.finished_at || run.started_at)), 1),
-                                    _createElementVNode("td", null, [
-                                      _createVNode(_component_VChip, {
-                                        size: "x-small",
-                                        color: statusMetaFor(run.status).color,
-                                        variant: "tonal"
-                                      }, {
-                                        default: _withCtx(() => [
-                                          _createTextVNode(_toDisplayString(statusMetaFor(run.status).text), 1)
-                                        ]),
-                                        _: 2
-                                      }, 1032, ["color"])
-                                    ]),
-                                    _createElementVNode("td", null, _toDisplayString(run.metrics?.candidate_count ?? '—'), 1),
-                                    _createElementVNode("td", null, _toDisplayString(run.metrics?.final_count ?? '—'), 1),
-                                    _createElementVNode("td", null, _toDisplayString(run.metrics?.agent_calls ?? '—') + " 次", 1),
-                                    _createElementVNode("td", null, _toDisplayString(run.metrics?.subscription_success_count ?? 0), 1),
-                                    _createElementVNode("td", _hoisted_51, _toDisplayString(run.errors?.join('；') || run.message || '—'), 1)
-                                  ]))
-                                }), 128))
-                              ])
+                    _createElementVNode("div", _hoisted_49, [
+                      (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_unref(state).history.value, (run) => {
+                        return (_openBlock(), _createElementBlock("article", {
+                          key: historyKey(run),
+                          class: "ar-page__history-item"
+                        }, [
+                          _createElementVNode("div", _hoisted_50, [
+                            _createElementVNode("div", _hoisted_51, [
+                              _createVNode(_component_VIcon, {
+                                icon: "mdi-clock-outline",
+                                size: "17",
+                                color: "primary"
+                              }),
+                              _createElementVNode("strong", null, _toDisplayString(formatTime(run.finished_at || run.started_at)), 1),
+                              (run.metrics?.elapsed_ms)
+                                ? (_openBlock(), _createElementBlock("span", _hoisted_52, "耗时 " + _toDisplayString(formatDuration(run.metrics.elapsed_ms)), 1))
+                                : _createCommentVNode("", true)
                             ]),
-                            _: 1
-                          })
-                        ])
-                      ]),
-                      _: 1
-                    }),
+                            _createVNode(_component_VChip, {
+                              size: "small",
+                              color: statusMetaFor(run.status).color,
+                              variant: "tonal"
+                            }, {
+                              default: _withCtx(() => [
+                                _createTextVNode(_toDisplayString(statusMetaFor(run.status).text), 1)
+                              ]),
+                              _: 2
+                            }, 1032, ["color"])
+                          ]),
+                          _createElementVNode("div", _hoisted_53, _toDisplayString(run.message || '本轮运行已记录'), 1),
+                          _createElementVNode("div", _hoisted_54, [
+                            _createElementVNode("div", null, [
+                              _createElementVNode("strong", null, _toDisplayString(run.metrics?.candidate_count ?? 0), 1),
+                              _cache[29] || (_cache[29] = _createElementVNode("span", null, "候选", -1))
+                            ]),
+                            _createElementVNode("div", null, [
+                              _createElementVNode("strong", null, _toDisplayString(run.metrics?.final_count ?? 0), 1),
+                              _cache[30] || (_cache[30] = _createElementVNode("span", null, "推荐", -1))
+                            ]),
+                            _createElementVNode("div", null, [
+                              _createElementVNode("strong", null, _toDisplayString(run.metrics?.agent_calls ?? 0), 1),
+                              _cache[31] || (_cache[31] = _createElementVNode("span", null, "Agent调用", -1))
+                            ]),
+                            _createElementVNode("div", null, [
+                              _createElementVNode("strong", null, _toDisplayString(run.metrics?.subscription_success_count ?? 0), 1),
+                              _cache[32] || (_cache[32] = _createElementVNode("span", null, "自动订阅", -1))
+                            ])
+                          ]),
+                          (historyStages(run).length)
+                            ? (_openBlock(), _createElementBlock("div", _hoisted_55, [
+                                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(historyStages(run), (stage) => {
+                                  return (_openBlock(), _createElementBlock("div", {
+                                    key: stage.key,
+                                    class: _normalizeClass(["ar-page__history-stage", { 'ar-page__history-stage--failed': stage.failed }])
+                                  }, [
+                                    _createVNode(_component_VIcon, {
+                                      icon: stage.failed ? 'mdi-alert-circle-outline' : 'mdi-check-circle-outline',
+                                      color: stage.failed ? 'error' : 'success',
+                                      size: "17"
+                                    }, null, 8, ["icon", "color"]),
+                                    _createElementVNode("div", null, [
+                                      _createElementVNode("strong", null, _toDisplayString(stage.title), 1),
+                                      _createElementVNode("small", null, _toDisplayString(stage.status) + " · " + _toDisplayString(stage.duration), 1)
+                                    ])
+                                  ], 2))
+                                }), 128))
+                              ]))
+                            : _createCommentVNode("", true),
+                          _createElementVNode("div", {
+                            class: _normalizeClass(["ar-page__history-error", { 'ar-page__history-error--ok': !run.errors?.length && run.status === 'success' }])
+                          }, [
+                            _createVNode(_component_VIcon, {
+                              icon: run.errors?.length ? 'mdi-alert-outline' : 'mdi-information-outline',
+                              size: "16"
+                            }, null, 8, ["icon"]),
+                            _createElementVNode("span", null, _toDisplayString(historyErrorText(run)), 1)
+                          ], 2),
+                          _createElementVNode("div", _hoisted_56, [
+                            _createElementVNode("span", null, "来源：" + _toDisplayString(historySourceText(run)), 1),
+                            _createVNode(_component_VBtn, {
+                              size: "x-small",
+                              variant: "text",
+                              "append-icon": isHistoryExpanded(run) ? 'mdi-chevron-up' : 'mdi-chevron-down',
+                              onClick: $event => (toggleHistory(run))
+                            }, {
+                              default: _withCtx(() => [
+                                _createTextVNode(_toDisplayString(isHistoryExpanded(run) ? '收起细节' : '查看细节'), 1)
+                              ]),
+                              _: 2
+                            }, 1032, ["append-icon", "onClick"])
+                          ]),
+                          (isHistoryExpanded(run))
+                            ? (_openBlock(), _createElementBlock("div", _hoisted_57, [
+                                _createElementVNode("div", null, [
+                                  _cache[33] || (_cache[33] = _createElementVNode("span", null, "运行编号", -1)),
+                                  _createElementVNode("code", null, _toDisplayString(run.run_id || '—'), 1)
+                                ]),
+                                _createElementVNode("div", null, [
+                                  _cache[34] || (_cache[34] = _createElementVNode("span", null, "播放快照", -1)),
+                                  _createElementVNode("span", null, _toDisplayString(run.metrics?.playback_count ?? 0) + " 条，" + _toDisplayString(historyPlaybackStatus(run.metrics?.playback_status)), 1)
+                                ]),
+                                _createElementVNode("div", null, [
+                                  _cache[35] || (_cache[35] = _createElementVNode("span", null, "候选排除", -1)),
+                                  _createElementVNode("span", null, _toDisplayString(historyExclusionText(run)), 1)
+                                ])
+                              ]))
+                            : _createCommentVNode("", true)
+                        ]))
+                      }), 128))
+                    ]),
                     _createVNode(_component_VPagination, {
                       modelValue: historyPage.value,
                       "onUpdate:modelValue": [
@@ -926,6 +1145,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-852dc91c"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ccce26c9"]]);
 
 export { Page as default };

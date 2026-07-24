@@ -27,6 +27,7 @@ RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
 MediaRecognitionAdapter = media_module.MediaRecognitionAdapter
 BoardPosterRepairService = poster_module.BoardPosterRepairService
+BoardSourceRepairService = poster_module.BoardSourceRepairService
 PosterImageService = poster_module.PosterImageService
 
 
@@ -167,6 +168,62 @@ def test_recognition_rejects_media_without_tmdb_id():
     assert adapter.recognize(candidate) is None
 
 
+def test_enrich_cross_source_ids_adds_douban_id_for_tmdb_item():
+    """TMDB 榜单条目最终展示前可补齐豆瓣 ID。"""
+    calls = []
+
+    class FakeChain:
+        def get_doubaninfo_by_tmdbid(self, tmdb_id, mtype=None):
+            calls.append((tmdb_id, mtype))
+            return {"id": "douban-900"}
+
+    candidate = Candidate(
+        candidate_id="tmdb:tv:900",
+        title="TMDB剧集",
+        media_type="tv",
+        source_ids={"tmdb": "900"},
+    )
+    adapter = MediaRecognitionAdapter(FakeChain, FakeMeta, FakeMediaType)
+
+    assert adapter.enrich_cross_source_ids(candidate) is candidate
+    assert candidate.source_ids["douban"] == "douban-900"
+    assert calls == [(900, FakeMediaType.TV)]
+
+
+def test_enrich_cross_source_ids_relaxes_year_when_exact_tmdb_match_is_empty():
+    """严格 TMDB 映射为空时按标题执行一次无年份豆瓣匹配。"""
+    calls = []
+
+    class FakeChain:
+        """记录严格与降级匹配参数。"""
+
+        def get_doubaninfo_by_tmdbid(self, tmdb_id, mtype=None):
+            """模拟严格年份匹配失败。"""
+            calls.append(("exact", tmdb_id, mtype))
+            return {}
+
+        def match_doubaninfo(self, name, mtype=None, year=None):
+            """模拟无年份匹配成功。"""
+            calls.append(("relaxed", name, mtype, year))
+            return {"id": "douban-901"}
+
+    candidate = Candidate(
+        candidate_id="tmdb:movie:901",
+        title="年份漂移新片",
+        media_type="movie",
+        source_ids={"tmdb": "901"},
+    )
+    adapter = MediaRecognitionAdapter(FakeChain, FakeMeta, FakeMediaType)
+
+    adapter.enrich_cross_source_ids(candidate)
+
+    assert candidate.source_ids["douban"] == "douban-901"
+    assert calls == [
+        ("exact", 901, FakeMediaType.MOVIE),
+        ("relaxed", "年份漂移新片", FakeMediaType.MOVIE, None),
+    ]
+
+
 def test_legacy_board_repair_replaces_only_broken_poster_urls():
     """Poster migration preserves ranking identity and skips already valid images."""
     assert BoardPosterRepairService._needs_repair(
@@ -223,6 +280,53 @@ def test_legacy_board_repair_replaces_only_broken_poster_urls():
     assert board.recommendations[0].summary == "Keep summary"
     assert board.recommendations[0].poster_path.endswith("repaired.jpg")
     assert board.recommendations[1].poster_path.endswith("current.jpg")
+
+
+def test_legacy_board_source_repair_persists_douban_id():
+    """旧榜单中的 TMDB 条目应在重载修复时补齐豆瓣 ID。"""
+    item = RecommendationItem(
+        candidate_id="tmdb:movie:99",
+        rank=1,
+        title="Existing",
+        media_type="movie",
+        source_ids={"tmdb": "99"},
+    )
+    board = RecommendationBoard(
+        profile_id="alice",
+        run_id="old-run",
+        recommendations=[item],
+    )
+
+    class Repository:
+        """提供最小榜单读写桩。"""
+
+        def __init__(self):
+            self.saved = None
+
+        def load_board(self, profile_id):
+            """返回指定画像的榜单。"""
+            return board if profile_id == "alice" else None
+
+        def save_board(self, value):
+            """记录榜单保存。"""
+            self.saved = value
+
+    class MediaAdapter:
+        """提供最小跨源补链桩。"""
+
+        def enrich_cross_source_ids(self, value):
+            """写入豆瓣 ID。"""
+            value.source_ids["douban"] = "db-99"
+            return value
+
+    repository = Repository()
+    result = BoardSourceRepairService(repository, MediaAdapter()).repair_profiles(
+        ["alice"]
+    )
+
+    assert result == {"alice": 1}
+    assert repository.saved is board
+    assert item.source_ids["douban"] == "db-99"
 
 
 def test_poster_image_service_returns_bounded_tmdb_thumbnail_url():

@@ -79,6 +79,53 @@ class BoardPosterRepairService:
         return results
 
 
+class BoardSourceRepairService:
+    """为旧榜单补齐 TMDB 对应的豆瓣等跨来源 ID。"""
+
+    def __init__(self, repository: Any, media_adapter: Any):
+        """绑定榜单仓库与媒体识别适配器。"""
+        self._repository = repository
+        self._media_adapter = media_adapter
+
+    def repair_profiles(self, profile_ids: Iterable[str]) -> Dict[str, int]:
+        """按画像身份修复旧榜单来源 ID 并返回每个身份的更新数量。"""
+        results: Dict[str, int] = {}
+        enrich = getattr(self._media_adapter, "enrich_cross_source_ids", None)
+        if not callable(enrich):
+            return results
+        for raw_profile_id in profile_ids:
+            profile_id = str(raw_profile_id or "").strip()
+            if not profile_id:
+                continue
+            board = self._repository.load_board(profile_id)
+            if board is None:
+                continue
+            repaired = 0
+            for item in board.recommendations:
+                before = dict(item.source_ids)
+                try:
+                    enrich(item)
+                except Exception as error:
+                    logger.warning(
+                        "AgentRank 旧榜单来源修复失败 profile_id=%s candidate=%s reason=%s",
+                        profile_id,
+                        item.candidate_id,
+                        error,
+                    )
+                    continue
+                if item.source_ids != before:
+                    repaired += 1
+            if repaired:
+                self._repository.save_board(board)
+                logger.info(
+                    "AgentRank 旧榜单来源修复 profile_id=%s repaired=%s",
+                    profile_id,
+                    repaired,
+                )
+            results[profile_id] = repaired
+        return results
+
+
 class PosterImageService:
     """把榜单海报收敛为浏览器可直接加载的轻量图片地址。"""
 

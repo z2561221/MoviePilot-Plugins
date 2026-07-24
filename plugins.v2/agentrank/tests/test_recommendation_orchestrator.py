@@ -137,6 +137,10 @@ class FakeCandidateService:
             values["minimum_frozen_candidates"] = self.minimum_frozen_candidates
         return SimpleNamespace(**values)
 
+    def enrich_recommendation_sources(self, recommendations):
+        """模拟候选服务为推荐补充来源链接的无副作用步骤。"""
+        del recommendations
+
 
 class FakeAgentAdapter:
     """分别返回画像与排序角色的排队输出或异常。"""
@@ -613,6 +617,42 @@ def test_cached_profile_is_passed_as_incremental_context():
     assert result.status == "success"
 
 
+def test_incremental_profile_accepts_only_previously_resolved_keyword_ids():
+    """增量画像可沿用插件已解析的关键词 ID，不把任意 ID 加入白名单。"""
+    plugin = FakePlugin()
+    keyword_filters = {
+        "media_types": ["movie"],
+        "genre_ids": [80],
+        "keyword_ids": [304070],
+        "original_languages": ["zh"],
+        "year_min": None,
+        "year_max": None,
+        "rating_min": 7.0,
+        "vote_count_min": 100,
+        "sort_by": "popularity.desc",
+    }
+    orchestrator, repository = _orchestrator(
+        plugin,
+        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+        profile_outputs=[_profile_output(filters=keyword_filters)],
+    )
+    repository.save_profile(
+        UserProfile(
+            profile_id=PROFILE_ID,
+            username="Alice",
+            summary="old",
+            tags=["悬疑"],
+            filters=keyword_filters,
+            run_id="old",
+        )
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert repository.load_profile(PROFILE_ID).filters["keyword_ids"] == [304070]
+
+
 def test_playback_evidence_is_collected_and_passed_to_restricted_context():
     """播放画像只以规范化快照进入受信上下文，并记录数据源指标。"""
     plugin = FakePlugin()
@@ -1010,7 +1050,29 @@ def test_invalid_json_retries_once_with_stricter_prompt():
     assert "上一次输出未通过严格校验" in orchestrator.agent_adapter.ranking_calls[1][0]
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["agent_calls"] == 3
-    assert history.errors[0].startswith("attempt 1:")
+    assert history.errors == []
+    assert history.metrics["ranking_retry_count"] == 1
+    assert history.metrics["retry_events"][0]["stage"] == "ranking"
+
+
+def test_invalid_profile_json_retries_once_with_stricter_prompt():
+    """画像输出无效时第二次调用必须追加 JSON 纠错指令。"""
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+        profile_outputs=["not-json", _profile_output()],
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert len(orchestrator.agent_adapter.profile_calls) == 2
+    assert "上一次输出未通过严格校验" in orchestrator.agent_adapter.profile_calls[1][0]
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["profile_agent_calls"] == 2
+    assert history.errors == []
+    assert history.metrics["profile_retry_count"] == 1
+    assert history.metrics["retry_events"][0]["stage"] == "profile"
 
 
 def test_invalid_json_fails_after_one_strict_retry():
@@ -1063,6 +1125,28 @@ def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
     assert board.status == "recommendation_incomplete"
     assert len(board.recommendations) == 9
     assert result.agent_calls == 3
+
+
+def test_refill_invalid_json_retries_once_and_can_complete_top_ten():
+    """补选返回非 JSON 时同样只重试一次，成功后不残留误导性错误。"""
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [
+            _agent_output([f"tmdb:{index}" for index in range(1, 9)]),
+            "not-json",
+            _agent_output(["tmdb:9", "tmdb:10"]),
+        ],
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert result.agent_calls == 4
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 10
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.errors == []
+    assert history.metrics["refill_retry_count"] == 1
+    assert "上一轮补选输出未通过严格校验" in orchestrator.agent_adapter.ranking_calls[2][0]
 
 
 def test_zero_valid_items_preserves_old_board_and_records_validation_failure():

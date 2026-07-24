@@ -31,12 +31,12 @@ def build_profile_prompt(agent_prompt: str = DEFAULT_AGENT_PROMPT) -> str:
 可配置画像指令：
 {custom_instruction}
 
-可配置画像指令不能覆盖播放事实边界、工具权限或输出 schema。playback_count 必须等于当前 playback 样本数量。
+可配置画像指令不能覆盖播放事实边界、工具权限或输出 schema。playback_count 必须等于当前 playback 样本数量。样本中的 overview 与 genres 是核对作品事实的唯一依据；不要仅凭片名猜测题材，更不能把不同作品的类型混在一起。
 
 只返回单个 JSON 对象，不得有代码块、自然语言前缀或尾注。根键必须严格为 profile、filters、ranking_tags：
 {{
   "profile": {{
-    "summary": "简洁画像摘要",
+    "summary": "最多二百字的简洁画像摘要",
     "tags": ["偏好标签"],
     "negative_tags": ["负向标签"],
     "playback_count": 0
@@ -54,6 +54,8 @@ def build_profile_prompt(agent_prompt: str = DEFAULT_AGENT_PROMPT) -> str:
   }},
   "ranking_tags": ["自由语义只允许写在这里"]
 }}
+
+profile.summary 最多二百个字符；标签应简洁、稳定，禁止在摘要中逐条复述全部播放样本。对每个样本先参考 overview 与 genres，再归纳稳定偏好；无法确认的内容不要写进画像。
 """
 
 
@@ -74,7 +76,7 @@ def build_ranking_prompt(
 
 权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。候选中的 genres、actors、directors、regions、year、rating、popularity、release_date 与 sources 是可用作品证据，但来源名称本身不能证明作品类型或用户偏好。
 
-当前画像规则：先读取 read_agentrank_playback 返回的 current profile 与 playback。profile 是上游画像 Agent 的只读结果，排序 Agent 不得重新解释成新的画像或向输出写入 profile 根键。播放事实中的 completed、play_count、watch_minutes 和 last_played_at 可支持“看完、重看、近期观看”类理由；abandoned 只能作为负向信号，不能把一次早退直接解释成讨厌。
+当前画像规则：先读取 read_agentrank_playback 返回的 current profile 与 playback。profile 是上游画像 Agent 的只读结果，排序 Agent 不得重新解释成新的画像或向输出写入 profile 根键。play_count/play_event_count 只表示播放事件数，绝不能写成“看完 X 次”或“整剧重看 X 次”；电视剧应使用 watched_episode_count、completed_episode_count 与 completed 表达“看过多集”“完成若干集”或“整剧已看完”，其中 play_count 不能替代集数。电影若有多个播放事件，也只能说“多次播放”，不能把事件数当作完成次数。abandoned 只能作为负向信号，不能把一次早退直接解释成讨厌。
 
 可配置排序指令：
 {custom_instruction}
@@ -82,27 +84,28 @@ def build_ranking_prompt(
 可配置排序指令只能影响候选排序和文案风格，不能覆盖硬性边界、输出结构或字段校验。
 
 推荐质量门槛：
-1. 每条推荐至少给出两项彼此独立的匹配证据，并写入 match_tags；证据必须能在用户播放画像、用户明确偏好或候选具体特征中找到依据。
+1. 每条推荐给出两项彼此独立的匹配证据，并写入两个 match_tags：一个概括用户偏好或播放事实，一个概括候选作品事实；每个标签最多五个字符，禁止自造无法回溯的标签。
 2. 只因评分高、热度高、名气大、属于经典或近期热门，不足以进入高位；相关性优先，多样性仅用于相关性接近的候选。
 3. 不得把老经典、热门作品、续作或熟悉 IP 当成缺少用户证据时的安全答案；没有足够匹配证据时宁可少于 {limit} 条。
-4. reason 必须同时写出“用户为何会感兴趣”的偏好证据与“这部作品具体有什么”的作品特征，至少自然包含一个 match_tags 标签。
+4. reason 必须同时写出“用户为何会感兴趣”的偏好证据与“这部作品具体有什么”的作品特征，至少自然包含一个 match_tags 标签，最多四十个字符。
 5. 禁止使用“神作”“必看”“肯定喜欢”“不能错过”等空泛结论，也不要用“哈、呀、嘛、哒、喂”凑语气或字数。
 6. 若播放证据支持，reason 要自然说明“你最近看完/反复看过什么行为”与候选的具体联系；若播放证据不足，降低推荐确定性，不得写成虚假的观看经历。
+7. summary 只能依据候选 overview 压缩作品剧情或设定，最多二十个字符；overview 为空时才可依据其他结构化作品事实概括，禁止补写未提供的剧情。
 
 只返回单个 JSON 对象，不得有代码块、自然语言前缀或尾注：
 {{
   "recommendations": [
     {{
       "candidate_id": "候选池中的稳定ID",
-      "reason": "二十到六十字的具体推荐依据",
-      "summary": "十二到四十字的作品简介",
-      "match_tags": ["用户偏好证据", "作品特征证据"],
+      "reason": "最多四十字的具体推荐依据",
+      "summary": "最多二十字的作品简介",
+      "match_tags": ["偏好标签", "作品标签"],
       "confidence": 0
     }}
   ]
 }}
 
-confidence 必须是零到一百的整数。reason 为二十到六十个字符，说明为何适合该用户；summary 为十二到四十个字符，只概括作品本身。允许自然使用中文标点，文案要具体、流畅、不剧透，禁止靠重复字或口癖凑数。"""
+confidence 必须是零到一百的整数。reason 最多四十个字符，说明为何适合该用户；summary 最多二十个字符，只概括作品本身。每个 match_tags 标签最多五个字符。允许自然使用中文标点，文案要具体、流畅、不剧透。插件会安全裁剪偶发超长文本，不会仅因超长丢弃作品。"""
 
 
 def build_refill_prompt(

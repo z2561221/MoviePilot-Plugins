@@ -28,7 +28,7 @@ const statusMeta = computed(() => ({
   agent_failed: { text: 'Agent失败', color: 'error' },
   validation_failed: { text: '校验失败', color: 'error' },
   subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
-}[status.value] || { text: status.value, color: 'info' }))
+}[status.value] || { text: '未知状态', color: 'info' }))
 
 function formatTime(value) {
   if (!value) return '尚未生成'
@@ -70,7 +70,7 @@ onMounted(initialize)
   <VCard variant="flat" class="ar-dashboard">
     <VCardItem>
       <template #prepend><VAvatar color="primary" variant="tonal" size="38"><VIcon icon="mdi-brain" /></VAvatar></template>
-      <VCardTitle class="text-subtitle-1 font-weight-bold">Agent榜单中心 · Top 5</VCardTitle>
+      <VCardTitle class="text-subtitle-1 font-weight-bold">Agent榜单中心 · 精选前5名</VCardTitle>
       <VCardSubtitle>{{ formatTime(generatedAt) }} · {{ statusMeta.text }}</VCardSubtitle>
       <template #append>
         <VBtn icon="mdi-refresh" variant="text" size="small" :disabled="!allowRefresh || state.isRunning.value" :loading="state.loading.action === 'refresh' || state.loading.data" aria-label="刷新仪表板" @click="refreshBoard" />
@@ -95,13 +95,15 @@ onMounted(initialize)
             <div class="text-caption text-truncate">推荐：{{ item.reason || item.summary }}</div>
             <div class="text-caption text-medium-emphasis text-truncate">简介：{{ item.summary }}</div>
           </div>
-          <VChip size="x-small" color="primary" variant="tonal">{{ item.confidence }}%</VChip>
-          <RecommendationActions
-            :item="item"
-            :loading-action="state.loading.action"
-            @subscribe="candidateId => runItemAction(() => state.subscribe(candidateId), '订阅操作已完成')"
-            @archive="candidateId => runItemAction(() => state.archive(candidateId), '已忽略推荐')"
-          />
+          <div class="ar-dashboard__controls">
+            <VChip size="x-small" color="primary" variant="tonal" class="ar-dashboard__confidence">置信度 {{ item.confidence }}%</VChip>
+            <RecommendationActions
+              :item="item"
+              :loading-action="state.loading.action"
+              @subscribe="candidateId => runItemAction(() => state.subscribe(candidateId), '订阅操作已完成')"
+              @archive="candidateId => runItemAction(() => state.archive(candidateId), '已忽略推荐')"
+            />
+          </div>
         </div>
       </div>
     </VCardText>
@@ -120,10 +122,16 @@ onMounted(initialize)
 .ar-dashboard :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-dashboard__content { min-height: 260px; }
 .ar-dashboard__list { display: flex; flex-direction: column; gap: 7px; }
-.ar-dashboard__item { min-height: 76px; display: grid; grid-template-columns: 28px 44px minmax(0, 1fr) auto auto; gap: 9px; align-items: center; padding: 6px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px; overflow-x: auto; }
-.ar-dashboard__rank { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .12); font-size: 12px; font-weight: 700; }
-.ar-dashboard__poster { width: 44px; height: 64px; display: grid; place-items: center; overflow: hidden; border-radius: 4px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
+.ar-dashboard__item { min-height: 92px; display: grid; grid-template-columns: 28px 44px minmax(0, 1fr); grid-template-rows: auto auto; gap: 7px 9px; align-items: center; padding: 7px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px; }
+.ar-dashboard__rank { grid-row: 1 / span 2; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .12); font-size: 12px; font-weight: 700; }
+.ar-dashboard__poster { grid-row: 1 / span 2; width: 44px; height: 64px; display: grid; place-items: center; overflow: hidden; border-radius: 4px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
 .ar-dashboard__poster :deep(.v-img) { width: 100%; height: 100%; }
 .ar-dashboard__poster-error { width: 100%; height: 100%; display: grid; place-items: center; }
 .ar-dashboard__main { min-width: 0; }
+.ar-dashboard__controls { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
+.ar-dashboard__confidence { flex: 0 0 auto; }
+@media (max-width: 560px) {
+  .ar-dashboard__item { grid-template-columns: 28px 44px minmax(0, 1fr); }
+  .ar-dashboard__controls { grid-column: 1 / -1; }
+}
 </style>

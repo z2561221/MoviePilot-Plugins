@@ -479,6 +479,8 @@ def test_runtime_failure_sends_one_subscribe_notification_with_old_board_state()
     assert plugin.messages[0]["mtype"] == NotificationType.Subscribe
     assert plugin.messages[0]["title"] == "Agent榜单中心运行异常"
     assert "run-failed" in plugin.messages[0]["text"]
+    assert "状态：Agent 调用失败" in plugin.messages[0]["text"]
+    assert "agent_failed" not in plugin.messages[0]["text"]
     assert "旧榜单：已保留" in plugin.messages[0]["text"]
 
 

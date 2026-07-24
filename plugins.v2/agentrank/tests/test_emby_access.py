@@ -155,6 +155,41 @@ def test_users_endpoint_falls_back_to_emby_prefix_after_404():
     ]
 
 
+def test_enumerates_user_views_as_content_libraries_with_404_fallback():
+    """内容库按用户 Views 枚举，并只暴露稳定显示字段。"""
+    request = FakeRequest(
+        {
+            "http://home/Users": FakeResponse(
+                200, [{"Id": "user-1", "Name": "Alice"}]
+            ),
+            "http://home/Users/user-1/Views": FakeResponse(404, {}),
+            "http://home/emby/Users/user-1/Views": FakeResponse(
+                200,
+                {
+                    "Items": [
+                        {"Id": "movies", "Name": "电影", "CollectionType": "movies"},
+                        {"Id": "tv", "Name": "剧集", "CollectionType": "tvshows"},
+                    ]
+                },
+            ),
+        }
+    )
+    access = EmbyServiceAccess(
+        helper=FakeHelper({"home": _service(FakeInstance("http://home"))}),
+        request_factory=lambda timeout: request,
+    )
+    identity = access.enumerate_identities()[0]
+
+    assert access.enumerate_libraries(identity) == [
+        {"id": "movies", "name": "电影", "collection_type": "movies"},
+        {"id": "tv", "name": "剧集", "collection_type": "tvshows"},
+    ]
+    assert [url for url, _params in request.calls[-2:]] == [
+        "http://home/Users/user-1/Views",
+        "http://home/emby/Users/user-1/Views",
+    ]
+
+
 def test_malformed_policy_does_not_abort_user_enumeration():
     """异常 Policy 字段不得影响其他合法用户进入身份列表。"""
     request = FakeRequest(

@@ -29,17 +29,21 @@ def test_runtime_settings_exposes_discovery_page_switch_and_fifty_default():
 
 
 def test_basic_settings_selects_stable_emby_identities_for_run_once():
-    """基础设置以稳定 Emby identity 取代 MoviePilot 用户和用户名映射。"""
+    """基础设置以 Emby 实例、用户和内容库三级选择保存稳定身份。"""
     config = _read("Config.vue")
     assert 'onlyonce: false' in config
     assert 'emby_identities: []' in config
     assert "default_profile_id: ''" in config
-    assert 'v-model="selectedProfileIds"' in config
-    assert 'v-model="form.default_profile_id"' in config
+    assert 'v-model="selectedServerName"' in config
+    assert 'label="媒体库（Emby 服务实例）"' in config
+    assert 'v-model="selectedUserProfileId"' in config
+    assert 'label="用户"' in config
+    assert 'v-model="selectedLibraryIds"' in config
+    assert 'label="内容库筛选"' in config
     assert 'v-model="form.onlyonce"' in config
     assert 'label="立即运行一次"' in config
     assert "!form.emby_identities.length" in config
-    assert "立即运行触发后会自动关闭" in config
+    assert "只同步所选用户在所选内容库" in config
     for legacy in ("form.users", "form.default_user", "playback_user_map"):
         assert legacy not in config
 
@@ -61,12 +65,15 @@ def test_playback_settings_enforce_reporting_and_sync_by_profile_id():
     assert "Emby 原生" not in config
 
 
-def test_extension_discovery_source_is_absent_from_config_ui():
-    """配置页只允许选择四个 MoviePilot 内置发现来源。"""
+def test_discovery_source_options_follow_host_capability_and_include_anilist():
+    """配置页按宿主能力动态展示来源，并兼容 AniList 内置来源。"""
     config = _read("Config.vue")
     assert "扩展来源" not in config
     assert "extensions: true" not in config
     assert "选择 MoviePilot 内置发现来源" in config
+    assert "const sourceOptions = ref([])" in config
+    assert "sourceOptions.value.filter(item => item && item.available !== false)" in config
+    assert "anilist: { title: 'AniList'" in config
 
 
 def test_profile_runtime_switches_describe_incremental_semantics():
@@ -90,6 +97,22 @@ def test_discovery_cards_use_non_black_theme_surface():
     assert "color: rgb(var(--v-theme-on-surface));" in item_style
     assert ".ar-app-page__item:hover" in app_page
     assert "background: rgba(var(--v-theme-primary), .07);" in app_page
+
+
+def test_discovery_page_translates_internal_source_codes():
+    """发现页将候选来源内部码转换为用户可读名称。"""
+    app_page = _read("AppPage.vue")
+    for source, label in (
+        ("douban", "豆瓣发现"),
+        ("tmdb", "TMDB"),
+        ("tmdb_recommend", "TMDB 推荐"),
+        ("tmdb_movies", "TMDB 电影"),
+        ("tmdb_tv", "TMDB 剧集"),
+        ("bangumi", "Bangumi"),
+        ("anilist", "AniList"),
+    ):
+        assert f"{source}: '{label}'" in app_page
+    assert "sources.map(source => sourceLabels[source] || source).join(' · ')" in app_page
 
 
 def test_all_ranking_surfaces_use_direct_four_button_actions():
@@ -214,9 +237,9 @@ def test_mobile_ranking_copy_wraps_and_can_expand():
         assert "推荐：" in source
         assert "简介：" in source
     assert "ar-app-page__copy-text--reason" in app_page
-    assert "-webkit-line-clamp: 3" in app_page
+    assert "-webkit-line-clamp: 2" in app_page
     assert "ar-app-page__copy-text--intro" in app_page
-    assert "-webkit-line-clamp: 4" in app_page
+    assert "-webkit-line-clamp: 1" in app_page
     assert "toggleCopy(item, 'reason')" in app_page
     assert "toggleCopy(item, 'summary')" in app_page
 
@@ -231,11 +254,103 @@ def test_mobile_detail_tabs_scroll_without_arrow_controls():
     assert "ar-page__tab-icon { display: none; }" in page
 
 
-def test_compact_actions_keep_primary_commands_and_tooltip_links():
-    """移动端保留订阅和忽略文字命令，外链收为带提示的图标按钮。"""
+def test_ranking_actions_keep_labels_and_wrap_without_container_collapse():
+    """四项动作始终保留文字，并通过换行适配狭窄容器。"""
     actions = _read("RecommendationActions.vue")
     assert 'prepend-icon="mdi-bookmark-plus-outline"' in actions
     assert 'prepend-icon="mdi-eye-off-outline"' in actions
     assert '<VTooltip text="打开 TMDB"' in actions
-    assert 'icon="mdi-movie-open-outline"' in actions
-    assert 'icon="mdi-open-in-new"' in actions
+    assert 'prepend-icon="mdi-movie-open-outline"' in actions
+    assert 'class="ar-actions__button ar-actions__button--tmdb text-none"' in actions
+    assert 'color="info"' not in actions
+    assert "color: #0288d1 !important;" in actions
+    assert "color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;" in actions
+    assert 'prepend-icon="mdi-open-in-new"' in actions
+    assert 'https://search.douban.com/movie/subject_search?search_text=' in actions
+    assert ':disabled="!sourceAvailable"' in actions
+    assert "'搜索豆瓣'" in actions
+    assert "container: actions / inline-size" not in actions
+    assert "@container actions" not in actions
+    assert "flex-wrap: wrap" in actions
+    for label in ("订阅", "TMDB", "忽略"):
+        assert f'<span class="ar-actions__label">{label}</span>' in actions
+    for name, confidence_class in (
+        ("Dashboard.vue", "ar-dashboard__confidence"),
+        ("AppPage.vue", "ar-app-page__confidence"),
+        ("Page.vue", "ar-page__confidence"),
+    ):
+        component = _read(name)
+        assert component.index(confidence_class) < component.index("<RecommendationActions", component.index("置信度"))
+
+
+def test_preview_status_selector_uses_chinese_titles_for_internal_codes():
+    """预览夹具展示中文状态标题但保留后端内部状态码。"""
+    preview = (COMPONENT_DIR.parent / "PreviewApp.vue").read_text(encoding="utf-8")
+    assert "{ title: '画像输出校验失败', value: 'profile_validation_failed' }" in preview
+    assert "{ title: '已完成', value: 'success' }" in preview
+    assert "generated: '已生成'" in _read("Config.vue")
+
+
+def test_visible_ranking_copy_avoids_generic_english_ui_terms():
+    """榜单可见文案不再直出 Top、identity 与毫秒缩写。"""
+    dashboard = _read("Dashboard.vue")
+    app_page = _read("AppPage.vue")
+    page = _read("Page.vue")
+    config = _read("Config.vue")
+    for source in (dashboard, app_page, page):
+        assert "Top 5" not in source
+        assert "Top 10" not in source
+    assert "Emby identity" not in app_page
+    assert "Emby identity" not in config
+    assert "`${Number(value)} ms`" not in config
+    assert "毫秒" in config
+
+
+def test_run_history_translates_agent_attempt_prefixes():
+    """运行历史把后端尝试前缀转换成中文阶段文案。"""
+    page = _read("Page.vue")
+    assert "'画像第 $1 次：'" in page
+    assert "'排序第 $1 次：'" in page
+    assert "'补选第 $1 次：'" in page
+
+
+def test_run_history_translates_common_agent_validation_errors():
+    """运行历史把常见 Agent JSON 校验错误转换成中文。"""
+    page = _read("Page.vue")
+    assert "Agent 输出不是有效的 JSON 对象：内容为空或格式错误" in page
+    assert "Agent 输出不是文本" in page
+    assert "存在多余内容" in page
+
+
+def test_run_history_translates_internal_stage_status_codes():
+    """运行历史把流水线内部状态码转换成中文。"""
+    page = _read("Page.vue")
+    for code, label in (
+        ("candidate_insufficient", "候选不足"),
+        ("recommendation_incomplete", "榜单不足"),
+        ("profile_validation_failed", "画像校验失败"),
+        ("ranking_validation_failed", "排序校验失败"),
+    ):
+        assert f"{code}: '{label}'" in page
+
+
+def test_run_history_translates_watched_exclusion_code():
+    """运行历史将旧版 watched 排除码转换为中文。"""
+    page = _read("Page.vue")
+    config = _read("Config.vue")
+    assert "watched: '已观看'" in page
+    assert "watched: '已观看'" in config
+
+
+def test_profile_filter_aliases_remain_readable_for_legacy_agent_payloads():
+    """配置页兼容旧版画像过滤键并把语言值转换为中文。"""
+    config = _read("Config.vue")
+    for key, label in (
+        ("genres", "题材"),
+        ("languages", "语言"),
+        ("release_year_min", "最早年份"),
+        ("release_year_max", "最晚年份"),
+    ):
+        assert f"{key}: '{label}'" in config
+    assert "key === 'original_languages' || key === 'languages'" in config
+    assert "languageLabels[item] || item" in config

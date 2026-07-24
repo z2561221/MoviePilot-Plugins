@@ -79,15 +79,24 @@ class PlaybackSample:
     title: str
     media_type: str
     tmdb_id: str = ""
+    overview: str = ""
+    genres: List[str] = field(default_factory=list)
     completed: bool = False
+    # 兼容旧快照字段；对电视剧它表示播放事件数，不是整剧完成次数。
     play_count: int = 0
+    watched_episode_count: int = 0
+    completed_episode_count: int = 0
+    total_episode_count: int = 0
     watch_minutes: int = 0
     last_played_at: str = ""
     abandoned: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """返回不含设备、地址和凭据的 Agent 安全字典。"""
-        return asdict(self)
+        data = asdict(self)
+        # 给新提示协议提供无歧义名称，同时保留 play_count 供旧快照和旧调用方读取。
+        data["play_event_count"] = data["play_count"]
+        return data
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "PlaybackSample":
@@ -103,8 +112,22 @@ class PlaybackSample:
             title=title,
             media_type=str(value.get("media_type") or "unknown"),
             tmdb_id=str(value.get("tmdb_id") or ""),
+            overview=str(value.get("overview") or "")[:240],
+            genres=[
+                str(item).strip()[:20]
+                for item in value.get("genres") or []
+                if str(item).strip()
+            ][:8],
             completed=bool(value.get("completed", False)),
-            play_count=max(0, int(value.get("play_count") or 0)),
+            play_count=max(
+                0,
+                int(value.get("play_event_count") or value.get("play_count") or 0),
+            ),
+            watched_episode_count=max(0, int(value.get("watched_episode_count") or 0)),
+            completed_episode_count=max(
+                0, int(value.get("completed_episode_count") or 0)
+            ),
+            total_episode_count=max(0, int(value.get("total_episode_count") or 0)),
             watch_minutes=max(0, int(value.get("watch_minutes") or 0)),
             last_played_at=str(value.get("last_played_at") or ""),
             abandoned=bool(value.get("abandoned", False)),

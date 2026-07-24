@@ -12,6 +12,31 @@ from ..model.board import RecommendationBoard
 logger = logging.getLogger(__name__)
 
 
+STATUS_LABELS = {
+    "playback_unavailable": "播放数据不可用",
+    "emby_unavailable": "Emby 不可用",
+    "permission_error": "权限不足",
+    "transient_error": "临时错误",
+    "configuration_error": "配置错误",
+    "sample_insufficient": "播放样本不足",
+    "candidate_insufficient": "候选数量不足",
+    "recommendation_incomplete": "推荐榜单不足",
+    "profile_agent_failed": "画像 Agent 调用失败",
+    "profile_validation_failed": "画像输出校验失败",
+    "profile_save_failed": "画像保存失败",
+    "candidate_failed": "候选采集失败",
+    "candidate_filter_failed": "候选过滤失败",
+    "candidate_snapshot_failed": "候选快照失败",
+    "ranking_agent_failed": "排序 Agent 调用失败",
+    "ranking_validation_failed": "排序输出校验失败",
+    "ranking_save_failed": "榜单保存失败",
+    "subscription_partial_failed": "部分订阅失败",
+    "validation_failed": "输出校验失败",
+    "agent_failed": "Agent 调用失败",
+    "failed": "运行失败",
+}
+
+
 def _safe_notice_text(value: Any) -> str:
     """移除异常消息中的地址、凭据与稳定 Emby 身份细节。"""
     text = str(value or "")
@@ -98,7 +123,7 @@ class NotificationService:
         """向目标用户发送一次简洁的 Agent 运行异常通知。"""
         reason = _compact_text(_safe_notice_text(message), 240) or "未知异常"
         lines = [
-            f"状态：{_compact_text(status, 48)}",
+            f"状态：{STATUS_LABELS.get(str(status or ''), _compact_text(status, 48))}",
             f"运行 ID：{_compact_text(run_id, 64) or '未生成'}",
             f"原因：{reason}",
             "旧榜单：已保留" if old_board_preserved else "旧榜单：无可用数据",

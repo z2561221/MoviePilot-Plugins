@@ -86,6 +86,7 @@ class CandidateCollectionService:
             "tmdb": ("tmdb_id", "tmdbid"),
             "douban": ("douban_id", "doubanid"),
             "bangumi": ("bangumi_id", "bangumiid"),
+            "anilist": ("anilist_id", "anilistid"),
             "tvdb": ("tvdb_id", "tvdbid"),
             "imdb": ("imdb_id", "imdbid"),
         }
@@ -110,7 +111,7 @@ class CandidateCollectionService:
                 return typed_tmdb_candidate_id(ids["tmdb"], media_type)
             except ValueError:
                 pass
-        for name in ("douban", "bangumi", "tvdb", "imdb"):
+        for name in ("douban", "bangumi", "anilist", "tvdb", "imdb"):
             if ids.get(name):
                 return f"{name}:{ids[name]}"
         raise ValueError("candidate requires a traceable media id")
@@ -129,6 +130,8 @@ class CandidateCollectionService:
             return "movie"
         if source in {"tmdb_tv", "bangumi"}:
             return "tv"
+        if source == "anilist":
+            return "anime"
         return "unknown"
 
     @staticmethod
@@ -323,6 +326,18 @@ class CandidateCollectionService:
         if not callable(candidate_ids):
             raise RuntimeError("subscription adapter does not expose candidate_ids")
         return set(candidate_ids() or set())
+
+    def enrich_recommendation_sources(self, recommendations: Iterable[Any]) -> None:
+        """仅为最终榜单条目按需补齐跨来源按钮所需的媒体 ID。"""
+        enrich = getattr(self._media_adapter, "enrich_cross_source_ids", None)
+        if not callable(enrich):
+            return
+        for recommendation in recommendations or ():
+            try:
+                enrich(recommendation)
+            except Exception:
+                # 跨来源补全失败不应撤销已经通过校验的推荐。
+                continue
 
     def collect_and_freeze(
         self,

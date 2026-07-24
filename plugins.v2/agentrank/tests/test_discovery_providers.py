@@ -152,6 +152,78 @@ def test_provider_failures_are_isolated_and_all_recipes_are_recorded():
     ]
 
 
+def test_anilist_provider_uses_typed_public_recommend_contract():
+    """AniList 来源只通过受控 page 参数调用宿主内置趋势榜。"""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return [{"title": "AniList 动画", "anilist_id": 100, "media_type": "anime"}]
+
+    request = ProviderRequest(
+        request_id="anilist",
+        source="anilist",
+        provider="anilist",
+        mode="recommend",
+        method="anilist_public",
+        media_type="anime",
+        limit=10,
+        params={"page": 1},
+    )
+    result = DiscoveryAdapter(
+        provider=MoviePilotProvider({"anilist_public": handler})
+    ).fetch_requests([request], raw_limit=10)
+
+    assert calls == [request]
+    assert result.items[0].source == "anilist"
+    assert result.request_recipes[0]["method"] == "anilist_public"
+    with pytest.raises(ValueError, match="anilist public page"):
+        ProviderRequest(
+            request_id="bad-anilist",
+            source="anilist",
+            provider="anilist",
+            mode="recommend",
+            method="anilist_public",
+            media_type="anime",
+            limit=10,
+            params={"page": 0},
+        )
+
+
+def test_anilist_accepts_tv_profile_alias_but_not_movie_only_profile():
+    """宿主把动画画像归入剧集时仍应召回 AniList，纯电影画像不得误抓。"""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return []
+
+    provider = MoviePilotProvider({"anilist_public": handler})
+    adapter = DiscoveryAdapter(provider=provider)
+    tv_alias_plan = RetrievalPlan(
+        filters=RetrievalFilters(media_types=("movie", "tv"))
+    )
+    movie_only_plan = RetrievalPlan(
+        filters=RetrievalFilters(media_types=("movie",))
+    )
+
+    adapter.fetch(
+        {"anilist": True},
+        count=20,
+        retrieval_plan=tv_alias_plan,
+    )
+    assert [request.method for request in calls] == ["anilist_public"]
+
+    calls.clear()
+    result = adapter.fetch(
+        {"anilist": True},
+        count=20,
+        retrieval_plan=movie_only_plan,
+    )
+    assert calls == []
+    assert result.request_recipes == []
+
+
 def test_fetch_requests_enforces_one_global_raw_limit():
     """多个 provider 请求的有效配额总和永远不超过 150。"""
     seen_limits = []

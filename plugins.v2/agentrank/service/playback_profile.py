@@ -74,10 +74,16 @@ class PlaybackProfileService:
             self._repository.save_playback_snapshot(snapshot)
             return snapshot
         options = {
-            "recent_days": int(config.get("playback_recent_days") or 180),
+            "recent_days": int(config.get("playback_recent_days") or 60),
             "completion_threshold": float(config.get("playback_completion_threshold") or 0.85),
             "abandon_minutes": int(config.get("playback_abandon_minutes") or 20),
         }
+        library_map = config.get("emby_library_ids")
+        options["library_ids"] = (
+            list(library_map.get(target) or [])
+            if isinstance(library_map, Mapping) and target in library_map
+            else None
+        )
         previous = self._repository.load_playback_snapshot(target)
         result = self._reporting.collect(identity, **options)
         result.profile_id = target

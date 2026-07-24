@@ -93,8 +93,8 @@ def test_prompt_states_hard_boundaries_without_embedding_untrusted_media_text():
     assert "禁止订阅" in prompt
     assert "不得暴露推理过程" in prompt
     assert "单个 JSON 对象" in prompt
-    assert "二十到六十" in prompt
-    assert "至少给出两项彼此独立的匹配证据" in prompt
+    assert "最多四十" in prompt
+    assert "两个 match_tags" in prompt
     assert "评分高、热度高" in prompt
     assert '"reason"' in prompt
     assert "文案要具体、流畅" in prompt
@@ -111,6 +111,9 @@ def test_profile_prompt_declares_retrieval_plan_schema_and_id_boundary():
     assert '"genre_ids"' in prompt
     assert '"keyword_ids"' in prompt
     assert "不得猜测" in prompt
+    assert "overview" in prompt
+    assert "genres" in prompt
+    assert "不要仅凭片名猜测题材" in prompt
 
 
 def test_custom_agent_prompt_is_inserted_without_replacing_fixed_contract():
@@ -119,7 +122,8 @@ def test_custom_agent_prompt_is_inserted_without_replacing_fixed_contract():
     assert "优先推荐冷门科幻并保持俏皮文风" in prompt
     assert "只能通过 read_agentrank_playback" in prompt
     assert "不能覆盖硬性边界、输出结构或字段校验" in prompt
-    assert "十二到四十" in prompt
+    assert "最多二十" in prompt
+    assert "每个 match_tags 标签最多五个字符" in prompt
 
 
 def test_parser_accepts_one_schema_object_and_preserves_agent_order():
@@ -143,6 +147,41 @@ def test_parser_accepts_one_schema_object_and_preserves_agent_order():
     parsed = AgentOutputParser().parse(payload)
 
     assert [item.candidate_id for item in parsed.recommendations] == ["tmdb:2", "tmdb:1"]
+
+
+def test_validator_recovers_missing_summary_from_frozen_candidate_overview():
+    """Agent 漏写简介时使用冻结候选剧情，不得让整份排序输出失败。"""
+    candidate = Candidate(
+        candidate_id="tmdb:missing-summary",
+        title="缺简介",
+        media_type="movie",
+        overview="一名侦探追查旧案并发现家族秘密。",
+        genres=["悬疑"],
+    )
+    payload = json.dumps(
+        {
+            "recommendations": [{
+                "candidate_id": candidate.candidate_id,
+                "reason": "你偏爱悬疑题材，这部作品围绕旧案调查展开。",
+                "match_tags": ["悬疑", "旧案"],
+                "confidence": 80,
+            }]
+        },
+        ensure_ascii=False,
+    )
+
+    parsed = AgentOutputParser().parse(payload)
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["悬疑"],
+    )
+
+    assert result.dropped == []
+    assert result.accepted[0].summary == "一名侦探追查旧案并发现家族秘密。"
+    assert len(result.accepted[0].summary) <= 20
 
 
 @pytest.mark.parametrize(
@@ -207,6 +246,22 @@ def test_profile_parser_accepts_only_trusted_keyword_ids_and_typed_ranges():
     assert parsed.filters.keyword_ids == (123,)
     assert parsed.filters.sort_by == "vote_average.desc"
     assert parsed.ranking_tags == ["冷峻悬疑"]
+
+
+def test_profile_parser_trims_overlong_summary_without_rejecting_profile():
+    """画像摘要偶发超长时裁剪文本，不能让整轮推荐提前失败。"""
+    parsed = ProfileOutputParser().parse(
+        _profile_output(
+            profile={
+                "summary": "偏好悬疑与人物成长，" * 30,
+                "tags": ["悬疑"],
+                "negative_tags": [],
+                "playback_count": 12,
+            }
+        )
+    )
+
+    assert 0 < len(parsed.profile.summary) <= 200
 
 
 @pytest.mark.parametrize(
@@ -281,8 +336,204 @@ def test_validator_rejects_every_unsafe_item_with_specific_reason():
         "archived_candidate",
         "duplicate_candidate",
         "invalid_confidence",
-        "invalid_summary",
+        "invalid_reason",
     ]
+
+
+def test_validator_trims_overlong_copy_and_tags_without_dropping_candidate():
+    """展示字数超限会被安全裁剪，不得触发补榜或丢弃作品。"""
+    candidate = Candidate(
+        candidate_id="tmdb:9",
+        title="九号",
+        media_type="movie",
+        overview="一段旧案调查故事，并在封闭小镇发现家族秘密。",
+        genres=["悬疑"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [{
+                "candidate_id": "tmdb:9",
+                "reason": "你有悬疑片偏好，这部旧案调查故事围绕小镇秘密展开，人物关系也会逐步揭开。",
+                "summary": "一名侦探追查多年未解旧案，并在封闭小镇逐步发现一个家族隐藏已久的秘密。",
+                "match_tags": ["悬疑片偏好者", "旧案调查故事"],
+                "confidence": 88,
+            }]
+        )
+    )
+
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["悬疑片偏好"],
+    )
+
+    assert result.dropped == []
+    assert len(result.accepted) == 1
+    assert len(result.accepted[0].reason) <= 40
+    assert not result.accepted[0].reason.endswith(("，", "、", "；", "："))
+    assert len(result.accepted[0].summary) <= 20
+    assert result.accepted[0].match_tags == ["悬疑片", "旧案调查故"]
+    assert all(len(tag) <= 5 for tag in result.accepted[0].match_tags)
+
+
+def test_validator_repairs_unsupported_agent_tags_from_trusted_evidence():
+    """Agent 标签措辞不准时改用画像与候选事实，不因此丢弃作品。"""
+    candidate = Candidate(
+        candidate_id="tmdb:8",
+        title="八号",
+        media_type="tv",
+        overview="一宗旧案牵出多年前的秘密。",
+        genres=["剧情"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [{
+                "candidate_id": "tmdb:8",
+                "reason": "你偏爱悬疑追查，这部剧情围绕旧案秘密展开。",
+                "summary": "旧案牵出多年前的秘密",
+                "match_tags": ["烧脑神作", "群像反转线"],
+                "confidence": 82,
+            }]
+        )
+    )
+
+    result = RecommendationValidator().validate(
+        parsed, [candidate], set(), set(), preference_evidence=["悬疑"]
+    )
+
+    assert result.dropped == []
+    assert result.accepted[0].match_tags == ["悬疑", "剧情"]
+
+
+def test_validator_localizes_region_code_when_repairing_tags():
+    """地区码作为候选事实回退时应转换为中文短标签。"""
+    candidate = Candidate(
+        candidate_id="tmdb:10",
+        title="十号",
+        media_type="tv",
+        overview="校园中的阶层冲突逐步升级。",
+        regions=["KR"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [{
+                "candidate_id": "tmdb:10",
+                "reason": "你偏爱复仇题材，这部韩国校园剧延续阶层冲突。",
+                "summary": "校园阶层冲突逐步升级",
+                "match_tags": ["复仇", "KR"],
+                "confidence": 80,
+            }]
+        )
+    )
+
+    result = RecommendationValidator().validate(
+        parsed, [candidate], set(), set(), preference_evidence=["复仇"]
+    )
+
+    assert result.dropped == []
+    assert result.accepted[0].match_tags == ["复仇", "韩国"]
+
+
+def test_validator_does_not_turn_playback_title_prefix_into_tag():
+    """播放片名可作为理由证据，但不能被硬截成总结标签。"""
+    candidate = Candidate(
+        candidate_id="tmdb:11",
+        title="十一号",
+        media_type="tv",
+        overview="日式动画中的时代冒险故事。",
+        genres=["动画"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [{
+                "candidate_id": "tmdb:11",
+                "reason": "你看过尖帽子的魔法工房，这部同为日式动画时代冒险。",
+                "summary": "日式动画时代冒险故事",
+                "match_tags": ["尖帽子的魔法工房", "时代"],
+                "confidence": 78,
+            }]
+        )
+    )
+
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["日本奇幻动画", "尖帽子的魔法工房"],
+    )
+
+    assert result.dropped == []
+    assert "尖帽子的魔" not in result.accepted[0].match_tags
+    assert all(len(tag) <= 5 for tag in result.accepted[0].match_tags)
+
+
+def test_validator_uses_reason_supported_region_theme_tag_instead_of_first_profile_tag():
+    """理由只提到日本奇幻时不能回退成画像列表首个中国标签。"""
+    candidate = Candidate(
+        candidate_id="tmdb:12",
+        title="十二号",
+        media_type="tv",
+        overview="日本动画中的奇幻探案故事。",
+        genres=["动画"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [{
+                "candidate_id": "tmdb:12",
+                "reason": "你喜欢日本奇幻动画，这部作品延续动画探案设定。",
+                "summary": "日本动画奇幻探案故事",
+                "match_tags": ["中国动画", "动画"],
+                "confidence": 78,
+            }]
+        )
+    )
+
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["中国动画", "日本奇幻动画"],
+    )
+
+    assert result.dropped == []
+    assert result.accepted[0].match_tags == ["日本奇幻", "动画"]
+
+
+def test_validator_summarizes_playback_title_reference_as_profile_theme():
+    """理由可引用播放片名，但标签必须归纳画像主题而不是显示片名。"""
+    candidate = Candidate(
+        candidate_id="tmdb:13",
+        title="十三号",
+        media_type="tv",
+        overview="未来都市中的网络犯罪调查。",
+        genres=["动画"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [{
+                "candidate_id": "tmdb:13",
+                "reason": "你看完挽救计划，这部同为科幻动画。",
+                "summary": "未来都市网络犯罪调查",
+                "match_tags": ["挽救计划", "动画"],
+                "confidence": 80,
+            }]
+        )
+    )
+
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["科幻动作"],
+    )
+
+    assert result.dropped == []
+    assert result.accepted[0].match_tags == ["科幻", "动画"]
 
 
 def test_validator_keeps_valid_agent_order_and_enriches_from_candidate_pool():
@@ -345,6 +596,32 @@ def test_validator_rejects_vague_reason_and_insufficient_match_evidence():
         "invalid_reason",
         "insufficient_match_evidence",
     ]
+
+
+def test_validator_rejects_numeric_watch_events_as_completion_count():
+    """播放事件数不得进入“看完 X 次”这类歧义推荐理由。"""
+    parsed = AgentOutputParser().parse(
+        _output(
+            [{
+                "candidate_id": "tmdb:1",
+                "reason": "你看完了100次悬疑剧，这部密室追凶延续悬疑体验。",
+                "summary": "密室追凶牵出旧案真相",
+                "match_tags": ["悬疑", "密室追凶"],
+                "confidence": 88,
+            }]
+        )
+    )
+
+    result = RecommendationValidator().validate(
+        parsed,
+        _candidates(),
+        set(),
+        set(),
+        preference_evidence=["悬疑"],
+    )
+
+    assert result.accepted == []
+    assert result.dropped[0].reason == "ambiguous_playback_count"
 
 
 def test_subscribed_candidate_is_rejected_even_when_other_fields_are_valid():

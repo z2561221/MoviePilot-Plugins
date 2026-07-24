@@ -1,7 +1,7 @@
 """Agent榜单中心配置模型与校验。"""
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from .identity import EmbyIdentity
 from ..service.prompt import DEFAULT_AGENT_PROMPT, LEGACY_DEFAULT_AGENT_PROMPT
@@ -25,6 +25,7 @@ DISCOVERY_SOURCE_DEFAULTS: Dict[str, bool] = {
     "tmdb_movies": True,
     "tmdb_tv": True,
     "bangumi": True,
+    "anilist": True,
 }
 
 class ConfigValidationError(ValueError):
@@ -47,6 +48,7 @@ class AgentRankConfig:
     cron: str = "0 8 * * *"
     emby_identities: List[Dict[str, Any]] = field(default_factory=list)
     default_profile_id: str = ""
+    emby_library_ids: Optional[Dict[str, List[str]]] = None
     discovery_sources: Dict[str, bool] = field(
         default_factory=lambda: dict(DISCOVERY_SOURCE_DEFAULTS)
     )
@@ -64,7 +66,7 @@ class AgentRankConfig:
     profile_cache_enabled: bool = True
     rebuild_profile_each_run: bool = False
     playback_enabled: bool = True
-    playback_recent_days: int = 180
+    playback_recent_days: int = 60
     playback_completion_threshold: float = 0.85
     playback_abandon_minutes: int = 20
     playback_cache_days: int = 7
@@ -178,6 +180,27 @@ def _emby_identities(value: Any, errors: List[str]) -> List[Dict[str, Any]]:
     return identities
 
 
+def _emby_library_ids(
+    value: Any, profile_ids: set, errors: List[str]
+) -> Optional[Dict[str, List[str]]]:
+    """清洗按画像身份保存的 Emby 内容库选择；None 表示兼容旧配置的全部库。"""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        errors.append("emby_library_ids must be a mapping")
+        return None
+    result: Dict[str, List[str]] = {}
+    for raw_profile_id, raw_ids in value.items():
+        profile_id = str(raw_profile_id or "").strip()
+        if profile_id not in profile_ids:
+            continue
+        if not isinstance(raw_ids, (list, tuple, set)):
+            errors.append(f"emby_library_ids[{profile_id}] must be a list")
+            continue
+        result[profile_id] = _unique_strings(raw_ids)
+    return result
+
+
 def configured_identities(config: Mapping[str, Any]) -> List[EmbyIdentity]:
     """从规范化配置返回有效 Emby identity 列表。"""
     errors: List[str] = []
@@ -198,6 +221,11 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
     ]
     identities = _emby_identities(raw.get("emby_identities", []), errors)
     profile_ids = {str(item["profile_id"]) for item in identities}
+    emby_library_ids = _emby_library_ids(
+        raw.get("emby_library_ids") if "emby_library_ids" in raw else None,
+        profile_ids,
+        errors,
+    )
     default_profile_id = str(raw.get("default_profile_id") or "").strip()
     if default_profile_id and default_profile_id not in profile_ids:
         errors.append("default_profile_id must belong to emby_identities")
@@ -246,6 +274,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         cron=str(raw.get("cron") or "0 8 * * *").strip(),
         emby_identities=identities,
         default_profile_id=default_profile_id,
+        emby_library_ids=emby_library_ids,
         discovery_sources=discovery_sources,
         weights=weights,
         media_types=media_types,
@@ -280,7 +309,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         rebuild_profile_each_run=bool(raw.get("rebuild_profile_each_run", False)),
         playback_enabled=bool(raw.get("playback_enabled", True)),
         playback_recent_days=_bounded_integer(
-            raw.get("playback_recent_days", 180), 180, 1, 3650, "playback_recent_days", errors
+            raw.get("playback_recent_days", 60), 60, 1, 3650, "playback_recent_days", errors
         ),
         playback_completion_threshold=_bounded_number(
             raw.get("playback_completion_threshold", 0.85),

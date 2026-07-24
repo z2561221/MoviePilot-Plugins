@@ -71,7 +71,11 @@ class AgentRankRuntime:
         from ..storage.repository import AgentRankRepository
         from .candidate import CandidateCollectionService
         from .keyword_resolution import ControlledRetrievalPlanResolver
-        from .poster import BoardPosterRepairService, PosterImageService
+        from .poster import (
+            BoardPosterRepairService,
+            BoardSourceRepairService,
+            PosterImageService,
+        )
         from .playback_profile import PlaybackProfileService
         from .recommendation import RecommendationOrchestrator
 
@@ -89,9 +93,11 @@ class AgentRankRuntime:
         plugin._playback_service = playback_service
         media_adapter = MediaRecognitionAdapter()
         library_adapter = LibraryAdapter()
-        BoardPosterRepairService(repository, media_adapter).repair_profiles(
-            [identity.profile_id for identity in configured_identities(config)]
-        )
+        profile_ids = [
+            identity.profile_id for identity in configured_identities(config)
+        ]
+        BoardPosterRepairService(repository, media_adapter).repair_profiles(profile_ids)
+        BoardSourceRepairService(repository, media_adapter).repair_profiles(profile_ids)
         return RecommendationOrchestrator(
             repository=repository,
             candidate_service=CandidateCollectionService(

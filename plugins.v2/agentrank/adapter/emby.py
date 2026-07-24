@@ -109,6 +109,46 @@ class EmbyServiceAccess:
                 identities.append(identity)
         return identities
 
+    def enumerate_libraries(self, identity: EmbyIdentity) -> List[Dict[str, str]]:
+        """枚举指定 Emby 用户可访问的内容库，不返回连接凭据。"""
+        _configured_name, service = self.resolve_service(identity.server_name)
+        if service is None:
+            return []
+        host, api_key, _instance = self.credentials(service)
+        if not host or not api_key:
+            return []
+        response = None
+        for path in (
+            f"Users/{identity.user_id}/Views",
+            f"emby/Users/{identity.user_id}/Views",
+        ):
+            try:
+                response = self.request().get_res(
+                    f"{host}{path}", params={"api_key": api_key}
+                )
+            except Exception:
+                response = None
+            if response is None or response.status_code != 404:
+                break
+        if response is None or response.status_code != 200:
+            return []
+        libraries: List[Dict[str, str]] = []
+        seen = set()
+        for row in self._user_rows(response.json() or {}):
+            library_id = str(row.get("Id") or "").strip()
+            name = str(row.get("Name") or "").strip()
+            if not library_id or not name or library_id in seen:
+                continue
+            seen.add(library_id)
+            libraries.append(
+                {
+                    "id": library_id,
+                    "name": name,
+                    "collection_type": str(row.get("CollectionType") or "").strip(),
+                }
+            )
+        return libraries
+
     @staticmethod
     def synced_item(server: str, item_id: str) -> Dict[str, Any]:
         """读取 MP 媒体库同步表中的条目身份，不触碰播放状态。"""
@@ -166,12 +206,27 @@ def merge_playback_samples(samples: Iterable[PlaybackSample]) -> List[PlaybackSa
             continue
         current.completed = current.completed or sample.completed
         current.play_count += sample.play_count
+        current.watched_episode_count += sample.watched_episode_count
+        current.completed_episode_count += sample.completed_episode_count
+        current.total_episode_count = max(
+            current.total_episode_count, sample.total_episode_count
+        )
         current.watch_minutes += sample.watch_minutes
-        current.abandoned = (current.abandoned or sample.abandoned) and not current.completed
+        # 单集早退不能把整部电视剧标成放弃；只有电影保留该信号。
+        current.abandoned = (
+            (current.abandoned or sample.abandoned)
+            and not current.completed
+            and current.media_type == "movie"
+        )
         if sample.last_played_at > current.last_played_at:
             current.last_played_at = sample.last_played_at
         if len(sample.title) > len(current.title):
             current.title = sample.title
+        if len(sample.overview) > len(current.overview):
+            current.overview = sample.overview
+        for genre in sample.genres:
+            if genre not in current.genres and len(current.genres) < 8:
+                current.genres.append(genre)
     return sorted(
         merged.values(),
         key=lambda item: (item.last_played_at, item.watch_minutes, item.play_count),

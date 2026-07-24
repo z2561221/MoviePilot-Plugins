@@ -122,16 +122,25 @@ class MediaRecognitionAdapter:
         chain = chain_factory()
         mediainfo = None
         tmdb_id = candidate.source_ids.get("tmdb")
+        explicit_kwargs = {}
         if tmdb_id:
+            explicit_kwargs = {"tmdbid": tmdb_id}
+        elif candidate.source_ids.get("douban"):
+            explicit_kwargs = {"doubanid": candidate.source_ids["douban"]}
+        elif candidate.source_ids.get("bangumi"):
+            explicit_kwargs = {"bangumiid": candidate.source_ids["bangumi"]}
+        elif candidate.source_ids.get("anilist"):
+            explicit_kwargs = {"anilistid": candidate.source_ids["anilist"]}
+        if explicit_kwargs:
             try:
                 mediainfo = chain.recognize_media(
-                    meta=meta, mtype=media_type, tmdbid=tmdb_id
+                    meta=meta, mtype=media_type, **explicit_kwargs
                 )
             except TypeError:
                 mediainfo = None
         if not mediainfo:
             mediainfo = chain.recognize_media(meta=meta, mtype=media_type)
-        if not mediainfo and candidate.source_ids.get("bangumi"):
+        if not mediainfo and candidate.source_ids.get("bangumi") and "bangumiid" not in explicit_kwargs:
             try:
                 mediainfo = chain.recognize_media(
                     meta=meta,
@@ -145,6 +154,7 @@ class MediaRecognitionAdapter:
             return None
 
         candidate.source_ids["tmdb"] = str(resolved_tmdb_id)
+        self._copy_media_ids(candidate, mediainfo)
         candidate.title = str(getattr(mediainfo, "title", "") or candidate.title)
         resolved_year = getattr(mediainfo, "year", None)
         try:
@@ -207,4 +217,72 @@ class MediaRecognitionAdapter:
             mediainfo, moviepilot_type, candidate.genres
         )
         candidate.metadata["recognized_by"] = "moviepilot"
+        return candidate
+
+    @staticmethod
+    def _copy_media_ids(candidate: Candidate, mediainfo: Any) -> None:
+        """从 MoviePilot 识别结果补齐可直达的跨来源媒体 ID。"""
+        aliases = {
+            "douban": ("douban_id", "doubanid"),
+            "bangumi": ("bangumi_id", "bangumiid"),
+            "anilist": ("anilist_id", "anilistid"),
+            "imdb": ("imdb_id", "imdbid"),
+            "tvdb": ("tvdb_id", "tvdbid"),
+        }
+        for target, names in aliases.items():
+            if candidate.source_ids.get(target):
+                continue
+            for name in names:
+                value = getattr(mediainfo, name, None)
+                if value not in (None, ""):
+                    candidate.source_ids[target] = str(value)
+                    break
+
+    def enrich_cross_source_ids(self, candidate: Any) -> Any:
+        """为已入榜条目按需补齐 MoviePilot 可解析的豆瓣等跨来源 ID。"""
+        if not candidate or not hasattr(candidate, "source_ids"):
+            return candidate
+        if candidate.source_ids.get("douban") or not candidate.source_ids.get("tmdb"):
+            return candidate
+        chain_factory, _, media_type_cls = self._dependencies()
+        chain = chain_factory()
+        media_type = self._media_type(candidate, media_type_cls)
+        try:
+            douban_info = chain.get_doubaninfo_by_tmdbid(
+                int(candidate.source_ids["tmdb"]),
+                mtype=media_type,
+            )
+        except Exception:
+            douban_info = None
+        if isinstance(douban_info, Mapping):
+            douban_id = douban_info.get("id") or douban_info.get("douban_id")
+            if douban_id not in (None, ""):
+                candidate.source_ids["douban"] = str(douban_id)
+                return candidate
+        relaxed_match = getattr(chain, "match_doubaninfo", None)
+        if not callable(relaxed_match):
+            return candidate
+        names: List[str] = []
+        for raw_name in (
+            getattr(candidate, "title", ""),
+            getattr(candidate, "original_title", ""),
+        ):
+            name = str(raw_name or "").strip()
+            if name and name not in names:
+                names.append(name)
+        for name in names:
+            try:
+                douban_info = relaxed_match(
+                    name=name,
+                    mtype=media_type,
+                    year=None,
+                )
+            except Exception:
+                continue
+            if not isinstance(douban_info, Mapping):
+                continue
+            douban_id = douban_info.get("id") or douban_info.get("douban_id")
+            if douban_id not in (None, ""):
+                candidate.source_ids["douban"] = str(douban_id)
+                break
         return candidate

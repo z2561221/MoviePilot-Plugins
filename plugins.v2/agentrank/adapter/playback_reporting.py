@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from .emby import EmbyServiceAccess, media_type, merge_playback_samples
 from ..model.identity import EmbyIdentity
@@ -178,27 +178,42 @@ class PlaybackReportingAdapter:
         api_key: str,
         user_id: str,
         item_ids: Iterable[str],
+        library_ids: Optional[Iterable[str]] = None,
     ) -> Dict[str, Dict[str, Any]]:
-        """批量读取播放条目及其剧集父级的 TMDB 身份与时长。"""
+        """在所选内容库内批量读取播放条目及其剧集父级详情。"""
         ids = [str(item) for item in item_ids if str(item or "").strip()][:500]
         if not ids:
             return {}
-        response = self._access.request().get_res(
-            f"{host}emby/Users/{user_id}/Items",
-            params={
+        selected_libraries = (
+            [str(item) for item in library_ids if str(item or "").strip()]
+            if library_ids is not None
+            else None
+        )
+        if selected_libraries == []:
+            return {}
+        detail_queries = selected_libraries or [None]
+        details: Dict[str, Dict[str, Any]] = {}
+        for library_id in detail_queries:
+            params = {
                 "api_key": api_key,
                 "Ids": ",".join(ids),
-                "Fields": "ProviderIds,RunTimeTicks,SeriesId,SeriesName,ProductionYear",
+                "Fields": "ProviderIds,RunTimeTicks,SeriesId,SeriesName,ProductionYear,Overview,Genres,RecursiveItemCount,UserData",
                 "Limit": len(ids),
-            },
-        )
-        if response is None or response.status_code != 200:
-            return {}
-        details = {
-            str(item.get("Id")): item
-            for item in (response.json() or {}).get("Items") or []
-            if item.get("Id")
-        }
+            }
+            if library_id is not None:
+                params.update({"ParentId": library_id, "Recursive": True})
+            response = self._access.request().get_res(
+                f"{host}emby/Users/{user_id}/Items", params=params
+            )
+            if response is None or response.status_code != 200:
+                continue
+            details.update(
+                {
+                    str(item.get("Id")): item
+                    for item in (response.json() or {}).get("Items") or []
+                    if item.get("Id")
+                }
+            )
         for item_id in ids:
             synced = self._access.synced_item(server_name, item_id)
             if synced and item_id in details:
@@ -219,7 +234,7 @@ class PlaybackReportingAdapter:
                 params={
                     "api_key": api_key,
                     "Ids": ",".join(missing_series),
-                    "Fields": "ProviderIds,RunTimeTicks,ProductionYear",
+                    "Fields": "ProviderIds,RunTimeTicks,ProductionYear,Overview,Genres,RecursiveItemCount,UserData",
                     "Limit": len(missing_series),
                 },
             )
@@ -242,9 +257,10 @@ class PlaybackReportingAdapter:
     def collect(
         self,
         identity: EmbyIdentity,
-        recent_days: int = 180,
+        recent_days: int = 60,
         completion_threshold: float = 0.85,
         abandon_minutes: int = 20,
+        library_ids: Optional[Iterable[str]] = None,
     ) -> PlaybackSnapshot:
         """读取 Playback Reporting，并将会话映射为 TMDB 级播放证据。"""
         query_result = self._request_query(identity, self._query(recent_days))
@@ -277,9 +293,12 @@ class PlaybackReportingAdapter:
             query_result.api_key,
             identity.user_id,
             [row.get("ItemId") for row in rows],
+            library_ids=library_ids,
         )
         for row in rows:
             item_id = str(row.get("ItemId") or "")
+            if library_ids is not None and item_id not in details:
+                continue
             detail = details.get(item_id) or {}
             parent = details.get(str(detail.get("SeriesId") or "")) or {}
             media_identity = (
@@ -302,11 +321,26 @@ class PlaybackReportingAdapter:
             except (TypeError, ValueError):
                 unmapped += 1
                 continue
-            completed = bool(
+            completed_episode = bool(
                 runtime_seconds
                 and watch_seconds >= runtime_seconds * completion_threshold
             )
             item_media_type = media_type(row.get("ItemType"))
+            item_is_episode = str(row.get("ItemType") or "").casefold() == "episode"
+            user_data = media_identity.get("UserData") or {}
+            # TV 的 completed 只接受 Emby 系列父级整体完成信号。
+            series_completed = (
+                bool(user_data.get("Played")) if item_media_type == "tv" else False
+            )
+            completed = (
+                series_completed if item_media_type == "tv" else completed_episode
+            )
+            try:
+                total_episode_count = max(
+                    0, int(float(media_identity.get("RecursiveItemCount") or 0))
+                )
+            except (TypeError, ValueError):
+                total_episode_count = 0
             collected.append(
                 PlaybackSample(
                     stable_id=f"tmdb:{item_media_type}:{tmdb_id}",
@@ -318,11 +352,27 @@ class PlaybackReportingAdapter:
                     ),
                     media_type=item_media_type,
                     tmdb_id=tmdb_id,
+                    overview=" ".join(
+                        str(media_identity.get("Overview") or "").split()
+                    )[:240],
+                    genres=[
+                        str(item).strip()[:20]
+                        for item in media_identity.get("Genres") or []
+                        if str(item).strip()
+                    ][:8],
                     completed=completed,
                     play_count=play_count,
+                    watched_episode_count=1 if item_is_episode else 0,
+                    completed_episode_count=(
+                        1 if item_is_episode and completed_episode else 0
+                    ),
+                    total_episode_count=(
+                        total_episode_count if item_media_type == "tv" else 0
+                    ),
                     watch_minutes=watch_seconds // 60,
                     last_played_at=str(row.get("LastPlayedAt") or ""),
-                    abandoned=not completed
+                    abandoned=item_media_type == "movie"
+                    and not completed
                     and watch_seconds >= max(1, int(abandon_minutes)) * 60,
                 )
             )

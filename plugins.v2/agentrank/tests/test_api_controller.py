@@ -218,11 +218,15 @@ def test_config_options_merges_online_emby_identities_with_selected_offline_valu
         def enumerate_identities(self):
             return [EmbyIdentity("home", "user-2", "Bob")]
 
+        def enumerate_libraries(self, identity):
+            return [{"id": "movies", "name": "电影", "collection_type": "movies"}]
+
     plugin._emby_access = EmbyAccess()
     data = AgentRankApiController(plugin).config_options()["data"]
     profile_ids = {item["profile_id"] for item in data["emby_identities"]}
     assert profile_ids == {HOME_PROFILE, REMOTE_PROFILE, "emby:home:user-2"}
     assert data["config"]["emby_identities"] == [HOME_IDENTITY, REMOTE_IDENTITY]
+    assert data["emby_libraries"][HOME_PROFILE][0]["name"] == "电影"
 
 
 def test_status_and_overview_expose_gate_reason_and_preserve_old_board():

@@ -105,6 +105,7 @@ def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_fifty():
         "tmdb_movies",
         "tmdb_tv",
         "bangumi",
+        "anilist",
     }
     assert "extensions" not in normalize_config(
         {"discovery_sources": {"douban": False, "extensions": True}}

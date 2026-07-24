@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, Dict, List, Mapping
 
 from ..model.config import configured_identities, default_config
+from ..model.identity import EmbyIdentity
 from ..service.archive import ArchiveService
 from ..service.profile_preferences import ProfilePreferenceService
 
@@ -205,6 +206,8 @@ class AgentRankApiController:
 
     def config_options(self) -> Dict[str, Any]:
         """返回 Config 与 Emby 身份切换器需要的安全选项。"""
+        from ..adapter.discovery import DiscoveryAdapter
+
         selected_identities = [
             identity.to_dict()
             for identity in configured_identities(self.plugin._config)
@@ -220,14 +223,24 @@ class AgentRankApiController:
             except Exception:
                 pass
         identities = list(identity_map.values())
+        libraries = {}
+        if access is not None and hasattr(access, "enumerate_libraries"):
+            for identity_data in identities:
+                try:
+                    identity = EmbyIdentity.from_dict(identity_data)
+                    libraries[identity.profile_id] = access.enumerate_libraries(identity)
+                except Exception:
+                    libraries[identity_data["profile_id"]] = []
         return self._success(
             {
                 "emby_identities": identities,
+                "emby_libraries": libraries,
                 "default_profile_id": str(
                     self.plugin._config.get("default_profile_id") or ""
                 ),
                 "config": dict(self.plugin._config),
                 "defaults": default_config(),
+                "source_options": DiscoveryAdapter.source_options(),
                 "enablement": self._enablement_data(),
                 "playback_status": {
                     identity["profile_id"]: self._playback_data(identity["profile_id"])

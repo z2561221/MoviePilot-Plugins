@@ -29,11 +29,13 @@ const defaults = {
   cron: '0 8 * * *',
   emby_identities: [],
   default_profile_id: '',
+  emby_library_ids: null,
   discovery_sources: {
     douban: true,
     tmdb_movies: true,
     tmdb_tv: true,
     bangumi: true,
+    anilist: true,
   },
   weights: { ...weightDefaults },
   media_types: ['movie', 'tv', 'anime'],
@@ -49,7 +51,7 @@ const defaults = {
   profile_cache_enabled: true,
   rebuild_profile_each_run: false,
   playback_enabled: true,
-  playback_recent_days: 180,
+  playback_recent_days: 60,
   playback_completion_threshold: 0.85,
   playback_abandon_minutes: 20,
   playback_cache_days: 7,
@@ -63,6 +65,8 @@ const loading = ref(false)
 const status = ref({ state: 'stopped', validation_errors: [], playback: null, enablement: null })
 const overview = ref(null)
 const availableIdentities = ref([])
+const availableLibraries = ref({})
+const sourceOptions = ref([])
 const loadError = ref('')
 const runtimeDefaults = ref(structuredClone(defaults))
 const clearProfileSwitch = ref(false)
@@ -72,7 +76,7 @@ const actionFeedback = reactive({ show: false, message: '', color: 'success' })
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
-  { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '配置 Emby 画像身份、立即运行和运行周期。' },
+  { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '选择 Emby 服务实例、用户、内容库和运行周期。' },
   { key: 'playback', title: '播放画像', icon: 'mdi-play-circle-outline', desc: 'Playback Reporting 是插件运行的强制依赖。' },
   { key: 'sources', title: '发现来源', icon: 'mdi-compass-outline', desc: '选择 MoviePilot 内置发现来源。' },
   { key: 'weights', title: '权重设置', icon: 'mdi-tune-vertical', desc: '设置 Agent 排序时十项偏好权重。' },
@@ -94,12 +98,13 @@ const weightDefs = [
   { key: 'similarity_weight', title: '画像相似', icon: 'mdi-vector-link' },
 ]
 
-const sourceDefs = [
-  { key: 'douban', title: '豆瓣发现', subtitle: '热门电影、剧集与动画', icon: 'mdi-alpha-d-circle-outline' },
-  { key: 'tmdb_movies', title: 'TMDB电影', subtitle: '高热度电影候选', icon: 'mdi-movie-open-star-outline' },
-  { key: 'tmdb_tv', title: 'TMDB剧集', subtitle: '高热度剧集候选', icon: 'mdi-television-classic' },
-  { key: 'bangumi', title: 'Bangumi', subtitle: '动画与番剧候选', icon: 'mdi-animation-outline' },
-]
+const sourceMeta = {
+  douban: { title: '豆瓣发现', subtitle: '热门电影、剧集与动画', icon: 'mdi-alpha-d-circle-outline' },
+  tmdb_movies: { title: 'TMDB电影', subtitle: '高热度电影候选', icon: 'mdi-movie-open-star-outline' },
+  tmdb_tv: { title: 'TMDB剧集', subtitle: '高热度剧集候选', icon: 'mdi-television-classic' },
+  bangumi: { title: 'Bangumi', subtitle: '动画与番剧候选', icon: 'mdi-animation-outline' },
+  anilist: { title: 'AniList', subtitle: '趋势动画与本季热门', icon: 'mdi-alpha-a-circle-outline' },
+}
 
 const mediaTypeOptions = [
   { title: '电影', value: 'movie' },
@@ -109,7 +114,7 @@ const mediaTypeOptions = [
 const actionOptions = [
   { title: '仅更新榜单', value: 'update' },
   { title: '通知内选择', value: 'notify' },
-  { title: '自动订阅前 N', value: 'auto_subscribe' },
+  { title: '自动订阅前几名', value: 'auto_subscribe' },
 ]
 const advancedTabs = [
   { key: 'runtime', title: '运行设置', icon: 'mdi-cog-outline' },
@@ -117,23 +122,51 @@ const advancedTabs = [
 ]
 
 const currentMain = computed(() => mainTabs.find(item => item.key === activeMain.value) || mainTabs[0])
-const identityOptions = computed(() => availableIdentities.value.map(identity => ({
-  title: [identity.username, identity.server_name].filter(Boolean).join(' · '),
-  value: identity.profile_id,
-})))
-const selectedIdentityOptions = computed(() => form.emby_identities.map(identity => ({
-  title: [identity.username, identity.server_name].filter(Boolean).join(' · '),
-  value: identity.profile_id,
-})))
-const selectedProfileIds = computed({
-  get: () => form.emby_identities.map(identity => identity.profile_id),
-  set: profileIds => {
-    const selected = new Set(profileIds || [])
-    form.emby_identities = availableIdentities.value.filter(identity => selected.has(identity.profile_id))
-  },
-})
 const selectedProfileId = computed(() => form.default_profile_id || form.emby_identities[0]?.profile_id || '')
 const selectedIdentity = computed(() => form.emby_identities.find(identity => identity.profile_id === selectedProfileId.value) || null)
+const serverOptions = computed(() => {
+  const names = [...new Set(availableIdentities.value.map(identity => identity.server_name).filter(Boolean))]
+  return names.map(name => ({ title: name, value: name }))
+})
+const selectedServerName = computed({
+  get: () => selectedIdentity.value?.server_name || '',
+  set: serverName => {
+    const identity = availableIdentities.value.find(item => item.server_name === serverName)
+    form.emby_identities = identity ? [identity] : []
+    form.default_profile_id = identity?.profile_id || ''
+  },
+})
+const userOptions = computed(() => availableIdentities.value
+  .filter(identity => identity.server_name === selectedServerName.value)
+  .map(identity => ({ title: identity.username, value: identity.profile_id })))
+const selectedUserProfileId = computed({
+  get: () => selectedProfileId.value,
+  set: profileId => {
+    const identity = availableIdentities.value.find(item => item.profile_id === profileId)
+    form.emby_identities = identity ? [identity] : []
+    form.default_profile_id = identity?.profile_id || ''
+    if (identity && !Object.prototype.hasOwnProperty.call(form.emby_library_ids || {}, identity.profile_id)) {
+      form.emby_library_ids = { ...(form.emby_library_ids || {}), [identity.profile_id]: (availableLibraries.value[identity.profile_id] || []).map(item => item.id) }
+    }
+    loadOverview(identity?.profile_id || '')
+  },
+})
+const libraryOptions = computed(() => (availableLibraries.value[selectedProfileId.value] || []).map(item => ({
+  title: item.name,
+  value: item.id,
+})))
+const selectedLibraryIds = computed({
+  get: () => {
+    const profileId = selectedProfileId.value
+    if (!profileId) return []
+    if (Object.prototype.hasOwnProperty.call(form.emby_library_ids || {}, profileId)) return form.emby_library_ids[profileId] || []
+    return libraryOptions.value.map(item => item.value)
+  },
+  set: libraryIds => {
+    if (!selectedProfileId.value) return
+    form.emby_library_ids = { ...(form.emby_library_ids || {}), [selectedProfileId.value]: [...(libraryIds || [])] }
+  },
+})
 const latestMetrics = computed(() => overview.value?.latest_run?.metrics || {})
 const currentPlayback = computed(() => overview.value?.playback || status.value.playback || null)
 const currentEnablement = computed(() => overview.value?.enablement || status.value.enablement || null)
@@ -144,11 +177,11 @@ const playbackMappingRate = computed(() => {
   const total = mapped + Number(currentPlayback.value?.unmapped_count || 0)
   return total ? `${Math.round((mapped / total) * 100)}%` : '-'
 })
-const candidateSourceEntries = computed(() => Object.entries(latestMetrics.value.candidate_source_counts || {}))
-const candidateExclusionEntries = computed(() => Object.entries(latestMetrics.value.candidate_exclusion_counts || {}))
+const candidateSourceEntries = computed(() => Object.entries(latestMetrics.value.candidate_source_counts || {}).map(([key, value]) => [sourceLabel(key), value]))
+const candidateExclusionEntries = computed(() => Object.entries(latestMetrics.value.candidate_exclusion_counts || {}).map(([key, value]) => [exclusionLabel(key), value]))
 const sourceErrorEntries = computed(() => Object.entries(latestMetrics.value.source_errors || {}))
-const sourceErrorsText = computed(() => sourceErrorEntries.value.map(([key, value]) => `${key}: ${value}`).join('；'))
-const retrievalFilterEntries = computed(() => Object.entries(overview.value?.profile?.filters || {}))
+const sourceErrorsText = computed(() => sourceErrorEntries.value.map(([key, value]) => `${sourceLabel(key)}：${value}`).join('；'))
+const retrievalFilterEntries = computed(() => Object.entries(overview.value?.profile?.filters || {}).map(([key, value]) => [filterLabel(key), formatFilterValue(key, value)]))
 const pipelineSteps = [
   { key: 'probe', title: '探测依赖' },
   { key: 'playback_snapshot', title: '冻结播放' },
@@ -158,20 +191,84 @@ const pipelineSteps = [
   { key: 'save', title: '校验保存' },
 ]
 
+const sourceDefs = computed(() => {
+  const runtimeOptions = sourceOptions.value.filter(item => item && item.available !== false)
+  const keys = runtimeOptions.length
+    ? runtimeOptions.map(item => item.key)
+    : Object.keys(defaults.discovery_sources)
+  return keys.map(key => ({
+    key,
+    ...(sourceMeta[key] || {
+      title: key,
+      subtitle: 'MoviePilot 来源',
+      icon: 'mdi-database-outline',
+    }),
+  }))
+})
+
 function displayValue(value) {
   if (Array.isArray(value)) return value.join('、') || '无'
   if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${key}:${item}`).join('、') || '无'
   return String(value ?? '') || '无'
 }
 
+const stageLabels = {
+  ready: '已就绪', generated: '已生成', reused: '已复用', cached: '已缓存', saved: '已保存', success: '已完成', pending: '等待中', running: '运行中', stopped: '已停止', disabled: '已停用',
+  playback_unavailable: '播放数据不可用', emby_unavailable: 'Emby 不可用', permission_error: '权限不足', transient_error: '临时错误', unavailable: '不可用', configuration_error: '配置错误',
+  sample_insufficient: '播放样本不足', candidate_insufficient: '候选数量不足', recommendation_incomplete: '推荐榜单不足',
+  profile_agent_failed: '画像 Agent 调用失败', profile_validation_failed: '画像输出校验失败', profile_save_failed: '画像保存失败',
+  candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败', candidate_snapshot_failed: '候选快照失败',
+  ranking_agent_failed: '排序 Agent 调用失败', ranking_validation_failed: '排序输出校验失败', ranking_save_failed: '榜单保存失败',
+  subscription_partial_failed: '部分订阅失败', validation_failed: '输出校验失败', agent_failed: 'Agent 调用失败', failed: '失败', blocked: '已阻断',
+}
+const filterLabels = {
+  media_types: '媒体类型',
+  genre_ids: '题材',
+  genres: '题材',
+  keyword_ids: '关键词',
+  original_languages: '语言',
+  languages: '语言',
+  year_min: '最早年份',
+  year_max: '最晚年份',
+  release_year_min: '最早年份',
+  release_year_max: '最晚年份',
+  rating_min: '最低评分',
+  vote_count_min: '最低票数',
+  sort_by: '排序方式',
+}
+const sourceLabels = { douban: '豆瓣发现', tmdb: 'TMDB', tmdb_recommend: 'TMDB 推荐', tmdb_movies: 'TMDB 电影', tmdb_tv: 'TMDB 剧集', bangumi: 'Bangumi', anilist: 'AniList' }
+const exclusionLabels = { invalid_or_unrecognized: '无效或未识别', watched: '已观看', watched_completed: '已看完', library: '已入库', subscribed: '已订阅', archived: '已忽略', negative_keyword: '排除关键词' }
+const mediaTypeLabels = { movie: '电影', tv: '剧集', anime: '动漫' }
+const languageLabels = { zh: '中文', ja: '日语', ko: '韩语', en: '英语', fr: '法语', de: '德语', es: '西班牙语', it: '意大利语', ru: '俄语', th: '泰语' }
+const sortLabels = { 'popularity.desc': '热度降序', 'vote_average.desc': '评分降序', 'primary_release_date.desc': '上映日期降序', 'first_air_date.desc': '首播日期降序' }
+function sourceLabel(value) { return sourceLabels[value] || value }
+function exclusionLabel(value) { return exclusionLabels[value] || value }
+function filterLabel(value) { return filterLabels[value] || value }
+function formatFilterValue(key, value) {
+  if (key === 'media_types' && Array.isArray(value)) return value.map(item => mediaTypeLabels[item] || item)
+  if ((key === 'original_languages' || key === 'languages') && Array.isArray(value)) return value.map(item => languageLabels[item] || item)
+  if (key === 'sort_by') return sortLabels[value] || value
+  return value
+}
+function formatDateTime(value) {
+  if (!value) return '尚未同步'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
 function stageStatus(step) {
-  return latestMetrics.value.stage_status?.[step.key] || ''
+  const value = latestMetrics.value.stage_status?.[step.key] || ''
+  return stageLabels[value] || value
 }
 
 function stageDuration(step) {
-  const value = latestMetrics.value.stage_ms?.[step.key]
-  return Number.isFinite(Number(value)) ? `${Number(value)} ms` : ''
+  const value = Number(latestMetrics.value.stage_ms?.[step.key])
+  if (!Number.isFinite(value) || value < 0) return ''
+  if (value < 1000) return `${Math.round(value)} 毫秒`
+  return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} 秒`
 }
+
+function runStatusText(value) { return stageLabels[value] || value || '未知' }
 
 function cloneConfig(value) {
   return JSON.parse(JSON.stringify(value || {}))
@@ -182,25 +279,29 @@ function applyConfig(value) {
   Object.assign(form, cloneConfig(defaults), next)
   form.playback_enabled = true
   form.weights = { ...weightDefaults, ...(next.weights || {}) }
+  const sourceKeys = new Set([
+    ...Object.keys(defaults.discovery_sources),
+    ...Object.keys(next.discovery_sources || {}),
+    ...sourceOptions.value.map(item => item.key),
+  ])
   form.discovery_sources = Object.fromEntries(
-    Object.keys(defaults.discovery_sources).map(key => [key, Boolean(next.discovery_sources?.[key] ?? defaults.discovery_sources[key])]),
+    [...sourceKeys].map(key => [
+      key,
+      Boolean(next.discovery_sources?.[key] ?? defaults.discovery_sources[key] ?? false),
+    ]),
   )
   form.emby_identities = Array.isArray(next.emby_identities)
     ? next.emby_identities.filter(identity => identity?.profile_id)
     : []
   form.default_profile_id = next.default_profile_id || form.emby_identities[0]?.profile_id || ''
+  form.emby_library_ids = next.emby_library_ids && typeof next.emby_library_ids === 'object'
+    ? cloneConfig(next.emby_library_ids)
+    : {}
   form.media_types = Array.isArray(next.media_types) ? [...next.media_types] : [...defaults.media_types]
   form.exclude_keywords = Array.isArray(next.exclude_keywords) ? [...next.exclude_keywords] : []
 }
 
 watch(() => props.initialConfig, applyConfig, { immediate: true, deep: true })
-watch(
-  () => form.emby_identities.map(identity => identity.profile_id),
-  profileIds => {
-    if (!profileIds.includes(form.default_profile_id)) form.default_profile_id = profileIds[0] || ''
-  },
-)
-
 async function loadOverview(profileId = selectedProfileId.value) {
   if (!props.api?.get || !profileId) {
     overview.value = null
@@ -220,6 +321,8 @@ async function loadRuntime() {
     ])
     status.value = statusData || status.value
     availableIdentities.value = Array.isArray(optionsData?.emby_identities) ? optionsData.emby_identities : []
+    availableLibraries.value = optionsData?.emby_libraries && typeof optionsData.emby_libraries === 'object' ? optionsData.emby_libraries : {}
+    sourceOptions.value = Array.isArray(optionsData?.source_options) ? optionsData.source_options : []
     runtimeDefaults.value = { ...structuredClone(defaults), ...(optionsData?.defaults || {}) }
     applyConfig(optionsData?.config || props.initialConfig)
     await loadOverview(optionsData?.default_profile_id || selectedProfileId.value)
@@ -278,7 +381,7 @@ function requestClearProfile(value) {
     clearProfileSwitch.value = false
     actionFeedback.show = true
     actionFeedback.color = 'warning'
-    actionFeedback.message = '请先选择默认 Emby identity'
+    actionFeedback.message = '请先选择默认 Emby 画像身份'
     return
   }
   clearProfileDialog.value = true
@@ -400,10 +503,10 @@ onMounted(loadRuntime)
                     <span>映射率 <strong>{{ playbackMappingRate }}</strong></span>
                     <span>未映射 <strong>{{ currentPlayback?.unmapped_count || 0 }}</strong></span>
                   </div>
-                  <div class="ar-config__hint">{{ selectedIdentity?.username || '未选择 identity' }} · {{ currentPlayback?.synced_at || '尚未同步' }}</div>
+                  <div class="ar-config__hint">{{ selectedIdentity?.username || '未选择用户' }} · {{ formatDateTime(currentPlayback?.synced_at) }}</div>
                 </div>
                 <div class="ar-config__overview-panel">
-                  <div class="ar-config__panel-head"><span>画像版本</span><VChip size="x-small" variant="outlined">Schema {{ overview?.profile?.schema_version || '-' }}</VChip></div>
+                  <div class="ar-config__panel-head"><span>画像版本</span><VChip size="x-small" variant="outlined">结构 {{ overview?.profile?.schema_version || '-' }}</VChip></div>
                   <div class="ar-config__hint">检索解析版本 {{ overview?.profile?.retrieval_resolution_version || '-' }} · 播放证据 {{ overview?.profile?.playback_count || 0 }} 条</div>
                   <div class="ar-config__tag-row">
                     <VChip v-for="tag in overview?.profile?.ranking_tags || []" :key="tag" size="x-small" variant="tonal" color="primary">{{ tag }}</VChip>
@@ -444,24 +547,21 @@ onMounted(loadRuntime)
               <div class="ar-config__overview-foot">
                 <VIcon icon="mdi-shield-refresh-outline" size="17" color="primary" />
                 <span>Agent、候选或保存失败时保留旧画像与旧榜单，不执行订阅。</span>
-                <VChip v-if="overview?.latest_run?.status" size="x-small" variant="outlined">最近运行 {{ overview.latest_run.status }}</VChip>
+                <VChip v-if="overview?.latest_run?.status" size="x-small" variant="outlined">最近运行 {{ runStatusText(overview.latest_run.status) }}</VChip>
               </div>
             </div>
 
             <div v-show="activeMain === 'basic'" class="ar-config__pane">
               <div class="ar-config__section-title">基础设置</div>
               <VRow>
-                <VCol cols="12" md="7">
-                  <VAutocomplete v-model="selectedProfileIds" :items="identityOptions" item-title="title" item-value="value" label="Emby 画像身份" multiple chips closable-chips density="compact" variant="outlined" hide-details />
-                </VCol>
-                <VCol cols="12" md="5">
-                  <VSelect v-model="form.default_profile_id" :items="selectedIdentityOptions" label="默认画像身份" density="compact" variant="outlined" hide-details :disabled="!form.emby_identities.length" @update:model-value="loadOverview" />
-                </VCol>
+                <VCol cols="12" md="4"><VSelect v-model="selectedServerName" :items="serverOptions" label="媒体库（Emby 服务实例）" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" md="4"><VSelect v-model="selectedUserProfileId" :items="userOptions" label="用户" density="compact" variant="outlined" hide-details :disabled="!selectedServerName" /></VCol>
+                <VCol cols="12" md="4"><VAutocomplete v-model="selectedLibraryIds" :items="libraryOptions" label="内容库筛选" multiple chips closable-chips density="compact" variant="outlined" hide-details :disabled="!selectedUserProfileId" /></VCol>
                 <VCol cols="12" md="4"><VSwitch v-model="form.onlyonce" color="warning" label="立即运行一次" hide-details inset :disabled="!form.enabled || !form.emby_identities.length || currentEnablement?.allowed === false" /></VCol>
                 <VCol cols="12" md="4"><VSwitch v-model="form.schedule_enabled" color="success" label="周期运行" hide-details inset /></VCol>
                 <VCol cols="12" md="4"><VCronField v-model="form.cron" label="运行周期" density="compact" variant="outlined" hide-details :disabled="!form.schedule_enabled" /></VCol>
               </VRow>
-              <VAlert type="info" variant="tonal" class="mt-4">每个已选 Emby identity 独立生成画像与榜单；立即运行触发后会自动关闭。Playback Reporting 未就绪时插件保持停用。</VAlert>
+              <VAlert type="info" variant="tonal" class="mt-4">Emby 画像身份由服务实例与用户组成；画像只同步所选用户在所选内容库中的 Playback Reporting 记录，未安装或不可访问时插件保持停用。</VAlert>
             </div>
 
             <div v-show="activeMain === 'playback'" class="ar-config__pane">
@@ -481,7 +581,7 @@ onMounted(loadRuntime)
                   <VChip v-if="currentPlayback?.confidence" size="x-small" variant="outlined">{{ currentPlayback.confidence }}</VChip>
                 </div>
                 <div class="mt-1">{{ currentEnablement?.message || currentPlayback?.message || 'Playback Reporting 是硬依赖；未安装或无权限时插件无法开启。' }}</div>
-                <div v-if="currentPlayback?.synced_at" class="text-caption mt-1">最近同步：{{ currentPlayback.synced_at }} · 样本 {{ currentPlayback.sample_count || 0 }} · 已映射 {{ currentPlayback.mapped_count || 0 }} · 未映射 {{ currentPlayback.unmapped_count || 0 }}</div>
+                <div v-if="currentPlayback?.synced_at" class="text-caption mt-1">最近同步：{{ formatDateTime(currentPlayback.synced_at) }} · 样本 {{ currentPlayback.sample_count || 0 }} · 已映射 {{ currentPlayback.mapped_count || 0 }} · 未映射 {{ currentPlayback.unmapped_count || 0 }}</div>
               </VAlert>
               <VRow>
                 <VCol cols="12" md="4"><VTextField v-model.number="form.playback_recent_days" type="number" min="1" max="3650" label="回溯天数" density="compact" variant="outlined" hide-details /></VCol>
@@ -543,7 +643,7 @@ onMounted(loadRuntime)
               <div class="ar-config__section-title">榜单行为</div>
               <VRow>
                 <VCol cols="12" md="6"><VSelect v-model="form.action_mode" :items="actionOptions" label="动作模式" density="compact" variant="outlined" hide-details /></VCol>
-                <VCol cols="12" md="3"><VTextField v-model.number="form.auto_subscribe_top_n" type="number" min="0" :max="form.auto_subscribe_limit" label="自动订阅前 N" density="compact" variant="outlined" hide-details :disabled="form.action_mode !== 'auto_subscribe'" /></VCol>
+                <VCol cols="12" md="3"><VTextField v-model.number="form.auto_subscribe_top_n" type="number" min="0" :max="form.auto_subscribe_limit" label="自动订阅前几名" density="compact" variant="outlined" hide-details :disabled="form.action_mode !== 'auto_subscribe'" /></VCol>
                 <VCol cols="12" md="3"><VTextField v-model.number="form.auto_subscribe_limit" type="number" min="0" max="10" label="安全上限" density="compact" variant="outlined" hide-details /></VCol>
                 <VCol cols="12"><VSwitch v-model="form.notify" color="info" label="发送通知" hide-details inset :disabled="form.action_mode === 'update'" /></VCol>
               </VRow>
@@ -647,10 +747,10 @@ onMounted(loadRuntime)
 .ar-config__pane { min-height: 100%; padding: 18px 20px; }
 .ar-config__pane--overview { padding: 12px 16px; }
 .ar-config__section-title { color: rgb(var(--v-theme-primary)); font-size: 14px; font-weight: 600; margin-bottom: 12px; }
-.ar-config__pipeline { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; padding: 10px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .02); }
+.ar-config__pipeline { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .02); }
 .ar-config__step { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; font-weight: 500; }
 .ar-config__step-copy { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
-.ar-config__step-copy span, .ar-config__step-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-config__step-copy span, .ar-config__step-copy small { overflow-wrap: anywhere; white-space: normal; }
 .ar-config__step-copy small { color: rgba(var(--v-theme-on-surface), .55); font-size: 10px; font-weight: 400; }
 .ar-config__overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .ar-config__overview-panel { min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .015); }
@@ -665,7 +765,7 @@ onMounted(loadRuntime)
 .ar-config__metric-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .ar-config__metric-columns > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 11px; }
 .ar-config__metric-columns small { color: rgba(var(--v-theme-on-surface), .55); margin-bottom: 2px; }
-.ar-config__metric-columns span { display: flex; justify-content: space-between; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-config__metric-columns span { display: flex; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
 .ar-config__empty { color: rgba(var(--v-theme-on-surface), .48); font-size: 11px; }
 .ar-config__source-errors { display: flex; align-items: flex-start; gap: 5px; margin-top: 6px; color: rgb(var(--v-theme-warning)); font-size: 10px; line-height: 1.35; }
 .ar-config__overview-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; color: rgba(var(--v-theme-on-surface), .62); font-size: 11px; }
