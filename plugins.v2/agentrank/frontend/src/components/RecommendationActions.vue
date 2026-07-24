@@ -81,4 +81,9 @@ function openSource() {
 @media (max-width: 760px) {
   .ar-actions__button { min-width: 60px; padding-inline: 5px; }
 }
+@media (max-width: 390px) {
+  .ar-actions { gap: 3px; }
+  .ar-actions__button { min-width: 56px; padding-inline: 4px; }
+  .ar-actions__button :deep(.v-btn__prepend) { display: none; }
+}
 </style>

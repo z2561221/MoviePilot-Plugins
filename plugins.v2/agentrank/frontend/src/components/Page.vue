@@ -674,7 +674,7 @@ onMounted(initialize)
   .ar-page__copy-text--reason { -webkit-line-clamp: 2; }
   .ar-page__copy-text--intro { -webkit-line-clamp: 1; }
   .ar-page__copy-text--expanded { display: block; overflow: visible; -webkit-line-clamp: initial; }
-  .ar-page__copy-toggle { display: inline-flex; }
+  .ar-page__copy-toggle { display: inline-flex; margin-top: 0; margin-bottom: 0; }
   .ar-page__profile-head :deep(.v-card-item__append) { align-self: flex-start; }
   .ar-page__profile-body { padding: 12px; }
   .ar-page__profile-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -702,6 +702,7 @@ onMounted(initialize)
   .ar-page__rank-item { grid-template-columns: 26px 48px minmax(0, 1fr); gap: 7px; padding-inline: 7px; }
   .ar-page__poster { width: 48px; height: 72px; }
   .ar-page__rank-copy { grid-template-columns: 32px minmax(0, 1fr) auto; }
+  .ar-page__copy-toggle { margin-top: 0; margin-bottom: 0; }
   .ar-page__profile-head :deep(.v-card-item__prepend) { display: none; }
 }
 </style>

@@ -333,7 +333,7 @@ onMounted(initialize)
   .ar-app-page__copy-label { font-size: 11px; }
   .ar-app-page__copy-text--reason { -webkit-line-clamp: 2; }
   .ar-app-page__copy-text--intro { -webkit-line-clamp: 1; }
-  .ar-app-page__copy-toggle { display: inline-flex; }
+  .ar-app-page__copy-toggle { display: inline-flex; margin-top: 0; margin-bottom: 0; }
   .ar-app-page__meta { white-space: normal; }
   .ar-app-page__section-head { align-items: flex-start; }
 }
@@ -346,5 +346,6 @@ onMounted(initialize)
   .ar-app-page__content { padding: 8px; }
   .ar-app-page__item { grid-template-columns: 26px 56px minmax(0, 1fr); gap: 7px; padding: 8px; }
   .ar-app-page__poster { width: 56px; height: 84px; }
+  .ar-app-page__copy-toggle { margin-top: 0; margin-bottom: 0; }
 }
 </style>

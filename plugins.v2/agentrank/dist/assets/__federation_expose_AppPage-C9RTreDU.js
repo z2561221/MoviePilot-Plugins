@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DrwCXO8X.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CWVqgGGb.js';
 import Config from './__federation_expose_Config-BnP58-QU.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
@@ -578,6 +578,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3107e83a"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3fccc1da"]]);
 
 export { AppPage as default };
