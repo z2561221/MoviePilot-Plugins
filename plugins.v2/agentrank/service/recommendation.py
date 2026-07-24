@@ -851,6 +851,7 @@ class RecommendationOrchestrator:
                             *current_profile.tags,
                             *current_profile.ranking_tags,
                         ],
+                        playback_samples=playback_snapshot.samples,
                     )
                     break
                 except AgentOutputError as error:
@@ -936,6 +937,7 @@ class RecommendationOrchestrator:
                                     *current_profile.tags,
                                     *current_profile.ranking_tags,
                                 ],
+                                playback_samples=playback_snapshot.samples,
                             )
                             for item in refill_validation.accepted[:refill_slots]:
                                 item.rank = len(accepted) + 1

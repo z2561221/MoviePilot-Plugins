@@ -8,7 +8,30 @@ const props = defineProps({
 })
 const emit = defineEmits(['subscribe', 'archive'])
 
-const sourceIds = computed(() => props.item?.source_ids || {})
+const sourceIds = computed(() => {
+  const raw = props.item?.source_ids || {}
+  const value = { ...raw }
+  const aliases = {
+    tmdb: ['tmdb', 'tmdb_id', 'tmdbid', 'themoviedb', 'themoviedb_id'],
+    douban: ['douban', 'douban_id', 'doubanid'],
+    bangumi: ['bangumi', 'bangumi_id', 'bangumiid', 'bgm', 'bgm_id'],
+  }
+  Object.entries(aliases).forEach(([canonical, names]) => {
+    if (value[canonical]) return
+    const match = names.map(name => value[name]).find(Boolean)
+    if (match) value[canonical] = match
+  })
+  ;[
+    ['tmdb', 'tmdb_id', 'tmdbid', 'themoviedb', 'themoviedb_id'],
+    ['douban', 'douban_id', 'doubanid'],
+    ['bangumi', 'bangumi_id', 'bangumiid', 'bgm', 'bgm_id'],
+  ].forEach(([canonical, ...names]) => {
+    if (value[canonical]) return
+    const match = [props.item?.[canonical], ...names.map(name => props.item?.[name])].find(Boolean)
+    if (match) value[canonical] = match
+  })
+  return value
+})
 const tmdbId = computed(() => sourceIds.value.tmdb || '')
 const doubanId = computed(() => sourceIds.value.douban || '')
 const bangumiId = computed(() => sourceIds.value.bangumi || '')
@@ -16,7 +39,7 @@ const prefersBangumi = computed(() => props.item?.media_type === 'anime' && bang
 const sourceLabel = computed(() => prefersBangumi.value || (!doubanId.value && bangumiId.value) ? 'Bgm' : '豆瓣')
 const sourceId = computed(() => sourceLabel.value === 'Bgm' ? bangumiId.value : doubanId.value)
 const sourceColor = computed(() => sourceLabel.value === 'Bgm' ? '#F838A0' : '#08B810')
-const doubanSearchText = computed(() => [props.item?.title, props.item?.year].filter(Boolean).join(' '))
+const doubanSearchText = computed(() => [props.item?.title, props.item?.original_title, props.item?.year].filter(Boolean).join(' '))
 const sourceAvailable = computed(() => sourceLabel.value === 'Bgm' ? Boolean(sourceId.value) : Boolean(sourceId.value || doubanSearchText.value))
 const sourceTooltip = computed(() => sourceLabel.value === 'Bgm' || sourceId.value ? `打开${sourceLabel.value}` : '搜索豆瓣')
 

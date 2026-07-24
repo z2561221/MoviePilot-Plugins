@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CWVqgGGb.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CCnpKc9N.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives,withKeys:_withKeys} = await importShared('vue');
@@ -161,7 +161,8 @@ const statusMetaFor = status => ({
   ranking_agent_failed: { text: '排序生成失败', color: 'error' },
   ranking_validation_failed: { text: '排序校验失败', color: 'error' },
   ranking_save_failed: { text: '榜单保存失败', color: 'error' },
-}[status] || { text: status || '未知', color: 'default' });
+  runtime_exception: { text: '运行异常', color: 'error' },
+  }[status] || { text: '运行异常', color: 'error' });
 
 const historyStageLabels = {
   probe: '依赖探测',
@@ -180,7 +181,7 @@ const historyStageStatusLabels = {
   profile_agent_failed: '画像生成失败', profile_validation_failed: '画像校验失败',
   candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败',
   candidate_snapshot_failed: '候选快照失败', ranking_agent_failed: '排序生成失败',
-  ranking_validation_failed: '排序校验失败', ranking_save_failed: '榜单保存失败',
+  ranking_validation_failed: '排序校验失败', ranking_save_failed: '榜单保存失败', runtime_exception: '运行异常',
 };
 const historySourceLabels = {
   douban: '豆瓣', tmdb: 'TMDB', tmdb_movies: 'TMDB电影', tmdb_tv: 'TMDB剧集',
@@ -190,6 +191,7 @@ const historyExclusionLabels = {
   invalid_or_unrecognized: '未识别', watched: '已观看', watched_completed: '已看完', library: '已入库',
   subscribed: '已订阅', archived: '已忽略', negative_keyword: '排除词',
   ambiguous_playback_count: '播放次数误写为看完次数',
+  unsupported_playback_claim: '观看经历无法回溯',
 };
 
 const tabs = [
@@ -202,11 +204,11 @@ const tabs = [
 function formatTime(value) {
   if (!value) return '—'
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString()
 }
 
 function mediaTypeLabel(value) {
-  return ({ movie: '电影', tv: '剧集', anime: '动漫' })[value] || value || '未知'
+  return ({ movie: '电影', tv: '剧集', anime: '动漫' })[value] || '其他类型'
 }
 
 function copyKey(item, field) { return `${item?.candidate_id || item?.rank || ''}:${field}` }
@@ -238,8 +240,8 @@ function historyStages(run) {
   const metrics = run?.metrics || {};
   return (Array.isArray(metrics.stage_order) ? metrics.stage_order : []).map(key => ({
     key,
-    title: historyStageLabels[key] || key,
-    status: historyStageStatusLabels[metrics.stage_status?.[key]] || metrics.stage_status?.[key] || '—',
+    title: historyStageLabels[key] || '其他阶段',
+    status: historyStageStatusLabels[metrics.stage_status?.[key]] || '未记录',
     duration: formatDuration(metrics.stage_ms?.[key]),
     failed: /failed|error|insufficient|validation/i.test(String(metrics.stage_status?.[key] || '')),
   }))
@@ -247,13 +249,27 @@ function historyStages(run) {
 function translateHistoryError(value) {
   let text = String(value || '');
   text = text
+    .replace(/^playback probe:/i, '播放探测：')
+    .replace(/^playback:/i, '播放快照：')
+    .replace(/^profile:/i, '画像阶段：')
+    .replace(/^candidate:/i, '候选阶段：')
+    .replace(/^ranking:/i, '排序阶段：')
+    .replace(/^refill:/i, '补选阶段：')
     .replace(/Agent output must be one JSON object:\s*Expecting value/gi, 'Agent 输出不是有效的 JSON 对象：内容为空或格式错误')
     .replace(/Agent output must be one JSON object/gi, 'Agent 输出不是有效的 JSON 对象')
     .replace(/Agent output must be text/gi, 'Agent 输出不是文本')
     .replace(/Expecting value/gi, '内容为空或格式错误')
     .replace(/Extra data/gi, '存在多余内容')
     .replace(/Invalid control character/gi, '包含无效控制字符')
-    .replace(/Unterminated string/gi, '字符串未闭合');
+    .replace(/Unterminated string/gi, '字符串未闭合')
+    .replace(/profile_validation_failed/gi, '画像校验失败')
+    .replace(/ranking_validation_failed/gi, '排序校验失败')
+    .replace(/candidate_insufficient/gi, '候选不足')
+    .replace(/recommendation_incomplete/gi, '榜单不足')
+    .replace(/ambiguous_playback_count/gi, '播放次数误写为看完次数')
+    .replace(/unsupported_playback_claim/gi, '观看经历无法回溯')
+    .replace(/Agent did not produce a JSON object/gi, 'Agent 输出不是有效的 JSON 对象')
+    .replace(/Agent did not produce text output/gi, 'Agent 输出不是文本');
   return text
 }
 function historyErrorText(run) {
@@ -272,14 +288,14 @@ function historyErrorText(run) {
 }
 function historySourceText(run) {
   const sources = run?.metrics?.candidate_source_counts || run?.metrics?.fetched_source_counts || {};
-  return Object.entries(sources).map(([key, value]) => `${historySourceLabels[key] || key} ${value}`).join('、') || '无来源统计'
+  return Object.entries(sources).map(([key, value]) => `${historySourceLabels[key] || '其他来源'} ${value}`).join('、') || '无来源统计'
 }
 function historyExclusionText(run) {
   const exclusions = run?.metrics?.candidate_exclusion_counts || {};
-  return Object.entries(exclusions).map(([key, value]) => `${historyExclusionLabels[key] || key} ${value}`).join('、') || '无'
+  return Object.entries(exclusions).map(([key, value]) => `${historyExclusionLabels[key] || '其他排除原因'} ${value}`).join('、') || '无'
 }
 function historyPlaybackStatus(value) {
-  return ({ ready: '已就绪', cached: '使用缓存', disabled: '已停用', error: '失败', transient_error: '临时错误' })[value] || value || '未知'
+  return ({ ready: '已就绪', cached: '使用缓存', disabled: '已停用', error: '失败', transient_error: '临时错误' })[value] || '状态未知'
 }
 
 async function initialize() {
@@ -982,7 +998,7 @@ return (_ctx, _cache) => {
               _createElementVNode("div", _hoisted_48, [
                 _cache[28] || (_cache[28] = _createElementVNode("div", null, [
                   _createElementVNode("div", { class: "ar-page__section-title" }, "运行历史"),
-                  _createElementVNode("div", { class: "ar-page__section-desc" }, "查看候选数量、Agent 调用与自动订阅结果。")
+                  _createElementVNode("div", { class: "ar-page__section-desc" }, "按结果、耗时、阶段和候选统计查看每次运行。")
                 ], -1)),
                 _createVNode(_component_VChip, {
                   size: "small",
@@ -1031,23 +1047,26 @@ return (_ctx, _cache) => {
                               _: 2
                             }, 1032, ["color"])
                           ]),
-                          _createElementVNode("div", _hoisted_53, _toDisplayString(run.message || '本轮运行已记录'), 1),
+                          _createElementVNode("div", _hoisted_53, [
+                            _cache[29] || (_cache[29] = _createElementVNode("span", { class: "ar-page__history-message-label" }, "结果：", -1)),
+                            _createTextVNode(_toDisplayString(translateHistoryError(run.message || '本轮运行已记录')), 1)
+                          ]),
                           _createElementVNode("div", _hoisted_54, [
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", null, _toDisplayString(run.metrics?.candidate_count ?? 0), 1),
-                              _cache[29] || (_cache[29] = _createElementVNode("span", null, "候选", -1))
+                              _cache[30] || (_cache[30] = _createElementVNode("span", null, "候选条目", -1))
                             ]),
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", null, _toDisplayString(run.metrics?.final_count ?? 0), 1),
-                              _cache[30] || (_cache[30] = _createElementVNode("span", null, "推荐", -1))
+                              _cache[31] || (_cache[31] = _createElementVNode("span", null, "安全推荐", -1))
                             ]),
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", null, _toDisplayString(run.metrics?.agent_calls ?? 0), 1),
-                              _cache[31] || (_cache[31] = _createElementVNode("span", null, "Agent调用", -1))
+                              _cache[32] || (_cache[32] = _createElementVNode("span", null, "模型调用", -1))
                             ]),
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", null, _toDisplayString(run.metrics?.subscription_success_count ?? 0), 1),
-                              _cache[32] || (_cache[32] = _createElementVNode("span", null, "自动订阅", -1))
+                              _cache[33] || (_cache[33] = _createElementVNode("span", null, "自动订阅", -1))
                             ])
                           ]),
                           (historyStages(run).length)
@@ -1096,15 +1115,19 @@ return (_ctx, _cache) => {
                           (isHistoryExpanded(run))
                             ? (_openBlock(), _createElementBlock("div", _hoisted_57, [
                                 _createElementVNode("div", null, [
-                                  _cache[33] || (_cache[33] = _createElementVNode("span", null, "运行编号", -1)),
+                                  _cache[34] || (_cache[34] = _createElementVNode("span", null, "运行编号", -1)),
                                   _createElementVNode("code", null, _toDisplayString(run.run_id || '—'), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[34] || (_cache[34] = _createElementVNode("span", null, "播放快照", -1)),
+                                  _cache[35] || (_cache[35] = _createElementVNode("span", null, "画像调用", -1)),
+                                  _createElementVNode("span", null, _toDisplayString(run.metrics?.profile_agent_calls ?? 0) + " 次；排序 " + _toDisplayString(run.metrics?.ranking_agent_calls ?? 0) + " 次", 1)
+                                ]),
+                                _createElementVNode("div", null, [
+                                  _cache[36] || (_cache[36] = _createElementVNode("span", null, "播放快照", -1)),
                                   _createElementVNode("span", null, _toDisplayString(run.metrics?.playback_count ?? 0) + " 条，" + _toDisplayString(historyPlaybackStatus(run.metrics?.playback_status)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[35] || (_cache[35] = _createElementVNode("span", null, "候选排除", -1)),
+                                  _cache[37] || (_cache[37] = _createElementVNode("span", null, "候选排除", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyExclusionText(run)), 1)
                                 ])
                               ]))
@@ -1145,6 +1168,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c5fa78fd"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-31fe54fd"]]);
 
 export { Page as default };

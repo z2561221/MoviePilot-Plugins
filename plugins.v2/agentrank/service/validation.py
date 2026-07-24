@@ -19,9 +19,44 @@ from ..model.retrieval import (
 
 
 FILLER_END_PATTERN = re.compile(r"(?:哈|呀|嘛|哒|喂)[。！？!?]?$")
-# 播放事件数不能被文案伪装成“看完 X 次”；电视剧的完成语义由集数与整剧状态表达。
+# 播放事件数不能被文案伪装成“看完 X 次”或“X 次看完”；电视剧的完成
+# 语义只能由集数与整剧状态表达。
 AMBIGUOUS_WATCH_COUNT_PATTERN = re.compile(
-    r"(?:看完|看了|看过|重看|观看)(?:了)?\s*\d+\s*次"
+    r"(?:"
+    r"(?:看完|看了|看过|追完|追过|重看|观看|播放)(?:了)?\s*\d+\s*(?:次|遍)"
+    r"|\d+\s*(?:次|遍)\s*(?:看完|看了|看过|追完|追过|重看|观看|播放)"
+    r")"
+)
+EXPLICIT_PLAYBACK_TITLE_PATTERN = re.compile(
+    r"(?:你|用户)?(?:最近|此前|曾经|又)?"
+    r"(?:看过|看完|追完|追过|重看(?:过)?|反复看(?:过)?|播放过)"
+    r"(?:了)?\s*([^，。；！？!?]{2,48})"
+)
+PLAYBACK_EXAMPLE_PATTERN = re.compile(r"(?:例如|比如|譬如|如)([^，。；！？!?]{2,48})")
+PERSON_HISTORY_PATTERN = re.compile(
+    r"(?:你|用户)?(?:最近|一直|经常|常常|常|爱|喜欢|偏爱|关注|看过)"
+    r"\s*([^，。；！？!?、]{2,20}?)"
+    r"(?:参演|主演|出演|执导|导演的作品|的作品)"
+)
+USER_HISTORY_CUE_PATTERN = re.compile(
+    r"(?:你|用户).{0,8}(?:看过|看完|追完|追过|重看|反复看|常看|爱看|喜欢|偏爱)"
+)
+GENERIC_PLAYBACK_CLAIM_TERMS = (
+    "题材",
+    "类型",
+    "风格",
+    "作品",
+    "电影",
+    "剧集",
+    "电视剧",
+    "动画",
+    "动漫",
+    "番剧",
+    "纪录片",
+    "综艺",
+    "很多",
+    "多部",
+    "不少",
 )
 VAGUE_REASON_PHRASES = ("神作", "必看", "肯定喜欢", "不能错过")
 REGION_LABELS = {
@@ -705,6 +740,80 @@ class RecommendationValidator:
             )
         return [tag for tag in (preference, fact) if tag]
 
+    @staticmethod
+    def _playback_field(value: Any, name: str) -> Any:
+        """兼容播放样本字典与领域对象读取单个安全字段。"""
+        if isinstance(value, Mapping):
+            return value.get(name)
+        return getattr(value, name, None)
+
+    @staticmethod
+    def _claim_text(value: Any) -> str:
+        """移除片名与理由中的展示符号，生成确定性比较文本。"""
+        return re.sub(
+            r"[\s《》〈〉「」『』【】\[\]（）()，,。.!！?？；;：:、/\\·•_\-]+",
+            "",
+            str(value or ""),
+        ).casefold()
+
+    @classmethod
+    def _playback_evidence(cls, samples: Iterable[Any]) -> tuple[Set[str], str]:
+        """汇总真实播放片名及样本明确文本，供理由声明回溯。"""
+        titles: Set[str] = set()
+        searchable: List[str] = []
+        for sample in samples or ():
+            title = str(cls._playback_field(sample, "title") or "").strip()
+            normalized_title = cls._claim_text(title)
+            if normalized_title:
+                titles.add(normalized_title)
+                searchable.append(normalized_title)
+            overview = cls._claim_text(cls._playback_field(sample, "overview"))
+            if overview:
+                searchable.append(overview)
+            genres = cls._playback_field(sample, "genres") or []
+            for genre in genres if isinstance(genres, (list, tuple, set)) else [genres]:
+                normalized_genre = cls._claim_text(genre)
+                if normalized_genre:
+                    searchable.append(normalized_genre)
+        return titles, "|".join(searchable)
+
+    @classmethod
+    def _title_claim_supported(cls, value: str, titles: Set[str]) -> bool:
+        """判断观看声明中的具体片名是否存在于真实播放快照。"""
+        claim = cls._claim_text(value)
+        if not claim:
+            return True
+        if any(title in claim or claim in title for title in titles if len(title) >= 2):
+            return True
+        if any(term in claim for term in GENERIC_PLAYBACK_CLAIM_TERMS):
+            return True
+        return False
+
+    @classmethod
+    def _unsupported_playback_claim(
+        cls, reason: str, playback_samples: Iterable[Any]
+    ) -> bool:
+        """拒绝无法从真实播放片名或样本字段回溯的用户经历。"""
+        samples = list(playback_samples or ())
+        if not samples:
+            # 兼容直接调用验证器的旧测试与离线工具；运行主链始终传入真实快照。
+            return False
+        titles, searchable = cls._playback_evidence(samples)
+        for matched in EXPLICIT_PLAYBACK_TITLE_PATTERN.finditer(reason):
+            if not cls._title_claim_supported(matched.group(1), titles):
+                return True
+        if USER_HISTORY_CUE_PATTERN.search(reason):
+            for matched in PLAYBACK_EXAMPLE_PATTERN.finditer(reason):
+                examples = re.split(r"[、/]|以及|还有|和|与|及", matched.group(1))
+                for example in examples:
+                    if not cls._title_claim_supported(example, titles):
+                        return True
+        for matched in PERSON_HISTORY_PATTERN.finditer(reason):
+            person = cls._claim_text(matched.group(1))
+            if person and person not in searchable:
+                return True
+        return False
+
     def validate(
         self,
         parsed: ParsedRankingOutput,
@@ -712,6 +821,7 @@ class RecommendationValidator:
         archived_candidate_ids: Set[str],
         subscribed_candidate_ids: Set[str],
         preference_evidence: Sequence[str] = (),
+        playback_samples: Iterable[Any] = (),
     ) -> RecommendationValidationResult:
         """按 Agent 原顺序校验并丰富通过项，绝不按媒体属性重排。"""
         candidate_map: Dict[str, Candidate] = {
@@ -760,6 +870,9 @@ class RecommendationValidator:
                 candidate,
                 preference_evidence,
             )
+            unsupported_playback_claim = self._unsupported_playback_claim(
+                reason, playback_samples
+            )
             if not summary:
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_summary", index)
@@ -771,12 +884,15 @@ class RecommendationValidator:
                 or any(phrase in reason for phrase in VAGUE_REASON_PHRASES)
                 or FILLER_END_PATTERN.search(reason)
                 or AMBIGUOUS_WATCH_COUNT_PATTERN.search(reason)
+                or unsupported_playback_claim
             ):
                 result.dropped.append(
                     DroppedRecommendation(
                         candidate_id,
                         "ambiguous_playback_count"
                         if AMBIGUOUS_WATCH_COUNT_PATTERN.search(reason)
+                        else "unsupported_playback_claim"
+                        if unsupported_playback_claim
                         else "invalid_reason",
                         index,
                     )
@@ -797,6 +913,7 @@ class RecommendationValidator:
                     reason=reason,
                     confidence=recommendation.confidence,
                     title=candidate.title,
+                    original_title=candidate.original_title,
                     media_type=candidate.media_type,
                     year=candidate.year,
                     source_ids=dict(candidate.source_ids),

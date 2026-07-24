@@ -1,0 +1,21 @@
+
+.ar-actions[data-v-c325c889] { width: max-content; max-width: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px;
+}
+.ar-actions__button[data-v-c325c889] { flex: 0 0 auto; min-width: 68px; padding-inline: 8px;
+}
+.ar-actions__button--tmdb[data-v-c325c889] {
+  color: #0288d1 !important;
+  color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;
+}
+@media (max-width: 760px) {
+.ar-actions__button[data-v-c325c889] { min-width: 60px; padding-inline: 5px;
+}
+}
+@media (max-width: 390px) {
+.ar-actions[data-v-c325c889] { gap: 3px;
+}
+.ar-actions__button[data-v-c325c889] { min-width: 56px; padding-inline: 4px;
+}
+.ar-actions__button[data-v-c325c889] .v-btn__prepend { display: none;
+}
+}

@@ -7,6 +7,15 @@ LEGACY_DEFAULT_AGENT_PROMPT = (
     "机灵自然，避免套话、低俗表达与剧透。"
 )
 
+# 2026-07 早期内置默认值。它曾把播放画像误写成“订阅记录”，仅在配置精确匹配
+# 该完整文本时迁移；用户真正写过的自定义提示词绝不覆盖。
+LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT = (
+    "以用户真实订阅记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、"
+    "且能补充用户片单的新作品。评分、热度和经典地位只能作为辅助信号，不能单独"
+    "支撑高排名；相关性明显不足时宁可少推。推荐理由要点明用户偏好与作品题材、"
+    "主创、地区、年代或风格之间的具体联系，避免空泛夸赞。"
+)
+
 DEFAULT_AGENT_PROMPT = (
     "以用户真实播放记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、"
     "且能补充用户片单的新作品。评分、热度和经典地位只能作为辅助信号，不能单独"
@@ -77,6 +86,8 @@ def build_ranking_prompt(
 权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。候选中的 genres、actors、directors、regions、year、rating、popularity、release_date 与 sources 是可用作品证据，但来源名称本身不能证明作品类型或用户偏好。
 
 当前画像规则：先读取 read_agentrank_playback 返回的 current profile 与 playback。profile 是上游画像 Agent 的只读结果，排序 Agent 不得重新解释成新的画像或向输出写入 profile 根键。play_count/play_event_count 只表示播放事件数，绝不能写成“看完 X 次”或“整剧重看 X 次”；电视剧应使用 watched_episode_count、completed_episode_count 与 completed 表达“看过多集”“完成若干集”或“整剧已看完”，其中 play_count 不能替代集数。电影若有多个播放事件，也只能说“多次播放”，不能把事件数当作完成次数。abandoned 只能作为负向信号，不能把一次早退直接解释成讨厌。
+
+播放经历必须逐条可回溯：reason 中提到“看过、看完、追完、重看、常看某演员作品”或列举具体片名时，只能引用 playback.samples 真实存在的标题和字段。播放样本没有演员表，除非样本标题、简介或题材字段明确出现该姓名，否则禁止声称用户常看某演员、导演或主创作品。不得用画像标签反推用户看过某一部具体作品。
 
 可配置排序指令：
 {custom_instruction}

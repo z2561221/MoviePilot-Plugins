@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CWVqgGGb.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CCnpKc9N.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
@@ -50,13 +50,22 @@ const statusMeta = computed(() => ({
   recommendation_incomplete: { text: '榜单不足', color: 'warning' },
   agent_failed: { text: 'Agent失败', color: 'error' },
   validation_failed: { text: '校验失败', color: 'error' },
+  profile_agent_failed: { text: '画像生成失败', color: 'error' },
+  profile_validation_failed: { text: '画像校验失败', color: 'error' },
+  candidate_failed: { text: '候选采集失败', color: 'error' },
+  candidate_filter_failed: { text: '候选过滤失败', color: 'error' },
+  candidate_snapshot_failed: { text: '候选快照失败', color: 'error' },
+  ranking_agent_failed: { text: '排序生成失败', color: 'error' },
+  ranking_validation_failed: { text: '排序校验失败', color: 'error' },
+  ranking_save_failed: { text: '榜单保存失败', color: 'error' },
+  runtime_exception: { text: '运行异常', color: 'error' },
   subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
-}[status.value] || { text: '未知状态', color: 'info' }));
+}[status.value] || { text: '运行异常', color: 'error' }));
 
 function formatTime(value) {
   if (!value) return '尚未生成'
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString()
 }
 
 async function initialize() {
@@ -285,6 +294,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9d93047a"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b11bedca"]]);
 
 export { Dashboard as default };

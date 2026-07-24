@@ -111,8 +111,30 @@ class MediaRecognitionAdapter:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _normalize_source_ids(candidate: Any) -> None:
+        """把宿主或旧榜单中的来源 ID 别名收敛为插件内部键。"""
+        source_ids = getattr(candidate, "source_ids", None)
+        if not isinstance(source_ids, dict):
+            return
+        aliases = {
+            "tmdb": ("tmdb_id", "tmdbid", "themoviedb", "themoviedb_id"),
+            "douban": ("douban_id", "doubanid"),
+            "bangumi": ("bangumi_id", "bangumiid", "bgm", "bgm_id"),
+            "anilist": ("anilist_id", "anilistid"),
+        }
+        for canonical, names in aliases.items():
+            if source_ids.get(canonical) not in (None, ""):
+                continue
+            for name in names:
+                value = source_ids.get(name)
+                if value not in (None, ""):
+                    source_ids[canonical] = str(value)
+                    break
+
     def recognize(self, candidate: Candidate) -> Optional[Candidate]:
         """识别候选并仅在获得 TMDB 身份时返回标准条目。"""
+        self._normalize_source_ids(candidate)
         chain_factory, meta_factory, media_type_cls = self._dependencies()
         media_type = self._media_type(candidate, media_type_cls)
         meta = meta_factory(candidate.title)
@@ -224,7 +246,7 @@ class MediaRecognitionAdapter:
         """从 MoviePilot 识别结果补齐可直达的跨来源媒体 ID。"""
         aliases = {
             "douban": ("douban_id", "doubanid"),
-            "bangumi": ("bangumi_id", "bangumiid"),
+            "bangumi": ("bangumi_id", "bangumiid", "bgm_id", "bgmid"),
             "anilist": ("anilist_id", "anilistid"),
             "imdb": ("imdb_id", "imdbid"),
             "tvdb": ("tvdb_id", "tvdbid"),
@@ -242,6 +264,7 @@ class MediaRecognitionAdapter:
         """为已入榜条目按需补齐 MoviePilot 可解析的豆瓣等跨来源 ID。"""
         if not candidate or not hasattr(candidate, "source_ids"):
             return candidate
+        self._normalize_source_ids(candidate)
         if candidate.source_ids.get("douban") or not candidate.source_ids.get("tmdb"):
             return candidate
         chain_factory, _, media_type_cls = self._dependencies()

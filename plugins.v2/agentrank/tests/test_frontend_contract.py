@@ -112,7 +112,7 @@ def test_discovery_page_translates_internal_source_codes():
         ("anilist", "AniList"),
     ):
         assert f"{source}: '{label}'" in app_page
-    assert "sources.map(source => sourceLabels[source] || source).join(' · ')" in app_page
+    assert "sources.map(source => sourceLabels[source] || '其他来源').join(' · ')" in app_page
 
 
 def test_all_ranking_surfaces_use_direct_four_button_actions():
@@ -281,6 +281,38 @@ def test_ranking_actions_keep_labels_and_wrap_without_container_collapse():
     ):
         component = _read(name)
         assert component.index(confidence_class) < component.index("<RecommendationActions", component.index("置信度"))
+
+
+def test_tmdb_only_items_keep_a_douban_search_fallback_and_legacy_id_aliases():
+    """TMDB 条目缺少直达豆瓣 ID 时仍可按片名搜索，并兼容宿主旧字段。"""
+    actions = _read("RecommendationActions.vue")
+    for alias in ("tmdb_id", "themoviedb", "doubanid", "bgm_id"):
+        assert alias in actions
+    assert "props.item?.original_title" in actions
+    assert "Boolean(sourceId.value || doubanSearchText.value)" in actions
+    assert "搜索豆瓣" in actions
+
+
+def test_dashboard_assigns_an_explicit_fourth_action_column_and_mobile_row():
+    """仪表盘显式分配操作列，窄屏降级为整行，避免按钮叠加。"""
+    dashboard = _read("Dashboard.vue")
+    assert "minmax(0, max-content)" in dashboard
+    assert "grid-column: 4; grid-row: 1 / span 2" in dashboard
+    assert ".ar-dashboard__rank, .ar-dashboard__poster { grid-row: 1; }" in dashboard
+    assert "grid-column: 1 / -1; grid-row: 2" in dashboard
+
+
+def test_runtime_history_uses_chinese_fallbacks_for_unknown_internal_codes():
+    """未知阶段、来源和播放状态不再直出内部英文 key。"""
+    page = _read("Page.vue")
+    config = _read("Config.vue")
+    notification = (COMPONENT_DIR.parents[2] / "service" / "notification.py").read_text(encoding="utf-8")
+    for label in ("其他阶段", "其他来源", "其他排除原因", "状态未知", "运行异常"):
+        assert label in page
+    for label in ("播放记录服务", "其他排序", "其他条件", "运行异常"):
+        assert label in config
+    assert "})[value] || '未评估'" in config
+    assert "STATUS_LABELS.get(str(status or ''), '运行异常')" in notification
 
 
 def test_preview_status_selector_uses_chinese_titles_for_internal_codes():

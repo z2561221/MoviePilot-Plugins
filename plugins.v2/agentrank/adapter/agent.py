@@ -3,7 +3,7 @@
 import inspect
 import json
 import re
-from typing import Any, Callable, List, Optional, Type
+from typing import Any, Callable, List, Mapping, Optional, Type
 
 from app.agent import MoviePilotAgent, ReplyMode
 from app.utils.identity import SYSTEM_INTERNAL_USER_ID
@@ -197,6 +197,35 @@ class AgentRankAgentAdapter:
         return text
 
     @classmethod
+    def _text_candidates(cls, value: Any) -> List[str]:
+        """从宿主返回值中提取可能承载最终文本的字符串。"""
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, Mapping):
+            candidates: List[str] = []
+            # MoviePilot 不同版本曾分别使用 text/content/output/result
+            # 承载 process 的最终文本；只读取这些明确的文本槽位。
+            for key in ("text", "content", "output", "result", "message", "data"):
+                if key in value:
+                    candidates.extend(cls._text_candidates(value.get(key)))
+            return candidates
+        if isinstance(value, (tuple, list)):
+            candidates: List[str] = []
+            for item in value:
+                candidates.extend(cls._text_candidates(item))
+            return candidates
+        for name in ("text", "content", "output", "result", "message"):
+            try:
+                item = getattr(value, name, None)
+            except Exception:
+                item = None
+            if item is not None and item is not value:
+                candidates = cls._text_candidates(item)
+                if candidates:
+                    return candidates
+        return []
+
+    @classmethod
     def _is_json_object_text(cls, value: str) -> bool:
         """判断捕获文本是否恰好包含一个完整 JSON 对象。"""
         text = cls._normalize_captured_text(value)
@@ -239,12 +268,18 @@ class AgentRankAgentAdapter:
         )
         try:
             result = await agent.process(str(prompt or ""))
-            candidates = [result, *reversed(captured_outputs)]
-            normalized = [
-                self._normalize_captured_text(value)
-                for value in candidates
-                if isinstance(value, str) and value.strip()
-            ]
+            candidates: List[Any] = [result]
+            # 新版宿主的 CAPTURE_ONLY 路径可能只把最终文本留在 Agent
+            # 自身的流式缓冲区，或以结构化 tuple/dict 返回，而不再完整
+            # 经过 output_callback；这些候选必须在回调碎片之前读取。
+            candidates.append(getattr(agent, "_streamed_output", ""))
+            candidates.extend(reversed(captured_outputs))
+            normalized: List[str] = []
+            for candidate in candidates:
+                for text in self._text_candidates(candidate):
+                    if not isinstance(text, str) or not text.strip():
+                        continue
+                    normalized.append(self._normalize_captured_text(text))
             for text in normalized:
                 if self._is_json_object_text(text):
                     return text

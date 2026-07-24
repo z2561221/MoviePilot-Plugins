@@ -235,6 +235,25 @@ class FakeErrorResultWithJsonCallbackRunner(FakeRunner):
         return "处理消息时发生错误: stale host result"
 
 
+class FakeStreamBufferRunner(FakeRunner):
+    """模拟新版宿主只在 Agent 流式缓冲区保留最终文本。"""
+
+    async def process(self, prompt):
+        """写入 `_streamed_output`，但不触发回调且返回空值。"""
+        self.prompt = prompt
+        self._streamed_output = '{"recommendations": []}'
+        return None
+
+
+class FakeStructuredResultRunner(FakeRunner):
+    """模拟宿主把最终文本包装在结构化返回值中。"""
+
+    async def process(self, prompt):
+        """返回包含 content 文本槽位的结构化结果。"""
+        self.prompt = prompt
+        return {"content": '{"recommendations": []}', "metadata": {"ok": True}}
+
+
 def _trusted_context(run_id="run-1", username="alice", agent_role="ranking"):
     return build_trusted_context(
         username,
@@ -408,6 +427,30 @@ def test_adapter_prefers_valid_callback_json_over_host_error_result():
         )
         == '{"recommendations": []}\n{"recommendations": []}'
     )
+
+
+def test_adapter_reads_host_streamed_output_when_callback_and_process_are_empty():
+    """宿主只保留 `_streamed_output` 时仍应取得最终 JSON。"""
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeStreamBufferRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    output = asyncio.run(adapter.run("rank now", _trusted_context()))
+
+    assert output == '{"recommendations": []}'
+
+
+def test_adapter_reads_structured_process_result_text_slot():
+    """宿主返回 tuple/dict 等结构化结果时读取明确的文本槽位。"""
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeStructuredResultRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    output = asyncio.run(adapter.run("rank now", _trusted_context()))
+
+    assert output == '{"recommendations": []}'
 
 
 def test_profile_role_uses_separate_session_and_single_playback_tool():

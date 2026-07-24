@@ -1,0 +1,35 @@
+
+.ar-dashboard[data-v-b11bedca] { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden;
+}
+.ar-dashboard[data-v-b11bedca] .v-btn--icon { min-width: 40px; min-height: 40px;
+}
+.ar-dashboard__content[data-v-b11bedca] { min-height: 260px;
+}
+.ar-dashboard__list[data-v-b11bedca] { display: flex; flex-direction: column; gap: 7px;
+}
+.ar-dashboard__item[data-v-b11bedca] { min-height: 92px; display: grid; grid-template-columns: 28px 44px minmax(0, 1fr) minmax(0, max-content); grid-template-rows: auto auto; gap: 7px 9px; align-items: center; padding: 7px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px;
+}
+.ar-dashboard__rank[data-v-b11bedca] { grid-row: 1 / span 2; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .12); font-size: 12px; font-weight: 700;
+}
+.ar-dashboard__poster[data-v-b11bedca] { grid-row: 1 / span 2; width: 44px; height: 64px; display: grid; place-items: center; overflow: hidden; border-radius: 4px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05);
+}
+.ar-dashboard__poster[data-v-b11bedca] .v-img { width: 100%; height: 100%;
+}
+.ar-dashboard__poster-error[data-v-b11bedca] { width: 100%; height: 100%; display: grid; place-items: center;
+}
+.ar-dashboard__main[data-v-b11bedca] { min-width: 0;
+}
+.ar-dashboard__controls[data-v-b11bedca] { grid-column: 4; grid-row: 1 / span 2; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px;
+}
+.ar-dashboard__confidence[data-v-b11bedca] { flex: 0 0 auto;
+}
+.ar-dashboard__controls[data-v-b11bedca] .ar-actions { max-width: 100%;
+}
+@media (max-width: 760px) {
+.ar-dashboard__item[data-v-b11bedca] { grid-template-columns: 28px 44px minmax(0, 1fr);
+}
+.ar-dashboard__rank[data-v-b11bedca], .ar-dashboard__poster[data-v-b11bedca] { grid-row: 1;
+}
+.ar-dashboard__controls[data-v-b11bedca] { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start;
+}
+}

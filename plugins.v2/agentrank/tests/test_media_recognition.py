@@ -224,6 +224,28 @@ def test_enrich_cross_source_ids_relaxes_year_when_exact_tmdb_match_is_empty():
     ]
 
 
+def test_enrich_cross_source_ids_accepts_legacy_tmdb_alias():
+    """旧榜单使用 themoviedb 别名时仍能补齐豆瓣入口。"""
+
+    class FakeChain:
+        def get_doubaninfo_by_tmdbid(self, tmdb_id, mtype=None):
+            assert tmdb_id == 902
+            return {"id": "douban-902"}
+
+    candidate = Candidate(
+        candidate_id="tmdb:movie:902",
+        title="旧别名电影",
+        media_type="movie",
+        source_ids={"themoviedb": "902"},
+    )
+    adapter = MediaRecognitionAdapter(FakeChain, FakeMeta, FakeMediaType)
+
+    adapter.enrich_cross_source_ids(candidate)
+
+    assert candidate.source_ids["tmdb"] == "902"
+    assert candidate.source_ids["douban"] == "douban-902"
+
+
 def test_legacy_board_repair_replaces_only_broken_poster_urls():
     """Poster migration preserves ranking identity and skips already valid images."""
     assert BoardPosterRepairService._needs_repair(
@@ -327,6 +349,24 @@ def test_legacy_board_source_repair_persists_douban_id():
     assert result == {"alice": 1}
     assert repository.saved is board
     assert item.source_ids["douban"] == "db-99"
+
+
+def test_recommendation_item_normalizes_legacy_source_id_aliases():
+    """详情榜单兼容旧版顶层与嵌套来源 ID 字段。"""
+    item = RecommendationItem.from_dict(
+        {
+            "candidate_id": "tmdb:tv:903",
+            "rank": 1,
+            "title": "旧字段剧集",
+            "original_name": "Legacy Show",
+            "themoviedb": "903",
+            "source_ids": {"bgm_id": "bgm-903"},
+        }
+    )
+
+    assert item.source_ids["tmdb"] == "903"
+    assert item.source_ids["bangumi"] == "bgm-903"
+    assert item.original_title == "Legacy Show"
 
 
 def test_poster_image_service_returns_bounded_tmdb_thumbnail_url():

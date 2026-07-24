@@ -62,7 +62,8 @@ const statusMetaFor = status => ({
   ranking_agent_failed: { text: '排序生成失败', color: 'error' },
   ranking_validation_failed: { text: '排序校验失败', color: 'error' },
   ranking_save_failed: { text: '榜单保存失败', color: 'error' },
-}[status] || { text: status || '未知', color: 'default' })
+  runtime_exception: { text: '运行异常', color: 'error' },
+  }[status] || { text: '运行异常', color: 'error' })
 
 const historyStageLabels = {
   probe: '依赖探测',
@@ -81,7 +82,7 @@ const historyStageStatusLabels = {
   profile_agent_failed: '画像生成失败', profile_validation_failed: '画像校验失败',
   candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败',
   candidate_snapshot_failed: '候选快照失败', ranking_agent_failed: '排序生成失败',
-  ranking_validation_failed: '排序校验失败', ranking_save_failed: '榜单保存失败',
+  ranking_validation_failed: '排序校验失败', ranking_save_failed: '榜单保存失败', runtime_exception: '运行异常',
 }
 const historySourceLabels = {
   douban: '豆瓣', tmdb: 'TMDB', tmdb_movies: 'TMDB电影', tmdb_tv: 'TMDB剧集',
@@ -91,6 +92,7 @@ const historyExclusionLabels = {
   invalid_or_unrecognized: '未识别', watched: '已观看', watched_completed: '已看完', library: '已入库',
   subscribed: '已订阅', archived: '已忽略', negative_keyword: '排除词',
   ambiguous_playback_count: '播放次数误写为看完次数',
+  unsupported_playback_claim: '观看经历无法回溯',
 }
 
 const tabs = [
@@ -103,11 +105,11 @@ const tabs = [
 function formatTime(value) {
   if (!value) return '—'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString()
 }
 
 function mediaTypeLabel(value) {
-  return ({ movie: '电影', tv: '剧集', anime: '动漫' })[value] || value || '未知'
+  return ({ movie: '电影', tv: '剧集', anime: '动漫' })[value] || '其他类型'
 }
 
 function copyKey(item, field) { return `${item?.candidate_id || item?.rank || ''}:${field}` }
@@ -139,8 +141,8 @@ function historyStages(run) {
   const metrics = run?.metrics || {}
   return (Array.isArray(metrics.stage_order) ? metrics.stage_order : []).map(key => ({
     key,
-    title: historyStageLabels[key] || key,
-    status: historyStageStatusLabels[metrics.stage_status?.[key]] || metrics.stage_status?.[key] || '—',
+    title: historyStageLabels[key] || '其他阶段',
+    status: historyStageStatusLabels[metrics.stage_status?.[key]] || '未记录',
     duration: formatDuration(metrics.stage_ms?.[key]),
     failed: /failed|error|insufficient|validation/i.test(String(metrics.stage_status?.[key] || '')),
   }))
@@ -148,6 +150,12 @@ function historyStages(run) {
 function translateHistoryError(value) {
   let text = String(value || '')
   text = text
+    .replace(/^playback probe:/i, '播放探测：')
+    .replace(/^playback:/i, '播放快照：')
+    .replace(/^profile:/i, '画像阶段：')
+    .replace(/^candidate:/i, '候选阶段：')
+    .replace(/^ranking:/i, '排序阶段：')
+    .replace(/^refill:/i, '补选阶段：')
     .replace(/Agent output must be one JSON object:\s*Expecting value/gi, 'Agent 输出不是有效的 JSON 对象：内容为空或格式错误')
     .replace(/Agent output must be one JSON object/gi, 'Agent 输出不是有效的 JSON 对象')
     .replace(/Agent output must be text/gi, 'Agent 输出不是文本')
@@ -155,6 +163,14 @@ function translateHistoryError(value) {
     .replace(/Extra data/gi, '存在多余内容')
     .replace(/Invalid control character/gi, '包含无效控制字符')
     .replace(/Unterminated string/gi, '字符串未闭合')
+    .replace(/profile_validation_failed/gi, '画像校验失败')
+    .replace(/ranking_validation_failed/gi, '排序校验失败')
+    .replace(/candidate_insufficient/gi, '候选不足')
+    .replace(/recommendation_incomplete/gi, '榜单不足')
+    .replace(/ambiguous_playback_count/gi, '播放次数误写为看完次数')
+    .replace(/unsupported_playback_claim/gi, '观看经历无法回溯')
+    .replace(/Agent did not produce a JSON object/gi, 'Agent 输出不是有效的 JSON 对象')
+    .replace(/Agent did not produce text output/gi, 'Agent 输出不是文本')
   return text
 }
 function historyErrorText(run) {
@@ -173,14 +189,14 @@ function historyErrorText(run) {
 }
 function historySourceText(run) {
   const sources = run?.metrics?.candidate_source_counts || run?.metrics?.fetched_source_counts || {}
-  return Object.entries(sources).map(([key, value]) => `${historySourceLabels[key] || key} ${value}`).join('、') || '无来源统计'
+  return Object.entries(sources).map(([key, value]) => `${historySourceLabels[key] || '其他来源'} ${value}`).join('、') || '无来源统计'
 }
 function historyExclusionText(run) {
   const exclusions = run?.metrics?.candidate_exclusion_counts || {}
-  return Object.entries(exclusions).map(([key, value]) => `${historyExclusionLabels[key] || key} ${value}`).join('、') || '无'
+  return Object.entries(exclusions).map(([key, value]) => `${historyExclusionLabels[key] || '其他排除原因'} ${value}`).join('、') || '无'
 }
 function historyPlaybackStatus(value) {
-  return ({ ready: '已就绪', cached: '使用缓存', disabled: '已停用', error: '失败', transient_error: '临时错误' })[value] || value || '未知'
+  return ({ ready: '已就绪', cached: '使用缓存', disabled: '已停用', error: '失败', transient_error: '临时错误' })[value] || '状态未知'
 }
 
 async function initialize() {
@@ -475,7 +491,7 @@ onMounted(initialize)
           <div class="ar-page__section-head">
             <div>
               <div class="ar-page__section-title">运行历史</div>
-              <div class="ar-page__section-desc">查看候选数量、Agent 调用与自动订阅结果。</div>
+              <div class="ar-page__section-desc">按结果、耗时、阶段和候选统计查看每次运行。</div>
             </div>
             <VChip size="small" variant="tonal">{{ state.historyMeta.value.total || 0 }} 次</VChip>
           </div>
@@ -494,11 +510,11 @@ onMounted(initialize)
                     {{ statusMetaFor(run.status).text }}
                   </VChip>
                 </div>
-                <div class="ar-page__history-message">{{ run.message || '本轮运行已记录' }}</div>
+                <div class="ar-page__history-message"><span class="ar-page__history-message-label">结果：</span>{{ translateHistoryError(run.message || '本轮运行已记录') }}</div>
                 <div class="ar-page__history-metrics">
-                  <div><strong>{{ run.metrics?.candidate_count ?? 0 }}</strong><span>候选</span></div>
-                  <div><strong>{{ run.metrics?.final_count ?? 0 }}</strong><span>推荐</span></div>
-                  <div><strong>{{ run.metrics?.agent_calls ?? 0 }}</strong><span>Agent调用</span></div>
+                  <div><strong>{{ run.metrics?.candidate_count ?? 0 }}</strong><span>候选条目</span></div>
+                  <div><strong>{{ run.metrics?.final_count ?? 0 }}</strong><span>安全推荐</span></div>
+                  <div><strong>{{ run.metrics?.agent_calls ?? 0 }}</strong><span>模型调用</span></div>
                   <div><strong>{{ run.metrics?.subscription_success_count ?? 0 }}</strong><span>自动订阅</span></div>
                 </div>
                 <div v-if="historyStages(run).length" class="ar-page__history-pipeline">
@@ -519,6 +535,7 @@ onMounted(initialize)
                 </div>
                 <div v-if="isHistoryExpanded(run)" class="ar-page__history-details">
                   <div><span>运行编号</span><code>{{ run.run_id || '—' }}</code></div>
+                  <div><span>画像调用</span><span>{{ run.metrics?.profile_agent_calls ?? 0 }} 次；排序 {{ run.metrics?.ranking_agent_calls ?? 0 }} 次</span></div>
                   <div><span>播放快照</span><span>{{ run.metrics?.playback_count ?? 0 }} 条，{{ historyPlaybackStatus(run.metrics?.playback_status) }}</span></div>
                   <div><span>候选排除</span><span>{{ historyExclusionText(run) }}</span></div>
                 </div>
@@ -618,18 +635,19 @@ onMounted(initialize)
 .ar-page__history-time { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
 .ar-page__history-time strong { font-size: 13px; }
 .ar-page__history-time span, .ar-page__history-footer { color: rgba(var(--v-theme-on-surface), .55); font-size: 11px; }
-.ar-page__history-message { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .72); font-size: 12px; line-height: 1.5; }
+.ar-page__history-message { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .78); font-size: 12px; line-height: 1.55; }
+.ar-page__history-message-label { color: rgb(var(--v-theme-primary)); font-weight: 600; }
 .ar-page__history-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 10px; overflow: hidden; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .68)); border-radius: 8px; }
 .ar-page__history-metrics > div { display: flex; align-items: baseline; justify-content: center; gap: 4px; padding: 8px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .58)); }
 .ar-page__history-metrics > div:last-child { border-right: 0; }
 .ar-page__history-metrics strong { font-size: 15px; }
-.ar-page__history-metrics span { color: rgba(var(--v-theme-on-surface), .55); font-size: 10px; }
+.ar-page__history-metrics span { color: rgba(var(--v-theme-on-surface), .6); font-size: 11px; }
 .ar-page__history-pipeline { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); gap: 6px; margin-top: 10px; overflow-x: auto; }
 .ar-page__history-stage { min-width: 90px; display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 8px; background: rgba(var(--v-theme-success), .055); }
 .ar-page__history-stage--failed { background: rgba(var(--v-theme-error), .07); }
 .ar-page__history-stage strong, .ar-page__history-stage small { display: block; white-space: nowrap; }
-.ar-page__history-stage strong { font-size: 10px; }
-.ar-page__history-stage small { margin-top: 1px; color: rgba(var(--v-theme-on-surface), .52); font-size: 9px; }
+.ar-page__history-stage strong { font-size: 11px; }
+.ar-page__history-stage small { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .58); font-size: 10px; }
 .ar-page__history-error { display: flex; align-items: flex-start; gap: 6px; margin-top: 9px; padding: 7px 9px; border-radius: 8px; color: rgb(var(--v-theme-error)); background: rgba(var(--v-theme-error), .065); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
 .ar-page__history-error--ok { color: rgba(var(--v-theme-on-surface), .62); background: rgba(var(--v-theme-on-surface), .035); }
 .ar-page__history-footer { margin-top: 6px; }

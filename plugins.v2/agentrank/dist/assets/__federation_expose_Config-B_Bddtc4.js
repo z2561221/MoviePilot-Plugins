@@ -260,7 +260,7 @@ const selectedLibraryIds = computed({
 const latestMetrics = computed(() => overview.value?.latest_run?.metrics || {});
 const currentPlayback = computed(() => overview.value?.playback || status.value.playback || null);
 const currentEnablement = computed(() => overview.value?.enablement || status.value.enablement || null);
-const runtimeStateText = computed(() => ({ ready: '运行中', blocked: '已阻断', stopped: '已停用' })[status.value.state] || status.value.state || '未知');
+const runtimeStateText = computed(() => ({ ready: '运行中', blocked: '已阻断', stopped: '已停用' })[status.value.state] || '未知状态');
 const runtimeStateColor = computed(() => ({ ready: 'success', blocked: 'error', stopped: 'default' })[status.value.state] || 'warning');
 const playbackMappingRate = computed(() => {
   const mapped = Number(currentPlayback.value?.mapped_count || 0);
@@ -289,8 +289,8 @@ const sourceDefs = computed(() => {
   return keys.map(key => ({
     key,
     ...(sourceMeta[key] || {
-      title: key,
-      subtitle: 'MoviePilot 来源',
+      title: '其他来源',
+      subtitle: 'MoviePilot 内置来源',
       icon: 'mdi-database-outline',
     }),
   }))
@@ -298,7 +298,7 @@ const sourceDefs = computed(() => {
 
 function displayValue(value) {
   if (Array.isArray(value)) return value.join('、') || '无'
-  if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${key}:${item}`).join('、') || '无'
+  if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${filterLabel(key)}：${item}`).join('、') || '无'
   return String(value ?? '') || '无'
 }
 
@@ -309,7 +309,7 @@ const stageLabels = {
   profile_agent_failed: '画像 Agent 调用失败', profile_validation_failed: '画像输出校验失败', profile_save_failed: '画像保存失败',
   candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败', candidate_snapshot_failed: '候选快照失败',
   ranking_agent_failed: '排序 Agent 调用失败', ranking_validation_failed: '排序输出校验失败', ranking_save_failed: '榜单保存失败',
-  subscription_partial_failed: '部分订阅失败', validation_failed: '输出校验失败', agent_failed: 'Agent 调用失败', failed: '失败', blocked: '已阻断',
+  subscription_partial_failed: '部分订阅失败', validation_failed: '输出校验失败', agent_failed: 'Agent 调用失败', runtime_exception: '运行异常', failed: '失败', blocked: '已阻断',
 };
 const filterLabels = {
   media_types: '媒体类型',
@@ -327,28 +327,31 @@ const filterLabels = {
   sort_by: '排序方式',
 };
 const sourceLabels = { douban: '豆瓣发现', tmdb: 'TMDB', tmdb_recommend: 'TMDB 推荐', tmdb_movies: 'TMDB 电影', tmdb_tv: 'TMDB 剧集', bangumi: 'Bangumi', anilist: 'AniList' };
-const exclusionLabels = { invalid_or_unrecognized: '无效或未识别', watched: '已观看', watched_completed: '已看完', library: '已入库', subscribed: '已订阅', archived: '已忽略', negative_keyword: '排除关键词' };
+const exclusionLabels = { invalid_or_unrecognized: '无效或未识别', watched: '已观看', watched_completed: '已看完', library: '已入库', subscribed: '已订阅', archived: '已忽略', negative_keyword: '排除关键词', ambiguous_playback_count: '播放次数误写为看完次数', unsupported_playback_claim: '观看经历无法回溯' };
 const mediaTypeLabels = { movie: '电影', tv: '剧集', anime: '动漫' };
 const languageLabels = { zh: '中文', ja: '日语', ko: '韩语', en: '英语', fr: '法语', de: '德语', es: '西班牙语', it: '意大利语', ru: '俄语', th: '泰语' };
 const sortLabels = { 'popularity.desc': '热度降序', 'vote_average.desc': '评分降序', 'primary_release_date.desc': '上映日期降序', 'first_air_date.desc': '首播日期降序' };
-function sourceLabel(value) { return sourceLabels[value] || value }
-function exclusionLabel(value) { return exclusionLabels[value] || value }
-function filterLabel(value) { return filterLabels[value] || value }
+function sourceLabel(value) { return sourceLabels[value] || '其他来源' }
+function exclusionLabel(value) { return exclusionLabels[value] || '其他排除原因' }
+function filterLabel(value) { return filterLabels[value] || '其他条件' }
 function formatFilterValue(key, value) {
-  if (key === 'media_types' && Array.isArray(value)) return value.map(item => mediaTypeLabels[item] || item)
-  if ((key === 'original_languages' || key === 'languages') && Array.isArray(value)) return value.map(item => languageLabels[item] || item)
-  if (key === 'sort_by') return sortLabels[value] || value
+  if (key === 'media_types' && Array.isArray(value)) return value.map(item => mediaTypeLabels[item] || '其他类型')
+  if ((key === 'original_languages' || key === 'languages') && Array.isArray(value)) return value.map(item => {
+    const legacyLabel = languageLabels[item] || item;
+    return languageLabels[item] ? legacyLabel : '其他语言'
+  })
+  if (key === 'sort_by') return sortLabels[value] || '其他排序'
   return value
 }
 function formatDateTime(value) {
   if (!value) return '尚未同步'
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  return Number.isNaN(date.getTime()) ? '时间未知' : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
 function stageStatus(step) {
   const value = latestMetrics.value.stage_status?.[step.key] || '';
-  return stageLabels[value] || value
+  return stageLabels[value] || '未记录'
 }
 
 function stageDuration(step) {
@@ -358,7 +361,15 @@ function stageDuration(step) {
   return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} 秒`
 }
 
-function runStatusText(value) { return stageLabels[value] || value || '未知' }
+function runStatusText(value) { return stageLabels[value] || '运行异常' }
+
+function playbackSourceLabel(value) {
+  return ({ playback_reporting: '播放记录服务', emby_native: '播放记录服务', unavailable: '不可用' })[value] || '播放记录服务'
+}
+
+function playbackConfidenceLabel(value) {
+  return ({ high: '高', medium: '中', low: '低' })[value] || '未评估'
+}
 
 function cloneConfig(value) {
   return JSON.parse(JSON.stringify(value || {}))
@@ -685,7 +696,7 @@ return (_ctx, _cache) => {
                       _createElementVNode("div", _hoisted_11, [
                         _createElementVNode("span", null, _toDisplayString(step.title), 1),
                         _createElementVNode("small", null, [
-                          _createTextVNode(_toDisplayString(stageStatus(step) || '待运行'), 1),
+                          _createTextVNode(_toDisplayString(stageStatus(step)), 1),
                           (stageDuration(step))
                             ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
                                 _createTextVNode(" · " + _toDisplayString(stageDuration(step)), 1)
@@ -1051,7 +1062,7 @@ return (_ctx, _cache) => {
                             variant: "outlined"
                           }, {
                             default: _withCtx(() => [
-                              _createTextVNode(_toDisplayString(currentPlayback.value.source), 1)
+                              _createTextVNode(_toDisplayString(playbackSourceLabel(currentPlayback.value.source)), 1)
                             ]),
                             _: 1
                           }))
@@ -1063,7 +1074,7 @@ return (_ctx, _cache) => {
                             variant: "outlined"
                           }, {
                             default: _withCtx(() => [
-                              _createTextVNode(_toDisplayString(currentPlayback.value.confidence), 1)
+                              _createTextVNode(_toDisplayString(playbackConfidenceLabel(currentPlayback.value.confidence)), 1)
                             ]),
                             _: 1
                           }))
@@ -1171,7 +1182,18 @@ return (_ctx, _cache) => {
                 [_vShow, activeMain.value === 'playback']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_40, [
-                _cache[48] || (_cache[48] = _createElementVNode("div", { class: "ar-config__section-title" }, "发现来源", -1)),
+                _cache[49] || (_cache[49] = _createElementVNode("div", { class: "ar-config__section-title" }, "发现来源", -1)),
+                _createVNode(_component_VAlert, {
+                  type: "info",
+                  variant: "tonal",
+                  density: "compact",
+                  class: "mb-4"
+                }, {
+                  default: _withCtx(() => [...(_cache[48] || (_cache[48] = [
+                    _createTextVNode("来源列表会探测已适配的 MoviePilot 能力（包括 AniList）；宿主未来新增但未声明统一契约的来源不会被自动执行，需完成安全适配后才会显示。", -1)
+                  ]))]),
+                  _: 1
+                }),
                 _createElementVNode("div", _hoisted_41, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(sourceDefs.value, (source) => {
                     return (_openBlock(), _createBlock(_component_VCard, {
@@ -1230,13 +1252,13 @@ return (_ctx, _cache) => {
                 [_vShow, activeMain.value === 'sources']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_42, [
-                _cache[50] || (_cache[50] = _createElementVNode("div", { class: "ar-config__section-title" }, "权重设置", -1)),
+                _cache[51] || (_cache[51] = _createElementVNode("div", { class: "ar-config__section-title" }, "权重设置", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
                   variant: "tonal",
                   class: "mb-4"
                 }, {
-                  default: _withCtx(() => [...(_cache[49] || (_cache[49] = [
+                  default: _withCtx(() => [...(_cache[50] || (_cache[50] = [
                     _createTextVNode("Config 是权重唯一写入口；数值越高，Agent 排序时越重视该维度。", -1)
                   ]))]),
                   _: 1
@@ -1285,7 +1307,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeMain.value === 'weights']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_47, [
-                _cache[51] || (_cache[51] = _createElementVNode("div", { class: "ar-config__section-title" }, "条件筛选", -1)),
+                _cache[52] || (_cache[52] = _createElementVNode("div", { class: "ar-config__section-title" }, "条件筛选", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1369,7 +1391,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeMain.value === 'filter']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_49, [
-                _cache[52] || (_cache[52] = _createElementVNode("div", { class: "ar-config__section-title" }, "榜单行为", -1)),
+                _cache[53] || (_cache[53] = _createElementVNode("div", { class: "ar-config__section-title" }, "榜单行为", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1463,7 +1485,7 @@ return (_ctx, _cache) => {
               _withDirectives(_createElementVNode("div", _hoisted_50, [
                 (activeAdvanced.value === 'runtime')
                   ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
-                      _cache[55] || (_cache[55] = _createElementVNode("div", { class: "ar-config__section-title" }, "运行设置", -1)),
+                      _cache[56] || (_cache[56] = _createElementVNode("div", { class: "ar-config__section-title" }, "运行设置", -1)),
                       _createVNode(_component_VRow, null, {
                         default: _withCtx(() => [
                           _createVNode(_component_VCol, {
@@ -1562,14 +1584,14 @@ return (_ctx, _cache) => {
                         variant: "tonal",
                         class: "mt-4"
                       }, {
-                        default: _withCtx(() => [...(_cache[53] || (_cache[53] = [
+                        default: _withCtx(() => [...(_cache[54] || (_cache[54] = [
                           _createTextVNode("画像缓存开启且关闭每次重建时，Agent 会在播放快照未变化时复用当前画像；每次重建开启或缓存关闭时，按冻结的 Playback Reporting 快照重新生成。", -1)
                         ]))]),
                         _: 1
                       }),
                       _createElementVNode("div", _hoisted_51, [
                         _createElementVNode("div", null, [
-                          _cache[54] || (_cache[54] = _createElementVNode("div", { class: "ar-config__danger-title" }, "清除画像", -1)),
+                          _cache[55] || (_cache[55] = _createElementVNode("div", { class: "ar-config__danger-title" }, "清除画像", -1)),
                           _createElementVNode("div", _hoisted_52, "清除默认画像身份“" + _toDisplayString(selectedIdentity.value?.username || '未选择') + "”的画像与榜单，不影响 MoviePilot 订阅和归档。", 1)
                         ]),
                         _createVNode(_component_VSwitch, {
@@ -1588,7 +1610,7 @@ return (_ctx, _cache) => {
                     ], 64))
                   : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
                       _createElementVNode("div", _hoisted_53, [
-                        _cache[57] || (_cache[57] = _createElementVNode("div", { class: "ar-config__section-title mb-0" }, "提示设置", -1)),
+                        _cache[58] || (_cache[58] = _createElementVNode("div", { class: "ar-config__section-title mb-0" }, "提示设置", -1)),
                         _createVNode(_component_VSpacer),
                         _createVNode(_component_VBtn, {
                           variant: "text",
@@ -1597,7 +1619,7 @@ return (_ctx, _cache) => {
                           size: "small",
                           onClick: restoreAgentPrompt
                         }, {
-                          default: _withCtx(() => [...(_cache[56] || (_cache[56] = [
+                          default: _withCtx(() => [...(_cache[57] || (_cache[57] = [
                             _createTextVNode("恢复默认", -1)
                           ]))]),
                           _: 1
@@ -1619,7 +1641,7 @@ return (_ctx, _cache) => {
                         variant: "tonal",
                         class: "mt-4"
                       }, {
-                        default: _withCtx(() => [...(_cache[58] || (_cache[58] = [
+                        default: _withCtx(() => [...(_cache[59] || (_cache[59] = [
                           _createTextVNode("该提示词只调整冻结候选池内的排序与文案风格；画像生成提示、只读工具边界和 JSON 输出协议由插件固定保留。", -1)
                         ]))]),
                         _: 1
@@ -1648,7 +1670,7 @@ return (_ctx, _cache) => {
               variant: "text",
               onClick: _cache[26] || (_cache[26] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[59] || (_cache[59] = [
+              default: _withCtx(() => [...(_cache[60] || (_cache[60] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -1659,7 +1681,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-content-save-outline",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[60] || (_cache[60] = [
+              default: _withCtx(() => [...(_cache[61] || (_cache[61] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -1680,7 +1702,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCard, null, {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, null, {
-              default: _withCtx(() => [...(_cache[61] || (_cache[61] = [
+              default: _withCtx(() => [...(_cache[62] || (_cache[62] = [
                 _createTextVNode("清除用户画像？", -1)
               ]))]),
               _: 1
@@ -1699,7 +1721,7 @@ return (_ctx, _cache) => {
                   disabled: clearProfileLoading.value,
                   onClick: cancelClearProfile
                 }, {
-                  default: _withCtx(() => [...(_cache[62] || (_cache[62] = [
+                  default: _withCtx(() => [...(_cache[63] || (_cache[63] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -1710,7 +1732,7 @@ return (_ctx, _cache) => {
                   loading: clearProfileLoading.value,
                   onClick: confirmClearProfile
                 }, {
-                  default: _withCtx(() => [...(_cache[63] || (_cache[63] = [
+                  default: _withCtx(() => [...(_cache[64] || (_cache[64] = [
                     _createTextVNode("确认清除", -1)
                   ]))]),
                   _: 1
@@ -1739,6 +1761,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8ed77881"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2b8808fc"]]);
 
 export { Config as default };

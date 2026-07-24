@@ -44,9 +44,15 @@ const statusMeta = computed(() => {
     recommendation_incomplete: { text: '榜单不足', color: 'warning', icon: 'mdi-format-list-numbered' },
     agent_failed: { text: 'Agent失败', color: 'error', icon: 'mdi-robot-confused-outline' },
     validation_failed: { text: '校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
+    profile_agent_failed: { text: '画像生成失败', color: 'error', icon: 'mdi-account-alert-outline' },
+    profile_validation_failed: { text: '画像校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
+    ranking_agent_failed: { text: '排序生成失败', color: 'error', icon: 'mdi-robot-confused-outline' },
+    ranking_validation_failed: { text: '排序校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
+    candidate_failed: { text: '候选采集失败', color: 'error', icon: 'mdi-compass-off-outline' },
+    candidate_filter_failed: { text: '候选过滤失败', color: 'error', icon: 'mdi-filter-remove-outline' },
     subscription_partial_failed: { text: '部分订阅失败', color: 'warning', icon: 'mdi-alert-circle-outline' },
   }
-  return map[boardStatus.value] || { text: '未知状态', color: 'info', icon: 'mdi-information-outline' }
+  return map[boardStatus.value] || { text: '运行异常', color: 'error', icon: 'mdi-alert-circle-outline' }
 })
 
 const stateMessage = computed(() => {
@@ -57,6 +63,12 @@ const stateMessage = computed(() => {
     recommendation_incomplete: `本轮仅生成 ${recommendations.value.length} 条安全推荐。`,
     agent_failed: '本轮 Agent 调用失败，正在展示上一次成功榜单。',
     validation_failed: '本轮输出未通过安全校验，旧榜单已保留。',
+    profile_agent_failed: '画像生成失败，旧画像与旧榜单已保留。',
+    profile_validation_failed: '画像输出校验失败，旧画像与旧榜单已保留。',
+    ranking_agent_failed: '排序 Agent 调用失败，旧榜单已保留。',
+    ranking_validation_failed: '排序输出校验失败，旧榜单已保留。',
+    candidate_failed: '候选采集失败，请检查发现来源。',
+    candidate_filter_failed: '候选过滤失败，旧榜单已保留。',
     subscription_partial_failed: '部分自动订阅失败，成功项不受影响。',
   }
   return messages[boardStatus.value] || ''
@@ -65,11 +77,11 @@ const stateMessage = computed(() => {
 function formatTime(value) {
   if (!value) return '尚未生成'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString()
 }
 
 function mediaTypeLabel(value) {
-  return { movie: '电影', tv: '剧集', anime: '动漫' }[value] || '媒体'
+  return { movie: '电影', tv: '剧集', anime: '动漫' }[value] || '其他类型'
 }
 
 const sourceLabels = {
@@ -84,7 +96,8 @@ const sourceLabels = {
 
 function sourceLabel(item) {
   const sources = item?.sources || Object.keys(item?.source_ids || {})
-  return sources.length ? sources.map(source => sourceLabels[source] || source).join(' · ') : 'MP 发现'
+  if (!sources.length) return 'MP 发现'
+  return sources.map(source => sourceLabels[source] || '其他来源').join(' · ')
 }
 
 function posterSource(item) {

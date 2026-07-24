@@ -28,6 +28,9 @@ ConfigValidationError = config_module.ConfigValidationError
 WEIGHT_DEFAULTS = config_module.WEIGHT_DEFAULTS
 DEFAULT_AGENT_PROMPT = config_module.DEFAULT_AGENT_PROMPT
 LEGACY_DEFAULT_AGENT_PROMPT = config_module.LEGACY_DEFAULT_AGENT_PROMPT
+LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT = (
+    config_module.LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT
+)
 normalize_config = config_module.normalize_config
 default_config = config_module.default_config
 UserProfile = profile_module.UserProfile
@@ -253,6 +256,9 @@ def test_legacy_default_prompt_migrates_without_overwriting_custom_prompt():
     custom = "只推荐我没看过的冷门历史剧。"
 
     assert normalize_config({"agent_prompt": LEGACY_DEFAULT_AGENT_PROMPT})[
+        "agent_prompt"
+    ] == DEFAULT_AGENT_PROMPT
+    assert normalize_config({"agent_prompt": LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT})[
         "agent_prompt"
     ] == DEFAULT_AGENT_PROMPT
     assert normalize_config({"agent_prompt": custom})["agent_prompt"] == custom

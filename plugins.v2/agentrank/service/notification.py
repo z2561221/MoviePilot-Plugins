@@ -31,6 +31,8 @@ STATUS_LABELS = {
     "ranking_validation_failed": "排序输出校验失败",
     "ranking_save_failed": "榜单保存失败",
     "subscription_partial_failed": "部分订阅失败",
+    "runtime_exception": "运行异常",
+    "playback_reporting": "播放记录服务",
     "validation_failed": "输出校验失败",
     "agent_failed": "Agent 调用失败",
     "failed": "运行失败",
@@ -123,7 +125,7 @@ class NotificationService:
         """向目标用户发送一次简洁的 Agent 运行异常通知。"""
         reason = _compact_text(_safe_notice_text(message), 240) or "未知异常"
         lines = [
-            f"状态：{STATUS_LABELS.get(str(status or ''), _compact_text(status, 48))}",
+            f"状态：{STATUS_LABELS.get(str(status or ''), '运行异常')}",
             f"运行 ID：{_compact_text(run_id, 64) or '未生成'}",
             f"原因：{reason}",
             "旧榜单：已保留" if old_board_preserved else "旧榜单：无可用数据",

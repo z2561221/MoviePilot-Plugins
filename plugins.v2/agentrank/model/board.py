@@ -21,6 +21,7 @@ class RecommendationItem:
     poster_path: str = ""
     backdrop_path: str = ""
     match_tags: List[str] = field(default_factory=list)
+    original_title: str = ""
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RecommendationItem":
@@ -30,6 +31,23 @@ class RecommendationItem:
         candidate_id = str(value.get("candidate_id") or "").strip()
         if not candidate_id:
             raise ValueError("recommendation candidate_id is required")
+        raw_source_ids = dict(value.get("source_ids") or {})
+        source_aliases = {
+            "tmdb": ("tmdb", "tmdb_id", "tmdbid", "themoviedb", "themoviedb_id"),
+            "douban": ("douban", "douban_id", "doubanid"),
+            "bangumi": ("bangumi", "bangumi_id", "bangumiid", "bgm", "bgm_id"),
+            "anilist": ("anilist", "anilist_id", "anilistid"),
+        }
+        for canonical, aliases in source_aliases.items():
+            if raw_source_ids.get(canonical) not in (None, ""):
+                continue
+            for alias in aliases:
+                value_for_alias = value.get(alias)
+                if value_for_alias in (None, ""):
+                    value_for_alias = raw_source_ids.get(alias)
+                if value_for_alias not in (None, ""):
+                    raw_source_ids[canonical] = str(value_for_alias)
+                    break
         return cls(
             candidate_id=candidate_id,
             rank=max(1, int(value.get("rank") or 1)),
@@ -37,13 +55,14 @@ class RecommendationItem:
             reason=str(value.get("reason") or ""),
             confidence=float(value.get("confidence") or 0.0),
             title=str(value.get("title") or ""),
+            original_title=str(value.get("original_title") or value.get("original_name") or ""),
             media_type=str(value.get("media_type") or "unknown"),
             year=(
                 int(value.get("year"))
                 if value.get("year") not in (None, "")
                 else None
             ),
-            source_ids=dict(value.get("source_ids") or {}),
+            source_ids=raw_source_ids,
             sources=[str(item) for item in value.get("sources") or []],
             poster_path=str(value.get("poster_path") or ""),
             backdrop_path=str(value.get("backdrop_path") or ""),

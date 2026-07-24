@@ -170,7 +170,7 @@ const selectedLibraryIds = computed({
 const latestMetrics = computed(() => overview.value?.latest_run?.metrics || {})
 const currentPlayback = computed(() => overview.value?.playback || status.value.playback || null)
 const currentEnablement = computed(() => overview.value?.enablement || status.value.enablement || null)
-const runtimeStateText = computed(() => ({ ready: '运行中', blocked: '已阻断', stopped: '已停用' })[status.value.state] || status.value.state || '未知')
+const runtimeStateText = computed(() => ({ ready: '运行中', blocked: '已阻断', stopped: '已停用' })[status.value.state] || '未知状态')
 const runtimeStateColor = computed(() => ({ ready: 'success', blocked: 'error', stopped: 'default' })[status.value.state] || 'warning')
 const playbackMappingRate = computed(() => {
   const mapped = Number(currentPlayback.value?.mapped_count || 0)
@@ -199,8 +199,8 @@ const sourceDefs = computed(() => {
   return keys.map(key => ({
     key,
     ...(sourceMeta[key] || {
-      title: key,
-      subtitle: 'MoviePilot 来源',
+      title: '其他来源',
+      subtitle: 'MoviePilot 内置来源',
       icon: 'mdi-database-outline',
     }),
   }))
@@ -208,7 +208,7 @@ const sourceDefs = computed(() => {
 
 function displayValue(value) {
   if (Array.isArray(value)) return value.join('、') || '无'
-  if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${key}:${item}`).join('、') || '无'
+  if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${filterLabel(key)}：${item}`).join('、') || '无'
   return String(value ?? '') || '无'
 }
 
@@ -219,7 +219,7 @@ const stageLabels = {
   profile_agent_failed: '画像 Agent 调用失败', profile_validation_failed: '画像输出校验失败', profile_save_failed: '画像保存失败',
   candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败', candidate_snapshot_failed: '候选快照失败',
   ranking_agent_failed: '排序 Agent 调用失败', ranking_validation_failed: '排序输出校验失败', ranking_save_failed: '榜单保存失败',
-  subscription_partial_failed: '部分订阅失败', validation_failed: '输出校验失败', agent_failed: 'Agent 调用失败', failed: '失败', blocked: '已阻断',
+  subscription_partial_failed: '部分订阅失败', validation_failed: '输出校验失败', agent_failed: 'Agent 调用失败', runtime_exception: '运行异常', failed: '失败', blocked: '已阻断',
 }
 const filterLabels = {
   media_types: '媒体类型',
@@ -237,28 +237,31 @@ const filterLabels = {
   sort_by: '排序方式',
 }
 const sourceLabels = { douban: '豆瓣发现', tmdb: 'TMDB', tmdb_recommend: 'TMDB 推荐', tmdb_movies: 'TMDB 电影', tmdb_tv: 'TMDB 剧集', bangumi: 'Bangumi', anilist: 'AniList' }
-const exclusionLabels = { invalid_or_unrecognized: '无效或未识别', watched: '已观看', watched_completed: '已看完', library: '已入库', subscribed: '已订阅', archived: '已忽略', negative_keyword: '排除关键词' }
+const exclusionLabels = { invalid_or_unrecognized: '无效或未识别', watched: '已观看', watched_completed: '已看完', library: '已入库', subscribed: '已订阅', archived: '已忽略', negative_keyword: '排除关键词', ambiguous_playback_count: '播放次数误写为看完次数', unsupported_playback_claim: '观看经历无法回溯' }
 const mediaTypeLabels = { movie: '电影', tv: '剧集', anime: '动漫' }
 const languageLabels = { zh: '中文', ja: '日语', ko: '韩语', en: '英语', fr: '法语', de: '德语', es: '西班牙语', it: '意大利语', ru: '俄语', th: '泰语' }
 const sortLabels = { 'popularity.desc': '热度降序', 'vote_average.desc': '评分降序', 'primary_release_date.desc': '上映日期降序', 'first_air_date.desc': '首播日期降序' }
-function sourceLabel(value) { return sourceLabels[value] || value }
-function exclusionLabel(value) { return exclusionLabels[value] || value }
-function filterLabel(value) { return filterLabels[value] || value }
+function sourceLabel(value) { return sourceLabels[value] || '其他来源' }
+function exclusionLabel(value) { return exclusionLabels[value] || '其他排除原因' }
+function filterLabel(value) { return filterLabels[value] || '其他条件' }
 function formatFilterValue(key, value) {
-  if (key === 'media_types' && Array.isArray(value)) return value.map(item => mediaTypeLabels[item] || item)
-  if ((key === 'original_languages' || key === 'languages') && Array.isArray(value)) return value.map(item => languageLabels[item] || item)
-  if (key === 'sort_by') return sortLabels[value] || value
+  if (key === 'media_types' && Array.isArray(value)) return value.map(item => mediaTypeLabels[item] || '其他类型')
+  if ((key === 'original_languages' || key === 'languages') && Array.isArray(value)) return value.map(item => {
+    const legacyLabel = languageLabels[item] || item
+    return languageLabels[item] ? legacyLabel : '其他语言'
+  })
+  if (key === 'sort_by') return sortLabels[value] || '其他排序'
   return value
 }
 function formatDateTime(value) {
   if (!value) return '尚未同步'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  return Number.isNaN(date.getTime()) ? '时间未知' : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
 function stageStatus(step) {
   const value = latestMetrics.value.stage_status?.[step.key] || ''
-  return stageLabels[value] || value
+  return stageLabels[value] || '未记录'
 }
 
 function stageDuration(step) {
@@ -268,7 +271,15 @@ function stageDuration(step) {
   return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} 秒`
 }
 
-function runStatusText(value) { return stageLabels[value] || value || '未知' }
+function runStatusText(value) { return stageLabels[value] || '运行异常' }
+
+function playbackSourceLabel(value) {
+  return ({ playback_reporting: '播放记录服务', emby_native: '播放记录服务', unavailable: '不可用' })[value] || '播放记录服务'
+}
+
+function playbackConfidenceLabel(value) {
+  return ({ high: '高', medium: '中', low: '低' })[value] || '未评估'
+}
 
 function cloneConfig(value) {
   return JSON.parse(JSON.stringify(value || {}))
@@ -577,8 +588,8 @@ onMounted(loadRuntime)
               >
                 <div class="d-flex align-center flex-wrap ga-2">
                   <strong>{{ playbackStatusText(currentPlayback) }}</strong>
-                  <VChip v-if="currentPlayback?.source" size="x-small" variant="outlined">{{ currentPlayback.source }}</VChip>
-                  <VChip v-if="currentPlayback?.confidence" size="x-small" variant="outlined">{{ currentPlayback.confidence }}</VChip>
+                  <VChip v-if="currentPlayback?.source" size="x-small" variant="outlined">{{ playbackSourceLabel(currentPlayback.source) }}</VChip>
+                  <VChip v-if="currentPlayback?.confidence" size="x-small" variant="outlined">{{ playbackConfidenceLabel(currentPlayback.confidence) }}</VChip>
                 </div>
                 <div class="mt-1">{{ currentEnablement?.message || currentPlayback?.message || 'Playback Reporting 是硬依赖；未安装或无权限时插件无法开启。' }}</div>
                 <div v-if="currentPlayback?.synced_at" class="text-caption mt-1">最近同步：{{ formatDateTime(currentPlayback.synced_at) }} · 样本 {{ currentPlayback.sample_count || 0 }} · 已映射 {{ currentPlayback.mapped_count || 0 }} · 未映射 {{ currentPlayback.unmapped_count || 0 }}</div>
@@ -597,6 +608,7 @@ onMounted(loadRuntime)
 
             <div v-show="activeMain === 'sources'" class="ar-config__pane">
               <div class="ar-config__section-title">发现来源</div>
+              <VAlert type="info" variant="tonal" density="compact" class="mb-4">来源列表会探测已适配的 MoviePilot 能力（包括 AniList）；宿主未来新增但未声明统一契约的来源不会被自动执行，需完成安全适配后才会显示。</VAlert>
               <div class="ar-config__source-grid">
                 <VCard v-for="source in sourceDefs" :key="source.key" variant="outlined" class="ar-config__source-card">
                   <VCardItem>

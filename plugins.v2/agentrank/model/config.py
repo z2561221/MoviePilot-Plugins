@@ -4,7 +4,11 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from .identity import EmbyIdentity
-from ..service.prompt import DEFAULT_AGENT_PROMPT, LEGACY_DEFAULT_AGENT_PROMPT
+from ..service.prompt import (
+    DEFAULT_AGENT_PROMPT,
+    LEGACY_DEFAULT_AGENT_PROMPT,
+    LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT,
+)
 
 
 WEIGHT_DEFAULTS: Dict[str, float] = {
@@ -214,7 +218,10 @@ def configured_identities(config: Mapping[str, Any]) -> List[EmbyIdentity]:
 def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, List[str]]:
     """生成安全配置并同时返回全部校验错误。"""
     raw = dict(value) if isinstance(value, Mapping) else {}
-    if raw.get("agent_prompt") == LEGACY_DEFAULT_AGENT_PROMPT:
+    if raw.get("agent_prompt") in (
+        LEGACY_DEFAULT_AGENT_PROMPT,
+        LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT,
+    ):
         raw["agent_prompt"] = DEFAULT_AGENT_PROMPT
     errors: List[str] = [] if value is None or isinstance(value, Mapping) else [
         "config must be a mapping"

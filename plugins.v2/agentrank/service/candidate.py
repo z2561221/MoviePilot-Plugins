@@ -83,9 +83,9 @@ class CandidateCollectionService:
     ) -> Dict[str, str]:
         """只提取受支持的媒体标识，并校验扩展源前缀。"""
         aliases = {
-            "tmdb": ("tmdb_id", "tmdbid"),
+            "tmdb": ("tmdb_id", "tmdbid", "themoviedb", "themoviedb_id"),
             "douban": ("douban_id", "doubanid"),
-            "bangumi": ("bangumi_id", "bangumiid"),
+            "bangumi": ("bangumi_id", "bangumiid", "bgm", "bgm_id"),
             "anilist": ("anilist_id", "anilistid"),
             "tvdb": ("tvdb_id", "tvdbid"),
             "imdb": ("imdb_id", "imdbid"),

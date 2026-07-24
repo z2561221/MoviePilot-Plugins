@@ -27,13 +27,22 @@ const statusMeta = computed(() => ({
   recommendation_incomplete: { text: '榜单不足', color: 'warning' },
   agent_failed: { text: 'Agent失败', color: 'error' },
   validation_failed: { text: '校验失败', color: 'error' },
+  profile_agent_failed: { text: '画像生成失败', color: 'error' },
+  profile_validation_failed: { text: '画像校验失败', color: 'error' },
+  candidate_failed: { text: '候选采集失败', color: 'error' },
+  candidate_filter_failed: { text: '候选过滤失败', color: 'error' },
+  candidate_snapshot_failed: { text: '候选快照失败', color: 'error' },
+  ranking_agent_failed: { text: '排序生成失败', color: 'error' },
+  ranking_validation_failed: { text: '排序校验失败', color: 'error' },
+  ranking_save_failed: { text: '榜单保存失败', color: 'error' },
+  runtime_exception: { text: '运行异常', color: 'error' },
   subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
-}[status.value] || { text: '未知状态', color: 'info' }))
+}[status.value] || { text: '运行异常', color: 'error' }))
 
 function formatTime(value) {
   if (!value) return '尚未生成'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString()
 }
 
 async function initialize() {
@@ -122,16 +131,18 @@ onMounted(initialize)
 .ar-dashboard :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-dashboard__content { min-height: 260px; }
 .ar-dashboard__list { display: flex; flex-direction: column; gap: 7px; }
-.ar-dashboard__item { min-height: 92px; display: grid; grid-template-columns: 28px 44px minmax(0, 1fr); grid-template-rows: auto auto; gap: 7px 9px; align-items: center; padding: 7px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px; }
+.ar-dashboard__item { min-height: 92px; display: grid; grid-template-columns: 28px 44px minmax(0, 1fr) minmax(0, max-content); grid-template-rows: auto auto; gap: 7px 9px; align-items: center; padding: 7px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px; }
 .ar-dashboard__rank { grid-row: 1 / span 2; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .12); font-size: 12px; font-weight: 700; }
 .ar-dashboard__poster { grid-row: 1 / span 2; width: 44px; height: 64px; display: grid; place-items: center; overflow: hidden; border-radius: 4px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
 .ar-dashboard__poster :deep(.v-img) { width: 100%; height: 100%; }
 .ar-dashboard__poster-error { width: 100%; height: 100%; display: grid; place-items: center; }
 .ar-dashboard__main { min-width: 0; }
-.ar-dashboard__controls { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
+.ar-dashboard__controls { grid-column: 4; grid-row: 1 / span 2; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
 .ar-dashboard__confidence { flex: 0 0 auto; }
-@media (max-width: 560px) {
+.ar-dashboard__controls :deep(.ar-actions) { max-width: 100%; }
+@media (max-width: 760px) {
   .ar-dashboard__item { grid-template-columns: 28px 44px minmax(0, 1fr); }
-  .ar-dashboard__controls { grid-column: 1 / -1; }
+  .ar-dashboard__rank, .ar-dashboard__poster { grid-row: 1; }
+  .ar-dashboard__controls { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
 }
 </style>

@@ -600,28 +600,107 @@ def test_validator_rejects_vague_reason_and_insufficient_match_evidence():
 
 def test_validator_rejects_numeric_watch_events_as_completion_count():
     """播放事件数不得进入“看完 X 次”这类歧义推荐理由。"""
+    for reason in (
+        "你看完了100次悬疑剧，这部密室追凶延续悬疑体验。",
+        "你100次看完悬疑剧，这部密室追凶延续悬疑体验。",
+    ):
+        parsed = AgentOutputParser().parse(
+            _output(
+                [{
+                    "candidate_id": "tmdb:1",
+                    "reason": reason,
+                    "summary": "密室追凶牵出旧案真相",
+                    "match_tags": ["悬疑", "密室追凶"],
+                    "confidence": 88,
+                }]
+            )
+        )
+
+        result = RecommendationValidator().validate(
+            parsed,
+            _candidates(),
+            set(),
+            set(),
+            preference_evidence=["悬疑"],
+        )
+
+        assert result.accepted == []
+        assert result.dropped[0].reason == "ambiguous_playback_count"
+
+
+def test_validator_rejects_unproven_playback_title_and_actor_claims():
+    """推荐理由不能凭画像标签虚构看过的片名或演员经历。"""
+    candidate = Candidate(
+        candidate_id="tmdb:1",
+        title="新动作片",
+        media_type="movie",
+        overview="追查旧案的动作冒险故事。",
+        genres=["动作", "犯罪"],
+        actors=["演员甲"],
+    )
     parsed = AgentOutputParser().parse(
         _output(
-            [{
-                "candidate_id": "tmdb:1",
-                "reason": "你看完了100次悬疑剧，这部密室追凶延续悬疑体验。",
-                "summary": "密室追凶牵出旧案真相",
-                "match_tags": ["悬疑", "密室追凶"],
-                "confidence": 88,
-            }]
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "你爱看华语动作片如英雄精武门，这部动作犯罪延续追查线。",
+                    "summary": "动作冒险追查旧案",
+                    "match_tags": ["动作", "犯罪"],
+                    "confidence": 82,
+                }
+            ]
         )
     )
-
     result = RecommendationValidator().validate(
         parsed,
-        _candidates(),
+        [candidate],
         set(),
         set(),
-        preference_evidence=["悬疑"],
+        preference_evidence=["华语动作"],
+        playback_samples=[
+            {
+                "title": "未提及的作品",
+                "overview": "一部悬疑故事。",
+                "genres": ["悬疑"],
+            }
+        ],
     )
-
     assert result.accepted == []
-    assert result.dropped[0].reason == "ambiguous_playback_count"
+    assert result.dropped[0].reason == "unsupported_playback_claim"
+
+
+def test_validator_accepts_playback_title_only_when_snapshot_contains_it():
+    """真实播放片名存在于快照时可以作为理由证据。"""
+    candidate = Candidate(
+        candidate_id="tmdb:1",
+        title="新动作片",
+        media_type="movie",
+        overview="追查旧案的动作冒险故事。",
+        genres=["动作", "犯罪"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "你看过英雄，这部动作犯罪延续追查线。",
+                    "summary": "动作冒险追查旧案",
+                    "match_tags": ["动作", "犯罪"],
+                    "confidence": 82,
+                }
+            ]
+        )
+    )
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["动作"],
+        playback_samples=[{"title": "英雄", "genres": ["动作"]}],
+    )
+    assert result.dropped == []
+    assert result.accepted[0].title == "新动作片"
 
 
 def test_subscribed_candidate_is_rejected_even_when_other_fields_are_valid():
