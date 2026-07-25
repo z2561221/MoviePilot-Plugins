@@ -5,7 +5,7 @@ import importlib
 import sys
 from enum import Enum
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
@@ -31,6 +31,9 @@ class MoviePilotAgent:
         self.reply_mode = kwargs.get("replay_mode")
         self._tool_context = {}
         self.stream_handler = FakeStreamHandler()
+        self.provider_resolution_calls = 0
+        self.recorded_usage = []
+        self.usage_events = []
 
     async def _build_tool_context(self, should_dispatch_reply):
         return {"should_dispatch_reply": should_dispatch_reply, "is_admin": False}
@@ -43,16 +46,42 @@ class MoviePilotAgent:
     async def cleanup(self):
         self.cleaned = True
 
+    async def _resolve_llm_runtime_config(self):
+        self.provider_resolution_calls += 1
+        self._llm_provider_selection = {
+            "selected_provider_id": "agenttokens-provider-id",
+            "selected_provider_name": "Agent Tokens Provider",
+            "provider": "agenttokens-provider",
+            "model": "agenttokens-model-id",
+            "source": "agenttokens",
+        }
+        return {
+            "provider": "agenttokens-provider",
+            "model": "agenttokens-model-id",
+            "api_key": "agenttokens-key",
+            "base_url": "https://agenttokens.invalid/v1",
+            "base_url_preset": "agenttokens-preset",
+            "user_agent": "MoviePilot-test",
+            "use_proxy": False,
+            "thinking_level": "medium",
+        }
+
     async def _initialize_llm(self, streaming=False):
-        self.llm_streaming = streaming
-        return "restricted-model"
+        runtime_config = await self._resolve_llm_runtime_config()
+        return await LLMHelper.get_llm(streaming=streaming, **runtime_config)
+
+    def _record_usage(self, usage):
+        self.recorded_usage.append(usage)
+
+    def _send_agent_tokens_usage_event(self, *, success, error=None):
+        self.usage_events.append({"success": success, "error": error})
 
     def _sync_model_profile(self, model):
         self.synced_model = model
 
 
 class LLMHelper:
-    """Record direct use of the host's built-in LLM configuration."""
+    """Record the provider configuration resolved by the host Agent."""
 
     calls = []
 
@@ -93,19 +122,23 @@ agent_module.tools = tools_package
 tools_package.base = base_module
 app_module.agent = agent_module
 
-core_module = sys.modules.setdefault("app.core", ModuleType("app.core"))
-config_module = sys.modules.setdefault("app.core.config", ModuleType("app.core.config"))
-config_module.settings = SimpleNamespace(
-    LLM_PROVIDER="builtin-provider",
-    LLM_MODEL="builtin-model-id",
-    LLM_API_KEY="builtin-key",
-    LLM_BASE_URL="https://builtin.invalid/v1",
-    LLM_BASE_URL_PRESET="builtin-preset",
-    LLM_USER_AGENT="MoviePilot-test",
-    LLM_USE_PROXY=True,
+
+class UsageMiddleware:
+    """Minimal host usage middleware retaining the callback contract."""
+
+    def __init__(self, *, on_usage=None):
+        self.on_usage = on_usage
+
+
+middleware_package = sys.modules.setdefault(
+    "app.agent.middleware", ModuleType("app.agent.middleware")
 )
-core_module.config = config_module
-app_module.core = core_module
+usage_module = sys.modules.setdefault(
+    "app.agent.middleware.usage", ModuleType("app.agent.middleware.usage")
+)
+usage_module.UsageMiddleware = UsageMiddleware
+middleware_package.usage = usage_module
+agent_module.middleware = middleware_package
 
 identity_module = sys.modules.setdefault("app.utils.identity", ModuleType("app.utils.identity"))
 identity_module.SYSTEM_INTERNAL_USER_ID = "system"
@@ -512,8 +545,8 @@ def test_restricted_profile_agent_instantiates_only_playback_tool():
     assert [tool.name for tool in tools] == ["read_agentrank_playback"]
 
 
-def test_restricted_agent_builds_graph_without_host_extension_middlewares():
-    """The graph itself must expose only four tools and no host middleware tools."""
+def test_restricted_agent_builds_graph_with_provider_resolution_and_usage_only():
+    """受限图继承宿主 Provider 分配，并且只保留用量统计中间件。"""
     created_agent_calls.clear()
     LLMHelper.calls.clear()
     agent = RestrictedAgentRankAgent(
@@ -530,29 +563,35 @@ def test_restricted_agent_builds_graph_without_host_extension_middlewares():
 
     assert graph is created_agent_calls[-1]
     assert graph["model"] == "builtin-model"
+    assert agent.provider_resolution_calls == 1
+    assert RestrictedAgentRankAgent._initialize_llm is MoviePilotAgent._initialize_llm
     assert LLMHelper.calls == [
         {
             "streaming": False,
-            "provider": "builtin-provider",
-            "model": "builtin-model-id",
-            "api_key": "builtin-key",
-            "base_url": "https://builtin.invalid/v1",
-            "base_url_preset": "builtin-preset",
+            "provider": "agenttokens-provider",
+            "model": "agenttokens-model-id",
+            "api_key": "agenttokens-key",
+            "base_url": "https://agenttokens.invalid/v1",
+            "base_url_preset": "agenttokens-preset",
             "user_agent": "MoviePilot-test",
-            "use_proxy": True,
+            "use_proxy": False,
+            "thinking_level": "medium",
         }
     ]
-    assert not hasattr(agent, "llm_streaming")
     assert tuple(tool.name for tool in graph["tools"]) == tuple(
         tool.name for tool in AGENT_TOOL_CLASSES
     )
-    assert graph["middleware"] == []
+    assert len(graph["middleware"]) == 1
+    usage_middleware = graph["middleware"][0]
+    assert isinstance(usage_middleware, UsageMiddleware)
+    usage_middleware.on_usage({"total_tokens": 42})
+    assert agent.recorded_usage == [{"total_tokens": 42}]
     assert "四个只读工具" in graph["system_prompt"]
     assert isinstance(graph["checkpointer"], InMemorySaver)
 
 
-def test_restricted_agent_does_not_broadcast_agent_tokens_usage():
-    """AgentRank's dedicated Agent has no Agent Tokens usage side effect."""
+def test_restricted_agent_inherits_agent_tokens_usage_broadcast():
+    """AgentRank 必须继承宿主的 Agent Tokens 用量广播。"""
     agent = RestrictedAgentRankAgent(
         session_id="__agentrank_run-1_alice__",
         user_id="system",
@@ -562,8 +601,16 @@ def test_restricted_agent_does_not_broadcast_agent_tokens_usage():
         allow_message_tools=False,
     )
 
-    assert agent._send_agent_tokens_usage_event(success=True) is None
-    assert agent._send_agent_tokens_usage_event(success=False, error="failed") is None
+    assert (
+        RestrictedAgentRankAgent._send_agent_tokens_usage_event
+        is MoviePilotAgent._send_agent_tokens_usage_event
+    )
+    agent._send_agent_tokens_usage_event(success=True)
+    agent._send_agent_tokens_usage_event(success=False, error="failed")
+    assert agent.usage_events == [
+        {"success": True, "error": None},
+        {"success": False, "error": "failed"},
+    ]
 
 
 def test_session_scope_rejects_separator_injection():

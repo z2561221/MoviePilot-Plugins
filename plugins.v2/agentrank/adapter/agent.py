@@ -3,7 +3,7 @@
 import inspect
 import json
 import re
-from typing import Any, Callable, List, Mapping, Optional, Type
+from typing import Any, Callable, List, Mapping, Type
 
 from app.agent import MoviePilotAgent, ReplyMode
 from app.utils.identity import SYSTEM_INTERNAL_USER_ID
@@ -74,34 +74,9 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
             raise RuntimeError("AgentRank tool registry and role whitelist diverged")
         return tools
 
-    async def _initialize_llm(self, streaming: bool = False) -> Any:
-        """直接使用 MoviePilot 内置 LLM 配置，绕过外部供应商分配事件。"""
-        from app.agent.llm import LLMHelper
-        from app.core.config import settings
-
-        return await LLMHelper.get_llm(
-            streaming=streaming,
-            provider=settings.LLM_PROVIDER,
-            model=settings.LLM_MODEL,
-            api_key=settings.LLM_API_KEY,
-            base_url=settings.LLM_BASE_URL,
-            base_url_preset=settings.LLM_BASE_URL_PRESET,
-            user_agent=settings.LLM_USER_AGENT,
-            use_proxy=settings.LLM_USE_PROXY,
-        )
-
-    def _send_agent_tokens_usage_event(
-        self,
-        *,
-        success: bool,
-        error: Optional[str] = None,
-    ) -> None:
-        """禁止 AgentRank 会话向 Agent Tokens 广播用量。"""
-        del success, error
-        return None
-
     async def _create_agent(self, streaming: bool = False) -> Any:
-        """构建当前角色专用只读工具且无宿主扩展中间件的 Agent 图。"""
+        """构建仅保留用量统计中间件的当前角色只读 Agent 图。"""
+        from app.agent.middleware.usage import UsageMiddleware
         from langchain.agents import create_agent
         from langgraph.checkpoint.memory import InMemorySaver
 
@@ -119,7 +94,7 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
                 + " 严格按照用户消息返回 JSON；禁止委派子代理、加载技能或记忆、"
                 "管理任务、调用外部 MCP，以及使用任何未提供的工具。"
             ),
-            middleware=[],
+            middleware=[UsageMiddleware(on_usage=self._record_usage)],
             checkpointer=InMemorySaver(),
         )
 
