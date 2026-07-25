@@ -303,13 +303,14 @@ onMounted(initialize)
         </div>
       </div>
       <VChip
-        :color="state.isRunning.value ? 'primary' : 'success'"
+        v-if="state.isRunning.value"
+        color="primary"
         variant="tonal"
         size="small"
-        :prepend-icon="state.isRunning.value ? 'mdi-loading' : 'mdi-check-circle-outline'"
+        prepend-icon="mdi-loading"
         class="ar-page__runtime-chip"
       >
-        {{ state.isRunning.value ? '正在生成' : '运行就绪' }}
+        正在生成
       </VChip>
     </div>
 
@@ -692,11 +693,12 @@ onMounted(initialize)
   .ar-page__poster { width: 54px; height: 81px; }
   .ar-page__rank { width: 28px; height: 28px; }
   .ar-page__rank-actions { grid-column: 1 / -1; justify-content: flex-end; padding-top: 2px; border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
-  .ar-page__copy-text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; }
-  .ar-page__copy-text--reason { -webkit-line-clamp: 2; }
-  .ar-page__copy-text--intro { -webkit-line-clamp: 1; }
+  .ar-page__rank-copy { grid-template-columns: 34px minmax(0, 1fr); }
+  .ar-page__copy-text,
+  .ar-page__copy-text--reason,
+  .ar-page__copy-text--intro,
   .ar-page__copy-text--expanded { display: block; overflow: visible; -webkit-line-clamp: initial; }
-  .ar-page__copy-toggle { display: inline-flex; margin-top: 0; margin-bottom: 0; }
+  .ar-page__copy-toggle { display: none !important; }
   .ar-page__profile-head :deep(.v-card-item__append) { align-self: flex-start; }
   .ar-page__profile-body { padding: 12px; }
   .ar-page__profile-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -723,8 +725,7 @@ onMounted(initialize)
   .ar-page__content { padding: 10px 8px; }
   .ar-page__rank-item { grid-template-columns: 26px 48px minmax(0, 1fr); gap: 7px; padding-inline: 7px; }
   .ar-page__poster { width: 48px; height: 72px; }
-  .ar-page__rank-copy { grid-template-columns: 32px minmax(0, 1fr) auto; }
-  .ar-page__copy-toggle { margin-top: 0; margin-bottom: 0; }
+  .ar-page__rank-copy { grid-template-columns: 32px minmax(0, 1fr); }
   .ar-page__profile-head :deep(.v-card-item__prepend) { display: none; }
 }
 </style>

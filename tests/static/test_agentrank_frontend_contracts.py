@@ -246,6 +246,16 @@ def test_page_has_four_management_tabs_editable_tags_and_backend_history_paging(
     assert "#error" in source
 
 
+def test_page_mobile_runtime_and_copy_layout_stay_readable():
+    """Idle status is removed and mobile recommendation copy wraps without toggles."""
+    source = PAGE.read_text(encoding="utf-8")
+    assert 'v-if="state.isRunning.value"' in source
+    assert "运行就绪" not in source
+    assert ".ar-page__rank-copy { grid-template-columns: 34px minmax(0, 1fr); }" in source
+    assert ".ar-page__copy-toggle { display: none !important; }" in source
+    assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in source
+
+
 def test_dashboard_is_a_lightweight_vertical_top_five():
     """Dashboard stays compact and links to the complete recommendation center."""
     source = DASHBOARD.read_text(encoding="utf-8")

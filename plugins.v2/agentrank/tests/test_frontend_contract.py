@@ -264,6 +264,18 @@ def test_mobile_detail_tabs_scroll_without_arrow_controls():
     assert "ar-page__tab-icon { display: none; }" in page
 
 
+def test_mobile_detail_hides_idle_runtime_and_wraps_copy_without_toggles():
+    """详情页空闲态不挤占页签，移动端理由与简介完整换行。"""
+    page = _read("Page.vue")
+    assert 'v-if="state.isRunning.value"' in page
+    assert "运行就绪" not in page
+    assert ">\n        正在生成\n      </VChip>" in page
+    assert ".ar-page__rank-copy { grid-template-columns: 34px minmax(0, 1fr); }" in page
+    assert ".ar-page__copy-toggle { display: none !important; }" in page
+    assert ".ar-page__copy-text--intro," in page
+    assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in page
+
+
 def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse():
     """三项动作始终保留文字，并通过换行适配狭窄容器。"""
     actions = _read("RecommendationActions.vue")
