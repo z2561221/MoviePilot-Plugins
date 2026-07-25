@@ -7,6 +7,7 @@ from .identity import EmbyIdentity
 from ..service.prompt import (
     DEFAULT_AGENT_PROMPT,
     LEGACY_DEFAULT_AGENT_PROMPT,
+    LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT,
     LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT,
 )
 
@@ -17,11 +18,11 @@ WEIGHT_DEFAULTS: Dict[str, float] = {
     "actor_weight": 0.5,
     "director_weight": 0.4,
     "region_weight": 0.4,
-    "year_weight": 0.3,
-    "rating_weight": 0.7,
-    "heat_weight": 0.6,
-    "freshness_weight": 0.5,
-    "similarity_weight": 0.8,
+    "year_weight": 0.9,
+    "rating_weight": 0.9,
+    "heat_weight": 0.9,
+    "freshness_weight": 0.9,
+    "similarity_weight": 0.9,
 }
 
 DISCOVERY_SOURCE_DEFAULTS: Dict[str, bool] = {
@@ -48,8 +49,8 @@ class AgentRankConfig:
     enabled: bool = False
     discovery_page_enabled: bool = True
     onlyonce: bool = False
-    schedule_enabled: bool = False
-    cron: str = "0 8 * * *"
+    schedule_enabled: bool = True
+    cron: str = "5 18 * * *"
     emby_identities: List[Dict[str, Any]] = field(default_factory=list)
     default_profile_id: str = ""
     emby_library_ids: Optional[Dict[str, List[str]]] = None
@@ -59,7 +60,7 @@ class AgentRankConfig:
     weights: Dict[str, float] = field(default_factory=lambda: dict(WEIGHT_DEFAULTS))
     media_types: List[str] = field(default_factory=lambda: ["movie", "tv", "anime"])
     minimum_samples: int = 5
-    candidate_pool_size: int = 50
+    candidate_pool_size: int = 100
     confidence_threshold: float = 0.6
     exclude_keywords: List[str] = field(default_factory=list)
     action_mode: str = "notify"
@@ -70,7 +71,7 @@ class AgentRankConfig:
     profile_cache_enabled: bool = True
     rebuild_profile_each_run: bool = False
     playback_enabled: bool = True
-    playback_recent_days: int = 60
+    playback_recent_days: int = 90
     playback_completion_threshold: float = 0.85
     playback_abandon_minutes: int = 20
     playback_cache_days: int = 7
@@ -220,6 +221,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
     raw = dict(value) if isinstance(value, Mapping) else {}
     if raw.get("agent_prompt") in (
         LEGACY_DEFAULT_AGENT_PROMPT,
+        LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT,
         LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT,
     ):
         raw["agent_prompt"] = DEFAULT_AGENT_PROMPT
@@ -277,8 +279,8 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         enabled=enabled,
         discovery_page_enabled=bool(raw.get("discovery_page_enabled", True)),
         onlyonce=bool(raw.get("onlyonce", False)),
-        schedule_enabled=bool(raw.get("schedule_enabled", False)),
-        cron=str(raw.get("cron") or "0 8 * * *").strip(),
+        schedule_enabled=bool(raw.get("schedule_enabled", True)),
+        cron=str(raw.get("cron") or "5 18 * * *").strip(),
         emby_identities=identities,
         default_profile_id=default_profile_id,
         emby_library_ids=emby_library_ids,
@@ -289,8 +291,8 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
             raw.get("minimum_samples", 5), 5, 1, 100, "minimum_samples", errors
         ),
         candidate_pool_size=_bounded_integer(
-            raw.get("candidate_pool_size", 50),
-            50,
+            raw.get("candidate_pool_size", 100),
+            100,
             10,
             500,
             "candidate_pool_size",
@@ -316,7 +318,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         rebuild_profile_each_run=bool(raw.get("rebuild_profile_each_run", False)),
         playback_enabled=bool(raw.get("playback_enabled", True)),
         playback_recent_days=_bounded_integer(
-            raw.get("playback_recent_days", 60), 60, 1, 3650, "playback_recent_days", errors
+            raw.get("playback_recent_days", 90), 90, 1, 3650, "playback_recent_days", errors
         ),
         playback_completion_threshold=_bounded_number(
             raw.get("playback_completion_threshold", 0.85),
@@ -342,7 +344,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
     )
     if not config.cron:
         errors.append("cron must not be empty")
-        config.cron = "0 8 * * *"
+        config.cron = "5 18 * * *"
     return config, errors
 
 

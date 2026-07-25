@@ -257,7 +257,7 @@ class PlaybackReportingAdapter:
     def collect(
         self,
         identity: EmbyIdentity,
-        recent_days: int = 60,
+        recent_days: int = 90,
         completion_threshold: float = 0.85,
         abandon_minutes: int = 20,
         library_ids: Optional[Iterable[str]] = None,

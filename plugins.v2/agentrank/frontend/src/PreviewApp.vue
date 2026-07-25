@@ -34,11 +34,11 @@ const weights = {
   actor_weight: 0.5,
   director_weight: 0.4,
   region_weight: 0.4,
-  year_weight: 0.3,
-  rating_weight: 0.7,
-  heat_weight: 0.6,
-  freshness_weight: 0.5,
-  similarity_weight: 0.8,
+  year_weight: 0.9,
+  rating_weight: 0.9,
+  heat_weight: 0.9,
+  freshness_weight: 0.9,
+  similarity_weight: 0.9,
 }
 
 const identities = [
@@ -50,14 +50,14 @@ const config = {
   enabled: true,
   discovery_page_enabled: true,
   schedule_enabled: true,
-  cron: '0 8 * * *',
+  cron: '5 18 * * *',
   emby_identities: identities,
   default_profile_id: identities[0].profile_id,
   discovery_sources: { douban: true, tmdb_movies: true, tmdb_tv: true, bangumi: true, anilist: true },
   weights,
   media_types: ['movie', 'tv', 'anime'],
   minimum_samples: 5,
-  candidate_pool_size: 50,
+  candidate_pool_size: 100,
   confidence_threshold: 0.6,
   exclude_keywords: [],
   action_mode: 'notify',
@@ -68,11 +68,11 @@ const config = {
   profile_cache_enabled: true,
   rebuild_profile_each_run: false,
   playback_enabled: true,
-  playback_recent_days: 60,
+  playback_recent_days: 90,
   playback_completion_threshold: 0.85,
   playback_abandon_minutes: 20,
   playback_cache_days: 7,
-  agent_prompt: '以用户真实播放记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。',
+  agent_prompt: '以用户真实播放记录和明确偏好为首要依据，可从情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感五类观看动机辅助排序。稳定动机必须有至少两条独立播放证据或一项人工明确偏好，且只能作为软排序信号。',
 }
 
 const recommendations = Array.from({ length: 10 }, (_, index) => ({

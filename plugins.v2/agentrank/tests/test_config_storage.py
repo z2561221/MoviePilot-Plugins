@@ -28,6 +28,7 @@ ConfigValidationError = config_module.ConfigValidationError
 WEIGHT_DEFAULTS = config_module.WEIGHT_DEFAULTS
 DEFAULT_AGENT_PROMPT = config_module.DEFAULT_AGENT_PROMPT
 LEGACY_DEFAULT_AGENT_PROMPT = config_module.LEGACY_DEFAULT_AGENT_PROMPT
+LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT = config_module.LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT
 LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT = (
     config_module.LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT
 )
@@ -85,11 +86,11 @@ def test_config_has_exact_ten_weight_defaults_and_valid_bounds():
         "actor_weight": 0.5,
         "director_weight": 0.4,
         "region_weight": 0.4,
-        "year_weight": 0.3,
-        "rating_weight": 0.7,
-        "heat_weight": 0.6,
-        "freshness_weight": 0.5,
-        "similarity_weight": 0.8,
+        "year_weight": 0.9,
+        "rating_weight": 0.9,
+        "heat_weight": 0.9,
+        "freshness_weight": 0.9,
+        "similarity_weight": 0.9,
     }
     config = AgentRankConfig.from_mapping({"weights": WEIGHT_DEFAULTS})
     assert config.weights == WEIGHT_DEFAULTS
@@ -98,11 +99,11 @@ def test_config_has_exact_ten_weight_defaults_and_valid_bounds():
         AgentRankConfig.from_mapping({"weights": {"type_weight": 1.1}})
 
 
-def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_fifty():
-    """发现页入口保持兼容开启，候选池默认收缩到五十。"""
+def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_one_hundred():
+    """发现页入口保持兼容开启，候选池默认使用当前配置的一百。"""
     defaults = AgentRankConfig.from_mapping({})
     assert defaults.discovery_page_enabled is True
-    assert defaults.candidate_pool_size == 50
+    assert defaults.candidate_pool_size == 100
     assert set(defaults.discovery_sources) == {
         "douban",
         "tmdb_movies",
@@ -116,6 +117,60 @@ def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_fifty():
     assert AgentRankConfig.from_mapping(
         {"discovery_page_enabled": False}
     ).discovery_page_enabled is False
+
+
+def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
+    """新装默认复制当前非隐私设置，但不固化任何 Emby 私有身份。"""
+    defaults = default_config()
+
+    expected_non_privacy = {
+        "discovery_page_enabled": True,
+        "onlyonce": False,
+        "schedule_enabled": True,
+        "cron": "5 18 * * *",
+        "discovery_sources": {
+            "douban": True,
+            "tmdb_movies": True,
+            "tmdb_tv": True,
+            "bangumi": True,
+            "anilist": True,
+        },
+        "weights": {
+            "type_weight": 0.8,
+            "theme_weight": 0.8,
+            "actor_weight": 0.5,
+            "director_weight": 0.4,
+            "region_weight": 0.4,
+            "year_weight": 0.9,
+            "rating_weight": 0.9,
+            "heat_weight": 0.9,
+            "freshness_weight": 0.9,
+            "similarity_weight": 0.9,
+        },
+        "media_types": ["movie", "tv", "anime"],
+        "minimum_samples": 5,
+        "candidate_pool_size": 100,
+        "confidence_threshold": 0.6,
+        "exclude_keywords": [],
+        "action_mode": "notify",
+        "notify": True,
+        "auto_subscribe_top_n": 0,
+        "auto_subscribe_limit": 10,
+        "history_limit": 50,
+        "profile_cache_enabled": True,
+        "rebuild_profile_each_run": False,
+        "playback_enabled": True,
+        "playback_recent_days": 90,
+        "playback_completion_threshold": 0.85,
+        "playback_abandon_minutes": 20,
+        "playback_cache_days": 7,
+    }
+
+    assert {key: defaults[key] for key in expected_non_privacy} == expected_non_privacy
+    assert defaults["enabled"] is False
+    assert defaults["emby_identities"] == []
+    assert defaults["default_profile_id"] == ""
+    assert defaults["emby_library_ids"] is None
 
 
 def test_run_once_switch_defaults_off_and_accepts_explicit_request():
@@ -259,6 +314,9 @@ def test_legacy_default_prompt_migrates_without_overwriting_custom_prompt():
         "agent_prompt"
     ] == DEFAULT_AGENT_PROMPT
     assert normalize_config({"agent_prompt": LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT})[
+        "agent_prompt"
+    ] == DEFAULT_AGENT_PROMPT
+    assert normalize_config({"agent_prompt": LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT})[
         "agent_prompt"
     ] == DEFAULT_AGENT_PROMPT
     assert normalize_config({"agent_prompt": custom})["agent_prompt"] == custom

@@ -164,7 +164,7 @@ def test_batch_continues_across_created_existing_and_failed_items():
     ]
     assert len(chain.exists_calls) == 3
     assert len(chain.add_calls) == 2
-    assert all(call["username"] == "AgentRank" for call in chain.add_calls)
+    assert all(call["username"] == "Agent榜单中心" for call in chain.add_calls)
 
 
 def test_animation_movie_subscribes_with_recognized_moviepilot_base_type():

@@ -7,7 +7,7 @@ from ..model.candidate import Candidate, typed_tmdb_candidate_id
 from ..storage.repository import AgentRankRepository
 
 
-SUBSCRIPTION_USERNAME = "AgentRank"
+SUBSCRIPTION_USERNAME = "Agent榜单中心"
 
 
 @dataclass

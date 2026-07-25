@@ -116,6 +116,28 @@ def test_profile_prompt_declares_retrieval_plan_schema_and_id_boundary():
     assert "不要仅凭片名猜测题材" in prompt
 
 
+def test_psychological_motivation_is_evidence_bounded_and_never_diagnostic():
+    """观看动机仅以多证据软排序，且禁止敏感心理推断。"""
+    profile_prompt = build_profile_prompt()
+    ranking_prompt = build_ranking_prompt()
+
+    for prompt in (profile_prompt, ranking_prompt):
+        for dimension in (
+            "情绪体验",
+            "认知满足",
+            "叙事投入",
+            "熟悉与新奇",
+            "节奏与完成感",
+        ):
+            assert dimension in prompt
+        assert "至少两条相互独立" in prompt
+        assert "单一样本不得形成稳定结论" in prompt
+        assert "弱负向信号" in prompt
+        assert "人格、焦虑、孤独、疾病、创伤" in prompt
+        assert "软排序信号" in prompt
+        assert "不得输出心理诊断或心理学术语" in prompt
+
+
 def test_custom_agent_prompt_is_inserted_without_replacing_fixed_contract():
     """自定义排序指令生效，但固定工具与输出边界仍存在。"""
     prompt = build_ranking_prompt(agent_prompt="优先推荐冷门科幻并保持俏皮文风")

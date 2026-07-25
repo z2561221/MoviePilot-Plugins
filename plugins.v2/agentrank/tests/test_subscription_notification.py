@@ -308,7 +308,7 @@ def test_manual_subscription_passes_username_and_identifiers_after_all_gates():
     assert result.success is True
     assert result.changed is True
     assert len(chain.exists_calls) == 1
-    assert chain.add_calls[0]["username"] == "AgentRank"
+    assert chain.add_calls[0]["username"] == "Agent榜单中心"
     assert chain.add_calls[0]["tmdbid"] == 1
     assert chain.add_calls[0]["message"] is False
     assert chain.add_calls[0]["exist_ok"] is False

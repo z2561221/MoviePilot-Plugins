@@ -132,7 +132,7 @@ class RecommendationOrchestrator:
         return {
             "weights": dict(config.get("weights") or {}),
             "media_types": list(config.get("media_types") or []),
-            "candidate_pool_size": int(config.get("candidate_pool_size") or 50),
+            "candidate_pool_size": int(config.get("candidate_pool_size") or 100),
             "confidence_threshold": float(config.get("confidence_threshold") or 0.0),
             "exclude_keywords": list(config.get("exclude_keywords") or []),
         }
@@ -630,7 +630,7 @@ class RecommendationOrchestrator:
                     target,
                     run_id,
                     config.get("discovery_sources") or {},
-                    int(config.get("candidate_pool_size") or 50),
+                    int(config.get("candidate_pool_size") or 100),
                     RetrievalPlan.from_dict(
                         {
                             "filters": current_profile.filters,

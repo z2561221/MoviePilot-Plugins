@@ -74,7 +74,7 @@ class PlaybackProfileService:
             self._repository.save_playback_snapshot(snapshot)
             return snapshot
         options = {
-            "recent_days": int(config.get("playback_recent_days") or 60),
+            "recent_days": int(config.get("playback_recent_days") or 90),
             "completion_threshold": float(config.get("playback_completion_threshold") or 0.85),
             "abandon_minutes": int(config.get("playback_abandon_minutes") or 20),
         }

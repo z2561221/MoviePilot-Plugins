@@ -19,13 +19,31 @@ def test_advanced_options_exposes_four_character_prompt_subtab():
     assert "恢复默认" in config
 
 
-def test_runtime_settings_exposes_discovery_page_switch_and_fifty_default():
-    """运行设置可独立关闭发现页入口，候选池前端默认值为五十。"""
+def test_runtime_settings_exposes_discovery_page_switch_and_current_defaults():
+    """运行设置可独立关闭发现页入口，并复用当前非隐私默认值。"""
     config = _read("Config.vue")
     assert 'discovery_page_enabled: true' in config
     assert 'v-model="form.discovery_page_enabled"' in config
     assert 'label="开启发现页"' in config
-    assert 'candidate_pool_size: 50' in config
+    assert 'schedule_enabled: true' in config
+    assert "cron: '5 18 * * *'" in config
+    assert 'candidate_pool_size: 100' in config
+    assert 'playback_recent_days: 90' in config
+
+
+def test_frontend_default_prompt_exposes_evidence_bounded_motivation_signals():
+    """前端默认提示词展示受证据和隐私边界约束的观看动机协议。"""
+    config = _read("Config.vue")
+    for phrase in (
+        "情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感",
+        "至少两条相互独立的播放证据",
+        "单一样本不得形成稳定结论",
+        "弃看只能作为弱负向信号",
+        "不得推断人格、焦虑、孤独、疾病、创伤",
+        "观看动机只能作为软排序信号",
+        "不输出心理诊断或心理学术语",
+    ):
+        assert phrase in config
 
 
 def test_basic_settings_selects_stable_emby_identities_for_run_once():
