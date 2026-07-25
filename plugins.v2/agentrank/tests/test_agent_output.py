@@ -598,6 +598,36 @@ def test_validator_rejects_vague_reason_and_insufficient_match_evidence():
     ]
 
 
+@pytest.mark.parametrize(
+    "phrase",
+    ("不容错过", "不可错过", "值得一看", "强烈推荐", "一定要看", "不看可惜"),
+)
+def test_validator_rejects_vague_recommendation_synonyms(phrase):
+    """明确同义的空泛推荐结论不能绕过理由安全门。"""
+    parsed = AgentOutputParser().parse(
+        _output(
+            [{
+                "candidate_id": "tmdb:1",
+                "reason": f"你偏爱悬疑犯罪，这部经典作品{phrase}。",
+                "summary": "密室追凶牵出旧案真相",
+                "match_tags": ["悬疑犯罪", "密室追凶"],
+                "confidence": 88,
+            }]
+        )
+    )
+
+    result = RecommendationValidator().validate(
+        parsed,
+        _candidates(),
+        set(),
+        set(),
+        preference_evidence=["悬疑犯罪"],
+    )
+
+    assert result.accepted == []
+    assert result.dropped[0].reason == "invalid_reason"
+
+
 def test_validator_rejects_numeric_watch_events_as_completion_count():
     """播放事件数不得进入“看完 X 次”这类歧义推荐理由。"""
     for reason in (

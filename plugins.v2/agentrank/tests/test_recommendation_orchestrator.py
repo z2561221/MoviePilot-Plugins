@@ -235,6 +235,14 @@ def _agent_output(candidate_ids):
     )
 
 
+def _agent_output_with_overrides(candidate_ids, overrides):
+    """按候选 ID 覆盖模拟推荐字段，构造混合通过与丢弃输出。"""
+    payload = json.loads(_agent_output(candidate_ids))
+    for recommendation in payload["recommendations"]:
+        recommendation.update(overrides.get(recommendation["candidate_id"], {}))
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _orchestrator(
     plugin,
     outputs,
@@ -1108,13 +1116,74 @@ def test_partial_valid_output_gets_exactly_one_successful_refill():
     assert "排除" in orchestrator.agent_adapter.ranking_calls[1][0]
 
 
+def test_initial_domain_drops_are_explained_to_refill():
+    """首轮已知候选的安全丢弃原因必须进入补选提示并允许改写。"""
+    first = _agent_output_with_overrides(
+        [f"tmdb:{index}" for index in range(1, 11)],
+        {
+            "tmdb:9": {
+                "reason": "你偏爱悬疑题材，这部经典作品不容错过。",
+            },
+            "tmdb:10": {
+                "match_tags": ["悬疑电影"],
+            },
+        },
+    )
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [first, _agent_output(["tmdb:9", "tmdb:10"])],
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 10
+    refill_prompt = orchestrator.agent_adapter.ranking_calls[1][0]
+    assert '"candidate_id":"tmdb:9","reason":"invalid_reason"' in refill_prompt
+    assert (
+        '"candidate_id":"tmdb:10","reason":"insufficient_match_evidence"'
+        in refill_prompt
+    )
+
+
+def test_second_refill_uses_previous_domain_drops_and_completes_top_ten():
+    """首轮补选仍有文案丢弃时，第二轮携带原因并补齐榜单。"""
+    rejected_refill = _agent_output_with_overrides(
+        ["tmdb:9", "tmdb:10"],
+        {
+            "tmdb:10": {
+                "reason": "你偏爱悬疑题材，这部经典作品不容错过。",
+            }
+        },
+    )
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [
+            _agent_output([f"tmdb:{index}" for index in range(1, 9)]),
+            rejected_refill,
+            _agent_output(["tmdb:10"]),
+        ],
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert result.agent_calls == 4
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 10
+    second_refill_prompt = orchestrator.agent_adapter.ranking_calls[2][0]
+    assert '"candidate_id":"tmdb:10","reason":"invalid_reason"' in second_refill_prompt
+    assert "tmdb:9" in second_refill_prompt
+    assert repository.load_run_history(PROFILE_ID)[0].metrics["refill_agent_calls"] == 2
+
+
 def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
-    """One refill is final; remaining shortage is visible rather than padded."""
+    """两轮补选仍不足时保存实际条数，不制造第十条。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
             _agent_output([f"tmdb:{index}" for index in range(1, 9)]),
             _agent_output(["tmdb:9"]),
+            _agent_output([]),
         ],
     )
 
@@ -1124,7 +1193,7 @@ def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
     board = repository.load_board(PROFILE_ID)
     assert board.status == "recommendation_incomplete"
     assert len(board.recommendations) == 9
-    assert result.agent_calls == 3
+    assert result.agent_calls == 4
 
 
 def test_refill_invalid_json_retries_once_and_can_complete_top_ten():
@@ -1146,18 +1215,22 @@ def test_refill_invalid_json_retries_once_and_can_complete_top_ten():
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.errors == []
     assert history.metrics["refill_retry_count"] == 1
-    assert "上一轮补选输出未通过严格校验" in orchestrator.agent_adapter.ranking_calls[2][0]
+    assert "上一轮补选输出无法解析" in orchestrator.agent_adapter.ranking_calls[2][0]
 
 
 def test_zero_valid_items_preserves_old_board_and_records_validation_failure():
-    """A wholly unsafe Agent result cannot replace the previous board."""
+    """两轮纠错后仍无安全推荐时保留旧榜单并记录校验失败。"""
     plugin = FakePlugin()
-    orchestrator, repository = _orchestrator(plugin, [_agent_output(["tmdb:404"])])
+    orchestrator, repository = _orchestrator(
+        plugin,
+        [_agent_output(["tmdb:404"]), _agent_output([]), _agent_output([])],
+    )
     repository.save_board(RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success"))
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "ranking_validation_failed"
+    assert result.agent_calls == 4
     assert repository.load_board(PROFILE_ID).run_id == "old"
 
 

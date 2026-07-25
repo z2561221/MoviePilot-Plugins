@@ -1,5 +1,24 @@
 """AgentRank 榜单生成提示协议。"""
 
+import json
+import re
+from typing import Mapping, Optional, Sequence
+
+
+REFILL_CANDIDATE_ID_PATTERN = re.compile(r"^[A-Za-z0-9:_-]{1,128}$")
+REFILL_REASON_GUIDANCE = {
+    "unknown_candidate": "更换为冻结候选池中的 candidate_id",
+    "duplicate_candidate": "更换候选，不得重复已选作品",
+    "archived_candidate": "更换候选，不得再次选择已忽略作品",
+    "subscribed_candidate": "更换候选，不得再次选择已订阅作品",
+    "invalid_confidence": "修正为零到一百的整数",
+    "invalid_summary": "依据候选事实重写作品简介",
+    "ambiguous_playback_count": "删除把播放次数当作看完次数的表述",
+    "unsupported_playback_claim": "删除无播放快照支撑的经历或更换候选",
+    "invalid_reason": "用可回溯的偏好证据和作品事实重写理由",
+    "insufficient_match_evidence": "补足两项独立证据或更换候选",
+}
+
 
 LEGACY_DEFAULT_AGENT_PROMPT = (
     "请综合用户订阅画像、榜单权重与候选特征排序，优先推荐真正贴合用户口味、"
@@ -99,9 +118,14 @@ def build_ranking_prompt(
 2. 只因评分高、热度高、名气大、属于经典或近期热门，不足以进入高位；相关性优先，多样性仅用于相关性接近的候选。
 3. 不得把老经典、热门作品、续作或熟悉 IP 当成缺少用户证据时的安全答案；没有足够匹配证据时宁可少于 {limit} 条。
 4. reason 必须同时写出“用户为何会感兴趣”的偏好证据与“这部作品具体有什么”的作品特征，至少自然包含一个 match_tags 标签，最多四十个字符。
-5. 禁止使用“神作”“必看”“肯定喜欢”“不能错过”等空泛结论，也不要用“哈、呀、嘛、哒、喂”凑语气或字数。
+5. 禁止使用“神作”“必看”“肯定喜欢”“不能错过”“不容错过”“值得一看”“强烈推荐”等空泛结论，也不要用“哈、呀、嘛、哒、喂”凑语气或字数。
 6. 若播放证据支持，reason 要自然说明“你最近看完/反复看过什么行为”与候选的具体联系；若播放证据不足，降低推荐确定性，不得写成虚假的观看经历。
 7. summary 只能依据候选 overview 压缩作品剧情或设定，最多二十个字符；overview 为空时才可依据其他结构化作品事实概括，禁止补写未提供的剧情。
+
+播放片名连接示例（“片名甲/乙”只是句式占位，绝不是本轮事实）：
+- 正例：“你看过《片名甲》和《片名乙》，这部作品同样侧重真人互动。”
+- 反例：“你看片名甲片名乙，同为国产综艺喜剧。”
+引用时必须替换成 playback.samples 中真实存在的片名，并用完整语句自然连接；禁止照抄占位片名或把多个片名直接堆在一起。
 
 只返回单个 JSON 对象，不得有代码块、自然语言前缀或尾注：
 {{
@@ -123,15 +147,40 @@ def build_refill_prompt(
     accepted_candidate_ids: list[str],
     remaining_slots: int,
     agent_prompt: str = DEFAULT_AGENT_PROMPT,
+    rejected_candidates: Optional[Sequence[Mapping[str, str]]] = None,
 ) -> str:
-    """构建一次性同候选池补选指令并明确排除已接受条目。"""
-    excluded = ", ".join(str(item) for item in accepted_candidate_ids)
+    """构建有界同候选池补选指令，并反馈可信候选的安全丢弃原因。"""
+    excluded = [
+        str(item)
+        for item in accepted_candidate_ids
+        if REFILL_CANDIDATE_ID_PATTERN.fullmatch(str(item))
+    ]
+    feedback = []
+    for item in rejected_candidates or ():
+        candidate_id = str(item.get("candidate_id") or "")
+        reason = str(item.get("reason") or "")
+        if not REFILL_CANDIDATE_ID_PATTERN.fullmatch(candidate_id):
+            continue
+        if reason not in REFILL_REASON_GUIDANCE:
+            continue
+        feedback.append({"candidate_id": candidate_id, "reason": reason})
+    feedback_json = json.dumps(feedback, ensure_ascii=False, separators=(",", ":"))
+    guidance = "；".join(
+        f"{reason}={description}"
+        for reason, description in REFILL_REASON_GUIDANCE.items()
+    )
     return (
         build_ranking_prompt(
             max_recommendations=max(1, int(remaining_slots)),
             agent_prompt=agent_prompt,
         )
-        + "\n\n这是唯一一次补选。必须排除已经接受的 candidate_id："
-        + excluded
+        + "\n\n这是最多两轮补选中的当前一轮。必须排除已经接受的 candidate_id："
+        + json.dumps(excluded, ensure_ascii=False, separators=(",", ":"))
         + "。只从同一个 read_agentrank_candidates 快照选择未使用条目。"
+        + "\n上一轮未通过项仅包含可信 candidate_id 和内部安全原因码："
+        + feedback_json
+        + "。同一候选仍适合时按原因改写；证据不足或属于硬排除时更换候选。"
+        + "\n原因码处理："
+        + guidance
+        + "。不得复述、猜测或辩解上一轮原文。"
     )

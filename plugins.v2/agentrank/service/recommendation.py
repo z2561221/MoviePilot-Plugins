@@ -878,6 +878,114 @@ class RecommendationOrchestrator:
                 raise RuntimeError("Agent validation retry loop ended without a result")
             accepted: List[RecommendationItem] = list(validation.accepted)
             metrics["validation_drops"] = [drop.reason for drop in validation.dropped]
+
+            if len(accepted) < 10:
+                trusted_candidate_ids = {
+                    candidate.candidate_id for candidate in candidates
+                }
+                refill_feedback = [
+                    {"candidate_id": drop.candidate_id, "reason": drop.reason}
+                    for drop in validation.dropped
+                    if drop.candidate_id in trusted_candidate_ids
+                ]
+                refill_drop_reasons: List[str] = []
+                refill_attempt_errors: List[str] = []
+                refill_format_retry = False
+                for refill_attempt in range(2):
+                    accepted_ids = {item.candidate_id for item in accepted}
+                    remaining_candidates = [
+                        candidate
+                        for candidate in candidates
+                        if candidate.candidate_id not in accepted_ids
+                    ]
+                    if not remaining_candidates or len(accepted) >= 10:
+                        break
+                    metrics["refill_attempted"] = True
+                    metrics["refill_agent_calls"] = refill_attempt + 1
+                    refill_slots = 10 - len(accepted)
+                    current_refill_prompt = build_refill_prompt(
+                        [item.candidate_id for item in accepted],
+                        refill_slots,
+                        agent_prompt=str(config.get("agent_prompt") or ""),
+                        rejected_candidates=refill_feedback,
+                    )
+                    if refill_format_retry:
+                        current_refill_prompt += (
+                            "\n\n上一轮补选输出无法解析。请重新读取同一个受限候选快照，"
+                            "这次只返回一个符合既定 schema 的 JSON 对象，禁止代码块、"
+                            "解释、前后缀或额外字段。"
+                        )
+                    stage_clock = time.monotonic()
+                    metrics["agent_calls"] += 1
+                    metrics["ranking_agent_calls"] = (
+                        metrics.get("ranking_agent_calls", 0) + 1
+                    )
+                    try:
+                        refill_output = await self._run_agent_role(
+                            RANKING_AGENT_ROLE,
+                            current_refill_prompt,
+                            ranking_context,
+                        )
+                        refill_parsed = self._ranking_parser.parse(refill_output)
+                        refill_validation = self._validator.validate(
+                            refill_parsed,
+                            remaining_candidates,
+                            archived_ids,
+                            subscribed_ids,
+                            preference_evidence=[
+                                *current_profile.tags,
+                                *current_profile.ranking_tags,
+                            ],
+                            playback_samples=playback_snapshot.samples,
+                        )
+                        for item in refill_validation.accepted[:refill_slots]:
+                            item.rank = len(accepted) + 1
+                            accepted.append(item)
+                        round_drop_reasons = [
+                            drop.reason for drop in refill_validation.dropped
+                        ]
+                        refill_drop_reasons.extend(round_drop_reasons)
+                        metrics["refill_drops"] = refill_drop_reasons
+                        refill_feedback = [
+                            {
+                                "candidate_id": drop.candidate_id,
+                                "reason": drop.reason,
+                            }
+                            for drop in refill_validation.dropped
+                            if drop.candidate_id in trusted_candidate_ids
+                        ]
+                        refill_format_retry = False
+                    except AgentOutputError as error:
+                        detail = f"refill attempt {refill_attempt + 1}: {error}"
+                        if refill_attempt == 0:
+                            refill_attempt_errors.append(detail)
+                            refill_format_retry = True
+                            self._record_retry(
+                                metrics, "refill", refill_attempt + 1, error
+                            )
+                            continue
+                        errors.extend(refill_attempt_errors)
+                        errors.append(detail)
+                        break
+                    except Exception as error:
+                        detail = f"refill attempt {refill_attempt + 1}: {error}"
+                        if refill_attempt == 0 and bool(
+                            getattr(error, "retryable", False)
+                        ):
+                            refill_attempt_errors.append(detail)
+                            refill_format_retry = True
+                            self._record_retry(
+                                metrics, "refill", refill_attempt + 1, error
+                            )
+                            continue
+                        errors.extend(refill_attempt_errors)
+                        errors.append(detail)
+                        break
+                    finally:
+                        metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
+                            0, int((time.monotonic() - stage_clock) * 1000)
+                        )
+
             if not accepted:
                 return self._failure(
                     target,
@@ -891,88 +999,6 @@ class RecommendationOrchestrator:
                     errors,
                     agent_calls=int(metrics["agent_calls"]),
                 )
-
-            if len(accepted) < 10:
-                accepted_ids = {item.candidate_id for item in accepted}
-                remaining_candidates = [
-                    candidate
-                    for candidate in candidates
-                    if candidate.candidate_id not in accepted_ids
-                ]
-                if remaining_candidates:
-                    metrics["refill_attempted"] = True
-                    refill_slots = 10 - len(accepted)
-                    refill_prompt = build_refill_prompt(
-                        [item.candidate_id for item in accepted],
-                        refill_slots,
-                        agent_prompt=str(config.get("agent_prompt") or ""),
-                    )
-                    refill_attempt_errors: List[str] = []
-                    for refill_attempt in range(2):
-                        stage_clock = time.monotonic()
-                        metrics["agent_calls"] += 1
-                        metrics["ranking_agent_calls"] = (
-                            metrics.get("ranking_agent_calls", 0) + 1
-                        )
-                        current_refill_prompt = refill_prompt
-                        if refill_attempt:
-                            current_refill_prompt += (
-                                "\n\n上一轮补选输出未通过严格校验。请重新读取同一个受限候选快照，"
-                                "这次只返回一个符合既定 schema 的 JSON 对象，禁止代码块、"
-                                "解释、前后缀或额外字段。"
-                            )
-                        try:
-                            refill_output = await self._run_agent_role(
-                                RANKING_AGENT_ROLE,
-                                current_refill_prompt,
-                                ranking_context,
-                            )
-                            refill_parsed = self._ranking_parser.parse(refill_output)
-                            refill_validation = self._validator.validate(
-                                refill_parsed,
-                                remaining_candidates,
-                                archived_ids,
-                                subscribed_ids,
-                                preference_evidence=[
-                                    *current_profile.tags,
-                                    *current_profile.ranking_tags,
-                                ],
-                                playback_samples=playback_snapshot.samples,
-                            )
-                            for item in refill_validation.accepted[:refill_slots]:
-                                item.rank = len(accepted) + 1
-                                accepted.append(item)
-                            metrics["refill_drops"] = [
-                                drop.reason for drop in refill_validation.dropped
-                            ]
-                            break
-                        except AgentOutputError as error:
-                            detail = f"refill attempt {refill_attempt + 1}: {error}"
-                            if refill_attempt == 0:
-                                refill_attempt_errors.append(detail)
-                                self._record_retry(
-                                    metrics, "refill", refill_attempt + 1, error
-                                )
-                                continue
-                            errors.extend(refill_attempt_errors)
-                            errors.append(detail)
-                        except Exception as error:
-                            detail = f"refill attempt {refill_attempt + 1}: {error}"
-                            if refill_attempt == 0 and bool(
-                                getattr(error, "retryable", False)
-                            ):
-                                refill_attempt_errors.append(detail)
-                                self._record_retry(
-                                    metrics, "refill", refill_attempt + 1, error
-                                )
-                                continue
-                            errors.extend(refill_attempt_errors)
-                            errors.append(detail)
-                            break
-                        finally:
-                            metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
-                                0, int((time.monotonic() - stage_clock) * 1000)
-                            )
 
             status = "success" if len(accepted) >= 10 else "recommendation_incomplete"
             self._finish_stage(metrics, status)
