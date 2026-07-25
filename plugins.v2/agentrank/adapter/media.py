@@ -8,6 +8,17 @@ from ..model.candidate import Candidate, typed_tmdb_candidate_id
 class MediaRecognitionAdapter:
     """通过 MoviePilot MediaChain 将来源候选转换为 TMDB 标准条目。"""
 
+    _DIRECTOR_JOBS = frozenset(
+        {
+            "director",
+            "series director",
+            "episode director",
+            "co-director",
+            "导演",
+            "总导演",
+        }
+    )
+
     def __init__(
         self,
         chain_factory: Callable[[], Any] = None,
@@ -64,6 +75,32 @@ class MediaRecognitionAdapter:
             if text and text not in result:
                 result.append(text)
         return result
+
+    @classmethod
+    def _director_strings(cls, value: Any) -> List[str]:
+        """仅保留 MoviePilot 主创列表中真正承担导演职责的人物。"""
+        if value is None:
+            return []
+        items: Iterable[Any] = value if isinstance(value, (list, tuple, set)) else [value]
+        filtered: List[Any] = []
+        for item in items:
+            if isinstance(item, Mapping):
+                job = str(item.get("job") or "").strip().casefold()
+                department = str(item.get("department") or "").strip().casefold()
+            elif isinstance(item, str):
+                job = ""
+                department = ""
+            else:
+                job = str(getattr(item, "job", "") or "").strip().casefold()
+                department = str(
+                    getattr(item, "department", "") or ""
+                ).strip().casefold()
+            if job and job not in cls._DIRECTOR_JOBS:
+                continue
+            if not job and department and department != "directing":
+                continue
+            filtered.append(item)
+        return cls._strings(filtered)
 
     @staticmethod
     def _merge_unique(current: List[str], incoming: Iterable[str]) -> List[str]:
@@ -205,7 +242,8 @@ class MediaRecognitionAdapter:
             candidate.actors, self._strings(getattr(mediainfo, "actors", None))
         )
         candidate.directors = self._merge_unique(
-            candidate.directors, self._strings(getattr(mediainfo, "directors", None))
+            candidate.directors,
+            self._director_strings(getattr(mediainfo, "directors", None)),
         )
         rating = self._number(
             getattr(mediainfo, "vote_average", None)

@@ -102,6 +102,45 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
     assert result.metadata["recognized_by"] == "moviepilot"
 
 
+def test_recognition_excludes_non_director_crew_from_director_evidence():
+    """宿主混合主创列表中的编剧、剪辑与制片不得冒充导演。"""
+
+    class FakeChain:
+        """返回带混合 crew 职责的媒体识别结果。"""
+
+        def recognize_media(self, **kwargs):
+            """提供一个导演与三个非导演主创。"""
+            return SimpleNamespace(
+                tmdb_id=903,
+                title="主创职责测试",
+                type=FakeMediaType.MOVIE,
+                genres=[{"name": "剧情"}],
+                directors=[
+                    {"name": "真导演", "job": "Director", "department": "Directing"},
+                    {
+                        "name": "摄影指导甲",
+                        "job": "Director of Photography",
+                        "department": "Camera",
+                    },
+                    {"name": "编剧甲", "job": "Writer", "department": "Writing"},
+                    {"name": "剪辑乙", "job": "Editor", "department": "Editing"},
+                    {"name": "制片丙", "job": "Producer", "department": "Production"},
+                ],
+            )
+
+    candidate = Candidate(
+        candidate_id="tmdb:movie:903",
+        title="主创职责测试",
+        media_type="movie",
+        source_ids={"tmdb": "903"},
+    )
+    result = MediaRecognitionAdapter(FakeChain, FakeMeta, FakeMediaType).recognize(
+        candidate
+    )
+
+    assert result.directors == ["真导演"]
+
+
 def test_recognition_uses_actual_type_and_animation_features_not_source_name():
     """Bangumi 也可识别为真人剧，动画电影则保留电影订阅基础类型。"""
     results = [

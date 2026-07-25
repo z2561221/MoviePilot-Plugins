@@ -28,8 +28,8 @@ AMBIGUOUS_WATCH_COUNT_PATTERN = re.compile(
     r")"
 )
 EXPLICIT_PLAYBACK_TITLE_PATTERN = re.compile(
-    r"(?:你|用户)?(?:最近|此前|曾经|又)?"
-    r"(?:看过|看完|追完|追过|重看(?:过)?|反复看(?:过)?|播放过)"
+    r"(?:你|用户)?(?:最近|此前|曾经|又|多次|反复|完整)?"
+    r"(?:看过|看完|追完|追过|重看(?:过)?|反复看(?:过)?|播放(?:过)?|多次播放)"
     r"(?:了)?\s*([^，。；！？!?]{2,48})"
 )
 PLAYBACK_EXAMPLE_PATTERN = re.compile(r"(?:例如|比如|譬如|如)([^，。；！？!?]{2,48})")
@@ -39,13 +39,70 @@ PERSON_HISTORY_PATTERN = re.compile(
     r"(?:参演|主演|出演|执导|导演的作品|的作品)"
 )
 USER_HISTORY_CUE_PATTERN = re.compile(
-    r"(?:你|用户).{0,8}(?:看过|看完|追完|追过|重看|反复看|常看|爱看|喜欢|偏爱)"
+    r"(?:你|用户).{0,8}(?:看过|看完|追完|追过|重看|反复看|常看|爱看|喜欢|偏爱|播放)"
 )
-GENERIC_PLAYBACK_CLAIM_TERMS = (
-    "题材",
-    "类型",
-    "风格",
+CANDIDATE_ROLE_CLAIM_PATTERN = re.compile(
+    r"([^，。；！？!?]{1,32}?)(执导|导演|主演|参演|出演)"
+)
+PLAYBACK_CLAIM_SPLIT_PATTERN = re.compile(r"(?:、|/|以及|还有|和|与|及|并且|并)")
+CLAIM_DIGIT_ALIASES = str.maketrans(
+    {"0": "零", "1": "一", "2": "二", "3": "三", "4": "四", "5": "五"}
+)
+CLAIM_NOISE_TERMS = (
+    "用户",
+    "最近",
+    "此前",
+    "曾经",
+    "多次",
+    "反复",
+    "完整",
+    "常常",
+    "一直",
+    "这部",
+    "本片",
+    "该片",
     "作品",
+    "影片",
+    "电影",
+    "剧集",
+    "动画",
+    "由",
+    "著名",
+    "知名",
+    "实力派",
+    "老牌",
+    "新锐",
+    "演员",
+    "明星",
+    "阵容",
+    "群星",
+    "众多",
+    "多位",
+    "全员",
+)
+CLAIM_CONNECTOR_TERMS = (
+    "和",
+    "与",
+    "及",
+    "、",
+    "以及",
+    "还有",
+    "并且",
+    "并",
+    "/",
+    "联合",
+    "携手",
+    "等",
+)
+PLAYBACK_GENERIC_MARKER_PATTERN = re.compile(
+    r"等(?:很多|多部|不少|若干|几部|多种|各种|多类|一类|这类|大量)?"
+)
+PLAYBACK_DISPLAY_NOISE_TERMS = (
+    "这部",
+    "本片",
+    "该片",
+    "作品",
+    "影片",
     "电影",
     "剧集",
     "电视剧",
@@ -54,9 +111,80 @@ GENERIC_PLAYBACK_CLAIM_TERMS = (
     "番剧",
     "纪录片",
     "综艺",
+)
+GENERIC_PLAYBACK_QUANTITY_TERMS = (
     "很多",
     "多部",
     "不少",
+    "若干",
+    "几部",
+    "多种",
+    "各种",
+    "多类",
+    "一类",
+    "这类",
+    "大量",
+)
+GENERIC_PLAYBACK_NOUN_TERMS = (
+    "题材",
+    "类型",
+    "风格",
+    "作品",
+    "电影",
+    "影片",
+    "剧集",
+    "电视剧",
+    "动画",
+    "动漫",
+    "番剧",
+    "纪录片",
+    "综艺",
+    "片",
+    "剧",
+)
+GENERIC_PLAYBACK_CATEGORY_TERMS = (
+    "科幻",
+    "悬疑",
+    "犯罪",
+    "动作",
+    "冒险",
+    "喜剧",
+    "爱情",
+    "恐怖",
+    "惊悚",
+    "奇幻",
+    "动画",
+    "动漫",
+    "国漫",
+    "日漫",
+    "美漫",
+    "历史",
+    "战争",
+    "家庭",
+    "剧情",
+    "纪录",
+    "音乐",
+    "体育",
+    "修仙",
+    "武侠",
+    "古装",
+    "校园",
+    "职场",
+    "推理",
+    "侦探",
+    "末日",
+    "赛博",
+    "机甲",
+    "穿越",
+    "异世界",
+    "华语",
+    "日系",
+    "欧美",
+    "韩剧",
+    "美剧",
+    "英剧",
+    "短剧",
+    "长剧",
 )
 VAGUE_REASON_PHRASES = ("神作", "必看", "肯定喜欢", "不能错过")
 REGION_LABELS = {
@@ -757,6 +885,56 @@ class RecommendationValidator:
         ).casefold()
 
     @classmethod
+    def _claim_alias_text(cls, value: Any) -> str:
+        """生成支持常见数字简称的比较文本。"""
+        return cls._claim_text(value).translate(CLAIM_DIGIT_ALIASES)
+
+    @staticmethod
+    def _is_subsequence(needle: str, haystack: str) -> bool:
+        """判断较短片名是否按顺序出现在完整片名中。"""
+        if len(needle) < 3 or not haystack:
+            return False
+        cursor = 0
+        for character in needle:
+            cursor = haystack.find(character, cursor)
+            if cursor < 0:
+                return False
+            cursor += 1
+        return True
+
+    @classmethod
+    def _playback_claim_parts(cls, value: Any) -> List[str]:
+        """按明确连接词拆分一段可能包含多个播放片名的声明。"""
+        text = str(value or "").strip()
+        if not text:
+            return []
+        return [
+            part.strip()
+            for part in PLAYBACK_CLAIM_SPLIT_PATTERN.split(text)
+            if part.strip()
+        ]
+
+    @classmethod
+    def _claim_person_text(cls, value: Any) -> str:
+        """移除人物经历或主创短语中的叙述噪声。"""
+        text = cls._claim_text(value)
+        normalized_terms = [
+            cls._claim_text(term)
+            for term in sorted(CLAIM_NOISE_TERMS, key=len, reverse=True)
+        ]
+        changed = True
+        while text and changed:
+            changed = False
+            for term in normalized_terms:
+                if term and text.startswith(term):
+                    text = text[len(term) :]
+                    changed = True
+                if term and text.endswith(term):
+                    text = text[: -len(term)]
+                    changed = True
+        return text
+
+    @classmethod
     def _playback_evidence(cls, samples: Iterable[Any]) -> tuple[Set[str], str]:
         """汇总真实播放片名及样本明确文本，供理由声明回溯。"""
         titles: Set[str] = set()
@@ -778,15 +956,213 @@ class RecommendationValidator:
         return titles, "|".join(searchable)
 
     @classmethod
-    def _title_claim_supported(cls, value: str, titles: Set[str]) -> bool:
-        """判断观看声明中的具体片名是否存在于真实播放快照。"""
-        claim = cls._claim_text(value)
+    def _generic_playback_claim_supported(
+        cls, value: Any, searchable: str
+    ) -> bool:
+        """仅接受可由播放字段回溯的泛题材或泛作品类别声明。"""
+        claim = cls._claim_alias_text(value)
+        if not cls._generic_playback_claim_shape(claim):
+            return False
+        normalized_categories = [
+            cls._claim_alias_text(term)
+            for term in GENERIC_PLAYBACK_CATEGORY_TERMS
+            if cls._claim_alias_text(term) in claim
+        ]
+        if not normalized_categories:
+            return True
+        evidence = cls._claim_alias_text(searchable)
+        return bool(evidence) and all(term in evidence for term in normalized_categories)
+
+    @classmethod
+    def _generic_playback_claim_shape(cls, value: Any) -> bool:
+        """判断文本是否只是泛类别表达，而不是残留了具体片名。"""
+        claim = cls._claim_alias_text(value)
         if not claim:
             return True
-        if any(title in claim or claim in title for title in titles if len(title) >= 2):
+        normalized_nouns = tuple(
+            cls._claim_alias_text(term) for term in GENERIC_PLAYBACK_NOUN_TERMS
+        )
+        if claim in normalized_nouns:
             return True
-        if any(term in claim for term in GENERIC_PLAYBACK_CLAIM_TERMS):
+        quantities = tuple(
+            cls._claim_alias_text(term) for term in GENERIC_PLAYBACK_QUANTITY_TERMS
+        )
+        categories = [
+            cls._claim_alias_text(term)
+            for term in GENERIC_PLAYBACK_CATEGORY_TERMS
+            if cls._claim_alias_text(term) in claim
+        ]
+        has_generic_noun = any(term in claim for term in normalized_nouns)
+        has_quantity = any(term in claim for term in quantities)
+        if not has_generic_noun and not has_quantity:
+            return False
+        remainder = claim
+        removable = sorted(
+            {
+                *normalized_nouns,
+                *quantities,
+                *categories,
+                cls._claim_alias_text("相关"),
+                cls._claim_alias_text("这类"),
+                cls._claim_alias_text("一类"),
+                cls._claim_alias_text("等"),
+                cls._claim_alias_text("的"),
+            },
+            key=len,
+            reverse=True,
+        )
+        for term in removable:
+            if term:
+                remainder = remainder.replace(term, "")
+        return not remainder
+
+    @classmethod
+    def _display_noise_only(cls, value: Any) -> bool:
+        """判断片名后剩余文本是否仅是“这部作品”等展示性套话。"""
+        residual = cls._claim_text(value)
+        for term in sorted(
+            (
+                *PLAYBACK_DISPLAY_NOISE_TERMS,
+                *GENERIC_PLAYBACK_CATEGORY_TERMS,
+                *CLAIM_CONNECTOR_TERMS,
+            ),
+            key=len,
+            reverse=True,
+        ):
+            normalized = cls._claim_text(term)
+            if normalized:
+                residual = residual.replace(normalized, "")
+        return not residual
+
+    @classmethod
+    def _single_title_alias_match(cls, value: Any, titles: Set[str]) -> bool:
+        """判断一段独立文本是否是播放快照中的片名或保守简称。"""
+        claim = cls._claim_alias_text(value)
+        if not claim:
+            return False
+        for title in titles:
+            normalized_title = cls._claim_alias_text(title)
+            if len(normalized_title) < 2:
+                continue
+            if (
+                claim == normalized_title
+                or claim in normalized_title
+                or cls._is_subsequence(claim, normalized_title)
+            ):
+                return True
+        return False
+
+    @classmethod
+    def _explicit_title_sequence_supported(
+        cls, value: Any, titles: Set[str]
+    ) -> bool:
+        """逐项核对没有连接词但连续列出的多个播放片名。"""
+        remaining = cls._claim_alias_text(value)
+        if not remaining:
+            return False
+        aliases = sorted(
+            {
+                cls._claim_alias_text(title)
+                for title in titles
+                if len(cls._claim_alias_text(title)) >= 2
+            },
+            key=len,
+            reverse=True,
+        )
+        while remaining:
+            matches = [
+                (remaining.find(alias), alias)
+                for alias in aliases
+                if alias and alias in remaining
+            ]
+            if not matches:
+                return cls._single_title_alias_match(remaining, titles)
+            start, alias = min(matches, key=lambda item: (item[0], -len(item[1])))
+            if start > 0:
+                return False
+            remaining = remaining[len(alias) :]
+        return True
+
+    @classmethod
+    def _title_claim_supported(
+        cls, value: str, titles: Set[str], searchable: str = ""
+    ) -> bool:
+        """判断观看声明中的具体片名是否存在于真实播放快照。"""
+        claim = cls._claim_alias_text(value)
+        if not claim:
             return True
+        for title in titles:
+            normalized_title = cls._claim_alias_text(title)
+            if len(normalized_title) < 2:
+                continue
+            if (
+                claim == normalized_title
+                or claim in normalized_title
+                or cls._is_subsequence(claim, normalized_title)
+            ):
+                return True
+            if normalized_title in claim:
+                residual = claim.replace(normalized_title, "", 1)
+                if cls._display_noise_only(residual):
+                    return True
+        return cls._generic_playback_claim_supported(value, searchable)
+
+    @classmethod
+    def _playback_claim_supported(
+        cls, value: Any, titles: Set[str], searchable: str = ""
+    ) -> bool:
+        """判断一段单片名或多片名播放声明是否可回溯。"""
+        parts = cls._playback_claim_parts(value)
+        if len(parts) > 1:
+            return all(
+                cls._playback_claim_supported(part, titles, searchable)
+                for part in parts
+            )
+        raw = str(value or "").strip()
+        marker = PLAYBACK_GENERIC_MARKER_PATTERN.search(raw)
+        if marker:
+            explicit_titles = raw[: marker.start()]
+            generic_tail = raw[marker.end() :]
+            if cls._explicit_title_sequence_supported(explicit_titles, titles):
+                return cls._generic_playback_claim_shape(
+                    f"多部{generic_tail}"
+                ) or cls._generic_playback_claim_shape(generic_tail)
+            return False
+        return cls._title_claim_supported(raw, titles, searchable)
+
+    @classmethod
+    def _role_claim_supported(
+        cls, value: Any, known_people: Iterable[Any]
+    ) -> bool:
+        """判断主创短语中的人物是否全部存在于候选结构化证据。"""
+        text = cls._claim_person_text(value)
+        for marker in ("执导", "导演", "主演", "参演", "出演"):
+            normalized_marker = cls._claim_text(marker)
+            if normalized_marker in text:
+                text = text.rsplit(normalized_marker, 1)[-1]
+        for person in sorted(
+            (cls._claim_alias_text(item) for item in known_people or () if item),
+            key=len,
+            reverse=True,
+        ):
+            if person:
+                text = text.replace(person, "")
+        for connector in CLAIM_CONNECTOR_TERMS:
+            text = text.replace(cls._claim_text(connector), "")
+        return not text
+
+    @classmethod
+    def _unsupported_candidate_claim(
+        cls, reason: str, candidate: Candidate
+    ) -> bool:
+        """拒绝无法从冻结候选演员或导演字段回溯的主创断言。"""
+        actors = list(getattr(candidate, "actors", None) or ())
+        directors = list(getattr(candidate, "directors", None) or ())
+        for matched in CANDIDATE_ROLE_CLAIM_PATTERN.finditer(reason):
+            clause, role = matched.groups()
+            known_people = directors if role in {"执导", "导演"} else actors
+            if not cls._role_claim_supported(clause, known_people):
+                return True
         return False
 
     @classmethod
@@ -800,16 +1176,18 @@ class RecommendationValidator:
             return False
         titles, searchable = cls._playback_evidence(samples)
         for matched in EXPLICIT_PLAYBACK_TITLE_PATTERN.finditer(reason):
-            if not cls._title_claim_supported(matched.group(1), titles):
+            if not cls._playback_claim_supported(
+                matched.group(1), titles, searchable
+            ):
                 return True
         if USER_HISTORY_CUE_PATTERN.search(reason):
             for matched in PLAYBACK_EXAMPLE_PATTERN.finditer(reason):
-                examples = re.split(r"[、/]|以及|还有|和|与|及", matched.group(1))
+                examples = cls._playback_claim_parts(matched.group(1))
                 for example in examples:
-                    if not cls._title_claim_supported(example, titles):
+                    if not cls._title_claim_supported(example, titles, searchable):
                         return True
         for matched in PERSON_HISTORY_PATTERN.finditer(reason):
-            person = cls._claim_text(matched.group(1))
+            person = cls._claim_person_text(matched.group(1))
             if person and person not in searchable:
                 return True
         return False
@@ -873,6 +1251,9 @@ class RecommendationValidator:
             unsupported_playback_claim = self._unsupported_playback_claim(
                 reason, playback_samples
             )
+            unsupported_candidate_claim = self._unsupported_candidate_claim(
+                reason, candidate
+            )
             if not summary:
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_summary", index)
@@ -885,6 +1266,7 @@ class RecommendationValidator:
                 or FILLER_END_PATTERN.search(reason)
                 or AMBIGUOUS_WATCH_COUNT_PATTERN.search(reason)
                 or unsupported_playback_claim
+                or unsupported_candidate_claim
             ):
                 result.dropped.append(
                     DroppedRecommendation(

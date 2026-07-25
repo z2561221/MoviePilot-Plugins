@@ -703,6 +703,320 @@ def test_validator_accepts_playback_title_only_when_snapshot_contains_it():
     assert result.accepted[0].title == "新动作片"
 
 
+def test_validator_accepts_common_playback_aliases_and_split_titles():
+    """真实播放片名的常见简称与并列写法不应被安全门误删。"""
+    candidate = Candidate(
+        candidate_id="tmdb:1",
+        title="异世界校园番",
+        media_type="tv",
+        overview="少年转生异世界并进入校园生活。",
+        genres=["动画", "奇幻"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "你完整看完Re0和尖帽工房，这部转生异世界奇幻动画风格相近",
+                    "summary": "少年转生异世界入学名校",
+                    "match_tags": ["日本奇幻", "动画"],
+                    "confidence": 86,
+                }
+            ]
+        )
+    )
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["日本奇幻动画"],
+        playback_samples=[
+            {"title": "Re：从零开始的异世界生活", "genres": ["动画"]},
+            {"title": "尖帽子的魔法工房", "genres": ["动画"]},
+        ],
+    )
+    assert result.dropped == []
+
+
+def test_validator_accepts_verified_titles_with_generic_tail():
+    """连续列出的真实片名后接“等多部”泛类别时应逐项通过。"""
+    candidate = Candidate(
+        candidate_id="tmdb:1",
+        title="新修仙动画",
+        media_type="tv",
+        overview="国漫修仙冒险故事。",
+        genres=["动画", "奇幻"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "你追完沧元图光阴之外等多部国漫修仙，这部动画奇幻风格相近",
+                    "summary": "国漫修仙冒险故事",
+                    "match_tags": ["动画", "奇幻"],
+                    "confidence": 86,
+                }
+            ]
+        )
+    )
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["国漫修仙"],
+        playback_samples=[
+            {"title": "沧元图", "genres": ["动画", "动作冒险"]},
+            {"title": "光阴之外", "genres": ["动画", "科幻奇幻"]},
+        ],
+    )
+    assert result.dropped == []
+
+
+def test_validator_accepts_playback_title_with_category_prefix():
+    """真实片名前的“韩剧”等受控类别修饰不能造成误删。"""
+    candidate = Candidate(
+        candidate_id="tmdb:1",
+        title="韩国校园剧",
+        media_type="tv",
+        overview="校园阶层冲突带来持续剧情张力。",
+        genres=["剧情"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "你完整看完韩剧黑暗荣耀，这部韩国校园剧情张力十足",
+                    "summary": "转学生打破校园秩序",
+                    "match_tags": ["韩国剧情", "剧情"],
+                    "confidence": 83,
+                }
+            ]
+        )
+    )
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["韩国剧情"],
+        playback_samples=[{"title": "黑暗荣耀", "genres": ["剧情"]}],
+    )
+    assert result.dropped == []
+
+
+def test_validator_rejects_unverified_title_inside_verified_title_list():
+    """连续片名中混入一个不存在的标题时不能被已知片名子串掩盖。"""
+    candidate = Candidate(
+        candidate_id="tmdb:1",
+        title="新科幻片",
+        media_type="movie",
+        overview="未来城市冒险故事。",
+        genres=["科幻", "冒险"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "你看过挽救计划不存在等科幻片，这部科幻冒险延续未来设定",
+                    "summary": "未来城市冒险故事",
+                    "match_tags": ["科幻", "冒险"],
+                    "confidence": 82,
+                }
+            ]
+        )
+    )
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["科幻"],
+        playback_samples=[{"title": "挽救计划", "genres": ["科幻"]}],
+    )
+    assert result.accepted == []
+    assert result.dropped[0].reason == "unsupported_playback_claim"
+
+
+def test_validator_rejects_unproven_repeated_playback_title():
+    """多次播放的具体片名没有快照证据时仍必须被拒绝。"""
+    candidate = Candidate(
+        candidate_id="tmdb:1",
+        title="新动作片",
+        media_type="movie",
+        overview="追查旧案的动作冒险故事。",
+        genres=["动作", "犯罪"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "你多次播放英雄，这部动作犯罪延续追查线。",
+                    "summary": "动作冒险追查旧案",
+                    "match_tags": ["动作", "犯罪"],
+                    "confidence": 82,
+                }
+            ]
+        )
+    )
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["动作"],
+        playback_samples=[{"title": "未提及的作品", "genres": ["悬疑"]}],
+    )
+    assert result.accepted == []
+    assert result.dropped[0].reason == "unsupported_playback_claim"
+
+
+def test_validator_rejects_specific_title_disguised_as_generic_work():
+    """“作品”等泛词不能替不存在的具体片名绕过播放证据校验。"""
+    candidate = Candidate(
+        candidate_id="tmdb:1",
+        title="新动作片",
+        media_type="movie",
+        overview="追查旧案的动作冒险故事。",
+        genres=["动作", "犯罪"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "你多次播放不存在的作品，这部动作犯罪延续追查线。",
+                    "summary": "动作冒险追查旧案",
+                    "match_tags": ["动作", "犯罪"],
+                    "confidence": 82,
+                }
+            ]
+        )
+    )
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["动作"],
+        playback_samples=[{"title": "真实悬疑片", "genres": ["悬疑"]}],
+    )
+    assert result.accepted == []
+    assert result.dropped[0].reason == "unsupported_playback_claim"
+
+
+def test_validator_accepts_generic_playback_category_with_snapshot_evidence():
+    """泛题材观看经历可由播放样本的类型字段回溯时应保留。"""
+    candidate = Candidate(
+        candidate_id="tmdb:1",
+        title="新科幻片",
+        media_type="movie",
+        overview="未来城市中的犯罪追查故事。",
+        genres=["科幻", "犯罪"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "你看过多部科幻片，这部科幻犯罪延续未来设定。",
+                    "summary": "未来城市犯罪追查",
+                    "match_tags": ["科幻", "犯罪"],
+                    "confidence": 82,
+                }
+            ]
+        )
+    )
+    result = RecommendationValidator().validate(
+        parsed,
+        [candidate],
+        set(),
+        set(),
+        preference_evidence=["科幻"],
+        playback_samples=[{"title": "真实科幻片", "genres": ["科幻"]}],
+    )
+    assert result.dropped == []
+
+
+def test_validator_requires_named_candidate_personnel_in_frozen_evidence():
+    """理由中的演员与导演姓名必须存在于冻结候选字段。"""
+    candidate = Candidate(
+        candidate_id="tmdb:1",
+        title="华语动作喜剧",
+        media_type="movie",
+        overview="动作与喜剧交织的城市故事。",
+        genres=["动作", "喜剧"],
+        actors=["成龙"],
+        directors=["冯小刚"],
+    )
+
+    def validate_reason(reason):
+        """用同一候选校验一条主创理由。"""
+        parsed = AgentOutputParser().parse(
+            _output(
+                [
+                    {
+                        "candidate_id": "tmdb:1",
+                        "reason": reason,
+                        "summary": "动作喜剧交织的城市故事",
+                        "match_tags": ["动作", "喜剧"],
+                        "confidence": 82,
+                    }
+                ]
+            )
+        )
+        return RecommendationValidator().validate(
+            parsed,
+            [candidate],
+            set(),
+            set(),
+            preference_evidence=["动作喜剧"],
+        )
+
+    accepted = validate_reason("冯小刚执导成龙主演的动作喜剧故事很对味")
+    assert accepted.dropped == []
+
+    foreign_name = Candidate(
+        candidate_id="tmdb:1",
+        title="人物传记",
+        media_type="movie",
+        overview="围绕演员生涯展开的人物故事。",
+        genres=["剧情", "传记"],
+        actors=["爱德华诺顿"],
+        directors=["冯小刚"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "冯小刚执导爱德华诺顿主演的人物传记故事",
+                    "summary": "演员生涯人物故事",
+                    "match_tags": ["剧情", "传记"],
+                    "confidence": 82,
+                }
+            ]
+        )
+    )
+    foreign_result = RecommendationValidator().validate(
+        parsed,
+        [foreign_name],
+        set(),
+        set(),
+        preference_evidence=["剧情", "传记"],
+    )
+    assert foreign_result.dropped == []
+
+    rejected = validate_reason("张三执导成龙主演的动作喜剧故事很对味")
+    assert rejected.accepted == []
+    assert rejected.dropped[0].reason == "invalid_reason"
+
+
 def test_subscribed_candidate_is_rejected_even_when_other_fields_are_valid():
     """Current subscription membership is a hard validation gate."""
     parsed = AgentOutputParser().parse(_output())
