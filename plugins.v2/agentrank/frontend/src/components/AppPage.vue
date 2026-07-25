@@ -7,6 +7,7 @@ import { savePluginConfig } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
+  nativeSubscribe: { type: Function, default: null },
   navKey: { type: String, default: 'main' },
   pluginId: { type: String, default: 'AgentRank' },
 })
@@ -269,8 +270,8 @@ onMounted(initialize)
                   </div>
                 </div>
                 <div class="ar-app-page__item-actions">
-                  <VChip size="x-small" color="primary" variant="tonal" class="ar-app-page__confidence">置信度 {{ item.confidence }}%</VChip>
-                  <RecommendationActions :item="item" :loading-action="loading.action" size="small" @subscribe="subscribeItem" @archive="archiveItem" />
+                  <VChip size="x-small" color="primary" variant="tonal" class="ar-app-page__confidence">{{ item.confidence }}%</VChip>
+                  <RecommendationActions :item="item" :loading-action="loading.action" :native-subscribe="nativeSubscribe" size="small" @subscribe="subscribeItem" @archive="archiveItem" />
                 </div>
               </article>
             </div>

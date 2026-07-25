@@ -7,6 +7,7 @@ const props = defineProps({
   api: { type: [Object, Function], default: null },
   config: { type: Object, default: () => ({}) },
   allowRefresh: { type: Boolean, default: true },
+  nativeSubscribe: { type: Function, default: null },
 })
 const state = useAgentRankState(props.api)
 const snackbar = ref({ show: false, message: '', color: 'success' })
@@ -105,10 +106,11 @@ onMounted(initialize)
             <div class="text-caption text-medium-emphasis text-truncate">简介：{{ item.summary }}</div>
           </div>
           <div class="ar-dashboard__controls">
-            <VChip size="x-small" color="primary" variant="tonal" class="ar-dashboard__confidence">置信度 {{ item.confidence }}%</VChip>
+            <VChip size="x-small" color="primary" variant="tonal" class="ar-dashboard__confidence">{{ item.confidence }}%</VChip>
             <RecommendationActions
               :item="item"
               :loading-action="state.loading.action"
+              :native-subscribe="nativeSubscribe"
               @subscribe="candidateId => runItemAction(() => state.subscribe(candidateId), '订阅操作已完成')"
               @archive="candidateId => runItemAction(() => state.archive(candidateId), '已忽略推荐')"
             />

@@ -115,15 +115,25 @@ def test_discovery_page_translates_internal_source_codes():
     assert "sources.map(source => sourceLabels[source] || '其他来源').join(' · ')" in app_page
 
 
-def test_all_ranking_surfaces_use_direct_four_button_actions():
-    """三处榜单统一直显四按钮，不使用操作弹窗。"""
+def test_all_ranking_surfaces_use_three_button_actions_and_native_subscribe():
+    """三处榜单只保留订阅、TMDB、忽略，并优先调用宿主原生订阅。"""
     actions = _read("RecommendationActions.vue")
-    for label in ("订阅", "TMDB", "豆瓣", "Bgm", "忽略"):
+    for label in ("订阅", "TMDB", "忽略"):
         assert label in actions
+    for forbidden in ("豆瓣", "Bgm", "doubanSearchText", "sourceLabel", "搜索豆瓣"):
+        assert forbidden not in actions
+    assert "nativeSubscribe" in actions
+    assert "moviepilot:nativeSubscribe" in actions
+    assert "PERMISSION_DENIED" in actions
+    assert "const nativeMediaType = computed(() => props.item?.media_type === 'movie' ? '电影' : '电视剧')" in actions
+    assert "media.media_id = sourceId" in actions
+    assert "if (result?.success === true || result?.code === 'PERMISSION_DENIED') return" in actions
     assert "VDialog" not in actions
     for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
         component = _read(name)
         assert "RecommendationActions" in component
+        assert "nativeSubscribe" in component
+        assert "置信度" not in component
 
 
 def test_discovery_settings_open_embedded_config_and_use_core_save_api():
@@ -254,8 +264,8 @@ def test_mobile_detail_tabs_scroll_without_arrow_controls():
     assert "ar-page__tab-icon { display: none; }" in page
 
 
-def test_ranking_actions_keep_labels_and_wrap_without_container_collapse():
-    """四项动作始终保留文字，并通过换行适配狭窄容器。"""
+def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse():
+    """三项动作始终保留文字，并通过换行适配狭窄容器。"""
     actions = _read("RecommendationActions.vue")
     assert 'prepend-icon="mdi-bookmark-plus-outline"' in actions
     assert 'prepend-icon="mdi-eye-off-outline"' in actions
@@ -265,10 +275,9 @@ def test_ranking_actions_keep_labels_and_wrap_without_container_collapse():
     assert 'color="info"' not in actions
     assert "color: #0288d1 !important;" in actions
     assert "color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;" in actions
-    assert 'prepend-icon="mdi-open-in-new"' in actions
-    assert 'https://search.douban.com/movie/subject_search?search_text=' in actions
-    assert ':disabled="!sourceAvailable"' in actions
-    assert "'搜索豆瓣'" in actions
+    assert 'prepend-icon="mdi-open-in-new"' not in actions
+    assert 'https://search.douban.com/movie/subject_search?search_text=' not in actions
+    assert "sourceAvailable" not in actions
     assert "container: actions / inline-size" not in actions
     assert "@container actions" not in actions
     assert "flex-wrap: wrap" in actions
@@ -280,17 +289,21 @@ def test_ranking_actions_keep_labels_and_wrap_without_container_collapse():
         ("Page.vue", "ar-page__confidence"),
     ):
         component = _read(name)
-        assert component.index(confidence_class) < component.index("<RecommendationActions", component.index("置信度"))
+        assert "置信度" not in component
+        assert "{{ item.confidence }}%" in component
+        assert component.index(confidence_class) < component.index("<RecommendationActions")
 
 
-def test_tmdb_only_items_keep_a_douban_search_fallback_and_legacy_id_aliases():
-    """TMDB 条目缺少直达豆瓣 ID 时仍可按片名搜索，并兼容宿主旧字段。"""
+def test_native_subscribe_payload_keeps_source_id_aliases_without_source_buttons():
+    """原生订阅载荷兼容宿主旧字段，但动作栏不再暴露来源按钮。"""
     actions = _read("RecommendationActions.vue")
-    for alias in ("tmdb_id", "themoviedb", "doubanid", "bgm_id"):
+    for alias in ("tmdb_id", "themoviedb", "doubanid", "bangumiid", "anilistid"):
         assert alias in actions
-    assert "props.item?.original_title" in actions
-    assert "Boolean(sourceId.value || doubanSearchText.value)" in actions
-    assert "搜索豆瓣" in actions
+    assert "mediaid_prefix" in actions
+    assert "media_id" in actions
+    assert "props.item?.original_title" not in actions
+    assert "doubanSearchText" not in actions
+    assert "sourceLabel" not in actions
 
 
 def test_dashboard_assigns_an_explicit_fourth_action_column_and_mobile_row():

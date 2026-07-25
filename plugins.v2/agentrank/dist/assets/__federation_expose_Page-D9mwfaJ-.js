@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CCnpKc9N.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CMkkPJmS.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives,withKeys:_withKeys} = await importShared('vue');
@@ -100,7 +100,10 @@ const historyPageSize = 10;
 
 const _sfc_main = {
   __name: 'Page',
-  props: { api: { type: [Object, Function], default: null } },
+  props: {
+  api: { type: [Object, Function], default: null },
+  nativeSubscribe: { type: Function, default: null },
+},
   emits: ['action', 'switch', 'close'],
   setup(__props, { emit: __emit }) {
 
@@ -651,17 +654,18 @@ return (_ctx, _cache) => {
                             class: "ar-page__confidence"
                           }, {
                             default: _withCtx(() => [
-                              _createTextVNode("置信度 " + _toDisplayString(item.confidence) + "%", 1)
+                              _createTextVNode(_toDisplayString(item.confidence) + "%", 1)
                             ]),
                             _: 2
                           }, 1024),
                           _createVNode(RecommendationActions, {
                             item: item,
                             "loading-action": _unref(state).loading.action,
+                            "native-subscribe": __props.nativeSubscribe,
                             size: "small",
                             onSubscribe: _cache[4] || (_cache[4] = candidateId => runAction(() => _unref(state).subscribe(candidateId), '订阅操作已完成')),
                             onArchive: _cache[5] || (_cache[5] = candidateId => runAction(() => _unref(state).archive(candidateId), '已忽略推荐'))
-                          }, null, 8, ["item", "loading-action"])
+                          }, null, 8, ["item", "loading-action", "native-subscribe"])
                         ])
                       ]))
                     }), 128))
@@ -1168,6 +1172,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-31fe54fd"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-63edf832"]]);
 
 export { Page as default };

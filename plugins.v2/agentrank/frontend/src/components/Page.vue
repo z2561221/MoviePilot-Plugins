@@ -3,7 +3,10 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
 import RecommendationActions from './RecommendationActions.vue'
 
-const props = defineProps({ api: { type: [Object, Function], default: null } })
+const props = defineProps({
+  api: { type: [Object, Function], default: null },
+  nativeSubscribe: { type: Function, default: null },
+})
 const emit = defineEmits(['action', 'switch', 'close'])
 const state = useAgentRankState(props.api)
 
@@ -378,10 +381,11 @@ onMounted(initialize)
                 </div>
               </div>
               <div class="ar-page__rank-actions">
-                <VChip size="x-small" color="primary" variant="tonal" class="ar-page__confidence">置信度 {{ item.confidence }}%</VChip>
+                <VChip size="x-small" color="primary" variant="tonal" class="ar-page__confidence">{{ item.confidence }}%</VChip>
                 <RecommendationActions
                   :item="item"
                   :loading-action="state.loading.action"
+                  :native-subscribe="nativeSubscribe"
                   size="small"
                   @subscribe="candidateId => runAction(() => state.subscribe(candidateId), '订阅操作已完成')"
                   @archive="candidateId => runAction(() => state.archive(candidateId), '已忽略推荐')"

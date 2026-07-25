@@ -1,6 +1,8 @@
 """MoviePilot 媒体识别与 TMDB 标准化适配器。"""
 
-from typing import Any, Callable, Iterable, List, Mapping, Optional
+import inspect
+import re
+from typing import Any, Callable, Iterable, List, Mapping, Optional, Tuple
 
 from ..model.candidate import Candidate, typed_tmdb_candidate_id
 
@@ -18,6 +20,18 @@ class MediaRecognitionAdapter:
             "总导演",
         }
     )
+    _MEDIA_SOURCE_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+    _MEDIA_SOURCE_ALIASES = {
+        "tmdb": "tmdb",
+        "themoviedb": "tmdb",
+        "douban": "douban",
+        "bangumi": "bangumi",
+        "bgm": "bangumi",
+        "anilist": "anilist",
+        "tvdb": "tvdb",
+        "imdb": "imdb",
+    }
+    _MAX_TITLE_RECOGNITION_ATTEMPTS = 2
 
     def __init__(
         self,
@@ -169,46 +183,202 @@ class MediaRecognitionAdapter:
                     source_ids[canonical] = str(value)
                     break
 
+    @classmethod
+    def _source_name(cls, value: Any) -> str:
+        """规范宿主媒体来源名并拒绝不可控前缀。"""
+        text = str(value or "").strip().casefold()
+        if not text:
+            return ""
+        normalized = cls._MEDIA_SOURCE_ALIASES.get(text, text)
+        return normalized if cls._MEDIA_SOURCE_PATTERN.fullmatch(normalized) else ""
+
+    @staticmethod
+    def _source_id(value: Any) -> str:
+        """读取非空且非零的来源媒体 ID。"""
+        text = str(value or "").strip()
+        return text if text and text != "0" else ""
+
+    @classmethod
+    def _source_identity(cls, candidate: Candidate) -> Tuple[str, str]:
+        """选择候选最可靠的来源身份，优先 TMDB 与宿主内置来源。"""
+        for source in ("tmdb", "douban", "bangumi", "anilist"):
+            media_id = cls._source_id(candidate.source_ids.get(source))
+            if media_id:
+                return source, media_id
+        for raw_source, raw_media_id in candidate.source_ids.items():
+            source = cls._source_name(raw_source)
+            media_id = cls._source_id(raw_media_id)
+            if source and media_id:
+                return source, media_id
+        return "", ""
+
+    @staticmethod
+    def _positive_tmdb_id(value: Any) -> Optional[int]:
+        """从宿主映射结果中读取正整数 TMDB ID。"""
+        try:
+            tmdb_id = int(value)
+        except (TypeError, ValueError):
+            return None
+        return tmdb_id if tmdb_id > 0 else None
+
+    @classmethod
+    def _mapped_tmdb_id(cls, value: Any) -> Optional[int]:
+        """兼容字典或 MediaInfo 形式的来源到 TMDB 映射结果。"""
+        if value is None:
+            return None
+        if isinstance(value, Mapping):
+            for name in ("tmdb_id", "tmdbid", "id"):
+                tmdb_id = cls._positive_tmdb_id(value.get(name))
+                if tmdb_id:
+                    return tmdb_id
+            nested = value.get("tmdb_info")
+            return cls._mapped_tmdb_id(nested) if nested else None
+        for name in ("tmdb_id", "tmdbid"):
+            tmdb_id = cls._positive_tmdb_id(getattr(value, name, None))
+            if tmdb_id:
+                return tmdb_id
+        nested = getattr(value, "tmdb_info", None)
+        return cls._mapped_tmdb_id(nested) if nested else None
+
+    @staticmethod
+    def _recognition_meta(
+        candidate: Candidate,
+        title: str,
+        meta_factory: Callable[[str], Any],
+        media_type: Any,
+    ) -> Any:
+        """为一次受控识别构造独立 MoviePilot MetaInfo。"""
+        meta = meta_factory(title)
+        if candidate.year:
+            meta.year = str(candidate.year)
+        meta.type = media_type
+        return meta
+
+    @staticmethod
+    def _call_recognize(chain: Any, meta: Any, media_type: Any, **kwargs: Any) -> Any:
+        """调用宿主识别接口，并在旧版签名不兼容时安全返回空。"""
+        try:
+            return chain.recognize_media(meta=meta, mtype=media_type, **kwargs)
+        except Exception:
+            return None
+
+    @classmethod
+    def _map_source_to_tmdb(
+        cls, chain: Any, source: str, media_id: str, media_type: Any
+    ) -> Optional[int]:
+        """能力探测宿主来源映射方法，并提取可复用的 TMDB ID。"""
+        if not source or source == "tmdb":
+            return cls._positive_tmdb_id(media_id) if source == "tmdb" else None
+        method = getattr(chain, f"get_tmdbinfo_by_{source}id", None)
+        if not callable(method):
+            return None
+        value: Any = int(media_id) if media_id.isdigit() and source != "douban" else media_id
+        try:
+            parameters = inspect.signature(method).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        try:
+            mapping = method(value, mtype=media_type) if "mtype" in parameters else method(value)
+        except Exception:
+            return None
+        return cls._mapped_tmdb_id(mapping)
+
+    @classmethod
+    def _recognize_source(
+        cls,
+        chain: Any,
+        meta: Any,
+        media_type: Any,
+        source: str,
+        media_id: str,
+    ) -> Any:
+        """按来源 ID 调用新旧 MoviePilot 兼容识别入口。"""
+        if source == "tmdb":
+            return cls._call_recognize(
+                chain, meta, media_type, tmdbid=cls._positive_tmdb_id(media_id)
+            )
+        compatibility_kwargs = {
+            "douban": {"doubanid": media_id},
+            "bangumi": {"bangumiid": media_id},
+            "anilist": {"anilistid": media_id},
+        }
+        mediainfo = cls._call_recognize(
+            chain,
+            meta,
+            media_type,
+            source="themoviedb" if source == "tmdb" else source,
+            mediaid=media_id,
+        )
+        if mediainfo or source not in compatibility_kwargs:
+            return mediainfo
+        return cls._call_recognize(
+            chain, meta, media_type, **compatibility_kwargs[source]
+        )
+
+    @classmethod
+    def _title_candidates(cls, candidate: Candidate, mediainfo: Any = None) -> List[str]:
+        """生成有限且去重的 TMDB 标题兜底列表。"""
+        names: List[str] = []
+        for value in (
+            candidate.title,
+            candidate.original_title,
+            getattr(mediainfo, "title", "") if mediainfo else "",
+            getattr(mediainfo, "original_title", "") if mediainfo else "",
+            getattr(mediainfo, "en_title", "") if mediainfo else "",
+        ):
+            name = str(value or "").strip()
+            if name and name not in names:
+                names.append(name)
+            if len(names) >= cls._MAX_TITLE_RECOGNITION_ATTEMPTS:
+                break
+        return names
+
+    @classmethod
+    def _recognize_tmdb_titles(
+        cls,
+        chain: Any,
+        candidate: Candidate,
+        mediainfo: Any,
+        meta_factory: Callable[[str], Any],
+        media_type: Any,
+    ) -> Any:
+        """最多按两个标题尝试 TMDB 识别，避免候选采集串行放大。"""
+        for title in cls._title_candidates(candidate, mediainfo):
+            meta = cls._recognition_meta(candidate, title, meta_factory, media_type)
+            result = cls._call_recognize(
+                chain, meta, media_type, source="themoviedb"
+            )
+            if result is None:
+                result = cls._call_recognize(chain, meta, media_type)
+            if cls._mapped_tmdb_id(result):
+                return result
+        return None
+
     def recognize(self, candidate: Candidate) -> Optional[Candidate]:
         """识别候选并仅在获得 TMDB 身份时返回标准条目。"""
         self._normalize_source_ids(candidate)
         chain_factory, meta_factory, media_type_cls = self._dependencies()
         media_type = self._media_type(candidate, media_type_cls)
-        meta = meta_factory(candidate.title)
-        if candidate.year:
-            meta.year = str(candidate.year)
-        meta.type = media_type
         chain = chain_factory()
+        source, media_id = self._source_identity(candidate)
+        meta = self._recognition_meta(candidate, candidate.title, meta_factory, media_type)
+        mapped_tmdb_id = self._map_source_to_tmdb(
+            chain, source, media_id, media_type
+        )
         mediainfo = None
-        tmdb_id = candidate.source_ids.get("tmdb")
-        explicit_kwargs = {}
-        if tmdb_id:
-            explicit_kwargs = {"tmdbid": tmdb_id}
-        elif candidate.source_ids.get("douban"):
-            explicit_kwargs = {"doubanid": candidate.source_ids["douban"]}
-        elif candidate.source_ids.get("bangumi"):
-            explicit_kwargs = {"bangumiid": candidate.source_ids["bangumi"]}
-        elif candidate.source_ids.get("anilist"):
-            explicit_kwargs = {"anilistid": candidate.source_ids["anilist"]}
-        if explicit_kwargs:
-            try:
-                mediainfo = chain.recognize_media(
-                    meta=meta, mtype=media_type, **explicit_kwargs
-                )
-            except TypeError:
-                mediainfo = None
-        if not mediainfo:
-            mediainfo = chain.recognize_media(meta=meta, mtype=media_type)
-        if not mediainfo and candidate.source_ids.get("bangumi") and "bangumiid" not in explicit_kwargs:
-            try:
-                mediainfo = chain.recognize_media(
-                    meta=meta,
-                    mtype=media_type,
-                    bangumiid=candidate.source_ids["bangumi"],
-                )
-            except TypeError:
-                mediainfo = None
-        resolved_tmdb_id = getattr(mediainfo, "tmdb_id", None) if mediainfo else None
+        if mapped_tmdb_id:
+            mediainfo = self._call_recognize(
+                chain, meta, media_type, tmdbid=mapped_tmdb_id
+            )
+        if mediainfo is None and source and media_id:
+            mediainfo = self._recognize_source(
+                chain, meta, media_type, source, media_id
+            )
+        if not self._mapped_tmdb_id(mediainfo):
+            mediainfo = self._recognize_tmdb_titles(
+                chain, candidate, mediainfo, meta_factory, media_type
+            )
+        resolved_tmdb_id = self._mapped_tmdb_id(mediainfo)
         if not resolved_tmdb_id:
             return None
 

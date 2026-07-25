@@ -267,6 +267,23 @@ def test_dashboard_is_a_lightweight_vertical_top_five():
     assert "item.reason" in source
 
 
+def test_all_ranking_surfaces_use_host_native_subscribe_and_only_three_actions():
+    """仪表盘、发现页和详情页都把电视剧订阅交给宿主原生抽屉。"""
+    actions = (COMPONENTS / "RecommendationActions.vue").read_text(encoding="utf-8")
+    for label in ("订阅", "TMDB", "忽略"):
+        assert f'<span class="ar-actions__label">{label}</span>' in actions
+    for forbidden in ("豆瓣", "Bgm", "搜索豆瓣", "doubanSearchText", "sourceLabel"):
+        assert forbidden not in actions
+    assert "nativeSubscribe" in actions
+    assert "moviepilot:nativeSubscribe" in actions
+    assert "PERMISSION_DENIED" in actions
+    for component_path in (DASHBOARD, APP_PAGE, PAGE):
+        source = component_path.read_text(encoding="utf-8")
+        assert "nativeSubscribe" in source
+        assert "置信度" not in source
+        assert "{{ item.confidence }}%" in source
+
+
 def test_primary_surface_exposes_the_complete_semantic_state_matrix():
     """Every backend board state has a visible label and recovery message."""
     source = APP_PAGE.read_text(encoding="utf-8")

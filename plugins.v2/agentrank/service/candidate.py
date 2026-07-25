@@ -2,6 +2,7 @@
 
 from collections import deque
 from dataclasses import dataclass, field
+import re
 from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 from ..adapter.discovery import DiscoveryAdapter, RawDiscoveredItem
@@ -12,6 +13,17 @@ from ..storage.repository import AgentRankRepository
 
 
 DEFAULT_MINIMUM_FROZEN_CANDIDATES = 20
+_MEDIAID_PREFIX_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+_MEDIAID_PREFIX_ALIASES = {
+    "tmdb": "tmdb",
+    "themoviedb": "tmdb",
+    "douban": "douban",
+    "bangumi": "bangumi",
+    "bgm": "bangumi",
+    "anilist": "anilist",
+    "tvdb": "tvdb",
+    "imdb": "imdb",
+}
 
 
 @dataclass
@@ -77,6 +89,17 @@ class CandidateCollectionService:
                 return data.get(name)
         return None
 
+    @staticmethod
+    def _mediaid_prefix(value: Any) -> str:
+        """校验并规范 MoviePilot 通用媒体来源前缀。"""
+        text = str(value or "").strip().casefold()
+        if not text:
+            return ""
+        normalized = _MEDIAID_PREFIX_ALIASES.get(text, text)
+        if not _MEDIAID_PREFIX_PATTERN.fullmatch(normalized):
+            raise ValueError("extension mediaid_prefix is invalid")
+        return normalized
+
     @classmethod
     def _source_ids(
         cls, data: Mapping[str, Any], trusted_prefix: str
@@ -96,11 +119,16 @@ class CandidateCollectionService:
             if (value := cls._first(data, *names)) not in (None, "")
         }
         media_id = cls._first(data, "media_id", "mediaid")
-        payload_prefix = str(data.get("mediaid_prefix") or trusted_prefix or "").strip()
-        if trusted_prefix and payload_prefix != trusted_prefix:
+        payload_prefix_value = cls._first(data, "mediaid_prefix", "media_source")
+        if payload_prefix_value in (None, "") and media_id not in (None, ""):
+            payload_prefix_value = data.get("source")
+        payload_prefix = cls._mediaid_prefix(payload_prefix_value)
+        expected_prefix = cls._mediaid_prefix(trusted_prefix)
+        if expected_prefix and payload_prefix and payload_prefix != expected_prefix:
             raise ValueError("extension mediaid_prefix mismatch")
-        if media_id not in (None, "") and payload_prefix:
-            ids[payload_prefix] = str(media_id)
+        resolved_prefix = payload_prefix or expected_prefix
+        if media_id not in (None, "") and resolved_prefix:
+            ids[resolved_prefix] = str(media_id)
         return ids
 
     @staticmethod
@@ -114,6 +142,9 @@ class CandidateCollectionService:
         for name in ("douban", "bangumi", "anilist", "tvdb", "imdb"):
             if ids.get(name):
                 return f"{name}:{ids[name]}"
+        for name, media_id in ids.items():
+            if name != "tmdb" and media_id:
+                return f"{name}:{media_id}"
         raise ValueError("candidate requires a traceable media id")
 
     @classmethod

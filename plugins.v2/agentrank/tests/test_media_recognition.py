@@ -84,7 +84,7 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
 
     result = adapter.recognize(candidate)
 
-    assert calls[0]["tmdbid"] == "900"
+    assert calls[0]["tmdbid"] == 900
     assert calls[0]["mtype"] == FakeMediaType.MOVIE
     assert result.candidate_id == "tmdb:movie:900"
     assert result.title == "TMDB 标准标题"
@@ -100,6 +100,102 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
     assert result.rating == 8.6
     assert result.popularity == 123.4
     assert result.metadata["recognized_by"] == "moviepilot"
+
+
+def test_recognition_maps_douban_id_to_tmdb_before_source_recognition():
+    """豆瓣来源先走宿主映射，再用类型化 TMDB 身份读取完整媒体。"""
+    calls = []
+
+    class FakeChain:
+        """记录来源映射与最终 TMDB 识别顺序。"""
+
+        def get_tmdbinfo_by_doubanid(self, doubanid, mtype=None):
+            """返回豆瓣对应的 TMDB 信息。"""
+            calls.append(("map", doubanid, mtype))
+            return {"id": 910}
+
+        def recognize_media(self, **kwargs):
+            """返回按 TMDB ID 读取的标准剧集。"""
+            calls.append(("recognize", kwargs))
+            assert kwargs["tmdbid"] == 910
+            return SimpleNamespace(
+                tmdb_id=910,
+                title="豆瓣映射剧集",
+                type=FakeMediaType.TV,
+            )
+
+    result = MediaRecognitionAdapter(FakeChain, FakeMeta, FakeMediaType).recognize(
+        Candidate(
+            candidate_id="douban:910",
+            title="豆瓣映射剧集",
+            media_type="tv",
+            source_ids={"douban": "db-910"},
+        )
+    )
+
+    assert calls[0][0] == "map"
+    assert calls[1][0] == "recognize"
+    assert result.candidate_id == "tmdb:tv:910"
+    assert result.source_ids["douban"] == "db-910"
+    assert result.source_ids["tmdb"] == "910"
+
+
+def test_recognition_uses_new_source_mediaid_contract_for_anilist():
+    """新版宿主的 source/mediaid 入口可直接把 AniList ID 转成 TMDB 媒体。"""
+    calls = []
+
+    class FakeChain:
+        """只实现新版请求级来源识别入口。"""
+
+        def recognize_media(self, **kwargs):
+            """按 source/mediaid 返回 AniList 对应剧集。"""
+            calls.append(kwargs)
+            assert kwargs["source"] == "anilist"
+            assert kwargs["mediaid"] == "321"
+            return SimpleNamespace(
+                tmdb_id=654,
+                title="新版 AniList 剧集",
+                type=FakeMediaType.TV,
+            )
+
+    result = MediaRecognitionAdapter(FakeChain, FakeMeta, FakeMediaType).recognize(
+        Candidate(
+            candidate_id="anilist:321",
+            title="新版 AniList 剧集",
+            media_type="anime",
+            source_ids={"anilist": "321"},
+        )
+    )
+
+    assert len(calls) == 1
+    assert result.candidate_id == "tmdb:tv:654"
+    assert result.source_ids == {"anilist": "321", "tmdb": "654"}
+
+
+def test_title_fallback_uses_at_most_two_distinct_titles():
+    """来源识别失败时，TMDB 标题兜底最多尝试两个不同标题。"""
+    calls = []
+
+    class FakeChain:
+        """记录所有标题识别调用但始终返回空。"""
+
+        def recognize_media(self, **kwargs):
+            """记录标题并模拟没有匹配结果。"""
+            calls.append((kwargs.get("source"), kwargs.get("tmdbid"), kwargs["meta"].title))
+            return None
+
+    candidate = Candidate(
+        candidate_id="anilist:321",
+        title="中文标题",
+        original_title="Original Title",
+        media_type="anime",
+        source_ids={"anilist": "321"},
+    )
+
+    assert MediaRecognitionAdapter(FakeChain, FakeMeta, FakeMediaType).recognize(candidate) is None
+
+    title_calls = [title for source, tmdbid, title in calls if source == "themoviedb" or tmdbid is None]
+    assert len(set(title_calls)) <= 2
 
 
 def test_recognition_excludes_non_director_crew_from_director_evidence():

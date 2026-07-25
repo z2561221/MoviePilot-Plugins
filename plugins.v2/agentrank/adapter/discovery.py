@@ -91,6 +91,20 @@ PROVIDER_METHOD_CONTRACTS = {
         "params": frozenset({"tmdbid"}),
     },
 }
+SOURCE_MEDIAID_PREFIXES = {
+    "douban": "douban",
+    "tmdb": "themoviedb",
+    "tmdb_movies": "themoviedb",
+    "tmdb_tv": "themoviedb",
+    "tmdb_recommend": "themoviedb",
+    "bangumi": "bangumi",
+    "anilist": "anilist",
+}
+
+
+def _trusted_mediaid_prefix(source: Any) -> str:
+    """返回内置来源对应的 MoviePilot 受信媒体前缀。"""
+    return SOURCE_MEDIAID_PREFIXES.get(str(source or "").strip(), "")
 
 
 def _positive_integer(value: Any, label: str) -> int:
@@ -701,7 +715,12 @@ class DiscoveryAdapter:
                 continue
             result.source_counts[source] = len(rows)
             result.items.extend(
-                RawDiscoveredItem(source=source, payload=row, layer=layer)
+                RawDiscoveredItem(
+                    source=source,
+                    payload=row,
+                    mediaid_prefix=_trusted_mediaid_prefix(source),
+                    layer=layer,
+                )
                 for row in rows
             )
             result.layer_counts[layer] = result.layer_counts.get(layer, 0) + len(rows)
@@ -742,7 +761,10 @@ class DiscoveryAdapter:
             )
             result.items.extend(
                 RawDiscoveredItem(
-                    source=effective.source, payload=row, layer=effective.layer
+                    source=effective.source,
+                    payload=row,
+                    mediaid_prefix=_trusted_mediaid_prefix(effective.source),
+                    layer=effective.layer,
                 )
                 for row in rows
             )

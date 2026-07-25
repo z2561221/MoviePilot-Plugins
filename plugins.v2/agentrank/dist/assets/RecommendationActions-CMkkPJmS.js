@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { g as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-BGNRvR24.js';
 
-const {computed: computed$1,reactive,ref} = await importShared('vue');
+const {computed: computed$1,reactive,ref: ref$1} = await importShared('vue');
 
 const OPTIONS_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROFILE_CACHE_TTL_MS = 60 * 1000;
@@ -57,16 +57,16 @@ function emptyProfile(profileId, username = '') {
  */
 function useAgentRankState(api) {
   const sharedCache = sharedCacheFor(api);
-  const options = ref({ emby_identities: [], default_profile_id: '', config: {} });
-  const selectedProfileId = ref('');
-  const overview = ref(null);
-  const board = ref(null);
-  const profile = ref(null);
-  const history = ref([]);
-  const historyMeta = ref({ total: 0, page: 1, page_size: 15 });
+  const options = ref$1({ emby_identities: [], default_profile_id: '', config: {} });
+  const selectedProfileId = ref$1('');
+  const overview = ref$1(null);
+  const board = ref$1(null);
+  const profile = ref$1(null);
+  const history = ref$1([]);
+  const historyMeta = ref$1({ total: 0, page: 1, page_size: 15 });
   const loading = reactive({ options: false, data: false, action: '' });
-  const error = ref(null);
-  const feedback = ref(null);
+  const error = ref$1(null);
+  const feedback = ref$1(null);
 
   const identities = computed$1(() => {
     const configured = options.value.config?.emby_identities;
@@ -299,13 +299,12 @@ function useAgentRankState(api) {
   }
 }
 
-const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = ["aria-label"];
-const _hoisted_2 = { class: "ar-actions__label" };
 
-const {computed} = await importShared('vue');
+const {computed,inject,ref} = await importShared('vue');
 
 
 
@@ -315,12 +314,25 @@ const _sfc_main = {
   item: { type: Object, required: true },
   loadingAction: { type: String, default: '' },
   size: { type: String, default: 'x-small' },
+  nativeSubscribe: { type: Function, default: null },
 },
   emits: ['subscribe', 'archive'],
   setup(__props, { emit: __emit }) {
 
 const props = __props;
 const emit = __emit;
+
+const injectedNativeSubscribe = inject('moviepilot:nativeSubscribe', null);
+const nativeSubscribePending = ref(false);
+
+function firstId(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue
+    const text = String(value).trim();
+    if (text && text !== '0') return text
+  }
+  return ''
+}
 
 const sourceIds = computed(() => {
   const raw = props.item?.source_ids || {};
@@ -329,33 +341,72 @@ const sourceIds = computed(() => {
     tmdb: ['tmdb', 'tmdb_id', 'tmdbid', 'themoviedb', 'themoviedb_id'],
     douban: ['douban', 'douban_id', 'doubanid'],
     bangumi: ['bangumi', 'bangumi_id', 'bangumiid', 'bgm', 'bgm_id'],
+    anilist: ['anilist', 'anilist_id', 'anilistid'],
   };
   Object.entries(aliases).forEach(([canonical, names]) => {
-    if (value[canonical]) return
-    const match = names.map(name => value[name]).find(Boolean);
-    if (match) value[canonical] = match;
-  })
-  ;[
-    ['tmdb', 'tmdb_id', 'tmdbid', 'themoviedb', 'themoviedb_id'],
-    ['douban', 'douban_id', 'doubanid'],
-    ['bangumi', 'bangumi_id', 'bangumiid', 'bgm', 'bgm_id'],
-  ].forEach(([canonical, ...names]) => {
-    if (value[canonical]) return
-    const match = [props.item?.[canonical], ...names.map(name => props.item?.[name])].find(Boolean);
-    if (match) value[canonical] = match;
+    if (firstId(value[canonical])) return
+    const match = names.map(name => value[name]).find(valueForAlias => firstId(valueForAlias));
+    if (match !== undefined) value[canonical] = match;
+  });
+  Object.entries(aliases).forEach(([canonical, names]) => {
+    if (firstId(value[canonical])) return
+    const match = [props.item?.[canonical], ...names.map(name => props.item?.[name])]
+      .find(valueForAlias => firstId(valueForAlias));
+    if (match !== undefined) value[canonical] = match;
   });
   return value
 });
-const tmdbId = computed(() => sourceIds.value.tmdb || '');
-const doubanId = computed(() => sourceIds.value.douban || '');
-const bangumiId = computed(() => sourceIds.value.bangumi || '');
-const prefersBangumi = computed(() => props.item?.media_type === 'anime' && bangumiId.value);
-const sourceLabel = computed(() => prefersBangumi.value || (!doubanId.value && bangumiId.value) ? 'Bgm' : '豆瓣');
-const sourceId = computed(() => sourceLabel.value === 'Bgm' ? bangumiId.value : doubanId.value);
-const sourceColor = computed(() => sourceLabel.value === 'Bgm' ? '#F838A0' : '#08B810');
-const doubanSearchText = computed(() => [props.item?.title, props.item?.original_title, props.item?.year].filter(Boolean).join(' '));
-const sourceAvailable = computed(() => sourceLabel.value === 'Bgm' ? Boolean(sourceId.value) : Boolean(sourceId.value || doubanSearchText.value));
-const sourceTooltip = computed(() => sourceLabel.value === 'Bgm' || sourceId.value ? `打开${sourceLabel.value}` : '搜索豆瓣');
+
+const tmdbId = computed(() => firstId(sourceIds.value.tmdb));
+const doubanId = computed(() => firstId(sourceIds.value.douban));
+const bangumiId = computed(() => firstId(sourceIds.value.bangumi));
+const anilistId = computed(() => firstId(sourceIds.value.anilist));
+const nativeSubscribe = computed(() => props.nativeSubscribe || injectedNativeSubscribe);
+const nativeMediaType = computed(() => props.item?.media_type === 'movie' ? '电影' : '电视剧');
+
+const nativeMedia = computed(() => {
+  const sourceId = tmdbId.value || doubanId.value || bangumiId.value || anilistId.value;
+  const source = tmdbId.value
+    ? 'themoviedb'
+    : doubanId.value
+      ? 'douban'
+      : bangumiId.value
+        ? 'bangumi'
+        : anilistId.value
+          ? 'anilist'
+          : '';
+  const media = {
+    title: String(props.item?.title || props.item?.name || '').trim(),
+    name: String(props.item?.title || props.item?.name || '').trim(),
+    type: nativeMediaType.value,
+    media_type: props.item?.media_type || '',
+    year: props.item?.year ? String(props.item.year) : '',
+    poster_path: String(props.item?.poster_path || '').trim(),
+  };
+  if (source && sourceId) {
+    media.source = source;
+    media.media_source = source;
+    media.mediaid_prefix = source;
+    media.media_id = sourceId;
+  }
+  if (tmdbId.value) {
+    media.tmdb_id = tmdbId.value;
+    media.tmdbid = tmdbId.value;
+  }
+  if (doubanId.value) {
+    media.douban_id = doubanId.value;
+    media.doubanid = doubanId.value;
+  }
+  if (bangumiId.value) {
+    media.bangumi_id = bangumiId.value;
+    media.bangumiid = bangumiId.value;
+  }
+  if (anilistId.value) {
+    media.anilist_id = anilistId.value;
+    media.anilistid = anilistId.value;
+  }
+  return media
+});
 
 function openExternal(url) {
   if (url) window.open(url, '_blank', 'noopener,noreferrer');
@@ -367,18 +418,23 @@ function openTmdb() {
   openExternal(`https://www.themoviedb.org/${mediaPath}/${encodeURIComponent(tmdbId.value)}`);
 }
 
-function openSource() {
-  if (sourceLabel.value === 'Bgm') {
-    if (!sourceId.value) return
-    openExternal(`https://bgm.tv/subject/${encodeURIComponent(sourceId.value)}`);
+/** 先调用宿主原生订阅，旧宿主或无效媒体才回退插件安全链。 */
+async function handleSubscribe() {
+  if (nativeSubscribePending.value) return
+  const callback = nativeSubscribe.value;
+  if (typeof callback !== 'function') {
+    emit('subscribe', props.item?.candidate_id);
     return
   }
-  if (sourceId.value) {
-    openExternal(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${encodeURIComponent(sourceId.value)}?from=mdouban&open=app`);
-    return
-  }
-  if (doubanSearchText.value) {
-    openExternal(`https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(doubanSearchText.value)}&cat=1002`);
+  nativeSubscribePending.value = true;
+  try {
+    const result = await callback(nativeMedia.value);
+    if (result?.success === true || result?.code === 'PERMISSION_DENIED') return
+    emit('subscribe', props.item?.candidate_id);
+  } catch (_) {
+    emit('subscribe', props.item?.candidate_id);
+  } finally {
+    nativeSubscribePending.value = false;
   }
 }
 
@@ -402,11 +458,11 @@ return (_ctx, _cache) => {
           color: "primary",
           class: "ar-actions__button text-none",
           "prepend-icon": "mdi-bookmark-plus-outline",
-          loading: __props.loadingAction === 'subscribe',
+          loading: __props.loadingAction === 'subscribe' || nativeSubscribePending.value,
           "aria-label": "订阅",
-          onClick: _cache[0] || (_cache[0] = $event => (emit('subscribe', __props.item.candidate_id)))
+          onClick: handleSubscribe
         }), {
-          default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
+          default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "订阅", -1)
           ]))]),
           _: 1
@@ -428,7 +484,7 @@ return (_ctx, _cache) => {
           "aria-label": "打开 TMDB",
           onClick: openTmdb
         }), {
-          default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
+          default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "TMDB", -1)
           ]))]),
           _: 1
@@ -436,29 +492,6 @@ return (_ctx, _cache) => {
       ]),
       _: 1
     }),
-    _createVNode(_component_VTooltip, {
-      text: sourceTooltip.value,
-      location: "top"
-    }, {
-      activator: _withCtx(({ props: tooltipProps }) => [
-        _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
-          size: __props.size,
-          "prepend-icon": "mdi-open-in-new",
-          variant: "tonal",
-          color: sourceColor.value,
-          class: "ar-actions__button text-none",
-          disabled: !sourceAvailable.value,
-          "aria-label": sourceTooltip.value,
-          onClick: openSource
-        }), {
-          default: _withCtx(() => [
-            _createElementVNode("span", _hoisted_2, _toDisplayString(sourceLabel.value), 1)
-          ]),
-          _: 1
-        }, 16, ["size", "color", "disabled", "aria-label"])
-      ]),
-      _: 1
-    }, 8, ["text"]),
     _createVNode(_component_VTooltip, {
       text: "忽略",
       location: "top"
@@ -472,9 +505,9 @@ return (_ctx, _cache) => {
           "prepend-icon": "mdi-eye-off-outline",
           loading: __props.loadingAction === 'archive',
           "aria-label": "忽略",
-          onClick: _cache[1] || (_cache[1] = $event => (emit('archive', __props.item.candidate_id)))
+          onClick: _cache[0] || (_cache[0] = $event => (emit('archive', __props.item.candidate_id)))
         }), {
-          default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+          default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "忽略", -1)
           ]))]),
           _: 1
@@ -487,6 +520,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c325c889"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c928d13d"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };

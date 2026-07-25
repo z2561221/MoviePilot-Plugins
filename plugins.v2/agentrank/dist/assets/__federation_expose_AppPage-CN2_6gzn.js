@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CCnpKc9N.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CMkkPJmS.js';
 import Config from './__federation_expose_Config-B_Bddtc4.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
@@ -49,6 +49,7 @@ const _sfc_main = {
   __name: 'AppPage',
   props: {
   api: { type: [Object, Function], default: null },
+  nativeSubscribe: { type: Function, default: null },
   navKey: { type: String, default: 'main' },
   pluginId: { type: String, default: 'AgentRank' },
 },
@@ -520,17 +521,18 @@ return (_ctx, _cache) => {
                                     class: "ar-app-page__confidence"
                                   }, {
                                     default: _withCtx(() => [
-                                      _createTextVNode("置信度 " + _toDisplayString(item.confidence) + "%", 1)
+                                      _createTextVNode(_toDisplayString(item.confidence) + "%", 1)
                                     ]),
                                     _: 2
                                   }, 1024),
                                   _createVNode(RecommendationActions, {
                                     item: item,
                                     "loading-action": _unref(loading).action,
+                                    "native-subscribe": __props.nativeSubscribe,
                                     size: "small",
                                     onSubscribe: subscribeItem,
                                     onArchive: archiveItem
-                                  }, null, 8, ["item", "loading-action"])
+                                  }, null, 8, ["item", "loading-action", "native-subscribe"])
                                 ])
                               ]))
                             }), 128))
@@ -591,6 +593,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-06e0c622"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2f121bf4"]]);
 
 export { AppPage as default };

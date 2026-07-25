@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 PACKAGE_NAME = "agentrank_discovery_test"
@@ -18,6 +20,7 @@ repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository"
 retrieval_module = importlib.import_module(f"{PACKAGE_NAME}.model.retrieval")
 
 DiscoveryAdapter = adapter_module.DiscoveryAdapter
+RawDiscoveredItem = adapter_module.RawDiscoveredItem
 CandidateCollectionService = service_module.CandidateCollectionService
 AgentRankRepository = repository_module.AgentRankRepository
 RetrievalFilters = retrieval_module.RetrievalFilters
@@ -87,6 +90,71 @@ def test_multi_source_candidates_are_deduplicated_and_frozen_before_use():
         "tmdb:movie:100",
         "tmdb:movie:101",
     ]
+
+
+def test_builtin_source_prefix_is_trusted_when_payload_uses_media_id():
+    """内置来源可为不带前缀的 media_id 补上受信来源身份。"""
+    candidate = CandidateCollectionService._normalize(
+        RawDiscoveredItem(
+            source="douban",
+            mediaid_prefix="douban",
+            payload={"title": "豆瓣条目", "type": "电影", "media_id": "db-1"},
+        )
+    )
+
+    assert candidate.source_ids == {"douban": "db-1"}
+    assert candidate.candidate_id == "douban:db-1"
+
+
+def test_payload_cannot_override_a_trusted_source_prefix():
+    """来源载荷不能把宿主信任的豆瓣前缀改成另一个来源。"""
+    with pytest.raises(ValueError, match="mediaid_prefix mismatch"):
+        CandidateCollectionService._normalize(
+            RawDiscoveredItem(
+                source="douban",
+                mediaid_prefix="douban",
+                payload={
+                    "title": "伪造条目",
+                    "type": "电影",
+                    "media_id": "1",
+                    "mediaid_prefix": "anilist",
+                },
+            )
+        )
+
+
+def test_extension_source_prefix_is_safely_normalized():
+    """未知扩展来源只接受安全前缀并保留可追溯的来源身份。"""
+    candidate = CandidateCollectionService._normalize(
+        RawDiscoveredItem(
+            source="future_source",
+            payload={
+                "title": "扩展来源条目",
+                "media_type": "tv",
+                "media_id": "abc-1",
+                "media_source": "future_source",
+            },
+        )
+    )
+
+    assert candidate.source_ids == {"future_source": "abc-1"}
+    assert candidate.candidate_id == "future_source:abc-1"
+
+
+def test_extension_source_rejects_unsafe_prefix():
+    """未知扩展来源不得注入路径、空白或其他不安全前缀。"""
+    with pytest.raises(ValueError, match="invalid"):
+        CandidateCollectionService._normalize(
+            RawDiscoveredItem(
+                source="future_source",
+                payload={
+                    "title": "不安全条目",
+                    "media_type": "tv",
+                    "media_id": "abc-1",
+                    "media_source": "../escape",
+                },
+            )
+        )
 
 
 def test_partial_source_failure_preserves_other_candidates_and_error_evidence():
