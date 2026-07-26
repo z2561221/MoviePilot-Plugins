@@ -342,12 +342,14 @@ onMounted(initialize)
   .ar-app-page__poster { width: 64px; height: 96px; }
   .ar-app-page__item-actions { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; padding-top: 2px; border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
   .ar-app-page__title { font-size: 14px; }
-  .ar-app-page__copy { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 5px; margin-top: 7px; font-size: 13px; line-height: 1.5; }
+  .ar-app-page__copy { grid-template-columns: 34px minmax(0, 1fr); gap: 5px; margin-top: 7px; font-size: 13px; line-height: 1.5; }
   .ar-app-page__copy--intro { margin-top: 4px; }
   .ar-app-page__copy-label { font-size: 11px; }
-  .ar-app-page__copy-text--reason { -webkit-line-clamp: 2; }
-  .ar-app-page__copy-text--intro { -webkit-line-clamp: 1; }
-  .ar-app-page__copy-toggle { display: inline-flex; margin-top: 0; margin-bottom: 0; }
+  .ar-app-page__copy-text,
+  .ar-app-page__copy-text--reason,
+  .ar-app-page__copy-text--intro,
+  .ar-app-page__copy-text--expanded { display: block; overflow: visible; -webkit-line-clamp: initial; }
+  .ar-app-page__copy-toggle { display: none !important; }
   .ar-app-page__meta { white-space: normal; }
   .ar-app-page__section-head { align-items: flex-start; }
 }
@@ -360,6 +362,5 @@ onMounted(initialize)
   .ar-app-page__content { padding: 8px; }
   .ar-app-page__item { grid-template-columns: 26px 56px minmax(0, 1fr); gap: 7px; padding: 8px; }
   .ar-app-page__poster { width: 56px; height: 84px; }
-  .ar-app-page__copy-toggle { margin-top: 0; margin-bottom: 0; }
 }
 </style>

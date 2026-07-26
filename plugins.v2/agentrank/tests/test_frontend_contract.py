@@ -254,8 +254,8 @@ def test_ranking_posters_do_not_force_eager_loading():
         assert " eager>" not in _read(name)
 
 
-def test_mobile_ranking_copy_wraps_and_can_expand():
-    """发现页理由和简介使用多行截断并提供展开，不再强制单行省略。"""
+def test_mobile_ranking_copy_wraps_fully_without_toggle_controls():
+    """发现页移动端理由和简介完整换行，并隐藏展开收起控件。"""
     app_page = _read("AppPage.vue")
     page = _read("Page.vue")
     assert "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" not in next(
@@ -265,11 +265,13 @@ def test_mobile_ranking_copy_wraps_and_can_expand():
         assert "推荐：" in source
         assert "简介：" in source
     assert "ar-app-page__copy-text--reason" in app_page
-    assert "-webkit-line-clamp: 2" in app_page
     assert "ar-app-page__copy-text--intro" in app_page
-    assert "-webkit-line-clamp: 1" in app_page
     assert "toggleCopy(item, 'reason')" in app_page
     assert "toggleCopy(item, 'summary')" in app_page
+    assert ".ar-app-page__copy { grid-template-columns: 34px minmax(0, 1fr);" in app_page
+    assert ".ar-app-page__copy-toggle { display: none !important; }" in app_page
+    assert ".ar-app-page__copy-text--reason," in app_page
+    assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in app_page
 
 
 def test_mobile_detail_tabs_scroll_without_arrow_controls():
