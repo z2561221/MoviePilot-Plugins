@@ -246,6 +246,10 @@ def sync_log_handler(self, event_info, played: bool = False):
     if (event_info.event in play_start and event_info.user_name in self._folio_user.split(',')) or played:
         if played:
             logger.info(f"标记播放完成 {event_info.item_name}")
+        media_type = getattr(event_info, "media_type", "")
+        if getattr(self, "_folio_exclude_live_tv", True) and utils.is_live_tv_media_type(media_type):
+            logger.info(f"电视直播源 {event_info.item_name}（{media_type}）已排除，不同步豆瓣时间")
+            return
         ret = utils.exclude_keyword(path=event_info.item_path, keywords=self._folio_exclude)
         if not ret.get("ret", False):
             logger.info(ret.get("message", ""))

@@ -152,6 +152,7 @@ class DoubanCenterWishOnlyOnceTest(unittest.TestCase):
 
         self.assertFalse(plugin.saved_config["wish_onlyonce"])
         self.assertFalse(plugin.saved_config["discovery_page_enabled"])
+        self.assertTrue(plugin.saved_config["folio_exclude_live_tv"])
 
     def test_init_plugin_runs_wish_once_and_resets_flag(self):
         """想看立即运行开关会触发一次同步并写回关闭。"""

@@ -425,6 +425,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("wish_notify: false", text)
         self.assertIn("wish_onlyonce: false", text)
         self.assertIn("wish_days: 7", text)
+        self.assertIn("folio_exclude_live_tv: true", text)
         self.assertIn("title: '同步想看'", text)
         self.assertIn("title: '同步观影'", text)
         self.assertLess(text.index("title: '同步想看'"), text.index("title: '同步观影'"))
@@ -440,6 +441,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
             "立即运行一次",
             "overview?.cards?.folio?.wish",
             "通过豆瓣动态 feed 同步",
+            'v-model="form.folio_exclude_live_tv"',
+            "排除电视直播源",
         ]
         for fragment in required_controls:
             self.assertIn(fragment, text)

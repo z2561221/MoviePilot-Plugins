@@ -54,6 +54,7 @@ class DoubanCenter(_PluginBase):
     _folio_private = True
     _folio_first = True
     _folio_notify = False
+    _folio_exclude_live_tv = True
     _folio_user = ""
     _folio_exclude = ""
     _folio_cookie = ""
@@ -99,6 +100,7 @@ class DoubanCenter(_PluginBase):
         self._folio_private = config.get("folio_private", True)
         self._folio_first = config.get("folio_first", True)
         self._folio_notify = config.get("folio_notify", False)
+        self._folio_exclude_live_tv = config.get("folio_exclude_live_tv", True)
         self._folio_user = config.get("folio_user", "")
         self._folio_exclude = config.get("folio_exclude", "")
         self._folio_cookie = config.get("folio_cookie", "")
@@ -154,6 +156,7 @@ class DoubanCenter(_PluginBase):
             "folio_private": self._folio_private,
             "folio_first": self._folio_first,
             "folio_notify": self._folio_notify,
+            "folio_exclude_live_tv": self._folio_exclude_live_tv,
             "folio_user": self._folio_user,
             "folio_exclude": self._folio_exclude,
             "folio_cookie": self._folio_cookie,

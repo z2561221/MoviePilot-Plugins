@@ -151,6 +151,67 @@ def _item(subject_id, title):
 
 
 class FolioWishSyncTest(unittest.TestCase):
+    def test_live_tv_is_excluded_by_default(self):
+        """默认排除 Emby 标准电视直播事件。"""
+        plugin = _MemoryPlugin()
+        plugin._folio_user = "tester"
+        plugin._folio_exclude = ""
+        original = folio._process_movie
+        calls = []
+        folio._process_movie = lambda *args, **kwargs: calls.append(args)
+        try:
+            for media_type in ("TvChannel", "Program", "LiveTv", "LiveTvChannel", "live_tv_program"):
+                with self.subTest(media_type=media_type):
+                    event = types.SimpleNamespace(
+                        event="PlaybackStart", user_name="tester", item_name="新闻频道",
+                        media_type=media_type, item_type="MOV", item_path=None,
+                    )
+                    folio.sync_log_handler(plugin, event)
+        finally:
+            folio._process_movie = original
+
+        self.assertEqual(calls, [])
+
+    def test_live_tv_is_allowed_when_exclusion_is_disabled(self):
+        """关闭开关后保持原有同步行为。"""
+        plugin = _MemoryPlugin()
+        plugin._folio_user = "tester"
+        plugin._folio_exclude = ""
+        plugin._folio_exclude_live_tv = False
+        event = types.SimpleNamespace(
+            event="PlaybackStart", user_name="tester", item_name="新闻频道",
+            media_type="Program", item_type="MOV", item_path=None,
+        )
+        original = folio._process_movie
+        calls = []
+        folio._process_movie = lambda *args, **kwargs: calls.append(args)
+        try:
+            folio.sync_log_handler(plugin, event)
+        finally:
+            folio._process_movie = original
+
+        self.assertEqual(len(calls), 1)
+
+    def test_http_strm_movie_is_not_treated_as_live_tv(self):
+        """HTTP STRM 只要媒体类型是电影就不会被直播规则误伤。"""
+        plugin = _MemoryPlugin()
+        plugin._folio_user = "tester"
+        plugin._folio_exclude = ""
+        event = types.SimpleNamespace(
+            event="PlaybackStart", user_name="tester", item_name="远程电影",
+            media_type="Movie", item_type="MOV",
+            item_path="https://media.example/movie.strm",
+        )
+        original = folio._process_movie
+        calls = []
+        folio._process_movie = lambda *args, **kwargs: calls.append(args)
+        try:
+            folio.sync_log_handler(plugin, event)
+        finally:
+            folio._process_movie = original
+
+        self.assertEqual(len(calls), 1)
+
     def test_first_run_builds_baseline_without_queue(self):
         """首次运行只建立基线，不把历史想看入队。"""
         plugin = _MemoryPlugin()

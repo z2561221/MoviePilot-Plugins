@@ -132,6 +132,7 @@ def default_config() -> Dict[str, Any]:
         "folio_private": True,
         "folio_first": True,
         "folio_notify": False,
+        "folio_exclude_live_tv": True,
         "folio_user": "",
         "folio_exclude": "",
         "folio_cookie": "",

@@ -14,6 +14,21 @@ from app.log import logger
 from app.schemas.types import MediaType
 
 
+LIVE_TV_MEDIA_TYPES = {
+    "livetv",
+    "livetvchannel",
+    "livetvprogram",
+    "program",
+    "tvchannel",
+}
+
+
+def is_live_tv_media_type(media_type: Any) -> bool:
+    """判断媒体服务器事件是否为明确的电视直播类型。"""
+    normalized = re.sub(r"[\s_-]", "", str(media_type or "")).casefold()
+    return normalized in LIVE_TV_MEDIA_TYPES
+
+
 def parse_wish_count(description: str) -> int:
     """从描述文本中解析想看人数。"""
     if not description:

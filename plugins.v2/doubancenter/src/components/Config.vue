@@ -26,7 +26,7 @@ const defaults = {
     bangumi: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
   },
   region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '',
-  folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false,
+  folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false, folio_exclude_live_tv: true,
   folio_user: '', folio_exclude: '', folio_cookie: '',
   wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_onlyonce: false, wish_max_pages: 1, wish_days: 7,
   dashboard_rank_keys: [],
@@ -322,7 +322,10 @@ onMounted(loadOverview)
                 <VCol cols="12" md="4"><VSwitch v-model="form.folio_private" color="info" inset hide-details label="仅自己可见" /></VCol>
                 <VCol cols="12" md="4"><VSwitch v-model="form.folio_first" color="info" inset hide-details label="不标记第一集" /></VCol>
               </VRow>
-              <VRow class="mt-2"><VCol cols="12" md="4"><VSwitch v-model="form.folio_notify" color="info" inset hide-details label="发送通知" /></VCol></VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="4"><VSwitch v-model="form.folio_notify" color="info" inset hide-details label="发送通知" /></VCol>
+                <VCol cols="12" md="4"><VSwitch v-model="form.folio_exclude_live_tv" color="info" inset hide-details label="排除电视直播源" /></VCol>
+              </VRow>
               <VRow class="mt-2"><VCol cols="12" md="6"><VTextField v-model="form.folio_user" label="媒体库用户名（多个以 , 分隔）" density="compact" variant="outlined" hide-details /></VCol><VCol cols="12" md="6"><VTextField v-model="form.folio_exclude" label="路径排除关键词（多个以 , 分隔）" density="compact" variant="outlined" hide-details /></VCol></VRow>
               <VRow class="mt-2"><VCol cols="12"><VTextField v-model="form.folio_cookie" label="豆瓣 Cookie（留空从 CookieCloud 获取）" density="compact" variant="outlined" hide-details /></VCol></VRow>
             </div>
