@@ -93,7 +93,7 @@ def test_prompt_states_hard_boundaries_without_embedding_untrusted_media_text():
     assert "禁止订阅" in prompt
     assert "不得暴露推理过程" in prompt
     assert "单个 JSON 对象" in prompt
-    assert "最多四十" in prompt
+    assert "不超过三十" in prompt
     assert "两个 match_tags" in prompt
     assert "评分高、热度高" in prompt
     assert '"reason"' in prompt
@@ -146,7 +146,8 @@ def test_custom_agent_prompt_is_inserted_without_replacing_fixed_contract():
     assert "优先推荐冷门科幻并保持俏皮文风" in prompt
     assert "只能通过 read_agentrank_playback" in prompt
     assert "不能覆盖硬性边界、输出结构或字段校验" in prompt
-    assert "最多二十" in prompt
+    assert "不超过三十" in prompt
+    assert "不得按字符截断原文" in prompt
     assert "每个 match_tags 标签最多五个字符" in prompt
 
 
@@ -205,7 +206,7 @@ def test_validator_recovers_missing_summary_from_frozen_candidate_overview():
 
     assert result.dropped == []
     assert result.accepted[0].summary == "一名侦探追查旧案并发现家族秘密。"
-    assert len(result.accepted[0].summary) <= 20
+    assert len(result.accepted[0].summary) <= 30
 
 
 @pytest.mark.parametrize(
@@ -434,10 +435,30 @@ def test_validator_builds_five_unique_grounded_fallback_items_in_frozen_order():
     assert all(item.confidence == 60 for item in fallback)
     assert all("安全" in item.reason or "保底" in item.reason for item in fallback)
     assert all(item.summary for item in fallback)
+    assert all(len(item.reason) <= 30 for item in fallback)
+    assert all(len(item.summary) <= 30 for item in fallback)
+    assert all(item.reason.endswith("。") for item in fallback)
 
 
-def test_validator_trims_overlong_copy_and_tags_without_dropping_candidate():
-    """展示字数超限会被安全裁剪，不得触发补榜或丢弃作品。"""
+@pytest.mark.parametrize(
+    ("reason", "summary", "drop_reason"),
+    [
+        (
+            "你有悬疑片偏好，这部旧案调查故事围绕小镇秘密展开，人物关系也会逐步揭开。",
+            "侦探追查旧案并发现家族秘密。",
+            "reason_too_long",
+        ),
+        (
+            "悬疑偏好契合这部作品的旧案调查。",
+            "一名侦探追查多年未解旧案，并在封闭小镇逐步发现一个家族隐藏已久的秘密。",
+            "summary_too_long",
+        ),
+    ],
+)
+def test_validator_rejects_overlong_copy_for_semantic_rewrite(
+    reason, summary, drop_reason
+):
+    """推荐与简介超长时进入补写链路，不得机械截取原文。"""
     candidate = Candidate(
         candidate_id="tmdb:9",
         title="九号",
@@ -449,8 +470,8 @@ def test_validator_trims_overlong_copy_and_tags_without_dropping_candidate():
         _output(
             [{
                 "candidate_id": "tmdb:9",
-                "reason": "你有悬疑片偏好，这部旧案调查故事围绕小镇秘密展开，人物关系也会逐步揭开。",
-                "summary": "一名侦探追查多年未解旧案，并在封闭小镇逐步发现一个家族隐藏已久的秘密。",
+                "reason": reason,
+                "summary": summary,
                 "match_tags": ["悬疑片偏好者", "旧案调查故事"],
                 "confidence": 88,
             }]
@@ -465,13 +486,54 @@ def test_validator_trims_overlong_copy_and_tags_without_dropping_candidate():
         preference_evidence=["悬疑片偏好"],
     )
 
-    assert result.dropped == []
-    assert len(result.accepted) == 1
-    assert len(result.accepted[0].reason) <= 40
-    assert not result.accepted[0].reason.endswith(("，", "、", "；", "："))
-    assert len(result.accepted[0].summary) <= 20
-    assert result.accepted[0].match_tags == ["悬疑片", "旧案调查故"]
-    assert all(len(tag) <= 5 for tag in result.accepted[0].match_tags)
+    assert result.accepted == []
+    assert [item.reason for item in result.dropped] == [drop_reason]
+
+
+def test_fallback_summary_uses_complete_semantic_copy_instead_of_truncation():
+    """长剧情兜底应生成完整概括，不得保留原文开头残句。"""
+    candidate = Candidate(
+        candidate_id="tmdb:summary-fallback",
+        title="长剧情",
+        media_type="movie",
+        overview="一名侦探追查多年未解旧案，并在封闭小镇逐步发现一个家族隐藏已久的秘密。",
+        genres=["悬疑"],
+    )
+
+    summary = fallback_summary(candidate)
+
+    assert summary == "围绕悬疑题材展开的完整故事。"
+    assert len(summary) <= 30
+    assert summary.endswith("。")
+
+
+def test_validator_rejects_copy_with_unclosed_title_marks():
+    """三十字内仍带未闭合书名号的残句不得进入榜单。"""
+    candidate = Candidate(
+        candidate_id="tmdb:broken-copy",
+        title="残句",
+        media_type="tv",
+        overview="演员争取机会并走出事业困境。",
+        genres=["剧情"],
+    )
+    parsed = AgentOutputParser().parse(
+        _output(
+            [{
+                "candidate_id": candidate.candidate_id,
+                "reason": "你偏爱人物成长，这部剧情聚焦事业突围。",
+                "summary": "需要机会告别事业困境的演员去试戏电影《入",
+                "match_tags": ["人物成长", "剧情"],
+                "confidence": 80,
+            }]
+        )
+    )
+
+    result = RecommendationValidator().validate(
+        parsed, [candidate], set(), set(), preference_evidence=["人物成长"]
+    )
+
+    assert result.accepted == []
+    assert [item.reason for item in result.dropped] == ["invalid_summary"]
 
 
 def test_validator_repairs_unsupported_agent_tags_from_trusted_evidence():
@@ -639,14 +701,14 @@ def test_validator_keeps_valid_agent_order_and_enriches_from_candidate_pool():
             [
                 {
                     "candidate_id": "tmdb:2",
-                    "reason": "你偏爱人物剧情与长期成长线，这部用群像关系和连续冲突提供相近体验。",
+                    "reason": "你偏爱人物剧情，这部群像冲突延续成长体验。",
                     "summary": "连环剧情逐步揭开人物命运新篇章",
                     "match_tags": ["人物剧情", "群像关系"],
                     "confidence": 70,
                 },
                 {
                     "candidate_id": "tmdb:1",
-                    "reason": "你常订阅悬疑犯罪题材，这部用密室追凶与双线叙事延续该口味。",
+                    "reason": "你常订阅悬疑犯罪，这部密室追凶延续该口味。",
                     "summary": "悬疑迷局层层牵出尘封往事与真相",
                     "match_tags": ["悬疑犯罪", "双线叙事"],
                     "confidence": 90,
@@ -1153,16 +1215,16 @@ def test_subscribed_candidate_is_rejected_even_when_other_fields_are_valid():
     assert result.dropped[0].reason == "subscribed_candidate"
 
 
-def test_fallback_summary_is_deterministic_readable_and_exactly_fifteen_chinese_chars():
-    """Every media type gets a stable fifteen-Han-character description fallback."""
+def test_fallback_summary_is_deterministic_readable_and_complete():
+    """每种媒体类型都应获得三十字内、语义完整的稳定简介。"""
     expected = {
-        "movie": "光影故事缓缓铺展人物命运新篇章",
-        "tv": "连环剧情逐步揭开人物命运新篇章",
-        "anime": "动画世界热烈展开青春奇幻冒险路",
-        "unknown": "精彩故事生动呈现人物命运新篇章",
+        "movie": "光影故事铺展人物命运的新篇章。",
+        "tv": "连环剧情逐步揭开人物命运的新篇章。",
+        "anime": "动画世界展开一段青春奇幻冒险。",
+        "unknown": "故事生动呈现人物命运的新篇章。",
     }
     for media_type, summary in expected.items():
         candidate = Candidate(candidate_id=f"x:{media_type}", title="Title", media_type=media_type)
         assert fallback_summary(candidate) == summary
-        assert len(summary) == 15
-        assert all("\u4e00" <= char <= "\u9fff" for char in summary)
+        assert len(summary) <= 30
+        assert summary.endswith("。")

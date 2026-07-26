@@ -215,6 +215,9 @@ REGION_LABELS = {
     "IN": "印度",
     "TH": "泰国",
 }
+RECOMMENDATION_COPY_LIMIT = 30
+INCOMPLETE_COPY_ENDINGS = ("，", "、", "；", "：")
+COPY_PAIR_MARKS = (("《", "》"), ("“", "”"), ("（", "）"), ("【", "】"))
 
 
 def compact_text(value: str, maximum: int) -> str:
@@ -227,6 +230,12 @@ def compact_text(value: str, maximum: int) -> str:
     if boundary >= max(1, maximum // 2):
         return window[: boundary + 1].strip().rstrip("，、；：")
     return window.strip()
+
+
+def has_unbalanced_copy_pairs(value: str) -> bool:
+    """判断推荐文案是否包含未闭合的常用成对标点。"""
+    text = str(value or "")
+    return any(text.count(left) != text.count(right) for left, right in COPY_PAIR_MARKS)
 
 
 class AgentOutputError(ValueError):
@@ -669,24 +678,33 @@ class RankingOutputParser(_StrictOutputParser):
 
 def fallback_summary(candidate: Candidate) -> str:
     """按媒体类型返回确定、可读的中文作品简介。"""
-    overview = compact_text(candidate.overview, 20)
-    if overview:
+    overview = " ".join(str(candidate.overview or "").split()).strip()
+    if (
+        overview
+        and len(overview) <= RECOMMENDATION_COPY_LIMIT
+        and not overview.endswith(INCOMPLETE_COPY_ENDINGS)
+    ):
         return overview
+    genre = next(
+        (
+            "".join(str(item or "").split()).strip("，。；、|/")
+            for item in candidate.genres or ()
+            if "".join(str(item or "").split()).strip("，。；、|/")
+        ),
+        "",
+    )
+    if genre and len(genre) <= 8:
+        return f"围绕{genre}题材展开的完整故事。"
     summaries = {
-        "movie": "光影故事缓缓铺展人物命运新篇章",
-        "tv": "连环剧情逐步揭开人物命运新篇章",
-        "anime": "动画世界热烈展开青春奇幻冒险路",
+        "movie": "光影故事铺展人物命运的新篇章。",
+        "tv": "连环剧情逐步揭开人物命运的新篇章。",
+        "anime": "动画世界展开一段青春奇幻冒险。",
     }
-    return summaries.get(candidate.media_type, "精彩故事生动呈现人物命运新篇章")
+    return summaries.get(candidate.media_type, "故事生动呈现人物命运的新篇章。")
 
 
 class RecommendationValidator:
     """依据冻结候选、订阅和归档集合执行确定性安全校验。"""
-
-    @staticmethod
-    def _compact_text(value: str, maximum: int) -> str:
-        """复用共享文本裁剪规则。"""
-        return compact_text(value, maximum)
 
     @staticmethod
     def _match_tags(tags: Sequence[str]) -> List[str]:
@@ -1279,7 +1297,7 @@ class RecommendationValidator:
                     candidate_id=candidate.candidate_id,
                     rank=len(accepted) + len(result) + 1,
                     summary=fallback_summary(candidate),
-                    reason=compact_text(reason, 40),
+                    reason=reason,
                     confidence=60,
                     title=candidate.title,
                     original_title=candidate.original_title,
@@ -1340,10 +1358,20 @@ class RecommendationValidator:
                     DroppedRecommendation(candidate_id, "invalid_confidence", index)
                 )
                 continue
-            summary = self._compact_text(recommendation.summary, 20) or fallback_summary(
-                candidate
-            )
-            reason = self._compact_text(recommendation.reason, 40)
+            summary = " ".join(str(recommendation.summary or "").split()).strip()
+            reason = " ".join(str(recommendation.reason or "").split()).strip()
+            if not summary:
+                summary = fallback_summary(candidate)
+            if len(summary) > RECOMMENDATION_COPY_LIMIT:
+                result.dropped.append(
+                    DroppedRecommendation(candidate_id, "summary_too_long", index)
+                )
+                continue
+            if len(reason) > RECOMMENDATION_COPY_LIMIT:
+                result.dropped.append(
+                    DroppedRecommendation(candidate_id, "reason_too_long", index)
+                )
+                continue
             match_tags = self._evidence_tags(
                 recommendation.match_tags,
                 reason,
@@ -1356,7 +1384,11 @@ class RecommendationValidator:
             unsupported_candidate_claim = self._unsupported_candidate_claim(
                 reason, candidate
             )
-            if not summary:
+            if (
+                not summary
+                or summary.endswith(INCOMPLETE_COPY_ENDINGS)
+                or has_unbalanced_copy_pairs(summary)
+            ):
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_summary", index)
                 )
@@ -1364,6 +1396,8 @@ class RecommendationValidator:
             if (
                 not reason
                 or reason == summary
+                or reason.endswith(INCOMPLETE_COPY_ENDINGS)
+                or has_unbalanced_copy_pairs(reason)
                 or any(phrase in reason for phrase in VAGUE_REASON_PHRASES)
                 or FILLER_END_PATTERN.search(reason)
                 or AMBIGUOUS_WATCH_COUNT_PATTERN.search(reason)
