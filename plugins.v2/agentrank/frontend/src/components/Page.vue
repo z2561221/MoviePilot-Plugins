@@ -630,7 +630,7 @@ onMounted(initialize)
 </template>
 
 <style scoped>
-.ar-page { width: min(1240px, calc(100vw - 24px)); max-width: 100%; height: min(900px, calc(100dvh - 16px)); display: flex; flex-direction: column; overflow: hidden; overflow-x: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 14px; background: transparent; }
+.ar-page { width: 100%; max-width: none; box-sizing: border-box; height: min(900px, calc(100dvh - 16px)); display: flex; flex-direction: column; overflow: hidden; overflow-x: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 14px; background: transparent; }
 .ar-page__toolbar { flex: 0 0 auto; background: transparent; }
 .ar-page :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-page :deep(.v-tabs), .ar-page :deep(.v-table), .ar-page :deep(.v-skeleton-loader), .ar-page :deep(.v-empty-state) { background: transparent; }

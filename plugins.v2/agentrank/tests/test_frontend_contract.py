@@ -213,6 +213,9 @@ def test_detail_page_uses_transparent_root_and_data_surfaces():
     summary_style = next(
         line for line in page.splitlines() if line.startswith(".ar-page__summary-bar {")
     )
+    assert "width: 100%;" in root_style
+    assert "max-width: none;" in root_style
+    assert "box-sizing: border-box;" in root_style
     assert "background: transparent;" in root_style
     assert "v-theme-surface" not in root_style
     assert "background: transparent;" in summary_style
