@@ -2,6 +2,8 @@
 
 import importlib
 import sys
+import threading
+import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -100,6 +102,47 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
     assert result.rating == 8.6
     assert result.popularity == 123.4
     assert result.metadata["recognized_by"] == "moviepilot"
+
+
+def test_recognize_many_is_bounded_and_preserves_input_order():
+    """批量识别最多使用六个工作线程，并按输入顺序返回候选。"""
+    adapter = MediaRecognitionAdapter(lambda: None, FakeMeta, FakeMediaType)
+    active = 0
+    maximum_active = 0
+    guard = threading.Lock()
+
+    def recognize(candidate):
+        """记录并发峰值并模拟有序识别结果。"""
+        nonlocal active, maximum_active
+        with guard:
+            active += 1
+            maximum_active = max(maximum_active, active)
+        time.sleep(0.02)
+        with guard:
+            active -= 1
+        if candidate.candidate_id == "tmdb:movie:7":
+            raise ValueError("single candidate failed")
+        return candidate
+
+    adapter.recognize = recognize
+    candidates = [
+        Candidate(
+            candidate_id=f"tmdb:movie:{index}",
+            title=f"Title {index}",
+            media_type="movie",
+            source_ids={"tmdb": str(index)},
+        )
+        for index in range(1, 13)
+    ]
+
+    result = adapter.recognize_many(candidates)
+
+    assert [item.candidate_id if item else None for item in result] == [
+        *[f"tmdb:movie:{index}" for index in range(1, 7)],
+        None,
+        *[f"tmdb:movie:{index}" for index in range(8, 13)],
+    ]
+    assert 1 < maximum_active <= 6
 
 
 def test_recognition_maps_douban_id_to_tmdb_before_source_recognition():

@@ -2,6 +2,7 @@
 
 import inspect
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Iterable, List, Mapping, Optional, Tuple
 
 from ..model.candidate import Candidate, typed_tmdb_candidate_id
@@ -32,6 +33,7 @@ class MediaRecognitionAdapter:
         "imdb": "imdb",
     }
     _MAX_TITLE_RECOGNITION_ATTEMPTS = 2
+    _MAX_RECOGNITION_WORKERS = 6
 
     def __init__(
         self,
@@ -448,6 +450,29 @@ class MediaRecognitionAdapter:
         )
         candidate.metadata["recognized_by"] = "moviepilot"
         return candidate
+
+    def recognize_many(
+        self, candidates: Iterable[Candidate]
+    ) -> List[Optional[Candidate]]:
+        """以有界线程池并发识别候选，并保持输入顺序返回结果。"""
+        items = list(candidates or ())
+        if not items:
+            return []
+        workers = min(self._MAX_RECOGNITION_WORKERS, len(items))
+        if workers <= 1:
+            return [self._recognize_safely(item) for item in items]
+        with ThreadPoolExecutor(
+            max_workers=workers,
+            thread_name_prefix="agentrank-recognize",
+        ) as executor:
+            return list(executor.map(self._recognize_safely, items))
+
+    def _recognize_safely(self, candidate: Candidate) -> Optional[Candidate]:
+        """隔离单条候选的预期识别异常，避免中断整批冻结。"""
+        try:
+            return self.recognize(candidate)
+        except (TypeError, ValueError, KeyError):
+            return None
 
     @staticmethod
     def _copy_media_ids(candidate: Candidate, mediainfo: Any) -> None:

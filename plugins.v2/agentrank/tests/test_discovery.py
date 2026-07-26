@@ -515,6 +515,100 @@ def test_movie_and_tv_with_same_tmdb_number_do_not_collide():
     ]
 
 
+def test_same_source_identity_is_merged_before_media_recognition():
+    """同一 TMDB 条目跨召回层重复出现时只执行一次媒体识别。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {
+                    "title": "Repeated Movie",
+                    "media_type": "movie",
+                    "tmdb_id": 77,
+                    "overview": "第一来源简介",
+                },
+                {
+                    "title": "Repeated Movie",
+                    "media_type": "movie",
+                    "tmdb_id": 77,
+                    "poster_path": "/poster.jpg",
+                },
+            ]
+        }
+    )
+
+    class MediaAdapter:
+        """记录候选进入真实识别边界的次数。"""
+
+        def __init__(self):
+            """初始化识别调用计数。"""
+            self.calls = 0
+
+        def recognize(self, candidate):
+            """返回带 MoviePilot 基础类型的标准候选。"""
+            self.calls += 1
+            candidate.metadata["mp_media_type"] = "电影"
+            return candidate
+
+    media_adapter = MediaAdapter()
+    result = CandidateCollectionService(
+        adapter,
+        AgentRankRepository(FakePlugin()),
+        media_adapter,
+    ).collect_and_freeze(
+        "alice", "run-pre-dedup", {"tmdb_movies": True}, 10
+    )
+
+    assert media_adapter.calls == 1
+    assert result.processing_counts["raw"] == 2
+    assert result.processing_counts["recognition_input"] == 1
+    assert result.processing_counts["pre_recognition_deduplicated"] == 1
+    assert result.candidates[0].overview == "第一来源简介"
+    assert result.candidates[0].poster_path == "/poster.jpg"
+    assert set(result.timings_ms) == {
+        "recall",
+        "normalize",
+        "recognition",
+        "filter",
+        "snapshot",
+    }
+
+
+def test_serial_media_adapter_failure_only_rejects_the_failed_candidate():
+    """兼容适配器单条识别异常时继续冻结其余候选。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {
+                    "title": f"Movie {index}",
+                    "media_type": "movie",
+                    "tmdb_id": index,
+                }
+                for index in range(1, 3)
+            ]
+        }
+    )
+
+    class MediaAdapter:
+        """模拟未实现批量识别的兼容适配器。"""
+
+        @staticmethod
+        def recognize(candidate):
+            """让第一条候选失败并返回第二条候选。"""
+            if candidate.source_ids["tmdb"] == "1":
+                raise ValueError("single candidate failed")
+            candidate.metadata["mp_media_type"] = "电影"
+            return candidate
+
+    result = CandidateCollectionService(
+        adapter,
+        AgentRankRepository(FakePlugin()),
+        MediaAdapter(),
+    ).collect_and_freeze("alice", "run-partial-recognition", {"tmdb_movies": True}, 10)
+
+    assert [candidate.source_ids["tmdb"] for candidate in result.candidates] == ["2"]
+    assert result.exclusion_counts["invalid_or_unrecognized"] == 1
+
+
 def test_same_title_with_different_tmdb_ids_is_never_merged():
     """标题相同但 TMDB 身份不同的作品不得使用标题兜底合并。"""
     adapter = DiscoveryAdapter(

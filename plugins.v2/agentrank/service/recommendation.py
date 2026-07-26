@@ -16,7 +16,7 @@ from ..agent_tools.context import (
 )
 from ..model.candidate import typed_tmdb_candidate_id
 from ..model.config import configured_identities
-from ..model.constants import RECOMMENDATION_LIMIT
+from ..model.constants import RANKING_OUTPUT_LIMIT, RECOMMENDATION_LIMIT
 from ..model.board import RecommendationBoard, RecommendationItem
 from ..model.profile import (
     PROFILE_SCHEMA_VERSION,
@@ -79,7 +79,11 @@ class RecommendationOrchestrator:
         self.agent_adapter = agent_adapter
         self._run_id_factory = run_id_factory or (lambda: uuid.uuid4().hex)
         self._profile_parser = profile_parser or ProfileOutputParser()
-        self._ranking_parser = ranking_parser or parser or RankingOutputParser()
+        self._ranking_parser = (
+            ranking_parser
+            or parser
+            or RankingOutputParser(max_recommendations=RANKING_OUTPUT_LIMIT)
+        )
         self._validator = validator or RecommendationValidator()
         self._library_adapter = library_adapter
         self._playback_service = playback_service
@@ -137,6 +141,31 @@ class RecommendationOrchestrator:
             "confidence_threshold": float(config.get("confidence_threshold") or 0.0),
             "exclude_keywords": list(config.get("exclude_keywords") or []),
         }
+
+    @staticmethod
+    def _profile_cache_reason(
+        enabled: bool,
+        forced_rebuild: bool,
+        previous_profile: Optional[UserProfile],
+        playback_fingerprint: str,
+    ) -> str:
+        """返回画像缓存命中或未命中的稳定原因码。"""
+        if not enabled:
+            return "disabled"
+        if forced_rebuild:
+            return "forced_rebuild"
+        if previous_profile is None:
+            return "missing"
+        if previous_profile.schema_version < PROFILE_SCHEMA_VERSION:
+            return "profile_schema_changed"
+        if (
+            previous_profile.retrieval_resolution_version
+            < RETRIEVAL_RESOLUTION_VERSION
+        ):
+            return "retrieval_resolution_changed"
+        if previous_profile.playback_fingerprint != playback_fingerprint:
+            return "playback_changed"
+        return "hit"
 
     @staticmethod
     def _start_stage(metrics: Dict[str, Any], stage: str) -> None:
@@ -453,13 +482,21 @@ class RecommendationOrchestrator:
                 profile_preferences.custom_tags
             ) + len(profile_preferences.custom_negative_tags)
             playback_fingerprint = playback_snapshot.fingerprint()
+            profile_cache_reason = self._profile_cache_reason(
+                profile_cache_enabled,
+                rebuild_profile,
+                previous_profile,
+                playback_fingerprint,
+            )
+            metrics["profile_cache_status"] = (
+                "hit" if profile_cache_reason == "hit" else "miss"
+            )
+            metrics["profile_cache_miss_reason"] = (
+                "" if profile_cache_reason == "hit" else profile_cache_reason
+            )
             current_profile = (
                 previous_profile
-                if previous_profile is not None
-                and previous_profile.schema_version >= PROFILE_SCHEMA_VERSION
-                and previous_profile.retrieval_resolution_version
-                >= RETRIEVAL_RESOLUTION_VERSION
-                and previous_profile.playback_fingerprint == playback_fingerprint
+                if profile_cache_reason == "hit"
                 else None
             )
             metrics["profile_agent_reused"] = current_profile is not None
@@ -713,6 +750,16 @@ class RecommendationOrchestrator:
             metrics["candidate_snapshot_error"] = str(
                 getattr(candidate_result, "snapshot_error", "") or ""
             )
+            candidate_timings = dict(
+                getattr(candidate_result, "timings_ms", {}) or {}
+            )
+            for timing_name, timing_value in candidate_timings.items():
+                metrics[f"candidate_{timing_name}_ms"] = max(
+                    0, int(timing_value or 0)
+                )
+            metrics["candidate_processing_counts"] = dict(
+                getattr(candidate_result, "processing_counts", {}) or {}
+            )
             minimum_frozen_candidates = max(
                 0,
                 int(
@@ -791,6 +838,7 @@ class RecommendationOrchestrator:
             ranking_attempt_errors: List[str] = []
             for attempt in range(2):
                 prompt = build_ranking_prompt(
+                    max_recommendations=RANKING_OUTPUT_LIMIT,
                     agent_prompt=str(config.get("agent_prompt") or "")
                 )
                 if attempt:
@@ -877,7 +925,13 @@ class RecommendationOrchestrator:
                     )
             if validation is None:
                 raise RuntimeError("Agent validation retry loop ended without a result")
-            accepted: List[RecommendationItem] = list(validation.accepted)
+            metrics["ranking_valid_count"] = len(validation.accepted)
+            metrics["ranking_reserve_count"] = max(
+                0, len(validation.accepted) - RECOMMENDATION_LIMIT
+            )
+            accepted: List[RecommendationItem] = list(
+                validation.accepted[:RECOMMENDATION_LIMIT]
+            )
             metrics["validation_drops"] = [drop.reason for drop in validation.dropped]
 
             if len(accepted) < RECOMMENDATION_LIMIT:
@@ -890,9 +944,7 @@ class RecommendationOrchestrator:
                     if drop.candidate_id in trusted_candidate_ids
                 ]
                 refill_drop_reasons: List[str] = []
-                refill_attempt_errors: List[str] = []
-                refill_format_retry = False
-                for refill_attempt in range(2):
+                for refill_attempt in range(1):
                     accepted_ids = {item.candidate_id for item in accepted}
                     remaining_candidates = [
                         candidate
@@ -913,12 +965,6 @@ class RecommendationOrchestrator:
                         agent_prompt=str(config.get("agent_prompt") or ""),
                         rejected_candidates=refill_feedback,
                     )
-                    if refill_format_retry:
-                        current_refill_prompt += (
-                            "\n\n上一轮补选输出无法解析。请重新读取同一个受限候选快照，"
-                            "这次只返回一个符合既定 schema 的 JSON 对象，禁止代码块、"
-                            "解释、前后缀或额外字段。"
-                        )
                     stage_clock = time.monotonic()
                     metrics["agent_calls"] += 1
                     metrics["ranking_agent_calls"] = (
@@ -950,39 +996,12 @@ class RecommendationOrchestrator:
                         ]
                         refill_drop_reasons.extend(round_drop_reasons)
                         metrics["refill_drops"] = refill_drop_reasons
-                        refill_feedback = [
-                            {
-                                "candidate_id": drop.candidate_id,
-                                "reason": drop.reason,
-                            }
-                            for drop in refill_validation.dropped
-                            if drop.candidate_id in trusted_candidate_ids
-                        ]
-                        refill_format_retry = False
                     except AgentOutputError as error:
                         detail = f"refill attempt {refill_attempt + 1}: {error}"
-                        if refill_attempt == 0:
-                            refill_attempt_errors.append(detail)
-                            refill_format_retry = True
-                            self._record_retry(
-                                metrics, "refill", refill_attempt + 1, error
-                            )
-                            continue
-                        errors.extend(refill_attempt_errors)
                         errors.append(detail)
                         break
                     except Exception as error:
                         detail = f"refill attempt {refill_attempt + 1}: {error}"
-                        if refill_attempt == 0 and bool(
-                            getattr(error, "retryable", False)
-                        ):
-                            refill_attempt_errors.append(detail)
-                            refill_format_retry = True
-                            self._record_retry(
-                                metrics, "refill", refill_attempt + 1, error
-                            )
-                            continue
-                        errors.extend(refill_attempt_errors)
                         errors.append(detail)
                         break
                     finally:

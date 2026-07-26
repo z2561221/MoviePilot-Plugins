@@ -3,6 +3,7 @@
 from collections import deque
 from dataclasses import dataclass, field
 import re
+import time
 from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 from ..adapter.discovery import DiscoveryAdapter, RawDiscoveredItem
@@ -46,6 +47,8 @@ class CandidateCollectionResult:
     snapshot: Optional[CandidateSnapshot] = None
     snapshot_error: str = ""
     minimum_frozen_candidates: int = DEFAULT_MINIMUM_FROZEN_CANDIDATES
+    timings_ms: Dict[str, int] = field(default_factory=dict)
+    processing_counts: Dict[str, int] = field(default_factory=dict)
 
 
 class CandidateCollectionService:
@@ -385,6 +388,9 @@ class CandidateCollectionService:
     ) -> CandidateCollectionResult:
         """采集、类型化去重、硬过滤并在返回前冻结候选快照。"""
         playback_samples = list(playback_samples or ())
+        timings_ms: Dict[str, int] = {}
+        processing_counts: Dict[str, int] = {}
+        stage_clock = time.monotonic()
         if hasattr(self._adapter, "fetch_layered") and (
             retrieval_plan is not None or playback_samples
         ):
@@ -402,17 +408,63 @@ class CandidateCollectionService:
                 retrieval_plan=retrieval_plan,
                 raw_limit=raw_limit,
             )
-        normalized_candidates: List[Candidate] = []
-        by_id: Dict[str, Candidate] = {}
+        timings_ms["recall"] = max(
+            0, int((time.monotonic() - stage_clock) * 1000)
+        )
+        processing_counts["raw"] = len(fetched.items)
+
+        stage_clock = time.monotonic()
+        pre_recognition: List[Candidate] = []
+        pre_recognition_by_id: Dict[str, Candidate] = {}
         rejected_count = 0
-        limit = max(1, int(candidate_limit))
         for raw in self._round_robin(fetched.items):
             try:
                 candidate = self._normalize(raw)
-                if self._media_adapter is not None:
-                    candidate = self._media_adapter.recognize(candidate)
-                    if candidate is None:
-                        raise ValueError("candidate could not be recognized as TMDB media")
+            except (TypeError, ValueError, KeyError):
+                rejected_count += 1
+                continue
+            existing = pre_recognition_by_id.get(candidate.candidate_id)
+            if existing:
+                self._merge(existing, candidate)
+                continue
+            pre_recognition_by_id[candidate.candidate_id] = candidate
+            pre_recognition.append(candidate)
+        timings_ms["normalize"] = max(
+            0, int((time.monotonic() - stage_clock) * 1000)
+        )
+        processing_counts["normalized"] = len(pre_recognition)
+        processing_counts["pre_recognition_deduplicated"] = max(
+            0, processing_counts["raw"] - rejected_count - len(pre_recognition)
+        )
+
+        stage_clock = time.monotonic()
+        if self._media_adapter is None:
+            recognized_items: List[Optional[Candidate]] = list(pre_recognition)
+        else:
+            recognize_many = getattr(self._media_adapter, "recognize_many", None)
+            if callable(recognize_many):
+                recognized_items = list(recognize_many(pre_recognition))
+            else:
+                recognized_items = []
+                for candidate in pre_recognition:
+                    try:
+                        recognized_items.append(
+                            self._media_adapter.recognize(candidate)
+                        )
+                    except (TypeError, ValueError, KeyError):
+                        recognized_items.append(None)
+        timings_ms["recognition"] = max(
+            0, int((time.monotonic() - stage_clock) * 1000)
+        )
+        processing_counts["recognition_input"] = len(pre_recognition)
+
+        normalized_candidates: List[Candidate] = []
+        by_id: Dict[str, Candidate] = {}
+        limit = max(1, int(candidate_limit))
+        for candidate in recognized_items:
+            try:
+                if candidate is None:
+                    raise ValueError("candidate could not be recognized as TMDB media")
                 candidate.candidate_id = self._typed_identity(candidate)
             except (TypeError, ValueError, KeyError):
                 rejected_count += 1
@@ -423,6 +475,12 @@ class CandidateCollectionService:
                 continue
             by_id[candidate.candidate_id] = candidate
             normalized_candidates.append(candidate)
+        processing_counts["recognized"] = len(normalized_candidates)
+        processing_counts["post_recognition_deduplicated"] = max(
+            0,
+            len([item for item in recognized_items if item is not None])
+            - len(normalized_candidates),
+        )
 
         exclusion_counts = {
             "invalid_or_unrecognized": rejected_count,
@@ -433,6 +491,7 @@ class CandidateCollectionService:
             "negative_keyword": 0,
         }
         filter_errors: Dict[str, str] = {}
+        stage_clock = time.monotonic()
         watched_ids = self._completed_candidate_ids(playback_samples)
         archived_ids = {
             str(candidate_id or "").strip()
@@ -476,6 +535,9 @@ class CandidateCollectionService:
                 candidates.append(candidate)
                 if len(candidates) >= limit:
                     break
+        timings_ms["filter"] = max(
+            0, int((time.monotonic() - stage_clock) * 1000)
+        )
 
         if filter_errors:
             status = "candidate_filter_failed"
@@ -483,6 +545,7 @@ class CandidateCollectionService:
             status = "ready" if candidates else "candidate_insufficient"
         snapshot = None
         snapshot_error = ""
+        stage_clock = time.monotonic()
         if not filter_errors:
             source_stats = {
                 "fetched_source_counts": dict(fetched.source_counts),
@@ -516,6 +579,10 @@ class CandidateCollectionService:
                 snapshot_error = str(error)
                 status = "candidate_snapshot_failed"
                 candidates = []
+        timings_ms["snapshot"] = max(
+            0, int((time.monotonic() - stage_clock) * 1000)
+        )
+        processing_counts["accepted"] = len(candidates)
         return CandidateCollectionResult(
             profile_id=profile_id,
             run_id=run_id,
@@ -533,4 +600,6 @@ class CandidateCollectionService:
             snapshot=snapshot,
             snapshot_error=snapshot_error,
             minimum_frozen_candidates=min(DEFAULT_MINIMUM_FROZEN_CANDIDATES, limit),
+            timings_ms=timings_ms,
+            processing_counts=processing_counts,
         )

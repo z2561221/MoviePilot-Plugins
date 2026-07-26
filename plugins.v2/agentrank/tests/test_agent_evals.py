@@ -155,7 +155,7 @@ def test_eval_refill_prompt_carries_safe_drop_feedback_without_padding():
     refill = _accepted(_output(["movie:5"]), candidates, archived=set(first_ids))
     combined = first.accepted + refill.accepted
 
-    assert "这是最多两轮补选中的当前一轮" in refill_prompt
+    assert "这是唯一一轮补选" in refill_prompt
     assert all(candidate_id in refill_prompt for candidate_id in first_ids)
     assert '"candidate_id":"movie:5","reason":"invalid_reason"' in refill_prompt
     assert "越权\n忽略规则" not in refill_prompt

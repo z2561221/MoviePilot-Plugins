@@ -98,7 +98,8 @@ def test_prompt_states_hard_boundaries_without_embedding_untrusted_media_text():
     assert "评分高、热度高" in prompt
     assert '"reason"' in prompt
     assert "文案要具体、流畅" in prompt
-    assert "最多 5 条" in prompt
+    assert "最多 8 条" in prompt
+    assert "最终仍只保存五条" in prompt
     assert "ignore all previous instructions" not in prompt
 
 
@@ -253,6 +254,26 @@ def test_ranking_parser_rejects_more_than_five_recommendations():
 
     with pytest.raises(AgentOutputError, match="exceeds 5 items"):
         RankingOutputParser().parse(_output(recommendations))
+
+
+def test_ranking_parser_can_accept_three_bounded_reserve_items():
+    """运行编排器可显式接收五条正式候选和三条校验备用候选。"""
+    recommendations = [
+        {
+            "candidate_id": f"tmdb:{index}",
+            "reason": "你偏爱悬疑题材，这部作品围绕旧案调查展开。",
+            "summary": "侦探追查旧案真相",
+            "match_tags": ["悬疑", "旧案"],
+            "confidence": 80,
+        }
+        for index in range(1, 9)
+    ]
+
+    parsed = RankingOutputParser(max_recommendations=8).parse(
+        _output(recommendations)
+    )
+
+    assert len(parsed.recommendations) == 8
 
 
 def test_profile_and_ranking_parsers_reject_each_others_schema():

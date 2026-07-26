@@ -335,6 +335,29 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert history[0].metrics["playback_probe_status"] == "ready"
 
 
+def test_main_ranking_uses_three_reserves_but_persists_only_top_five():
+    """主排序一次返回八条时只保存前五条，并且不启动补选 Agent。"""
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [_agent_output([f"tmdb:{index}" for index in range(1, 9)])],
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    board = repository.load_board(PROFILE_ID)
+    assert result.status == "success"
+    assert result.agent_calls == 2
+    assert [item.candidate_id for item in board.recommendations] == [
+        f"tmdb:{index}" for index in range(1, 6)
+    ]
+    assert len(orchestrator.agent_adapter.ranking_calls) == 1
+    assert "最多 8 条" in orchestrator.agent_adapter.ranking_calls[0][0]
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["ranking_valid_count"] == 8
+    assert history.metrics["ranking_reserve_count"] == 3
+    assert history.metrics["refill_attempted"] is False
+
+
 def test_fewer_than_twenty_frozen_candidates_skips_ranking_agent():
     """冻结候选低于默认 20 条时保留画像但不调用排序 Agent。"""
     orchestrator, repository = _orchestrator(
@@ -479,6 +502,8 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
     latest_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
     assert latest_metrics["profile_agent_reused"] is True
     assert latest_metrics.get("profile_agent_calls", 0) == 0
+    assert latest_metrics["profile_cache_status"] == "hit"
+    assert latest_metrics["profile_cache_miss_reason"] == ""
 
 
 def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches():
@@ -508,6 +533,8 @@ def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches
     assert result.status == "success"
     assert len(orchestrator.agent_adapter.profile_calls) == 1
     assert repository.load_profile(PROFILE_ID).schema_version == 4
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["profile_cache_miss_reason"] == "profile_schema_changed"
 
 
 def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches():
@@ -538,6 +565,10 @@ def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches
     assert result.status == "success"
     assert len(orchestrator.agent_adapter.profile_calls) == 1
     assert repository.load_profile(PROFILE_ID).retrieval_resolution_version == 1
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["profile_cache_miss_reason"] == (
+        "retrieval_resolution_changed"
+    )
 
 
 def test_controlled_resolution_is_persisted_and_exposed_to_ranking_context():
@@ -819,6 +850,9 @@ def test_rebuild_or_disabled_cache_does_not_read_previous_profile():
         history = repository.load_run_history(PROFILE_ID)[0]
         assert history.metrics["profile_mode"] == expected_mode
         assert history.metrics["previous_profile_used"] is False
+        assert history.metrics["profile_cache_miss_reason"] == (
+            "forced_rebuild" if expected_mode == "rebuild" else "disabled"
+        )
         assert result.status == "success"
 
 
@@ -1146,8 +1180,8 @@ def test_initial_domain_drops_are_explained_to_refill():
     )
 
 
-def test_second_refill_uses_previous_domain_drops_and_completes_top_five():
-    """首轮补选仍有文案丢弃时，第二轮携带原因并补齐榜单。"""
+def test_single_refill_drop_stops_without_starting_a_second_agent_call():
+    """唯一补选仍被安全门丢弃时保存实际四条，不再启动第二轮。"""
     rejected_refill = _agent_output_with_overrides(
         ["tmdb:5"],
         {
@@ -1167,17 +1201,17 @@ def test_second_refill_uses_previous_domain_drops_and_completes_top_five():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
-    assert result.agent_calls == 4
-    assert len(repository.load_board(PROFILE_ID).recommendations) == 5
-    second_refill_prompt = orchestrator.agent_adapter.ranking_calls[2][0]
-    assert '"candidate_id":"tmdb:5","reason":"invalid_reason"' in second_refill_prompt
-    assert "tmdb:4" in second_refill_prompt
-    assert repository.load_run_history(PROFILE_ID)[0].metrics["refill_agent_calls"] == 2
+    assert result.status == "recommendation_incomplete"
+    assert result.agent_calls == 3
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 4
+    assert len(orchestrator.agent_adapter.ranking_calls) == 2
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["refill_agent_calls"] == 1
+    assert history.metrics["refill_drops"] == ["invalid_reason"]
 
 
 def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
-    """两轮补选仍不足时保存实际条数，不制造第五条。"""
+    """唯一补选仍不足时保存实际条数，不制造第五条。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
@@ -1193,11 +1227,11 @@ def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
     board = repository.load_board(PROFILE_ID)
     assert board.status == "recommendation_incomplete"
     assert len(board.recommendations) == 4
-    assert result.agent_calls == 4
+    assert result.agent_calls == 3
 
 
-def test_refill_invalid_json_retries_once_and_can_complete_top_five():
-    """补选返回非 JSON 时同样只重试一次，成功后不残留误导性错误。"""
+def test_refill_invalid_json_stops_after_the_single_bounded_call():
+    """唯一补选返回非 JSON 时保存实际四条，不再扩大模型往返。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
@@ -1209,17 +1243,17 @@ def test_refill_invalid_json_retries_once_and_can_complete_top_five():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
-    assert result.agent_calls == 4
-    assert len(repository.load_board(PROFILE_ID).recommendations) == 5
+    assert result.status == "recommendation_incomplete"
+    assert result.agent_calls == 3
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 4
     history = repository.load_run_history(PROFILE_ID)[0]
-    assert history.errors == []
-    assert history.metrics["refill_retry_count"] == 1
-    assert "上一轮补选输出无法解析" in orchestrator.agent_adapter.ranking_calls[2][0]
+    assert len(history.errors) == 1
+    assert "refill attempt 1" in history.errors[0]
+    assert len(orchestrator.agent_adapter.ranking_calls) == 2
 
 
 def test_zero_valid_items_preserves_old_board_and_records_validation_failure():
-    """两轮纠错后仍无安全推荐时保留旧榜单并记录校验失败。"""
+    """唯一补选后仍无安全推荐时保留旧榜单并记录校验失败。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(
         plugin,
@@ -1230,7 +1264,7 @@ def test_zero_valid_items_preserves_old_board_and_records_validation_failure():
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "ranking_validation_failed"
-    assert result.agent_calls == 4
+    assert result.agent_calls == 3
     assert repository.load_board(PROFILE_ID).run_id == "old"
 
 
