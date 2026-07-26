@@ -156,8 +156,8 @@ def _oversized_board():
             media_type="anime" if index % 2 else "tv",
             year=2020 + index,
             confidence=90 - index,
-            reason="较长推荐理由不会进入紧凑单页通知正文",
-            summary="较长剧情简介也不会挤占移动端通知空间",
+            reason="较长推荐理由会在标签后按客户端宽度自然换行",
+            summary="较长剧情简介会在标签后按客户端宽度自然换行",
             poster_path=f"https://image.tmdb.org/t/p/w200/{index}.jpg",
             backdrop_path=f"https://image.tmdb.org/t/p/w1280/backdrop-{index}.jpg",
             source_ids={"tmdb": str(index)},
@@ -209,8 +209,8 @@ def _callbacks(message):
     ]
 
 
-def test_start_sends_linked_single_line_top_list_with_horizontal_cover():
-    """初始通知用榜首横版封面和紧凑单行榜单展示 TMDB 标题链接。"""
+def test_start_sends_linked_three_line_top_list_with_horizontal_cover():
+    """初始通知用榜首横版封面和三行榜单展示链接、推荐与简介。"""
     plugin, repository, _, service, _ = _service()
 
     assert service.start("alice", "alice", _board()) is True
@@ -223,12 +223,24 @@ def test_start_sends_linked_single_line_top_list_with_horizontal_cover():
     assert message["image"].endswith("/backdrop-a.jpg")
     assert (
         '<code>01</code> <a href="https://www.themoviedb.org/movie/1">'
-        '第一部电影</a> · 2025 · 92%'
+        '第一部电影</a> · 2025\n'
+        '<b>推荐：</b>第一部推荐理由\n'
+        '<b>简介：</b>第一部简介'
     ) in message["text"]
     assert (
         '<code>02</code> <a href="https://www.themoviedb.org/tv/2">'
-        '第二部剧集</a> · 2026 · 88%'
+        '第二部剧集</a> · 2026\n'
+        '<b>推荐：</b>第二部推荐理由\n'
+        '<b>简介：</b>第二部简介'
     ) in message["text"]
+    assert (
+        '<b>简介：</b>第一部简介\n\n'
+        '<code>02</code> <a href="https://www.themoviedb.org/tv/2">'
+    ) in message["text"]
+    assert "\n\n\n" not in message["text"]
+    assert "92%" not in message["text"]
+    assert "88%" not in message["text"]
+    assert "置信度" not in message["text"]
     assert "<code>01</code> 第一部电影｜" not in message["text"]
     assert "第一部电影" in message["text"]
     assert "第二部剧集" in message["text"]
@@ -273,6 +285,11 @@ def test_oversized_board_is_limited_to_five_items():
     assert message["text"].count("<code>") == 5
     assert "\n　　" not in message["text"]
     assert "日本动画" not in message["text"]
+    assert message["text"].count("<b>推荐：</b>") == 5
+    assert message["text"].count("<b>简介：</b>") == 5
+    assert "较长推荐理由会在标签后按客户端宽度自然换行" in message["text"]
+    assert "较长剧情简介会在标签后按客户端宽度自然换行" in message["text"]
+    assert "90%" not in message["text"]
 
 
 def test_missing_tmdb_id_keeps_plain_title_and_cover():

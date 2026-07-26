@@ -69,16 +69,6 @@ class TelegramSelectionService:
         }
 
     @staticmethod
-    def _confidence(value: Any) -> int:
-        """把 0-1 或 0-100 置信度统一为整数百分比。"""
-        try:
-            number = float(value or 0)
-        except (TypeError, ValueError):
-            return 0
-        number = number * 100 if number <= 1 else number
-        return max(0, min(int(round(number)), 100))
-
-    @staticmethod
     def _linked_title(item: RecommendationItem) -> str:
         """返回带 TMDB 详情链接的安全标题，缺少有效 ID 时使用纯文本。"""
         title = html.escape(_compact_text(item.title, 14) or "未命名条目")
@@ -119,7 +109,7 @@ class TelegramSelectionService:
         board: RecommendationBoard,
         notice: str = "",
     ) -> Tuple[str, List[List[Dict[str, str]]], Optional[str]]:
-        """生成横版封面与紧凑单行榜单正文及编号按钮。"""
+        """生成横版封面、三行式五条榜单正文及编号按钮。"""
         item_map = self._item_map(board)
         items = [
             item_map[candidate_id]
@@ -137,16 +127,22 @@ class TelegramSelectionService:
             candidate_id = str(item.candidate_id)
             selected = candidate_id in session.selected_ids
             title = self._linked_title(item)
-            meta = " · ".join(
-                value
-                for value in (
-                    str(item.year or "").strip(),
-                    f"{self._confidence(item.confidence)}%",
-                )
-                if value
+            year = html.escape(str(item.year or "").strip())
+            reason = html.escape(
+                _compact_text(item.reason, 120) or "暂无推荐理由"
             )
-            lines.append(
-                f"<code>{index + 1:02d}</code> {title} · {html.escape(meta)}"
+            summary = html.escape(_compact_text(item.summary, 180) or "暂无简介")
+            if index:
+                lines.append("")
+            title_line = f"<code>{index + 1:02d}</code> {title}"
+            if year:
+                title_line = f"{title_line} · {year}"
+            lines.extend(
+                [
+                    title_line,
+                    f"<b>推荐：</b>{reason}",
+                    f"<b>简介：</b>{summary}",
+                ]
             )
             choice_buttons.append(
                 {
