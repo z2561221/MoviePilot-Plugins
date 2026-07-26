@@ -962,7 +962,14 @@ class RecommendationOrchestrator:
                             current_refill_prompt,
                             ranking_context,
                         )
-                        refill_parsed = self._ranking_parser.parse(refill_output)
+                        (
+                            refill_parsed,
+                            refill_parse_warnings,
+                        ) = self._ranking_parser.parse_recoverable(refill_output)
+                        if refill_parse_warnings:
+                            metrics.setdefault("refill_parse_warnings", []).extend(
+                                refill_parse_warnings
+                            )
                         refill_validation = self._validator.validate(
                             refill_parsed,
                             remaining_candidates,
@@ -982,6 +989,15 @@ class RecommendationOrchestrator:
                         ]
                         refill_drop_reasons.extend(round_drop_reasons)
                         metrics["refill_drops"] = refill_drop_reasons
+                        if (
+                            not refill_parsed.recommendations
+                            and refill_parse_warnings
+                        ):
+                            ranking_fallback_reason = "refill_validation_failed"
+                            ranking_fallback_errors.extend(
+                                f"refill attempt {refill_attempt + 1}: {warning}"
+                                for warning in refill_parse_warnings
+                            )
                     except AgentOutputError as error:
                         detail = f"refill attempt {refill_attempt + 1}: {error}"
                         ranking_fallback_errors.append(detail)

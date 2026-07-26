@@ -277,6 +277,51 @@ def test_ranking_parser_can_accept_three_bounded_reserve_items():
     assert len(parsed.recommendations) == 8
 
 
+def test_recoverable_ranking_parser_keeps_valid_items_and_records_bad_siblings():
+    """补选解析器忽略额外字段并按条丢弃真正无效的推荐。"""
+    recommendations = json.loads(
+        _output(
+            [
+                {
+                    "candidate_id": "tmdb:1",
+                    "reason": "你偏爱悬疑题材，这部围绕旧案调查展开。",
+                    "summary": "侦探追查旧案真相",
+                    "match_tags": ["悬疑", "旧案"],
+                    "confidence": 80,
+                    "completed_episode_count": 2,
+                },
+                {
+                    "candidate_id": "tmdb:2",
+                    "reason": "你偏爱悬疑题材，这部围绕密室案件展开。",
+                    "summary": "密室案件牵出隐藏真相",
+                    "match_tags": ["悬疑", "密室"],
+                    "confidence": "80",
+                },
+                {
+                    "candidate_id": "bangumi:3",
+                    "reason": "你偏爱悬疑题材，这部围绕连环谜案展开。",
+                    "summary": "连环谜案逐步揭开真相",
+                    "match_tags": ["悬疑", "谜案"],
+                    "confidence": 78,
+                },
+            ]
+        )
+    )
+    payload = json.dumps(recommendations, ensure_ascii=False)
+
+    with pytest.raises(AgentOutputError, match="completed_episode_count"):
+        RankingOutputParser().parse(payload)
+
+    parsed, warnings = RankingOutputParser().parse_recoverable(payload)
+
+    assert [item.candidate_id for item in parsed.recommendations] == [
+        "tmdb:1",
+        "bangumi:3",
+    ]
+    assert any("completed_episode_count" in warning for warning in warnings)
+    assert any("confidence must be an integer" in warning for warning in warnings)
+
+
 def test_profile_and_ranking_parsers_reject_each_others_schema():
     """两个 Agent parser 不接受对方的根字段。"""
     with pytest.raises(AgentOutputError):

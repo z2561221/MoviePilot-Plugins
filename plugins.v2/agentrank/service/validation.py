@@ -4,7 +4,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from ..model.board import RecommendationItem
 from ..model.candidate import Candidate
@@ -621,59 +621,117 @@ class ProfileOutputParser(_StrictOutputParser):
 class RankingOutputParser(_StrictOutputParser):
     """只接受排序 Agent 的独立 recommendations 根对象。"""
 
-    def parse(self, output: str) -> ParsedRankingOutput:
-        """解析推荐列表并拒绝任何画像字段。"""
+    _RECOMMENDATION_KEYS = {
+        "candidate_id",
+        "reason",
+        "summary",
+        "match_tags",
+        "confidence",
+    }
+
+    def _recommendation_values(self, output: str) -> List[Any]:
+        """读取通过根结构和数量边界校验的推荐原始列表。"""
         value = self._object(output)
         self._exact_keys(value, {"recommendations"}, "root")
-        recommendations_value = value["recommendations"]
-        if not isinstance(recommendations_value, list):
+        recommendations = value["recommendations"]
+        if not isinstance(recommendations, list):
             raise AgentOutputError("recommendations must be a list")
-        if len(recommendations_value) > self._max_recommendations:
+        if len(recommendations) > self._max_recommendations:
             raise AgentOutputError(
                 f"recommendations exceeds {self._max_recommendations} items"
             )
-        recommendations: List[ParsedRecommendation] = []
-        for index, item in enumerate(recommendations_value):
-            if not isinstance(item, dict):
-                raise AgentOutputError(f"recommendations[{index}] must be an object")
-            if "reason" not in item and "summary" in item:
-                item = dict(item)
-                item["reason"] = item["summary"]
-            if "summary" not in item and "reason" in item:
-                item = dict(item)
-                item["summary"] = ""
+        return recommendations
+
+    def _recommendation(
+        self,
+        item: Any,
+        index: int,
+        *,
+        ignore_extra_keys: bool = False,
+    ) -> ParsedRecommendation:
+        """解析一条推荐，可在补选阶段忽略已记录的无关额外字段。"""
+        if not isinstance(item, dict):
+            raise AgentOutputError(f"recommendations[{index}] must be an object")
+        normalized = dict(item)
+        if "reason" not in normalized and "summary" in normalized:
+            normalized["reason"] = normalized["summary"]
+        if "summary" not in normalized and "reason" in normalized:
+            normalized["summary"] = ""
+        if ignore_extra_keys:
+            missing = self._RECOMMENDATION_KEYS - set(normalized)
+            if missing:
+                raise AgentOutputError(
+                    f"recommendations[{index}] missing keys {sorted(missing)}"
+                )
+            normalized = {
+                key: normalized[key] for key in self._RECOMMENDATION_KEYS
+            }
+        else:
             self._exact_keys(
-                item,
-                {"candidate_id", "reason", "summary", "match_tags", "confidence"},
+                normalized,
+                self._RECOMMENDATION_KEYS,
                 f"recommendations[{index}]",
             )
-            confidence = item["confidence"]
-            if isinstance(confidence, bool) or not isinstance(confidence, int):
-                raise AgentOutputError(
-                    f"recommendations[{index}].confidence must be an integer"
-                )
-            recommendations.append(
-                ParsedRecommendation(
-                    candidate_id=self._string(
-                        item["candidate_id"],
-                        f"recommendations[{index}].candidate_id",
-                        128,
-                    ),
-                    summary=self._string(
-                        item["summary"], f"recommendations[{index}].summary", 100
-                    ),
-                    reason=self._string(
-                        item["reason"], f"recommendations[{index}].reason", 100
-                    ),
-                    match_tags=self._tags(
-                        item["match_tags"],
-                        f"recommendations[{index}].match_tags",
-                        10,
-                    ),
-                    confidence=confidence,
-                )
+        confidence = normalized["confidence"]
+        if isinstance(confidence, bool) or not isinstance(confidence, int):
+            raise AgentOutputError(
+                f"recommendations[{index}].confidence must be an integer"
             )
+        return ParsedRecommendation(
+            candidate_id=self._string(
+                normalized["candidate_id"],
+                f"recommendations[{index}].candidate_id",
+                128,
+            ),
+            summary=self._string(
+                normalized["summary"], f"recommendations[{index}].summary", 100
+            ),
+            reason=self._string(
+                normalized["reason"], f"recommendations[{index}].reason", 100
+            ),
+            match_tags=self._tags(
+                normalized["match_tags"],
+                f"recommendations[{index}].match_tags",
+                10,
+            ),
+            confidence=confidence,
+        )
+
+    def parse(self, output: str) -> ParsedRankingOutput:
+        """解析推荐列表并拒绝任何画像字段。"""
+        recommendations = [
+            self._recommendation(item, index)
+            for index, item in enumerate(self._recommendation_values(output))
+        ]
         return ParsedRankingOutput(recommendations=recommendations)
+
+    def parse_recoverable(
+        self, output: str
+    ) -> Tuple[ParsedRankingOutput, List[str]]:
+        """逐条恢复补选输出，保留合法条目并返回结构告警。"""
+        recommendations: List[ParsedRecommendation] = []
+        warnings: List[str] = []
+        for index, item in enumerate(self._recommendation_values(output)):
+            extra_keys = (
+                sorted(set(item) - self._RECOMMENDATION_KEYS)
+                if isinstance(item, dict)
+                else []
+            )
+            try:
+                recommendation = self._recommendation(
+                    item,
+                    index,
+                    ignore_extra_keys=True,
+                )
+            except AgentOutputError as error:
+                warnings.append(str(error))
+                continue
+            if extra_keys:
+                warnings.append(
+                    f"recommendations[{index}] ignored extra keys {extra_keys}"
+                )
+            recommendations.append(recommendation)
+        return ParsedRankingOutput(recommendations=recommendations), warnings
 
 
 def fallback_summary(candidate: Candidate) -> str:

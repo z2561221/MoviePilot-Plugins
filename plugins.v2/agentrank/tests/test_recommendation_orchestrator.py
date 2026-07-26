@@ -1167,6 +1167,39 @@ def test_partial_valid_output_gets_exactly_one_successful_refill():
     assert "排除" in orchestrator.agent_adapter.ranking_calls[1][0]
 
 
+def test_refill_ignores_extra_fields_without_discarding_the_batch():
+    """补选中的无关字段只记告警，不得让整批推荐进入安全补位。"""
+    refill = _agent_output_with_overrides(
+        [f"tmdb:{index}" for index in range(2, 6)],
+        {"tmdb:3": {"completed_episode_count": 2}},
+    )
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [_agent_output(["tmdb:1"]), refill],
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert result.agent_calls == 3
+    assert len(orchestrator.agent_adapter.ranking_calls) == 2
+    board = repository.load_board(PROFILE_ID)
+    assert [item.candidate_id for item in board.recommendations] == [
+        "tmdb:1",
+        "tmdb:2",
+        "tmdb:3",
+        "tmdb:4",
+        "tmdb:5",
+    ]
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["ranking_fallback_count"] == 0
+    assert history.metrics["ranking_fallback_reason"] == ""
+    assert any(
+        "completed_episode_count" in warning
+        for warning in history.metrics["refill_parse_warnings"]
+    )
+
+
 def test_initial_domain_drops_are_explained_to_refill():
     """首轮已知候选的安全丢弃原因必须进入补选提示并允许改写。"""
     first = _agent_output_with_overrides(
