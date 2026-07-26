@@ -17,6 +17,7 @@ package.__path__ = [str(PLUGIN_DIR)]
 
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
+preferences_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile_preferences")
 run_module = importlib.import_module(f"{PACKAGE_NAME}.model.run")
 archive_module = importlib.import_module(f"{PACKAGE_NAME}.model.archive")
 playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
@@ -27,6 +28,7 @@ controller_module = importlib.import_module(f"{PACKAGE_NAME}.controller.api")
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
 UserProfile = profile_module.UserProfile
+ProfilePreferences = preferences_module.ProfilePreferences
 RecommendationRun = run_module.RecommendationRun
 ArchiveFeedback = archive_module.ArchiveFeedback
 ArchiveEntry = archive_module.ArchiveEntry
@@ -348,8 +350,8 @@ def test_clear_profile_requires_explicit_confirmation():
     assert caught.value.code == "confirmation_required"
 
 
-def test_profile_tags_are_merged_and_deleted_agent_tags_stay_suppressed():
-    """人工标签独立持久化，删除 Agent 标签后画像响应不再显示它。"""
+def test_profile_tags_are_merged_archived_and_restored_without_cross_pollution():
+    """删除标签进入归档，恢复原类别且正负标签切换不污染归档。"""
     plugin = FakePlugin()
     plugin._repository.save_profile(
         UserProfile(
@@ -374,10 +376,39 @@ def test_profile_tags_are_merged_and_deleted_agent_tags_stay_suppressed():
 
     assert added["data"]["changed"] is True
     assert removed["data"]["profile"]["tags"] == ["科幻", "冷门佳作"]
+    assert removed["data"]["profile"]["archived_profile_tags"] == [
+        {"kind": "positive", "tag": "悬疑"}
+    ]
     assert negative["data"]["profile"]["negative_tags"] == ["拖沓", "过度煽情"]
     preferences = plugin._repository.load_profile_preferences(HOME_PROFILE)
     assert preferences.custom_tags == ["冷门佳作"]
-    assert preferences.suppressed_tags == ["悬疑", "过度煽情"]
+    assert preferences.archived_tags == ["悬疑"]
+    assert preferences.archived_negative_tags == []
+
+    restored = controller.update_profile_tag(
+        {"profile_id": HOME_PROFILE, "kind": "positive", "action": "restore", "tag": "悬疑"}
+    )
+
+    assert restored["data"]["profile"]["tags"] == ["悬疑", "科幻", "冷门佳作"]
+    assert restored["data"]["profile"]["archived_profile_tags"] == []
+
+
+def test_legacy_suppressed_tags_migrate_without_opposite_category_shadows():
+    """旧屏蔽字段迁移时排除由正负类别切换产生的内部影子。"""
+    preferences = ProfilePreferences.from_dict(
+        {
+            "profile_id": HOME_PROFILE,
+            "custom_tags": ["冷门佳作"],
+            "custom_negative_tags": ["过度煽情"],
+            "suppressed_tags": ["悬疑", "过度煽情"],
+            "suppressed_negative_tags": ["冷门佳作", "拖沓"],
+            "schema_version": 2,
+        }
+    )
+
+    assert preferences.archived_tags == ["悬疑"]
+    assert preferences.archived_negative_tags == ["拖沓"]
+    assert preferences.schema_version == 3
 
 
 def test_profile_tag_rejects_invalid_kind_action_and_multiline_text():

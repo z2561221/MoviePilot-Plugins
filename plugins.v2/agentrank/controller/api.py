@@ -154,8 +154,10 @@ class AgentRankApiController:
         value["profile_id"] = profile_id
         value["username"] = self._display_name(profile_id)
         preferences = self._repository().load_profile_preferences(profile_id)
-        agent_tags = list(value.get("tags") or [])
-        agent_negative_tags = list(value.get("negative_tags") or [])
+        agent_tags = preferences.active_agent_tags(value.get("tags") or [])
+        agent_negative_tags = preferences.active_agent_negative_tags(
+            value.get("negative_tags") or []
+        )
         value.update(
             {
                 "agent_tags": agent_tags,
@@ -166,10 +168,11 @@ class AgentRankApiController:
                 ),
                 "custom_tags": list(preferences.custom_tags),
                 "custom_negative_tags": list(preferences.custom_negative_tags),
-                "suppressed_tags": list(preferences.suppressed_tags),
-                "suppressed_negative_tags": list(
-                    preferences.suppressed_negative_tags
+                "archived_tags": list(preferences.archived_tags),
+                "archived_negative_tags": list(
+                    preferences.archived_negative_tags
                 ),
+                "archived_profile_tags": preferences.archived_entries(),
             }
         )
         return value

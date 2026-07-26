@@ -77,8 +77,8 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
     profile_preferences = {
         "custom_tags": ["冷门佳作"],
         "custom_negative_tags": ["过度煽情"],
-        "suppressed_tags": ["悬疑"],
-        "suppressed_negative_tags": [],
+        "archived_tags": ["悬疑"],
+        "archived_negative_tags": [],
     }
     playback = {
         "source": "playback_reporting",

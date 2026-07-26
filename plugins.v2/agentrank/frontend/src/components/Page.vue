@@ -23,6 +23,7 @@ const archiveEntries = computed(() => state.overview.value?.archive?.entries || 
 const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.value.total || 0) / historyPageSize)))
 const positiveTags = computed(() => state.profile.value?.tags || [])
 const negativeTags = computed(() => state.profile.value?.negative_tags || [])
+const archivedProfileTags = computed(() => state.profile.value?.archived_profile_tags || [])
 const profileStats = computed(() => [
   { label: '播放样本', value: state.profile.value?.playback_count || 0, suffix: '条', icon: 'mdi-database-check-outline' },
   { label: '偏好标签', value: positiveTags.value.length, suffix: '个', icon: 'mdi-heart-outline' },
@@ -283,7 +284,14 @@ async function addProfileTag(kind) {
 async function removeProfileTag(kind, tag) {
   await runAction(
     () => state.updateProfileTag(kind, 'remove', tag),
-    kind === 'positive' ? '偏好标签已删除' : '避雷标签已删除',
+    kind === 'positive' ? '偏好标签已归档' : '避雷标签已归档',
+  )
+}
+
+async function restoreProfileTag(item) {
+  await runAction(
+    () => state.updateProfileTag(item.kind, 'restore', item.tag),
+    item.kind === 'positive' ? '偏好标签已恢复' : '避雷标签已恢复',
   )
 }
 
@@ -503,6 +511,22 @@ onMounted(initialize)
                     <span v-if="!boardMatchTags.length" class="text-caption text-medium-emphasis">暂无命中标签</span>
                   </div>
                 </div>
+                <div class="ar-page__profile-group ar-page__profile-group--archived">
+                  <div class="ar-page__profile-label ar-page__profile-label--archived"><VIcon icon="mdi-archive-outline" size="18" />归档标签</div>
+                  <div class="ar-page__chips">
+                    <div v-for="item in archivedProfileTags" :key="`${item.kind}:${item.tag}`" class="ar-page__archived-tag">
+                      <VChip :color="item.kind === 'negative' ? 'error' : 'primary'" variant="outlined" size="small">
+                        {{ item.tag }} · {{ item.kind === 'negative' ? '避雷' : '偏好' }}
+                      </VChip>
+                      <VTooltip text="恢复标签">
+                        <template #activator="{ props: tooltipProps }">
+                          <VBtn v-bind="tooltipProps" icon="mdi-restore" variant="text" size="x-small" aria-label="恢复标签" :loading="state.loading.action === 'profile/tags'" @click="restoreProfileTag(item)" />
+                        </template>
+                      </VTooltip>
+                    </div>
+                    <span v-if="!archivedProfileTags.length" class="text-caption text-medium-emphasis">暂无归档标签</span>
+                  </div>
+                </div>
               </div>
             </VCardText>
           </VCard>
@@ -659,6 +683,7 @@ onMounted(initialize)
 .ar-page__profile-summary { margin-top: 8px; font-size: 14px; line-height: 1.7; }
 .ar-page__profile-label { display: flex; align-items: center; gap: 6px; color: rgb(var(--v-theme-primary)); font-size: 12px; font-weight: 700; }
 .ar-page__profile-label--negative { color: rgb(var(--v-theme-error)); }
+.ar-page__profile-label--archived { color: rgba(var(--v-theme-on-surface), .62); }
 .ar-page__profile-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; overflow: hidden; }
 .ar-page__profile-metric { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 10px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .62)); }
 .ar-page__profile-metric:last-child { border-right: 0; }
@@ -667,7 +692,9 @@ onMounted(initialize)
 .ar-page__profile-metric small { display: block; margin-top: 2px; color: rgba(var(--v-theme-on-surface), .55); font-size: 10px; white-space: nowrap; }
 .ar-page__profile-groups { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .ar-page__profile-group { min-height: 108px; padding: 11px 12px; }
+.ar-page__profile-group--archived { grid-column: 1 / -1; min-height: 74px; }
 .ar-page__chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.ar-page__archived-tag { display: inline-flex; align-items: center; gap: 2px; }
 .ar-page__tag-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; margin-top: 10px; }
 .ar-page__tag-count { margin-left: 3px; opacity: .66; font-size: 10px; }
 .ar-page__archive-card :deep(.v-card-item) { padding: 12px 14px; }
@@ -714,7 +741,7 @@ onMounted(initialize)
   .ar-page__rank-actions { grid-column: 2 / -1; justify-content: flex-end; }
   .ar-page__profile-body { grid-template-columns: 1fr; }
   .ar-page__profile-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ar-page__profile-group:last-child { grid-column: 1 / -1; }
+  .ar-page__profile-group--archived { grid-column: 1 / -1; }
 }
 @media (max-width: 760px) {
   .ar-page { width: min(100%, calc(100vw - 12px)); height: min(880px, calc(100dvh - 12px)); }
@@ -747,7 +774,7 @@ onMounted(initialize)
   .ar-page__profile-metric { justify-content: center; padding: 9px 6px; }
   .ar-page__profile-metric :deep(.v-icon) { display: none; }
   .ar-page__profile-groups { grid-template-columns: 1fr; }
-  .ar-page__profile-group:last-child { grid-column: auto; }
+  .ar-page__profile-group--archived { grid-column: auto; }
   .ar-page__history-item { padding: 10px; }
   .ar-page__history-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-page__history-metrics > div:nth-child(2) { border-right: 0; }

@@ -257,7 +257,8 @@ export function useAgentRankState(api) {
   }
 
   async function updateProfileTag(kind, action, tag) {
-    const result = await runAction('profile/tags', { profile_id: selectedProfileId.value, kind, action, tag }, action === 'add' ? '添加标签' : '删除标签')
+    const actionLabel = action === 'remove' ? '归档标签' : action === 'restore' ? '恢复标签' : '添加标签'
+    const result = await runAction('profile/tags', { profile_id: selectedProfileId.value, kind, action, tag }, actionLabel)
     await loadProfileData(selectedProfileId.value, { force: true })
     return result
   }

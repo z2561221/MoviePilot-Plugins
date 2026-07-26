@@ -535,7 +535,7 @@ def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches
 
     assert result.status == "success"
     assert len(orchestrator.agent_adapter.profile_calls) == 1
-    assert repository.load_profile(PROFILE_ID).schema_version == 4
+    assert repository.load_profile(PROFILE_ID).schema_version == 5
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["profile_cache_miss_reason"] == "profile_schema_changed"
 
@@ -553,7 +553,7 @@ def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches
             summary="old",
             playback_count=len(snapshot.samples),
             playback_fingerprint=snapshot.fingerprint(),
-            schema_version=4,
+            schema_version=5,
             retrieval_resolution_version=0,
             run_id="old",
         )
@@ -657,6 +657,55 @@ def test_cached_profile_is_passed_as_incremental_context():
     for metric in ("playback_collect_ms", "candidate_collect_ms", "library_check_ms", "agent_ms", "save_ms"):
         assert history.metrics[metric] >= 0
     assert result.status == "success"
+
+
+def test_preference_change_rebuilds_profile_and_scrubs_archived_agent_tags():
+    """人工标签变化使缓存失效，归档标签不会写回画像或检索计划。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    candidates = FakeCandidateService()
+    agent = FakeAgentAdapter(
+        [
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+        ],
+        profile_outputs=[
+            _profile_output(),
+            _profile_output(ranking_tags=["悬疑", "科幻"]),
+        ],
+    )
+    run_ids = iter(("run-before-tags", "run-after-tags"))
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=candidates,
+        agent_adapter=agent,
+        run_id_factory=lambda: next(run_ids),
+        playback_service=FakePlaybackService(),
+    )
+
+    first = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+    preferences = ProfilePreferences(
+        profile_id=PROFILE_ID,
+        custom_tags=["科幻"],
+        archived_tags=["悬疑"],
+    )
+    repository.save_profile_preferences(preferences)
+    second = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    profile = repository.load_profile(PROFILE_ID)
+    latest = repository.load_run_history(PROFILE_ID)[0]
+    ranking_context = agent.ranking_calls[-1][1]
+    assert first.status == "success"
+    assert second.status == "success"
+    assert len(agent.profile_calls) == 2
+    assert latest.metrics["profile_cache_miss_reason"] == "preferences_changed"
+    assert latest.metrics["custom_preference_count"] == 1
+    assert latest.metrics["archived_preference_count"] == 1
+    assert profile.tags == []
+    assert profile.preferences_fingerprint == preferences.fingerprint()
+    assert "悬疑" not in profile.ranking_tags
+    assert ranking_context.profile["tags"] == ("科幻",)
+    assert ranking_context.profile_preferences["archived_tags"] == ("悬疑",)
 
 
 def test_incremental_profile_accepts_only_previously_resolved_keyword_ids():

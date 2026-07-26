@@ -221,16 +221,18 @@ def test_detail_page_uses_transparent_root_and_data_surfaces():
     assert ".ar-page__content" in page and "background: transparent;" in page
 
 
-def test_profile_view_edits_preferences_and_shows_board_matches():
-    """画像页支持人工偏好与避雷标签增删，并继续展示本轮命中。"""
+def test_profile_view_edits_archives_restores_preferences_and_shows_board_matches():
+    """画像页支持标签增删归档恢复，并继续展示本轮命中。"""
     page = _read("Page.vue")
     state = _read("useAgentRankState.js")
     assert "state.profile.value?.negative_tags" in page
     assert "item.match_tags || []" in page
     assert "state.updateProfileTag(kind, 'add', tag)" in page
     assert "state.updateProfileTag(kind, 'remove', tag)" in page
+    assert "state.updateProfileTag(item.kind, 'restore', item.tag)" in page
+    assert "state.profile.value?.archived_profile_tags" in page
     assert "closable" in page
-    for label in ("播放样本", "偏好标签", "避雷标签", "本轮命中"):
+    for label in ("播放样本", "偏好标签", "避雷标签", "本轮命中", "归档标签", "恢复标签"):
         assert label in page
     assert "ar-page__profile-groups" in page
     assert "getPluginApi(api, 'overview', { profile_id: profileId })" in state

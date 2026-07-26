@@ -22,7 +22,7 @@ class ProfilePreferenceActionResult:
 
 
 class ProfilePreferenceService:
-    """维护人工标签与 Agent 标签屏蔽规则。"""
+    """维护人工标签与用户明确归档的标签。"""
 
     max_tags_per_kind = 20
 
@@ -40,20 +40,20 @@ class ProfilePreferenceService:
 
     @staticmethod
     def _fields(kind: str) -> tuple[str, str, str, str]:
-        """返回目标类别及相反类别的人工和屏蔽字段名。"""
+        """返回目标类别及相反类别的人工和归档字段名。"""
         if kind == "positive":
             return (
                 "custom_tags",
-                "suppressed_tags",
+                "archived_tags",
                 "custom_negative_tags",
-                "suppressed_negative_tags",
+                "archived_negative_tags",
             )
         if kind == "negative":
             return (
                 "custom_negative_tags",
-                "suppressed_negative_tags",
+                "archived_negative_tags",
                 "custom_tags",
-                "suppressed_tags",
+                "archived_tags",
             )
         raise ValueError("标签类别必须是 positive 或 negative")
 
@@ -62,33 +62,33 @@ class ProfilePreferenceService:
     ) -> ProfilePreferenceActionResult:
         """添加或删除人工标签，并持久化稳定覆盖规则。"""
         tag = self._tag(raw_tag)
-        custom_field, suppressed_field, opposite_custom, opposite_suppressed = (
+        custom_field, archived_field, opposite_custom, opposite_archived = (
             self._fields(str(kind or "").strip())
         )
-        if action not in {"add", "remove"}:
-            raise ValueError("标签操作必须是 add 或 remove")
+        if action not in {"add", "remove", "restore"}:
+            raise ValueError("标签操作必须是 add、remove 或 restore")
         preferences = self._repository.load_profile_preferences(profile_id)
         before = preferences.to_dict()
         custom = getattr(preferences, custom_field)
-        suppressed = getattr(preferences, suppressed_field)
+        archived = getattr(preferences, archived_field)
         opposite = getattr(preferences, opposite_custom)
-        opposite_hidden = getattr(preferences, opposite_suppressed)
-        if action == "add":
+        opposite_archive = getattr(preferences, opposite_archived)
+        if action in {"add", "restore"}:
             if tag not in custom and len(custom) >= self.max_tags_per_kind:
                 raise ValueError("每类人工标签最多二十个")
             if tag not in custom:
                 custom.append(tag)
-            if tag in suppressed:
-                suppressed.remove(tag)
+            if tag in archived:
+                archived.remove(tag)
             if tag in opposite:
                 opposite.remove(tag)
-            if tag not in opposite_hidden:
-                opposite_hidden.append(tag)
+            if tag in opposite_archive:
+                opposite_archive.remove(tag)
         else:
             if tag in custom:
                 custom.remove(tag)
-            if tag not in suppressed:
-                suppressed.append(tag)
+            if tag not in archived:
+                archived.append(tag)
         changed = before != preferences.to_dict()
         if changed:
             self._repository.save_profile_preferences(preferences)

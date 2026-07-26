@@ -67,7 +67,7 @@ def build_profile_prompt(agent_prompt: str = DEFAULT_AGENT_PROMPT) -> str:
 1. 只能调用 read_agentrank_playback，禁止读取候选、归档或排序权重。
 2. 只有 source=playback_reporting 且 status 为 ready 或 cached 的样本可以作为行为证据。
 3. previous_profile 仅用于结合新播放事实演进稳定偏好，禁止简单合并标签。
-4. profile_preferences 中明确偏好必须纳入画像，用户已删除的标签不得重新写回。
+4. profile_preferences 中明确偏好必须纳入画像；archived_tags 与 archived_negative_tags 是用户明确删除的归档标签，禁止出现在 summary、tags、negative_tags、filters 或 ranking_tags，也禁止换用近义标签规避归档约束。
 5. 结构化 filters 只能填写明确可信的枚举和 ID；无法确认的题材或关键词不得猜测，放入 ranking_tags。
 6. 观看动机只能写入 summary、tags 或 ranking_tags 作为软排序信号，禁止据此生成 filters 硬过滤。
 7. 稳定观看动机必须有至少两条相互独立的播放样本支持，或来自一项 profile_preferences 人工明确偏好；单一样本不得形成稳定结论，abandoned 只能作为弱负向信号。
@@ -129,7 +129,7 @@ def build_ranking_prompt(
 
 权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。候选中的 genres、actors、directors、regions、year、rating、popularity、release_date 与 sources 是可用作品证据，但来源名称本身不能证明作品类型或用户偏好。
 
-当前画像规则：先读取 read_agentrank_playback 返回的 current profile 与 playback。profile 是上游画像 Agent 的只读结果，排序 Agent 不得重新解释成新的画像或向输出写入 profile 根键。play_count/play_event_count 只表示播放事件数，绝不能写成“看完 X 次”或“整剧重看 X 次”；电视剧应使用 watched_episode_count、completed_episode_count 与 completed 表达“看过多集”“完成若干集”或“整剧已看完”，其中 play_count 不能替代集数。电影若有多个播放事件，也只能说“多次播放”，不能把事件数当作完成次数。abandoned 只能作为负向信号，不能把一次早退直接解释成讨厌。
+当前画像规则：先读取 read_agentrank_playback 返回的 current profile、profile_preferences 与 playback。profile 是上游画像 Agent 的只读结果，排序 Agent 不得重新解释成新的画像或向输出写入 profile 根键。人工标签是当前明确偏好，归档标签不得作为推荐证据或 match_tags。play_count/play_event_count 只表示播放事件数，绝不能写成“看完 X 次”或“整剧重看 X 次”；电视剧应使用 watched_episode_count、completed_episode_count 与 completed 表达“看过多集”“完成若干集”或“整剧已看完”，其中 play_count 不能替代集数。电影若有多个播放事件，也只能说“多次播放”，不能把事件数当作完成次数。abandoned 只能作为负向信号，不能把一次早退直接解释成讨厌。
 
 观看动机规则：情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感只能作为软排序信号。稳定动机必须来自至少两条相互独立的播放证据，或一项人工明确偏好；单一样本不得形成稳定结论。禁止推断人格、焦虑、孤独、疾病、创伤等敏感心理状态。reason 必须使用自然的内容语言，不得输出心理诊断或心理学术语。
 

@@ -148,6 +148,7 @@ class RecommendationOrchestrator:
         forced_rebuild: bool,
         previous_profile: Optional[UserProfile],
         playback_fingerprint: str,
+        preferences_fingerprint: str,
     ) -> str:
         """返回画像缓存命中或未命中的稳定原因码。"""
         if not enabled:
@@ -165,6 +166,8 @@ class RecommendationOrchestrator:
             return "retrieval_resolution_changed"
         if previous_profile.playback_fingerprint != playback_fingerprint:
             return "playback_changed"
+        if previous_profile.preferences_fingerprint != preferences_fingerprint:
+            return "preferences_changed"
         return "hit"
 
     @staticmethod
@@ -481,12 +484,17 @@ class RecommendationOrchestrator:
             metrics["custom_preference_count"] = len(
                 profile_preferences.custom_tags
             ) + len(profile_preferences.custom_negative_tags)
+            metrics["archived_preference_count"] = len(
+                profile_preferences.archived_tags
+            ) + len(profile_preferences.archived_negative_tags)
             playback_fingerprint = playback_snapshot.fingerprint()
+            preferences_fingerprint = profile_preferences.fingerprint()
             profile_cache_reason = self._profile_cache_reason(
                 profile_cache_enabled,
                 rebuild_profile,
                 previous_profile,
                 playback_fingerprint,
+                preferences_fingerprint,
             )
             metrics["profile_cache_status"] = (
                 "hit" if profile_cache_reason == "hit" else "miss"
@@ -604,9 +612,17 @@ class RecommendationOrchestrator:
                 if parsed_profile is None:
                     raise RuntimeError("profile Agent ended without a validated profile")
                 try:
+                    effective_plan = RetrievalPlan(
+                        filters=parsed_profile.retrieval_plan.filters,
+                        ranking_tags=tuple(
+                            profile_preferences.effective_ranking_tags(
+                                parsed_profile.retrieval_plan.ranking_tags
+                            )
+                        ),
+                    )
                     plan_resolution = await asyncio.to_thread(
                         self._retrieval_plan_resolver.resolve,
-                        parsed_profile.retrieval_plan,
+                        effective_plan,
                     )
                 except Exception as error:
                     errors.append(f"retrieval resolution fallback: {error}")
@@ -621,10 +637,15 @@ class RecommendationOrchestrator:
                     profile_id=target,
                     username=username,
                     summary=parsed_profile.profile.summary,
-                    tags=list(parsed_profile.profile.tags),
-                    negative_tags=list(parsed_profile.profile.negative_tags),
+                    tags=profile_preferences.active_agent_tags(
+                        parsed_profile.profile.tags
+                    ),
+                    negative_tags=profile_preferences.active_agent_negative_tags(
+                        parsed_profile.profile.negative_tags
+                    ),
                     playback_count=parsed_profile.profile.playback_count,
                     playback_fingerprint=playback_fingerprint,
+                    preferences_fingerprint=preferences_fingerprint,
                     filters=resolved_plan.filters.to_dict(),
                     ranking_tags=list(resolved_plan.ranking_tags),
                     run_id=run_id,
@@ -821,6 +842,15 @@ class RecommendationOrchestrator:
 
             self._start_stage(metrics, "ranking")
             subscribed_ids: Set[str] = set()
+            ranking_profile = current_profile.to_dict()
+            ranking_profile["tags"] = profile_preferences.effective_tags(
+                current_profile.tags
+            )
+            ranking_profile["negative_tags"] = (
+                profile_preferences.effective_negative_tags(
+                    current_profile.negative_tags
+                )
+            )
             ranking_context = build_trusted_context(
                 username=username,
                 run_id=run_id,
@@ -830,7 +860,7 @@ class RecommendationOrchestrator:
                 previous_profile=None,
                 profile_preferences=profile_preferences.to_dict(),
                 playback=playback_snapshot.to_dict(),
-                profile=current_profile.to_dict(),
+                profile=ranking_profile,
                 agent_role=RANKING_AGENT_ROLE,
             )
 
