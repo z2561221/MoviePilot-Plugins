@@ -1209,6 +1209,91 @@ class RecommendationValidator:
                 return True
         return False
 
+    @classmethod
+    def _fallback_tags(
+        cls,
+        candidate: Candidate,
+        preference_evidence: Sequence[str],
+    ) -> List[str]:
+        """从画像与候选事实中提取保底条目的可回溯短标签。"""
+        preference = next(
+            (
+                label
+                for item in preference_evidence or ()
+                if (label := cls._evidence_label(item))
+            ),
+            "",
+        )
+        media_type_label = {
+            "movie": "电影",
+            "tv": "剧集",
+            "anime": "动画",
+        }.get(str(candidate.media_type or "").casefold(), "影视")
+        facts = [
+            *candidate.genres,
+            *candidate.regions,
+            *candidate.actors,
+            *candidate.directors,
+            media_type_label,
+            candidate.title,
+        ]
+        return cls._match_tags([preference, *facts])[:2]
+
+    def build_fallback_items(
+        self,
+        candidates: Sequence[Candidate],
+        accepted: Sequence[RecommendationItem],
+        blocked_candidate_ids: Iterable[str] = (),
+        preference_evidence: Sequence[str] = (),
+        limit: int = RECOMMENDATION_LIMIT,
+    ) -> List[RecommendationItem]:
+        """按冻结候选顺序构建不重复、不编造观看经历的安全保底条目。"""
+        target_limit = max(1, min(int(limit), RECOMMENDATION_LIMIT))
+        accepted_ids = {item.candidate_id for item in accepted or ()}
+        blocked_ids = {
+            str(candidate_id or "").strip()
+            for candidate_id in blocked_candidate_ids or ()
+            if str(candidate_id or "").strip()
+        }
+        result: List[RecommendationItem] = []
+        for candidate in candidates or ():
+            if len(accepted) + len(result) >= target_limit:
+                break
+            if (
+                candidate.candidate_id in accepted_ids
+                or candidate.candidate_id in blocked_ids
+            ):
+                continue
+            accepted_ids.add(candidate.candidate_id)
+            tags = self._fallback_tags(candidate, preference_evidence)
+            if len(tags) >= 2:
+                reason = (
+                    f"画像检索包含{tags[0]}，作品具备{tags[1]}要素，安全补位。"
+                )
+            elif tags:
+                reason = f"作品通过本轮画像检索与安全过滤，按{tags[0]}要素保底补位。"
+            else:
+                reason = "作品通过本轮画像检索与安全过滤，作为榜单保底补位。"
+            result.append(
+                RecommendationItem(
+                    candidate_id=candidate.candidate_id,
+                    rank=len(accepted) + len(result) + 1,
+                    summary=fallback_summary(candidate),
+                    reason=compact_text(reason, 40),
+                    confidence=60,
+                    title=candidate.title,
+                    original_title=candidate.original_title,
+                    media_type=candidate.media_type,
+                    year=candidate.year,
+                    source_ids=dict(candidate.source_ids),
+                    sources=list(candidate.sources),
+                    poster_path=candidate.poster_path,
+                    backdrop_path=candidate.backdrop_path,
+                    match_tags=tags,
+                )
+            )
+        return result
+
     def validate(
         self,
         parsed: ParsedRankingOutput,

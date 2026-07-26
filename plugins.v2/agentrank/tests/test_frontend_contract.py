@@ -432,10 +432,13 @@ def test_run_history_exposes_candidate_timing_cache_and_ranking_diagnostics():
         "profile_cache_miss_reason",
         "ranking_valid_count",
         "ranking_reserve_count",
+        "ranking_fallback_count",
+        "ranking_fallback_reason",
         "候选耗时",
         "候选处理",
         "画像缓存",
         "排序校验",
+        "保底",
     ):
         assert text in page
 

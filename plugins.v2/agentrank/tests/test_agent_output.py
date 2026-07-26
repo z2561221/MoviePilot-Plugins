@@ -401,6 +401,41 @@ def test_validator_rejects_every_unsafe_item_with_specific_reason():
     ]
 
 
+def test_validator_builds_five_unique_grounded_fallback_items_in_frozen_order():
+    """安全保底按冻结顺序补齐五条，并只引用画像与候选事实。"""
+    candidates = [
+        Candidate(
+            candidate_id=f"tmdb:{index}",
+            title=f"作品{index}",
+            media_type="movie",
+            overview=f"第{index}部作品围绕旧案调查展开。",
+            genres=["悬疑" if index % 2 else "剧情"],
+            source_ids={"tmdb": str(index)},
+        )
+        for index in range(1, 8)
+    ]
+
+    fallback = RecommendationValidator().build_fallback_items(
+        candidates,
+        accepted=[],
+        blocked_candidate_ids={"tmdb:2"},
+        preference_evidence=["偏好悬疑犯罪作品"],
+        limit=5,
+    )
+
+    assert [item.candidate_id for item in fallback] == [
+        "tmdb:1",
+        "tmdb:3",
+        "tmdb:4",
+        "tmdb:5",
+        "tmdb:6",
+    ]
+    assert [item.rank for item in fallback] == [1, 2, 3, 4, 5]
+    assert all(item.confidence == 60 for item in fallback)
+    assert all("安全" in item.reason or "保底" in item.reason for item in fallback)
+    assert all(item.summary for item in fallback)
+
+
 def test_validator_trims_overlong_copy_and_tags_without_dropping_candidate():
     """展示字数超限会被安全裁剪，不得触发补榜或丢弃作品。"""
     candidate = Candidate(

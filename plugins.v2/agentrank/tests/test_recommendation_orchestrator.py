@@ -889,8 +889,8 @@ def test_library_items_are_removed_before_agent_context_is_built():
     assert repository.load_run_history(PROFILE_ID)[0].metrics["library_excluded_count"] == 2
 
 
-def test_ranking_failure_keeps_generated_profile_and_previous_board():
-    """排序异常不回滚独立画像，也不覆盖旧榜单。"""
+def test_ranking_failure_uses_frozen_candidates_to_build_five_item_board():
+    """排序异常保留新画像，并从冻结候选池安全补齐五条。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, [RuntimeError("llm offline")])
     repository.save_profile(UserProfile(profile_id=PROFILE_ID, username="Alice", summary="old", run_id="old"))
@@ -898,10 +898,17 @@ def test_ranking_failure_keeps_generated_profile_and_previous_board():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "ranking_agent_failed"
+    assert result.status == "success"
+    assert result.agent_calls == 2
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
-    assert repository.load_board(PROFILE_ID).run_id == "old"
-    assert repository.load_run_history(PROFILE_ID)[0].status == "ranking_agent_failed"
+    board = repository.load_board(PROFILE_ID)
+    assert board.run_id == "run-1"
+    assert len(board.recommendations) == 5
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.status == "success"
+    assert history.errors == []
+    assert history.metrics["ranking_fallback_count"] == 5
+    assert history.metrics["ranking_fallback_reason"] == "ranking_agent_failed"
 
 
 def test_profile_failure_preserves_previous_profile_and_skips_ranking():
@@ -1056,8 +1063,8 @@ def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
     assert repository.load_run_history(PROFILE_ID)[0].metrics["agent_calls"] == 3
 
 
-def test_retryable_empty_agent_output_fails_after_one_retry():
-    """Two no-text completions preserve old data and stop after two calls."""
+def test_retryable_empty_agent_output_falls_back_after_one_retry():
+    """连续两次无文本结果后停止调用，并从冻结候选池补齐五条。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(
         plugin,
@@ -1068,11 +1075,17 @@ def test_retryable_empty_agent_output_fails_after_one_retry():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "ranking_agent_failed"
+    assert result.status == "success"
     assert result.agent_calls == 3
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
-    assert repository.load_board(PROFILE_ID).run_id == "old"
-    assert repository.load_run_history(PROFILE_ID)[0].metrics["agent_calls"] == 3
+    board = repository.load_board(PROFILE_ID)
+    assert board.run_id == "run-1"
+    assert len(board.recommendations) == 5
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.errors == []
+    assert history.metrics["agent_calls"] == 3
+    assert history.metrics["ranking_fallback_count"] == 5
+    assert history.metrics["ranking_fallback_reason"] == "ranking_agent_failed"
 
 
 def test_invalid_json_retries_once_with_stricter_prompt():
@@ -1117,8 +1130,8 @@ def test_invalid_profile_json_retries_once_with_stricter_prompt():
     assert history.metrics["retry_events"][0]["stage"] == "profile"
 
 
-def test_invalid_json_fails_after_one_strict_retry():
-    """Two invalid JSON outputs cannot replace the previous board."""
+def test_invalid_json_falls_back_after_one_strict_retry():
+    """连续两次非法 JSON 后停止调用，并从冻结候选池补齐五条。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, ["bad-one", "bad-two"])
     repository.save_board(
@@ -1127,12 +1140,16 @@ def test_invalid_json_fails_after_one_strict_retry():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "ranking_validation_failed"
+    assert result.status == "success"
     assert result.agent_calls == 3
-    assert repository.load_board(PROFILE_ID).run_id == "old"
+    board = repository.load_board(PROFILE_ID)
+    assert board.run_id == "run-1"
+    assert len(board.recommendations) == 5
     history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.errors == []
     assert history.metrics["agent_calls"] == 3
-    assert len(history.errors) == 2
+    assert history.metrics["ranking_fallback_count"] == 5
+    assert history.metrics["ranking_fallback_reason"] == "ranking_validation_failed"
 
 
 def test_partial_valid_output_gets_exactly_one_successful_refill():
@@ -1181,7 +1198,7 @@ def test_initial_domain_drops_are_explained_to_refill():
 
 
 def test_single_refill_drop_stops_without_starting_a_second_agent_call():
-    """唯一补选仍被安全门丢弃时保存实际四条，不再启动第二轮。"""
+    """唯一补选被安全门丢弃时由本地补齐五条，不再启动第二轮。"""
     rejected_refill = _agent_output_with_overrides(
         ["tmdb:5"],
         {
@@ -1201,17 +1218,22 @@ def test_single_refill_drop_stops_without_starting_a_second_agent_call():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "recommendation_incomplete"
+    assert result.status == "success"
     assert result.agent_calls == 3
-    assert len(repository.load_board(PROFILE_ID).recommendations) == 4
+    board = repository.load_board(PROFILE_ID)
+    assert board.run_id == "run-1"
+    assert len(board.recommendations) == 5
     assert len(orchestrator.agent_adapter.ranking_calls) == 2
     history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.errors == []
     assert history.metrics["refill_agent_calls"] == 1
     assert history.metrics["refill_drops"] == ["invalid_reason"]
+    assert history.metrics["ranking_fallback_count"] == 1
+    assert history.metrics["ranking_fallback_reason"] == "refill_insufficient"
 
 
-def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
-    """唯一补选仍不足时保存实际条数，不制造第五条。"""
+def test_refill_still_insufficient_uses_one_local_fallback_item():
+    """唯一补选仍不足时从冻结候选池补一条，保持榜单五条。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
@@ -1223,15 +1245,20 @@ def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "recommendation_incomplete"
+    assert result.status == "success"
     board = repository.load_board(PROFILE_ID)
-    assert board.status == "recommendation_incomplete"
-    assert len(board.recommendations) == 4
+    assert board.run_id == "run-1"
+    assert board.status == "success"
+    assert len(board.recommendations) == 5
     assert result.agent_calls == 3
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.errors == []
+    assert history.metrics["ranking_fallback_count"] == 1
+    assert history.metrics["ranking_fallback_reason"] == "refill_insufficient"
 
 
 def test_refill_invalid_json_stops_after_the_single_bounded_call():
-    """唯一补选返回非 JSON 时保存实际四条，不再扩大模型往返。"""
+    """唯一补选返回非 JSON 时本地补齐五条，不再扩大模型往返。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
@@ -1243,17 +1270,20 @@ def test_refill_invalid_json_stops_after_the_single_bounded_call():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "recommendation_incomplete"
+    assert result.status == "success"
     assert result.agent_calls == 3
-    assert len(repository.load_board(PROFILE_ID).recommendations) == 4
+    board = repository.load_board(PROFILE_ID)
+    assert board.run_id == "run-1"
+    assert len(board.recommendations) == 5
     history = repository.load_run_history(PROFILE_ID)[0]
-    assert len(history.errors) == 1
-    assert "refill attempt 1" in history.errors[0]
+    assert history.errors == []
+    assert history.metrics["ranking_fallback_count"] == 1
+    assert history.metrics["ranking_fallback_reason"] == "refill_validation_failed"
     assert len(orchestrator.agent_adapter.ranking_calls) == 2
 
 
-def test_zero_valid_items_preserves_old_board_and_records_validation_failure():
-    """唯一补选后仍无安全推荐时保留旧榜单并记录校验失败。"""
+def test_zero_valid_agent_items_builds_five_item_fallback_board():
+    """Agent 没有安全推荐时从冻结候选池构建五条保底榜单。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(
         plugin,
@@ -1263,9 +1293,15 @@ def test_zero_valid_items_preserves_old_board_and_records_validation_failure():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "ranking_validation_failed"
+    assert result.status == "success"
     assert result.agent_calls == 3
-    assert repository.load_board(PROFILE_ID).run_id == "old"
+    board = repository.load_board(PROFILE_ID)
+    assert board.run_id == "run-1"
+    assert len(board.recommendations) == 5
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.errors == []
+    assert history.metrics["ranking_fallback_count"] == 5
+    assert history.metrics["ranking_fallback_reason"] == "refill_insufficient"
 
 
 def test_board_save_failure_keeps_new_profile_and_previous_board():

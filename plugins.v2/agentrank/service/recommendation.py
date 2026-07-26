@@ -836,6 +836,8 @@ class RecommendationOrchestrator:
 
             validation = None
             ranking_attempt_errors: List[str] = []
+            ranking_fallback_reason = ""
+            ranking_fallback_errors: List[str] = []
             for attempt in range(2):
                 prompt = build_ranking_prompt(
                     max_recommendations=RANKING_OUTPUT_LIMIT,
@@ -868,27 +870,17 @@ class RecommendationOrchestrator:
                         ranking_attempt_errors.append(detail)
                         self._record_retry(metrics, "ranking", attempt + 1, error)
                         continue
-                    errors.extend(ranking_attempt_errors)
-                    errors.append(detail)
+                    ranking_fallback_errors.extend(ranking_attempt_errors)
+                    ranking_fallback_errors.append(detail)
+                    ranking_fallback_reason = "ranking_agent_failed"
                     logger.warning(
-                        "AgentRank Agent失败 profile_id=%s run_id=%s calls=%s reason=%s",
+                        "AgentRank Agent失败，转安全候选保底 profile_id=%s run_id=%s calls=%s reason=%s",
                         target,
                         run_id,
                         metrics["agent_calls"],
                         error,
                     )
-                    return self._failure(
-                        target,
-                        username,
-                        run_id,
-                        "ranking_agent_failed",
-                        "排序 Agent 调用失败，已保留当前画像和旧榜单",
-                        started_at,
-                        started_clock,
-                        metrics,
-                        errors,
-                        agent_calls=int(metrics["agent_calls"]),
-                    )
+                    break
                 try:
                     parsed = self._ranking_parser.parse(raw_output)
                     validation = self._validator.validate(
@@ -909,32 +901,26 @@ class RecommendationOrchestrator:
                         ranking_attempt_errors.append(detail)
                         self._record_retry(metrics, "ranking", attempt + 1, error)
                         continue
-                    errors.extend(ranking_attempt_errors)
-                    errors.append(detail)
-                    return self._failure(
-                        target,
-                        username,
-                        run_id,
-                        "ranking_validation_failed",
-                        "排序 Agent 输出校验失败，已保留当前画像和旧榜单",
-                        started_at,
-                        started_clock,
-                        metrics,
-                        errors,
-                        agent_calls=int(metrics["agent_calls"]),
-                    )
+                    ranking_fallback_errors.extend(ranking_attempt_errors)
+                    ranking_fallback_errors.append(detail)
+                    ranking_fallback_reason = "ranking_validation_failed"
+                    break
             if validation is None:
-                raise RuntimeError("Agent validation retry loop ended without a result")
-            metrics["ranking_valid_count"] = len(validation.accepted)
-            metrics["ranking_reserve_count"] = max(
-                0, len(validation.accepted) - RECOMMENDATION_LIMIT
-            )
-            accepted: List[RecommendationItem] = list(
-                validation.accepted[:RECOMMENDATION_LIMIT]
-            )
-            metrics["validation_drops"] = [drop.reason for drop in validation.dropped]
+                metrics["ranking_valid_count"] = 0
+                metrics["ranking_reserve_count"] = 0
+                metrics["validation_drops"] = []
+                accepted: List[RecommendationItem] = []
+            else:
+                metrics["ranking_valid_count"] = len(validation.accepted)
+                metrics["ranking_reserve_count"] = max(
+                    0, len(validation.accepted) - RECOMMENDATION_LIMIT
+                )
+                accepted = list(validation.accepted[:RECOMMENDATION_LIMIT])
+                metrics["validation_drops"] = [
+                    drop.reason for drop in validation.dropped
+                ]
 
-            if len(accepted) < RECOMMENDATION_LIMIT:
+            if validation is not None and len(accepted) < RECOMMENDATION_LIMIT:
                 trusted_candidate_ids = {
                     candidate.candidate_id for candidate in candidates
                 }
@@ -998,18 +984,48 @@ class RecommendationOrchestrator:
                         metrics["refill_drops"] = refill_drop_reasons
                     except AgentOutputError as error:
                         detail = f"refill attempt {refill_attempt + 1}: {error}"
-                        errors.append(detail)
+                        ranking_fallback_errors.append(detail)
+                        ranking_fallback_reason = "refill_validation_failed"
                         break
                     except Exception as error:
                         detail = f"refill attempt {refill_attempt + 1}: {error}"
-                        errors.append(detail)
+                        ranking_fallback_errors.append(detail)
+                        ranking_fallback_reason = "refill_agent_failed"
                         break
                     finally:
                         metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
                             0, int((time.monotonic() - stage_clock) * 1000)
                         )
 
+            fallback_count = 0
+            if len(accepted) < RECOMMENDATION_LIMIT:
+                ranking_fallback_reason = ranking_fallback_reason or (
+                    "refill_insufficient"
+                    if metrics.get("refill_attempted")
+                    else "ranking_insufficient"
+                )
+                fallback_items = self._validator.build_fallback_items(
+                    candidates,
+                    accepted,
+                    blocked_candidate_ids={*archived_ids, *subscribed_ids},
+                    preference_evidence=[
+                        *current_profile.tags,
+                        *current_profile.ranking_tags,
+                    ],
+                    limit=RECOMMENDATION_LIMIT,
+                )
+                accepted.extend(fallback_items)
+                fallback_count = len(fallback_items)
+            metrics["ranking_fallback_count"] = fallback_count
+            metrics["ranking_fallback_reason"] = (
+                ranking_fallback_reason if fallback_count else ""
+            )
+            metrics["ranking_fallback_errors"] = (
+                ranking_fallback_errors if fallback_count else []
+            )
+
             if not accepted:
+                errors.extend(ranking_fallback_errors)
                 return self._failure(
                     target,
                     username,
@@ -1028,6 +1044,8 @@ class RecommendationOrchestrator:
                 if len(accepted) >= RECOMMENDATION_LIMIT
                 else "recommendation_incomplete"
             )
+            if status != "success":
+                errors.extend(ranking_fallback_errors)
             self._finish_stage(metrics, status)
             self._candidate_service.enrich_recommendation_sources(accepted)
             self._start_stage(metrics, "save")
@@ -1040,7 +1058,13 @@ class RecommendationOrchestrator:
                 status=status,
                 recommendations=accepted,
                 generated_at=generated_at,
-                message=("榜单生成成功" if status == "success" else f"仅生成 {len(accepted)} 条有效推荐"),
+                message=(
+                    f"榜单生成成功，安全候选池补位 {fallback_count} 条"
+                    if status == "success" and fallback_count
+                    else "榜单生成成功"
+                    if status == "success"
+                    else f"仅生成 {len(accepted)} 条有效推荐"
+                ),
                 previous_run_id=previous_board.run_id if previous_board else None,
             )
             stage_clock = time.monotonic()

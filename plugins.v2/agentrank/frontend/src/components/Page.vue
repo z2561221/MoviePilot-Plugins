@@ -105,6 +105,14 @@ const profileCacheReasonLabels = {
   retrieval_resolution_changed: '检索规则已升级',
   playback_changed: '播放记录已变化',
 }
+const rankingFallbackReasonLabels = {
+  ranking_agent_failed: '排序调用失败',
+  ranking_validation_failed: '排序格式失败',
+  refill_agent_failed: '补选调用失败',
+  refill_validation_failed: '补选格式失败',
+  refill_insufficient: '补选数量不足',
+  ranking_insufficient: '排序数量不足',
+}
 
 const tabs = [
   { key: 'board', title: '推荐榜单', icon: 'mdi-format-list-numbered' },
@@ -242,8 +250,10 @@ function historyRankingText(run) {
   const valid = Number(metrics.ranking_valid_count)
   const reserve = Number(metrics.ranking_reserve_count)
   const refill = Number(metrics.refill_agent_calls || 0)
+  const fallback = Number(metrics.ranking_fallback_count || 0)
+  const fallbackReason = rankingFallbackReasonLabels[metrics.ranking_fallback_reason] || '安全候选补位'
   if (!Number.isFinite(valid)) return '未记录'
-  return `校验通过 ${valid} 条；备用 ${Number.isFinite(reserve) ? reserve : 0} 条；补选 ${refill} 次`
+  return `校验通过 ${valid} 条；备用 ${Number.isFinite(reserve) ? reserve : 0} 条；补选 ${refill} 次${fallback ? `；保底 ${fallback} 条（${fallbackReason}）` : ''}`
 }
 
 async function initialize() {

@@ -50,6 +50,7 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 - 排序 Agent 只返回一个 JSON 对象，根键固定为 `recommendations`；不得生成、修改或回写画像。
 - `recommendations[].candidate_id` 必须来自冻结候选快照。
 - 推荐不得重复，不得包含已归档或已订阅候选。
+- Agent 排序或唯一补选失败、校验失败、数量不足时，按冻结候选顺序本地补齐至五条；补位不得新增 Agent 调用、不得编造观看经历，并继续排除已观看、已入库、已订阅和已归档候选。
 - Telegram 回调必须校验目标用户 ID、会话有效期和当前榜单 `run_id`；旧榜单、越权用户和重复确认不得创建订阅。
 - `confidence` 必须为 0 到 100 的整数。
 - 每条作品 `reason` 与 `summary` 必须各自恰好十五个中文字符，不含英文、数字、标点或空白。
@@ -64,9 +65,10 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 - `candidate_filter_failed`：媒体库或全局订阅硬过滤无法可靠完成，不调用 Agent，也不保存风险候选快照。
 - `candidate_snapshot_failed`：最终候选快照无法安全保存或回读，不调用排序 Agent，且不覆盖已有运行快照。
 - `profile_agent_failed` / `profile_validation_failed` / `profile_save_failed`：画像阶段失败，保留旧画像与旧榜单。
-- `ranking_agent_failed` / `ranking_validation_failed` / `ranking_save_failed`：排序阶段失败；新画像可以保留，但旧榜单不被覆盖。
+- `ranking_agent_failed` / `ranking_validation_failed`：仅在冻结候选不足以完成本地保底时返回；候选充足时保存五条新榜单并在 metrics 记录保底原因。
+- `ranking_save_failed`：榜单保存失败；新画像可以保留，但旧榜单不被覆盖。
 - `validation_failed`：仅作为历史兼容状态，不作为生产组合输出链路。
-- `recommendation_incomplete`：补选后仍不足五条，保存实际安全条数，不填充伪推荐。
+- `recommendation_incomplete`：上游有效冻结候选本身不足五条时保存实际安全条数，不编造候选。
 - `subscription_partial_failed`：自动订阅逐条继续，成功项保留，失败项进入运行历史。
 
 ## 验收
