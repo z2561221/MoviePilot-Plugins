@@ -262,7 +262,9 @@ def test_page_mobile_runtime_and_copy_layout_stay_readable():
     assert 'v-if="state.isRunning.value"' in source
     assert "运行就绪" not in source
     assert ".ar-page__rank-copy { grid-template-columns: 34px minmax(0, 1fr); }" in source
-    assert ".ar-page__copy-toggle { display: none !important; }" in source
+    assert ".ar-page__copy-toggle" not in source
+    assert "toggleCopy(item, 'reason')" not in source
+    assert "toggleCopy(item, 'summary')" not in source
     assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in source
 
 
@@ -270,7 +272,9 @@ def test_discovery_mobile_copy_wraps_fully_without_toggle_controls():
     """发现页移动端完整显示推荐与简介，并移除展开收起按钮。"""
     source = APP_PAGE.read_text(encoding="utf-8")
     assert ".ar-app-page__copy { grid-template-columns: 34px minmax(0, 1fr);" in source
-    assert ".ar-app-page__copy-toggle { display: none !important; }" in source
+    assert ".ar-app-page__copy-toggle" not in source
+    assert "toggleCopy(item, 'reason')" not in source
+    assert "toggleCopy(item, 'summary')" not in source
     assert ".ar-app-page__copy-text--reason," in source
     assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in source
 

@@ -102,8 +102,8 @@ onMounted(initialize)
           </div>
           <div class="ar-dashboard__main">
             <div class="font-weight-medium text-truncate">{{ item.title }}</div>
-            <div class="text-caption text-truncate">推荐：{{ item.reason || item.summary }}</div>
-            <div class="text-caption text-medium-emphasis text-truncate">简介：{{ item.summary }}</div>
+            <div class="ar-dashboard__copy text-caption">推荐：{{ item.reason || item.summary }}</div>
+            <div class="ar-dashboard__copy text-caption text-medium-emphasis">简介：{{ item.summary }}</div>
           </div>
           <div class="ar-dashboard__controls">
             <VChip size="x-small" color="primary" variant="tonal" class="ar-dashboard__confidence">{{ item.confidence }}%</VChip>
@@ -139,6 +139,7 @@ onMounted(initialize)
 .ar-dashboard__poster :deep(.v-img) { width: 100%; height: 100%; }
 .ar-dashboard__poster-error { width: 100%; height: 100%; display: grid; place-items: center; }
 .ar-dashboard__main { min-width: 0; }
+.ar-dashboard__copy { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
 .ar-dashboard__controls { grid-column: 4; grid-row: 1 / span 2; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
 .ar-dashboard__confidence { flex: 0 0 auto; }
 .ar-dashboard__controls :deep(.ar-actions) { max-width: 100%; }

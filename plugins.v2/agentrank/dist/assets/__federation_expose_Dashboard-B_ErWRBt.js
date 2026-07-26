@@ -14,8 +14,8 @@ const _hoisted_3 = { class: "ar-dashboard__poster" };
 const _hoisted_4 = { class: "ar-dashboard__poster-error" };
 const _hoisted_5 = { class: "ar-dashboard__main" };
 const _hoisted_6 = { class: "font-weight-medium text-truncate" };
-const _hoisted_7 = { class: "text-caption text-truncate" };
-const _hoisted_8 = { class: "text-caption text-medium-emphasis text-truncate" };
+const _hoisted_7 = { class: "ar-dashboard__copy text-caption" };
+const _hoisted_8 = { class: "ar-dashboard__copy text-caption text-medium-emphasis" };
 const _hoisted_9 = { class: "ar-dashboard__controls" };
 
 const {computed,onMounted,ref} = await importShared('vue');
@@ -296,6 +296,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a94556bb"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-db4f21dd"]]);
 
 export { Dashboard as default };

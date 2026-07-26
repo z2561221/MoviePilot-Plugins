@@ -38,9 +38,11 @@ const _hoisted_14 = { class: "ar-app-page__title-row" };
 const _hoisted_15 = { class: "ar-app-page__title" };
 const _hoisted_16 = { class: "ar-app-page__meta" };
 const _hoisted_17 = { class: "ar-app-page__copy" };
-const _hoisted_18 = { class: "ar-app-page__copy ar-app-page__copy--intro" };
-const _hoisted_19 = { class: "ar-app-page__tags" };
-const _hoisted_20 = { class: "ar-app-page__item-actions" };
+const _hoisted_18 = { class: "ar-app-page__copy-text ar-app-page__copy-text--reason" };
+const _hoisted_19 = { class: "ar-app-page__copy ar-app-page__copy--intro" };
+const _hoisted_20 = { class: "ar-app-page__copy-text ar-app-page__copy-text--intro" };
+const _hoisted_21 = { class: "ar-app-page__tags" };
+const _hoisted_22 = { class: "ar-app-page__item-actions" };
 
 const {computed,onMounted,ref,watch} = await importShared('vue');
 
@@ -74,7 +76,6 @@ const savingSettings = ref(false);
 const snackbar = ref({ show: false, message: '', color: 'success', undo: false });
 const lastArchivedId = ref('');
 const initialized = ref(false);
-const expandedCopyKeys = ref(new Set());
 
 const recommendations = computed(() => board.value?.recommendations?.slice(0, 5) || []);
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '');
@@ -148,22 +149,6 @@ function sourceLabel(item) {
 
 function posterSource(item) {
   return item?.poster_path || ''
-}
-
-function copyKey(item, field) {
-  return `${item?.candidate_id || item?.rank || ''}:${field}`
-}
-
-function isCopyExpanded(item, field) {
-  return expandedCopyKeys.value.has(copyKey(item, field))
-}
-
-function toggleCopy(item, field) {
-  const key = copyKey(item, field);
-  const next = new Set(expandedCopyKeys.value);
-  if (next.has(key)) next.delete(key);
-  else next.add(key);
-  expandedCopyKeys.value = next;
 }
 
 async function initialize() {
@@ -460,45 +445,13 @@ return (_ctx, _cache) => {
                                   _createElementVNode("div", _hoisted_16, _toDisplayString(item.year || '年份未知') + " · " + _toDisplayString(sourceLabel(item)), 1),
                                   _createElementVNode("div", _hoisted_17, [
                                     _cache[7] || (_cache[7] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "推荐：", -1)),
-                                    _createElementVNode("span", {
-                                      class: _normalizeClass(["ar-app-page__copy-text ar-app-page__copy-text--reason", { 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'reason') }])
-                                    }, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 3),
-                                    (item.reason || item.summary)
-                                      ? (_openBlock(), _createBlock(_component_VBtn, {
-                                          key: 0,
-                                          size: "x-small",
-                                          variant: "text",
-                                          class: "ar-app-page__copy-toggle",
-                                          onClick: $event => (toggleCopy(item, 'reason'))
-                                        }, {
-                                          default: _withCtx(() => [
-                                            _createTextVNode(_toDisplayString(isCopyExpanded(item, 'reason') ? '收起' : '展开'), 1)
-                                          ]),
-                                          _: 2
-                                        }, 1032, ["onClick"]))
-                                      : _createCommentVNode("", true)
-                                  ]),
-                                  _createElementVNode("div", _hoisted_18, [
-                                    _cache[8] || (_cache[8] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "简介：", -1)),
-                                    _createElementVNode("span", {
-                                      class: _normalizeClass(["ar-app-page__copy-text ar-app-page__copy-text--intro", { 'ar-app-page__copy-text--expanded': isCopyExpanded(item, 'summary') }])
-                                    }, _toDisplayString(item.summary || '暂无简介'), 3),
-                                    (item.summary)
-                                      ? (_openBlock(), _createBlock(_component_VBtn, {
-                                          key: 0,
-                                          size: "x-small",
-                                          variant: "text",
-                                          class: "ar-app-page__copy-toggle",
-                                          onClick: $event => (toggleCopy(item, 'summary'))
-                                        }, {
-                                          default: _withCtx(() => [
-                                            _createTextVNode(_toDisplayString(isCopyExpanded(item, 'summary') ? '收起' : '展开'), 1)
-                                          ]),
-                                          _: 2
-                                        }, 1032, ["onClick"]))
-                                      : _createCommentVNode("", true)
+                                    _createElementVNode("span", _hoisted_18, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 1)
                                   ]),
                                   _createElementVNode("div", _hoisted_19, [
+                                    _cache[8] || (_cache[8] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "简介：", -1)),
+                                    _createElementVNode("span", _hoisted_20, _toDisplayString(item.summary || '暂无简介'), 1)
+                                  ]),
+                                  _createElementVNode("div", _hoisted_21, [
                                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(item.match_tags || [], (tag) => {
                                       return (_openBlock(), _createBlock(_component_VChip, {
                                         key: tag,
@@ -513,7 +466,7 @@ return (_ctx, _cache) => {
                                     }), 128))
                                   ])
                                 ]),
-                                _createElementVNode("div", _hoisted_20, [
+                                _createElementVNode("div", _hoisted_22, [
                                   _createVNode(_component_VChip, {
                                     size: "x-small",
                                     color: "primary",
@@ -593,6 +546,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-24b61674"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-56041f04"]]);
 
 export { AppPage as default };

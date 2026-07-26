@@ -14,7 +14,6 @@ const activeTab = ref('board')
 const snackbar = ref({ show: false, message: '', color: 'success' })
 const historyPage = ref(1)
 const initialized = ref(false)
-const expandedCopyKeys = ref(new Set())
 const expandedHistoryKeys = ref(new Set())
 const tagDrafts = reactive({ positive: '', negative: '' })
 const historyPageSize = 10
@@ -129,16 +128,6 @@ function formatTime(value) {
 
 function mediaTypeLabel(value) {
   return ({ movie: '电影', tv: '剧集', anime: '动漫' })[value] || '其他类型'
-}
-
-function copyKey(item, field) { return `${item?.candidate_id || item?.rank || ''}:${field}` }
-function isCopyExpanded(item, field) { return expandedCopyKeys.value.has(copyKey(item, field)) }
-function toggleCopy(item, field) {
-  const key = copyKey(item, field)
-  const next = new Set(expandedCopyKeys.value)
-  if (next.has(key)) next.delete(key)
-  else next.add(key)
-  expandedCopyKeys.value = next
 }
 
 function historyKey(run) { return `${run?.run_id || ''}:${run?.finished_at || run?.started_at || ''}` }
@@ -426,13 +415,11 @@ onMounted(initialize)
                 </div>
                 <div class="ar-page__rank-copy">
                   <span class="ar-page__copy-label">推荐：</span>
-                  <span class="ar-page__copy-text ar-page__copy-text--reason" :class="{ 'ar-page__copy-text--expanded': isCopyExpanded(item, 'reason') }">{{ item.reason || item.summary || '等待 Agent 补充推荐理由' }}</span>
-                  <VBtn v-if="item.reason || item.summary" size="x-small" variant="text" class="ar-page__copy-toggle" @click="toggleCopy(item, 'reason')">{{ isCopyExpanded(item, 'reason') ? '收起' : '展开' }}</VBtn>
+                  <span class="ar-page__copy-text ar-page__copy-text--reason">{{ item.reason || item.summary || '等待 Agent 补充推荐理由' }}</span>
                 </div>
                 <div class="ar-page__rank-copy ar-page__rank-copy--muted">
                   <span class="ar-page__copy-label">简介：</span>
-                  <span class="ar-page__copy-text ar-page__copy-text--intro" :class="{ 'ar-page__copy-text--expanded': isCopyExpanded(item, 'summary') }">{{ item.summary || '暂无简介' }}</span>
-                  <VBtn v-if="item.summary" size="x-small" variant="text" class="ar-page__copy-toggle" @click="toggleCopy(item, 'summary')">{{ isCopyExpanded(item, 'summary') ? '收起' : '展开' }}</VBtn>
+                  <span class="ar-page__copy-text ar-page__copy-text--intro">{{ item.summary || '暂无简介' }}</span>
                 </div>
                 <div v-if="item.match_tags?.length" class="ar-page__match-tags">
                   <VChip v-for="tag in item.match_tags" :key="tag" size="x-small" variant="outlined">{{ tag }}</VChip>
@@ -619,7 +606,7 @@ onMounted(initialize)
 </template>
 
 <style scoped>
-.ar-page { width: min(1240px, calc(100vw - 32px)); max-width: 100%; height: min(840px, calc(100dvh - 32px)); display: flex; flex-direction: column; overflow: hidden; overflow-x: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 14px; background: transparent; }
+.ar-page { width: min(1240px, calc(100vw - 24px)); max-width: 100%; height: min(900px, calc(100dvh - 16px)); display: flex; flex-direction: column; overflow: hidden; overflow-x: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 14px; background: transparent; }
 .ar-page__toolbar { flex: 0 0 auto; background: transparent; }
 .ar-page :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-page :deep(.v-tabs), .ar-page :deep(.v-table), .ar-page :deep(.v-skeleton-loader), .ar-page :deep(.v-empty-state) { background: transparent; }
@@ -629,40 +616,39 @@ onMounted(initialize)
 .ar-page__title { font-size: 1.08rem; font-weight: 700; line-height: 1.35; }
 .ar-page__subtitle { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; }
 .ar-page__identity { width: 210px; margin-right: 4px; }
-.ar-page__summary-bar { min-height: 68px; display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)) auto; align-items: center; gap: 10px; padding: 10px 16px; background: transparent; }
+.ar-page__summary-bar { min-height: 56px; display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)) auto; align-items: center; gap: 8px; padding: 6px 14px; background: transparent; }
 .ar-page__stat { min-width: 0; display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .7)); }
 .ar-page__stat-value { font-size: 17px; font-weight: 700; line-height: 1.2; }
 .ar-page__stat-value span { margin-left: 2px; color: rgba(var(--v-theme-on-surface), .48); font-size: 11px; font-weight: 500; }
 .ar-page__stat-label { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .55); font-size: 11px; }
 .ar-page__runtime-chip { margin-inline: 8px; }
-.ar-page__tabs { flex: 0 0 auto; min-height: 44px; overflow-x: auto; overflow-y: hidden; background: transparent; scrollbar-width: none; overscroll-behavior-inline: contain; }
+.ar-page__tabs { flex: 0 0 auto; min-height: 40px; overflow-x: auto; overflow-y: hidden; background: transparent; scrollbar-width: none; overscroll-behavior-inline: contain; }
 .ar-page__tabs::-webkit-scrollbar { display: none; }
-.ar-page__tab-list { display: flex; flex-wrap: nowrap; gap: 4px; min-width: max-content; padding: 6px 10px !important; background: transparent; }
+.ar-page__tab-list { display: flex; flex-wrap: nowrap; gap: 4px; min-width: max-content; padding: 4px 10px !important; background: transparent; }
 .ar-page__tab { flex: 0 0 auto; min-width: 112px; margin: 0; padding-inline: 12px; font-size: 13px; font-weight: 600; letter-spacing: 0; }
 .ar-page__tab :deep(.v-list-item-title) { white-space: nowrap; }
-.ar-page__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 18px 18px; background: transparent; }
+.ar-page__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 14px 12px; background: transparent; }
 .ar-page__pane { min-height: 100%; }
-.ar-page__section-head { min-height: 46px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.ar-page__section-head { min-height: 38px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .ar-page__section-title { font-size: 15px; font-weight: 700; }
 .ar-page__section-desc { margin-top: 3px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; line-height: 1.5; }
-.ar-page__ranking, .ar-page__archive-list { display: flex; flex-direction: column; gap: 9px; }
-.ar-page__rank-item { display: grid; grid-template-columns: 38px 64px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; background: transparent; transition: background .12s, border-color .12s; }
+.ar-page__ranking, .ar-page__archive-list { display: flex; flex-direction: column; gap: 6px; }
+.ar-page__rank-item { display: grid; grid-template-columns: 34px 50px minmax(0, 1fr) auto; gap: 9px; align-items: center; min-height: 88px; padding: 6px 9px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: transparent; transition: background .12s, border-color .12s; }
 .ar-page__rank-item:hover { border-color: rgba(var(--v-theme-primary), .28); background: rgba(var(--v-theme-primary), .045); }
-.ar-page__poster { width: 64px; height: 96px; display: grid; place-items: center; overflow: hidden; border-radius: 7px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
+.ar-page__poster { width: 50px; height: 75px; display: grid; place-items: center; overflow: hidden; border-radius: 6px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
 .ar-page__poster :deep(.v-img) { width: 100%; height: 100%; }
 .ar-page__poster-error { width: 100%; height: 100%; display: grid; place-items: center; }
-.ar-page__rank { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: rgba(var(--v-theme-on-surface), .62); background: rgba(var(--v-theme-on-surface), .06); font-size: 13px; font-weight: 700; }
+.ar-page__rank { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: rgba(var(--v-theme-on-surface), .62); background: rgba(var(--v-theme-on-surface), .06); font-size: 12px; font-weight: 700; }
 .ar-page__rank--top { color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .14); }
 .ar-page__rank-main { min-width: 0; }
 .ar-page__title-row { display: flex; align-items: flex-start; gap: 8px; }
 .ar-page__media-title { min-width: 0; display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 15px; font-weight: 700; line-height: 1.4; }
-.ar-page__meta-row { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 3px; color: rgba(var(--v-theme-on-surface), .52); font-size: 11px; }
-.ar-page__rank-copy { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 7px; margin-top: 7px; font-size: 12px; line-height: 1.45; }
+.ar-page__meta-row { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 1px; color: rgba(var(--v-theme-on-surface), .52); font-size: 11px; }
+.ar-page__rank-copy { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 5px; margin-top: 3px; font-size: 12px; line-height: 1.4; }
 .ar-page__rank-copy--muted { margin-top: 3px; color: rgba(var(--v-theme-on-surface), .62); }
 .ar-page__copy-label { color: rgb(var(--v-theme-primary)); font-size: 11px; font-weight: 600; }
-.ar-page__copy-text { min-width: 0; overflow-wrap: anywhere; }
-.ar-page__copy-toggle { display: none; min-width: 36px !important; min-height: 26px !important; margin: -4px -5px -4px 0; padding-inline: 5px !important; }
-.ar-page__match-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.ar-page__copy-text { min-width: 0; display: block; overflow: visible; overflow-wrap: anywhere; }
+.ar-page__match-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .ar-page__rank-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
 .ar-page__confidence { flex: 0 0 auto; }
 .ar-page__section-card, .ar-page__archive-card, .ar-page__table-card { border-radius: 10px; background: transparent; }
@@ -754,9 +740,7 @@ onMounted(initialize)
   .ar-page__rank-copy { grid-template-columns: 34px minmax(0, 1fr); }
   .ar-page__copy-text,
   .ar-page__copy-text--reason,
-  .ar-page__copy-text--intro,
-  .ar-page__copy-text--expanded { display: block; overflow: visible; -webkit-line-clamp: initial; }
-  .ar-page__copy-toggle { display: none !important; }
+  .ar-page__copy-text--intro { display: block; overflow: visible; -webkit-line-clamp: initial; }
   .ar-page__profile-head :deep(.v-card-item__append) { align-self: flex-start; }
   .ar-page__profile-body { padding: 12px; }
   .ar-page__profile-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
