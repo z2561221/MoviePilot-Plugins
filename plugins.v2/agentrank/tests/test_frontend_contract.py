@@ -418,6 +418,28 @@ def test_run_history_translates_watched_exclusion_code():
     assert "watched: '已观看'" in config
 
 
+def test_run_history_exposes_candidate_timing_cache_and_ranking_diagnostics():
+    """运行历史细节可读展示候选子阶段、画像缓存和排序备用统计。"""
+    page = _read("Page.vue")
+
+    for text in (
+        "candidate_recall_ms",
+        "candidate_normalize_ms",
+        "candidate_recognition_ms",
+        "candidate_filter_ms",
+        "candidate_snapshot_ms",
+        "candidate_processing_counts",
+        "profile_cache_miss_reason",
+        "ranking_valid_count",
+        "ranking_reserve_count",
+        "候选耗时",
+        "候选处理",
+        "画像缓存",
+        "排序校验",
+    ):
+        assert text in page
+
+
 def test_profile_filter_aliases_remain_readable_for_legacy_agent_payloads():
     """配置页兼容旧版画像过滤键并把语言值转换为中文。"""
     config = _read("Config.vue")

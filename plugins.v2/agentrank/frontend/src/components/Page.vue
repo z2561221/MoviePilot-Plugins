@@ -97,6 +97,14 @@ const historyExclusionLabels = {
   ambiguous_playback_count: '播放次数误写为看完次数',
   unsupported_playback_claim: '观看经历无法回溯',
 }
+const profileCacheReasonLabels = {
+  disabled: '缓存已关闭',
+  forced_rebuild: '本轮强制重建',
+  missing: '没有可复用画像',
+  profile_schema_changed: '画像结构已升级',
+  retrieval_resolution_changed: '检索规则已升级',
+  playback_changed: '播放记录已变化',
+}
 
 const tabs = [
   { key: 'board', title: '推荐榜单', icon: 'mdi-format-list-numbered' },
@@ -200,6 +208,42 @@ function historyExclusionText(run) {
 }
 function historyPlaybackStatus(value) {
   return ({ ready: '已就绪', cached: '使用缓存', disabled: '已停用', error: '失败', transient_error: '临时错误' })[value] || '状态未知'
+}
+function historyCandidateTimingText(run) {
+  const metrics = run?.metrics || {}
+  const parts = [
+    ['召回', metrics.candidate_recall_ms],
+    ['标准化', metrics.candidate_normalize_ms],
+    ['识别', metrics.candidate_recognition_ms],
+    ['筛选', metrics.candidate_filter_ms],
+    ['快照', metrics.candidate_snapshot_ms],
+  ].filter(([, value]) => Number.isFinite(Number(value)))
+  return parts.length ? parts.map(([label, value]) => `${label} ${formatDuration(value)}`).join('；') : '未记录'
+}
+function historyCandidateProcessingText(run) {
+  const counts = run?.metrics?.candidate_processing_counts || {}
+  const parts = [
+    ['召回', counts.raw],
+    ['识别输入', counts.recognition_input],
+    ['识别成功', counts.recognized],
+    ['最终入选', counts.accepted],
+  ].filter(([, value]) => Number.isFinite(Number(value)))
+  return parts.length ? parts.map(([label, value]) => `${label} ${value} 条`).join('；') : '未记录'
+}
+function historyProfileCacheText(run) {
+  const metrics = run?.metrics || {}
+  if (metrics.profile_cache_status === 'hit') return '命中，复用现有画像'
+  const reason = profileCacheReasonLabels[metrics.profile_cache_miss_reason]
+  if (reason) return `未命中，${reason}`
+  return metrics.profile_cache_status ? '未命中，原因未记录' : '未记录'
+}
+function historyRankingText(run) {
+  const metrics = run?.metrics || {}
+  const valid = Number(metrics.ranking_valid_count)
+  const reserve = Number(metrics.ranking_reserve_count)
+  const refill = Number(metrics.refill_agent_calls || 0)
+  if (!Number.isFinite(valid)) return '未记录'
+  return `校验通过 ${valid} 条；备用 ${Number.isFinite(reserve) ? reserve : 0} 条；补选 ${refill} 次`
 }
 
 async function initialize() {
@@ -544,7 +588,11 @@ onMounted(initialize)
                 <div v-if="isHistoryExpanded(run)" class="ar-page__history-details">
                   <div><span>运行编号</span><code>{{ run.run_id || '—' }}</code></div>
                   <div><span>画像调用</span><span>{{ run.metrics?.profile_agent_calls ?? 0 }} 次；排序 {{ run.metrics?.ranking_agent_calls ?? 0 }} 次</span></div>
+                  <div><span>画像缓存</span><span>{{ historyProfileCacheText(run) }}</span></div>
                   <div><span>播放快照</span><span>{{ run.metrics?.playback_count ?? 0 }} 条，{{ historyPlaybackStatus(run.metrics?.playback_status) }}</span></div>
+                  <div><span>候选耗时</span><span>{{ historyCandidateTimingText(run) }}</span></div>
+                  <div><span>候选处理</span><span>{{ historyCandidateProcessingText(run) }}</span></div>
+                  <div><span>排序校验</span><span>{{ historyRankingText(run) }}</span></div>
                   <div><span>候选排除</span><span>{{ historyExclusionText(run) }}</span></div>
                 </div>
               </article>
