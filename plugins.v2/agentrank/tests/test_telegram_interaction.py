@@ -46,6 +46,7 @@ RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
 AgentRankRepository = repository_module.AgentRankRepository
 TelegramSelectionService = interaction_module.TelegramSelectionService
+TelegramTargetAdapter = interaction_module.TelegramTargetAdapter
 
 
 class FakePlugin:
@@ -87,6 +88,19 @@ class FakeTargetAdapter:
     def resolve_userid(self, username):
         """返回目标用户 ID。"""
         return self.userid
+
+
+class FakeUserOper:
+    """按用户名返回通知设置并记录查询顺序。"""
+
+    def __init__(self, settings_by_name):
+        self.settings_by_name = settings_by_name
+        self.calls = []
+
+    def get_settings(self, username):
+        """模拟 MoviePilot 用户设置读取。"""
+        self.calls.append(username)
+        return self.settings_by_name.get(username)
 
 
 class FakeSubscriptionService:
@@ -207,6 +221,40 @@ def _callbacks(message):
         for button in row
         if button.get("callback_data")
     ]
+
+
+def test_target_adapter_resolves_direct_moviepilot_user_mapping():
+    """MP 用户已绑定 Telegram 时直接使用该用户 ID。"""
+    user_oper = FakeUserOper({"alice": {"telegram_userid": 1001}})
+    adapter = TelegramTargetAdapter(lambda: user_oper, superuser="admin")
+
+    assert adapter.resolve_userid("alice") == "1001"
+    assert user_oper.calls == ["alice"]
+
+
+def test_target_adapter_falls_back_to_superuser_for_emby_display_name():
+    """Emby 显示名不是 MP 用户时沿用宿主规则回退管理员。"""
+    user_oper = FakeUserOper(
+        {"admin": {"telegram_userid": "9001", "nickname": ""}}
+    )
+    adapter = TelegramTargetAdapter(lambda: user_oper, superuser="admin")
+
+    assert adapter.resolve_userid("Home") == "9001"
+    assert user_oper.calls == ["Home", "admin"]
+
+
+def test_target_adapter_does_not_bypass_existing_user_without_binding():
+    """MP 用户存在但未绑定 Telegram 时不得越权改发管理员。"""
+    user_oper = FakeUserOper(
+        {
+            "alice": {},
+            "admin": {"telegram_userid": "9001"},
+        }
+    )
+    adapter = TelegramTargetAdapter(lambda: user_oper, superuser="admin")
+
+    assert adapter.resolve_userid("alice") is None
+    assert user_oper.calls == ["alice"]
 
 
 def test_start_sends_linked_three_line_top_list_with_horizontal_cover():
