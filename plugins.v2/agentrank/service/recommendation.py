@@ -16,6 +16,7 @@ from ..agent_tools.context import (
 )
 from ..model.candidate import typed_tmdb_candidate_id
 from ..model.config import configured_identities
+from ..model.constants import RECOMMENDATION_LIMIT
 from ..model.board import RecommendationBoard, RecommendationItem
 from ..model.profile import (
     PROFILE_SCHEMA_VERSION,
@@ -879,7 +880,7 @@ class RecommendationOrchestrator:
             accepted: List[RecommendationItem] = list(validation.accepted)
             metrics["validation_drops"] = [drop.reason for drop in validation.dropped]
 
-            if len(accepted) < 10:
+            if len(accepted) < RECOMMENDATION_LIMIT:
                 trusted_candidate_ids = {
                     candidate.candidate_id for candidate in candidates
                 }
@@ -898,11 +899,14 @@ class RecommendationOrchestrator:
                         for candidate in candidates
                         if candidate.candidate_id not in accepted_ids
                     ]
-                    if not remaining_candidates or len(accepted) >= 10:
+                    if (
+                        not remaining_candidates
+                        or len(accepted) >= RECOMMENDATION_LIMIT
+                    ):
                         break
                     metrics["refill_attempted"] = True
                     metrics["refill_agent_calls"] = refill_attempt + 1
-                    refill_slots = 10 - len(accepted)
+                    refill_slots = RECOMMENDATION_LIMIT - len(accepted)
                     current_refill_prompt = build_refill_prompt(
                         [item.candidate_id for item in accepted],
                         refill_slots,
@@ -1000,7 +1004,11 @@ class RecommendationOrchestrator:
                     agent_calls=int(metrics["agent_calls"]),
                 )
 
-            status = "success" if len(accepted) >= 10 else "recommendation_incomplete"
+            status = (
+                "success"
+                if len(accepted) >= RECOMMENDATION_LIMIT
+                else "recommendation_incomplete"
+            )
             self._finish_stage(metrics, status)
             self._candidate_service.enrich_recommendation_sources(accepted)
             self._start_stage(metrics, "save")

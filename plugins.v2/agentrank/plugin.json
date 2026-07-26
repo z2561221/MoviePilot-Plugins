@@ -1,6 +1,6 @@
 {
   "name": "Agent榜单中心",
-  "description": "调用内置Agent，从MoviePilot发现候选中生成个性化Top10榜单。",
+  "description": "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。",
   "version": "1.0.0",
   "author": "牧濑红莉栖",
   "author_url": "https://github.com/z2561221",

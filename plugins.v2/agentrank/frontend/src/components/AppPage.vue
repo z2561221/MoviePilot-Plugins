@@ -31,7 +31,7 @@ const lastArchivedId = ref('')
 const initialized = ref(false)
 const expandedCopyKeys = ref(new Set())
 
-const recommendations = computed(() => board.value?.recommendations?.slice(0, 10) || [])
+const recommendations = computed(() => board.value?.recommendations?.slice(0, 5) || [])
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '')
 const boardStatus = computed(() => board.value?.status || 'idle')
 
@@ -229,13 +229,13 @@ onMounted(initialize)
         <VAlert v-if="stateMessage" :type="['agent_failed', 'validation_failed'].includes(boardStatus) ? 'error' : 'warning'" variant="tonal" class="ar-app-page__alert">{{ stateMessage }}</VAlert>
 
         <main class="ar-app-page__layout">
-          <section class="ar-app-page__ranking" aria-label="前10名推荐榜单">
+          <section class="ar-app-page__ranking" aria-label="前5名推荐榜单">
             <div class="ar-app-page__section-head">
               <div>
-                <div class="text-subtitle-1 font-weight-bold">个性化前10名</div>
+                <div class="text-subtitle-1 font-weight-bold">个性化前5名</div>
                 <div class="text-caption text-medium-emphasis">保持 Agent 最终顺序，仅展示通过安全校验的候选</div>
               </div>
-              <VChip size="small" variant="outlined">{{ recommendations.length }} / 10</VChip>
+              <VChip size="small" variant="outlined">{{ recommendations.length }} / 5</VChip>
             </div>
 
             <VSkeletonLoader v-if="loading.data" type="list-item-avatar-three-line@5" />

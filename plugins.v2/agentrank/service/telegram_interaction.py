@@ -11,6 +11,7 @@ from app.schemas.types import MessageChannel, NotificationType
 
 from ..adapter.telegram import TelegramTargetAdapter
 from ..model.board import RecommendationBoard, RecommendationItem
+from ..model.constants import RECOMMENDATION_LIMIT
 from ..model.telegram_selection import TelegramSelectionSession
 
 
@@ -53,11 +54,11 @@ class TelegramSelectionService:
 
     @staticmethod
     def _ranked_items(board: RecommendationBoard) -> List[RecommendationItem]:
-        """返回稳定排序且最多十条的榜单项目。"""
+        """返回稳定排序且不超过固定榜单数量的项目。"""
         return sorted(
             list(board.recommendations or []),
             key=lambda item: (int(item.rank), str(item.candidate_id)),
-        )[:10]
+        )[:RECOMMENDATION_LIMIT]
 
     @staticmethod
     def _item_map(board: RecommendationBoard) -> Dict[str, RecommendationItem]:
@@ -118,7 +119,7 @@ class TelegramSelectionService:
         board: RecommendationBoard,
         notice: str = "",
     ) -> Tuple[str, List[List[Dict[str, str]]], Optional[str]]:
-        """生成横版封面与紧凑单行 Top10 正文及编号按钮。"""
+        """生成横版封面与紧凑单行榜单正文及编号按钮。"""
         item_map = self._item_map(board)
         items = [
             item_map[candidate_id]
@@ -188,7 +189,7 @@ class TelegramSelectionService:
         event_data: Dict[str, Any] = None,
         notice: str = "",
     ) -> None:
-        """发送 Top10 单页卡片或原地更新选择状态。"""
+        """发送单页榜单卡片或原地更新选择状态。"""
         event_data = event_data or {}
         text, buttons, image = self._single_page_payload(session, board, notice)
         original_message_id = event_data.get("original_message_id")

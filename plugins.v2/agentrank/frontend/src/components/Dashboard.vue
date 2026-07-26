@@ -145,6 +145,6 @@ onMounted(initialize)
 @media (max-width: 760px) {
   .ar-dashboard__item { grid-template-columns: 28px 44px minmax(0, 1fr); }
   .ar-dashboard__rank, .ar-dashboard__poster { grid-row: 1; }
-  .ar-dashboard__controls { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
+  .ar-dashboard__controls { grid-column: 1 / -1; grid-row: 2; justify-content: flex-end; }
 }
 </style>

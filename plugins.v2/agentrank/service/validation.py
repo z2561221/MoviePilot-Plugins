@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
 
 from ..model.board import RecommendationItem
 from ..model.candidate import Candidate
+from ..model.constants import RECOMMENDATION_LIMIT
 from ..model.retrieval import (
     ISO_639_1_CODES,
     MEDIA_TYPES,
@@ -305,13 +306,15 @@ class _StrictOutputParser:
     def __init__(
         self,
         max_bytes: int = 262_144,
-        max_recommendations: int = 10,
+        max_recommendations: int = RECOMMENDATION_LIMIT,
         max_tags: int = 20,
         max_string_chars: int = 200,
     ):
         """设置输出资源边界。"""
         self._max_bytes = max(1, int(max_bytes))
-        self._max_recommendations = max(1, min(int(max_recommendations), 10))
+        self._max_recommendations = max(
+            1, min(int(max_recommendations), RECOMMENDATION_LIMIT)
+        )
         self._max_tags = max(1, int(max_tags))
         self._max_string_chars = max(10, int(max_string_chars))
 
@@ -368,7 +371,7 @@ class ProfileOutputParser(_StrictOutputParser):
     def __init__(
         self,
         max_bytes: int = 262_144,
-        max_recommendations: int = 10,
+        max_recommendations: int = RECOMMENDATION_LIMIT,
         max_tags: int = 20,
         max_string_chars: int = 200,
         allowed_keyword_ids: Optional[Iterable[int]] = None,

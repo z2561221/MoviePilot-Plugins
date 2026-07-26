@@ -273,13 +273,14 @@ def test_mobile_ranking_copy_wraps_and_can_expand():
 
 
 def test_mobile_detail_tabs_scroll_without_arrow_controls():
-    """详情页移动端页签使用原生横向滚动，不为左右箭头牺牲文字空间。"""
+    """详情页移动端使用下载中心同款横向导航且不显示左右箭头。"""
     page = _read("Page.vue")
     assert '<nav class="ar-page__tabs"' in page
     assert "show-arrows" not in page
     assert "overflow-x: auto" in page
     assert "scroll-snap-type: x proximity" in page
-    assert "ar-page__tab-icon { display: none; }" in page
+    assert '<VList density="compact" nav class="ar-page__tab-list">' in page
+    assert '<template #prepend><VIcon :icon="tab.icon"' in page
 
 
 def test_mobile_detail_hides_idle_runtime_and_wraps_copy_without_toggles():

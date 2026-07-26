@@ -79,7 +79,7 @@ class FakePlugin:
         }
         self._repository = AgentRankRepository(self)
         self.refresh_result = SimpleNamespace(
-            status="success", message="ok", run_id="run-new", final_count=10
+            status="success", message="ok", run_id="run-new", final_count=5
         )
         self._runtime = SimpleNamespace(refresh=self._refresh)
 

@@ -282,7 +282,7 @@ def test_success_atomically_saves_profile_board_and_run_history():
     """A complete valid run replaces both current objects and records metrics."""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(
-        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 6)])]
     )
     config = _config()
     result = asyncio.run(orchestrator.run(PROFILE_ID, config))
@@ -305,13 +305,13 @@ def test_success_atomically_saves_profile_board_and_run_history():
         "4",
         "5",
     ]
-    assert len(repository.load_board(PROFILE_ID).recommendations) == 10
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 5
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     assert repository.load_profile(PROFILE_ID).filters["genre_ids"] == [80]
     assert repository.load_profile(PROFILE_ID).ranking_tags == ["高质量悬疑"]
     history = repository.load_run_history(PROFILE_ID)
     assert history[0].status == "success"
-    assert history[0].metrics["final_count"] == 10
+    assert history[0].metrics["final_count"] == 5
     assert history[0].metrics["agent_calls"] == 2
     assert history[0].metrics["profile_agent_calls"] == 1
     assert history[0].metrics["ranking_agent_calls"] == 1
@@ -339,7 +339,7 @@ def test_fewer_than_twenty_frozen_candidates_skips_ranking_agent():
     """冻结候选低于默认 20 条时保留画像但不调用排序 Agent。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
-        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+        [_agent_output([f"tmdb:{index}" for index in range(1, 6)])],
         candidate_count=19,
     )
     orchestrator._candidate_service.minimum_frozen_candidates = 20
@@ -444,8 +444,8 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
     candidates = FakeCandidateService(12)
     agent = FakeAgentAdapter(
         [
-            _agent_output([f"tmdb:{index}" for index in range(1, 11)]),
-            _agent_output([f"tmdb:{index}" for index in range(20, 30)]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+            _agent_output([f"tmdb:{index}" for index in range(20, 25)]),
         ]
     )
     run_ids = iter(["run-profile", "run-ranking-only"])
@@ -500,7 +500,7 @@ def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches
     )
     orchestrator, _ = _orchestrator(
         plugin,
-        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+        [_agent_output([f"tmdb:{index}" for index in range(1, 6)])],
     )
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
@@ -530,7 +530,7 @@ def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches
     )
     orchestrator, _ = _orchestrator(
         plugin,
-        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+        [_agent_output([f"tmdb:{index}" for index in range(1, 6)])],
     )
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
@@ -548,7 +548,7 @@ def test_controlled_resolution_is_persisted_and_exposed_to_ranking_context():
     profile_output = _profile_output(ranking_tags=["赛博朋克", "英文"])
     orchestrator, repository = _orchestrator(
         FakePlugin(),
-        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+        [_agent_output([f"tmdb:{index}" for index in range(1, 6)])],
         profile_outputs=[profile_output],
         retrieval_plan_resolver=resolver,
     )
@@ -571,7 +571,7 @@ def test_run_uses_configured_agent_prompt():
     """初选调用会收到当前配置中的排序提示词。"""
     plugin = FakePlugin()
     orchestrator, _ = _orchestrator(
-        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 6)])]
     )
     config = _config()
     config["agent_prompt"] = "多推荐冷门科幻并保持俏皮文风"
@@ -587,7 +587,7 @@ def test_cached_profile_is_passed_as_incremental_context():
     """画像缓存开启且未要求重建时，旧画像会进入只读播放上下文。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(
-        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 6)])]
     )
     repository.save_profile(
         UserProfile(
@@ -641,7 +641,7 @@ def test_incremental_profile_accepts_only_previously_resolved_keyword_ids():
     }
     orchestrator, repository = _orchestrator(
         plugin,
-        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+        [_agent_output([f"tmdb:{index}" for index in range(1, 6)])],
         profile_outputs=[_profile_output(filters=keyword_filters)],
     )
     repository.save_profile(
@@ -688,7 +688,7 @@ def test_playback_evidence_is_collected_and_passed_to_restricted_context():
             )
 
     agent = FakeAgentAdapter(
-        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+        [_agent_output([f"tmdb:{index}" for index in range(1, 6)])]
     )
     orchestrator = RecommendationOrchestrator(
         repository=repository,
@@ -730,7 +730,7 @@ def test_playback_samples_are_the_only_profile_evidence():
                 ],
             )
 
-    agent = FakeAgentAdapter([_agent_output([f"tmdb:{index}" for index in range(1, 11)])])
+    agent = FakeAgentAdapter([_agent_output([f"tmdb:{index}" for index in range(1, 6)])])
     orchestrator = RecommendationOrchestrator(
         repository=repository,
         candidate_service=FakeCandidateService(),
@@ -800,7 +800,7 @@ def test_rebuild_or_disabled_cache_does_not_read_previous_profile():
     ):
         plugin = FakePlugin()
         orchestrator, repository = _orchestrator(
-            plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+            plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 6)])]
         )
         repository.save_profile(
             UserProfile(
@@ -832,7 +832,7 @@ def test_library_items_are_removed_before_agent_context_is_built():
             return candidate.candidate_id in {"tmdb:1", "tmdb:2"}
 
     agent = FakeAgentAdapter(
-        [_agent_output([f"tmdb:{index}" for index in range(3, 13)])]
+        [_agent_output([f"tmdb:{index}" for index in range(3, 8)])]
     )
     orchestrator = RecommendationOrchestrator(
         repository=repository,
@@ -1010,7 +1010,7 @@ def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
         FakePlugin(),
         [
             RetryableAgentError("no text"),
-            _agent_output([f"tmdb:{index}" for index in range(1, 11)]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
         ],
     )
 
@@ -1047,7 +1047,7 @@ def test_invalid_json_retries_once_with_stricter_prompt():
         FakePlugin(),
         [
             "not-json",
-            _agent_output([f"tmdb:{index}" for index in range(1, 11)]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
         ],
     )
 
@@ -1067,7 +1067,7 @@ def test_invalid_profile_json_retries_once_with_stricter_prompt():
     """画像输出无效时第二次调用必须追加 JSON 纠错指令。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
-        [_agent_output([f"tmdb:{index}" for index in range(1, 11)])],
+        [_agent_output([f"tmdb:{index}" for index in range(1, 6)])],
         profile_outputs=["not-json", _profile_output()],
     )
 
@@ -1102,16 +1102,16 @@ def test_invalid_json_fails_after_one_strict_retry():
 
 
 def test_partial_valid_output_gets_exactly_one_successful_refill():
-    """Eight accepted items trigger one refill for the two remaining slots."""
-    first = _agent_output([f"tmdb:{index}" for index in range(1, 9)])
-    refill = _agent_output(["tmdb:9", "tmdb:10"])
+    """Four accepted items trigger one refill for the remaining slot."""
+    first = _agent_output([f"tmdb:{index}" for index in range(1, 5)])
+    refill = _agent_output(["tmdb:5"])
     orchestrator, repository = _orchestrator(FakePlugin(), [first, refill])
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "success"
     assert result.agent_calls == 3
-    assert len(repository.load_board(PROFILE_ID).recommendations) == 10
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 5
     assert "tmdb:1" in orchestrator.agent_adapter.ranking_calls[1][0]
     assert "排除" in orchestrator.agent_adapter.ranking_calls[1][0]
 
@@ -1119,39 +1119,39 @@ def test_partial_valid_output_gets_exactly_one_successful_refill():
 def test_initial_domain_drops_are_explained_to_refill():
     """首轮已知候选的安全丢弃原因必须进入补选提示并允许改写。"""
     first = _agent_output_with_overrides(
-        [f"tmdb:{index}" for index in range(1, 11)],
+        [f"tmdb:{index}" for index in range(1, 6)],
         {
-            "tmdb:9": {
+            "tmdb:4": {
                 "reason": "你偏爱悬疑题材，这部经典作品不容错过。",
             },
-            "tmdb:10": {
+            "tmdb:5": {
                 "match_tags": ["悬疑电影"],
             },
         },
     )
     orchestrator, repository = _orchestrator(
         FakePlugin(),
-        [first, _agent_output(["tmdb:9", "tmdb:10"])],
+        [first, _agent_output(["tmdb:4", "tmdb:5"])],
     )
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
     assert result.status == "success"
-    assert len(repository.load_board(PROFILE_ID).recommendations) == 10
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 5
     refill_prompt = orchestrator.agent_adapter.ranking_calls[1][0]
-    assert '"candidate_id":"tmdb:9","reason":"invalid_reason"' in refill_prompt
+    assert '"candidate_id":"tmdb:4","reason":"invalid_reason"' in refill_prompt
     assert (
-        '"candidate_id":"tmdb:10","reason":"insufficient_match_evidence"'
+        '"candidate_id":"tmdb:5","reason":"insufficient_match_evidence"'
         in refill_prompt
     )
 
 
-def test_second_refill_uses_previous_domain_drops_and_completes_top_ten():
+def test_second_refill_uses_previous_domain_drops_and_completes_top_five():
     """首轮补选仍有文案丢弃时，第二轮携带原因并补齐榜单。"""
     rejected_refill = _agent_output_with_overrides(
-        ["tmdb:9", "tmdb:10"],
+        ["tmdb:5"],
         {
-            "tmdb:10": {
+            "tmdb:5": {
                 "reason": "你偏爱悬疑题材，这部经典作品不容错过。",
             }
         },
@@ -1159,9 +1159,9 @@ def test_second_refill_uses_previous_domain_drops_and_completes_top_ten():
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
-            _agent_output([f"tmdb:{index}" for index in range(1, 9)]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 5)]),
             rejected_refill,
-            _agent_output(["tmdb:10"]),
+            _agent_output(["tmdb:5"]),
         ],
     )
 
@@ -1169,20 +1169,20 @@ def test_second_refill_uses_previous_domain_drops_and_completes_top_ten():
 
     assert result.status == "success"
     assert result.agent_calls == 4
-    assert len(repository.load_board(PROFILE_ID).recommendations) == 10
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 5
     second_refill_prompt = orchestrator.agent_adapter.ranking_calls[2][0]
-    assert '"candidate_id":"tmdb:10","reason":"invalid_reason"' in second_refill_prompt
-    assert "tmdb:9" in second_refill_prompt
+    assert '"candidate_id":"tmdb:5","reason":"invalid_reason"' in second_refill_prompt
+    assert "tmdb:4" in second_refill_prompt
     assert repository.load_run_history(PROFILE_ID)[0].metrics["refill_agent_calls"] == 2
 
 
 def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
-    """两轮补选仍不足时保存实际条数，不制造第十条。"""
+    """两轮补选仍不足时保存实际条数，不制造第五条。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
-            _agent_output([f"tmdb:{index}" for index in range(1, 9)]),
-            _agent_output(["tmdb:9"]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 5)]),
+            _agent_output([]),
             _agent_output([]),
         ],
     )
@@ -1192,18 +1192,18 @@ def test_refill_still_insufficient_saves_actual_count_and_incomplete_state():
     assert result.status == "recommendation_incomplete"
     board = repository.load_board(PROFILE_ID)
     assert board.status == "recommendation_incomplete"
-    assert len(board.recommendations) == 9
+    assert len(board.recommendations) == 4
     assert result.agent_calls == 4
 
 
-def test_refill_invalid_json_retries_once_and_can_complete_top_ten():
+def test_refill_invalid_json_retries_once_and_can_complete_top_five():
     """补选返回非 JSON 时同样只重试一次，成功后不残留误导性错误。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
-            _agent_output([f"tmdb:{index}" for index in range(1, 9)]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 5)]),
             "not-json",
-            _agent_output(["tmdb:9", "tmdb:10"]),
+            _agent_output(["tmdb:5"]),
         ],
     )
 
@@ -1211,7 +1211,7 @@ def test_refill_invalid_json_retries_once_and_can_complete_top_ten():
 
     assert result.status == "success"
     assert result.agent_calls == 4
-    assert len(repository.load_board(PROFILE_ID).recommendations) == 10
+    assert len(repository.load_board(PROFILE_ID).recommendations) == 5
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.errors == []
     assert history.metrics["refill_retry_count"] == 1
@@ -1238,7 +1238,7 @@ def test_board_save_failure_keeps_new_profile_and_previous_board():
     """排序榜单写入失败不回滚已经独立保存的画像。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(
-        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 11)])]
+        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 6)])]
     )
     repository.save_profile(UserProfile(profile_id=PROFILE_ID, username="Alice", summary="old", run_id="old"))
     repository.save_board(RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success"))
@@ -1267,7 +1267,7 @@ def test_concurrent_refresh_returns_running_without_second_agent_call():
     async def scenario():
         plugin = FakePlugin()
         repository = AgentRankRepository(plugin)
-        agent = BlockingAgent([_agent_output([f"tmdb:{index}" for index in range(1, 11)])])
+        agent = BlockingAgent([_agent_output([f"tmdb:{index}" for index in range(1, 6)])])
         orchestrator = RecommendationOrchestrator(
             repository,
             FakeCandidateService(),
@@ -1315,8 +1315,8 @@ def test_different_profiles_can_enter_profile_stage_concurrently():
         repository = AgentRankRepository(plugin)
         agent = ConcurrentAgent(
             [
-                _agent_output([f"tmdb:{index}" for index in range(1, 11)]),
-                _agent_output([f"tmdb:{index}" for index in range(1, 11)]),
+                _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+                _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
             ]
         )
         run_ids = iter(("run-profile-1", "run-profile-2"))

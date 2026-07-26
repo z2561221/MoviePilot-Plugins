@@ -4,6 +4,8 @@ import json
 import re
 from typing import Mapping, Optional, Sequence
 
+from ..model.constants import RECOMMENDATION_LIMIT
+
 
 REFILL_CANDIDATE_ID_PATTERN = re.compile(r"^[A-Za-z0-9:_-]{1,128}$")
 REFILL_REASON_GUIDANCE = {
@@ -102,10 +104,11 @@ profile.summary 最多二百个字符；标签应简洁、稳定，禁止在摘�
 
 
 def build_ranking_prompt(
-    max_recommendations: int = 10, agent_prompt: str = DEFAULT_AGENT_PROMPT
+    max_recommendations: int = RECOMMENDATION_LIMIT,
+    agent_prompt: str = DEFAULT_AGENT_PROMPT,
 ) -> str:
     """构建不嵌入不可信媒体文本的严格 Agent 指令。"""
-    limit = max(1, min(int(max_recommendations), 10))
+    limit = max(1, min(int(max_recommendations), RECOMMENDATION_LIMIT))
     custom_instruction = str(agent_prompt or DEFAULT_AGENT_PROMPT).strip()
     return f"""你是 MoviePilot 内部的 Agent 榜单排序器。
 

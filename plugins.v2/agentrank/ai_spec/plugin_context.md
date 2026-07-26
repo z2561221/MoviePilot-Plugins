@@ -2,7 +2,7 @@
 
 ## 插件用途
 
-AgentRank 是 MoviePilot V2 本地插件。它按稳定 Emby identity 读取 Playback Reporting 播放快照，冻结 MoviePilot 发现候选，调用受限内置 Agent 生成用户画像与 Top 10，再由确定性安全门保存榜单、通知或执行受控订阅。
+AgentRank 是 MoviePilot V2 本地插件。它按稳定 Emby identity 读取 Playback Reporting 播放快照，冻结 MoviePilot 发现候选，调用受限内置 Agent 生成用户画像与前 5 名榜单，再由确定性安全门保存榜单、通知或执行受控订阅。
 
 ## 运行边界
 
@@ -66,7 +66,7 @@ AgentRank 全局只允许以下四个只读工具，工具参数不能选择 use
 - `profile_agent_failed` / `profile_validation_failed` / `profile_save_failed`：画像阶段失败，保留旧画像与旧榜单。
 - `ranking_agent_failed` / `ranking_validation_failed` / `ranking_save_failed`：排序阶段失败；新画像可以保留，但旧榜单不被覆盖。
 - `validation_failed`：仅作为历史兼容状态，不作为生产组合输出链路。
-- `recommendation_incomplete`：唯一一次补选后仍不足十条，保存实际安全条数，不填充伪推荐。
+- `recommendation_incomplete`：补选后仍不足五条，保存实际安全条数，不填充伪推荐。
 - `subscription_partial_failed`：自动订阅逐条继续，成功项保留，失败项进入运行历史。
 
 ## 验收

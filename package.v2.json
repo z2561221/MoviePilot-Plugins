@@ -127,7 +127,7 @@
   },
   "AgentRank": {
     "name": "Agent榜单中心",
-    "description": "调用内置Agent，从MoviePilot发现候选中生成个性化Top10榜单。",
+    "description": "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。",
     "labels": "智能推荐,发现",
     "version": "1.0.0",
     "icon": "agentresourceofficer.png",

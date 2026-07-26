@@ -75,7 +75,7 @@ const config = {
   agent_prompt: '以用户真实播放记录和明确偏好为首要依据，可从情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感五类观看动机辅助排序。稳定动机必须有至少两条独立播放证据或一项人工明确偏好，且只能作为软排序信号。',
 }
 
-const recommendations = Array.from({ length: 10 }, (_, index) => ({
+const recommendations = Array.from({ length: 5 }, (_, index) => ({
   candidate_id: `tmdb:${index % 3 === 0 ? 'movie' : 'tv'}:${1000 + index}`,
   rank: index + 1,
   title: index === 0
@@ -129,7 +129,7 @@ const history = Array.from({ length: 12 }, (_, index) => ({
   finished_at: `2026-07-${String(12 - Math.min(index, 9)).padStart(2, '0')}T08:00:00+08:00`,
   metrics: {
     candidate_count: 50,
-    final_count: 10,
+    final_count: 5,
     agent_calls: 2,
     subscription_success_count: 0,
     stage_status: { probe: 'ready', playback_snapshot: 'ready', profile: 'generated', candidate: 'ready', ranking: 'success', save: 'saved' },

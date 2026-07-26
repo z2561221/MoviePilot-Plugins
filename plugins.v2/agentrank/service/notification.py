@@ -7,6 +7,7 @@ from typing import Any
 from app.schemas.types import NotificationType
 
 from ..model.board import RecommendationBoard
+from ..model.constants import RECOMMENDATION_LIMIT
 
 
 logger = logging.getLogger(__name__)
@@ -67,9 +68,9 @@ def _compact_text(value: Any, limit: int) -> str:
 
 
 def _format_ranking_block(board: RecommendationBoard) -> str:
-    """将最多十条推荐格式化为 Telegram 友好的等宽 Markdown 代码块。"""
+    """将固定榜单数量内的推荐格式化为 Telegram 等宽 Markdown 代码块。"""
     lines = []
-    for item in board.recommendations[:10]:
+    for item in board.recommendations[:RECOMMENDATION_LIMIT]:
         title = _compact_text(item.title, 42) or "未命名条目"
         summary = _compact_text(item.summary, 64) or "暂无推荐摘要"
         reason = _compact_text(getattr(item, "reason", ""), 32) or summary
@@ -103,7 +104,8 @@ class NotificationService:
                     "AgentRank Telegram 交互通知失败，回退摘要 user=%s", username
                 )
         ranking = _format_ranking_block(board)
-        text = f"本轮 Agent 推荐已生成，共 {len(board.recommendations[:10])} 条：\n\n{ranking}"
+        count = len(board.recommendations[:RECOMMENDATION_LIMIT])
+        text = f"本轮 Agent 推荐已生成，共 {count} 条：\n\n{ranking}"
         text += "\n\n请前往 **Agent榜单中心** 手动订阅；此通知不会自动创建订阅。"
         self._plugin.post_message(
             mtype=NotificationType.Subscribe,

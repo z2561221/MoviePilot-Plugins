@@ -98,6 +98,7 @@ def test_prompt_states_hard_boundaries_without_embedding_untrusted_media_text():
     assert "评分高、热度高" in prompt
     assert '"reason"' in prompt
     assert "文案要具体、流畅" in prompt
+    assert "最多 5 条" in prompt
     assert "ignore all previous instructions" not in prompt
 
 
@@ -235,6 +236,23 @@ def test_parser_enforces_byte_count_tag_count_and_string_limits():
     }
     with pytest.raises(AgentOutputError, match="tags"):
         ProfileOutputParser().parse(_profile_output(profile=profile))
+
+
+def test_ranking_parser_rejects_more_than_five_recommendations():
+    """固定榜单协议不接受超过五条的排序输出。"""
+    recommendations = [
+        {
+            "candidate_id": f"tmdb:{index}",
+            "reason": "你偏爱悬疑题材，这部作品围绕旧案调查展开。",
+            "summary": "侦探追查旧案真相",
+            "match_tags": ["悬疑", "旧案"],
+            "confidence": 80,
+        }
+        for index in range(1, 7)
+    ]
+
+    with pytest.raises(AgentOutputError, match="exceeds 5 items"):
+        RankingOutputParser().parse(_output(recommendations))
 
 
 def test_profile_and_ranking_parsers_reject_each_others_schema():

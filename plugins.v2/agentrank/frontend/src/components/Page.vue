@@ -19,7 +19,7 @@ const expandedHistoryKeys = ref(new Set())
 const tagDrafts = reactive({ positive: '', negative: '' })
 const historyPageSize = 10
 
-const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 10) || [])
+const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 5) || [])
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || [])
 const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.value.total || 0) / historyPageSize)))
 const positiveTags = computed(() => state.profile.value?.tags || [])
@@ -315,18 +315,21 @@ onMounted(initialize)
     </div>
 
     <nav class="ar-page__tabs" aria-label="详情视图">
-      <button
+      <VList density="compact" nav class="ar-page__tab-list">
+      <VListItem
         v-for="tab in tabs"
         :key="tab.key"
-        type="button"
+        :active="activeTab === tab.key"
+        color="primary"
+        rounded="lg"
         class="ar-page__tab"
-        :class="{ 'ar-page__tab--active': activeTab === tab.key }"
         :aria-current="activeTab === tab.key ? 'page' : undefined"
         @click="activeTab = tab.key"
       >
-        <VIcon :icon="tab.icon" size="17" class="ar-page__tab-icon" />
-        <span>{{ tab.title }}</span>
-      </button>
+        <template #prepend><VIcon :icon="tab.icon" size="18" /></template>
+        <VListItemTitle>{{ tab.title }}</VListItemTitle>
+      </VListItem>
+      </VList>
     </nav>
     <VDivider />
 
@@ -339,7 +342,7 @@ onMounted(initialize)
           <div class="ar-page__section-head">
             <div>
               <div class="ar-page__section-title">个性推荐榜单</div>
-              <div class="ar-page__section-desc">Agent 根据订阅画像，从发现候选中挑出的前10名。</div>
+              <div class="ar-page__section-desc">Agent 根据订阅画像，从发现候选中挑出的前5名。</div>
             </div>
             <VChip size="small" color="primary" variant="tonal">{{ recommendations.length }} 部</VChip>
           </div>
@@ -348,7 +351,7 @@ onMounted(initialize)
             v-if="!recommendations.length"
             icon="mdi-format-list-numbered"
             title="推荐榜单尚未生成"
-            text="点击右上角刷新，根据播放画像生成前10名。"
+            text="点击右上角刷新，根据播放画像生成前5名。"
           />
           <div v-else class="ar-page__ranking">
             <article v-for="item in recommendations" :key="item.candidate_id" class="ar-page__rank-item">
@@ -574,13 +577,11 @@ onMounted(initialize)
 .ar-page__stat-value span { margin-left: 2px; color: rgba(var(--v-theme-on-surface), .48); font-size: 11px; font-weight: 500; }
 .ar-page__stat-label { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .55); font-size: 11px; }
 .ar-page__runtime-chip { margin-inline: 8px; }
-.ar-page__tabs { flex: 0 0 auto; min-height: 44px; display: flex; align-items: stretch; gap: 2px; overflow-x: auto; overflow-y: hidden; padding: 0 10px; background: transparent; scrollbar-width: none; overscroll-behavior-inline: contain; }
+.ar-page__tabs { flex: 0 0 auto; min-height: 44px; overflow-x: auto; overflow-y: hidden; background: transparent; scrollbar-width: none; overscroll-behavior-inline: contain; }
 .ar-page__tabs::-webkit-scrollbar { display: none; }
-.ar-page__tab { position: relative; flex: 0 0 auto; min-width: 112px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 14px; border: 0; color: rgba(var(--v-theme-on-surface), .68); background: transparent; font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0; white-space: nowrap; cursor: pointer; }
-.ar-page__tab::after { position: absolute; right: 12px; bottom: 0; left: 12px; height: 2px; border-radius: 2px 2px 0 0; background: rgb(var(--v-theme-primary)); content: ''; opacity: 0; transform: scaleX(.6); transition: opacity .15s, transform .15s; }
-.ar-page__tab:hover { color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .05); }
-.ar-page__tab--active { color: rgb(var(--v-theme-primary)); }
-.ar-page__tab--active::after { opacity: 1; transform: scaleX(1); }
+.ar-page__tab-list { display: flex; flex-wrap: nowrap; gap: 4px; min-width: max-content; padding: 6px 10px !important; background: transparent; }
+.ar-page__tab { flex: 0 0 auto; min-width: 112px; margin: 0; padding-inline: 12px; font-size: 13px; font-weight: 600; letter-spacing: 0; }
+.ar-page__tab :deep(.v-list-item-title) { white-space: nowrap; }
 .ar-page__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 18px 18px; background: transparent; }
 .ar-page__pane { min-height: 100%; }
 .ar-page__section-head { min-height: 46px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
@@ -683,10 +684,9 @@ onMounted(initialize)
   .ar-page__stat { gap: 6px; padding-inline: 6px; }
   .ar-page__stat :deep(.v-icon) { display: none; }
   .ar-page__runtime-chip { justify-self: stretch; justify-content: center; margin: 2px 4px 0; }
-  .ar-page__tabs { min-height: 40px; padding-inline: 4px; scroll-snap-type: x proximity; }
+  .ar-page__tabs { min-height: 40px; scroll-snap-type: x proximity; }
+  .ar-page__tab-list { gap: 6px; padding: 8px 12px !important; }
   .ar-page__tab { min-width: 96px; min-height: 40px; padding-inline: 10px; scroll-snap-align: start; }
-  .ar-page__tab::after { right: 8px; left: 8px; }
-  .ar-page__tab-icon { display: none; }
   .ar-page__content { padding: 12px 10px; }
   .ar-page__section-head { min-height: 42px; }
   .ar-page__rank-item { grid-template-columns: 30px 54px minmax(0, 1fr); gap: 8px; padding: 9px; }

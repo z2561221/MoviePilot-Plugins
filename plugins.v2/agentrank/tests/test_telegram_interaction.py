@@ -145,8 +145,8 @@ def _board(run_id="run-1"):
     )
 
 
-def _ten_item_board():
-    """构造十条长字段榜单以验证单页 caption 与按钮上限。"""
+def _oversized_board():
+    """构造十条输入以验证交互榜单固定截取前五条。"""
     board = _board()
     board.recommendations = [
         RecommendationItem(
@@ -255,21 +255,22 @@ def test_start_sends_linked_single_line_top_list_with_horizontal_cover():
     assert session.selected_ids == []
 
 
-def test_ten_items_fit_one_caption_and_two_choice_rows():
-    """十条长字段在桌面和移动端均保持单消息、两行编号布局。"""
+def test_oversized_board_is_limited_to_five_items():
+    """超量榜单在 Telegram 中只保留前五条和一行编号按钮。"""
     plugin, repository, _, service, _ = _service()
-    board = _ten_item_board()
+    board = _oversized_board()
     repository.save_board(board)
 
     service.start("alice", "alice", board)
 
     message = plugin.messages[-1]
     assert len(message["text"]) <= service.caption_limit
-    assert len(message["buttons"]) == 3
-    assert [len(row) for row in message["buttons"]] == [5, 5, 3]
-    assert all(f"{index:02d}" in message["text"] for index in range(1, 11))
+    assert len(message["buttons"]) == 2
+    assert [len(row) for row in message["buttons"]] == [5, 3]
+    assert all(f"{index:02d}" in message["text"] for index in range(1, 6))
+    assert "06" not in message["text"]
     assert message["image"].endswith("/backdrop-1.jpg")
-    assert message["text"].count("<code>") == 10
+    assert message["text"].count("<code>") == 5
     assert "\n　　" not in message["text"]
     assert "日本动画" not in message["text"]
 

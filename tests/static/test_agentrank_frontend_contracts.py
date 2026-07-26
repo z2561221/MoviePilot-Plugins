@@ -191,11 +191,11 @@ def test_config_advanced_navigation_uses_a_host_supported_mdi_icon():
     assert "mdi-shield-cog-outline" not in source
 
 
-def test_app_page_is_a_ranking_only_vertical_top_ten():
+def test_app_page_is_a_ranking_only_vertical_top_five():
     """The discovery page keeps ranking actions and removes all right-side summaries."""
     source = APP_PAGE.read_text(encoding="utf-8")
     assert "useAgentRankState" in source
-    assert "个性化前10名" in source
+    assert "个性化前5名" in source
     assert "Top 10" not in source
     assert "selectedProfileId" in source
     assert "identityOptions" in source
@@ -244,6 +244,16 @@ def test_page_has_four_management_tabs_editable_tags_and_backend_history_paging(
     assert "overflow-wrap: anywhere" in source
     assert "item.reason" in source
     assert "#error" in source
+
+
+def test_detail_mobile_navigation_matches_download_center_pattern():
+    """详情页移动端使用下载中心同款横向 Vuetify 导航结构。"""
+    source = PAGE.read_text(encoding="utf-8")
+    assert '<VList density="compact" nav class="ar-page__tab-list">' in source
+    assert 'rounded="lg"' in source
+    assert ".ar-page__tab-list { display: flex; flex-wrap: nowrap" in source
+    assert "min-width: max-content" in source
+    assert "padding: 8px 12px !important" in source
 
 
 def test_page_mobile_runtime_and_copy_layout_stay_readable():

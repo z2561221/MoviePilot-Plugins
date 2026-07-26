@@ -15,7 +15,7 @@ class AgentRank(_PluginBase):
     """根据用户订阅与发现候选生成 Agent 个性化榜单。"""
 
     plugin_name = "Agent榜单中心"
-    plugin_desc = "调用内置Agent，从MoviePilot发现候选中生成个性化Top10榜单。"
+    plugin_desc = "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。"
     plugin_icon = "agentresourceofficer.png"
     plugin_color = "#7C4DFF"
     plugin_version = "1.0.0"

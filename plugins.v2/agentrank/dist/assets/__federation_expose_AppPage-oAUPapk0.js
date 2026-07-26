@@ -24,7 +24,7 @@ const _hoisted_6 = {
 const _hoisted_7 = { class: "ar-app-page__layout" };
 const _hoisted_8 = {
   class: "ar-app-page__ranking",
-  "aria-label": "前10名推荐榜单"
+  "aria-label": "前5名推荐榜单"
 };
 const _hoisted_9 = { class: "ar-app-page__section-head" };
 const _hoisted_10 = {
@@ -76,7 +76,7 @@ const lastArchivedId = ref('');
 const initialized = ref(false);
 const expandedCopyKeys = ref(new Set());
 
-const recommendations = computed(() => board.value?.recommendations?.slice(0, 10) || []);
+const recommendations = computed(() => board.value?.recommendations?.slice(0, 5) || []);
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '');
 const boardStatus = computed(() => board.value?.status || 'idle');
 
@@ -386,7 +386,7 @@ return (_ctx, _cache) => {
                   _createElementVNode("section", _hoisted_8, [
                     _createElementVNode("div", _hoisted_9, [
                       _cache[6] || (_cache[6] = _createElementVNode("div", null, [
-                        _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "个性化前10名"),
+                        _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "个性化前5名"),
                         _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "保持 Agent 最终顺序，仅展示通过安全校验的候选")
                       ], -1)),
                       _createVNode(_component_VChip, {
@@ -394,7 +394,7 @@ return (_ctx, _cache) => {
                         variant: "outlined"
                       }, {
                         default: _withCtx(() => [
-                          _createTextVNode(_toDisplayString(recommendations.value.length) + " / 10", 1)
+                          _createTextVNode(_toDisplayString(recommendations.value.length) + " / 5", 1)
                         ]),
                         _: 1
                       })
@@ -593,6 +593,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2f121bf4"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ac91088c"]]);
 
 export { AppPage as default };
