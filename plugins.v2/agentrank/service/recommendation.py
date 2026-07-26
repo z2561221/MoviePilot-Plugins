@@ -1013,7 +1013,7 @@ class RecommendationOrchestrator:
                             0, int((time.monotonic() - stage_clock) * 1000)
                         )
 
-            fallback_count = 0
+            fallback_candidate_ids: Set[str] = set()
             if len(accepted) < RECOMMENDATION_LIMIT:
                 ranking_fallback_reason = ranking_fallback_reason or (
                     "refill_insufficient"
@@ -1031,7 +1031,11 @@ class RecommendationOrchestrator:
                     limit=RECOMMENDATION_LIMIT,
                 )
                 accepted.extend(fallback_items)
-                fallback_count = len(fallback_items)
+                fallback_candidate_ids.update(
+                    item.candidate_id for item in fallback_items
+                )
+
+            fallback_count = len(fallback_candidate_ids)
             metrics["ranking_fallback_count"] = fallback_count
             metrics["ranking_fallback_reason"] = (
                 ranking_fallback_reason if fallback_count else ""
@@ -1039,6 +1043,7 @@ class RecommendationOrchestrator:
             metrics["ranking_fallback_errors"] = (
                 ranking_fallback_errors if fallback_count else []
             )
+            metrics["archive_commit_excluded_count"] = 0
 
             if not accepted:
                 errors.extend(ranking_fallback_errors)
@@ -1055,37 +1060,111 @@ class RecommendationOrchestrator:
                     agent_calls=int(metrics["agent_calls"]),
                 )
 
-            status = (
-                "success"
-                if len(accepted) >= RECOMMENDATION_LIMIT
-                else "recommendation_incomplete"
-            )
-            if status != "success":
-                errors.extend(ranking_fallback_errors)
-            self._finish_stage(metrics, status)
             self._candidate_service.enrich_recommendation_sources(accepted)
-            self._start_stage(metrics, "save")
-            generated_at = datetime.now(timezone.utc).isoformat()
-            previous_board = self._repository.load_board(target)
-            board = RecommendationBoard(
-                profile_id=target,
-                username=username,
-                run_id=run_id,
-                status=status,
-                recommendations=accepted,
-                generated_at=generated_at,
-                message=(
-                    f"榜单生成成功，安全候选池补位 {fallback_count} 条"
-                    if status == "success" and fallback_count
-                    else "榜单生成成功"
-                    if status == "success"
-                    else f"仅生成 {len(accepted)} 条有效推荐"
-                ),
-                previous_run_id=previous_board.run_id if previous_board else None,
-            )
-            stage_clock = time.monotonic()
             try:
-                self._repository.save_board(board)
+                with self._repository.board_archive_guard(target):
+                    latest_archive = self._repository.load_archive(target)
+                    latest_archived_ids = self._archive_candidate_ids(latest_archive)
+                    commit_excluded_ids = {
+                        item.candidate_id
+                        for item in accepted
+                        if item.candidate_id in latest_archived_ids
+                    }
+                    if commit_excluded_ids:
+                        accepted = [
+                            item
+                            for item in accepted
+                            if item.candidate_id not in commit_excluded_ids
+                        ]
+                        for rank, item in enumerate(accepted, start=1):
+                            item.rank = rank
+                        fallback_candidate_ids.difference_update(commit_excluded_ids)
+                        commit_fallback_items = self._validator.build_fallback_items(
+                            candidates,
+                            accepted,
+                            blocked_candidate_ids={
+                                *latest_archived_ids,
+                                *subscribed_ids,
+                            },
+                            preference_evidence=[
+                                *current_profile.tags,
+                                *current_profile.ranking_tags,
+                            ],
+                            limit=RECOMMENDATION_LIMIT,
+                        )
+                        accepted.extend(commit_fallback_items)
+                        fallback_candidate_ids.update(
+                            item.candidate_id for item in commit_fallback_items
+                        )
+                        self._candidate_service.enrich_recommendation_sources(
+                            commit_fallback_items
+                        )
+                    for rank, item in enumerate(accepted, start=1):
+                        item.rank = rank
+
+                    fallback_count = sum(
+                        item.candidate_id in fallback_candidate_ids
+                        for item in accepted
+                    )
+                    metrics["archive_commit_excluded_count"] = len(
+                        commit_excluded_ids
+                    )
+                    metrics["ranking_fallback_count"] = fallback_count
+                    metrics["ranking_fallback_reason"] = (
+                        (ranking_fallback_reason or "archive_updated_during_run")
+                        if fallback_count
+                        else ""
+                    )
+                    metrics["ranking_fallback_errors"] = (
+                        ranking_fallback_errors if fallback_count else []
+                    )
+
+                    if not accepted:
+                        errors.extend(ranking_fallback_errors)
+                        return self._failure(
+                            target,
+                            username,
+                            run_id,
+                            "ranking_validation_failed",
+                            "最新忽略记录生效后没有安全可用推荐，已保留旧榜单",
+                            started_at,
+                            started_clock,
+                            metrics,
+                            errors,
+                            agent_calls=int(metrics["agent_calls"]),
+                        )
+
+                    status = (
+                        "success"
+                        if len(accepted) >= RECOMMENDATION_LIMIT
+                        else "recommendation_incomplete"
+                    )
+                    if status != "success":
+                        errors.extend(ranking_fallback_errors)
+                    self._finish_stage(metrics, status)
+                    self._start_stage(metrics, "save")
+                    generated_at = datetime.now(timezone.utc).isoformat()
+                    previous_board = self._repository.load_board(target)
+                    board = RecommendationBoard(
+                        profile_id=target,
+                        username=username,
+                        run_id=run_id,
+                        status=status,
+                        recommendations=accepted,
+                        generated_at=generated_at,
+                        message=(
+                            f"榜单生成成功，安全候选池补位 {fallback_count} 条"
+                            if status == "success" and fallback_count
+                            else "榜单生成成功"
+                            if status == "success"
+                            else f"仅生成 {len(accepted)} 条有效推荐"
+                        ),
+                        previous_run_id=(
+                            previous_board.run_id if previous_board else None
+                        ),
+                    )
+                    stage_clock = time.monotonic()
+                    self._repository.save_board(board)
             except Exception as error:
                 errors.append(str(error))
                 return self._failure(

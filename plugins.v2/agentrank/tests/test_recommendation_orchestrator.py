@@ -21,17 +21,20 @@ board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 orchestrator_module = importlib.import_module(f"{PACKAGE_NAME}.service.recommendation")
+archive_service_module = importlib.import_module(f"{PACKAGE_NAME}.service.archive")
 keyword_module = importlib.import_module(f"{PACKAGE_NAME}.service.keyword_resolution")
 
 Candidate = candidate_module.Candidate
 UserProfile = profile_module.UserProfile
 ProfilePreferences = preferences_module.ProfilePreferences
 RecommendationBoard = board_module.RecommendationBoard
+RecommendationItem = board_module.RecommendationItem
 PlaybackSample = playback_module.PlaybackSample
 PlaybackSnapshot = playback_module.PlaybackSnapshot
 PlaybackCapability = playback_module.PlaybackCapability
 AgentRankRepository = repository_module.AgentRankRepository
 RecommendationOrchestrator = orchestrator_module.RecommendationOrchestrator
+ArchiveService = archive_service_module.ArchiveService
 ControlledRetrievalPlanResolver = keyword_module.ControlledRetrievalPlanResolver
 
 PROFILE_ID = "emby:home:user-1"
@@ -1352,6 +1355,85 @@ def test_board_save_failure_keeps_new_profile_and_previous_board():
     assert result.status == "ranking_save_failed"
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     assert repository.load_board(PROFILE_ID).run_id == "old"
+
+
+def test_ignore_during_run_is_rechecked_and_refilled_before_board_commit():
+    """运行期间新增的忽略反馈在最终提交时生效并安全补足五条。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    repository.save_board(
+        RecommendationBoard(
+            profile_id=PROFILE_ID,
+            username="Alice",
+            run_id="old",
+            status="success",
+            recommendations=[
+                RecommendationItem(
+                    candidate_id="tmdb:movie:2",
+                    rank=2,
+                    title="Title 2",
+                    media_type="movie",
+                    source_ids={"tmdb": "2"},
+                )
+            ],
+        )
+    )
+
+    class IgnoringCandidateService(FakeCandidateService):
+        """在排序完成后模拟用户忽略仍位于旧榜单中的条目。"""
+
+        def __init__(self):
+            """初始化候选池与一次性忽略标记。"""
+            super().__init__(12)
+            self.candidates = [
+                Candidate(
+                    candidate_id=f"tmdb:movie:{index}",
+                    title=f"Title {index}",
+                    media_type="movie",
+                    source_ids={"tmdb": str(index)},
+                )
+                for index in range(1, 13)
+            ]
+            self.ignored = False
+
+        def enrich_recommendation_sources(self, recommendations):
+            """首次来源补全时写入运行期间新增的忽略反馈。"""
+            del recommendations
+            if self.ignored:
+                return
+            self.ignored = True
+            result = ArchiveService(repository).ignore(PROFILE_ID, "tmdb:movie:2")
+            assert result.changed is True
+
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=IgnoringCandidateService(),
+        agent_adapter=FakeAgentAdapter(
+            [_agent_output([f"tmdb:movie:{index}" for index in range(1, 6)])]
+        ),
+        run_id_factory=lambda: "run-ignore-race",
+        playback_service=FakePlaybackService(),
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    board = repository.load_board(PROFILE_ID)
+    assert [item.candidate_id for item in board.recommendations] == [
+        "tmdb:movie:1",
+        "tmdb:movie:3",
+        "tmdb:movie:4",
+        "tmdb:movie:5",
+        "tmdb:movie:6",
+    ]
+    assert [item.rank for item in board.recommendations] == [1, 2, 3, 4, 5]
+    assert [entry.candidate_id for entry in repository.load_archive(PROFILE_ID).entries] == [
+        "tmdb:movie:2"
+    ]
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["archive_commit_excluded_count"] == 1
+    assert history.metrics["ranking_fallback_count"] == 1
+    assert history.metrics["ranking_fallback_reason"] == "archive_updated_during_run"
 
 
 def test_concurrent_refresh_returns_running_without_second_agent_call():

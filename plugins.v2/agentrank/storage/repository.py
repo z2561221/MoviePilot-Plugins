@@ -1,7 +1,9 @@
 """基于 MoviePilot 插件数据接口的稳定画像身份存储仓库。"""
 
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Type, TypeVar
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Type, TypeVar
 from urllib.parse import quote
 
 from ..model.archive import ArchiveFeedback
@@ -21,6 +23,7 @@ ModelType = TypeVar("ModelType")
 class AgentRankRepository:
     """统一封装 AgentRank 的 profile_id 隔离键与容错读取。"""
 
+    _board_archive_lock = threading.RLock()
     recovery_log_key = "agentrank_recovery_log"
     telegram_sessions_key = "telegram_selection_sessions"
     playback_snapshot_prefix = "playback_snapshot"
@@ -48,6 +51,13 @@ class AgentRankRepository:
             f"candidate_snapshot:profile:{self._scope(profile_id, 'profile_id')}:"
             f"run:{self._scope(run_id, 'run_id')}"
         )
+
+    @contextmanager
+    def board_archive_guard(self, profile_id: str) -> Iterator[None]:
+        """串行化榜单提交与归档反馈，避免读改写竞态。"""
+        self._scope(profile_id, "profile_id")
+        with self._board_archive_lock:
+            yield
 
     def _record_recovery(self, key: str, action: str, detail: str = "") -> None:
         """记录迁移或损坏数据恢复证据，且不因日志损坏而失败。"""

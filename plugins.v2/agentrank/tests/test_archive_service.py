@@ -131,6 +131,35 @@ def test_ignore_and_restore_are_idempotent():
     assert service.restore("alice", "c2").changed is False
 
 
+def test_ignore_repairs_board_when_archived_item_reappears():
+    """归档项因旧任务回写榜单后，再次忽略会移除残留且不重复归档。"""
+    repository = AgentRankRepository(FakePlugin())
+    repository.save_board(_board())
+    service = ArchiveService(repository)
+    assert service.ignore("alice", "c2").changed is True
+
+    board = repository.load_board("alice")
+    board.recommendations.append(
+        RecommendationItem(candidate_id="c2", rank=2, title="Two")
+    )
+    repository.save_board(board)
+
+    result = service.ignore("alice", "c2")
+
+    assert result.changed is True
+    board_ids = [
+        item.candidate_id
+        for item in repository.load_board("alice").recommendations
+    ]
+    assert board_ids == [
+        "c1",
+        "c3",
+    ]
+    assert [entry.candidate_id for entry in repository.load_archive("alice").entries] == [
+        "c2"
+    ]
+
+
 def test_cross_profile_board_payload_is_rejected():
     """A mismatched stored owner cannot be mutated through another profile key."""
     plugin = FakePlugin()

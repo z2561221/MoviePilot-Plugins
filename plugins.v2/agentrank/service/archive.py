@@ -38,14 +38,22 @@ class ArchiveService:
 
     def ignore(self, profile_id: str, candidate_id: str) -> ArchiveActionResult:
         """从当前榜单移除推荐并保留原排名与完整展示载荷。"""
+        with self._repository.board_archive_guard(profile_id):
+            return self._ignore_locked(profile_id, candidate_id)
+
+    def _ignore_locked(
+        self, profile_id: str, candidate_id: str
+    ) -> ArchiveActionResult:
+        """在榜单归档事务锁内执行忽略操作。"""
         board = self._repository.load_board(profile_id)
         if board is None:
             return ArchiveActionResult(False, "ignore", candidate_id)
         self._assert_board_owner(profile_id, board)
         archive = self._repository.load_archive(profile_id)
         self._assert_archive_owner(profile_id, archive)
-        if any(entry.candidate_id == candidate_id for entry in archive.entries):
-            return ArchiveActionResult(False, "ignore", candidate_id)
+        already_archived = any(
+            entry.candidate_id == candidate_id for entry in archive.entries
+        )
         item = next(
             (
                 recommendation
@@ -61,14 +69,15 @@ class ArchiveService:
             for recommendation in board.recommendations
             if recommendation.candidate_id != candidate_id
         ]
-        archive.entries.append(
-            ArchiveEntry(
-                candidate_id=candidate_id,
-                original_rank=item.rank,
-                archived_at=datetime.now(timezone.utc).isoformat(),
-                recommendation=asdict(item),
+        if not already_archived:
+            archive.entries.append(
+                ArchiveEntry(
+                    candidate_id=candidate_id,
+                    original_rank=item.rank,
+                    archived_at=datetime.now(timezone.utc).isoformat(),
+                    recommendation=asdict(item),
+                )
             )
-        )
         self._repository.save_board_and_archive(board, archive)
         return ArchiveActionResult(True, "ignore", candidate_id)
 
