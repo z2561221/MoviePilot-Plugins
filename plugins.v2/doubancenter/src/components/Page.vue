@@ -23,8 +23,10 @@ const blacklistEntries = ref([])
 const actionKey = ref('')
 const actionMessage = ref('')
 const actionOk = ref(true)
+const loadError = ref('')
 const dialogItem = ref(null)
 const showDialog = ref(false)
+const INITIAL_LOAD_TIMEOUT_MS = 8000
 
 const rankNames = {
   coming: '即将上映',
@@ -198,46 +200,61 @@ async function resolveRankMedia(rk, item) {
 
 async function loadAll() {
   loading.value = true
-  try {
-    const [s, h, c, p, r, cfg, a] = await Promise.all([
-      getPluginApi(props.api, 'stats'),
-      getPluginApi(props.api, `subscribe_history?page=${historyData.value.page}&page_size=${historyData.value.page_size}`),
-      getPluginApi(props.api, 'anti_cheat_logs'),
-      getPluginApi(props.api, 'pending_observations'),
-      getPluginApi(props.api, 'rank_history'),
-      getPluginApi(props.api, 'config'),
-      getPluginApi(props.api, `archive_records?page=${archiveData.value.page}&page_size=${archiveData.value.page_size}`),
-    ])
-    if (s) stats.value = s
-    if (h) historyData.value = h
-    if (c) {
-      const logs = Array.isArray(c) ? c : []
-      cheatLogs.value = logs.filter(log => !log || !['黑名拦截', '黑名单关键词'].includes(log.reason)).slice(-5)
-      blacklistEntries.value = logs.filter(log => log && ['黑名拦截', '黑名单关键词'].includes(log.reason)).slice().reverse().slice(0, 5)
+  loadError.value = ''
+  const requests = [
+    { label: '订阅统计', path: 'stats', apply: value => { if (value) stats.value = value } },
+    {
+      label: '订阅历史',
+      path: `subscribe_history?page=${historyData.value.page}&page_size=${historyData.value.page_size}`,
+      apply: value => { if (value) historyData.value = value },
+    },
+    { label: '观察日志', path: 'anti_cheat_logs', apply: value => {
+      if (value) {
+        const logs = Array.isArray(value) ? value : []
+        cheatLogs.value = logs.filter(log => !log || !['黑名拦截', '黑名单关键词'].includes(log.reason)).slice(-5)
+        blacklistEntries.value = logs.filter(log => log && ['黑名拦截', '黑名单关键词'].includes(log.reason)).slice().reverse().slice(0, 5)
+      }
+    } },
+    { label: '观察队列', path: 'pending_observations', apply: value => { if (value) pendingObservations.value = value } },
+    { label: '榜单快照', path: 'rank_history', apply: value => { if (value) rankHistory.value = value } },
+    { label: '运行配置', path: 'config', apply: value => {
+      if (value) {
+        configData.value = value
+        blacklistKeywords.value = String(value.blacklist_keywords || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean)
+      }
+    } },
+  ]
+  const results = await Promise.allSettled(requests.map(async request => {
+    const value = await getPluginApi(props.api, request.path, { timeoutMs: INITIAL_LOAD_TIMEOUT_MS })
+    request.apply(value)
+  }))
+  const failed = []
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      failed.push(requests[index].label)
+      console.error(`[DoubanCenter] ${requests[index].label}加载失败`, result.reason)
     }
-    if (p) pendingObservations.value = p
-    if (r) rankHistory.value = r
-    if (cfg) {
-      configData.value = cfg
-      blacklistKeywords.value = String(cfg.blacklist_keywords || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean)
-    }
-    if (a) archiveData.value = a
-  } catch (e) {
-    console.error(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function goPage(p) {
-  if (p < 1 || p > historyData.value.total_pages) return
-  historyData.value.page = p
-  await loadAll()
+  })
+  loadError.value = failed.length ? `部分数据加载失败：${failed.join('、')}` : ''
+  loading.value = false
 }
 
 async function loadArchive() {
-  const data = await getPluginApi(props.api, `archive_records?page=${archiveData.value.page}&page_size=${archiveData.value.page_size}`)
-  if (data) archiveData.value = data
+  loading.value = true
+  loadError.value = ''
+  try {
+    const data = await getPluginApi(
+      props.api,
+      `archive_records?page=${archiveData.value.page}&page_size=${archiveData.value.page_size}`,
+      { timeoutMs: INITIAL_LOAD_TIMEOUT_MS },
+    )
+    if (data) archiveData.value = data
+  } catch (e) {
+    loadError.value = '归档记录加载失败'
+    console.error('[DoubanCenter] 归档记录加载失败', e)
+  } finally {
+    loading.value = false
+  }
 }
 
 async function openArchivePage() {
@@ -247,6 +264,12 @@ async function openArchivePage() {
 
 function closeArchivePage() {
   archivePage.value = false
+}
+
+async function goPage(p) {
+  if (p < 1 || p > historyData.value.total_pages) return
+  historyData.value.page = p
+  await loadAll()
 }
 
 async function runDelete(path, body, key, successText) {
@@ -412,11 +435,17 @@ onMounted(loadAll)
       <VBtn v-if="!props.appPage" icon="mdi-close" variant="text" size="small" @click="emit('close')" />
     </VToolbar>
     <VDivider />
+    <VProgressLinear v-if="loading" indeterminate color="primary" height="2" />
     <VCardText class="pa-3 dc-flow">
-      <VProgressCircular v-if="loading" indeterminate color="primary" class="d-block mx-auto my-6" />
+      <VAlert v-if="loadError" type="warning" variant="tonal" density="compact" class="dc-load-alert">
+        <div class="dc-load-alert__content">
+          <span>{{ loadError }}</span>
+          <VBtn variant="text" size="x-small" prepend-icon="mdi-refresh" class="text-none" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">重试</VBtn>
+        </div>
+      </VAlert>
       <div v-if="actionMessage" class="dc-action-message" :class="actionOk ? 'text-success' : 'text-error'">{{ actionMessage }}</div>
 
-      <template v-if="!loading && archivePage">
+      <template v-if="archivePage">
         <div class="dc-section dc-section--archive">
           <div class="dc-section-title mb-2">归档记录 <span class="text-caption font-weight-regular text-medium-emphasis">（共 {{ archiveData.total || 0 }} 条）</span></div>
           <div v-if="archiveData.items && archiveData.items.length" class="dc-history-list">
@@ -439,11 +468,11 @@ onMounted(loadAll)
               <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="actionKey === rowKey('archive-delete', item, i)" @click="deleteArchive(item, i)" />
             </div>
           </div>
-          <div v-else class="text-center text-medium-emphasis py-4 text-caption">暂无归档记录</div>
+          <div v-else-if="!loading" class="text-center text-medium-emphasis py-4 text-caption">暂无归档记录</div>
         </div>
       </template>
 
-      <template v-else-if="!loading">
+      <template v-else>
         <div v-if="stats" class="dc-section dc-section--stats">
           <div class="dc-section-title mb-2">订阅统计</div>
           <div class="dc-stats-grid">
@@ -496,7 +525,7 @@ onMounted(loadAll)
               <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="actionKey === rowKey('log', item, i)" @click="deleteAntiCheatLog(item, i)" />
             </div>
           </div>
-          <div v-else class="text-center text-medium-emphasis py-4 text-caption">暂无被黑名单筛选的条目</div>
+          <div v-else-if="!loading" class="text-center text-medium-emphasis py-4 text-caption">暂无被黑名单筛选的条目</div>
         </div>
 
         <div class="dc-section dc-section--observe">
@@ -515,7 +544,7 @@ onMounted(loadAll)
               <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="actionKey === rowKey('obs', item, i)" @click.stop="deleteObservation(item, i)" />
             </div>
           </div>
-          <div v-else class="text-center text-medium-emphasis py-4 text-caption">暂无观察期条目</div>
+          <div v-else-if="!loading" class="text-center text-medium-emphasis py-4 text-caption">暂无观察期条目</div>
         </div>
 
         <div class="dc-section dc-section--history">
@@ -534,7 +563,7 @@ onMounted(loadAll)
               <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="actionKey === rowKey('sub', item, i)" @click="deleteSubscribeHistory(item, i)" />
             </div>
           </div>
-          <div v-else class="text-center text-medium-emphasis py-4 text-caption">暂无订阅记录</div>
+          <div v-else-if="!loading" class="text-center text-medium-emphasis py-4 text-caption">暂无订阅记录</div>
           <div v-if="historyData.total_pages > 1" class="d-flex justify-center mt-2">
             <VBtn variant="text" size="x-small" :disabled="historyData.page <= 1" class="mx-1" @click="goPage(historyData.page - 1)">上一页</VBtn>
             <span class="d-flex align-center mx-2 text-caption text-medium-emphasis">{{ historyData.page }} / {{ historyData.total_pages }}</span>
@@ -558,7 +587,7 @@ onMounted(loadAll)
               <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="actionKey === rowKey('log', log, i)" @click="deleteAntiCheatLog(log, i)" />
             </div>
           </div>
-          <div v-else class="text-center text-medium-emphasis py-4 text-caption">暂无观察日志</div>
+          <div v-else-if="!loading" class="text-center text-medium-emphasis py-4 text-caption">暂无观察日志</div>
         </div>
       </template>
     </VCardText>
@@ -577,7 +606,7 @@ onMounted(loadAll)
         <VDivider />
         <VCardActions class="pa-3 pt-2" style="gap: 8px">
           <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
-          <VBtn variant="tonal" color="info" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
+          <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
           <VBtn variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" class="dc-dialog-action text-none" @click="doOpenSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>
@@ -613,6 +642,9 @@ onMounted(loadAll)
 .dc-title-with-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .dc-blacklist-chip { max-width: 120px; }
 .dc-action-message { grid-column: 1 / -1; border: 1px solid currentColor; border-radius: 8px; padding: 7px 10px; margin-bottom: 0; font-size: 12px; background: rgba(var(--v-theme-on-surface), .018); }
+.dc-load-alert { grid-column: 1 / -1; }
+.dc-load-alert__content { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 12px; }
+.dc-load-alert__content span { min-width: 0; overflow-wrap: anywhere; }
 .dc-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
 .dc-stat-card { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .5)); border-radius: 8px; padding: 9px 8px; text-align: center; background: rgba(var(--v-theme-on-surface), .01); }
 .dc-stat-value { font-size: 18px; font-weight: 700; color: rgb(var(--v-theme-primary)); }
@@ -640,6 +672,10 @@ onMounted(loadAll)
 .dc-row-status { max-width: 160px; }
 .dc-row-action { flex: 0 0 auto; }
 .dc-dialog-action { flex: 1 1 0; min-width: 0; height: 36px; }
+.dc-dialog-action--tmdb {
+  color: #0288d1 !important;
+  color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;
+}
 @media (max-width: 760px) {
   .dc-flow { grid-template-columns: 1fr; }
   .dc-section { grid-column: 1 / -1; padding: 10px; }

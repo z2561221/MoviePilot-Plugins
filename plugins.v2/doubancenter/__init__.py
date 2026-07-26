@@ -1,5 +1,5 @@
 ﻿"""
-DoubanCenter v1.2.15 - MoviePilot 本地插件
+DoubanCenter v1.2.17 - MoviePilot 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
 import threading
@@ -32,7 +32,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "1.2.16"
+    plugin_version = "1.2.17"
     plugin_author = "牧濑红莉栖"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
@@ -54,6 +54,7 @@ class DoubanCenter(_PluginBase):
     _folio_private = True
     _folio_first = True
     _folio_notify = False
+    _folio_exclude_live_tv = True
     _folio_user = ""
     _folio_exclude = ""
     _folio_cookie = ""
@@ -99,6 +100,7 @@ class DoubanCenter(_PluginBase):
         self._folio_private = config.get("folio_private", True)
         self._folio_first = config.get("folio_first", True)
         self._folio_notify = config.get("folio_notify", False)
+        self._folio_exclude_live_tv = config.get("folio_exclude_live_tv", True)
         self._folio_user = config.get("folio_user", "")
         self._folio_exclude = config.get("folio_exclude", "")
         self._folio_cookie = config.get("folio_cookie", "")
@@ -154,6 +156,7 @@ class DoubanCenter(_PluginBase):
             "folio_private": self._folio_private,
             "folio_first": self._folio_first,
             "folio_notify": self._folio_notify,
+            "folio_exclude_live_tv": self._folio_exclude_live_tv,
             "folio_user": self._folio_user,
             "folio_exclude": self._folio_exclude,
             "folio_cookie": self._folio_cookie,

@@ -3,6 +3,7 @@ import Page from './Page.vue'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
+  nativeSubscribe: { type: Function, default: null },
   navKey: { type: String, default: 'main' },
   pluginId: { type: String, default: 'DoubanCenter' },
 })
@@ -10,7 +11,12 @@ const props = defineProps({
 
 <template>
   <main class="dc-app-page">
-    <Page :key="`${props.pluginId}-${props.navKey}`" :api="props.api" app-page />
+    <Page
+      :key="`${props.pluginId}-${props.navKey}`"
+      :api="props.api"
+      :native-subscribe="props.nativeSubscribe"
+      app-page
+    />
   </main>
 </template>
 

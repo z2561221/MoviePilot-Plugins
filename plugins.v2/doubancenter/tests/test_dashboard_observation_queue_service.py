@@ -23,6 +23,7 @@ class _MemoryPlugin:
     def __init__(self):
         """初始化内存存储和观察期配置。"""
         self.data = {}
+        self.save_calls = []
         self._observe_days = 2
 
     def get_data(self, key, **kwargs):
@@ -31,6 +32,7 @@ class _MemoryPlugin:
 
     def save_data(self, key, value):
         """保存指定存储键。"""
+        self.save_calls.append(key)
         self.data[key] = value
 
 
@@ -256,6 +258,41 @@ class DashboardObservationQueueServiceTest(unittest.TestCase):
         self.assertFalse(existing["observing"])
         self.assertTrue(existing["existing"])
         self.assertEqual(existing["existing_reason"], "subscribe")
+
+    def test_pending_observations_read_only_skips_subscription_checks_and_writes(self):
+        """观察队列只读模式仅截断展示，不识别订阅、不归档且不保存历史。"""
+        plugin = _MemoryPlugin()
+        plugin.data["rank_history_tv_global"] = [
+            {
+                "title": f"观察{i}",
+                "unique": f"rank:{i}",
+                "first_seen": f"2026-06-2{i} 10:00:00",
+                "observing": True,
+            }
+            for i in range(7)
+        ]
+        original_history = [dict(item) for item in plugin.data["rank_history_tv_global"]]
+        subscription_checks = []
+        archive_calls = []
+
+        result = observation_service.pending_observations(
+            plugin,
+            ranks=[{"key": "tv_global", "name": "全球口碑"}],
+            rank_history_reader=_rank_history_reader,
+            item_existing_subscription_checker=lambda item: False,
+            observed_subscription_exists_checker=lambda *args, **kwargs: subscription_checks.append((args, kwargs)) or False,
+            archive_record_callback=lambda *args, **kwargs: archive_calls.append((args, kwargs)),
+            now=datetime(2026, 7, 1, 12, 0, 0),
+            limit=5,
+            read_only=True,
+        )
+
+        self.assertEqual([item["title"] for item in result["data"]], ["观察6", "观察5", "观察4", "观察3", "观察2"])
+        self.assertEqual(subscription_checks, [])
+        self.assertEqual(archive_calls, [])
+        self.assertEqual(plugin.save_calls, [])
+        self.assertEqual(plugin.data["rank_history_tv_global"], original_history)
+        self.assertNotIn("archive_records", plugin.data)
 
     def test_delete_observation_marks_item_deleted_and_archives_record(self):
         """手动删除观察条目时标记忽略并写入归档。"""

@@ -885,11 +885,8 @@ def get_enabled_rank_keys(self) -> List[str]:
 
 
 def get_rank_history_by_key(self, rank_key: str) -> List[dict]:
-    """读取指定榜单历史并按需归一化。"""
-    history = storage.read_rank_history(self, rank_key)
-    if rank_key == "bangumi":
-        return _normalize_bangumi_history(self, history)
-    return history
+    """只读指定榜单历史，不在页面读取阶段执行媒体识别。"""
+    return storage.read_rank_history(self, rank_key)
 
 
 def _dashboard_rank_sort_key(item: dict) -> tuple:

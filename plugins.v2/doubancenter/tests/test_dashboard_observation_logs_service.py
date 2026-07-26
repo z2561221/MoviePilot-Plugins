@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import types
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
 
@@ -19,6 +20,7 @@ class _MemoryPlugin:
     def __init__(self, data=None):
         """初始化内存存储。"""
         self.data = data or {}
+        self.save_calls = []
 
     def get_data(self, key, **kwargs):
         """读取指定存储键。"""
@@ -26,6 +28,7 @@ class _MemoryPlugin:
 
     def save_data(self, key, value):
         """保存指定存储键。"""
+        self.save_calls.append(key)
         self.data[key] = value
 
 
@@ -108,6 +111,45 @@ class DashboardObservationLogsServiceTest(unittest.TestCase):
         archives = [(item["source_name"], item["title"]) for item in plugin.data["archive_records"]]
         self.assertIn(("黑名拦截", "黑旧"), archives)
         self.assertIn(("观察日志", "观察旧"), archives)
+
+    def test_list_anti_cheat_logs_read_only_does_not_migrate_archive_or_save(self):
+        """观察日志只读模式仅返回内存治理结果，不迁移归档或写回日志。"""
+        plugin = _MemoryPlugin({
+            "subscribe_records": [
+                {"title": "done", "status": "success", "time": "2026-07-01 09:30:00"},
+            ],
+            "anti_cheat_logs": [
+                {"title": "done", "reason": "观察期未满", "detail": "old", "time": "2026-07-01 09:00:00"},
+                {"title": "黑旧", "reason": "黑名单关键词", "detail": "hit", "time": "2026-07-01 10:00:00"},
+                {"title": "黑新", "reason": "黑名单关键词", "detail": "hit", "time": "2026-07-01 11:00:00"},
+                {"title": "观察旧", "reason": "观察期未满", "detail": "wait", "time": "2026-07-01 12:00:00"},
+                {"title": "观察新", "reason": "观察期未满", "detail": "wait", "time": "2026-07-01 13:00:00"},
+            ],
+            "archive_records": [
+                {
+                    "id": "legacy",
+                    "source": "observation_completed",
+                    "title": "旧完成",
+                    "record": {"title": "旧完成", "reason": "观察期完成"},
+                }
+            ],
+        })
+        original_data = deepcopy(plugin.data)
+
+        result = observation_service.list_anti_cheat_logs(
+            plugin,
+            ranks=[],
+            existing_subscription_checker=lambda item: False,
+            limit=1,
+            read_only=True,
+        )
+
+        self.assertEqual(
+            [(item["reason"], item["title"]) for item in result["data"]],
+            [("黑名拦截", "黑新"), ("继续观察", "观察新")],
+        )
+        self.assertEqual(plugin.save_calls, [])
+        self.assertEqual(plugin.data, original_data)
 
     def test_delete_anti_cheat_log_archives_matching_log_and_saves_kept_logs(self):
         """删除观察日志时归档匹配记录并保存剩余日志。"""

@@ -1191,8 +1191,11 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
             {"title": "existing", "unique": "rank:1", "first_seen": first_seen, "observing": True}
         ]
 
+        recognition_calls = []
+
         class ExistingMediaChain:
             def recognize_media(self, meta=None, mtype=None):
+                recognition_calls.append((meta, mtype))
                 return _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
 
         class ExistingDownloadChain:
@@ -1212,6 +1215,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual([item["unique"] for item in result], ["rank:1"])
         self.assertTrue(plugin.data["rank_history_tv_global"][0]["observing"])
         self.assertNotIn("existing", plugin.data["rank_history_tv_global"][0])
+        self.assertEqual(recognition_calls, [])
 
     def test_config_returns_blacklist_keywords_for_page(self):
         dashboard = _import_dashboard()
@@ -1261,7 +1265,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual([item["title"] for item in plugin.data["anti_cheat_logs"]], ["保留"])
 
-    def test_anti_cheat_logs_api_deduplicates_existing_records(self):
+    def test_anti_cheat_logs_api_deduplicates_existing_records_in_memory(self):
         dashboard = _import_dashboard()
         plugin = _Plugin()
         plugin.data["anti_cheat_logs"] = [
@@ -1276,7 +1280,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(result[0]["title"], "same")
         self.assertEqual(result[0]["time"], "2026-06-22 10:00:00")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(plugin.data["anti_cheat_logs"]), 2)
+        self.assertEqual(len(plugin.data["anti_cheat_logs"]), 3)
 
     def test_subscribe_history_api_deduplicates_existing_records(self):
         dashboard = _import_dashboard()
@@ -1345,7 +1349,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(history[0]["tmdbid"], 67890)
         self.assertEqual(history[0]["media_type"], "tv")
 
-    def test_dashboard_rank_items_migrates_cached_bangumi_title_by_tmdbid(self):
+    def test_dashboard_rank_items_reads_cached_bangumi_without_recognition(self):
         plugin = _Plugin()
         calls = []
         plugin.data["rank_history_bangumi"] = [
@@ -1367,11 +1371,10 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         result = self.feed.get_dashboard_rank_items(plugin, "bangumi", limit=5)
 
-        self.assertEqual(calls, [("Japanese Anime", 67890, _MediaType.TV)])
-        self.assertEqual(result[0]["title"], "中文动画")
-        self.assertEqual(result[0]["original_title"], "Japanese Anime")
+        self.assertEqual(calls, [])
+        self.assertEqual(result[0]["title"], "Japanese Anime")
         self.assertEqual(result[0]["tmdbid"], 67890)
-        self.assertEqual(plugin.data["rank_history_bangumi"][0]["title"], "中文动画")
+        self.assertEqual(plugin.data["rank_history_bangumi"][0]["title"], "Japanese Anime")
 
     def test_dashboard_rank_history_prefers_latest_refresh_batch_order(self):
         dashboard = _import_dashboard()
@@ -1826,6 +1829,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
             {"title": "keep", "reason": "\u89c2\u5bdf\u671f\u672a\u6ee1", "detail": "d", "time": "2026-06-21 12:00:00"},
             {"title": "keep", "reason": "\u89c2\u5bdf\u671f\u672a\u6ee1", "detail": "d", "time": "2026-06-21 12:00:00"},
         ]
+        original_logs = [dict(item) for item in plugin.data["anti_cheat_logs"]]
 
         logs = dashboard.api_anti_cheat_logs(plugin)["data"]
 
@@ -1834,7 +1838,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("2026-06-20 10:00:00", logs[0]["detail"])
         self.assertEqual(logs[1]["count"], 2)
         self.assertIsNone(plugin.data.get("archive_records"))
-        self.assertEqual(plugin.data["anti_cheat_logs"], logs)
+        self.assertEqual(plugin.data["anti_cheat_logs"], original_logs)
 
         dashboard.api_anti_cheat_logs(plugin)
 
@@ -1935,7 +1939,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertTrue(deleted["success"])
         self.assertEqual(plugin.data["archive_records"], [])
 
-    def test_legacy_observation_completion_archives_return_to_logs(self):
+    def test_explicit_legacy_observation_completion_migration_returns_to_logs(self):
         dashboard = _import_dashboard()
         plugin = _Plugin()
         plugin.data["archive_records"] = [
@@ -1951,6 +1955,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
             }
         ]
 
+        self.assertTrue(dashboard._remove_legacy_observation_completed_archives(plugin))
         logs = dashboard.api_anti_cheat_logs(plugin)["data"]
         archives = dashboard.api_archive_records(plugin)["data"]
 
@@ -1994,17 +1999,14 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(len([item for item in logs if item["reason"] == "黑名拦截"]), 5)
         self.assertEqual(len([item for item in logs if item["reason"] != "黑名拦截"]), 5)
         self.assertEqual([item["title"] for item in pending], ["观察6", "观察5", "观察4", "观察3", "观察2"])
-        self.assertFalse(plugin.data["rank_history_tv_global"][0]["observing"])
-        self.assertTrue(plugin.data["rank_history_tv_global"][0]["observe_deleted"])
+        self.assertTrue(plugin.data["rank_history_tv_global"][0]["observing"])
+        self.assertNotIn("observe_deleted", plugin.data["rank_history_tv_global"][0])
         sources = [(item["source"], item["source_name"], item["title"]) for item in plugin.data["archive_records"]]
         self.assertIn(("subscribe_history", "订阅历史", "订阅1"), sources)
         self.assertIn(("subscribe_history", "订阅历史", "订阅0"), sources)
-        self.assertIn(("anti_cheat_log", "黑名拦截", "黑名1"), sources)
-        self.assertIn(("anti_cheat_log", "黑名拦截", "黑名0"), sources)
-        self.assertIn(("anti_cheat_log", "观察日志", "日志1"), sources)
-        self.assertIn(("anti_cheat_log", "观察日志", "日志0"), sources)
-        self.assertIn(("observation", "观察队列", "观察1"), sources)
-        self.assertIn(("observation", "观察队列", "观察0"), sources)
+        self.assertNotIn(("anti_cheat_log", "黑名拦截", "黑名1"), sources)
+        self.assertNotIn(("anti_cheat_log", "观察日志", "日志1"), sources)
+        self.assertNotIn(("observation", "观察队列", "观察1"), sources)
 
     def test_auto_subscription_uses_mp_default_message_instead_of_plugin_notify(self):
         plugin = _Plugin()

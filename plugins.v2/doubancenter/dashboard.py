@@ -269,6 +269,7 @@ def api_pending_observations(self):
         observed_subscription_exists_checker=_observed_item_subscription_exists,
         archive_record_callback=_archive_record,
         limit=DETAIL_SECTION_LIMIT,
+        read_only=True,
     )
 
 
@@ -346,6 +347,7 @@ def api_anti_cheat_logs(self):
         ranks=_rank_history_snapshots(self),
         existing_subscription_checker=_item_existing_subscription,
         limit=DETAIL_SECTION_LIMIT,
+        read_only=True,
     )
 
 

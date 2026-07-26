@@ -30,6 +30,15 @@ def test_rank_subscribe_buttons_use_native_subscribe_dialog_with_fallback():
         assert "await subscribeRankItem(rk, item)" in script
 
 
+def test_discovery_app_page_forwards_native_subscribe_to_page():
+    app_page_source = (PLUGIN_DIR / "src" / "components" / "AppPage.vue").read_text(encoding="utf-8")
+    app_page_script = _read_exposed_asset("AppPage")
+
+    assert "nativeSubscribe: { type: Function, default: null }" in app_page_source
+    assert ':native-subscribe="props.nativeSubscribe"' in app_page_source
+    assert "nativeSubscribe" in app_page_script
+
+
 def test_rank_dialog_actions_include_equal_width_tmdb_button():
     for expose_name in ("Dashboard", "Page"):
         script = _read_exposed_asset(expose_name)

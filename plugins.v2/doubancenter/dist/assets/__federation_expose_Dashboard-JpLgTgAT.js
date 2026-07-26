@@ -1,47 +1,48 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-C4gmM98O.js';
+import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-C3eD-LZW.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,normalizeStyle:_normalizeStyle,unref:_unref} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeStyle:_normalizeStyle,unref:_unref} = await importShared('vue');
 
 
-const _hoisted_1 = {
+const _hoisted_1 = { class: "dc-load-alert__content" };
+const _hoisted_2 = {
   key: 3,
   class: "mb-3"
 };
-const _hoisted_2 = { class: "dc-rank-grid" };
-const _hoisted_3 = {
+const _hoisted_3 = { class: "dc-rank-grid" };
+const _hoisted_4 = {
   class: "dc-rank-cell dc-tl-cell",
   style: {"grid-column":"1 / -1"}
 };
-const _hoisted_4 = { class: "dc-rank-head" };
-const _hoisted_5 = { class: "dc-rank-body" };
-const _hoisted_6 = { class: "dc-timeline-scroll" };
-const _hoisted_7 = { class: "dc-timeline-months" };
-const _hoisted_8 = {
+const _hoisted_5 = { class: "dc-rank-head" };
+const _hoisted_6 = { class: "dc-rank-body" };
+const _hoisted_7 = { class: "dc-timeline-scroll" };
+const _hoisted_8 = { class: "dc-timeline-months" };
+const _hoisted_9 = {
   class: "text-caption text-medium-emphasis mb-1",
   style: {"font-size":"11px"}
 };
-const _hoisted_9 = { class: "dc-timeline-posters" };
-const _hoisted_10 = ["href", "title"];
-const _hoisted_11 = {
+const _hoisted_10 = { class: "dc-timeline-posters" };
+const _hoisted_11 = ["href", "title"];
+const _hoisted_12 = {
   key: 1,
   class: "dc-ph"
 };
-const _hoisted_12 = { key: 4 };
-const _hoisted_13 = { class: "dc-rank-grid" };
-const _hoisted_14 = { class: "dc-rank-head" };
-const _hoisted_15 = { class: "dc-rank-body" };
-const _hoisted_16 = ["title", "onClick"];
-const _hoisted_17 = { class: "dc-rank-title" };
-const _hoisted_18 = {
+const _hoisted_13 = { key: 4 };
+const _hoisted_14 = { class: "dc-rank-grid" };
+const _hoisted_15 = { class: "dc-rank-head" };
+const _hoisted_16 = { class: "dc-rank-body" };
+const _hoisted_17 = ["title", "onClick"];
+const _hoisted_18 = { class: "dc-rank-title" };
+const _hoisted_19 = {
   key: 0,
   class: "dc-rank-wish"
 };
-const _hoisted_19 = {
+const _hoisted_20 = {
   key: 0,
   class: "text-center text-medium-emphasis py-2 text-caption"
 };
-const _hoisted_20 = {
+const _hoisted_21 = {
   key: 5,
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
@@ -50,6 +51,7 @@ const {ref,computed,onMounted} = await importShared('vue');
 
 const TIMELINE_MONTH_LIMIT = 3;
 const TIMELINE_ITEM_LIMIT = 50;
+const INITIAL_LOAD_TIMEOUT_MS = 8000;
 
 
 const _sfc_main = {
@@ -66,9 +68,11 @@ const config = ref({});
 const rankHistory = ref({});
 const folioData = ref({});
 const loading = ref(false);
+const folioLoading = ref(false);
 const refreshing = ref(false);
 const subscribeResult = ref('');
 const refreshResult = ref('');
+const loadError = ref('');
 const dialogItem = ref(null);
 const showDialog = ref(false);
 
@@ -168,20 +172,36 @@ async function resolveRankMedia(rk, item) {
 
 async function load() {
   loading.value = true;
-  try {
-    const [nextConfig, nextRankHistory, nextFolioData] = await Promise.all([
-      getPluginApi(props.api, 'config'),
-      getPluginApi(props.api, 'rank_history'),
-      getPluginApi(props.api, 'folio_data'),
-    ]);
-    config.value = nextConfig || {};
-    rankHistory.value = nextRankHistory || {};
-    folioData.value = nextFolioData || {};
-  } catch (e) {
-    console.error(e);
-  } finally {
-    loading.value = false;
+  folioLoading.value = true;
+  loadError.value = '';
+  const errors = [];
+  const folioRequest = getPluginApi(props.api, 'folio_data', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS });
+  const coreRequests = [
+    { label: '仪表配置', run: getPluginApi(props.api, 'config', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS }) },
+    { label: '榜单快照', run: getPluginApi(props.api, 'rank_history', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS }) },
+  ];
+  const coreResults = await Promise.allSettled(coreRequests.map(item => item.run));
+
+  coreResults.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      if (index === 0) config.value = result.value || {};
+      else rankHistory.value = result.value || {};
+      return
+    }
+    errors.push(coreRequests[index].label);
+    console.error(`[DoubanCenter] ${coreRequests[index].label}加载失败`, result.reason);
+  });
+  loading.value = false;
+
+  const [folioResult] = await Promise.allSettled([folioRequest]);
+  if (folioResult.status === 'fulfilled') {
+    folioData.value = folioResult.value || {};
+  } else {
+    errors.push('追影时间线');
+    console.error('[DoubanCenter] 追影时间线加载失败', folioResult.reason);
   }
+  folioLoading.value = false;
+  loadError.value = errors.length ? `部分数据加载失败：${errors.join('、')}` : '';
 }
 
 async function refreshRss() {
@@ -341,7 +361,7 @@ return (_ctx, _cache) => {
   const _component_VBtn = _resolveComponent("VBtn");
   const _component_VCardItem = _resolveComponent("VCardItem");
   const _component_VDivider = _resolveComponent("VDivider");
-  const _component_VProgressCircular = _resolveComponent("VProgressCircular");
+  const _component_VProgressLinear = _resolveComponent("VProgressLinear");
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VChip = _resolveComponent("VChip");
   const _component_VImg = _resolveComponent("VImg");
@@ -400,14 +420,43 @@ return (_ctx, _cache) => {
         _: 1
       }),
       _createVNode(_component_VDivider),
+      (loading.value || folioLoading.value)
+        ? (_openBlock(), _createBlock(_component_VProgressLinear, {
+            key: 0,
+            indeterminate: "",
+            color: "primary",
+            height: "2"
+          }))
+        : _createCommentVNode("", true),
       _createVNode(_component_VCardText, { class: "pa-3" }, {
         default: _withCtx(() => [
-          (loading.value)
-            ? (_openBlock(), _createBlock(_component_VProgressCircular, {
+          (loadError.value)
+            ? (_openBlock(), _createBlock(_component_VAlert, {
                 key: 0,
-                indeterminate: "",
-                color: "primary",
-                class: "d-block mx-auto my-6"
+                type: "warning",
+                variant: "tonal",
+                density: "compact",
+                class: "mb-2 dc-load-alert"
+              }, {
+                default: _withCtx(() => [
+                  _createElementVNode("div", _hoisted_1, [
+                    _createElementVNode("span", null, _toDisplayString(loadError.value), 1),
+                    _createVNode(_component_VBtn, {
+                      variant: "text",
+                      size: "x-small",
+                      "prepend-icon": "mdi-refresh",
+                      class: "text-none",
+                      loading: loading.value || folioLoading.value,
+                      onClick: load
+                    }, {
+                      default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+                        _createTextVNode("重试", -1)
+                      ]))]),
+                      _: 1
+                    }, 8, ["loading"])
+                  ])
+                ]),
+                _: 1
               }))
             : _createCommentVNode("", true),
           (subscribeResult.value)
@@ -433,27 +482,27 @@ return (_ctx, _cache) => {
               }, null, 8, ["type", "text"]))
             : _createCommentVNode("", true),
           (timelineGroups.value.length)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_1, [
-                _createElementVNode("div", _hoisted_2, [
-                  _createElementVNode("div", _hoisted_3, [
-                    _createElementVNode("div", _hoisted_4, [
+            ? (_openBlock(), _createElementBlock("div", _hoisted_2, [
+                _createElementVNode("div", _hoisted_3, [
+                  _createElementVNode("div", _hoisted_4, [
+                    _createElementVNode("div", _hoisted_5, [
                       _createVNode(_component_VIcon, {
                         icon: "mdi-timeline-clock-outline",
                         size: "14",
                         class: "mr-1",
                         color: "primary"
                       }),
-                      _cache[4] || (_cache[4] = _createTextVNode("追影时间线", -1))
+                      _cache[5] || (_cache[5] = _createTextVNode("追影时间线", -1))
                     ]),
-                    _createElementVNode("div", _hoisted_5, [
-                      _createElementVNode("div", _hoisted_6, [
-                        _createElementVNode("div", _hoisted_7, [
+                    _createElementVNode("div", _hoisted_6, [
+                      _createElementVNode("div", _hoisted_7, [
+                        _createElementVNode("div", _hoisted_8, [
                           (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(timelineGroups.value, (group) => {
                             return (_openBlock(), _createElementBlock("div", {
                               key: group.monthKey,
                               class: "dc-timeline-month"
                             }, [
-                              _createElementVNode("div", _hoisted_8, [
+                              _createElementVNode("div", _hoisted_9, [
                                 _createTextVNode(_toDisplayString(group.label) + " ", 1),
                                 _createVNode(_component_VChip, {
                                   size: "x-small",
@@ -466,7 +515,7 @@ return (_ctx, _cache) => {
                                   _: 2
                                 }, 1024)
                               ]),
-                              _createElementVNode("div", _hoisted_9, [
+                              _createElementVNode("div", _hoisted_10, [
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(group.items, (item) => {
                                   return (_openBlock(), _createElementBlock("a", {
                                     key: item.key,
@@ -484,13 +533,13 @@ return (_ctx, _cache) => {
                                           cover: "",
                                           class: "rounded"
                                         }, null, 8, ["src"]))
-                                      : (_openBlock(), _createElementBlock("div", _hoisted_11, [
+                                      : (_openBlock(), _createElementBlock("div", _hoisted_12, [
                                           _createVNode(_component_VIcon, {
                                             icon: "mdi-filmstrip",
                                             size: "14"
                                           })
                                         ]))
-                                  ], 8, _hoisted_10))
+                                  ], 8, _hoisted_11))
                                 }), 128))
                               ])
                             ]))
@@ -503,14 +552,14 @@ return (_ctx, _cache) => {
               ]))
             : _createCommentVNode("", true),
           (config.value.dashboard_rank_keys && config.value.dashboard_rank_keys.length)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_12, [
-                _createElementVNode("div", _hoisted_13, [
+            ? (_openBlock(), _createElementBlock("div", _hoisted_13, [
+                _createElementVNode("div", _hoisted_14, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(config.value.dashboard_rank_keys, (rk) => {
                     return (_openBlock(), _createElementBlock("div", {
                       key: rk,
                       class: "dc-rank-cell"
                     }, [
-                      _createElementVNode("div", _hoisted_14, [
+                      _createElementVNode("div", _hoisted_15, [
                         _createVNode(_component_VIcon, {
                           icon: "mdi-format-list-numbered",
                           size: "15",
@@ -519,7 +568,7 @@ return (_ctx, _cache) => {
                         }, null, 8, ["style"]),
                         _createElementVNode("span", null, _toDisplayString(rankDefs[rk]?.name || rk), 1)
                       ]),
-                      _createElementVNode("div", _hoisted_15, [
+                      _createElementVNode("div", _hoisted_16, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((rankHistory.value[rk] || []).slice(0, 5), (item, i) => {
                           return (_openBlock(), _createElementBlock("div", {
                             key: i,
@@ -546,14 +595,14 @@ return (_ctx, _cache) => {
                               ]),
                               _: 2
                             }, 1024),
-                            _createElementVNode("span", _hoisted_17, _toDisplayString(item.title), 1),
+                            _createElementVNode("span", _hoisted_18, _toDisplayString(item.title), 1),
                             (rk === 'coming' && item.wish_count)
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_18, _toDisplayString(item.wish_count), 1))
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_19, _toDisplayString(item.wish_count), 1))
                               : _createCommentVNode("", true)
-                          ], 8, _hoisted_16))
+                          ], 8, _hoisted_17))
                         }), 128)),
                         (!(rankHistory.value[rk] || []).length)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_19, "暂无数据"))
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_20, "暂无数据"))
                           : _createCommentVNode("", true)
                       ])
                     ]))
@@ -561,8 +610,8 @@ return (_ctx, _cache) => {
                 ])
               ]))
             : _createCommentVNode("", true),
-          (!loading.value && !config.value.dashboard_rank_keys?.length && !timelineGroups.value.length)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_20, " 请在配置页「仪表显示」中选择要显示的榜单 "))
+          (!loading.value && !folioLoading.value && !config.value.dashboard_rank_keys?.length && !timelineGroups.value.length)
+            ? (_openBlock(), _createElementBlock("div", _hoisted_21, " 请在配置页「仪表显示」中选择要显示的榜单 "))
             : _createCommentVNode("", true)
         ]),
         _: 1
@@ -628,20 +677,19 @@ return (_ctx, _cache) => {
                     class: "dc-dialog-action text-none",
                     onClick: doSubscribe
                   }, {
-                    default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
+                    default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
                       _createTextVNode("订阅", -1)
                     ]))]),
                     _: 1
                   }),
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
-                    color: "info",
                     "prepend-icon": "mdi-movie-open-outline",
-                    class: "dc-dialog-action text-none",
+                    class: "dc-dialog-action dc-dialog-action--tmdb text-none",
                     disabled: !(dialogItem.value?.item?.tmdbid || dialogItem.value?.item?.tmdb_id),
                     onClick: doOpenTmdb
                   }, {
-                    default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
+                    default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
                       _createTextVNode("TMDB", -1)
                     ]))]),
                     _: 1
@@ -674,6 +722,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a4a84115"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-92240983"]]);
 
 export { Dashboard as default };

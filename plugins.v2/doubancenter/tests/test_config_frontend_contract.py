@@ -173,7 +173,9 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn('label="开启发现页"', config_text)
         self.assertIn("保存并刷新 MP 页面", config_text)
         self.assertIn("import Page from './Page.vue'", app_page_text)
-        self.assertIn(':api="props.api" app-page', app_page_text)
+        self.assertIn("nativeSubscribe: { type: Function, default: null }", app_page_text)
+        self.assertIn(':api="props.api"', app_page_text)
+        self.assertIn(':native-subscribe="props.nativeSubscribe"', app_page_text)
         self.assertNotIn("getPluginApi", app_page_text)
         self.assertIn("appPage: { type: Boolean, default: false }", page_text)
         self.assertEqual(page_text.count('v-if="!props.appPage"'), 2)
@@ -210,20 +212,46 @@ class ConfigFrontendContractTest(unittest.TestCase):
 
         self.assertNotIn("getPluginApi(props.api, `subscribe?", text)
 
-    def test_dashboard_loads_initial_data_concurrently(self):
-        """仪表盘首次挂载应并发请求配置、榜单历史和豆瓣时间。"""
+    def test_dashboard_initial_load_times_out_and_keeps_partial_data(self):
+        """仪表盘首次挂载应限时并发请求，且允许核心数据先于时间线收口。"""
         text = DASHBOARD_VUE.read_text(encoding="utf-8")
         load_block = re.search(r"async function load\(\) \{.*?^\}", text, re.MULTILINE | re.DOTALL)
 
         self.assertIsNotNone(load_block)
         load_text = load_block.group(0)
-        self.assertIn("const [nextConfig, nextRankHistory, nextFolioData] = await Promise.all([", load_text)
-        self.assertIn("getPluginApi(props.api, 'config')", load_text)
-        self.assertIn("getPluginApi(props.api, 'rank_history')", load_text)
-        self.assertIn("getPluginApi(props.api, 'folio_data')", load_text)
-        self.assertNotIn("config.value = await getPluginApi(props.api, 'config')", load_text)
-        self.assertNotIn("rankHistory.value = await getPluginApi(props.api, 'rank_history')", load_text)
-        self.assertNotIn("folioData.value = await getPluginApi(props.api, 'folio_data')", load_text)
+        self.assertIn("const folioRequest = getPluginApi(props.api, 'folio_data', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS })", load_text)
+        self.assertIn("getPluginApi(props.api, 'config', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS })", load_text)
+        self.assertIn("getPluginApi(props.api, 'rank_history', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS })", load_text)
+        self.assertIn("await Promise.allSettled(coreRequests.map(item => item.run))", load_text)
+        self.assertIn("await Promise.allSettled([folioRequest])", load_text)
+        self.assertIn("loading.value = false", load_text)
+        self.assertIn("loadError.value = errors.length", load_text)
+        self.assertNotIn("await Promise.all([", load_text)
+
+        self.assertIn('<VProgressLinear v-if="loading || folioLoading"', text)
+        self.assertIn('@click="load">重试</VBtn>', text)
+        self.assertNotIn('<VProgressCircular v-if="loading"', text)
+
+    def test_discovery_initial_load_times_out_and_keeps_partial_data(self):
+        """发现页请求应独立收口，失败时保留成功数据并提供重试。"""
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+        api_text = API_JS.read_text(encoding="utf-8")
+        load_block = re.search(r"async function loadAll\(\) \{.*?^\}", page_text, re.MULTILINE | re.DOTALL)
+
+        self.assertIsNotNone(load_block)
+        load_text = load_block.group(0)
+        self.assertIn("await Promise.allSettled(requests.map(async request =>", load_text)
+        self.assertIn("{ timeoutMs: INITIAL_LOAD_TIMEOUT_MS }", load_text)
+        self.assertIn("request.apply(value)", load_text)
+        self.assertIn("loadError.value = failed.length", load_text)
+        self.assertNotIn("archive_records", load_text)
+        self.assertNotIn("await Promise.all([", load_text)
+
+        self.assertIn('<VProgressLinear v-if="loading"', page_text)
+        self.assertIn("archivePage ? loadArchive() : loadAll()", page_text)
+        self.assertNotIn('<VProgressCircular v-if="loading"', page_text)
+        self.assertIn("error.code = 'PLUGIN_API_TIMEOUT'", api_text)
+        self.assertIn("return await Promise.race([request, timeout])", api_text)
 
     def test_small_posters_share_w200_url_conversion_and_lazy_loading(self):
         """仪表盘与详情页小海报应统一降到 w200 并保持 VImg 懒加载。"""
@@ -332,6 +360,37 @@ class ConfigFrontendContractTest(unittest.TestCase):
 
         self.assertNotIn('class="d-flex flex-wrap" style="gap: 8px"', text)
 
+    def test_tmdb_actions_use_theme_adaptive_contrast_color(self):
+        """TMDB 操作按钮不应继承宿主主题中偏淡的 info 色。"""
+        for path in (PAGE_VUE, DASHBOARD_VUE):
+            text = path.read_text(encoding="utf-8")
+
+            self.assertIn(
+                'class="dc-dialog-action dc-dialog-action--tmdb text-none"',
+                text,
+                path.name,
+            )
+            self.assertNotIn(
+                'color="info" prepend-icon="mdi-movie-open-outline"',
+                text,
+                path.name,
+            )
+            self.assertIn(
+                ".dc-dialog-action--tmdb {",
+                text,
+                path.name,
+            )
+            self.assertIn(
+                "color: #0288d1 !important;",
+                text,
+                path.name,
+            )
+            self.assertIn(
+                "color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;",
+                text,
+                path.name,
+            )
+
     def test_dashboard_timeline_display_options_are_removed_from_config_ui(self):
         """仪表显示不再提供豆瓣时间线显示数量设置。"""
         config_text = CONFIG_VUE.read_text(encoding="utf-8")
@@ -366,6 +425,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("wish_notify: false", text)
         self.assertIn("wish_onlyonce: false", text)
         self.assertIn("wish_days: 7", text)
+        self.assertIn("folio_exclude_live_tv: true", text)
         self.assertIn("title: '同步想看'", text)
         self.assertIn("title: '同步观影'", text)
         self.assertLess(text.index("title: '同步想看'"), text.index("title: '同步观影'"))
@@ -381,6 +441,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
             "立即运行一次",
             "overview?.cards?.folio?.wish",
             "通过豆瓣动态 feed 同步",
+            'v-model="form.folio_exclude_live_tv"',
+            "排除电视直播源",
         ]
         for fragment in required_controls:
             self.assertIn(fragment, text)
