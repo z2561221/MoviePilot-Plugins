@@ -147,6 +147,34 @@ def test_agent_tools_take_username_and_run_id_only_from_trusted_context():
     assert "post_message" not in tools_source
 
 
+def test_feedback_decisions_require_confirmation_and_cannot_project_memory():
+    """反馈理解只能生成提案或问询，不能直接调用长期记忆投影。"""
+    model_source = _source("model/feedback_decision.py")
+    proposal_source = _source("service/feedback_proposal.py")
+    understanding_source = _source("service/feedback_understanding.py")
+    for contract in (
+        "class MemoryProposalChange",
+        "class MemoryProposal",
+        "class PendingQuestionOption",
+        "class PendingQuestion",
+        "expected_memory_revision",
+        "pending_confirmation",
+        "allow_custom_answer",
+    ):
+        assert contract in model_source
+    assert "FeedbackProposalService" in understanding_source
+    assert ".materialize(" in understanding_source
+    assert "propose_memory_change" in proposal_source
+    assert "ask_clarification" in proposal_source
+    for forbidden_write in (
+        "project_preference_memory",
+        "save_preference_memory",
+        "update_config",
+        "save_profile",
+    ):
+        assert forbidden_write not in proposal_source
+
+
 def test_runtime_injects_controlled_tmdb_keyword_resolution():
     """运行时通过宿主适配器注入唯一关键词解析，不在 service 直接发 HTTP。"""
     runtime_source = _source("service/runtime.py")

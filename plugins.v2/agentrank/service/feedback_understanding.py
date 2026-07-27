@@ -20,6 +20,7 @@ from .critic_skills import (
     understand_feedback,
 )
 from .prompt import build_feedback_understanding_prompt
+from .feedback_proposal import FeedbackProposalService
 
 
 _OUTPUT_KEYS = frozenset(
@@ -157,14 +158,18 @@ class FeedbackUnderstandingService:
         *,
         parser: Optional[FeedbackUnderstandingParser] = None,
         analysis_limit: int = 500,
+        proposal_service: Any = None,
     ):
-        """绑定仓储、受限 Agent 适配器和有界记录上限。"""
+        """绑定仓储、受限 Agent、解析器和确定性提案服务。"""
         if not isinstance(repository, AgentRankRepository):
             raise TypeError("repository must be AgentRankRepository")
         self._repository = repository
         self._agent_adapter = agent_adapter
         self._parser = parser or FeedbackUnderstandingParser()
         self._analysis_limit = max(1, min(int(analysis_limit), 100000))
+        self._proposal_service = proposal_service or FeedbackProposalService(
+            repository, record_limit=self._analysis_limit
+        )
 
     def _event_for_job(self, job: FeedbackQueueJob) -> FeedbackEvent:
         """按持久序号读取当前任务引用的不可变反馈事实。"""
@@ -309,14 +314,21 @@ class FeedbackUnderstandingService:
         """处理一个持久队列任务；纯忽略固定为 exclusion_only。"""
         if not isinstance(job, FeedbackQueueJob):
             raise TypeError("job must be FeedbackQueueJob")
+        event = self._event_for_job(job)
+        candidate = self._candidate_context(event)
+        memory_model = self._repository.load_preference_memory(event.profile_id)
+        memory = memory_model.to_dict()
         existing = self._repository.load_feedback_understanding(
             job.profile_id, job.event_id
         )
         if existing is not None:
+            self._proposal_service.materialize(
+                existing,
+                event=event,
+                candidate=candidate,
+                memory=memory_model,
+            )
             return existing
-        event = self._event_for_job(job)
-        candidate = self._candidate_context(event)
-        memory = self._repository.load_preference_memory(event.profile_id).to_dict()
         evidence = summarize_evidence(
             self._event_context(event), candidate, memory
         )
@@ -324,7 +336,7 @@ class FeedbackUnderstandingService:
         prompt = build_feedback_understanding_prompt()
         fingerprint = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         if guard["required_outcome"] == "exclusion_only":
-            return self._record(
+            record = self._record(
                 event=event,
                 outcome="exclusion_only",
                 restatement="仅排除这部作品，不改变长期口味判断",
@@ -338,6 +350,13 @@ class FeedbackUnderstandingService:
                     "model_call_count": 0,
                 },
             )
+            self._proposal_service.materialize(
+                record,
+                event=event,
+                candidate=candidate,
+                memory=memory_model,
+            )
+            return record
 
         context = build_trusted_context(
             username=(
@@ -375,7 +394,7 @@ class FeedbackUnderstandingService:
             [signal.to_dict() for signal in signals],
             memory,
         )
-        return self._record(
+        record = self._record(
             event=event,
             outcome=parsed["outcome"],
             restatement=parsed["restatement"],
@@ -386,3 +405,10 @@ class FeedbackUnderstandingService:
             memory_revision=int(memory.get("memory_revision") or 0),
             provenance=self._safe_provenance(raw),
         )
+        self._proposal_service.materialize(
+            record,
+            event=event,
+            candidate=candidate,
+            memory=memory_model,
+        )
+        return record

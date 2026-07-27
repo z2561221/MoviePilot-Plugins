@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-4",
-    "task": "4.3",
-    "next_allowed_action": "Execute task 4.3: generate evidence-linked memory proposals for clear feedback and bounded clarification questions for ambiguous feedback"
+    "task": "4.4",
+    "next_allowed_action": "Execute task 4.4: implement immediate reply, 1/3/7-day reminders, never-remind behavior, and no-reply semantics without memory projection"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -396,20 +396,34 @@
             "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
             "compileall, progress JSON parse, sensitive-field scan review, and git diff check: passed"
           ],
-          "commit": null
+          "commit": "b315f376"
         },
         {
           "id": "4.3",
           "title": "生成记忆提案与歧义问询",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": ["明确时生成复述和变化预览", "歧义时提供选项与自定义回答"],
-          "verification": [],
+          "verification": [
+            "MemoryProposal and PendingQuestion are versioned, profile-isolated, evidence-linked, expiring, and contain no prompt, provider raw output, or chain-of-thought",
+            "clear feedback creates an add, reinforce, weaken, or explicit restore preview with target memory lineage and expected memory_revision",
+            "ambiguous feedback creates exactly two or three stable options plus a custom answer entry and does not create a memory proposal",
+            "exclusion_only feedback creates neither a proposal nor a question",
+            "proposal/question appends are idempotent by source event and retrying an existing understanding only materializes missing derived state without another Agent call",
+            "unfinished proposals and questions are protected from bounded retention; terminal history is pruned first",
+            "profile export includes safe proposal/question fields and redacts URLs, credentials, and internal reasoning markers",
+            "proposal service has no memory, configuration, notification, subscription, or file write capability",
+            "AgentRank plugin suite: 488 passed",
+            "AgentRank static contracts: 25 passed",
+            "smoke contracts: 49 passed",
+            "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
+            "compileall, progress JSON parse, sensitive-field scan review, and git diff check: passed"
+          ],
           "commit": null
         },
         {
           "id": "4.4",
           "title": "实现稍后提醒与不回复语义",
-          "status": "pending",
+          "status": "in_progress",
           "acceptance": ["支持1/3/7天和不提醒", "未回复拒绝过期均不改记忆"],
           "verification": [],
           "commit": null
@@ -760,6 +774,12 @@
       "task": "4.1",
       "result": "profile-ordered durable feedback queue implemented with bounded cross-profile concurrency, non-blocking API enqueue, restart leases, backoff, dead-letter notification, and reference-safe retention",
       "commit": "fb958184"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "4.2",
+      "result": "versioned critic persona, six side-effect-free skills, role-specific read-only feedback Agent, sanitized understanding records, and queue integration implemented without changing confirmed memory",
+      "commit": "b315f376"
     }
   ],
   "residual_risks": [

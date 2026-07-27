@@ -130,6 +130,12 @@ class DataLifecycleService:
             "analysis": self.repository.prune_learning_list(
                 target, "agent_analysis", self.policy.analysis_record_limit
             ),
+            "memory_proposals": self.repository.prune_learning_list(
+                target, "memory_proposals", self.policy.analysis_record_limit
+            ),
+            "pending_questions": self.repository.prune_learning_list(
+                target, "pending_questions", self.policy.analysis_record_limit
+            ),
         }
         return result
 
@@ -197,6 +203,8 @@ class DataLifecycleService:
         feedback = repository.load_feedback_events(target)
         feedback_queue = repository.load_feedback_queue(target)
         feedback_understandings = repository.load_feedback_understandings(target)
+        memory_proposals = repository.load_memory_proposals(target)
+        pending_questions = repository.load_pending_questions(target)
         snapshot_refs = repository.candidate_snapshot_references(target)
 
         profile_data = None
@@ -375,6 +383,83 @@ class DataLifecycleService:
                     "status": _redact_text(record.status),
                 }
                 for record in feedback_understandings
+            ],
+            "memory_proposals": [
+                {
+                    "proposal_id": _safe_scalar(proposal.proposal_id),
+                    "event_id": _safe_scalar(proposal.event_id),
+                    "event_sequence": proposal.event_sequence,
+                    "candidate_id": _safe_scalar(proposal.candidate_id),
+                    "understanding_record_id": _safe_scalar(
+                        proposal.understanding_record_id
+                    ),
+                    "restatement": _redact_text(proposal.restatement),
+                    "changes": [
+                        {
+                            "change_id": _safe_scalar(change.change_id),
+                            "operation": _redact_text(change.operation),
+                            "category": _redact_text(change.category),
+                            "value": _redact_text(change.value),
+                            "polarity": _redact_text(change.polarity),
+                            "certainty": change.certainty,
+                            "evidence_refs": [
+                                _safe_scalar(ref) for ref in change.evidence_refs
+                            ],
+                            "preview": _redact_text(change.preview),
+                            "target_memory_item_ids": [
+                                _safe_scalar(item_id)
+                                for item_id in change.target_memory_item_ids
+                            ],
+                        }
+                        for change in proposal.changes
+                    ],
+                    "evidence_refs": [
+                        _safe_scalar(ref) for ref in proposal.evidence_refs
+                    ],
+                    "impact_preview": [
+                        _redact_text(item) for item in proposal.impact_preview
+                    ],
+                    "expected_memory_revision": proposal.expected_memory_revision,
+                    "created_at": _redact_text(proposal.created_at),
+                    "expires_at": _redact_text(proposal.expires_at),
+                    "status": _redact_text(proposal.status),
+                    "supersedes": _safe_scalar(proposal.supersedes),
+                }
+                for proposal in memory_proposals
+            ],
+            "pending_questions": [
+                {
+                    "question_id": _safe_scalar(question.question_id),
+                    "event_id": _safe_scalar(question.event_id),
+                    "event_sequence": question.event_sequence,
+                    "candidate_id": _safe_scalar(question.candidate_id),
+                    "understanding_record_id": _safe_scalar(
+                        question.understanding_record_id
+                    ),
+                    "question": _redact_text(question.question),
+                    "options": [
+                        {
+                            "option_id": _safe_scalar(option.option_id),
+                            "label": _redact_text(option.label),
+                        }
+                        for option in question.options
+                    ],
+                    "allow_custom_answer": question.allow_custom_answer,
+                    "uncertainties": [
+                        _redact_text(item) for item in question.uncertainties
+                    ],
+                    "evidence_refs": [
+                        _safe_scalar(ref) for ref in question.evidence_refs
+                    ],
+                    "expected_memory_revision": question.expected_memory_revision,
+                    "created_at": _redact_text(question.created_at),
+                    "expires_at": _redact_text(question.expires_at),
+                    "status": _redact_text(question.status),
+                    "reminder_policy": _redact_text(question.reminder_policy),
+                    "next_remind_at": _redact_text(question.next_remind_at),
+                    "supersedes": _safe_scalar(question.supersedes),
+                }
+                for question in pending_questions
             ],
             "preference_memory": {
                 "memory_revision": memory.memory_revision,

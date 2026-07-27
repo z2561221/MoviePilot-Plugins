@@ -19,6 +19,7 @@ from ..model.feedback import (
     FeedbackLedgerIndex,
 )
 from ..model.feedback_queue import FeedbackQueueJob
+from ..model.feedback_decision import MemoryProposal, PendingQuestion
 from ..model.feedback_understanding import FeedbackUnderstandingRecord
 from ..model.memory import (
     MemoryProjectionResult,
@@ -48,6 +49,7 @@ class AgentRankRepository:
     confirmation_prefix = "full_reset_confirmation"
     learning_profile_prefixes = (
         "feedback_queue",
+        "memory_proposals",
         "pending_questions",
         "conversation",
         "conversation_messages",
@@ -1145,6 +1147,10 @@ class AgentRankRepository:
         """裁剪未来队列、对话、分析或归因单键列表。"""
         if str(prefix or "").strip() == "feedback_queue":
             return self.prune_feedback_queue(profile_id, limit)
+        if str(prefix or "").strip() == "memory_proposals":
+            return self.prune_memory_proposals(profile_id, limit)
+        if str(prefix or "").strip() == "pending_questions":
+            return self.prune_pending_questions(profile_id, limit)
         keep_limit = max(1, min(int(limit), 100000))
         key = self._learning_key(prefix, profile_id)
         with self._feedback_lock(profile_id):
@@ -1165,6 +1171,70 @@ class AgentRankRepository:
                 action=f"{prefix}_prune_failed",
             )
             return len(value) - len(retained)
+
+    @staticmethod
+    def _retain_pending_records(
+        items: List[Any], keep_limit: int, pending_statuses: Iterable[str]
+    ) -> List[Any]:
+        """保留全部未完成记录，并用剩余名额保存最新终态记录。"""
+        pending = {str(value or "").strip() for value in pending_statuses}
+        active_indexes = {
+            index
+            for index, item in enumerate(items)
+            if isinstance(item, Mapping)
+            and str(item.get("status") or "").strip() in pending
+        }
+        terminal_indexes = [
+            index for index in range(len(items)) if index not in active_indexes
+        ]
+        terminal_slots = max(0, int(keep_limit) - len(active_indexes))
+        selected = active_indexes | set(
+            terminal_indexes[-terminal_slots:] if terminal_slots else []
+        )
+        return [item for index, item in enumerate(items) if index in selected]
+
+    def _prune_pending_record_list(
+        self,
+        profile_id: str,
+        prefix: str,
+        limit: int,
+        pending_statuses: Iterable[str],
+    ) -> int:
+        """裁剪指定待确认列表，同时保护所有未完成项。"""
+        keep_limit = max(1, min(int(limit), 100000))
+        key = self._learning_key(prefix, profile_id)
+        with self._feedback_lock(profile_id):
+            value = self._plugin.get_data(key=key)
+            if value is None:
+                return 0
+            if not isinstance(value, list):
+                self._record_recovery(
+                    key, "ignored_corrupt_data", f"{prefix} data must be a list"
+                )
+                raise ValueError(f"{prefix} data is corrupt")
+            retained = self._retain_pending_records(
+                list(value), keep_limit, pending_statuses
+            )
+            removed = len(value) - len(retained)
+            if removed:
+                self._atomic_raw_update(
+                    updates={key: retained},
+                    recovery_key=key,
+                    action=f"{prefix}_prune_failed",
+                )
+            return removed
+
+    def prune_memory_proposals(self, profile_id: str, limit: int) -> int:
+        """裁剪记忆提案终态历史，但保留全部待确认提案。"""
+        return self._prune_pending_record_list(
+            profile_id, "memory_proposals", limit, {"pending_confirmation"}
+        )
+
+    def prune_pending_questions(self, profile_id: str, limit: int) -> int:
+        """裁剪问询终态历史，但保留全部未回答问题。"""
+        return self._prune_pending_record_list(
+            profile_id, "pending_questions", limit, {"pending"}
+        )
 
     def load_feedback_understandings(
         self, profile_id: str
@@ -1259,6 +1329,186 @@ class AgentRankRepository:
                 action="feedback_understanding_write_failed",
             )
             return record
+
+    def load_memory_proposals(self, profile_id: str) -> List[MemoryProposal]:
+        """读取按 profile 隔离的有界待确认记忆提案。"""
+        target = str(profile_id or "").strip()
+        self._scope(target, "profile_id")
+        key = self._learning_key("memory_proposals", target)
+        with self._feedback_lock(target):
+            value = self._plugin.get_data(key=key)
+            if value is None:
+                return []
+            if not isinstance(value, list):
+                self._record_recovery(
+                    key, "ignored_corrupt_data", "memory proposals must be a list"
+                )
+                return []
+            result: List[MemoryProposal] = []
+            for item in value:
+                if not isinstance(item, Mapping) or str(
+                    item.get("record_type") or ""
+                ) != "memory_proposal":
+                    continue
+                try:
+                    proposal = MemoryProposal.from_dict(item)
+                    if proposal.profile_id != target:
+                        raise ValueError("memory proposal profile mismatch")
+                except (TypeError, ValueError, KeyError) as error:
+                    self._record_recovery(
+                        key, "ignored_corrupt_item", str(error)
+                    )
+                    continue
+                result.append(proposal)
+            return sorted(
+                result, key=lambda item: (item.event_sequence, item.proposal_id)
+            )
+
+    def load_memory_proposal(
+        self, profile_id: str, event_id: str
+    ) -> Optional[MemoryProposal]:
+        """按来源事件读取已有记忆提案。"""
+        target_event = str(event_id or "").strip()
+        if not target_event:
+            raise ValueError("event_id is required")
+        return next(
+            (
+                item
+                for item in self.load_memory_proposals(profile_id)
+                if item.event_id == target_event
+            ),
+            None,
+        )
+
+    def append_memory_proposal(
+        self, proposal: MemoryProposal, *, limit: int = 500
+    ) -> MemoryProposal:
+        """按 event_id 幂等追加待确认记忆提案并执行有界保留。"""
+        if not isinstance(proposal, MemoryProposal):
+            raise TypeError("proposal must be MemoryProposal")
+        keep_limit = max(1, min(int(limit), 100000))
+        key = self._learning_key("memory_proposals", proposal.profile_id)
+        with self._feedback_lock(proposal.profile_id):
+            value = self._plugin.get_data(key=key)
+            if value is None:
+                items: List[Any] = []
+            elif isinstance(value, list):
+                items = list(value)
+            else:
+                self._record_recovery(
+                    key, "ignored_corrupt_data", "memory proposals must be a list"
+                )
+                raise ValueError("memory proposal data is corrupt")
+            for item in items:
+                if not isinstance(item, Mapping) or str(
+                    item.get("record_type") or ""
+                ) != "memory_proposal":
+                    continue
+                if str(item.get("event_id") or "") != proposal.event_id:
+                    continue
+                existing = MemoryProposal.from_dict(item)
+                if existing.profile_id != proposal.profile_id:
+                    raise ValueError("memory proposal profile mismatch")
+                return existing
+            items.append(proposal.to_dict())
+            retained = self._retain_pending_records(
+                items, keep_limit, {"pending_confirmation"}
+            )
+            self._atomic_raw_update(
+                updates={key: retained},
+                recovery_key=key,
+                action="memory_proposal_write_failed",
+            )
+            return proposal
+
+    def load_pending_questions(self, profile_id: str) -> List[PendingQuestion]:
+        """读取按 profile 隔离的有界待回答问题。"""
+        target = str(profile_id or "").strip()
+        self._scope(target, "profile_id")
+        key = self._learning_key("pending_questions", target)
+        with self._feedback_lock(target):
+            value = self._plugin.get_data(key=key)
+            if value is None:
+                return []
+            if not isinstance(value, list):
+                self._record_recovery(
+                    key, "ignored_corrupt_data", "pending questions must be a list"
+                )
+                return []
+            result: List[PendingQuestion] = []
+            for item in value:
+                if not isinstance(item, Mapping) or str(
+                    item.get("record_type") or ""
+                ) != "pending_question":
+                    continue
+                try:
+                    question = PendingQuestion.from_dict(item)
+                    if question.profile_id != target:
+                        raise ValueError("pending question profile mismatch")
+                except (TypeError, ValueError, KeyError) as error:
+                    self._record_recovery(
+                        key, "ignored_corrupt_item", str(error)
+                    )
+                    continue
+                result.append(question)
+            return sorted(
+                result, key=lambda item: (item.event_sequence, item.question_id)
+            )
+
+    def load_pending_question(
+        self, profile_id: str, event_id: str
+    ) -> Optional[PendingQuestion]:
+        """按来源事件读取已有待回答问题。"""
+        target_event = str(event_id or "").strip()
+        if not target_event:
+            raise ValueError("event_id is required")
+        return next(
+            (
+                item
+                for item in self.load_pending_questions(profile_id)
+                if item.event_id == target_event
+            ),
+            None,
+        )
+
+    def append_pending_question(
+        self, question: PendingQuestion, *, limit: int = 500
+    ) -> PendingQuestion:
+        """按 event_id 幂等追加待回答问题并执行有界保留。"""
+        if not isinstance(question, PendingQuestion):
+            raise TypeError("question must be PendingQuestion")
+        keep_limit = max(1, min(int(limit), 100000))
+        key = self._learning_key("pending_questions", question.profile_id)
+        with self._feedback_lock(question.profile_id):
+            value = self._plugin.get_data(key=key)
+            if value is None:
+                items: List[Any] = []
+            elif isinstance(value, list):
+                items = list(value)
+            else:
+                self._record_recovery(
+                    key, "ignored_corrupt_data", "pending questions must be a list"
+                )
+                raise ValueError("pending question data is corrupt")
+            for item in items:
+                if not isinstance(item, Mapping) or str(
+                    item.get("record_type") or ""
+                ) != "pending_question":
+                    continue
+                if str(item.get("event_id") or "") != question.event_id:
+                    continue
+                existing = PendingQuestion.from_dict(item)
+                if existing.profile_id != question.profile_id:
+                    raise ValueError("pending question profile mismatch")
+                return existing
+            items.append(question.to_dict())
+            retained = self._retain_pending_records(items, keep_limit, {"pending"})
+            self._atomic_raw_update(
+                updates={key: retained},
+                recovery_key=key,
+                action="pending_question_write_failed",
+            )
+            return question
 
     def append_run(self, run: RecommendationRun) -> None:
         """把运行记录写入对应用户历史头部并执行上限裁剪。"""
