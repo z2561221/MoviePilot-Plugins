@@ -154,6 +154,23 @@ def test_valid_schedule_registers_one_stable_service():
     assert services[0]["func"] == runtime.run_scheduled
 
 
+def test_runtime_exposes_injected_feedback_response_service():
+    """运行时把受控反馈响应服务暴露给插件入口并保留测试注入。"""
+    plugin = FakePlugin()
+    response_service = object()
+
+    runtime = AgentRankRuntime(
+        plugin,
+        _config(),
+        FakeOrchestrator(),
+        lambda cron: f"trigger:{cron}",
+        feedback_response_service=response_service,
+    )
+
+    assert runtime.feedback_response_service is response_service
+    assert plugin._feedback_response is response_service
+
+
 def test_run_once_registers_one_date_service_and_is_consumed():
     """立即运行不依赖周期设置，并且同一运行时只登记一次。"""
     runtime = AgentRankRuntime(

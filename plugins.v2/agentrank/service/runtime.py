@@ -26,6 +26,7 @@ class AgentRankRuntime:
         feedback_queue: Any = None,
         feedback_handler: Callable[[Any], Any] = None,
         feedback_understanding_service: Any = None,
+        feedback_response_service: Any = None,
     ):
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
@@ -97,6 +98,14 @@ class AgentRankRuntime:
                 set_handler(feedback_handler)
         self.feedback_queue = feedback_queue
         plugin._feedback_queue = feedback_queue
+        if feedback_response_service is None and repository is not None:
+            from .feedback_response import FeedbackResponseService
+
+            feedback_response_service = FeedbackResponseService(
+                repository, feedback_queue=feedback_queue
+            )
+        self.feedback_response_service = feedback_response_service
+        plugin._feedback_response = feedback_response_service
         self._stopped = False
         self._active_tasks: set[asyncio.Task] = set()
 

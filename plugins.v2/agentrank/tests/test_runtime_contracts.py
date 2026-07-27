@@ -175,6 +175,33 @@ def test_feedback_decisions_require_confirmation_and_cannot_project_memory():
         assert forbidden_write not in proposal_source
 
 
+def test_feedback_response_is_profile_serialized_and_cannot_project_memory():
+    """回答与提醒状态机按 profile 串行，且没有长期记忆写能力。"""
+    source = _source("service/feedback_response.py")
+    runtime_source = _source("service/runtime.py")
+    for contract in (
+        "class FeedbackResponseService",
+        "REMINDER_DELAYS",
+        '"in_1_day"',
+        '"in_3_days"',
+        '"in_7_days"',
+        '"never"',
+        "profile_data_guard",
+        "answer_question",
+        "claim_due_reminders",
+        "supersedes=original.event_id",
+    ):
+        assert contract in source
+    assert "FeedbackResponseService" in runtime_source
+    for forbidden_write in (
+        "project_preference_memory",
+        "save_preference_memory",
+        "update_config",
+        "save_profile",
+    ):
+        assert forbidden_write not in source
+
+
 def test_runtime_injects_controlled_tmdb_keyword_resolution():
     """运行时通过宿主适配器注入唯一关键词解析，不在 service 直接发 HTTP。"""
     runtime_source = _source("service/runtime.py")

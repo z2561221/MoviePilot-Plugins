@@ -1380,6 +1380,22 @@ class AgentRankRepository:
             None,
         )
 
+    def get_memory_proposal(
+        self, profile_id: str, proposal_id: str
+    ) -> Optional[MemoryProposal]:
+        """按提案身份读取指定 profile 的记忆提案。"""
+        target_id = str(proposal_id or "").strip()
+        if not target_id:
+            raise ValueError("proposal_id is required")
+        return next(
+            (
+                item
+                for item in self.load_memory_proposals(profile_id)
+                if item.proposal_id == target_id
+            ),
+            None,
+        )
+
     def append_memory_proposal(
         self, proposal: MemoryProposal, *, limit: int = 500
     ) -> MemoryProposal:
@@ -1420,6 +1436,42 @@ class AgentRankRepository:
                 action="memory_proposal_write_failed",
             )
             return proposal
+
+    def replace_memory_proposal(
+        self, proposal: MemoryProposal, *, expected_status: str
+    ) -> bool:
+        """仅在当前状态匹配时原位替换记忆提案。"""
+        if not isinstance(proposal, MemoryProposal):
+            raise TypeError("proposal must be MemoryProposal")
+        expected = str(expected_status or "").strip()
+        if not expected:
+            raise ValueError("expected_status is required")
+        key = self._learning_key("memory_proposals", proposal.profile_id)
+        with self._feedback_lock(proposal.profile_id):
+            value = self._plugin.get_data(key=key)
+            if not isinstance(value, list):
+                return False
+            updated = list(value)
+            for index, item in enumerate(updated):
+                if not isinstance(item, Mapping) or str(
+                    item.get("record_type") or ""
+                ) != "memory_proposal":
+                    continue
+                if str(item.get("proposal_id") or "") != proposal.proposal_id:
+                    continue
+                current = MemoryProposal.from_dict(item)
+                if current.profile_id != proposal.profile_id:
+                    raise ValueError("memory proposal profile mismatch")
+                if current.status != expected:
+                    return False
+                updated[index] = proposal.to_dict()
+                self._atomic_raw_update(
+                    updates={key: updated},
+                    recovery_key=key,
+                    action="memory_proposal_replace_failed",
+                )
+                return True
+            return False
 
     def load_pending_questions(self, profile_id: str) -> List[PendingQuestion]:
         """读取按 profile 隔离的有界待回答问题。"""
@@ -1471,6 +1523,22 @@ class AgentRankRepository:
             None,
         )
 
+    def get_pending_question(
+        self, profile_id: str, question_id: str
+    ) -> Optional[PendingQuestion]:
+        """按问题身份读取指定 profile 的待回答问询。"""
+        target_id = str(question_id or "").strip()
+        if not target_id:
+            raise ValueError("question_id is required")
+        return next(
+            (
+                item
+                for item in self.load_pending_questions(profile_id)
+                if item.question_id == target_id
+            ),
+            None,
+        )
+
     def append_pending_question(
         self, question: PendingQuestion, *, limit: int = 500
     ) -> PendingQuestion:
@@ -1509,6 +1577,42 @@ class AgentRankRepository:
                 action="pending_question_write_failed",
             )
             return question
+
+    def replace_pending_question(
+        self, question: PendingQuestion, *, expected_status: str
+    ) -> bool:
+        """仅在当前状态匹配时原位替换待回答问题。"""
+        if not isinstance(question, PendingQuestion):
+            raise TypeError("question must be PendingQuestion")
+        expected = str(expected_status or "").strip()
+        if not expected:
+            raise ValueError("expected_status is required")
+        key = self._learning_key("pending_questions", question.profile_id)
+        with self._feedback_lock(question.profile_id):
+            value = self._plugin.get_data(key=key)
+            if not isinstance(value, list):
+                return False
+            updated = list(value)
+            for index, item in enumerate(updated):
+                if not isinstance(item, Mapping) or str(
+                    item.get("record_type") or ""
+                ) != "pending_question":
+                    continue
+                if str(item.get("question_id") or "") != question.question_id:
+                    continue
+                current = PendingQuestion.from_dict(item)
+                if current.profile_id != question.profile_id:
+                    raise ValueError("pending question profile mismatch")
+                if current.status != expected:
+                    return False
+                updated[index] = question.to_dict()
+                self._atomic_raw_update(
+                    updates={key: updated},
+                    recovery_key=key,
+                    action="pending_question_replace_failed",
+                )
+                return True
+            return False
 
     def append_run(self, run: RecommendationRun) -> None:
         """把运行记录写入对应用户历史头部并执行上限裁剪。"""

@@ -361,7 +361,14 @@ def test_pending_records_survive_limits_and_safe_export_contains_no_internal_rea
         if index == 1:
             key = repository._learning_key("pending_questions", PROFILE_ID)
             raw = repository._plugin.get_data(key=key)
-            raw[0] = replace(question, status="answered").to_dict()
+            raw[0] = replace(
+                question,
+                status="answered",
+                answer_text="已回答",
+                answer_event_id="event:answered",
+                answered_by_mp_user_id="mp-user-1",
+                resolved_at=FIXED_NOW.isoformat(),
+            ).to_dict()
             repository._plugin.save_data(key=key, value=raw)
 
     removed = repository.prune_pending_questions(PROFILE_ID, 1)

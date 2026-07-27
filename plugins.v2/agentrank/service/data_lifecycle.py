@@ -424,6 +424,10 @@ class DataLifecycleService:
                     "expires_at": _redact_text(proposal.expires_at),
                     "status": _redact_text(proposal.status),
                     "supersedes": _safe_scalar(proposal.supersedes),
+                    "reminder_policy": _redact_text(proposal.reminder_policy),
+                    "next_remind_at": _redact_text(proposal.next_remind_at),
+                    "last_reminded_at": _redact_text(proposal.last_reminded_at),
+                    "resolved_at": _redact_text(proposal.resolved_at),
                 }
                 for proposal in memory_proposals
             ],
@@ -458,6 +462,16 @@ class DataLifecycleService:
                     "reminder_policy": _redact_text(question.reminder_policy),
                     "next_remind_at": _redact_text(question.next_remind_at),
                     "supersedes": _safe_scalar(question.supersedes),
+                    "selected_option_id": _safe_scalar(
+                        question.selected_option_id
+                    ),
+                    "answer_text": _redact_text(question.answer_text),
+                    "answer_event_id": _safe_scalar(question.answer_event_id),
+                    "answered_by_mp_user_id": _safe_scalar(
+                        question.answered_by_mp_user_id
+                    ),
+                    "last_reminded_at": _redact_text(question.last_reminded_at),
+                    "resolved_at": _redact_text(question.resolved_at),
                 }
                 for question in pending_questions
             ],

@@ -162,6 +162,10 @@ class MemoryProposal:
     expires_at: str
     status: str = "pending_confirmation"
     supersedes: str = ""
+    reminder_policy: str = "unselected"
+    next_remind_at: str = ""
+    last_reminded_at: str = ""
+    resolved_at: str = ""
     schema_version: int = FEEDBACK_DECISION_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -175,6 +179,10 @@ class MemoryProposal:
             ("restatement", 240),
             ("status", 32),
             ("supersedes", 160),
+            ("reminder_policy", 32),
+            ("next_remind_at", 64),
+            ("last_reminded_at", 64),
+            ("resolved_at", 64),
         ):
             object.__setattr__(
                 self, field_name, _text(getattr(self, field_name), limit)
@@ -196,6 +204,10 @@ class MemoryProposal:
         )
         object.__setattr__(self, "created_at", _iso_time(self.created_at, "created_at"))
         object.__setattr__(self, "expires_at", _iso_time(self.expires_at, "expires_at"))
+        for field_name in ("next_remind_at", "last_reminded_at", "resolved_at"):
+            value = getattr(self, field_name)
+            if value:
+                object.__setattr__(self, field_name, _iso_time(value, field_name))
         object.__setattr__(self, "schema_version", int(self.schema_version))
         if not all(
             (
@@ -218,6 +230,14 @@ class MemoryProposal:
             raise ValueError("memory proposal requires evidence and impact preview")
         if self.status not in MEMORY_PROPOSAL_STATUSES:
             raise ValueError("memory proposal status is invalid")
+        if self.reminder_policy not in QUESTION_REMINDER_POLICIES:
+            raise ValueError("memory proposal reminder_policy is invalid")
+        if self.reminder_policy in {"unselected", "never"} and self.next_remind_at:
+            raise ValueError("memory proposal reminder policy cannot have next_remind_at")
+        if self.status == "pending_confirmation" and self.resolved_at:
+            raise ValueError("pending memory proposal cannot be resolved")
+        if self.status != "pending_confirmation" and not self.resolved_at:
+            raise ValueError("resolved memory proposal requires resolved_at")
         if datetime.fromisoformat(self.expires_at.replace("Z", "+00:00")) <= datetime.fromisoformat(
             self.created_at.replace("Z", "+00:00")
         ):
@@ -244,6 +264,10 @@ class MemoryProposal:
             "expires_at": self.expires_at,
             "status": self.status,
             "supersedes": self.supersedes,
+            "reminder_policy": self.reminder_policy,
+            "next_remind_at": self.next_remind_at,
+            "last_reminded_at": self.last_reminded_at,
+            "resolved_at": self.resolved_at,
             "schema_version": self.schema_version,
         }
 
@@ -271,6 +295,10 @@ class MemoryProposal:
             expires_at=value.get("expires_at"),
             status=value.get("status") or "pending_confirmation",
             supersedes=value.get("supersedes"),
+            reminder_policy=value.get("reminder_policy") or "unselected",
+            next_remind_at=value.get("next_remind_at"),
+            last_reminded_at=value.get("last_reminded_at"),
+            resolved_at=value.get("resolved_at"),
             schema_version=value.get("schema_version") or 0,
         )
 
@@ -335,6 +363,12 @@ class PendingQuestion:
     reminder_policy: str = "unselected"
     next_remind_at: str = ""
     supersedes: str = ""
+    selected_option_id: str = ""
+    answer_text: str = ""
+    answer_event_id: str = ""
+    answered_by_mp_user_id: str = ""
+    last_reminded_at: str = ""
+    resolved_at: str = ""
     schema_version: int = FEEDBACK_DECISION_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -350,6 +384,12 @@ class PendingQuestion:
             ("reminder_policy", 32),
             ("next_remind_at", 64),
             ("supersedes", 160),
+            ("selected_option_id", 64),
+            ("answer_text", 1000),
+            ("answer_event_id", 160),
+            ("answered_by_mp_user_id", 128),
+            ("last_reminded_at", 64),
+            ("resolved_at", 64),
         ):
             object.__setattr__(
                 self, field_name, _text(getattr(self, field_name), limit)
@@ -378,6 +418,10 @@ class PendingQuestion:
                 "next_remind_at",
                 _iso_time(self.next_remind_at, "next_remind_at"),
             )
+        for field_name in ("last_reminded_at", "resolved_at"):
+            value = getattr(self, field_name)
+            if value:
+                object.__setattr__(self, field_name, _iso_time(value, field_name))
         object.__setattr__(self, "schema_version", int(self.schema_version))
         if not all(
             (
@@ -406,6 +450,28 @@ class PendingQuestion:
             raise ValueError("pending question reminder_policy is invalid")
         if self.reminder_policy == "unselected" and self.next_remind_at:
             raise ValueError("unselected reminder cannot have next_remind_at")
+        if self.reminder_policy == "never" and self.next_remind_at:
+            raise ValueError("never reminder cannot have next_remind_at")
+        option_ids = {item.option_id for item in self.options}
+        if self.selected_option_id and self.selected_option_id not in option_ids:
+            raise ValueError("pending question selected option is invalid")
+        answer_audit = (
+            self.selected_option_id,
+            self.answer_text,
+            self.answer_event_id,
+            self.answered_by_mp_user_id,
+        )
+        if self.status == "pending":
+            if any(answer_audit) or self.resolved_at:
+                raise ValueError("pending question cannot contain a resolved answer")
+        elif not self.resolved_at:
+            raise ValueError("resolved pending question requires resolved_at")
+        if self.status == "answered" and not all(
+            (self.answer_event_id, self.answer_text, self.answered_by_mp_user_id)
+        ):
+            raise ValueError("answered question requires complete answer audit")
+        if self.status != "answered" and any(answer_audit):
+            raise ValueError("unanswered question cannot contain answer audit")
         if datetime.fromisoformat(self.expires_at.replace("Z", "+00:00")) <= datetime.fromisoformat(
             self.created_at.replace("Z", "+00:00")
         ):
@@ -435,6 +501,12 @@ class PendingQuestion:
             "reminder_policy": self.reminder_policy,
             "next_remind_at": self.next_remind_at,
             "supersedes": self.supersedes,
+            "selected_option_id": self.selected_option_id,
+            "answer_text": self.answer_text,
+            "answer_event_id": self.answer_event_id,
+            "answered_by_mp_user_id": self.answered_by_mp_user_id,
+            "last_reminded_at": self.last_reminded_at,
+            "resolved_at": self.resolved_at,
             "schema_version": self.schema_version,
         }
 
@@ -465,5 +537,11 @@ class PendingQuestion:
             reminder_policy=value.get("reminder_policy") or "unselected",
             next_remind_at=value.get("next_remind_at"),
             supersedes=value.get("supersedes"),
+            selected_option_id=value.get("selected_option_id"),
+            answer_text=value.get("answer_text"),
+            answer_event_id=value.get("answer_event_id"),
+            answered_by_mp_user_id=value.get("answered_by_mp_user_id"),
+            last_reminded_at=value.get("last_reminded_at"),
+            resolved_at=value.get("resolved_at"),
             schema_version=value.get("schema_version") or 0,
         )
