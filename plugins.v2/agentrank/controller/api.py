@@ -12,6 +12,7 @@ from ..model.config import configured_identities, default_config
 from ..model.identity import EmbyIdentity
 from ..service.archive import ArchiveService
 from ..service.data_lifecycle import DataLifecycleError, DataLifecycleService
+from ..service.feedback_action import FeedbackActionError, FeedbackActionService
 from ..service.profile_preferences import ProfilePreferenceService
 
 
@@ -91,6 +92,15 @@ class AgentRankApiController:
         if self._is_superuser(token_payload):
             username = str(getattr(token_payload, "username", "") or "admin").strip()
             return f"mp-superuser:{username or 'admin'}"
+        return ""
+
+    def _feedback_actor_id(self, token_payload: schemas.TokenPayload) -> str:
+        """返回反馈事实使用的 MP 用户标识。"""
+        user_id = self._token_user_id(token_payload)
+        if user_id:
+            return user_id
+        if self._is_superuser(token_payload):
+            return str(getattr(token_payload, "username", "") or "admin").strip()
         return ""
 
     def _allowed_profile_ids(
@@ -497,6 +507,7 @@ class AgentRankApiController:
                 "status": "idle",
                 "recommendations": [],
                 "generated_at": "",
+                "revision": 0,
                 "message": "尚未生成榜单",
             }
         )
@@ -551,13 +562,54 @@ class AgentRankApiController:
             }
         )
 
-    def archive(self, payload: Any) -> Dict[str, Any]:
-        """忽略当前榜单中的一个推荐。"""
+    def feedback(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:
+        """通过统一事实入口记录喜欢、不喜欢或忽略。"""
         body = self._payload(payload)
         target = self._profile_id(body.get("profile_id"))
         candidate_id = self._candidate_id(body)
-        result = ArchiveService(self._repository()).ignore(target, candidate_id)
-        return self._success(result.__dict__)
+        try:
+            result = FeedbackActionService(self._repository()).act(
+                profile_id=target,
+                candidate_id=candidate_id,
+                kind=str(body.get("kind") or ""),
+                idempotency_key=str(body.get("idempotency_key") or ""),
+                actor_id=actor_id,
+                analysis_id=str(body.get("analysis_id") or ""),
+                expected_board_revision=body.get("board_revision"),
+                expected_run_id=str(body.get("run_id") or ""),
+            )
+        except FeedbackActionError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "feedback_failed", "反馈保存失败，榜单与归档已恢复"
+            ) from error
+        return self._success(result.to_dict())
+
+    def archive(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:
+        """兼容旧忽略入口，并把动作接入统一反馈事实。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        candidate_id = self._candidate_id(body)
+        board = self._repository().load_board(target)
+        if board is None:
+            raise ApiContractError(409, "board_unavailable", "当前没有可操作的推荐榜单")
+        idempotency_key = str(body.get("idempotency_key") or "").strip()
+        if not idempotency_key:
+            idempotency_key = (
+                f"legacy-ignore:{target}:{board.run_id}:{board.revision}:{candidate_id}"
+            )
+        request = dict(body)
+        request.update(
+            {
+                "kind": "ignore",
+                "idempotency_key": idempotency_key,
+                "run_id": str(body.get("run_id") or board.run_id),
+            }
+        )
+        return self.feedback(request, actor_id)
 
     def restore(self, payload: Any) -> Dict[str, Any]:
         """恢复一个已忽略推荐。"""
@@ -839,7 +891,18 @@ class AgentRankApiController:
     ) -> Dict[str, Any]:
         """FastAPI 忽略入口。"""
         self._endpoint(self._authorize_payload_profile, token_payload, payload)
-        return self._endpoint(self.archive, payload)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return self._endpoint(self.archive, payload, actor_id)
+
+    def endpoint_feedback(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 统一三态反馈入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return self._endpoint(self.feedback, payload, actor_id)
 
     def endpoint_restore(
         self,
@@ -900,6 +963,7 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
         ("/refresh", controller.endpoint_refresh, ["POST"], "刷新推荐榜单"),
         ("/playback/sync", controller.endpoint_playback_sync, ["POST"], "同步播放画像"),
         ("/archive", controller.endpoint_archive, ["POST"], "忽略推荐"),
+        ("/feedback", controller.endpoint_feedback, ["POST"], "记录三态反馈"),
         ("/restore", controller.endpoint_restore, ["POST"], "恢复推荐"),
         ("/archive/delete", controller.endpoint_delete_archive, ["POST"], "删除归档"),
         ("/profile/clear", controller.endpoint_clear_profile, ["POST"], "清除画像"),

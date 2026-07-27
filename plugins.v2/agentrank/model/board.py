@@ -82,12 +82,14 @@ class RecommendationBoard:
     generated_at: str = ""
     message: str = ""
     previous_run_id: Optional[str] = None
-    schema_version: int = 2
+    revision: int = 1
+    schema_version: int = 3
 
     def __post_init__(self) -> None:
         """规范化榜单归属并拒绝空 profile_id。"""
         self.profile_id = str(self.profile_id or "").strip()
         self.username = str(self.username or "").strip()
+        self.revision = max(1, int(self.revision or 1))
         if not self.profile_id:
             raise ValueError("board profile_id is required")
 
@@ -119,5 +121,6 @@ class RecommendationBoard:
                 if value.get("previous_run_id") is not None
                 else None
             ),
+            revision=max(1, int(value.get("revision") or 1)),
             schema_version=int(value.get("schema_version") or 2),
         )

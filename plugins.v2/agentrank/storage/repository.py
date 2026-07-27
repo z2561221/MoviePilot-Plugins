@@ -175,6 +175,12 @@ class AgentRankRepository:
         with self._board_archive_lock:
             yield
 
+    @contextmanager
+    def feedback_action_guard(self, profile_id: str) -> Iterator[None]:
+        """按固定锁顺序串行化榜单、归档与反馈事件复合动作。"""
+        with self._board_archive_lock, self._feedback_lock(profile_id):
+            yield
+
     def _record_recovery(self, key: str, action: str, detail: str = "") -> None:
         """记录迁移或损坏数据恢复证据，且不因日志损坏而失败。"""
         try:
@@ -1262,6 +1268,34 @@ class AgentRankRepository:
             self._restore_raw(board_key, old_board)
             self._restore_raw(archive_key, old_archive)
             raise
+
+    def capture_board_archive_raw(self, profile_id: str) -> Dict[str, Any]:
+        """捕获榜单和归档原始值，供复合反馈失败时逐字段恢复。"""
+        board_key = self._profile_key("recommendation_board", profile_id)
+        archive_key = self._profile_key("archive", profile_id)
+        return {
+            board_key: self._plugin.get_data(key=board_key),
+            archive_key: self._plugin.get_data(key=archive_key),
+        }
+
+    def restore_board_archive_raw(
+        self, profile_id: str, values: Mapping[str, Any]
+    ) -> None:
+        """原子恢复同一 profile 的榜单和归档原始状态。"""
+        expected_keys = {
+            self._profile_key("recommendation_board", profile_id),
+            self._profile_key("archive", profile_id),
+        }
+        if set(values) != expected_keys:
+            raise ValueError("board archive rollback snapshot is invalid")
+        updates = {key: value for key, value in values.items() if value is not None}
+        deletes = [key for key, value in values.items() if value is None]
+        self._atomic_raw_update(
+            updates=updates,
+            delete_keys=deletes,
+            recovery_key=self._profile_key("feedback_action", profile_id),
+            action="feedback_action_board_rollback_failed",
+        )
 
     def save_profile_and_board(
         self, profile: UserProfile, board: RecommendationBoard

@@ -69,6 +69,7 @@ class ArchiveService:
             for recommendation in board.recommendations
             if recommendation.candidate_id != candidate_id
         ]
+        board.revision += 1
         if not already_archived:
             archive.entries.append(
                 ArchiveEntry(
@@ -109,6 +110,7 @@ class ArchiveService:
         payload["rank"] = target_rank
         board.recommendations.append(RecommendationItem.from_dict(payload))
         board.recommendations.sort(key=lambda item: (item.rank, item.candidate_id))
+        board.revision += 1
         archive.entries = [
             item for item in archive.entries if item.candidate_id != candidate_id
         ]

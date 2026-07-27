@@ -228,6 +228,7 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/refresh",
         "/playback/sync",
         "/archive",
+        "/feedback",
         "/restore",
         "/archive/delete",
         "/profile/clear",
@@ -346,6 +347,31 @@ def test_data_export_and_reset_endpoints_reuse_profile_authorization_and_bound_t
     )
     assert reset["data"]["mode"] == "full"
     assert plugin._repository.load_profile(HOME_PROFILE) is None
+
+
+def test_unified_feedback_endpoint_returns_event_state_and_board_revision():
+    """统一反馈 API 返回创建/重复状态和最新榜单 revision。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    controller = AgentRankApiController(plugin)
+    token = TokenPayload(sub=7, username="Alice", super_user=False)
+    payload = {
+        "profile_id": HOME_PROFILE,
+        "candidate_id": "tmdb:1",
+        "kind": "like",
+        "idempotency_key": "like-request-1",
+        "run_id": "run-old",
+        "board_revision": 1,
+    }
+
+    created = controller.endpoint_feedback(payload, token)
+    duplicate = controller.endpoint_feedback(payload, token)
+
+    assert created["data"]["event_status"] == "created"
+    assert created["data"]["board_revision"] == 1
+    assert created["data"]["memory_delta"] == {}
+    assert duplicate["data"]["event_status"] == "duplicate"
+    assert duplicate["data"]["event"]["event_id"] == created["data"]["event"]["event_id"]
 
 
 def test_regular_user_status_is_filtered_and_config_options_are_forbidden():

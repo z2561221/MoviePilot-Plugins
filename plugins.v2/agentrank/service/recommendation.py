@@ -1282,6 +1282,9 @@ class RecommendationOrchestrator:
                         previous_run_id=(
                             previous_board.run_id if previous_board else None
                         ),
+                        revision=(
+                            previous_board.revision + 1 if previous_board else 1
+                        ),
                     )
                     stage_clock = time.monotonic()
                     self._repository.save_board(board)
