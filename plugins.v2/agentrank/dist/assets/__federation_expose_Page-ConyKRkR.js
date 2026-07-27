@@ -250,8 +250,12 @@ function toggleHistory(run) {
 function formatDuration(value) {
   const ms = Number(value);
   if (!Number.isFinite(ms) || ms < 0) return '—'
-  if (ms < 1000) return `${Math.round(ms)} 毫秒`
-  return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} 秒`
+  if (ms < 1000) return `${Math.round(ms)}毫秒`
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}秒`
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds ? `${minutes}分${seconds}秒` : `${minutes}分钟`
 }
 function historyStages(run) {
   const metrics = run?.metrics || {};
@@ -1286,6 +1290,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b57dc1e2"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d52372b7"]]);
 
 export { Page as default };

@@ -398,6 +398,20 @@ def test_runtime_history_uses_chinese_fallbacks_for_unknown_internal_codes():
     assert "STATUS_LABELS.get(str(status or ''), '运行异常')" in notification
 
 
+def test_runtime_history_formats_durations_in_minutes_after_sixty_seconds():
+    """运行历史超过一分钟后使用分秒显示，整分钟不保留多余秒数。"""
+    page = _read("Page.vue")
+
+    for expression in (
+        "const totalSeconds = Math.round(ms / 1000)",
+        "if (totalSeconds < 60) return `${totalSeconds}秒`",
+        "`${minutes}分${seconds}秒`",
+        "`${minutes}分钟`",
+    ):
+        assert expression in page
+    assert "toFixed(ms < 10000 ? 1 : 0)" not in page
+
+
 def test_preview_status_selector_uses_chinese_titles_for_internal_codes():
     """预览夹具展示中文状态标题但保留后端内部状态码。"""
     preview = (COMPONENT_DIR.parent / "PreviewApp.vue").read_text(encoding="utf-8")
