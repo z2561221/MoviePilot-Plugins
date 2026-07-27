@@ -55,8 +55,17 @@ const defaults = {
   playback_completion_threshold: 0.85,
   playback_abandon_minutes: 20,
   playback_cache_days: 7,
-  agent_prompt: '以用户真实播放记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。除题材、主创、地区、年代和风格外，可从情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感五类观看动机辅助排序。稳定动机必须由至少两条相互独立的播放证据支持，或由一项用户明确添加的偏好支持；单一样本不得形成稳定结论，弃看只能作为弱负向信号。不得推断人格、焦虑、孤独、疾病、创伤等敏感心理状态。观看动机只能作为软排序信号，不得生成硬过滤条件。评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名；相关性明显不足时宁可少推。推荐理由要用自然的内容语言说明具体匹配，不输出心理诊断或心理学术语，也避免空泛夸赞。',
+  profile_prompt: '基于用户真实播放记录和明确偏好，归纳稳定的内容偏好与观看动机。除题材、主创、地区、年代和风格外，可观察情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感。稳定结论必须由至少两条相互独立的播放证据支持，或由一项用户明确添加的偏好支持；单一样本不得形成稳定结论，弃看只能作为弱负向信号。',
+  ranking_prompt: '以用户画像、真实播放证据和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。兼顾相关性、新鲜感与题材多样性；评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名，相关性明显不足时宁可少推。',
+  copy_prompt: '推荐理由要用自然、具体、克制的内容语言说明用户偏好与作品事实之间的匹配，不输出心理诊断或心理学术语，也避免空泛夸赞。作品简介只概括作品本身，不剧透；推荐理由和简介都要总结为语义完整的短句。',
 }
+
+const legacyAgentPromptDefaults = new Set([
+  '请综合用户订阅画像、榜单权重与候选特征排序，优先推荐真正贴合用户口味、同时兼顾质量、新鲜感与题材多样性的作品。推荐理由和作品简介要轻松诙谐、机灵自然，避免套话、低俗表达与剧透。',
+  '以用户真实订阅记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名；相关性明显不足时宁可少推。推荐理由要点明用户偏好与作品题材、主创、地区、年代或风格之间的具体联系，避免空泛夸赞。',
+  '以用户真实播放记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名；相关性明显不足时宁可少推。推荐理由要点明用户偏好与作品题材、主创、地区、年代或风格之间的具体联系，避免空泛夸赞。',
+  '以用户真实播放记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。除题材、主创、地区、年代和风格外，可从情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感五类观看动机辅助排序。稳定动机必须由至少两条相互独立的播放证据支持，或由一项用户明确添加的偏好支持；单一样本不得形成稳定结论，弃看只能作为弱负向信号。不得推断人格、焦虑、孤独、疾病、创伤等敏感心理状态。观看动机只能作为软排序信号，不得生成硬过滤条件。评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名；相关性明显不足时宁可少推。推荐理由要用自然的内容语言说明具体匹配，不输出心理诊断或心理学术语，也避免空泛夸赞。',
+])
 
 const form = reactive(structuredClone(defaults))
 const activeMain = ref('overview')
@@ -73,6 +82,7 @@ const clearProfileSwitch = ref(false)
 const clearProfileDialog = ref(false)
 const clearProfileLoading = ref(false)
 const actionFeedback = reactive({ show: false, message: '', color: 'success' })
+const promptEditor = reactive({ open: false, key: '', draft: '' })
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
@@ -120,8 +130,14 @@ const advancedTabs = [
   { key: 'runtime', title: '运行设置', icon: 'mdi-cog-outline' },
   { key: 'prompt', title: '提示设置', icon: 'mdi-text-box-edit-outline' },
 ]
+const promptDefinitions = [
+  { key: 'profile_prompt', title: '画像理解规则', icon: 'mdi-account-search-outline', purpose: '控制 Agent 如何从播放事实和人工标签归纳稳定偏好与观看动机。' },
+  { key: 'ranking_prompt', title: '榜单推荐策略', icon: 'mdi-sort-variant', purpose: '控制冻结候选池内的相关性、新鲜感、多样性和最终排序。' },
+  { key: 'copy_prompt', title: '推荐文案风格', icon: 'mdi-text-box-edit-outline', purpose: '控制推荐理由和作品简介的表达风格，不改变候选和安全校验。' },
+]
 
 const currentMain = computed(() => mainTabs.find(item => item.key === activeMain.value) || mainTabs[0])
+const activePromptDefinition = computed(() => promptDefinitions.find(item => item.key === promptEditor.key) || promptDefinitions[0])
 const selectedProfileId = computed(() => form.default_profile_id || form.emby_identities[0]?.profile_id || '')
 const selectedIdentity = computed(() => form.emby_identities.find(identity => identity.profile_id === selectedProfileId.value) || null)
 const serverOptions = computed(() => {
@@ -287,6 +303,12 @@ function cloneConfig(value) {
 
 function applyConfig(value) {
   const next = cloneConfig(value)
+  const legacyPrompt = String(next.agent_prompt || '').trim()
+  if (legacyPrompt && !legacyAgentPromptDefaults.has(legacyPrompt)) {
+    if (!next.profile_prompt) next.profile_prompt = legacyPrompt
+    if (!next.ranking_prompt) next.ranking_prompt = legacyPrompt
+  }
+  delete next.agent_prompt
   Object.assign(form, cloneConfig(defaults), next)
   form.playback_enabled = true
   form.weights = { ...weightDefaults, ...(next.weights || {}) }
@@ -382,8 +404,32 @@ function playbackStatusText(snapshot) {
   return labels[snapshot?.status] || snapshot?.status || '尚未同步'
 }
 
-function restoreAgentPrompt() {
-  form.agent_prompt = runtimeDefaults.value.agent_prompt || defaults.agent_prompt
+function promptSummary(key) {
+  return String(form[key] || '').replace(/\s+/g, ' ').trim() || '尚未设置'
+}
+
+function openPromptEditor(definition) {
+  promptEditor.key = definition.key
+  promptEditor.draft = String(form[definition.key] || defaults[definition.key] || '')
+  promptEditor.open = true
+}
+
+function restorePromptEditor() {
+  const key = promptEditor.key
+  promptEditor.draft = String(runtimeDefaults.value[key] || defaults[key] || '')
+}
+
+function cancelPromptEditor() {
+  promptEditor.open = false
+  promptEditor.key = ''
+  promptEditor.draft = ''
+}
+
+function applyPromptEditor() {
+  const value = promptEditor.draft.trim()
+  if (!value || value.length > 4000) return
+  form[promptEditor.key] = value
+  cancelPromptEditor()
 }
 
 function requestClearProfile(value) {
@@ -692,22 +738,38 @@ onMounted(loadRuntime)
                 </div>
               </template>
               <template v-else>
-                <div class="d-flex align-center mb-3">
-                  <div class="ar-config__section-title mb-0">提示设置</div>
-                  <VSpacer />
-                  <VBtn variant="text" color="primary" prepend-icon="mdi-restore" size="small" @click="restoreAgentPrompt">恢复默认</VBtn>
+                <div class="ar-config__section-title">提示设置</div>
+                <div class="ar-config__prompt-list">
+                  <div v-for="definition in promptDefinitions" :key="definition.key" class="ar-config__prompt-row">
+                    <VAvatar color="primary" variant="tonal" size="38" rounded="lg">
+                      <VIcon :icon="definition.icon" size="20" />
+                    </VAvatar>
+                    <div class="ar-config__prompt-copy">
+                      <div class="ar-config__prompt-title">{{ definition.title }}</div>
+                      <div class="ar-config__prompt-purpose">{{ definition.purpose }}</div>
+                      <div class="ar-config__prompt-summary">{{ promptSummary(definition.key) }}</div>
+                    </div>
+                    <VBtn variant="tonal" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="openPromptEditor(definition)">编辑</VBtn>
+                  </div>
                 </div>
-                <VTextarea
-                  v-model="form.agent_prompt"
-                  label="Agent排序提示词"
-                  variant="outlined"
-                  rows="12"
-                  counter="4000"
-                  maxlength="4000"
-                  auto-grow
-                  hide-details="auto"
-                />
-                <VAlert type="info" variant="tonal" class="mt-4">该提示词只调整冻结候选池内的排序与文案风格；画像生成提示、只读工具边界和 JSON 输出协议由插件固定保留。</VAlert>
+                <VExpansionPanels variant="accordion" class="mt-4 ar-config__fixed-rules">
+                  <VExpansionPanel>
+                    <VExpansionPanelTitle>
+                      <VIcon icon="mdi-shield-lock-outline" color="primary" size="20" class="me-2" />
+                      固定安全规则（只读）
+                    </VExpansionPanelTitle>
+                    <VExpansionPanelText>
+                      <ul class="ar-config__rule-list">
+                        <li>Agent 只能读取本轮受限工具数据，不能订阅、写数据、改配置或调用消息与文件能力。</li>
+                        <li>已删除标签进入归档，画像和排序不得恢复、引用或换用近义标签规避。</li>
+                        <li>观看动机只能作为软排序信号；不得推断人格、焦虑、孤独、疾病或创伤，也不得输出心理诊断。</li>
+                        <li>画像与榜单必须返回插件规定的 JSON Schema，额外字段和非法候选会被拒绝。</li>
+                        <li>推荐理由和简介必须各自总结为三十字内的完整短句，禁止按字符截断。</li>
+                        <li>成功生成的最终榜单固定保存五条；排序校验未满时只从冻结候选池安全补位。</li>
+                      </ul>
+                    </VExpansionPanelText>
+                  </VExpansionPanel>
+                </VExpansionPanels>
               </template>
             </div>
           </div>
@@ -722,6 +784,41 @@ onMounted(loadRuntime)
         <VBtn color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="saveConfig">保存配置</VBtn>
       </VCardActions>
     </VCard>
+
+    <VDialog v-model="promptEditor.open" width="min(720px, calc(100vw - 24px))" persistent>
+      <VCard class="ar-config__prompt-dialog">
+        <VCardItem>
+          <template #prepend>
+            <VAvatar color="primary" variant="tonal" size="40" rounded="lg">
+              <VIcon :icon="activePromptDefinition.icon" size="21" />
+            </VAvatar>
+          </template>
+          <VCardTitle>{{ activePromptDefinition.title }}</VCardTitle>
+          <VCardSubtitle class="ar-config__prompt-dialog-subtitle">{{ activePromptDefinition.purpose }}</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="ar-config__prompt-dialog-body">
+          <VTextarea
+            v-model="promptEditor.draft"
+            label="提示词内容"
+            variant="outlined"
+            rows="12"
+            counter="4000"
+            maxlength="4000"
+            auto-grow
+            hide-details="auto"
+          />
+          <div class="ar-config__prompt-dialog-hint">应用后只更新当前表单，点击配置页“保存配置”后才会持久化。</div>
+        </VCardText>
+        <VDivider />
+        <VCardActions>
+          <VBtn variant="text" prepend-icon="mdi-restore" @click="restorePromptEditor">恢复默认</VBtn>
+          <VSpacer />
+          <VBtn variant="text" @click="cancelPromptEditor">取消</VBtn>
+          <VBtn color="primary" variant="flat" :disabled="!promptEditor.draft.trim() || promptEditor.draft.length > 4000" @click="applyPromptEditor">应用</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
 
     <VDialog v-model="clearProfileDialog" max-width="480" persistent>
       <VCard>
@@ -788,6 +885,19 @@ onMounted(loadRuntime)
 .ar-config__weight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
 .ar-config__weight-item { padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; }
 .ar-config__default { margin-top: -2px; text-align: right; }
+.ar-config__prompt-list { display: flex; flex-direction: column; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden; }
+.ar-config__prompt-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; }
+.ar-config__prompt-row + .ar-config__prompt-row { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.ar-config__prompt-copy { min-width: 0; }
+.ar-config__prompt-title { font-size: 13px; font-weight: 700; }
+.ar-config__prompt-purpose { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .62); font-size: 12px; line-height: 1.45; }
+.ar-config__prompt-summary { display: -webkit-box; margin-top: 5px; overflow: hidden; color: rgba(var(--v-theme-on-surface), .78); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.ar-config__fixed-rules { border-radius: 8px; overflow: hidden; }
+.ar-config__rule-list { margin: 0; padding-left: 20px; color: rgba(var(--v-theme-on-surface), .72); font-size: 12px; line-height: 1.7; }
+.ar-config__prompt-dialog { max-height: min(760px, calc(100dvh - 24px)); overflow: hidden; }
+.ar-config__prompt-dialog-subtitle { white-space: normal; overflow-wrap: anywhere; }
+.ar-config__prompt-dialog-body { overflow-y: auto; }
+.ar-config__prompt-dialog-hint { margin-top: 8px; color: rgba(var(--v-theme-on-surface), .6); font-size: 12px; line-height: 1.5; }
 .ar-config__danger-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; border: 1px solid rgba(var(--v-theme-error), .32); border-radius: 10px; background: rgba(var(--v-theme-error), .045); }
 .ar-config__danger-title { color: rgb(var(--v-theme-error)); font-size: 13px; font-weight: 700; }
 .ar-config__danger-row :deep(.v-switch) { flex: 0 0 auto; }
@@ -806,6 +916,9 @@ onMounted(loadRuntime)
   .ar-config__window--overview { overflow-y: auto; }
   .ar-config__pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-config__overview-grid, .ar-config__source-grid, .ar-config__weight-grid { grid-template-columns: 1fr; }
+  .ar-config__prompt-row { grid-template-columns: auto minmax(0, 1fr); }
+  .ar-config__prompt-row > .v-btn { grid-column: 2; justify-self: end; }
+  .ar-config__prompt-dialog { max-height: calc(100dvh - 16px); }
   .ar-config__danger-row { align-items: flex-start; flex-direction: column; }
 }
 @media (max-width: 390px) {

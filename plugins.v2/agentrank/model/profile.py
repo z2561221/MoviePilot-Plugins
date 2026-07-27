@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping
 
 
-PROFILE_SCHEMA_VERSION = 5
+PROFILE_SCHEMA_VERSION = 6
 RETRIEVAL_RESOLUTION_VERSION = 1
 
 
@@ -20,6 +20,7 @@ class UserProfile:
     playback_count: int = 0
     playback_fingerprint: str = ""
     preferences_fingerprint: str = ""
+    profile_prompt_fingerprint: str = ""
     filters: Dict[str, Any] = field(default_factory=dict)
     ranking_tags: List[str] = field(default_factory=list)
     retrieval_resolution_version: int = RETRIEVAL_RESOLUTION_VERSION
@@ -56,6 +57,9 @@ class UserProfile:
             playback_fingerprint=str(value.get("playback_fingerprint") or ""),
             preferences_fingerprint=str(
                 value.get("preferences_fingerprint") or ""
+            ),
+            profile_prompt_fingerprint=str(
+                value.get("profile_prompt_fingerprint") or ""
             ),
             filters=dict(value.get("filters") or {}),
             ranking_tags=[str(item) for item in value.get("ranking_tags") or []],

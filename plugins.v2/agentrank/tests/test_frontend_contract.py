@@ -11,12 +11,27 @@ def _read(name: str) -> str:
 
 
 def test_advanced_options_exposes_four_character_prompt_subtab():
-    """提示词入口位于高级选项的四字二级标签。"""
+    """提示设置用三类紧凑入口和统一弹窗编辑。"""
     config = _read("Config.vue")
     assert "{ key: 'runtime', title: '运行设置'" in config
     assert "{ key: 'prompt', title: '提示设置'" in config
-    assert "Agent排序提示词" in config
+    for field_name, title in (
+        ("profile_prompt", "画像理解规则"),
+        ("ranking_prompt", "榜单推荐策略"),
+        ("copy_prompt", "推荐文案风格"),
+    ):
+        assert field_name in config
+        assert title in config
+    assert 'v-model="form.agent_prompt"' not in config
+    assert 'v-model="promptEditor.open"' in config
+    assert 'v-model="promptEditor.draft"' in config
     assert "恢复默认" in config
+    assert "取消" in config
+    assert "应用" in config
+    assert "保存配置" in config
+    assert "固定安全规则（只读）" in config
+    assert "最终榜单固定保存五条" in config
+    assert "max-height: min(760px, calc(100dvh - 24px))" in config
 
 
 def test_runtime_settings_exposes_discovery_page_switch_and_current_defaults():

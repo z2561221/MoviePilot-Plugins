@@ -6,6 +6,9 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 from .identity import EmbyIdentity
 from ..service.prompt import (
     DEFAULT_AGENT_PROMPT,
+    DEFAULT_COPY_PROMPT,
+    DEFAULT_PROFILE_PROMPT,
+    DEFAULT_RANKING_PROMPT,
     LEGACY_DEFAULT_AGENT_PROMPT,
     LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT,
     LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT,
@@ -75,7 +78,9 @@ class AgentRankConfig:
     playback_completion_threshold: float = 0.85
     playback_abandon_minutes: int = 20
     playback_cache_days: int = 7
-    agent_prompt: str = DEFAULT_AGENT_PROMPT
+    profile_prompt: str = DEFAULT_PROFILE_PROMPT
+    ranking_prompt: str = DEFAULT_RANKING_PROMPT
+    copy_prompt: str = DEFAULT_COPY_PROMPT
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] = None) -> "AgentRankConfig":
@@ -219,12 +224,16 @@ def configured_identities(config: Mapping[str, Any]) -> List[EmbyIdentity]:
 def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, List[str]]:
     """生成安全配置并同时返回全部校验错误。"""
     raw = dict(value) if isinstance(value, Mapping) else {}
-    if raw.get("agent_prompt") in (
+    legacy_prompt = str(raw.get("agent_prompt") or "").strip()
+    legacy_is_default = legacy_prompt in (
+        DEFAULT_AGENT_PROMPT,
         LEGACY_DEFAULT_AGENT_PROMPT,
         LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT,
         LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT,
-    ):
-        raw["agent_prompt"] = DEFAULT_AGENT_PROMPT
+    )
+    if legacy_prompt and not legacy_is_default:
+        raw.setdefault("profile_prompt", legacy_prompt)
+        raw.setdefault("ranking_prompt", legacy_prompt)
     errors: List[str] = [] if value is None or isinstance(value, Mapping) else [
         "config must be a mapping"
     ]
@@ -334,11 +343,25 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         playback_cache_days=_bounded_integer(
             raw.get("playback_cache_days", 7), 7, 1, 30, "playback_cache_days", errors
         ),
-        agent_prompt=_bounded_text(
-            raw.get("agent_prompt", DEFAULT_AGENT_PROMPT),
-            DEFAULT_AGENT_PROMPT,
+        profile_prompt=_bounded_text(
+            raw.get("profile_prompt", DEFAULT_PROFILE_PROMPT),
+            DEFAULT_PROFILE_PROMPT,
             4000,
-            "agent_prompt",
+            "profile_prompt",
+            errors,
+        ),
+        ranking_prompt=_bounded_text(
+            raw.get("ranking_prompt", DEFAULT_RANKING_PROMPT),
+            DEFAULT_RANKING_PROMPT,
+            4000,
+            "ranking_prompt",
+            errors,
+        ),
+        copy_prompt=_bounded_text(
+            raw.get("copy_prompt", DEFAULT_COPY_PROMPT),
+            DEFAULT_COPY_PROMPT,
+            4000,
+            "copy_prompt",
             errors,
         ),
     )

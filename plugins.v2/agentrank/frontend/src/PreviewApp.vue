@@ -72,7 +72,9 @@ const config = {
   playback_completion_threshold: 0.85,
   playback_abandon_minutes: 20,
   playback_cache_days: 7,
-  agent_prompt: '以用户真实播放记录和明确偏好为首要依据，可从情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感五类观看动机辅助排序。稳定动机必须有至少两条独立播放证据或一项人工明确偏好，且只能作为软排序信号。',
+  profile_prompt: '基于用户真实播放记录和明确偏好，归纳稳定的内容偏好与观看动机；单一样本不得形成稳定结论。',
+  ranking_prompt: '优先选择有多项具体匹配证据且能补充片单的新作品，兼顾相关性、新鲜感与题材多样性。',
+  copy_prompt: '推荐理由和作品简介使用自然、具体、克制且语义完整的短句。',
 }
 
 const recommendations = Array.from({ length: 5 }, (_, index) => ({

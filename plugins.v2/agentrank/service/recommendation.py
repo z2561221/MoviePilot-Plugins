@@ -1,6 +1,7 @@
 """按用户锁定的 Agent 榜单推荐编排服务。"""
 
 import asyncio
+import hashlib
 import logging
 import threading
 import time
@@ -26,7 +27,12 @@ from ..model.profile import (
 from ..model.retrieval import RetrievalPlan
 from ..model.run import RecommendationRun
 from ..storage.repository import AgentRankRepository
-from .prompt import build_profile_prompt, build_ranking_prompt, build_refill_prompt
+from .prompt import (
+    DEFAULT_PROFILE_PROMPT,
+    build_profile_prompt,
+    build_ranking_prompt,
+    build_refill_prompt,
+)
 from .keyword_resolution import (
     ControlledRetrievalPlanResolver,
     RetrievalPlanResolution,
@@ -149,6 +155,7 @@ class RecommendationOrchestrator:
         previous_profile: Optional[UserProfile],
         playback_fingerprint: str,
         preferences_fingerprint: str,
+        profile_prompt_fingerprint: str,
     ) -> str:
         """返回画像缓存命中或未命中的稳定原因码。"""
         if not enabled:
@@ -168,6 +175,8 @@ class RecommendationOrchestrator:
             return "playback_changed"
         if previous_profile.preferences_fingerprint != preferences_fingerprint:
             return "preferences_changed"
+        if previous_profile.profile_prompt_fingerprint != profile_prompt_fingerprint:
+            return "profile_prompt_changed"
         return "hit"
 
     @staticmethod
@@ -489,12 +498,19 @@ class RecommendationOrchestrator:
             ) + len(profile_preferences.archived_negative_tags)
             playback_fingerprint = playback_snapshot.fingerprint()
             preferences_fingerprint = profile_preferences.fingerprint()
+            profile_prompt_text = str(
+                config.get("profile_prompt") or DEFAULT_PROFILE_PROMPT
+            ).strip()
+            profile_prompt_fingerprint = hashlib.sha256(
+                profile_prompt_text.encode("utf-8")
+            ).hexdigest()
             profile_cache_reason = self._profile_cache_reason(
                 profile_cache_enabled,
                 rebuild_profile,
                 previous_profile,
                 playback_fingerprint,
                 preferences_fingerprint,
+                profile_prompt_fingerprint,
             )
             metrics["profile_cache_status"] = (
                 "hit" if profile_cache_reason == "hit" else "miss"
@@ -537,7 +553,7 @@ class RecommendationOrchestrator:
                 )
                 parsed_profile = None
                 profile_prompt = build_profile_prompt(
-                    agent_prompt=str(config.get("agent_prompt") or "")
+                    profile_prompt=profile_prompt_text
                 )
                 profile_attempt_errors: List[str] = []
                 for attempt in range(2):
@@ -646,6 +662,7 @@ class RecommendationOrchestrator:
                     playback_count=parsed_profile.profile.playback_count,
                     playback_fingerprint=playback_fingerprint,
                     preferences_fingerprint=preferences_fingerprint,
+                    profile_prompt_fingerprint=profile_prompt_fingerprint,
                     filters=resolved_plan.filters.to_dict(),
                     ranking_tags=list(resolved_plan.ranking_tags),
                     run_id=run_id,
@@ -871,7 +888,8 @@ class RecommendationOrchestrator:
             for attempt in range(2):
                 prompt = build_ranking_prompt(
                     max_recommendations=RANKING_OUTPUT_LIMIT,
-                    agent_prompt=str(config.get("agent_prompt") or "")
+                    ranking_prompt=str(config.get("ranking_prompt") or ""),
+                    copy_prompt=str(config.get("copy_prompt") or ""),
                 )
                 if attempt:
                     prompt += (
@@ -978,7 +996,8 @@ class RecommendationOrchestrator:
                     current_refill_prompt = build_refill_prompt(
                         [item.candidate_id for item in accepted],
                         refill_slots,
-                        agent_prompt=str(config.get("agent_prompt") or ""),
+                        ranking_prompt=str(config.get("ranking_prompt") or ""),
+                        copy_prompt=str(config.get("copy_prompt") or ""),
                         rejected_candidates=refill_feedback,
                     )
                     stage_clock = time.monotonic()

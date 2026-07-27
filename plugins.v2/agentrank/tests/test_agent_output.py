@@ -28,6 +28,7 @@ AgentOutputError = validation_module.AgentOutputError
 fallback_summary = validation_module.fallback_summary
 build_ranking_prompt = prompt_module.build_ranking_prompt
 build_profile_prompt = prompt_module.build_profile_prompt
+build_refill_prompt = prompt_module.build_refill_prompt
 
 
 def _profile_output(profile=None, filters=None, ranking_tags=None):
@@ -140,15 +141,47 @@ def test_psychological_motivation_is_evidence_bounded_and_never_diagnostic():
         assert "不得输出心理诊断或心理学术语" in prompt
 
 
-def test_custom_agent_prompt_is_inserted_without_replacing_fixed_contract():
-    """自定义排序指令生效，但固定工具与输出边界仍存在。"""
-    prompt = build_ranking_prompt(agent_prompt="优先推荐冷门科幻并保持俏皮文风")
-    assert "优先推荐冷门科幻并保持俏皮文风" in prompt
+def test_custom_ranking_and_copy_prompts_keep_fixed_contract():
+    """排序与文案指令各自生效，但固定工具与输出边界仍存在。"""
+    prompt = build_ranking_prompt(
+        ranking_prompt="优先推荐冷门科幻",
+        copy_prompt="保持俏皮但克制的文风",
+    )
+    assert "优先推荐冷门科幻" in prompt
+    assert "保持俏皮但克制的文风" in prompt
     assert "只能通过 read_agentrank_playback" in prompt
     assert "不能覆盖硬性边界、输出结构或字段校验" in prompt
     assert "不超过三十" in prompt
     assert "不得按字符截断原文" in prompt
     assert "每个 match_tags 标签最多五个字符" in prompt
+
+
+def test_profile_prompt_is_isolated_from_ranking_and_copy_prompts():
+    """画像指令只进入画像协议，排序与文案指令只进入榜单协议。"""
+    profile = build_profile_prompt(profile_prompt="画像只关注叙事节奏")
+    ranking = build_ranking_prompt(
+        ranking_prompt="排序优先新鲜感",
+        copy_prompt="文案保持简洁",
+    )
+
+    assert "画像只关注叙事节奏" in profile
+    assert "排序优先新鲜感" not in profile
+    assert "文案保持简洁" not in profile
+    assert "排序优先新鲜感" in ranking
+    assert "文案保持简洁" in ranking
+    assert "画像只关注叙事节奏" not in ranking
+
+
+def test_refill_reuses_ranking_and_copy_prompts():
+    """唯一补选沿用同一排序策略和文案风格。"""
+    prompt = build_refill_prompt(
+        ["tmdb:1"],
+        1,
+        ranking_prompt="补选仍按相关性排序",
+        copy_prompt="补选文案保持克制",
+    )
+    assert "补选仍按相关性排序" in prompt
+    assert "补选文案保持克制" in prompt
 
 
 def test_parser_accepts_one_schema_object_and_preserves_agent_order():

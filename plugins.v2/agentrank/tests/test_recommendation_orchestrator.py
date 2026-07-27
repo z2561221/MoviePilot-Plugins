@@ -509,6 +509,53 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
     assert latest_metrics["profile_cache_miss_reason"] == ""
 
 
+def test_only_profile_prompt_change_invalidates_profile_cache():
+    """排序或文案变化复用画像，画像规则变化才按明确原因重建。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    agent = FakeAgentAdapter(
+        [
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+        ]
+    )
+    run_ids = iter(["run-profile-a", "run-copy-change", "run-profile-b"])
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=FakeCandidateService(12),
+        agent_adapter=agent,
+        run_id_factory=lambda: next(run_ids),
+        playback_service=FakePlaybackService(),
+    )
+    base_config = {
+        **_config(),
+        "profile_prompt": "画像规则甲",
+        "ranking_prompt": "排序规则甲",
+        "copy_prompt": "文案规则甲",
+    }
+
+    first = asyncio.run(orchestrator.run(PROFILE_ID, base_config))
+    copy_changed = {
+        **base_config,
+        "ranking_prompt": "排序规则乙",
+        "copy_prompt": "文案规则乙",
+    }
+    second = asyncio.run(orchestrator.run(PROFILE_ID, copy_changed))
+    second_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    profile_changed = {**copy_changed, "profile_prompt": "画像规则乙"}
+    third = asyncio.run(orchestrator.run(PROFILE_ID, profile_changed))
+    third_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+
+    assert [first.status, second.status, third.status] == ["success"] * 3
+    assert len(agent.profile_calls) == 2
+    assert second_metrics["profile_cache_status"] == "hit"
+    assert second_metrics["profile_cache_miss_reason"] == ""
+    assert third_metrics["profile_cache_status"] == "miss"
+    assert third_metrics["profile_cache_miss_reason"] == "profile_prompt_changed"
+    assert repository.load_profile(PROFILE_ID).profile_prompt_fingerprint
+
+
 def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches():
     """旧画像没有检索计划时不能因相同指纹跳过画像 Agent。"""
     plugin = FakePlugin()
@@ -535,7 +582,7 @@ def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches
 
     assert result.status == "success"
     assert len(orchestrator.agent_adapter.profile_calls) == 1
-    assert repository.load_profile(PROFILE_ID).schema_version == 5
+    assert repository.load_profile(PROFILE_ID).schema_version == 6
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["profile_cache_miss_reason"] == "profile_schema_changed"
 
@@ -553,7 +600,7 @@ def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches
             summary="old",
             playback_count=len(snapshot.samples),
             playback_fingerprint=snapshot.fingerprint(),
-            schema_version=5,
+            schema_version=6,
             retrieval_resolution_version=0,
             run_id="old",
         )
@@ -601,20 +648,27 @@ def test_controlled_resolution_is_persisted_and_exposed_to_ranking_context():
     assert metrics["resolved_language_count"] == 1
 
 
-def test_run_uses_configured_agent_prompt():
-    """初选调用会收到当前配置中的排序提示词。"""
+def test_run_uses_three_configured_prompts_in_their_own_stages():
+    """画像、排序和文案提示词只进入各自负责的 Agent 阶段。"""
     plugin = FakePlugin()
     orchestrator, _ = _orchestrator(
         plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 6)])]
     )
     config = _config()
-    config["agent_prompt"] = "多推荐冷门科幻并保持俏皮文风"
+    config["profile_prompt"] = "画像只归纳稳定的科幻偏好"
+    config["ranking_prompt"] = "排序优先冷门科幻"
+    config["copy_prompt"] = "文案俏皮但克制"
 
     asyncio.run(orchestrator.run(PROFILE_ID, config))
 
-    assert "多推荐冷门科幻并保持俏皮文风" in (
-        orchestrator.agent_adapter.profile_calls[0][0]
-    )
+    profile_prompt = orchestrator.agent_adapter.profile_calls[0][0]
+    ranking_prompt = orchestrator.agent_adapter.ranking_calls[0][0]
+    assert "画像只归纳稳定的科幻偏好" in profile_prompt
+    assert "排序优先冷门科幻" not in profile_prompt
+    assert "文案俏皮但克制" not in profile_prompt
+    assert "排序优先冷门科幻" in ranking_prompt
+    assert "文案俏皮但克制" in ranking_prompt
+    assert "画像只归纳稳定的科幻偏好" not in ranking_prompt
 
 
 def test_cached_profile_is_passed_as_incremental_context():

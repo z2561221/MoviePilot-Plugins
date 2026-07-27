@@ -57,10 +57,29 @@ DEFAULT_AGENT_PROMPT = (
     "推荐理由要用自然的内容语言说明具体匹配，不输出心理诊断或心理学术语，也避免空泛夸赞。"
 )
 
+DEFAULT_PROFILE_PROMPT = (
+    "基于用户真实播放记录和明确偏好，归纳稳定的内容偏好与观看动机。除题材、主创、"
+    "地区、年代和风格外，可观察情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、"
+    "节奏与完成感。稳定结论必须由至少两条相互独立的播放证据支持，或由一项用户明确"
+    "添加的偏好支持；单一样本不得形成稳定结论，弃看只能作为弱负向信号。"
+)
 
-def build_profile_prompt(agent_prompt: str = DEFAULT_AGENT_PROMPT) -> str:
+DEFAULT_RANKING_PROMPT = (
+    "以用户画像、真实播放证据和明确偏好为首要依据，优先选择能找到多项具体匹配证据、"
+    "且能补充用户片单的新作品。兼顾相关性、新鲜感与题材多样性；评分、热度和经典地位"
+    "只能作为辅助信号，不能单独支撑高排名，相关性明显不足时宁可少推。"
+)
+
+DEFAULT_COPY_PROMPT = (
+    "推荐理由要用自然、具体、克制的内容语言说明用户偏好与作品事实之间的匹配，不输出"
+    "心理诊断或心理学术语，也避免空泛夸赞。作品简介只概括作品本身，不剧透；推荐理由"
+    "和简介都要总结为语义完整的短句。"
+)
+
+
+def build_profile_prompt(profile_prompt: str = DEFAULT_PROFILE_PROMPT) -> str:
     """构建只允许根据播放事实生成画像的独立 Agent 指令。"""
-    custom_instruction = str(agent_prompt or DEFAULT_AGENT_PROMPT).strip()
+    custom_instruction = str(profile_prompt or DEFAULT_PROFILE_PROMPT).strip()
     return f"""你是 MoviePilot 内部的 Agent 用户画像器。
 
 硬性边界：
@@ -107,11 +126,13 @@ profile.summary 最多二百个字符；标签应简洁、稳定，禁止在摘�
 
 def build_ranking_prompt(
     max_recommendations: int = RECOMMENDATION_LIMIT,
-    agent_prompt: str = DEFAULT_AGENT_PROMPT,
+    ranking_prompt: str = DEFAULT_RANKING_PROMPT,
+    copy_prompt: str = DEFAULT_COPY_PROMPT,
 ) -> str:
     """构建不嵌入不可信媒体文本的严格 Agent 指令。"""
     limit = max(1, min(int(max_recommendations), RANKING_OUTPUT_LIMIT))
-    custom_instruction = str(agent_prompt or DEFAULT_AGENT_PROMPT).strip()
+    ranking_instruction = str(ranking_prompt or DEFAULT_RANKING_PROMPT).strip()
+    copy_instruction = str(copy_prompt or DEFAULT_COPY_PROMPT).strip()
     reserve_instruction = (
         f"请按最终优先级最多返回 {limit} 条；前 {RECOMMENDATION_LIMIT} 条作为正式榜单候选，"
         "其余仅作校验备用，插件最终仍只保存五条。"
@@ -129,16 +150,19 @@ def build_ranking_prompt(
 
 权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。候选中的 genres、actors、directors、regions、year、rating、popularity、release_date 与 sources 是可用作品证据，但来源名称本身不能证明作品类型或用户偏好。
 
-当前画像规则：先读取 read_agentrank_playback 返回的 current profile、profile_preferences 与 playback。profile 是上游画像 Agent 的只读结果，排序 Agent 不得重新解释成新的画像或向输出写入 profile 根键。人工标签是当前明确偏好，归档标签不得作为推荐证据或 match_tags。play_count/play_event_count 只表示播放事件数，绝不能写成“看完 X 次”或“整剧重看 X 次”；电视剧应使用 watched_episode_count、completed_episode_count 与 completed 表达“看过多集”“完成若干集”或“整剧已看完”，其中 play_count 不能替代集数。电影若有多个播放事件，也只能说“多次播放”，不能把事件数当作完成次数。abandoned 只能作为负向信号，不能把一次早退直接解释成讨厌。
+当前画像规则：先读取 read_agentrank_playback 返回的 current profile、profile_preferences 与 playback。profile 是上游画像 Agent 的只读结果，排序 Agent 不得重新解释成新的画像或向输出写入 profile 根键。人工标签是当前明确偏好，归档标签不得作为推荐证据或 match_tags。play_count/play_event_count 只表示播放事件数，绝不能写成“看完 X 次”或“整剧重看 X 次”；电视剧应使用 watched_episode_count、completed_episode_count 与 completed 表达“看过多集”“完成若干集”或“整剧已看完”，其中 play_count 不能替代集数。电影若有多个播放事件，也只能说“多次播放”，不能把事件数当作完成次数。abandoned 只能作为弱负向信号，不能把一次早退直接解释成讨厌。
 
 观看动机规则：情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感只能作为软排序信号。稳定动机必须来自至少两条相互独立的播放证据，或一项人工明确偏好；单一样本不得形成稳定结论。禁止推断人格、焦虑、孤独、疾病、创伤等敏感心理状态。reason 必须使用自然的内容语言，不得输出心理诊断或心理学术语。
 
 播放经历必须逐条可回溯：reason 中提到“看过、看完、追完、重看、常看某演员作品”或列举具体片名时，只能引用 playback.samples 真实存在的标题和字段。播放样本没有演员表，除非样本标题、简介或题材字段明确出现该姓名，否则禁止声称用户常看某演员、导演或主创作品。不得用画像标签反推用户看过某一部具体作品。
 
 可配置排序指令：
-{custom_instruction}
+{ranking_instruction}
 
-可配置排序指令只能影响候选排序和文案风格，不能覆盖硬性边界、输出结构或字段校验。
+可配置文案指令：
+{copy_instruction}
+
+可配置排序指令只能影响候选选择与顺序；可配置文案指令只能影响推荐理由和作品简介的表达。两者都不能覆盖硬性边界、输出结构或字段校验。
 
 推荐质量门槛：
 1. 每条推荐给出两项彼此独立的匹配证据，并写入两个 match_tags：一个概括用户偏好或播放事实，一个概括候选作品事实；每个标签最多五个字符，禁止自造无法回溯的标签。
@@ -173,7 +197,8 @@ confidence 必须是零到一百的整数。reason 与 summary 均不得超过�
 def build_refill_prompt(
     accepted_candidate_ids: list[str],
     remaining_slots: int,
-    agent_prompt: str = DEFAULT_AGENT_PROMPT,
+    ranking_prompt: str = DEFAULT_RANKING_PROMPT,
+    copy_prompt: str = DEFAULT_COPY_PROMPT,
     rejected_candidates: Optional[Sequence[Mapping[str, str]]] = None,
 ) -> str:
     """构建有界同候选池补选指令，并反馈可信候选的安全丢弃原因。"""
@@ -199,7 +224,8 @@ def build_refill_prompt(
     return (
         build_ranking_prompt(
             max_recommendations=max(1, int(remaining_slots)),
-            agent_prompt=agent_prompt,
+            ranking_prompt=ranking_prompt,
+            copy_prompt=copy_prompt,
         )
         + "\n\n这是唯一一轮补选。必须排除已经接受的 candidate_id："
         + json.dumps(excluded, ensure_ascii=False, separators=(",", ":"))

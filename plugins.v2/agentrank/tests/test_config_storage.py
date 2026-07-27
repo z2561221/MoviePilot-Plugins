@@ -27,6 +27,9 @@ AgentRankConfig = config_module.AgentRankConfig
 ConfigValidationError = config_module.ConfigValidationError
 WEIGHT_DEFAULTS = config_module.WEIGHT_DEFAULTS
 DEFAULT_AGENT_PROMPT = config_module.DEFAULT_AGENT_PROMPT
+DEFAULT_PROFILE_PROMPT = config_module.DEFAULT_PROFILE_PROMPT
+DEFAULT_RANKING_PROMPT = config_module.DEFAULT_RANKING_PROMPT
+DEFAULT_COPY_PROMPT = config_module.DEFAULT_COPY_PROMPT
 LEGACY_DEFAULT_AGENT_PROMPT = config_module.LEGACY_DEFAULT_AGENT_PROMPT
 LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT = config_module.LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT
 LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT = (
@@ -293,33 +296,52 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
     assert corrupted["_validation_errors"] == ["config must be a mapping"]
 
 
-def test_agent_prompt_is_editable_but_non_empty_and_bounded():
-    """自定义排序提示词会持久化，空值或超长值则安全回退。"""
-    custom = "多推荐冷门科幻，文案俏皮但不要剧透。"
-    assert AgentRankConfig.from_mapping({"agent_prompt": custom}).agent_prompt == custom
+def test_three_prompts_are_editable_but_non_empty_and_bounded():
+    """三类提示词独立持久化，空值或超长值安全回退。"""
+    defaults = {
+        "profile_prompt": DEFAULT_PROFILE_PROMPT,
+        "ranking_prompt": DEFAULT_RANKING_PROMPT,
+        "copy_prompt": DEFAULT_COPY_PROMPT,
+    }
+    for field_name, default in defaults.items():
+        custom = f"自定义{field_name}"
+        assert getattr(AgentRankConfig.from_mapping({field_name: custom}), field_name) == custom
+        empty = normalize_config({field_name: "  "})
+        oversized = normalize_config({field_name: "字" * 4001})
+        assert empty[field_name] == default
+        assert oversized[field_name] == default
+        assert any(field_name in error for error in empty["_validation_errors"])
+        assert any(field_name in error for error in oversized["_validation_errors"])
 
-    empty = normalize_config({"agent_prompt": "  "})
-    oversized = normalize_config({"agent_prompt": "字" * 4001})
-    assert empty["agent_prompt"] == DEFAULT_AGENT_PROMPT
-    assert oversized["agent_prompt"] == DEFAULT_AGENT_PROMPT
-    assert any("agent_prompt" in error for error in empty["_validation_errors"])
-    assert any("agent_prompt" in error for error in oversized["_validation_errors"])
+    assert "agent_prompt" not in default_config()
 
 
 def test_legacy_default_prompt_migrates_without_overwriting_custom_prompt():
-    """仅旧版内置默认值自动升级，用户真正自定义的提示词保持不变。"""
+    """旧内置值升级为三套默认，自定义值复制到画像与排序。"""
     custom = "只推荐我没看过的冷门历史剧。"
+    for legacy_default in (
+        DEFAULT_AGENT_PROMPT,
+        LEGACY_DEFAULT_AGENT_PROMPT,
+        LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT,
+        LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT,
+    ):
+        migrated = normalize_config({"agent_prompt": legacy_default})
+        assert migrated["profile_prompt"] == DEFAULT_PROFILE_PROMPT
+        assert migrated["ranking_prompt"] == DEFAULT_RANKING_PROMPT
+        assert migrated["copy_prompt"] == DEFAULT_COPY_PROMPT
+        assert "agent_prompt" not in migrated
 
-    assert normalize_config({"agent_prompt": LEGACY_DEFAULT_AGENT_PROMPT})[
-        "agent_prompt"
-    ] == DEFAULT_AGENT_PROMPT
-    assert normalize_config({"agent_prompt": LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT})[
-        "agent_prompt"
-    ] == DEFAULT_AGENT_PROMPT
-    assert normalize_config({"agent_prompt": LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT})[
-        "agent_prompt"
-    ] == DEFAULT_AGENT_PROMPT
-    assert normalize_config({"agent_prompt": custom})["agent_prompt"] == custom
+    migrated_custom = normalize_config({"agent_prompt": custom})
+    assert migrated_custom["profile_prompt"] == custom
+    assert migrated_custom["ranking_prompt"] == custom
+    assert migrated_custom["copy_prompt"] == DEFAULT_COPY_PROMPT
+    assert "agent_prompt" not in migrated_custom
+
+    explicit = normalize_config(
+        {"agent_prompt": custom, "profile_prompt": "新的画像规则"}
+    )
+    assert explicit["profile_prompt"] == "新的画像规则"
+    assert explicit["ranking_prompt"] == custom
 
 
 def test_repository_isolates_profiles_and_candidate_runs():
