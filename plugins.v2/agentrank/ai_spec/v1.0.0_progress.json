@@ -1,0 +1,507 @@
+{
+  "plan": "plugins.v2/agentrank/ai_spec/v1.0.0_implementation_plan.md",
+  "goal_starter": "plugins.v2/agentrank/ai_spec/v1.0.0_goal_starter.md",
+  "target_version": "1.0.0",
+  "target_release_date": "2026-07-31",
+  "status": {
+    "overall": "pending",
+    "phase": "phase-1",
+    "task": "1.1",
+    "next_allowed_action": "Commit the three planning artifacts as the clean-start commit without staging the protected LocalToolkit file, then execute task 1.1"
+  },
+  "execution_rules": {
+    "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
+    "branch": "worldlinefix/agentrank",
+    "protected_paths": [
+      "tests/static/test_localtoolkit_standard_completion.py"
+    ],
+    "smoke_check": "C:/Users/ZhaoYu/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe -m compileall -q plugins.v2/agentrank; C:/Users/ZhaoYu/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe -m pytest --confcutdir=plugins.v2/agentrank/tests --import-mode=append plugins.v2/agentrank/tests/test_runtime_contracts.py plugins.v2/agentrank/tests/test_frontend_contract.py -q",
+    "commit_each_verified_task": true,
+    "no_commit_on_failed_verification": true,
+    "never_push_merge_amend_rebase_reset_or_release_automatically": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "pause_only_for": [
+      "missing_product_decision",
+      "unisolatable_unrelated_changes",
+      "push",
+      "merge_to_main",
+      "release"
+    ],
+    "mutable_fields_only": [
+      "status",
+      "phase.status",
+      "phase.acceptance_evidence",
+      "task.status",
+      "task.verification",
+      "task.commit",
+      "decision_log",
+      "turn_log",
+      "residual_risks"
+    ]
+  },
+  "baseline": {
+    "plugin_tests": "381 passed",
+    "static_contracts": "25 passed",
+    "frontend_build": "passed with dist/assets/remoteEntry.js",
+    "branch_ahead_of_remote": 10,
+    "captured_at": "2026-07-28"
+  },
+  "phases": [
+    {
+      "id": "phase-1",
+      "title": "宿主契约、规格同步与安全边界",
+      "status": "pending",
+      "goal": "锁定访问、上下文、输出和模型溯源契约",
+      "acceptance": [
+        "规格与V4无冲突且旧十五字规则消失",
+        "跨profile访问默认拒绝",
+        "忽略完整载荷不进入排序Agent",
+        "实际供应商和模型来源可记录",
+        "阶段测试退出码为0"
+      ],
+      "acceptance_evidence": [],
+      "tasks": [
+        {
+          "id": "1.1",
+          "title": "同步plugin_context规格",
+          "status": "pending",
+          "acceptance": ["写入V4锁定语义并移除十五字旧规则"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "1.2",
+          "title": "实现MP用户到profile访问策略",
+          "status": "pending",
+          "acceptance": ["超级用户可访问已配置profile", "普通用户只能访问显式映射profile", "跨profile读写返回403"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "1.3",
+          "title": "最小化忽略上下文载荷",
+          "status": "pending",
+          "acceptance": ["排序Agent只见归档最小字段", "注入与越权测试通过"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "1.4",
+          "title": "记录真实LLM来源",
+          "status": "pending",
+          "acceptance": ["区分Agent Tokens接管与MoviePilot系统回退", "主字段显示模型名"],
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "title": "反馈事件账本、迁移与数据生命周期",
+      "status": "pending",
+      "goal": "建立可重放且不丢旧数据的事实与记忆底座",
+      "acceptance": [
+        "事件幂等且sequence单调",
+        "墓碑在重放和乱序后保持",
+        "旧数据迁移无损",
+        "导出脱敏且两种重置边界正确"
+      ],
+      "acceptance_evidence": [],
+      "tasks": [
+        {
+          "id": "2.1",
+          "title": "实现分段反馈事件账本",
+          "status": "pending",
+          "acceptance": ["100个并发重复事件只生成一个业务事件", "sequence严格递增"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "2.2",
+          "title": "实现记忆墓碑与revision",
+          "status": "pending",
+          "acceptance": ["删除标签不会复活", "旧结果不能覆盖新revision"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "2.3",
+          "title": "实现兼容迁移与失败回滚",
+          "status": "pending",
+          "acceptance": ["旧画像榜单归档历史逐字段保持", "迁移失败保留旧状态"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "2.4",
+          "title": "实现保留导出与重置",
+          "status": "pending",
+          "acceptance": ["导出不含秘密或原始思维链", "学习重置与彻底重置范围不同且受确认保护"],
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "title": "三态反馈、五条补位与即时交互语义",
+      "status": "pending",
+      "goal": "交付喜欢不喜欢忽略和安全五条榜单",
+      "acceptance": [
+        "三态语义与幂等正确",
+        "忽略不产生学习增量",
+        "安全候选充足时始终五条",
+        "无颜色也能识别图标"
+      ],
+      "acceptance_evidence": [],
+      "tasks": [
+        {
+          "id": "3.1",
+          "title": "新增三态反馈API",
+          "status": "pending",
+          "acceptance": ["返回事件状态和榜单revision", "重复请求幂等"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "3.2",
+          "title": "实现高辨识度点赞点踩控件",
+          "status": "pending",
+          "acceptance": ["不依赖绿赞红踩", "tooltip aria-label aria-pressed齐全"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "3.3",
+          "title": "实现安全五条补位事务",
+          "status": "pending",
+          "acceptance": ["移出后同冻结池补齐五条", "不喜欢作品不再补位", "安全不足时明确少于五条原因"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "3.4",
+          "title": "隔离即时排除与长期口味",
+          "status": "pending",
+          "acceptance": ["作品级排除立即生效", "题材主创动机变化必须确认"],
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "title": "异步理解、确认式记忆与乱序治理",
+      "status": "pending",
+      "goal": "让每次动作可理解、可延后回答且不静默污染画像",
+      "acceptance": [
+        "页面不等待LLM",
+        "队列可重启恢复",
+        "未确认提案零影响",
+        "乱序和重复确认安全",
+        "心理边界eval通过"
+      ],
+      "acceptance_evidence": [],
+      "tasks": [
+        {
+          "id": "4.1",
+          "title": "实现持久异步反馈队列",
+          "status": "pending",
+          "acceptance": ["同profile串行跨profile有界并发", "API及时返回queued", "重启恢复"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "4.2",
+          "title": "实现影评师人设skills与受限反馈理解Agent",
+          "status": "pending",
+          "acceptance": ["人设和六个内置skills有版本且只读", "每个动作触发异步任务", "纯忽略输出exclusion_only", "Agent无宿主通用或写工具"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "4.3",
+          "title": "生成记忆提案与歧义问询",
+          "status": "pending",
+          "acceptance": ["明确时生成复述和变化预览", "歧义时提供选项与自定义回答"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "4.4",
+          "title": "实现稍后提醒与不回复语义",
+          "status": "pending",
+          "acceptance": ["支持1/3/7天和不提醒", "未回复拒绝过期均不改记忆"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "4.5",
+          "title": "实现CAS记忆投影",
+          "status": "pending",
+          "acceptance": ["确认一次只增一个revision", "旧回调重复确认并发纠正不能覆盖新记忆"],
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "title": "确定性评分、支持度、Agent分析与策略版本",
+      "status": "pending",
+      "goal": "生成可重算排序、百分比和结构化依据",
+      "acceptance": [
+        "重放顺序和百分比一致",
+        "增量有界且忽略零影响",
+        "心理规则评估通过",
+        "不展示原始思维链",
+        "30字总结无残句"
+      ],
+      "acceptance_evidence": [],
+      "tasks": [
+        {
+          "id": "5.1",
+          "title": "实现版本化十项权重学习",
+          "status": "pending",
+          "acceptance": ["基准权重保留", "学习增量在正负0.25内", "独立证据和弃看规则生效"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "5.2",
+          "title": "实现确定性支持度",
+          "status": "pending",
+          "acceptance": ["百分比可由贡献项零误差重算", "LLM confidence不控制排序和订阅"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "5.3",
+          "title": "实现稳定排序和同策略补位",
+          "status": "pending",
+          "acceptance": ["100次重放一致", "补位也使用同一评分器并标记来源"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "5.4",
+          "title": "生成结构化Agent分析",
+          "status": "pending",
+          "acceptance": ["包含证据反证贡献和来源", "不含隐藏提示工具过程token或原始思维链"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "5.5",
+          "title": "实现30字内语义总结",
+          "status": "pending",
+          "acceptance": ["推荐和简介为完整短句", "不使用字符串硬截断"],
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-6",
+      "title": "评论、专属影评师对话、待确认与结果归因",
+      "status": "pending",
+      "goal": "闭合纠正、对话、确认和真实结果反馈",
+      "acceptance": [
+        "每条分析可评论并修订",
+        "对话写操作必须确认",
+        "不回复不改变画像",
+        "原生抽屉不误报订阅成功",
+        "运行历史显示真实模型"
+      ],
+      "acceptance_evidence": [],
+      "tasks": [
+        {
+          "id": "6.1",
+          "title": "实现逐条分析评论",
+          "status": "pending",
+          "acceptance": ["评论绑定analysis_id", "旧分析保留并被supersedes"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "6.2",
+          "title": "实现专属影评师对话服务",
+          "status": "pending",
+          "acceptance": ["只读上下文最小化", "全部写操作返回待确认命令"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "6.3",
+          "title": "实现待确认中心与提醒",
+          "status": "pending",
+          "acceptance": ["可答复拒绝稍后和不提醒", "支持交互的渠道直接提供选项", "榜单通知保持榜首海报整齐五条和订阅交互", "通知不暴露画像全文"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "6.4",
+          "title": "实现订阅入库播放归因",
+          "status": "pending",
+          "acceptance": ["native drawer返回只记opened", "状态复查后才升级归因"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "6.5",
+          "title": "完善运行历史模型溯源",
+          "status": "pending",
+          "acceptance": ["主列表显示供应商模型", "调用次数位于展开详情", "未知来源有明确文案"],
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-7",
+      "title": "四个Vue表面、移动端与端到端验收",
+      "status": "pending",
+      "goal": "在全部表面交付一致且可用的专属影评师体验",
+      "acceptance": [
+        "联邦构建和四expose正常",
+        "三个视口无重叠溢出丢字",
+        "三个榜单表面完整五条",
+        "全部交互可达且持久",
+        "浏览器无未处理异常"
+      ],
+      "acceptance_evidence": [],
+      "tasks": [
+        {
+          "id": "7.1",
+          "title": "统一前端状态与错误恢复",
+          "status": "pending",
+          "acceptance": ["新API集中于共享状态层", "loading error retry完整"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "7.2",
+          "title": "统一三榜单表面五条布局",
+          "status": "pending",
+          "acceptance": ["百分比靠右且无置信度文字", "推荐简介自然换行无展开收起", "操作按钮集合符合计划"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "7.3",
+          "title": "统一详情功能区与移动端",
+          "status": "pending",
+          "acceptance": ["移除运行就绪", "功能区自适应换行", "第五条完整可见"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "7.4",
+          "title": "集成分析评论对话待确认UI",
+          "status": "pending",
+          "acceptance": ["桌面紧凑窗口", "移动全屏对话", "可稍后继续回答"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "7.5",
+          "title": "集成访问数据与提示设置",
+          "status": "pending",
+          "acceptance": ["危险动作确认", "访问映射和保留策略可配", "提示词使用弹出编辑窗口", "非隐私默认不覆盖用户配置"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "7.6",
+          "title": "构建并浏览器验收四入口",
+          "status": "pending",
+          "acceptance": ["remoteEntry存在", "390x844 768x1024 1440x900截图齐全", "全部关键交互完成"],
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-8",
+      "title": "全量质量门禁、MP本地收束与正式发布",
+      "status": "pending",
+      "goal": "在用户授权下完成v1.0.0可复核发布",
+      "acceptance": [
+        "全量测试构建扫描通过",
+        "MP本地真实五条反馈闭环通过",
+        "分支提交和路径纯净",
+        "用户授权后main tag Release zip一致"
+      ],
+      "acceptance_evidence": [],
+      "tasks": [
+        {
+          "id": "8.1",
+          "title": "执行全量质量和隐私门禁",
+          "status": "pending",
+          "acceptance": ["插件测试不少于381项且全通过", "静态契约不少于25项且全通过", "eval构建JSON diff和扫描通过"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "8.2",
+          "title": "同步MP本地并运行真实闭环",
+          "status": "pending",
+          "acceptance": ["SHA一致并reload成功", "history版本历史is_local一致", "五条榜单和反馈闭环持久"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "8.3",
+          "title": "审计分支和整理发布元数据",
+          "status": "pending",
+          "acceptance": ["release workflow只监听main", "独有提交和路径仅AgentRank范围", "版本三处均为1.0.0"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "8.4",
+          "title": "生成发布preview并等待push授权",
+          "status": "pending",
+          "acceptance": ["preview仅一次且范围正确", "用户明确授权push前不写远端"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "8.5",
+          "title": "等待合入发布授权并执行发布",
+          "status": "pending",
+          "acceptance": ["使用真实merge commit", "Action tag Release zip成功", "相同门禁失败两次即停止"],
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "8.6",
+          "title": "回读远端并完成目标",
+          "status": "pending",
+          "acceptance": ["远端main package plugin Release均为1.0.0", "保留MP本地源和业务分支", "记录最终残余风险"],
+          "verification": [],
+          "commit": null
+        }
+      ]
+    }
+  ],
+  "decision_log": [
+    {
+      "date": "2026-07-28",
+      "decision": "采用8阶段L级计划，阶段通过后自动推进",
+      "source": "用户确认V4并要求写正式计划"
+    },
+    {
+      "date": "2026-07-28",
+      "decision": "只有产品决策、push、合入main和发布暂停",
+      "source": "用户目标与仓库门禁"
+    }
+  ],
+  "turn_log": [],
+  "residual_risks": [
+    "目标发布日期紧，任何高严重度权限数据隐私问题优先于日期",
+    "真实用户口味只能通过证据规则和反馈评估逼近，不能声称绝对正确",
+    "MoviePilot或Agent Tokens运行时更新可能造成宿主契约漂移"
+  ]
+}
