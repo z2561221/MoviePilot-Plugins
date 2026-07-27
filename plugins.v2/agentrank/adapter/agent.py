@@ -3,7 +3,7 @@
 import inspect
 import json
 import re
-from typing import Any, Callable, List, Mapping, Type
+from typing import Any, Callable, Dict, List, Mapping, Type
 
 from app.agent import MoviePilotAgent, ReplyMode
 from app.utils.identity import SYSTEM_INTERNAL_USER_ID
@@ -32,6 +32,18 @@ class AgentTextUnavailableError(RuntimeError):
     """表示 Agent 完成工具调用后没有产生可捕获的合法 JSON。"""
 
     retryable = True
+
+
+class AgentExecutionResult(str):
+    """保留字符串兼容性的 Agent 文本结果及脱敏模型溯源。"""
+
+    def __new__(
+        cls, value: str, provenance: Mapping[str, Any] = None
+    ) -> "AgentExecutionResult":
+        """创建可被既有解析器直接当作字符串使用的执行结果。"""
+        instance = super().__new__(cls, str(value or ""))
+        instance.provenance = dict(provenance or {})
+        return instance
 
 
 class RestrictedAgentRankAgent(MoviePilotAgent):
@@ -151,6 +163,57 @@ class AgentRankAgentAdapter:
         if inspect.isawaitable(result):
             await result
 
+    @staticmethod
+    def _safe_provenance_text(value: Any) -> str:
+        """把宿主模型标识收敛为可持久化的短文本。"""
+        if value is None:
+            return ""
+        return str(value).strip()[:160]
+
+    @classmethod
+    async def _capture_provenance(cls, agent: Any) -> Dict[str, Any]:
+        """从宿主 Agent 读取允许持久化的供应商和模型字段。"""
+        selection = getattr(agent, "_llm_provider_selection", None)
+        if not isinstance(selection, Mapping):
+            selection = {}
+        status: Mapping[str, Any] = {}
+        status_getter = getattr(agent, "get_session_status", None)
+        if callable(status_getter):
+            try:
+                status_value = status_getter()
+                if inspect.isawaitable(status_value):
+                    status_value = await status_value
+                if isinstance(status_value, Mapping):
+                    status = status_value
+            except Exception:
+                status = {}
+
+        provider_id = cls._safe_provenance_text(
+            selection.get("selected_provider_id")
+        )
+        provider_name = cls._safe_provenance_text(
+            selection.get("selected_provider_name")
+        )
+        try:
+            model_call_count = max(0, int(status.get("model_call_count") or 0))
+        except (TypeError, ValueError):
+            model_call_count = 0
+        return {
+            "provider_id": provider_id,
+            "selected_provider_name": provider_name,
+            "provider": cls._safe_provenance_text(selection.get("provider")),
+            "model": cls._safe_provenance_text(
+                status.get("model") or selection.get("model")
+            )
+            or "unknown",
+            "source": (
+                "agent_tokens"
+                if provider_id or provider_name
+                else "moviepilot_system"
+            ),
+            "model_call_count": model_call_count,
+        }
+
     @classmethod
     def _normalize_captured_text(cls, value: Any) -> str:
         """仅剥离包住单个 JSON 对象的完整 Markdown 代码围栏。"""
@@ -241,8 +304,10 @@ class AgentRankAgentAdapter:
             trusted_context=trusted_context,
             output_callback=capture_output,
         )
+        provenance: Dict[str, Any] = {}
         try:
             result = await agent.process(str(prompt or ""))
+            provenance = await self._capture_provenance(agent)
             candidates: List[Any] = [result]
             # 新版宿主的 CAPTURE_ONLY 路径可能只把最终文本留在 Agent
             # 自身的流式缓冲区，或以结构化 tuple/dict 返回，而不再完整
@@ -257,7 +322,7 @@ class AgentRankAgentAdapter:
                     normalized.append(self._normalize_captured_text(text))
             for text in normalized:
                 if self._is_json_object_text(text):
-                    return text
+                    return AgentExecutionResult(text, provenance)
             failure_marker = next(
                 (self._host_failure_marker(text) for text in normalized if self._host_failure_marker(text)),
                 "",
@@ -269,6 +334,14 @@ class AgentRankAgentAdapter:
             if normalized:
                 raise AgentTextUnavailableError("Agent did not produce a JSON object")
             raise AgentTextUnavailableError("Agent did not produce text output")
+        except Exception as error:
+            if not provenance:
+                provenance = await self._capture_provenance(agent)
+            try:
+                error.agentrank_provenance = dict(provenance)
+            except Exception:
+                pass
+            raise
         finally:
             try:
                 await agent.cleanup()

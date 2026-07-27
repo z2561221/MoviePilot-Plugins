@@ -239,6 +239,10 @@ function historyProfileCacheText(run) {
   if (reason) return `未命中，${reason}`
   return metrics.profile_cache_status ? '未命中，原因未记录' : '未记录'
 }
+function historyModelText(run) {
+  const model = String(run?.metrics?.agent_model || '').trim()
+  return model && model !== 'unknown' ? model : '未知模型'
+}
 function historyRankingText(run) {
   const metrics = run?.metrics || {}
   const valid = Number(metrics.ranking_valid_count)
@@ -591,7 +595,7 @@ onMounted(initialize)
                 <div class="ar-page__history-metrics">
                   <div><strong>{{ run.metrics?.candidate_count ?? 0 }}</strong><span>候选条目</span></div>
                   <div><strong>{{ run.metrics?.final_count ?? 0 }}</strong><span>安全推荐</span></div>
-                  <div><strong>{{ run.metrics?.agent_calls ?? 0 }}</strong><span>模型调用</span></div>
+                  <div><strong class="ar-page__history-model">{{ historyModelText(run) }}</strong><span>实际模型</span></div>
                   <div><strong>{{ run.metrics?.subscription_success_count ?? 0 }}</strong><span>自动订阅</span></div>
                 </div>
                 <div v-if="historyStages(run).length" class="ar-page__history-pipeline">
@@ -612,7 +616,7 @@ onMounted(initialize)
                 </div>
                 <div v-if="isHistoryExpanded(run)" class="ar-page__history-details">
                   <div><span>运行编号</span><code>{{ run.run_id || '—' }}</code></div>
-                  <div><span>画像调用</span><span>{{ run.metrics?.profile_agent_calls ?? 0 }} 次；排序 {{ run.metrics?.ranking_agent_calls ?? 0 }} 次</span></div>
+                  <div><span>模型调用</span><span>{{ run.metrics?.model_call_count ?? run.metrics?.agent_calls ?? 0 }} 次；画像任务 {{ run.metrics?.profile_agent_calls ?? 0 }} 次；排序任务 {{ run.metrics?.ranking_agent_calls ?? 0 }} 次</span></div>
                   <div><span>画像缓存</span><span>{{ historyProfileCacheText(run) }}</span></div>
                   <div><span>播放快照</span><span>{{ run.metrics?.playback_count ?? 0 }} 条，{{ historyPlaybackStatus(run.metrics?.playback_status) }}</span></div>
                   <div><span>候选耗时</span><span>{{ historyCandidateTimingText(run) }}</span></div>
@@ -719,9 +723,10 @@ onMounted(initialize)
 .ar-page__history-message { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .78); font-size: 12px; line-height: 1.55; }
 .ar-page__history-message-label { color: rgb(var(--v-theme-primary)); font-weight: 600; }
 .ar-page__history-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 10px; overflow: hidden; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .68)); border-radius: 8px; }
-.ar-page__history-metrics > div { display: flex; align-items: baseline; justify-content: center; gap: 4px; padding: 8px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .58)); }
+.ar-page__history-metrics > div { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 4px; padding: 8px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .58)); }
 .ar-page__history-metrics > div:last-child { border-right: 0; }
 .ar-page__history-metrics strong { font-size: 15px; }
+.ar-page__history-metrics .ar-page__history-model { max-width: 100%; overflow-wrap: anywhere; text-align: center; font-size: 12px; }
 .ar-page__history-metrics span { color: rgba(var(--v-theme-on-surface), .6); font-size: 11px; }
 .ar-page__history-pipeline { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); gap: 6px; margin-top: 10px; overflow-x: auto; }
 .ar-page__history-stage { min-width: 90px; display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 8px; background: rgba(var(--v-theme-success), .055); }

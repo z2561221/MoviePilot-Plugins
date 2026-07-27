@@ -433,6 +433,20 @@ def test_runtime_history_formats_durations_in_minutes_after_sixty_seconds():
     assert "toFixed(ms < 10000 ? 1 : 0)" not in page
 
 
+def test_runtime_history_uses_actual_model_as_primary_metric():
+    """运行历史主指标显示实际模型，调用次数只保留在展开详情。"""
+    page = _read("Page.vue")
+
+    assert "function historyModelText(run)" in page
+    assert "run?.metrics?.agent_model" in page
+    assert "model !== 'unknown' ? model : '未知模型'" in page
+    assert '{{ historyModelText(run) }}' in page
+    assert "实际模型" in page
+    assert "run.metrics?.model_call_count ?? run.metrics?.agent_calls ?? 0" in page
+    assert '<strong>{{ run.metrics?.agent_calls ?? 0 }}</strong><span>模型调用</span>' not in page
+    assert "ar-page__history-model" in page
+
+
 def test_preview_status_selector_uses_chinese_titles_for_internal_codes():
     """预览夹具展示中文状态标题但保留后端内部状态码。"""
     preview = (COMPONENT_DIR.parent / "PreviewApp.vue").read_text(encoding="utf-8")

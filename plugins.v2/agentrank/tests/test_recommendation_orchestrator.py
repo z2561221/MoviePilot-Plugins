@@ -188,6 +188,16 @@ class FakeAgentAdapter:
         return await self.run_ranking(prompt, trusted_context)
 
 
+class ProvenanceText(str):
+    """模拟字符串兼容且携带模型溯源的适配器结果。"""
+
+    def __new__(cls, value, provenance):
+        """创建带脱敏 provenance 的字符串结果。"""
+        instance = super().__new__(cls, value)
+        instance.provenance = dict(provenance)
+        return instance
+
+
 class RetryableAgentError(RuntimeError):
     """Represent a transient Agent completion without final text."""
 
@@ -336,6 +346,55 @@ def test_success_atomically_saves_profile_board_and_run_history():
         history[0].metrics["stage_ms"][stage] >= 0 for stage in expected_stages
     )
     assert history[0].metrics["playback_probe_status"] == "ready"
+
+
+def test_run_history_aggregates_actual_agent_model_provenance():
+    """画像和排序调用分别记录真实模型来源，主模型字段不再承载调用数。"""
+    profile_output = ProvenanceText(
+        _profile_output(5),
+        {
+            "provider_id": "provider-7",
+            "selected_provider_name": "家庭配额",
+            "provider": "openai",
+            "model": "gpt-5.1",
+            "source": "agent_tokens",
+            "model_call_count": 2,
+            "base_url": "must-not-persist",
+        },
+    )
+    ranking_output = ProvenanceText(
+        _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+        {
+            "provider_id": "",
+            "selected_provider_name": "",
+            "provider": "openai",
+            "model": "system-gpt",
+            "source": "moviepilot_system",
+            "model_call_count": 3,
+            "api_key": "must-not-persist",
+        },
+    )
+    orchestrator, repository = _orchestrator(
+        FakePlugin(), [ranking_output], profile_outputs=[profile_output]
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    assert metrics["agent_model"] == "gpt-5.1 / system-gpt"
+    assert metrics["agent_provider"] == "家庭配额 / openai"
+    assert metrics["agent_model_source"] == "mixed"
+    assert metrics["model_call_count"] == 5
+    assert metrics["profile_model_call_count"] == 2
+    assert metrics["ranking_model_call_count"] == 3
+    assert [item["role"] for item in metrics["agent_provenance"]] == [
+        "profile",
+        "ranking",
+    ]
+    serialized = json.dumps(metrics["agent_provenance"], ensure_ascii=False)
+    for forbidden in ("base_url", "api_key", "must-not-persist"):
+        assert forbidden not in serialized
 
 
 def test_main_ranking_uses_three_reserves_but_persists_only_top_five():

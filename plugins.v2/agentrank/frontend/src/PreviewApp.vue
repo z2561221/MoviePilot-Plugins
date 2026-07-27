@@ -133,6 +133,8 @@ const history = Array.from({ length: 12 }, (_, index) => ({
     candidate_count: 50,
     final_count: 5,
     agent_calls: 2,
+    agent_model: 'anthropic/claude-sonnet-4-5-20250929-thinking',
+    model_call_count: 4,
     subscription_success_count: 0,
     stage_status: { probe: 'ready', playback_snapshot: 'ready', profile: 'generated', candidate: 'ready', ranking: 'success', save: 'saved' },
     stage_ms: { probe: 24, playback_snapshot: 318, profile: 1260, candidate: 842, ranking: 965, save: 18 },

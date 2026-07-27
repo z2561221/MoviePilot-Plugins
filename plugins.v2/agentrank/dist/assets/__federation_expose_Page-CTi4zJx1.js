@@ -91,12 +91,13 @@ const _hoisted_56 = { class: "ar-page__history-time" };
 const _hoisted_57 = { key: 0 };
 const _hoisted_58 = { class: "ar-page__history-message" };
 const _hoisted_59 = { class: "ar-page__history-metrics" };
-const _hoisted_60 = {
+const _hoisted_60 = { class: "ar-page__history-model" };
+const _hoisted_61 = {
   key: 0,
   class: "ar-page__history-pipeline"
 };
-const _hoisted_61 = { class: "ar-page__history-footer" };
-const _hoisted_62 = {
+const _hoisted_62 = { class: "ar-page__history-footer" };
+const _hoisted_63 = {
   key: 1,
   class: "ar-page__history-details"
 };
@@ -345,6 +346,10 @@ function historyProfileCacheText(run) {
   const reason = profileCacheReasonLabels[metrics.profile_cache_miss_reason];
   if (reason) return `未命中，${reason}`
   return metrics.profile_cache_status ? '未命中，原因未记录' : '未记录'
+}
+function historyModelText(run) {
+  const model = String(run?.metrics?.agent_model || '').trim();
+  return model && model !== 'unknown' ? model : '未知模型'
 }
 function historyRankingText(run) {
   const metrics = run?.metrics || {};
@@ -1167,8 +1172,8 @@ return (_ctx, _cache) => {
                               _cache[33] || (_cache[33] = _createElementVNode("span", null, "安全推荐", -1))
                             ]),
                             _createElementVNode("div", null, [
-                              _createElementVNode("strong", null, _toDisplayString(run.metrics?.agent_calls ?? 0), 1),
-                              _cache[34] || (_cache[34] = _createElementVNode("span", null, "模型调用", -1))
+                              _createElementVNode("strong", _hoisted_60, _toDisplayString(historyModelText(run)), 1),
+                              _cache[34] || (_cache[34] = _createElementVNode("span", null, "实际模型", -1))
                             ]),
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", null, _toDisplayString(run.metrics?.subscription_success_count ?? 0), 1),
@@ -1176,7 +1181,7 @@ return (_ctx, _cache) => {
                             ])
                           ]),
                           (historyStages(run).length)
-                            ? (_openBlock(), _createElementBlock("div", _hoisted_60, [
+                            ? (_openBlock(), _createElementBlock("div", _hoisted_61, [
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(historyStages(run), (stage) => {
                                   return (_openBlock(), _createElementBlock("div", {
                                     key: stage.key,
@@ -1204,7 +1209,7 @@ return (_ctx, _cache) => {
                             }, null, 8, ["icon"]),
                             _createElementVNode("span", null, _toDisplayString(historyErrorText(run)), 1)
                           ], 2),
-                          _createElementVNode("div", _hoisted_61, [
+                          _createElementVNode("div", _hoisted_62, [
                             _createElementVNode("span", null, "来源：" + _toDisplayString(historySourceText(run)), 1),
                             _createVNode(_component_VBtn, {
                               size: "x-small",
@@ -1219,14 +1224,14 @@ return (_ctx, _cache) => {
                             }, 1032, ["append-icon", "onClick"])
                           ]),
                           (isHistoryExpanded(run))
-                            ? (_openBlock(), _createElementBlock("div", _hoisted_62, [
+                            ? (_openBlock(), _createElementBlock("div", _hoisted_63, [
                                 _createElementVNode("div", null, [
                                   _cache[36] || (_cache[36] = _createElementVNode("span", null, "运行编号", -1)),
                                   _createElementVNode("code", null, _toDisplayString(run.run_id || '—'), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[37] || (_cache[37] = _createElementVNode("span", null, "画像调用", -1)),
-                                  _createElementVNode("span", null, _toDisplayString(run.metrics?.profile_agent_calls ?? 0) + " 次；排序 " + _toDisplayString(run.metrics?.ranking_agent_calls ?? 0) + " 次", 1)
+                                  _cache[37] || (_cache[37] = _createElementVNode("span", null, "模型调用", -1)),
+                                  _createElementVNode("span", null, _toDisplayString(run.metrics?.model_call_count ?? run.metrics?.agent_calls ?? 0) + " 次；画像任务 " + _toDisplayString(run.metrics?.profile_agent_calls ?? 0) + " 次；排序任务 " + _toDisplayString(run.metrics?.ranking_agent_calls ?? 0) + " 次", 1)
                                 ]),
                                 _createElementVNode("div", null, [
                                   _cache[38] || (_cache[38] = _createElementVNode("span", null, "画像缓存", -1)),
@@ -1290,6 +1295,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d52372b7"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b86f3ecd"]]);
 
 export { Page as default };

@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib
+import json
 import sys
 from enum import Enum
 from pathlib import Path
@@ -287,6 +288,58 @@ class FakeStructuredResultRunner(FakeRunner):
         return {"content": '{"recommendations": []}', "metadata": {"ok": True}}
 
 
+class FakeAgentTokensProvenanceRunner(FakeRunner):
+    """模拟 Agent Tokens 接管并夹带不允许持久化的运行字段。"""
+
+    def __init__(self, **kwargs):
+        """注入宿主实际选择结果。"""
+        super().__init__(**kwargs)
+        self._llm_provider_selection = {
+            "selected_provider_id": "provider-7",
+            "selected_provider_name": "家庭配额",
+            "provider": "openai",
+            "model": "selection-model",
+            "source": "agenttokens",
+            "base_url": "https://secret.invalid/v1",
+            "api_key": "must-not-persist",
+        }
+
+    def get_session_status(self):
+        """返回宿主会话实际模型和模型调用次数。"""
+        return {
+            "model": "gpt-5.1",
+            "model_call_count": 3,
+            "total_tokens": 900,
+            "authorization": "must-not-persist",
+        }
+
+
+class FakeSystemProvenanceRunner(FakeRunner):
+    """模拟未被 Agent Tokens 接管的 MoviePilot 系统 LLM。"""
+
+    def __init__(self, **kwargs):
+        """注入无 Agent Tokens 身份的系统供应商选择。"""
+        super().__init__(**kwargs)
+        self._llm_provider_selection = {
+            "provider": "openai",
+            "model": "configured-model",
+            "source": "agent",
+            "base_url": "https://system-secret.invalid/v1",
+        }
+
+    def get_session_status(self):
+        """返回系统会话实际模型。"""
+        return {"model": "system-gpt", "model_call_count": 1}
+
+
+class FakeUnknownProvenanceRunner(FakeRunner):
+    """模拟旧宿主无法报告模型和有效调用次数。"""
+
+    def get_session_status(self):
+        """返回不完整且类型错误的旧宿主状态。"""
+        return {"model_call_count": "not-a-number", "api_key": "hidden"}
+
+
 def _trusted_context(run_id="run-1", username="alice", agent_role="ranking"):
     return build_trusted_context(
         username,
@@ -484,6 +537,74 @@ def test_adapter_reads_structured_process_result_text_slot():
     output = asyncio.run(adapter.run("rank now", _trusted_context()))
 
     assert output == '{"recommendations": []}'
+
+
+def test_adapter_captures_agent_tokens_provenance_without_secrets():
+    """Agent Tokens 接管时记录实际模型并严格丢弃秘密字段。"""
+    FakeRunner.fail = False
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeAgentTokensProvenanceRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    output = asyncio.run(adapter.run("rank now", _trusted_context()))
+
+    assert isinstance(output, adapter_module.AgentExecutionResult)
+    assert output == '{"recommendations": []}'
+    assert output.provenance == {
+        "provider_id": "provider-7",
+        "selected_provider_name": "家庭配额",
+        "provider": "openai",
+        "model": "gpt-5.1",
+        "source": "agent_tokens",
+        "model_call_count": 3,
+    }
+    serialized = json.dumps(output.provenance, ensure_ascii=False)
+    for forbidden in ("base_url", "api_key", "authorization", "must-not-persist"):
+        assert forbidden not in serialized
+
+
+def test_adapter_marks_unmanaged_provider_as_moviepilot_system():
+    """没有 Agent Tokens 供应商身份时明确标记 MoviePilot 系统回退。"""
+    FakeRunner.fail = False
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeSystemProvenanceRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    output = asyncio.run(adapter.run("rank now", _trusted_context()))
+
+    assert output.provenance == {
+        "provider_id": "",
+        "selected_provider_name": "",
+        "provider": "openai",
+        "model": "system-gpt",
+        "source": "moviepilot_system",
+        "model_call_count": 1,
+    }
+
+
+def test_adapter_uses_safe_unknown_model_for_incomplete_host_status():
+    """旧宿主缺少模型元数据时给出安全未知值而不泄漏额外字段。"""
+    FakeRunner.fail = False
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeUnknownProvenanceRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    output = asyncio.run(adapter.run("rank now", _trusted_context()))
+
+    assert output.provenance["model"] == "unknown"
+    assert output.provenance["model_call_count"] == 0
+    assert output.provenance["source"] == "moviepilot_system"
+    assert set(output.provenance) == {
+        "provider_id",
+        "selected_provider_name",
+        "provider",
+        "model",
+        "source",
+        "model_call_count",
+    }
 
 
 def test_profile_role_uses_separate_session_and_single_playback_tool():

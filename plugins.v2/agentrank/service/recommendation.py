@@ -130,6 +130,59 @@ class RecommendationOrchestrator:
         return await self.agent_adapter.run(prompt, trusted_context)
 
     @staticmethod
+    def _record_agent_provenance(
+        metrics: Dict[str, Any], role: str, value: Any
+    ) -> None:
+        """把单次 Agent 调用的脱敏模型来源聚合进运行指标。"""
+        raw = getattr(value, "provenance", None)
+        if not isinstance(raw, Mapping):
+            raw = getattr(value, "agentrank_provenance", None)
+        if not isinstance(raw, Mapping):
+            return
+
+        def safe_text(key: str, fallback: str = "") -> str:
+            """只读取约定字段并限制持久化文本长度。"""
+            return str(raw.get(key) or fallback).strip()[:160]
+
+        try:
+            model_call_count = max(0, int(raw.get("model_call_count") or 0))
+        except (TypeError, ValueError):
+            model_call_count = 0
+        entry = {
+            "role": role,
+            "provider_id": safe_text("provider_id"),
+            "selected_provider_name": safe_text("selected_provider_name"),
+            "provider": safe_text("provider"),
+            "model": safe_text("model", "unknown"),
+            "source": safe_text("source", "moviepilot_system"),
+            "model_call_count": model_call_count,
+        }
+        entries = metrics.setdefault("agent_provenance", [])
+        entries.append(entry)
+        metrics["model_call_count"] = int(metrics.get("model_call_count", 0) or 0) + model_call_count
+        metrics[f"{role}_model_call_count"] = int(
+            metrics.get(f"{role}_model_call_count", 0) or 0
+        ) + model_call_count
+        metrics[f"{role}_agent_model"] = entry["model"]
+        metrics[f"{role}_agent_source"] = entry["source"]
+
+        models = list(dict.fromkeys(item["model"] for item in entries))
+        known_models = [model for model in models if model != "unknown"]
+        metrics["agent_model"] = " / ".join(known_models or models)
+        providers = list(
+            dict.fromkeys(
+                item["selected_provider_name"] or item["provider"]
+                for item in entries
+                if item["selected_provider_name"] or item["provider"]
+            )
+        )
+        metrics["agent_provider"] = " / ".join(providers)
+        sources = list(dict.fromkeys(item["source"] for item in entries))
+        metrics["agent_model_source"] = (
+            sources[0] if len(sources) == 1 else "mixed"
+        )
+
+    @staticmethod
     def _display_name(profile_id: str, config: Mapping[str, Any]) -> str:
         """返回 profile_id 对应的 Emby 显示名。"""
         for identity in configured_identities(config):
@@ -575,6 +628,9 @@ class RecommendationOrchestrator:
                             ),
                             profile_context,
                         )
+                        self._record_agent_provenance(
+                            metrics, PROFILE_AGENT_ROLE, raw_profile
+                        )
                         parsed_profile = profile_parser.parse(raw_profile)
                         if parsed_profile.profile.playback_count != playback_count:
                             raise AgentOutputError(
@@ -602,6 +658,9 @@ class RecommendationOrchestrator:
                             agent_calls=int(metrics["agent_calls"]),
                         )
                     except Exception as error:
+                        self._record_agent_provenance(
+                            metrics, PROFILE_AGENT_ROLE, error
+                        )
                         detail = f"profile attempt {attempt + 1}: {error}"
                         if attempt == 0 and bool(getattr(error, "retryable", False)):
                             profile_attempt_errors.append(detail)
@@ -906,10 +965,16 @@ class RecommendationOrchestrator:
                     raw_output = await self._run_agent_role(
                         RANKING_AGENT_ROLE, prompt, ranking_context
                     )
+                    self._record_agent_provenance(
+                        metrics, RANKING_AGENT_ROLE, raw_output
+                    )
                     metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
                         0, int((time.monotonic() - stage_clock) * 1000)
                     )
                 except Exception as error:
+                    self._record_agent_provenance(
+                        metrics, RANKING_AGENT_ROLE, error
+                    )
                     metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
                         0, int((time.monotonic() - stage_clock) * 1000)
                     )
@@ -1011,6 +1076,9 @@ class RecommendationOrchestrator:
                             current_refill_prompt,
                             ranking_context,
                         )
+                        self._record_agent_provenance(
+                            metrics, RANKING_AGENT_ROLE, refill_output
+                        )
                         (
                             refill_parsed,
                             refill_parse_warnings,
@@ -1053,6 +1121,9 @@ class RecommendationOrchestrator:
                         ranking_fallback_reason = "refill_validation_failed"
                         break
                     except Exception as error:
+                        self._record_agent_provenance(
+                            metrics, RANKING_AGENT_ROLE, error
+                        )
                         detail = f"refill attempt {refill_attempt + 1}: {error}"
                         ranking_fallback_errors.append(detail)
                         ranking_fallback_reason = "refill_agent_failed"
