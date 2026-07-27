@@ -36,6 +36,7 @@ class AgentRank(_PluginBase):
     _migration_status: Dict[str, Any] = {}
     _data_lifecycle: Any = None
     _data_lifecycle_status: Dict[str, Any] = {}
+    _feedback_queue: Any = None
 
     def init_plugin(self, config: dict = None) -> None:
         """初始化插件配置与运行状态。"""

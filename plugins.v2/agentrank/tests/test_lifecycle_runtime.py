@@ -95,6 +95,22 @@ class FakePlaybackService:
         return PlaybackCapability(profile_id, status, "mock probe")
 
 
+class FakeFeedbackQueue:
+    """记录后台反馈队列的启动与停止次数。"""
+
+    def __init__(self):
+        self.start_calls = 0
+        self.stop_calls = 0
+
+    def start(self):
+        """记录一次启动。"""
+        self.start_calls += 1
+
+    def stop(self):
+        """记录一次停止。"""
+        self.stop_calls += 1
+
+
 def _config(**overrides):
     config = {
         "enabled": True,
@@ -270,6 +286,47 @@ def test_initialize_ready_playback_reporting_allows_runtime():
     assert plugin.get_state() is True
     assert plugin._enablement["status"] == "ready"
     assert plugin._runtime.config["enabled"] is True
+
+
+def test_initialize_starts_feedback_queue_only_after_enablement_gate_passes():
+    """硬依赖门禁通过后才启动可恢复反馈队列。"""
+    plugin = FakePlugin()
+    queue = FakeFeedbackQueue()
+
+    def runtime_factory(plugin_arg, config_arg):
+        """组装带可观测后台入口的测试运行时。"""
+        plugin_arg._playback_service = FakePlaybackService("ready")
+        runtime = SimpleNamespace(plugin=plugin_arg, config=config_arg)
+        runtime.stop = queue.stop
+        runtime.start_background = queue.start
+        return runtime
+
+    initialize_plugin(plugin, _config(), runtime_factory=runtime_factory)
+
+    assert plugin.get_state() is True
+    assert queue.start_calls == 1
+    plugin.stop_service()
+    assert queue.stop_calls == 1
+    assert plugin._feedback_queue is None
+
+
+def test_blocked_enablement_never_starts_feedback_queue():
+    """Playback Reporting 未就绪时保留队列但不启动 worker。"""
+    plugin = FakePlugin()
+    queue = FakeFeedbackQueue()
+
+    def runtime_factory(plugin_arg, config_arg):
+        """组装会被硬门禁阻断的测试运行时。"""
+        plugin_arg._playback_service = FakePlaybackService("not_installed")
+        runtime = SimpleNamespace(plugin=plugin_arg, config=config_arg)
+        runtime.stop = queue.stop
+        runtime.start_background = queue.start
+        return runtime
+
+    initialize_plugin(plugin, _config(), runtime_factory=runtime_factory)
+
+    assert plugin.get_state() is False
+    assert queue.start_calls == 0
 
 
 def test_initialize_requires_every_selected_identity_to_be_ready():

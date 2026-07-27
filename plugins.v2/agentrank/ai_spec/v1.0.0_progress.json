@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-4",
-    "task": "4.1",
-    "next_allowed_action": "Execute task 4.1: implement a durable asynchronous feedback queue with per-profile ordering and restart recovery"
+    "task": "4.2",
+    "next_allowed_action": "Execute task 4.2: implement the versioned critic persona, six read-only skills, and bounded feedback-understanding Agent"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -335,7 +335,7 @@
             "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
             "compileall, progress JSON parse, and git diff check: passed"
           ],
-          "commit": null
+          "commit": "8f3da8ff"
         }
       ]
     },
@@ -356,15 +356,30 @@
         {
           "id": "4.1",
           "title": "实现持久异步反馈队列",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": ["同profile串行跨profile有界并发", "API及时返回queued", "重启恢复"],
-          "verification": [],
+          "verification": [
+            "feedback jobs persist only event references and safe status metadata under profile-isolated storage keys",
+            "inverse enqueue order is normalized by monotonic event_sequence and same-profile processing remains strict FIFO",
+            "different profiles reached two concurrent workers while never exceeding the configured max_workers bound",
+            "a blocked understanding handler did not delay the feedback API response and the response returned queue_status queued",
+            "running jobs recover before restart dispatch and stale leases cannot overwrite the recovered state",
+            "failures use bounded exponential backoff, sanitize stored errors, and enter needs_attention with one notification at the retry limit",
+            "duplicate enqueue executes once, full queues preserve unfinished work, and retention prunes terminal jobs only",
+            "feedback-event retention keeps the earliest unfinished queue reference reachable and resumes bounded tail pruning after terminal completion",
+            "profile export includes safe queue metadata without lease ids, handler payloads, provider responses, prompts, or chain-of-thought",
+            "AgentRank plugin suite: 465 passed",
+            "AgentRank static contracts: 25 passed",
+            "smoke contracts: 48 passed",
+            "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
+            "compileall, progress JSON parse, sensitive-field scan, and git diff check: passed"
+          ],
           "commit": null
         },
         {
           "id": "4.2",
           "title": "实现影评师人设skills与受限反馈理解Agent",
-          "status": "pending",
+          "status": "in_progress",
           "acceptance": ["人设和六个内置skills有版本且只读", "每个动作触发异步任务", "纯忽略输出exclusion_only", "Agent无宿主通用或写工具"],
           "verification": [],
           "commit": null
@@ -719,6 +734,12 @@
       "task": "3.3",
       "result": "dislike and ignore now refill only from the same frozen safe candidate pool with rollback, retryable failure facts, and no blocked-item re-entry",
       "commit": "82cfac7c"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "3.4",
+      "result": "active dislikes now remain title-scoped across refresh and concurrent commit while profile preferences, confirmed memory, and archive semantics stay unchanged",
+      "commit": "8f3da8ff"
     }
   ],
   "residual_risks": [

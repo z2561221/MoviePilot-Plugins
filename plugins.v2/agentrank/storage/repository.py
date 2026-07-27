@@ -18,6 +18,7 @@ from ..model.feedback import (
     FeedbackEventSegment,
     FeedbackLedgerIndex,
 )
+from ..model.feedback_queue import FeedbackQueueJob
 from ..model.memory import (
     MemoryProjectionResult,
     PreferenceMemory,
@@ -898,7 +899,26 @@ class AgentRankRepository:
                 events.extend(segment.events)
             if len(events) <= keep_limit:
                 return 0
-            retained_events = events[-keep_limit:]
+            retention_start = max(0, len(events) - keep_limit)
+            pending_sequences = [
+                job.event_sequence
+                for job in self._load_feedback_queue_locked(
+                    profile_id, strict=True
+                )
+                if not job.terminal
+            ]
+            if pending_sequences:
+                earliest_pending = min(pending_sequences)
+                pending_index = next(
+                    (
+                        index
+                        for index, event in enumerate(events)
+                        if event.sequence >= earliest_pending
+                    ),
+                    0,
+                )
+                retention_start = min(retention_start, pending_index)
+            retained_events = events[retention_start:]
             segments: List[FeedbackEventSegment] = []
             for offset in range(0, len(retained_events), self._feedback_segment_size):
                 segment_id = len(segments) + 1
@@ -945,8 +965,185 @@ class AgentRankRepository:
             )
             return len(events) - len(retained_events)
 
+    def _load_feedback_queue_locked(
+        self, profile_id: str, *, strict: bool = False
+    ) -> List[FeedbackQueueJob]:
+        """在 profile 反馈锁内恢复队列，并拒绝静默丢失未完成任务。"""
+        key = self._learning_key("feedback_queue", profile_id)
+        value = self._plugin.get_data(key=key)
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            self._record_recovery(
+                key, "ignored_corrupt_data", "feedback queue must be a list"
+            )
+            if strict:
+                raise ValueError("feedback queue data is corrupt")
+            return []
+        result: List[FeedbackQueueJob] = []
+        seen_job_ids = set()
+        seen_sequences = set()
+        for raw in value:
+            try:
+                job = FeedbackQueueJob.from_dict(raw)
+            except (TypeError, ValueError, KeyError) as error:
+                self._record_recovery(key, "ignored_corrupt_item", str(error))
+                if strict:
+                    raise ValueError("feedback queue contains a corrupt job") from error
+                continue
+            if (
+                job.profile_id != profile_id
+                or job.job_id in seen_job_ids
+                or job.event_sequence in seen_sequences
+            ):
+                self._record_recovery(
+                    key,
+                    "ignored_cross_profile_or_duplicate_item",
+                    job.job_id,
+                )
+                if strict:
+                    raise ValueError("feedback queue scope or identity is invalid")
+                continue
+            seen_job_ids.add(job.job_id)
+            seen_sequences.add(job.event_sequence)
+            result.append(job)
+        return sorted(result, key=lambda item: (item.event_sequence, item.job_id))
+
+    def load_feedback_queue(self, profile_id: str) -> List[FeedbackQueueJob]:
+        """按 profile 返回经过校验的持久反馈任务。"""
+        target = str(profile_id or "").strip()
+        self._scope(target, "profile_id")
+        with self._feedback_lock(target):
+            return self._load_feedback_queue_locked(target)
+
+    def _save_feedback_queue_locked(
+        self, profile_id: str, jobs: Iterable[FeedbackQueueJob]
+    ) -> None:
+        """在反馈锁内原子保存同一 profile 的完整队列。"""
+        target = str(profile_id or "").strip()
+        self._scope(target, "profile_id")
+        values = list(jobs or ())
+        if any(job.profile_id != target for job in values):
+            raise ValueError("feedback queue contains a cross-profile job")
+        key = self._learning_key("feedback_queue", target)
+        self._atomic_raw_update(
+            updates={key: [job.to_dict() for job in values]},
+            recovery_key=key,
+            action="feedback_queue_save_failed",
+        )
+
+    def enqueue_feedback_job(
+        self, job: FeedbackQueueJob, *, limit: int = 200
+    ) -> FeedbackQueueJob:
+        """幂等追加反馈任务，优先淘汰最旧终态且绝不丢弃未完成任务。"""
+        if not isinstance(job, FeedbackQueueJob):
+            raise TypeError("job must be FeedbackQueueJob")
+        keep_limit = max(1, min(int(limit), 100000))
+        with self._feedback_lock(job.profile_id):
+            jobs = self._load_feedback_queue_locked(job.profile_id, strict=True)
+            existing = next(
+                (item for item in jobs if item.job_id == job.job_id), None
+            )
+            if existing is not None:
+                return existing
+            while len(jobs) >= keep_limit:
+                terminal_index = next(
+                    (index for index, item in enumerate(jobs) if item.terminal), None
+                )
+                if terminal_index is None:
+                    raise ValueError("feedback queue is full of unfinished jobs")
+                jobs.pop(terminal_index)
+            jobs.append(job)
+            jobs.sort(key=lambda item: (item.event_sequence, item.job_id))
+            self._save_feedback_queue_locked(job.profile_id, jobs)
+            return job
+
+    def claim_next_feedback_job(
+        self, profile_id: str, *, lease_id: str, now: datetime = None
+    ) -> Optional[FeedbackQueueJob]:
+        """按事件序号认领一个就绪任务，并持久化唯一租约。"""
+        target = str(profile_id or "").strip()
+        self._scope(target, "profile_id")
+        with self._feedback_lock(target):
+            jobs = self._load_feedback_queue_locked(target, strict=True)
+            for index, job in enumerate(jobs):
+                if job.terminal:
+                    continue
+                if not job.ready(now):
+                    return None
+                claimed = job.claim(lease_id, now)
+                jobs[index] = claimed
+                self._save_feedback_queue_locked(target, jobs)
+                return claimed
+            return None
+
+    def replace_feedback_job(
+        self,
+        job: FeedbackQueueJob,
+        *,
+        expected_lease_id: str = "",
+    ) -> bool:
+        """仅在租约仍匹配时替换任务，拒绝迟到旧进程覆盖恢复结果。"""
+        if not isinstance(job, FeedbackQueueJob):
+            raise TypeError("job must be FeedbackQueueJob")
+        expected = str(expected_lease_id or "").strip()
+        with self._feedback_lock(job.profile_id):
+            jobs = self._load_feedback_queue_locked(job.profile_id, strict=True)
+            for index, current in enumerate(jobs):
+                if current.job_id != job.job_id:
+                    continue
+                if expected and (
+                    current.status != "running" or current.lease_id != expected
+                ):
+                    return False
+                jobs[index] = job
+                self._save_feedback_queue_locked(job.profile_id, jobs)
+                return True
+            return False
+
+    def recover_feedback_queue(
+        self, profile_id: str, *, now: datetime = None
+    ) -> int:
+        """重启时把遗留 running 任务恢复为 queued，并清除旧租约。"""
+        target = str(profile_id or "").strip()
+        self._scope(target, "profile_id")
+        with self._feedback_lock(target):
+            jobs = self._load_feedback_queue_locked(target, strict=True)
+            recovered = [job.recover(now) for job in jobs]
+            count = sum(before != after for before, after in zip(jobs, recovered))
+            if count:
+                self._save_feedback_queue_locked(target, recovered)
+            return count
+
+    def prune_feedback_queue(self, profile_id: str, limit: int) -> int:
+        """裁剪最旧终态任务，未完成任务即使超上限也全部保留。"""
+        target = str(profile_id or "").strip()
+        self._scope(target, "profile_id")
+        keep_limit = max(1, min(int(limit), 100000))
+        with self._feedback_lock(target):
+            jobs = self._load_feedback_queue_locked(target, strict=True)
+            if len(jobs) <= keep_limit:
+                return 0
+            active = [job for job in jobs if not job.terminal]
+            terminal_slots = max(0, keep_limit - len(active))
+            terminal = [job for job in jobs if job.terminal]
+            selected_terminal_ids = {
+                job.job_id for job in terminal[-terminal_slots:]
+            } if terminal_slots else set()
+            retained = [
+                job
+                for job in jobs
+                if not job.terminal or job.job_id in selected_terminal_ids
+            ]
+            removed = len(jobs) - len(retained)
+            if removed:
+                self._save_feedback_queue_locked(target, retained)
+            return removed
+
     def prune_learning_list(self, profile_id: str, prefix: str, limit: int) -> int:
         """裁剪未来队列、对话、分析或归因单键列表。"""
+        if str(prefix or "").strip() == "feedback_queue":
+            return self.prune_feedback_queue(profile_id, limit)
         keep_limit = max(1, min(int(limit), 100000))
         key = self._learning_key(prefix, profile_id)
         with self._feedback_lock(profile_id):

@@ -4,6 +4,8 @@ import asyncio
 import importlib
 import inspect
 import sys
+import threading
+import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -84,6 +86,9 @@ playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 identity_module = importlib.import_module(f"{PACKAGE_NAME}.model.identity")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 controller_module = importlib.import_module(f"{PACKAGE_NAME}.controller.api")
+queue_service_module = importlib.import_module(
+    f"{PACKAGE_NAME}.service.feedback_queue"
+)
 
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
@@ -98,6 +103,7 @@ AgentRankRepository = repository_module.AgentRankRepository
 AgentRankApiController = controller_module.AgentRankApiController
 ApiContractError = controller_module.ApiContractError
 build_api_routes = controller_module.build_api_routes
+FeedbackQueueService = queue_service_module.FeedbackQueueService
 
 HOME_PROFILE = "emby:home:user-1"
 REMOTE_PROFILE = "emby:remote:user-1"
@@ -394,6 +400,51 @@ def test_unified_feedback_endpoint_returns_event_state_and_board_revision():
     assert disliked["data"]["refill_status"] == "safe_candidate_insufficient"
     assert disliked["data"]["reason_code"] == "safe_candidate_insufficient"
     assert controller.board(HOME_PROFILE)["data"]["recommendations"] == []
+
+
+def test_feedback_api_returns_queued_without_waiting_for_blocked_handler():
+    """理解处理器阻塞时，反馈 API 仍立即返回已入队状态。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_handler(_job):
+        """模拟长时间等待供应商响应的反馈理解处理器。"""
+        started.set()
+        release.wait(timeout=2)
+
+    queue = FeedbackQueueService(
+        plugin._repository,
+        handler=blocking_handler,
+        profile_ids=[HOME_PROFILE],
+        poll_seconds=0.01,
+    )
+    plugin._feedback_queue = queue
+    queue.start()
+    try:
+        controller = AgentRankApiController(plugin)
+        token = TokenPayload(sub=7, username="Alice", super_user=False)
+        begin = time.perf_counter()
+        response = controller.endpoint_feedback(
+            {
+                "profile_id": HOME_PROFILE,
+                "candidate_id": "tmdb:1",
+                "kind": "like",
+                "idempotency_key": "nonblocking-feedback-1",
+                "run_id": "run-old",
+                "board_revision": 1,
+            },
+            token,
+        )
+        elapsed = time.perf_counter() - begin
+
+        assert response["data"]["queue_status"] == "queued"
+        assert elapsed < 0.25
+        assert started.wait(timeout=1)
+    finally:
+        release.set()
+        queue.stop()
 
 
 def test_regular_user_status_is_filtered_and_config_options_are_forbidden():

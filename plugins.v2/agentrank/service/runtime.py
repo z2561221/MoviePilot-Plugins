@@ -23,6 +23,8 @@ class AgentRankRuntime:
         notification_service: Any = None,
         interaction_service: Any = None,
         date_trigger_factory: Callable[[], Any] = None,
+        feedback_queue: Any = None,
+        feedback_handler: Callable[[Any], Any] = None,
     ):
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
@@ -54,8 +56,35 @@ class AgentRankRuntime:
         self.subscription_service = subscription_service
         self.notification_service = notification_service
         self.interaction_service = interaction_service
+        repository = getattr(plugin, "_repository", None)
+        if feedback_queue is None and repository is not None:
+            from .feedback_queue import FeedbackQueueService
+
+            feedback_queue = FeedbackQueueService(
+                repository,
+                handler=feedback_handler,
+                attention_handler=self._notify_feedback_attention,
+                profile_ids=(
+                    identity.profile_id for identity in configured_identities(config)
+                ),
+                max_workers=2,
+                queue_limit=int(config.get("feedback_queue_limit") or 200),
+                max_attempts=3,
+            )
+        elif feedback_queue is not None and feedback_handler is not None:
+            set_handler = getattr(feedback_queue, "set_handler", None)
+            if callable(set_handler):
+                set_handler(feedback_handler)
+        self.feedback_queue = feedback_queue
+        plugin._feedback_queue = feedback_queue
         self._stopped = False
         self._active_tasks: set[asyncio.Task] = set()
+
+    def start_background(self) -> None:
+        """在插件硬门禁通过后启动可恢复后台队列。"""
+        queue = self.feedback_queue
+        if queue is not None and hasattr(queue, "start"):
+            queue.start()
 
     @staticmethod
     def _build_orchestrator(plugin: Any, config: Mapping[str, Any]) -> Any:
@@ -340,6 +369,18 @@ class AgentRankRuntime:
             old_board_preserved=True,
         )
 
+    def _notify_feedback_attention(self, job: Any) -> None:
+        """在反馈任务达到重试上限后发送不含事件载荷的通知。"""
+        if not self._notifications_enabled() or self.notification_service is None:
+            return
+        self.notification_service.send_failure(
+            username=self._display_name(job.profile_id, self.config),
+            status="feedback_needs_attention",
+            run_id="",
+            message="反馈理解多次失败，请稍后在插件详情页重试",
+            old_board_preserved=True,
+        )
+
     async def run_scheduled(self) -> List[Dict[str, Any]]:
         """顺序处理画像身份，单个身份异常不阻断后续身份。"""
         if self._stopped or not self.config.get("enabled"):
@@ -388,6 +429,8 @@ class AgentRankRuntime:
         if self._stopped:
             return
         self._stopped = True
+        if self.feedback_queue is not None and hasattr(self.feedback_queue, "stop"):
+            self.feedback_queue.stop()
         current = None
         try:
             current = asyncio.current_task()

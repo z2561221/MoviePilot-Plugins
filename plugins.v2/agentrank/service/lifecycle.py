@@ -112,6 +112,7 @@ def stop_plugin(plugin: Any) -> None:
     plugin._playback_service = None
     plugin._emby_access = None
     plugin._data_lifecycle = None
+    plugin._feedback_queue = None
     plugin._enabled = False
     plugin._enablement = _enablement(False, False, "stopped", "插件已停止")
     plugin._migration_status = {
@@ -187,6 +188,11 @@ def initialize_plugin(
             if key != "_validation_errors"
         }
         plugin.update_config(config=persisted)
+    runtime = getattr(plugin, "_runtime", None)
+    if plugin._enabled and runtime is not None:
+        start_background = getattr(runtime, "start_background", None)
+        if callable(start_background):
+            start_background()
 
 
 def build_services(plugin: Any) -> List[Dict[str, Any]]:

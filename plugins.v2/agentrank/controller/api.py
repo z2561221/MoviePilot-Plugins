@@ -13,6 +13,7 @@ from ..model.identity import EmbyIdentity
 from ..service.archive import ArchiveService
 from ..service.data_lifecycle import DataLifecycleError, DataLifecycleService
 from ..service.feedback_action import FeedbackActionError, FeedbackActionService
+from ..service.feedback_queue import FeedbackQueueError, FeedbackQueueService
 from ..service.profile_preferences import ProfilePreferenceService
 
 
@@ -309,6 +310,20 @@ class AgentRankApiController:
             raise ApiContractError(503, "runtime_unavailable", "插件运行时尚未就绪")
         return repository
 
+    def _feedback_queue(self) -> FeedbackQueueService:
+        """返回运行时队列；测试或早期调用时创建仅持久化的队列门面。"""
+        queue = getattr(self.plugin, "_feedback_queue", None)
+        if queue is None:
+            queue = FeedbackQueueService(
+                self._repository(),
+                profile_ids=self._identity_map(),
+                queue_limit=int(
+                    self.plugin._config.get("feedback_queue_limit") or 200
+                ),
+            )
+            self.plugin._feedback_queue = queue
+        return queue
+
     def _board_data(self, board: Any) -> Dict[str, Any]:
         """返回带最新反馈极性且海报已收敛为轻量 URL 的榜单响应。"""
         value = board.to_dict()
@@ -591,7 +606,18 @@ class AgentRankApiController:
             raise ApiContractError(
                 500, "feedback_failed", "反馈保存失败，榜单与归档已恢复"
             ) from error
-        return self._success(result.to_dict())
+        try:
+            queue_job = self._feedback_queue().enqueue_event(result.event)
+        except FeedbackQueueError as error:
+            raise ApiContractError(
+                503,
+                "feedback_queue_failed",
+                "反馈已保存，但理解任务入队失败；可使用原操作重试",
+            ) from error
+        data = result.to_dict()
+        data["queue_status"] = queue_job.status
+        data["queue_job"] = queue_job.to_public_dict()
+        return self._success(data)
 
     def archive(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:
         """兼容旧忽略入口，并把动作接入统一反馈事实。"""

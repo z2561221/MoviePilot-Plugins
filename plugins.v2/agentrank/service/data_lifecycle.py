@@ -195,6 +195,7 @@ class DataLifecycleService:
         history = repository.load_run_history(target)
         memory = repository.load_preference_memory(target)
         feedback = repository.load_feedback_events(target)
+        feedback_queue = repository.load_feedback_queue(target)
         snapshot_refs = repository.candidate_snapshot_references(target)
 
         profile_data = None
@@ -314,6 +315,20 @@ class DataLifecycleService:
                 for item in snapshot_refs
             ],
             "feedback_events": feedback_data,
+            "feedback_queue": [
+                {
+                    "job_id": _safe_scalar(job.job_id),
+                    "event_id": _safe_scalar(job.event_id),
+                    "event_sequence": job.event_sequence,
+                    "status": _redact_text(job.status),
+                    "attempts": job.attempts,
+                    "max_attempts": job.max_attempts,
+                    "created_at": _redact_text(job.created_at),
+                    "updated_at": _redact_text(job.updated_at),
+                    "next_attempt_at": _redact_text(job.next_attempt_at),
+                }
+                for job in feedback_queue
+            ],
             "preference_memory": {
                 "memory_revision": memory.memory_revision,
                 "last_event_sequence": memory.last_event_sequence,
