@@ -140,6 +140,27 @@ class FakePlugin:
             "message": "Playback Reporting 已就绪",
             "capabilities": {},
         }
+        self._migration_status = {
+            "status": "ready",
+            "profile_count": 2,
+            "failure_count": 0,
+            "profiles": [
+                {
+                    "profile_id": HOME_PROFILE,
+                    "status": "ready",
+                    "created_keys": ["feedback_event_index"],
+                    "observed": {"profile_present": True},
+                    "error": "",
+                },
+                {
+                    "profile_id": REMOTE_PROFILE,
+                    "status": "ready",
+                    "created_keys": ["preference_memory"],
+                    "observed": {"profile_present": False},
+                    "error": "",
+                },
+            ],
+        }
         self._repository = AgentRankRepository(self)
         self.refresh_result = SimpleNamespace(
             status="success", message="ok", run_id="run-new", final_count=5
@@ -275,6 +296,10 @@ def test_regular_user_is_limited_to_explicit_profile_mapping_for_reads_and_write
 def test_regular_user_status_is_filtered_and_config_options_are_forbidden():
     """普通用户状态只显示授权画像，完整配置接口仅对管理员开放。"""
     plugin = FakePlugin()
+    plugin._migration_status["status"] = "partial_failed"
+    plugin._migration_status["failure_count"] = 1
+    plugin._migration_status["profiles"][1]["status"] = "failed"
+    plugin._migration_status["profiles"][1]["error"] = "ValueError"
     controller = AgentRankApiController(plugin)
     allowed = TokenPayload(sub=7, username="Alice", super_user=False)
     unmapped = TokenPayload(sub=8, username="Alice", super_user=False)
@@ -284,11 +309,18 @@ def test_regular_user_status_is_filtered_and_config_options_are_forbidden():
         {"profile_id": HOME_PROFILE, "username": "Alice"}
     ]
     assert allowed_status["default_profile_id"] == HOME_PROFILE
+    assert [
+        item["profile_id"] for item in allowed_status["migration"]["profiles"]
+    ] == [HOME_PROFILE]
+    assert allowed_status["migration"]["status"] == "ready"
+    assert allowed_status["migration"]["failure_count"] == 0
 
     hidden_status = controller.endpoint_status(unmapped)["data"]
     assert hidden_status["profiles"] == []
     assert hidden_status["default_profile_id"] == ""
     assert hidden_status["playback"] is None
+    assert hidden_status["migration"]["profiles"] == []
+    assert hidden_status["migration"]["status"] == "ready"
 
     with pytest.raises(fastapi_module.HTTPException) as caught:
         controller.endpoint_config_options(allowed)

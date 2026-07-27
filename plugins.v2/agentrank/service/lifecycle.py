@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Mapping
 from ..model.config import configured_identities, normalize_config
 from ..model.playback import PlaybackCapability
 from .runtime import AgentRankRuntime
+from .storage_migration import AgentRankStorageMigrationService
 
 
 _BLOCK_MESSAGES = {
@@ -112,6 +113,12 @@ def stop_plugin(plugin: Any) -> None:
     plugin._emby_access = None
     plugin._enabled = False
     plugin._enablement = _enablement(False, False, "stopped", "插件已停止")
+    plugin._migration_status = {
+        "status": "stopped",
+        "profile_count": 0,
+        "failure_count": 0,
+        "profiles": [],
+    }
 
 
 def initialize_plugin(
@@ -126,6 +133,36 @@ def initialize_plugin(
     plugin._config = dict(normalized)
     plugin._enabled = False
     plugin._runtime = runtime_factory(plugin, runtime_config)
+    repository = getattr(plugin, "_repository", None)
+    migration_status = getattr(plugin, "_migration_status", None)
+    if repository is not None and (
+        not isinstance(migration_status, Mapping)
+        or migration_status.get("status") not in {"ready", "partial_failed"}
+    ):
+        profile_ids = [
+            identity.profile_id for identity in configured_identities(plugin._config)
+        ]
+        migration_status = AgentRankStorageMigrationService(repository).migrate_profiles(
+            profile_ids
+        ).to_dict()
+        plugin._migration_status = migration_status
+    else:
+        if repository is None:
+            migration_status = {
+                "status": "not_initialized",
+                "profile_count": 0,
+                "failure_count": 0,
+                "profiles": [],
+            }
+            plugin._migration_status = migration_status
+    if int(dict(migration_status or {}).get("failure_count") or 0):
+        errors = plugin._config.get("_validation_errors")
+        if not isinstance(errors, list):
+            errors = []
+            plugin._config["_validation_errors"] = errors
+        message = "AgentRank 新存储初始化失败，请查看迁移状态"
+        if message not in errors:
+            errors.append(message)
     plugin._enablement = _probe_enablement(plugin, plugin._config)
     plugin._enabled = bool(plugin._enablement.get("allowed"))
     if not plugin._enabled:

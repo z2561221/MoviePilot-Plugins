@@ -150,6 +150,56 @@ class AgentRankApiController:
         }
         return value
 
+    def _migration_data(self, profile_ids: Any = None) -> Dict[str, Any]:
+        """返回只含状态、计数和可授权 profile 的安全迁移摘要。"""
+        raw = getattr(self.plugin, "_migration_status", None)
+        if not isinstance(raw, Mapping):
+            return {
+                "status": "not_initialized",
+                "profile_count": 0,
+                "failure_count": 0,
+                "profiles": [],
+            }
+        allowed = None if profile_ids is None else set(profile_ids)
+        profiles: List[Dict[str, Any]] = []
+        for item in raw.get("profiles") or []:
+            if not isinstance(item, Mapping):
+                continue
+            profile_id = str(item.get("profile_id") or "").strip()
+            if not profile_id or (allowed is not None and profile_id not in allowed):
+                continue
+            observed = item.get("observed")
+            profiles.append(
+                {
+                    "profile_id": profile_id,
+                    "status": str(item.get("status") or "unknown"),
+                    "created_keys": [
+                        str(key)
+                        for key in item.get("created_keys") or []
+                        if str(key) in {"feedback_event_index", "preference_memory"}
+                    ],
+                    "observed": {
+                        str(key): value
+                        for key, value in dict(observed or {}).items()
+                        if isinstance(value, (bool, int))
+                    },
+                    "error": str(item.get("error") or ""),
+                }
+            )
+        status = str(raw.get("status") or "not_initialized")
+        if allowed is not None and status in {"ready", "partial_failed"}:
+            status = (
+                "partial_failed"
+                if any(item["status"] == "failed" for item in profiles)
+                else "ready"
+            )
+        return {
+            "status": status,
+            "profile_count": len(profiles),
+            "failure_count": sum(item["status"] == "failed" for item in profiles),
+            "profiles": profiles,
+        }
+
     def _require_enabled(self) -> None:
         """拒绝在硬依赖未满足时执行会产生副作用的操作。"""
         if self.plugin.get_state():
@@ -266,6 +316,7 @@ class AgentRankApiController:
                 "default_profile_id": default_profile_id,
                 "playback": self._playback_data(default_profile_id),
                 "enablement": enablement,
+                "migration": self._migration_data(),
             }
         )
 
@@ -288,6 +339,7 @@ class AgentRankApiController:
         if default_profile_id not in allowed_ids:
             data["default_profile_id"] = ""
             data["playback"] = None
+        data["migration"] = self._migration_data(allowed_ids)
         return response
 
     def config_options(self) -> Dict[str, Any]:
@@ -356,6 +408,7 @@ class AgentRankApiController:
                 "history_total": len(history),
                 "playback": self._playback_data(target),
                 "enablement": self._enablement_data(),
+                "migration": self._migration_data([target]),
             }
         )
 

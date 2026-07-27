@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-2",
-    "task": "2.2",
-    "next_allowed_action": "Execute task 2.2: implement PreferenceMemory tombstones, supersedes, and monotonic memory_revision"
+    "task": "2.3",
+    "next_allowed_action": "Execute task 2.3: implement additive legacy-schema migration with failure rollback and visible recovery evidence"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -163,10 +163,22 @@
         {
           "id": "2.2",
           "title": "实现记忆墓碑与revision",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["删除标签不会复活", "旧结果不能覆盖新revision"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "memory and feedback focused tests: 19 passed",
+            "tombstone replay preserves archived current state and blocks unlinked profile rebuild",
+            "explicit restore requires superseding the current tombstone",
+            "stale event sequence and stale expected revision return superseded with byte-equivalent memory",
+            "100 concurrent CAS projections: exactly one applied and 99 superseded",
+            "memory write failure restores the previous revision and complete lineage",
+            "new preference_memory keys remain profile-isolated and leave legacy profile, tag, and board keys unchanged",
+            "AgentRank plugin suite: 410 passed",
+            "AgentRank static contracts: 25 passed",
+            "smoke contracts: 47 passed",
+            "compileall, public docstring audit, JSON parse, and git diff --check: passed"
+          ],
+          "commit": "4edcfc59"
         },
         {
           "id": "2.3",
@@ -577,6 +589,12 @@
       "task": "2.1",
       "result": "profile-isolated segmented feedback ledger implemented with idempotent append, monotonic sequence, rollback, and duplicate-learning signal",
       "commit": "2d43d400"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "2.2",
+      "result": "confirmed preference memory implemented with tombstone lineage, sequence replay, and revision CAS conflict protection",
+      "commit": "4edcfc59"
     }
   ],
   "residual_risks": [

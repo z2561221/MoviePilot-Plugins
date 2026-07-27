@@ -507,6 +507,58 @@ class AgentRankRepository:
                 raise
             return result
 
+    def initialize_additive_storage(self, profile_id: str) -> List[str]:
+        """原子创建缺失的新账本与记忆空 schema，不改写旧业务数据。"""
+        with self._feedback_lock(profile_id):
+            index_key = self._feedback_index_key(profile_id)
+            memory_key = self._profile_key("preference_memory", profile_id)
+            old_index = self._plugin.get_data(key=index_key)
+            old_memory = self._plugin.get_data(key=memory_key)
+
+            if old_index is not None:
+                self._load_feedback_index(profile_id, strict=True)
+            if old_memory is not None:
+                self._load_preference_memory(profile_id, strict=True)
+
+            created: List[str] = []
+            try:
+                if old_index is None:
+                    empty_index = FeedbackLedgerIndex.empty(profile_id)
+                    self._plugin.save_data(key=index_key, value=empty_index.to_dict())
+                    if self._load_feedback_index(profile_id, strict=True) != empty_index:
+                        raise ValueError("feedback ledger migration readback mismatch")
+                    created.append("feedback_event_index")
+                if old_memory is None:
+                    empty_memory = PreferenceMemory.empty(profile_id)
+                    self._plugin.save_data(key=memory_key, value=empty_memory.to_dict())
+                    if self._load_preference_memory(profile_id, strict=True) != empty_memory:
+                        raise ValueError("preference memory migration readback mismatch")
+                    created.append("preference_memory")
+            except Exception as error:
+                rollback_errors: List[str] = []
+                for key, value in (
+                    (index_key, old_index),
+                    (memory_key, old_memory),
+                ):
+                    try:
+                        self._restore_raw(key, value)
+                    except Exception as rollback_error:
+                        rollback_errors.append(f"{key}: {rollback_error}")
+                detail = type(error).__name__
+                if rollback_errors:
+                    detail = f"{detail}; rollback_failed={len(rollback_errors)}"
+                self._record_recovery(
+                    self._profile_key("storage_migration", profile_id),
+                    "profile_storage_migration_failed",
+                    detail,
+                )
+                if rollback_errors:
+                    raise RuntimeError(
+                        "profile storage migration and rollback both failed"
+                    ) from error
+                raise
+            return created
+
     def save_candidate_snapshot(self, snapshot: CandidateSnapshot) -> None:
         """首次保存候选快照，拒绝覆盖并在写入失败时清除半快照。"""
         if not isinstance(snapshot, CandidateSnapshot):

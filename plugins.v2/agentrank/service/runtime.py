@@ -78,6 +78,7 @@ class AgentRankRuntime:
         )
         from .playback_profile import PlaybackProfileService
         from .recommendation import RecommendationOrchestrator
+        from .storage_migration import AgentRankStorageMigrationService
 
         repository = AgentRankRepository(
             plugin, history_limit=int(config.get("history_limit") or 50)
@@ -96,6 +97,9 @@ class AgentRankRuntime:
         profile_ids = [
             identity.profile_id for identity in configured_identities(config)
         ]
+        plugin._migration_status = AgentRankStorageMigrationService(
+            repository
+        ).migrate_profiles(profile_ids).to_dict()
         BoardPosterRepairService(repository, media_adapter).repair_profiles(profile_ids)
         BoardSourceRepairService(repository, media_adapter).repair_profiles(profile_ids)
         return RecommendationOrchestrator(
