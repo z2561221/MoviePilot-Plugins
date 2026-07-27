@@ -19,6 +19,7 @@ from ..model.feedback import (
     FeedbackLedgerIndex,
 )
 from ..model.feedback_queue import FeedbackQueueJob
+from ..model.feedback_understanding import FeedbackUnderstandingRecord
 from ..model.memory import (
     MemoryProjectionResult,
     PreferenceMemory,
@@ -1164,6 +1165,100 @@ class AgentRankRepository:
                 action=f"{prefix}_prune_failed",
             )
             return len(value) - len(retained)
+
+    def load_feedback_understandings(
+        self, profile_id: str
+    ) -> List[FeedbackUnderstandingRecord]:
+        """读取有界反馈理解记录，并忽略同键中的其他分析类型。"""
+        target = str(profile_id or "").strip()
+        self._scope(target, "profile_id")
+        key = self._learning_key("agent_analysis", target)
+        with self._feedback_lock(target):
+            value = self._plugin.get_data(key=key)
+            if value is None:
+                return []
+            if not isinstance(value, list):
+                self._record_recovery(
+                    key, "ignored_corrupt_data", "agent analysis must be a list"
+                )
+                return []
+            result: List[FeedbackUnderstandingRecord] = []
+            for item in value:
+                if not isinstance(item, Mapping) or str(
+                    item.get("record_type") or ""
+                ) != "feedback_understanding":
+                    continue
+                try:
+                    record = FeedbackUnderstandingRecord.from_dict(item)
+                    if record.profile_id != target:
+                        raise ValueError("feedback understanding profile mismatch")
+                except (TypeError, ValueError, KeyError) as error:
+                    self._record_recovery(
+                        key, "ignored_corrupt_item", str(error)
+                    )
+                    continue
+                result.append(record)
+            return sorted(
+                result, key=lambda item: (item.event_sequence, item.record_id)
+            )
+
+    def load_feedback_understanding(
+        self, profile_id: str, event_id: str
+    ) -> Optional[FeedbackUnderstandingRecord]:
+        """按事件身份读取已有反馈理解，供重复消费幂等复用。"""
+        target_event = str(event_id or "").strip()
+        if not target_event:
+            raise ValueError("event_id is required")
+        return next(
+            (
+                item
+                for item in self.load_feedback_understandings(profile_id)
+                if item.event_id == target_event
+            ),
+            None,
+        )
+
+    def append_feedback_understanding(
+        self,
+        record: FeedbackUnderstandingRecord,
+        *,
+        limit: int = 500,
+    ) -> FeedbackUnderstandingRecord:
+        """按 event_id 幂等追加结构化理解并执行有界保留。"""
+        if not isinstance(record, FeedbackUnderstandingRecord):
+            raise TypeError("record must be FeedbackUnderstandingRecord")
+        keep_limit = max(1, min(int(limit), 100000))
+        key = self._learning_key("agent_analysis", record.profile_id)
+        with self._feedback_lock(record.profile_id):
+            value = self._plugin.get_data(key=key)
+            if value is None:
+                items: List[Any] = []
+            elif isinstance(value, list):
+                items = list(value)
+            else:
+                self._record_recovery(
+                    key, "ignored_corrupt_data", "agent analysis must be a list"
+                )
+                raise ValueError("agent analysis data is corrupt")
+            for item in items:
+                if not isinstance(item, Mapping):
+                    continue
+                if str(item.get("record_type") or "") != "feedback_understanding":
+                    continue
+                if str(item.get("event_id") or "") != record.event_id:
+                    continue
+                existing = FeedbackUnderstandingRecord.from_dict(item)
+                if existing.profile_id != record.profile_id:
+                    raise ValueError("feedback understanding profile mismatch")
+                return existing
+            items.append(record.to_dict())
+            retained = items[-keep_limit:]
+            self._atomic_raw_update(
+                updates={key: retained},
+                recovery_key=key,
+                action="feedback_understanding_write_failed",
+            )
+            return record
 
     def append_run(self, run: RecommendationRun) -> None:
         """把运行记录写入对应用户历史头部并执行上限裁剪。"""

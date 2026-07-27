@@ -113,6 +113,7 @@ def stop_plugin(plugin: Any) -> None:
     plugin._emby_access = None
     plugin._data_lifecycle = None
     plugin._feedback_queue = None
+    plugin._feedback_understanding = None
     plugin._enabled = False
     plugin._enablement = _enablement(False, False, "stopped", "插件已停止")
     plugin._migration_status = {

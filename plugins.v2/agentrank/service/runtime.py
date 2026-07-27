@@ -25,6 +25,7 @@ class AgentRankRuntime:
         date_trigger_factory: Callable[[], Any] = None,
         feedback_queue: Any = None,
         feedback_handler: Callable[[Any], Any] = None,
+        feedback_understanding_service: Any = None,
     ):
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
@@ -57,6 +58,25 @@ class AgentRankRuntime:
         self.notification_service = notification_service
         self.interaction_service = interaction_service
         repository = getattr(plugin, "_repository", None)
+        if (
+            feedback_handler is None
+            and feedback_understanding_service is None
+            and repository is not None
+        ):
+            from ..adapter.agent import AgentRankAgentAdapter
+            from .feedback_understanding import FeedbackUnderstandingService
+
+            feedback_understanding_service = FeedbackUnderstandingService(
+                repository,
+                AgentRankAgentAdapter(),
+                analysis_limit=int(config.get("analysis_record_limit") or 500),
+            )
+        if feedback_handler is None and feedback_understanding_service is not None:
+            feedback_handler = getattr(
+                feedback_understanding_service, "handle_job", None
+            )
+        self.feedback_understanding_service = feedback_understanding_service
+        plugin._feedback_understanding = feedback_understanding_service
         if feedback_queue is None and repository is not None:
             from .feedback_queue import FeedbackQueueService
 

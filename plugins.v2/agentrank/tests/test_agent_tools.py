@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 PACKAGE_NAME = "agentrank_tools_test"
@@ -44,6 +46,8 @@ TRUSTED_CONTEXT_KEY = context_module.TRUSTED_CONTEXT_KEY
 build_trusted_context = context_module.build_trusted_context
 ALLOWED_AGENT_TOOL_NAMES = registry_module.ALLOWED_AGENT_TOOL_NAMES
 AGENT_TOOL_CLASSES = registry_module.AGENT_TOOL_CLASSES
+ALL_AGENT_TOOL_CLASSES = registry_module.ALL_AGENT_TOOL_CLASSES
+FEEDBACK_AGENT_TOOL_CLASSES = registry_module.FEEDBACK_AGENT_TOOL_CLASSES
 
 
 def _tools_with_context(context):
@@ -226,6 +230,57 @@ def test_profile_role_cannot_read_candidate_slices():
             raise AssertionError(f"{tool.name} leaked data to profile Agent")
 
 
+def test_feedback_role_reads_only_event_analysis_confirmed_memory_and_pending_context():
+    """反馈角色只能读取当前事件及明确注册的最小只读上下文。"""
+    context = build_trusted_context(
+        username="profile_123",
+        run_id="feedback_event1",
+        candidates=[{"candidate_id": "must-not-leak"}],
+        archive_feedback={"entries": [{"candidate_id": "must-not-leak"}]},
+        weights={"secret_weight": 1},
+        playback={"samples": [{"title": "must-not-leak"}]},
+        agent_role="feedback",
+        feedback_event={"event_id": "event-1", "kind": "like"},
+        feedback_candidate={"candidate_id": "tmdb:tv:1", "title": "候选"},
+        confirmed_memory={"memory_revision": 2, "items": []},
+        analysis={"analysis_id": "analysis-1"},
+        pending_context={"items": []},
+    )
+    outputs = {}
+    for tool_class in FEEDBACK_AGENT_TOOL_CLASSES:
+        tool = tool_class(session_id="session", user_id="system")
+        tool.set_agent_context({TRUSTED_CONTEXT_KEY: context})
+        outputs[tool.name] = json.loads(asyncio.run(tool.run()))
+
+    assert outputs["read_agentrank_feedback_event"]["feedback_event"] == {
+        "event_id": "event-1",
+        "kind": "like",
+    }
+    assert outputs["read_agentrank_feedback_event"]["candidate"] == {
+        "candidate_id": "tmdb:tv:1",
+        "title": "候选",
+    }
+    assert outputs["read_agentrank_analysis"]["analysis"] == {
+        "analysis_id": "analysis-1"
+    }
+    assert outputs["read_agentrank_confirmed_memory"]["confirmed_memory"] == {
+        "memory_revision": 2,
+        "items": [],
+    }
+    assert outputs["read_agentrank_pending_context"]["pending_context"] == {
+        "items": []
+    }
+    serialized = json.dumps(outputs, ensure_ascii=False)
+    for forbidden in ("must-not-leak", "secret_weight", "playback", "archive_feedback"):
+        assert forbidden not in serialized
+
+    for tool_class in AGENT_TOOL_CLASSES:
+        tool = tool_class(session_id="session", user_id="system")
+        tool.set_agent_context({TRUSTED_CONTEXT_KEY: context})
+        with pytest.raises(PermissionError, match="feedback"):
+            asyncio.run(tool.run())
+
+
 def test_agent_tool_sources_have_no_side_effect_dependencies():
     """Tool modules may transform trusted data but cannot import mutation surfaces."""
     source = "\n".join(
@@ -258,7 +313,7 @@ def test_agent_tool_role_whitelists_are_class_variables():
             continue
         role_assignments.append(ast.unparse(node.annotation))
 
-    assert len(role_assignments) == 5
+    assert len(role_assignments) == 1 + len(ALL_AGENT_TOOL_CLASSES)
     assert set(role_assignments) == {"ClassVar[Tuple[str, ...]]"}
     assert not any(
         isinstance(node, ast.Assign)

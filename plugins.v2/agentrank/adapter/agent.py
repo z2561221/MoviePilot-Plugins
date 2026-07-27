@@ -9,13 +9,14 @@ from app.agent import MoviePilotAgent, ReplyMode
 from app.utils.identity import SYSTEM_INTERNAL_USER_ID
 
 from ..agent_tools.context import (
+    FEEDBACK_AGENT_ROLE,
     PROFILE_AGENT_ROLE,
     RANKING_AGENT_ROLE,
     TRUSTED_CONTEXT_KEY,
     AgentRankTrustedContext,
 )
 from ..agent_tools.registry import (
-    ALLOWED_AGENT_TOOL_NAMES,
+    ALL_AGENT_TOOL_NAMES,
     tool_classes_for_role,
     tool_names_for_role,
 )
@@ -24,6 +25,7 @@ from ..agent_tools.registry import (
 AGENTRANK_SYSTEM_PROMPTS = {
     PROFILE_AGENT_ROLE: "你是 Agent榜单中心的受限用户画像执行器，只能使用播放只读工具。",
     RANKING_AGENT_ROLE: "你是 Agent榜单中心的受限排序执行器，只能使用四个只读工具。",
+    FEEDBACK_AGENT_ROLE: "你是 Agent榜单中心谨慎、具体、尊重纠正的专属影评师，只能读取当前反馈和最小证据。",
 }
 AGENTRANK_SYSTEM_PROMPT = "你是 Agent榜单中心的受限执行器。"
 
@@ -80,7 +82,7 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
         expected_names = tool_names_for_role(
             self._agentrank_trusted_context.agent_role
         )
-        if not set(expected_names).issubset(set(ALLOWED_AGENT_TOOL_NAMES)):
+        if not set(expected_names).issubset(set(ALL_AGENT_TOOL_NAMES)):
             raise RuntimeError("AgentRank role whitelist exceeds global whitelist")
         if tuple(tool.name for tool in tools) != tuple(expected_names):
             raise RuntimeError("AgentRank tool registry and role whitelist diverged")
@@ -362,4 +364,12 @@ class AgentRankAgentAdapter:
         """执行只允许排序冻结候选的排序 Agent。"""
         if trusted_context.agent_role != RANKING_AGENT_ROLE:
             raise ValueError("ranking Agent requires ranking trusted context")
+        return await self.run(prompt, trusted_context)
+
+    async def run_feedback(
+        self, prompt: str, trusted_context: AgentRankTrustedContext
+    ) -> str:
+        """执行只读取反馈、作品和确认记忆的反馈理解 Agent。"""
+        if trusted_context.agent_role != FEEDBACK_AGENT_ROLE:
+            raise ValueError("feedback Agent requires feedback trusted context")
         return await self.run(prompt, trusted_context)

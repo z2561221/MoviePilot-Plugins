@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-4",
-    "task": "4.2",
-    "next_allowed_action": "Execute task 4.2: implement the versioned critic persona, six read-only skills, and bounded feedback-understanding Agent"
+    "task": "4.3",
+    "next_allowed_action": "Execute task 4.3: generate evidence-linked memory proposals for clear feedback and bounded clarification questions for ambiguous feedback"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -374,20 +374,34 @@
             "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
             "compileall, progress JSON parse, sensitive-field scan, and git diff check: passed"
           ],
-          "commit": null
+          "commit": "fb958184"
         },
         {
           "id": "4.2",
           "title": "实现影评师人设skills与受限反馈理解Agent",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": ["人设和六个内置skills有版本且只读", "每个动作触发异步任务", "纯忽略输出exclusion_only", "Agent无宿主通用或写工具"],
-          "verification": [],
+          "verification": [
+            "versioned critic persona and six deterministic skills expose no side effects or memory writes",
+            "feedback Agent uses a role-specific exact whitelist of four read-only tools and never loads general tools, MCP, subagents, jobs, skills, or memory middleware",
+            "uncommented ignore is deterministically persisted as exclusion_only without an LLM call",
+            "uncommented like or dislike still invokes the feedback Agent but is forced to ambiguous with no stable signal",
+            "explicit comments produce evidence-bound candidate signals and deterministic conflicts without changing PreferenceMemory",
+            "prompt injection, extra output fields, untrusted evidence refs, sensitive psychology inference, provider secrets, raw output, and chain-of-thought are rejected or removed",
+            "runtime injects FeedbackUnderstandingService.handle_job into the durable queue",
+            "feedback API to queue to persisted understanding completed end-to-end while PreferenceMemory remained unchanged",
+            "AgentRank plugin suite: 480 passed",
+            "AgentRank static contracts: 25 passed",
+            "smoke contracts: 48 passed",
+            "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
+            "compileall, progress JSON parse, sensitive-field scan review, and git diff check: passed"
+          ],
           "commit": null
         },
         {
           "id": "4.3",
           "title": "生成记忆提案与歧义问询",
-          "status": "pending",
+          "status": "in_progress",
           "acceptance": ["明确时生成复述和变化预览", "歧义时提供选项与自定义回答"],
           "verification": [],
           "commit": null
@@ -740,6 +754,12 @@
       "task": "3.4",
       "result": "active dislikes now remain title-scoped across refresh and concurrent commit while profile preferences, confirmed memory, and archive semantics stay unchanged",
       "commit": "8f3da8ff"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "4.1",
+      "result": "profile-ordered durable feedback queue implemented with bounded cross-profile concurrency, non-blocking API enqueue, restart leases, backoff, dead-letter notification, and reference-safe retention",
+      "commit": "fb958184"
     }
   ],
   "residual_risks": [

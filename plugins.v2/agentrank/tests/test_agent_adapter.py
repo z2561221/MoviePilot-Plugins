@@ -184,6 +184,7 @@ adapter_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.agent")
 TRUSTED_CONTEXT_KEY = context_module.TRUSTED_CONTEXT_KEY
 build_trusted_context = context_module.build_trusted_context
 AGENT_TOOL_CLASSES = registry_module.AGENT_TOOL_CLASSES
+FEEDBACK_AGENT_TOOL_CLASSES = registry_module.FEEDBACK_AGENT_TOOL_CLASSES
 AgentRankAgentAdapter = adapter_module.AgentRankAgentAdapter
 RestrictedAgentRankAgent = adapter_module.RestrictedAgentRankAgent
 
@@ -624,6 +625,23 @@ def test_profile_role_uses_separate_session_and_single_playback_tool():
     assert runner.kwargs["trusted_context"].agent_role == "profile"
 
 
+def test_feedback_role_uses_separate_session_and_feedback_only_tools():
+    """反馈理解角色使用独立 session，且看不到画像和排序工具。"""
+    FakeRunner.instances.clear()
+    FakeRunner.fail = False
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeRunner, memory_clearer=lambda *_: None
+    )
+    trusted = _trusted_context(agent_role="feedback")
+
+    output = asyncio.run(adapter.run_feedback("feedback", trusted))
+
+    assert output == '{"recommendations": []}'
+    runner = FakeRunner.instances[-1]
+    assert runner.kwargs["session_id"] == "__agentrank_feedback_run-1_alice__"
+    assert runner.kwargs["trusted_context"].agent_role == "feedback"
+
+
 def test_restricted_agent_injects_context_and_instantiates_exact_tool_classes():
     """The dedicated subclass bypasses the general factory and creates only five tools."""
     trusted = _trusted_context()
@@ -664,6 +682,33 @@ def test_restricted_profile_agent_instantiates_only_playback_tool():
     tools = agent._initialize_tools()
 
     assert [tool.name for tool in tools] == ["read_agentrank_playback"]
+
+
+def test_restricted_feedback_agent_instantiates_only_feedback_read_tools():
+    """反馈 Agent 图只包含事件、分析、确认记忆和待确认只读工具。"""
+    trusted = _trusted_context(agent_role="feedback")
+    agent = RestrictedAgentRankAgent(
+        session_id="__agentrank_feedback_run-1_alice__",
+        user_id="system",
+        username="alice",
+        trusted_context=trusted,
+        replay_mode=ReplyMode.CAPTURE_ONLY,
+        allow_message_tools=False,
+    )
+
+    agent._tool_context.update(asyncio.run(agent._build_tool_context(False)))
+    tools = agent._initialize_tools()
+    graph = asyncio.run(agent._create_agent(streaming=False))
+
+    assert tuple(type(tool) for tool in tools) == tuple(FEEDBACK_AGENT_TOOL_CLASSES)
+    assert tuple(tool.name for tool in tools) == (
+        "read_agentrank_feedback_event",
+        "read_agentrank_analysis",
+        "read_agentrank_confirmed_memory",
+        "read_agentrank_pending_context",
+    )
+    assert "专属影评师" in graph["system_prompt"]
+    assert "外部 MCP" in graph["system_prompt"]
 
 
 def test_restricted_agent_builds_graph_with_provider_resolution_and_usage_only():

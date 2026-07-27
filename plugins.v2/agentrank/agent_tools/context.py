@@ -10,7 +10,10 @@ from typing import Any, Mapping
 TRUSTED_CONTEXT_KEY = "agentrank_trusted_context"
 PROFILE_AGENT_ROLE = "profile"
 RANKING_AGENT_ROLE = "ranking"
-AGENT_ROLES = frozenset({PROFILE_AGENT_ROLE, RANKING_AGENT_ROLE})
+FEEDBACK_AGENT_ROLE = "feedback"
+AGENT_ROLES = frozenset(
+    {PROFILE_AGENT_ROLE, RANKING_AGENT_ROLE, FEEDBACK_AGENT_ROLE}
+)
 _CANDIDATE_ID_PATTERN = re.compile(r"^[A-Za-z0-9:_-]{1,128}$")
 _ARCHIVE_REASON_CODES = frozenset({"ignored", "disliked"})
 
@@ -86,6 +89,11 @@ class AgentRankTrustedContext:
     playback: Any
     profile: Any = None
     agent_role: str = RANKING_AGENT_ROLE
+    feedback_event: Any = None
+    feedback_candidate: Any = None
+    confirmed_memory: Any = None
+    analysis: Any = None
+    pending_context: Any = None
 
 
 def build_trusted_context(
@@ -99,6 +107,11 @@ def build_trusted_context(
     playback: Any = None,
     profile: Any = None,
     agent_role: str = RANKING_AGENT_ROLE,
+    feedback_event: Any = None,
+    feedback_candidate: Any = None,
+    confirmed_memory: Any = None,
+    analysis: Any = None,
+    pending_context: Any = None,
 ) -> AgentRankTrustedContext:
     """校验作用域与 Agent 角色并构造不可变的受信上下文。"""
     trusted_username = str(username or "").strip()
@@ -119,6 +132,11 @@ def build_trusted_context(
         playback=_deep_freeze(playback),
         profile=_deep_freeze(profile),
         agent_role=trusted_role,
+        feedback_event=_deep_freeze(feedback_event),
+        feedback_candidate=_deep_freeze(feedback_candidate),
+        confirmed_memory=_deep_freeze(confirmed_memory),
+        analysis=_deep_freeze(analysis),
+        pending_context=_deep_freeze(pending_context),
     )
 
 

@@ -7,11 +7,17 @@ import pytest
 
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
-EXPECTED_TOOL_NAMES = {
+EXPECTED_RANKING_TOOL_NAMES = {
     "read_agentrank_candidates",
     "read_agentrank_archive_feedback",
     "read_agentrank_weights",
     "read_agentrank_playback",
+}
+EXPECTED_FEEDBACK_TOOL_NAMES = {
+    "read_agentrank_feedback_event",
+    "read_agentrank_analysis",
+    "read_agentrank_confirmed_memory",
+    "read_agentrank_pending_context",
 }
 FORBIDDEN_AGENT_CAPABILITIES = {
     "subscribe",
@@ -62,10 +68,17 @@ def test_per_user_domain_and_storage_contract_exists():
 
 
 def test_agent_tool_registry_is_an_exact_read_only_whitelist():
-    """The Agent tool registry contains exactly the four trusted read tools."""
+    """榜单与反馈角色分别拥有精确且互不越权的四个只读工具。"""
     source = _source("agent_tools/registry.py")
-    assert _assigned_string_collection(source, "ALLOWED_AGENT_TOOL_NAMES") == EXPECTED_TOOL_NAMES
+    ranking_names = _assigned_string_collection(source, "ALLOWED_AGENT_TOOL_NAMES")
+    feedback_names = _assigned_string_collection(source, "FEEDBACK_AGENT_TOOL_NAMES")
+    assert ranking_names == EXPECTED_RANKING_TOOL_NAMES
+    assert feedback_names == EXPECTED_FEEDBACK_TOOL_NAMES
+    assert ranking_names.isdisjoint(feedback_names)
     assert "AGENT_TOOL_CLASSES" in source
+    assert "FEEDBACK_AGENT_TOOL_CLASSES" in source
+    assert "tool_classes_for_role" in source
+    assert "tool_names_for_role" in source
 
 
 def test_subscription_profile_input_chain_is_removed():
@@ -89,11 +102,13 @@ def test_subscription_profile_input_chain_is_removed():
 
 
 def test_agent_adapter_is_capture_only_and_never_loads_general_tools():
-    """The ranking session uses capture-only mode and opts into its exact tool set."""
+    """每个角色使用捕获模式并只加载对应的精确工具白名单。"""
     source = _source("adapter/agent.py")
     assert "MoviePilotAgent" in source
     assert "ReplyMode.CAPTURE_ONLY" in source
-    assert "ALLOWED_AGENT_TOOL_NAMES" in source
+    assert "ALL_AGENT_TOOL_NAMES" in source
+    assert "tool_classes_for_role" in source
+    assert "tool_names_for_role" in source
     assert "ToolFactory.get_tools()" not in source
     assert "load_all_tools" not in source
     for forbidden in FORBIDDEN_AGENT_CAPABILITIES:

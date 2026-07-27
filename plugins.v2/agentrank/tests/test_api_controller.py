@@ -3,6 +3,7 @@
 import asyncio
 import importlib
 import inspect
+import json
 import sys
 import threading
 import time
@@ -89,6 +90,9 @@ controller_module = importlib.import_module(f"{PACKAGE_NAME}.controller.api")
 queue_service_module = importlib.import_module(
     f"{PACKAGE_NAME}.service.feedback_queue"
 )
+understanding_service_module = importlib.import_module(
+    f"{PACKAGE_NAME}.service.feedback_understanding"
+)
 
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
@@ -104,6 +108,9 @@ AgentRankApiController = controller_module.AgentRankApiController
 ApiContractError = controller_module.ApiContractError
 build_api_routes = controller_module.build_api_routes
 FeedbackQueueService = queue_service_module.FeedbackQueueService
+FeedbackUnderstandingService = (
+    understanding_service_module.FeedbackUnderstandingService
+)
 
 HOME_PROFILE = "emby:home:user-1"
 REMOTE_PROFILE = "emby:remote:user-1"
@@ -189,6 +196,22 @@ class FakePlugin:
         if isinstance(self.refresh_result, Exception):
             raise self.refresh_result
         return self.refresh_result
+
+
+class FakeFeedbackAgent:
+    """返回合法但不形成稳定信号的反馈理解结果。"""
+
+    async def run_feedback(self, _prompt, _trusted_context):
+        """模拟一次受限 Agent JSON 响应。"""
+        return json.dumps(
+            {
+                "outcome": "ambiguous",
+                "restatement": "已记录喜欢，但具体原因仍需确认",
+                "signals": [],
+                "uncertainties": ["需要确认具体喜欢的内容特征"],
+            },
+            ensure_ascii=False,
+        )
 
 
 def _seed(plugin):
@@ -445,6 +468,54 @@ def test_feedback_api_returns_queued_without_waiting_for_blocked_handler():
     finally:
         release.set()
         queue.stop()
+
+
+def test_feedback_api_queue_persists_understanding_without_changing_memory():
+    """反馈 API 经后台队列落理解记录，但未确认前长期记忆保持不变。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    repository = plugin._repository
+    before = repository.load_preference_memory(HOME_PROFILE)
+    understanding = FeedbackUnderstandingService(repository, FakeFeedbackAgent())
+    queue = FeedbackQueueService(
+        repository,
+        handler=understanding.handle_job,
+        profile_ids=[HOME_PROFILE],
+        poll_seconds=0.01,
+    )
+    plugin._feedback_queue = queue
+    queue.start()
+    try:
+        controller = AgentRankApiController(plugin)
+        token = TokenPayload(sub=7, username="Alice", super_user=False)
+        response = controller.endpoint_feedback(
+            {
+                "profile_id": HOME_PROFILE,
+                "candidate_id": "tmdb:1",
+                "kind": "like",
+                "idempotency_key": "understanding-e2e-1",
+                "run_id": "run-old",
+                "board_revision": 1,
+            },
+            token,
+        )
+        event_id = response["data"]["event"]["event_id"]
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            jobs = repository.load_feedback_queue(HOME_PROFILE)
+            record = repository.load_feedback_understanding(HOME_PROFILE, event_id)
+            if jobs and jobs[0].status == "completed" and record is not None:
+                break
+            time.sleep(0.005)
+        else:
+            pytest.fail("反馈理解队列未在限定时间内完成")
+    finally:
+        queue.stop()
+
+    assert response["data"]["queue_status"] == "queued"
+    assert record.outcome == "ambiguous"
+    assert repository.load_preference_memory(HOME_PROFILE) == before
 
 
 def test_regular_user_status_is_filtered_and_config_options_are_forbidden():

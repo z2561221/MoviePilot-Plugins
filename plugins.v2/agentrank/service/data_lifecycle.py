@@ -196,6 +196,7 @@ class DataLifecycleService:
         memory = repository.load_preference_memory(target)
         feedback = repository.load_feedback_events(target)
         feedback_queue = repository.load_feedback_queue(target)
+        feedback_understandings = repository.load_feedback_understandings(target)
         snapshot_refs = repository.candidate_snapshot_references(target)
 
         profile_data = None
@@ -328,6 +329,52 @@ class DataLifecycleService:
                     "next_attempt_at": _redact_text(job.next_attempt_at),
                 }
                 for job in feedback_queue
+            ],
+            "feedback_understandings": [
+                {
+                    "record_id": _safe_scalar(record.record_id),
+                    "event_id": _safe_scalar(record.event_id),
+                    "event_sequence": record.event_sequence,
+                    "candidate_id": _safe_scalar(record.candidate_id),
+                    "action": _redact_text(record.action),
+                    "outcome": _redact_text(record.outcome),
+                    "restatement": _redact_text(record.restatement),
+                    "signals": [
+                        {
+                            "category": _redact_text(signal.category),
+                            "value": _redact_text(signal.value),
+                            "polarity": _redact_text(signal.polarity),
+                            "certainty": signal.certainty,
+                            "evidence_refs": [
+                                _safe_scalar(ref) for ref in signal.evidence_refs
+                            ],
+                        }
+                        for signal in record.signals
+                    ],
+                    "conflicts": [
+                        {
+                            str(key): _safe_scalar(value)
+                            for key, value in dict(conflict).items()
+                            if str(key)
+                            in {"memory_item_id", "category", "value", "reason"}
+                        }
+                        for conflict in record.conflicts
+                    ],
+                    "uncertainties": [
+                        _redact_text(item) for item in record.uncertainties
+                    ],
+                    "persona_version": _redact_text(record.persona_version),
+                    "skills_version": _redact_text(record.skills_version),
+                    "prompt_fingerprint": _redact_text(record.prompt_fingerprint),
+                    "memory_revision": record.memory_revision,
+                    "provider": _redact_text(record.provider),
+                    "model": _redact_text(record.model),
+                    "model_source": _redact_text(record.model_source),
+                    "model_call_count": record.model_call_count,
+                    "created_at": _redact_text(record.created_at),
+                    "status": _redact_text(record.status),
+                }
+                for record in feedback_understandings
             ],
             "preference_memory": {
                 "memory_revision": memory.memory_revision,
