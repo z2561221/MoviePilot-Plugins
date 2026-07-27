@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib
+import inspect
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -14,6 +15,65 @@ PACKAGE_NAME = "agentrank_api_test"
 
 package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
+
+fastapi_module = sys.modules.setdefault("fastapi", ModuleType("fastapi"))
+fastapi_params_module = sys.modules.setdefault(
+    "fastapi.params", ModuleType("fastapi.params")
+)
+
+
+class DependsParam:
+    """测试使用的最小 FastAPI 依赖描述。"""
+
+    def __init__(self, dependency=None):
+        self.dependency = dependency
+
+
+class HTTPException(Exception):
+    """测试使用的最小 FastAPI HTTP 异常。"""
+
+    def __init__(self, status_code, detail=None):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(str(detail))
+
+
+def Depends(dependency=None):
+    """构造测试依赖描述。"""
+    return DependsParam(dependency)
+
+
+fastapi_module.Depends = Depends
+fastapi_module.HTTPException = HTTPException
+fastapi_params_module.Depends = DependsParam
+
+app_module = sys.modules.setdefault("app", ModuleType("app"))
+schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
+core_module = sys.modules.setdefault("app.core", ModuleType("app.core"))
+security_module = sys.modules.setdefault(
+    "app.core.security", ModuleType("app.core.security")
+)
+
+
+class TokenPayload:
+    """测试使用的最小 MoviePilot 登录载荷。"""
+
+    def __init__(self, sub=None, username=None, super_user=False):
+        self.sub = sub
+        self.username = username
+        self.super_user = super_user
+
+
+def verify_token():
+    """为 FastAPI endpoint 签名提供测试鉴权依赖。"""
+    return TokenPayload(sub=1, username="admin", super_user=True)
+
+
+app_module.schemas = schemas_module
+app_module.core = core_module
+core_module.security = security_module
+schemas_module.TokenPayload = TokenPayload
+security_module.verify_token = verify_token
 
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
@@ -69,6 +129,7 @@ class FakePlugin:
             "enabled": True,
             "emby_identities": [HOME_IDENTITY, REMOTE_IDENTITY],
             "default_profile_id": HOME_PROFILE,
+            "profile_access_map": {"7": [HOME_PROFILE]},
             "weights": {"rating_weight": 0.7},
             "_validation_errors": [],
         }
@@ -154,6 +215,85 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/subscribe",
     }
     assert all(route["auth"] == "bear" for route in routes)
+    for route in routes:
+        token_parameters = [
+            parameter
+            for parameter in inspect.signature(route["endpoint"]).parameters.values()
+            if isinstance(parameter.default, DependsParam)
+        ]
+        assert len(token_parameters) == 1
+        assert token_parameters[0].default.dependency is verify_token
+
+
+def test_superuser_can_access_every_configured_profile_and_full_options():
+    """超级用户可读取全部已配置画像身份与完整配置选项。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    controller = AgentRankApiController(plugin)
+    token = TokenPayload(sub=1, username="admin", super_user=True)
+
+    assert controller.endpoint_overview(HOME_PROFILE, token)["success"] is True
+    assert controller.endpoint_board(REMOTE_PROFILE, token)["success"] is True
+    options = controller.endpoint_config_options(token)
+    assert options["data"]["config"]["profile_access_map"] == {
+        "7": [HOME_PROFILE]
+    }
+
+
+def test_regular_user_is_limited_to_explicit_profile_mapping_for_reads_and_writes():
+    """普通用户只能读写显式授权画像，用户名相同也不能猜测授权。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    controller = AgentRankApiController(plugin)
+    allowed = TokenPayload(sub=7, username="Alice", super_user=False)
+    unmapped_same_name = TokenPayload(sub=8, username="Alice", super_user=False)
+
+    assert controller.endpoint_overview(HOME_PROFILE, allowed)["success"] is True
+    archived = controller.endpoint_archive(
+        {"profile_id": HOME_PROFILE, "candidate_id": "tmdb:1"}, allowed
+    )
+    assert archived["data"]["changed"] is True
+
+    for token, profile_id in (
+        (allowed, REMOTE_PROFILE),
+        (unmapped_same_name, HOME_PROFILE),
+        (allowed, "emby:unknown:user-9"),
+    ):
+        with pytest.raises(fastapi_module.HTTPException) as caught:
+            controller.endpoint_profile(profile_id, token)
+        assert caught.value.status_code == 403
+        assert caught.value.detail["error"]["code"] == "profile_forbidden"
+
+    with pytest.raises(fastapi_module.HTTPException) as caught:
+        controller.endpoint_archive(
+            {"profile_id": REMOTE_PROFILE, "candidate_id": "tmdb:2"}, allowed
+        )
+    assert caught.value.status_code == 403
+    assert caught.value.detail["error"]["code"] == "profile_forbidden"
+
+
+def test_regular_user_status_is_filtered_and_config_options_are_forbidden():
+    """普通用户状态只显示授权画像，完整配置接口仅对管理员开放。"""
+    plugin = FakePlugin()
+    controller = AgentRankApiController(plugin)
+    allowed = TokenPayload(sub=7, username="Alice", super_user=False)
+    unmapped = TokenPayload(sub=8, username="Alice", super_user=False)
+
+    allowed_status = controller.endpoint_status(allowed)["data"]
+    assert allowed_status["profiles"] == [
+        {"profile_id": HOME_PROFILE, "username": "Alice"}
+    ]
+    assert allowed_status["default_profile_id"] == HOME_PROFILE
+
+    hidden_status = controller.endpoint_status(unmapped)["data"]
+    assert hidden_status["profiles"] == []
+    assert hidden_status["default_profile_id"] == ""
+    assert hidden_status["playback"] is None
+
+    with pytest.raises(fastapi_module.HTTPException) as caught:
+        controller.endpoint_config_options(allowed)
+    assert caught.value.status_code == 403
+    assert caught.value.detail["error"]["code"] == "superuser_required"
 
 
 @pytest.mark.parametrize("profile_id", ["", None])

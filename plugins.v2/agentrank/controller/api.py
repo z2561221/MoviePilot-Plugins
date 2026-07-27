@@ -3,6 +3,11 @@
 import asyncio
 from typing import Any, Dict, List, Mapping
 
+from fastapi import Depends
+
+from app import schemas
+from app.core.security import verify_token
+
 from ..model.config import configured_identities, default_config
 from ..model.identity import EmbyIdentity
 from ..service.archive import ArchiveService
@@ -61,6 +66,63 @@ class AgentRankApiController:
         if profile_id not in self._identity_map():
             raise ApiContractError(404, "unknown_profile", "画像身份不在已选 Emby 用户中")
         return profile_id
+
+    @staticmethod
+    def _is_superuser(token_payload: schemas.TokenPayload) -> bool:
+        """判断宿主鉴权载荷是否明确声明超级用户。"""
+        return bool(getattr(token_payload, "super_user", False))
+
+    @staticmethod
+    def _token_user_id(token_payload: schemas.TokenPayload) -> str:
+        """返回规范化 MP 用户 ID；普通用户缺少 ID 时默认拒绝。"""
+        raw_user_id = getattr(token_payload, "sub", None)
+        try:
+            user_id = int(raw_user_id)
+        except (TypeError, ValueError):
+            return ""
+        return str(user_id) if user_id > 0 else ""
+
+    def _allowed_profile_ids(
+        self, token_payload: schemas.TokenPayload
+    ) -> List[str]:
+        """返回当前 MP 用户显式允许访问的已配置画像身份。"""
+        configured = list(self._identity_map())
+        if self._is_superuser(token_payload):
+            return configured
+        user_id = self._token_user_id(token_payload)
+        if not user_id:
+            return []
+        access_map = self.plugin._config.get("profile_access_map")
+        raw_allowed = access_map.get(user_id) if isinstance(access_map, Mapping) else []
+        return [
+            profile_id
+            for profile_id in raw_allowed or []
+            if profile_id in configured
+        ]
+
+    def _authorize_profile(
+        self, token_payload: schemas.TokenPayload, value: Any
+    ) -> str:
+        """校验当前 MP 用户对显式 profile_id 的访问权限。"""
+        profile_id = str(value or "").strip()
+        if not profile_id:
+            raise ApiContractError(422, "profile_id_required", "必须指定 profile_id")
+        if not self._is_superuser(token_payload):
+            if profile_id not in self._allowed_profile_ids(token_payload):
+                raise ApiContractError(403, "profile_forbidden", "无权访问该画像身份")
+        return self._profile_id(profile_id)
+
+    def _require_superuser(self, token_payload: schemas.TokenPayload) -> None:
+        """限制包含完整插件配置和全部身份的接口只对超级用户开放。"""
+        if not self._is_superuser(token_payload):
+            raise ApiContractError(403, "superuser_required", "仅管理员可访问插件配置")
+
+    def _authorize_payload_profile(
+        self, token_payload: schemas.TokenPayload, payload: Any
+    ) -> None:
+        """在状态变更前校验请求体中的显式画像身份。"""
+        body = self._payload(payload)
+        self._authorize_profile(token_payload, body.get("profile_id"))
 
     def _display_name(self, profile_id: str) -> str:
         """返回 profile_id 对应的安全 Emby 显示名。"""
@@ -206,6 +268,27 @@ class AgentRankApiController:
                 "enablement": enablement,
             }
         )
+
+    def status_for_token(
+        self, token_payload: schemas.TokenPayload
+    ) -> Dict[str, Any]:
+        """按当前 MP 用户授权范围过滤状态中的画像身份信息。"""
+        response = self.status()
+        data = response["data"]
+        allowed_ids = self._allowed_profile_ids(token_payload)
+        identities = self._identity_map()
+        data["profiles"] = [
+            {
+                "profile_id": profile_id,
+                "username": identities[profile_id].username,
+            }
+            for profile_id in allowed_ids
+        ]
+        default_profile_id = str(data.get("default_profile_id") or "")
+        if default_profile_id not in allowed_ids:
+            data["default_profile_id"] = ""
+            data["playback"] = None
+        return response
 
     def config_options(self) -> Dict[str, Any]:
         """返回 Config 与 Emby 身份切换器需要的安全选项。"""
@@ -447,62 +530,127 @@ class AgentRankApiController:
         except ApiContractError as error:
             _http_error(error)
 
-    def endpoint_status(self) -> Dict[str, Any]:
+    def endpoint_status(
+        self, token_payload: schemas.TokenPayload = Depends(verify_token)
+    ) -> Dict[str, Any]:
         """FastAPI 状态入口。"""
-        return self._endpoint(self.status)
+        return self._endpoint(self.status_for_token, token_payload)
 
-    def endpoint_config_options(self) -> Dict[str, Any]:
+    def endpoint_config_options(
+        self, token_payload: schemas.TokenPayload = Depends(verify_token)
+    ) -> Dict[str, Any]:
         """FastAPI 配置选项入口。"""
+        self._endpoint(self._require_superuser, token_payload)
         return self._endpoint(self.config_options)
 
-    def endpoint_overview(self, profile_id: str = "") -> Dict[str, Any]:
+    def endpoint_overview(
+        self,
+        profile_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 总览入口。"""
-        return self._endpoint(self.overview, profile_id)
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.overview, target)
 
-    def endpoint_board(self, profile_id: str = "") -> Dict[str, Any]:
+    def endpoint_board(
+        self,
+        profile_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 榜单入口。"""
-        return self._endpoint(self.board, profile_id)
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.board, target)
 
-    def endpoint_profile(self, profile_id: str = "") -> Dict[str, Any]:
+    def endpoint_profile(
+        self,
+        profile_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 画像入口。"""
-        return self._endpoint(self.profile, profile_id)
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.profile, target)
 
     def endpoint_run_history(
-        self, profile_id: str = "", page: int = 1, page_size: int = 15
+        self,
+        profile_id: str = "",
+        page: int = 1,
+        page_size: int = 15,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
     ) -> Dict[str, Any]:
         """FastAPI 运行历史入口。"""
-        return self._endpoint(self.run_history, profile_id, page, page_size)
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.run_history, target, page, page_size)
 
-    async def endpoint_refresh(self, payload: dict) -> Dict[str, Any]:
+    async def endpoint_refresh(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 手动刷新入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
         return await self._endpoint_async(self.refresh, payload)
 
-    async def endpoint_playback_sync(self, payload: dict) -> Dict[str, Any]:
+    async def endpoint_playback_sync(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 播放画像立即同步入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
         return await self._endpoint_async(self.playback_sync, payload)
 
-    def endpoint_archive(self, payload: dict) -> Dict[str, Any]:
+    def endpoint_archive(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 忽略入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
         return self._endpoint(self.archive, payload)
 
-    def endpoint_restore(self, payload: dict) -> Dict[str, Any]:
+    def endpoint_restore(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 恢复入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
         return self._endpoint(self.restore, payload)
 
-    def endpoint_delete_archive(self, payload: dict) -> Dict[str, Any]:
+    def endpoint_delete_archive(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 删除归档入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
         return self._endpoint(self.delete_archive, payload)
 
-    def endpoint_clear_profile(self, payload: dict) -> Dict[str, Any]:
+    def endpoint_clear_profile(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 清除画像入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
         return self._endpoint(self.clear_profile, payload)
 
-    def endpoint_update_profile_tag(self, payload: dict) -> Dict[str, Any]:
+    def endpoint_update_profile_tag(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 人工画像标签变更入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
         return self._endpoint(self.update_profile_tag, payload)
 
-    def endpoint_subscribe(self, payload: dict) -> Dict[str, Any]:
+    def endpoint_subscribe(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
         """FastAPI 手动订阅入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
         return self._endpoint(self.subscribe, payload)
 
 

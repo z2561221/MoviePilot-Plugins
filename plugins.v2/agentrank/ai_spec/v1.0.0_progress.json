@@ -4,10 +4,10 @@
   "target_version": "1.0.0",
   "target_release_date": "2026-07-31",
   "status": {
-    "overall": "pending",
+    "overall": "in_progress",
     "phase": "phase-1",
-    "task": "1.1",
-    "next_allowed_action": "Commit the three planning artifacts as the clean-start commit without staging the protected LocalToolkit file, then execute task 1.1"
+    "task": "1.2",
+    "next_allowed_action": "Execute task 1.2: implement TokenPayload-backed MP user to profile access control and its tests"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -51,7 +51,7 @@
     {
       "id": "phase-1",
       "title": "宿主契约、规格同步与安全边界",
-      "status": "pending",
+      "status": "in_progress",
       "goal": "锁定访问、上下文、输出和模型溯源契约",
       "acceptance": [
         "规格与V4无冲突且旧十五字规则消失",
@@ -65,10 +65,15 @@
         {
           "id": "1.1",
           "title": "同步plugin_context规格",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["写入V4锁定语义并移除十五字旧规则"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "tests/static/test_agentrank_contracts.py: 7 passed",
+            "plugin_context required-contract assertion: 18/18 present",
+            "legacy fifteen-character rule assertion: absent",
+            "git diff --check for task paths: passed"
+          ],
+          "commit": "9c60decf"
         },
         {
           "id": "1.2",
@@ -498,7 +503,20 @@
       "source": "用户目标与仓库门禁"
     }
   ],
-  "turn_log": [],
+  "turn_log": [
+    {
+      "date": "2026-07-28",
+      "task": "clean-start",
+      "result": "committed planning artifacts only",
+      "commit": "2fe81330"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "1.1",
+      "result": "target contract synchronized and verified",
+      "commit": "9c60decf"
+    }
+  ],
   "residual_risks": [
     "目标发布日期紧，任何高严重度权限数据隐私问题优先于日期",
     "真实用户口味只能通过证据规则和反馈评估逼近，不能声称绝对正确",
