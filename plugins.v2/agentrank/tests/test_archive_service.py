@@ -100,8 +100,8 @@ def test_restore_uses_open_original_rank_and_removes_negative_feedback():
     assert repository.load_archive("alice").entries == []
 
 
-def test_restore_appends_when_original_rank_is_now_occupied():
-    """A restored item appends when a newer item occupies its former rank."""
+def test_restore_reclaims_original_rank_and_shifts_newer_items():
+    """恢复项回到原排名，已占位条目顺延且榜单不超过五条。"""
     repository = AgentRankRepository(FakePlugin())
     repository.save_board(_board())
     service = ArchiveService(repository)
@@ -115,7 +115,10 @@ def test_restore_appends_when_original_rank_is_now_occupied():
     restored = next(
         item for item in repository.load_board("alice").recommendations if item.candidate_id == "c2"
     )
-    assert restored.rank == 4
+    current = repository.load_board("alice").recommendations
+    assert restored.rank == 2
+    assert [item.candidate_id for item in current] == ["c1", "c2", "c4", "c3"]
+    assert [item.rank for item in current] == [1, 2, 3, 4]
 
 
 def test_ignore_and_restore_are_idempotent():

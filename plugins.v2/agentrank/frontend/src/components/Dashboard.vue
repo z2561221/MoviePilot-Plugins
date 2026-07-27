@@ -62,8 +62,8 @@ async function refreshBoard() {
 
 async function runItemAction(action, successMessage) {
   try {
-    await action()
-    snackbar.value = { show: true, message: successMessage, color: 'success' }
+    const result = await action()
+    snackbar.value = { show: true, message: result?.message || successMessage, color: 'success' }
   } catch (error) {
     snackbar.value = { show: true, message: error?.message || '操作失败', color: 'error' }
   }

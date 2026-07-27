@@ -1,11 +1,13 @@
 """喜欢、不喜欢与忽略的统一反馈动作服务。"""
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from ..model.feedback import FeedbackEvent
 from ..storage.repository import AgentRankRepository
 from .archive import ArchiveService
+from .board_refill import BoardRefillService
 
 
 FEEDBACK_ACTION_KINDS = frozenset({"like", "dislike", "ignore"})
@@ -31,6 +33,10 @@ class FeedbackActionResult:
     board_revision: int
     board_run_id: str
     board_changed: bool = False
+    refill_count: int = 0
+    current_count: int = 0
+    refill_status: str = "not_applicable"
+    message: str = ""
 
     def __post_init__(self) -> None:
         """校验结果始终携带已持久化事件和有效榜单版本。"""
@@ -40,6 +46,10 @@ class FeedbackActionResult:
         object.__setattr__(self, "board_revision", max(1, int(self.board_revision)))
         object.__setattr__(self, "board_run_id", str(self.board_run_id or ""))
         object.__setattr__(self, "board_changed", bool(self.board_changed))
+        object.__setattr__(self, "refill_count", max(0, int(self.refill_count)))
+        object.__setattr__(self, "current_count", max(0, int(self.current_count)))
+        object.__setattr__(self, "refill_status", str(self.refill_status or "not_applicable"))
+        object.__setattr__(self, "message", str(self.message or ""))
 
     def to_dict(self) -> Dict[str, Any]:
         """返回前端稳定动作结果，不暴露内部幂等索引。"""
@@ -63,6 +73,15 @@ class FeedbackActionResult:
             },
             "board_revision": self.board_revision,
             "board_run_id": self.board_run_id,
+            "current_count": self.current_count,
+            "refill_count": self.refill_count,
+            "refill_status": self.refill_status,
+            "message": self.message,
+            "reason_code": (
+                "safe_candidate_insufficient"
+                if self.refill_status == "safe_candidate_insufficient"
+                else ""
+            ),
             "learning_effect": (
                 "exclusion_only"
                 if self.event.kind == "ignore"
@@ -79,6 +98,7 @@ class FeedbackActionService:
         """绑定唯一仓储和既有归档领域服务。"""
         self._repository = repository
         self._archive = ArchiveService(repository)
+        self._refill = BoardRefillService(repository)
 
     def _events(self, profile_id: str) -> list[FeedbackEvent]:
         """读取当前保留窗口内的全部反馈事实。"""
@@ -95,9 +115,43 @@ class FeedbackActionService:
                 event.run_id == target_run
                 and event.kind in {"like", "dislike"}
                 and event.candidate_id
+                and event.status == "recorded"
             ):
                 states[event.candidate_id] = event.kind
         return states
+
+    def _record_failed_retryable(
+        self,
+        *,
+        profile_id: str,
+        candidate_id: str,
+        kind: str,
+        request_key: str,
+        actor_id: str,
+        run_id: str,
+        analysis_id: str,
+        supersedes: str,
+    ) -> None:
+        """尽力记录不占用原幂等键的可重试失败事实。"""
+        fingerprint = "|".join(
+            (profile_id, candidate_id, kind, request_key, actor_id, run_id, analysis_id)
+        )
+        failure_key = f"failed:{hashlib.sha256(fingerprint.encode('utf-8')).hexdigest()}"
+        failure = FeedbackEvent(
+            profile_id=profile_id,
+            kind=kind,
+            candidate_id=candidate_id,
+            run_id=run_id,
+            analysis_id=analysis_id,
+            created_by_mp_user_id=actor_id,
+            idempotency_key=failure_key,
+            supersedes=supersedes,
+            status="failed_retryable",
+        )
+        try:
+            self._repository.append_feedback_event(failure)
+        except Exception:
+            return
 
     @staticmethod
     def _same_action(
@@ -108,6 +162,7 @@ class FeedbackActionService:
             event.kind == kind
             and event.candidate_id == candidate_id
             and event.run_id == run_id
+            and event.status == "recorded"
         )
 
     @staticmethod
@@ -130,14 +185,36 @@ class FeedbackActionService:
         )
 
     @staticmethod
-    def _result(event: FeedbackEvent, created: bool, board: Any, changed: bool = False):
+    def _result(
+        event: FeedbackEvent,
+        created: bool,
+        board: Any,
+        changed: bool = False,
+        *,
+        refill_count: int = 0,
+        refill_status: str = "",
+    ):
         """根据最新榜单构造统一结果。"""
+        status = str(refill_status or "")
+        if not status:
+            if event.kind in {"dislike", "ignore"}:
+                status = (
+                    "safe_candidate_insufficient"
+                    if board.status == "recommendation_incomplete"
+                    else "filled"
+                )
+            else:
+                status = "not_applicable"
         return FeedbackActionResult(
             event=event,
             created=created,
             board_revision=board.revision,
             board_run_id=board.run_id,
             board_changed=changed,
+            refill_count=refill_count,
+            current_count=len(board.recommendations),
+            refill_status=status,
+            message=str(board.message or "") if changed else "",
         )
 
     def act(
@@ -243,6 +320,7 @@ class FeedbackActionService:
                     if event.kind in {"like", "dislike"}
                     and event.candidate_id == candidate
                     and event.run_id == board.run_id
+                    and event.status == "recorded"
                 ),
                 None,
             )
@@ -250,11 +328,14 @@ class FeedbackActionService:
                 action in {"like", "dislike"}
                 and latest_polarity is not None
                 and latest_polarity.kind == action
+                and not (action == "dislike" and item_present)
             ):
                 return self._result(latest_polarity, False, board)
             if action == "ignore" and same_action is not None and archived and not item_present:
                 return self._result(same_action, False, board)
-            if not item_present:
+            if not item_present and not (
+                action in {"like", "dislike"} and latest_polarity is not None
+            ):
                 raise FeedbackActionError(
                     "candidate_not_on_board", "该作品已不在当前榜单中", 409
                 )
@@ -278,18 +359,52 @@ class FeedbackActionService:
             )
             old_board_archive = None
             board_changed = False
+            refill_count = 0
+            refill_status = "not_applicable"
             try:
-                if action == "ignore":
+                if action in {"dislike", "ignore"} and item_present:
                     old_board_archive = self._repository.capture_board_archive_raw(target)
-                    archive_result = self._archive._ignore_locked(target, candidate)
-                    if not archive_result.changed:
-                        raise FeedbackActionError(
-                            "ignore_state_conflict", "忽略状态已变化，请刷新后重试", 409
+                    if action == "ignore":
+                        archive_result = self._archive._apply_ignore_state(
+                            target, board, archive, candidate
                         )
+                        if not archive_result.changed:
+                            raise FeedbackActionError(
+                                "ignore_state_conflict",
+                                "忽略状态已变化，请刷新后重试",
+                                409,
+                            )
+                        action_label = "忽略"
+                    else:
+                        board.recommendations = [
+                            item
+                            for item in board.recommendations
+                            if item.candidate_id != candidate
+                        ]
+                        board.revision += 1
+                        action_label = "不喜欢"
+                    disliked_ids = {
+                        candidate_id
+                        for candidate_id, polarity in self.active_polarities(
+                            target, board.run_id
+                        ).items()
+                        if polarity == "dislike"
+                    }
+                    archived_ids = {entry.candidate_id for entry in archive.entries}
+                    refill = self._refill.refill(
+                        target,
+                        board,
+                        blocked_candidate_ids={
+                            *disliked_ids,
+                            *archived_ids,
+                            candidate,
+                        },
+                        action_label=action_label,
+                    )
+                    refill_count = refill.refill_count
+                    refill_status = refill.status
+                    self._repository.save_board_and_archive(board, archive)
                     board_changed = True
-                    board = self._repository.load_board(target)
-                    if board is None:
-                        raise RuntimeError("ignored board disappeared after save")
                 appended = self._repository.append_feedback_event(draft)
             except Exception:
                 if old_board_archive is not None:
@@ -303,10 +418,22 @@ class FeedbackActionService:
                             "反馈保存失败且状态恢复异常，请刷新核对后重试",
                             500,
                         ) from rollback_error
+                    self._record_failed_retryable(
+                        profile_id=target,
+                        candidate_id=candidate,
+                        kind=action,
+                        request_key=request_key,
+                        actor_id=actor,
+                        run_id=board.run_id,
+                        analysis_id=analysis,
+                        supersedes=supersedes,
+                    )
                 raise
             return self._result(
                 appended.event,
                 appended.created,
                 board,
                 changed=board_changed,
+                refill_count=refill_count,
+                refill_status=refill_status,
             )

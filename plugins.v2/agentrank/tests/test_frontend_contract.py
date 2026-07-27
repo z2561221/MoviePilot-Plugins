@@ -191,7 +191,7 @@ def test_all_ranking_surfaces_use_feedback_icons_and_three_labeled_actions():
 
 
 def test_like_and_dislike_controls_are_shape_first_accessible_and_persistent():
-    """赞踩使用轮廓与实心状态、无可见名称并接入持久反馈 API。"""
+    """赞踩使用形状状态，并在移出补位后刷新共享榜单。"""
     actions = _read("RecommendationActions.vue")
     state = _read("useAgentRankState.js")
     for icon in (
@@ -212,10 +212,13 @@ def test_like_and_dislike_controls_are_shape_first_accessible_and_persistent():
     assert "board_revision" in state
     assert "run_id: currentBoard.run_id" in state
     assert "feedback_kind" in state
+    assert "if (result?.board_changed)" in state
+    assert "await loadProfileData(selectedProfileId.value, { force: true })" in state
     for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
         component = _read(name)
         assert "@like=" in component
         assert "@dislike=" in component
+        assert "result?.message" in component
 
 
 def test_discovery_settings_open_embedded_config_and_use_core_save_api():

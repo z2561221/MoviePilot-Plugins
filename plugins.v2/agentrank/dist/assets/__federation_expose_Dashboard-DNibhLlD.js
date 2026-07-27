@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DZjcV5G3.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions--u-FdTxY.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
@@ -85,8 +85,8 @@ async function refreshBoard() {
 
 async function runItemAction(action, successMessage) {
   try {
-    await action();
-    snackbar.value = { show: true, message: successMessage, color: 'success' };
+    const result = await action();
+    snackbar.value = { show: true, message: result?.message || successMessage, color: 'success' };
   } catch (error) {
     snackbar.value = { show: true, message: error?.message || '操作失败', color: 'error' };
   }
@@ -298,6 +298,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c8ac96b9"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e4429e90"]]);
 
 export { Dashboard as default };

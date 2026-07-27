@@ -51,6 +51,21 @@ class ArchiveService:
         self._assert_board_owner(profile_id, board)
         archive = self._repository.load_archive(profile_id)
         self._assert_archive_owner(profile_id, archive)
+        result = self._apply_ignore_state(profile_id, board, archive, candidate_id)
+        if result.changed:
+            self._repository.save_board_and_archive(board, archive)
+        return result
+
+    def _apply_ignore_state(
+        self,
+        profile_id: str,
+        board: RecommendationBoard,
+        archive: ArchiveFeedback,
+        candidate_id: str,
+    ) -> ArchiveActionResult:
+        """在内存中移除并归档条目，由外层事务决定何时保存。"""
+        self._assert_board_owner(profile_id, board)
+        self._assert_archive_owner(profile_id, archive)
         already_archived = any(
             entry.candidate_id == candidate_id for entry in archive.entries
         )
@@ -79,11 +94,10 @@ class ArchiveService:
                     recommendation=asdict(item),
                 )
             )
-        self._repository.save_board_and_archive(board, archive)
         return ArchiveActionResult(True, "ignore", candidate_id)
 
     def restore(self, profile_id: str, candidate_id: str) -> ArchiveActionResult:
-        """撤销负反馈，原排名空闲时复位，否则追加榜单末尾。"""
+        """撤销忽略并按原排名插回，同时保持榜单最多五条。"""
         board = self._repository.load_board(profile_id)
         if board is None:
             return ArchiveActionResult(False, "restore", candidate_id)
@@ -101,16 +115,23 @@ class ArchiveService:
             ]
             self._repository.save_board_and_archive(board, archive)
             return ArchiveActionResult(True, "restore", candidate_id)
-        occupied_ranks = {item.rank for item in board.recommendations}
-        target_rank = entry.original_rank
-        if target_rank in occupied_ranks:
-            target_rank = max(occupied_ranks, default=0) + 1
+        target_rank = max(1, int(entry.original_rank or 1))
+        for recommendation in board.recommendations:
+            if recommendation.rank >= target_rank:
+                recommendation.rank += 1
         payload = dict(entry.recommendation)
         payload["candidate_id"] = candidate_id
         payload["rank"] = target_rank
         board.recommendations.append(RecommendationItem.from_dict(payload))
         board.recommendations.sort(key=lambda item: (item.rank, item.candidate_id))
+        board.recommendations = board.recommendations[:5]
+        for rank, recommendation in enumerate(board.recommendations, start=1):
+            recommendation.rank = rank
         board.revision += 1
+        board.status = (
+            "success" if len(board.recommendations) == 5 else "recommendation_incomplete"
+        )
+        board.message = "已恢复忽略作品并保持当前榜单五条"
         archive.entries = [
             item for item in archive.entries if item.candidate_id != candidate_id
         ]

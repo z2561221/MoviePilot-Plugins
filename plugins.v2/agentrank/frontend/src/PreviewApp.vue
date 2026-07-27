@@ -77,7 +77,7 @@ const config = {
   copy_prompt: '推荐理由和作品简介使用自然、具体、克制且语义完整的短句。',
 }
 
-const recommendations = Array.from({ length: 5 }, (_, index) => ({
+const candidatePool = Array.from({ length: 8 }, (_, index) => ({
   candidate_id: `tmdb:${index % 3 === 0 ? 'movie' : 'tv'}:${1000 + index}`,
   rank: index + 1,
   title: index === 0
@@ -101,6 +101,9 @@ const recommendations = Array.from({ length: 5 }, (_, index) => ({
   confidence: 96 - index * 3,
   feedback_kind: index === 0 ? 'like' : index === 1 ? 'dislike' : '',
 }))
+const boardRecommendations = ref(candidatePool.slice(0, 5).map(item => ({ ...item })))
+const boardRevision = ref(1)
+const blockedCandidateIds = new Set()
 
 const profile = {
   profile_id: identities[0].profile_id,
@@ -156,8 +159,8 @@ function dataFor(path, params = {}) {
     const visible = status.value === 'idle'
       ? []
       : status.value === 'recommendation_incomplete'
-        ? recommendations.slice(0, 7)
-        : recommendations
+        ? boardRecommendations.value.slice(0, 4)
+        : boardRecommendations.value
     return {
       profile_id: identity.profile_id,
       username: identity.username,
@@ -168,26 +171,55 @@ function dataFor(path, params = {}) {
       profile: { ...profile, profile_id: identity.profile_id, username: identity.username },
       playback,
       enablement,
-      board: { profile_id: identity.profile_id, username: identity.username, status: status.value, generated_at: '2026-07-12T10:20:30+08:00', recommendations: visible },
+      board: { profile_id: identity.profile_id, username: identity.username, run_id: 'preview-run', revision: boardRevision.value, status: status.value, generated_at: '2026-07-12T10:20:30+08:00', recommendations: visible },
     }
   }
   if (path.endsWith('board')) {
     const visible = status.value === 'idle'
       ? []
       : status.value === 'recommendation_incomplete'
-        ? recommendations.slice(0, 7)
-        : recommendations
-    return { status: status.value, generated_at: '2026-07-12T10:20:30+08:00', recommendations: visible }
+        ? boardRecommendations.value.slice(0, 4)
+        : boardRecommendations.value
+    return { run_id: 'preview-run', revision: boardRevision.value, status: status.value, generated_at: '2026-07-12T10:20:30+08:00', recommendations: visible }
   }
   if (path.endsWith('profile')) return profile
   if (path.endsWith('run-history')) return { items: history.slice(0, 10).map(item => ({ ...item, profile_id: identity.profile_id, username: identity.username })), total: history.length, page: 1, page_size: 10 }
   return {}
 }
 
+function previewFeedback(kind, candidateId) {
+  if (kind === 'like') {
+    const target = boardRecommendations.value.find(item => item.candidate_id === candidateId)
+    if (target) target.feedback_kind = 'like'
+    return { changed: false, board_changed: false, event: { kind }, board_revision: boardRevision.value, message: '已记录喜欢' }
+  }
+  blockedCandidateIds.add(candidateId)
+  const remaining = boardRecommendations.value.filter(item => item.candidate_id !== candidateId)
+  const remainingIds = new Set(remaining.map(item => item.candidate_id))
+  const replacement = candidatePool.find(item => !blockedCandidateIds.has(item.candidate_id) && !remainingIds.has(item.candidate_id))
+  if (replacement) remaining.push({ ...replacement, feedback_kind: '' })
+  remaining.forEach((item, index) => { item.rank = index + 1 })
+  boardRecommendations.value = remaining.slice(0, 5)
+  boardRevision.value += 1
+  const complete = boardRecommendations.value.length === 5
+  return {
+    changed: true,
+    board_changed: true,
+    event: { kind },
+    board_revision: boardRevision.value,
+    current_count: boardRecommendations.value.length,
+    refill_count: replacement ? 1 : 0,
+    refill_status: complete ? 'filled' : 'safe_candidate_insufficient',
+    message: complete ? `${kind === 'ignore' ? '忽略' : '不喜欢'}已生效，并从本轮冻结安全候选池补位` : '安全候选不足',
+  }
+}
+
 const api = {
   async get(path, request = {}) { return { data: { success: true, data: dataFor(path, request.params || {}) } } },
-  async post(path) {
+  async post(path, payload = {}) {
     if (path.endsWith('refresh')) status.value = 'success'
+    if (path.endsWith('feedback')) return { data: { success: true, data: previewFeedback(payload.kind, payload.candidate_id) } }
+    if (path.endsWith('archive')) return { data: { success: true, data: previewFeedback('ignore', payload.candidate_id) } }
     return { data: { success: true, data: { changed: true, message: '预览操作已完成' } } }
   },
   async put() { return { data: { success: true } } },

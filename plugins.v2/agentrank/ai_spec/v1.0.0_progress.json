@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-3",
-    "task": "3.3",
-    "next_allowed_action": "Execute task 3.3: refill the board from the same frozen safe candidate pool after dislike or ignore"
+    "task": "3.4",
+    "next_allowed_action": "Execute task 3.4: keep immediate title exclusion separate from confirmed long-term taste changes"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -284,20 +284,33 @@
             "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
             "compileall, progress JSON parse, and git diff check: passed"
           ],
-          "commit": null
+          "commit": "92de5f6e"
         },
         {
           "id": "3.3",
           "title": "实现安全五条补位事务",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": ["移出后同冻结池补齐五条", "不喜欢作品不再补位", "安全不足时明确少于五条原因"],
-          "verification": [],
+          "verification": [
+            "dislike and ignore remove the current item and refill only from the immutable candidate snapshot of the same run",
+            "blocked dislike and archived candidate ids never re-enter sequential or concurrent refill",
+            "insufficient safe candidates return current_count, refill_count, refill_status, and reason_code safe_candidate_insufficient",
+            "board or event persistence failure restores board and archive while recording only a failed_retryable non-learning event",
+            "the original idempotency key remains retryable after failed persistence",
+            "restoring an ignored item reclaims its original rank and keeps at most five items",
+            "390x844 browser interaction kept five items after sequential dislike and ignore with zero horizontal overflow",
+            "AgentRank plugin suite: 450 passed",
+            "AgentRank static contracts: 25 passed",
+            "smoke contracts: 48 passed",
+            "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
+            "compileall, progress JSON parse, and generated asset check: passed"
+          ],
           "commit": null
         },
         {
           "id": "3.4",
           "title": "隔离即时排除与长期口味",
-          "status": "pending",
+          "status": "in_progress",
           "acceptance": ["作品级排除立即生效", "题材主创动机变化必须确认"],
           "verification": [],
           "commit": null
@@ -677,7 +690,7 @@
       "date": "2026-07-28",
       "task": "3.2",
       "result": "shared icon-only like and dislike controls implemented with persisted polarity, idempotent writes, shape-first state, and responsive accessibility contracts",
-      "commit": null
+      "commit": "92de5f6e"
     }
   ],
   "residual_risks": [

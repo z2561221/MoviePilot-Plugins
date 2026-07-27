@@ -56,6 +56,8 @@ def test_shared_state_owns_profile_id_selection_reads_and_actions():
     assert "{ username:" not in source
     assert "loading" in source
     assert "error" in source
+    assert "if (result?.board_changed)" in source
+    assert "await loadProfileData(selectedProfileId.value, { force: true })" in source
 
 
 def test_config_is_the_authoritative_complete_weight_write_surface():

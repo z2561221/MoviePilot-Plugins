@@ -134,9 +134,9 @@ async function subscribeItem(candidateId) {
 
 async function archiveItem(candidateId) {
   try {
-    await state.archive(candidateId)
+    const result = await state.archive(candidateId)
     lastArchivedId.value = candidateId
-    snackbar.value = { show: true, message: '已忽略该推荐', color: 'success', undo: true }
+    snackbar.value = { show: true, message: result?.message || '已忽略该推荐', color: 'success', undo: true }
   } catch (err) {
     snackbar.value = { show: true, message: err?.message || '忽略失败', color: 'error', undo: false }
   }
@@ -144,10 +144,10 @@ async function archiveItem(candidateId) {
 
 async function feedbackItem(kind, candidateId) {
   try {
-    await state.reactToRecommendation(kind, candidateId)
+    const result = await state.reactToRecommendation(kind, candidateId)
     snackbar.value = {
       show: true,
-      message: kind === 'like' ? '已记录喜欢' : '已记录不喜欢',
+      message: result?.message || (kind === 'like' ? '已记录喜欢' : '已记录不喜欢'),
       color: 'success',
       undo: false,
     }

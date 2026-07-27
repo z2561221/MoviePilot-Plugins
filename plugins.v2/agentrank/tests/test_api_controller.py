@@ -389,8 +389,11 @@ def test_unified_feedback_endpoint_returns_event_state_and_board_revision():
     assert disliked["data"]["event"]["supersedes"] == created["data"]["event"][
         "event_id"
     ]
-    projected_dislike = controller.board(HOME_PROFILE)["data"]["recommendations"][0]
-    assert projected_dislike["feedback_kind"] == "dislike"
+    assert disliked["data"]["board_changed"] is True
+    assert disliked["data"]["current_count"] == 0
+    assert disliked["data"]["refill_status"] == "safe_candidate_insufficient"
+    assert disliked["data"]["reason_code"] == "safe_candidate_insufficient"
+    assert controller.board(HOME_PROFILE)["data"]["recommendations"] == []
 
 
 def test_regular_user_status_is_filtered_and_config_options_are_forbidden():

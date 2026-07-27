@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DZjcV5G3.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions--u-FdTxY.js';
 import Config from './__federation_expose_Config-DshHAqbi.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
@@ -181,9 +181,9 @@ async function subscribeItem(candidateId) {
 
 async function archiveItem(candidateId) {
   try {
-    await state.archive(candidateId);
+    const result = await state.archive(candidateId);
     lastArchivedId.value = candidateId;
-    snackbar.value = { show: true, message: '已忽略该推荐', color: 'success', undo: true };
+    snackbar.value = { show: true, message: result?.message || '已忽略该推荐', color: 'success', undo: true };
   } catch (err) {
     snackbar.value = { show: true, message: err?.message || '忽略失败', color: 'error', undo: false };
   }
@@ -191,10 +191,10 @@ async function archiveItem(candidateId) {
 
 async function feedbackItem(kind, candidateId) {
   try {
-    await state.reactToRecommendation(kind, candidateId);
+    const result = await state.reactToRecommendation(kind, candidateId);
     snackbar.value = {
       show: true,
-      message: kind === 'like' ? '已记录喜欢' : '已记录不喜欢',
+      message: result?.message || (kind === 'like' ? '已记录喜欢' : '已记录不喜欢'),
       color: 'success',
       undo: false,
     };
@@ -562,6 +562,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1407b59a"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7bf8176f"]]);
 
 export { AppPage as default };

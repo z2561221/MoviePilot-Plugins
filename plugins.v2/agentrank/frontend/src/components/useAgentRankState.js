@@ -283,6 +283,10 @@ export function useAgentRankState(api) {
     }
     if (!result) return null
     pendingFeedbackRequests.delete(requestScope)
+    if (result?.board_changed) {
+      await loadProfileData(selectedProfileId.value, { force: true })
+      return result
+    }
     const effectiveKind = result?.event?.kind || action
     const item = currentBoard.recommendations?.find(entry => entry.candidate_id === candidateId)
     if (item) item.feedback_kind = effectiveKind
