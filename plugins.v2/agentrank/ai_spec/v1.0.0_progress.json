@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-1",
-    "task": "1.2",
-    "next_allowed_action": "Execute task 1.2: implement TokenPayload-backed MP user to profile access control and its tests"
+    "task": "1.3",
+    "next_allowed_action": "Execute task 1.3: minimize archive feedback exposed to the ranking Agent and add injection and overexposure regression tests"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -78,10 +78,16 @@
         {
           "id": "1.2",
           "title": "实现MP用户到profile访问策略",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["超级用户可访问已配置profile", "普通用户只能访问显式映射profile", "跨profile读写返回403"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "AgentRank plugin suite: 385 passed",
+            "AgentRank static contracts: 25 passed",
+            "cross-profile read and mutation tests: passed",
+            "same-name unmapped user and unknown profile default-deny tests: passed",
+            "compileall and git diff --check: passed"
+          ],
+          "commit": "a322c812"
         },
         {
           "id": "1.3",
@@ -515,6 +521,12 @@
       "task": "1.1",
       "result": "target contract synchronized and verified",
       "commit": "9c60decf"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "1.2",
+      "result": "MP user to profile access control implemented and verified",
+      "commit": "a322c812"
     }
   ],
   "residual_risks": [

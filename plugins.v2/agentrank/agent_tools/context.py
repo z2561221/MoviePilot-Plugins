@@ -1,6 +1,8 @@
 """AgentRank 工具使用的受信运行上下文。"""
 
 from dataclasses import dataclass
+from datetime import datetime
+import re
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -9,6 +11,8 @@ TRUSTED_CONTEXT_KEY = "agentrank_trusted_context"
 PROFILE_AGENT_ROLE = "profile"
 RANKING_AGENT_ROLE = "ranking"
 AGENT_ROLES = frozenset({PROFILE_AGENT_ROLE, RANKING_AGENT_ROLE})
+_CANDIDATE_ID_PATTERN = re.compile(r"^[A-Za-z0-9:_-]{1,128}$")
+_ARCHIVE_REASON_CODES = frozenset({"ignored", "disliked"})
 
 
 def _deep_freeze(value: Any) -> Any:
@@ -31,6 +35,41 @@ def to_jsonable(value: Any) -> Any:
     if isinstance(value, (tuple, list, set, frozenset)):
         return [to_jsonable(item) for item in value]
     return value
+
+
+def _safe_archive_time(value: Any) -> str:
+    """只保留可解析且有界的 ISO 归档时间。"""
+    text = str(value or "").strip()
+    if not text or len(text) > 40:
+        return ""
+    try:
+        datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    return text
+
+
+def _minimal_archive_feedback(value: Any) -> Mapping[str, Any]:
+    """将完整归档投影为排序 Agent 所需的最小安全原因码列表。"""
+    raw_entries = value.get("entries") if isinstance(value, Mapping) else []
+    entries = []
+    for item in raw_entries or []:
+        if not isinstance(item, Mapping):
+            continue
+        candidate_id = str(item.get("candidate_id") or "").strip()
+        if not _CANDIDATE_ID_PATTERN.fullmatch(candidate_id):
+            continue
+        raw_reason = str(item.get("reason") or "ignored").strip()
+        entries.append(
+            {
+                "candidate_id": candidate_id,
+                "reason": (
+                    raw_reason if raw_reason in _ARCHIVE_REASON_CODES else "ignored"
+                ),
+                "archived_at": _safe_archive_time(item.get("archived_at")),
+            }
+        )
+    return {"entries": entries}
 
 
 @dataclass(frozen=True)
@@ -73,7 +112,7 @@ def build_trusted_context(
         username=trusted_username,
         run_id=trusted_run_id,
         candidates=_deep_freeze(candidates),
-        archive_feedback=_deep_freeze(archive_feedback),
+        archive_feedback=_deep_freeze(_minimal_archive_feedback(archive_feedback)),
         weights=_deep_freeze(weights),
         previous_profile=_deep_freeze(previous_profile),
         profile_preferences=_deep_freeze(profile_preferences),
