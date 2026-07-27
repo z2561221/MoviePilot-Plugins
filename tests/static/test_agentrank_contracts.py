@@ -135,7 +135,8 @@ def test_agentrank_agent_context_documents_restricted_runtime_boundaries():
         "read_agentrank_weights",
         "禁止订阅",
         "candidate_id",
-        "十五个中文字符",
+        "不超过 30 个中文字符",
         "recommendation_incomplete",
     ):
         assert phrase in source
+    assert "十五个中文字符" not in source
