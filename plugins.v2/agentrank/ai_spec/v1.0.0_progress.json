@@ -5,9 +5,9 @@
   "target_release_date": "2026-07-31",
   "status": {
     "overall": "in_progress",
-    "phase": "phase-1",
-    "task": "1.4",
-    "next_allowed_action": "Execute task 1.4: capture actual provider and model provenance for Agent Tokens takeover and MoviePilot system fallback"
+    "phase": "phase-2",
+    "task": "2.1",
+    "next_allowed_action": "Execute task 2.1: implement the profile-isolated segmented feedback event ledger"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -51,7 +51,7 @@
     {
       "id": "phase-1",
       "title": "宿主契约、规格同步与安全边界",
-      "status": "in_progress",
+      "status": "completed",
       "goal": "锁定访问、上下文、输出和模型溯源契约",
       "acceptance": [
         "规格与V4无冲突且旧十五字规则消失",
@@ -60,7 +60,13 @@
         "实际供应商和模型来源可记录",
         "阶段测试退出码为0"
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        "AgentRank plugin suite after task 1.4: 391 passed",
+        "AgentRank static contracts after task 1.4: 25 passed",
+        "Vue federation build: passed with dist/assets/remoteEntry.js",
+        "desktop 1440x900 and mobile 390x844 browser checks: no horizontal overflow",
+        "actual provider/model provenance is sanitized and records no endpoint, key, authorization, or token"
+      ],
       "tasks": [
         {
           "id": "1.1",
@@ -106,17 +112,26 @@
         {
           "id": "1.4",
           "title": "记录真实LLM来源",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["区分Agent Tokens接管与MoviePilot系统回退", "主字段显示模型名"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "task 1.4 focused tests: 21 passed",
+            "AgentRank plugin suite: 391 passed",
+            "AgentRank static contracts: 25 passed",
+            "Vue federation build: passed with dist/assets/remoteEntry.js",
+            "browser 1440x900 and 390x844: overflowingModels=0 and long model names wrap",
+            "expanded runtime detail shows total and role-level model call counts",
+            "provenance stores only provider_id, selected_provider_name, provider, model, source, and model_call_count",
+            "git diff --check: passed"
+          ],
+          "commit": "5f87dbc4"
         }
       ]
     },
     {
       "id": "phase-2",
       "title": "反馈事件账本、迁移与数据生命周期",
-      "status": "pending",
+      "status": "in_progress",
       "goal": "建立可重放且不丢旧数据的事实与记忆底座",
       "acceptance": [
         "事件幂等且sequence单调",
@@ -539,6 +554,12 @@
       "task": "1.3",
       "result": "ranking Agent archive context minimized and injection-tested",
       "commit": "d82d5350"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "1.4",
+      "result": "actual LLM provider and model provenance sanitized, recorded, and verified across runtime and UI",
+      "commit": "5f87dbc4"
     }
   ],
   "residual_risks": [

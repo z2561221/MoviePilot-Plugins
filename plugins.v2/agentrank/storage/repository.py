@@ -1,6 +1,7 @@
 """基于 MoviePilot 插件数据接口的稳定画像身份存储仓库。"""
 
 import threading
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Type, TypeVar
@@ -10,6 +11,12 @@ from ..model.archive import ArchiveFeedback
 from ..model.board import RecommendationBoard
 from ..model.candidate import Candidate
 from ..model.candidate_snapshot import CandidateSnapshot
+from ..model.feedback import (
+    FeedbackAppendResult,
+    FeedbackEvent,
+    FeedbackEventSegment,
+    FeedbackLedgerIndex,
+)
 from ..model.profile import UserProfile
 from ..model.profile_preferences import ProfilePreferences
 from ..model.playback import PlaybackSnapshot
@@ -24,14 +31,24 @@ class AgentRankRepository:
     """统一封装 AgentRank 的 profile_id 隔离键与容错读取。"""
 
     _board_archive_lock = threading.RLock()
+    _feedback_locks_guard = threading.Lock()
+    _feedback_locks: Dict[str, threading.RLock] = {}
     recovery_log_key = "agentrank_recovery_log"
     telegram_sessions_key = "telegram_selection_sessions"
     playback_snapshot_prefix = "playback_snapshot"
 
-    def __init__(self, plugin: Any, history_limit: int = 50):
-        """绑定插件数据接口并设置历史上限。"""
+    def __init__(
+        self,
+        plugin: Any,
+        history_limit: int = 50,
+        feedback_segment_size: int = 100,
+    ):
+        """绑定插件数据接口并设置历史与反馈分段上限。"""
         self._plugin = plugin
         self._history_limit = max(1, min(int(history_limit), 200))
+        self._feedback_segment_size = max(
+            1, min(int(feedback_segment_size), 1000)
+        )
 
     @staticmethod
     def _scope(value: str, field_name: str) -> str:
@@ -51,6 +68,30 @@ class AgentRankRepository:
             f"candidate_snapshot:profile:{self._scope(profile_id, 'profile_id')}:"
             f"run:{self._scope(run_id, 'run_id')}"
         )
+
+    def _feedback_index_key(self, profile_id: str) -> str:
+        """生成按 profile_id 隔离的反馈账本索引键。"""
+        return self._profile_key("feedback_event_index", profile_id)
+
+    def _feedback_segment_key(self, profile_id: str, segment_id: int) -> str:
+        """生成按 profile_id 和段号隔离的反馈事件段键。"""
+        if int(segment_id) <= 0:
+            raise ValueError("segment_id must be positive")
+        return (
+            f"feedback_event_segment:profile:{self._scope(profile_id, 'profile_id')}:"
+            f"segment:{int(segment_id):08d}"
+        )
+
+    @classmethod
+    def _feedback_lock(cls, profile_id: str) -> threading.RLock:
+        """取得跨仓库实例共享的 profile 级反馈写锁。"""
+        scope = cls._scope(profile_id, "profile_id")
+        with cls._feedback_locks_guard:
+            lock = cls._feedback_locks.get(scope)
+            if lock is None:
+                lock = threading.RLock()
+                cls._feedback_locks[scope] = lock
+            return lock
 
     @contextmanager
     def board_archive_guard(self, profile_id: str) -> Iterator[None]:
@@ -183,6 +224,228 @@ class AgentRankRepository:
             self._profile_key("archive", profile_id), ArchiveFeedback, profile_id
         )
         return archive or ArchiveFeedback(profile_id=profile_id)
+
+    def _load_feedback_index(
+        self, profile_id: str, *, strict: bool = False
+    ) -> FeedbackLedgerIndex:
+        """读取反馈索引；查询时容错，写入前则拒绝覆盖损坏数据。"""
+        key = self._feedback_index_key(profile_id)
+        value = self._plugin.get_data(key=key)
+        if value is None:
+            return FeedbackLedgerIndex.empty(profile_id)
+        try:
+            index = FeedbackLedgerIndex.from_dict(value)
+            if index.profile_id != str(profile_id):
+                raise ValueError("feedback ledger index profile_id mismatch")
+            return index
+        except (TypeError, ValueError, KeyError) as error:
+            self._record_recovery(key, "ignored_corrupt_data", str(error))
+            if strict:
+                raise ValueError("feedback ledger index is corrupt") from error
+            return FeedbackLedgerIndex.empty(profile_id)
+
+    def _load_feedback_segment(
+        self,
+        profile_id: str,
+        segment_id: int,
+        *,
+        strict: bool = False,
+    ) -> Optional[FeedbackEventSegment]:
+        """读取一个反馈事件段并校验其 profile 与段号。"""
+        key = self._feedback_segment_key(profile_id, segment_id)
+        value = self._plugin.get_data(key=key)
+        if value is None:
+            return None
+        try:
+            segment = FeedbackEventSegment.from_dict(value)
+            if segment.profile_id != str(profile_id):
+                raise ValueError("feedback event segment profile_id mismatch")
+            if segment.segment_id != int(segment_id):
+                raise ValueError("feedback event segment id mismatch")
+            return segment
+        except (TypeError, ValueError, KeyError) as error:
+            self._record_recovery(key, "ignored_corrupt_data", str(error))
+            if strict:
+                raise ValueError("feedback event segment is corrupt") from error
+            return None
+
+    def _find_feedback_event(
+        self,
+        index: FeedbackLedgerIndex,
+        idempotency_key: str,
+        *,
+        strict: bool = False,
+    ) -> Optional[FeedbackEvent]:
+        """按索引指针回读幂等键对应的原始事件。"""
+        pointer = index.idempotency.get(str(idempotency_key))
+        if pointer is None:
+            return None
+        segment = self._load_feedback_segment(
+            index.profile_id, pointer.segment_id, strict=strict
+        )
+        if segment is not None:
+            for event in segment.events:
+                if (
+                    event.sequence == pointer.sequence
+                    and event.idempotency_key == idempotency_key
+                ):
+                    return event
+        detail = f"missing idempotent event at sequence {pointer.sequence}"
+        self._record_recovery(
+            self._feedback_index_key(index.profile_id),
+            "ignored_broken_idempotency_pointer",
+            detail,
+        )
+        if strict:
+            raise ValueError(detail)
+        return None
+
+    def append_feedback_event(self, event: FeedbackEvent) -> FeedbackAppendResult:
+        """幂等追加反馈事件，并标记调用方是否应触发后续学习。"""
+        if not isinstance(event, FeedbackEvent):
+            raise TypeError("event must be FeedbackEvent")
+        if event.is_persisted:
+            raise ValueError("only draft feedback events can be appended")
+        profile_id = event.profile_id
+        with self._feedback_lock(profile_id):
+            index_key = self._feedback_index_key(profile_id)
+            old_index = self._plugin.get_data(key=index_key)
+            index = self._load_feedback_index(profile_id, strict=True)
+            existing = self._find_feedback_event(
+                index, event.idempotency_key, strict=True
+            )
+            if existing is not None:
+                return FeedbackAppendResult(event=existing, created=False)
+
+            last_reference = index.segments[-1] if index.segments else None
+            creates_segment = not (
+                last_reference is not None
+                and last_reference.event_count < self._feedback_segment_size
+            )
+            if not creates_segment:
+                segment_id = last_reference.segment_id
+                segment = self._load_feedback_segment(
+                    profile_id, segment_id, strict=True
+                )
+                if segment is None:
+                    raise ValueError("feedback ledger references a missing segment")
+            else:
+                segment_id = last_reference.segment_id + 1 if last_reference else 1
+                segment = FeedbackEventSegment(
+                    profile_id=profile_id,
+                    segment_id=segment_id,
+                )
+
+            segment_key = self._feedback_segment_key(profile_id, segment_id)
+            old_segment = self._plugin.get_data(key=segment_key)
+            if creates_segment and old_segment is not None:
+                self._record_recovery(
+                    segment_key,
+                    "preserved_orphan_feedback_segment",
+                    "segment exists without an index reference",
+                )
+                raise ValueError("unindexed feedback event segment already exists")
+            persisted = event.assign_persistence(
+                event_id=uuid.uuid4().hex,
+                sequence=index.next_sequence,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            updated_segment = segment.append(persisted)
+            updated_index = index.with_event(updated_segment, persisted)
+
+            try:
+                self._plugin.save_data(
+                    key=segment_key,
+                    value=updated_segment.to_dict(),
+                )
+                verified_segment = self._load_feedback_segment(
+                    profile_id, segment_id, strict=True
+                )
+                if (
+                    verified_segment is None
+                    or verified_segment.events[-1] != persisted
+                ):
+                    raise ValueError("feedback event segment readback mismatch")
+
+                self._plugin.save_data(key=index_key, value=updated_index.to_dict())
+                verified_index = self._load_feedback_index(profile_id, strict=True)
+                verified_event = self._find_feedback_event(
+                    verified_index, event.idempotency_key, strict=True
+                )
+                if verified_event != persisted:
+                    raise ValueError("feedback ledger index readback mismatch")
+            except Exception as error:
+                rollback_errors: List[str] = []
+                for key, value in (
+                    (index_key, old_index),
+                    (segment_key, old_segment),
+                ):
+                    try:
+                        self._restore_raw(key, value)
+                    except Exception as rollback_error:
+                        rollback_errors.append(f"{key}: {rollback_error}")
+                if rollback_errors:
+                    self._record_recovery(
+                        index_key,
+                        "feedback_ledger_rollback_failed",
+                        "; ".join(rollback_errors),
+                    )
+                    raise RuntimeError(
+                        "feedback ledger append and rollback both failed"
+                    ) from error
+                raise
+            return FeedbackAppendResult(event=persisted, created=True)
+
+    def load_feedback_event(
+        self, profile_id: str, idempotency_key: str
+    ) -> Optional[FeedbackEvent]:
+        """按幂等键读取原事件；损坏指针不会生成替代事件。"""
+        target_key = str(idempotency_key or "").strip()
+        if not target_key:
+            raise ValueError("idempotency_key is required")
+        with self._feedback_lock(profile_id):
+            index = self._load_feedback_index(profile_id)
+            return self._find_feedback_event(index, target_key)
+
+    def load_feedback_events(
+        self,
+        profile_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: Optional[int] = None,
+    ) -> List[FeedbackEvent]:
+        """按 sequence 顺序读取一个 profile 的反馈事件。"""
+        cursor = max(0, int(after_sequence))
+        requested_limit = None if limit is None else max(0, int(limit))
+        if requested_limit == 0:
+            return []
+        with self._feedback_lock(profile_id):
+            index = self._load_feedback_index(profile_id)
+            result: List[FeedbackEvent] = []
+            for reference in index.segments:
+                segment = self._load_feedback_segment(
+                    profile_id, reference.segment_id
+                )
+                if segment is None:
+                    continue
+                try:
+                    actual_reference = segment.to_reference()
+                    if actual_reference != reference:
+                        raise ValueError("feedback segment reference mismatch")
+                except ValueError as error:
+                    self._record_recovery(
+                        self._feedback_segment_key(profile_id, reference.segment_id),
+                        "ignored_corrupt_data",
+                        str(error),
+                    )
+                    continue
+                for stored_event in segment.events:
+                    if stored_event.sequence <= cursor:
+                        continue
+                    result.append(stored_event)
+                    if requested_limit is not None and len(result) >= requested_limit:
+                        return result
+            return result
 
     def save_candidate_snapshot(self, snapshot: CandidateSnapshot) -> None:
         """首次保存候选快照，拒绝覆盖并在写入失败时清除半快照。"""
