@@ -17,6 +17,11 @@ from ..model.feedback import (
     FeedbackEventSegment,
     FeedbackLedgerIndex,
 )
+from ..model.memory import (
+    MemoryProjectionResult,
+    PreferenceMemory,
+    PreferenceMemoryItem,
+)
 from ..model.profile import UserProfile
 from ..model.profile_preferences import ProfilePreferences
 from ..model.playback import PlaybackSnapshot
@@ -445,6 +450,61 @@ class AgentRankRepository:
                     result.append(stored_event)
                     if requested_limit is not None and len(result) >= requested_limit:
                         return result
+            return result
+
+    def _load_preference_memory(
+        self, profile_id: str, *, strict: bool = False
+    ) -> PreferenceMemory:
+        """读取确认态偏好记忆；新键缺失时返回空 schema。"""
+        key = self._profile_key("preference_memory", profile_id)
+        value = self._plugin.get_data(key=key)
+        if value is None:
+            return PreferenceMemory.empty(profile_id)
+        try:
+            memory = PreferenceMemory.from_dict(value)
+            if memory.profile_id != str(profile_id):
+                raise ValueError("preference memory profile_id mismatch")
+            return memory
+        except (TypeError, ValueError, KeyError) as error:
+            self._record_recovery(key, "ignored_corrupt_data", str(error))
+            if strict:
+                raise ValueError("preference memory is corrupt") from error
+            return PreferenceMemory.empty(profile_id)
+
+    def load_preference_memory(self, profile_id: str) -> PreferenceMemory:
+        """读取当前 profile 的确认态偏好记忆。"""
+        with self._feedback_lock(profile_id):
+            return self._load_preference_memory(profile_id)
+
+    def project_preference_memory(
+        self,
+        profile_id: str,
+        items: List[PreferenceMemoryItem],
+        *,
+        expected_revision: int,
+        source_event_sequence: int,
+    ) -> MemoryProjectionResult:
+        """以 profile 锁和 CAS 投影确认记忆，拒绝乱序覆盖。"""
+        proposed = list(items or [])
+        with self._feedback_lock(profile_id):
+            key = self._profile_key("preference_memory", profile_id)
+            old_memory = self._plugin.get_data(key=key)
+            memory = self._load_preference_memory(profile_id, strict=True)
+            result = memory.project(
+                proposed,
+                expected_revision=expected_revision,
+                source_event_sequence=source_event_sequence,
+            )
+            if not result.applied:
+                return result
+            try:
+                self._plugin.save_data(key=key, value=result.memory.to_dict())
+                stored = self._load_preference_memory(profile_id, strict=True)
+                if stored != result.memory:
+                    raise ValueError("preference memory readback mismatch")
+            except Exception:
+                self._restore_raw(key, old_memory)
+                raise
             return result
 
     def save_candidate_snapshot(self, snapshot: CandidateSnapshot) -> None:
