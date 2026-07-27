@@ -868,7 +868,7 @@ onMounted(loadRuntime)
 .ar-config__stats { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 4px; font-size: 12px; }
 .ar-config__stats strong { color: rgb(var(--v-theme-primary)); }
 .ar-config__tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; max-height: 46px; overflow: hidden; }
-.ar-config__metric-list { display: flex; flex-wrap: wrap; gap: 4px 10px; max-height: 64px; overflow: hidden; font-size: 11px; }
+.ar-config__metric-list { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; }
 .ar-config__metric-list span { display: inline-flex; gap: 4px; }
 .ar-config__metric-list b { color: rgba(var(--v-theme-on-surface), .62); font-weight: 500; }
 .ar-config__metric-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

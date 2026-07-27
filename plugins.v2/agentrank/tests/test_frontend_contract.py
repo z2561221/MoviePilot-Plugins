@@ -46,6 +46,16 @@ def test_runtime_settings_exposes_discovery_page_switch_and_current_defaults():
     assert 'playback_recent_days: 90' in config
 
 
+def test_runtime_overview_retrieval_plan_wraps_without_clipping():
+    """检索计划必须自适应换行，不能以固定高度隐藏过滤条件。"""
+    config = _read("Config.vue")
+    metric_rule = config.split(".ar-config__metric-list {", 1)[1].split("}", 1)[0]
+
+    assert "flex-wrap: wrap" in metric_rule
+    assert "max-height" not in metric_rule
+    assert "overflow: hidden" not in metric_rule
+
+
 def test_frontend_default_prompt_exposes_evidence_bounded_motivation_signals():
     """前端默认提示词展示受证据和隐私边界约束的观看动机协议。"""
     config = _read("Config.vue")
