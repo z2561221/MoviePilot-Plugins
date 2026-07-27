@@ -155,9 +155,10 @@ def test_valid_schedule_registers_one_stable_service():
 
 
 def test_runtime_exposes_injected_feedback_response_service():
-    """运行时把受控反馈响应服务暴露给插件入口并保留测试注入。"""
+    """运行时把受控响应和记忆投影服务暴露给插件入口。"""
     plugin = FakePlugin()
     response_service = object()
+    projection_service = object()
 
     runtime = AgentRankRuntime(
         plugin,
@@ -165,10 +166,13 @@ def test_runtime_exposes_injected_feedback_response_service():
         FakeOrchestrator(),
         lambda cron: f"trigger:{cron}",
         feedback_response_service=response_service,
+        memory_projection_service=projection_service,
     )
 
     assert runtime.feedback_response_service is response_service
     assert plugin._feedback_response is response_service
+    assert runtime.memory_projection_service is projection_service
+    assert plugin._memory_projection is projection_service
 
 
 def test_run_once_registers_one_date_service_and_is_consumed():

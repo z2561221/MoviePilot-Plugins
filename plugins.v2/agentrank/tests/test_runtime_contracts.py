@@ -202,6 +202,36 @@ def test_feedback_response_is_profile_serialized_and_cannot_project_memory():
         assert forbidden_write not in source
 
 
+def test_memory_projection_uses_repository_cas_without_agent_side_effects():
+    """确认服务只消费已确认提案，并通过仓储事务执行 CAS 投影。"""
+    source = _source("service/memory_projection.py")
+    repository_source = _source("storage/repository.py")
+    runtime_source = _source("service/runtime.py")
+    for contract in (
+        "class MemoryProjectionService",
+        "class MemoryConfirmationResult",
+        "profile_data_guard",
+        "project_memory_proposal",
+        "expected_memory_revision",
+        "source_event_sequence",
+        "projected_memory_item_ids",
+        "already_confirmed",
+    ):
+        assert contract in source or contract in repository_source
+    assert "MemoryProjectionService" in runtime_source
+    assert "_atomic_raw_update" in repository_source
+    for forbidden_capability in (
+        "AgentRankAgentAdapter",
+        "run_feedback",
+        "post_message",
+        "SubscribeChain",
+        "update_config",
+        "save_profile",
+        "requests",
+    ):
+        assert forbidden_capability not in source
+
+
 def test_runtime_injects_controlled_tmdb_keyword_resolution():
     """运行时通过宿主适配器注入唯一关键词解析，不在 service 直接发 HTTP。"""
     runtime_source = _source("service/runtime.py")

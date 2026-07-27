@@ -428,6 +428,17 @@ class DataLifecycleService:
                     "next_remind_at": _redact_text(proposal.next_remind_at),
                     "last_reminded_at": _redact_text(proposal.last_reminded_at),
                     "resolved_at": _redact_text(proposal.resolved_at),
+                    "resolved_by_mp_user_id": _safe_scalar(
+                        proposal.resolved_by_mp_user_id
+                    ),
+                    "resolved_memory_revision": proposal.resolved_memory_revision,
+                    "projected_memory_item_ids": [
+                        _safe_scalar(item)
+                        for item in proposal.projected_memory_item_ids
+                    ],
+                    "resolution_reason": _redact_text(
+                        proposal.resolution_reason
+                    ),
                 }
                 for proposal in memory_proposals
             ],

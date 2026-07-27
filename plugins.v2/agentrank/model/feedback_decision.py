@@ -166,6 +166,10 @@ class MemoryProposal:
     next_remind_at: str = ""
     last_reminded_at: str = ""
     resolved_at: str = ""
+    resolved_by_mp_user_id: str = ""
+    resolved_memory_revision: int = 0
+    projected_memory_item_ids: Tuple[str, ...] = ()
+    resolution_reason: str = ""
     schema_version: int = FEEDBACK_DECISION_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -183,6 +187,8 @@ class MemoryProposal:
             ("next_remind_at", 64),
             ("last_reminded_at", 64),
             ("resolved_at", 64),
+            ("resolved_by_mp_user_id", 128),
+            ("resolution_reason", 120),
         ):
             object.__setattr__(
                 self, field_name, _text(getattr(self, field_name), limit)
@@ -208,6 +214,18 @@ class MemoryProposal:
             value = getattr(self, field_name)
             if value:
                 object.__setattr__(self, field_name, _iso_time(value, field_name))
+        object.__setattr__(
+            self,
+            "resolved_memory_revision",
+            max(0, int(self.resolved_memory_revision)),
+        )
+        object.__setattr__(
+            self,
+            "projected_memory_item_ids",
+            _unique_texts(
+                self.projected_memory_item_ids, item_limit=8, text_limit=160
+            ),
+        )
         object.__setattr__(self, "schema_version", int(self.schema_version))
         if not all(
             (
@@ -238,6 +256,38 @@ class MemoryProposal:
             raise ValueError("pending memory proposal cannot be resolved")
         if self.status != "pending_confirmation" and not self.resolved_at:
             raise ValueError("resolved memory proposal requires resolved_at")
+        projection_audit = (
+            self.resolved_by_mp_user_id,
+            self.resolved_memory_revision,
+            self.projected_memory_item_ids,
+            self.resolution_reason,
+        )
+        if self.status == "pending_confirmation" and any(projection_audit):
+            raise ValueError("pending memory proposal cannot contain projection audit")
+        if self.status == "confirmed":
+            if not all(
+                (
+                    self.resolved_by_mp_user_id,
+                    self.resolved_memory_revision > 0,
+                    self.projected_memory_item_ids,
+                )
+            ):
+                raise ValueError("confirmed memory proposal requires projection audit")
+            if self.resolution_reason:
+                raise ValueError("confirmed memory proposal cannot have conflict reason")
+        if self.status == "superseded":
+            if not self.resolved_by_mp_user_id or not self.resolution_reason:
+                raise ValueError("superseded memory proposal requires conflict audit")
+            if self.projected_memory_item_ids:
+                raise ValueError("superseded memory proposal cannot project memory items")
+        if self.status in {"rejected", "expired"} and any(
+            (
+                self.resolved_memory_revision,
+                self.projected_memory_item_ids,
+                self.resolution_reason,
+            )
+        ):
+            raise ValueError("unconfirmed memory proposal cannot contain projection audit")
         if datetime.fromisoformat(self.expires_at.replace("Z", "+00:00")) <= datetime.fromisoformat(
             self.created_at.replace("Z", "+00:00")
         ):
@@ -268,6 +318,10 @@ class MemoryProposal:
             "next_remind_at": self.next_remind_at,
             "last_reminded_at": self.last_reminded_at,
             "resolved_at": self.resolved_at,
+            "resolved_by_mp_user_id": self.resolved_by_mp_user_id,
+            "resolved_memory_revision": self.resolved_memory_revision,
+            "projected_memory_item_ids": list(self.projected_memory_item_ids),
+            "resolution_reason": self.resolution_reason,
             "schema_version": self.schema_version,
         }
 
@@ -299,6 +353,12 @@ class MemoryProposal:
             next_remind_at=value.get("next_remind_at"),
             last_reminded_at=value.get("last_reminded_at"),
             resolved_at=value.get("resolved_at"),
+            resolved_by_mp_user_id=value.get("resolved_by_mp_user_id"),
+            resolved_memory_revision=value.get("resolved_memory_revision") or 0,
+            projected_memory_item_ids=tuple(
+                value.get("projected_memory_item_ids") or ()
+            ),
+            resolution_reason=value.get("resolution_reason"),
             schema_version=value.get("schema_version") or 0,
         )
 

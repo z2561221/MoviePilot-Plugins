@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-4",
-    "task": "4.4",
-    "next_allowed_action": "Execute task 4.4: implement immediate reply, 1/3/7-day reminders, never-remind behavior, and no-reply semantics without memory projection"
+    "task": "4.5",
+    "next_allowed_action": "Execute task 4.5: confirm memory proposals through revision CAS so duplicate, stale, and concurrent callbacks cannot overwrite newer confirmed memory"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -423,15 +423,29 @@
         {
           "id": "4.4",
           "title": "实现稍后提醒与不回复语义",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": ["支持1/3/7天和不提醒", "未回复拒绝过期均不改记忆"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "one-day, three-day, and seven-day reminders are calculated from the user's response time; never-remind keeps the item pending with no scheduled notification",
+            "no reply, never-remind, rejection, dismissal, and expiration leave PreferenceMemory and memory_revision unchanged",
+            "due proposal and question reminders are claimed once under concurrent callers and clear next_remind_at while preserving last_reminded_at audit evidence",
+            "option and custom answers preserve the original action, candidate, run, and analysis identity while creating an immutable superseding feedback event",
+            "answered questions record answer text, selected option, answer event, MP actor, resolution time, and safe export fields without exposing prompts or internal reasoning",
+            "duplicate answers are idempotent, reused keys conflict, missing actor identity is rejected, and queue failure retries the same persisted answer event without duplication",
+            "answer and dismiss races are profile-serialized so exactly one terminal state wins and a dismissed question cannot enqueue a learning event",
+            "runtime injects FeedbackResponseService while the service has no preference-memory, profile, configuration, subscription, notification, or file write capability",
+            "AgentRank plugin suite: 502 passed",
+            "AgentRank static contracts: 25 passed",
+            "smoke contracts: 50 passed",
+            "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
+            "compileall, progress JSON parse, sensitive-field scan review, and git diff check: passed"
+          ],
+          "commit": "4b30ed50"
         },
         {
           "id": "4.5",
           "title": "实现CAS记忆投影",
-          "status": "pending",
+          "status": "in_progress",
           "acceptance": ["确认一次只增一个revision", "旧回调重复确认并发纠正不能覆盖新记忆"],
           "verification": [],
           "commit": null
@@ -786,6 +800,12 @@
       "task": "4.3",
       "result": "evidence-linked memory proposals and bounded clarification questions implemented with explicit archive restoration, idempotent recovery, unresolved-item retention, and zero confirmed-memory writes",
       "commit": "c2cb2122"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "4.4",
+      "result": "profile-serialized reminder and response state machine implemented with one-time due claims, explicit no-reply semantics, auditable superseding answers, idempotent queue recovery, and zero memory projection",
+      "commit": "4b30ed50"
     }
   ],
   "residual_risks": [

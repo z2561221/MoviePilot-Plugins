@@ -3,8 +3,9 @@
 import threading
 import uuid
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Type, TypeVar
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple, Type, TypeVar
 from urllib.parse import quote
 
 from ..model.archive import ArchiveFeedback
@@ -1472,6 +1473,114 @@ class AgentRankRepository:
                 )
                 return True
             return False
+
+    def project_memory_proposal(
+        self,
+        proposal: MemoryProposal,
+        items: List[PreferenceMemoryItem],
+        *,
+        confirmed_by_mp_user_id: str,
+        resolved_at: str,
+    ) -> Tuple[MemoryProjectionResult, MemoryProposal]:
+        """原子投影确认记忆并把提案更新为确认或被替代状态。"""
+        if not isinstance(proposal, MemoryProposal):
+            raise TypeError("proposal must be MemoryProposal")
+        proposed = list(items or [])
+        if not proposed or any(
+            not isinstance(item, PreferenceMemoryItem) for item in proposed
+        ):
+            raise TypeError("items must contain preference memory items")
+        actor = str(confirmed_by_mp_user_id or "").strip()
+        if not actor or len(actor) > 128:
+            raise ValueError("confirmed_by_mp_user_id is invalid")
+        proposal_key = self._learning_key(
+            "memory_proposals", proposal.profile_id
+        )
+        memory_key = self._profile_key(
+            "preference_memory", proposal.profile_id
+        )
+        with self._feedback_lock(proposal.profile_id):
+            raw_proposals = self._plugin.get_data(key=proposal_key)
+            if not isinstance(raw_proposals, list):
+                raise ValueError("memory proposal data is corrupt")
+            stored_index = None
+            current = None
+            for index, raw in enumerate(raw_proposals):
+                if not isinstance(raw, Mapping) or str(
+                    raw.get("record_type") or ""
+                ) != "memory_proposal":
+                    continue
+                if str(raw.get("proposal_id") or "") != proposal.proposal_id:
+                    continue
+                stored_index = index
+                current = MemoryProposal.from_dict(raw)
+                break
+            if stored_index is None or current is None:
+                raise ValueError("memory proposal is unavailable")
+            if current.profile_id != proposal.profile_id:
+                raise ValueError("memory proposal profile mismatch")
+            if current != proposal:
+                raise ValueError("memory proposal changed before projection")
+            if current.status != "pending_confirmation":
+                raise ValueError("memory proposal is already resolved")
+
+            memory = self._load_preference_memory(
+                proposal.profile_id, strict=True
+            )
+            result = memory.project(
+                proposed,
+                expected_revision=current.expected_memory_revision,
+                source_event_sequence=current.event_sequence,
+            )
+            if result.applied:
+                updated_proposal = replace(
+                    current,
+                    status="confirmed",
+                    reminder_policy="never",
+                    next_remind_at="",
+                    resolved_at=resolved_at,
+                    resolved_by_mp_user_id=actor,
+                    resolved_memory_revision=result.actual_revision,
+                    projected_memory_item_ids=tuple(
+                        item.item_id for item in proposed
+                    ),
+                    resolution_reason="",
+                )
+            else:
+                updated_proposal = replace(
+                    current,
+                    status="superseded",
+                    reminder_policy="never",
+                    next_remind_at="",
+                    resolved_at=resolved_at,
+                    resolved_by_mp_user_id=actor,
+                    resolved_memory_revision=result.actual_revision,
+                    projected_memory_item_ids=(),
+                    resolution_reason=result.reason,
+                )
+            updated_proposals = list(raw_proposals)
+            updated_proposals[stored_index] = updated_proposal.to_dict()
+            updates = {proposal_key: updated_proposals}
+            if result.applied:
+                updates = {
+                    memory_key: result.memory.to_dict(),
+                    proposal_key: updated_proposals,
+                }
+            self._atomic_raw_update(
+                updates=updates,
+                recovery_key=proposal_key,
+                action="memory_proposal_projection_failed",
+            )
+            stored_proposal = self.get_memory_proposal(
+                proposal.profile_id, proposal.proposal_id
+            )
+            if stored_proposal != updated_proposal:
+                raise ValueError("memory proposal projection readback mismatch")
+            if result.applied and self._load_preference_memory(
+                proposal.profile_id, strict=True
+            ) != result.memory:
+                raise ValueError("preference memory projection readback mismatch")
+            return result, updated_proposal
 
     def load_pending_questions(self, profile_id: str) -> List[PendingQuestion]:
         """读取按 profile 隔离的有界待回答问题。"""

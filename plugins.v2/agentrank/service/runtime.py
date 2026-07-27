@@ -27,6 +27,7 @@ class AgentRankRuntime:
         feedback_handler: Callable[[Any], Any] = None,
         feedback_understanding_service: Any = None,
         feedback_response_service: Any = None,
+        memory_projection_service: Any = None,
     ):
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
@@ -106,6 +107,12 @@ class AgentRankRuntime:
             )
         self.feedback_response_service = feedback_response_service
         plugin._feedback_response = feedback_response_service
+        if memory_projection_service is None and repository is not None:
+            from .memory_projection import MemoryProjectionService
+
+            memory_projection_service = MemoryProjectionService(repository)
+        self.memory_projection_service = memory_projection_service
+        plugin._memory_projection = memory_projection_service
         self._stopped = False
         self._active_tasks: set[asyncio.Task] = set()
 
