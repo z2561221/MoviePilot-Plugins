@@ -310,8 +310,13 @@ class AgentRankApiController:
         return repository
 
     def _board_data(self, board: Any) -> Dict[str, Any]:
-        """返回海报已收敛为轻量 URL 的榜单响应。"""
+        """返回带最新反馈极性且海报已收敛为轻量 URL 的榜单响应。"""
         value = board.to_dict()
+        polarity = FeedbackActionService(self._repository()).active_polarities(
+            board.profile_id, board.run_id
+        )
+        for item in value.get("recommendations") or []:
+            item["feedback_kind"] = polarity.get(str(item.get("candidate_id") or ""), "")
         service = getattr(self.plugin, "_poster_service", None)
         return service.enrich_board(value) if service is not None else value
 

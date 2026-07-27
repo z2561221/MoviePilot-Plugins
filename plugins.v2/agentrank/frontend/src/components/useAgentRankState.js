@@ -33,6 +33,7 @@ function emptyBoard(profileId, username = '') {
     status: 'idle',
     recommendations: [],
     generated_at: '',
+    revision: 0,
     message: '尚未生成榜单',
   }
 }
@@ -65,6 +66,7 @@ export function useAgentRankState(api) {
   const loading = reactive({ options: false, data: false, action: '' })
   const error = ref(null)
   const feedback = ref(null)
+  const pendingFeedbackRequests = new Map()
 
   const identities = computed(() => {
     const configured = options.value.config?.emby_identities
@@ -208,9 +210,9 @@ export function useAgentRankState(api) {
     return history.value
   }
 
-  async function runAction(path, payload, label) {
+  async function runAction(path, payload, label, loadingKey = path) {
     if (loading.action) return null
-    loading.action = path
+    loading.action = loadingKey
     error.value = null
     feedback.value = null
     try {
@@ -235,6 +237,56 @@ export function useAgentRankState(api) {
   async function archive(candidateId) {
     const result = await runAction('archive', { profile_id: selectedProfileId.value, candidate_id: candidateId }, '忽略')
     await loadProfileData(selectedProfileId.value, { force: true })
+    return result
+  }
+
+  function feedbackRequestId() {
+    if (globalThis.crypto?.randomUUID) return `feedback:${globalThis.crypto.randomUUID()}`
+    return `feedback:${Date.now()}:${Math.random().toString(36).slice(2)}`
+  }
+
+  async function reactToRecommendation(kind, candidateId) {
+    const action = String(kind || '').trim().toLowerCase()
+    if (!['like', 'dislike'].includes(action)) throw new Error('未知的榜单反馈类型')
+    const currentBoard = board.value || emptyBoard(selectedProfileId.value)
+    const requestScope = [
+      selectedProfileId.value,
+      currentBoard.run_id || '',
+      currentBoard.revision || 0,
+      candidateId,
+      action,
+    ].join('|')
+    if (!pendingFeedbackRequests.has(requestScope)) {
+      pendingFeedbackRequests.set(requestScope, feedbackRequestId())
+    }
+    let result
+    try {
+      result = await runAction(
+        'feedback',
+        {
+          profile_id: selectedProfileId.value,
+          candidate_id: candidateId,
+          kind: action,
+          idempotency_key: pendingFeedbackRequests.get(requestScope),
+          run_id: currentBoard.run_id || '',
+          board_revision: currentBoard.revision || 1,
+        },
+        action === 'like' ? '喜欢' : '不喜欢',
+        `feedback:${action}:${candidateId}`,
+      )
+    } catch (error) {
+      if (['board_run_conflict', 'board_revision_conflict'].includes(error?.code)) {
+        pendingFeedbackRequests.delete(requestScope)
+        await loadProfileData(selectedProfileId.value, { force: true }).catch(() => {})
+      }
+      throw error
+    }
+    if (!result) return null
+    pendingFeedbackRequests.delete(requestScope)
+    const effectiveKind = result?.event?.kind || action
+    const item = currentBoard.recommendations?.find(entry => entry.candidate_id === candidateId)
+    if (item) item.feedback_kind = effectiveKind
+    currentBoard.revision = Number(result?.board_revision || currentBoard.revision || 1)
     return result
   }
 
@@ -290,6 +342,7 @@ export function useAgentRankState(api) {
     loadHistory,
     refresh,
     archive,
+    reactToRecommendation,
     restore,
     deleteArchive,
     clearProfile,

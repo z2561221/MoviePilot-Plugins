@@ -169,8 +169,8 @@ def test_discovery_page_translates_internal_source_codes():
     assert "sources.map(source => sourceLabels[source] || '其他来源').join(' · ')" in app_page
 
 
-def test_all_ranking_surfaces_use_three_button_actions_and_native_subscribe():
-    """三处榜单只保留订阅、TMDB、忽略，并优先调用宿主原生订阅。"""
+def test_all_ranking_surfaces_use_feedback_icons_and_three_labeled_actions():
+    """三处榜单共享赞踩图标及订阅、TMDB、忽略文字动作。"""
     actions = _read("RecommendationActions.vue")
     for label in ("订阅", "TMDB", "忽略"):
         assert label in actions
@@ -188,6 +188,34 @@ def test_all_ranking_surfaces_use_three_button_actions_and_native_subscribe():
         assert "RecommendationActions" in component
         assert "nativeSubscribe" in component
         assert "置信度" not in component
+
+
+def test_like_and_dislike_controls_are_shape_first_accessible_and_persistent():
+    """赞踩使用轮廓与实心状态、无可见名称并接入持久反馈 API。"""
+    actions = _read("RecommendationActions.vue")
+    state = _read("useAgentRankState.js")
+    for icon in (
+        "mdi-thumb-up-outline",
+        "mdi-thumb-up",
+        "mdi-thumb-down-outline",
+        "mdi-thumb-down",
+    ):
+        assert icon in actions
+    assert ":aria-pressed=" in actions
+    assert "likePressed ? 'tonal' : 'text'" in actions
+    assert "dislikePressed ? 'tonal' : 'text'" in actions
+    assert '<span class="ar-actions__label">喜欢</span>' not in actions
+    assert '<span class="ar-actions__label">不喜欢</span>' not in actions
+    assert ".ar-actions__feedback-button { min-width: 40px; min-height: 40px;" in actions
+    assert "reactToRecommendation" in state
+    assert "idempotency_key" in state
+    assert "board_revision" in state
+    assert "run_id: currentBoard.run_id" in state
+    assert "feedback_kind" in state
+    for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
+        component = _read(name)
+        assert "@like=" in component
+        assert "@dislike=" in component
 
 
 def test_discovery_settings_open_embedded_config_and_use_core_save_api():

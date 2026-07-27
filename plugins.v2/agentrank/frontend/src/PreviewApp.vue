@@ -99,6 +99,7 @@ const recommendations = Array.from({ length: 5 }, (_, index) => ({
     : '围绕一场意外展开的群像故事，在紧凑悬念中兼顾人物成长与情感关系。',
   match_tags: index % 3 ? ['科幻', '悬疑', '成长'] : [],
   confidence: 96 - index * 3,
+  feedback_kind: index === 0 ? 'like' : index === 1 ? 'dislike' : '',
 }))
 
 const profile = {

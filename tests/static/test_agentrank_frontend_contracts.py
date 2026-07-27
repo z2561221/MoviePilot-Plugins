@@ -12,6 +12,7 @@ CONFIG = COMPONENTS / "Config.vue"
 APP_PAGE = COMPONENTS / "AppPage.vue"
 PAGE = COMPONENTS / "Page.vue"
 DASHBOARD = COMPONENTS / "Dashboard.vue"
+ACTIONS = COMPONENTS / "RecommendationActions.vue"
 FRONTEND = ROOT / "plugins.v2" / "agentrank" / "frontend"
 PREVIEW = FRONTEND / "src" / "PreviewApp.vue"
 DIST = ROOT / "plugins.v2" / "agentrank" / "dist"
@@ -40,6 +41,7 @@ def test_shared_state_owns_profile_id_selection_reads_and_actions():
         "profile",
         "run-history",
         "refresh",
+        "feedback",
         "archive",
         "restore",
         "archive/delete",
@@ -300,9 +302,9 @@ def test_dashboard_is_a_lightweight_vertical_top_five():
     assert "item.reason" in source
 
 
-def test_all_ranking_surfaces_use_host_native_subscribe_and_only_three_actions():
-    """仪表盘、发现页和详情页都把电视剧订阅交给宿主原生抽屉。"""
-    actions = (COMPONENTS / "RecommendationActions.vue").read_text(encoding="utf-8")
+def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
+    """三处榜单共享无文字赞踩，并把电视剧订阅交给宿主原生抽屉。"""
+    actions = ACTIONS.read_text(encoding="utf-8")
     for label in ("订阅", "TMDB", "忽略"):
         assert f'<span class="ar-actions__label">{label}</span>' in actions
     for forbidden in ("豆瓣", "Bgm", "搜索豆瓣", "doubanSearchText", "sourceLabel"):
@@ -310,9 +312,24 @@ def test_all_ranking_surfaces_use_host_native_subscribe_and_only_three_actions()
     assert "nativeSubscribe" in actions
     assert "moviepilot:nativeSubscribe" in actions
     assert "PERMISSION_DENIED" in actions
+    for icon in (
+        "mdi-thumb-up-outline",
+        "mdi-thumb-up",
+        "mdi-thumb-down-outline",
+        "mdi-thumb-down",
+    ):
+        assert icon in actions
+    assert ":aria-pressed=" in actions
+    assert "likePressed ? 'tonal' : 'text'" in actions
+    assert "dislikePressed ? 'tonal' : 'text'" in actions
+    assert '<span class="ar-actions__label">喜欢</span>' not in actions
+    assert '<span class="ar-actions__label">不喜欢</span>' not in actions
+    assert ".ar-actions__feedback-button { min-width: 40px; min-height: 40px;" in actions
     for component_path in (DASHBOARD, APP_PAGE, PAGE):
         source = component_path.read_text(encoding="utf-8")
         assert "nativeSubscribe" in source
+        assert "@like=" in source
+        assert "@dislike=" in source
         assert "置信度" not in source
         assert "{{ item.confidence }}%" in source
 

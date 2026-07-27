@@ -84,6 +84,21 @@ class FeedbackActionService:
         """读取当前保留窗口内的全部反馈事实。"""
         return self._repository.load_feedback_events(profile_id)
 
+    def active_polarities(self, profile_id: str, run_id: str) -> Dict[str, str]:
+        """投影指定榜单轮次中每个作品最新的喜欢或不喜欢状态。"""
+        target_run = str(run_id or "").strip()
+        if not target_run:
+            return {}
+        states: Dict[str, str] = {}
+        for event in self._events(profile_id):
+            if (
+                event.run_id == target_run
+                and event.kind in {"like", "dislike"}
+                and event.candidate_id
+            ):
+                states[event.candidate_id] = event.kind
+        return states
+
     @staticmethod
     def _same_action(
         event: FeedbackEvent, *, kind: str, candidate_id: str, run_id: str

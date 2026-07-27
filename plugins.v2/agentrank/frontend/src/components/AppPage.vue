@@ -142,6 +142,20 @@ async function archiveItem(candidateId) {
   }
 }
 
+async function feedbackItem(kind, candidateId) {
+  try {
+    await state.reactToRecommendation(kind, candidateId)
+    snackbar.value = {
+      show: true,
+      message: kind === 'like' ? '已记录喜欢' : '已记录不喜欢',
+      color: 'success',
+      undo: false,
+    }
+  } catch (err) {
+    snackbar.value = { show: true, message: err?.message || '反馈失败', color: 'error', undo: false }
+  }
+}
+
 async function undoArchive() {
   if (!lastArchivedId.value) return
   try {
@@ -252,7 +266,7 @@ onMounted(initialize)
                 </div>
                 <div class="ar-app-page__item-actions">
                   <VChip size="x-small" color="primary" variant="tonal" class="ar-app-page__confidence">{{ item.confidence }}%</VChip>
-                  <RecommendationActions :item="item" :loading-action="loading.action" :native-subscribe="nativeSubscribe" size="small" @subscribe="subscribeItem" @archive="archiveItem" />
+                  <RecommendationActions :item="item" :loading-action="loading.action" :native-subscribe="nativeSubscribe" size="small" @like="candidateId => feedbackItem('like', candidateId)" @dislike="candidateId => feedbackItem('dislike', candidateId)" @subscribe="subscribeItem" @archive="archiveItem" />
                 </div>
               </article>
             </div>
@@ -340,4 +354,5 @@ onMounted(initialize)
   .ar-app-page__item { grid-template-columns: 26px 56px minmax(0, 1fr); gap: 7px; padding: 8px; }
   .ar-app-page__poster { width: 56px; height: 84px; }
 }
+
 </style>

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-C0aGXJsj.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DZjcV5G3.js';
 import Config from './__federation_expose_Config-DshHAqbi.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
@@ -189,6 +189,20 @@ async function archiveItem(candidateId) {
   }
 }
 
+async function feedbackItem(kind, candidateId) {
+  try {
+    await state.reactToRecommendation(kind, candidateId);
+    snackbar.value = {
+      show: true,
+      message: kind === 'like' ? '已记录喜欢' : '已记录不喜欢',
+      color: 'success',
+      undo: false,
+    };
+  } catch (err) {
+    snackbar.value = { show: true, message: err?.message || '反馈失败', color: 'error', undo: false };
+  }
+}
+
 async function undoArchive() {
   if (!lastArchivedId.value) return
   try {
@@ -266,7 +280,7 @@ return (_ctx, _cache) => {
               _: 1
             }),
             _createElementVNode("div", _hoisted_2, [
-              _cache[4] || (_cache[4] = _createElementVNode("div", { class: "text-h6" }, "Agent榜单中心", -1)),
+              _cache[6] || (_cache[6] = _createElementVNode("div", { class: "text-h6" }, "Agent榜单中心", -1)),
               _createElementVNode("div", _hoisted_3, "最近生成：" + _toDisplayString(formatTime(generatedAt.value)), 1)
             ]),
             (boardStatus.value !== 'success')
@@ -344,7 +358,7 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-cog-outline",
                       onClick: openSettings
                     }, {
-                      default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
+                      default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
                         _createTextVNode("打开设置", -1)
                       ]))]),
                       _: 1
@@ -370,7 +384,7 @@ return (_ctx, _cache) => {
                 _createElementVNode("main", _hoisted_7, [
                   _createElementVNode("section", _hoisted_8, [
                     _createElementVNode("div", _hoisted_9, [
-                      _cache[6] || (_cache[6] = _createElementVNode("div", null, [
+                      _cache[8] || (_cache[8] = _createElementVNode("div", null, [
                         _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "个性化前5名"),
                         _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "保持 Agent 最终顺序，仅展示通过安全校验的候选")
                       ], -1)),
@@ -444,11 +458,11 @@ return (_ctx, _cache) => {
                                   ]),
                                   _createElementVNode("div", _hoisted_16, _toDisplayString(item.year || '年份未知') + " · " + _toDisplayString(sourceLabel(item)), 1),
                                   _createElementVNode("div", _hoisted_17, [
-                                    _cache[7] || (_cache[7] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "推荐：", -1)),
+                                    _cache[9] || (_cache[9] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "推荐：", -1)),
                                     _createElementVNode("span", _hoisted_18, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 1)
                                   ]),
                                   _createElementVNode("div", _hoisted_19, [
-                                    _cache[8] || (_cache[8] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "简介：", -1)),
+                                    _cache[10] || (_cache[10] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "简介：", -1)),
                                     _createElementVNode("span", _hoisted_20, _toDisplayString(item.summary || '暂无简介'), 1)
                                   ]),
                                   _createElementVNode("div", _hoisted_21, [
@@ -483,6 +497,8 @@ return (_ctx, _cache) => {
                                     "loading-action": _unref(loading).action,
                                     "native-subscribe": __props.nativeSubscribe,
                                     size: "small",
+                                    onLike: _cache[1] || (_cache[1] = candidateId => feedbackItem('like', candidateId)),
+                                    onDislike: _cache[2] || (_cache[2] = candidateId => feedbackItem('dislike', candidateId)),
                                     onSubscribe: subscribeItem,
                                     onArchive: archiveItem
                                   }, null, 8, ["item", "loading-action", "native-subscribe"])
@@ -498,7 +514,7 @@ return (_ctx, _cache) => {
     }),
     _createVNode(_component_VDialog, {
       modelValue: settingsDialog.value,
-      "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((settingsDialog).value = $event)),
+      "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((settingsDialog).value = $event)),
       "max-width": "1160",
       persistent: savingSettings.value
     }, {
@@ -507,14 +523,14 @@ return (_ctx, _cache) => {
           api: __props.api,
           "initial-config": _unref(options).config || {},
           onSave: saveSettings,
-          onClose: _cache[1] || (_cache[1] = $event => (settingsDialog.value = false))
+          onClose: _cache[3] || (_cache[3] = $event => (settingsDialog.value = false))
         }, null, 8, ["api", "initial-config"])
       ]),
       _: 1
     }, 8, ["modelValue", "persistent"]),
     _createVNode(_component_VSnackbar, {
       modelValue: snackbar.value.show,
-      "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((snackbar.value.show) = $event)),
+      "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((snackbar.value.show) = $event)),
       color: snackbar.value.color,
       timeout: "5000"
     }, _createSlots({
@@ -531,7 +547,7 @@ return (_ctx, _cache) => {
                 variant: "text",
                 onClick: undoArchive
               }, {
-                default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
+                default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
                   _createTextVNode("撤销", -1)
                 ]))]),
                 _: 1
@@ -546,6 +562,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-851fdd7b"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1407b59a"]]);
 
 export { AppPage as default };

@@ -373,6 +373,25 @@ def test_unified_feedback_endpoint_returns_event_state_and_board_revision():
     assert duplicate["data"]["event_status"] == "duplicate"
     assert duplicate["data"]["event"]["event_id"] == created["data"]["event"]["event_id"]
 
+    projected_like = controller.overview(HOME_PROFILE)["data"]["board"][
+        "recommendations"
+    ][0]
+    assert projected_like["feedback_kind"] == "like"
+
+    disliked = controller.endpoint_feedback(
+        {
+            **payload,
+            "kind": "dislike",
+            "idempotency_key": "dislike-request-1",
+        },
+        token,
+    )
+    assert disliked["data"]["event"]["supersedes"] == created["data"]["event"][
+        "event_id"
+    ]
+    projected_dislike = controller.board(HOME_PROFILE)["data"]["recommendations"][0]
+    assert projected_dislike["feedback_kind"] == "dislike"
+
 
 def test_regular_user_status_is_filtered_and_config_options_are_forbidden():
     """普通用户状态只显示授权画像，完整配置接口仅对管理员开放。"""

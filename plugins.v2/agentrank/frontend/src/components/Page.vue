@@ -448,6 +448,8 @@ onMounted(initialize)
                   :loading-action="state.loading.action"
                   :native-subscribe="nativeSubscribe"
                   size="small"
+                  @like="candidateId => runAction(() => state.reactToRecommendation('like', candidateId), '已记录喜欢')"
+                  @dislike="candidateId => runAction(() => state.reactToRecommendation('dislike', candidateId), '已记录不喜欢')"
                   @subscribe="candidateId => runAction(() => state.subscribe(candidateId), '订阅操作已完成')"
                   @archive="candidateId => runAction(() => state.archive(candidateId), '已忽略推荐')"
                 />

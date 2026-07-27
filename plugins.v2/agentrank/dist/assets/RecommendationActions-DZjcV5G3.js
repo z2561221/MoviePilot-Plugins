@@ -35,6 +35,7 @@ function emptyBoard(profileId, username = '') {
     status: 'idle',
     recommendations: [],
     generated_at: '',
+    revision: 0,
     message: '尚未生成榜单',
   }
 }
@@ -67,6 +68,7 @@ function useAgentRankState(api) {
   const loading = reactive({ options: false, data: false, action: '' });
   const error = ref$1(null);
   const feedback = ref$1(null);
+  const pendingFeedbackRequests = new Map();
 
   const identities = computed$1(() => {
     const configured = options.value.config?.emby_identities;
@@ -210,9 +212,9 @@ function useAgentRankState(api) {
     return history.value
   }
 
-  async function runAction(path, payload, label) {
+  async function runAction(path, payload, label, loadingKey = path) {
     if (loading.action) return null
-    loading.action = path;
+    loading.action = loadingKey;
     error.value = null;
     feedback.value = null;
     try {
@@ -237,6 +239,56 @@ function useAgentRankState(api) {
   async function archive(candidateId) {
     const result = await runAction('archive', { profile_id: selectedProfileId.value, candidate_id: candidateId }, '忽略');
     await loadProfileData(selectedProfileId.value, { force: true });
+    return result
+  }
+
+  function feedbackRequestId() {
+    if (globalThis.crypto?.randomUUID) return `feedback:${globalThis.crypto.randomUUID()}`
+    return `feedback:${Date.now()}:${Math.random().toString(36).slice(2)}`
+  }
+
+  async function reactToRecommendation(kind, candidateId) {
+    const action = String(kind || '').trim().toLowerCase();
+    if (!['like', 'dislike'].includes(action)) throw new Error('未知的榜单反馈类型')
+    const currentBoard = board.value || emptyBoard(selectedProfileId.value);
+    const requestScope = [
+      selectedProfileId.value,
+      currentBoard.run_id || '',
+      currentBoard.revision || 0,
+      candidateId,
+      action,
+    ].join('|');
+    if (!pendingFeedbackRequests.has(requestScope)) {
+      pendingFeedbackRequests.set(requestScope, feedbackRequestId());
+    }
+    let result;
+    try {
+      result = await runAction(
+        'feedback',
+        {
+          profile_id: selectedProfileId.value,
+          candidate_id: candidateId,
+          kind: action,
+          idempotency_key: pendingFeedbackRequests.get(requestScope),
+          run_id: currentBoard.run_id || '',
+          board_revision: currentBoard.revision || 1,
+        },
+        action === 'like' ? '喜欢' : '不喜欢',
+        `feedback:${action}:${candidateId}`,
+      );
+    } catch (error) {
+      if (['board_run_conflict', 'board_revision_conflict'].includes(error?.code)) {
+        pendingFeedbackRequests.delete(requestScope);
+        await loadProfileData(selectedProfileId.value, { force: true }).catch(() => {});
+      }
+      throw error
+    }
+    if (!result) return null
+    pendingFeedbackRequests.delete(requestScope);
+    const effectiveKind = result?.event?.kind || action;
+    const item = currentBoard.recommendations?.find(entry => entry.candidate_id === candidateId);
+    if (item) item.feedback_kind = effectiveKind;
+    currentBoard.revision = Number(result?.board_revision || currentBoard.revision || 1);
     return result
   }
 
@@ -292,6 +344,7 @@ function useAgentRankState(api) {
     loadHistory,
     refresh,
     archive,
+    reactToRecommendation,
     restore,
     deleteArchive,
     clearProfile,
@@ -300,10 +353,11 @@ function useAgentRankState(api) {
   }
 }
 
-const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+const {resolveComponent:_resolveComponent,mergeProps:_mergeProps,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = ["aria-label"];
+const _hoisted_2 = ["aria-label", "aria-busy"];
 
 const {computed,inject,ref} = await importShared('vue');
 
@@ -317,7 +371,7 @@ const _sfc_main = {
   size: { type: String, default: 'x-small' },
   nativeSubscribe: { type: Function, default: null },
 },
-  emits: ['subscribe', 'archive'],
+  emits: ['subscribe', 'archive', 'like', 'dislike'],
   setup(__props, { emit: __emit }) {
 
 const props = __props;
@@ -364,6 +418,11 @@ const bangumiId = computed(() => firstId(sourceIds.value.bangumi));
 const anilistId = computed(() => firstId(sourceIds.value.anilist));
 const nativeSubscribe = computed(() => props.nativeSubscribe || injectedNativeSubscribe);
 const nativeMediaType = computed(() => props.item?.media_type === 'movie' ? '电影' : '电视剧');
+const likePressed = computed(() => props.item?.feedback_kind === 'like');
+const dislikePressed = computed(() => props.item?.feedback_kind === 'dislike');
+const likeLoading = computed(() => props.loadingAction === `feedback:like:${props.item?.candidate_id}`);
+const dislikeLoading = computed(() => props.loadingAction === `feedback:dislike:${props.item?.candidate_id}`);
+const actionBusy = computed(() => Boolean(props.loadingAction));
 
 const nativeMedia = computed(() => {
   const sourceId = tmdbId.value || doubanId.value || bangumiId.value || anilistId.value;
@@ -448,6 +507,53 @@ return (_ctx, _cache) => {
     role: "group",
     "aria-label": `${__props.item.title} 操作`
   }, [
+    _createElementVNode("div", {
+      class: "ar-actions__feedback-group",
+      role: "group",
+      "aria-label": `${__props.item.title} 喜好反馈`,
+      "aria-busy": likeLoading.value || dislikeLoading.value ? 'true' : 'false'
+    }, [
+      _createVNode(_component_VTooltip, {
+        text: likePressed.value ? '已喜欢' : '喜欢',
+        location: "top"
+      }, {
+        activator: _withCtx(({ props: tooltipProps }) => [
+          _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
+            icon: likePressed.value ? 'mdi-thumb-up' : 'mdi-thumb-up-outline',
+            size: __props.size,
+            variant: likePressed.value ? 'tonal' : 'text',
+            color: likePressed.value ? 'primary' : undefined,
+            class: ["ar-actions__feedback-button", { 'ar-actions__feedback-button--pressed': likePressed.value }],
+            loading: likeLoading.value,
+            disabled: actionBusy.value && !likeLoading.value,
+            "aria-label": likePressed.value ? '已喜欢' : '喜欢',
+            "aria-pressed": likePressed.value ? 'true' : 'false',
+            onClick: _cache[0] || (_cache[0] = $event => (emit('like', __props.item.candidate_id)))
+          }), null, 16, ["icon", "size", "variant", "color", "class", "loading", "disabled", "aria-label", "aria-pressed"])
+        ]),
+        _: 1
+      }, 8, ["text"]),
+      _createVNode(_component_VTooltip, {
+        text: dislikePressed.value ? '已不喜欢' : '不喜欢',
+        location: "top"
+      }, {
+        activator: _withCtx(({ props: tooltipProps }) => [
+          _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
+            icon: dislikePressed.value ? 'mdi-thumb-down' : 'mdi-thumb-down-outline',
+            size: __props.size,
+            variant: dislikePressed.value ? 'tonal' : 'text',
+            color: dislikePressed.value ? 'primary' : undefined,
+            class: ["ar-actions__feedback-button", { 'ar-actions__feedback-button--pressed': dislikePressed.value }],
+            loading: dislikeLoading.value,
+            disabled: actionBusy.value && !dislikeLoading.value,
+            "aria-label": dislikePressed.value ? '已不喜欢' : '不喜欢',
+            "aria-pressed": dislikePressed.value ? 'true' : 'false',
+            onClick: _cache[1] || (_cache[1] = $event => (emit('dislike', __props.item.candidate_id)))
+          }), null, 16, ["icon", "size", "variant", "color", "class", "loading", "disabled", "aria-label", "aria-pressed"])
+        ]),
+        _: 1
+      }, 8, ["text"])
+    ], 8, _hoisted_2),
     _createVNode(_component_VTooltip, {
       text: "订阅",
       location: "top"
@@ -460,14 +566,15 @@ return (_ctx, _cache) => {
           class: "ar-actions__button text-none",
           "prepend-icon": "mdi-bookmark-plus-outline",
           loading: __props.loadingAction === 'subscribe' || nativeSubscribePending.value,
+          disabled: actionBusy.value && __props.loadingAction !== 'subscribe',
           "aria-label": "订阅",
           onClick: handleSubscribe
         }), {
-          default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
+          default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "订阅", -1)
           ]))]),
           _: 1
-        }, 16, ["size", "loading"])
+        }, 16, ["size", "loading", "disabled"])
       ]),
       _: 1
     }),
@@ -485,7 +592,7 @@ return (_ctx, _cache) => {
           "aria-label": "打开 TMDB",
           onClick: openTmdb
         }), {
-          default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
+          default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "TMDB", -1)
           ]))]),
           _: 1
@@ -505,14 +612,15 @@ return (_ctx, _cache) => {
           class: "ar-actions__button text-none",
           "prepend-icon": "mdi-eye-off-outline",
           loading: __props.loadingAction === 'archive',
+          disabled: actionBusy.value && __props.loadingAction !== 'archive',
           "aria-label": "忽略",
-          onClick: _cache[0] || (_cache[0] = $event => (emit('archive', __props.item.candidate_id)))
+          onClick: _cache[2] || (_cache[2] = $event => (emit('archive', __props.item.candidate_id)))
         }), {
-          default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
+          default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "忽略", -1)
           ]))]),
           _: 1
-        }, 16, ["size", "loading"])
+        }, 16, ["size", "loading", "disabled"])
       ]),
       _: 1
     })
@@ -521,6 +629,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c928d13d"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3299555b"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };
