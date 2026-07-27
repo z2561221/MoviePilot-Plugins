@@ -132,6 +132,17 @@ def test_discovery_cards_use_non_black_theme_surface():
     assert "background: rgba(var(--v-theme-primary), .07);" in app_page
 
 
+def test_discovery_card_height_follows_ranking_content():
+    """发现页卡片随榜单内容收口，不按视口强制撑出底部空白。"""
+    app_page = _read("AppPage.vue")
+    card_styles = [
+        line for line in app_page.splitlines()
+        if line.strip().startswith(".ar-app-page__card {")
+    ]
+    assert len(card_styles) == 2
+    assert all("min-height" not in line for line in card_styles)
+
+
 def test_discovery_page_translates_internal_source_codes():
     """发现页将候选来源内部码转换为用户可读名称。"""
     app_page = _read("AppPage.vue")

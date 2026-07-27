@@ -274,7 +274,7 @@ onMounted(initialize)
 
 <style scoped>
 .ar-app-page { width: 100%; max-width: 1440px; margin: 0 auto; padding: 16px; overflow-x: hidden; }
-.ar-app-page__card { min-height: calc(100dvh - 96px); border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 16px; overflow: hidden; }
+.ar-app-page__card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 16px; overflow: hidden; }
 .ar-app-page__toolbar { position: sticky; top: 0; z-index: 10; background: rgb(var(--v-theme-surface)); }
 .ar-app-page :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
 .ar-app-page__heading { min-width: 180px; }
@@ -307,7 +307,7 @@ onMounted(initialize)
 .ar-app-page__state { min-height: 480px; display: flex; align-items: center; justify-content: center; padding: 24px; }
 @media (max-width: 760px) {
   .ar-app-page { padding: 8px; }
-  .ar-app-page__card { min-height: calc(100dvh - 72px); border-radius: 12px; }
+  .ar-app-page__card { border-radius: 12px; }
   .ar-app-page__toolbar { min-height: 64px; }
   .ar-app-page__toolbar :deep(.v-toolbar__content) { min-height: 64px; height: auto !important; flex-wrap: wrap; overflow: visible; padding-block: 6px; }
   .ar-app-page__toolbar :deep(.v-spacer) { display: none; }
