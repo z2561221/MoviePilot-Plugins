@@ -143,7 +143,7 @@ const history = Array.from({ length: 12 }, (_, index) => ({
     stage_status: { probe: 'ready', playback_snapshot: 'ready', profile: 'generated', candidate: 'ready', ranking: 'success', save: 'saved' },
     stage_ms: { probe: 24, playback_snapshot: 318, profile: 1260, candidate: 842, ranking: 965, save: 18 },
     candidate_source_counts: { douban: 18, tmdb_movies: 14, tmdb_tv: 12, bangumi: 6 },
-    candidate_exclusion_counts: { watched: 7, library: 3, subscribed: 2, archived: 1 },
+    candidate_exclusion_counts: { watched: 7, library: 3, subscribed: 2, disliked: 1, archived: 1 },
     source_errors: {},
   },
   errors: [],

@@ -529,12 +529,14 @@ def test_run_history_translates_internal_stage_status_codes():
         assert f"{code}: '{label}'" in page
 
 
-def test_run_history_translates_watched_exclusion_code():
-    """运行历史将旧版 watched 排除码转换为中文。"""
+def test_run_history_translates_watched_and_disliked_exclusion_codes():
+    """运行历史将已观看和作品级点踩排除码分别转换为中文。"""
     page = _read("Page.vue")
     config = _read("Config.vue")
     assert "watched: '已观看'" in page
     assert "watched: '已观看'" in config
+    assert "disliked: '已点踩'" in page
+    assert "disliked: '已点踩'" in config
 
 
 def test_run_history_exposes_candidate_timing_cache_and_ranking_diagnostics():

@@ -385,6 +385,7 @@ class CandidateCollectionService:
         archived_candidate_ids: Optional[Iterable[str]] = None,
         negative_keywords: Optional[Iterable[str]] = None,
         profile_version: Optional[Mapping[str, Any]] = None,
+        disliked_candidate_ids: Optional[Iterable[str]] = None,
     ) -> CandidateCollectionResult:
         """采集、类型化去重、硬过滤并在返回前冻结候选快照。"""
         playback_samples = list(playback_samples or ())
@@ -487,6 +488,7 @@ class CandidateCollectionService:
             "watched_completed": 0,
             "library": 0,
             "subscribed": 0,
+            "disliked": 0,
             "archived": 0,
             "negative_keyword": 0,
         }
@@ -496,6 +498,11 @@ class CandidateCollectionService:
         archived_ids = {
             str(candidate_id or "").strip()
             for candidate_id in archived_candidate_ids or ()
+            if str(candidate_id or "").strip()
+        }
+        disliked_ids = {
+            str(candidate_id or "").strip()
+            for candidate_id in disliked_candidate_ids or ()
             if str(candidate_id or "").strip()
         }
         try:
@@ -525,6 +532,9 @@ class CandidateCollectionService:
                     continue
                 if candidate_id in subscribed_ids:
                     exclusion_counts["subscribed"] += 1
+                    continue
+                if candidate_id in disliked_ids:
+                    exclusion_counts["disliked"] += 1
                     continue
                 if candidate_id in archived_ids:
                     exclusion_counts["archived"] += 1

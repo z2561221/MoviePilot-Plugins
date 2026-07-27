@@ -430,6 +430,32 @@ def test_failed_refill_can_retry_with_the_original_idempotency_key():
     ] == [("failed_retryable", "dislike"), ("recorded", "dislike")]
 
 
+def test_dislike_projection_is_title_scoped_and_never_writes_long_term_memory():
+    """点踩只形成可纠正的作品级排除，不直接改写画像偏好或确认记忆。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    repository.save_board(_board())
+    _save_snapshot(repository)
+    service = FeedbackActionService(repository)
+    before_preferences = repository.load_profile_preferences(PROFILE_ID).to_dict()
+    before_memory = repository.load_preference_memory(PROFILE_ID).to_dict()
+
+    disliked = _act(service, "dislike", "tmdb:tv:101", "dislike-title-only")
+
+    assert service.active_disliked_candidate_ids(PROFILE_ID) == {"tmdb:tv:101"}
+    assert disliked.to_dict()["learning_effect"] == "pending_confirmation"
+    assert disliked.to_dict()["memory_delta"] == {}
+    assert repository.load_profile_preferences(PROFILE_ID).to_dict() == before_preferences
+    assert repository.load_preference_memory(PROFILE_ID).to_dict() == before_memory
+
+    corrected = _act(service, "like", "tmdb:tv:101", "correct-title-like")
+
+    assert corrected.event.supersedes == disliked.event.event_id
+    assert service.active_disliked_candidate_ids(PROFILE_ID) == set()
+    assert repository.load_profile_preferences(PROFILE_ID).to_dict() == before_preferences
+    assert repository.load_preference_memory(PROFILE_ID).to_dict() == before_memory
+
+
 def test_concurrent_dislike_and_ignore_share_one_refill_transaction_order():
     """并发点踩与忽略串行提交后均不回流且榜单仍恰好五条。"""
     plugin = FakePlugin()

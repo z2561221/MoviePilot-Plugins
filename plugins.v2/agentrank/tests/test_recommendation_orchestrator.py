@@ -18,6 +18,7 @@ candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
 preferences_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile_preferences")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
+feedback_module = importlib.import_module(f"{PACKAGE_NAME}.model.feedback")
 playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 orchestrator_module = importlib.import_module(f"{PACKAGE_NAME}.service.recommendation")
@@ -29,6 +30,7 @@ UserProfile = profile_module.UserProfile
 ProfilePreferences = preferences_module.ProfilePreferences
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
+FeedbackEvent = feedback_module.FeedbackEvent
 PlaybackSample = playback_module.PlaybackSample
 PlaybackSnapshot = playback_module.PlaybackSnapshot
 PlaybackCapability = playback_module.PlaybackCapability
@@ -120,10 +122,12 @@ class FakeCandidateService:
         archived_candidate_ids=None,
         negative_keywords=None,
         profile_version=None,
+        disliked_candidate_ids=None,
     ):
         self.retrieval_plan = retrieval_plan
         self.playback_samples = list(playback_samples or [])
         self.archived_candidate_ids = set(archived_candidate_ids or set())
+        self.disliked_candidate_ids = set(disliked_candidate_ids or set())
         self.negative_keywords = list(negative_keywords or [])
         self.profile_version = dict(profile_version or {})
         values = dict(
@@ -566,6 +570,64 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
     assert latest_metrics.get("profile_agent_calls", 0) == 0
     assert latest_metrics["profile_cache_status"] == "hit"
     assert latest_metrics["profile_cache_miss_reason"] == ""
+
+
+def test_dislike_excludes_title_across_refresh_without_mutating_long_term_taste():
+    """旧轮次点踩在新刷新中只排除作品，不写画像偏好或确认记忆。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    preferences = ProfilePreferences(
+        profile_id=PROFILE_ID,
+        username="Alice",
+        custom_tags=["科幻"],
+        custom_negative_tags=["真人秀"],
+    )
+    repository.save_profile_preferences(preferences)
+    before_preferences = repository.load_profile_preferences(PROFILE_ID).to_dict()
+    before_memory = repository.load_preference_memory(PROFILE_ID).to_dict()
+    repository.append_feedback_event(
+        FeedbackEvent(
+            profile_id=PROFILE_ID,
+            kind="dislike",
+            candidate_id="tmdb:1",
+            run_id="run-before-refresh",
+            created_by_mp_user_id="mp-user-1",
+            idempotency_key="dislike-before-refresh",
+        )
+    )
+    candidates = FakeCandidateService(12)
+    agent = FakeAgentAdapter(
+        [
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+            _agent_output(["tmdb:6"]),
+        ]
+    )
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=candidates,
+        agent_adapter=agent,
+        run_id_factory=lambda: "run-after-refresh",
+        playback_service=FakePlaybackService(),
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert candidates.disliked_candidate_ids == {"tmdb:1"}
+    assert [item.candidate_id for item in result.board.recommendations] == [
+        "tmdb:2",
+        "tmdb:3",
+        "tmdb:4",
+        "tmdb:5",
+        "tmdb:6",
+    ]
+    assert repository.load_archive(PROFILE_ID).entries == []
+    assert repository.load_profile_preferences(PROFILE_ID).to_dict() == before_preferences
+    assert repository.load_preference_memory(PROFILE_ID).to_dict() == before_memory
+    assert repository.load_profile(PROFILE_ID).negative_tags == []
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["active_disliked_candidate_count"] == 1
+    assert len(agent.ranking_calls) == 2
 
 
 def test_only_profile_prompt_change_invalidates_profile_cache():
@@ -1596,6 +1658,73 @@ def test_ignore_during_run_is_rechecked_and_refilled_before_board_commit():
     assert history.metrics["archive_commit_excluded_count"] == 1
     assert history.metrics["ranking_fallback_count"] == 1
     assert history.metrics["ranking_fallback_reason"] == "archive_updated_during_run"
+
+
+def test_dislike_during_run_is_rechecked_and_refilled_before_board_commit():
+    """运行期间新增点踩在提交前生效，且不借用忽略归档语义。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+
+    class DislikingCandidateService(FakeCandidateService):
+        """在排序结束后模拟另一请求写入作品级点踩。"""
+
+        def __init__(self):
+            """初始化使用类型化 TMDB 身份的候选池。"""
+            super().__init__(12)
+            self.candidates = [
+                Candidate(
+                    candidate_id=f"tmdb:movie:{index}",
+                    title=f"Title {index}",
+                    media_type="movie",
+                    source_ids={"tmdb": str(index)},
+                )
+                for index in range(1, 13)
+            ]
+            self.disliked = False
+
+        def enrich_recommendation_sources(self, recommendations):
+            """首次来源补全时追加一条并发点踩事件。"""
+            del recommendations
+            if self.disliked:
+                return
+            self.disliked = True
+            repository.append_feedback_event(
+                FeedbackEvent(
+                    profile_id=PROFILE_ID,
+                    kind="dislike",
+                    candidate_id="tmdb:movie:2",
+                    run_id="run-old-board",
+                    created_by_mp_user_id="mp-user-1",
+                    idempotency_key="dislike-during-run",
+                )
+            )
+
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=DislikingCandidateService(),
+        agent_adapter=FakeAgentAdapter(
+            [_agent_output([f"tmdb:movie:{index}" for index in range(1, 6)])]
+        ),
+        run_id_factory=lambda: "run-dislike-race",
+        playback_service=FakePlaybackService(),
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert [item.candidate_id for item in result.board.recommendations] == [
+        "tmdb:movie:1",
+        "tmdb:movie:3",
+        "tmdb:movie:4",
+        "tmdb:movie:5",
+        "tmdb:movie:6",
+    ]
+    assert repository.load_archive(PROFILE_ID).entries == []
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["archive_commit_excluded_count"] == 0
+    assert history.metrics["dislike_commit_excluded_count"] == 1
+    assert history.metrics["ranking_fallback_count"] == 1
+    assert history.metrics["ranking_fallback_reason"] == "dislike_updated_during_run"
 
 
 def test_concurrent_refresh_returns_running_without_second_agent_call():

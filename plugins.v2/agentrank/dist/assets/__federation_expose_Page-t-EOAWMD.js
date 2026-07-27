@@ -201,7 +201,7 @@ const historySourceLabels = {
 };
 const historyExclusionLabels = {
   invalid_or_unrecognized: '未识别', watched: '已观看', watched_completed: '已看完', library: '已入库',
-  subscribed: '已订阅', archived: '已忽略', negative_keyword: '排除词',
+  subscribed: '已订阅', disliked: '已点踩', archived: '已忽略', negative_keyword: '排除词',
   ambiguous_playback_count: '播放次数误写为看完次数',
   unsupported_playback_claim: '观看经历无法回溯',
 };
@@ -1297,6 +1297,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e240abf6"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c174d3f7"]]);
 
 export { Page as default };

@@ -632,7 +632,7 @@ def test_same_title_with_different_tmdb_ids_is_never_merged():
 
 
 def test_hard_filters_run_after_deduplication_and_before_snapshot():
-    """已看、入库、订阅、归档和负向词候选均不得进入冻结快照。"""
+    """已看、入库、订阅、点踩、归档和负向词均不得进入冻结快照。"""
     adapter = DiscoveryAdapter(
         source_fetchers={
             "tmdb_movies": lambda count: [
@@ -642,7 +642,7 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
                     "tmdb_id": index,
                     "overview": "包含真人秀桥段" if index == 5 else "安全剧情",
                 }
-                for index in range(1, 7)
+                for index in range(1, 8)
             ]
         }
     )
@@ -678,10 +678,11 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
             }
         ],
         archived_candidate_ids={"tmdb:movie:4"},
+        disliked_candidate_ids={"tmdb:movie:6"},
         negative_keywords=["真人秀"],
     )
 
-    assert [item.candidate_id for item in result.candidates] == ["tmdb:movie:6"]
+    assert [item.candidate_id for item in result.candidates] == ["tmdb:movie:7"]
     assert result.snapshot is not None
     assert result.snapshot.content_hash
     assert result.snapshot.to_dict() == plugin.data[
@@ -695,12 +696,13 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
         "watched_completed": 1,
         "library": 1,
         "subscribed": 1,
+        "disliked": 1,
         "archived": 1,
         "negative_keyword": 1,
     }
     assert [item.candidate_id for item in repository.load_candidate_snapshot(
         "run-hard-filter", "alice"
-    )] == ["tmdb:movie:6"]
+    )] == ["tmdb:movie:7"]
 
 
 def test_subscription_filter_failure_stops_before_snapshot():

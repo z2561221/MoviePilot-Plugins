@@ -5,9 +5,9 @@
   "target_release_date": "2026-07-31",
   "status": {
     "overall": "in_progress",
-    "phase": "phase-3",
-    "task": "3.4",
-    "next_allowed_action": "Execute task 3.4: keep immediate title exclusion separate from confirmed long-term taste changes"
+    "phase": "phase-4",
+    "task": "4.1",
+    "next_allowed_action": "Execute task 4.1: implement a durable asynchronous feedback queue with per-profile ordering and restart recovery"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -237,7 +237,7 @@
     {
       "id": "phase-3",
       "title": "三态反馈、五条补位与即时交互语义",
-      "status": "in_progress",
+      "status": "completed",
       "goal": "交付喜欢不喜欢忽略和安全五条榜单",
       "acceptance": [
         "三态语义与幂等正确",
@@ -245,7 +245,15 @@
         "安全候选充足时始终五条",
         "无颜色也能识别图标"
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        "like, dislike, and ignore are idempotent and keep distinct persisted semantics",
+        "ignore always returns an empty memory delta and never enters the dislike projection",
+        "dislike and ignore refill from the same immutable safe snapshot and never re-enter blocked candidates",
+        "safe candidate shortage returns explicit safe_candidate_insufficient state instead of unsafe padding",
+        "disliked titles remain excluded across refresh and concurrent board commit without mutating profile preferences or confirmed memory",
+        "shape-first feedback controls passed 390x844, 768x1024, and 1440x900 responsive checks",
+        "phase gate: AgentRank 453 passed, static 25 passed, smoke 48 passed, Vue federation 67 modules"
+      ],
       "tasks": [
         {
           "id": "3.1",
@@ -305,14 +313,28 @@
             "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
             "compileall, progress JSON parse, and generated asset check: passed"
           ],
-          "commit": null
+          "commit": "82cfac7c"
         },
         {
           "id": "3.4",
           "title": "隔离即时排除与长期口味",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": ["作品级排除立即生效", "题材主创动机变化必须确认"],
-          "verification": [],
+          "verification": [
+            "recorded dislike events project a profile-scoped candidate exclusion across later run ids",
+            "candidate collection reports disliked and archived exclusions under separate reason codes",
+            "ranking validation and local fallback both block active disliked candidates",
+            "board commit rechecks a dislike written during the run and safely refills without using archive state",
+            "a later like supersedes the title-level dislike projection",
+            "dislike writes no profile preferences, confirmed preference memory, genre, creator, motivation, or weight changes",
+            "run history exposes active dislike and commit exclusion metrics with Chinese frontend labels",
+            "focused feedback, discovery, validation, orchestration, and frontend tests: 184 passed",
+            "AgentRank plugin suite: 453 passed",
+            "AgentRank static contracts: 25 passed",
+            "smoke contracts: 48 passed",
+            "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
+            "compileall, progress JSON parse, and git diff check: passed"
+          ],
           "commit": null
         }
       ]
@@ -320,7 +342,7 @@
     {
       "id": "phase-4",
       "title": "异步理解、确认式记忆与乱序治理",
-      "status": "pending",
+      "status": "in_progress",
       "goal": "让每次动作可理解、可延后回答且不静默污染画像",
       "acceptance": [
         "页面不等待LLM",
@@ -334,7 +356,7 @@
         {
           "id": "4.1",
           "title": "实现持久异步反馈队列",
-          "status": "pending",
+          "status": "in_progress",
           "acceptance": ["同profile串行跨profile有界并发", "API及时返回queued", "重启恢复"],
           "verification": [],
           "commit": null
@@ -691,6 +713,12 @@
       "task": "3.2",
       "result": "shared icon-only like and dislike controls implemented with persisted polarity, idempotent writes, shape-first state, and responsive accessibility contracts",
       "commit": "92de5f6e"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "3.3",
+      "result": "dislike and ignore now refill only from the same frozen safe candidate pool with rollback, retryable failure facts, and no blocked-item re-entry",
+      "commit": "82cfac7c"
     }
   ],
   "residual_risks": [

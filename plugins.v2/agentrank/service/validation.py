@@ -1378,6 +1378,7 @@ class RecommendationValidator:
         subscribed_candidate_ids: Set[str],
         preference_evidence: Sequence[str] = (),
         playback_samples: Iterable[Any] = (),
+        disliked_candidate_ids: Set[str] = None,
     ) -> RecommendationValidationResult:
         """按 Agent 原顺序校验并丰富通过项，绝不按媒体属性重排。"""
         candidate_map: Dict[str, Candidate] = {
@@ -1385,6 +1386,7 @@ class RecommendationValidator:
         }
         archived = set(archived_candidate_ids or set())
         subscribed = set(subscribed_candidate_ids or set())
+        disliked = set(disliked_candidate_ids or set())
         seen: Set[str] = set()
         result = RecommendationValidationResult()
         for index, recommendation in enumerate(parsed.recommendations):
@@ -1401,6 +1403,11 @@ class RecommendationValidator:
                 )
                 continue
             seen.add(candidate_id)
+            if candidate_id in disliked:
+                result.dropped.append(
+                    DroppedRecommendation(candidate_id, "disliked_candidate", index)
+                )
+                continue
             if candidate_id in archived:
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "archived_candidate", index)

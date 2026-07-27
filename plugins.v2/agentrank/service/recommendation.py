@@ -37,6 +37,7 @@ from .keyword_resolution import (
     ControlledRetrievalPlanResolver,
     RetrievalPlanResolution,
 )
+from .feedback_action import FeedbackActionService
 from .validation import (
     AgentOutputError,
     ProfileOutputParser,
@@ -752,6 +753,10 @@ class RecommendationOrchestrator:
             self._start_stage(metrics, "candidate")
             archive = self._repository.load_archive(target)
             archived_ids = self._archive_candidate_ids(archive)
+            disliked_ids = FeedbackActionService(
+                self._repository
+            ).active_disliked_candidate_ids(target)
+            metrics["active_disliked_candidate_count"] = len(disliked_ids)
             negative_keywords = list(config.get("exclude_keywords") or [])
             negative_keywords.extend(
                 profile_preferences.effective_negative_tags(
@@ -782,6 +787,7 @@ class RecommendationOrchestrator:
                             current_profile.retrieval_resolution_version
                         ),
                     },
+                    disliked_candidate_ids=disliked_ids,
                 )
             except Exception as error:
                 errors.append(f"candidate: {error}")
@@ -1006,6 +1012,7 @@ class RecommendationOrchestrator:
                             *current_profile.ranking_tags,
                         ],
                         playback_samples=playback_snapshot.samples,
+                        disliked_candidate_ids=disliked_ids,
                     )
                     break
                 except AgentOutputError as error:
@@ -1097,6 +1104,7 @@ class RecommendationOrchestrator:
                                 *current_profile.ranking_tags,
                             ],
                             playback_samples=playback_snapshot.samples,
+                            disliked_candidate_ids=disliked_ids,
                         )
                         for item in refill_validation.accepted[:refill_slots]:
                             item.rank = len(accepted) + 1
@@ -1143,7 +1151,11 @@ class RecommendationOrchestrator:
                 fallback_items = self._validator.build_fallback_items(
                     candidates,
                     accepted,
-                    blocked_candidate_ids={*archived_ids, *subscribed_ids},
+                    blocked_candidate_ids={
+                        *archived_ids,
+                        *disliked_ids,
+                        *subscribed_ids,
+                    },
                     preference_evidence=[
                         *current_profile.tags,
                         *current_profile.ranking_tags,
@@ -1164,6 +1176,7 @@ class RecommendationOrchestrator:
                 ranking_fallback_errors if fallback_count else []
             )
             metrics["archive_commit_excluded_count"] = 0
+            metrics["dislike_commit_excluded_count"] = 0
 
             if not accepted:
                 errors.extend(ranking_fallback_errors)
@@ -1185,10 +1198,22 @@ class RecommendationOrchestrator:
                 with self._repository.board_archive_guard(target):
                     latest_archive = self._repository.load_archive(target)
                     latest_archived_ids = self._archive_candidate_ids(latest_archive)
-                    commit_excluded_ids = {
+                    latest_disliked_ids = FeedbackActionService(
+                        self._repository
+                    ).active_disliked_candidate_ids(target)
+                    archive_commit_excluded_ids = {
                         item.candidate_id
                         for item in accepted
                         if item.candidate_id in latest_archived_ids
+                    }
+                    dislike_commit_excluded_ids = {
+                        item.candidate_id
+                        for item in accepted
+                        if item.candidate_id in latest_disliked_ids
+                    }
+                    commit_excluded_ids = {
+                        *archive_commit_excluded_ids,
+                        *dislike_commit_excluded_ids,
                     }
                     if commit_excluded_ids:
                         accepted = [
@@ -1204,6 +1229,7 @@ class RecommendationOrchestrator:
                             accepted,
                             blocked_candidate_ids={
                                 *latest_archived_ids,
+                                *latest_disliked_ids,
                                 *subscribed_ids,
                             },
                             preference_evidence=[
@@ -1227,11 +1253,24 @@ class RecommendationOrchestrator:
                         for item in accepted
                     )
                     metrics["archive_commit_excluded_count"] = len(
-                        commit_excluded_ids
+                        archive_commit_excluded_ids
+                    )
+                    metrics["dislike_commit_excluded_count"] = len(
+                        dislike_commit_excluded_ids
                     )
                     metrics["ranking_fallback_count"] = fallback_count
                     metrics["ranking_fallback_reason"] = (
-                        (ranking_fallback_reason or "archive_updated_during_run")
+                        (
+                            ranking_fallback_reason
+                            or (
+                                "feedback_updated_during_run"
+                                if archive_commit_excluded_ids
+                                and dislike_commit_excluded_ids
+                                else "dislike_updated_during_run"
+                                if dislike_commit_excluded_ids
+                                else "archive_updated_during_run"
+                            )
+                        )
                         if fallback_count
                         else ""
                     )
@@ -1246,7 +1285,7 @@ class RecommendationOrchestrator:
                             username,
                             run_id,
                             "ranking_validation_failed",
-                            "最新忽略记录生效后没有安全可用推荐，已保留旧榜单",
+                            "最新忽略或不喜欢记录生效后没有安全可用推荐，已保留旧榜单",
                             started_at,
                             started_clock,
                             metrics,
