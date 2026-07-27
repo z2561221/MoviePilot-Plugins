@@ -70,6 +70,7 @@ class AgentRankRuntime:
         from ..adapter.playback_reporting import PlaybackReportingAdapter
         from ..storage.repository import AgentRankRepository
         from .candidate import CandidateCollectionService
+        from .data_lifecycle import DataLifecycleService
         from .keyword_resolution import ControlledRetrievalPlanResolver
         from .poster import (
             BoardPosterRepairService,
@@ -81,7 +82,12 @@ class AgentRankRuntime:
         from .storage_migration import AgentRankStorageMigrationService
 
         repository = AgentRankRepository(
-            plugin, history_limit=int(config.get("history_limit") or 50)
+            plugin,
+            history_limit=int(config.get("history_limit") or 50),
+            candidate_snapshot_limit=int(
+                config.get("candidate_snapshot_limit") or 20
+            ),
+            feedback_event_limit=int(config.get("feedback_event_limit") or 1000),
         )
         plugin._repository = repository
         plugin._poster_service = PosterImageService()
@@ -102,6 +108,33 @@ class AgentRankRuntime:
         ).migrate_profiles(profile_ids).to_dict()
         BoardPosterRepairService(repository, media_adapter).repair_profiles(profile_ids)
         BoardSourceRepairService(repository, media_adapter).repair_profiles(profile_ids)
+        lifecycle_service = DataLifecycleService(repository, config)
+        plugin._data_lifecycle = lifecycle_service
+        lifecycle_profiles = []
+        for profile_id in profile_ids:
+            try:
+                pruned = lifecycle_service.prune_profile(profile_id)
+                lifecycle_profiles.append(
+                    {"profile_id": profile_id, "status": "ready", "pruned": pruned}
+                )
+            except Exception:
+                lifecycle_profiles.append(
+                    {
+                        "profile_id": profile_id,
+                        "status": "failed",
+                        "pruned": {},
+                        "message": "数据保留维护失败，已保留现有数据",
+                    }
+                )
+        plugin._data_lifecycle_status = {
+            "status": (
+                "partial_failed"
+                if any(item["status"] == "failed" for item in lifecycle_profiles)
+                else "ready"
+            ),
+            "profiles": lifecycle_profiles,
+            "retention_policy": lifecycle_service.policy.to_dict(),
+        }
         return RecommendationOrchestrator(
             repository=repository,
             candidate_service=CandidateCollectionService(

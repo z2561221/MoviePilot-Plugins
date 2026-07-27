@@ -72,6 +72,12 @@ class AgentRankConfig:
     auto_subscribe_top_n: int = 0
     auto_subscribe_limit: int = 10
     history_limit: int = 50
+    candidate_snapshot_limit: int = 20
+    feedback_event_limit: int = 1000
+    feedback_queue_limit: int = 200
+    conversation_message_limit: int = 200
+    attribution_record_limit: int = 500
+    analysis_record_limit: int = 500
     profile_cache_enabled: bool = True
     rebuild_profile_each_run: bool = False
     playback_enabled: bool = True
@@ -362,6 +368,54 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         auto_subscribe_limit=auto_limit,
         history_limit=_bounded_integer(
             raw.get("history_limit", 50), 50, 1, 200, "history_limit", errors
+        ),
+        candidate_snapshot_limit=_bounded_integer(
+            raw.get("candidate_snapshot_limit", 20),
+            20,
+            1,
+            500,
+            "candidate_snapshot_limit",
+            errors,
+        ),
+        feedback_event_limit=_bounded_integer(
+            raw.get("feedback_event_limit", 1000),
+            1000,
+            1,
+            100000,
+            "feedback_event_limit",
+            errors,
+        ),
+        feedback_queue_limit=_bounded_integer(
+            raw.get("feedback_queue_limit", 200),
+            200,
+            1,
+            100000,
+            "feedback_queue_limit",
+            errors,
+        ),
+        conversation_message_limit=_bounded_integer(
+            raw.get("conversation_message_limit", 200),
+            200,
+            1,
+            100000,
+            "conversation_message_limit",
+            errors,
+        ),
+        attribution_record_limit=_bounded_integer(
+            raw.get("attribution_record_limit", 500),
+            500,
+            1,
+            100000,
+            "attribution_record_limit",
+            errors,
+        ),
+        analysis_record_limit=_bounded_integer(
+            raw.get("analysis_record_limit", 500),
+            500,
+            1,
+            100000,
+            "analysis_record_limit",
+            errors,
         ),
         profile_cache_enabled=bool(raw.get("profile_cache_enabled", True)),
         rebuild_profile_each_run=bool(raw.get("rebuild_profile_each_run", False)),

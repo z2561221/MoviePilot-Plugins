@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterable, Mapping, Tuple
 
 
 FEEDBACK_EVENT_SCHEMA_VERSION = 1
-FEEDBACK_LEDGER_SCHEMA_VERSION = 1
+FEEDBACK_LEDGER_SCHEMA_VERSION = 2
 
 
 def _text(value: Any) -> str:
@@ -241,7 +241,7 @@ class FeedbackEventSegment:
         object.__setattr__(self, "schema_version", int(self.schema_version))
         if not self.profile_id or self.segment_id <= 0:
             raise ValueError("feedback event segment scope is invalid")
-        if self.schema_version != FEEDBACK_LEDGER_SCHEMA_VERSION:
+        if self.schema_version not in {1, FEEDBACK_LEDGER_SCHEMA_VERSION}:
             raise ValueError("feedback event segment schema_version is unsupported")
         previous = 0
         for event in self.events:
@@ -304,6 +304,7 @@ class FeedbackLedgerIndex:
 
     profile_id: str
     next_sequence: int = 1
+    retained_from_sequence: int = 1
     segments: Tuple[FeedbackSegmentReference, ...] = ()
     idempotency: Mapping[str, FeedbackEventPointer] = None
     schema_version: int = FEEDBACK_LEDGER_SCHEMA_VERSION
@@ -312,12 +313,20 @@ class FeedbackLedgerIndex:
         """校验索引中的分段连续性、下一序号和幂等指针。"""
         object.__setattr__(self, "profile_id", _text(self.profile_id))
         object.__setattr__(self, "next_sequence", int(self.next_sequence))
+        object.__setattr__(
+            self, "retained_from_sequence", int(self.retained_from_sequence)
+        )
         object.__setattr__(self, "segments", tuple(self.segments or ()))
         object.__setattr__(self, "idempotency", dict(self.idempotency or {}))
         object.__setattr__(self, "schema_version", int(self.schema_version))
-        if not self.profile_id or self.next_sequence <= 0:
+        if (
+            not self.profile_id
+            or self.next_sequence <= 0
+            or self.retained_from_sequence <= 0
+            or self.retained_from_sequence > self.next_sequence
+        ):
             raise ValueError("feedback ledger index scope is invalid")
-        if self.schema_version != FEEDBACK_LEDGER_SCHEMA_VERSION:
+        if self.schema_version not in {1, FEEDBACK_LEDGER_SCHEMA_VERSION}:
             raise ValueError("feedback ledger index schema_version is unsupported")
         previous_segment_id = 0
         previous_end = 0
@@ -332,10 +341,12 @@ class FeedbackLedgerIndex:
             previous_segment_id = reference.segment_id
             previous_end = reference.end_sequence
             segment_ids.add(reference.segment_id)
+        if self.segments and self.segments[0].start_sequence != self.retained_from_sequence:
+            raise ValueError("feedback ledger retained range is inconsistent")
         if previous_end and self.next_sequence != previous_end + 1:
             raise ValueError("feedback ledger next_sequence is inconsistent")
-        if not previous_end and self.next_sequence != 1:
-            raise ValueError("empty feedback ledger must start at sequence one")
+        if not previous_end and self.retained_from_sequence != self.next_sequence:
+            raise ValueError("empty feedback ledger retained range is inconsistent")
         for key, pointer in self.idempotency.items():
             if not _text(key) or not isinstance(pointer, FeedbackEventPointer):
                 raise ValueError("feedback ledger idempotency entry is invalid")
@@ -367,6 +378,7 @@ class FeedbackLedgerIndex:
         return FeedbackLedgerIndex(
             profile_id=self.profile_id,
             next_sequence=event.sequence + 1,
+            retained_from_sequence=self.retained_from_sequence,
             segments=tuple(references),
             idempotency=idempotency,
         )
@@ -376,6 +388,7 @@ class FeedbackLedgerIndex:
         return {
             "profile_id": self.profile_id,
             "next_sequence": self.next_sequence,
+            "retained_from_sequence": self.retained_from_sequence,
             "segments": [reference.to_dict() for reference in self.segments],
             "idempotency": {
                 key: pointer.to_dict() for key, pointer in self.idempotency.items()
@@ -391,9 +404,19 @@ class FeedbackLedgerIndex:
         raw_idempotency = value.get("idempotency") or {}
         if not isinstance(raw_idempotency, Mapping):
             raise ValueError("feedback ledger idempotency must be a mapping")
+        schema_version = int(value.get("schema_version") or 0)
         return cls(
             profile_id=value.get("profile_id"),
             next_sequence=value.get("next_sequence") or 0,
+            retained_from_sequence=(
+                value.get("retained_from_sequence")
+                or (
+                    (value.get("segments") or [{}])[0].get("start_sequence")
+                    if value.get("segments")
+                    else value.get("next_sequence")
+                )
+                or 1
+            ),
             segments=tuple(
                 FeedbackSegmentReference.from_dict(item)
                 for item in value.get("segments") or []
@@ -402,7 +425,7 @@ class FeedbackLedgerIndex:
                 _text(key): FeedbackEventPointer.from_dict(pointer)
                 for key, pointer in raw_idempotency.items()
             },
-            schema_version=value.get("schema_version") or 0,
+            schema_version=schema_version,
         )
 
     def referenced_segment_ids(self) -> Iterable[int]:

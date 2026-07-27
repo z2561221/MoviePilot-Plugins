@@ -233,6 +233,10 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/profile/clear",
         "/profile/tags",
         "/run-history",
+        "/data/export",
+        "/data/reset/learning",
+        "/data/reset/full/prepare",
+        "/data/reset/full",
         "/subscribe",
     }
     assert all(route["auth"] == "bear" for route in routes)
@@ -291,6 +295,57 @@ def test_regular_user_is_limited_to_explicit_profile_mapping_for_reads_and_write
         )
     assert caught.value.status_code == 403
     assert caught.value.detail["error"]["code"] == "profile_forbidden"
+
+
+def test_data_export_and_reset_endpoints_reuse_profile_authorization_and_bound_token():
+    """数据接口沿用 profile 鉴权，彻底重置令牌还绑定签发时的 MP 用户。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    plugin._config["profile_access_map"]["8"] = [HOME_PROFILE]
+    controller = AgentRankApiController(plugin)
+    owner = TokenPayload(sub=7, username="Alice", super_user=False)
+    other = TokenPayload(sub=8, username="Bob", super_user=False)
+    forbidden = TokenPayload(sub=9, username="Mallory", super_user=False)
+
+    exported = controller.endpoint_data_export(HOME_PROFILE, owner)
+    assert exported["data"]["profile"]["summary"] == "画像"
+    assert "retention_policy" in exported["data"]
+
+    with pytest.raises(fastapi_module.HTTPException) as caught:
+        controller.endpoint_data_export(HOME_PROFILE, forbidden)
+    assert caught.value.status_code == 403
+    assert caught.value.detail["error"]["code"] == "profile_forbidden"
+
+    with pytest.raises(fastapi_module.HTTPException) as caught:
+        controller.endpoint_reset_learning(
+            {"profile_id": HOME_PROFILE, "confirm": False}, owner
+        )
+    assert caught.value.status_code == 409
+    assert caught.value.detail["error"]["code"] == "confirmation_required"
+
+    prepared = controller.endpoint_prepare_full_reset(
+        {"profile_id": HOME_PROFILE}, owner
+    )
+    confirmation_token = prepared["data"]["confirmation_token"]
+    confirmation_key = plugin._repository._confirmation_key(HOME_PROFILE)
+    assert confirmation_token not in str(plugin.data[confirmation_key])
+
+    with pytest.raises(fastapi_module.HTTPException) as caught:
+        controller.endpoint_reset_full(
+            {
+                "profile_id": HOME_PROFILE,
+                "confirmation_token": confirmation_token,
+            },
+            other,
+        )
+    assert caught.value.status_code == 403
+    assert caught.value.detail["error"]["code"] == "confirmation_forbidden"
+
+    reset = controller.endpoint_reset_full(
+        {"profile_id": HOME_PROFILE, "confirmation_token": confirmation_token}, owner
+    )
+    assert reset["data"]["mode"] == "full"
+    assert plugin._repository.load_profile(HOME_PROFILE) is None
 
 
 def test_regular_user_status_is_filtered_and_config_options_are_forbidden():

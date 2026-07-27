@@ -160,6 +160,12 @@ def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
         "auto_subscribe_top_n": 0,
         "auto_subscribe_limit": 10,
         "history_limit": 50,
+        "candidate_snapshot_limit": 20,
+        "feedback_event_limit": 1000,
+        "feedback_queue_limit": 200,
+        "conversation_message_limit": 200,
+        "attribution_record_limit": 500,
+        "analysis_record_limit": 500,
         "profile_cache_enabled": True,
         "rebuild_profile_each_run": False,
         "playback_enabled": True,
@@ -175,6 +181,28 @@ def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
     assert defaults["default_profile_id"] == ""
     assert defaults["profile_access_map"] == {}
     assert defaults["emby_library_ids"] is None
+
+
+@pytest.mark.parametrize(
+    ("field_name", "default_value"),
+    [
+        ("candidate_snapshot_limit", 20),
+        ("feedback_event_limit", 1000),
+        ("feedback_queue_limit", 200),
+        ("conversation_message_limit", 200),
+        ("attribution_record_limit", 500),
+        ("analysis_record_limit", 500),
+    ],
+)
+def test_retention_limits_are_positive_bounded_non_privacy_settings(
+    field_name, default_value
+):
+    """保留上限可配置，但零值、负值和超大值均回退并显示错误。"""
+    assert getattr(AgentRankConfig.from_mapping({}), field_name) == default_value
+    for invalid in (0, -1, 100001):
+        normalized = normalize_config({field_name: invalid})
+        assert normalized[field_name] == default_value
+        assert any(field_name in error for error in normalized["_validation_errors"])
 
 
 def test_run_once_switch_defaults_off_and_accepts_explicit_request():

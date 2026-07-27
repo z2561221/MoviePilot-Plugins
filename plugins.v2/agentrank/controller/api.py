@@ -11,6 +11,7 @@ from app.core.security import verify_token
 from ..model.config import configured_identities, default_config
 from ..model.identity import EmbyIdentity
 from ..service.archive import ArchiveService
+from ..service.data_lifecycle import DataLifecycleError, DataLifecycleService
 from ..service.profile_preferences import ProfilePreferenceService
 
 
@@ -81,6 +82,16 @@ class AgentRankApiController:
         except (TypeError, ValueError):
             return ""
         return str(user_id) if user_id > 0 else ""
+
+    def _requester_id(self, token_payload: schemas.TokenPayload) -> str:
+        """生成只用于危险动作确认绑定的稳定 MP 操作者标识。"""
+        user_id = self._token_user_id(token_payload)
+        if user_id:
+            return f"mp-user:{user_id}"
+        if self._is_superuser(token_payload):
+            username = str(getattr(token_payload, "username", "") or "admin").strip()
+            return f"mp-superuser:{username or 'admin'}"
+        return ""
 
     def _allowed_profile_ids(
         self, token_payload: schemas.TokenPayload
@@ -200,6 +211,59 @@ class AgentRankApiController:
             "profiles": profiles,
         }
 
+    def _data_lifecycle_data(self, profile_ids: Any = None) -> Dict[str, Any]:
+        """返回按授权 profile 过滤的数据保留运行状态。"""
+        raw = getattr(self.plugin, "_data_lifecycle_status", None)
+        allowed = None if profile_ids is None else set(profile_ids)
+        profiles = []
+        if isinstance(raw, Mapping):
+            for item in raw.get("profiles") or []:
+                if not isinstance(item, Mapping):
+                    continue
+                profile_id = str(item.get("profile_id") or "").strip()
+                if not profile_id or (allowed is not None and profile_id not in allowed):
+                    continue
+                profiles.append(
+                    {
+                        "profile_id": profile_id,
+                        "status": str(item.get("status") or "unknown"),
+                        "message": str(item.get("message") or ""),
+                        "pruned": {
+                            str(key): int(value)
+                            for key, value in dict(item.get("pruned") or {}).items()
+                            if isinstance(value, int) and value >= 0
+                        },
+                        "retention_failures": [
+                            str(value)
+                            for value in item.get("retention_failures") or []
+                            if str(value)
+                            in {
+                                "candidate_snapshots",
+                                "feedback_events",
+                                "feedback_queue",
+                                "conversation_messages",
+                                "attribution",
+                                "analysis",
+                            }
+                        ],
+                    }
+                )
+        policy = DataLifecycleService(
+            getattr(self.plugin, "_repository", None), self.plugin._config
+        ).policy.to_dict()
+        status = str(dict(raw or {}).get("status") or "not_initialized")
+        if allowed is not None and status in {"ready", "partial_failed"}:
+            status = (
+                "partial_failed"
+                if any(item["status"] == "failed" for item in profiles)
+                else "ready"
+            )
+        return {
+            "status": status,
+            "profiles": profiles,
+            "retention_policy": policy,
+        }
+
     def _require_enabled(self) -> None:
         """拒绝在硬依赖未满足时执行会产生副作用的操作。"""
         if self.plugin.get_state():
@@ -223,6 +287,10 @@ class AgentRankApiController:
         if not candidate_id:
             raise ApiContractError(422, "candidate_id_required", "必须指定 candidate_id")
         return candidate_id
+
+    def _data_lifecycle(self) -> DataLifecycleService:
+        """返回绑定当前仓储和规范化配置的数据生命周期服务。"""
+        return DataLifecycleService(self._repository(), self.plugin._config)
 
     def _repository(self) -> Any:
         """返回运行时仓库或抛出可见不可用错误。"""
@@ -317,6 +385,7 @@ class AgentRankApiController:
                 "playback": self._playback_data(default_profile_id),
                 "enablement": enablement,
                 "migration": self._migration_data(),
+                "data_lifecycle": self._data_lifecycle_data(),
             }
         )
 
@@ -340,6 +409,7 @@ class AgentRankApiController:
             data["default_profile_id"] = ""
             data["playback"] = None
         data["migration"] = self._migration_data(allowed_ids)
+        data["data_lifecycle"] = self._data_lifecycle_data(allowed_ids)
         return response
 
     def config_options(self) -> Dict[str, Any]:
@@ -409,6 +479,7 @@ class AgentRankApiController:
                 "playback": self._playback_data(target),
                 "enablement": self._enablement_data(),
                 "migration": self._migration_data([target]),
+                "data_lifecycle": self._data_lifecycle_data([target]),
             }
         )
 
@@ -512,6 +583,77 @@ class AgentRankApiController:
             raise ApiContractError(409, "confirmation_required", "清除画像需要明确确认")
         result = ArchiveService(self._repository()).clear_profile(target)
         return self._success(result.__dict__)
+
+    def data_export(self, profile_id: Any) -> Dict[str, Any]:
+        """返回当前 profile 的字段白名单脱敏导出。"""
+        target = self._profile_id(profile_id)
+        try:
+            data = self._data_lifecycle().export_profile(target)
+        except DataLifecycleError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "data_export_failed", "数据导出失败，旧数据未被修改"
+            ) from error
+        return self._success(data)
+
+    def reset_learning(self, payload: Any) -> Dict[str, Any]:
+        """经明确确认后仅重置 AgentRank 学习数据。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        try:
+            data = self._data_lifecycle().reset_learning(
+                target, body.get("confirm") is True
+            )
+        except DataLifecycleError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "learning_reset_failed", "学习重置失败，旧数据已保留"
+            ) from error
+        return self._success(data)
+
+    def prepare_full_reset(
+        self, payload: Any, requester_id: str
+    ) -> Dict[str, Any]:
+        """为彻底重置签发绑定当前 MP 用户的短时确认令牌。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        try:
+            data = self._data_lifecycle().prepare_full_reset(target, requester_id)
+        except DataLifecycleError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "full_reset_prepare_failed", "无法生成彻底重置确认"
+            ) from error
+        return self._success(data)
+
+    def reset_full(self, payload: Any, requester_id: str) -> Dict[str, Any]:
+        """校验一次性令牌后彻底删除 AgentRank 自有 profile 数据。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        try:
+            data = self._data_lifecycle().reset_full(
+                target,
+                requester_id,
+                str(body.get("confirmation_token") or ""),
+            )
+        except DataLifecycleError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "full_reset_failed", "彻底重置失败，旧数据已保留"
+            ) from error
+        return self._success(data)
 
     def update_profile_tag(self, payload: Any) -> Dict[str, Any]:
         """添加或删除当前用户的人工偏好或避雷标签。"""
@@ -634,6 +776,44 @@ class AgentRankApiController:
         target = self._endpoint(self._authorize_profile, token_payload, profile_id)
         return self._endpoint(self.run_history, target, page, page_size)
 
+    def endpoint_data_export(
+        self,
+        profile_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 脱敏数据导出入口。"""
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.data_export, target)
+
+    def endpoint_reset_learning(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 仅学习重置入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        return self._endpoint(self.reset_learning, payload)
+
+    def endpoint_prepare_full_reset(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 彻底重置确认令牌入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        requester_id = self._endpoint(self._requester_id, token_payload)
+        return self._endpoint(self.prepare_full_reset, payload, requester_id)
+
+    def endpoint_reset_full(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 彻底重置执行入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        requester_id = self._endpoint(self._requester_id, token_payload)
+        return self._endpoint(self.reset_full, payload, requester_id)
+
     async def endpoint_refresh(
         self,
         payload: dict,
@@ -730,6 +910,25 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
             "更新人工画像标签",
         ),
         ("/run-history", controller.endpoint_run_history, ["GET"], "获取运行历史"),
+        ("/data/export", controller.endpoint_data_export, ["GET"], "导出脱敏数据"),
+        (
+            "/data/reset/learning",
+            controller.endpoint_reset_learning,
+            ["POST"],
+            "仅重置学习数据",
+        ),
+        (
+            "/data/reset/full/prepare",
+            controller.endpoint_prepare_full_reset,
+            ["POST"],
+            "准备彻底重置",
+        ),
+        (
+            "/data/reset/full",
+            controller.endpoint_reset_full,
+            ["POST"],
+            "执行彻底重置",
+        ),
         ("/subscribe", controller.endpoint_subscribe, ["POST"], "手动订阅推荐"),
     ]
     return [

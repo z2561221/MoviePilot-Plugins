@@ -4,7 +4,7 @@ import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Type, TypeVar
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Type, TypeVar
 from urllib.parse import quote
 
 from ..model.archive import ArchiveFeedback
@@ -14,6 +14,7 @@ from ..model.candidate_snapshot import CandidateSnapshot
 from ..model.feedback import (
     FeedbackAppendResult,
     FeedbackEvent,
+    FeedbackEventPointer,
     FeedbackEventSegment,
     FeedbackLedgerIndex,
 )
@@ -41,18 +42,37 @@ class AgentRankRepository:
     recovery_log_key = "agentrank_recovery_log"
     telegram_sessions_key = "telegram_selection_sessions"
     playback_snapshot_prefix = "playback_snapshot"
+    candidate_snapshot_index_prefix = "candidate_snapshot_index"
+    confirmation_prefix = "full_reset_confirmation"
+    learning_profile_prefixes = (
+        "feedback_queue",
+        "pending_questions",
+        "conversation",
+        "conversation_messages",
+        "policy_snapshot",
+        "attribution",
+        "agent_analysis",
+    )
 
     def __init__(
         self,
         plugin: Any,
         history_limit: int = 50,
         feedback_segment_size: int = 100,
+        candidate_snapshot_limit: int = 20,
+        feedback_event_limit: int = 1000,
     ):
-        """绑定插件数据接口并设置历史与反馈分段上限。"""
+        """绑定插件数据接口并设置历史、快照和反馈保留上限。"""
         self._plugin = plugin
         self._history_limit = max(1, min(int(history_limit), 200))
         self._feedback_segment_size = max(
             1, min(int(feedback_segment_size), 1000)
+        )
+        self._candidate_snapshot_limit = max(
+            1, min(int(candidate_snapshot_limit), 500)
+        )
+        self._feedback_event_limit = max(
+            1, min(int(feedback_event_limit), 100000)
         )
 
     @staticmethod
@@ -74,6 +94,14 @@ class AgentRankRepository:
             f"run:{self._scope(run_id, 'run_id')}"
         )
 
+    def _candidate_index_key(self, profile_id: str) -> str:
+        """生成按 profile 隔离的候选快照索引键。"""
+        return self._profile_key(self.candidate_snapshot_index_prefix, profile_id)
+
+    def _confirmation_key(self, profile_id: str) -> str:
+        """生成彻底重置一次性确认记录键。"""
+        return self._profile_key(self.confirmation_prefix, profile_id)
+
     def _feedback_index_key(self, profile_id: str) -> str:
         """生成按 profile_id 隔离的反馈账本索引键。"""
         return self._profile_key("feedback_event_index", profile_id)
@@ -87,6 +115,12 @@ class AgentRankRepository:
             f"segment:{int(segment_id):08d}"
         )
 
+    def _learning_key(self, prefix: str, profile_id: str) -> str:
+        """生成未来学习辅助存储的 profile 键。"""
+        if prefix not in self.learning_profile_prefixes:
+            raise ValueError("unknown learning storage prefix")
+        return self._profile_key(prefix, profile_id)
+
     @classmethod
     def _feedback_lock(cls, profile_id: str) -> threading.RLock:
         """取得跨仓库实例共享的 profile 级反馈写锁。"""
@@ -97,6 +131,42 @@ class AgentRankRepository:
                 lock = threading.RLock()
                 cls._feedback_locks[scope] = lock
             return lock
+
+    @contextmanager
+    def profile_data_guard(self, profile_id: str) -> Iterator[None]:
+        """串行化 profile 级候选、反馈、记忆和重置写入。"""
+        with self._feedback_lock(profile_id):
+            yield
+
+    def _mark_retention_failure(self, profile_id: str, data_kind: str) -> None:
+        """把保留裁剪失败标记到运行态，不影响已写入的用户事实。"""
+        status = getattr(self._plugin, "_data_lifecycle_status", None)
+        if not isinstance(status, dict):
+            return
+        profiles = status.setdefault("profiles", [])
+        item = next(
+            (
+                entry
+                for entry in profiles
+                if isinstance(entry, dict)
+                and str(entry.get("profile_id") or "") == str(profile_id)
+            ),
+            None,
+        )
+        if item is None:
+            item = {
+                "profile_id": str(profile_id),
+                "status": "failed",
+                "pruned": {},
+                "message": "数据保留维护失败，已保留现有数据",
+            }
+            profiles.append(item)
+        item["status"] = "failed"
+        item["message"] = "数据保留维护失败，已保留现有数据"
+        failures = item.setdefault("retention_failures", [])
+        if data_kind not in failures:
+            failures.append(str(data_kind))
+        status["status"] = "partial_failed"
 
     @contextmanager
     def board_archive_guard(self, profile_id: str) -> Iterator[None]:
@@ -121,6 +191,52 @@ class AgentRankRepository:
             }
         )
         self._plugin.save_data(key=self.recovery_log_key, value=history[-100:])
+
+    def _atomic_raw_update(
+        self,
+        *,
+        updates: Mapping[str, Any] = None,
+        delete_keys: Iterable[str] = (),
+        recovery_key: str,
+        action: str,
+    ) -> None:
+        """原子应用一组插件数据变更，失败时逐键恢复旧状态。"""
+        safe_updates = dict(updates or {})
+        safe_deletes = [
+            str(key) for key in dict.fromkeys(delete_keys or ()) if key not in safe_updates
+        ]
+        touched = list(safe_updates) + safe_deletes
+        old_values = {key: self._plugin.get_data(key=key) for key in touched}
+        try:
+            for key, value in safe_updates.items():
+                self._plugin.save_data(key=key, value=value)
+            for key in safe_deletes:
+                self._plugin.del_data(key=key)
+            for key, value in safe_updates.items():
+                if self._plugin.get_data(key=key) != value:
+                    raise ValueError(f"profile data readback mismatch: {key}")
+            for key in safe_deletes:
+                if self._plugin.get_data(key=key) is not None:
+                    raise ValueError(f"profile data delete readback mismatch: {key}")
+        except Exception as error:
+            rollback_errors: List[str] = []
+            for key in reversed(touched):
+                try:
+                    self._restore_raw(key, old_values[key])
+                except Exception as rollback_error:
+                    rollback_errors.append(f"{key}: {rollback_error}")
+            detail = type(error).__name__
+            if rollback_errors:
+                detail = f"{detail}; rollback_failed={len(rollback_errors)}"
+            try:
+                self._record_recovery(recovery_key, action, detail)
+            except Exception:
+                pass
+            if rollback_errors:
+                raise RuntimeError(
+                    "profile data update and rollback both failed"
+                ) from error
+            raise
 
     def _load_model(
         self,
@@ -305,6 +421,18 @@ class AgentRankRepository:
             raise ValueError(detail)
         return None
 
+    def _enforce_feedback_retention(
+        self, profile_id: str, index: FeedbackLedgerIndex
+    ) -> None:
+        """在事件提交后尽力执行保留上限，并显式标记维护失败。"""
+        event_count = sum(reference.event_count for reference in index.segments)
+        if event_count <= self._feedback_event_limit:
+            return
+        try:
+            self.prune_feedback_events(profile_id, self._feedback_event_limit)
+        except Exception:
+            self._mark_retention_failure(profile_id, "feedback_events")
+
     def append_feedback_event(self, event: FeedbackEvent) -> FeedbackAppendResult:
         """幂等追加反馈事件，并标记调用方是否应触发后续学习。"""
         if not isinstance(event, FeedbackEvent):
@@ -320,6 +448,7 @@ class AgentRankRepository:
                 index, event.idempotency_key, strict=True
             )
             if existing is not None:
+                self._enforce_feedback_retention(profile_id, index)
                 return FeedbackAppendResult(event=existing, created=False)
 
             last_reference = index.segments[-1] if index.segments else None
@@ -399,6 +528,7 @@ class AgentRankRepository:
                         "feedback ledger append and rollback both failed"
                     ) from error
                 raise
+            self._enforce_feedback_retention(profile_id, updated_index)
             return FeedbackAppendResult(event=persisted, created=True)
 
     def load_feedback_event(
@@ -559,22 +689,137 @@ class AgentRankRepository:
                 raise
             return created
 
+    def _load_candidate_index(
+        self, profile_id: str, *, strict: bool = False
+    ) -> Dict[str, Any]:
+        """读取候选快照索引；损坏索引不会被静默重建。"""
+        key = self._candidate_index_key(profile_id)
+        value = self._plugin.get_data(key=key)
+        if value is None:
+            return {"profile_id": str(profile_id), "snapshots": [], "schema_version": 1}
+        try:
+            if not isinstance(value, Mapping):
+                raise ValueError("candidate snapshot index must be a mapping")
+            if str(value.get("profile_id") or "") != str(profile_id):
+                raise ValueError("candidate snapshot index profile_id mismatch")
+            snapshots = value.get("snapshots") or []
+            if not isinstance(snapshots, list):
+                raise ValueError("candidate snapshot index snapshots must be a list")
+            normalized = []
+            seen = set()
+            for item in snapshots:
+                if not isinstance(item, Mapping):
+                    raise ValueError("candidate snapshot index entry is invalid")
+                run_id = str(item.get("run_id") or "").strip()
+                if not run_id or run_id in seen:
+                    raise ValueError("candidate snapshot index run_id is invalid")
+                seen.add(run_id)
+                normalized.append(
+                    {
+                        "run_id": run_id,
+                        "generated_at": str(item.get("generated_at") or ""),
+                    }
+                )
+            return {
+                "profile_id": str(profile_id),
+                "snapshots": normalized,
+                "schema_version": int(value.get("schema_version") or 1),
+            }
+        except (TypeError, ValueError, KeyError) as error:
+            self._record_recovery(key, "ignored_corrupt_data", str(error))
+            if strict:
+                raise ValueError("candidate snapshot index is corrupt") from error
+            return {"profile_id": str(profile_id), "snapshots": [], "schema_version": 1}
+
+    def _candidate_index_entries(
+        self, profile_id: str, *, reconcile: bool = False
+    ) -> List[Dict[str, str]]:
+        """返回索引条目，并可用仍在运行历史中的 run_id 补齐旧快照。"""
+        with self._feedback_lock(profile_id):
+            index = self._load_candidate_index(profile_id, strict=True)
+            entries = list(index["snapshots"])
+            known = {item["run_id"] for item in entries}
+            history = self.load_run_history(profile_id)
+            board = self.load_board(profile_id)
+            run_ids = [run.run_id for run in reversed(history)]
+            if board is not None:
+                run_ids.extend(
+                    item
+                    for item in (board.previous_run_id, board.run_id)
+                    if item
+                )
+            changed = False
+            for run_id in run_ids:
+                run_id = str(run_id or "").strip()
+                if not run_id or run_id in known:
+                    continue
+                snapshot = self.load_candidate_snapshot_record(run_id, profile_id)
+                if snapshot is None:
+                    continue
+                entries.append(
+                    {"run_id": run_id, "generated_at": snapshot.generated_at}
+                )
+                known.add(run_id)
+                changed = True
+            if changed and reconcile:
+                updated = {
+                    "profile_id": str(profile_id),
+                    "snapshots": entries,
+                    "schema_version": 1,
+                }
+                self._atomic_raw_update(
+                    updates={self._candidate_index_key(profile_id): updated},
+                    recovery_key=self._candidate_index_key(profile_id),
+                    action="candidate_snapshot_index_reconcile_failed",
+                )
+            return entries
+
+    def candidate_snapshot_references(
+        self, profile_id: str, *, reconcile: bool = False
+    ) -> List[Dict[str, str]]:
+        """返回候选快照引用；仅生命周期裁剪会显式补写旧索引。"""
+        return self._candidate_index_entries(profile_id, reconcile=reconcile)
+
     def save_candidate_snapshot(self, snapshot: CandidateSnapshot) -> None:
-        """首次保存候选快照，拒绝覆盖并在写入失败时清除半快照。"""
+        """首次保存候选快照并原子登记 profile 级索引。"""
         if not isinstance(snapshot, CandidateSnapshot):
             raise TypeError("snapshot must be CandidateSnapshot")
-        key = self._candidate_key(snapshot.run_id, snapshot.profile_id)
-        if self._plugin.get_data(key=key) is not None:
-            raise ValueError("candidate snapshot already exists")
-        try:
-            self._plugin.save_data(key=key, value=snapshot.to_dict())
-            stored = self._plugin.get_data(key=key)
-            verified = CandidateSnapshot.from_dict(stored)
-            if verified.content_hash != snapshot.content_hash:
+        profile_id = snapshot.profile_id
+        key = self._candidate_key(snapshot.run_id, profile_id)
+        index_key = self._candidate_index_key(profile_id)
+        with self._feedback_lock(profile_id):
+            if self._plugin.get_data(key=key) is not None:
+                raise ValueError("candidate snapshot already exists")
+            payload = snapshot.to_dict()
+            CandidateSnapshot.from_dict(payload)
+            indexed_entries = self._candidate_index_entries(profile_id, reconcile=False)
+            if any(item["run_id"] == snapshot.run_id for item in indexed_entries):
+                raise ValueError("candidate snapshot index already contains run_id")
+            all_entries = [
+                *indexed_entries,
+                {"run_id": snapshot.run_id, "generated_at": snapshot.generated_at},
+            ]
+            retained_entries = all_entries[-self._candidate_snapshot_limit :]
+            retained_ids = {item["run_id"] for item in retained_entries}
+            delete_keys = [
+                self._candidate_key(item["run_id"], profile_id)
+                for item in all_entries[: -self._candidate_snapshot_limit]
+                if item["run_id"] not in retained_ids
+            ]
+            updated_index = {
+                "profile_id": profile_id,
+                "snapshots": retained_entries,
+                "schema_version": 1,
+            }
+            self._atomic_raw_update(
+                updates={key: payload, index_key: updated_index},
+                delete_keys=delete_keys,
+                recovery_key=key,
+                action="candidate_snapshot_write_failed",
+            )
+            verified = self.load_candidate_snapshot_record(snapshot.run_id, profile_id)
+            if verified is None or verified.content_hash != snapshot.content_hash:
                 raise ValueError("candidate snapshot readback mismatch")
-        except Exception:
-            self._plugin.del_data(key=key)
-            raise
 
     def load_candidate_snapshot_record(
         self, run_id: str, profile_id: str
@@ -599,6 +844,123 @@ class AgentRankRepository:
         """读取本轮候选快照；损坏时返回空列表并记录证据。"""
         snapshot = self.load_candidate_snapshot_record(run_id, profile_id)
         return list(snapshot.candidates) if snapshot is not None else []
+
+    def prune_candidate_snapshots(self, profile_id: str, limit: int) -> int:
+        """保留最新的有限候选快照，并原子删除过期快照。"""
+        keep_limit = max(1, min(int(limit), 500))
+        with self._feedback_lock(profile_id):
+            entries = self._candidate_index_entries(profile_id, reconcile=True)
+            if len(entries) <= keep_limit:
+                return 0
+            retained = entries[-keep_limit:]
+            removed = entries[:-keep_limit]
+            retained_ids = {item["run_id"] for item in retained}
+            delete_keys = [
+                self._candidate_key(item["run_id"], profile_id)
+                for item in removed
+                if item["run_id"] not in retained_ids
+            ]
+            updated_index = {
+                "profile_id": str(profile_id),
+                "snapshots": retained,
+                "schema_version": 1,
+            }
+            self._atomic_raw_update(
+                updates={self._candidate_index_key(profile_id): updated_index},
+                delete_keys=delete_keys,
+                recovery_key=self._candidate_index_key(profile_id),
+                action="candidate_snapshot_prune_failed",
+            )
+            return len(delete_keys)
+
+    def prune_feedback_events(self, profile_id: str, limit: int) -> int:
+        """裁剪反馈事件旧段，保留单调序号与可重放尾部。"""
+        keep_limit = max(1, min(int(limit), 100000))
+        with self._feedback_lock(profile_id):
+            index = self._load_feedback_index(profile_id, strict=True)
+            events: List[FeedbackEvent] = []
+            old_segment_keys: List[str] = []
+            for reference in index.segments:
+                old_segment_keys.append(
+                    self._feedback_segment_key(profile_id, reference.segment_id)
+                )
+                segment = self._load_feedback_segment(
+                    profile_id, reference.segment_id, strict=True
+                )
+                if segment is None:
+                    raise ValueError("feedback ledger references a missing segment")
+                events.extend(segment.events)
+            if len(events) <= keep_limit:
+                return 0
+            retained_events = events[-keep_limit:]
+            segments: List[FeedbackEventSegment] = []
+            for offset in range(0, len(retained_events), self._feedback_segment_size):
+                segment_id = len(segments) + 1
+                segments.append(
+                    FeedbackEventSegment(
+                        profile_id=profile_id,
+                        segment_id=segment_id,
+                        events=tuple(
+                            retained_events[offset : offset + self._feedback_segment_size]
+                        ),
+                    )
+                )
+            references = tuple(segment.to_reference() for segment in segments)
+            idempotency = {
+                event.idempotency_key: FeedbackEventPointer(
+                    segment_id=segment.segment_id,
+                    sequence=event.sequence,
+                )
+                for segment in segments
+                for event in segment.events
+            }
+            updated_index = FeedbackLedgerIndex(
+                profile_id=profile_id,
+                next_sequence=index.next_sequence,
+                retained_from_sequence=retained_events[0].sequence,
+                segments=references,
+                idempotency=idempotency,
+            ).to_dict()
+            updates = {
+                self._feedback_segment_key(profile_id, segment.segment_id): segment.to_dict()
+                for segment in segments
+            }
+            updates[self._feedback_index_key(profile_id)] = updated_index
+            delete_keys = [
+                key
+                for key in old_segment_keys
+                if key not in updates
+            ]
+            self._atomic_raw_update(
+                updates=updates,
+                delete_keys=delete_keys,
+                recovery_key=self._feedback_index_key(profile_id),
+                action="feedback_event_prune_failed",
+            )
+            return len(events) - len(retained_events)
+
+    def prune_learning_list(self, profile_id: str, prefix: str, limit: int) -> int:
+        """裁剪未来队列、对话、分析或归因单键列表。"""
+        keep_limit = max(1, min(int(limit), 100000))
+        key = self._learning_key(prefix, profile_id)
+        with self._feedback_lock(profile_id):
+            value = self._plugin.get_data(key=key)
+            if value is None:
+                return 0
+            if not isinstance(value, list):
+                self._record_recovery(
+                    key, "ignored_corrupt_data", "bounded learning data must be a list"
+                )
+                raise ValueError(f"{prefix} data is corrupt")
+            if len(value) <= keep_limit:
+                return 0
+            retained = value[-keep_limit:]
+            self._atomic_raw_update(
+                updates={key: retained},
+                recovery_key=key,
+                action=f"{prefix}_prune_failed",
+            )
+            return len(value) - len(retained)
 
     def append_run(self, run: RecommendationRun) -> None:
         """把运行记录写入对应用户历史头部并执行上限裁剪。"""
@@ -700,6 +1062,173 @@ class AgentRankRepository:
         if changed:
             self._plugin.save_data(key=key, value=updated[: self._history_limit])
         return changed
+
+    @staticmethod
+    def _raw_run_ids(value: Any) -> List[str]:
+        """从已知榜单或运行历史载荷中提取非空 run_id。"""
+        items = value if isinstance(value, list) else [value]
+        result: List[str] = []
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            for field_name in ("previous_run_id", "run_id"):
+                run_id = str(item.get(field_name) or "").strip()
+                if run_id and run_id not in result:
+                    result.append(run_id)
+        return result
+
+    def _feedback_segment_keys_from_raw(self, profile_id: str) -> List[str]:
+        """从原始索引安全提取反馈段键，供显式重置损坏账本。"""
+        raw = self._plugin.get_data(key=self._feedback_index_key(profile_id))
+        if not isinstance(raw, Mapping):
+            return []
+        result: List[str] = []
+        for item in raw.get("segments") or []:
+            if not isinstance(item, Mapping):
+                continue
+            try:
+                segment_id = int(item.get("segment_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if segment_id > 0:
+                result.append(self._feedback_segment_key(profile_id, segment_id))
+        return list(dict.fromkeys(result))
+
+    def _candidate_keys_from_raw(self, profile_id: str) -> List[str]:
+        """从候选索引、榜单和历史提取可达快照键。"""
+        run_ids: List[str] = []
+        raw_index = self._plugin.get_data(key=self._candidate_index_key(profile_id))
+        if isinstance(raw_index, Mapping):
+            for item in raw_index.get("snapshots") or []:
+                if not isinstance(item, Mapping):
+                    continue
+                run_id = str(item.get("run_id") or "").strip()
+                if run_id and run_id not in run_ids:
+                    run_ids.append(run_id)
+        for prefix in ("run_history", "recommendation_board"):
+            value = self._plugin.get_data(key=self._profile_key(prefix, profile_id))
+            for run_id in self._raw_run_ids(value):
+                if run_id not in run_ids:
+                    run_ids.append(run_id)
+        return [self._candidate_key(run_id, profile_id) for run_id in run_ids]
+
+    def learning_storage_keys(self, profile_id: str) -> List[str]:
+        """列出仅学习重置覆盖的当前与预留 profile 键。"""
+        return list(
+            dict.fromkeys(
+                [
+                    self._feedback_index_key(profile_id),
+                    self._profile_key("preference_memory", profile_id),
+                    *self._feedback_segment_keys_from_raw(profile_id),
+                    *[
+                        self._learning_key(prefix, profile_id)
+                        for prefix in self.learning_profile_prefixes
+                    ],
+                ]
+            )
+        )
+
+    def full_profile_storage_keys(self, profile_id: str) -> List[str]:
+        """列出 AgentRank 自有 profile 数据，不包含宿主订阅或媒体库。"""
+        fixed_prefixes = (
+            "profile_snapshot",
+            "recommendation_board",
+            "archive",
+            "profile_preferences",
+            self.playback_snapshot_prefix,
+            "run_history",
+            self.candidate_snapshot_index_prefix,
+            "feedback_event_index",
+            "preference_memory",
+        )
+        return list(
+            dict.fromkeys(
+                [
+                    *[self._profile_key(prefix, profile_id) for prefix in fixed_prefixes],
+                    *self._candidate_keys_from_raw(profile_id),
+                    *self._feedback_segment_keys_from_raw(profile_id),
+                    *[
+                        self._learning_key(prefix, profile_id)
+                        for prefix in self.learning_profile_prefixes
+                    ],
+                    self._confirmation_key(profile_id),
+                ]
+            )
+        )
+
+    def reset_learning_data(self, profile_id: str) -> List[str]:
+        """清空学习事实和确认记忆，保留画像、榜单、归档与人工偏好。"""
+        with self._feedback_lock(profile_id):
+            keys = self.learning_storage_keys(profile_id)
+            index_key = self._feedback_index_key(profile_id)
+            memory_key = self._profile_key("preference_memory", profile_id)
+            updates = {
+                index_key: FeedbackLedgerIndex.empty(profile_id).to_dict(),
+                memory_key: PreferenceMemory.empty(profile_id).to_dict(),
+            }
+            delete_keys = [key for key in keys if key not in updates]
+            self._atomic_raw_update(
+                updates=updates,
+                delete_keys=delete_keys,
+                recovery_key=index_key,
+                action="learning_reset_failed",
+            )
+            return [*delete_keys, *updates]
+
+    def reset_all_profile_data(self, profile_id: str) -> List[str]:
+        """删除 AgentRank 自有 profile 数据，并保留插件配置和宿主数据。"""
+        with self._board_archive_lock, self._feedback_lock(profile_id):
+            keys = self.full_profile_storage_keys(profile_id)
+            updates: Dict[str, Any] = {}
+            raw_sessions = self._plugin.get_data(key=self.telegram_sessions_key)
+            if isinstance(raw_sessions, Mapping):
+                retained_sessions = {
+                    str(token): value
+                    for token, value in raw_sessions.items()
+                    if not isinstance(value, Mapping)
+                    or str(value.get("profile_id") or "") != str(profile_id)
+                }
+                if retained_sessions != dict(raw_sessions):
+                    updates[self.telegram_sessions_key] = retained_sessions
+            self._atomic_raw_update(
+                updates=updates,
+                delete_keys=keys,
+                recovery_key=self._profile_key("full_reset", profile_id),
+                action="full_reset_failed",
+            )
+            return keys
+
+    def save_reset_confirmation(
+        self, profile_id: str, value: Mapping[str, Any]
+    ) -> None:
+        """保存不含明文令牌的彻底重置确认记录。"""
+        record = dict(value or {})
+        required = {"token_hash", "requester_id", "issued_at", "expires_at"}
+        if not required.issubset(record) or any(not str(record[key]) for key in required):
+            raise ValueError("reset confirmation record is incomplete")
+        if "token" in record or "authorization" in record or "cookie" in record:
+            raise ValueError("reset confirmation record contains plaintext secrets")
+        key = self._confirmation_key(profile_id)
+        with self._feedback_lock(profile_id):
+            self._atomic_raw_update(
+                updates={key: record},
+                recovery_key=key,
+                action="reset_confirmation_write_failed",
+            )
+
+    def load_reset_confirmation(self, profile_id: str) -> Optional[Dict[str, Any]]:
+        """读取彻底重置确认记录；无效载荷按不存在处理。"""
+        value = self._plugin.get_data(key=self._confirmation_key(profile_id))
+        if not isinstance(value, Mapping):
+            return None
+        required = {"token_hash", "requester_id", "issued_at", "expires_at"}
+        if not required.issubset(value):
+            return None
+        return {str(key): item for key, item in value.items()}
+
+    def delete_reset_confirmation(self, profile_id: str) -> None:
+        """删除一次性确认记录。"""
+        self._plugin.del_data(key=self._confirmation_key(profile_id))
 
     def delete_profile(self, profile_id: str) -> None:
         """删除当前用户画像，不触碰其他用户或 MoviePilot 订阅。"""

@@ -158,6 +158,28 @@ def test_feedback_events_rotate_segments_and_support_cursor_reads():
     ] == [3, 4]
 
 
+def test_legacy_v1_ledger_loads_and_upgrades_without_sequence_reset():
+    """旧 v1 索引缺少保留起点时仍可读取，并在追加时保持原 sequence。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin, feedback_segment_size=2)
+    first = repository.append_feedback_event(_event("legacy-1")).event
+    index_key = repository._feedback_index_key(PROFILE_ID)
+    segment_key = repository._feedback_segment_key(PROFILE_ID, 1)
+    plugin.data[index_key].pop("retained_from_sequence")
+    plugin.data[index_key]["schema_version"] = 1
+    plugin.data[segment_key]["schema_version"] = 1
+
+    restored = AgentRankRepository(plugin, feedback_segment_size=2)
+    second = restored.append_feedback_event(_event("legacy-2")).event
+
+    assert [event.sequence for event in restored.load_feedback_events(PROFILE_ID)] == [
+        first.sequence,
+        second.sequence,
+    ]
+    assert second.sequence == 2
+    assert plugin.data[index_key]["schema_version"] == 2
+
+
 def test_feedback_ledger_is_profile_isolated_and_leaves_legacy_data_untouched():
     """新账本只创建反馈键，不迁移或改写现有画像、榜单、归档和历史。"""
     legacy = {

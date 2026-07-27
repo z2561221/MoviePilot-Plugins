@@ -5,9 +5,9 @@
   "target_release_date": "2026-07-31",
   "status": {
     "overall": "in_progress",
-    "phase": "phase-2",
-    "task": "2.3",
-    "next_allowed_action": "Execute task 2.3: implement additive legacy-schema migration with failure rollback and visible recovery evidence"
+    "phase": "phase-3",
+    "task": "3.1",
+    "next_allowed_action": "Execute task 3.1: add unified idempotent like, dislike, and ignore event APIs with board revision results"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -131,7 +131,7 @@
     {
       "id": "phase-2",
       "title": "反馈事件账本、迁移与数据生命周期",
-      "status": "in_progress",
+      "status": "completed",
       "goal": "建立可重放且不丢旧数据的事实与记忆底座",
       "acceptance": [
         "事件幂等且sequence单调",
@@ -139,7 +139,12 @@
         "旧数据迁移无损",
         "导出脱敏且两种重置边界正确"
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        "feedback ledger remains idempotent and monotonic after prefix retention pruning",
+        "preference memory tombstones and revisions remain replay safe",
+        "legacy storage migration and rollback contracts remain intact",
+        "sanitized export and two reset scopes pass focused privacy and failure tests"
+      ],
       "tasks": [
         {
           "id": "2.1",
@@ -183,17 +188,48 @@
         {
           "id": "2.3",
           "title": "实现兼容迁移与失败回滚",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["旧画像榜单归档历史逐字段保持", "迁移失败保留旧状态"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "storage migration focused tests: 5 passed",
+            "legacy profile, board, archive, profile preferences, and run history fixtures remained field-for-field unchanged",
+            "legacy fixtures remained readable through current models after migration",
+            "missing feedback index and preference memory keys received empty current schemas",
+            "second migration run was idempotent and created no keys",
+            "second-key failure rolled back the first new key and preserved every legacy value",
+            "corrupt existing new schema was preserved and reported as failed",
+            "real runtime migration executes before legacy board repair writes",
+            "migration API details and aggregate status are filtered to authorized profiles",
+            "migration, lifecycle, API, and runtime focused regression: 47 passed",
+            "AgentRank plugin suite: 415 passed",
+            "AgentRank static contracts: 25 passed",
+            "smoke contracts: 47 passed",
+            "compileall, public docstring audit, JSON parse, and git diff --check: passed"
+          ],
+          "commit": "2243697b"
         },
         {
           "id": "2.4",
           "title": "实现保留导出与重置",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["导出不含秘密或原始思维链", "学习重置与彻底重置范围不同且受确认保护"],
-          "verification": [],
+          "verification": [
+            "data lifecycle focused tests: 9 passed",
+            "candidate snapshots are atomically indexed and automatically bounded after each write",
+            "feedback events retain monotonic sequence after exact prefix pruning and v1 ledger upgrade",
+            "queue, conversation, attribution, and analysis stores have configurable positive bounds",
+            "export uses explicit field whitelists and redacts URL, host, Authorization, Cookie, API key, and token sentinels",
+            "export omits raw prompts, responses, chain of thought, arbitrary metrics, archive recommendation payloads, and poster URLs",
+            "learning reset preserves current profile, board, archive, manual preferences, playback, run history, candidate snapshots, subscriptions, and library state",
+            "full reset requires a five-minute requester-bound one-time token stored only as SHA-256",
+            "full reset removes only AgentRank profile data and profile-owned Telegram sessions",
+            "save and delete failure injection restores every touched key and keeps errors visible",
+            "all new data routes reuse explicit profile authorization and bearer protection",
+            "AgentRank plugin suite: 432 passed",
+            "AgentRank static contracts: 25 passed",
+            "smoke contracts: 47 passed",
+            "compileall, public docstring audit, JSON parse, git diff check, and sensitive scan review: passed"
+          ],
           "commit": null
         }
       ]
@@ -201,7 +237,7 @@
     {
       "id": "phase-3",
       "title": "三态反馈、五条补位与即时交互语义",
-      "status": "pending",
+      "status": "in_progress",
       "goal": "交付喜欢不喜欢忽略和安全五条榜单",
       "acceptance": [
         "三态语义与幂等正确",
@@ -214,7 +250,7 @@
         {
           "id": "3.1",
           "title": "新增三态反馈API",
-          "status": "pending",
+          "status": "in_progress",
           "acceptance": ["返回事件状态和榜单revision", "重复请求幂等"],
           "verification": [],
           "commit": null
@@ -595,6 +631,12 @@
       "task": "2.2",
       "result": "confirmed preference memory implemented with tombstone lineage, sequence replay, and revision CAS conflict protection",
       "commit": "4edcfc59"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "2.3",
+      "result": "additive storage migration implemented with legacy read validation, atomic rollback, visible status, and profile filtering",
+      "commit": "2243697b"
     }
   ],
   "residual_risks": [
