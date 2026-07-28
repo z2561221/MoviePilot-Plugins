@@ -181,12 +181,18 @@ def test_all_ranking_surfaces_use_feedback_icons_and_three_labeled_actions():
     assert "PERMISSION_DENIED" in actions
     assert "const nativeMediaType = computed(() => props.item?.media_type === 'movie' ? '电影' : '电视剧')" in actions
     assert "media.media_id = sourceId" in actions
-    assert "if (result?.success === true || result?.code === 'PERMISSION_DENIED') return" in actions
+    assert "if (result?.success === true)" in actions
+    assert "emit('native-subscribe-opened', props.item?.candidate_id)" in actions
+    assert "if (result?.code === 'PERMISSION_DENIED') return" in actions
+    state = _read("useAgentRankState.js")
+    assert "'attribution/native-drawer-opened'" in state
+    assert "recordNativeDrawerOpened" in state
     assert "VDialog" not in actions
     for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
         component = _read(name)
         assert "RecommendationActions" in component
         assert "nativeSubscribe" in component
+        assert "native-subscribe-opened" in component
         assert "置信度" not in component
 
 

@@ -327,6 +327,17 @@ function useAgentRankState(api) {
     return result
   }
 
+  async function recordNativeDrawerOpened(candidateId) {
+    const result = await runAction(
+      'attribution/native-drawer-opened',
+      { profile_id: selectedProfileId.value, candidate_id: candidateId },
+      '记录原生订阅交互',
+      `attribution:native:${candidateId}`,
+    );
+    await loadProfileData(selectedProfileId.value, { force: true });
+    return result
+  }
+
   return {
     options,
     identities,
@@ -354,6 +365,7 @@ function useAgentRankState(api) {
     clearProfile,
     updateProfileTag,
     subscribe,
+    recordNativeDrawerOpened,
   }
 }
 
@@ -375,7 +387,7 @@ const _sfc_main = {
   size: { type: String, default: 'x-small' },
   nativeSubscribe: { type: Function, default: null },
 },
-  emits: ['subscribe', 'archive', 'like', 'dislike'],
+  emits: ['subscribe', 'archive', 'like', 'dislike', 'native-subscribe-opened'],
   setup(__props, { emit: __emit }) {
 
 const props = __props;
@@ -493,7 +505,11 @@ async function handleSubscribe() {
   nativeSubscribePending.value = true;
   try {
     const result = await callback(nativeMedia.value);
-    if (result?.success === true || result?.code === 'PERMISSION_DENIED') return
+    if (result?.success === true) {
+      emit('native-subscribe-opened', props.item?.candidate_id);
+      return
+    }
+    if (result?.code === 'PERMISSION_DENIED') return
     emit('subscribe', props.item?.candidate_id);
   } catch (_) {
     emit('subscribe', props.item?.candidate_id);
@@ -633,6 +649,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3299555b"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ac43e58b"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };

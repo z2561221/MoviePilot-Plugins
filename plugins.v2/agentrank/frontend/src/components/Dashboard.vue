@@ -114,6 +114,7 @@ onMounted(initialize)
               @like="candidateId => runItemAction(() => state.reactToRecommendation('like', candidateId), '已记录喜欢')"
               @dislike="candidateId => runItemAction(() => state.reactToRecommendation('dislike', candidateId), '已记录不喜欢')"
               @subscribe="candidateId => runItemAction(() => state.subscribe(candidateId), '订阅操作已完成')"
+              @native-subscribe-opened="candidateId => runItemAction(() => state.recordNativeDrawerOpened(candidateId), '已打开订阅设置')"
               @archive="candidateId => runItemAction(() => state.archive(candidateId), '已忽略推荐')"
             />
           </div>

@@ -325,6 +325,17 @@ export function useAgentRankState(api) {
     return result
   }
 
+  async function recordNativeDrawerOpened(candidateId) {
+    const result = await runAction(
+      'attribution/native-drawer-opened',
+      { profile_id: selectedProfileId.value, candidate_id: candidateId },
+      '记录原生订阅交互',
+      `attribution:native:${candidateId}`,
+    )
+    await loadProfileData(selectedProfileId.value, { force: true })
+    return result
+  }
+
   return {
     options,
     identities,
@@ -352,5 +363,6 @@ export function useAgentRankState(api) {
     clearProfile,
     updateProfileTag,
     subscribe,
+    recordNativeDrawerOpened,
   }
 }

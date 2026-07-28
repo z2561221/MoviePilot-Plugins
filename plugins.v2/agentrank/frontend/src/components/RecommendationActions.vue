@@ -7,7 +7,7 @@ const props = defineProps({
   size: { type: String, default: 'x-small' },
   nativeSubscribe: { type: Function, default: null },
 })
-const emit = defineEmits(['subscribe', 'archive', 'like', 'dislike'])
+const emit = defineEmits(['subscribe', 'archive', 'like', 'dislike', 'native-subscribe-opened'])
 
 const injectedNativeSubscribe = inject('moviepilot:nativeSubscribe', null)
 const nativeSubscribePending = ref(false)
@@ -121,7 +121,11 @@ async function handleSubscribe() {
   nativeSubscribePending.value = true
   try {
     const result = await callback(nativeMedia.value)
-    if (result?.success === true || result?.code === 'PERMISSION_DENIED') return
+    if (result?.success === true) {
+      emit('native-subscribe-opened', props.item?.candidate_id)
+      return
+    }
+    if (result?.code === 'PERMISSION_DENIED') return
     emit('subscribe', props.item?.candidate_id)
   } catch (_) {
     emit('subscribe', props.item?.candidate_id)

@@ -33,6 +33,7 @@ from ..model.memory import (
     PreferenceMemory,
     PreferenceMemoryItem,
 )
+from ..model.outcome import OutcomeAttribution
 from ..model.profile import UserProfile
 from ..model.profile_preferences import ProfilePreferences
 from ..model.playback import PlaybackSnapshot
@@ -491,6 +492,63 @@ class AgentRankRepository:
                 target, strict=True
             )
             return max(0, before - len(retained_messages) - len(retained_commands))
+
+    def load_outcome_attributions(
+        self, profile_id: str, *, strict: bool = False
+    ) -> List[OutcomeAttribution]:
+        """读取 profile 隔离的结果归因；严格模式拒绝覆盖损坏数据。"""
+        target = str(profile_id or "").strip()
+        key = self._learning_key("attribution", target)
+        raw = self._plugin.get_data(key=key)
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            self._record_recovery(
+                key, "ignored_corrupt_data", "outcome attribution must be a list"
+            )
+            if strict:
+                raise ValueError("outcome attribution data is corrupt")
+            return []
+        records: List[OutcomeAttribution] = []
+        for value in raw:
+            try:
+                record = OutcomeAttribution.from_dict(value)
+                if record.profile_id != target:
+                    raise ValueError("outcome attribution profile_id mismatch")
+            except (TypeError, ValueError, KeyError) as error:
+                self._record_recovery(key, "ignored_corrupt_item", str(error))
+                if strict:
+                    raise ValueError("outcome attribution item is corrupt") from error
+                continue
+            records.append(record)
+        return records
+
+    def save_outcome_attributions(
+        self,
+        profile_id: str,
+        records: Iterable[OutcomeAttribution],
+        *,
+        limit: int = 500,
+    ) -> None:
+        """原子保存有界归因列表并拒绝重复 ID 或跨 profile 数据。"""
+        target = str(profile_id or "").strip()
+        values = list(records or ())
+        if any(
+            not isinstance(item, OutcomeAttribution) or item.profile_id != target
+            for item in values
+        ):
+            raise ValueError("outcome attribution profile scope mismatch")
+        attribution_ids = [item.attribution_id for item in values]
+        if len(set(attribution_ids)) != len(attribution_ids):
+            raise ValueError("outcome attribution ids must be unique")
+        keep_limit = max(1, min(int(limit), 100000))
+        retained = values[-keep_limit:]
+        key = self._learning_key("attribution", target)
+        self._atomic_raw_update(
+            updates={key: [item.to_dict() for item in retained]},
+            recovery_key=key,
+            action="outcome_attribution_save_failed",
+        )
 
     def save_playback_snapshot(self, snapshot: PlaybackSnapshot) -> None:
         """保存按用户隔离的播放画像快照。"""

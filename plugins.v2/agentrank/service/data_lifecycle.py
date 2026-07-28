@@ -291,6 +291,7 @@ class DataLifecycleService:
         conversation_messages, conversation_commands = (
             repository.load_conversation_records(target)
         )
+        outcome_attributions = repository.load_outcome_attributions(target)
         snapshot_refs = repository.candidate_snapshot_references(target)
 
         profile_data = None
@@ -709,6 +710,35 @@ class DataLifecycleService:
                 "last_event_sequence": memory.last_event_sequence,
                 "items": memory_data,
             },
+            "outcome_attributions": [
+                {
+                    "attribution_id": _safe_scalar(item.attribution_id),
+                    "run_id": _safe_scalar(item.run_id),
+                    "candidate_id": _safe_scalar(item.candidate_id),
+                    "title": _redact_text(item.title),
+                    "media_type": _redact_text(item.media_type),
+                    "state": _redact_text(item.state),
+                    "native_drawer_opened_at": _redact_text(
+                        item.native_drawer_opened_at
+                    ),
+                    "subscription_observed_at": _redact_text(
+                        item.subscription_observed_at
+                    ),
+                    "library_observed_at": _redact_text(
+                        item.library_observed_at
+                    ),
+                    "playback_observed_at": _redact_text(
+                        item.playback_observed_at
+                    ),
+                    "verification_status": _redact_text(
+                        item.verification_status
+                    ),
+                    "verification_code": _redact_text(item.verification_code),
+                    "last_checked_at": _redact_text(item.last_checked_at),
+                    "revision": item.revision,
+                }
+                for item in outcome_attributions
+            ],
             "policy_snapshot": (
                 policy_snapshot.to_dict() if policy_snapshot is not None else None
             ),

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions--u-FdTxY.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-92wWLelO.js';
 import Config from './__federation_expose_Config-BXD4EyYM.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
@@ -188,6 +188,15 @@ async function archiveItem(candidateId) {
     snackbar.value = { show: true, message: result?.message || '已忽略该推荐', color: 'success', undo: true };
   } catch (err) {
     snackbar.value = { show: true, message: err?.message || '忽略失败', color: 'error', undo: false };
+  }
+}
+
+async function recordNativeDrawerOpened(candidateId) {
+  try {
+    await state.recordNativeDrawerOpened(candidateId);
+    snackbar.value = { show: true, message: '已打开订阅设置', color: 'success', undo: false };
+  } catch (err) {
+    snackbar.value = { show: true, message: err?.message || '订阅交互记录失败', color: 'error', undo: false };
   }
 }
 
@@ -502,6 +511,7 @@ return (_ctx, _cache) => {
                                     onLike: _cache[1] || (_cache[1] = candidateId => feedbackItem('like', candidateId)),
                                     onDislike: _cache[2] || (_cache[2] = candidateId => feedbackItem('dislike', candidateId)),
                                     onSubscribe: subscribeItem,
+                                    onNativeSubscribeOpened: recordNativeDrawerOpened,
                                     onArchive: archiveItem
                                   }, null, 8, ["item", "loading-action", "native-subscribe"])
                                 ])
@@ -564,6 +574,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ee43080a"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-337d8537"]]);
 
 export { AppPage as default };

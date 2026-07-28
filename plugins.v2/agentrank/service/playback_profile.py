@@ -1,5 +1,6 @@
 """播放画像数据源优先级、降级与快照服务。"""
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
 
@@ -8,13 +9,39 @@ from ..model.identity import EmbyIdentity
 from ..model.playback import PlaybackCapability, PlaybackSnapshot
 
 
+logger = logging.getLogger(__name__)
+
+
 class PlaybackProfileService:
     """使用稳定 Emby identity 调度 Playback Reporting 与快照回退。"""
 
-    def __init__(self, repository: Any, reporting_adapter: Any):
+    def __init__(
+        self,
+        repository: Any,
+        reporting_adapter: Any,
+        attribution_service: Any = None,
+    ):
         """绑定快照仓库和 Playback Reporting 适配器。"""
         self._repository = repository
         self._reporting = reporting_adapter
+        self._attribution = attribution_service
+
+    def _verify_attribution(
+        self, profile_id: str, snapshot: PlaybackSnapshot
+    ) -> PlaybackSnapshot:
+        """用本轮播放快照触发归因复查，失败不改变播放采集结果。"""
+        if self._attribution is None:
+            return snapshot
+        try:
+            self._attribution.verify_profile(
+                profile_id, playback_snapshot=snapshot
+            )
+        except Exception:
+            logger.exception(
+                "AgentRank 播放同步后的结果归因复查失败 profile_id=%s",
+                profile_id,
+            )
+        return snapshot
 
     @staticmethod
     def _identity(profile_id: str, config: Mapping[str, Any]) -> EmbyIdentity:
@@ -72,7 +99,7 @@ class PlaybackProfileService:
                 message="播放画像已关闭",
             )
             self._repository.save_playback_snapshot(snapshot)
-            return snapshot
+            return self._verify_attribution(target, snapshot)
         options = {
             "recent_days": int(config.get("playback_recent_days") or 90),
             "completion_threshold": float(config.get("playback_completion_threshold") or 0.85),
@@ -95,6 +122,6 @@ class PlaybackProfileService:
             cached.status = "cached"
             cached.message = "Playback Reporting 暂时不可用，已使用最近成功快照"
             cached.fallback_from = ["playback_reporting:transient_error"]
-            return cached
+            return self._verify_attribution(target, cached)
         self._repository.save_playback_snapshot(result)
-        return result
+        return self._verify_attribution(target, result)

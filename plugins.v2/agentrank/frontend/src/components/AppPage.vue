@@ -144,6 +144,15 @@ async function archiveItem(candidateId) {
   }
 }
 
+async function recordNativeDrawerOpened(candidateId) {
+  try {
+    await state.recordNativeDrawerOpened(candidateId)
+    snackbar.value = { show: true, message: '已打开订阅设置', color: 'success', undo: false }
+  } catch (err) {
+    snackbar.value = { show: true, message: err?.message || '订阅交互记录失败', color: 'error', undo: false }
+  }
+}
+
 async function feedbackItem(kind, candidateId) {
   try {
     const result = await state.reactToRecommendation(kind, candidateId)
@@ -268,7 +277,7 @@ onMounted(initialize)
                 </div>
                 <div class="ar-app-page__item-actions">
                   <VChip size="x-small" color="primary" variant="tonal" class="ar-app-page__support">{{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
-                  <RecommendationActions :item="item" :loading-action="loading.action" :native-subscribe="nativeSubscribe" size="small" @like="candidateId => feedbackItem('like', candidateId)" @dislike="candidateId => feedbackItem('dislike', candidateId)" @subscribe="subscribeItem" @archive="archiveItem" />
+                  <RecommendationActions :item="item" :loading-action="loading.action" :native-subscribe="nativeSubscribe" size="small" @like="candidateId => feedbackItem('like', candidateId)" @dislike="candidateId => feedbackItem('dislike', candidateId)" @subscribe="subscribeItem" @native-subscribe-opened="recordNativeDrawerOpened" @archive="archiveItem" />
                 </div>
               </article>
             </div>

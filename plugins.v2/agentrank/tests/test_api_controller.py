@@ -258,6 +258,9 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/profile",
         "/refresh",
         "/playback/sync",
+        "/attribution",
+        "/attribution/native-drawer-opened",
+        "/attribution/verify",
         "/archive",
         "/feedback",
         "/analysis/comment",
@@ -334,6 +337,69 @@ def test_regular_user_is_limited_to_explicit_profile_mapping_for_reads_and_write
         )
     assert caught.value.status_code == 403
     assert caught.value.detail["error"]["code"] == "profile_forbidden"
+
+
+def test_attribution_routes_enforce_profile_access_before_read_or_mutation():
+    """归因读取、抽屉记录和主动复查都先执行显式 profile 授权。"""
+    plugin = FakePlugin()
+
+    class AttributionService:
+        """记录控制器实际委托的归因调用。"""
+
+        def __init__(self):
+            """创建空调用列表。"""
+            self.calls = []
+
+        def public_records(self, profile_id):
+            """返回一个安全状态。"""
+            self.calls.append(("list", profile_id))
+            return [{"state": "native_drawer_opened"}]
+
+        def record_native_drawer_opened(self, profile_id, candidate_id):
+            """返回抽屉打开记录。"""
+            self.calls.append(("opened", profile_id, candidate_id))
+            return SimpleNamespace(
+                to_public_dict=lambda: {
+                    "profile_id": profile_id,
+                    "candidate_id": candidate_id,
+                    "state": "native_drawer_opened",
+                }
+            )
+
+        def verify_profile(self, profile_id):
+            """返回一次空复查摘要。"""
+            self.calls.append(("verify", profile_id))
+            return SimpleNamespace(
+                to_dict=lambda: {"profile_id": profile_id, "checked": 0}
+            )
+
+    attribution = AttributionService()
+    plugin._attribution_service = attribution
+    controller = AgentRankApiController(plugin)
+    allowed = TokenPayload(sub=7, username="Alice", super_user=False)
+    forbidden = TokenPayload(sub=8, username="Alice", super_user=False)
+
+    assert controller.endpoint_attribution(HOME_PROFILE, allowed)["success"] is True
+    opened = controller.endpoint_native_drawer_opened(
+        {"profile_id": HOME_PROFILE, "candidate_id": "tmdb:movie:1"},
+        allowed,
+    )
+    assert opened["data"]["state"] == "native_drawer_opened"
+    assert controller.endpoint_verify_attribution(
+        {"profile_id": HOME_PROFILE}, allowed
+    )["success"] is True
+
+    with pytest.raises(fastapi_module.HTTPException) as caught:
+        controller.endpoint_native_drawer_opened(
+            {"profile_id": HOME_PROFILE, "candidate_id": "tmdb:movie:1"},
+            forbidden,
+        )
+    assert caught.value.status_code == 403
+    assert attribution.calls == [
+        ("list", HOME_PROFILE),
+        ("opened", HOME_PROFILE, "tmdb:movie:1"),
+        ("verify", HOME_PROFILE),
+    ]
 
 
 def test_conversation_endpoints_reuse_profile_access_and_pass_actor_privilege():

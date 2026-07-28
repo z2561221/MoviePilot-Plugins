@@ -148,6 +148,33 @@ def test_profile_service_passes_the_exact_configured_identity():
     assert result.username == "Alice"
 
 
+def test_profile_service_rechecks_outcomes_with_the_fresh_snapshot():
+    """播放采集成功后把同一 profile 的本轮快照交给归因复查。"""
+    repo = FakeRepository()
+    reporting = FakeAdapter(_ready())
+
+    class Attribution:
+        """记录播放服务触发的复查参数。"""
+
+        def __init__(self):
+            """创建空调用列表。"""
+            self.calls = []
+
+        def verify_profile(self, profile_id, playback_snapshot=None):
+            """记录 profile 与快照。"""
+            self.calls.append((profile_id, playback_snapshot))
+
+    attribution = Attribution()
+    service = PlaybackProfileService(
+        repo, reporting, attribution_service=attribution
+    )
+
+    result = service.collect(PROFILE_ID, _config())
+
+    assert attribution.calls == [(PROFILE_ID, result)]
+    assert attribution.calls[0][1].status == "ready"
+
+
 def test_profile_service_passes_selected_content_libraries_and_keeps_legacy_all():
     """新配置传入所选内容库，旧配置缺失字段时保持全库兼容。"""
     reporting = FakeAdapter(_ready())

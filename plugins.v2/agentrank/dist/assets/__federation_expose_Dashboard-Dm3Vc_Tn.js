@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions--u-FdTxY.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-92wWLelO.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
@@ -148,7 +148,7 @@ return (_ctx, _cache) => {
         ]),
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, { class: "text-subtitle-1 font-weight-bold" }, {
-            default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
+            default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
               _createTextVNode("Agent榜单中心 · 精选前5名", -1)
             ]))]),
             _: 1
@@ -243,7 +243,8 @@ return (_ctx, _cache) => {
                             onLike: _cache[0] || (_cache[0] = candidateId => runItemAction(() => _unref(state).reactToRecommendation('like', candidateId), '已记录喜欢')),
                             onDislike: _cache[1] || (_cache[1] = candidateId => runItemAction(() => _unref(state).reactToRecommendation('dislike', candidateId), '已记录不喜欢')),
                             onSubscribe: _cache[2] || (_cache[2] = candidateId => runItemAction(() => _unref(state).subscribe(candidateId), '订阅操作已完成')),
-                            onArchive: _cache[3] || (_cache[3] = candidateId => runItemAction(() => _unref(state).archive(candidateId), '已忽略推荐'))
+                            onNativeSubscribeOpened: _cache[3] || (_cache[3] = candidateId => runItemAction(() => _unref(state).recordNativeDrawerOpened(candidateId), '已打开订阅设置')),
+                            onArchive: _cache[4] || (_cache[4] = candidateId => runItemAction(() => _unref(state).archive(candidateId), '已忽略推荐'))
                           }, null, 8, ["item", "loading-action", "native-subscribe"])
                         ])
                       ]))
@@ -272,7 +273,7 @@ return (_ctx, _cache) => {
             "prepend-icon": "mdi-open-in-new",
             onClick: openFullBoard
           }, {
-            default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
+            default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
               _createTextVNode("完整榜单", -1)
             ]))]),
             _: 1
@@ -282,7 +283,7 @@ return (_ctx, _cache) => {
       }),
       _createVNode(_component_VSnackbar, {
         modelValue: snackbar.value.show,
-        "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((snackbar.value.show) = $event)),
+        "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((snackbar.value.show) = $event)),
         color: snackbar.value.color,
         timeout: "4000"
       }, {
@@ -298,6 +299,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-24744417"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-94f8748b"]]);
 
 export { Dashboard as default };

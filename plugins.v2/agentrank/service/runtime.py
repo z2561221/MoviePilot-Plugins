@@ -31,6 +31,8 @@ class AgentRankRuntime:
         conversation_service: Any = None,
         pending_center_service: Any = None,
         reminder_trigger_factory: Callable[[], Any] = None,
+        attribution_service: Any = None,
+        attribution_trigger_factory: Callable[[], Any] = None,
     ):
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
@@ -43,6 +45,12 @@ class AgentRankRuntime:
         self._reminder_trigger_factory = (
             reminder_trigger_factory or self._default_reminder_trigger_factory
         )
+        self._attribution_trigger_factory = (
+            attribution_trigger_factory or self._default_attribution_trigger_factory
+        )
+        attribution_service = attribution_service or getattr(
+            plugin, "_attribution_service", None
+        )
         if orchestrator is None:
             from .notification import NotificationService
             from .subscription import SubscriptionService
@@ -52,6 +60,7 @@ class AgentRankRuntime:
             subscription_service = subscription_service or SubscriptionService(
                 plugin._repository,
                 subscription_adapter=SubscriptionAdapter(),
+                attribution_service=attribution_service,
             )
             interaction_service = interaction_service or TelegramSelectionService(
                 plugin=plugin,
@@ -65,6 +74,8 @@ class AgentRankRuntime:
         self.subscription_service = subscription_service
         self.notification_service = notification_service
         self.interaction_service = interaction_service
+        self.attribution_service = attribution_service
+        plugin._attribution_service = attribution_service
         repository = getattr(plugin, "_repository", None)
         if (
             feedback_handler is None
@@ -194,6 +205,7 @@ class AgentRankRuntime:
             PosterImageService,
         )
         from .playback_profile import PlaybackProfileService
+        from .attribution import OutcomeAttributionService
         from .recommendation import RecommendationOrchestrator
         from .storage_migration import AgentRankStorageMigrationService
 
@@ -207,15 +219,24 @@ class AgentRankRuntime:
         )
         plugin._repository = repository
         plugin._poster_service = PosterImageService()
+        subscription_adapter = SubscriptionAdapter()
+        library_adapter = LibraryAdapter()
+        attribution_service = OutcomeAttributionService(
+            repository,
+            subscription_adapter=subscription_adapter,
+            library_adapter=library_adapter,
+            record_limit=int(config.get("attribution_record_limit") or 500),
+        )
+        plugin._attribution_service = attribution_service
         playback_access = EmbyServiceAccess()
         plugin._emby_access = playback_access
         playback_service = PlaybackProfileService(
             repository=repository,
             reporting_adapter=PlaybackReportingAdapter(playback_access),
+            attribution_service=attribution_service,
         )
         plugin._playback_service = playback_service
         media_adapter = MediaRecognitionAdapter()
-        library_adapter = LibraryAdapter()
         profile_ids = [
             identity.profile_id for identity in configured_identities(config)
         ]
@@ -258,7 +279,7 @@ class AgentRankRuntime:
                 repository,
                 media_adapter,
                 library_adapter=library_adapter,
-                subscription_adapter=SubscriptionAdapter(),
+                subscription_adapter=subscription_adapter,
             ),
             agent_adapter=AgentRankAgentAdapter(),
             playback_service=playback_service,
@@ -289,6 +310,13 @@ class AgentRankRuntime:
         from apscheduler.triggers.interval import IntervalTrigger
 
         return IntervalTrigger(minutes=5)
+
+    @staticmethod
+    def _default_attribution_trigger_factory() -> Any:
+        """创建每十分钟复查一次结果归因的稳定触发器。"""
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        return IntervalTrigger(minutes=10)
 
     def _config_errors(self) -> List[str]:
         """返回可原地追加的配置错误列表。"""
@@ -357,6 +385,24 @@ class AgentRankRuntime:
                         "name": "Agent榜单中心待确认提醒",
                         "trigger": reminder_trigger,
                         "func": self.send_pending_reminders,
+                        "kwargs": {},
+                    }
+                )
+        if self.attribution_service is not None:
+            try:
+                attribution_trigger = self._attribution_trigger_factory()
+            except Exception as error:
+                message = f"outcome attribution trigger invalid: {error}"
+                errors = self._config_errors()
+                if message not in errors:
+                    errors.append(message)
+            else:
+                services.append(
+                    {
+                        "id": "AgentRank.OutcomeAttribution",
+                        "name": "Agent榜单中心结果归因复查",
+                        "trigger": attribution_trigger,
+                        "func": self.verify_outcomes,
                         "kwargs": {},
                     }
                 )
@@ -568,6 +614,35 @@ class AgentRankRuntime:
                             "interactive": False,
                         }
                     )
+        return results
+
+    def verify_outcomes(self) -> List[Dict[str, Any]]:
+        """复查全部配置画像的订阅、入库和播放归因。"""
+        if (
+            self._stopped
+            or not self.config.get("enabled")
+            or self.attribution_service is None
+        ):
+            return []
+        results: List[Dict[str, Any]] = []
+        for identity in configured_identities(self.config):
+            try:
+                result = self.attribution_service.verify_profile(identity.profile_id)
+                results.append(result.to_dict())
+            except Exception:
+                logger.exception(
+                    "AgentRank 结果归因复查失败 profile_id=%s",
+                    identity.profile_id,
+                )
+                results.append(
+                    {
+                        "profile_id": identity.profile_id,
+                        "checked": 0,
+                        "advanced": 0,
+                        "pending": 0,
+                        "status": "verification_failed",
+                    }
+                )
         return results
 
     async def run_scheduled(self) -> List[Dict[str, Any]]:

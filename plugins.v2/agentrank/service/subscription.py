@@ -1,6 +1,6 @@
 """AgentRank 单项手动订阅安全服务。"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from ..model.candidate import Candidate, typed_tmdb_candidate_id
@@ -19,6 +19,8 @@ class ManualSubscriptionResult:
     code: str
     message: str
     subscription_id: Optional[int] = None
+    attribution: Dict[str, Any] = field(default_factory=dict)
+    attribution_error: str = ""
 
 
 @dataclass
@@ -41,6 +43,7 @@ class SubscriptionService:
         media_factory: Callable[..., Any] = None,
         media_type_factory: Callable[[str], Any] = None,
         subscription_adapter: Any = None,
+        attribution_service: Any = None,
     ):
         """允许测试注入宿主订阅链和媒体类型工厂。"""
         use_default_chain = subscribe_chain is None
@@ -49,6 +52,7 @@ class SubscriptionService:
         self._media_factory = media_factory or self._default_media_factory()
         self._media_type_factory = media_type_factory or self._default_media_type
         self._subscription_adapter = subscription_adapter
+        self._attribution_service = attribution_service
         if self._subscription_adapter is None and use_default_chain:
             self._subscription_adapter = self._default_subscription_adapter()
 
@@ -152,6 +156,38 @@ class SubscriptionService:
         """构造未改变状态的失败结果。"""
         return ManualSubscriptionResult(False, False, code, message)
 
+    def _success(
+        self,
+        *,
+        profile_id: str,
+        candidate: Candidate,
+        changed: bool,
+        code: str,
+        message: str,
+        subscription_id: Optional[int] = None,
+        source: str,
+    ) -> ManualSubscriptionResult:
+        """构造成功结果并尽力记录受控订阅证据，不掩盖既成副作用。"""
+        result = ManualSubscriptionResult(
+            True,
+            changed,
+            code,
+            message,
+            subscription_id,
+        )
+        if self._attribution_service is None:
+            return result
+        try:
+            attribution = self._attribution_service.record_subscription_observed(
+                profile_id,
+                candidate.candidate_id,
+                source=source,
+            )
+            result.attribution = attribution.to_public_dict()
+        except Exception:
+            result.attribution_error = "attribution_record_failed"
+        return result
+
     def subscribe(
         self, profile_id: str, candidate_id: str, confidence_threshold: float
     ) -> ManualSubscriptionResult:
@@ -197,8 +233,13 @@ class SubscriptionService:
             return self._failure("candidate_unrecognizable", "候选缺少可识别媒体 ID")
         try:
             if self._globally_subscribed(candidate):
-                return ManualSubscriptionResult(
-                    True, False, "already_subscribed", "订阅已存在"
+                return self._success(
+                    profile_id=profile_id,
+                    candidate=candidate,
+                    changed=False,
+                    code="already_subscribed",
+                    message="订阅已存在",
+                    source="moviepilot_subscription_recheck",
                 )
         except Exception:
             return self._failure(
@@ -215,8 +256,13 @@ class SubscriptionService:
             bangumi_id=identifiers.get("bangumiid"),
         )
         if self._subscribe_chain.exists(media):
-            return ManualSubscriptionResult(
-                True, False, "already_subscribed", "订阅已存在"
+            return self._success(
+                profile_id=profile_id,
+                candidate=candidate,
+                changed=False,
+                code="already_subscribed",
+                message="订阅已存在",
+                source="subscribe_chain_existing",
             )
         subscription_id, message = self._subscribe_chain.add(
             title=candidate.title,
@@ -234,12 +280,14 @@ class SubscriptionService:
                 "subscription_failed",
                 str(message or "订阅创建失败"),
             )
-        return ManualSubscriptionResult(
-            True,
-            True,
-            "subscription_created",
-            str(message or "订阅创建成功"),
-            int(subscription_id),
+        return self._success(
+            profile_id=profile_id,
+            candidate=candidate,
+            changed=True,
+            code="subscription_created",
+            message=str(message or "订阅创建成功"),
+            subscription_id=int(subscription_id),
+            source="plugin_controlled_subscription",
         )
 
     def subscribe_top_n(

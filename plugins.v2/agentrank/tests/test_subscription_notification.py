@@ -729,3 +729,47 @@ def test_runtime_registers_and_sends_atomic_pending_reminders():
     ]
     assert notification.calls == [("Alice", notice, True)]
     assert runtime.send_pending_reminders() == []
+
+
+def test_runtime_registers_periodic_outcome_recheck_for_each_profile():
+    """运行时每十分钟为全部配置画像执行一次可信结果复查。"""
+    plugin = FakePlugin()
+
+    class Attribution:
+        """记录归因复查画像。"""
+
+        def __init__(self):
+            """创建空调用列表。"""
+            self.calls = []
+
+        def verify_profile(self, profile_id):
+            """返回可序列化复查摘要。"""
+            self.calls.append(profile_id)
+            return SimpleNamespace(
+                to_dict=lambda: {
+                    "profile_id": profile_id,
+                    "checked": 1,
+                    "advanced": 0,
+                    "pending": 0,
+                }
+            )
+
+    attribution = Attribution()
+    runtime = AgentRankRuntime(
+        plugin,
+        {"enabled": True, **IDENTITY_CONFIG},
+        orchestrator=SimpleNamespace(),
+        attribution_service=attribution,
+        attribution_trigger_factory=lambda: "every-ten-minutes",
+    )
+
+    service = next(
+        item
+        for item in runtime.get_services()
+        if item["id"] == "AgentRank.OutcomeAttribution"
+    )
+    results = service["func"]()
+
+    assert service["trigger"] == "every-ten-minutes"
+    assert attribution.calls == [PROFILE_ID]
+    assert results[0]["profile_id"] == PROFILE_ID

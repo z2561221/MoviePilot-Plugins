@@ -371,6 +371,18 @@ class AgentRankApiController:
         self.plugin._pending_center = service
         return service
 
+    def _attribution_service(self) -> Any:
+        """返回运行时结果归因服务，未就绪时显式失败。"""
+        service = getattr(self.plugin, "_attribution_service", None)
+        if service is None:
+            runtime = getattr(self.plugin, "_runtime", None)
+            service = getattr(runtime, "attribution_service", None)
+        if service is None:
+            raise ApiContractError(
+                503, "attribution_unavailable", "结果归因服务尚未就绪"
+            )
+        return service
+
     def _board_data(self, board: Any) -> Dict[str, Any]:
         """返回带最新反馈极性且海报已收敛为轻量 URL 的榜单响应。"""
         value = board.to_dict()
@@ -379,6 +391,17 @@ class AgentRankApiController:
         )
         for item in value.get("recommendations") or []:
             item["feedback_kind"] = polarity.get(str(item.get("candidate_id") or ""), "")
+        attribution_service = getattr(self.plugin, "_attribution_service", None)
+        if attribution_service is not None:
+            attributions = {
+                item.candidate_id: item.to_public_dict()
+                for item in attribution_service.list_records(board.profile_id)
+                if item.run_id == board.run_id
+            }
+            for item in value.get("recommendations") or []:
+                item["outcome_attribution"] = attributions.get(
+                    str(item.get("candidate_id") or "")
+                )
         service = getattr(self.plugin, "_poster_service", None)
         return service.enrich_board(value) if service is not None else value
 
@@ -1031,6 +1054,58 @@ class AgentRankApiController:
             raise ApiContractError(409, result.code, result.message)
         return self._success(result.__dict__)
 
+    def attribution(self, profile_id: Any) -> Dict[str, Any]:
+        """返回指定 profile 的安全结果归因记录。"""
+        target = self._profile_id(profile_id)
+        try:
+            records = self._attribution_service().public_records(target)
+        except ApiContractError:
+            raise
+        except Exception as error:
+            raise ApiContractError(
+                500, "attribution_read_failed", "结果归因读取失败"
+            ) from error
+        return self._success({"profile_id": target, "records": records})
+
+    def record_native_drawer_opened(self, payload: Any) -> Dict[str, Any]:
+        """仅记录原生订阅抽屉已打开，不把返回值解释为订阅成功。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        candidate_id = self._candidate_id(body)
+        try:
+            record = self._attribution_service().record_native_drawer_opened(
+                target, candidate_id
+            )
+        except ApiContractError:
+            raise
+        except ValueError as error:
+            raise ApiContractError(
+                409,
+                "attribution_candidate_unavailable",
+                "当前推荐已变化，请刷新榜单后重试",
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "attribution_record_failed", "原生订阅交互记录失败"
+            ) from error
+        return self._success(record.to_public_dict())
+
+    def verify_attribution(self, payload: Any) -> Dict[str, Any]:
+        """立即复查指定 profile 的订阅、入库和播放事实。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        try:
+            result = self._attribution_service().verify_profile(target)
+        except ApiContractError:
+            raise
+        except Exception as error:
+            raise ApiContractError(
+                500,
+                "attribution_verification_failed",
+                "结果归因暂时无法复查，已保留上次可信状态",
+            ) from error
+        return self._success(result.to_dict())
+
     def _endpoint(self, method: Any, *args: Any) -> Any:
         """把纯控制器错误转换为 FastAPI HTTPException。"""
         try:
@@ -1294,6 +1369,33 @@ class AgentRankApiController:
         self._endpoint(self._authorize_payload_profile, token_payload, payload)
         return self._endpoint(self.update_profile_tag, payload)
 
+    def endpoint_attribution(
+        self,
+        profile_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 结果归因读取入口。"""
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.attribution, target)
+
+    def endpoint_native_drawer_opened(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 原生订阅抽屉打开记录入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        return self._endpoint(self.record_native_drawer_opened, payload)
+
+    def endpoint_verify_attribution(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 结果归因主动复查入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        return self._endpoint(self.verify_attribution, payload)
+
     def endpoint_subscribe(
         self,
         payload: dict,
@@ -1316,6 +1418,19 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
         ("/profile", controller.endpoint_profile, ["GET"], "获取用户画像"),
         ("/refresh", controller.endpoint_refresh, ["POST"], "刷新推荐榜单"),
         ("/playback/sync", controller.endpoint_playback_sync, ["POST"], "同步播放画像"),
+        ("/attribution", controller.endpoint_attribution, ["GET"], "获取结果归因"),
+        (
+            "/attribution/native-drawer-opened",
+            controller.endpoint_native_drawer_opened,
+            ["POST"],
+            "记录原生订阅抽屉已打开",
+        ),
+        (
+            "/attribution/verify",
+            controller.endpoint_verify_attribution,
+            ["POST"],
+            "复查订阅入库播放结果",
+        ),
         ("/archive", controller.endpoint_archive, ["POST"], "忽略推荐"),
         ("/feedback", controller.endpoint_feedback, ["POST"], "记录三态反馈"),
         (
