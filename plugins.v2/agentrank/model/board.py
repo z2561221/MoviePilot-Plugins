@@ -43,6 +43,12 @@ class RecommendationItem:
         """返回新策略生成的确定性支持度；旧置信度不作为回退。"""
         return self.support.percentage if self.support is not None else None
 
+    def to_dict(self) -> Dict[str, Any]:
+        """返回可经宿主 JSON 存储无损往返的推荐字典。"""
+        value = asdict(self)
+        value["support"] = self.support.to_dict() if self.support is not None else None
+        return value
+
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RecommendationItem":
         """从持久化字典恢复推荐条目。"""
@@ -122,7 +128,18 @@ class RecommendationBoard:
 
     def to_dict(self) -> Dict[str, Any]:
         """返回可持久化字典。"""
-        return asdict(self)
+        return {
+            "profile_id": self.profile_id,
+            "run_id": self.run_id,
+            "username": self.username,
+            "status": self.status,
+            "recommendations": [item.to_dict() for item in self.recommendations],
+            "generated_at": self.generated_at,
+            "message": self.message,
+            "previous_run_id": self.previous_run_id,
+            "revision": self.revision,
+            "schema_version": self.schema_version,
+        }
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RecommendationBoard":

@@ -69,6 +69,17 @@ class FakePlugin:
         self.data.pop(key, None)
 
 
+class JsonRoundTripPlugin(FakePlugin):
+    """模拟 MoviePilot 插件数据层的 JSON 序列化往返。"""
+
+    def save_data(self, key=None, value=None):
+        """通过 JSON 往返后保存，暴露 tuple 与 list 的宿主差异。"""
+        if key == self.fail_once_on_key and not self.failed:
+            self.failed = True
+            raise RuntimeError("injected analysis save failure")
+        self.data[key] = json.loads(json.dumps(value, ensure_ascii=False))
+
+
 def _policy():
     """构造固定时钟下的空证据策略。"""
     playback = PlaybackSnapshot(
@@ -205,6 +216,33 @@ def test_board_and_recommendation_analysis_round_trip_atomically():
         "思维链",
     ):
         assert forbidden not in serialized
+
+
+def test_board_atomic_readback_matches_moviepilot_json_storage():
+    """支持度证据必须在 MoviePilot JSON 往返后保持原始字典完全相等。"""
+    plugin = JsonRoundTripPlugin()
+    repository = AgentRankRepository(plugin)
+    policy = _policy()
+    item = _item(policy.policy_version)
+    analysis = RecommendationAnalysisBuilder(now_factory=lambda: NOW).build(
+        PROFILE_ID,
+        "run-json",
+        item,
+        policy,
+        "e" * 64,
+    )
+    item.analysis_id = analysis.analysis_id
+    board = RecommendationBoard(
+        profile_id=PROFILE_ID,
+        run_id="run-json",
+        recommendations=[item],
+    )
+
+    repository.save_board_with_recommendation_analyses(board, [analysis])
+
+    board_key = repository._profile_key("recommendation_board", PROFILE_ID)
+    assert plugin.data[board_key] == board.to_dict()
+    assert repository.load_board(PROFILE_ID) == board
 
 
 def test_analysis_save_failure_restores_previous_board_and_records():
