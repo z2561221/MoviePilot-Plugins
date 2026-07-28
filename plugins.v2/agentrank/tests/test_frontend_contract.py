@@ -391,15 +391,18 @@ def test_ranking_copy_wraps_fully_without_toggle_controls():
     assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in app_page
 
 
-def test_mobile_detail_tabs_scroll_without_arrow_controls():
-    """详情页移动端使用下载中心同款横向导航且不显示左右箭头。"""
+def test_mobile_detail_tabs_wrap_without_arrow_or_collapse_controls():
+    """详情页使用下载中心同款导航层级，并在移动端完整换行。"""
     page = _read("Page.vue")
     assert '<nav class="ar-page__tabs"' in page
     assert "show-arrows" not in page
-    assert "overflow-x: auto" in page
-    assert "scroll-snap-type: x proximity" in page
     assert '<VList density="compact" nav class="ar-page__tab-list">' in page
     assert '<template #prepend><VIcon :icon="tab.icon"' in page
+    assert ".ar-page__tabs { min-height: 40px; overflow-x: hidden; }" in page
+    assert "width: 100%; min-width: 0; flex-wrap: wrap" in page
+    assert "flex: 1 1 calc(50% - 3px); min-width: 0" in page
+    assert "functionTabsExpanded" not in page
+    assert "toggleFunctionTabs" not in page
 
 
 def test_mobile_detail_hides_idle_runtime_and_wraps_copy_without_toggles():

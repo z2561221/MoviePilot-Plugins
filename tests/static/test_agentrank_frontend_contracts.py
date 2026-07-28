@@ -301,14 +301,19 @@ def test_page_has_four_management_tabs_editable_tags_and_backend_history_paging(
     assert "#error" in source
 
 
-def test_detail_mobile_navigation_matches_download_center_pattern():
-    """详情页移动端使用下载中心同款横向 Vuetify 导航结构。"""
+def test_detail_mobile_navigation_matches_download_center_and_wraps():
+    """详情页复用下载中心导航结构，并在移动端完整换行。"""
     source = PAGE.read_text(encoding="utf-8")
     assert '<VList density="compact" nav class="ar-page__tab-list">' in source
     assert 'rounded="lg"' in source
     assert ".ar-page__tab-list { display: flex; flex-wrap: nowrap" in source
     assert "min-width: max-content" in source
     assert "padding: 8px 12px !important" in source
+    assert ".ar-page__tabs { min-height: 40px; overflow-x: hidden; }" in source
+    assert "width: 100%; min-width: 0; flex-wrap: wrap" in source
+    assert "flex: 1 1 calc(50% - 3px); min-width: 0" in source
+    assert "functionTabsExpanded" not in source
+    assert "toggleFunctionTabs" not in source
 
 
 def test_page_mobile_runtime_and_copy_layout_stay_readable():

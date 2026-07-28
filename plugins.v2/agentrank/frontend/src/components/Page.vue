@@ -858,9 +858,9 @@ onMounted(initialize)
   .ar-page__stat { gap: 6px; padding-inline: 6px; }
   .ar-page__stat :deep(.v-icon) { display: none; }
   .ar-page__runtime-chip { justify-self: stretch; justify-content: center; margin: 2px 4px 0; }
-  .ar-page__tabs { min-height: 40px; scroll-snap-type: x proximity; }
-  .ar-page__tab-list { gap: 6px; padding: 8px 12px !important; }
-  .ar-page__tab { min-width: 96px; min-height: 40px; padding-inline: 10px; scroll-snap-align: start; }
+  .ar-page__tabs { min-height: 40px; overflow-x: hidden; }
+  .ar-page__tab-list { width: 100%; min-width: 0; flex-wrap: wrap; gap: 6px; padding: 8px 12px !important; }
+  .ar-page__tab { flex: 1 1 calc(50% - 3px); min-width: 0; min-height: 40px; padding-inline: 10px; }
   .ar-page__content { padding: 12px 10px; }
   .ar-page__section-head { min-height: 42px; }
   .ar-page__rank-item { grid-template-columns: 30px 54px minmax(0, 1fr); gap: 8px; padding: 9px; }
