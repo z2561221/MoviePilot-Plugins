@@ -219,7 +219,43 @@ def test_like_and_dislike_controls_are_shape_first_accessible_and_persistent():
     assert "run_id: currentBoard.run_id" in state
     assert "feedback_kind" in state
     assert "if (result?.board_changed)" in state
-    assert "await loadProfileData(selectedProfileId.value, { force: true })" in state
+    assert "await refreshProfileAfterMutation(targetProfile)" in state
+
+
+def test_shared_state_centralizes_new_agent_workflows_and_retryable_failures():
+    """评论、对话、待确认、归因和数据动作都进入同一可重试状态层。"""
+    state = _read("useAgentRankState.js")
+    for path in (
+        "analysis",
+        "analysis/comment",
+        "conversation/messages",
+        "conversation/messages/retry",
+        "conversation/commands/respond",
+        "pending/respond",
+        "attribution/verify",
+        "data/export",
+        "data/reset/learning",
+        "data/reset/full/prepare",
+        "data/reset/full",
+    ):
+        assert path in state
+    for marker in (
+        "function operationState(key)",
+        "async function runOperation(key, task, retry, settings = {})",
+        "async function retryOperation(key)",
+        "state.loading = true",
+        "state.error = err",
+        "state.retry = typeof retry === 'function' ? retry : null",
+        "const isCurrent = () => state.sequence === sequence",
+        "if (isCurrent() && selectedProfileId.value === targetProfile)",
+        "state.sequence += 1",
+        "board.value = emptyBoard(target, username)",
+        "history.value = []",
+        "watch(selectedProfileId, value => ensureSecondaryScope(value), { flush: 'sync' })",
+        "ensureSecondaryScope",
+    ):
+        assert marker in state
+    assert "catch(() => {})" not in state
     for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
         component = _read(name)
         assert "@like=" in component
@@ -238,7 +274,7 @@ def test_discovery_settings_open_embedded_config_and_use_core_save_api():
 
 
 def test_ranking_surfaces_cache_overview_by_stable_profile_id():
-    """榜单首屏按稳定 profile_id 聚合缓存并在过期后静默更新。"""
+    """榜单首屏按稳定 profile_id 聚合缓存，过期刷新失败可见且可重试。"""
     state = _read("useAgentRankState.js")
     page = _read("Page.vue")
     assert "const cacheByApi = new WeakMap()" in state
@@ -246,8 +282,9 @@ def test_ranking_surfaces_cache_overview_by_stable_profile_id():
     assert "getPluginApi(api, 'overview', { profile_id: profileId })" in state
     assert "getPluginApi(api, 'board'" not in state
     assert "getPluginApi(api, 'profile'" not in state
-    assert "loading.data = !cached" in state
-    assert "void fetchProfileData(profileId, entry)" in state
+    assert "{ legacyLoading: cached ? '' : 'data' }" in state
+    assert "void runOperation(" in state
+    assert "() => loadProfileData(profileId, { force: true })" in state
     assert "if (!initialized.value || !value || value === oldValue) return" in page
 
 

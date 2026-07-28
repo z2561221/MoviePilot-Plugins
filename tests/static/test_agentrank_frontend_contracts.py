@@ -42,6 +42,20 @@ def test_shared_state_owns_profile_id_selection_reads_and_actions():
         "run-history",
         "refresh",
         "feedback",
+        "analysis",
+        "analysis/comment",
+        "conversation",
+        "conversation/messages",
+        "conversation/messages/retry",
+        "conversation/commands/respond",
+        "pending",
+        "pending/respond",
+        "attribution",
+        "attribution/verify",
+        "data/export",
+        "data/reset/learning",
+        "data/reset/full/prepare",
+        "data/reset/full",
         "archive",
         "restore",
         "archive/delete",
@@ -52,12 +66,48 @@ def test_shared_state_owns_profile_id_selection_reads_and_actions():
         assert path in source
     assert "selectedProfileId" in source
     assert "identityOptions" in source
-    assert "profile_id: selectedProfileId.value" in source
+    assert "profile_id: targetProfile" in source
+    assert "const targetProfile = activeProfileScope()" in source
     assert "{ username:" not in source
     assert "loading" in source
     assert "error" in source
     assert "if (result?.board_changed)" in source
-    assert "await loadProfileData(selectedProfileId.value, { force: true })" in source
+    assert "await refreshProfileAfterMutation(targetProfile)" in source
+
+
+def test_shared_state_tracks_every_async_operation_with_visible_retry():
+    """共享状态层为读取与写入统一保留 loading、error 和 retry。"""
+    source = STATE.read_text(encoding="utf-8")
+    for marker in (
+        "const operations = reactive({})",
+        "function operationState(key)",
+        "async function runOperation(key, task, retry, settings = {})",
+        "async function retryOperation(key)",
+        "state.loading = true",
+        "state.error = err",
+        "state.retry = typeof retry === 'function' ? retry : null",
+        "const isCurrent = () => state.sequence === sequence",
+        "if (isCurrent() && selectedProfileId.value === targetProfile)",
+        "state.sequence += 1",
+        "board.value = emptyBoard(target, username)",
+        "history.value = []",
+        "watch(selectedProfileId, value => ensureSecondaryScope(value), { flush: 'sync' })",
+        "Promise.allSettled",
+        "ensureSecondaryScope",
+    ):
+        assert marker in source
+    assert "catch(() => {})" not in source
+    assert "catch(() => { })" not in source
+    for state_name in (
+        "analyses",
+        "activity",
+        "conversation",
+        "pendingCenter",
+        "attribution",
+        "exportedData",
+        "fullResetConfirmation",
+    ):
+        assert state_name in source
 
 
 def test_config_is_the_authoritative_complete_weight_write_surface():
@@ -156,7 +206,8 @@ def test_ranking_surfaces_and_preview_use_emby_identity_contracts_only():
     preview = PREVIEW.read_text(encoding="utf-8")
     assert "selectedProfileId" in state
     assert "profiles: new Map()" in state
-    assert "profile_id: selectedProfileId.value" in state
+    assert "profile_id: targetProfile" in state
+    assert "retryForProfile" in state
     assert "Emby 用户" in page and "state.selectedUsername.value" in page
     assert "Emby 用户" in app_page and "identityOptions" in app_page
     assert "default_profile_id" in dashboard

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-92wWLelO.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-BdKx8LEM.js';
 import Config from './__federation_expose_Config-BXD4EyYM.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 

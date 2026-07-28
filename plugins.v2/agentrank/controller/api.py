@@ -736,6 +736,59 @@ class AgentRankApiController:
         data["queue_job"] = queue_job.to_public_dict()
         return self._success(data)
 
+    def analysis(
+        self,
+        profile_id: Any,
+        candidate_id: Any,
+        analysis_id: Any,
+    ) -> Dict[str, Any]:
+        """返回当前榜单候选绑定的结构化分析，拒绝读取过期版本。"""
+        target = self._profile_id(profile_id)
+        candidate = str(candidate_id or "").strip()
+        requested_analysis = str(analysis_id or "").strip()
+        if not candidate or not requested_analysis:
+            raise ApiContractError(
+                422,
+                "analysis_identity_required",
+                "缺少推荐分析标识，请刷新榜单后重试",
+            )
+        board = self._repository().load_board(target)
+        if board is None:
+            raise ApiContractError(409, "board_unavailable", "当前没有可读取的推荐榜单")
+        item = next(
+            (
+                value
+                for value in board.recommendations
+                if value.candidate_id == candidate
+            ),
+            None,
+        )
+        if item is None or item.analysis_id != requested_analysis:
+            raise ApiContractError(
+                409,
+                "analysis_revision_conflict",
+                "推荐分析已更新，请刷新榜单后重试",
+            )
+        record = next(
+            (
+                value
+                for value in self._repository().load_recommendation_analyses(
+                    target, board.run_id
+                )
+                if value.analysis_id == requested_analysis
+                and value.candidate_id == candidate
+                and value.status == "active"
+            ),
+            None,
+        )
+        if record is None:
+            raise ApiContractError(
+                404,
+                "analysis_unavailable",
+                "当前推荐分析不可用，请刷新榜单后重试",
+            )
+        return self._success(record.to_dict())
+
     def conversation(self, profile_id: Any) -> Dict[str, Any]:
         """返回一个 profile 的专属影评师对话线程。"""
         target = self._profile_id(profile_id)
@@ -1257,6 +1310,17 @@ class AgentRankApiController:
         actor_id = self._endpoint(self._feedback_actor_id, token_payload)
         return self._endpoint(self.analysis_comment, payload, actor_id)
 
+    def endpoint_analysis(
+        self,
+        profile_id: str = "",
+        candidate_id: str = "",
+        analysis_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 当前结构化推荐分析读取入口。"""
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.analysis, target, candidate_id, analysis_id)
+
     def endpoint_conversation(
         self,
         profile_id: str = "",
@@ -1433,6 +1497,7 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
         ),
         ("/archive", controller.endpoint_archive, ["POST"], "忽略推荐"),
         ("/feedback", controller.endpoint_feedback, ["POST"], "记录三态反馈"),
+        ("/analysis", controller.endpoint_analysis, ["GET"], "获取当前结构化推荐分析"),
         (
             "/analysis/comment",
             controller.endpoint_analysis_comment,

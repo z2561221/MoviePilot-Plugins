@@ -263,6 +263,7 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/attribution/verify",
         "/archive",
         "/feedback",
+        "/analysis",
         "/analysis/comment",
         "/conversation",
         "/conversation/messages",
@@ -290,6 +291,64 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         ]
         assert len(token_parameters) == 1
         assert token_parameters[0].default.dependency is verify_token
+
+
+def test_current_analysis_read_is_profile_authorized_and_revision_bound():
+    """结构化分析只允许读取当前榜单绑定的活动版本。"""
+    plugin = FakePlugin()
+    item = RecommendationItem(
+        candidate_id="tmdb:1",
+        rank=1,
+        title="One",
+        analysis_id="analysis-1",
+    )
+    board = RecommendationBoard(
+        profile_id=HOME_PROFILE,
+        username="Alice",
+        run_id="run-analysis",
+        status="success",
+        recommendations=[item],
+    )
+    analysis = RecommendationAnalysis(
+        analysis_id="analysis-1",
+        profile_id=HOME_PROFILE,
+        candidate_id="tmdb:1",
+        run_id="run-analysis",
+        selection_source="agent",
+        summary="结构化简介",
+        reason="结构化推荐理由",
+        positive_evidence=[],
+        counter_evidence=[],
+        uncertainties=[],
+        data_sources=["policy_snapshot"],
+        support_percentage=75,
+        policy_version="policy-v1",
+        memory_revision=1,
+        persona_version="1.0",
+        skills_version="1.0",
+        prompt_fingerprint="a" * 64,
+        created_at="2026-07-28T12:00:00+00:00",
+    )
+    plugin._repository.save_board_with_recommendation_analyses(board, [analysis])
+    controller = AgentRankApiController(plugin)
+    owner = TokenPayload(sub=7, username="alice", super_user=False)
+
+    response = controller.endpoint_analysis(
+        HOME_PROFILE, "tmdb:1", "analysis-1", owner
+    )
+    assert response["data"]["analysis_id"] == "analysis-1"
+    assert response["data"]["reason"] == "结构化推荐理由"
+
+    with pytest.raises(HTTPException) as stale:
+        controller.endpoint_analysis(HOME_PROFILE, "tmdb:1", "analysis-old", owner)
+    assert stale.value.status_code == 409
+    assert stale.value.detail["error"]["code"] == "analysis_revision_conflict"
+
+    with pytest.raises(HTTPException) as forbidden:
+        controller.endpoint_analysis(
+            REMOTE_PROFILE, "tmdb:1", "analysis-1", owner
+        )
+    assert forbidden.value.status_code == 403
 
 
 def test_superuser_can_access_every_configured_profile_and_full_options():
