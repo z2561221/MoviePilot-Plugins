@@ -735,10 +735,19 @@
         {
           "id": "7.1",
           "title": "统一前端状态与错误恢复",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["新API集中于共享状态层", "loading error retry完整"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "GET /analysis is bearer protected, profile authorized, and bound to the current board candidate plus active analysis revision",
+            "the shared Vue state owns analysis, comments, feedback activity, critic conversation, pending confirmations, attribution, sanitized export, learning reset, and requester-bound full reset",
+            "every asynchronous operation exposes independent loading, error, retry, updatedAt, and monotonic sequence state without silent cache-refresh failures",
+            "same-key late responses cannot overwrite newer state; profile switches immediately clear old board, profile, history, secondary views, errors, loading, retry closures, and full-reset tokens",
+            "successful mutations remain successful when their follow-up refresh fails, while the refresh operation retains a visible retryable error",
+            "Task 7.1 static contracts: 26 passed; API controller regression: 28 passed; frontend source contracts: 42 passed",
+            "Node state runtime simulation: latest response wins, profile data clears on switch, and stale retry state remains invalidated",
+            "compileall and git diff check passed; Vue federation build completed with Vite 5.4.21 and 67 modules; remoteEntry asset graph closed"
+          ],
+          "commit": "7bba66af"
         },
         {
           "id": "7.2",
@@ -1026,6 +1035,12 @@
       "task": "6.5",
       "result": "each profile, ranking, and fallback Agent call now records sanitized provider, model, source, stage, attempt, duration, call count, and outcome; run-history summaries show provider and model first, expanded details retain call counts, and unresolved metadata is explicitly reported instead of guessed",
       "commit": "ffcfa037"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "7.1",
+      "result": "all new AgentRank reads and mutations now share explicit operation state, visible retry, latest-response guards, profile-bound retry closures, immediate cross-profile view clearing, and a current-board-only structured analysis endpoint without bare browser authentication",
+      "commit": "7bba66af"
     }
   ],
   "residual_risks": [
