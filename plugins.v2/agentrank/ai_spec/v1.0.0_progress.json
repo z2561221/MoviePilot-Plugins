@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-5",
-    "task": "5.4",
-    "next_allowed_action": "Execute task 5.4: generate a structured, correctable AgentAnalysis from verified evidence, counter-evidence, deterministic contributions, and versioned sources without exposing raw chain of thought"
+    "task": "5.5",
+    "next_allowed_action": "Execute task 5.5: enforce semantic summaries within 30 Chinese characters using complete sentences, one directed rewrite, and deterministic template restatement without hard string truncation"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -556,10 +556,23 @@
         {
           "id": "5.4",
           "title": "生成结构化Agent分析",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["包含证据反证贡献和来源", "不含隐藏提示工具过程token或原始思维链"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "RecommendationAnalysis stores verified positive evidence, counter evidence, deterministic contribution units, uncertainty, selection source, policy version, memory revision, persona and skill versions, and a SHA-256 prompt protocol fingerprint",
+            "analysis serialization and sanitized export omit prompt bodies, provider raw output, tool process, token values, hidden reasoning, and raw chain of thought",
+            "every newly generated board item receives an analysis_id and the board plus its complete visible analyses are saved atomically",
+            "dislike and ignore refills reuse the exact current policy, memory revision, frozen snapshot, prompt fingerprint, and deterministic support before generating safe_fallback analyses",
+            "legacy or corrupt boards without complete support and analysis context still allow safe removal but fail closed without forging fallback items or analyses",
+            "historical analyses remain bounded audit records for feedback events and archive restore; feedback automatically binds the server-side analysis_id and rejects forged analysis context",
+            "board, archive, and recommendation analysis updates roll back together when analysis persistence or feedback event persistence fails",
+            "focused structured analysis, feedback, orchestration, and API regression: 92 passed",
+            "AgentRank plugin suite: 552 passed",
+            "AgentRank static contracts: 25 passed; baseline smoke contracts: 53 passed",
+            "Vue federation build: passed with 67 modules transformed and remoteEntry.js present",
+            "compileall, Chinese docstring audit, progress JSON parse, placeholder scan, sensitive-field review, branch scope check, and git diff check: passed"
+          ],
+          "commit": "3dcf3d18"
         },
         {
           "id": "5.5",
@@ -893,6 +906,12 @@
       "task": "5.3",
       "result": "all Agent and safe fallback candidates now share one deterministic policy and stable ranking chain; feedback refill fails closed on missing or mismatched context, and run history exposes selection sources",
       "commit": "aadcdf8b"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "5.4",
+      "result": "every visible recommendation now links to a structured auditable analysis built from verified deterministic contributions; feedback refill preserves policy and prompt provenance, historical analyses remain referenceable, and all board archive analysis mutations roll back atomically without exposing raw reasoning",
+      "commit": "3dcf3d18"
     }
   ],
   "residual_risks": [
