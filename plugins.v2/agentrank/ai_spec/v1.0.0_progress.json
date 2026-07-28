@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-6",
-    "task": "6.2",
-    "next_allowed_action": "Execute task 6.2: implement the dedicated critic conversation service with minimized read-only context and confirmation-required write commands"
+    "task": "6.3",
+    "next_allowed_action": "Execute task 6.3: implement the unified pending center, answer and reminder options, and safe interactive notification summaries"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -639,10 +639,24 @@
         {
           "id": "6.2",
           "title": "实现专属影评师对话服务",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["只读上下文最小化", "全部写操作返回待确认命令"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "ConversationThread, ConversationMessage, and ConversationCommand enforce profile and thread scope, bounded text, strict status transitions, exact command payload schemas, and public views without actor or idempotency fields",
+            "the independent conversation Agent role uses its own private session and exactly six explicitly registered read-only tools for current conversation, bounded playback, current-board candidates, structured analyses, confirmed memory, and pending summaries",
+            "conversation prompt and parser separate read-only, write-request, and ambiguous outcomes; unknown fields, hidden reasoning fields, sensitive psychology inference, forged evidence references, overlong text, and out-of-board commands fail closed",
+            "user messages are idempotent; model or command-binding failure preserves one retryable draft and never leaves a permanent processing record",
+            "profile tags, global weights, ignore, subscribe, and learning reset are emitted only as pending commands; host code rebuilds previews and execution parameters before existing controlled services run",
+            "confirmation is actor-bound and idempotent, global weights require a superuser, newer same-target commands supersede older pending commands, and learning reset preserves only a minimal replay-safe receipt",
+            "conversation thread plus mixed message and command records save atomically, roll back on persistence failure, preserve failed drafts and pending commands during retention, and participate in learning reset",
+            "bearer API exposes read, send, retry, and command response routes with existing profile authorization; exported conversation data excludes raw model output, prompts, tool process, credentials, actor IDs, and idempotency keys",
+            "Task 6.2 focused conversation regression: 9 passed",
+            "AgentRank plugin suite: 588 passed",
+            "AgentRank static contracts: 25 passed",
+            "baseline smoke contracts: 53 passed",
+            "compileall, Chinese docstring contract, placeholder scan, sensitive-field review, branch scope check, and git diff check: passed"
+          ],
+          "commit": "4557bd95"
         },
         {
           "id": "6.3",
@@ -954,6 +968,12 @@
       "task": "6.1",
       "result": "analysis comments now bind to the current analysis, run through durable ordered understanding, create an auditable superseding revision or a pending clarification, and preserve deterministic support plus confirmed memory boundaries",
       "commit": "c0f7ea09"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "6.2",
+      "result": "the dedicated critic conversation now runs in an isolated read-only Agent role, persists retryable bounded threads, converts every supported write request into an actor-bound confirmation command, and delegates confirmed effects to existing controlled services with idempotent audit history",
+      "commit": "4557bd95"
     }
   ],
   "residual_risks": [
