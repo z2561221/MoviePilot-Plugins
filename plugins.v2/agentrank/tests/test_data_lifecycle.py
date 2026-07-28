@@ -307,6 +307,23 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
             "api_key": "supersecret",
             "endpoint": "http://private",
             "agent_model": "m",
+            "agent_provenance": [
+                {
+                    "role": "ranking",
+                    "stage": "ranking",
+                    "attempt": 1,
+                    "provider_id": "provider-safe",
+                    "selected_provider_name": "家庭配额",
+                    "provider": "openai",
+                    "model": "m",
+                    "source": "agent_tokens",
+                    "model_call_count": 2,
+                    "duration_ms": 1250,
+                    "status": "failed",
+                    "failure_reason": "token=call-secret https://private.invalid",
+                    "endpoint": "must-not-export",
+                }
+            ],
             "policy_version": "policy-v1-safe",
             "policy_memory_revision": 3,
             "policy_algorithm_version": 1,
@@ -331,6 +348,8 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
         "session-secret",
         "supersecret",
         "feedback-secret",
+        "call-secret",
+        "must-not-export",
         "192.168.1.2",
         "emby.local",
         "http://",
@@ -343,6 +362,12 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
     ):
         assert forbidden not in serialized
     assert exported["run_history"][0]["metrics"]["agent_model"] == "m"
+    [agent_call] = exported["run_history"][0]["metrics"]["agent_provenance"]
+    assert agent_call["provider"] == "openai"
+    assert agent_call["model"] == "m"
+    assert agent_call["duration_ms"] == 1250
+    assert agent_call["model_call_count"] == 2
+    assert "[已脱敏凭据]" in agent_call["failure_reason"]
     assert exported["run_history"][0]["metrics"]["policy_version"] == (
         "policy-v1-safe"
     )

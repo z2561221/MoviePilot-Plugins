@@ -118,6 +118,23 @@ const rankingFallbackReasonLabels = {
   refill_insufficient: '补选数量不足',
   ranking_insufficient: '排序数量不足',
 }
+const historyAgentStageLabels = {
+  profile: '画像',
+  ranking: '排序',
+  refill: '补选',
+}
+const historyAgentStatusLabels = {
+  completed: '完成',
+  validation_failed: '校验失败',
+  failed: '调用失败',
+  pending: '未完成',
+}
+const historyAgentSourceLabels = {
+  agent_tokens: 'Agent Tokens',
+  moviepilot_system: 'MoviePilot 系统',
+  mixed: '混合来源',
+  unknown: '来源未返回',
+}
 
 const tabs = [
   { key: 'board', title: '推荐榜单', icon: 'mdi-format-list-numbered' },
@@ -251,9 +268,40 @@ function historyPolicyText(run) {
   if (!version) return '未记录'
   return `${version}；记忆版本 ${Number(metrics.policy_memory_revision || 0)}；证据 ${Number(metrics.policy_evidence_count || 0)} 项`
 }
+function historyAgentCalls(run) {
+  const calls = Array.isArray(run?.metrics?.agent_provenance) ? run.metrics.agent_provenance : []
+  return calls.map((item, index) => {
+    const provider = String(item?.selected_provider_name || item?.provider || '').trim()
+    const model = String(item?.model || '').trim()
+    const source = String(item?.source || 'unknown').trim()
+    const status = String(item?.status || 'pending').trim()
+    const attempt = Number(item?.attempt || 1)
+    const modelCalls = Number(item?.model_call_count || 0)
+    return {
+      key: `${item?.stage || item?.role || 'agent'}:${item?.attempt || index + 1}:${index}`,
+      stage: historyAgentStageLabels[item?.stage] || historyAgentStageLabels[item?.role] || 'Agent',
+      attempt: Number.isFinite(attempt) ? Math.max(1, attempt) : 1,
+      provider: provider || (source === 'moviepilot_system' ? 'MoviePilot 系统' : source === 'agent_tokens' ? 'Agent Tokens' : '供应商未返回'),
+      model: model && model !== 'unknown' ? model : '模型来源未返回',
+      source: historyAgentSourceLabels[source] || '来源未返回',
+      duration: formatDuration(item?.duration_ms),
+      modelCalls: Number.isFinite(modelCalls) ? Math.max(0, modelCalls) : 0,
+      status: historyAgentStatusLabels[status] || '状态未返回',
+      failed: status === 'failed' || status === 'validation_failed',
+      failure: item?.failure_reason ? translateHistoryError(item.failure_reason) : '',
+    }
+  })
+}
 function historyModelText(run) {
+  const callLabels = historyAgentCalls(run)
+    .filter(item => item.model !== '模型来源未返回')
+    .map(item => `${item.provider} · ${item.model}`)
+  const uniqueCallLabels = [...new Set(callLabels)]
+  if (uniqueCallLabels.length) return uniqueCallLabels.join(' / ')
+  const provider = String(run?.metrics?.agent_provider || '').trim()
   const model = String(run?.metrics?.agent_model || '').trim()
-  return model && model !== 'unknown' ? model : '未知模型'
+  if (model && model !== 'unknown') return provider ? `${provider} · ${model}` : model
+  return '模型来源未返回'
 }
 function historyRankingText(run) {
   const metrics = run?.metrics || {}
@@ -617,7 +665,7 @@ onMounted(initialize)
                 <div class="ar-page__history-metrics">
                   <div><strong>{{ run.metrics?.candidate_count ?? 0 }}</strong><span>候选条目</span></div>
                   <div><strong>{{ run.metrics?.final_count ?? 0 }}</strong><span>安全推荐</span></div>
-                  <div><strong class="ar-page__history-model">{{ historyModelText(run) }}</strong><span>实际模型</span></div>
+                  <div><strong class="ar-page__history-model">{{ historyModelText(run) }}</strong><span>供应商 / 模型</span></div>
                   <div><strong>{{ run.metrics?.subscription_success_count ?? 0 }}</strong><span>自动订阅</span></div>
                 </div>
                 <div v-if="historyStages(run).length" class="ar-page__history-pipeline">
@@ -639,6 +687,20 @@ onMounted(initialize)
                 <div v-if="isHistoryExpanded(run)" class="ar-page__history-details">
                   <div><span>运行编号</span><code>{{ run.run_id || '—' }}</code></div>
                   <div><span>模型调用</span><span>{{ run.metrics?.model_call_count ?? run.metrics?.agent_calls ?? 0 }} 次；画像任务 {{ run.metrics?.profile_agent_calls ?? 0 }} 次；排序任务 {{ run.metrics?.ranking_agent_calls ?? 0 }} 次</span></div>
+                  <div v-if="historyAgentCalls(run).length" class="ar-page__history-call-row">
+                    <span>调用明细</span>
+                    <div class="ar-page__history-agent-calls">
+                      <div v-for="call in historyAgentCalls(run)" :key="call.key" class="ar-page__history-agent-call" :class="{ 'ar-page__history-agent-call--failed': call.failed }">
+                        <div class="ar-page__history-agent-head">
+                          <strong>{{ call.stage }} · 第 {{ call.attempt }} 次</strong>
+                          <span>{{ call.status }}</span>
+                        </div>
+                        <div>{{ call.provider }} · {{ call.model }}</div>
+                        <small>{{ call.source }} · {{ call.duration }} · 模型调用 {{ call.modelCalls }} 次</small>
+                        <small v-if="call.failure" class="ar-page__history-agent-error">{{ call.failure }}</small>
+                      </div>
+                    </div>
+                  </div>
                   <div><span>画像缓存</span><span>{{ historyProfileCacheText(run) }}</span></div>
                   <div><span>排序策略</span><code>{{ historyPolicyText(run) }}</code></div>
                   <div><span>播放快照</span><span>{{ run.metrics?.playback_count ?? 0 }} 条，{{ historyPlaybackStatus(run.metrics?.playback_status) }}</span></div>
@@ -766,6 +828,14 @@ onMounted(initialize)
 .ar-page__history-details > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; }
 .ar-page__history-details > div > span:first-child { color: rgba(var(--v-theme-on-surface), .55); }
 .ar-page__history-details code { overflow-wrap: anywhere; white-space: normal; }
+.ar-page__history-call-row { align-items: start; }
+.ar-page__history-agent-calls { display: grid; gap: 6px; }
+.ar-page__history-agent-call { min-width: 0; padding: 7px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .58)); border-radius: 8px; background: rgba(var(--v-theme-success), .035); line-height: 1.45; overflow-wrap: anywhere; }
+.ar-page__history-agent-call--failed { background: rgba(var(--v-theme-error), .045); }
+.ar-page__history-agent-head { display: flex; justify-content: space-between; gap: 8px; }
+.ar-page__history-agent-head span, .ar-page__history-agent-call small { color: rgba(var(--v-theme-on-surface), .58); }
+.ar-page__history-agent-call small { display: block; margin-top: 2px; }
+.ar-page__history-agent-error { color: rgb(var(--v-theme-error)) !important; }
 @media (max-width: 900px) {
   .ar-page__summary-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ar-page__runtime-chip { grid-column: 1 / -1; justify-self: end; margin-top: -2px; }

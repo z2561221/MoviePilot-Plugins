@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import logging
+import re
 import threading
 import time
 import uuid
@@ -51,6 +52,24 @@ from .validation import (
 
 
 logger = logging.getLogger(__name__)
+
+_PROVENANCE_URL_PATTERN = re.compile(r"(?i)\b(?:https?|ftp)://[^\s]+")
+_PROVENANCE_SECRET_PATTERN = re.compile(
+    r"(?i)\b(?:authorization|cookie|api[_-]?key|llm[_-]?key|access[_-]?token|token)\b\s*[:=]\s*[^\s,;]+"
+)
+_PROVENANCE_BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]+")
+_PROVENANCE_HOST_PORT_PATTERN = re.compile(
+    r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}:\d{2,6}"
+)
+
+
+def _safe_agent_failure_reason(value: Any) -> str:
+    """把逐调用失败原因收敛为无地址和凭据的短文本。"""
+    text = " ".join(str(value or "").split()).strip()
+    text = _PROVENANCE_URL_PATTERN.sub("[已脱敏地址]", text)
+    text = _PROVENANCE_HOST_PORT_PATTERN.sub("[已脱敏地址]", text)
+    text = _PROVENANCE_BEARER_PATTERN.sub("[已脱敏凭据]", text)
+    return _PROVENANCE_SECRET_PATTERN.sub("[已脱敏凭据]", text)[:240]
 
 
 @dataclass
@@ -146,14 +165,20 @@ class RecommendationOrchestrator:
 
     @staticmethod
     def _record_agent_provenance(
-        metrics: Dict[str, Any], role: str, value: Any
-    ) -> None:
+        metrics: Dict[str, Any],
+        role: str,
+        value: Any,
+        *,
+        stage: str,
+        attempt: int,
+        duration_ms: int,
+    ) -> Dict[str, Any]:
         """把单次 Agent 调用的脱敏模型来源聚合进运行指标。"""
         raw = getattr(value, "provenance", None)
         if not isinstance(raw, Mapping):
             raw = getattr(value, "agentrank_provenance", None)
         if not isinstance(raw, Mapping):
-            return
+            raw = {}
 
         def safe_text(key: str, fallback: str = "") -> str:
             """只读取约定字段并限制持久化文本长度。"""
@@ -169,8 +194,13 @@ class RecommendationOrchestrator:
             "selected_provider_name": safe_text("selected_provider_name"),
             "provider": safe_text("provider"),
             "model": safe_text("model", "unknown"),
-            "source": safe_text("source", "moviepilot_system"),
+            "source": safe_text("source", "unknown"),
             "model_call_count": model_call_count,
+            "stage": str(stage or role).strip()[:32],
+            "attempt": max(1, int(attempt or 1)),
+            "duration_ms": max(0, int(duration_ms or 0)),
+            "status": "pending",
+            "failure_reason": "",
         }
         entries = metrics.setdefault("agent_provenance", [])
         entries.append(entry)
@@ -196,6 +226,17 @@ class RecommendationOrchestrator:
         metrics["agent_model_source"] = (
             sources[0] if len(sources) == 1 else "mixed"
         )
+        return entry
+
+    @staticmethod
+    def _finish_agent_provenance(
+        entry: Optional[Dict[str, Any]], status: str, failure_reason: Any = ""
+    ) -> None:
+        """完成一条逐调用记录并仅保存安全失败摘要。"""
+        if not isinstance(entry, dict):
+            return
+        entry["status"] = str(status or "failed").strip()[:32]
+        entry["failure_reason"] = _safe_agent_failure_reason(failure_reason)
 
     @staticmethod
     def _display_name(profile_id: str, config: Mapping[str, Any]) -> str:
@@ -706,6 +747,7 @@ class RecommendationOrchestrator:
                 profile_attempt_errors: List[str] = []
                 for attempt in range(2):
                     stage_clock = time.monotonic()
+                    call_entry: Optional[Dict[str, Any]] = None
                     metrics["agent_calls"] += 1
                     metrics["profile_agent_calls"] = (
                         metrics.get("profile_agent_calls", 0) + 1
@@ -723,16 +765,41 @@ class RecommendationOrchestrator:
                             ),
                             profile_context,
                         )
-                        self._record_agent_provenance(
-                            metrics, PROFILE_AGENT_ROLE, raw_profile
+                        call_entry = self._record_agent_provenance(
+                            metrics,
+                            PROFILE_AGENT_ROLE,
+                            raw_profile,
+                            stage="profile",
+                            attempt=attempt + 1,
+                            duration_ms=max(
+                                0, int((time.monotonic() - stage_clock) * 1000)
+                            ),
                         )
                         parsed_profile = profile_parser.parse(raw_profile)
                         if parsed_profile.profile.playback_count != playback_count:
                             raise AgentOutputError(
                                 "profile.playback_count does not match playback sample count"
                             )
+                        self._finish_agent_provenance(call_entry, "completed")
                         break
                     except AgentOutputError as error:
+                        if call_entry is None:
+                            call_entry = self._record_agent_provenance(
+                                metrics,
+                                PROFILE_AGENT_ROLE,
+                                error,
+                                stage="profile",
+                                attempt=attempt + 1,
+                                duration_ms=max(
+                                    0,
+                                    int((time.monotonic() - stage_clock) * 1000),
+                                ),
+                            )
+                            self._finish_agent_provenance(call_entry, "failed", error)
+                        else:
+                            self._finish_agent_provenance(
+                                call_entry, "validation_failed", error
+                            )
                         detail = f"profile attempt {attempt + 1}: {error}"
                         if attempt == 0:
                             profile_attempt_errors.append(detail)
@@ -753,9 +820,19 @@ class RecommendationOrchestrator:
                             agent_calls=int(metrics["agent_calls"]),
                         )
                     except Exception as error:
-                        self._record_agent_provenance(
-                            metrics, PROFILE_AGENT_ROLE, error
-                        )
+                        if call_entry is None:
+                            call_entry = self._record_agent_provenance(
+                                metrics,
+                                PROFILE_AGENT_ROLE,
+                                error,
+                                stage="profile",
+                                attempt=attempt + 1,
+                                duration_ms=max(
+                                    0,
+                                    int((time.monotonic() - stage_clock) * 1000),
+                                ),
+                            )
+                        self._finish_agent_provenance(call_entry, "failed", error)
                         detail = f"profile attempt {attempt + 1}: {error}"
                         if attempt == 0 and bool(getattr(error, "retryable", False)):
                             profile_attempt_errors.append(detail)
@@ -1066,6 +1143,7 @@ class RecommendationOrchestrator:
                         "这次只返回一个符合既定 schema 的 JSON 对象，禁止代码块、"
                         "解释、前后缀或额外字段。"
                     )
+                call_entry: Optional[Dict[str, Any]] = None
                 try:
                     metrics["agent_calls"] += 1
                     metrics["ranking_agent_calls"] = (
@@ -1075,16 +1153,31 @@ class RecommendationOrchestrator:
                     raw_output = await self._run_agent_role(
                         RANKING_AGENT_ROLE, prompt, ranking_context
                     )
-                    self._record_agent_provenance(
-                        metrics, RANKING_AGENT_ROLE, raw_output
+                    call_entry = self._record_agent_provenance(
+                        metrics,
+                        RANKING_AGENT_ROLE,
+                        raw_output,
+                        stage="ranking",
+                        attempt=attempt + 1,
+                        duration_ms=max(
+                            0, int((time.monotonic() - stage_clock) * 1000)
+                        ),
                     )
                     metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
                         0, int((time.monotonic() - stage_clock) * 1000)
                     )
                 except Exception as error:
-                    self._record_agent_provenance(
-                        metrics, RANKING_AGENT_ROLE, error
+                    call_entry = self._record_agent_provenance(
+                        metrics,
+                        RANKING_AGENT_ROLE,
+                        error,
+                        stage="ranking",
+                        attempt=attempt + 1,
+                        duration_ms=max(
+                            0, int((time.monotonic() - stage_clock) * 1000)
+                        ),
                     )
+                    self._finish_agent_provenance(call_entry, "failed", error)
                     metrics["agent_ms"] = metrics.get("agent_ms", 0) + max(
                         0, int((time.monotonic() - stage_clock) * 1000)
                     )
@@ -1126,8 +1219,12 @@ class RecommendationOrchestrator:
                         metrics.setdefault("support_warnings", []).extend(
                             validation.support_warnings
                         )
+                    self._finish_agent_provenance(call_entry, "completed")
                     break
                 except AgentOutputError as error:
+                    self._finish_agent_provenance(
+                        call_entry, "validation_failed", error
+                    )
                     detail = f"attempt {attempt + 1}: {error}"
                     if attempt == 0:
                         ranking_attempt_errors.append(detail)
@@ -1137,6 +1234,9 @@ class RecommendationOrchestrator:
                     ranking_fallback_errors.append(detail)
                     ranking_fallback_reason = "ranking_validation_failed"
                     break
+                except Exception as error:
+                    self._finish_agent_provenance(call_entry, "failed", error)
+                    raise
             if validation is None:
                 metrics["ranking_valid_count"] = 0
                 metrics["ranking_reserve_count"] = 0
@@ -1208,6 +1308,7 @@ class RecommendationOrchestrator:
                         )
                     )
                     stage_clock = time.monotonic()
+                    call_entry: Optional[Dict[str, Any]] = None
                     metrics["agent_calls"] += 1
                     metrics["ranking_agent_calls"] = (
                         metrics.get("ranking_agent_calls", 0) + 1
@@ -1218,8 +1319,16 @@ class RecommendationOrchestrator:
                             current_refill_prompt,
                             ranking_context,
                         )
-                        self._record_agent_provenance(
-                            metrics, RANKING_AGENT_ROLE, refill_output
+                        call_entry = self._record_agent_provenance(
+                            metrics,
+                            RANKING_AGENT_ROLE,
+                            refill_output,
+                            stage="refill",
+                            attempt=refill_attempt + 1,
+                            duration_ms=max(
+                                0,
+                                int((time.monotonic() - stage_clock) * 1000),
+                            ),
                         )
                         (
                             refill_parsed,
@@ -1267,20 +1376,54 @@ class RecommendationOrchestrator:
                             not refill_parsed.recommendations
                             and refill_parse_warnings
                         ):
+                            self._finish_agent_provenance(
+                                call_entry,
+                                "validation_failed",
+                                "; ".join(refill_parse_warnings),
+                            )
                             ranking_fallback_reason = "refill_validation_failed"
                             ranking_fallback_errors.extend(
                                 f"refill attempt {refill_attempt + 1}: {warning}"
                                 for warning in refill_parse_warnings
                             )
+                        else:
+                            self._finish_agent_provenance(call_entry, "completed")
                     except AgentOutputError as error:
+                        if call_entry is None:
+                            call_entry = self._record_agent_provenance(
+                                metrics,
+                                RANKING_AGENT_ROLE,
+                                error,
+                                stage="refill",
+                                attempt=refill_attempt + 1,
+                                duration_ms=max(
+                                    0,
+                                    int((time.monotonic() - stage_clock) * 1000),
+                                ),
+                            )
+                            self._finish_agent_provenance(call_entry, "failed", error)
+                        else:
+                            self._finish_agent_provenance(
+                                call_entry, "validation_failed", error
+                            )
                         detail = f"refill attempt {refill_attempt + 1}: {error}"
                         ranking_fallback_errors.append(detail)
                         ranking_fallback_reason = "refill_validation_failed"
                         break
                     except Exception as error:
-                        self._record_agent_provenance(
-                            metrics, RANKING_AGENT_ROLE, error
-                        )
+                        if call_entry is None:
+                            call_entry = self._record_agent_provenance(
+                                metrics,
+                                RANKING_AGENT_ROLE,
+                                error,
+                                stage="refill",
+                                attempt=refill_attempt + 1,
+                                duration_ms=max(
+                                    0,
+                                    int((time.monotonic() - stage_clock) * 1000),
+                                ),
+                            )
+                        self._finish_agent_provenance(call_entry, "failed", error)
                         detail = f"refill attempt {refill_attempt + 1}: {error}"
                         ranking_fallback_errors.append(detail)
                         ranking_fallback_reason = "refill_agent_failed"

@@ -598,7 +598,7 @@ def test_adapter_uses_safe_unknown_model_for_incomplete_host_status():
 
     assert output.provenance["model"] == "unknown"
     assert output.provenance["model_call_count"] == 0
-    assert output.provenance["source"] == "moviepilot_system"
+    assert output.provenance["source"] == "unknown"
     assert set(output.provenance) == {
         "provider_id",
         "selected_provider_name",

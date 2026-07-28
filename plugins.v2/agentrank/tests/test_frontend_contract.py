@@ -476,13 +476,20 @@ def test_runtime_history_uses_actual_model_as_primary_metric():
     page = _read("Page.vue")
 
     assert "function historyModelText(run)" in page
+    assert "function historyAgentCalls(run)" in page
+    assert "run?.metrics?.agent_provenance" in page
     assert "run?.metrics?.agent_model" in page
-    assert "model !== 'unknown' ? model : '未知模型'" in page
+    assert "'模型来源未返回'" in page
+    assert "`${item.provider} · ${item.model}`" in page
     assert '{{ historyModelText(run) }}' in page
-    assert "实际模型" in page
+    assert "供应商 / 模型" in page
     assert "run.metrics?.model_call_count ?? run.metrics?.agent_calls ?? 0" in page
     assert '<strong>{{ run.metrics?.agent_calls ?? 0 }}</strong><span>模型调用</span>' not in page
+    assert "模型调用 {{ call.modelCalls }} 次" in page
+    assert "{{ call.duration }}" in page
+    assert "{{ call.failure }}" in page
     assert "ar-page__history-model" in page
+    assert "ar-page__history-agent-calls" in page
 
 
 def test_runtime_history_exposes_versioned_policy_in_chinese():

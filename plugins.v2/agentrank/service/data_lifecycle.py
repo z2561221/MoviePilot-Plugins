@@ -95,6 +95,14 @@ def _safe_scalar(value: Any) -> Any:
     return _redact_text(value)
 
 
+def _safe_nonnegative_int(value: Any, default: int = 0) -> int:
+    """把不可信导出计数规范为非负整数。"""
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return max(0, int(default))
+
+
 class DataLifecycleService:
     """协调 profile 数据的保留、导出和两种重置。"""
 
@@ -211,6 +219,7 @@ class DataLifecycleService:
             "agent_model",
             "agent_provider",
             "agent_model_source",
+            "agent_provenance",
             "profile_agent_model",
             "profile_agent_source",
             "ranking_agent_model",
@@ -242,7 +251,36 @@ class DataLifecycleService:
             if key not in (metrics or {}):
                 continue
             value = metrics[key]
-            if key == "selection_source_counts" and isinstance(value, Mapping):
+            if key == "agent_provenance" and isinstance(value, list):
+                result[key] = [
+                    {
+                        "role": _redact_text(item.get("role"))[:32],
+                        "stage": _redact_text(item.get("stage"))[:32],
+                        "attempt": max(
+                            1, _safe_nonnegative_int(item.get("attempt"), 1)
+                        ),
+                        "provider_id": _redact_text(item.get("provider_id"))[:160],
+                        "selected_provider_name": _redact_text(
+                            item.get("selected_provider_name")
+                        )[:160],
+                        "provider": _redact_text(item.get("provider"))[:160],
+                        "model": _redact_text(item.get("model"))[:160],
+                        "source": _redact_text(item.get("source"))[:32],
+                        "model_call_count": _safe_nonnegative_int(
+                            item.get("model_call_count")
+                        ),
+                        "duration_ms": _safe_nonnegative_int(
+                            item.get("duration_ms")
+                        ),
+                        "status": _redact_text(item.get("status"))[:32],
+                        "failure_reason": _redact_text(
+                            item.get("failure_reason")
+                        )[:240],
+                    }
+                    for item in value
+                    if isinstance(item, Mapping)
+                ]
+            elif key == "selection_source_counts" and isinstance(value, Mapping):
                 result[key] = {
                     source: max(0, int(value.get(source) or 0))
                     for source in ("agent", "safe_fallback")

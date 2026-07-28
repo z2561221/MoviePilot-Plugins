@@ -101,6 +101,16 @@ const _hoisted_63 = {
   key: 1,
   class: "ar-page__history-details"
 };
+const _hoisted_64 = {
+  key: 0,
+  class: "ar-page__history-call-row"
+};
+const _hoisted_65 = { class: "ar-page__history-agent-calls" };
+const _hoisted_66 = { class: "ar-page__history-agent-head" };
+const _hoisted_67 = {
+  key: 0,
+  class: "ar-page__history-agent-error"
+};
 
 const {computed,onMounted,reactive,ref,watch} = await importShared('vue');
 
@@ -225,6 +235,23 @@ const rankingFallbackReasonLabels = {
   refill_validation_failed: '补选格式失败',
   refill_insufficient: '补选数量不足',
   ranking_insufficient: '排序数量不足',
+};
+const historyAgentStageLabels = {
+  profile: '画像',
+  ranking: '排序',
+  refill: '补选',
+};
+const historyAgentStatusLabels = {
+  completed: '完成',
+  validation_failed: '校验失败',
+  failed: '调用失败',
+  pending: '未完成',
+};
+const historyAgentSourceLabels = {
+  agent_tokens: 'Agent Tokens',
+  moviepilot_system: 'MoviePilot 系统',
+  mixed: '混合来源',
+  unknown: '来源未返回',
 };
 
 const tabs = [
@@ -359,9 +386,40 @@ function historyPolicyText(run) {
   if (!version) return '未记录'
   return `${version}；记忆版本 ${Number(metrics.policy_memory_revision || 0)}；证据 ${Number(metrics.policy_evidence_count || 0)} 项`
 }
+function historyAgentCalls(run) {
+  const calls = Array.isArray(run?.metrics?.agent_provenance) ? run.metrics.agent_provenance : [];
+  return calls.map((item, index) => {
+    const provider = String(item?.selected_provider_name || item?.provider || '').trim();
+    const model = String(item?.model || '').trim();
+    const source = String(item?.source || 'unknown').trim();
+    const status = String(item?.status || 'pending').trim();
+    const attempt = Number(item?.attempt || 1);
+    const modelCalls = Number(item?.model_call_count || 0);
+    return {
+      key: `${item?.stage || item?.role || 'agent'}:${item?.attempt || index + 1}:${index}`,
+      stage: historyAgentStageLabels[item?.stage] || historyAgentStageLabels[item?.role] || 'Agent',
+      attempt: Number.isFinite(attempt) ? Math.max(1, attempt) : 1,
+      provider: provider || (source === 'moviepilot_system' ? 'MoviePilot 系统' : source === 'agent_tokens' ? 'Agent Tokens' : '供应商未返回'),
+      model: model && model !== 'unknown' ? model : '模型来源未返回',
+      source: historyAgentSourceLabels[source] || '来源未返回',
+      duration: formatDuration(item?.duration_ms),
+      modelCalls: Number.isFinite(modelCalls) ? Math.max(0, modelCalls) : 0,
+      status: historyAgentStatusLabels[status] || '状态未返回',
+      failed: status === 'failed' || status === 'validation_failed',
+      failure: item?.failure_reason ? translateHistoryError(item.failure_reason) : '',
+    }
+  })
+}
 function historyModelText(run) {
+  const callLabels = historyAgentCalls(run)
+    .filter(item => item.model !== '模型来源未返回')
+    .map(item => `${item.provider} · ${item.model}`);
+  const uniqueCallLabels = [...new Set(callLabels)];
+  if (uniqueCallLabels.length) return uniqueCallLabels.join(' / ')
+  const provider = String(run?.metrics?.agent_provider || '').trim();
   const model = String(run?.metrics?.agent_model || '').trim();
-  return model && model !== 'unknown' ? model : '未知模型'
+  if (model && model !== 'unknown') return provider ? `${provider} · ${model}` : model
+  return '模型来源未返回'
 }
 function historyRankingText(run) {
   const metrics = run?.metrics || {};
@@ -1195,7 +1253,7 @@ return (_ctx, _cache) => {
                             ]),
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", _hoisted_60, _toDisplayString(historyModelText(run)), 1),
-                              _cache[37] || (_cache[37] = _createElementVNode("span", null, "实际模型", -1))
+                              _cache[37] || (_cache[37] = _createElementVNode("span", null, "供应商 / 模型", -1))
                             ]),
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", null, _toDisplayString(run.metrics?.subscription_success_count ?? 0), 1),
@@ -1255,36 +1313,59 @@ return (_ctx, _cache) => {
                                   _cache[40] || (_cache[40] = _createElementVNode("span", null, "模型调用", -1)),
                                   _createElementVNode("span", null, _toDisplayString(run.metrics?.model_call_count ?? run.metrics?.agent_calls ?? 0) + " 次；画像任务 " + _toDisplayString(run.metrics?.profile_agent_calls ?? 0) + " 次；排序任务 " + _toDisplayString(run.metrics?.ranking_agent_calls ?? 0) + " 次", 1)
                                 ]),
+                                (historyAgentCalls(run).length)
+                                  ? (_openBlock(), _createElementBlock("div", _hoisted_64, [
+                                      _cache[41] || (_cache[41] = _createElementVNode("span", null, "调用明细", -1)),
+                                      _createElementVNode("div", _hoisted_65, [
+                                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(historyAgentCalls(run), (call) => {
+                                          return (_openBlock(), _createElementBlock("div", {
+                                            key: call.key,
+                                            class: _normalizeClass(["ar-page__history-agent-call", { 'ar-page__history-agent-call--failed': call.failed }])
+                                          }, [
+                                            _createElementVNode("div", _hoisted_66, [
+                                              _createElementVNode("strong", null, _toDisplayString(call.stage) + " · 第 " + _toDisplayString(call.attempt) + " 次", 1),
+                                              _createElementVNode("span", null, _toDisplayString(call.status), 1)
+                                            ]),
+                                            _createElementVNode("div", null, _toDisplayString(call.provider) + " · " + _toDisplayString(call.model), 1),
+                                            _createElementVNode("small", null, _toDisplayString(call.source) + " · " + _toDisplayString(call.duration) + " · 模型调用 " + _toDisplayString(call.modelCalls) + " 次", 1),
+                                            (call.failure)
+                                              ? (_openBlock(), _createElementBlock("small", _hoisted_67, _toDisplayString(call.failure), 1))
+                                              : _createCommentVNode("", true)
+                                          ], 2))
+                                        }), 128))
+                                      ])
+                                    ]))
+                                  : _createCommentVNode("", true),
                                 _createElementVNode("div", null, [
-                                  _cache[41] || (_cache[41] = _createElementVNode("span", null, "画像缓存", -1)),
+                                  _cache[42] || (_cache[42] = _createElementVNode("span", null, "画像缓存", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyProfileCacheText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[42] || (_cache[42] = _createElementVNode("span", null, "排序策略", -1)),
+                                  _cache[43] || (_cache[43] = _createElementVNode("span", null, "排序策略", -1)),
                                   _createElementVNode("code", null, _toDisplayString(historyPolicyText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[43] || (_cache[43] = _createElementVNode("span", null, "播放快照", -1)),
+                                  _cache[44] || (_cache[44] = _createElementVNode("span", null, "播放快照", -1)),
                                   _createElementVNode("span", null, _toDisplayString(run.metrics?.playback_count ?? 0) + " 条，" + _toDisplayString(historyPlaybackStatus(run.metrics?.playback_status)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[44] || (_cache[44] = _createElementVNode("span", null, "候选耗时", -1)),
+                                  _cache[45] || (_cache[45] = _createElementVNode("span", null, "候选耗时", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyCandidateTimingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[45] || (_cache[45] = _createElementVNode("span", null, "候选处理", -1)),
+                                  _cache[46] || (_cache[46] = _createElementVNode("span", null, "候选处理", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyCandidateProcessingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[46] || (_cache[46] = _createElementVNode("span", null, "排序校验", -1)),
+                                  _cache[47] || (_cache[47] = _createElementVNode("span", null, "排序校验", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyRankingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[47] || (_cache[47] = _createElementVNode("span", null, "选择来源", -1)),
+                                  _cache[48] || (_cache[48] = _createElementVNode("span", null, "选择来源", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historySelectionSourceText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[48] || (_cache[48] = _createElementVNode("span", null, "候选排除", -1)),
+                                  _cache[49] || (_cache[49] = _createElementVNode("span", null, "候选排除", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyExclusionText(run)), 1)
                                 ])
                               ]))
@@ -1325,6 +1406,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5d4d1d01"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d1926c7e"]]);
 
 export { Page as default };

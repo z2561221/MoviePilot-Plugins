@@ -202,19 +202,22 @@ class AgentRankAgentAdapter:
             model_call_count = max(0, int(status.get("model_call_count") or 0))
         except (TypeError, ValueError):
             model_call_count = 0
+        provider = cls._safe_provenance_text(selection.get("provider"))
+        model = cls._safe_provenance_text(
+            status.get("model") or selection.get("model")
+        )
+        if provider_id or provider_name:
+            source = "agent_tokens"
+        elif provider or model:
+            source = "moviepilot_system"
+        else:
+            source = "unknown"
         return {
             "provider_id": provider_id,
             "selected_provider_name": provider_name,
-            "provider": cls._safe_provenance_text(selection.get("provider")),
-            "model": cls._safe_provenance_text(
-                status.get("model") or selection.get("model")
-            )
-            or "unknown",
-            "source": (
-                "agent_tokens"
-                if provider_id or provider_name
-                else "moviepilot_system"
-            ),
+            "provider": provider,
+            "model": model or "unknown",
+            "source": source,
             "model_call_count": model_call_count,
         }
 

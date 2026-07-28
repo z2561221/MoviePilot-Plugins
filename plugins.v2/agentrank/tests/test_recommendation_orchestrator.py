@@ -444,6 +444,20 @@ def test_run_history_aggregates_actual_agent_model_provenance():
         "profile",
         "ranking",
     ]
+    assert [item["stage"] for item in metrics["agent_provenance"]] == [
+        "profile",
+        "ranking",
+    ]
+    assert [item["attempt"] for item in metrics["agent_provenance"]] == [1, 1]
+    assert all(
+        item["duration_ms"] >= 0 for item in metrics["agent_provenance"]
+    )
+    assert all(
+        item["status"] == "completed" for item in metrics["agent_provenance"]
+    )
+    assert all(
+        item["failure_reason"] == "" for item in metrics["agent_provenance"]
+    )
     serialized = json.dumps(metrics["agent_provenance"], ensure_ascii=False)
     for forbidden in ("base_url", "api_key", "must-not-persist"):
         assert forbidden not in serialized
@@ -1363,7 +1377,9 @@ def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
-            RetryableAgentError("no text"),
+            RetryableAgentError(
+                "token=hidden https://private.invalid 192.168.1.9:8443 upstream unavailable"
+            ),
             _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
         ],
     )
@@ -1373,7 +1389,17 @@ def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
     assert result.status == "success"
     assert result.agent_calls == 3
     assert len(orchestrator.agent_adapter.ranking_calls) == 2
-    assert repository.load_run_history(PROFILE_ID)[0].metrics["agent_calls"] == 3
+    metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    assert metrics["agent_calls"] == 3
+    ranking_calls = [
+        item for item in metrics["agent_provenance"] if item["stage"] == "ranking"
+    ]
+    assert [item["status"] for item in ranking_calls] == ["failed", "completed"]
+    assert [item["attempt"] for item in ranking_calls] == [1, 2]
+    assert "hidden" not in ranking_calls[0]["failure_reason"]
+    assert "private.invalid" not in ranking_calls[0]["failure_reason"]
+    assert "192.168.1.9" not in ranking_calls[0]["failure_reason"]
+    assert "[已脱敏凭据]" in ranking_calls[0]["failure_reason"]
 
 
 def test_retryable_empty_agent_output_falls_back_after_one_retry():
@@ -1421,6 +1447,16 @@ def test_invalid_json_retries_once_with_stricter_prompt():
     assert history.errors == []
     assert history.metrics["ranking_retry_count"] == 1
     assert history.metrics["retry_events"][0]["stage"] == "ranking"
+    ranking_calls = [
+        item
+        for item in history.metrics["agent_provenance"]
+        if item["stage"] == "ranking"
+    ]
+    assert [item["status"] for item in ranking_calls] == [
+        "validation_failed",
+        "completed",
+    ]
+    assert ranking_calls[0]["failure_reason"]
 
 
 def test_invalid_profile_json_retries_once_with_stricter_prompt():
