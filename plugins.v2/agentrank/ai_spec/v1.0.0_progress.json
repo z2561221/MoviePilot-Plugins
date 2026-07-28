@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-6",
-    "task": "6.4",
-    "next_allowed_action": "Execute task 6.4: implement evidence-controlled subscription, library, and playback attribution without upgrading native drawer opens"
+    "task": "6.5",
+    "next_allowed_action": "Execute task 6.5: complete run-history provider and model provenance with model-first summaries and explicit unknown-source text"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -675,10 +675,22 @@
         {
           "id": "6.4",
           "title": "实现订阅入库播放归因",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["native drawer返回只记opened", "状态复查后才升级归因"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "nativeSubscribe success emits only native_drawer_opened; permission denial records nothing and native failure keeps the controlled fallback path",
+            "subscription_observed, library_observed, and playback_observed advance monotonically from host evidence; higher observations may skip missing lower facts and repeated checks preserve first evidence timestamps",
+            "playback evidence is accepted only for the same profile and last_played_at at or after attribution creation; old and cross-profile snapshots fail closed",
+            "host read failures preserve the last trusted state with verification_pending and recover without downgrade",
+            "plugin-controlled subscription success records direct observed evidence while attribution persistence failure never hides the completed host side effect",
+            "bearer attribution read, native drawer, and verify routes enforce profile authorization; sanitized export excludes host lookup fields and evidence sources",
+            "Vue federation build: vite 5.4.21, 67 modules transformed, dist/assets/remoteEntry.js present with 14 assets and zero missing references",
+            "Task 6.4 focused attribution regression: 139 passed",
+            "AgentRank plugin suite: 615 passed",
+            "AgentRank static contracts: 25 passed",
+            "compileall, Chinese docstring contract, sensitive-field review, path isolation, and git diff checks: passed"
+          ],
+          "commit": "7794e2f7"
         },
         {
           "id": "6.5",
@@ -986,6 +998,12 @@
       "task": "6.3",
       "result": "the unified pending center now aggregates memory proposals, clarification questions, and conversation commands with explicit answer, reject, delayed reminder, and never-remind actions; Telegram receives actor-bound direct controls while other channels receive a safe deep-linked summary, and existing five-item poster subscription notifications remain unchanged",
       "commit": "04e03340"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "6.4",
+      "result": "native drawer opens, confirmed subscriptions, library presence, and post-interaction playback now form a profile-isolated monotonic attribution ledger; host failures remain pending, direct subscription side effects stay visible on attribution failure, and all ranking surfaces report only the opened native state until MoviePilot facts confirm advancement",
+      "commit": "7794e2f7"
     }
   ],
   "residual_risks": [
