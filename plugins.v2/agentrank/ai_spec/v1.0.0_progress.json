@@ -551,7 +551,7 @@
             "Vue federation build: passed with 67 modules transformed and remoteEntry.js present",
             "compileall and git diff check: passed"
           ],
-          "commit": null
+          "commit": "aadcdf8b"
         },
         {
           "id": "5.4",
@@ -892,7 +892,7 @@
       "date": "2026-07-28",
       "task": "5.3",
       "result": "all Agent and safe fallback candidates now share one deterministic policy and stable ranking chain; feedback refill fails closed on missing or mismatched context, and run history exposes selection sources",
-      "commit": null
+      "commit": "aadcdf8b"
     }
   ],
   "residual_risks": [
