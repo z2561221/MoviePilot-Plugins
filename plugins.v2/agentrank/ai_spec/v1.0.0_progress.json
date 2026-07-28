@@ -768,10 +768,18 @@
         {
           "id": "7.3",
           "title": "统一详情功能区与移动端",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["移除运行就绪", "功能区自适应换行", "第五条完整可见"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "the detail page reuses the Download Center VList and VListItem navigation hierarchy with compact density, icons, active state, and rounded items",
+            "mobile navigation removes horizontal overflow and exposes all four functions in a responsive two-column wrapping layout without expand or collapse controls",
+            "the idle 运行就绪 chip is absent; only the transient 正在生成 state is rendered while a ranking run is active",
+            "desktop detail height, 88-pixel minimum ranking rows, 50 by 75 posters, and six-pixel row gaps preserve room for all five ranking entries",
+            "recommendation actions and copy continue to wrap within the full-width mobile row without page-level horizontal overflow",
+            "Task 7.3 static contracts: 26 passed; frontend source contracts: 42 passed",
+            "Vue federation build completed with Vite 5.4.21 and 67 modules; post-build asset graph and git diff checks passed"
+          ],
+          "commit": "71613a09"
         },
         {
           "id": "7.4",
@@ -1055,6 +1063,12 @@
       "task": "7.2",
       "result": "dashboard, detail, and discovery ranking surfaces now enforce the same fixed five-item list, complete wrapping reason and summary copy, right-aligned percentage-only support chip, and one shared action set containing icon-only preference feedback plus subscription, TMDB, and ignore",
       "commit": "8e87da8c"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "7.3",
+      "result": "the detail function area now keeps Download Center navigation density and hierarchy while exposing every mobile function in a complete two-column wrap, omits the idle readiness chip, and preserves the compact desktop geometry required for five visible ranking rows",
+      "commit": "71613a09"
     }
   ],
   "residual_risks": [
