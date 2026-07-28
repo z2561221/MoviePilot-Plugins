@@ -283,7 +283,15 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
     run_key = repository._profile_key("run_history", PROFILE_ID)
     plugin.data[run_key][0]["errors"] = ["api_key=supersecret"]
     plugin.data[run_key][0]["metrics"].update(
-        {"api_key": "supersecret", "endpoint": "http://private", "agent_model": "m"}
+        {
+            "api_key": "supersecret",
+            "endpoint": "http://private",
+            "agent_model": "m",
+            "policy_version": "policy-v1-safe",
+            "policy_memory_revision": 3,
+            "policy_algorithm_version": 1,
+            "policy_evidence_count": 8,
+        }
     )
     first_segment = repository._feedback_segment_key(PROFILE_ID, 1)
     plugin.data[first_segment]["events"][0]["comment"] = "token=feedback-secret"
@@ -308,6 +316,10 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
     ):
         assert forbidden not in serialized
     assert exported["run_history"][0]["metrics"]["agent_model"] == "m"
+    assert exported["run_history"][0]["metrics"]["policy_version"] == (
+        "policy-v1-safe"
+    )
+    assert exported["run_history"][0]["metrics"]["policy_memory_revision"] == 3
     assert exported["board"]["recommendations"][0]["candidate_id"] == "tmdb:tv:101"
 
 

@@ -314,6 +314,10 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert orchestrator.agent_adapter.ranking_calls[0][1].profile["run_id"] == (
         "run-1"
     )
+    ranking_weights = orchestrator.agent_adapter.ranking_calls[0][1].weights
+    assert ranking_weights["policy_version"].startswith("policy-v1-")
+    assert len(ranking_weights["weights"]) == 10
+    assert ranking_weights["base_weights"]["rating_weight"] == 0.7
     assert orchestrator._candidate_service.retrieval_plan.filters.genre_ids == (80,)
     assert [item.tmdb_id for item in orchestrator._candidate_service.playback_samples] == [
         "1",
@@ -328,6 +332,11 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert repository.load_profile(PROFILE_ID).ranking_tags == ["高质量悬疑"]
     history = repository.load_run_history(PROFILE_ID)
     assert history[0].status == "success"
+    assert history[0].metrics["policy_version"] == ranking_weights["policy_version"]
+    assert history[0].metrics["policy_memory_revision"] == 0
+    assert repository.load_policy_snapshot(PROFILE_ID).policy_version == (
+        ranking_weights["policy_version"]
+    )
     assert history[0].metrics["final_count"] == 5
     assert history[0].metrics["agent_calls"] == 2
     assert history[0].metrics["profile_agent_calls"] == 1
@@ -338,6 +347,7 @@ def test_success_atomically_saves_profile_board_and_run_history():
     expected_stages = [
         "probe",
         "playback_snapshot",
+        "policy",
         "profile",
         "candidate",
         "ranking",
@@ -480,6 +490,7 @@ def test_candidate_stage_exception_preserves_previous_board_and_records_failure(
     assert history.metrics["stage_order"] == [
         "probe",
         "playback_snapshot",
+        "policy",
         "profile",
         "candidate",
     ]

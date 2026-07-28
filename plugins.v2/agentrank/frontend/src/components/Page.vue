@@ -59,6 +59,7 @@ const statusMetaFor = status => ({
   subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
   profile_agent_failed: { text: '画像生成失败', color: 'error' },
   profile_validation_failed: { text: '画像校验失败', color: 'error' },
+  policy_failed: { text: '策略生成失败', color: 'error' },
   candidate_failed: { text: '候选采集失败', color: 'error' },
   candidate_filter_failed: { text: '候选过滤失败', color: 'error' },
   candidate_snapshot_failed: { text: '候选快照失败', color: 'error' },
@@ -71,6 +72,7 @@ const statusMetaFor = status => ({
 const historyStageLabels = {
   probe: '依赖探测',
   playback_snapshot: '冻结播放',
+  policy: '确定策略',
   profile: '生成画像',
   candidate: '冻结候选',
   ranking: 'Agent排序',
@@ -83,6 +85,7 @@ const historyStageStatusLabels = {
   recommendation_incomplete: '榜单不足', agent_failed: 'Agent失败',
   validation_failed: '校验失败', subscription_partial_failed: '部分订阅失败',
   profile_agent_failed: '画像生成失败', profile_validation_failed: '画像校验失败',
+  policy_failed: '策略生成失败',
   candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败',
   candidate_snapshot_failed: '候选快照失败', ranking_agent_failed: '排序生成失败',
   ranking_validation_failed: '排序校验失败', ranking_save_failed: '榜单保存失败', runtime_exception: '运行异常',
@@ -238,6 +241,12 @@ function historyProfileCacheText(run) {
   const reason = profileCacheReasonLabels[metrics.profile_cache_miss_reason]
   if (reason) return `未命中，${reason}`
   return metrics.profile_cache_status ? '未命中，原因未记录' : '未记录'
+}
+function historyPolicyText(run) {
+  const metrics = run?.metrics || {}
+  const version = String(metrics.policy_version || '').trim()
+  if (!version) return '未记录'
+  return `${version}；记忆版本 ${Number(metrics.policy_memory_revision || 0)}；证据 ${Number(metrics.policy_evidence_count || 0)} 项`
 }
 function historyModelText(run) {
   const model = String(run?.metrics?.agent_model || '').trim()
@@ -620,6 +629,7 @@ onMounted(initialize)
                   <div><span>运行编号</span><code>{{ run.run_id || '—' }}</code></div>
                   <div><span>模型调用</span><span>{{ run.metrics?.model_call_count ?? run.metrics?.agent_calls ?? 0 }} 次；画像任务 {{ run.metrics?.profile_agent_calls ?? 0 }} 次；排序任务 {{ run.metrics?.ranking_agent_calls ?? 0 }} 次</span></div>
                   <div><span>画像缓存</span><span>{{ historyProfileCacheText(run) }}</span></div>
+                  <div><span>排序策略</span><code>{{ historyPolicyText(run) }}</code></div>
                   <div><span>播放快照</span><span>{{ run.metrics?.playback_count ?? 0 }} 条，{{ historyPlaybackStatus(run.metrics?.playback_status) }}</span></div>
                   <div><span>候选耗时</span><span>{{ historyCandidateTimingText(run) }}</span></div>
                   <div><span>候选处理</span><span>{{ historyCandidateProcessingText(run) }}</span></div>
@@ -730,7 +740,7 @@ onMounted(initialize)
 .ar-page__history-metrics strong { font-size: 15px; }
 .ar-page__history-metrics .ar-page__history-model { max-width: 100%; overflow-wrap: anywhere; text-align: center; font-size: 12px; }
 .ar-page__history-metrics span { color: rgba(var(--v-theme-on-surface), .6); font-size: 11px; }
-.ar-page__history-pipeline { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); gap: 6px; margin-top: 10px; overflow-x: auto; }
+.ar-page__history-pipeline { display: grid; grid-template-columns: repeat(7, minmax(90px, 1fr)); gap: 6px; margin-top: 10px; overflow-x: auto; }
 .ar-page__history-stage { min-width: 90px; display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 8px; background: rgba(var(--v-theme-success), .055); }
 .ar-page__history-stage--failed { background: rgba(var(--v-theme-error), .07); }
 .ar-page__history-stage strong, .ar-page__history-stage small { display: block; white-space: nowrap; }
@@ -790,7 +800,7 @@ onMounted(initialize)
   .ar-page__history-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-page__history-metrics > div:nth-child(2) { border-right: 0; }
   .ar-page__history-metrics > div:nth-child(-n + 2) { border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .58)); }
-  .ar-page__history-pipeline { grid-template-columns: repeat(6, minmax(105px, 1fr)); }
+  .ar-page__history-pipeline { grid-template-columns: repeat(7, minmax(105px, 1fr)); }
   .ar-page__history-footer { align-items: flex-start; }
 }
 @media (max-width: 390px) {

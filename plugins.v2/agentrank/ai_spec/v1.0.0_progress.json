@@ -5,9 +5,9 @@
   "target_release_date": "2026-07-31",
   "status": {
     "overall": "in_progress",
-    "phase": "phase-4",
-    "task": "4.5",
-    "next_allowed_action": "Execute task 4.5: confirm memory proposals through revision CAS so duplicate, stale, and concurrent callbacks cannot overwrite newer confirmed memory"
+    "phase": "phase-5",
+    "task": "5.1",
+    "next_allowed_action": "Execute task 5.1: derive versioned bounded learning deltas from confirmed PreferenceMemory while preserving all ten configured base weights and evidence thresholds"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -321,11 +321,11 @@
           "status": "completed",
           "acceptance": ["作品级排除立即生效", "题材主创动机变化必须确认"],
           "verification": [
-            "recorded dislike events project a profile-scoped candidate exclusion across later run ids",
+            "recorded dislike events project a profile-scoped candidate exclusion across subsequent run ids",
             "candidate collection reports disliked and archived exclusions under separate reason codes",
             "ranking validation and local fallback both block active disliked candidates",
             "board commit rechecks a dislike written during the run and safely refills without using archive state",
-            "a later like supersedes the title-level dislike projection",
+            "a subsequent like supersedes the title-level dislike projection",
             "dislike writes no profile preferences, confirmed preference memory, genre, creator, motivation, or weight changes",
             "run history exposes active dislike and commit exclusion metrics with Chinese frontend labels",
             "focused feedback, discovery, validation, orchestration, and frontend tests: 184 passed",
@@ -342,7 +342,7 @@
     {
       "id": "phase-4",
       "title": "异步理解、确认式记忆与乱序治理",
-      "status": "in_progress",
+      "status": "completed",
       "goal": "让每次动作可理解、可延后回答且不静默污染画像",
       "acceptance": [
         "页面不等待LLM",
@@ -351,7 +351,14 @@
         "乱序和重复确认安全",
         "心理边界eval通过"
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        "feedback actions return queued without waiting for the LLM and same-profile jobs remain sequence ordered across retries and restart recovery",
+        "restricted feedback understanding produces exclusion-only, ambiguous questions, or evidence-linked proposals without direct memory writes",
+        "unanswered, never-remind, rejected, dismissed, and expired records leave confirmed memory unchanged",
+        "user answers create auditable superseding feedback events and retry failed queue enqueue without duplication",
+        "proposal confirmation atomically commits proposal status and CAS memory revision; duplicate, stale, concurrent, and failed writes cannot overwrite newer memory",
+        "feedback evals reject sensitive psychology inference, prompt injection, untrusted evidence, raw provider output, and chain-of-thought"
+      ],
       "tasks": [
         {
           "id": "4.1",
@@ -445,17 +452,33 @@
         {
           "id": "4.5",
           "title": "实现CAS记忆投影",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": ["确认一次只增一个revision", "旧回调重复确认并发纠正不能覆盖新记忆"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "confirmed proposals deterministically create stable PreferenceMemoryItem identities with actor, resolved revision, projected item ids, and safe resolution audit",
+            "one proposal with one or multiple changes increments memory_revision exactly once",
+            "repeated confirmation is idempotent, preserves the first confirming actor, and rejects tampered projection audit instead of masking inconsistent data",
+            "one hundred concurrent confirmations of the same proposal produce one applied result and ninety-nine idempotent readbacks",
+            "competing proposals built from the same expected revision allow one winner and persist the other as superseded with memory_revision_conflict",
+            "late old proposals cannot overwrite newer memory and preserve the newer memory snapshot byte-for-byte",
+            "explicit restore supersedes the current tombstone while reinforcement never lowers an existing strength or certainty",
+            "proposal status and PreferenceMemory are updated in one repository transaction; an injected second-key failure rolls both back and a retry succeeds once",
+            "expired and rejected proposals never project memory, and missing actor identity is rejected before mutation",
+            "runtime injects MemoryProjectionService while the service has no Agent, LLM, notification, subscription, configuration, profile, file, or HTTP capability",
+            "AgentRank plugin suite: 514 passed",
+            "AgentRank static contracts: 25 passed",
+            "smoke contracts: 51 passed",
+            "Vue federation build: passed with 67 modules and dist/assets/remoteEntry.js",
+            "compileall, progress JSON parse, sensitive-field scan review, and git diff check: passed"
+          ],
+          "commit": "ae6f07b9"
         }
       ]
     },
     {
       "id": "phase-5",
       "title": "确定性评分、支持度、Agent分析与策略版本",
-      "status": "pending",
+      "status": "in_progress",
       "goal": "生成可重算排序、百分比和结构化依据",
       "acceptance": [
         "重放顺序和百分比一致",
@@ -469,7 +492,7 @@
         {
           "id": "5.1",
           "title": "实现版本化十项权重学习",
-          "status": "pending",
+          "status": "in_progress",
           "acceptance": ["基准权重保留", "学习增量在正负0.25内", "独立证据和弃看规则生效"],
           "verification": [],
           "commit": null
@@ -806,6 +829,12 @@
       "task": "4.4",
       "result": "profile-serialized reminder and response state machine implemented with one-time due claims, explicit no-reply semantics, auditable superseding answers, idempotent queue recovery, and zero memory projection",
       "commit": "4b30ed50"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "4.5",
+      "result": "transactional proposal confirmation implemented with deterministic memory items, one-revision CAS, idempotent repeats, stale and concurrent supersession, tombstone restoration, and atomic rollback",
+      "commit": "ae6f07b9"
     }
   ],
   "residual_risks": [

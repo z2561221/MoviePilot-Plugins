@@ -478,6 +478,20 @@ def test_runtime_history_uses_actual_model_as_primary_metric():
     assert "ar-page__history-model" in page
 
 
+def test_runtime_history_exposes_versioned_policy_in_chinese():
+    """运行历史显示策略版本、记忆版本与证据数，并翻译策略阶段状态。"""
+    page = _read("Page.vue")
+
+    assert "policy: '确定策略'" in page
+    assert "policy_failed: '策略生成失败'" in page
+    assert "function historyPolicyText(run)" in page
+    assert "metrics.policy_version" in page
+    assert "metrics.policy_memory_revision" in page
+    assert "metrics.policy_evidence_count" in page
+    assert "排序策略" in page
+    assert "repeat(7, minmax(90px, 1fr))" in page
+
+
 def test_preview_status_selector_uses_chinese_titles_for_internal_codes():
     """预览夹具展示中文状态标题但保留后端内部状态码。"""
     preview = (COMPONENT_DIR.parent / "PreviewApp.vue").read_text(encoding="utf-8")

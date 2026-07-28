@@ -167,6 +167,7 @@ const statusMetaFor = status => ({
   subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
   profile_agent_failed: { text: '画像生成失败', color: 'error' },
   profile_validation_failed: { text: '画像校验失败', color: 'error' },
+  policy_failed: { text: '策略生成失败', color: 'error' },
   candidate_failed: { text: '候选采集失败', color: 'error' },
   candidate_filter_failed: { text: '候选过滤失败', color: 'error' },
   candidate_snapshot_failed: { text: '候选快照失败', color: 'error' },
@@ -179,6 +180,7 @@ const statusMetaFor = status => ({
 const historyStageLabels = {
   probe: '依赖探测',
   playback_snapshot: '冻结播放',
+  policy: '确定策略',
   profile: '生成画像',
   candidate: '冻结候选',
   ranking: 'Agent排序',
@@ -191,6 +193,7 @@ const historyStageStatusLabels = {
   recommendation_incomplete: '榜单不足', agent_failed: 'Agent失败',
   validation_failed: '校验失败', subscription_partial_failed: '部分订阅失败',
   profile_agent_failed: '画像生成失败', profile_validation_failed: '画像校验失败',
+  policy_failed: '策略生成失败',
   candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败',
   candidate_snapshot_failed: '候选快照失败', ranking_agent_failed: '排序生成失败',
   ranking_validation_failed: '排序校验失败', ranking_save_failed: '榜单保存失败', runtime_exception: '运行异常',
@@ -346,6 +349,12 @@ function historyProfileCacheText(run) {
   const reason = profileCacheReasonLabels[metrics.profile_cache_miss_reason];
   if (reason) return `未命中，${reason}`
   return metrics.profile_cache_status ? '未命中，原因未记录' : '未记录'
+}
+function historyPolicyText(run) {
+  const metrics = run?.metrics || {};
+  const version = String(metrics.policy_version || '').trim();
+  if (!version) return '未记录'
+  return `${version}；记忆版本 ${Number(metrics.policy_memory_revision || 0)}；证据 ${Number(metrics.policy_evidence_count || 0)} 项`
 }
 function historyModelText(run) {
   const model = String(run?.metrics?.agent_model || '').trim();
@@ -1240,23 +1249,27 @@ return (_ctx, _cache) => {
                                   _createElementVNode("span", null, _toDisplayString(historyProfileCacheText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[41] || (_cache[41] = _createElementVNode("span", null, "播放快照", -1)),
+                                  _cache[41] || (_cache[41] = _createElementVNode("span", null, "排序策略", -1)),
+                                  _createElementVNode("code", null, _toDisplayString(historyPolicyText(run)), 1)
+                                ]),
+                                _createElementVNode("div", null, [
+                                  _cache[42] || (_cache[42] = _createElementVNode("span", null, "播放快照", -1)),
                                   _createElementVNode("span", null, _toDisplayString(run.metrics?.playback_count ?? 0) + " 条，" + _toDisplayString(historyPlaybackStatus(run.metrics?.playback_status)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[42] || (_cache[42] = _createElementVNode("span", null, "候选耗时", -1)),
+                                  _cache[43] || (_cache[43] = _createElementVNode("span", null, "候选耗时", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyCandidateTimingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[43] || (_cache[43] = _createElementVNode("span", null, "候选处理", -1)),
+                                  _cache[44] || (_cache[44] = _createElementVNode("span", null, "候选处理", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyCandidateProcessingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[44] || (_cache[44] = _createElementVNode("span", null, "排序校验", -1)),
+                                  _cache[45] || (_cache[45] = _createElementVNode("span", null, "排序校验", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyRankingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[45] || (_cache[45] = _createElementVNode("span", null, "候选排除", -1)),
+                                  _cache[46] || (_cache[46] = _createElementVNode("span", null, "候选排除", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyExclusionText(run)), 1)
                                 ])
                               ]))
@@ -1297,6 +1310,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c174d3f7"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d44c1a2b"]]);
 
 export { Page as default };

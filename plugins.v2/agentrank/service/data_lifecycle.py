@@ -178,6 +178,10 @@ class DataLifecycleService:
             "candidate_count",
             "profile_evidence_count",
             "playback_count",
+            "policy_version",
+            "policy_memory_revision",
+            "policy_algorithm_version",
+            "policy_evidence_count",
         }
         result: Dict[str, Any] = {}
         for key in allowed:
@@ -200,6 +204,7 @@ class DataLifecycleService:
         playback = repository.load_playback_snapshot(target)
         history = repository.load_run_history(target)
         memory = repository.load_preference_memory(target)
+        policy_snapshot = repository.load_policy_snapshot(target)
         feedback = repository.load_feedback_events(target)
         feedback_queue = repository.load_feedback_queue(target)
         feedback_understandings = repository.load_feedback_understandings(target)
@@ -491,6 +496,9 @@ class DataLifecycleService:
                 "last_event_sequence": memory.last_event_sequence,
                 "items": memory_data,
             },
+            "policy_snapshot": (
+                policy_snapshot.to_dict() if policy_snapshot is not None else None
+            ),
         }
 
     def reset_learning(self, profile_id: str, confirmed: bool) -> Dict[str, Any]:

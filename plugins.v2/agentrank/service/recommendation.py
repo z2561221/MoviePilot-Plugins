@@ -26,6 +26,7 @@ from ..model.profile import (
 )
 from ..model.retrieval import RetrievalPlan
 from ..model.run import RecommendationRun
+from ..model.policy import PolicySnapshot
 from ..storage.repository import AgentRankRepository
 from .prompt import (
     DEFAULT_PROFILE_PROMPT,
@@ -79,6 +80,7 @@ class RecommendationOrchestrator:
         library_adapter: Any = None,
         playback_service: Any = None,
         retrieval_plan_resolver: Any = None,
+        policy_service: Any = None,
     ):
         """注入可测试的领域依赖并初始化用户锁集合。"""
         self._repository = repository
@@ -94,6 +96,11 @@ class RecommendationOrchestrator:
         self._validator = validator or RecommendationValidator()
         self._library_adapter = library_adapter
         self._playback_service = playback_service
+        if policy_service is None:
+            from .scoring import PolicyLearningService
+
+            policy_service = PolicyLearningService(repository)
+        self._policy_service = policy_service
         self._retrieval_plan_resolver = (
             retrieval_plan_resolver or ControlledRetrievalPlanResolver()
         )
@@ -192,15 +199,32 @@ class RecommendationOrchestrator:
         return ""
 
     @staticmethod
-    def _trusted_weights(config: Mapping[str, Any]) -> Dict[str, Any]:
+    def _trusted_weights(
+        config: Mapping[str, Any], policy: PolicySnapshot = None
+    ) -> Dict[str, Any]:
         """选择 Agent 允许读取的权重和筛选配置。"""
-        return {
-            "weights": dict(config.get("weights") or {}),
+        values = {
+            "weights": (
+                dict(policy.effective_weights)
+                if policy is not None
+                else dict(config.get("weights") or {})
+            ),
             "media_types": list(config.get("media_types") or []),
             "candidate_pool_size": int(config.get("candidate_pool_size") or 100),
             "confidence_threshold": float(config.get("confidence_threshold") or 0.0),
             "exclude_keywords": list(config.get("exclude_keywords") or []),
         }
+        if policy is not None:
+            values.update(
+                {
+                    "base_weights": dict(policy.base_weights),
+                    "learned_deltas": dict(policy.learned_deltas),
+                    "evidence_certainty": dict(policy.evidence_certainty),
+                    "policy_version": policy.policy_version,
+                    "memory_revision": policy.memory_revision,
+                }
+            )
+        return values
 
     @staticmethod
     def _profile_cache_reason(
@@ -527,6 +551,33 @@ class RecommendationOrchestrator:
                     metrics,
                     errors,
                 )
+            self._finish_stage(metrics, "ready")
+
+            self._start_stage(metrics, "policy")
+            try:
+                policy_snapshot = await asyncio.to_thread(
+                    self._policy_service.refresh,
+                    target,
+                    config.get("weights") or {},
+                    playback_snapshot,
+                )
+            except Exception as error:
+                errors.append(f"policy: {error}")
+                return self._failure(
+                    target,
+                    username,
+                    run_id,
+                    "policy_failed",
+                    "确定性策略生成失败，已保留旧画像和旧榜单",
+                    started_at,
+                    started_clock,
+                    metrics,
+                    errors,
+                )
+            metrics["policy_version"] = policy_snapshot.policy_version
+            metrics["policy_memory_revision"] = policy_snapshot.memory_revision
+            metrics["policy_algorithm_version"] = policy_snapshot.algorithm_version
+            metrics["policy_evidence_count"] = policy_snapshot.evidence_count
             self._finish_stage(metrics, "ready")
 
             self._start_stage(metrics, "profile")
@@ -938,7 +989,7 @@ class RecommendationOrchestrator:
                 run_id=run_id,
                 candidates=[candidate.to_dict() for candidate in candidates],
                 archive_feedback=archive.to_dict(),
-                weights=self._trusted_weights(config),
+                weights=self._trusted_weights(config, policy_snapshot),
                 previous_profile=None,
                 profile_preferences=profile_preferences.to_dict(),
                 playback=playback_snapshot.to_dict(),

@@ -30,6 +30,7 @@ from ..model.memory import (
 from ..model.profile import UserProfile
 from ..model.profile_preferences import ProfilePreferences
 from ..model.playback import PlaybackSnapshot
+from ..model.policy import PolicySnapshot
 from ..model.run import RecommendationRun
 from ..model.telegram_selection import TelegramSelectionSession
 
@@ -616,6 +617,60 @@ class AgentRankRepository:
         """读取当前 profile 的确认态偏好记忆。"""
         with self._feedback_lock(profile_id):
             return self._load_preference_memory(profile_id)
+
+    def load_policy_snapshot(self, profile_id: str) -> Optional[PolicySnapshot]:
+        """读取当前 profile 最近一次经过校验的版本化策略快照。"""
+        target = str(profile_id or "").strip()
+        self._scope(target, "profile_id")
+        with self._feedback_lock(target):
+            return self._load_scoped_model(
+                self._learning_key("policy_snapshot", target),
+                PolicySnapshot,
+                target,
+            )
+
+    def save_policy_snapshot(
+        self,
+        snapshot: PolicySnapshot,
+        *,
+        expected_memory_revision: int,
+    ) -> Optional[PolicySnapshot]:
+        """仅在确认记忆 revision 未变化时原子替换策略快照。"""
+        if not isinstance(snapshot, PolicySnapshot):
+            raise TypeError("snapshot must be PolicySnapshot")
+        target = snapshot.profile_id
+        with self._feedback_lock(target):
+            memory = self._load_preference_memory(target, strict=True)
+            if memory.memory_revision != int(expected_memory_revision):
+                return None
+            if snapshot.memory_revision != memory.memory_revision:
+                raise ValueError("policy snapshot memory_revision mismatch")
+            key = self._learning_key("policy_snapshot", target)
+            existing_raw = self._plugin.get_data(key=key)
+            if existing_raw is not None:
+                try:
+                    existing = PolicySnapshot.from_dict(existing_raw)
+                    if existing.profile_id != target:
+                        raise ValueError("policy snapshot profile_id mismatch")
+                except (TypeError, ValueError, KeyError) as error:
+                    self._record_recovery(
+                        key, "replaced_corrupt_policy_snapshot", str(error)
+                    )
+                    existing = None
+                if (
+                    existing is not None
+                    and existing.policy_version == snapshot.policy_version
+                ):
+                    return existing
+            self._atomic_raw_update(
+                updates={key: snapshot.to_dict()},
+                recovery_key=key,
+                action="policy_snapshot_write_failed",
+            )
+            stored = self._load_scoped_model(key, PolicySnapshot, target)
+            if stored != snapshot:
+                raise ValueError("policy snapshot readback mismatch")
+            return stored
 
     def project_preference_memory(
         self,
