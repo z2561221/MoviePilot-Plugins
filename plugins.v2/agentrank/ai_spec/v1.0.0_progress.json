@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-7",
-    "task": "7.5",
-    "next_allowed_action": "Execute task 7.5: integrate access mapping, retention, export, reset, and prompt settings UI"
+    "task": "7.6",
+    "next_allowed_action": "Execute task 7.6: build and browser-verify the four AgentRank entry surfaces"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -804,10 +804,20 @@
         {
           "id": "7.5",
           "title": "集成访问数据与提示设置",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["危险动作确认", "访问映射和保留策略可配", "提示词使用弹出编辑窗口", "非隐私默认不覆盖用户配置"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "MoviePilot users are loaded through the injected bearer client; ordinary-user profile access is configurable while superusers retain all configured-profile access",
+            "six persisted retention limits cover candidate snapshots, feedback events, understanding jobs, critic messages, attribution records, and analysis records without overwriting existing non-private settings",
+            "sanitized JSON export, learning reset, and requester-bound full reset are exposed in data management; full reset requires a short-lived token plus the exact confirmation phrase",
+            "profile, ranking, copy, and critic prompts all use the shared popup editor; the critic extension is injected into feedback understanding, analysis comments, and critic chat without overriding fixed safety or write-confirmation rules",
+            "mobile header copy wraps without clipping; access, retention, reset, and prompt panels show no page-level horizontal overflow or text loss at 390x844, 768x1024, and 1440x900",
+            "browser verification confirmed six retention controls, access mapping, learning-reset confirmation, two-stage full-reset gating, critic prompt editing, and a clean console after registering the host cron-field preview shim",
+            "screenshots stored under D:/AIGC/MoviePilot/artifacts/agentrank-v1.0.0/phase-7/task-7.5-config-*.png",
+            "Task 7.5 configuration, prompt, runtime, and frontend contracts: 162 passed; static frontend contracts: 22 passed; API controller regression: 28 passed",
+            "Vue federation build completed with Vite 5.4.21 and 75 modules; compileall, sensitive-data scan, and git diff checks passed"
+          ],
+          "commit": "8f1d1459"
         },
         {
           "id": "7.6",
