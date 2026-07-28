@@ -28,6 +28,7 @@ class AgentRankRuntime:
         feedback_understanding_service: Any = None,
         feedback_response_service: Any = None,
         memory_projection_service: Any = None,
+        conversation_service: Any = None,
     ):
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
@@ -113,6 +114,18 @@ class AgentRankRuntime:
             memory_projection_service = MemoryProjectionService(repository)
         self.memory_projection_service = memory_projection_service
         plugin._memory_projection = memory_projection_service
+        if conversation_service is None and repository is not None:
+            from ..adapter.agent import AgentRankAgentAdapter
+            from .conversation import ConversationService
+
+            conversation_service = ConversationService(
+                repository,
+                AgentRankAgentAdapter(),
+                plugin=plugin,
+                message_limit=int(config.get("conversation_message_limit") or 200),
+            )
+        self.conversation_service = conversation_service
+        plugin._conversation = conversation_service
         self._stopped = False
         self._active_tasks: set[asyncio.Task] = set()
 

@@ -185,6 +185,7 @@ TRUSTED_CONTEXT_KEY = context_module.TRUSTED_CONTEXT_KEY
 build_trusted_context = context_module.build_trusted_context
 AGENT_TOOL_CLASSES = registry_module.AGENT_TOOL_CLASSES
 FEEDBACK_AGENT_TOOL_CLASSES = registry_module.FEEDBACK_AGENT_TOOL_CLASSES
+CONVERSATION_AGENT_TOOL_CLASSES = registry_module.CONVERSATION_AGENT_TOOL_CLASSES
 AgentRankAgentAdapter = adapter_module.AgentRankAgentAdapter
 RestrictedAgentRankAgent = adapter_module.RestrictedAgentRankAgent
 
@@ -640,6 +641,37 @@ def test_feedback_role_uses_separate_session_and_feedback_only_tools():
     runner = FakeRunner.instances[-1]
     assert runner.kwargs["session_id"] == "__agentrank_feedback_run-1_alice__"
     assert runner.kwargs["trusted_context"].agent_role == "feedback"
+
+
+def test_conversation_role_uses_separate_session_and_read_only_tools():
+    """专属影评师对话使用独立 session 且只实例化六个只读工具。"""
+    FakeRunner.instances.clear()
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeRunner, memory_clearer=lambda *_: None
+    )
+    trusted = _trusted_context(agent_role="conversation")
+
+    output = asyncio.run(adapter.run_conversation("conversation", trusted))
+
+    assert output == '{"recommendations": []}'
+    runner = FakeRunner.instances[-1]
+    assert runner.kwargs["session_id"] == "__agentrank_conversation_run-1_alice__"
+    assert runner.kwargs["trusted_context"].agent_role == "conversation"
+
+    agent = RestrictedAgentRankAgent(
+        session_id="__agentrank_conversation_run-1_alice__",
+        user_id="system",
+        username="alice",
+        trusted_context=trusted,
+        replay_mode=ReplyMode.CAPTURE_ONLY,
+        allow_message_tools=False,
+    )
+    agent._tool_context = {TRUSTED_CONTEXT_KEY: trusted}
+    tools = agent._initialize_tools()
+    assert tuple(type(tool) for tool in tools) == tuple(
+        CONVERSATION_AGENT_TOOL_CLASSES
+    )
+    assert all(tool.name.startswith("read_agentrank_") for tool in tools)
 
 
 def test_restricted_agent_injects_context_and_instantiates_exact_tool_classes():

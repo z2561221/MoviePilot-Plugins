@@ -12,6 +12,7 @@ from ..model.config import configured_identities, default_config
 from ..model.identity import EmbyIdentity
 from ..service.archive import ArchiveService
 from ..service.analysis_comment import AnalysisCommentError, AnalysisCommentService
+from ..service.conversation import ConversationError, ConversationService
 from ..service.data_lifecycle import DataLifecycleError, DataLifecycleService
 from ..service.feedback_action import FeedbackActionError, FeedbackActionService
 from ..service.feedback_queue import FeedbackQueueError, FeedbackQueueService
@@ -324,6 +325,23 @@ class AgentRankApiController:
             )
             self.plugin._feedback_queue = queue
         return queue
+
+    def _conversation_service(self) -> ConversationService:
+        """返回运行时专属影评师对话服务或创建等价门面。"""
+        service = getattr(self.plugin, "_conversation", None)
+        if service is None:
+            from ..adapter.agent import AgentRankAgentAdapter
+
+            service = ConversationService(
+                self._repository(),
+                AgentRankAgentAdapter(),
+                plugin=self.plugin,
+                message_limit=int(
+                    self.plugin._config.get("conversation_message_limit") or 200
+                ),
+            )
+            self.plugin._conversation = service
+        return service
 
     def _board_data(self, board: Any) -> Dict[str, Any]:
         """返回带最新反馈极性且海报已收敛为轻量 URL 的榜单响应。"""
@@ -667,6 +685,93 @@ class AgentRankApiController:
         data["queue_job"] = queue_job.to_public_dict()
         return self._success(data)
 
+    def conversation(self, profile_id: Any) -> Dict[str, Any]:
+        """返回一个 profile 的专属影评师对话线程。"""
+        target = self._profile_id(profile_id)
+        try:
+            data = self._conversation_service().snapshot(target)
+        except ConversationError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "conversation_read_failed", "对话读取失败，请稍后重试"
+            ) from error
+        return self._success(data)
+
+    async def conversation_message(
+        self, payload: Any, actor_id: str = ""
+    ) -> Dict[str, Any]:
+        """保存并处理一条专属影评师对话消息。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        try:
+            data = await self._conversation_service().send(
+                profile_id=target,
+                content=body.get("content"),
+                idempotency_key=body.get("idempotency_key"),
+                actor_id=actor_id,
+            )
+        except ConversationError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "conversation_failed", "对话生成失败，草稿已保留，可重试"
+            ) from error
+        return self._success(data)
+
+    async def retry_conversation_message(
+        self, payload: Any, actor_id: str = ""
+    ) -> Dict[str, Any]:
+        """重试一条由当前 MP 用户创建的失败草稿。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        try:
+            data = await self._conversation_service().retry(
+                profile_id=target,
+                message_id=str(body.get("message_id") or ""),
+                actor_id=actor_id,
+            )
+        except ConversationError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "conversation_retry_failed", "消息重试失败，草稿仍已保留"
+            ) from error
+        return self._success(data)
+
+    def respond_conversation_command(
+        self,
+        payload: Any,
+        actor_id: str = "",
+        is_superuser: bool = False,
+    ) -> Dict[str, Any]:
+        """确认或拒绝一条专属影评师待确认命令。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        try:
+            data = self._conversation_service().respond_command(
+                profile_id=target,
+                command_id=str(body.get("command_id") or ""),
+                action=str(body.get("action") or ""),
+                actor_id=actor_id,
+                is_superuser=bool(is_superuser),
+            )
+        except ConversationError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "conversation_command_failed", "命令执行失败，原状态已保留"
+            ) from error
+        return self._success(data)
+
     def archive(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:
         """兼容旧忽略入口，并把动作接入统一反馈事实。"""
         body = self._payload(payload)
@@ -993,6 +1098,52 @@ class AgentRankApiController:
         actor_id = self._endpoint(self._feedback_actor_id, token_payload)
         return self._endpoint(self.analysis_comment, payload, actor_id)
 
+    def endpoint_conversation(
+        self,
+        profile_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 专属影评师对话读取入口。"""
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.conversation, target)
+
+    async def endpoint_conversation_message(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 专属影评师消息入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return await self._endpoint_async(self.conversation_message, payload, actor_id)
+
+    async def endpoint_retry_conversation_message(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 专属影评师失败草稿重试入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return await self._endpoint_async(
+            self.retry_conversation_message, payload, actor_id
+        )
+
+    def endpoint_respond_conversation_command(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 专属影评师命令确认或拒绝入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return self._endpoint(
+            self.respond_conversation_command,
+            payload,
+            actor_id,
+            self._is_superuser(token_payload),
+        )
+
     def endpoint_restore(
         self,
         payload: dict,
@@ -1058,6 +1209,25 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
             controller.endpoint_analysis_comment,
             ["POST"],
             "评论并修订 Agent 分析",
+        ),
+        ("/conversation", controller.endpoint_conversation, ["GET"], "获取专属影评师对话"),
+        (
+            "/conversation/messages",
+            controller.endpoint_conversation_message,
+            ["POST"],
+            "发送专属影评师消息",
+        ),
+        (
+            "/conversation/messages/retry",
+            controller.endpoint_retry_conversation_message,
+            ["POST"],
+            "重试专属影评师消息",
+        ),
+        (
+            "/conversation/commands/respond",
+            controller.endpoint_respond_conversation_command,
+            ["POST"],
+            "确认或拒绝专属影评师命令",
         ),
         ("/restore", controller.endpoint_restore, ["POST"], "恢复推荐"),
         ("/archive/delete", controller.endpoint_delete_archive, ["POST"], "删除归档"),

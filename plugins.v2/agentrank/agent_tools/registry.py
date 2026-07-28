@@ -5,6 +5,7 @@ from .tools import (
     ReadAgentRankArchiveFeedbackTool,
     ReadAgentRankCandidatesTool,
     ReadAgentRankConfirmedMemoryTool,
+    ReadAgentRankConversationTool,
     ReadAgentRankFeedbackEventTool,
     ReadAgentRankPendingContextTool,
     ReadAgentRankWeightsTool,
@@ -32,7 +33,19 @@ FEEDBACK_AGENT_TOOL_NAMES = (
     "read_agentrank_confirmed_memory",
     "read_agentrank_pending_context",
 )
-ALL_AGENT_TOOL_NAMES = (*ALLOWED_AGENT_TOOL_NAMES, *FEEDBACK_AGENT_TOOL_NAMES)
+CONVERSATION_AGENT_TOOL_NAMES = (
+    "read_agentrank_conversation",
+    "read_agentrank_playback",
+    "read_agentrank_candidates",
+    "read_agentrank_analysis",
+    "read_agentrank_confirmed_memory",
+    "read_agentrank_pending_context",
+)
+ALL_AGENT_TOOL_NAMES = tuple(
+    dict.fromkeys(
+        (*ALLOWED_AGENT_TOOL_NAMES, *FEEDBACK_AGENT_TOOL_NAMES, *CONVERSATION_AGENT_TOOL_NAMES)
+    )
+)
 
 AGENT_TOOL_CLASSES = (
     ReadAgentRankCandidatesTool,
@@ -54,7 +67,19 @@ FEEDBACK_AGENT_TOOL_CLASSES = (
     ReadAgentRankConfirmedMemoryTool,
     ReadAgentRankPendingContextTool,
 )
-ALL_AGENT_TOOL_CLASSES = (*AGENT_TOOL_CLASSES, *FEEDBACK_AGENT_TOOL_CLASSES)
+CONVERSATION_AGENT_TOOL_CLASSES = (
+    ReadAgentRankConversationTool,
+    ReadAgentRankPlaybackTool,
+    ReadAgentRankCandidatesTool,
+    ReadAgentRankAnalysisTool,
+    ReadAgentRankConfirmedMemoryTool,
+    ReadAgentRankPendingContextTool,
+)
+ALL_AGENT_TOOL_CLASSES = tuple(
+    dict.fromkeys(
+        (*AGENT_TOOL_CLASSES, *FEEDBACK_AGENT_TOOL_CLASSES, *CONVERSATION_AGENT_TOOL_CLASSES)
+    )
+)
 
 
 def tool_classes_for_role(role: str):
@@ -65,6 +90,8 @@ def tool_classes_for_role(role: str):
         return RANKING_AGENT_TOOL_CLASSES
     if str(role or "").strip() == "feedback":
         return FEEDBACK_AGENT_TOOL_CLASSES
+    if str(role or "").strip() == "conversation":
+        return CONVERSATION_AGENT_TOOL_CLASSES
     raise ValueError("unknown AgentRank role")
 
 
@@ -76,4 +103,6 @@ def tool_names_for_role(role: str):
         return RANKING_AGENT_TOOL_NAMES
     if str(role or "").strip() == "feedback":
         return FEEDBACK_AGENT_TOOL_NAMES
+    if str(role or "").strip() == "conversation":
+        return CONVERSATION_AGENT_TOOL_NAMES
     raise ValueError("unknown AgentRank role")

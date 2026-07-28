@@ -287,6 +287,10 @@ class DataLifecycleService:
         recommendation_analyses = repository.load_recommendation_analyses(target)
         memory_proposals = repository.load_memory_proposals(target)
         pending_questions = repository.load_pending_questions(target)
+        conversation_thread = repository.load_conversation_thread(target)
+        conversation_messages, conversation_commands = (
+            repository.load_conversation_records(target)
+        )
         snapshot_refs = repository.candidate_snapshot_references(target)
 
         profile_data = None
@@ -607,6 +611,90 @@ class DataLifecycleService:
                 }
                 for question in pending_questions
             ],
+            "conversation": {
+                "thread": (
+                    {
+                        "thread_id": _safe_scalar(conversation_thread.thread_id),
+                        "revision": conversation_thread.revision,
+                        "status": _redact_text(conversation_thread.status),
+                        "summary": _redact_text(conversation_thread.summary),
+                        "last_message_id": _safe_scalar(
+                            conversation_thread.last_message_id
+                        ),
+                        "related_event_refs": [
+                            _safe_scalar(item)
+                            for item in conversation_thread.related_event_refs
+                        ],
+                        "related_analysis_ids": [
+                            _safe_scalar(item)
+                            for item in conversation_thread.related_analysis_ids
+                        ],
+                        "pending_command_ids": [
+                            _safe_scalar(item)
+                            for item in conversation_thread.pending_command_ids
+                        ],
+                        "created_at": _redact_text(
+                            conversation_thread.created_at
+                        ),
+                        "updated_at": _redact_text(
+                            conversation_thread.updated_at
+                        ),
+                    }
+                    if conversation_thread is not None
+                    else None
+                ),
+                "messages": [
+                    {
+                        "message_id": _safe_scalar(message.message_id),
+                        "role": _redact_text(message.role),
+                        "content": _redact_text(message.content),
+                        "status": _redact_text(message.status),
+                        "created_at": _redact_text(message.created_at),
+                        "reply_to": _safe_scalar(message.reply_to),
+                        "related_candidate_ids": [
+                            _safe_scalar(item)
+                            for item in message.related_candidate_ids
+                        ],
+                        "related_analysis_ids": [
+                            _safe_scalar(item)
+                            for item in message.related_analysis_ids
+                        ],
+                        "command_ids": [
+                            _safe_scalar(item) for item in message.command_ids
+                        ],
+                        "error_code": _redact_text(message.error_code),
+                        "error_message": _redact_text(message.error_message),
+                        "provider": _redact_text(message.provider),
+                        "model": _redact_text(message.model),
+                    }
+                    for message in conversation_messages
+                ],
+                "commands": [
+                    {
+                        "command_id": _safe_scalar(command.command_id),
+                        "source_message_id": _safe_scalar(
+                            command.source_message_id
+                        ),
+                        "kind": _redact_text(command.kind),
+                        "title": _redact_text(command.title),
+                        "preview": _redact_text(command.preview),
+                        "payload": {
+                            str(key): _safe_scalar(value)
+                            for key, value in dict(command.payload).items()
+                        },
+                        "status": _redact_text(command.status),
+                        "requires_superuser": command.requires_superuser,
+                        "supersedes": _safe_scalar(command.supersedes),
+                        "created_at": _redact_text(command.created_at),
+                        "resolved_at": _redact_text(command.resolved_at),
+                        "execution_code": _redact_text(command.execution_code),
+                        "execution_message": _redact_text(
+                            command.execution_message
+                        ),
+                    }
+                    for command in conversation_commands
+                ],
+            },
             "preference_memory": {
                 "memory_revision": memory.memory_revision,
                 "last_event_sequence": memory.last_event_sequence,

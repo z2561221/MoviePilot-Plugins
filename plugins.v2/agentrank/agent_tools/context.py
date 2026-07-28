@@ -11,8 +11,14 @@ TRUSTED_CONTEXT_KEY = "agentrank_trusted_context"
 PROFILE_AGENT_ROLE = "profile"
 RANKING_AGENT_ROLE = "ranking"
 FEEDBACK_AGENT_ROLE = "feedback"
+CONVERSATION_AGENT_ROLE = "conversation"
 AGENT_ROLES = frozenset(
-    {PROFILE_AGENT_ROLE, RANKING_AGENT_ROLE, FEEDBACK_AGENT_ROLE}
+    {
+        PROFILE_AGENT_ROLE,
+        RANKING_AGENT_ROLE,
+        FEEDBACK_AGENT_ROLE,
+        CONVERSATION_AGENT_ROLE,
+    }
 )
 _CANDIDATE_ID_PATTERN = re.compile(r"^[A-Za-z0-9:_-]{1,128}$")
 _ARCHIVE_REASON_CODES = frozenset({"ignored", "disliked"})
@@ -94,6 +100,7 @@ class AgentRankTrustedContext:
     confirmed_memory: Any = None
     analysis: Any = None
     pending_context: Any = None
+    conversation: Any = None
 
 
 def build_trusted_context(
@@ -112,6 +119,7 @@ def build_trusted_context(
     confirmed_memory: Any = None,
     analysis: Any = None,
     pending_context: Any = None,
+    conversation: Any = None,
 ) -> AgentRankTrustedContext:
     """校验作用域与 Agent 角色并构造不可变的受信上下文。"""
     trusted_username = str(username or "").strip()
@@ -137,6 +145,7 @@ def build_trusted_context(
         confirmed_memory=_deep_freeze(confirmed_memory),
         analysis=_deep_freeze(analysis),
         pending_context=_deep_freeze(pending_context),
+        conversation=_deep_freeze(conversation),
     )
 
 

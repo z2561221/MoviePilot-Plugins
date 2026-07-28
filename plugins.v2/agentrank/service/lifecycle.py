@@ -116,6 +116,7 @@ def stop_plugin(plugin: Any) -> None:
     plugin._feedback_understanding = None
     plugin._feedback_response = None
     plugin._memory_projection = None
+    plugin._conversation = None
     plugin._enabled = False
     plugin._enablement = _enablement(False, False, "stopped", "插件已停止")
     plugin._migration_status = {

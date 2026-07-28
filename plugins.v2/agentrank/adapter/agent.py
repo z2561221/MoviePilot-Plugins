@@ -9,6 +9,7 @@ from app.agent import MoviePilotAgent, ReplyMode
 from app.utils.identity import SYSTEM_INTERNAL_USER_ID
 
 from ..agent_tools.context import (
+    CONVERSATION_AGENT_ROLE,
     FEEDBACK_AGENT_ROLE,
     PROFILE_AGENT_ROLE,
     RANKING_AGENT_ROLE,
@@ -26,6 +27,7 @@ AGENTRANK_SYSTEM_PROMPTS = {
     PROFILE_AGENT_ROLE: "你是 Agent榜单中心的受限用户画像执行器，只能使用播放只读工具。",
     RANKING_AGENT_ROLE: "你是 Agent榜单中心的受限排序执行器，只能使用四个只读工具。",
     FEEDBACK_AGENT_ROLE: "你是 Agent榜单中心谨慎、具体、尊重纠正的专属影评师，只能读取当前反馈和最小证据。",
+    CONVERSATION_AGENT_ROLE: "你是 Agent榜单中心谨慎、具体、尊重纠正的专属影评师，只能读取当前对话和最小证据。",
 }
 AGENTRANK_SYSTEM_PROMPT = "你是 Agent榜单中心的受限执行器。"
 
@@ -49,7 +51,7 @@ class AgentExecutionResult(str):
 
 
 class RestrictedAgentRankAgent(MoviePilotAgent):
-    """只实例化 AgentRank 四工具并注入单次运行上下文的内置 Agent。"""
+    """只实例化当前角色白名单工具并注入单次受信上下文的内置 Agent。"""
 
     def __init__(self, trusted_context: AgentRankTrustedContext, **kwargs: Any):
         """强制捕获模式、无消息渠道和无消息工具。"""
@@ -114,7 +116,7 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
 
 
 class AgentRankAgentAdapter:
-    """运行一次独立榜单 Agent 并在所有路径清理图与会话记忆。"""
+    """运行一次独立 AgentRank 角色并在所有路径清理图与会话记忆。"""
 
     _safe_scope = re.compile(r"^[A-Za-z0-9@._-]{1,96}$")
     _json_object_fence = re.compile(
@@ -372,4 +374,12 @@ class AgentRankAgentAdapter:
         """执行只读取反馈、作品和确认记忆的反馈理解 Agent。"""
         if trusted_context.agent_role != FEEDBACK_AGENT_ROLE:
             raise ValueError("feedback Agent requires feedback trusted context")
+        return await self.run(prompt, trusted_context)
+
+    async def run_conversation(
+        self, prompt: str, trusted_context: AgentRankTrustedContext
+    ) -> str:
+        """执行只读取对话、播放、候选、分析和确认记忆的影评师 Agent。"""
+        if trusted_context.agent_role != CONVERSATION_AGENT_ROLE:
+            raise ValueError("conversation Agent requires conversation trusted context")
         return await self.run(prompt, trusted_context)

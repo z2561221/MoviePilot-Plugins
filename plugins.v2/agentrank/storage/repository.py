@@ -13,6 +13,11 @@ from ..model.analysis import RecommendationAnalysis
 from ..model.board import RecommendationBoard
 from ..model.candidate import Candidate
 from ..model.candidate_snapshot import CandidateSnapshot
+from ..model.conversation import (
+    ConversationCommand,
+    ConversationMessage,
+    ConversationThread,
+)
 from ..model.feedback import (
     FeedbackAppendResult,
     FeedbackEvent,
@@ -315,6 +320,175 @@ class AgentRankRepository:
             profile_id,
         )
         return preferences or ProfilePreferences(profile_id=profile_id)
+
+    def load_conversation_thread(
+        self, profile_id: str
+    ) -> Optional[ConversationThread]:
+        """读取按 profile 隔离的专属影评师对话线程。"""
+        return self._load_scoped_model(
+            self._learning_key("conversation", profile_id),
+            ConversationThread,
+            profile_id,
+        )
+
+    def load_conversation_records(
+        self, profile_id: str, *, strict: bool = False
+    ) -> Tuple[List[ConversationMessage], List[ConversationCommand]]:
+        """读取对话消息与命令；严格模式拒绝损坏或未知记录。"""
+        target = str(profile_id or "").strip()
+        self._scope(target, "profile_id")
+        key = self._learning_key("conversation_messages", target)
+        raw = self._plugin.get_data(key=key)
+        if raw is None:
+            return [], []
+        if not isinstance(raw, list):
+            self._record_recovery(
+                key, "ignored_corrupt_data", "conversation records must be a list"
+            )
+            if strict:
+                raise ValueError("conversation records are corrupt")
+            return [], []
+        messages: List[ConversationMessage] = []
+        commands: List[ConversationCommand] = []
+        for item in raw:
+            if not isinstance(item, Mapping):
+                self._record_recovery(
+                    key, "ignored_corrupt_item", "conversation record must be a mapping"
+                )
+                if strict:
+                    raise ValueError("conversation record is corrupt")
+                continue
+            try:
+                record_type = str(item.get("record_type") or "")
+                if record_type == "conversation_message":
+                    record = ConversationMessage.from_dict(item)
+                    messages.append(record)
+                elif record_type == "conversation_command":
+                    record = ConversationCommand.from_dict(item)
+                    commands.append(record)
+                else:
+                    raise ValueError("conversation record type is unknown")
+                if record.profile_id != target:
+                    raise ValueError("conversation record profile mismatch")
+            except (TypeError, ValueError, KeyError) as error:
+                self._record_recovery(key, "ignored_corrupt_item", str(error))
+                if strict:
+                    raise ValueError("conversation record is corrupt") from error
+        return messages, commands
+
+    def save_conversation_state(
+        self,
+        thread: ConversationThread,
+        messages: Iterable[ConversationMessage],
+        commands: Iterable[ConversationCommand],
+        *,
+        limit: int = 200,
+        action: str = "conversation_write_failed",
+    ) -> None:
+        """原子替换线程与有界记录，并保留失败草稿和待确认命令。"""
+        if not isinstance(thread, ConversationThread):
+            raise TypeError("thread must be ConversationThread")
+        message_values = list(messages or ())
+        command_values = list(commands or ())
+        if any(
+            not isinstance(item, ConversationMessage)
+            or item.profile_id != thread.profile_id
+            or item.thread_id != thread.thread_id
+            for item in message_values
+        ):
+            raise ValueError("conversation messages do not match thread")
+        if any(
+            not isinstance(item, ConversationCommand)
+            or item.profile_id != thread.profile_id
+            or item.thread_id != thread.thread_id
+            for item in command_values
+        ):
+            raise ValueError("conversation commands do not match thread")
+        keep_limit = max(1, min(int(limit), 100000))
+        protected_message_ids = {
+            item.message_id
+            for item in message_values
+            if item.status in {"draft", "processing", "failed"}
+            or item.message_id == thread.last_message_id
+        }
+        protected_command_ids = {
+            item.command_id
+            for item in command_values
+            if item.status == "pending_confirmation"
+            or item.command_id in thread.pending_command_ids
+        }
+        optional_records = [
+            *[
+                item
+                for item in message_values
+                if item.message_id not in protected_message_ids
+            ],
+            *[
+                item
+                for item in command_values
+                if item.command_id not in protected_command_ids
+            ],
+        ]
+        optional_slots = max(
+            0,
+            keep_limit - len(protected_message_ids) - len(protected_command_ids),
+        )
+        selected_optional = optional_records[-optional_slots:] if optional_slots else []
+        selected_ids = {
+            getattr(item, "message_id", "") or getattr(item, "command_id", "")
+            for item in selected_optional
+        }
+        retained_messages = [
+            item
+            for item in message_values
+            if item.message_id in protected_message_ids
+            or item.message_id in selected_ids
+        ]
+        retained_commands = [
+            item
+            for item in command_values
+            if item.command_id in protected_command_ids
+            or item.command_id in selected_ids
+        ]
+        records = sorted(
+            [*retained_messages, *retained_commands],
+            key=lambda item: (
+                item.created_at,
+                getattr(item, "message_id", "") or getattr(item, "command_id", ""),
+            ),
+        )
+        thread_key = self._learning_key("conversation", thread.profile_id)
+        records_key = self._learning_key("conversation_messages", thread.profile_id)
+        self._atomic_raw_update(
+            updates={
+                thread_key: thread.to_dict(),
+                records_key: [item.to_dict() for item in records],
+            },
+            recovery_key=records_key,
+            action=action,
+        )
+
+    def prune_conversation_records(self, profile_id: str, limit: int) -> int:
+        """裁剪已完成对话记录并永久保留待确认命令与失败草稿。"""
+        target = str(profile_id or "").strip()
+        keep_limit = max(1, min(int(limit), 100000))
+        with self._feedback_lock(target):
+            thread = self.load_conversation_thread(target)
+            messages, commands = self.load_conversation_records(target, strict=True)
+            before = len(messages) + len(commands)
+            if thread is None or before <= keep_limit:
+                return 0
+            self.save_conversation_state(
+                thread,
+                messages,
+                commands,
+                limit=keep_limit,
+                action="conversation_prune_failed",
+            )
+            retained_messages, retained_commands = self.load_conversation_records(
+                target, strict=True
+            )
+            return max(0, before - len(retained_messages) - len(retained_commands))
 
     def save_playback_snapshot(self, snapshot: PlaybackSnapshot) -> None:
         """保存按用户隔离的播放画像快照。"""
@@ -1208,6 +1382,8 @@ class AgentRankRepository:
             return self.prune_memory_proposals(profile_id, limit)
         if str(prefix or "").strip() == "pending_questions":
             return self.prune_pending_questions(profile_id, limit)
+        if str(prefix or "").strip() == "conversation_messages":
+            return self.prune_conversation_records(profile_id, limit)
         keep_limit = max(1, min(int(limit), 100000))
         key = self._learning_key(prefix, profile_id)
         with self._feedback_lock(profile_id):

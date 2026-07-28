@@ -261,6 +261,10 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/archive",
         "/feedback",
         "/analysis/comment",
+        "/conversation",
+        "/conversation/messages",
+        "/conversation/messages/retry",
+        "/conversation/commands/respond",
         "/restore",
         "/archive/delete",
         "/profile/clear",
@@ -326,6 +330,83 @@ def test_regular_user_is_limited_to_explicit_profile_mapping_for_reads_and_write
         controller.endpoint_archive(
             {"profile_id": REMOTE_PROFILE, "candidate_id": "tmdb:2"}, allowed
         )
+    assert caught.value.status_code == 403
+    assert caught.value.detail["error"]["code"] == "profile_forbidden"
+
+
+def test_conversation_endpoints_reuse_profile_access_and_pass_actor_privilege():
+    """对话读写沿用 profile 鉴权，并把真实操作者与管理员标志传给服务。"""
+
+    class FakeConversationService:
+        """记录控制器传入的对话参数。"""
+
+        def __init__(self):
+            self.calls = []
+
+        def snapshot(self, profile_id):
+            """返回空对话快照。"""
+            self.calls.append(("snapshot", profile_id))
+            return {"thread": None, "messages": [], "commands": []}
+
+        async def send(self, **kwargs):
+            """记录发送参数。"""
+            self.calls.append(("send", kwargs))
+            return {"created": True, "messages": [], "commands": []}
+
+        async def retry(self, **kwargs):
+            """记录重试参数。"""
+            self.calls.append(("retry", kwargs))
+            return {"created": False, "messages": [], "commands": []}
+
+        def respond_command(self, **kwargs):
+            """记录命令回应参数。"""
+            self.calls.append(("respond", kwargs))
+            return {"command": {"status": "confirmed"}}
+
+    plugin = FakePlugin()
+    service = FakeConversationService()
+    plugin._conversation = service
+    controller = AgentRankApiController(plugin)
+    allowed = TokenPayload(sub=7, username="Alice", super_user=False)
+    forbidden = TokenPayload(sub=8, username="Alice", super_user=False)
+    admin = TokenPayload(sub=1, username="admin", super_user=True)
+
+    assert controller.endpoint_conversation(HOME_PROFILE, allowed)["success"] is True
+    sent = asyncio.run(
+        controller.endpoint_conversation_message(
+            {
+                "profile_id": HOME_PROFILE,
+                "content": "说明推荐依据",
+                "idempotency_key": "conversation-1",
+            },
+            allowed,
+        )
+    )
+    assert sent["data"]["created"] is True
+    controller.endpoint_respond_conversation_command(
+        {
+            "profile_id": HOME_PROFILE,
+            "command_id": "command-1",
+            "action": "confirm",
+        },
+        allowed,
+    )
+    controller.endpoint_respond_conversation_command(
+        {
+            "profile_id": HOME_PROFILE,
+            "command_id": "command-2",
+            "action": "confirm",
+        },
+        admin,
+    )
+    send_call = next(item for item in service.calls if item[0] == "send")
+    respond_calls = [item for item in service.calls if item[0] == "respond"]
+    assert send_call[1]["actor_id"] == "7"
+    assert respond_calls[0][1]["is_superuser"] is False
+    assert respond_calls[1][1]["is_superuser"] is True
+
+    with pytest.raises(fastapi_module.HTTPException) as caught:
+        controller.endpoint_conversation(HOME_PROFILE, forbidden)
     assert caught.value.status_code == 403
     assert caught.value.detail["error"]["code"] == "profile_forbidden"
 
