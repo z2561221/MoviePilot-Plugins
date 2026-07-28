@@ -1,6 +1,6 @@
 """推荐忽略、恢复与画像清理领域服务。"""
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from ..model.archive import ArchiveEntry, ArchiveFeedback
@@ -91,7 +91,7 @@ class ArchiveService:
                     candidate_id=candidate_id,
                     original_rank=item.rank,
                     archived_at=datetime.now(timezone.utc).isoformat(),
-                    recommendation=asdict(item),
+                    recommendation=item.to_dict(),
                 )
             )
         return ArchiveActionResult(True, "ignore", candidate_id)

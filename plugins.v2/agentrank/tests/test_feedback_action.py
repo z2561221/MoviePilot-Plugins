@@ -2,6 +2,7 @@
 
 import copy
 import importlib
+import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -69,6 +70,17 @@ class FakePlugin:
     def del_data(self, key=None):
         """删除指定插件数据键。"""
         self.data.pop(key, None)
+
+
+class JsonRoundTripPlugin(FakePlugin):
+    """模拟 MoviePilot 插件数据层的 JSON 序列化往返。"""
+
+    def save_data(self, key=None, value=None):
+        """通过 JSON 往返保存，暴露 tuple 与 list 的宿主差异。"""
+        if key == self.fail_once_on_key and not self.failed:
+            self.failed = True
+            raise RuntimeError("injected feedback save failure")
+        self.data[key] = json.loads(json.dumps(value, ensure_ascii=False))
 
 
 def _board():
@@ -232,6 +244,31 @@ def test_three_actions_share_one_ledger_and_return_latest_board_revision():
     board, analyses = _assert_board_analysis_complete(repository)
     assert len(board.recommendations) == 5
     assert len(analyses) == 7
+
+
+def test_ignore_refill_survives_moviepilot_json_round_trip():
+    """忽略归档中的推荐快照必须在宿主 JSON 往返后保持严格相等。"""
+    plugin = JsonRoundTripPlugin()
+    repository = AgentRankRepository(plugin)
+    repository.save_board(_board())
+    _save_snapshot(repository)
+
+    result = _act(
+        FeedbackActionService(repository),
+        "ignore",
+        "tmdb:tv:102",
+        "ignore-json-round-trip",
+    )
+
+    board = repository.load_board(PROFILE_ID)
+    archive = repository.load_archive(PROFILE_ID)
+    assert result.current_count == 5
+    assert result.refill_status == "filled"
+    assert len(board.recommendations) == 5
+    assert [entry.candidate_id for entry in archive.entries] == ["tmdb:tv:102"]
+    contributions = archive.entries[0].recommendation["support"]["contributions"]
+    assert isinstance(contributions, list) and contributions
+    assert all(isinstance(item["user_refs"], list) for item in contributions)
 
 
 @pytest.mark.parametrize(
