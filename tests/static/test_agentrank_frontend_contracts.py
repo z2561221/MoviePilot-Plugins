@@ -264,6 +264,15 @@ def test_ranking_surfaces_and_preview_use_emby_identity_contracts_only():
             assert legacy not in source
 
 
+def test_preview_fixture_persists_profile_tag_archives_for_browser_acceptance():
+    """Preview fake API mirrors the production archive-and-restore semantics."""
+    preview = PREVIEW.read_text(encoding="utf-8")
+    assert "if (path.endsWith('profile/tags'))" in preview
+    assert "archived_profile_tags: []" in preview
+    assert "profile.archived_profile_tags.push" in preview
+    assert "profile.archived_profile_tags = profile.archived_profile_tags.filter" in preview
+
+
 def test_config_has_stable_desktop_and_dedicated_mobile_layout():
     """Config follows the shared stable-window and mobile navigation pattern."""
     source = CONFIG.read_text(encoding="utf-8")
@@ -499,6 +508,9 @@ def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
             if line.startswith(f".{support_class} {{")
         )
         assert "margin-left: auto" in support_rule
+    dashboard = DASHBOARD.read_text(encoding="utf-8")
+    assert ".ar-dashboard__controls :deep(.ar-actions) { order: 1; }" in dashboard
+    assert ".ar-dashboard__support { order: 2; margin-left: auto; }" in dashboard
 
 
 def test_primary_surface_exposes_the_complete_semantic_state_matrix():

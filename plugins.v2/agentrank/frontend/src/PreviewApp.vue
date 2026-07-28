@@ -197,6 +197,7 @@ const profile = {
   summary: '偏爱科幻、悬疑与人物成长，也会关注高口碑的新作。',
   tags: ['科幻', '悬疑', '成长', '高口碑'],
   negative_tags: ['套路化续作'],
+  archived_profile_tags: [],
   playback_count: 36,
   filters: { genres: ['科幻', '悬疑'], languages: ['zh', 'en'], release_year_min: 2018 },
   ranking_tags: ['封闭空间', '群像成长'],
@@ -338,6 +339,22 @@ const api = {
     if (path.endsWith('pending/respond')) {
       if (!(payload.action === 'remind' && payload.reminder_policy !== 'never')) {
         pendingItems.value = pendingItems.value.filter(item => item.item_id !== payload.item_id)
+      }
+      return { data: { success: true, data: { changed: true } } }
+    }
+    if (path.endsWith('profile/tags')) {
+      const tag = String(payload.tag || '').trim()
+      const field = payload.kind === 'negative' ? 'negative_tags' : 'tags'
+      const archivedKind = payload.kind === 'negative' ? 'negative' : 'positive'
+      profile.archived_profile_tags ||= []
+      if (payload.action === 'remove') {
+        profile[field] = profile[field].filter(item => item !== tag)
+        if (tag && !profile.archived_profile_tags.some(item => item.kind === archivedKind && item.tag === tag)) {
+          profile.archived_profile_tags.push({ kind: archivedKind, tag, archived_at: new Date().toISOString() })
+        }
+      } else {
+        if (tag && !profile[field].includes(tag)) profile[field].push(tag)
+        profile.archived_profile_tags = profile.archived_profile_tags.filter(item => !(item.kind === archivedKind && item.tag === tag))
       }
       return { data: { success: true, data: { changed: true } } }
     }

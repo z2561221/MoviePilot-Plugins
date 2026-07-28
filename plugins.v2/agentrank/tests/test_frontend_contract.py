@@ -521,6 +521,8 @@ def test_dashboard_assigns_an_explicit_fourth_action_column_and_mobile_row():
     assert "grid-column: 4; grid-row: 1 / span 2" in dashboard
     assert ".ar-dashboard__rank, .ar-dashboard__poster { grid-row: 1; }" in dashboard
     assert "grid-column: 1 / -1; grid-row: 2" in dashboard
+    assert ".ar-dashboard__controls :deep(.ar-actions) { order: 1; }" in dashboard
+    assert ".ar-dashboard__support { order: 2; margin-left: auto; }" in dashboard
 
 
 def test_runtime_history_uses_chinese_fallbacks_for_unknown_internal_codes():
@@ -604,6 +606,15 @@ def test_preview_status_selector_uses_chinese_titles_for_internal_codes():
     assert "{ title: '画像输出校验失败', value: 'profile_validation_failed' }" in preview
     assert "{ title: '已完成', value: 'success' }" in preview
     assert "generated: '已生成'" in _read("Config.vue")
+
+
+def test_preview_profile_tag_actions_persist_archive_and_restore_state():
+    """浏览器夹具必须真实模拟画像标签归档与恢复，避免只验证按钮消失。"""
+    preview = (COMPONENT_DIR.parent / "PreviewApp.vue").read_text(encoding="utf-8")
+    assert "if (path.endsWith('profile/tags'))" in preview
+    assert "archived_profile_tags: []" in preview
+    assert "profile.archived_profile_tags.push" in preview
+    assert "profile.archived_profile_tags = profile.archived_profile_tags.filter" in preview
 
 
 def test_visible_ranking_copy_avoids_generic_english_ui_terms():

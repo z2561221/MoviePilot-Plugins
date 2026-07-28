@@ -299,6 +299,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-77bf38e8"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6846d220"]]);
 
 export { Dashboard as default };
