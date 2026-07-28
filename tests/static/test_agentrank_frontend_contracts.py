@@ -360,6 +360,7 @@ def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
     actions = ACTIONS.read_text(encoding="utf-8")
     for label in ("订阅", "TMDB", "忽略"):
         assert f'<span class="ar-actions__label">{label}</span>' in actions
+        assert actions.count(f'<span class="ar-actions__label">{label}</span>') == 1
     for forbidden in ("豆瓣", "Bgm", "搜索豆瓣", "doubanSearchText", "sourceLabel"):
         assert forbidden not in actions
     assert "nativeSubscribe" in actions
@@ -380,12 +381,23 @@ def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
     assert ".ar-actions__feedback-button { min-width: 40px; min-height: 40px;" in actions
     for component_path in (DASHBOARD, APP_PAGE, PAGE):
         source = component_path.read_text(encoding="utf-8")
+        assert ".slice(0, 5)" in source
         assert "nativeSubscribe" in source
         assert "@like=" in source
         assert "@dislike=" in source
         assert "置信度" not in source
         assert "{{ item.support?.percentage ?? '—' }}" in source
         assert "{{ item.support ? '%' : '' }}" in source
+    for component_path, support_class in (
+        (DASHBOARD, "ar-dashboard__support"),
+        (APP_PAGE, "ar-app-page__support"),
+        (PAGE, "ar-page__support"),
+    ):
+        support_rule = next(
+            line for line in component_path.read_text(encoding="utf-8").splitlines()
+            if line.startswith(f".{support_class} {{")
+        )
+        assert "margin-left: auto" in support_rule
 
 
 def test_primary_surface_exposes_the_complete_semantic_state_matrix():

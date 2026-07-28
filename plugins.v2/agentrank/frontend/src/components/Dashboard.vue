@@ -144,7 +144,7 @@ onMounted(initialize)
 .ar-dashboard__main { min-width: 0; }
 .ar-dashboard__copy { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
 .ar-dashboard__controls { grid-column: 4; grid-row: 1 / span 2; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
-.ar-dashboard__support { flex: 0 0 auto; }
+.ar-dashboard__support { flex: 0 0 auto; margin-left: auto; }
 .ar-dashboard__controls :deep(.ar-actions) { max-width: 100%; }
 @media (max-width: 760px) {
   .ar-dashboard__item { grid-template-columns: 28px 44px minmax(0, 1fr); }

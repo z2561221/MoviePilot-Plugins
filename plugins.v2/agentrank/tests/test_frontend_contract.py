@@ -448,16 +448,23 @@ def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse()
     assert "flex-wrap: wrap" in actions
     for label in ("订阅", "TMDB", "忽略"):
         assert f'<span class="ar-actions__label">{label}</span>' in actions
+        assert actions.count(f'<span class="ar-actions__label">{label}</span>') == 1
     for name, support_class in (
         ("Dashboard.vue", "ar-dashboard__support"),
         ("AppPage.vue", "ar-app-page__support"),
         ("Page.vue", "ar-page__support"),
     ):
         component = _read(name)
+        assert ".slice(0, 5)" in component
         assert "置信度" not in component
         assert "{{ item.support?.percentage ?? '—' }}" in component
         assert "{{ item.support ? '%' : '' }}" in component
         assert component.index(support_class) < component.index("<RecommendationActions")
+        support_rule = next(
+            line for line in component.splitlines()
+            if line.startswith(f".{support_class} {{")
+        )
+        assert "margin-left: auto" in support_rule
 
 
 def test_native_subscribe_payload_keeps_source_id_aliases_without_source_buttons():

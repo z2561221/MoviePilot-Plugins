@@ -328,7 +328,7 @@ onMounted(initialize)
 .ar-app-page__copy-text--reason { font-weight: 600; }
 .ar-app-page__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .ar-app-page__item-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
-.ar-app-page__support { flex: 0 0 auto; }
+.ar-app-page__support { flex: 0 0 auto; margin-left: auto; }
 .ar-app-page__state { min-height: 480px; display: flex; align-items: center; justify-content: center; padding: 24px; }
 @media (max-width: 760px) {
   .ar-app-page { padding: 8px; }

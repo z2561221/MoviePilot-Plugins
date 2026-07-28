@@ -768,7 +768,7 @@ onMounted(initialize)
 .ar-page__copy-text { min-width: 0; display: block; overflow: visible; overflow-wrap: anywhere; }
 .ar-page__match-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .ar-page__rank-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
-.ar-page__support { flex: 0 0 auto; }
+.ar-page__support { flex: 0 0 auto; margin-left: auto; }
 .ar-page__section-card, .ar-page__archive-card, .ar-page__table-card { border-radius: 10px; background: transparent; }
 .ar-page__profile-head { padding: 14px 16px; }
 .ar-page__profile-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 12px; padding: 14px; }
