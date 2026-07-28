@@ -1,9 +1,10 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-BdKx8LEM.js';
+import { A as AgentAnalysisDialog, F as FeedbackCommentDialog, C as CriticChatDialog, P as PendingConfirmations } from './PendingConfirmations-D9XXxuDI.js';
 import Config from './__federation_expose_Config-BXD4EyYM.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,unref:_unref,isRef:_isRef,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass,createSlots:_createSlots} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,unref:_unref,isRef:_isRef,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass,mergeProps:_mergeProps,createSlots:_createSlots} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "ar-app-page" };
@@ -76,6 +77,12 @@ const savingSettings = ref(false);
 const snackbar = ref({ show: false, message: '', color: 'success', undo: false });
 const lastArchivedId = ref('');
 const initialized = ref(false);
+const analysisDialog = ref(false);
+const commentDialog = ref(false);
+const criticDialog = ref(false);
+const pendingDialog = ref(false);
+const selectedAnalysisItem = ref(null);
+const selectedJudgment = ref(null);
 
 const recommendations = computed(() => board.value?.recommendations?.slice(0, 5) || []);
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '');
@@ -156,7 +163,9 @@ function posterSource(item) {
 async function initialize() {
   try {
     await state.loadOptions();
-    if (selectedProfileId.value) await state.loadProfileData();
+    if (selectedProfileId.value) {
+      await Promise.all([state.loadProfileData(), state.loadPendingCenter()]);
+    }
   } catch (_) {
     // 共享状态已保存可见错误。
   } finally {
@@ -229,6 +238,21 @@ function openSettings() {
   settingsDialog.value = true;
 }
 
+function openAnalysis(item) {
+  selectedAnalysisItem.value = item;
+  selectedJudgment.value = null;
+  analysisDialog.value = true;
+}
+
+function openAnalysisComment(judgment) {
+  selectedJudgment.value = judgment;
+  commentDialog.value = true;
+}
+
+function showFeedbackResult(message) {
+  snackbar.value = { show: true, message, color: 'success', undo: false };
+}
+
 async function saveSettings(payload) {
   savingSettings.value = true;
   try {
@@ -245,7 +269,7 @@ async function saveSettings(payload) {
 
 watch(selectedProfileId, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
-  try { await state.loadProfileData(value); } catch (_) { /* 可见错误由共享状态承载 */ }
+  try { await Promise.all([state.loadProfileData(value), state.loadPendingCenter()]); } catch (_) { /* 可见错误由共享状态承载 */ }
 });
 
 onMounted(initialize);
@@ -257,12 +281,14 @@ return (_ctx, _cache) => {
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VSelect = _resolveComponent("VSelect");
   const _component_VBtn = _resolveComponent("VBtn");
+  const _component_VBadge = _resolveComponent("VBadge");
   const _component_VToolbar = _resolveComponent("VToolbar");
   const _component_VDivider = _resolveComponent("VDivider");
   const _component_VSkeletonLoader = _resolveComponent("VSkeletonLoader");
   const _component_VEmptyState = _resolveComponent("VEmptyState");
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VImg = _resolveComponent("VImg");
+  const _component_VTooltip = _resolveComponent("VTooltip");
   const _component_VCard = _resolveComponent("VCard");
   const _component_VDialog = _resolveComponent("VDialog");
   const _component_VSnackbar = _resolveComponent("VSnackbar");
@@ -291,7 +317,7 @@ return (_ctx, _cache) => {
               _: 1
             }),
             _createElementVNode("div", _hoisted_2, [
-              _cache[6] || (_cache[6] = _createElementVNode("div", { class: "text-h6" }, "Agent榜单中心", -1)),
+              _cache[14] || (_cache[14] = _createElementVNode("div", { class: "text-h6" }, "Agent榜单中心", -1)),
               _createElementVNode("div", _hoisted_3, "最近生成：" + _toDisplayString(formatTime(generatedAt.value)), 1)
             ]),
             (boardStatus.value !== 'success')
@@ -339,6 +365,28 @@ return (_ctx, _cache) => {
               onClick: refreshBoard
             }, null, 8, ["loading", "disabled"]),
             _createVNode(_component_VBtn, {
+              icon: "mdi-forum-outline",
+              variant: "text",
+              "aria-label": "打开专属影评师",
+              onClick: _cache[1] || (_cache[1] = $event => (criticDialog.value = true))
+            }),
+            _createVNode(_component_VBadge, {
+              content: _unref(state).pendingCenter.value?.total || 0,
+              "model-value": Boolean(_unref(state).pendingCenter.value?.total),
+              color: "warning",
+              class: "ar-app-page__pending-badge"
+            }, {
+              default: _withCtx(() => [
+                _createVNode(_component_VBtn, {
+                  icon: "mdi-inbox-outline",
+                  variant: "text",
+                  "aria-label": "打开待确认中心",
+                  onClick: _cache[2] || (_cache[2] = $event => (pendingDialog.value = true))
+                })
+              ]),
+              _: 1
+            }, 8, ["content", "model-value"]),
+            _createVNode(_component_VBtn, {
               icon: "mdi-cog-outline",
               variant: "text",
               "aria-label": "打开设置",
@@ -369,7 +417,7 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-cog-outline",
                       onClick: openSettings
                     }, {
-                      default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
+                      default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
                         _createTextVNode("打开设置", -1)
                       ]))]),
                       _: 1
@@ -395,7 +443,7 @@ return (_ctx, _cache) => {
                 _createElementVNode("main", _hoisted_7, [
                   _createElementVNode("section", _hoisted_8, [
                     _createElementVNode("div", _hoisted_9, [
-                      _cache[8] || (_cache[8] = _createElementVNode("div", null, [
+                      _cache[16] || (_cache[16] = _createElementVNode("div", null, [
                         _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "个性化前5名"),
                         _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "保持 Agent 最终顺序，仅展示通过安全校验的候选")
                       ], -1)),
@@ -469,11 +517,11 @@ return (_ctx, _cache) => {
                                   ]),
                                   _createElementVNode("div", _hoisted_16, _toDisplayString(item.year || '年份未知') + " · " + _toDisplayString(sourceLabel(item)), 1),
                                   _createElementVNode("div", _hoisted_17, [
-                                    _cache[9] || (_cache[9] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "推荐：", -1)),
+                                    _cache[17] || (_cache[17] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "推荐：", -1)),
                                     _createElementVNode("span", _hoisted_18, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 1)
                                   ]),
                                   _createElementVNode("div", _hoisted_19, [
-                                    _cache[10] || (_cache[10] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "简介：", -1)),
+                                    _cache[18] || (_cache[18] = _createElementVNode("span", { class: "ar-app-page__copy-label" }, "简介：", -1)),
                                     _createElementVNode("span", _hoisted_20, _toDisplayString(item.summary || '暂无简介'), 1)
                                   ]),
                                   _createElementVNode("div", _hoisted_21, [
@@ -503,13 +551,26 @@ return (_ctx, _cache) => {
                                     ]),
                                     _: 2
                                   }, 1024),
+                                  _createVNode(_component_VTooltip, { text: "查看 Agent 分析" }, {
+                                    activator: _withCtx(({ props: tooltipProps }) => [
+                                      _createVNode(_component_VBtn, _mergeProps({ ref_for: true }, tooltipProps, {
+                                        icon: "mdi-text-box-search-outline",
+                                        variant: "text",
+                                        size: "small",
+                                        "aria-label": `查看 ${item.title} 的 Agent 分析`,
+                                        disabled: !item.analysis_id,
+                                        onClick: $event => (openAnalysis(item))
+                                      }), null, 16, ["aria-label", "disabled", "onClick"])
+                                    ]),
+                                    _: 2
+                                  }, 1024),
                                   _createVNode(RecommendationActions, {
                                     item: item,
                                     "loading-action": _unref(loading).action,
                                     "native-subscribe": __props.nativeSubscribe,
                                     size: "small",
-                                    onLike: _cache[1] || (_cache[1] = candidateId => feedbackItem('like', candidateId)),
-                                    onDislike: _cache[2] || (_cache[2] = candidateId => feedbackItem('dislike', candidateId)),
+                                    onLike: _cache[3] || (_cache[3] = candidateId => feedbackItem('like', candidateId)),
+                                    onDislike: _cache[4] || (_cache[4] = candidateId => feedbackItem('dislike', candidateId)),
                                     onSubscribe: subscribeItem,
                                     onNativeSubscribeOpened: recordNativeDrawerOpened,
                                     onArchive: archiveItem
@@ -526,7 +587,7 @@ return (_ctx, _cache) => {
     }),
     _createVNode(_component_VDialog, {
       modelValue: settingsDialog.value,
-      "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((settingsDialog).value = $event)),
+      "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((settingsDialog).value = $event)),
       "max-width": "1160",
       persistent: savingSettings.value
     }, {
@@ -535,14 +596,41 @@ return (_ctx, _cache) => {
           api: __props.api,
           "initial-config": _unref(options).config || {},
           onSave: saveSettings,
-          onClose: _cache[3] || (_cache[3] = $event => (settingsDialog.value = false))
+          onClose: _cache[5] || (_cache[5] = $event => (settingsDialog.value = false))
         }, null, 8, ["api", "initial-config"])
       ]),
       _: 1
     }, 8, ["modelValue", "persistent"]),
+    _createVNode(AgentAnalysisDialog, {
+      modelValue: analysisDialog.value,
+      "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((analysisDialog).value = $event)),
+      state: _unref(state),
+      item: selectedAnalysisItem.value,
+      onComment: openAnalysisComment
+    }, null, 8, ["modelValue", "state", "item"]),
+    _createVNode(FeedbackCommentDialog, {
+      modelValue: commentDialog.value,
+      "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((commentDialog).value = $event)),
+      state: _unref(state),
+      item: selectedAnalysisItem.value,
+      judgment: selectedJudgment.value,
+      onSubmitted: _cache[9] || (_cache[9] = $event => (showFeedbackResult('评论已记录，Agent 将异步重新理解')))
+    }, null, 8, ["modelValue", "state", "item", "judgment"]),
+    _createVNode(CriticChatDialog, {
+      modelValue: criticDialog.value,
+      "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((criticDialog).value = $event)),
+      state: _unref(state),
+      onPendingChange: _unref(state).loadPendingCenter
+    }, null, 8, ["modelValue", "state", "onPendingChange"]),
+    _createVNode(PendingConfirmations, {
+      modelValue: pendingDialog.value,
+      "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((pendingDialog).value = $event)),
+      state: _unref(state),
+      onChanged: _cache[12] || (_cache[12] = $event => (showFeedbackResult('待确认项目已更新')))
+    }, null, 8, ["modelValue", "state"]),
     _createVNode(_component_VSnackbar, {
       modelValue: snackbar.value.show,
-      "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((snackbar.value.show) = $event)),
+      "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((snackbar.value.show) = $event)),
       color: snackbar.value.color,
       timeout: "5000"
     }, _createSlots({
@@ -559,7 +647,7 @@ return (_ctx, _cache) => {
                 variant: "text",
                 onClick: undoArchive
               }, {
-                default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
+                default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
                   _createTextVNode("撤销", -1)
                 ]))]),
                 _: 1
@@ -574,6 +662,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b84cda4b"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8fc1cf51"]]);
 
 export { AppPage as default };

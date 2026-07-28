@@ -1,7 +1,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
+import AgentAnalysisDialog from './AgentAnalysisDialog.vue'
 import Config from './Config.vue'
+import CriticChatDialog from './CriticChatDialog.vue'
+import FeedbackCommentDialog from './FeedbackCommentDialog.vue'
+import PendingConfirmations from './PendingConfirmations.vue'
 import RecommendationActions from './RecommendationActions.vue'
 import { savePluginConfig } from './api'
 
@@ -29,6 +33,12 @@ const savingSettings = ref(false)
 const snackbar = ref({ show: false, message: '', color: 'success', undo: false })
 const lastArchivedId = ref('')
 const initialized = ref(false)
+const analysisDialog = ref(false)
+const commentDialog = ref(false)
+const criticDialog = ref(false)
+const pendingDialog = ref(false)
+const selectedAnalysisItem = ref(null)
+const selectedJudgment = ref(null)
 
 const recommendations = computed(() => board.value?.recommendations?.slice(0, 5) || [])
 const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '')
@@ -109,7 +119,9 @@ function posterSource(item) {
 async function initialize() {
   try {
     await state.loadOptions()
-    if (selectedProfileId.value) await state.loadProfileData()
+    if (selectedProfileId.value) {
+      await Promise.all([state.loadProfileData(), state.loadPendingCenter()])
+    }
   } catch (_) {
     // 共享状态已保存可见错误。
   } finally {
@@ -182,6 +194,21 @@ function openSettings() {
   settingsDialog.value = true
 }
 
+function openAnalysis(item) {
+  selectedAnalysisItem.value = item
+  selectedJudgment.value = null
+  analysisDialog.value = true
+}
+
+function openAnalysisComment(judgment) {
+  selectedJudgment.value = judgment
+  commentDialog.value = true
+}
+
+function showFeedbackResult(message) {
+  snackbar.value = { show: true, message, color: 'success', undo: false }
+}
+
 async function saveSettings(payload) {
   savingSettings.value = true
   try {
@@ -198,7 +225,7 @@ async function saveSettings(payload) {
 
 watch(selectedProfileId, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
-  try { await state.loadProfileData(value) } catch (_) { /* 可见错误由共享状态承载 */ }
+  try { await Promise.all([state.loadProfileData(value), state.loadPendingCenter()]) } catch (_) { /* 可见错误由共享状态承载 */ }
 })
 
 onMounted(initialize)
@@ -221,6 +248,10 @@ onMounted(initialize)
         <VSpacer />
         <VSelect v-if="identities.length > 1" v-model="selectedProfileId" :items="identityOptions" item-title="title" item-value="value" label="Emby 用户" density="compact" variant="outlined" hide-details class="ar-app-page__identity" aria-label="切换 Emby 画像身份" />
         <VBtn icon="mdi-refresh" variant="text" :loading="loading.action === 'refresh' || loading.data" :disabled="isRunning || !selectedProfileId" aria-label="刷新榜单" @click="refreshBoard" />
+        <VBtn icon="mdi-forum-outline" variant="text" aria-label="打开专属影评师" @click="criticDialog = true" />
+        <VBadge :content="state.pendingCenter.value?.total || 0" :model-value="Boolean(state.pendingCenter.value?.total)" color="warning" class="ar-app-page__pending-badge">
+          <VBtn icon="mdi-inbox-outline" variant="text" aria-label="打开待确认中心" @click="pendingDialog = true" />
+        </VBadge>
         <VBtn icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="openSettings" />
       </VToolbar>
       <VDivider />
@@ -277,6 +308,19 @@ onMounted(initialize)
                 </div>
                 <div class="ar-app-page__item-actions">
                   <VChip size="x-small" color="primary" variant="tonal" class="ar-app-page__support">{{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
+                  <VTooltip text="查看 Agent 分析">
+                    <template #activator="{ props: tooltipProps }">
+                      <VBtn
+                        v-bind="tooltipProps"
+                        icon="mdi-text-box-search-outline"
+                        variant="text"
+                        size="small"
+                        :aria-label="`查看 ${item.title} 的 Agent 分析`"
+                        :disabled="!item.analysis_id"
+                        @click="openAnalysis(item)"
+                      />
+                    </template>
+                  </VTooltip>
                   <RecommendationActions :item="item" :loading-action="loading.action" :native-subscribe="nativeSubscribe" size="small" @like="candidateId => feedbackItem('like', candidateId)" @dislike="candidateId => feedbackItem('dislike', candidateId)" @subscribe="subscribeItem" @native-subscribe-opened="recordNativeDrawerOpened" @archive="archiveItem" />
                 </div>
               </article>
@@ -289,6 +333,17 @@ onMounted(initialize)
     <VDialog v-model="settingsDialog" max-width="1160" :persistent="savingSettings">
       <Config :api="api" :initial-config="options.config || {}" @save="saveSettings" @close="settingsDialog = false" />
     </VDialog>
+
+    <AgentAnalysisDialog v-model="analysisDialog" :state="state" :item="selectedAnalysisItem" @comment="openAnalysisComment" />
+    <FeedbackCommentDialog
+      v-model="commentDialog"
+      :state="state"
+      :item="selectedAnalysisItem"
+      :judgment="selectedJudgment"
+      @submitted="showFeedbackResult('评论已记录，Agent 将异步重新理解')"
+    />
+    <CriticChatDialog v-model="criticDialog" :state="state" @pending-change="state.loadPendingCenter" />
+    <PendingConfirmations v-model="pendingDialog" :state="state" @changed="showFeedbackResult('待确认项目已更新')" />
 
     <VSnackbar v-model="snackbar.show" :color="snackbar.color" timeout="5000">
       {{ snackbar.message }}
@@ -338,6 +393,7 @@ onMounted(initialize)
   .ar-app-page__toolbar :deep(.v-spacer) { display: none; }
   .ar-app-page__heading { order: 1; flex: 1 1 180px; }
   .ar-app-page__toolbar :deep(.v-btn--icon) { order: 2; }
+  .ar-app-page__pending-badge { order: 2; }
   .ar-app-page__status { order: 3; }
   .ar-app-page__identity { order: 4; flex: 1 1 100%; max-width: none; margin: 6px 12px 0; }
   .ar-app-page__content { padding: 10px; }

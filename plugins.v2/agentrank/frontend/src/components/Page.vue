@@ -1,6 +1,10 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
+import AgentAnalysisDialog from './AgentAnalysisDialog.vue'
+import CriticChatDialog from './CriticChatDialog.vue'
+import FeedbackCommentDialog from './FeedbackCommentDialog.vue'
+import PendingConfirmations from './PendingConfirmations.vue'
 import RecommendationActions from './RecommendationActions.vue'
 
 const props = defineProps({
@@ -16,6 +20,12 @@ const historyPage = ref(1)
 const initialized = ref(false)
 const expandedHistoryKeys = ref(new Set())
 const tagDrafts = reactive({ positive: '', negative: '' })
+const analysisDialog = ref(false)
+const commentDialog = ref(false)
+const criticDialog = ref(false)
+const pendingDialog = ref(false)
+const selectedAnalysisItem = ref(null)
+const selectedJudgment = ref(null)
 const historyPageSize = 10
 
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 5) || [])
@@ -324,7 +334,9 @@ function historySelectionSourceText(run) {
 async function initialize() {
   try {
     await state.loadOptions()
-    if (state.selectedProfileId.value) await state.loadProfileData()
+    if (state.selectedProfileId.value) {
+      await Promise.all([state.loadProfileData(), state.loadPendingCenter()])
+    }
   } catch (_) {
     // 共享状态承载错误。
   } finally {
@@ -370,10 +382,25 @@ async function restoreProfileTag(item) {
   )
 }
 
+function openAnalysis(item) {
+  selectedAnalysisItem.value = item
+  selectedJudgment.value = null
+  analysisDialog.value = true
+}
+
+function openAnalysisComment(judgment) {
+  selectedJudgment.value = judgment
+  commentDialog.value = true
+}
+
+function showFeedbackResult(message) {
+  snackbar.value = { show: true, message, color: 'success' }
+}
+
 watch(state.selectedProfileId, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
   historyPage.value = 1
-  try { await state.loadProfileData(value) } catch (_) { /* 错误已保存 */ }
+  try { await Promise.all([state.loadProfileData(value), state.loadPendingCenter()]) } catch (_) { /* 错误已保存 */ }
 })
 
 watch(activeTab, async value => {
@@ -415,6 +442,10 @@ onMounted(initialize)
         aria-label="刷新详情"
         @click="runAction(state.refresh, '榜单刷新已完成')"
       />
+      <VBtn icon="mdi-forum-outline" variant="text" aria-label="打开专属影评师" @click="criticDialog = true" />
+      <VBadge :content="state.pendingCenter.value?.total || 0" :model-value="Boolean(state.pendingCenter.value?.total)" color="warning" class="ar-page__pending-badge">
+        <VBtn icon="mdi-inbox-outline" variant="text" aria-label="打开待确认中心" @click="pendingDialog = true" />
+      </VBadge>
       <VBtn icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="emit('switch')" />
       <VBtn icon="mdi-close" variant="text" aria-label="关闭详情" class="me-2" @click="emit('close')" />
     </VToolbar>
@@ -510,6 +541,19 @@ onMounted(initialize)
               </div>
               <div class="ar-page__rank-actions">
                 <VChip size="x-small" color="primary" variant="tonal" class="ar-page__support">{{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
+                <VTooltip text="查看 Agent 分析">
+                  <template #activator="{ props: tooltipProps }">
+                    <VBtn
+                      v-bind="tooltipProps"
+                      icon="mdi-text-box-search-outline"
+                      variant="text"
+                      size="small"
+                      :aria-label="`查看 ${item.title} 的 Agent 分析`"
+                      :disabled="!item.analysis_id"
+                      @click="openAnalysis(item)"
+                    />
+                  </template>
+                </VTooltip>
                 <RecommendationActions
                   :item="item"
                   :loading-action="state.loading.action"
@@ -719,6 +763,17 @@ onMounted(initialize)
       </template>
     </div>
 
+    <AgentAnalysisDialog v-model="analysisDialog" :state="state" :item="selectedAnalysisItem" @comment="openAnalysisComment" />
+    <FeedbackCommentDialog
+      v-model="commentDialog"
+      :state="state"
+      :item="selectedAnalysisItem"
+      :judgment="selectedJudgment"
+      @submitted="showFeedbackResult('评论已记录，Agent 将异步重新理解')"
+    />
+    <CriticChatDialog v-model="criticDialog" :state="state" @pending-change="state.loadPendingCenter" />
+    <PendingConfirmations v-model="pendingDialog" :state="state" @changed="showFeedbackResult('待确认项目已更新')" />
+
     <VSnackbar v-model="snackbar.show" :color="snackbar.color">{{ snackbar.message }}</VSnackbar>
   </div>
 </template>
@@ -853,6 +908,7 @@ onMounted(initialize)
   .ar-page__brand { order: 1; }
   .ar-page__heading { order: 1; flex: 1 1 180px; }
   .ar-page__toolbar :deep(.v-btn--icon) { order: 2; }
+  .ar-page__pending-badge { order: 2; }
   .ar-page__identity { order: 3; width: calc(100% - 24px); margin: 6px 12px; }
   .ar-page__summary-bar { min-height: 60px; gap: 4px; padding: 8px 10px; }
   .ar-page__stat { gap: 6px; padding-inline: 6px; }
@@ -888,7 +944,7 @@ onMounted(initialize)
 @media (max-width: 390px) {
   .ar-page { width: 100%; height: calc(100dvh - 4px); border-radius: 10px; }
   .ar-page__brand { display: none; }
-  .ar-page__heading { flex: 1 1 150px; margin-left: 10px; }
+  .ar-page__heading { flex: 1 1 100%; margin-left: 10px; }
   .ar-page__title { font-size: 1rem; }
   .ar-page__subtitle { display: none; }
   .ar-page__summary-bar { grid-template-columns: repeat(3, 1fr); }

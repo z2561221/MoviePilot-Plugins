@@ -13,6 +13,10 @@ APP_PAGE = COMPONENTS / "AppPage.vue"
 PAGE = COMPONENTS / "Page.vue"
 DASHBOARD = COMPONENTS / "Dashboard.vue"
 ACTIONS = COMPONENTS / "RecommendationActions.vue"
+ANALYSIS_DIALOG = COMPONENTS / "AgentAnalysisDialog.vue"
+COMMENT_DIALOG = COMPONENTS / "FeedbackCommentDialog.vue"
+CRITIC_DIALOG = COMPONENTS / "CriticChatDialog.vue"
+PENDING_DIALOG = COMPONENTS / "PendingConfirmations.vue"
 FRONTEND = ROOT / "plugins.v2" / "agentrank" / "frontend"
 PREVIEW = FRONTEND / "src" / "PreviewApp.vue"
 DIST = ROOT / "plugins.v2" / "agentrank" / "dist"
@@ -337,6 +341,66 @@ def test_discovery_mobile_copy_wraps_fully_without_toggle_controls():
     assert "toggleCopy(item, 'summary')" not in source
     assert ".ar-app-page__copy-text--reason," in source
     assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in source
+
+
+def test_analysis_comment_chat_and_pending_ui_are_reachable_and_safe():
+    """结构化分析、评论、对话和待确认从详情及发现页均可到达。"""
+    page = PAGE.read_text(encoding="utf-8")
+    app_page = APP_PAGE.read_text(encoding="utf-8")
+    for component in (ANALYSIS_DIALOG, COMMENT_DIALOG, CRITIC_DIALOG, PENDING_DIALOG):
+        assert component.exists(), component.name
+    for source in (page, app_page):
+        for name in (
+            "AgentAnalysisDialog",
+            "FeedbackCommentDialog",
+            "CriticChatDialog",
+            "PendingConfirmations",
+        ):
+            assert name in source
+        assert "openAnalysis(item)" in source
+        assert "打开专属影评师" in source
+        assert "打开待确认中心" in source
+        assert "state.loadPendingCenter()" in source
+    analysis = ANALYSIS_DIALOG.read_text(encoding="utf-8")
+    assert "positive_evidence" in analysis
+    assert "counter_evidence" in analysis
+    assert "uncertainties" in analysis
+    assert "comment-edit-outline" in analysis
+    for forbidden in ("思维链", "chain of thought", "prompt_fingerprint", "system prompt"):
+        assert forbidden not in analysis.lower()
+
+
+def test_critic_and_pending_dialogs_preserve_deferred_work_and_use_mobile_fullscreen():
+    """移动端对话全屏，失败可重试，待确认支持拒绝、回答和稍后提醒。"""
+    critic = CRITIC_DIALOG.read_text(encoding="utf-8")
+    pending = PENDING_DIALOG.read_text(encoding="utf-8")
+    comment = COMMENT_DIALOG.read_text(encoding="utf-8")
+    analysis = ANALYSIS_DIALOG.read_text(encoding="utf-8")
+    for source in (critic, pending, comment, analysis):
+        assert "useDisplay" in source
+        assert ':fullscreen="smAndDown"' in source
+        assert "@media (max-width: 760px)" in source
+    for marker in (
+        "sendConversationMessage",
+        "retryConversationMessage",
+        "respondConversationCommand",
+        "pending_confirmation",
+        "draft.value",
+    ):
+        assert marker in critic
+    for marker in (
+        "respondPending",
+        "in_1_day",
+        "in_3_days",
+        "in_7_days",
+        "never",
+        "answerQuestion",
+        "'reject'",
+        "'confirm'",
+    ):
+        assert marker in pending
+    assert "commentOnAnalysis" in comment
+    assert "localError" in critic and "localError" in pending
 
 
 def test_dashboard_is_a_lightweight_vertical_top_five():

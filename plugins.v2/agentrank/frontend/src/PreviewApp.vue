@@ -99,11 +99,83 @@ const candidatePool = Array.from({ length: 8 }, (_, index) => ({
     : '围绕一场意外展开的群像故事，在紧凑悬念中兼顾人物成长与情感关系。',
   match_tags: index % 3 ? ['科幻', '悬疑', '成长'] : [],
   confidence: 96 - index * 3,
+  support: { percentage: 94 - index * 4 },
+  analysis_id: `analysis-preview-${index + 1}`,
   feedback_kind: index === 0 ? 'like' : index === 1 ? 'dislike' : '',
 }))
 const boardRecommendations = ref(candidatePool.slice(0, 5).map(item => ({ ...item })))
 const boardRevision = ref(1)
 const blockedCandidateIds = new Set()
+
+const conversationMessages = ref([
+  {
+    message_id: 'preview-message-user', role: 'user', status: 'completed',
+    content: '为什么把这部作品排在第一名？', created_at: '2026-07-12T10:25:00+08:00',
+  },
+  {
+    message_id: 'preview-message-assistant', role: 'assistant', status: 'completed',
+    content: '它同时匹配了你近期稳定出现的悬疑、科幻与紧凑叙事证据，同时保留了题材新鲜度。',
+    created_at: '2026-07-12T10:25:03+08:00', provider: 'Agent Tokens', model: 'critic-preview',
+  },
+])
+const conversationCommands = ref([{
+  command_id: 'preview-command-1', status: 'pending_confirmation', title: '归档偏好标签',
+  preview: '将“高口碑”从稳定偏好移入归档，后续不再用于排序。', requires_superuser: false,
+}])
+const pendingItems = ref([
+  {
+    item_type: 'proposal', item_id: 'preview-proposal-1', title: '确认专属影评师的新理解',
+    summary: '你更重视悬疑作品的推理闭环，而不是单纯追求反转数量。',
+    detail_lines: ['加强“推理闭环”偏好', '轻微削弱“高密度反转”偏好'],
+    created_at: '2026-07-12T10:30:00+08:00', status: 'pending_confirmation', reminder_policy: 'unselected',
+  },
+  {
+    item_type: 'question', item_id: 'preview-question-1', title: '专属影评师需要你确认',
+    summary: '你不喜欢这部作品，主要是因为节奏还是人物塑造？',
+    detail_lines: ['当前反馈不足以形成稳定负向偏好'],
+    options: [{ option_id: 'pace', label: '节奏拖沓' }, { option_id: 'character', label: '人物单薄' }],
+    allow_custom_answer: true, created_at: '2026-07-12T10:31:00+08:00', status: 'pending', reminder_policy: 'unselected',
+  },
+  {
+    item_type: 'command', item_id: 'preview-command-1', title: '归档偏好标签',
+    summary: '将“高口碑”从稳定偏好移入归档，后续不再用于排序。',
+    created_at: '2026-07-12T10:32:00+08:00', status: 'pending_confirmation', reminder_policy: 'unselected',
+  },
+])
+
+function previewAnalysis(params = {}) {
+  const item = candidatePool.find(value => value.candidate_id === params.candidate_id) || candidatePool[0]
+  return {
+    analysis_id: item.analysis_id,
+    candidate_id: item.candidate_id,
+    summary: item.summary,
+    reason: item.reason,
+    positive_evidence: [
+      { direction: 'positive', dimension: 'theme', user_value: '近期多次看完悬疑科幻', candidate_value: '封闭空间调查与科幻设定', user_refs: ['playback:1', 'playback:2'], contribution_units: 34 },
+      { direction: 'positive', dimension: 'freshness', user_value: '片单需要补充新作品', candidate_value: '未观看且与旧片单不重复', user_refs: ['library:1'], contribution_units: 18 },
+    ],
+    counter_evidence: [
+      { direction: 'negative', dimension: 'year', user_value: '近期偏好成熟完结作', candidate_value: '新作信息仍有限', user_refs: ['playback:3'], contribution_units: -8 },
+    ],
+    uncertainties: ['尚无该导演作品的直接播放证据'],
+    support_percentage: item.support.percentage,
+    selection_source: 'agent', policy_version: 'policy-preview-1', memory_revision: 7,
+  }
+}
+
+function previewConversation(identity) {
+  return {
+    thread: { thread_id: 'preview-thread', profile_id: identity.profile_id, revision: 3, status: 'active' },
+    messages: conversationMessages.value,
+    commands: conversationCommands.value,
+  }
+}
+
+function previewPending(identity) {
+  const counts = { proposal: 0, question: 0, command: 0 }
+  pendingItems.value.forEach(item => { counts[item.item_type] += 1 })
+  return { profile_id: identity.profile_id, items: pendingItems.value, counts, total: pendingItems.value.length }
+}
 
 const profile = {
   profile_id: identities[0].profile_id,
@@ -184,6 +256,9 @@ function dataFor(path, params = {}) {
   }
   if (path.endsWith('profile')) return profile
   if (path.endsWith('run-history')) return { items: history.slice(0, 10).map(item => ({ ...item, profile_id: identity.profile_id, username: identity.username })), total: history.length, page: 1, page_size: 10 }
+  if (path.endsWith('analysis')) return previewAnalysis(params)
+  if (path.endsWith('conversation')) return previewConversation(identity)
+  if (path.endsWith('pending')) return previewPending(identity)
   return {}
 }
 
@@ -220,6 +295,25 @@ const api = {
     if (path.endsWith('refresh')) status.value = 'success'
     if (path.endsWith('feedback')) return { data: { success: true, data: previewFeedback(payload.kind, payload.candidate_id) } }
     if (path.endsWith('archive')) return { data: { success: true, data: previewFeedback('ignore', payload.candidate_id) } }
+    if (path.endsWith('analysis/comment')) return { data: { success: true, data: { changed: true, message: '评论已进入异步理解队列' } } }
+    if (path.endsWith('conversation/messages')) {
+      const now = new Date().toISOString()
+      conversationMessages.value.push({ message_id: `preview-user-${Date.now()}`, role: 'user', status: 'completed', content: payload.content, created_at: now })
+      conversationMessages.value.push({ message_id: `preview-agent-${Date.now()}`, role: 'assistant', status: 'completed', content: '我会把这条纠正作为新证据理解；涉及长期画像的变化会先交给你确认。', created_at: now, provider: 'Agent Tokens', model: 'critic-preview' })
+      return { data: { success: true, data: previewConversation(identities[0]) } }
+    }
+    if (path.endsWith('conversation/messages/retry')) return { data: { success: true, data: previewConversation(identities[0]) } }
+    if (path.endsWith('conversation/commands/respond')) {
+      conversationCommands.value = conversationCommands.value.map(item => item.command_id === payload.command_id ? { ...item, status: payload.action === 'confirm' ? 'completed' : 'rejected' } : item)
+      pendingItems.value = pendingItems.value.filter(item => item.item_id !== payload.command_id)
+      return { data: { success: true, data: { changed: true } } }
+    }
+    if (path.endsWith('pending/respond')) {
+      if (!(payload.action === 'remind' && payload.reminder_policy !== 'never')) {
+        pendingItems.value = pendingItems.value.filter(item => item.item_id !== payload.item_id)
+      }
+      return { data: { success: true, data: { changed: true } } }
+    }
     return { data: { success: true, data: { changed: true, message: '预览操作已完成' } } }
   },
   async put() { return { data: { success: true } } },
