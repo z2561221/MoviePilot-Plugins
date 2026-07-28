@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-6",
-    "task": "6.3",
-    "next_allowed_action": "Execute task 6.3: implement the unified pending center, answer and reminder options, and safe interactive notification summaries"
+    "task": "6.4",
+    "next_allowed_action": "Execute task 6.4: implement evidence-controlled subscription, library, and playback attribution without upgrading native drawer opens"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -661,10 +661,16 @@
         {
           "id": "6.3",
           "title": "实现待确认中心与提醒",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["可答复拒绝稍后和不提醒", "支持交互的渠道直接提供选项", "榜单通知保持榜首海报整齐五条和订阅交互", "通知不暴露画像全文"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "AgentRank plugin suite: 600 passed",
+            "AgentRank bearer API static contracts: 7 passed",
+            "compileall and git diff check: passed",
+            "path isolation: only plugins.v2/agentrank changes staged; protected LocalToolkit user change excluded",
+            "sensitive review: only the deliberate private-host redaction test fixture matched"
+          ],
+          "commit": "04e03340"
         },
         {
           "id": "6.4",
@@ -974,6 +980,12 @@
       "task": "6.2",
       "result": "the dedicated critic conversation now runs in an isolated read-only Agent role, persists retryable bounded threads, converts every supported write request into an actor-bound confirmation command, and delegates confirmed effects to existing controlled services with idempotent audit history",
       "commit": "4557bd95"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "6.3",
+      "result": "the unified pending center now aggregates memory proposals, clarification questions, and conversation commands with explicit answer, reject, delayed reminder, and never-remind actions; Telegram receives actor-bound direct controls while other channels receive a safe deep-linked summary, and existing five-item poster subscription notifications remain unchanged",
+      "commit": "04e03340"
     }
   ],
   "residual_risks": [
