@@ -5,9 +5,9 @@
   "target_release_date": "2026-07-31",
   "status": {
     "overall": "in_progress",
-    "phase": "phase-6",
-    "task": "6.5",
-    "next_allowed_action": "Execute task 6.5: complete run-history provider and model provenance with model-first summaries and explicit unknown-source text"
+    "phase": "phase-7",
+    "task": "7.1",
+    "next_allowed_action": "Execute task 7.1: centralize frontend API state with explicit loading, error, and retry recovery"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -606,7 +606,7 @@
     {
       "id": "phase-6",
       "title": "评论、专属影评师对话、待确认与结果归因",
-      "status": "in_progress",
+      "status": "completed",
       "goal": "闭合纠正、对话、确认和真实结果反馈",
       "acceptance": [
         "每条分析可评论并修订",
@@ -615,7 +615,13 @@
         "原生抽屉不误报订阅成功",
         "运行历史显示真实模型"
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        "analysis comments, critic conversation, pending confirmations, attribution, and model provenance are implemented as separate verified work units",
+        "all write-capable critic outcomes remain confirmation-gated and no-reply state never changes confirmed memory",
+        "native subscription drawer cancellation cannot report subscription success; host evidence advances attribution monotonically",
+        "run history reports actual provider and model per Agent call with explicit unknown-source handling",
+        "AgentRank plugin suite: 615 passed; static contracts: 25 passed; Vue federation build and compileall passed"
+      ],
       "tasks": [
         {
           "id": "6.1",
@@ -695,17 +701,27 @@
         {
           "id": "6.5",
           "title": "完善运行历史模型溯源",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["主列表显示供应商模型", "调用次数位于展开详情", "未知来源有明确文案"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "profile, ranking, and fallback Agent calls each persist provider, model, source, stage, attempt, elapsed time, internal call count, status, and sanitized failure reason",
+            "provider source distinguishes agent_tokens, moviepilot_system, and unknown without exposing endpoints, credentials, prompts, or raw model output",
+            "run-history summaries display provider and model while internal call counts and per-call details remain in the expanded record",
+            "unknown provider or model metadata displays 模型来源未返回 instead of substituting a call count or guessed model",
+            "sanitized export preserves safe per-call provenance and excludes sensitive values",
+            "Task 6.5 focused model-provenance regression: 117 passed",
+            "AgentRank plugin suite: 615 passed",
+            "AgentRank static contracts: 25 passed",
+            "compileall, Vue federation build with 67 modules, remoteEntry plus 14 referenced assets, and git diff check: passed"
+          ],
+          "commit": "ffcfa037"
         }
       ]
     },
     {
       "id": "phase-7",
       "title": "四个Vue表面、移动端与端到端验收",
-      "status": "pending",
+      "status": "in_progress",
       "goal": "在全部表面交付一致且可用的专属影评师体验",
       "acceptance": [
         "联邦构建和四expose正常",
@@ -1004,6 +1020,12 @@
       "task": "6.4",
       "result": "native drawer opens, confirmed subscriptions, library presence, and post-interaction playback now form a profile-isolated monotonic attribution ledger; host failures remain pending, direct subscription side effects stay visible on attribution failure, and all ranking surfaces report only the opened native state until MoviePilot facts confirm advancement",
       "commit": "7794e2f7"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "6.5",
+      "result": "each profile, ranking, and fallback Agent call now records sanitized provider, model, source, stage, attempt, duration, call count, and outcome; run-history summaries show provider and model first, expanded details retain call counts, and unresolved metadata is explicitly reported instead of guessed",
+      "commit": "ffcfa037"
     }
   ],
   "residual_risks": [
