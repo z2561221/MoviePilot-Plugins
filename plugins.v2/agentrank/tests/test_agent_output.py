@@ -1,5 +1,6 @@
 """AgentRank prompt, strict JSON parser, and deterministic validator tests."""
 
+import ast
 import importlib
 import json
 import sys
@@ -40,6 +41,8 @@ AgentOutputParser = RankingOutputParser
 RecommendationValidator = validation_module.RecommendationValidator
 AgentOutputError = validation_module.AgentOutputError
 fallback_summary = validation_module.fallback_summary
+fallback_reason = validation_module.fallback_reason
+is_complete_recommendation_copy = validation_module.is_complete_recommendation_copy
 build_ranking_prompt = prompt_module.build_ranking_prompt
 build_profile_prompt = prompt_module.build_profile_prompt
 build_refill_prompt = prompt_module.build_refill_prompt
@@ -1359,3 +1362,86 @@ def test_fallback_summary_is_deterministic_readable_and_complete():
         assert fallback_summary(candidate) == summary
         assert len(summary) <= 30
         assert summary.endswith("。")
+
+
+@pytest.mark.parametrize(
+    "copy",
+    (
+        "密室旧案牵出尘封真相。",
+        "A detective reopens a case.",
+        "失踪事件の真相を追う物語。",
+        "실종 사건의 진실을 쫓는 이야기.",
+        "悬疑迷局层层牵出尘封往事与真相",
+    ),
+)
+def test_semantic_copy_accepts_complete_multilingual_short_sentences(copy):
+    """中文与多语言完整短句在三十字内均应原样保留。"""
+    assert len(copy) <= 30
+    assert is_complete_recommendation_copy(copy) is True
+
+
+@pytest.mark.parametrize(
+    "copy",
+    (
+        "侦探追查旧案并",
+        "A detective story with",
+        "一名演员面对事业低谷并且",
+        "甲" * 30,
+        "尚未说完的故事……",
+    ),
+)
+def test_semantic_copy_rejects_obvious_fragments_without_truncating(copy):
+    """连接词、英文虚词、边界碰撞和省略残句必须整条拒绝。"""
+    assert is_complete_recommendation_copy(copy) is False
+
+
+def test_semantic_copy_handles_exact_limit_and_pair_order_boundaries():
+    """恰好三十字须有终止标点，闭合标点还必须保持正确顺序。"""
+    quoted = "“" + "甲" * 27 + "。”"
+    assert len(quoted) == 30
+    assert is_complete_recommendation_copy(quoted) is True
+    assert is_complete_recommendation_copy("》顺序错误《") is False
+
+
+def test_fallback_copy_templates_are_complete_and_never_include_long_titles():
+    """长标题不会被截进保底文案，理由与简介均由完整模板重述。"""
+    candidate = Candidate(
+        candidate_id="tmdb:long-title",
+        title="这是一个远远超过三十个字符且不应该被截断进模板的多语言Title",
+        media_type="tv",
+        overview="一名调查员追踪旧案并",
+        genres=["悬疑"],
+    )
+    summary = fallback_summary(candidate)
+    reason = fallback_reason(["悬疑", "剧集"])
+
+    assert candidate.title not in summary
+    assert candidate.title not in reason
+    assert is_complete_recommendation_copy(summary) is True
+    assert is_complete_recommendation_copy(reason) is True
+
+
+def test_recommendation_copy_validation_and_templates_never_slice_text():
+    """推荐文案校验与模板函数不得用字符串切片伪造三十字总结。"""
+    tree = ast.parse((PLUGIN_DIR / "service" / "validation.py").read_text(encoding="utf-8"))
+    targets = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name
+        in {
+            "is_complete_recommendation_copy",
+            "fallback_summary",
+            "fallback_reason",
+        }
+    }
+    assert set(targets) == {
+        "is_complete_recommendation_copy",
+        "fallback_summary",
+        "fallback_reason",
+    }
+    for function in targets.values():
+        assert not any(
+            isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice)
+            for node in ast.walk(function)
+        )

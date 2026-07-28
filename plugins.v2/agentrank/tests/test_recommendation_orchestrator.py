@@ -25,6 +25,7 @@ repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository"
 orchestrator_module = importlib.import_module(f"{PACKAGE_NAME}.service.recommendation")
 archive_service_module = importlib.import_module(f"{PACKAGE_NAME}.service.archive")
 keyword_module = importlib.import_module(f"{PACKAGE_NAME}.service.keyword_resolution")
+analysis_builder_module = importlib.import_module(f"{PACKAGE_NAME}.service.analysis")
 
 Candidate = candidate_module.Candidate
 UserProfile = profile_module.UserProfile
@@ -40,6 +41,7 @@ AgentRankRepository = repository_module.AgentRankRepository
 RecommendationOrchestrator = orchestrator_module.RecommendationOrchestrator
 ArchiveService = archive_service_module.ArchiveService
 ControlledRetrievalPlanResolver = keyword_module.ControlledRetrievalPlanResolver
+RecommendationAnalysisBuilder = analysis_builder_module.RecommendationAnalysisBuilder
 
 PROFILE_ID = "emby:home:user-1"
 IDENTITY_CONFIG = {
@@ -1476,6 +1478,81 @@ def test_partial_valid_output_gets_exactly_one_successful_refill():
     assert len(repository.load_board(PROFILE_ID).recommendations) == 5
     assert "tmdb:1" in orchestrator.agent_adapter.ranking_calls[1][0]
     assert "排除" in orchestrator.agent_adapter.ranking_calls[1][0]
+
+
+def test_overlong_copy_gets_one_directed_rewrite_and_preserves_complete_result():
+    """超长简介只触发一次定向重写，成功后原样保存完整短句。"""
+    first = _agent_output_with_overrides(
+        [f"tmdb:{index}" for index in range(1, 6)],
+        {
+            "tmdb:5": {
+                "summary": "一名侦探追查多年未解旧案，并在封闭小镇逐步发现家族隐藏已久的秘密。"
+            }
+        },
+    )
+    rewritten = _agent_output_with_overrides(
+        ["tmdb:5"],
+        {"tmdb:5": {"summary": "密室旧案牵出尘封真相。"}},
+    )
+    orchestrator, repository = _orchestrator(FakePlugin(), [first, rewritten])
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert len(orchestrator.agent_adapter.ranking_calls) == 2
+    board = repository.load_board(PROFILE_ID)
+    rewritten_item = next(
+        item for item in board.recommendations if item.candidate_id == "tmdb:5"
+    )
+    assert rewritten_item.summary == "密室旧案牵出尘封真相。"
+    rewrite_prompt = orchestrator.agent_adapter.ranking_calls[1][0]
+    assert '"candidate_id":"tmdb:5","reason":"summary_too_long"' in rewrite_prompt
+    assert "一名侦探追查多年未解旧案" not in rewrite_prompt
+    analysis = next(
+        item
+        for item in repository.load_recommendation_analyses(PROFILE_ID, "run-1")
+        if item.candidate_id == "tmdb:5"
+    )
+    assert analysis.prompt_fingerprint == RecommendationAnalysisBuilder.prompt_fingerprint(
+        orchestrator.agent_adapter.ranking_calls[0][0],
+        rewrite_prompt,
+    )
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["copy_rewrite_attempted"] is True
+    assert history.metrics["copy_rewrite_candidate_count"] == 1
+    assert history.metrics["copy_rewrite_success_count"] == 1
+    assert history.metrics["copy_template_fallback_count"] == 0
+
+
+def test_failed_copy_rewrite_uses_complete_template_without_prefix_truncation():
+    """唯一重写仍是残句时改用模板，绝不保存原文前缀。"""
+    overlong = "一名侦探追查多年未解旧案，并在封闭小镇逐步发现家族隐藏已久的秘密。"
+    first = _agent_output_with_overrides(
+        [f"tmdb:{index}" for index in range(1, 6)],
+        {"tmdb:5": {"summary": overlong}},
+    )
+    incomplete = _agent_output_with_overrides(
+        ["tmdb:5"],
+        {"tmdb:5": {"summary": "侦探继续追查旧案并"}},
+    )
+    orchestrator, repository = _orchestrator(FakePlugin(), [first, incomplete])
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert result.agent_calls == 3
+    assert len(orchestrator.agent_adapter.ranking_calls) == 2
+    board = repository.load_board(PROFILE_ID)
+    fallback_item = next(
+        item for item in board.recommendations if item.candidate_id == "tmdb:5"
+    )
+    assert fallback_item.selection_source == "safe_fallback"
+    assert fallback_item.summary == "围绕悬疑题材展开的完整故事。"
+    assert fallback_item.summary != overlong[:30]
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["copy_rewrite_candidate_count"] == 1
+    assert history.metrics["copy_rewrite_success_count"] == 0
+    assert history.metrics["copy_template_fallback_count"] == 1
 
 
 def test_refill_ignores_extra_fields_without_discarding_the_batch():

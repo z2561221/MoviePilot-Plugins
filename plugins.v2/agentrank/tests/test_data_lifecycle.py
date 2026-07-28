@@ -314,6 +314,10 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
             "agent_selected_count": 4,
             "safe_fallback_selected_count": 1,
             "selection_source_counts": {"agent": 4, "safe_fallback": 1},
+            "copy_rewrite_attempted": True,
+            "copy_rewrite_candidate_count": 2,
+            "copy_rewrite_success_count": 1,
+            "copy_template_fallback_count": 1,
         }
     )
     first_segment = repository._feedback_segment_key(PROFILE_ID, 1)
@@ -349,6 +353,10 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
         "agent": 4,
         "safe_fallback": 1,
     }
+    assert exported["run_history"][0]["metrics"]["copy_rewrite_attempted"] is True
+    assert exported["run_history"][0]["metrics"]["copy_rewrite_candidate_count"] == 2
+    assert exported["run_history"][0]["metrics"]["copy_rewrite_success_count"] == 1
+    assert exported["run_history"][0]["metrics"]["copy_template_fallback_count"] == 1
     exported_support = exported["board"]["recommendations"][0]["support"]
     assert exported_support["policy_version"] == "policy-v1-safe"
     assert exported_support["percentage"] == 100

@@ -43,6 +43,7 @@ from .feedback_action import FeedbackActionService
 from .scoring import StableRecommendationRanker
 from .validation import (
     AgentOutputError,
+    COPY_REWRITE_REASON_CODES,
     ProfileOutputParser,
     RankingOutputParser,
     RecommendationValidator,
@@ -459,6 +460,10 @@ class RecommendationOrchestrator:
         metrics: Dict[str, Any] = {
             "agent_calls": 0,
             "refill_attempted": False,
+            "copy_rewrite_attempted": False,
+            "copy_rewrite_candidate_count": 0,
+            "copy_rewrite_success_count": 0,
+            "copy_template_fallback_count": 0,
             "stage_order": [],
             "stage_status": {},
             "stage_ms": {},
@@ -1153,6 +1158,15 @@ class RecommendationOrchestrator:
                     drop.reason for drop in validation.dropped
                 ]
 
+            copy_rewrite_candidate_ids = {
+                drop.candidate_id
+                for drop in (validation.dropped if validation is not None else ())
+                if drop.reason in COPY_REWRITE_REASON_CODES
+            }
+            metrics["copy_rewrite_candidate_count"] = len(
+                copy_rewrite_candidate_ids
+            )
+
             if validation is not None and len(accepted) < RECOMMENDATION_LIMIT:
                 trusted_candidate_ids = {
                     candidate.candidate_id for candidate in candidates
@@ -1176,6 +1190,8 @@ class RecommendationOrchestrator:
                     ):
                         break
                     metrics["refill_attempted"] = True
+                    if copy_rewrite_candidate_ids:
+                        metrics["copy_rewrite_attempted"] = True
                     metrics["refill_agent_calls"] = refill_attempt + 1
                     refill_slots = RECOMMENDATION_LIMIT - len(accepted)
                     current_refill_prompt = build_refill_prompt(
@@ -1184,6 +1200,12 @@ class RecommendationOrchestrator:
                         ranking_prompt=str(config.get("ranking_prompt") or ""),
                         copy_prompt=str(config.get("copy_prompt") or ""),
                         rejected_candidates=refill_feedback,
+                    )
+                    analysis_prompt_fingerprint = (
+                        self._analysis_builder.prompt_fingerprint(
+                            base_ranking_prompt,
+                            current_refill_prompt,
+                        )
                     )
                     stage_clock = time.monotonic()
                     metrics["agent_calls"] += 1
@@ -1232,6 +1254,10 @@ class RecommendationOrchestrator:
                                 item.candidate_id, len(agent_order)
                             )
                             accepted.append(item)
+                        metrics["copy_rewrite_success_count"] = len(
+                            copy_rewrite_candidate_ids
+                            & {item.candidate_id for item in accepted}
+                        )
                         round_drop_reasons = [
                             drop.reason for drop in refill_validation.dropped
                         ]
@@ -1295,6 +1321,9 @@ class RecommendationOrchestrator:
                 accepted.extend(fallback_items)
                 fallback_candidate_ids.update(
                     item.candidate_id for item in fallback_items
+                )
+                metrics["copy_template_fallback_count"] = len(
+                    copy_rewrite_candidate_ids & fallback_candidate_ids
                 )
 
             try:

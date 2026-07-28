@@ -232,6 +232,10 @@ class DataLifecycleService:
             "safe_fallback_selected_count",
             "selection_source_counts",
             "recommendation_analysis_count",
+            "copy_rewrite_attempted",
+            "copy_rewrite_candidate_count",
+            "copy_rewrite_success_count",
+            "copy_template_fallback_count",
         }
         result: Dict[str, Any] = {}
         for key in allowed:

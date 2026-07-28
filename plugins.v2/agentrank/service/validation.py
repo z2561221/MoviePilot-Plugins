@@ -218,11 +218,65 @@ REGION_LABELS = {
 }
 RECOMMENDATION_COPY_LIMIT = 30
 INCOMPLETE_COPY_ENDINGS = ("，", "、", "；", "：")
-COPY_PAIR_MARKS = (("《", "》"), ("“", "”"), ("（", "）"), ("【", "】"))
+COPY_PAIR_MARKS = (
+    ("《", "》"),
+    ("〈", "〉"),
+    ("“", "”"),
+    ("（", "）"),
+    ("【", "】"),
+    ("「", "」"),
+    ("『", "』"),
+    ("(", ")"),
+    ("[", "]"),
+)
+COPY_TERMINAL_MARKS = ("。", "！", "？", ".", "!", "?")
+INCOMPLETE_COPY_SUFFIXES = (
+    "并且",
+    "以及",
+    "因为",
+    "所以",
+    "如果",
+    "虽然",
+    "但是",
+    "并",
+    "而",
+    "且",
+    "与",
+    "和",
+    "及",
+    "或",
+    "在",
+    "从",
+    "向",
+    "对",
+    "把",
+    "将",
+    "被",
+    "为",
+    "以",
+    "由",
+    "因",
+    "但",
+    "却",
+    "让",
+    "使",
+    "给",
+    "跟",
+    "同",
+    "像",
+    "如",
+    "若",
+)
+INCOMPLETE_LATIN_END_PATTERN = re.compile(
+    r"(?i)(?:^|\s)(?:and|or|but|with|of|in|on|at|to|for|from|by|the|a|an)$"
+)
+COPY_REWRITE_REASON_CODES = frozenset(
+    {"invalid_summary", "summary_too_long", "invalid_reason", "reason_too_long"}
+)
 
 
-def compact_text(value: str, maximum: int) -> str:
-    """优先在自然标点处截断文本，必要时按字符上限硬裁剪。"""
+def compact_profile_text(value: str, maximum: int) -> str:
+    """仅对画像长摘要按自然标点收束，不用于推荐或简介文案。"""
     text = " ".join(str(value or "").split()).strip()
     if len(text) <= maximum:
         return text
@@ -236,7 +290,42 @@ def compact_text(value: str, maximum: int) -> str:
 def has_unbalanced_copy_pairs(value: str) -> bool:
     """判断推荐文案是否包含未闭合的常用成对标点。"""
     text = str(value or "")
-    return any(text.count(left) != text.count(right) for left, right in COPY_PAIR_MARKS)
+    for left, right in COPY_PAIR_MARKS:
+        depth = 0
+        for character in text:
+            if character == left:
+                depth += 1
+            elif character == right:
+                depth -= 1
+                if depth < 0:
+                    return True
+        if depth:
+            return True
+    return False
+
+
+def is_complete_recommendation_copy(value: str) -> bool:
+    """判断三十字内文案是否避开可确定识别的机械截断与残句。"""
+    text = " ".join(str(value or "").split()).strip()
+    if not text or len(text) > RECOMMENDATION_COPY_LIMIT:
+        return False
+    if text.endswith(INCOMPLETE_COPY_ENDINGS) or has_unbalanced_copy_pairs(text):
+        return False
+    if text.endswith(("…", "...", "—", "-", "/", "\\")):
+        return False
+    core = text.rstrip("。！？.!? ”》）】\"'").strip()
+    if not core:
+        return False
+    if any(core.endswith(suffix) for suffix in INCOMPLETE_COPY_SUFFIXES):
+        return False
+    if INCOMPLETE_LATIN_END_PATTERN.search(core):
+        return False
+    terminal_text = text.rstrip("”》〉）】」』\"'")
+    if len(text) == RECOMMENDATION_COPY_LIMIT and not terminal_text.endswith(
+        COPY_TERMINAL_MARKS
+    ):
+        return False
+    return True
 
 
 class AgentOutputError(ValueError):
@@ -610,7 +699,7 @@ class ProfileOutputParser(_StrictOutputParser):
         if playback_count < 0:
             raise AgentOutputError("profile.playback_count must be non-negative")
         return ParsedProfile(
-            summary=compact_text(
+            summary=compact_profile_text(
                 self._string(value["summary"], "profile.summary", 2000), 200
             ),
             tags=self._tags(value["tags"], "profile.tags"),
@@ -845,8 +934,7 @@ def fallback_summary(candidate: Candidate) -> str:
     overview = " ".join(str(candidate.overview or "").split()).strip()
     if (
         overview
-        and len(overview) <= RECOMMENDATION_COPY_LIMIT
-        and not overview.endswith(INCOMPLETE_COPY_ENDINGS)
+        and is_complete_recommendation_copy(overview)
     ):
         return overview
     genre = next(
@@ -865,6 +953,16 @@ def fallback_summary(candidate: Candidate) -> str:
         "anime": "动画世界展开一段青春奇幻冒险。",
     }
     return summaries.get(candidate.media_type, "故事生动呈现人物命运的新篇章。")
+
+
+def fallback_reason(tags: Sequence[str]) -> str:
+    """根据已验证短标签生成三十字内且语义完整的保底理由。"""
+    safe_tags = [str(item or "").strip() for item in tags or () if str(item or "").strip()]
+    if len(safe_tags) >= 2:
+        return f"画像检索包含{safe_tags[0]}，作品具备{safe_tags[1]}要素，安全补位。"
+    if safe_tags:
+        return f"作品通过本轮画像检索与安全过滤，按{safe_tags[0]}要素保底补位。"
+    return "作品通过本轮画像检索与安全过滤，作为榜单保底补位。"
 
 
 class RecommendationValidator:
@@ -1471,14 +1569,7 @@ class RecommendationValidator:
                 continue
             accepted_ids.add(candidate.candidate_id)
             tags = self._fallback_tags(candidate, preference_evidence)
-            if len(tags) >= 2:
-                reason = (
-                    f"画像检索包含{tags[0]}，作品具备{tags[1]}要素，安全补位。"
-                )
-            elif tags:
-                reason = f"作品通过本轮画像检索与安全过滤，按{tags[0]}要素保底补位。"
-            else:
-                reason = "作品通过本轮画像检索与安全过滤，作为榜单保底补位。"
+            reason = fallback_reason(tags)
             try:
                 scoring = self._support_scorer.score_candidate(
                     candidate,
@@ -1609,11 +1700,7 @@ class RecommendationValidator:
             unsupported_candidate_claim = self._unsupported_candidate_claim(
                 reason, candidate
             )
-            if (
-                not summary
-                or summary.endswith(INCOMPLETE_COPY_ENDINGS)
-                or has_unbalanced_copy_pairs(summary)
-            ):
+            if not is_complete_recommendation_copy(summary):
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_summary", index)
                 )
@@ -1621,8 +1708,7 @@ class RecommendationValidator:
             if (
                 not reason
                 or reason == summary
-                or reason.endswith(INCOMPLETE_COPY_ENDINGS)
-                or has_unbalanced_copy_pairs(reason)
+                or not is_complete_recommendation_copy(reason)
                 or any(phrase in reason for phrase in VAGUE_REASON_PHRASES)
                 or FILLER_END_PATTERN.search(reason)
                 or AMBIGUOUS_WATCH_COUNT_PATTERN.search(reason)
