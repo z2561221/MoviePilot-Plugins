@@ -5,9 +5,9 @@
   "target_release_date": "2026-07-31",
   "status": {
     "overall": "in_progress",
-    "phase": "phase-7",
-    "task": "7.6",
-    "next_allowed_action": "Execute task 7.6: build and browser-verify the four AgentRank entry surfaces"
+    "phase": "phase-8",
+    "task": "8.1",
+    "next_allowed_action": "Execute task 8.1: run the full AgentRank quality and privacy gates"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -721,7 +721,7 @@
     {
       "id": "phase-7",
       "title": "四个Vue表面、移动端与端到端验收",
-      "status": "in_progress",
+      "status": "completed",
       "goal": "在全部表面交付一致且可用的专属影评师体验",
       "acceptance": [
         "联邦构建和四expose正常",
@@ -730,7 +730,14 @@
         "全部交互可达且持久",
         "浏览器无未处理异常"
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        "Vite 5.4.21 federation build transformed 75 modules; remoteEntry exposes Config, Dashboard, Page, and AppPage and all four referenced assets exist",
+        "dashboard, discovery, and detail surfaces each rendered five safe recommendations with complete wrapping reason and summary copy; desktop detail kept the fifth row fully visible",
+        "390x844, 768x1024, and 1440x900 browser checks showed no page-level horizontal overflow or recommendation-copy clipping; mobile dashboard percentages are right-aligned after the Phase 7 regression fix",
+        "like, dislike, ignore with safe refill, controlled subscription fallback, analysis, per-judgment comment, critic message, explicit command confirmation, pending reminder, custom answer, tag archive and restore, history details, export, and both reset gates were exercised",
+        "native subscription drawer payload, cancellation semantics, source aliases, and attribution remain covered by the Phase 6.6 and frontend contracts; running-MoviePilot drawer verification remains scheduled for Task 8.2",
+        "browser console finished without errors or warnings; 13 Task 7.6 screenshots are stored under D:/AIGC/MoviePilot/artifacts/agentrank-v1.0.0/phase-7/"
+      ],
       "tasks": [
         {
           "id": "7.1",
@@ -822,17 +829,27 @@
         {
           "id": "7.6",
           "title": "构建并浏览器验收四入口",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["remoteEntry存在", "390x844 768x1024 1440x900截图齐全", "全部关键交互完成"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "remoteEntry exists, declares ./Config, ./Dashboard, ./Page, and ./AppPage, and references four present hashed expose assets",
+            "all three recommendation surfaces render exactly five items; recommendation reasons and summaries have no clipping, expansion controls, or confidence labels",
+            "mobile dashboard action controls keep icon feedback and the three labeled actions together while placing the numeric percentage at the right edge",
+            "desktop detail renders the complete fifth row inside the 1440x900 viewport; mobile detail uses the four-function wrapped navigation and contains no visible run-ready or expand-collapse controls",
+            "analysis comments, critic conversation, explicit write confirmation, pending three-day reminder, custom answer, and refresh persistence completed in the browser fixture",
+            "profile tag removal created an archived tag and restore returned it to the active profile; the preview fake API now preserves production archive semantics",
+            "Task 7.6 configuration, runtime, and frontend contracts: 163 passed; static frontend contracts: 23 passed; API controller regression: 28 passed",
+            "Vue federation build completed with 75 modules; compileall, sensitive-data scan, asset-graph check, and git diff check passed",
+            "browser console contained no errors or warnings; screenshots stored under D:/AIGC/MoviePilot/artifacts/agentrank-v1.0.0/phase-7/task-7.6-*.png"
+          ],
+          "commit": "fa0ac766"
         }
       ]
     },
     {
       "id": "phase-8",
       "title": "全量质量门禁、MP本地收束与正式发布",
-      "status": "pending",
+      "status": "in_progress",
       "goal": "在用户授权下完成v1.0.0可复核发布",
       "acceptance": [
         "全量测试构建扫描通过",
