@@ -180,6 +180,43 @@ def test_same_profile_is_fifo_and_duplicate_enqueue_is_not_processed_twice():
     assert calls == [1, 2]
 
 
+def test_completion_notification_runs_once_and_failure_never_requeues_job():
+    """成功通知回调只执行一次，回调异常不回滚已完成理解任务。"""
+    repository = AgentRankRepository(FakePlugin())
+    event = _stored(repository, "completion-1")
+    completed = []
+
+    def handler(job):
+        """返回可交给完成回调的结构化结果。"""
+        return {"event_id": job.event_id}
+
+    def failing_completion(job, result):
+        """记录一次后模拟通知渠道异常。"""
+        completed.append((job.event_id, result))
+        raise RuntimeError("notification unavailable")
+
+    queue = FeedbackQueueService(
+        repository,
+        handler=handler,
+        completion_handler=failing_completion,
+        profile_ids=[PROFILE_ID],
+    )
+    queue.enqueue_event(event)
+    claimed = repository.claim_next_feedback_job(
+        PROFILE_ID,
+        lease_id="completion-lease",
+        now=datetime.now(timezone.utc),
+    )
+    assert claimed is not None
+
+    queue._process_job(claimed, handler)
+
+    stored = repository.load_feedback_queue(PROFILE_ID)[0]
+    assert stored.status == "completed"
+    assert completed == [(event.event_id, {"event_id": event.event_id})]
+    assert stored.last_error == ""
+
+
 def test_cross_profile_parallelism_is_bounded_by_worker_limit():
     """不同 profile 可以并行，但活跃处理数不超过 max_workers。"""
     profiles = ["emby:home:user-1", "emby:home:user-2", "emby:home:user-3"]

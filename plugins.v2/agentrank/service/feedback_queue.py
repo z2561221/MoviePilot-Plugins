@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 FeedbackQueueHandler = Callable[[FeedbackQueueJob], Any]
 FeedbackQueueAttentionHandler = Callable[[FeedbackQueueJob], Any]
+FeedbackQueueCompletionHandler = Callable[[FeedbackQueueJob, Any], Any]
 
 
 class FeedbackQueueError(Exception):
@@ -34,6 +35,7 @@ class FeedbackQueueService:
         *,
         handler: Optional[FeedbackQueueHandler] = None,
         attention_handler: Optional[FeedbackQueueAttentionHandler] = None,
+        completion_handler: Optional[FeedbackQueueCompletionHandler] = None,
         profile_ids: Iterable[str] = (),
         max_workers: int = 2,
         queue_limit: int = 200,
@@ -49,6 +51,7 @@ class FeedbackQueueService:
         self._repository = repository
         self._handler = handler
         self._attention_handler = attention_handler
+        self._completion_handler = completion_handler
         self._profiles: Set[str] = {
             str(profile_id or "").strip()
             for profile_id in profile_ids or ()
@@ -99,6 +102,13 @@ class FeedbackQueueService:
         """设置达到死信上限后的可见通知回调。"""
         with self._state_lock:
             self._attention_handler = handler
+
+    def set_completion_handler(
+        self, handler: Optional[FeedbackQueueCompletionHandler]
+    ) -> None:
+        """设置任务成功后的非阻断待确认通知回调。"""
+        with self._state_lock:
+            self._completion_handler = handler
 
     def start(self) -> None:
         """启动调度线程，并把重启遗留 running 任务恢复为 queued。"""
@@ -258,11 +268,13 @@ class FeedbackQueueService:
         try:
             result = handler(job)
             if inspect.isawaitable(result):
-                asyncio.run(result)
+                result = asyncio.run(result)
             completed = job.complete(self._now())
-            self._repository.replace_feedback_job(
+            replaced = self._repository.replace_feedback_job(
                 completed, expected_lease_id=job.lease_id
             )
+            if replaced:
+                self._notify_completion(job, result)
         except Exception as error:
             safe_error = self._safe_error(error)
             if job.attempts >= job.max_attempts:
@@ -309,3 +321,16 @@ class FeedbackQueueService:
                 asyncio.run(result)
         except Exception:
             logger.exception("AgentRank 反馈死信通知失败 job_id=%s", job.job_id)
+
+    def _notify_completion(self, job: FeedbackQueueJob, result: Any) -> None:
+        """调用成功回调，通知异常不得把已完成任务改回重试。"""
+        with self._state_lock:
+            callback = self._completion_handler
+        if callback is None:
+            return
+        try:
+            value = callback(job, result)
+            if inspect.isawaitable(value):
+                asyncio.run(value)
+        except Exception:
+            logger.exception("AgentRank 反馈完成通知失败 job_id=%s", job.job_id)

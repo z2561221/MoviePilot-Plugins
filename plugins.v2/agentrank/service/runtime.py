@@ -29,6 +29,8 @@ class AgentRankRuntime:
         feedback_response_service: Any = None,
         memory_projection_service: Any = None,
         conversation_service: Any = None,
+        pending_center_service: Any = None,
+        reminder_trigger_factory: Callable[[], Any] = None,
     ):
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
@@ -37,6 +39,9 @@ class AgentRankRuntime:
         self._trigger_factory = trigger_factory or self._default_trigger_factory
         self._date_trigger_factory = (
             date_trigger_factory or self._default_date_trigger_factory
+        )
+        self._reminder_trigger_factory = (
+            reminder_trigger_factory or self._default_reminder_trigger_factory
         )
         if orchestrator is None:
             from .notification import NotificationService
@@ -126,6 +131,39 @@ class AgentRankRuntime:
             )
         self.conversation_service = conversation_service
         plugin._conversation = conversation_service
+        if (
+            pending_center_service is None
+            and repository is not None
+            and feedback_response_service is not None
+            and memory_projection_service is not None
+            and conversation_service is not None
+        ):
+            from .pending_center import PendingCenterService
+
+            pending_center_service = PendingCenterService(
+                repository,
+                feedback_response=feedback_response_service,
+                memory_projection=memory_projection_service,
+                conversation=conversation_service,
+            )
+        self.pending_center_service = pending_center_service
+        plugin._pending_center = pending_center_service
+        if interaction_service is not None and pending_center_service is not None:
+            set_pending_center = getattr(interaction_service, "set_pending_center", None)
+            if callable(set_pending_center):
+                set_pending_center(pending_center_service)
+        if conversation_service is not None:
+            set_pending_handler = getattr(
+                conversation_service, "set_pending_handler", None
+            )
+            if callable(set_pending_handler):
+                set_pending_handler(self._notify_conversation_command)
+        if feedback_queue is not None:
+            set_completion_handler = getattr(
+                feedback_queue, "set_completion_handler", None
+            )
+            if callable(set_completion_handler):
+                set_completion_handler(self._notify_feedback_decision)
         self._stopped = False
         self._active_tasks: set[asyncio.Task] = set()
 
@@ -245,6 +283,13 @@ class AgentRankRuntime:
 
         return DateTrigger(run_date=datetime.now() + timedelta(seconds=3))
 
+    @staticmethod
+    def _default_reminder_trigger_factory() -> Any:
+        """创建每五分钟领取一次待确认提醒的稳定触发器。"""
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        return IntervalTrigger(minutes=5)
+
     def _config_errors(self) -> List[str]:
         """返回可原地追加的配置错误列表。"""
         errors = self.config.get("_validation_errors")
@@ -294,6 +339,24 @@ class AgentRankRuntime:
                         "name": "Agent榜单中心周期生成",
                         "trigger": trigger,
                         "func": self.run_scheduled,
+                        "kwargs": {},
+                    }
+                )
+        if self.pending_center_service is not None and self.notification_service is not None:
+            try:
+                reminder_trigger = self._reminder_trigger_factory()
+            except Exception as error:
+                message = f"pending reminder trigger invalid: {error}"
+                errors = self._config_errors()
+                if message not in errors:
+                    errors.append(message)
+            else:
+                services.append(
+                    {
+                        "id": "AgentRank.PendingReminders",
+                        "name": "Agent榜单中心待确认提醒",
+                        "trigger": reminder_trigger,
+                        "func": self.send_pending_reminders,
                         "kwargs": {},
                     }
                 )
@@ -429,6 +492,83 @@ class AgentRankRuntime:
             message="反馈理解多次失败，请稍后在插件详情页重试",
             old_board_preserved=True,
         )
+
+    def _notify_feedback_decision(self, job: Any, result: Any = None) -> None:
+        """在反馈理解成功后发送一次新提案或问询通知。"""
+        del result
+        if (
+            not self._notifications_enabled()
+            or self.notification_service is None
+            or self.pending_center_service is None
+        ):
+            return
+        notice = self.pending_center_service.notice_for_event(
+            job.profile_id, job.event_id
+        )
+        if notice is None:
+            return
+        self.notification_service.send_pending(
+            self._display_name(job.profile_id, self.config), notice
+        )
+
+    def _notify_conversation_command(self, command: Any) -> None:
+        """发送对话新建命令的安全待确认通知。"""
+        if (
+            not self._notifications_enabled()
+            or self.notification_service is None
+            or self.pending_center_service is None
+        ):
+            return
+        notice = self.pending_center_service.notice_for_command(command)
+        self.notification_service.send_pending(
+            self._display_name(command.profile_id, self.config), notice
+        )
+
+    def send_pending_reminders(self) -> List[Dict[str, Any]]:
+        """领取全部画像的到期提醒并逐条安全发送。"""
+        if (
+            self._stopped
+            or not self.config.get("enabled")
+            or not self._notifications_enabled()
+            or self.pending_center_service is None
+            or self.notification_service is None
+        ):
+            return []
+        results: List[Dict[str, Any]] = []
+        for identity in configured_identities(self.config):
+            notices = self.pending_center_service.claim_due_notices(
+                identity.profile_id
+            )
+            for notice in notices:
+                try:
+                    interactive = self.notification_service.send_pending(
+                        identity.username, notice, reminder=True
+                    )
+                    results.append(
+                        {
+                            "profile_id": identity.profile_id,
+                            "item_type": notice.item.item_type,
+                            "item_id": notice.item.item_id,
+                            "status": "sent",
+                            "interactive": bool(interactive),
+                        }
+                    )
+                except Exception:
+                    logger.exception(
+                        "AgentRank 待确认提醒发送失败 profile_id=%s type=%s",
+                        identity.profile_id,
+                        notice.item.item_type,
+                    )
+                    results.append(
+                        {
+                            "profile_id": identity.profile_id,
+                            "item_type": notice.item.item_type,
+                            "item_id": notice.item.item_id,
+                            "status": "failed",
+                            "interactive": False,
+                        }
+                    )
+        return results
 
     async def run_scheduled(self) -> List[Dict[str, Any]]:
         """顺序处理画像身份，单个身份异常不阻断后续身份。"""

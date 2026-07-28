@@ -16,6 +16,9 @@ CONVERSATION_COMMAND_STATUSES = frozenset(
 CONVERSATION_COMMAND_KINDS = frozenset(
     {"profile_tag", "weight", "ignore", "subscribe", "reset_learning"}
 )
+CONVERSATION_REMINDER_POLICIES = frozenset(
+    {"unselected", "in_1_day", "in_3_days", "in_7_days", "never"}
+)
 CONVERSATION_THREAD_STATUSES = frozenset({"active", "closed"})
 
 
@@ -129,6 +132,9 @@ class ConversationCommand:
     status: str = "pending_confirmation"
     requires_superuser: bool = False
     supersedes: str = ""
+    reminder_policy: str = "unselected"
+    next_remind_at: str = ""
+    last_reminded_at: str = ""
     resolved_by_mp_user_id: str = ""
     resolved_at: str = ""
     execution_code: str = ""
@@ -148,6 +154,9 @@ class ConversationCommand:
             ("requested_by_mp_user_id", 128),
             ("status", 32),
             ("supersedes", 128),
+            ("reminder_policy", 32),
+            ("next_remind_at", 64),
+            ("last_reminded_at", 64),
             ("resolved_by_mp_user_id", 128),
             ("execution_code", 64),
             ("execution_message", 240),
@@ -159,6 +168,12 @@ class ConversationCommand:
             "resolved_at",
             _iso_time(self.resolved_at, "resolved_at", optional=True),
         )
+        for field_name in ("next_remind_at", "last_reminded_at"):
+            object.__setattr__(
+                self,
+                field_name,
+                _iso_time(getattr(self, field_name), field_name, optional=True),
+            )
         object.__setattr__(self, "requires_superuser", bool(self.requires_superuser))
         object.__setattr__(self, "schema_version", int(self.schema_version))
         if not all(
@@ -179,6 +194,12 @@ class ConversationCommand:
         object.__setattr__(self, "payload", _command_payload(self.kind, self.payload))
         if self.status not in CONVERSATION_COMMAND_STATUSES:
             raise ValueError("conversation command status is invalid")
+        if self.reminder_policy not in CONVERSATION_REMINDER_POLICIES:
+            raise ValueError("conversation command reminder_policy is invalid")
+        if self.reminder_policy in {"unselected", "never"} and self.next_remind_at:
+            raise ValueError("conversation command reminder policy cannot have next_remind_at")
+        if self.status != "pending_confirmation" and self.next_remind_at:
+            raise ValueError("resolved conversation command cannot keep next_remind_at")
         resolution = (
             self.resolved_by_mp_user_id,
             self.resolved_at,
@@ -212,6 +233,8 @@ class ConversationCommand:
         return replace(
             self,
             status=status,
+            reminder_policy="never",
+            next_remind_at="",
             resolved_by_mp_user_id=actor_id,
             resolved_at=resolved_at,
             execution_code=code,
@@ -235,6 +258,9 @@ class ConversationCommand:
             "status": self.status,
             "requires_superuser": self.requires_superuser,
             "supersedes": self.supersedes,
+            "reminder_policy": self.reminder_policy,
+            "next_remind_at": self.next_remind_at,
+            "last_reminded_at": self.last_reminded_at,
             "resolved_by_mp_user_id": self.resolved_by_mp_user_id,
             "resolved_at": self.resolved_at,
             "execution_code": self.execution_code,
@@ -268,6 +294,9 @@ class ConversationCommand:
             status=value.get("status") or "pending_confirmation",
             requires_superuser=value.get("requires_superuser") is True,
             supersedes=value.get("supersedes"),
+            reminder_policy=value.get("reminder_policy") or "unselected",
+            next_remind_at=value.get("next_remind_at"),
+            last_reminded_at=value.get("last_reminded_at"),
             resolved_by_mp_user_id=value.get("resolved_by_mp_user_id"),
             resolved_at=value.get("resolved_at"),
             execution_code=value.get("execution_code"),

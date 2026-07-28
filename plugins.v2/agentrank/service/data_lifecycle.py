@@ -685,6 +685,15 @@ class DataLifecycleService:
                         "status": _redact_text(command.status),
                         "requires_superuser": command.requires_superuser,
                         "supersedes": _safe_scalar(command.supersedes),
+                        "reminder_policy": _redact_text(
+                            command.reminder_policy
+                        ),
+                        "next_remind_at": _redact_text(
+                            command.next_remind_at
+                        ),
+                        "last_reminded_at": _redact_text(
+                            command.last_reminded_at
+                        ),
                         "created_at": _redact_text(command.created_at),
                         "resolved_at": _redact_text(command.resolved_at),
                         "execution_code": _redact_text(command.execution_code),

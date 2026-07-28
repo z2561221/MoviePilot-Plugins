@@ -2,8 +2,9 @@
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..agent_tools.context import CONVERSATION_AGENT_ROLE, build_trusted_context
@@ -31,6 +32,14 @@ _SENSITIVE_PSYCHOLOGY_TERMS = (
     "心理障碍",
 )
 _INTENTS = frozenset({"read_only", "write_request", "ambiguous"})
+_REMINDER_DELAYS = {
+    "in_1_day": timedelta(days=1),
+    "in_3_days": timedelta(days=3),
+    "in_7_days": timedelta(days=7),
+}
+
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationError(RuntimeError):
@@ -264,6 +273,7 @@ class ConversationService:
         plugin: Any = None,
         message_limit: int = 200,
         now_factory: Callable[[], datetime] = None,
+        pending_handler: Callable[[ConversationCommand], Any] = None,
     ):
         """绑定仓储、受限 Agent、运行插件与可测试时钟。"""
         if not isinstance(repository, AgentRankRepository):
@@ -273,6 +283,26 @@ class ConversationService:
         self._plugin = plugin
         self._message_limit = max(1, min(int(message_limit), 100000))
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
+        self._pending_handler = pending_handler
+
+    def set_pending_handler(
+        self, handler: Callable[[ConversationCommand], Any] = None
+    ) -> None:
+        """设置新建待确认命令的非阻断通知回调。"""
+        self._pending_handler = handler
+
+    def _emit_pending(self, commands: Sequence[ConversationCommand]) -> None:
+        """逐条发送待确认命令通知，通知失败不回滚已完成对话。"""
+        if not callable(self._pending_handler):
+            return
+        for command in commands:
+            try:
+                self._pending_handler(command)
+            except Exception:
+                logger.exception(
+                    "AgentRank 对话待确认通知失败 command_id=%s",
+                    command.command_id,
+                )
 
     def _now(self) -> str:
         """返回带时区的当前 ISO 时间。"""
@@ -881,7 +911,124 @@ class ConversationService:
                 limit=self._message_limit,
                 action="conversation_completion_write_failed",
             )
-            return self._snapshot_data(thread, messages, commands, created=created)
+            snapshot = self._snapshot_data(
+                thread, messages, commands, created=created
+            )
+        self._emit_pending(created_commands)
+        return snapshot
+
+    def set_command_reminder(
+        self,
+        *,
+        profile_id: str,
+        command_id: str,
+        reminder_policy: str,
+        actor_id: str,
+        is_superuser: bool = False,
+    ) -> ConversationCommand:
+        """为用户自己的待确认命令设置稍后提醒或永不提醒。"""
+        target = str(profile_id or "").strip()
+        target_id = str(command_id or "").strip()
+        actor = str(actor_id or "").strip()
+        policy = str(reminder_policy or "").strip().casefold()
+        if policy not in {*_REMINDER_DELAYS, "never"}:
+            raise ConversationError(
+                "reminder_policy_invalid", "提醒时间必须是一、三、七天后或不提醒", 422
+            )
+        if not actor:
+            raise ConversationError(
+                "conversation_actor_required", "无法确认当前操作用户", 403
+            )
+        with self._repository.feedback_action_guard(target):
+            thread = self._repository.load_conversation_thread(target)
+            messages, commands = self._repository.load_conversation_records(
+                target, strict=True
+            )
+            if thread is None:
+                raise ConversationError("conversation_not_found", "对话不存在", 404)
+            command = next(
+                (item for item in commands if item.command_id == target_id), None
+            )
+            if command is None:
+                raise ConversationError("command_not_found", "待确认命令不存在", 404)
+            if command.requested_by_mp_user_id != actor and not is_superuser:
+                raise ConversationError("command_forbidden", "不能操作其他用户的命令", 403)
+            if command.terminal:
+                raise ConversationError(
+                    "command_already_resolved", "命令已经处理", 409
+                )
+            current = self._now_factory()
+            if current.tzinfo is None:
+                current = current.replace(tzinfo=timezone.utc)
+            next_remind_at = (
+                (current.astimezone(timezone.utc) + _REMINDER_DELAYS[policy]).isoformat()
+                if policy in _REMINDER_DELAYS
+                else ""
+            )
+            updated = replace(
+                command,
+                reminder_policy=policy,
+                next_remind_at=next_remind_at,
+            )
+            commands = [
+                updated if item.command_id == target_id else item for item in commands
+            ]
+            thread = replace(
+                thread,
+                updated_at=self._now(),
+                revision=thread.revision + 1,
+            )
+            self._repository.save_conversation_state(
+                thread, messages, commands, limit=self._message_limit
+            )
+            return updated
+
+    def claim_due_command_reminders(
+        self, profile_id: str
+    ) -> List[ConversationCommand]:
+        """原子领取到期命令提醒并清空本次提醒时间。"""
+        target = str(profile_id or "").strip()
+        current = self._now_factory()
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        current = current.astimezone(timezone.utc)
+        with self._repository.feedback_action_guard(target):
+            thread = self._repository.load_conversation_thread(target)
+            messages, commands = self._repository.load_conversation_records(
+                target, strict=True
+            )
+            if thread is None:
+                return []
+            claimed: List[ConversationCommand] = []
+            updated_commands: List[ConversationCommand] = []
+            for command in commands:
+                if command.status != "pending_confirmation" or not command.next_remind_at:
+                    updated_commands.append(command)
+                    continue
+                due = datetime.fromisoformat(
+                    command.next_remind_at.replace("Z", "+00:00")
+                ).astimezone(timezone.utc)
+                if due > current:
+                    updated_commands.append(command)
+                    continue
+                updated = replace(
+                    command,
+                    next_remind_at="",
+                    last_reminded_at=current.isoformat(),
+                )
+                updated_commands.append(updated)
+                claimed.append(updated)
+            if not claimed:
+                return []
+            thread = replace(
+                thread,
+                updated_at=current.isoformat(),
+                revision=thread.revision + 1,
+            )
+            self._repository.save_conversation_state(
+                thread, messages, updated_commands, limit=self._message_limit
+            )
+            return claimed
 
     def _execute_command(
         self, command: ConversationCommand, *, actor_id: str, is_superuser: bool

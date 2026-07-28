@@ -81,6 +81,9 @@ security_module.verify_token = verify_token
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
+pending_model_module = importlib.import_module(
+    f"{PACKAGE_NAME}.model.pending_center"
+)
 support_module = importlib.import_module(f"{PACKAGE_NAME}.model.support")
 archive_module = importlib.import_module(f"{PACKAGE_NAME}.model.archive")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
@@ -102,6 +105,8 @@ SubscriptionService = service_module.SubscriptionService
 NotificationService = notification_module.NotificationService
 AgentRankRuntime = runtime_module.AgentRankRuntime
 AgentRankApiController = controller_module.AgentRankApiController
+PendingCenterItem = pending_model_module.PendingCenterItem
+PendingNotice = pending_model_module.PendingNotice
 
 PROFILE_ID = "emby:home:user-1"
 IDENTITY_CONFIG = {
@@ -618,3 +623,109 @@ def test_subscribe_api_returns_service_result_after_runtime_integration():
 
     assert response["success"] is True
     assert response["data"]["code"] == "subscription_created"
+
+
+def test_pending_fallback_notification_is_safe_and_keeps_detail_entry():
+    """非交互渠道只收到安全摘要，宿主仍可附加插件详情链接。"""
+    plugin = FakePlugin()
+    notice = PendingNotice(
+        item=PendingCenterItem(
+            item_type="question",
+            item_id="question-1",
+            profile_id=PROFILE_ID,
+            title="专属影评师需要你确认",
+            summary=(
+                "请确认这个理解 token=secret-value "
+                "http://192.168.50.5:3000/internal"
+            ),
+            created_at="2026-07-28T00:00:00+00:00",
+            status="pending",
+            options=({"option_id": "one", "label": "选项一"},),
+        ),
+        actor_id="mp-user-1",
+    )
+
+    interactive = NotificationService(plugin).send_pending("Alice", notice)
+
+    assert interactive is False
+    assert len(plugin.messages) == 1
+    rendered = str(plugin.messages[0])
+    assert plugin.messages[0]["title"] == "Agent榜单中心需要确认"
+    assert "尚未生效" in rendered and "待确认区域" in rendered
+    assert "192.168.50.5" not in rendered
+    assert "secret-value" not in rendered
+    assert PROFILE_ID not in rendered
+    assert "mp-user-1" not in rendered
+
+
+def test_runtime_registers_and_sends_atomic_pending_reminders():
+    """运行时注册固定提醒任务并把领取结果逐条交给通知服务。"""
+    plugin = FakePlugin()
+    notice = PendingNotice(
+        item=PendingCenterItem(
+            item_type="proposal",
+            item_id="proposal-1",
+            profile_id=PROFILE_ID,
+            title="确认新理解",
+            summary="你可能偏好节奏紧凑的作品",
+            created_at="2026-07-28T00:00:00+00:00",
+            status="pending_confirmation",
+        ),
+        actor_id="mp-user-1",
+    )
+
+    class PendingCenter:
+        """只在首次领取时返回一个提醒。"""
+
+        def __init__(self):
+            self.claimed = False
+
+        def claim_due_notices(self, profile_id):
+            """返回一次提醒。"""
+            assert profile_id == PROFILE_ID
+            if self.claimed:
+                return []
+            self.claimed = True
+            return [notice]
+
+    class PendingNotification:
+        """记录提醒通知。"""
+
+        def __init__(self):
+            self.calls = []
+
+        def send_pending(self, username, value, reminder=False):
+            """记录目标与提醒标志。"""
+            self.calls.append((username, value, reminder))
+            return True
+
+    center = PendingCenter()
+    notification = PendingNotification()
+    runtime = AgentRankRuntime(
+        plugin,
+        {"enabled": True, "notify": True, **IDENTITY_CONFIG},
+        orchestrator=SimpleNamespace(),
+        notification_service=notification,
+        pending_center_service=center,
+        reminder_trigger_factory=lambda: "every-five-minutes",
+    )
+
+    reminder_service = next(
+        item
+        for item in runtime.get_services()
+        if item["id"] == "AgentRank.PendingReminders"
+    )
+    sent = reminder_service["func"]()
+
+    assert reminder_service["trigger"] == "every-five-minutes"
+    assert sent == [
+        {
+            "profile_id": PROFILE_ID,
+            "item_type": "proposal",
+            "item_id": "proposal-1",
+            "status": "sent",
+            "interactive": True,
+        }
+    ]
+    assert notification.calls == [("Alice", notice, True)]
+    assert runtime.send_pending_reminders() == []

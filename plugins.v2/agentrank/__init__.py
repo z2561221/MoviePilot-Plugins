@@ -41,6 +41,7 @@ class AgentRank(_PluginBase):
     _feedback_response: Any = None
     _memory_projection: Any = None
     _conversation: Any = None
+    _pending_center: Any = None
 
     def init_plugin(self, config: dict = None) -> None:
         """初始化插件配置与运行状态。"""

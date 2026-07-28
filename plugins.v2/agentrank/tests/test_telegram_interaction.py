@@ -37,6 +37,9 @@ types_module.NotificationType = NotificationType
 types_module.MessageChannel = MessageChannel
 
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
+pending_model_module = importlib.import_module(
+    f"{PACKAGE_NAME}.model.pending_center"
+)
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 interaction_module = importlib.import_module(
     f"{PACKAGE_NAME}.service.telegram_interaction"
@@ -47,6 +50,8 @@ RecommendationItem = board_module.RecommendationItem
 AgentRankRepository = repository_module.AgentRankRepository
 TelegramSelectionService = interaction_module.TelegramSelectionService
 TelegramTargetAdapter = interaction_module.TelegramTargetAdapter
+PendingCenterItem = pending_model_module.PendingCenterItem
+PendingNotice = pending_model_module.PendingNotice
 
 
 class FakePlugin:
@@ -182,7 +187,7 @@ def _oversized_board():
     return board
 
 
-def _service(now=None, target="1001"):
+def _service(now=None, target="1001", pending_center=None):
     """创建固定令牌和时钟的交互服务。"""
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
@@ -194,11 +199,29 @@ def _service(now=None, target="1001"):
         repository=repository,
         subscription_service=subscription,
         config={"confidence_threshold": 0.6},
+        pending_center=pending_center,
         target_adapter=FakeTargetAdapter(target),
         token_factory=lambda: "token123",
         now_factory=lambda: clock[0],
     )
     return plugin, repository, subscription, service, clock
+
+
+class FakePendingCenter:
+    """记录 Telegram 直接待确认响应。"""
+
+    def __init__(self):
+        """创建空调用列表。"""
+        self.calls = []
+
+    def respond(self, **kwargs):
+        """记录安全响应并返回终态。"""
+        self.calls.append(kwargs)
+        return {
+            "action": kwargs["action"],
+            "changed": True,
+            "item": {"status": "answered"},
+        }
 
 
 def _event(action, userid="1001"):
@@ -209,6 +232,19 @@ def _event(action, userid="1001"):
         "source": "Telegram",
         "userid": userid,
         "original_message_id": 77,
+        "original_chat_id": "1001",
+    }
+
+
+def _pending_event(action, argument="", userid="1001"):
+    """构造 Telegram 待确认按钮事件。"""
+    suffix = f":{argument}" if argument else ""
+    return {
+        "text": f"arp:token123:{action}{suffix}",
+        "channel": MessageChannel.Telegram,
+        "source": "Telegram",
+        "userid": userid,
+        "original_message_id": 88,
         "original_chat_id": "1001",
     }
 
@@ -551,3 +587,102 @@ def test_disabled_plugin_and_closed_session_cannot_subscribe():
     assert repository2.load_telegram_session("token123").status == "cancelled"
     assert "已经关闭" in plugin2.messages[-1]["text"]
     assert subscription2.calls == []
+
+
+def test_pending_question_buttons_answer_directly_and_reject_wrong_user():
+    """Telegram 问询按钮直接回答，越权点击不复用审计身份。"""
+    center = FakePendingCenter()
+    plugin, repository, _, service, _ = _service(pending_center=center)
+    item = PendingCenterItem(
+        item_type="question",
+        item_id="question-1",
+        profile_id="alice",
+        title="专属影评师需要你确认",
+        summary="你更喜欢人物、节奏还是世界观？",
+        created_at="2026-07-18T00:00:00+00:00",
+        status="pending",
+        options=(
+            {"option_id": "character", "label": "人物"},
+            {"option_id": "pace", "label": "节奏"},
+            {"option_id": "world", "label": "世界观"},
+        ),
+        allow_custom_answer=True,
+    )
+    notice = PendingNotice(item=item, actor_id="mp-user-1")
+
+    assert service.start_pending(
+        username="alice",
+        notice=notice,
+        detail_link="https://mp.example/#/plugin-app/AgentRank/main?panel=pending",
+    ) is True
+    first = plugin.messages[-1]
+    rendered = str(first)
+    assert "人物" in rendered and "1 天后" in rendered and "不提醒" in rendered
+    assert "打开详情" in rendered
+    assert "mp-user-1" not in rendered
+    assert "profile_id" not in rendered
+
+    service.handle_callback(_pending_event("o", "1", userid="9999"))
+    assert center.calls == []
+    assert repository.load_telegram_pending_session("token123").status == "open"
+
+    service.handle_callback(_pending_event("o", "1"))
+
+    assert len(center.calls) == 1
+    assert center.calls[0]["action"] == "answer"
+    assert center.calls[0]["option_id"] == "pace"
+    assert center.calls[0]["actor_id"] == "mp-user-1"
+    assert center.calls[0]["idempotency_key"].startswith("telegram-pending:")
+    assert repository.load_telegram_pending_session("token123").status == "resolved"
+    assert plugin.messages[-1]["buttons"] is None
+
+
+def test_pending_superuser_command_never_offers_direct_confirmation():
+    """需要管理员的全局权重命令只提供提醒和详情入口。"""
+    center = FakePendingCenter()
+    plugin, _, _, service, _ = _service(pending_center=center)
+    notice = PendingNotice(
+        item=PendingCenterItem(
+            item_type="command",
+            item_id="command-weight",
+            profile_id="alice",
+            title="调整全局基准权重",
+            summary="将题材权重调整为 0.80",
+            created_at="2026-07-18T00:00:00+00:00",
+            status="pending_confirmation",
+            requires_superuser=True,
+        ),
+        actor_id="mp-user-1",
+    )
+
+    service.start_pending(username="alice", notice=notice)
+    callbacks = _callbacks(plugin.messages[-1])
+
+    assert all(":y" not in value for value in callbacks)
+    assert "需要管理员" in plugin.messages[-1]["text"]
+
+
+def test_pending_reminder_button_maps_exact_three_day_policy():
+    """Telegram 三天后按钮准确映射统一中心提醒策略。"""
+    center = FakePendingCenter()
+    plugin, repository, _, service, _ = _service(pending_center=center)
+    notice = PendingNotice(
+        item=PendingCenterItem(
+            item_type="proposal",
+            item_id="proposal-1",
+            profile_id="alice",
+            title="确认新理解",
+            summary="你可能偏好节奏紧凑的叙事",
+            created_at="2026-07-18T00:00:00+00:00",
+            status="pending_confirmation",
+        ),
+        actor_id="mp-user-1",
+    )
+    service.start_pending(username="alice", notice=notice)
+
+    service.handle_callback(_pending_event("3"))
+
+    assert center.calls[0]["action"] == "remind"
+    assert center.calls[0]["reminder_policy"] == "in_3_days"
+    assert repository.load_telegram_pending_session("token123").status == "scheduled"
+    assert "3 天后" in plugin.messages[-1]["text"]

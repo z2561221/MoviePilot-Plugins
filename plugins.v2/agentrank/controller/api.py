@@ -343,6 +343,34 @@ class AgentRankApiController:
             self.plugin._conversation = service
         return service
 
+    def _pending_center_service(self) -> Any:
+        """返回统一待确认中心或用现有受控服务创建门面。"""
+        service = getattr(self.plugin, "_pending_center", None)
+        if service is not None:
+            return service
+        from ..service.feedback_response import FeedbackResponseService
+        from ..service.memory_projection import MemoryProjectionService
+        from ..service.pending_center import PendingCenterService
+
+        feedback_response = getattr(self.plugin, "_feedback_response", None)
+        if feedback_response is None:
+            feedback_response = FeedbackResponseService(
+                self._repository(), feedback_queue=self._feedback_queue()
+            )
+            self.plugin._feedback_response = feedback_response
+        memory_projection = getattr(self.plugin, "_memory_projection", None)
+        if memory_projection is None:
+            memory_projection = MemoryProjectionService(self._repository())
+            self.plugin._memory_projection = memory_projection
+        service = PendingCenterService(
+            self._repository(),
+            feedback_response=feedback_response,
+            memory_projection=memory_projection,
+            conversation=self._conversation_service(),
+        )
+        self.plugin._pending_center = service
+        return service
+
     def _board_data(self, board: Any) -> Dict[str, Any]:
         """返回带最新反馈极性且海报已收敛为轻量 URL 的榜单响应。"""
         value = board.to_dict()
@@ -772,6 +800,62 @@ class AgentRankApiController:
             ) from error
         return self._success(data)
 
+    def pending_center(
+        self,
+        profile_id: Any,
+        actor_id: str = "",
+        is_superuser: bool = False,
+    ) -> Dict[str, Any]:
+        """返回当前 MP 用户可见的统一待确认项目。"""
+        target = self._profile_id(profile_id)
+        try:
+            data = self._pending_center_service().list_pending(
+                target,
+                actor_id=actor_id,
+                is_superuser=bool(is_superuser),
+            )
+        except Exception as error:
+            if all(hasattr(error, name) for name in ("status_code", "code", "message")):
+                raise ApiContractError(
+                    error.status_code, error.code, error.message
+                ) from error
+            raise ApiContractError(
+                500, "pending_center_read_failed", "待确认中心读取失败，请稍后重试"
+            ) from error
+        return self._success(data)
+
+    def respond_pending(
+        self,
+        payload: Any,
+        actor_id: str = "",
+        is_superuser: bool = False,
+    ) -> Dict[str, Any]:
+        """响应、拒绝或设置统一待确认项目的提醒。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        try:
+            data = self._pending_center_service().respond(
+                profile_id=target,
+                item_type=body.get("item_type"),
+                item_id=body.get("item_id"),
+                action=body.get("action"),
+                actor_id=actor_id,
+                is_superuser=bool(is_superuser),
+                reminder_policy=str(body.get("reminder_policy") or ""),
+                idempotency_key=str(body.get("idempotency_key") or ""),
+                option_id=str(body.get("option_id") or ""),
+                custom_answer=str(body.get("custom_answer") or ""),
+            )
+        except Exception as error:
+            if all(hasattr(error, name) for name in ("status_code", "code", "message")):
+                raise ApiContractError(
+                    error.status_code, error.code, error.message
+                ) from error
+            raise ApiContractError(
+                500, "pending_center_write_failed", "待确认操作失败，原状态已保留"
+            ) from error
+        return self._success(data)
+
     def archive(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:
         """兼容旧忽略入口，并把动作接入统一反馈事实。"""
         body = self._payload(payload)
@@ -1144,6 +1228,36 @@ class AgentRankApiController:
             self._is_superuser(token_payload),
         )
 
+    def endpoint_pending_center(
+        self,
+        profile_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 统一待确认中心读取入口。"""
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return self._endpoint(
+            self.pending_center,
+            target,
+            actor_id,
+            self._is_superuser(token_payload),
+        )
+
+    def endpoint_respond_pending(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 统一待确认回答、拒绝与提醒入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return self._endpoint(
+            self.respond_pending,
+            payload,
+            actor_id,
+            self._is_superuser(token_payload),
+        )
+
     def endpoint_restore(
         self,
         payload: dict,
@@ -1228,6 +1342,18 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
             controller.endpoint_respond_conversation_command,
             ["POST"],
             "确认或拒绝专属影评师命令",
+        ),
+        (
+            "/pending",
+            controller.endpoint_pending_center,
+            ["GET"],
+            "获取统一待确认中心",
+        ),
+        (
+            "/pending/respond",
+            controller.endpoint_respond_pending,
+            ["POST"],
+            "回答、拒绝或稍后处理待确认项目",
         ),
         ("/restore", controller.endpoint_restore, ["POST"], "恢复推荐"),
         ("/archive/delete", controller.endpoint_delete_archive, ["POST"], "删除归档"),

@@ -8,6 +8,7 @@ from app.schemas.types import NotificationType
 
 from ..model.board import RecommendationBoard
 from ..model.constants import RECOMMENDATION_LIMIT
+from ..model.pending_center import PendingNotice
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,12 @@ STATUS_LABELS = {
     "validation_failed": "输出校验失败",
     "agent_failed": "Agent 调用失败",
     "failed": "运行失败",
+}
+
+PENDING_TYPE_LABELS = {
+    "proposal": "偏好理解",
+    "question": "需要补充",
+    "command": "操作确认",
 }
 
 
@@ -139,3 +146,65 @@ class NotificationService:
             text="\n".join(lines),
             username=username,
         )
+
+    def _pending_detail_link(self) -> Any:
+        """返回待确认中心深链；未配置外部域名时交给宿主默认详情链接。"""
+        try:
+            from app.core.config import settings
+
+            plugin_id = self._plugin.__class__.__name__
+            return settings.MP_DOMAIN(
+                f"#/plugin-app/{plugin_id}/main?panel=pending"
+            )
+        except Exception:
+            return None
+
+    def send_pending(
+        self,
+        username: str,
+        notice: PendingNotice,
+        *,
+        reminder: bool = False,
+    ) -> bool:
+        """发送安全待确认摘要，Telegram 可用时提供直接交互。"""
+        if not isinstance(notice, PendingNotice):
+            raise TypeError("notice must be PendingNotice")
+        detail_link = self._pending_detail_link()
+        if self._interaction_service is not None:
+            start_pending = getattr(self._interaction_service, "start_pending", None)
+            if callable(start_pending):
+                try:
+                    if start_pending(
+                        username=username,
+                        notice=notice,
+                        detail_link=detail_link or "",
+                        reminder=reminder,
+                    ):
+                        return True
+                except Exception:
+                    logger.exception(
+                        "AgentRank Telegram 待确认通知失败，回退普通通知 type=%s",
+                        notice.item.item_type,
+                    )
+        item = notice.item
+        label = PENDING_TYPE_LABELS.get(item.item_type, "待确认")
+        lines = [
+            f"类型：{label}",
+            f"内容：{_compact_text(_safe_notice_text(item.summary), 240)}",
+            "状态：尚未生效",
+            "请前往 Agent榜单中心的待确认区域处理。",
+        ]
+        kwargs = {
+            "mtype": NotificationType.Subscribe,
+            "title": (
+                "Agent榜单中心待确认提醒"
+                if reminder
+                else "Agent榜单中心需要确认"
+            ),
+            "text": "\n".join(lines),
+            "username": username,
+        }
+        if detail_link:
+            kwargs["link"] = detail_link
+        self._plugin.post_message(**kwargs)
+        return False

@@ -263,9 +263,11 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/analysis/comment",
         "/conversation",
         "/conversation/messages",
-        "/conversation/messages/retry",
-        "/conversation/commands/respond",
-        "/restore",
+            "/conversation/messages/retry",
+            "/conversation/commands/respond",
+            "/pending",
+            "/pending/respond",
+            "/restore",
         "/archive/delete",
         "/profile/clear",
         "/profile/tags",
@@ -407,6 +409,59 @@ def test_conversation_endpoints_reuse_profile_access_and_pass_actor_privilege():
 
     with pytest.raises(fastapi_module.HTTPException) as caught:
         controller.endpoint_conversation(HOME_PROFILE, forbidden)
+    assert caught.value.status_code == 403
+    assert caught.value.detail["error"]["code"] == "profile_forbidden"
+
+
+def test_pending_endpoints_reuse_profile_access_and_hide_actor_from_response():
+    """待确认读写沿用 profile 鉴权并只向服务传递审计身份。"""
+
+    class FakePendingCenter:
+        """记录统一待确认服务调用。"""
+
+        def __init__(self):
+            self.calls = []
+
+        def list_pending(self, profile_id, **kwargs):
+            """返回安全空列表。"""
+            self.calls.append(("list", profile_id, kwargs))
+            return {"profile_id": profile_id, "items": [], "total": 0}
+
+        def respond(self, **kwargs):
+            """返回不含内部身份的响应。"""
+            self.calls.append(("respond", kwargs))
+            return {
+                "action": kwargs["action"],
+                "changed": True,
+                "item": {"item_type": kwargs["item_type"], "status": "rejected"},
+            }
+
+    plugin = FakePlugin()
+    service = FakePendingCenter()
+    plugin._pending_center = service
+    controller = AgentRankApiController(plugin)
+    owner = TokenPayload(sub=7, username="Alice", super_user=False)
+    forbidden = TokenPayload(sub=8, username="Alice", super_user=False)
+
+    listed = controller.endpoint_pending_center(HOME_PROFILE, owner)
+    responded = controller.endpoint_respond_pending(
+        {
+            "profile_id": HOME_PROFILE,
+            "item_type": "question",
+            "item_id": "question-1",
+            "action": "reject",
+        },
+        owner,
+    )
+
+    assert listed["data"]["total"] == 0
+    assert responded["data"]["item"]["status"] == "rejected"
+    assert service.calls[0][2]["actor_id"] == "7"
+    assert service.calls[1][1]["actor_id"] == "7"
+    assert "actor_id" not in str(responded)
+
+    with pytest.raises(fastapi_module.HTTPException) as caught:
+        controller.endpoint_pending_center(HOME_PROFILE, forbidden)
     assert caught.value.status_code == 403
     assert caught.value.detail["error"]["code"] == "profile_forbidden"
 
