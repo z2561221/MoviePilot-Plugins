@@ -47,7 +47,7 @@ const identities = [
 ]
 const moviePilotUsers = [
   { id: 1, name: 'admin', is_active: true, is_superuser: true },
-  { id: 7, name: 'ZhaoYu', is_active: true, is_superuser: false },
+  { id: 7, name: 'preview_user', is_active: true, is_superuser: false },
 ]
 
 const config = {
@@ -359,7 +359,7 @@ const api = {
       return { data: { success: true, data: { changed: true } } }
     }
     if (path.endsWith('data/reset/full/prepare')) {
-      return { data: { success: true, data: { confirmation_token: 'preview-one-time-token', expires_at: new Date(Date.now() + 300000).toISOString() } } }
+      return { data: { success: true, data: { confirmation_token: `preview-${Date.now()}`, expires_at: new Date(Date.now() + 300000).toISOString() } } }
     }
     if (path.endsWith('data/reset/learning')) return { data: { success: true, data: { reset: 'learning' } } }
     if (path.endsWith('data/reset/full')) return { data: { success: true, data: { reset: 'full' } } }

@@ -1378,7 +1378,7 @@ def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
         FakePlugin(),
         [
             RetryableAgentError(
-                "token=hidden https://private.invalid 192.168.1.9:8443 upstream unavailable"
+                "token=hidden https://private.invalid 192.0.2.11:8443 upstream unavailable"
             ),
             _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
         ],
@@ -1398,7 +1398,7 @@ def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
     assert [item["attempt"] for item in ranking_calls] == [1, 2]
     assert "hidden" not in ranking_calls[0]["failure_reason"]
     assert "private.invalid" not in ranking_calls[0]["failure_reason"]
-    assert "192.168.1.9" not in ranking_calls[0]["failure_reason"]
+    assert "192.0.2.11" not in ranking_calls[0]["failure_reason"]
     assert "[已脱敏凭据]" in ranking_calls[0]["failure_reason"]
 
 

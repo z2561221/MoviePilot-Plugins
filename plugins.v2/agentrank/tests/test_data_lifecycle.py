@@ -294,7 +294,7 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
     repository = AgentRankRepository(plugin)
     _seed_profile(repository, plugin)
     profile = repository.load_profile(PROFILE_ID)
-    profile.summary = "Authorization: Bearer topsecret http://192.168.1.2:8096"
+    profile.summary = "Authorization: Bearer topsecret http://192.0.2.10:8096"
     repository.save_profile(profile)
     board = repository.load_board(PROFILE_ID)
     board.recommendations[0].reason = "Cookie=session-secret https://emby.local/item"
@@ -350,7 +350,7 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
         "feedback-secret",
         "call-secret",
         "must-not-export",
-        "192.168.1.2",
+        "192.0.2.10",
         "emby.local",
         "http://",
         "poster_path",

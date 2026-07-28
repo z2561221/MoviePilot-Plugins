@@ -63,7 +63,7 @@ def test_advanced_settings_expose_access_retention_export_and_two_safe_resets():
     assert "export async function getHostApi" in api
     assert "api.get(path, { params })" in api
     assert "moviePilotUsers" in preview
-    assert "preview-one-time-token" in preview
+    assert "confirmation_token: `preview-${Date.now()}`" in preview
 
 
 def test_runtime_settings_exposes_discovery_page_switch_and_current_defaults():

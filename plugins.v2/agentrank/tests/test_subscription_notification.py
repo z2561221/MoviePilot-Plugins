@@ -364,8 +364,8 @@ def test_failure_notification_hides_addresses_credentials_and_emby_identity():
         status="playback_unavailable",
         run_id="run-1",
         message=(
-            "emby:home:user-1 http://192.168.50.5:8096 "
-            "10.0.0.8:8096 host=emby.local:8096 "
+            "emby:home:user-1 http://192.0.2.12:8096 "
+            "198.51.100.8:8096 host=emby.local:8096 "
             "token=secret-value userid=user-1"
         ),
         old_board_preserved=True,
@@ -374,8 +374,8 @@ def test_failure_notification_hides_addresses_credentials_and_emby_identity():
     text = plugin.messages[-1]["text"]
     assert "Alice" not in text
     assert "emby:home:user-1" not in text
-    assert "192.168.50.5" not in text
-    assert "10.0.0.8" not in text
+    assert "192.0.2.12" not in text
+    assert "198.51.100.8" not in text
     assert "emby.local" not in text
     assert "secret-value" not in text
     assert "user-1" not in text
@@ -636,7 +636,7 @@ def test_pending_fallback_notification_is_safe_and_keeps_detail_entry():
             title="专属影评师需要你确认",
             summary=(
                 "请确认这个理解 token=secret-value "
-                "http://192.168.50.5:3000/internal"
+                "http://192.0.2.13:3000/internal"
             ),
             created_at="2026-07-28T00:00:00+00:00",
             status="pending",
@@ -652,7 +652,7 @@ def test_pending_fallback_notification_is_safe_and_keeps_detail_entry():
     rendered = str(plugin.messages[0])
     assert plugin.messages[0]["title"] == "Agent榜单中心需要确认"
     assert "尚未生效" in rendered and "待确认区域" in rendered
-    assert "192.168.50.5" not in rendered
+    assert "192.0.2.13" not in rendered
     assert "secret-value" not in rendered
     assert PROFILE_ID not in rendered
     assert "mp-user-1" not in rendered

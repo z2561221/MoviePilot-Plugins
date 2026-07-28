@@ -339,12 +339,12 @@ def test_current_analysis_read_is_profile_authorized_and_revision_bound():
     assert response["data"]["analysis_id"] == "analysis-1"
     assert response["data"]["reason"] == "结构化推荐理由"
 
-    with pytest.raises(HTTPException) as stale:
+    with pytest.raises(fastapi_module.HTTPException) as stale:
         controller.endpoint_analysis(HOME_PROFILE, "tmdb:1", "analysis-old", owner)
     assert stale.value.status_code == 409
     assert stale.value.detail["error"]["code"] == "analysis_revision_conflict"
 
-    with pytest.raises(HTTPException) as forbidden:
+    with pytest.raises(fastapi_module.HTTPException) as forbidden:
         controller.endpoint_analysis(
             REMOTE_PROFILE, "tmdb:1", "analysis-1", owner
         )
