@@ -5,6 +5,7 @@ import json
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from ..agent_tools.context import FEEDBACK_AGENT_ROLE, build_trusted_context
+from ..model.analysis import RecommendationAnalysis
 from ..model.feedback import FeedbackEvent
 from ..model.feedback_queue import FeedbackQueueJob
 from ..model.feedback_understanding import (
@@ -19,8 +20,13 @@ from .critic_skills import (
     summarize_evidence,
     understand_feedback,
 )
-from .prompt import build_feedback_understanding_prompt
+from .analysis_comment import ANALYSIS_COMMENT_KIND, AnalysisCommentService
+from .prompt import (
+    build_analysis_comment_prompt,
+    build_feedback_understanding_prompt,
+)
 from .feedback_proposal import FeedbackProposalService
+from .validation import is_complete_recommendation_copy
 
 
 _OUTPUT_KEYS = frozenset(
@@ -148,6 +154,67 @@ class FeedbackUnderstandingParser:
         }
 
 
+class AnalysisCommentParser:
+    """把逐条评论输出收敛为安全的用户可读分析修订。"""
+
+    _output_keys = frozenset(
+        {"outcome", "restatement", "revised_reason", "uncertainties"}
+    )
+
+    def parse(
+        self,
+        raw: Any,
+        *,
+        event: FeedbackEvent,
+        analysis: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """校验评论修订结构、敏感边界和三十字完整短句。"""
+        try:
+            value = json.loads(str(raw or ""))
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise FeedbackUnderstandingError("分析评论输出不是合法 JSON") from error
+        if not isinstance(value, Mapping) or set(value) != set(self._output_keys):
+            raise FeedbackUnderstandingError("分析评论输出根结构不符合协议")
+        outcome = _text(value.get("outcome"), 32).casefold()
+        if outcome not in {"understood", "ambiguous"}:
+            raise FeedbackUnderstandingError("分析评论 outcome 不符合协议")
+        restatement = _text(value.get("restatement"), 240)
+        revised_reason = " ".join(
+            str(value.get("revised_reason") or "").split()
+        ).strip()
+        uncertainties = _safe_list(value.get("uncertainties") or (), 8)
+        sensitive_values = [restatement, revised_reason, *uncertainties]
+        if FeedbackUnderstandingParser._contains_sensitive_text(sensitive_values):
+            return {
+                "outcome": "ambiguous",
+                "restatement": "当前评论不足以形成安全的分析修订",
+                "revised_reason": "",
+                "uncertainties": ["请使用具体作品内容或推荐证据说明错误"],
+            }
+        if event.kind != ANALYSIS_COMMENT_KIND or not event.comment:
+            raise FeedbackUnderstandingError("分析评论事件缺少纠正内容")
+        if str(analysis.get("analysis_id") or "") != event.analysis_id:
+            raise FeedbackUnderstandingError("分析评论与结构化分析引用不一致")
+        if outcome == "ambiguous":
+            return {
+                "outcome": outcome,
+                "restatement": restatement,
+                "revised_reason": "",
+                "uncertainties": uncertainties
+                or ["需要说明既有推荐依据中哪项判断有误"],
+            }
+        if not restatement or not is_complete_recommendation_copy(revised_reason):
+            raise FeedbackUnderstandingError("分析评论修订文案不完整")
+        if revised_reason == str(analysis.get("summary") or "").strip():
+            raise FeedbackUnderstandingError("分析评论把作品简介误作推荐依据")
+        return {
+            "outcome": outcome,
+            "restatement": restatement,
+            "revised_reason": revised_reason,
+            "uncertainties": uncertainties,
+        }
+
+
 class FeedbackUnderstandingService:
     """读取最小受信上下文并异步生成幂等反馈理解记录。"""
 
@@ -157,8 +224,10 @@ class FeedbackUnderstandingService:
         agent_adapter: Any,
         *,
         parser: Optional[FeedbackUnderstandingParser] = None,
+        comment_parser: Optional[AnalysisCommentParser] = None,
         analysis_limit: int = 500,
         proposal_service: Any = None,
+        analysis_comment_service: Any = None,
     ):
         """绑定仓储、受限 Agent、解析器和确定性提案服务。"""
         if not isinstance(repository, AgentRankRepository):
@@ -166,9 +235,16 @@ class FeedbackUnderstandingService:
         self._repository = repository
         self._agent_adapter = agent_adapter
         self._parser = parser or FeedbackUnderstandingParser()
+        self._comment_parser = comment_parser or AnalysisCommentParser()
         self._analysis_limit = max(1, min(int(analysis_limit), 100000))
         self._proposal_service = proposal_service or FeedbackProposalService(
             repository, record_limit=self._analysis_limit
+        )
+        self._analysis_comment_service = (
+            analysis_comment_service
+            or AnalysisCommentService(
+                repository, analysis_limit=self._analysis_limit
+            )
         )
 
     def _event_for_job(self, job: FeedbackQueueJob) -> FeedbackEvent:
@@ -228,6 +304,53 @@ class FeedbackUnderstandingService:
             "directors": _safe_list(candidate.directors, 8),
         }
 
+    def _analysis_context(self, event: FeedbackEvent) -> Dict[str, Any]:
+        """读取事件绑定分析并投影为不含隐藏推理的白名单。"""
+        if not event.analysis_id:
+            return {}
+        analysis = next(
+            (
+                item
+                for item in self._repository.load_recommendation_analyses(
+                    event.profile_id, event.run_id
+                )
+                if item.analysis_id == event.analysis_id
+            ),
+            None,
+        )
+        if analysis is None:
+            if event.kind == ANALYSIS_COMMENT_KIND:
+                raise FeedbackUnderstandingError("评论绑定的 Agent 分析已不可读取")
+            return {}
+        if (
+            not isinstance(analysis, RecommendationAnalysis)
+            or analysis.profile_id != event.profile_id
+            or analysis.candidate_id != event.candidate_id
+            or analysis.run_id != event.run_id
+        ):
+            raise FeedbackUnderstandingError("反馈事件与 Agent 分析作用域不一致")
+        return {
+            "analysis_id": analysis.analysis_id,
+            "candidate_id": analysis.candidate_id,
+            "run_id": analysis.run_id,
+            "selection_source": analysis.selection_source,
+            "summary": _text(analysis.summary, 240),
+            "reason": _text(analysis.reason, 240),
+            "positive_evidence": [
+                item.to_dict() for item in analysis.positive_evidence
+            ],
+            "counter_evidence": [
+                item.to_dict() for item in analysis.counter_evidence
+            ],
+            "uncertainties": _safe_list(analysis.uncertainties, 16),
+            "data_sources": _safe_list(analysis.data_sources, 8),
+            "support_percentage": analysis.support_percentage,
+            "policy_version": analysis.policy_version,
+            "memory_revision": analysis.memory_revision,
+            "supersedes": analysis.supersedes,
+            "status": analysis.status,
+        }
+
     @staticmethod
     def _safe_provenance(raw: Any) -> Dict[str, Any]:
         """只保留 Agent 适配器允许持久化的模型来源字段。"""
@@ -283,6 +406,9 @@ class FeedbackUnderstandingService:
         prompt_fingerprint: str,
         memory_revision: int,
         provenance: Mapping[str, Any],
+        analysis_revision_id: str = "",
+        analysis_revision_reason: str = "",
+        analysis_revision_note: str = "",
     ) -> FeedbackUnderstandingRecord:
         """构造并幂等保存不含原始 Agent 输出的理解记录。"""
         record = FeedbackUnderstandingRecord(
@@ -305,9 +431,14 @@ class FeedbackUnderstandingService:
             model=_text(provenance.get("model"), 160),
             model_source=_text(provenance.get("model_source"), 64),
             model_call_count=max(0, int(provenance.get("model_call_count") or 0)),
+            analysis_revision_id=analysis_revision_id,
+            analysis_revision_reason=analysis_revision_reason,
+            analysis_revision_note=analysis_revision_note,
         )
         return self._repository.append_feedback_understanding(
-            record, limit=self._analysis_limit
+            record,
+            limit=self._analysis_limit,
+            mandatory_analysis_ids=(event.analysis_id,) if event.analysis_id else (),
         )
 
     async def handle_job(self, job: FeedbackQueueJob) -> FeedbackUnderstandingRecord:
@@ -322,18 +453,33 @@ class FeedbackUnderstandingService:
             job.profile_id, job.event_id
         )
         if existing is not None:
-            self._proposal_service.materialize(
-                existing,
-                event=event,
-                candidate=candidate,
-                memory=memory_model,
-            )
+            if (
+                existing.action == ANALYSIS_COMMENT_KIND
+                and existing.outcome == "understood"
+            ):
+                self._analysis_comment_service.apply_revision(event, existing)
+            else:
+                self._proposal_service.materialize(
+                    existing,
+                    event=event,
+                    candidate=candidate,
+                    memory=memory_model,
+                )
             return existing
+        analysis = self._analysis_context(event)
         evidence = summarize_evidence(
             self._event_context(event), candidate, memory
         )
         guard = understand_feedback(evidence)
-        prompt = build_feedback_understanding_prompt()
+        if event.kind == ANALYSIS_COMMENT_KIND and not guard.get(
+            "may_revise_analysis"
+        ):
+            raise FeedbackUnderstandingError("分析评论缺少可修订的用户内容")
+        prompt = (
+            build_analysis_comment_prompt()
+            if event.kind == ANALYSIS_COMMENT_KIND
+            else build_feedback_understanding_prompt()
+        )
         fingerprint = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         if guard["required_outcome"] == "exclusion_only":
             record = self._record(
@@ -373,7 +519,7 @@ class FeedbackUnderstandingService:
             feedback_event=self._event_context(event),
             feedback_candidate=candidate,
             confirmed_memory=memory,
-            analysis={},
+            analysis=analysis,
             pending_context={},
         )
         method = getattr(self._agent_adapter, "run_feedback", None)
@@ -382,6 +528,44 @@ class FeedbackUnderstandingService:
             if callable(method)
             else await self._agent_adapter.run(prompt, context)
         )
+        if event.kind == ANALYSIS_COMMENT_KIND:
+            parsed = self._comment_parser.parse(
+                raw,
+                event=event,
+                analysis=analysis,
+            )
+            revision_id = (
+                self._analysis_comment_service.revision_id(event)
+                if parsed["outcome"] == "understood"
+                else ""
+            )
+            record = self._record(
+                event=event,
+                outcome=parsed["outcome"],
+                restatement=parsed["restatement"],
+                uncertainties=tuple(parsed["uncertainties"]),
+                prompt_fingerprint=fingerprint,
+                memory_revision=int(memory.get("memory_revision") or 0),
+                provenance=self._safe_provenance(raw),
+                analysis_revision_id=revision_id,
+                analysis_revision_reason=parsed["revised_reason"],
+                analysis_revision_note=(
+                    parsed["restatement"]
+                    if parsed["outcome"] == "understood"
+                    else ""
+                ),
+            )
+            if record.outcome == "understood":
+                self._analysis_comment_service.apply_revision(event, record)
+            else:
+                self._proposal_service.materialize(
+                    record,
+                    event=event,
+                    candidate=candidate,
+                    memory=memory_model,
+                )
+            return record
+
         parsed = self._parser.parse(
             raw,
             event=event,

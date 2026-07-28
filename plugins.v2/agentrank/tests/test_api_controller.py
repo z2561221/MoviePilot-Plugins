@@ -79,6 +79,7 @@ schemas_module.TokenPayload = TokenPayload
 security_module.verify_token = verify_token
 
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
+analysis_module = importlib.import_module(f"{PACKAGE_NAME}.model.analysis")
 profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
 preferences_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile_preferences")
 run_module = importlib.import_module(f"{PACKAGE_NAME}.model.run")
@@ -96,6 +97,7 @@ understanding_service_module = importlib.import_module(
 
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
+RecommendationAnalysis = analysis_module.RecommendationAnalysis
 UserProfile = profile_module.UserProfile
 ProfilePreferences = preferences_module.ProfilePreferences
 RecommendationRun = run_module.RecommendationRun
@@ -258,6 +260,7 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/playback/sync",
         "/archive",
         "/feedback",
+        "/analysis/comment",
         "/restore",
         "/archive/delete",
         "/profile/clear",
@@ -516,6 +519,67 @@ def test_feedback_api_queue_persists_understanding_without_changing_memory():
     assert response["data"]["queue_status"] == "queued"
     assert record.outcome == "ambiguous"
     assert repository.load_preference_memory(HOME_PROFILE) == before
+
+
+def test_analysis_comment_api_is_bearer_scoped_idempotent_and_nonblocking():
+    """逐条评论 API 复用 profile 鉴权并只返回异步修订任务。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    board = plugin._repository.load_board(HOME_PROFILE)
+    board.recommendations[0].selection_source = "agent"
+    board.recommendations[0].analysis_id = "analysis-api-1"
+    board.recommendations[0].summary = "围绕旧案展开追查。"
+    board.recommendations[0].reason = "你偏好快节奏，本作同样紧凑。"
+    plugin._repository.save_board_with_recommendation_analyses(
+        board,
+        [
+            RecommendationAnalysis(
+                analysis_id="analysis-api-1",
+                profile_id=HOME_PROFILE,
+                candidate_id="tmdb:1",
+                run_id="run-old",
+                selection_source="agent",
+                summary=board.recommendations[0].summary,
+                reason=board.recommendations[0].reason,
+                positive_evidence=[],
+                counter_evidence=[],
+                uncertainties=[],
+                data_sources=["frozen_candidate"],
+                support_percentage=60,
+                policy_version="policy-v1",
+                memory_revision=0,
+                persona_version="1.0.0",
+                skills_version="1.0.0",
+                prompt_fingerprint="a" * 64,
+                created_at="2026-07-28T00:00:00+00:00",
+            )
+        ],
+    )
+    controller = AgentRankApiController(plugin)
+    allowed = TokenPayload(sub=7, username="Alice", super_user=False)
+    forbidden = TokenPayload(sub=8, username="Mallory", super_user=False)
+    payload = {
+        "profile_id": HOME_PROFILE,
+        "candidate_id": "tmdb:1",
+        "analysis_id": "analysis-api-1",
+        "comment": "这部作品节奏并不紧凑",
+        "idempotency_key": "analysis-comment-api-1",
+        "run_id": "run-old",
+        "board_revision": 1,
+    }
+
+    created = controller.endpoint_analysis_comment(payload, allowed)
+    duplicate = controller.endpoint_analysis_comment(payload, allowed)
+
+    assert created["data"]["queue_status"] == "queued"
+    assert created["data"]["event"]["kind"] == "analysis_comment"
+    assert "comment" not in created["data"]["event"]
+    assert duplicate["data"]["event_status"] == "duplicate"
+    assert duplicate["data"]["event"]["event_id"] == created["data"]["event"]["event_id"]
+    with pytest.raises(fastapi_module.HTTPException) as caught:
+        controller.endpoint_analysis_comment(payload, forbidden)
+    assert caught.value.status_code == 403
+    assert caught.value.detail["error"]["code"] == "profile_forbidden"
 
 
 def test_regular_user_status_is_filtered_and_config_options_are_forbidden():

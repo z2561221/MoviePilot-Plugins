@@ -11,6 +11,7 @@ from app.core.security import verify_token
 from ..model.config import configured_identities, default_config
 from ..model.identity import EmbyIdentity
 from ..service.archive import ArchiveService
+from ..service.analysis_comment import AnalysisCommentError, AnalysisCommentService
 from ..service.data_lifecycle import DataLifecycleError, DataLifecycleService
 from ..service.feedback_action import FeedbackActionError, FeedbackActionService
 from ..service.feedback_queue import FeedbackQueueError, FeedbackQueueService
@@ -624,6 +625,48 @@ class AgentRankApiController:
         data["queue_job"] = queue_job.to_public_dict()
         return self._success(data)
 
+    def analysis_comment(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:
+        """记录一条绑定当前结构化分析的用户评论并异步修订。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        candidate_id = self._candidate_id(body)
+        try:
+            result = AnalysisCommentService(
+                self._repository(),
+                analysis_limit=int(
+                    self.plugin._config.get("analysis_record_limit") or 500
+                ),
+            ).submit(
+                profile_id=target,
+                candidate_id=candidate_id,
+                analysis_id=str(body.get("analysis_id") or ""),
+                comment=str(body.get("comment") or ""),
+                idempotency_key=str(body.get("idempotency_key") or ""),
+                actor_id=actor_id,
+                expected_board_revision=body.get("board_revision"),
+                expected_run_id=str(body.get("run_id") or ""),
+            )
+        except AnalysisCommentError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "analysis_comment_failed", "评论保存失败，请刷新后重试"
+            ) from error
+        try:
+            queue_job = self._feedback_queue().enqueue_event(result.event)
+        except FeedbackQueueError as error:
+            raise ApiContractError(
+                503,
+                "analysis_comment_queue_failed",
+                "评论已保存，但分析修订任务入队失败；可使用原操作重试",
+            ) from error
+        data = result.to_dict()
+        data["queue_status"] = queue_job.status
+        data["queue_job"] = queue_job.to_public_dict()
+        return self._success(data)
+
     def archive(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:
         """兼容旧忽略入口，并把动作接入统一反馈事实。"""
         body = self._payload(payload)
@@ -940,6 +983,16 @@ class AgentRankApiController:
         actor_id = self._endpoint(self._feedback_actor_id, token_payload)
         return self._endpoint(self.feedback, payload, actor_id)
 
+    def endpoint_analysis_comment(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 逐条 Agent 分析评论入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return self._endpoint(self.analysis_comment, payload, actor_id)
+
     def endpoint_restore(
         self,
         payload: dict,
@@ -1000,6 +1053,12 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
         ("/playback/sync", controller.endpoint_playback_sync, ["POST"], "同步播放画像"),
         ("/archive", controller.endpoint_archive, ["POST"], "忽略推荐"),
         ("/feedback", controller.endpoint_feedback, ["POST"], "记录三态反馈"),
+        (
+            "/analysis/comment",
+            controller.endpoint_analysis_comment,
+            ["POST"],
+            "评论并修订 Agent 分析",
+        ),
         ("/restore", controller.endpoint_restore, ["POST"], "恢复推荐"),
         ("/archive/delete", controller.endpoint_delete_archive, ["POST"], "删除归档"),
         ("/profile/clear", controller.endpoint_clear_profile, ["POST"], "清除画像"),

@@ -1221,13 +1221,109 @@ class AgentRankRepository:
                 raise ValueError(f"{prefix} data is corrupt")
             if len(value) <= keep_limit:
                 return 0
-            retained = value[-keep_limit:]
+            retained = (
+                self._retain_agent_analysis_items(
+                    profile_id,
+                    value,
+                    keep_limit,
+                )
+                if str(prefix or "").strip() == "agent_analysis"
+                else value[-keep_limit:]
+            )
             self._atomic_raw_update(
                 updates={key: retained},
                 recovery_key=key,
                 action=f"{prefix}_prune_failed",
             )
             return len(value) - len(retained)
+
+    def _retain_agent_analysis_items(
+        self,
+        profile_id: str,
+        items: Iterable[Any],
+        keep_limit: int,
+        *,
+        mandatory_analysis_ids: Iterable[str] = (),
+        mandatory_event_ids: Iterable[str] = (),
+    ) -> List[Any]:
+        """裁剪混合分析列表，同时保留当前榜单与未处理评论引用。"""
+        values = list(items or ())
+        limit = max(1, min(int(keep_limit), 100000))
+        by_analysis_id: Dict[str, Tuple[int, Mapping[str, Any]]] = {}
+        for index, item in enumerate(values):
+            if not isinstance(item, Mapping) or str(
+                item.get("record_type") or ""
+            ) != "recommendation_analysis":
+                continue
+            analysis_id = str(item.get("analysis_id") or "").strip()
+            if analysis_id:
+                by_analysis_id[analysis_id] = (index, item)
+
+        pinned_ids = {
+            str(value or "").strip()
+            for value in mandatory_analysis_ids or ()
+            if str(value or "").strip()
+        }
+        board = self.load_board(profile_id)
+        if board is not None:
+            pinned_ids.update(
+                item.analysis_id
+                for item in board.recommendations
+                if item.analysis_id
+            )
+        try:
+            pending_jobs = [
+                job
+                for job in self._load_feedback_queue_locked(
+                    profile_id, strict=True
+                )
+                if not job.terminal
+            ]
+        except Exception:
+            return values
+        for job in pending_jobs:
+            events = self.load_feedback_events(
+                profile_id,
+                after_sequence=job.event_sequence - 1,
+                limit=1,
+            )
+            if not events:
+                return values
+            event = events[0]
+            if event.event_id != job.event_id:
+                return values
+            if event.kind == "analysis_comment" and event.analysis_id:
+                pinned_ids.add(event.analysis_id)
+        mandatory_indexes = set()
+        for analysis_id in pinned_ids:
+            located = by_analysis_id.get(analysis_id)
+            if located is not None:
+                mandatory_indexes.add(located[0])
+
+        event_ids = {
+            str(value or "").strip()
+            for value in mandatory_event_ids or ()
+            if str(value or "").strip()
+        }
+        if event_ids:
+            mandatory_indexes.update(
+                index
+                for index, item in enumerate(values)
+                if isinstance(item, Mapping)
+                and str(item.get("record_type") or "")
+                == "feedback_understanding"
+                and str(item.get("event_id") or "") in event_ids
+            )
+        budget = max(0, limit - len(mandatory_indexes))
+        optional_indexes = [
+            index for index in range(len(values)) if index not in mandatory_indexes
+        ]
+        retained_indexes = mandatory_indexes | set(
+            optional_indexes[-budget:] if budget else []
+        )
+        return [
+            item for index, item in enumerate(values) if index in retained_indexes
+        ]
 
     @staticmethod
     def _retain_pending_records(
@@ -1432,6 +1528,204 @@ class AgentRankRepository:
                 action="recommendation_analysis_write_failed",
             )
 
+    def revise_recommendation_analysis(
+        self,
+        *,
+        profile_id: str,
+        candidate_id: str,
+        run_id: str,
+        source_analysis_id: str,
+        revision_analysis_id: str,
+        revision_event_id: str,
+        revised_reason: str,
+        correction_note: str,
+        prompt_fingerprint: str,
+        created_at: str,
+        limit: int = 500,
+    ) -> RecommendationAnalysis:
+        """原子追加分析修订并在仍可见时切换榜单分析指针。"""
+        target = str(profile_id or "").strip()
+        candidate = str(candidate_id or "").strip()
+        target_run = str(run_id or "").strip()
+        source_id = str(source_analysis_id or "").strip()
+        revision_id = str(revision_analysis_id or "").strip()
+        event_id = str(revision_event_id or "").strip()
+        reason = " ".join(str(revised_reason or "").split()).strip()
+        note = " ".join(str(correction_note or "").split()).strip()
+        fingerprint = str(prompt_fingerprint or "").strip()
+        timestamp = str(created_at or "").strip()
+        if not all(
+            (
+                target,
+                candidate,
+                target_run,
+                source_id,
+                revision_id,
+                event_id,
+                reason,
+                note,
+                fingerprint,
+                timestamp,
+            )
+        ):
+            raise ValueError("recommendation analysis revision is incomplete")
+        if source_id == revision_id or len(reason) > 30 or len(note) > 240:
+            raise ValueError("recommendation analysis revision is invalid")
+        board_key = self._profile_key("recommendation_board", target)
+        analysis_key = self._learning_key("agent_analysis", target)
+        keep_limit = max(1, min(int(limit), 100000))
+
+        with self.feedback_action_guard(target):
+            board = self.load_board(target)
+            raw = self._plugin.get_data(key=analysis_key)
+            if raw is None:
+                items: List[Any] = []
+            elif isinstance(raw, list):
+                items = list(raw)
+            else:
+                self._record_recovery(
+                    analysis_key,
+                    "ignored_corrupt_data",
+                    "agent analysis must be a list",
+                )
+                raise ValueError("agent analysis data is corrupt")
+
+            analyses: List[RecommendationAnalysis] = []
+            by_id: Dict[str, RecommendationAnalysis] = {}
+            for item in items:
+                if not isinstance(item, Mapping) or str(
+                    item.get("record_type") or ""
+                ) != "recommendation_analysis":
+                    continue
+                try:
+                    analysis = RecommendationAnalysis.from_dict(item)
+                except (TypeError, ValueError, KeyError) as error:
+                    self._record_recovery(
+                        analysis_key, "ignored_corrupt_item", str(error)
+                    )
+                    continue
+                if analysis.profile_id != target:
+                    raise ValueError("recommendation analysis profile mismatch")
+                analyses.append(analysis)
+                by_id[analysis.analysis_id] = analysis
+
+            existing = by_id.get(revision_id)
+            if existing is not None:
+                if (
+                    existing.candidate_id != candidate
+                    or existing.run_id != target_run
+                    or existing.reason != reason
+                    or existing.prompt_fingerprint != fingerprint
+                    or note not in existing.uncertainties
+                ):
+                    raise ValueError("analysis revision identity conflict")
+                return existing
+
+            source = by_id.get(source_id)
+            if (
+                source is None
+                or source.candidate_id != candidate
+                or source.run_id != target_run
+            ):
+                raise ValueError("analysis revision source is unavailable")
+
+            def descends_from(analysis_id: str, ancestor_id: str) -> bool:
+                """判断分析版本是否位于指定祖先的 supersedes 链上。"""
+                current_id = str(analysis_id or "")
+                seen = set()
+                while current_id and current_id not in seen:
+                    if current_id == ancestor_id:
+                        return True
+                    seen.add(current_id)
+                    current = by_id.get(current_id)
+                    current_id = current.supersedes if current is not None else ""
+                return False
+
+            board_item = None
+            if board is not None and board.run_id == target_run:
+                board_item = next(
+                    (
+                        item
+                        for item in board.recommendations
+                        if item.candidate_id == candidate
+                        and descends_from(item.analysis_id, source_id)
+                    ),
+                    None,
+                )
+            current = by_id.get(board_item.analysis_id) if board_item is not None else None
+            if current is None:
+                current = next(
+                    (
+                        item
+                        for item in reversed(analyses)
+                        if item.candidate_id == candidate
+                        and item.run_id == target_run
+                        and item.status == "active"
+                        and descends_from(item.analysis_id, source_id)
+                    ),
+                    None,
+                )
+            current = current or source
+            if not descends_from(current.analysis_id, source_id):
+                raise ValueError("analysis revision source is outside current lineage")
+
+            uncertainties = list(current.uncertainties)
+            if note not in uncertainties:
+                uncertainties.append(note)
+            replacement = replace(
+                current,
+                analysis_id=revision_id,
+                reason=reason,
+                uncertainties=uncertainties,
+                prompt_fingerprint=fingerprint,
+                supersedes=current.analysis_id,
+                status="active",
+                created_at=timestamp,
+            )
+            superseded = replace(current, status="superseded")
+            transformed: List[Any] = []
+            for item in items:
+                if (
+                    isinstance(item, Mapping)
+                    and str(item.get("record_type") or "")
+                    == "recommendation_analysis"
+                    and str(item.get("analysis_id") or "") == current.analysis_id
+                ):
+                    transformed.append(superseded.to_dict())
+                else:
+                    transformed.append(item)
+            transformed.append(replacement.to_dict())
+
+            board_changed = (
+                board_item is not None
+                and board_item.analysis_id == current.analysis_id
+            )
+            if board_changed:
+                board_item.analysis_id = replacement.analysis_id
+                board_item.reason = replacement.reason
+                board.revision += 1
+
+            retained = self._retain_agent_analysis_items(
+                target,
+                transformed,
+                keep_limit,
+                mandatory_analysis_ids=(
+                    source_id,
+                    current.analysis_id,
+                    replacement.analysis_id,
+                ),
+                mandatory_event_ids=(event_id,),
+            )
+            updates = {analysis_key: retained}
+            if board_changed:
+                updates[board_key] = board.to_dict()
+            self._atomic_raw_update(
+                updates=updates,
+                recovery_key=analysis_key,
+                action="recommendation_analysis_revision_failed",
+            )
+            return replacement
+
     def load_feedback_understanding(
         self, profile_id: str, event_id: str
     ) -> Optional[FeedbackUnderstandingRecord]:
@@ -1453,6 +1747,7 @@ class AgentRankRepository:
         record: FeedbackUnderstandingRecord,
         *,
         limit: int = 500,
+        mandatory_analysis_ids: Iterable[str] = (),
     ) -> FeedbackUnderstandingRecord:
         """按 event_id 幂等追加结构化理解并执行有界保留。"""
         if not isinstance(record, FeedbackUnderstandingRecord):
@@ -1482,7 +1777,13 @@ class AgentRankRepository:
                     raise ValueError("feedback understanding profile mismatch")
                 return existing
             items.append(record.to_dict())
-            retained = items[-keep_limit:]
+            retained = self._retain_agent_analysis_items(
+                record.profile_id,
+                items,
+                keep_limit,
+                mandatory_analysis_ids=mandatory_analysis_ids,
+                mandatory_event_ids=(record.event_id,),
+            )
             self._atomic_raw_update(
                 updates={key: retained},
                 recovery_key=key,

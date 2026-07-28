@@ -147,6 +147,9 @@ class FeedbackUnderstandingRecord:
     model: str = ""
     model_source: str = ""
     model_call_count: int = 0
+    analysis_revision_id: str = ""
+    analysis_revision_reason: str = ""
+    analysis_revision_note: str = ""
     created_at: str = ""
     status: str = "analyzed"
     schema_version: int = FEEDBACK_UNDERSTANDING_SCHEMA_VERSION
@@ -167,6 +170,9 @@ class FeedbackUnderstandingRecord:
             "provider",
             "model",
             "model_source",
+            "analysis_revision_id",
+            "analysis_revision_reason",
+            "analysis_revision_note",
             "created_at",
             "status",
         ):
@@ -182,7 +188,7 @@ class FeedbackUnderstandingRecord:
             raise ValueError("feedback understanding identity is incomplete")
         if self.event_sequence <= 0:
             raise ValueError("feedback understanding sequence must be positive")
-        if self.action not in {"like", "dislike", "ignore"}:
+        if self.action not in {"like", "dislike", "ignore", "analysis_comment"}:
             raise ValueError("feedback understanding action is invalid")
         if self.outcome not in FEEDBACK_UNDERSTANDING_OUTCOMES:
             raise ValueError("feedback understanding outcome is invalid")
@@ -190,6 +196,22 @@ class FeedbackUnderstandingRecord:
             raise ValueError("feedback understanding contains invalid signals")
         if self.outcome == "exclusion_only" and self.signals:
             raise ValueError("exclusion_only understanding cannot contain signals")
+        revision_fields = (
+            self.analysis_revision_id,
+            self.analysis_revision_reason,
+            self.analysis_revision_note,
+        )
+        if self.action == "analysis_comment":
+            if self.outcome not in {"understood", "ambiguous"}:
+                raise ValueError("analysis comment outcome is invalid")
+            if self.signals:
+                raise ValueError("analysis comment cannot contain taste signals")
+            if self.outcome == "understood" and not all(revision_fields):
+                raise ValueError("understood analysis comment requires a revision")
+            if self.outcome != "understood" and any(revision_fields):
+                raise ValueError("ambiguous analysis comment cannot contain a revision")
+        elif any(revision_fields):
+            raise ValueError("non-comment understanding cannot contain a revision")
         if not self.created_at:
             object.__setattr__(self, "created_at", _utc_now())
         if self.schema_version != FEEDBACK_UNDERSTANDING_SCHEMA_VERSION:
@@ -218,6 +240,9 @@ class FeedbackUnderstandingRecord:
             "model": self.model,
             "model_source": self.model_source,
             "model_call_count": self.model_call_count,
+            "analysis_revision_id": self.analysis_revision_id,
+            "analysis_revision_reason": self.analysis_revision_reason,
+            "analysis_revision_note": self.analysis_revision_note,
             "created_at": self.created_at,
             "status": self.status,
             "schema_version": self.schema_version,
@@ -253,6 +278,9 @@ class FeedbackUnderstandingRecord:
             model=value.get("model"),
             model_source=value.get("model_source"),
             model_call_count=value.get("model_call_count") or 0,
+            analysis_revision_id=value.get("analysis_revision_id"),
+            analysis_revision_reason=value.get("analysis_revision_reason"),
+            analysis_revision_note=value.get("analysis_revision_note"),
             created_at=value.get("created_at"),
             status=value.get("status") or "analyzed",
             schema_version=value.get("schema_version") or 0,

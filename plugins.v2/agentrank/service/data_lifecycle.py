@@ -461,6 +461,15 @@ class DataLifecycleService:
                     "model": _redact_text(record.model),
                     "model_source": _redact_text(record.model_source),
                     "model_call_count": record.model_call_count,
+                    "analysis_revision_id": _safe_scalar(
+                        record.analysis_revision_id
+                    ),
+                    "analysis_revision_reason": _redact_text(
+                        record.analysis_revision_reason
+                    ),
+                    "analysis_revision_note": _redact_text(
+                        record.analysis_revision_note
+                    ),
                     "created_at": _redact_text(record.created_at),
                     "status": _redact_text(record.status),
                 }

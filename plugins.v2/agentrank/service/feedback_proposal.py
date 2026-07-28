@@ -225,6 +225,8 @@ class FeedbackProposalService:
             raise ValueError("feedback decision memory mismatch")
         if record.outcome == "exclusion_only":
             return None
+        if record.action == "analysis_comment" and record.outcome == "understood":
+            return None
         if record.outcome == "understood":
             existing = self._repository.load_memory_proposal(
                 record.profile_id, record.event_id

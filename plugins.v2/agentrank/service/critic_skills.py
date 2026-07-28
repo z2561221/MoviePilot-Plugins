@@ -112,6 +112,7 @@ def understand_feedback(evidence: Mapping[str, Any]) -> Dict[str, Any]:
         "action": kind,
         "required_outcome": outcome,
         "may_propose_memory": bool(comment and kind in {"like", "dislike"}),
+        "may_revise_analysis": bool(comment and kind == "analysis_comment"),
         "ignore_is_taste_signal": False,
         "uncommented_action_is_stable_preference": False,
     }
@@ -197,6 +198,9 @@ def ask_clarification(
     elif kind == "dislike":
         options = ["不喜欢题材或设定", "不喜欢节奏或叙事", "不喜欢主创或角色"]
         question = f"你不喜欢《{title}》的哪一点？"
+    elif kind == "analysis_comment":
+        options = ["推荐依据有误", "作品事实有误", "证据关系需要说明"]
+        question = f"你希望怎样修正《{title}》的 Agent 分析？"
     else:
         options = ["暂时不想看", "已经看过", "仅排除这部作品"]
         question = f"你忽略《{title}》的主要原因是什么？"

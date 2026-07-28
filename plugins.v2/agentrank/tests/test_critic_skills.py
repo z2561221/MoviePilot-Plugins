@@ -82,6 +82,7 @@ def test_skills_do_not_mutate_inputs_and_keep_ignore_as_exclusion_only():
         "action": "ignore",
         "required_outcome": "exclusion_only",
         "may_propose_memory": False,
+        "may_revise_analysis": False,
         "ignore_is_taste_signal": False,
         "uncommented_action_is_stable_preference": False,
     }
