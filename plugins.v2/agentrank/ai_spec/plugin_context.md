@@ -67,7 +67,7 @@ AgentRank 是 MoviePilot V2 本地插件。它按稳定 Emby identity 读取 Pla
 - Telegram 回调必须校验目标用户 ID、会话有效期和当前榜单 `run_id`；旧榜单、越权用户和重复确认不得创建订阅。
 - 旧 `confidence` 字段只作 schema 迁移兼容；对外百分比是 0 到 100 的整数推荐支持度，可由受信证据贡献和 `policy_version` 确定性重算，不能来自 LLM 自报信心。
 - 每条作品 `reason` 与 `summary` 必须分别是不超过 30 个中文字符的完整语义总结。校验失败时最多定向重写一次，再失败使用确定性模板重述；禁止用字符串截断制造残句或丢字。
-- 每条作品可保存结构化 `AgentAnalysis`，只包含具体匹配证据、反证、不确定点、确定性贡献、memory revision 和 policy version。不得输出或保存 Markdown 前后缀、隐藏提示、工具过程、token、原始推理过程或思维链。
+- 每条作品保存结构化 `RecommendationAnalysis`，只包含具体匹配证据、反证、不确定点、确定性贡献、选择来源、memory revision、policy version、人设/skill 版本和有效提示协议指纹。分析与榜单按同一 run 原子保存，榜单条目只持有 `analysis_id`；点踩或忽略后的同策略补位必须同步生成分析，榜单、归档与分析共同回滚，旧分析按保留策略留作反馈审计和归档恢复引用。缺少完整分析上下文的旧榜单只允许安全移除，不得伪造补位分析；不得输出或保存提示正文、Markdown 前后缀、隐藏提示、工具过程、token、原始推理过程或思维链。
 
 ## 反馈、记忆与对话协议
 

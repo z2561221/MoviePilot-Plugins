@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 from urllib.parse import quote
 
 from ..model.archive import ArchiveFeedback
+from ..model.analysis import RecommendationAnalysis
 from ..model.board import RecommendationBoard
 from ..model.candidate import Candidate
 from ..model.candidate_snapshot import CandidateSnapshot
@@ -1328,6 +1329,109 @@ class AgentRankRepository:
                 result, key=lambda item: (item.event_sequence, item.record_id)
             )
 
+    def load_recommendation_analyses(
+        self, profile_id: str, run_id: str = ""
+    ) -> List[RecommendationAnalysis]:
+        """读取结构化推荐分析，并与反馈理解记录安全共用存储键。"""
+        target = str(profile_id or "").strip()
+        target_run = str(run_id or "").strip()
+        self._scope(target, "profile_id")
+        key = self._learning_key("agent_analysis", target)
+        with self._feedback_lock(target):
+            value = self._plugin.get_data(key=key)
+            if value is None:
+                return []
+            if not isinstance(value, list):
+                self._record_recovery(
+                    key, "ignored_corrupt_data", "agent analysis must be a list"
+                )
+                return []
+            result: List[RecommendationAnalysis] = []
+            for item in value:
+                if not isinstance(item, Mapping) or str(
+                    item.get("record_type") or ""
+                ) != "recommendation_analysis":
+                    continue
+                try:
+                    record = RecommendationAnalysis.from_dict(item)
+                    if record.profile_id != target:
+                        raise ValueError("recommendation analysis profile mismatch")
+                    if target_run and record.run_id != target_run:
+                        continue
+                except (TypeError, ValueError, KeyError) as error:
+                    self._record_recovery(key, "ignored_corrupt_item", str(error))
+                    continue
+                result.append(record)
+            return result
+
+    def save_board_with_recommendation_analyses(
+        self,
+        board: RecommendationBoard,
+        analyses: Iterable[RecommendationAnalysis],
+        *,
+        limit: int = 500,
+        archive: ArchiveFeedback = None,
+    ) -> None:
+        """原子保存榜单与同轮分析，并可一并替换忽略归档。"""
+        if archive is not None and archive.profile_id != board.profile_id:
+            raise ValueError("board and archive profile_id mismatch")
+        values = list(analyses or ())
+        expected = {item.candidate_id: item.analysis_id for item in board.recommendations}
+        actual: Dict[str, str] = {}
+        for analysis in values:
+            if not isinstance(analysis, RecommendationAnalysis):
+                raise TypeError("analyses must contain RecommendationAnalysis")
+            if analysis.profile_id != board.profile_id or analysis.run_id != board.run_id:
+                raise ValueError("board and recommendation analysis scope mismatch")
+            actual[analysis.candidate_id] = analysis.analysis_id
+        if (
+            actual != expected
+            or len(actual) != len(values)
+            or len(expected) != len(board.recommendations)
+        ):
+            raise ValueError("board recommendation analyses are incomplete")
+        keep_limit = max(len(values), min(max(1, int(limit)), 100000))
+        board_key = self._profile_key("recommendation_board", board.profile_id)
+        analysis_key = self._learning_key("agent_analysis", board.profile_id)
+        with self._feedback_lock(board.profile_id):
+            raw = self._plugin.get_data(key=analysis_key)
+            if raw is None:
+                items: List[Any] = []
+            elif isinstance(raw, list):
+                items = list(raw)
+            else:
+                self._record_recovery(
+                    analysis_key,
+                    "ignored_corrupt_data",
+                    "agent analysis must be a list",
+                )
+                raise ValueError("agent analysis data is corrupt")
+            replacement_ids = {analysis.analysis_id for analysis in values}
+            retained = [
+                item
+                for item in items
+                if not (
+                    isinstance(item, Mapping)
+                    and str(item.get("record_type") or "")
+                    == "recommendation_analysis"
+                    and str(item.get("analysis_id") or "") in replacement_ids
+                )
+            ]
+            retained.extend(analysis.to_dict() for analysis in values)
+            updates = {
+                board_key: board.to_dict(),
+                analysis_key: retained[-keep_limit:],
+            }
+            if archive is not None:
+                updates[self._profile_key("archive", board.profile_id)] = (
+                    archive.to_dict()
+                )
+            self._atomic_raw_update(
+                updates=updates,
+                recovery_key=analysis_key,
+                action="recommendation_analysis_write_failed",
+            )
+
     def load_feedback_understanding(
         self, profile_id: str, event_id: str
     ) -> Optional[FeedbackUnderstandingRecord]:
@@ -2105,6 +2209,35 @@ class AgentRankRepository:
             delete_keys=deletes,
             recovery_key=self._profile_key("feedback_action", profile_id),
             action="feedback_action_board_rollback_failed",
+        )
+
+    def capture_feedback_action_raw(self, profile_id: str) -> Dict[str, Any]:
+        """捕获反馈动作涉及的榜单、归档和结构化分析原始值。"""
+        keys = (
+            self._profile_key("recommendation_board", profile_id),
+            self._profile_key("archive", profile_id),
+            self._learning_key("agent_analysis", profile_id),
+        )
+        return {key: self._plugin.get_data(key=key) for key in keys}
+
+    def restore_feedback_action_raw(
+        self, profile_id: str, values: Mapping[str, Any]
+    ) -> None:
+        """原子恢复反馈动作涉及的榜单、归档和结构化分析。"""
+        expected_keys = {
+            self._profile_key("recommendation_board", profile_id),
+            self._profile_key("archive", profile_id),
+            self._learning_key("agent_analysis", profile_id),
+        }
+        if set(values) != expected_keys:
+            raise ValueError("feedback action rollback snapshot is invalid")
+        updates = {key: value for key, value in values.items() if value is not None}
+        deletes = [key for key, value in values.items() if value is None]
+        self._atomic_raw_update(
+            updates=updates,
+            delete_keys=deletes,
+            recovery_key=self._profile_key("feedback_action", profile_id),
+            action="feedback_action_rollback_failed",
         )
 
     def save_profile_and_board(

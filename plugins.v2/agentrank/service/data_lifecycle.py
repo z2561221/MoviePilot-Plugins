@@ -186,6 +186,7 @@ class DataLifecycleService:
             "year": item.get("year"),
             "summary": _redact_text(item.get("summary")),
             "reason": _redact_text(item.get("reason")),
+            "analysis_id": _safe_scalar(item.get("analysis_id")),
             "support": DataLifecycleService._safe_support(item.get("support")),
             "selection_source": (
                 str(item.get("selection_source") or "legacy")
@@ -230,6 +231,7 @@ class DataLifecycleService:
             "agent_selected_count",
             "safe_fallback_selected_count",
             "selection_source_counts",
+            "recommendation_analysis_count",
         }
         result: Dict[str, Any] = {}
         for key in allowed:
@@ -244,6 +246,22 @@ class DataLifecycleService:
             else:
                 result[key] = _safe_scalar(value)
         return result
+
+    @staticmethod
+    def _safe_analysis_evidence(value: Any) -> Dict[str, Any]:
+        """按字段白名单导出一项分析证据并脱敏用户可见文本。"""
+        raw = value.to_dict() if hasattr(value, "to_dict") else dict(value or {})
+        return {
+            "direction": _redact_text(raw.get("direction")),
+            "dimension": _redact_text(raw.get("dimension")),
+            "user_value": _redact_text(raw.get("user_value")),
+            "candidate_value": _redact_text(raw.get("candidate_value")),
+            "user_refs": [_safe_scalar(item) for item in raw.get("user_refs") or ()],
+            "candidate_ref": _safe_scalar(raw.get("candidate_ref")),
+            "weight_units": max(0, int(raw.get("weight_units") or 0)),
+            "certainty_units": max(0, int(raw.get("certainty_units") or 0)),
+            "contribution_units": max(0, int(raw.get("contribution_units") or 0)),
+        }
 
     def export_profile(self, profile_id: str) -> Dict[str, Any]:
         """按字段白名单导出 profile，绝不复制原始插件载荷或思维链。"""
@@ -262,6 +280,7 @@ class DataLifecycleService:
         feedback = repository.load_feedback_events(target)
         feedback_queue = repository.load_feedback_queue(target)
         feedback_understandings = repository.load_feedback_understandings(target)
+        recommendation_analyses = repository.load_recommendation_analyses(target)
         memory_proposals = repository.load_memory_proposals(target)
         pending_questions = repository.load_pending_questions(target)
         snapshot_refs = repository.candidate_snapshot_references(target)
@@ -442,6 +461,36 @@ class DataLifecycleService:
                     "status": _redact_text(record.status),
                 }
                 for record in feedback_understandings
+            ],
+            "recommendation_analyses": [
+                {
+                    "analysis_id": _safe_scalar(record.analysis_id),
+                    "candidate_id": _safe_scalar(record.candidate_id),
+                    "run_id": _safe_scalar(record.run_id),
+                    "selection_source": _redact_text(record.selection_source),
+                    "summary": _redact_text(record.summary),
+                    "reason": _redact_text(record.reason),
+                    "positive_evidence": [
+                        self._safe_analysis_evidence(item)
+                        for item in record.positive_evidence
+                    ],
+                    "counter_evidence": [
+                        self._safe_analysis_evidence(item)
+                        for item in record.counter_evidence
+                    ],
+                    "uncertainties": [_redact_text(item) for item in record.uncertainties],
+                    "data_sources": [_redact_text(item) for item in record.data_sources],
+                    "support_percentage": record.support_percentage,
+                    "policy_version": _redact_text(record.policy_version),
+                    "memory_revision": record.memory_revision,
+                    "persona_version": _redact_text(record.persona_version),
+                    "skills_version": _redact_text(record.skills_version),
+                    "prompt_fingerprint": _safe_scalar(record.prompt_fingerprint),
+                    "supersedes": _safe_scalar(record.supersedes),
+                    "status": _redact_text(record.status),
+                    "created_at": _redact_text(record.created_at),
+                }
+                for record in recommendation_analyses
             ],
             "memory_proposals": [
                 {

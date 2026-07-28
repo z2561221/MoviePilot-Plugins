@@ -20,6 +20,7 @@ class RecommendationItem:
     confidence: float = 0.0
     support: Optional[SupportScore] = None
     selection_source: str = "legacy"
+    analysis_id: str = ""
     title: str = ""
     media_type: str = "unknown"
     year: Optional[int] = None
@@ -33,6 +34,7 @@ class RecommendationItem:
     def __post_init__(self) -> None:
         """规范并校验推荐条目的选择来源。"""
         self.selection_source = str(self.selection_source or "legacy").strip()
+        self.analysis_id = str(self.analysis_id or "").strip()[:128]
         if self.selection_source not in SELECTION_SOURCES:
             raise ValueError("recommendation selection_source is invalid")
 
@@ -78,6 +80,7 @@ class RecommendationItem:
                 else None
             ),
             selection_source=str(value.get("selection_source") or "legacy"),
+            analysis_id=str(value.get("analysis_id") or ""),
             title=str(value.get("title") or ""),
             original_title=str(value.get("original_title") or value.get("original_name") or ""),
             media_type=str(value.get("media_type") or "unknown"),

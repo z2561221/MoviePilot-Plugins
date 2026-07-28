@@ -28,6 +28,7 @@ preferences_module = importlib.import_module(
 )
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 scoring_module = importlib.import_module(f"{PACKAGE_NAME}.service.scoring")
+analysis_builder_module = importlib.import_module(f"{PACKAGE_NAME}.service.analysis")
 service_module = importlib.import_module(f"{PACKAGE_NAME}.service.feedback_action")
 
 RecommendationBoard = board_module.RecommendationBoard
@@ -41,6 +42,7 @@ ProfilePreferences = preferences_module.ProfilePreferences
 AgentRankRepository = repository_module.AgentRankRepository
 DeterministicSupportScorer = scoring_module.DeterministicSupportScorer
 PolicyLearningService = scoring_module.PolicyLearningService
+RecommendationAnalysisBuilder = analysis_builder_module.RecommendationAnalysisBuilder
 FeedbackActionError = service_module.FeedbackActionError
 FeedbackActionService = service_module.FeedbackActionService
 
@@ -148,8 +150,10 @@ def _save_snapshot(repository, candidate_ids=range(101, 109), *, with_context=Tr
     ).refresh(PROFILE_ID, WEIGHT_DEFAULTS, playback)
     memory = repository.load_preference_memory(PROFILE_ID)
     scorer = DeterministicSupportScorer()
+    builder = RecommendationAnalysisBuilder(now_factory=lambda: now)
     candidate_map = {item.candidate_id: item for item in candidates}
     board = repository.load_board(PROFILE_ID)
+    analyses = []
     for item in board.recommendations:
         scoring = scorer.score_candidate(
             candidate_map[item.candidate_id],
@@ -163,7 +167,23 @@ def _save_snapshot(repository, candidate_ids=range(101, 109), *, with_context=Tr
         item.support = scoring.score
         item.confidence = scoring.score.percentage
         item.selection_source = "agent"
-    repository.save_board(board)
+        analysis = builder.build(PROFILE_ID, board.run_id, item, policy, "f" * 64)
+        item.analysis_id = analysis.analysis_id
+        analyses.append(analysis)
+    repository.save_board_with_recommendation_analyses(board, analyses)
+
+
+def _assert_board_analysis_complete(repository):
+    """断言当前榜单每条都能解析到同轮同候选结构化分析。"""
+    board = repository.load_board(PROFILE_ID)
+    analyses = repository.load_recommendation_analyses(PROFILE_ID, board.run_id)
+    by_id = {item.analysis_id: item for item in analyses}
+    assert all(item.analysis_id in by_id for item in board.recommendations)
+    assert all(
+        by_id[item.analysis_id].candidate_id == item.candidate_id
+        for item in board.recommendations
+    )
+    return board, analyses
 
 
 def test_three_actions_share_one_ledger_and_return_latest_board_revision():
@@ -180,6 +200,7 @@ def test_three_actions_share_one_ledger_and_return_latest_board_revision():
     ignored = _act(service, "ignore", "tmdb:tv:102", "ignore-1")
 
     assert liked.created is True
+    assert liked.event.analysis_id
     assert liked.board_revision == 1
     assert repeated.created is False
     assert repeated.event.event_id == liked.event.event_id
@@ -208,6 +229,9 @@ def test_three_actions_share_one_ledger_and_return_latest_board_revision():
     ]
     assert ignored.to_dict()["learning_effect"] == "exclusion_only"
     assert ignored.to_dict()["memory_delta"] == {}
+    board, analyses = _assert_board_analysis_complete(repository)
+    assert len(board.recommendations) == 5
+    assert len(analyses) == 7
 
 
 @pytest.mark.parametrize(
@@ -255,6 +279,7 @@ def test_one_hundred_concurrent_duplicate_actions_create_one_event(
         assert candidate_id not in board_ids
         assert len(board_ids) == 5
         assert {result.current_count for result in results} == {5}
+        _assert_board_analysis_complete(repository)
 
 
 def test_idempotency_conflict_and_stale_board_are_rejected_without_new_event():
@@ -318,18 +343,20 @@ def test_idempotency_key_cannot_cross_explicit_run_or_analysis_context():
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
     repository.save_board(_board())
+    _save_snapshot(repository)
     service = FeedbackActionService(repository)
+    analysis_id = repository.load_board(PROFILE_ID).recommendations[0].analysis_id
     _act(
         service,
         "like",
         "tmdb:tv:101",
         "request-context",
         expected_run_id="run-1",
-        analysis_id="analysis-1",
+        analysis_id=analysis_id,
     )
 
     for kwargs in (
-        {"expected_run_id": "run-2", "analysis_id": "analysis-1"},
+        {"expected_run_id": "run-2", "analysis_id": analysis_id},
         {"expected_run_id": "run-1", "analysis_id": "analysis-2"},
     ):
         with pytest.raises(FeedbackActionError) as conflict:
@@ -342,6 +369,31 @@ def test_idempotency_key_cannot_cross_explicit_run_or_analysis_context():
             )
         assert conflict.value.code == "idempotency_conflict"
 
+    assert len(repository.load_feedback_events(PROFILE_ID)) == 1
+
+
+def test_feedback_binds_current_analysis_and_rejects_forged_analysis_id():
+    """反馈自动绑定服务端分析身份，并拒绝客户端伪造其他分析上下文。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    repository.save_board(_board())
+    _save_snapshot(repository)
+    board = repository.load_board(PROFILE_ID)
+    expected_analysis_id = board.recommendations[0].analysis_id
+    service = FeedbackActionService(repository)
+
+    liked = _act(service, "like", "tmdb:tv:101", "bind-analysis")
+
+    assert liked.event.analysis_id == expected_analysis_id
+    with pytest.raises(FeedbackActionError) as conflict:
+        _act(
+            service,
+            "like",
+            "tmdb:tv:102",
+            "forge-analysis",
+            analysis_id=expected_analysis_id,
+        )
+    assert conflict.value.code == "analysis_context_conflict"
     assert len(repository.load_feedback_events(PROFILE_ID)) == 1
 
 
@@ -372,6 +424,7 @@ def test_ignore_event_failure_restores_board_archive_and_revision():
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
     repository.save_board(_board())
+    _save_snapshot(repository)
     before = copy.deepcopy(plugin.data)
     plugin.fail_once_on_key = repository._feedback_index_key(PROFILE_ID)
 
@@ -450,6 +503,31 @@ def test_missing_support_context_removes_item_but_never_creates_legacy_fallback(
     assert "同策略评分上下文不可用" in board.message
 
 
+def test_missing_analysis_context_removes_item_but_never_forges_refill_analysis():
+    """确定性评分齐全但分析记录缺失时只移除，不伪造补位或分析。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    repository.save_board(_board())
+    _save_snapshot(repository)
+    plugin.del_data(key=repository._learning_key("agent_analysis", PROFILE_ID))
+
+    result = _act(
+        FeedbackActionService(repository),
+        "dislike",
+        "tmdb:tv:101",
+        "missing-analysis-context",
+    )
+
+    board = repository.load_board(PROFILE_ID)
+    assert result.refill_status == "safe_candidate_insufficient"
+    assert result.refill_count == 0
+    assert [item.candidate_id for item in board.recommendations] == [
+        "tmdb:tv:102"
+    ]
+    assert repository.load_recommendation_analyses(PROFILE_ID, "run-1") == []
+    assert "同策略评分上下文不可用" in board.message
+
+
 def test_feedback_refill_rejects_a_newer_policy_than_the_current_board():
     """榜单与当前策略版本不同时不得把新策略补位混入旧榜单。"""
     plugin = FakePlugin()
@@ -523,6 +601,42 @@ def test_dislike_refill_save_failure_restores_board_archive_and_event_state():
     assert failed_events[0].status == "failed_retryable"
     assert failed_events[0].kind == "dislike"
     assert FeedbackActionService(repository).active_polarities(PROFILE_ID, "run-1") == {}
+
+
+def test_analysis_write_failure_restores_board_archive_analysis_and_event_state():
+    """分析键写入失败时榜单、归档、分析与有效事件全部回滚。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    repository.save_board(_board())
+    _save_snapshot(repository)
+    before = copy.deepcopy(plugin.data)
+    plugin.fail_once_on_key = repository._learning_key("agent_analysis", PROFILE_ID)
+
+    with pytest.raises(RuntimeError, match="injected feedback save failure"):
+        _act(
+            FeedbackActionService(repository),
+            "ignore",
+            "tmdb:tv:102",
+            "ignore-analysis-save-failed",
+        )
+
+    comparable = {
+        key: value
+        for key, value in plugin.data.items()
+        if key != repository.recovery_log_key
+        and not key.startswith("feedback_event_")
+    }
+    expected = {
+        key: value
+        for key, value in before.items()
+        if not key.startswith("feedback_event_")
+    }
+    assert comparable == expected
+    assert repository.load_board(PROFILE_ID).revision == 1
+    assert repository.load_archive(PROFILE_ID).entries == []
+    failed_events = repository.load_feedback_events(PROFILE_ID)
+    assert len(failed_events) == 1
+    assert failed_events[0].status == "failed_retryable"
 
 
 def test_failed_refill_can_retry_with_the_original_idempotency_key():
@@ -663,6 +777,7 @@ def test_restore_reinserts_ignored_item_without_expanding_past_five():
     assert [item.rank for item in board.recommendations] == [1, 2, 3, 4, 5]
     assert board.status == "success"
     assert repository.load_archive(PROFILE_ID).entries == []
+    _assert_board_analysis_complete(repository)
 
 
 def test_legacy_board_without_revision_loads_as_revision_one():

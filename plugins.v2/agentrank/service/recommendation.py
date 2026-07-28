@@ -34,6 +34,7 @@ from .prompt import (
     build_ranking_prompt,
     build_refill_prompt,
 )
+from .analysis import RecommendationAnalysisBuilder
 from .keyword_resolution import (
     ControlledRetrievalPlanResolver,
     RetrievalPlanResolution,
@@ -83,6 +84,7 @@ class RecommendationOrchestrator:
         retrieval_plan_resolver: Any = None,
         policy_service: Any = None,
         ranker: Any = None,
+        analysis_builder: Any = None,
     ):
         """注入可测试的领域依赖并初始化用户锁集合。"""
         self._repository = repository
@@ -104,6 +106,7 @@ class RecommendationOrchestrator:
             policy_service = PolicyLearningService(repository)
         self._policy_service = policy_service
         self._ranker = ranker or StableRecommendationRanker()
+        self._analysis_builder = analysis_builder or RecommendationAnalysisBuilder()
         self._retrieval_plan_resolver = (
             retrieval_plan_resolver or ControlledRetrievalPlanResolver()
         )
@@ -1038,15 +1041,20 @@ class RecommendationOrchestrator:
 
             validation = None
             agent_order: Dict[str, int] = {}
+            base_ranking_prompt = build_ranking_prompt(
+                max_recommendations=RANKING_OUTPUT_LIMIT,
+                ranking_prompt=str(config.get("ranking_prompt") or ""),
+                copy_prompt=str(config.get("copy_prompt") or ""),
+            )
+            analysis_prompt_fingerprint = self._analysis_builder.prompt_fingerprint(
+                base_ranking_prompt,
+                "",
+            )
             ranking_attempt_errors: List[str] = []
             ranking_fallback_reason = ""
             ranking_fallback_errors: List[str] = []
             for attempt in range(2):
-                prompt = build_ranking_prompt(
-                    max_recommendations=RANKING_OUTPUT_LIMIT,
-                    ranking_prompt=str(config.get("ranking_prompt") or ""),
-                    copy_prompt=str(config.get("copy_prompt") or ""),
-                )
+                prompt = base_ranking_prompt
                 if attempt:
                     prompt += (
                         "\n\n上一次输出未通过严格校验。请重新读取受限工具数据，"
@@ -1513,6 +1521,37 @@ class RecommendationOrchestrator:
                     self._finish_stage(metrics, status)
                     self._start_stage(metrics, "save")
                     generated_at = datetime.now(timezone.utc).isoformat()
+                    try:
+                        analyses = [
+                            self._analysis_builder.build(
+                                target,
+                                run_id,
+                                item,
+                                policy_snapshot,
+                                analysis_prompt_fingerprint,
+                            )
+                            for item in accepted
+                        ]
+                        analysis_ids = {
+                            item.candidate_id: item.analysis_id for item in analyses
+                        }
+                        for item in accepted:
+                            item.analysis_id = analysis_ids[item.candidate_id]
+                        metrics["recommendation_analysis_count"] = len(analyses)
+                    except Exception as error:
+                        errors.append(f"recommendation analysis: {error}")
+                        return self._failure(
+                            target,
+                            username,
+                            run_id,
+                            "ranking_validation_failed",
+                            "结构化Agent分析生成失败，已保留旧榜单",
+                            started_at,
+                            started_clock,
+                            metrics,
+                            errors,
+                            agent_calls=int(metrics["agent_calls"]),
+                        )
                     previous_board = self._repository.load_board(target)
                     board = RecommendationBoard(
                         profile_id=target,
@@ -1536,7 +1575,11 @@ class RecommendationOrchestrator:
                         ),
                     )
                     stage_clock = time.monotonic()
-                    self._repository.save_board(board)
+                    self._repository.save_board_with_recommendation_analyses(
+                        board,
+                        analyses,
+                        limit=int(config.get("analysis_record_limit") or 500),
+                    )
             except Exception as error:
                 errors.append(str(error))
                 return self._failure(

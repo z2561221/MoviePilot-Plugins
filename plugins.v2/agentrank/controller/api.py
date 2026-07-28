@@ -588,7 +588,12 @@ class AgentRankApiController:
         target = self._profile_id(body.get("profile_id"))
         candidate_id = self._candidate_id(body)
         try:
-            result = FeedbackActionService(self._repository()).act(
+            result = FeedbackActionService(
+                self._repository(),
+                analysis_limit=int(
+                    self.plugin._config.get("analysis_record_limit") or 500
+                ),
+            ).act(
                 profile_id=target,
                 candidate_id=candidate_id,
                 kind=str(body.get("kind") or ""),

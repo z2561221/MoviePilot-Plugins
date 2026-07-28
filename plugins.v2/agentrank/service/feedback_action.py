@@ -94,11 +94,14 @@ class FeedbackActionResult:
 class FeedbackActionService:
     """把三态交互转换为幂等反馈事实并协调忽略事务。"""
 
-    def __init__(self, repository: AgentRankRepository):
+    def __init__(
+        self, repository: AgentRankRepository, *, analysis_limit: int = 500
+    ):
         """绑定唯一仓储和既有归档领域服务。"""
         self._repository = repository
         self._archive = ArchiveService(repository)
         self._refill = BoardRefillService(repository)
+        self._analysis_limit = max(1, min(int(analysis_limit), 100000))
 
     def _events(self, profile_id: str) -> list[FeedbackEvent]:
         """读取当前保留窗口内的全部反馈事实。"""
@@ -330,9 +333,15 @@ class FeedbackActionService:
                 ),
                 None,
             )
-            item_present = any(
-                item.candidate_id == candidate for item in board.recommendations
+            board_item = next(
+                (
+                    item
+                    for item in board.recommendations
+                    if item.candidate_id == candidate
+                ),
+                None,
             )
+            item_present = board_item is not None
             archive = self._repository.load_archive(target)
             archived = any(entry.candidate_id == candidate for entry in archive.entries)
             latest_polarity = next(
@@ -362,6 +371,19 @@ class FeedbackActionService:
                     "candidate_not_on_board", "该作品已不在当前榜单中", 409
                 )
 
+            bound_analysis = (
+                str(getattr(board_item, "analysis_id", "") or "").strip()
+                if board_item is not None
+                else str(getattr(latest_polarity, "analysis_id", "") or "").strip()
+            )
+            if analysis and analysis != bound_analysis:
+                raise FeedbackActionError(
+                    "analysis_context_conflict",
+                    "Agent分析已变化，请基于当前榜单重新操作",
+                    409,
+                )
+            analysis = bound_analysis
+
             supersedes = ""
             if action in {"like", "dislike"}:
                 if latest_polarity is not None:
@@ -385,7 +407,9 @@ class FeedbackActionService:
             refill_status = "not_applicable"
             try:
                 if action in {"dislike", "ignore"} and item_present:
-                    old_board_archive = self._repository.capture_board_archive_raw(target)
+                    old_board_archive = self._repository.capture_feedback_action_raw(
+                        target
+                    )
                     if action == "ignore":
                         archive_result = self._archive._apply_ignore_state(
                             target, board, archive, candidate
@@ -425,13 +449,21 @@ class FeedbackActionService:
                     )
                     refill_count = refill.refill_count
                     refill_status = refill.status
-                    self._repository.save_board_and_archive(board, archive)
+                    if refill.analysis_context_ready:
+                        self._repository.save_board_with_recommendation_analyses(
+                            board,
+                            refill.analyses,
+                            limit=self._analysis_limit,
+                            archive=archive,
+                        )
+                    else:
+                        self._repository.save_board_and_archive(board, archive)
                     board_changed = True
                 appended = self._repository.append_feedback_event(draft)
             except Exception:
                 if old_board_archive is not None:
                     try:
-                        self._repository.restore_board_archive_raw(
+                        self._repository.restore_feedback_action_raw(
                             target, old_board_archive
                         )
                     except Exception as rollback_error:

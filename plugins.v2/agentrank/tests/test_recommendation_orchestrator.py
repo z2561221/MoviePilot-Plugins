@@ -347,7 +347,15 @@ def test_success_atomically_saves_profile_board_and_run_history():
         "4",
         "5",
     ]
-    assert len(repository.load_board(PROFILE_ID).recommendations) == 5
+    saved_board = repository.load_board(PROFILE_ID)
+    assert len(saved_board.recommendations) == 5
+    analyses = repository.load_recommendation_analyses(PROFILE_ID, "run-1")
+    assert len(analyses) == 5
+    assert {item.analysis_id for item in saved_board.recommendations} == {
+        item.analysis_id for item in analyses
+    }
+    assert all(item.policy_version == ranking_weights["policy_version"] for item in analyses)
+    assert all(item.memory_revision == 0 for item in analyses)
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     assert repository.load_profile(PROFILE_ID).filters["genre_ids"] == [80]
     assert repository.load_profile(PROFILE_ID).ranking_tags == ["高质量悬疑"]
@@ -368,6 +376,7 @@ def test_success_atomically_saves_profile_board_and_run_history():
     }
     assert history[0].metrics["agent_selected_count"] == 5
     assert history[0].metrics["safe_fallback_selected_count"] == 0
+    assert history[0].metrics["recommendation_analysis_count"] == 5
     assert "candidate_source_counts" in history[0].metrics
     assert "candidate_exclusion_counts" in history[0].metrics
     assert "source_errors" in history[0].metrics
@@ -1207,6 +1216,10 @@ def test_ranking_failure_uses_frozen_candidates_to_build_five_item_board():
         "agent": 0,
         "safe_fallback": 5,
     }
+    analyses = repository.load_recommendation_analyses(PROFILE_ID, "run-1")
+    assert len(analyses) == 5
+    assert all(item.selection_source == "safe_fallback" for item in analyses)
+    assert all(item.uncertainties for item in analyses)
 
 
 def test_profile_failure_preserves_previous_profile_and_skips_ranking():
