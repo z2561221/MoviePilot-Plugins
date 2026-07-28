@@ -126,6 +126,13 @@ def _config(**overrides):
     return config
 
 
+def test_runtime_wires_configured_critic_prompt_into_both_agent_services():
+    """运行时把影评师扩展提示词同时注入反馈理解和专属对话。"""
+    source = (PLUGIN_DIR / "service" / "runtime.py").read_text(encoding="utf-8")
+
+    assert source.count('critic_prompt=str(config.get("critic_prompt") or "")') == 2
+
+
 def test_disabled_or_schedule_off_runtime_registers_no_service():
     """Neither a disabled plugin nor a disabled schedule exposes a Cron job."""
     trigger_factory = lambda cron: f"trigger:{cron}"

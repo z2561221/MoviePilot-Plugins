@@ -22,6 +22,7 @@ from .critic_skills import (
 )
 from .analysis_comment import ANALYSIS_COMMENT_KIND, AnalysisCommentService
 from .prompt import (
+    DEFAULT_CRITIC_PROMPT,
     build_analysis_comment_prompt,
     build_feedback_understanding_prompt,
 )
@@ -228,6 +229,7 @@ class FeedbackUnderstandingService:
         analysis_limit: int = 500,
         proposal_service: Any = None,
         analysis_comment_service: Any = None,
+        critic_prompt: str = DEFAULT_CRITIC_PROMPT,
     ):
         """绑定仓储、受限 Agent、解析器和确定性提案服务。"""
         if not isinstance(repository, AgentRankRepository):
@@ -237,6 +239,7 @@ class FeedbackUnderstandingService:
         self._parser = parser or FeedbackUnderstandingParser()
         self._comment_parser = comment_parser or AnalysisCommentParser()
         self._analysis_limit = max(1, min(int(analysis_limit), 100000))
+        self._critic_prompt = str(critic_prompt or DEFAULT_CRITIC_PROMPT).strip()
         self._proposal_service = proposal_service or FeedbackProposalService(
             repository, record_limit=self._analysis_limit
         )
@@ -476,9 +479,9 @@ class FeedbackUnderstandingService:
         ):
             raise FeedbackUnderstandingError("分析评论缺少可修订的用户内容")
         prompt = (
-            build_analysis_comment_prompt()
+            build_analysis_comment_prompt(self._critic_prompt)
             if event.kind == ANALYSIS_COMMENT_KIND
-            else build_feedback_understanding_prompt()
+            else build_feedback_understanding_prompt(self._critic_prompt)
         )
         fingerprint = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         if guard["required_outcome"] == "exclusion_only":

@@ -7,6 +7,7 @@ from .identity import EmbyIdentity
 from ..service.prompt import (
     DEFAULT_AGENT_PROMPT,
     DEFAULT_COPY_PROMPT,
+    DEFAULT_CRITIC_PROMPT,
     DEFAULT_PROFILE_PROMPT,
     DEFAULT_RANKING_PROMPT,
     LEGACY_DEFAULT_AGENT_PROMPT,
@@ -88,6 +89,7 @@ class AgentRankConfig:
     profile_prompt: str = DEFAULT_PROFILE_PROMPT
     ranking_prompt: str = DEFAULT_RANKING_PROMPT
     copy_prompt: str = DEFAULT_COPY_PROMPT
+    critic_prompt: str = DEFAULT_CRITIC_PROMPT
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] = None) -> "AgentRankConfig":
@@ -456,6 +458,13 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
             DEFAULT_COPY_PROMPT,
             4000,
             "copy_prompt",
+            errors,
+        ),
+        critic_prompt=_bounded_text(
+            raw.get("critic_prompt", DEFAULT_CRITIC_PROMPT),
+            DEFAULT_CRITIC_PROMPT,
+            4000,
+            "critic_prompt",
             errors,
         ),
     )

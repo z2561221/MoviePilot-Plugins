@@ -89,6 +89,7 @@ class AgentRankRuntime:
                 repository,
                 AgentRankAgentAdapter(),
                 analysis_limit=int(config.get("analysis_record_limit") or 500),
+                critic_prompt=str(config.get("critic_prompt") or ""),
             )
         if feedback_handler is None and feedback_understanding_service is not None:
             feedback_handler = getattr(
@@ -139,6 +140,7 @@ class AgentRankRuntime:
                 AgentRankAgentAdapter(),
                 plugin=plugin,
                 message_limit=int(config.get("conversation_message_limit") or 200),
+                critic_prompt=str(config.get("critic_prompt") or ""),
             )
         self.conversation_service = conversation_service
         plugin._conversation = conversation_service

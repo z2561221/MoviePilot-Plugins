@@ -201,6 +201,38 @@ def test_config_runtime_overview_exposes_identity_gate_and_frozen_pool_evidence(
         assert step in source
 
 
+def test_config_data_governance_and_critic_prompt_are_complete_and_guarded():
+    """配置页完整接入访问、保留、导出、双重置和影评师扩展提示词。"""
+    source = CONFIG.read_text(encoding="utf-8")
+    api = API.read_text(encoding="utf-8")
+    for tab in ("运行设置", "访问控制", "数据管理", "提示设置"):
+        assert tab in source
+    for field in (
+        "profile_access_map",
+        "candidate_snapshot_limit",
+        "feedback_event_limit",
+        "feedback_queue_limit",
+        "conversation_message_limit",
+        "attribution_record_limit",
+        "analysis_record_limit",
+        "critic_prompt",
+    ):
+        assert field in source
+    for path in (
+        "data/export",
+        "data/reset/learning",
+        "data/reset/full/prepare",
+        "data/reset/full",
+    ):
+        assert path in source
+    assert "getHostApi(props.api, 'user/')" in source
+    assert "export async function getHostApi" in api
+    assert "fullResetPhrase.value !== '彻底重置'" in source
+    assert "confirmation_token" in source
+    assert "MoviePilot 订阅和媒体库未受影响" in source
+    assert "v-model=\"promptEditor.draft\"" in source
+
+
 def test_ranking_surfaces_and_preview_use_emby_identity_contracts_only():
     """Page/AppPage/Dashboard 与预览均以 profile_id 运行并只显示安全名称。"""
     state = STATE.read_text(encoding="utf-8")

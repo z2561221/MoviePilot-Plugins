@@ -45,6 +45,10 @@ const identities = [
   { server_name: 'home', user_id: 'user-alice', username: 'Alice', profile_id: 'emby:home:user-alice', schema_version: 1 },
   { server_name: 'remote', user_id: 'user-bob', username: 'Bob', profile_id: 'emby:remote:user-bob', schema_version: 1 },
 ]
+const moviePilotUsers = [
+  { id: 1, name: 'admin', is_active: true, is_superuser: true },
+  { id: 7, name: 'ZhaoYu', is_active: true, is_superuser: false },
+]
 
 const config = {
   enabled: true,
@@ -53,6 +57,7 @@ const config = {
   cron: '5 18 * * *',
   emby_identities: identities,
   default_profile_id: identities[0].profile_id,
+  profile_access_map: { 7: [identities[0].profile_id] },
   discovery_sources: { douban: true, tmdb_movies: true, tmdb_tv: true, bangumi: true, anilist: true },
   weights,
   media_types: ['movie', 'tv', 'anime'],
@@ -65,6 +70,12 @@ const config = {
   auto_subscribe_top_n: 0,
   auto_subscribe_limit: 10,
   history_limit: 50,
+  candidate_snapshot_limit: 20,
+  feedback_event_limit: 1000,
+  feedback_queue_limit: 200,
+  conversation_message_limit: 200,
+  attribution_record_limit: 500,
+  analysis_record_limit: 500,
   profile_cache_enabled: true,
   rebuild_profile_each_run: false,
   playback_enabled: true,
@@ -75,6 +86,7 @@ const config = {
   profile_prompt: '基于用户真实播放记录和明确偏好，归纳稳定的内容偏好与观看动机；单一样本不得形成稳定结论。',
   ranking_prompt: '优先选择有多项具体匹配证据且能补充片单的新作品，兼顾相关性、新鲜感与题材多样性。',
   copy_prompt: '推荐理由和作品简介使用自然、具体、克制且语义完整的短句。',
+  critic_prompt: '先复述可核对的内容偏好，再区分已确认事实、当前推测和仍待确认的信息。',
 }
 
 const candidatePool = Array.from({ length: 8 }, (_, index) => ({
@@ -225,6 +237,7 @@ function dataFor(path, params = {}) {
   const identity = identities.find(item => item.profile_id === params.profile_id) || identities[0]
   const playback = { profile_id: identity.profile_id, username: identity.username, source: 'playback_reporting', confidence: 'high', status: 'ready', sample_count: 36, mapped_count: 36, unmapped_count: 4, synced_at: '2026-07-12T10:18:00+08:00', message: 'Playback Reporting 已同步' }
   const enablement = { requested: true, allowed: true, status: 'ready', message: 'Playback Reporting 已就绪', capabilities: {} }
+  if (path === 'user/' || path.endsWith('/user/')) return moviePilotUsers
   if (path.endsWith('config/options')) return { emby_identities: identities, default_profile_id: identities[0].profile_id, config, defaults: config, enablement, playback_status: { [identities[0].profile_id]: playback } }
   if (path.endsWith('status')) return { state: 'ready', validation_errors: [], default_profile_id: identities[0].profile_id, playback, enablement }
   if (path.endsWith('overview')) {
@@ -259,6 +272,20 @@ function dataFor(path, params = {}) {
   if (path.endsWith('analysis')) return previewAnalysis(params)
   if (path.endsWith('conversation')) return previewConversation(identity)
   if (path.endsWith('pending')) return previewPending(identity)
+  if (path.endsWith('data/export')) return {
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    profile_id: identity.profile_id,
+    retention_policy: {
+      candidate_snapshot_limit: 20,
+      feedback_event_limit: 1000,
+      feedback_queue_limit: 200,
+      conversation_message_limit: 200,
+      attribution_record_limit: 500,
+      analysis_record_limit: 500,
+    },
+    profile,
+  }
   return {}
 }
 
@@ -314,6 +341,11 @@ const api = {
       }
       return { data: { success: true, data: { changed: true } } }
     }
+    if (path.endsWith('data/reset/full/prepare')) {
+      return { data: { success: true, data: { confirmation_token: 'preview-one-time-token', expires_at: new Date(Date.now() + 300000).toISOString() } } }
+    }
+    if (path.endsWith('data/reset/learning')) return { data: { success: true, data: { reset: 'learning' } } }
+    if (path.endsWith('data/reset/full')) return { data: { success: true, data: { reset: 'full' } } }
     return { data: { success: true, data: { changed: true, message: '预览操作已完成' } } }
   },
   async put() { return { data: { success: true } } },

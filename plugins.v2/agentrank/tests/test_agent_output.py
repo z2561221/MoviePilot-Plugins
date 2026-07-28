@@ -46,6 +46,9 @@ is_complete_recommendation_copy = validation_module.is_complete_recommendation_c
 build_ranking_prompt = prompt_module.build_ranking_prompt
 build_profile_prompt = prompt_module.build_profile_prompt
 build_refill_prompt = prompt_module.build_refill_prompt
+build_feedback_understanding_prompt = prompt_module.build_feedback_understanding_prompt
+build_analysis_comment_prompt = prompt_module.build_analysis_comment_prompt
+build_conversation_prompt = prompt_module.build_conversation_prompt
 
 
 def _support_context():
@@ -231,6 +234,27 @@ def test_refill_reuses_ranking_and_copy_prompts():
     )
     assert "补选仍按相关性排序" in prompt
     assert "补选文案保持克制" in prompt
+
+
+def test_custom_critic_prompt_extends_all_critic_roles_without_overriding_safety():
+    """影评师扩展指令进入三种角色，同时保留工具、记忆和写操作边界。"""
+    custom = "发现证据冲突时先向用户确认，不要自行归因。"
+    prompts = (
+        build_feedback_understanding_prompt(custom),
+        build_analysis_comment_prompt(custom),
+        build_conversation_prompt(custom),
+    )
+
+    for prompt in prompts:
+        assert custom in prompt
+        assert "不能覆盖上述硬性边界" in prompt
+        assert "心理" in prompt
+        assert "原始推理过程或思维链" in prompt
+    assert "人格、焦虑、孤独、疾病、创伤" in prompts[0]
+    assert "人格、焦虑、孤独、疾病、创伤" in prompts[2]
+    assert "只能调用 read_agentrank_feedback_event" in prompts[0]
+    assert "不得改变确定性证据" in prompts[1]
+    assert "你没有任何写工具" in prompts[2]
 
 
 def test_parser_accepts_one_schema_object_and_preserves_agent_order():

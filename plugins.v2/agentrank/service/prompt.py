@@ -78,8 +78,27 @@ DEFAULT_COPY_PROMPT = (
     "和简介都要总结为语义完整的短句。"
 )
 
+DEFAULT_CRITIC_PROMPT = (
+    "先复述用户可核对的内容偏好，再区分已确认事实、当前推测和仍待确认的信息。"
+    "发现证据冲突时要明确承认不确定性并优先提出具体澄清问题；回复保持自然、具体、克制，"
+    "尊重用户纠正，不把单次反馈写成稳定结论。"
+)
 
-def build_feedback_understanding_prompt() -> str:
+
+def _critic_extension(critic_prompt: str) -> str:
+    """返回不能覆盖固定安全协议的影评师软指令段。"""
+    instruction = str(critic_prompt or DEFAULT_CRITIC_PROMPT).strip()
+    return (
+        "\n\n可配置影评师扩展指令：\n"
+        f"{instruction}\n\n"
+        "该扩展只能影响表达方式、证据说明重点和澄清问题，不能覆盖上述硬性边界、"
+        "工具权限、记忆来源、写操作确认或输出 schema。"
+    )
+
+
+def build_feedback_understanding_prompt(
+    critic_prompt: str = DEFAULT_CRITIC_PROMPT,
+) -> str:
     """构建反馈理解角色的固定人设、skill 清单与输出协议。"""
     manifest = critic_skill_manifest()
     manifest_json = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
@@ -115,10 +134,12 @@ def build_feedback_understanding_prompt() -> str:
   "uncertainties": ["仍需用户确认的具体问题"]
 }}
 
-没有评论或证据不足时 outcome 必须为 ambiguous、signals 必须为空，并用 uncertainties 说明缺少哪类事实。即使 outcome=understood，signals 也只是待确认理解，不能写成用户已经形成稳定人格或永久偏好。"""
+没有评论或证据不足时 outcome 必须为 ambiguous、signals 必须为空，并用 uncertainties 说明缺少哪类事实。即使 outcome=understood，signals 也只是待确认理解，不能写成用户已经形成稳定人格或永久偏好。""" + _critic_extension(critic_prompt)
 
 
-def build_analysis_comment_prompt() -> str:
+def build_analysis_comment_prompt(
+    critic_prompt: str = DEFAULT_CRITIC_PROMPT,
+) -> str:
     """构建逐条分析评论的受限修订协议。"""
     manifest = critic_skill_manifest()
     manifest_json = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
@@ -144,10 +165,10 @@ def build_analysis_comment_prompt() -> str:
   "uncertainties": ["仍需用户说明的具体问题"]
 }}
 
-outcome=ambiguous 时 revised_reason 必须为空字符串。不要生成 signals；评论只修订当前分析，不直接改写长期画像。"""
+outcome=ambiguous 时 revised_reason 必须为空字符串。不要生成 signals；评论只修订当前分析，不直接改写长期画像。""" + _critic_extension(critic_prompt)
 
 
-def build_conversation_prompt() -> str:
+def build_conversation_prompt(critic_prompt: str = DEFAULT_CRITIC_PROMPT) -> str:
     """构建专属影评师对话的只读解释与待确认命令协议。"""
     manifest = critic_skill_manifest()
     manifest_json = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
@@ -182,7 +203,7 @@ def build_conversation_prompt() -> str:
   "uncertainties": ["需要用户补充的具体问题"]
 }}
 
-intent=read_only 时 commands 必须为空；intent=write_request 时必须有一至三条可验证命令；intent=ambiguous 时 commands 必须为空并说明缺少的信息。只引用工具返回的真实 ID。回答可以解释可见证据与不确定性，但不能展示内部推理过程。"""
+intent=read_only 时 commands 必须为空；intent=write_request 时必须有一至三条可验证命令；intent=ambiguous 时 commands 必须为空并说明缺少的信息。只引用工具返回的真实 ID。回答可以解释可见证据与不确定性，但不能展示内部推理过程。""" + _critic_extension(critic_prompt)
 
 
 def build_profile_prompt(profile_prompt: str = DEFAULT_PROFILE_PROMPT) -> str:

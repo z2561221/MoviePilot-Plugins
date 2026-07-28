@@ -1,8 +1,8 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-BdKx8LEM.js';
-import { A as AgentAnalysisDialog, F as FeedbackCommentDialog, C as CriticChatDialog, P as PendingConfirmations } from './PendingConfirmations-D9XXxuDI.js';
-import Config from './__federation_expose_Config-BXD4EyYM.js';
-import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-UzHV-9iU.js';
+import { A as AgentAnalysisDialog, F as FeedbackCommentDialog, C as CriticChatDialog, P as PendingConfirmations } from './PendingConfirmations-BypWoBSA.js';
+import Config from './__federation_expose_Config-CYHBNABl.js';
+import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-Z-mQLghu.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,unref:_unref,isRef:_isRef,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass,mergeProps:_mergeProps,createSlots:_createSlots} = await importShared('vue');
 

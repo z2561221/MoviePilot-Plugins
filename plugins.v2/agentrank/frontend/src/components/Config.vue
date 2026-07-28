@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { getPluginApi, postPluginApi } from './api'
+import { getHostApi, getPluginApi, postPluginApi } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -29,6 +29,7 @@ const defaults = {
   cron: '5 18 * * *',
   emby_identities: [],
   default_profile_id: '',
+  profile_access_map: {},
   emby_library_ids: null,
   discovery_sources: {
     douban: true,
@@ -48,6 +49,12 @@ const defaults = {
   auto_subscribe_top_n: 0,
   auto_subscribe_limit: 10,
   history_limit: 50,
+  candidate_snapshot_limit: 20,
+  feedback_event_limit: 1000,
+  feedback_queue_limit: 200,
+  conversation_message_limit: 200,
+  attribution_record_limit: 500,
+  analysis_record_limit: 500,
   profile_cache_enabled: true,
   rebuild_profile_each_run: false,
   playback_enabled: true,
@@ -58,6 +65,7 @@ const defaults = {
   profile_prompt: '基于用户真实播放记录和明确偏好，归纳稳定的内容偏好与观看动机。除题材、主创、地区、年代和风格外，可观察情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感。稳定结论必须由至少两条相互独立的播放证据支持，或由一项用户明确添加的偏好支持；单一样本不得形成稳定结论，弃看只能作为弱负向信号。',
   ranking_prompt: '以用户画像、真实播放证据和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。兼顾相关性、新鲜感与题材多样性；评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名，相关性明显不足时宁可少推。',
   copy_prompt: '推荐理由要用自然、具体、克制的内容语言说明用户偏好与作品事实之间的匹配，不输出心理诊断或心理学术语，也避免空泛夸赞。作品简介只概括作品本身，不剧透；推荐理由和简介都要总结为语义完整的短句。',
+  critic_prompt: '先复述用户可核对的内容偏好，再区分已确认事实、当前推测和仍待确认的信息。发现证据冲突时要明确承认不确定性并优先提出具体澄清问题；回复保持自然、具体、克制，尊重用户纠正，不把单次反馈写成稳定结论。',
 }
 
 const legacyAgentPromptDefaults = new Set([
@@ -76,6 +84,9 @@ const overview = ref(null)
 const availableIdentities = ref([])
 const availableLibraries = ref({})
 const sourceOptions = ref([])
+const moviePilotUsers = ref([])
+const accessLoading = ref(false)
+const accessError = ref('')
 const loadError = ref('')
 const runtimeDefaults = ref(structuredClone(defaults))
 const clearProfileSwitch = ref(false)
@@ -83,6 +94,12 @@ const clearProfileDialog = ref(false)
 const clearProfileLoading = ref(false)
 const actionFeedback = reactive({ show: false, message: '', color: 'success' })
 const promptEditor = reactive({ open: false, key: '', draft: '' })
+const dataActionLoading = ref('')
+const learningResetDialog = ref(false)
+const fullResetDialog = ref(false)
+const fullResetStage = ref('prepare')
+const fullResetPhrase = ref('')
+const fullResetConfirmation = ref(null)
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
@@ -128,18 +145,33 @@ const actionOptions = [
 ]
 const advancedTabs = [
   { key: 'runtime', title: '运行设置', icon: 'mdi-cog-outline' },
+  { key: 'access', title: '访问控制', icon: 'mdi-account-lock-outline' },
+  { key: 'data', title: '数据管理', icon: 'mdi-database-cog-outline' },
   { key: 'prompt', title: '提示设置', icon: 'mdi-text-box-edit-outline' },
 ]
 const promptDefinitions = [
   { key: 'profile_prompt', title: '画像理解规则', icon: 'mdi-account-search-outline', purpose: '控制 Agent 如何从播放事实和人工标签归纳稳定偏好与观看动机。' },
   { key: 'ranking_prompt', title: '榜单推荐策略', icon: 'mdi-sort-variant', purpose: '控制冻结候选池内的相关性、新鲜感、多样性和最终排序。' },
   { key: 'copy_prompt', title: '推荐文案风格', icon: 'mdi-text-box-edit-outline', purpose: '控制推荐理由和作品简介的表达风格，不改变候选和安全校验。' },
+  { key: 'critic_prompt', title: '影评师扩展提示词', icon: 'mdi-message-text-outline', purpose: '控制反馈理解、逐条评论和对话的表达重点；不能覆盖人设、安全边界和写操作确认。' },
+]
+const retentionDefinitions = [
+  { key: 'candidate_snapshot_limit', title: '候选快照', hint: '每个画像保留的冻结候选批次', max: 500 },
+  { key: 'feedback_event_limit', title: '反馈事件', hint: '喜欢、不喜欢、忽略和评论事实', max: 100000 },
+  { key: 'feedback_queue_limit', title: '理解队列', hint: '待处理、重试和失败任务', max: 100000 },
+  { key: 'conversation_message_limit', title: '对话消息', hint: '专属影评师会话消息', max: 100000 },
+  { key: 'attribution_record_limit', title: '结果归因', hint: '订阅、入库和播放观察', max: 100000 },
+  { key: 'analysis_record_limit', title: '分析记录', hint: '结构化推荐分析与修订', max: 100000 },
 ]
 
 const currentMain = computed(() => mainTabs.find(item => item.key === activeMain.value) || mainTabs[0])
 const activePromptDefinition = computed(() => promptDefinitions.find(item => item.key === promptEditor.key) || promptDefinitions[0])
 const selectedProfileId = computed(() => form.default_profile_id || form.emby_identities[0]?.profile_id || '')
 const selectedIdentity = computed(() => form.emby_identities.find(identity => identity.profile_id === selectedProfileId.value) || null)
+const profileAccessOptions = computed(() => form.emby_identities.map(identity => ({
+  title: `${identity.username} · ${identity.server_name}`,
+  value: identity.profile_id,
+})))
 const serverOptions = computed(() => {
   const names = [...new Set(availableIdentities.value.map(identity => identity.server_name).filter(Boolean))]
   return names.map(name => ({ title: name, value: name }))
@@ -330,6 +362,12 @@ function applyConfig(value) {
   form.emby_library_ids = next.emby_library_ids && typeof next.emby_library_ids === 'object'
     ? cloneConfig(next.emby_library_ids)
     : {}
+  form.profile_access_map = next.profile_access_map && typeof next.profile_access_map === 'object'
+    ? Object.fromEntries(Object.entries(next.profile_access_map).map(([userId, profileIds]) => [
+      String(userId),
+      Array.isArray(profileIds) ? [...profileIds] : [],
+    ]))
+    : {}
   form.media_types = Array.isArray(next.media_types) ? [...next.media_types] : [...defaults.media_types]
   form.exclude_keywords = Array.isArray(next.exclude_keywords) ? [...next.exclude_keywords] : []
 }
@@ -341,6 +379,27 @@ async function loadOverview(profileId = selectedProfileId.value) {
     return
   }
   overview.value = await getPluginApi(props.api, 'overview', { profile_id: profileId })
+}
+
+async function loadMoviePilotUsers() {
+  if (!props.api?.get) return
+  accessLoading.value = true
+  accessError.value = ''
+  try {
+    const users = await getHostApi(props.api, 'user/')
+    moviePilotUsers.value = (Array.isArray(users) ? users : [])
+      .filter(user => user?.id != null && user?.is_active !== false)
+      .map(user => ({
+        id: String(user.id),
+        name: String(user.name || `用户 ${user.id}`),
+        is_superuser: user.is_superuser === true,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
+  } catch (error) {
+    accessError.value = error?.message || 'MoviePilot 用户列表加载失败'
+  } finally {
+    accessLoading.value = false
+  }
 }
 
 async function loadRuntime() {
@@ -358,7 +417,10 @@ async function loadRuntime() {
     sourceOptions.value = Array.isArray(optionsData?.source_options) ? optionsData.source_options : []
     runtimeDefaults.value = { ...structuredClone(defaults), ...(optionsData?.defaults || {}) }
     applyConfig(optionsData?.config || props.initialConfig)
-    await loadOverview(optionsData?.default_profile_id || selectedProfileId.value)
+    await Promise.all([
+      loadOverview(optionsData?.default_profile_id || selectedProfileId.value),
+      loadMoviePilotUsers(),
+    ])
   } catch (error) {
     loadError.value = error?.message || '运行信息加载失败'
   } finally {
@@ -368,8 +430,126 @@ async function loadRuntime() {
 
 function saveConfig() {
   const payload = cloneConfig(form)
+  const configuredProfiles = new Set(payload.emby_identities.map(identity => identity.profile_id))
+  payload.profile_access_map = Object.fromEntries(
+    Object.entries(payload.profile_access_map || {})
+      .map(([userId, profileIds]) => [
+        String(userId),
+        [...new Set((profileIds || []).filter(profileId => configuredProfiles.has(profileId)))],
+      ])
+      .filter(([, profileIds]) => profileIds.length),
+  )
   delete payload._validation_errors
   emit('save', payload)
+}
+
+function setProfileAccess(userId, profileIds) {
+  const key = String(userId)
+  const allowed = new Set(form.emby_identities.map(identity => identity.profile_id))
+  const selected = [...new Set((profileIds || []).filter(profileId => allowed.has(profileId)))]
+  const next = { ...(form.profile_access_map || {}) }
+  if (selected.length) next[key] = selected
+  else delete next[key]
+  form.profile_access_map = next
+}
+
+function showActionFeedback(color, message) {
+  actionFeedback.color = color
+  actionFeedback.message = message
+  actionFeedback.show = true
+}
+
+async function exportProfileData() {
+  if (!selectedProfileId.value || dataActionLoading.value) return
+  dataActionLoading.value = 'export'
+  try {
+    const data = await getPluginApi(props.api, 'data/export', { profile_id: selectedProfileId.value })
+    const content = JSON.stringify(data, null, 2)
+    const blob = new Blob([content], { type: 'application/json;charset=utf-8' })
+    const href = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    const label = String(selectedIdentity.value?.username || selectedProfileId.value).replace(/[^A-Za-z0-9._-]+/g, '_')
+    anchor.href = href
+    anchor.download = `agentrank-${label || 'profile'}-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(href)
+    showActionFeedback('success', '脱敏数据已导出')
+  } catch (error) {
+    showActionFeedback('error', error?.message || '数据导出失败')
+  } finally {
+    dataActionLoading.value = ''
+  }
+}
+
+async function confirmLearningReset() {
+  if (!selectedProfileId.value || dataActionLoading.value) return
+  dataActionLoading.value = 'learning'
+  try {
+    await postPluginApi(props.api, 'data/reset/learning', {
+      profile_id: selectedProfileId.value,
+      confirm: true,
+    })
+    learningResetDialog.value = false
+    await loadOverview(selectedProfileId.value)
+    showActionFeedback('success', '学习数据已重置，播放记录、榜单、归档和人工标签已保留')
+  } catch (error) {
+    showActionFeedback('error', error?.message || '学习重置失败')
+  } finally {
+    dataActionLoading.value = ''
+  }
+}
+
+function openFullReset() {
+  fullResetStage.value = 'prepare'
+  fullResetPhrase.value = ''
+  fullResetConfirmation.value = null
+  fullResetDialog.value = true
+}
+
+function closeFullReset() {
+  if (dataActionLoading.value) return
+  fullResetDialog.value = false
+  fullResetStage.value = 'prepare'
+  fullResetPhrase.value = ''
+  fullResetConfirmation.value = null
+}
+
+async function prepareFullReset() {
+  if (!selectedProfileId.value || dataActionLoading.value) return
+  dataActionLoading.value = 'full-prepare'
+  try {
+    fullResetConfirmation.value = await postPluginApi(props.api, 'data/reset/full/prepare', {
+      profile_id: selectedProfileId.value,
+    })
+    fullResetStage.value = 'confirm'
+  } catch (error) {
+    showActionFeedback('error', error?.message || '无法准备彻底重置')
+  } finally {
+    dataActionLoading.value = ''
+  }
+}
+
+async function confirmFullReset() {
+  if (fullResetPhrase.value !== '彻底重置' || !fullResetConfirmation.value?.confirmation_token || dataActionLoading.value) return
+  dataActionLoading.value = 'full-reset'
+  try {
+    await postPluginApi(props.api, 'data/reset/full', {
+      profile_id: selectedProfileId.value,
+      confirmation_token: fullResetConfirmation.value.confirmation_token,
+    })
+    fullResetDialog.value = false
+    fullResetStage.value = 'prepare'
+    fullResetPhrase.value = ''
+    fullResetConfirmation.value = null
+    await loadOverview(selectedProfileId.value)
+    showActionFeedback('success', 'AgentRank 当前画像数据已彻底重置，MoviePilot 订阅和媒体库未受影响')
+  } catch (error) {
+    showActionFeedback('error', error?.message || '彻底重置失败')
+  } finally {
+    dataActionLoading.value = ''
+  }
 }
 
 async function syncPlayback() {
@@ -737,6 +917,91 @@ onMounted(loadRuntime)
                   />
                 </div>
               </template>
+              <template v-else-if="activeAdvanced === 'access'">
+                <div class="ar-config__section-title">访问控制</div>
+                <VAlert type="info" variant="tonal" density="compact" class="mb-4">
+                  超级用户始终可访问全部已配置画像；普通用户只有在此明确授权后才能读取或操作对应画像。
+                </VAlert>
+                <VAlert v-if="accessError" type="error" variant="tonal" density="compact" class="mb-4">
+                  <div class="ar-config__inline-alert">
+                    <span>{{ accessError }}</span>
+                    <VBtn variant="text" size="small" prepend-icon="mdi-refresh" :loading="accessLoading" @click="loadMoviePilotUsers">重试</VBtn>
+                  </div>
+                </VAlert>
+                <div v-if="accessLoading && !moviePilotUsers.length" class="ar-config__loading-state">
+                  <VProgressCircular indeterminate color="primary" size="28" />
+                  <span>正在读取 MoviePilot 用户</span>
+                </div>
+                <div v-else class="ar-config__access-list">
+                  <div
+                    v-for="user in moviePilotUsers.filter(item => !item.is_superuser)"
+                    :key="user.id"
+                    class="ar-config__access-row"
+                  >
+                    <VAvatar color="info" variant="tonal" size="36"><VIcon icon="mdi-account-outline" size="20" /></VAvatar>
+                    <div class="ar-config__access-user">
+                      <strong>{{ user.name }}</strong>
+                      <small>MoviePilot 用户 {{ user.id }}</small>
+                    </div>
+                    <VSelect
+                      :model-value="form.profile_access_map[user.id] || []"
+                      :items="profileAccessOptions"
+                      label="允许访问的画像"
+                      multiple
+                      chips
+                      closable-chips
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      :disabled="!profileAccessOptions.length"
+                      @update:model-value="setProfileAccess(user.id, $event)"
+                    />
+                  </div>
+                  <div v-if="!moviePilotUsers.some(item => !item.is_superuser)" class="ar-config__empty-state">
+                    <VIcon icon="mdi-account-check-outline" size="28" color="primary" />
+                    <span>当前没有需要单独授权的普通用户</span>
+                  </div>
+                </div>
+              </template>
+              <template v-else-if="activeAdvanced === 'data'">
+                <div class="ar-config__section-title">数据保留</div>
+                <div class="ar-config__retention-grid">
+                  <div v-for="item in retentionDefinitions" :key="item.key" class="ar-config__retention-item">
+                    <VTextField
+                      v-model.number="form[item.key]"
+                      :label="item.title"
+                      type="number"
+                      min="1"
+                      :max="item.max"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                    />
+                    <div class="ar-config__hint">{{ item.hint }}</div>
+                  </div>
+                </div>
+                <div class="ar-config__hint mt-2">保留上限随“保存配置”生效，已有数据会在运行时按前缀安全裁剪。</div>
+
+                <div class="ar-config__section-title mt-5">数据操作</div>
+                <div class="ar-config__data-actions">
+                  <div class="ar-config__data-row">
+                    <VAvatar color="info" variant="tonal" size="38"><VIcon icon="mdi-download-outline" size="21" /></VAvatar>
+                    <div><strong>导出脱敏数据</strong><small>画像、反馈、记忆、分析、对话和归因</small></div>
+                    <VBtn variant="tonal" color="info" prepend-icon="mdi-download-outline" :loading="dataActionLoading === 'export'" :disabled="!selectedProfileId" @click="exportProfileData">导出</VBtn>
+                  </div>
+                  <div class="ar-config__data-row">
+                    <VAvatar color="warning" variant="tonal" size="38"><VIcon icon="mdi-brain" size="21" /></VAvatar>
+                    <div><strong>学习重置</strong><small>清除反馈学习、确认记忆、对话与归因</small></div>
+                    <VBtn variant="tonal" color="warning" prepend-icon="mdi-backup-restore" :disabled="!selectedProfileId" @click="learningResetDialog = true">重置</VBtn>
+                  </div>
+                  <div class="ar-config__data-row ar-config__data-row--danger">
+                    <VAvatar color="error" variant="tonal" size="38"><VIcon icon="mdi-delete-alert-outline" size="21" /></VAvatar>
+                    <div><strong>彻底重置</strong><small>删除当前画像下全部 AgentRank 自有数据</small></div>
+                    <VBtn variant="tonal" color="error" prepend-icon="mdi-delete-alert-outline" :disabled="!selectedProfileId" @click="openFullReset">重置</VBtn>
+                  </div>
+                </div>
+                <VAlert type="info" variant="tonal" density="compact" class="mt-4">两类重置都不会删除 MoviePilot 订阅、订阅任务或媒体库文件。</VAlert>
+              </template>
               <template v-else>
                 <div class="ar-config__section-title">提示设置</div>
                 <div class="ar-config__prompt-list">
@@ -833,6 +1098,62 @@ onMounted(loadRuntime)
         </VCardActions>
       </VCard>
     </VDialog>
+
+    <VDialog v-model="learningResetDialog" max-width="520" persistent>
+      <VCard>
+        <VCardTitle>重置学习数据？</VCardTitle>
+        <VCardText>
+          将清除“{{ selectedIdentity?.username || selectedProfileId }}”的反馈学习、已确认记忆、待确认项、影评师对话和结果归因。当前画像、榜单、忽略归档、人工标签与播放记录会保留。
+        </VCardText>
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" :disabled="dataActionLoading === 'learning'" @click="learningResetDialog = false">取消</VBtn>
+          <VBtn color="warning" variant="flat" :loading="dataActionLoading === 'learning'" @click="confirmLearningReset">确认重置</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
+
+    <VDialog v-model="fullResetDialog" max-width="540" persistent>
+      <VCard>
+        <VCardTitle>彻底重置 AgentRank 数据</VCardTitle>
+        <VCardText v-if="fullResetStage === 'prepare'">
+          第一步将为当前 MoviePilot 用户签发一次性短时确认令牌。继续后仍需输入确认词，期间不会删除任何数据。
+        </VCardText>
+        <VCardText v-else>
+          <VAlert type="error" variant="tonal" density="compact" class="mb-4">
+            此操作会删除“{{ selectedIdentity?.username || selectedProfileId }}”下的画像、榜单、归档、反馈、记忆、分析、对话、归因和运行历史，且无法撤销。
+          </VAlert>
+          <VTextField
+            v-model="fullResetPhrase"
+            label="输入“彻底重置”确认"
+            density="compact"
+            variant="outlined"
+            autocomplete="off"
+            hide-details
+          />
+          <div class="ar-config__hint mt-2">确认令牌有效至 {{ formatDateTime(fullResetConfirmation?.expires_at) }}，且仅限当前登录用户使用。</div>
+        </VCardText>
+        <VCardActions>
+          <VBtn variant="text" :disabled="Boolean(dataActionLoading)" @click="closeFullReset">取消</VBtn>
+          <VSpacer />
+          <VBtn
+            v-if="fullResetStage === 'prepare'"
+            color="error"
+            variant="tonal"
+            :loading="dataActionLoading === 'full-prepare'"
+            @click="prepareFullReset"
+          >继续</VBtn>
+          <VBtn
+            v-else
+            color="error"
+            variant="flat"
+            :loading="dataActionLoading === 'full-reset'"
+            :disabled="fullResetPhrase !== '彻底重置'"
+            @click="confirmFullReset"
+          >确认彻底重置</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
     <VSnackbar v-model="actionFeedback.show" :color="actionFeedback.color">{{ actionFeedback.message }}</VSnackbar>
   </div>
 </template>
@@ -898,6 +1219,18 @@ onMounted(loadRuntime)
 .ar-config__prompt-dialog-subtitle { white-space: normal; overflow-wrap: anywhere; }
 .ar-config__prompt-dialog-body { overflow-y: auto; }
 .ar-config__prompt-dialog-hint { margin-top: 8px; color: rgba(var(--v-theme-on-surface), .6); font-size: 12px; line-height: 1.5; }
+.ar-config__inline-alert { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ar-config__loading-state, .ar-config__empty-state { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 10px; color: rgba(var(--v-theme-on-surface), .62); font-size: 13px; }
+.ar-config__access-list, .ar-config__data-actions { display: flex; flex-direction: column; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden; }
+.ar-config__access-row { display: grid; grid-template-columns: auto minmax(120px, .7fr) minmax(240px, 1.3fr); align-items: center; gap: 12px; padding: 12px 14px; }
+.ar-config__access-row + .ar-config__access-row, .ar-config__data-row + .ar-config__data-row { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.ar-config__access-user, .ar-config__data-row > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ar-config__access-user strong, .ar-config__data-row strong { font-size: 13px; }
+.ar-config__access-user small, .ar-config__data-row small { color: rgba(var(--v-theme-on-surface), .6); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.ar-config__retention-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.ar-config__retention-item { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.ar-config__data-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; }
+.ar-config__data-row--danger { background: rgba(var(--v-theme-error), .025); }
 .ar-config__danger-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; border: 1px solid rgba(var(--v-theme-error), .32); border-radius: 10px; background: rgba(var(--v-theme-error), .045); }
 .ar-config__danger-title { color: rgb(var(--v-theme-error)); font-size: 13px; font-weight: 700; }
 .ar-config__danger-row :deep(.v-switch) { flex: 0 0 auto; }
@@ -905,7 +1238,13 @@ onMounted(loadRuntime)
 @media (max-width: 760px) {
   .ar-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
   .ar-config__card { height: min(860px, calc(100dvh - 16px)); }
-  .ar-config__header :deep(.v-card-subtitle) { max-width: 100%; }
+  .ar-config__header :deep(.v-card-subtitle) {
+    max-width: 100%;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .ar-config__header-state { gap: 4px; }
   .ar-config__body { flex-direction: column; }
   .ar-config__nav { width: 100%; flex: 0 0 auto; border-right: 0; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
@@ -918,6 +1257,9 @@ onMounted(loadRuntime)
   .ar-config__overview-grid, .ar-config__source-grid, .ar-config__weight-grid { grid-template-columns: 1fr; }
   .ar-config__prompt-row { grid-template-columns: auto minmax(0, 1fr); }
   .ar-config__prompt-row > .v-btn { grid-column: 2; justify-self: end; }
+  .ar-config__access-row { grid-template-columns: auto minmax(0, 1fr); }
+  .ar-config__access-row > .v-select { grid-column: 1 / -1; }
+  .ar-config__retention-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-config__prompt-dialog { max-height: calc(100dvh - 16px); }
   .ar-config__danger-row { align-items: flex-start; flex-direction: column; }
 }
@@ -928,6 +1270,9 @@ onMounted(loadRuntime)
   .ar-config__nav-item { min-width: 88px; }
   .ar-config__pane { padding: 12px; }
   .ar-config__actions { flex-wrap: wrap; padding-inline: 12px; }
+  .ar-config__retention-grid { grid-template-columns: 1fr; }
+  .ar-config__data-row { grid-template-columns: auto minmax(0, 1fr); }
+  .ar-config__data-row > .v-btn { grid-column: 2; justify-self: end; }
 }
 @media (max-height: 760px) { .ar-config__window--overview { overflow-y: auto; } }
 </style>

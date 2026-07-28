@@ -18,7 +18,7 @@ from ..storage.repository import AgentRankRepository
 from .data_lifecycle import DataLifecycleService
 from .feedback_action import FeedbackActionService
 from .profile_preferences import ProfilePreferenceService
-from .prompt import build_conversation_prompt
+from .prompt import DEFAULT_CRITIC_PROMPT, build_conversation_prompt
 
 
 _SENSITIVE_PSYCHOLOGY_TERMS = (
@@ -274,6 +274,7 @@ class ConversationService:
         message_limit: int = 200,
         now_factory: Callable[[], datetime] = None,
         pending_handler: Callable[[ConversationCommand], Any] = None,
+        critic_prompt: str = DEFAULT_CRITIC_PROMPT,
     ):
         """绑定仓储、受限 Agent、运行插件与可测试时钟。"""
         if not isinstance(repository, AgentRankRepository):
@@ -284,6 +285,7 @@ class ConversationService:
         self._message_limit = max(1, min(int(message_limit), 100000))
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
         self._pending_handler = pending_handler
+        self._critic_prompt = str(critic_prompt or DEFAULT_CRITIC_PROMPT).strip()
 
     def set_pending_handler(
         self, handler: Callable[[ConversationCommand], Any] = None
@@ -763,7 +765,9 @@ class ConversationService:
                 method = getattr(self._agent_adapter, "run", None)
             if not callable(method):
                 raise RuntimeError("conversation Agent adapter is unavailable")
-            raw = await method(build_conversation_prompt(), trusted_context)
+            raw = await method(
+                build_conversation_prompt(self._critic_prompt), trusted_context
+            )
             parsed = ConversationReplyParser.parse(
                 raw, allowed_evidence_refs=allowed_refs
             )

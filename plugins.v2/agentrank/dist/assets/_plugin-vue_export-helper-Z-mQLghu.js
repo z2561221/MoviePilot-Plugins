@@ -36,6 +36,18 @@ async function getPluginApi(api, path, params = {}) {
 }
 
 /**
+ * 调用 MoviePilot 宿主只读接口，并复用当前登录用户的 bearer 会话。
+ */
+async function getHostApi(api, path, params = {}) {
+  if (!api?.get) throw new Error('MoviePilot API 未就绪')
+  try {
+    return unwrapResponse(await api.get(path, { params }))
+  } catch (error) {
+    throw normalizeApiError(error, 'MoviePilot 数据加载失败')
+  }
+}
+
+/**
  * 调用 AgentRank POST 接口，并通过 injected client 自动携带 bearer。
  */
 async function postPluginApi(api, path, payload = {}) {
@@ -70,4 +82,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, getPluginApi as g, postPluginApi as p, savePluginConfig as s };
+export { _export_sfc as _, getHostApi as a, getPluginApi as g, postPluginApi as p, savePluginConfig as s };

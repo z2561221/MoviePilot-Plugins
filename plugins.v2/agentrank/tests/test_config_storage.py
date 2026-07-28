@@ -30,6 +30,7 @@ DEFAULT_AGENT_PROMPT = config_module.DEFAULT_AGENT_PROMPT
 DEFAULT_PROFILE_PROMPT = config_module.DEFAULT_PROFILE_PROMPT
 DEFAULT_RANKING_PROMPT = config_module.DEFAULT_RANKING_PROMPT
 DEFAULT_COPY_PROMPT = config_module.DEFAULT_COPY_PROMPT
+DEFAULT_CRITIC_PROMPT = config_module.DEFAULT_CRITIC_PROMPT
 LEGACY_DEFAULT_AGENT_PROMPT = config_module.LEGACY_DEFAULT_AGENT_PROMPT
 LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT = config_module.LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT
 LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT = (
@@ -344,12 +345,13 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
     assert corrupted["_validation_errors"] == ["config must be a mapping"]
 
 
-def test_three_prompts_are_editable_but_non_empty_and_bounded():
-    """三类提示词独立持久化，空值或超长值安全回退。"""
+def test_four_prompts_are_editable_but_non_empty_and_bounded():
+    """四类提示词独立持久化，空值或超长值安全回退。"""
     defaults = {
         "profile_prompt": DEFAULT_PROFILE_PROMPT,
         "ranking_prompt": DEFAULT_RANKING_PROMPT,
         "copy_prompt": DEFAULT_COPY_PROMPT,
+        "critic_prompt": DEFAULT_CRITIC_PROMPT,
     }
     for field_name, default in defaults.items():
         custom = f"自定义{field_name}"
@@ -377,12 +379,14 @@ def test_legacy_default_prompt_migrates_without_overwriting_custom_prompt():
         assert migrated["profile_prompt"] == DEFAULT_PROFILE_PROMPT
         assert migrated["ranking_prompt"] == DEFAULT_RANKING_PROMPT
         assert migrated["copy_prompt"] == DEFAULT_COPY_PROMPT
+        assert migrated["critic_prompt"] == DEFAULT_CRITIC_PROMPT
         assert "agent_prompt" not in migrated
 
     migrated_custom = normalize_config({"agent_prompt": custom})
     assert migrated_custom["profile_prompt"] == custom
     assert migrated_custom["ranking_prompt"] == custom
     assert migrated_custom["copy_prompt"] == DEFAULT_COPY_PROMPT
+    assert migrated_custom["critic_prompt"] == DEFAULT_CRITIC_PROMPT
     assert "agent_prompt" not in migrated_custom
 
     explicit = normalize_config(

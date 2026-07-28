@@ -11,7 +11,7 @@ def _read(name: str) -> str:
 
 
 def test_advanced_options_exposes_four_character_prompt_subtab():
-    """提示设置用三类紧凑入口和统一弹窗编辑。"""
+    """提示设置用四类紧凑入口和统一弹窗编辑。"""
     config = _read("Config.vue")
     assert "{ key: 'runtime', title: '运行设置'" in config
     assert "{ key: 'prompt', title: '提示设置'" in config
@@ -19,6 +19,7 @@ def test_advanced_options_exposes_four_character_prompt_subtab():
         ("profile_prompt", "画像理解规则"),
         ("ranking_prompt", "榜单推荐策略"),
         ("copy_prompt", "推荐文案风格"),
+        ("critic_prompt", "影评师扩展提示词"),
     ):
         assert field_name in config
         assert title in config
@@ -32,6 +33,37 @@ def test_advanced_options_exposes_four_character_prompt_subtab():
     assert "固定安全规则（只读）" in config
     assert "最终榜单固定保存五条" in config
     assert "max-height: min(760px, calc(100dvh - 24px))" in config
+
+
+def test_advanced_settings_expose_access_retention_export_and_two_safe_resets():
+    """访问控制和数据管理复用宿主用户与既有安全生命周期 API。"""
+    config = _read("Config.vue")
+    api = _read("api.js")
+    preview = (COMPONENT_DIR.parent / "PreviewApp.vue").read_text(encoding="utf-8")
+    for marker in (
+        "访问控制",
+        "数据管理",
+        "profile_access_map",
+        "getHostApi(props.api, 'user/')",
+        "超级用户始终可访问全部已配置画像",
+        "candidate_snapshot_limit",
+        "feedback_event_limit",
+        "feedback_queue_limit",
+        "conversation_message_limit",
+        "attribution_record_limit",
+        "analysis_record_limit",
+        "data/export",
+        "data/reset/learning",
+        "data/reset/full/prepare",
+        "data/reset/full",
+        "fullResetPhrase.value !== '彻底重置'",
+        "MoviePilot 订阅和媒体库未受影响",
+    ):
+        assert marker in config
+    assert "export async function getHostApi" in api
+    assert "api.get(path, { params })" in api
+    assert "moviePilotUsers" in preview
+    assert "preview-one-time-token" in preview
 
 
 def test_runtime_settings_exposes_discovery_page_switch_and_current_defaults():
