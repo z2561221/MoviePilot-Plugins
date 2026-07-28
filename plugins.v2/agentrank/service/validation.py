@@ -17,6 +17,7 @@ from ..model.retrieval import (
     RetrievalFilters,
     RetrievalPlan,
 )
+from .scoring import DeterministicSupportScorer
 
 
 FILLER_END_PATTERN = re.compile(r"(?:哈|呀|嘛|哒|喂)[。！？!?]?$")
@@ -275,6 +276,15 @@ ParsedProfileOutput = ParsedProfilePlan
 
 
 @dataclass(frozen=True)
+class ParsedEvidenceClaim:
+    """表示排序 Agent 对用户证据与候选事实关系的结构化声明。"""
+
+    dimension: str
+    user_value: str
+    candidate_value: str
+
+
+@dataclass(frozen=True)
 class ParsedRecommendation:
     """表示尚未经过候选池校验的 Agent 推荐。"""
 
@@ -282,7 +292,9 @@ class ParsedRecommendation:
     summary: str
     reason: str
     match_tags: List[str]
-    confidence: int
+    confidence: Optional[int]
+    positive_evidence: List[ParsedEvidenceClaim] = field(default_factory=list)
+    counter_evidence: List[ParsedEvidenceClaim] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -307,6 +319,7 @@ class RecommendationValidationResult:
 
     accepted: List[RecommendationItem] = field(default_factory=list)
     dropped: List[DroppedRecommendation] = field(default_factory=list)
+    support_warnings: List[str] = field(default_factory=list)
 
 
 class _StrictOutputParser:
@@ -621,13 +634,74 @@ class ProfileOutputParser(_StrictOutputParser):
 class RankingOutputParser(_StrictOutputParser):
     """只接受排序 Agent 的独立 recommendations 根对象。"""
 
-    _RECOMMENDATION_KEYS = {
+    _LEGACY_RECOMMENDATION_KEYS = {
         "candidate_id",
         "reason",
         "summary",
         "match_tags",
         "confidence",
     }
+    _RECOMMENDATION_KEYS = {
+        "candidate_id",
+        "reason",
+        "summary",
+        "match_tags",
+        "positive_evidence",
+        "counter_evidence",
+    }
+    _EVIDENCE_KEYS = {"dimension", "user_value", "candidate_value"}
+    _EVIDENCE_DIMENSIONS = {
+        "type",
+        "theme",
+        "actor",
+        "director",
+        "region",
+        "year",
+        "rating",
+        "heat",
+        "freshness",
+        "similarity",
+    }
+
+    def _evidence_claims(
+        self,
+        value: Any,
+        label: str,
+        maximum: int = 8,
+    ) -> List[ParsedEvidenceClaim]:
+        """读取有界证据声明列表并拒绝未知维度或额外字段。"""
+        if not isinstance(value, list):
+            raise AgentOutputError(f"{label} must be a list")
+        if len(value) > maximum:
+            raise AgentOutputError(f"{label} exceeds {maximum} items")
+        result = []
+        for index, item in enumerate(value):
+            if not isinstance(item, Mapping):
+                raise AgentOutputError(f"{label}[{index}] must be an object")
+            self._exact_keys(item, self._EVIDENCE_KEYS, f"{label}[{index}]")
+            dimension = self._string(
+                item["dimension"], f"{label}[{index}].dimension", 20
+            ).casefold()
+            if dimension not in self._EVIDENCE_DIMENSIONS:
+                raise AgentOutputError(
+                    f"{label}[{index}].dimension is unsupported"
+                )
+            result.append(
+                ParsedEvidenceClaim(
+                    dimension=dimension,
+                    user_value=self._string(
+                        item["user_value"],
+                        f"{label}[{index}].user_value",
+                        80,
+                    ),
+                    candidate_value=self._string(
+                        item["candidate_value"],
+                        f"{label}[{index}].candidate_value",
+                        80,
+                    ),
+                )
+            )
+        return result
 
     def _recommendation_values(self, output: str) -> List[Any]:
         """读取通过根结构和数量边界校验的推荐原始列表。"""
@@ -657,23 +731,32 @@ class RankingOutputParser(_StrictOutputParser):
             normalized["reason"] = normalized["summary"]
         if "summary" not in normalized and "reason" in normalized:
             normalized["summary"] = ""
+        actual_keys = set(normalized)
+        schema_keys = (
+            self._RECOMMENDATION_KEYS
+            if self._RECOMMENDATION_KEYS <= actual_keys
+            else self._LEGACY_RECOMMENDATION_KEYS
+            if self._LEGACY_RECOMMENDATION_KEYS <= actual_keys
+            else None
+        )
+        if schema_keys is None:
+            raise AgentOutputError(
+                f"recommendations[{index}] must use the evidence schema"
+            )
         if ignore_extra_keys:
-            missing = self._RECOMMENDATION_KEYS - set(normalized)
-            if missing:
-                raise AgentOutputError(
-                    f"recommendations[{index}] missing keys {sorted(missing)}"
-                )
             normalized = {
-                key: normalized[key] for key in self._RECOMMENDATION_KEYS
+                key: normalized[key] for key in schema_keys
             }
         else:
             self._exact_keys(
                 normalized,
-                self._RECOMMENDATION_KEYS,
+                schema_keys,
                 f"recommendations[{index}]",
             )
-        confidence = normalized["confidence"]
-        if isinstance(confidence, bool) or not isinstance(confidence, int):
+        confidence = normalized.get("confidence")
+        if schema_keys == self._LEGACY_RECOMMENDATION_KEYS and (
+            isinstance(confidence, bool) or not isinstance(confidence, int)
+        ):
             raise AgentOutputError(
                 f"recommendations[{index}].confidence must be an integer"
             )
@@ -695,6 +778,22 @@ class RankingOutputParser(_StrictOutputParser):
                 10,
             ),
             confidence=confidence,
+            positive_evidence=(
+                self._evidence_claims(
+                    normalized["positive_evidence"],
+                    f"recommendations[{index}].positive_evidence",
+                )
+                if schema_keys == self._RECOMMENDATION_KEYS
+                else []
+            ),
+            counter_evidence=(
+                self._evidence_claims(
+                    normalized["counter_evidence"],
+                    f"recommendations[{index}].counter_evidence",
+                )
+                if schema_keys == self._RECOMMENDATION_KEYS
+                else []
+            ),
         )
 
     def parse(self, output: str) -> ParsedRankingOutput:
@@ -713,7 +812,14 @@ class RankingOutputParser(_StrictOutputParser):
         warnings: List[str] = []
         for index, item in enumerate(self._recommendation_values(output)):
             extra_keys = (
-                sorted(set(item) - self._RECOMMENDATION_KEYS)
+                sorted(
+                    set(item)
+                    - (
+                        self._RECOMMENDATION_KEYS
+                        if self._RECOMMENDATION_KEYS <= set(item)
+                        else self._LEGACY_RECOMMENDATION_KEYS
+                    )
+                )
                 if isinstance(item, dict)
                 else []
             )
@@ -763,6 +869,10 @@ def fallback_summary(candidate: Candidate) -> str:
 
 class RecommendationValidator:
     """依据冻结候选、订阅和归档集合执行确定性安全校验。"""
+
+    def __init__(self, support_scorer: Any = None) -> None:
+        """注入确定性支持度评分器。"""
+        self._support_scorer = support_scorer or DeterministicSupportScorer()
 
     @staticmethod
     def _match_tags(tags: Sequence[str]) -> List[str]:
@@ -1379,6 +1489,10 @@ class RecommendationValidator:
         preference_evidence: Sequence[str] = (),
         playback_samples: Iterable[Any] = (),
         disliked_candidate_ids: Set[str] = None,
+        policy_snapshot: Any = None,
+        confirmed_memory: Any = None,
+        profile_preferences: Any = None,
+        playback_snapshot: Any = None,
     ) -> RecommendationValidationResult:
         """按 Agent 原顺序校验并丰富通过项，绝不按媒体属性重排。"""
         candidate_map: Dict[str, Candidate] = {
@@ -1418,7 +1532,18 @@ class RecommendationValidator:
                     DroppedRecommendation(candidate_id, "subscribed_candidate", index)
                 )
                 continue
-            if not 0 <= recommendation.confidence <= 100:
+            deterministic_support = policy_snapshot is not None
+            if deterministic_support and recommendation.confidence is not None:
+                result.dropped.append(
+                    DroppedRecommendation(
+                        candidate_id, "legacy_evidence_schema", index
+                    )
+                )
+                continue
+            if not deterministic_support and (
+                recommendation.confidence is None
+                or not 0 <= recommendation.confidence <= 100
+            ):
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_confidence", index)
                 )
@@ -1488,13 +1613,42 @@ class RecommendationValidator:
                     )
                 )
                 continue
+            support = None
+            confidence = int(recommendation.confidence or 0)
+            if deterministic_support:
+                scoring = self._support_scorer.score_candidate(
+                    candidate,
+                    policy_snapshot,
+                    recommendation.positive_evidence,
+                    recommendation.counter_evidence,
+                    confirmed_memory,
+                    profile_preferences,
+                    playback_snapshot,
+                )
+                if scoring.unsupported_claims:
+                    result.support_warnings.extend(
+                        f"{candidate_id}:{warning}"
+                        for warning in scoring.unsupported_claims
+                    )
+                if scoring.verified_positive_count < 2:
+                    result.dropped.append(
+                        DroppedRecommendation(
+                            candidate_id,
+                            "insufficient_verified_evidence",
+                            index,
+                        )
+                    )
+                    continue
+                support = scoring.score
+                confidence = support.percentage
             result.accepted.append(
                 RecommendationItem(
                     candidate_id=candidate_id,
                     rank=len(result.accepted) + 1,
                     summary=summary,
                     reason=reason,
-                    confidence=recommendation.confidence,
+                    confidence=confidence,
+                    support=support,
                     title=candidate.title,
                     original_title=candidate.original_title,
                     media_type=candidate.media_type,

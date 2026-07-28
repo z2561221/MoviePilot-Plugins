@@ -3,18 +3,25 @@
 import hashlib
 import json
 import math
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..model.config import WEIGHT_DEFAULTS
 from ..model.memory import PreferenceMemory
 from ..model.playback import PlaybackSample, PlaybackSnapshot
+from ..model.profile_preferences import ProfilePreferences
 from ..model.policy import (
     POLICY_DELTA_LIMIT,
     POLICY_WEIGHT_NAMES,
     PolicySnapshot,
+)
+from ..model.support import (
+    SUPPORT_UNIT_SCALE,
+    SupportContribution,
+    SupportScore,
 )
 
 
@@ -51,6 +58,35 @@ _CATEGORY_WEIGHTS = {
     "pace": ("similarity_weight",),
     "completion": ("similarity_weight",),
     "similarity": ("similarity_weight",),
+}
+
+_DIMENSION_ALIASES = {
+    name: name for name in POLICY_WEIGHT_NAMES
+}
+_DIMENSION_ALIASES.update(
+    {name.removesuffix("_weight"): name for name in POLICY_WEIGHT_NAMES}
+)
+_CATEGORICAL_DIMENSIONS = frozenset(
+    {
+        "type_weight",
+        "theme_weight",
+        "actor_weight",
+        "director_weight",
+        "region_weight",
+        "similarity_weight",
+    }
+)
+_TYPE_ALIASES = {
+    "movie": "movie",
+    "电影": "movie",
+    "tv": "tv",
+    "电视剧": "tv",
+    "剧集": "tv",
+    "电视": "tv",
+    "anime": "anime",
+    "动画": "anime",
+    "动漫": "anime",
+    "番剧": "anime",
 }
 
 
@@ -365,3 +401,466 @@ class PolicyLearningService:
             if stored is not None:
                 return stored
         raise RuntimeError("preference memory changed during policy refresh")
+
+
+@dataclass(frozen=True)
+class _TrustedPreferenceSignal:
+    """表示可由确认记忆、人工设置或独立播放重建的偏好信号。"""
+
+    dimension: str
+    value: str
+    polarity: str
+    certainty: float
+    refs: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _CandidateFact:
+    """表示候选结构化字段中的一项受信作品事实。"""
+
+    dimension: str
+    value: str
+    ref: str
+
+
+@dataclass(frozen=True)
+class SupportScoringResult:
+    """返回确定性支持度及未被受信数据支撑的声明位置。"""
+
+    score: SupportScore
+    verified_positive_count: int
+    verified_counter_count: int
+    unsupported_claims: Tuple[str, ...]
+
+
+class DeterministicSupportScorer:
+    """用受信候选、确认偏好与独立播放证据重算支持度。"""
+
+    @staticmethod
+    def _normalize(value: Any) -> str:
+        """移除文本分隔符并统一大小写，供证据等值比较。"""
+        return re.sub(r"[\W_]+", "", str(value or "").casefold(), flags=re.UNICODE)
+
+    @classmethod
+    def _normalized_type(cls, value: Any) -> str:
+        """把电影、剧集和动画常用别名收敛为稳定类型。"""
+        normalized = cls._normalize(value)
+        return _TYPE_ALIASES.get(normalized, normalized)
+
+    @classmethod
+    def _value_matches(cls, expected: Any, actual: Any) -> bool:
+        """判断声明值能否回溯到受信原值。"""
+        left = cls._normalize(expected)
+        right = cls._normalize(actual)
+        return bool(left and right and (left in right or right in left))
+
+    @classmethod
+    def _values_compatible(
+        cls,
+        dimension: str,
+        user_value: Any,
+        candidate_value: Any,
+    ) -> bool:
+        """按维度判断用户证据与候选事实是否表达同一可核对特征。"""
+        if dimension == "type_weight":
+            return cls._normalized_type(user_value) == cls._normalized_type(
+                candidate_value
+            )
+        if dimension == "year_weight":
+            user_text = str(user_value or "")
+            candidate_years = [
+                int(item)
+                for item in re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", str(candidate_value or ""))
+            ]
+            explicit_years = [
+                int(item)
+                for item in re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", user_text)
+            ]
+            if explicit_years and candidate_years:
+                return bool(set(explicit_years) & set(candidate_years))
+            decade = re.search(r"(?<!\d)((?:19|20)?\d0)年代", user_text)
+            if decade and candidate_years:
+                raw = int(decade.group(1))
+                start = raw if raw >= 1900 else 2000 + raw if raw < 30 else 1900 + raw
+                return any(start <= year <= start + 9 for year in candidate_years)
+        if dimension == "rating_weight":
+            numbers = re.findall(r"\d+(?:\.\d+)?", str(candidate_value or ""))
+            if numbers and any(term in str(user_value or "") for term in ("高分", "高质量", "评分")):
+                return float(numbers[0]) >= 7.0
+        return cls._value_matches(user_value, candidate_value)
+
+    @staticmethod
+    def _fact_ref(candidate_id: str, field_name: str, index: int) -> str:
+        """生成不包含作品文案的稳定候选事实引用。"""
+        return f"candidate:{candidate_id}:{field_name}:{int(index)}"
+
+    @classmethod
+    def _candidate_facts(cls, candidate: Any) -> Tuple[_CandidateFact, ...]:
+        """把候选允许参与评分的结构化字段投影为稳定事实。"""
+        candidate_id = str(getattr(candidate, "candidate_id", "") or "").strip()
+        if not candidate_id:
+            raise ValueError("candidate_id is required for deterministic support")
+        facts: List[_CandidateFact] = []
+
+        def add(dimension: str, field_name: str, values: Iterable[Any]) -> None:
+            """向候选事实集合加入去空值后的稳定字段。"""
+            for index, raw in enumerate(values or ()):
+                value = str(raw or "").strip()
+                if value:
+                    facts.append(
+                        _CandidateFact(
+                            dimension,
+                            value,
+                            cls._fact_ref(candidate_id, field_name, index),
+                        )
+                    )
+
+        add("type_weight", "media_type", [getattr(candidate, "media_type", "")])
+        add("theme_weight", "genres", getattr(candidate, "genres", ()) or ())
+        add("actor_weight", "actors", getattr(candidate, "actors", ()) or ())
+        add(
+            "director_weight",
+            "directors",
+            getattr(candidate, "directors", ()) or (),
+        )
+        add("region_weight", "regions", getattr(candidate, "regions", ()) or ())
+        year = getattr(candidate, "year", None)
+        if year not in (None, ""):
+            add("year_weight", "year", [year])
+            add("freshness_weight", "year", [year])
+        rating = getattr(candidate, "rating", None)
+        if rating not in (None, "") and math.isfinite(float(rating)):
+            add("rating_weight", "rating", [f"{float(rating):g}"])
+        popularity = getattr(candidate, "popularity", None)
+        if popularity not in (None, "") and math.isfinite(float(popularity)):
+            add("heat_weight", "popularity", [f"{float(popularity):g}"])
+        release_date = str(getattr(candidate, "release_date", "") or "").strip()
+        if release_date:
+            add("freshness_weight", "release_date", [release_date])
+        add(
+            "similarity_weight",
+            "similarity",
+            [
+                *(getattr(candidate, "genres", ()) or ()),
+                getattr(candidate, "overview", ""),
+            ],
+        )
+        return tuple(
+            sorted(
+                {fact.ref: fact for fact in facts}.values(),
+                key=lambda fact: (fact.dimension, fact.ref, fact.value.casefold()),
+            )
+        )
+
+    @staticmethod
+    def _manual_ref(polarity: str, value: str) -> str:
+        """为人工偏好生成不暴露原文的内容寻址引用。"""
+        digest = hashlib.sha256(
+            f"{polarity}:{str(value or '').strip().casefold()}".encode("utf-8")
+        ).hexdigest()[:20]
+        return f"profile_preference:{polarity}:{digest}"
+
+    @classmethod
+    def _memory_signals(
+        cls,
+        memory: PreferenceMemory,
+    ) -> List[_TrustedPreferenceSignal]:
+        """把当前确认记忆转换为带方向、强度与谱系引用的可信信号。"""
+        signals: List[_TrustedPreferenceSignal] = []
+        for item in memory.active_items():
+            for dimension in PolicyLearningService._memory_weight_names(item.category):
+                certainty = PolicyLearningService._clamp(
+                    item.strength * item.certainty,
+                    0.0,
+                    1.0,
+                )
+                if certainty <= 0:
+                    continue
+                signals.append(
+                    _TrustedPreferenceSignal(
+                        dimension=dimension,
+                        value=item.value,
+                        polarity=item.polarity,
+                        certainty=certainty,
+                        refs=(f"memory:{item.item_id}",),
+                    )
+                )
+        return signals
+
+    @classmethod
+    def _manual_signals(
+        cls,
+        preferences: ProfilePreferences,
+    ) -> List[_TrustedPreferenceSignal]:
+        """把未归档的人工正负标签转换为跨维度候选信号。"""
+        signals: List[_TrustedPreferenceSignal] = []
+        for polarity, values in (
+            ("positive", preferences.custom_tags),
+            ("negative", preferences.custom_negative_tags),
+        ):
+            for value in values:
+                signals.append(
+                    _TrustedPreferenceSignal(
+                        dimension="",
+                        value=value,
+                        polarity=polarity,
+                        certainty=1.0,
+                        refs=(cls._manual_ref(polarity, value),),
+                    )
+                )
+        return signals
+
+    @classmethod
+    def _playback_signals(
+        cls,
+        playback: PlaybackSnapshot,
+    ) -> List[_TrustedPreferenceSignal]:
+        """只从至少两部独立作品构造类型和题材播放信号。"""
+        groups: Dict[Tuple[str, str, str], set] = defaultdict(set)
+        for sample in PolicyLearningService._canonical_playback_samples(
+            playback.samples
+        ):
+            if not sample["observed"] and not sample["abandoned"]:
+                continue
+            polarity = "negative" if sample["abandoned"] else "positive"
+            for media_type in sample["media_types"]:
+                groups[("type_weight", media_type, polarity)].add(
+                    sample["stable_id"]
+                )
+            for genre in sample["genres"]:
+                groups[("theme_weight", genre, polarity)].add(sample["stable_id"])
+        signals: List[_TrustedPreferenceSignal] = []
+        for (dimension, value, polarity), stable_ids in sorted(groups.items()):
+            count = len(stable_ids)
+            if count < MIN_INDEPENDENT_PLAYBACK_EVIDENCE:
+                continue
+            certainty = (
+                min(0.35, 0.20 + 0.05 * (count - 2))
+                if polarity == "negative"
+                else min(1.0, 0.60 + 0.10 * (count - 2))
+            )
+            prefix = "abandoned" if polarity == "negative" else "observed"
+            signals.append(
+                _TrustedPreferenceSignal(
+                    dimension=dimension,
+                    value=value,
+                    polarity=polarity,
+                    certainty=certainty,
+                    refs=tuple(
+                        f"playback:{prefix}:{stable_id}"
+                        for stable_id in sorted(stable_ids)
+                    ),
+                )
+            )
+        return signals
+
+    @staticmethod
+    def _claim_field(claim: Any, field_name: str) -> str:
+        """从冻结对象或映射读取结构化证据声明字段。"""
+        raw = (
+            claim.get(field_name)
+            if isinstance(claim, Mapping)
+            else getattr(claim, field_name, "")
+        )
+        return str(raw or "").strip()
+
+    @classmethod
+    def _claim_dimension(cls, claim: Any) -> str:
+        """把公开维度名收敛为十项策略权重名。"""
+        return _DIMENSION_ALIASES.get(
+            cls._claim_field(claim, "dimension").casefold(),
+            "",
+        )
+
+    @staticmethod
+    def _units(value: float) -> int:
+        """把零到一数值转换为可重放整数单位。"""
+        return max(
+            0,
+            min(
+                SUPPORT_UNIT_SCALE,
+                int(float(value) * SUPPORT_UNIT_SCALE + 0.5),
+            ),
+        )
+
+    @classmethod
+    def _contribution(
+        cls,
+        policy: PolicySnapshot,
+        direction: str,
+        dimension: str,
+        signal: _TrustedPreferenceSignal,
+        fact: _CandidateFact,
+    ) -> Optional[SupportContribution]:
+        """根据已验证信号和候选事实生成整数贡献。"""
+        weight_units = cls._units(policy.effective_weights[dimension])
+        certainty_units = cls._units(signal.certainty)
+        contribution_units = (
+            weight_units * certainty_units + SUPPORT_UNIT_SCALE // 2
+        ) // SUPPORT_UNIT_SCALE
+        if contribution_units <= 0:
+            return None
+        return SupportContribution(
+            dimension=dimension,
+            direction=direction,
+            user_value=signal.value,
+            candidate_value=fact.value,
+            user_refs=signal.refs,
+            candidate_ref=fact.ref,
+            weight_units=weight_units,
+            certainty_units=certainty_units,
+            contribution_units=contribution_units,
+        )
+
+    @classmethod
+    def _resolve_claim(
+        cls,
+        claim: Any,
+        direction: str,
+        signals: Sequence[_TrustedPreferenceSignal],
+        facts: Sequence[_CandidateFact],
+        policy: PolicySnapshot,
+    ) -> Optional[SupportContribution]:
+        """把一项 Agent 声明约束到真实用户信号与候选事实。"""
+        dimension = cls._claim_dimension(claim)
+        user_value = cls._claim_field(claim, "user_value")
+        candidate_value = cls._claim_field(claim, "candidate_value")
+        if not dimension or not user_value or not candidate_value:
+            return None
+        expected_polarity = "positive" if direction == "positive" else "negative"
+        matched_signals = [
+            signal
+            for signal in signals
+            if signal.polarity == expected_polarity
+            and signal.dimension in {"", dimension}
+            and cls._value_matches(user_value, signal.value)
+        ]
+        matched_facts = [
+            fact
+            for fact in facts
+            if fact.dimension == dimension
+            and cls._value_matches(candidate_value, fact.value)
+        ]
+        pairs = [
+            (signal, fact)
+            for signal in matched_signals
+            for fact in matched_facts
+            if cls._values_compatible(dimension, signal.value, fact.value)
+        ]
+        if not pairs:
+            return None
+        signal, fact = sorted(
+            pairs,
+            key=lambda pair: (
+                -pair[0].certainty,
+                pair[0].refs,
+                pair[1].ref,
+                pair[0].value.casefold(),
+            ),
+        )[0]
+        return cls._contribution(policy, direction, dimension, signal, fact)
+
+    @classmethod
+    def _automatic_counter_contributions(
+        cls,
+        signals: Sequence[_TrustedPreferenceSignal],
+        facts: Sequence[_CandidateFact],
+        policy: PolicySnapshot,
+    ) -> List[SupportContribution]:
+        """自动计入可验证的负向匹配，防止 Agent 省略反证抬高百分比。"""
+        result = []
+        for signal in signals:
+            if signal.polarity != "negative":
+                continue
+            for fact in facts:
+                if signal.dimension and signal.dimension != fact.dimension:
+                    continue
+                if fact.dimension not in _CATEGORICAL_DIMENSIONS:
+                    continue
+                if not cls._values_compatible(
+                    fact.dimension,
+                    signal.value,
+                    fact.value,
+                ):
+                    continue
+                contribution = cls._contribution(
+                    policy,
+                    "counter",
+                    fact.dimension,
+                    signal,
+                    fact,
+                )
+                if contribution is not None:
+                    result.append(contribution)
+        return result
+
+    def score_candidate(
+        self,
+        candidate: Any,
+        policy: PolicySnapshot,
+        positive_claims: Sequence[Any],
+        counter_claims: Sequence[Any],
+        memory: PreferenceMemory,
+        preferences: ProfilePreferences,
+        playback: PlaybackSnapshot,
+    ) -> SupportScoringResult:
+        """验证 Agent 证据声明并返回零误差可重算的候选支持度。"""
+        if not isinstance(policy, PolicySnapshot):
+            raise TypeError("policy must be PolicySnapshot")
+        if not isinstance(memory, PreferenceMemory):
+            raise TypeError("memory must be PreferenceMemory")
+        if not isinstance(preferences, ProfilePreferences):
+            raise TypeError("preferences must be ProfilePreferences")
+        if not isinstance(playback, PlaybackSnapshot):
+            raise TypeError("playback must be PlaybackSnapshot")
+        profile_ids = {
+            policy.profile_id,
+            memory.profile_id,
+            preferences.profile_id,
+            playback.profile_id,
+        }
+        if len(profile_ids) != 1 or policy.memory_revision != memory.memory_revision:
+            raise RuntimeError("support inputs do not share one current policy revision")
+        facts = self._candidate_facts(candidate)
+        signals = [
+            *self._memory_signals(memory),
+            *self._manual_signals(preferences),
+            *self._playback_signals(playback),
+        ]
+        contributions: List[SupportContribution] = []
+        unsupported: List[str] = []
+        for direction, claims in (
+            ("positive", positive_claims),
+            ("counter", counter_claims),
+        ):
+            for index, claim in enumerate(claims or ()):
+                contribution = self._resolve_claim(
+                    claim,
+                    direction,
+                    signals,
+                    facts,
+                    policy,
+                )
+                if contribution is None:
+                    unsupported.append(
+                        f"{direction}:{index}:{self._claim_dimension(claim) or 'invalid'}"
+                    )
+                    continue
+                contributions.append(contribution)
+        contributions.extend(
+            self._automatic_counter_contributions(signals, facts, policy)
+        )
+        score = SupportScore.from_contributions(
+            policy.policy_version,
+            contributions,
+        )
+        return SupportScoringResult(
+            score=score,
+            verified_positive_count=sum(
+                item.direction == "positive" for item in score.contributions
+            ),
+            verified_counter_count=sum(
+                item.direction == "counter" for item in score.contributions
+            ),
+            unsupported_claims=tuple(unsupported),
+        )

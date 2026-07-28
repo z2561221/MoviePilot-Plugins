@@ -16,6 +16,7 @@ package.__path__ = [str(PLUGIN_DIR)]
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
+support_module = importlib.import_module(f"{PACKAGE_NAME}.model.support")
 run_module = importlib.import_module(f"{PACKAGE_NAME}.model.run")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 subscription_module = importlib.import_module(f"{PACKAGE_NAME}.service.subscription")
@@ -25,12 +26,45 @@ Candidate = candidate_module.Candidate
 CandidateSnapshot = snapshot_module.CandidateSnapshot
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
+SupportContribution = support_module.SupportContribution
+SupportScore = support_module.SupportScore
 RecommendationRun = run_module.RecommendationRun
 AgentRankRepository = repository_module.AgentRankRepository
 SubscriptionService = subscription_module.SubscriptionService
 AgentRankRuntime = runtime_module.AgentRankRuntime
 
 PROFILE_ID = "emby:home:user-1"
+
+
+def _support():
+    """构造百分之八十的可重算订阅测试支持度。"""
+    return SupportScore.from_contributions(
+        "policy-v1-subscription-test",
+        [
+            SupportContribution(
+                dimension="type_weight",
+                direction="positive",
+                user_value="movie",
+                candidate_value="movie",
+                user_refs=("playback:observed:1", "playback:observed:2"),
+                candidate_ref="candidate:test:media_type:0",
+                weight_units=9_000,
+                certainty_units=10_000,
+                contribution_units=9_000,
+            ),
+            SupportContribution(
+                dimension="theme_weight",
+                direction="counter",
+                user_value="恐怖",
+                candidate_value="恐怖",
+                user_refs=("memory:negative",),
+                candidate_ref="candidate:test:genres:0",
+                weight_units=1_000,
+                certainty_units=10_000,
+                contribution_units=1_000,
+            ),
+        ],
+    )
 
 
 class FakePlugin:
@@ -99,6 +133,7 @@ def _seed(repository, count=3):
                 title=f"Title {index}",
                 media_type="movie",
                 confidence=80,
+                support=_support(),
                 source_ids={"tmdb": str(index)},
             )
         )
@@ -183,6 +218,7 @@ def test_animation_movie_subscribes_with_recognized_moviepilot_base_type():
                     title="Animation Movie",
                     media_type="anime",
                     confidence=90,
+                    support=_support(),
                     source_ids={"tmdb": "16"},
                 )
             ],
@@ -261,6 +297,9 @@ def test_runtime_marks_board_and_latest_history_on_partial_auto_failure():
         Orchestrator(),
         lambda cron: cron,
         subscription_service=service,
+        feedback_understanding_service=SimpleNamespace(
+            handle_job=lambda job: None
+        ),
     )
 
     result = asyncio.run(runtime.refresh(PROFILE_ID))

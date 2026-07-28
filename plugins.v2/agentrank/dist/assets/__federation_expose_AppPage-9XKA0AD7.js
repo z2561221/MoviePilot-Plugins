@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions--u-FdTxY.js';
-import Config from './__federation_expose_Config-BgAU5jnw.js';
+import Config from './__federation_expose_Config-BXD4EyYM.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BGNRvR24.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,unref:_unref,isRef:_isRef,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass,createSlots:_createSlots} = await importShared('vue');
@@ -93,6 +93,7 @@ const statusMeta = computed(() => {
     validation_failed: { text: '校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
     profile_agent_failed: { text: '画像生成失败', color: 'error', icon: 'mdi-account-alert-outline' },
     profile_validation_failed: { text: '画像校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
+    policy_superseded: { text: '策略已过期', color: 'warning', icon: 'mdi-alert-circle-outline' },
     ranking_agent_failed: { text: '排序生成失败', color: 'error', icon: 'mdi-robot-confused-outline' },
     ranking_validation_failed: { text: '排序校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
     candidate_failed: { text: '候选采集失败', color: 'error', icon: 'mdi-compass-off-outline' },
@@ -112,6 +113,7 @@ const stateMessage = computed(() => {
     validation_failed: '本轮输出未通过安全校验，旧榜单已保留。',
     profile_agent_failed: '画像生成失败，旧画像与旧榜单已保留。',
     profile_validation_failed: '画像输出校验失败，旧画像与旧榜单已保留。',
+    policy_superseded: '偏好已更新，本轮旧策略未保存，请重新生成榜单。',
     ranking_agent_failed: '排序 Agent 调用失败，旧榜单已保留。',
     ranking_validation_failed: '排序输出校验失败，旧榜单已保留。',
     candidate_failed: '候选采集失败，请检查发现来源。',
@@ -485,10 +487,10 @@ return (_ctx, _cache) => {
                                     size: "x-small",
                                     color: "primary",
                                     variant: "tonal",
-                                    class: "ar-app-page__confidence"
+                                    class: "ar-app-page__support"
                                   }, {
                                     default: _withCtx(() => [
-                                      _createTextVNode(_toDisplayString(item.confidence) + "%", 1)
+                                      _createTextVNode(_toDisplayString(item.support?.percentage ?? '—') + _toDisplayString(item.support ? '%' : ''), 1)
                                     ]),
                                     _: 2
                                   }, 1024),
@@ -562,6 +564,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7bf8176f"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ee43080a"]]);
 
 export { AppPage as default };

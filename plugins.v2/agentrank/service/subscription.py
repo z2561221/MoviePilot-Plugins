@@ -32,7 +32,7 @@ class BatchSubscriptionResult:
 
 
 class SubscriptionService:
-    """执行榜单、快照、归档、置信度、识别与重复安全闸。"""
+    """执行榜单、快照、归档、支持度、识别与重复安全闸。"""
 
     def __init__(
         self,
@@ -180,11 +180,17 @@ class SubscriptionService:
         archive = self._repository.load_archive(profile_id)
         if any(entry.candidate_id == candidate_id for entry in archive.entries):
             return self._failure("candidate_archived", "候选已被当前用户归档")
+        support = item.support_percentage
+        if support is None:
+            return self._failure(
+                "support_unavailable",
+                "当前榜单缺少确定性支持度，请重新生成榜单",
+            )
         threshold = float(confidence_threshold or 0.0)
         threshold = threshold * 100 if threshold <= 1 else threshold
-        if float(item.confidence) < threshold:
+        if float(support) < threshold:
             return self._failure(
-                "confidence_below_threshold", "候选置信度低于当前安全阈值"
+                "support_below_threshold", "候选支持度低于当前安全阈值"
             )
         identifiers = self._identifier_kwargs(candidate)
         if not identifiers:

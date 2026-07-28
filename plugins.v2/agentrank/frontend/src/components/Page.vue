@@ -60,6 +60,7 @@ const statusMetaFor = status => ({
   profile_agent_failed: { text: '画像生成失败', color: 'error' },
   profile_validation_failed: { text: '画像校验失败', color: 'error' },
   policy_failed: { text: '策略生成失败', color: 'error' },
+  policy_superseded: { text: '策略已过期', color: 'warning' },
   candidate_failed: { text: '候选采集失败', color: 'error' },
   candidate_filter_failed: { text: '候选过滤失败', color: 'error' },
   candidate_snapshot_failed: { text: '候选快照失败', color: 'error' },
@@ -86,6 +87,7 @@ const historyStageStatusLabels = {
   validation_failed: '校验失败', subscription_partial_failed: '部分订阅失败',
   profile_agent_failed: '画像生成失败', profile_validation_failed: '画像校验失败',
   policy_failed: '策略生成失败',
+  policy_superseded: '偏好已更新，请重新生成',
   candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败',
   candidate_snapshot_failed: '候选快照失败', ranking_agent_failed: '排序生成失败',
   ranking_validation_failed: '排序校验失败', ranking_save_failed: '榜单保存失败', runtime_exception: '运行异常',
@@ -180,6 +182,7 @@ function translateHistoryError(value) {
     .replace(/Invalid control character/gi, '包含无效控制字符')
     .replace(/Unterminated string/gi, '字符串未闭合')
     .replace(/profile_validation_failed/gi, '画像校验失败')
+    .replace(/policy_superseded/gi, '偏好已更新，请重新生成')
     .replace(/ranking_validation_failed/gi, '排序校验失败')
     .replace(/candidate_insufficient/gi, '候选不足')
     .replace(/recommendation_incomplete/gi, '榜单不足')
@@ -451,7 +454,7 @@ onMounted(initialize)
                 </div>
               </div>
               <div class="ar-page__rank-actions">
-                <VChip size="x-small" color="primary" variant="tonal" class="ar-page__confidence">{{ item.confidence }}%</VChip>
+                <VChip size="x-small" color="primary" variant="tonal" class="ar-page__support">{{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
                 <RecommendationActions
                   :item="item"
                   :loading-action="state.loading.action"
@@ -694,7 +697,7 @@ onMounted(initialize)
 .ar-page__copy-text { min-width: 0; display: block; overflow: visible; overflow-wrap: anywhere; }
 .ar-page__match-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .ar-page__rank-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
-.ar-page__confidence { flex: 0 0 auto; }
+.ar-page__support { flex: 0 0 auto; }
 .ar-page__section-card, .ar-page__archive-card, .ar-page__table-card { border-radius: 10px; background: transparent; }
 .ar-page__profile-head { padding: 14px 16px; }
 .ar-page__profile-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 12px; padding: 14px; }

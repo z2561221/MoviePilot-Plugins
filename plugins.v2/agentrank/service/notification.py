@@ -25,6 +25,7 @@ STATUS_LABELS = {
     "profile_agent_failed": "画像 Agent 调用失败",
     "profile_validation_failed": "画像输出校验失败",
     "profile_save_failed": "画像保存失败",
+    "policy_superseded": "偏好已更新，策略已过期",
     "candidate_failed": "候选采集失败",
     "candidate_filter_failed": "候选过滤失败",
     "candidate_snapshot_failed": "候选快照失败",

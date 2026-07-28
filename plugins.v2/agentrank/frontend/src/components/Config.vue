@@ -690,7 +690,7 @@ onMounted(loadRuntime)
                 <VCol cols="12" md="6"><VSelect v-model="form.media_types" :items="mediaTypeOptions" label="媒体类型" multiple chips density="compact" variant="outlined" hide-details /></VCol>
                 <VCol cols="12" md="4"><VTextField v-model.number="form.candidate_pool_size" type="number" min="10" max="500" label="候选池数量" density="compact" variant="outlined" hide-details /></VCol>
                 <VCol cols="12" md="8">
-                  <div class="text-caption mb-1">置信度阈值 {{ Math.round(form.confidence_threshold * 100) }}%</div>
+                  <div class="text-caption mb-1">支持度阈值 {{ Math.round(form.confidence_threshold * 100) }}%</div>
                   <VSlider v-model="form.confidence_threshold" :min="0" :max="1" :step="0.05" color="primary" hide-details thumb-label />
                 </VCol>
                 <VCol cols="12"><VCombobox v-model="form.exclude_keywords" label="排除关键词" multiple chips closable-chips density="compact" variant="outlined" hide-details /></VCol>

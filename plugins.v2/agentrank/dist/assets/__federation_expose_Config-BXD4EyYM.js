@@ -1408,7 +1408,7 @@ return (_ctx, _cache) => {
                       md: "8"
                     }, {
                       default: _withCtx(() => [
-                        _createElementVNode("div", _hoisted_48, "置信度阈值 " + _toDisplayString(Math.round(form.confidence_threshold * 100)) + "%", 1),
+                        _createElementVNode("div", _hoisted_48, "支持度阈值 " + _toDisplayString(Math.round(form.confidence_threshold * 100)) + "%", 1),
                         _createVNode(_component_VSlider, {
                           modelValue: form.confidence_threshold,
                           "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((form.confidence_threshold) = $event)),
@@ -1960,6 +1960,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-bb3ea88f"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a535ee19"]]);
 
 export { Config as default };

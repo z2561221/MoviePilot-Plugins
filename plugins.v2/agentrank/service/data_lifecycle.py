@@ -140,6 +140,42 @@ class DataLifecycleService:
         return result
 
     @staticmethod
+    def _safe_support(value: Any) -> Optional[Dict[str, Any]]:
+        """按白名单导出可重算支持度，不复制任意嵌套载荷。"""
+        if not isinstance(value, Mapping):
+            return None
+        contributions = []
+        for item in value.get("contributions") or []:
+            if not isinstance(item, Mapping):
+                continue
+            contributions.append(
+                {
+                    "dimension": _redact_text(item.get("dimension")),
+                    "direction": _redact_text(item.get("direction")),
+                    "user_value": _redact_text(item.get("user_value")),
+                    "candidate_value": _redact_text(item.get("candidate_value")),
+                    "user_refs": [
+                        _safe_scalar(ref) for ref in item.get("user_refs") or []
+                    ],
+                    "candidate_ref": _safe_scalar(item.get("candidate_ref")),
+                    "weight_units": int(item.get("weight_units") or 0),
+                    "certainty_units": int(item.get("certainty_units") or 0),
+                    "contribution_units": int(
+                        item.get("contribution_units") or 0
+                    ),
+                }
+            )
+        return {
+            "policy_version": _safe_scalar(value.get("policy_version")),
+            "positive_units": int(value.get("positive_units") or 0),
+            "counter_units": int(value.get("counter_units") or 0),
+            "available_units": int(value.get("available_units") or 0),
+            "net_units": int(value.get("net_units") or 0),
+            "percentage": int(value.get("percentage") or 0),
+            "contributions": contributions,
+        }
+
+    @staticmethod
     def _safe_recommendation(item: Mapping[str, Any]) -> Dict[str, Any]:
         """导出榜单条目的安全白名单。"""
         return {
@@ -150,7 +186,7 @@ class DataLifecycleService:
             "year": item.get("year"),
             "summary": _redact_text(item.get("summary")),
             "reason": _redact_text(item.get("reason")),
-            "support": item.get("confidence"),
+            "support": DataLifecycleService._safe_support(item.get("support")),
             "source_ids": {
                 str(key): _safe_scalar(value)
                 for key, value in dict(item.get("source_ids") or {}).items()
@@ -182,6 +218,9 @@ class DataLifecycleService:
             "policy_memory_revision",
             "policy_algorithm_version",
             "policy_evidence_count",
+            "support_scored_count",
+            "support_min",
+            "support_max",
         }
         result: Dict[str, Any] = {}
         for key in allowed:

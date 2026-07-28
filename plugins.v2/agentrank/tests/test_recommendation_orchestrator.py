@@ -19,6 +19,7 @@ profile_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile")
 preferences_module = importlib.import_module(f"{PACKAGE_NAME}.model.profile_preferences")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 feedback_module = importlib.import_module(f"{PACKAGE_NAME}.model.feedback")
+memory_module = importlib.import_module(f"{PACKAGE_NAME}.model.memory")
 playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 orchestrator_module = importlib.import_module(f"{PACKAGE_NAME}.service.recommendation")
@@ -31,6 +32,7 @@ ProfilePreferences = preferences_module.ProfilePreferences
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
 FeedbackEvent = feedback_module.FeedbackEvent
+PreferenceMemoryItem = memory_module.PreferenceMemoryItem
 PlaybackSample = playback_module.PlaybackSample
 PlaybackSnapshot = playback_module.PlaybackSnapshot
 PlaybackCapability = playback_module.PlaybackCapability
@@ -94,6 +96,7 @@ class FakePlaybackService:
                     f"Watched {index}",
                     "movie",
                     tmdb_id=str(index),
+                    genres=["悬疑"],
                     completed=True,
                 )
                 for index in range(1, 6)
@@ -106,7 +109,13 @@ class FakeCandidateService:
 
     def __init__(self, count=12):
         self.candidates = [
-            Candidate(candidate_id=f"tmdb:{index}", title=f"Title {index}", media_type="movie")
+            Candidate(
+                candidate_id=f"tmdb:{index}",
+                title=f"Title {index}",
+                media_type="movie",
+                genres=["悬疑"],
+                regions=["中国"],
+            )
             for index in range(1, count + 1)
         ]
         self.minimum_frozen_candidates = None
@@ -240,10 +249,22 @@ def _agent_output(candidate_ids):
             "recommendations": [
                 {
                     "candidate_id": candidate_id,
-                    "reason": "你持续订阅悬疑电影，这部以密室追凶和双线叙事延续相同兴趣。",
+                    "reason": "偏爱悬疑电影，这部中国密室追凶更贴合。",
                     "summary": "悬疑迷局层层牵出尘封往事与真相",
-                    "match_tags": ["悬疑电影", "双线叙事"],
-                    "confidence": 80,
+                    "match_tags": ["悬疑", "中国"],
+                    "positive_evidence": [
+                        {
+                            "dimension": "type",
+                            "user_value": "movie",
+                            "candidate_value": "movie",
+                        },
+                        {
+                            "dimension": "theme",
+                            "user_value": "悬疑",
+                            "candidate_value": "悬疑",
+                        },
+                    ],
+                    "counter_evidence": [],
                 }
                 for candidate_id in candidate_ids
             ],
@@ -563,6 +584,8 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
             candidate_id=f"tmdb:{index}",
             title=f"Changed {index}",
             media_type="movie",
+            genres=["悬疑"],
+            regions=["中国"],
         )
         for index in range(20, 32)
     ]
@@ -1445,10 +1468,16 @@ def test_initial_domain_drops_are_explained_to_refill():
         {
             "tmdb:4": {
                 "reason": "你偏爱悬疑题材，这部经典作品不容错过。",
-            },
-            "tmdb:5": {
-                "match_tags": ["悬疑电影"],
-            },
+                },
+                "tmdb:5": {
+                    "positive_evidence": [
+                        {
+                            "dimension": "type",
+                            "user_value": "movie",
+                            "candidate_value": "movie",
+                        }
+                    ],
+                },
         },
     )
     orchestrator, repository = _orchestrator(
@@ -1463,7 +1492,7 @@ def test_initial_domain_drops_are_explained_to_refill():
     refill_prompt = orchestrator.agent_adapter.ranking_calls[1][0]
     assert '"candidate_id":"tmdb:4","reason":"invalid_reason"' in refill_prompt
     assert (
-        '"candidate_id":"tmdb:5","reason":"insufficient_match_evidence"'
+            '"candidate_id":"tmdb:5","reason":"insufficient_verified_evidence"'
         in refill_prompt
     )
 
@@ -1553,6 +1582,66 @@ def test_refill_invalid_json_stops_after_the_single_bounded_call():
     assert len(orchestrator.agent_adapter.ranking_calls) == 2
 
 
+def test_memory_revision_change_during_ranking_discards_old_policy_board():
+    """排序期间确认记忆更新时旧策略结果不得保存。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+
+    class MemoryChangingCandidateService(FakeCandidateService):
+        """在来源补全阶段模拟另一请求确认了新偏好。"""
+
+        def __init__(self):
+            """初始化候选池和一次性投影标记。"""
+            super().__init__(12)
+            self.changed = False
+
+        def enrich_recommendation_sources(self, recommendations):
+            """在最终提交锁之前推进确认记忆 revision。"""
+            del recommendations
+            if self.changed:
+                return
+            self.changed = True
+            result = repository.project_preference_memory(
+                PROFILE_ID,
+                [
+                    PreferenceMemoryItem(
+                        item_id="memory-during-ranking",
+                        category="genre",
+                        value="悬疑",
+                        polarity="positive",
+                        strength=1.0,
+                        certainty=1.0,
+                        evidence_refs=("feedback:1",),
+                        source_event_sequence=1,
+                        created_at="2026-07-28T12:00:00+00:00",
+                    )
+                ],
+                expected_revision=0,
+                source_event_sequence=1,
+            )
+            assert result.applied is True
+
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=MemoryChangingCandidateService(),
+        agent_adapter=FakeAgentAdapter(
+            [_agent_output([f"tmdb:{index}" for index in range(1, 6)])]
+        ),
+        run_id_factory=lambda: "run-policy-superseded",
+        playback_service=FakePlaybackService(),
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "policy_superseded"
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
+    assert repository.load_preference_memory(PROFILE_ID).memory_revision == 1
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.status == "policy_superseded"
+    assert history.metrics["policy_memory_revision"] == 0
+
+
 def test_zero_valid_agent_items_builds_five_item_fallback_board():
     """Agent 没有安全推荐时从冻结候选池构建五条保底榜单。"""
     plugin = FakePlugin()
@@ -1621,12 +1710,14 @@ def test_ignore_during_run_is_rechecked_and_refilled_before_board_commit():
             """初始化候选池与一次性忽略标记。"""
             super().__init__(12)
             self.candidates = [
-                Candidate(
-                    candidate_id=f"tmdb:movie:{index}",
-                    title=f"Title {index}",
-                    media_type="movie",
-                    source_ids={"tmdb": str(index)},
-                )
+                    Candidate(
+                        candidate_id=f"tmdb:movie:{index}",
+                        title=f"Title {index}",
+                        media_type="movie",
+                        genres=["悬疑"],
+                        regions=["中国"],
+                        source_ids={"tmdb": str(index)},
+                    )
                 for index in range(1, 13)
             ]
             self.ignored = False
@@ -1683,12 +1774,14 @@ def test_dislike_during_run_is_rechecked_and_refilled_before_board_commit():
             """初始化使用类型化 TMDB 身份的候选池。"""
             super().__init__(12)
             self.candidates = [
-                Candidate(
-                    candidate_id=f"tmdb:movie:{index}",
-                    title=f"Title {index}",
-                    media_type="movie",
-                    source_ids={"tmdb": str(index)},
-                )
+                    Candidate(
+                        candidate_id=f"tmdb:movie:{index}",
+                        title=f"Title {index}",
+                        media_type="movie",
+                        genres=["悬疑"],
+                        regions=["中国"],
+                        source_ids={"tmdb": str(index)},
+                    )
                 for index in range(1, 13)
             ]
             self.disliked = False

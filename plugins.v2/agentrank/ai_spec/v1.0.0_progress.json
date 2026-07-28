@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-5",
-    "task": "5.1",
-    "next_allowed_action": "Execute task 5.1: derive versioned bounded learning deltas from confirmed PreferenceMemory while preserving all ten configured base weights and evidence thresholds"
+    "task": "5.3",
+    "next_allowed_action": "Execute task 5.3: implement stable deterministic ordering and score every safe fallback candidate with the same policy while recording selection_source"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -492,17 +492,43 @@
         {
           "id": "5.1",
           "title": "实现版本化十项权重学习",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": ["基准权重保留", "学习增量在正负0.25内", "独立证据和弃看规则生效"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "policy, recommendation orchestration, and lifecycle focused regression: 65 passed",
+            "AgentRank plugin suite: 529 passed",
+            "AgentRank static contracts: 25 passed",
+            "baseline smoke contracts: 52 passed",
+            "Vue federation build: passed with 67 modules transformed and exactly one current Page JS/CSS asset pair",
+            "all ten configured base weights remain immutable while confirmed-memory and independent-playback deltas are clamped to [-0.25, +0.25]",
+            "one title cannot form stable playback evidence, completed replay supersedes its earlier abandonment, and abandonment remains a weak non-filtering signal",
+            "ignore events leave policy version and every effective weight unchanged; correction lineage reads only the current memory item",
+            "policy snapshots are content-addressed, revision-CAS persisted, strict-read validated, recoverable from corrupt storage, and exported without raw feedback text",
+            "compileall, progress JSON parse, Chinese docstring contract, placeholder scan, git diff check, and sensitive scan review: passed"
+          ],
+          "commit": "bfd94fce"
         },
         {
           "id": "5.2",
           "title": "实现确定性支持度",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["百分比可由贡献项零误差重算", "LLM confidence不控制排序和订阅"],
-          "verification": [],
+          "verification": [
+            "SupportContribution and SupportScore use integer units; persisted totals, net score, percentage, and every contribution round-trip with zero recalculation error",
+            "tampered percentage, aggregate units, or contribution units are rejected on strict read",
+            "ranking Agent output now declares bounded positive_evidence and counter_evidence and cannot include confidence, score, support, or a self-computed percentage",
+            "the host validates every claim against current confirmed memory, unarchived manual preferences, independent playback evidence, and frozen candidate fields; fewer than two verified positive contributions are rejected",
+            "verifiable negative preferences are automatically counted even when the Agent omits counter evidence, while one playback title cannot create stable support",
+            "ignore changes only board and archive state and leaves memory, policy version, and support unchanged",
+            "manual and automatic subscription read only deterministic support; confidence-only legacy boards fail closed with support_unavailable",
+            "a memory revision change during ranking returns policy_superseded and does not persist the old-policy board",
+            "run history records policy version and support count/min/max; sanitized profile export whitelists reproducible support contributions",
+            "AgentRank plugin suite: 540 passed",
+            "AgentRank static contracts: 25 passed",
+            "baseline smoke contracts: 52 passed",
+            "Vue federation build: passed with 67 modules transformed; all four generated CSS files differ only by scoped hashes and the intentional confidence-to-support class rename",
+            "compileall and git diff check: passed"
+          ],
           "commit": null
         },
         {
@@ -835,6 +861,12 @@
       "task": "4.5",
       "result": "transactional proposal confirmation implemented with deterministic memory items, one-revision CAS, idempotent repeats, stale and concurrent supersession, tombstone restoration, and atomic rollback",
       "commit": "ae6f07b9"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "5.1",
+      "result": "versioned ten-weight learning policy implemented with immutable bases, bounded confirmed deltas, independent playback evidence, weak abandonment, ignore isolation, deterministic replay, revision CAS, and corrupt-snapshot recovery",
+      "commit": "bfd94fce"
     }
   ],
   "residual_risks": [

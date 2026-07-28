@@ -81,6 +81,7 @@ security_module.verify_token = verify_token
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
+support_module = importlib.import_module(f"{PACKAGE_NAME}.model.support")
 archive_module = importlib.import_module(f"{PACKAGE_NAME}.model.archive")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 service_module = importlib.import_module(f"{PACKAGE_NAME}.service.subscription")
@@ -92,6 +93,8 @@ Candidate = candidate_module.Candidate
 CandidateSnapshot = snapshot_module.CandidateSnapshot
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
+SupportContribution = support_module.SupportContribution
+SupportScore = support_module.SupportScore
 ArchiveFeedback = archive_module.ArchiveFeedback
 ArchiveEntry = archive_module.ArchiveEntry
 AgentRankRepository = repository_module.AgentRankRepository
@@ -113,6 +116,41 @@ IDENTITY_CONFIG = {
     ],
     "default_profile_id": PROFILE_ID,
 }
+
+
+def _support(percentage=80):
+    """构造百分之八十或五十的可重算订阅测试支持度。"""
+    positive_units, counter_units = {
+        80: (9_000, 1_000),
+        50: (7_500, 2_500),
+    }[int(percentage)]
+    return SupportScore.from_contributions(
+        "policy-v1-subscription-test",
+        [
+            SupportContribution(
+                dimension="type_weight",
+                direction="positive",
+                user_value="movie",
+                candidate_value="movie",
+                user_refs=("playback:observed:1", "playback:observed:2"),
+                candidate_ref="candidate:test:media_type:0",
+                weight_units=positive_units,
+                certainty_units=10_000,
+                contribution_units=positive_units,
+            ),
+            SupportContribution(
+                dimension="theme_weight",
+                direction="counter",
+                user_value="恐怖",
+                candidate_value="恐怖",
+                user_refs=("memory:negative",),
+                candidate_ref="candidate:test:genres:0",
+                weight_units=counter_units,
+                certainty_units=10_000,
+                contribution_units=counter_units,
+            ),
+        ],
+    )
 
 
 class FakePlugin:
@@ -193,7 +231,7 @@ def _legacy_snapshot(run_id, candidates):
     ).seal()
 
 
-def _seed(repository, confidence=80, source_ids=None, run_id="run-1"):
+def _seed(repository, support_percentage=80, source_ids=None, run_id="run-1"):
     source_ids = source_ids if source_ids is not None else {"tmdb": "1"}
     repository.save_board(
         RecommendationBoard(
@@ -207,7 +245,7 @@ def _seed(repository, confidence=80, source_ids=None, run_id="run-1"):
                     rank=1,
                     title="One",
                     media_type="movie",
-                    confidence=confidence,
+                    support=_support(support_percentage),
                     source_ids=source_ids,
                 )
             ],
@@ -429,19 +467,19 @@ def test_global_duplicate_check_failure_stops_closed_without_creation():
     assert chain.add_calls == []
 
 
-def test_manual_subscription_rejects_missing_snapshot_archive_and_low_confidence():
-    """Snapshot membership, active archive, and confidence are hard gates."""
+def test_manual_subscription_rejects_missing_snapshot_archive_and_low_support():
+    """快照成员、有效归档和确定性支持度均为订阅硬门。"""
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
-    _seed(repository, confidence=50)
+    _seed(repository, support_percentage=50)
     chain = FakeSubscribeChain()
     service = SubscriptionService(repository, chain, FakeMedia, lambda value: value)
 
     low = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
-    assert low.code == "confidence_below_threshold"
+    assert low.code == "support_below_threshold"
 
     board = repository.load_board(PROFILE_ID)
-    board.recommendations[0].confidence = 80
+    board.recommendations[0].support = _support(80)
     repository.save_board(board)
     repository.save_archive(
         ArchiveFeedback(
@@ -457,6 +495,29 @@ def test_manual_subscription_rejects_missing_snapshot_archive_and_low_confidence
     plugin.del_data(key=repository._candidate_key("run-1", PROFILE_ID))
     missing = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
     assert missing.code == "candidate_not_in_snapshot"
+
+
+def test_legacy_confidence_only_board_is_closed_until_regenerated():
+    """旧榜单即使 confidence 很高也不得绕过确定性支持度。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    _seed(repository)
+    board = repository.load_board(PROFILE_ID)
+    board.recommendations[0].support = None
+    board.recommendations[0].confidence = 100
+    repository.save_board(board)
+    chain = FakeSubscribeChain()
+    service = SubscriptionService(
+        repository,
+        chain,
+        FakeMedia,
+        lambda value: value,
+    )
+
+    result = service.subscribe(PROFILE_ID, "tmdb:1", 0.6)
+
+    assert result.success is False
+    assert result.code == "support_unavailable"
     assert chain.add_calls == []
 
 

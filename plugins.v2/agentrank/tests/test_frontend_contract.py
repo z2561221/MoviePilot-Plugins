@@ -405,15 +405,16 @@ def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse()
     assert "flex-wrap: wrap" in actions
     for label in ("订阅", "TMDB", "忽略"):
         assert f'<span class="ar-actions__label">{label}</span>' in actions
-    for name, confidence_class in (
-        ("Dashboard.vue", "ar-dashboard__confidence"),
-        ("AppPage.vue", "ar-app-page__confidence"),
-        ("Page.vue", "ar-page__confidence"),
+    for name, support_class in (
+        ("Dashboard.vue", "ar-dashboard__support"),
+        ("AppPage.vue", "ar-app-page__support"),
+        ("Page.vue", "ar-page__support"),
     ):
         component = _read(name)
         assert "置信度" not in component
-        assert "{{ item.confidence }}%" in component
-        assert component.index(confidence_class) < component.index("<RecommendationActions")
+        assert "{{ item.support?.percentage ?? '—' }}" in component
+        assert "{{ item.support ? '%' : '' }}" in component
+        assert component.index(support_class) < component.index("<RecommendationActions")
 
 
 def test_native_subscribe_payload_keeps_source_id_aliases_without_source_buttons():
@@ -484,6 +485,7 @@ def test_runtime_history_exposes_versioned_policy_in_chinese():
 
     assert "policy: '确定策略'" in page
     assert "policy_failed: '策略生成失败'" in page
+    assert "policy_superseded: '偏好已更新，请重新生成'" in page
     assert "function historyPolicyText(run)" in page
     assert "metrics.policy_version" in page
     assert "metrics.policy_memory_revision" in page

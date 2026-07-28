@@ -333,7 +333,8 @@ def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
         assert "@like=" in source
         assert "@dislike=" in source
         assert "置信度" not in source
-        assert "{{ item.confidence }}%" in source
+        assert "{{ item.support?.percentage ?? '—' }}" in source
+        assert "{{ item.support ? '%' : '' }}" in source
 
 
 def test_primary_surface_exposes_the_complete_semantic_state_matrix():

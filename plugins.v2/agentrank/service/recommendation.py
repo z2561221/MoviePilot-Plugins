@@ -200,7 +200,9 @@ class RecommendationOrchestrator:
 
     @staticmethod
     def _trusted_weights(
-        config: Mapping[str, Any], policy: PolicySnapshot = None
+        config: Mapping[str, Any],
+        policy: PolicySnapshot = None,
+        confirmed_memory: Any = None,
     ) -> Dict[str, Any]:
         """选择 Agent 允许读取的权重和筛选配置。"""
         values = {
@@ -222,6 +224,21 @@ class RecommendationOrchestrator:
                     "evidence_certainty": dict(policy.evidence_certainty),
                     "policy_version": policy.policy_version,
                     "memory_revision": policy.memory_revision,
+                    "confirmed_preferences": [
+                        {
+                            "category": item.category,
+                            "value": item.value,
+                            "polarity": item.polarity,
+                            "strength": item.strength,
+                            "certainty": item.certainty,
+                            "evidence_refs": [f"memory:{item.item_id}"],
+                        }
+                        for item in (
+                            confirmed_memory.active_items()
+                            if confirmed_memory is not None
+                            else ()
+                        )
+                    ],
                 }
             )
         return values
@@ -561,6 +578,21 @@ class RecommendationOrchestrator:
                     config.get("weights") or {},
                     playback_snapshot,
                 )
+                confirmed_memory = self._repository.load_preference_memory(target)
+                if confirmed_memory.memory_revision != policy_snapshot.memory_revision:
+                    policy_snapshot = await asyncio.to_thread(
+                        self._policy_service.refresh,
+                        target,
+                        config.get("weights") or {},
+                        playback_snapshot,
+                    )
+                    confirmed_memory = self._repository.load_preference_memory(
+                        target
+                    )
+                if confirmed_memory.memory_revision != policy_snapshot.memory_revision:
+                    raise RuntimeError(
+                        "preference memory changed after policy refresh"
+                    )
             except Exception as error:
                 errors.append(f"policy: {error}")
                 return self._failure(
@@ -989,7 +1021,11 @@ class RecommendationOrchestrator:
                 run_id=run_id,
                 candidates=[candidate.to_dict() for candidate in candidates],
                 archive_feedback=archive.to_dict(),
-                weights=self._trusted_weights(config, policy_snapshot),
+                weights=self._trusted_weights(
+                    config,
+                    policy_snapshot,
+                    confirmed_memory,
+                ),
                 previous_profile=None,
                 profile_preferences=profile_preferences.to_dict(),
                 playback=playback_snapshot.to_dict(),
@@ -1064,7 +1100,15 @@ class RecommendationOrchestrator:
                         ],
                         playback_samples=playback_snapshot.samples,
                         disliked_candidate_ids=disliked_ids,
+                        policy_snapshot=policy_snapshot,
+                        confirmed_memory=confirmed_memory,
+                        profile_preferences=profile_preferences,
+                        playback_snapshot=playback_snapshot,
                     )
+                    if validation.support_warnings:
+                        metrics.setdefault("support_warnings", []).extend(
+                            validation.support_warnings
+                        )
                     break
                 except AgentOutputError as error:
                     detail = f"attempt {attempt + 1}: {error}"
@@ -1156,7 +1200,15 @@ class RecommendationOrchestrator:
                             ],
                             playback_samples=playback_snapshot.samples,
                             disliked_candidate_ids=disliked_ids,
+                            policy_snapshot=policy_snapshot,
+                            confirmed_memory=confirmed_memory,
+                            profile_preferences=profile_preferences,
+                            playback_snapshot=playback_snapshot,
                         )
+                        if refill_validation.support_warnings:
+                            metrics.setdefault("support_warnings", []).extend(
+                                refill_validation.support_warnings
+                            )
                         for item in refill_validation.accepted[:refill_slots]:
                             item.rank = len(accepted) + 1
                             accepted.append(item)
@@ -1247,6 +1299,23 @@ class RecommendationOrchestrator:
             self._candidate_service.enrich_recommendation_sources(accepted)
             try:
                 with self._repository.board_archive_guard(target):
+                    latest_memory = self._repository.load_preference_memory(target)
+                    if latest_memory.memory_revision != policy_snapshot.memory_revision:
+                        errors.append(
+                            "confirmed preference memory changed during ranking"
+                        )
+                        return self._failure(
+                            target,
+                            username,
+                            run_id,
+                            "policy_superseded",
+                            "偏好记忆已更新，本轮旧策略结果未保存",
+                            started_at,
+                            started_clock,
+                            metrics,
+                            errors,
+                            agent_calls=int(metrics["agent_calls"]),
+                        )
                     latest_archive = self._repository.load_archive(target)
                     latest_archived_ids = self._archive_candidate_ids(latest_archive)
                     latest_disliked_ids = FeedbackActionService(
@@ -1327,6 +1396,20 @@ class RecommendationOrchestrator:
                     )
                     metrics["ranking_fallback_errors"] = (
                         ranking_fallback_errors if fallback_count else []
+                    )
+                    supported_items = [
+                        item for item in accepted if item.support is not None
+                    ]
+                    metrics["support_scored_count"] = len(supported_items)
+                    metrics["support_min"] = (
+                        min(item.support.percentage for item in supported_items)
+                        if supported_items
+                        else 0
+                    )
+                    metrics["support_max"] = (
+                        max(item.support.percentage for item in supported_items)
+                        if supported_items
+                        else 0
                     )
 
                     if not accepted:

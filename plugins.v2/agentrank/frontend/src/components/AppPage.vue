@@ -46,6 +46,7 @@ const statusMeta = computed(() => {
     validation_failed: { text: '校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
     profile_agent_failed: { text: '画像生成失败', color: 'error', icon: 'mdi-account-alert-outline' },
     profile_validation_failed: { text: '画像校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
+    policy_superseded: { text: '策略已过期', color: 'warning', icon: 'mdi-alert-circle-outline' },
     ranking_agent_failed: { text: '排序生成失败', color: 'error', icon: 'mdi-robot-confused-outline' },
     ranking_validation_failed: { text: '排序校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
     candidate_failed: { text: '候选采集失败', color: 'error', icon: 'mdi-compass-off-outline' },
@@ -65,6 +66,7 @@ const stateMessage = computed(() => {
     validation_failed: '本轮输出未通过安全校验，旧榜单已保留。',
     profile_agent_failed: '画像生成失败，旧画像与旧榜单已保留。',
     profile_validation_failed: '画像输出校验失败，旧画像与旧榜单已保留。',
+    policy_superseded: '偏好已更新，本轮旧策略未保存，请重新生成榜单。',
     ranking_agent_failed: '排序 Agent 调用失败，旧榜单已保留。',
     ranking_validation_failed: '排序输出校验失败，旧榜单已保留。',
     candidate_failed: '候选采集失败，请检查发现来源。',
@@ -265,7 +267,7 @@ onMounted(initialize)
                   </div>
                 </div>
                 <div class="ar-app-page__item-actions">
-                  <VChip size="x-small" color="primary" variant="tonal" class="ar-app-page__confidence">{{ item.confidence }}%</VChip>
+                  <VChip size="x-small" color="primary" variant="tonal" class="ar-app-page__support">{{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
                   <RecommendationActions :item="item" :loading-action="loading.action" :native-subscribe="nativeSubscribe" size="small" @like="candidateId => feedbackItem('like', candidateId)" @dislike="candidateId => feedbackItem('dislike', candidateId)" @subscribe="subscribeItem" @archive="archiveItem" />
                 </div>
               </article>
@@ -317,7 +319,7 @@ onMounted(initialize)
 .ar-app-page__copy-text--reason { font-weight: 600; }
 .ar-app-page__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .ar-app-page__item-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
-.ar-app-page__confidence { flex: 0 0 auto; }
+.ar-app-page__support { flex: 0 0 auto; }
 .ar-app-page__state { min-height: 480px; display: flex; align-items: center; justify-content: center; padding: 24px; }
 @media (max-width: 760px) {
   .ar-app-page { padding: 8px; }

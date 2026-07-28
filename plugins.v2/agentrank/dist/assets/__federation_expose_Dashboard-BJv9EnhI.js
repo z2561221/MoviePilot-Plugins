@@ -229,10 +229,10 @@ return (_ctx, _cache) => {
                             size: "x-small",
                             color: "primary",
                             variant: "tonal",
-                            class: "ar-dashboard__confidence"
+                            class: "ar-dashboard__support"
                           }, {
                             default: _withCtx(() => [
-                              _createTextVNode(_toDisplayString(item.confidence) + "%", 1)
+                              _createTextVNode(_toDisplayString(item.support?.percentage ?? '—') + _toDisplayString(item.support ? '%' : ''), 1)
                             ]),
                             _: 2
                           }, 1024),
@@ -298,6 +298,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e4429e90"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-24744417"]]);
 
 export { Dashboard as default };

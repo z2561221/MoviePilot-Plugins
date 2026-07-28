@@ -20,6 +20,7 @@ package.__path__ = [str(PLUGIN_DIR)]
 
 archive_module = importlib.import_module(f"{PACKAGE_NAME}.model.archive")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
+support_module = importlib.import_module(f"{PACKAGE_NAME}.model.support")
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
 feedback_module = importlib.import_module(f"{PACKAGE_NAME}.model.feedback")
@@ -37,6 +38,8 @@ ArchiveEntry = archive_module.ArchiveEntry
 ArchiveFeedback = archive_module.ArchiveFeedback
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
+SupportContribution = support_module.SupportContribution
+SupportScore = support_module.SupportScore
 Candidate = candidate_module.Candidate
 CandidateSnapshot = snapshot_module.CandidateSnapshot
 FeedbackEvent = feedback_module.FeedbackEvent
@@ -134,6 +137,22 @@ def _seed_profile(repository, plugin):
                     reason="节奏匹配",
                     summary="完整短句",
                     confidence=0.8,
+                    support=SupportScore.from_contributions(
+                        "policy-v1-safe",
+                        [
+                            SupportContribution(
+                                dimension="theme_weight",
+                                direction="positive",
+                                user_value="悬疑",
+                                candidate_value="悬疑",
+                                user_refs=("memory:1",),
+                                candidate_ref="candidate:101:genres:0",
+                                weight_units=8_000,
+                                certainty_units=10_000,
+                                contribution_units=8_000,
+                            )
+                        ],
+                    ),
                     media_type="tv",
                     source_ids={"tmdb": "101"},
                 )
@@ -321,6 +340,10 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
     )
     assert exported["run_history"][0]["metrics"]["policy_memory_revision"] == 3
     assert exported["board"]["recommendations"][0]["candidate_id"] == "tmdb:tv:101"
+    exported_support = exported["board"]["recommendations"][0]["support"]
+    assert exported_support["policy_version"] == "policy-v1-safe"
+    assert exported_support["percentage"] == 100
+    assert exported_support["contributions"][0]["contribution_units"] == 8_000
 
 
 def test_learning_reset_preserves_current_outputs_and_host_data():

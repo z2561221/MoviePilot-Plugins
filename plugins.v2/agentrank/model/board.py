@@ -3,6 +3,8 @@
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
+from .support import SupportScore
+
 
 @dataclass
 class RecommendationItem:
@@ -13,6 +15,7 @@ class RecommendationItem:
     summary: str = ""
     reason: str = ""
     confidence: float = 0.0
+    support: Optional[SupportScore] = None
     title: str = ""
     media_type: str = "unknown"
     year: Optional[int] = None
@@ -22,6 +25,11 @@ class RecommendationItem:
     backdrop_path: str = ""
     match_tags: List[str] = field(default_factory=list)
     original_title: str = ""
+
+    @property
+    def support_percentage(self) -> Optional[int]:
+        """返回新策略生成的确定性支持度；旧置信度不作为回退。"""
+        return self.support.percentage if self.support is not None else None
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RecommendationItem":
@@ -54,6 +62,11 @@ class RecommendationItem:
             summary=str(value.get("summary") or ""),
             reason=str(value.get("reason") or ""),
             confidence=float(value.get("confidence") or 0.0),
+            support=(
+                SupportScore.from_dict(value.get("support"))
+                if isinstance(value.get("support"), Mapping)
+                else None
+            ),
             title=str(value.get("title") or ""),
             original_title=str(value.get("original_title") or value.get("original_name") or ""),
             media_type=str(value.get("media_type") or "unknown"),
