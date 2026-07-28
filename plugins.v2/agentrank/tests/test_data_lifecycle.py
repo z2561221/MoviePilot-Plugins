@@ -137,6 +137,7 @@ def _seed_profile(repository, plugin):
                     reason="节奏匹配",
                     summary="完整短句",
                     confidence=0.8,
+                    selection_source="agent",
                     support=SupportScore.from_contributions(
                         "policy-v1-safe",
                         [
@@ -310,6 +311,9 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
             "policy_memory_revision": 3,
             "policy_algorithm_version": 1,
             "policy_evidence_count": 8,
+            "agent_selected_count": 4,
+            "safe_fallback_selected_count": 1,
+            "selection_source_counts": {"agent": 4, "safe_fallback": 1},
         }
     )
     first_segment = repository._feedback_segment_key(PROFILE_ID, 1)
@@ -340,6 +344,11 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
     )
     assert exported["run_history"][0]["metrics"]["policy_memory_revision"] == 3
     assert exported["board"]["recommendations"][0]["candidate_id"] == "tmdb:tv:101"
+    assert exported["board"]["recommendations"][0]["selection_source"] == "agent"
+    assert exported["run_history"][0]["metrics"]["selection_source_counts"] == {
+        "agent": 4,
+        "safe_fallback": 1,
+    }
     exported_support = exported["board"]["recommendations"][0]["support"]
     assert exported_support["policy_version"] == "policy-v1-safe"
     assert exported_support["percentage"] == 100

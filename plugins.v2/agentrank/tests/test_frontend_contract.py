@@ -494,6 +494,18 @@ def test_runtime_history_exposes_versioned_policy_in_chinese():
     assert "repeat(7, minmax(90px, 1fr))" in page
 
 
+def test_runtime_history_explains_agent_and_safe_fallback_selection_sources():
+    """运行历史用中文分别展示 Agent 选择和安全补位数量。"""
+    page = _read("Page.vue")
+
+    assert "function historySelectionSourceText(run)" in page
+    assert "metrics.selection_source_counts" in page
+    assert "metrics.agent_selected_count" in page
+    assert "metrics.safe_fallback_selected_count" in page
+    assert "Agent 选择 ${agent} 条；安全补位 ${fallback} 条" in page
+    assert "<span>选择来源</span>" in page
+
+
 def test_preview_status_selector_uses_chinese_titles_for_internal_codes():
     """预览夹具展示中文状态标题但保留后端内部状态码。"""
     preview = (COMPONENT_DIR.parent / "PreviewApp.vue").read_text(encoding="utf-8")

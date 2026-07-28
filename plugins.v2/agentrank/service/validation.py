@@ -17,7 +17,7 @@ from ..model.retrieval import (
     RetrievalFilters,
     RetrievalPlan,
 )
-from .scoring import DeterministicSupportScorer
+from .scoring import DeterministicSupportScorer, StableRecommendationRanker
 
 
 FILLER_END_PATTERN = re.compile(r"(?:哈|呀|嘛|哒|喂)[。！？!?]?$")
@@ -315,7 +315,7 @@ class DroppedRecommendation:
 
 @dataclass
 class RecommendationValidationResult:
-    """表示保持 Agent 顺序的通过项与丢弃证据。"""
+    """表示带 Agent 原始顺序的通过项与丢弃证据。"""
 
     accepted: List[RecommendationItem] = field(default_factory=list)
     dropped: List[DroppedRecommendation] = field(default_factory=list)
@@ -873,6 +873,7 @@ class RecommendationValidator:
     def __init__(self, support_scorer: Any = None) -> None:
         """注入确定性支持度评分器。"""
         self._support_scorer = support_scorer or DeterministicSupportScorer()
+        self._ranker = StableRecommendationRanker()
 
     @staticmethod
     def _match_tags(tags: Sequence[str]) -> List[str]:
@@ -1432,9 +1433,29 @@ class RecommendationValidator:
         blocked_candidate_ids: Iterable[str] = (),
         preference_evidence: Sequence[str] = (),
         limit: int = RECOMMENDATION_LIMIT,
+        policy_snapshot: Any = None,
+        confirmed_memory: Any = None,
+        profile_preferences: Any = None,
+        playback_snapshot: Any = None,
+        scoring_errors: Optional[List[str]] = None,
     ) -> List[RecommendationItem]:
-        """按冻结候选顺序构建不重复、不编造观看经历的安全保底条目。"""
+        """用同一策略评分并构建不重复、不编造经历的安全补位。"""
         target_limit = max(1, min(int(limit), RECOMMENDATION_LIMIT))
+        remaining_slots = max(0, target_limit - len(accepted or ()))
+        if remaining_slots <= 0:
+            return []
+        errors = scoring_errors if scoring_errors is not None else []
+        if any(
+            value is None
+            for value in (
+                policy_snapshot,
+                confirmed_memory,
+                profile_preferences,
+                playback_snapshot,
+            )
+        ):
+            errors.append("support_context_unavailable")
+            return []
         accepted_ids = {item.candidate_id for item in accepted or ()}
         blocked_ids = {
             str(candidate_id or "").strip()
@@ -1443,8 +1464,6 @@ class RecommendationValidator:
         }
         result: List[RecommendationItem] = []
         for candidate in candidates or ():
-            if len(accepted) + len(result) >= target_limit:
-                break
             if (
                 candidate.candidate_id in accepted_ids
                 or candidate.candidate_id in blocked_ids
@@ -1460,13 +1479,28 @@ class RecommendationValidator:
                 reason = f"作品通过本轮画像检索与安全过滤，按{tags[0]}要素保底补位。"
             else:
                 reason = "作品通过本轮画像检索与安全过滤，作为榜单保底补位。"
+            try:
+                scoring = self._support_scorer.score_candidate(
+                    candidate,
+                    policy_snapshot,
+                    (),
+                    (),
+                    confirmed_memory,
+                    profile_preferences,
+                    playback_snapshot,
+                )
+            except Exception:
+                errors.append(f"{candidate.candidate_id}:support_scoring_failed")
+                continue
             result.append(
                 RecommendationItem(
                     candidate_id=candidate.candidate_id,
-                    rank=len(accepted) + len(result) + 1,
+                    rank=1,
                     summary=fallback_summary(candidate),
                     reason=reason,
-                    confidence=60,
+                    confidence=scoring.score.percentage,
+                    support=scoring.score,
+                    selection_source="safe_fallback",
                     title=candidate.title,
                     original_title=candidate.original_title,
                     media_type=candidate.media_type,
@@ -1478,7 +1512,8 @@ class RecommendationValidator:
                     match_tags=tags,
                 )
             )
-        return result
+        ranked = self._ranker.rank(result, candidates, agent_order={})
+        return ranked[:remaining_slots]
 
     def validate(
         self,
@@ -1494,7 +1529,7 @@ class RecommendationValidator:
         profile_preferences: Any = None,
         playback_snapshot: Any = None,
     ) -> RecommendationValidationResult:
-        """按 Agent 原顺序校验并丰富通过项，绝不按媒体属性重排。"""
+        """按 Agent 原顺序校验并丰富通过项，最终排序由编排器完成。"""
         candidate_map: Dict[str, Candidate] = {
             candidate.candidate_id: candidate for candidate in candidates
         }
@@ -1649,6 +1684,7 @@ class RecommendationValidator:
                     reason=reason,
                     confidence=confidence,
                     support=support,
+                    selection_source="agent",
                     title=candidate.title,
                     original_title=candidate.original_title,
                     media_type=candidate.media_type,

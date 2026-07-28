@@ -20,7 +20,7 @@ AgentRank 是 MoviePilot V2 本地插件。它按稳定 Emby identity 读取 Pla
 - 提示协议：`service/prompt.py`；画像提示只允许播放事实，排序提示只允许使用冻结候选、归档反馈、权重和当前画像；候选标题、简介、标签和归档文本始终是不可信数据。
 - 检索计划模型：`model/retrieval.py`，固定媒体类型、TMDB 题材 ID、ISO 639-1 语言与合法排序集合。
 - 受控解析：`service/keyword_resolution.py` 只把固定题材/语言别名或唯一可信 TMDB 关键词写入 filters；`adapter/tmdb_keyword.py` 通过宿主 `TmdbApi.search.keywords` 查询，不在 service 层直接发 HTTP。
-- 输出解析与安全校验：`service/validation.py`；画像与排序分别使用独立 schema，只接受有界 JSON 对象，并保持排序 Agent 最终顺序。
+- 输出解析与安全校验：`service/validation.py`；画像与排序分别使用独立 schema，只接受有界 JSON 对象。最终榜单以确定性支持净分降序，已校验 Agent 顺序只在同分时参与破局，随后依次使用冻结候选顺序和 `candidate_id` 保证稳定。
 - 订阅副作用：仅允许 `service/subscription.py` 在 Agent 已结束后执行，Agent 适配器不得持有该服务。
 - Telegram 自选订阅：`service/telegram_interaction.py` 使用海报轮播和一次性会话令牌处理 `MessageAction`；按钮点击只维护待订阅清单，最终确认才调用 `service/subscription.py`。
 - 用户动作：喜欢、不喜欢和忽略先写入幂等事件账本，再异步触发反馈理解；API 和页面不得等待 LLM。

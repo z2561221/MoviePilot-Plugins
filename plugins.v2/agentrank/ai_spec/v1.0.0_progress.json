@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-5",
-    "task": "5.3",
-    "next_allowed_action": "Execute task 5.3: implement stable deterministic ordering and score every safe fallback candidate with the same policy while recording selection_source"
+    "task": "5.4",
+    "next_allowed_action": "Execute task 5.4: generate a structured, correctable AgentAnalysis from verified evidence, counter-evidence, deterministic contributions, and versioned sources without exposing raw chain of thought"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -527,16 +527,30 @@
             "AgentRank static contracts: 25 passed",
             "baseline smoke contracts: 52 passed",
             "Vue federation build: passed with 67 modules transformed; all four generated CSS files differ only by scoped hashes and the intentional confidence-to-support class rename",
+            "implementation commit e836fb4e; generated AppPage CSS EOF cleanup commit 0b877eaf",
             "compileall and git diff check: passed"
           ],
-          "commit": null
+          "commit": "e836fb4e"
         },
         {
           "id": "5.3",
           "title": "实现稳定排序和同策略补位",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["100次重放一致", "补位也使用同一评分器并标记来源"],
-          "verification": [],
+          "verification": [
+            "StableRecommendationRanker orders by support net units, validated Agent order, frozen candidate order, and candidate_id; 100 fresh-object replays are byte-equivalent",
+            "all eight validated Agent items are deterministically ranked before the top five are selected, so a higher-scoring eighth Agent item displaces a lower-scoring earlier item",
+            "Agent failure, invalid output, refill shortage, and commit-time feedback replacement use the same DeterministicSupportScorer and mark items as safe_fallback",
+            "BoardRefillService reloads the same policy, confirmed memory, manual preferences, playback snapshot, and frozen candidate snapshot; missing or mismatched policy context fails closed without creating legacy fallback items",
+            "mixed policy versions are rejected and feedback tests prove a newer policy cannot be mixed into an older board",
+            "run history records agent and safe fallback selection counts; the detail page displays them in Chinese and sanitized export preserves only whitelisted source values",
+            "focused stable ranking, orchestration, feedback, lifecycle, and frontend contracts: 186 passed on the final worktree",
+            "AgentRank plugin suite: 545 passed on the final worktree",
+            "AgentRank static contracts: 25 passed",
+            "baseline smoke contracts: 53 passed",
+            "Vue federation build: passed with 67 modules transformed and remoteEntry.js present",
+            "compileall and git diff check: passed"
+          ],
           "commit": null
         },
         {
@@ -867,6 +881,18 @@
       "task": "5.1",
       "result": "versioned ten-weight learning policy implemented with immutable bases, bounded confirmed deltas, independent playback evidence, weak abandonment, ignore isolation, deterministic replay, revision CAS, and corrupt-snapshot recovery",
       "commit": "bfd94fce"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "5.2",
+      "result": "structured ranking evidence is host-verified into exactly reproducible integer support; LLM confidence no longer controls percentage or subscription, negative evidence is auto-counted, and stale policy results fail closed",
+      "commit": "e836fb4e"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "5.3",
+      "result": "all Agent and safe fallback candidates now share one deterministic policy and stable ranking chain; feedback refill fails closed on missing or mismatched context, and run history exposes selection sources",
+      "commit": null
     }
   ],
   "residual_risks": [

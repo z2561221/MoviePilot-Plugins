@@ -6,6 +6,9 @@ from typing import Any, Dict, List, Mapping, Optional
 from .support import SupportScore
 
 
+SELECTION_SOURCES = frozenset({"legacy", "agent", "safe_fallback"})
+
+
 @dataclass
 class RecommendationItem:
     """表示榜单中的一条安全推荐。"""
@@ -16,6 +19,7 @@ class RecommendationItem:
     reason: str = ""
     confidence: float = 0.0
     support: Optional[SupportScore] = None
+    selection_source: str = "legacy"
     title: str = ""
     media_type: str = "unknown"
     year: Optional[int] = None
@@ -25,6 +29,12 @@ class RecommendationItem:
     backdrop_path: str = ""
     match_tags: List[str] = field(default_factory=list)
     original_title: str = ""
+
+    def __post_init__(self) -> None:
+        """规范并校验推荐条目的选择来源。"""
+        self.selection_source = str(self.selection_source or "legacy").strip()
+        if self.selection_source not in SELECTION_SOURCES:
+            raise ValueError("recommendation selection_source is invalid")
 
     @property
     def support_percentage(self) -> Optional[int]:
@@ -67,6 +77,7 @@ class RecommendationItem:
                 if isinstance(value.get("support"), Mapping)
                 else None
             ),
+            selection_source=str(value.get("selection_source") or "legacy"),
             title=str(value.get("title") or ""),
             original_title=str(value.get("original_title") or value.get("original_name") or ""),
             media_type=str(value.get("media_type") or "unknown"),

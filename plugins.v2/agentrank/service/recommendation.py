@@ -39,6 +39,7 @@ from .keyword_resolution import (
     RetrievalPlanResolution,
 )
 from .feedback_action import FeedbackActionService
+from .scoring import StableRecommendationRanker
 from .validation import (
     AgentOutputError,
     ProfileOutputParser,
@@ -81,6 +82,7 @@ class RecommendationOrchestrator:
         playback_service: Any = None,
         retrieval_plan_resolver: Any = None,
         policy_service: Any = None,
+        ranker: Any = None,
     ):
         """注入可测试的领域依赖并初始化用户锁集合。"""
         self._repository = repository
@@ -101,6 +103,7 @@ class RecommendationOrchestrator:
 
             policy_service = PolicyLearningService(repository)
         self._policy_service = policy_service
+        self._ranker = ranker or StableRecommendationRanker()
         self._retrieval_plan_resolver = (
             retrieval_plan_resolver or ControlledRetrievalPlanResolver()
         )
@@ -1034,6 +1037,7 @@ class RecommendationOrchestrator:
             )
 
             validation = None
+            agent_order: Dict[str, int] = {}
             ranking_attempt_errors: List[str] = []
             ranking_fallback_reason = ""
             ranking_fallback_errors: List[str] = []
@@ -1130,7 +1134,13 @@ class RecommendationOrchestrator:
                 metrics["ranking_reserve_count"] = max(
                     0, len(validation.accepted) - RECOMMENDATION_LIMIT
                 )
-                accepted = list(validation.accepted[:RECOMMENDATION_LIMIT])
+                accepted = list(validation.accepted)
+                agent_order.update(
+                    {
+                        item.candidate_id: index
+                        for index, item in enumerate(accepted)
+                    }
+                )
                 metrics["validation_drops"] = [
                     drop.reason for drop in validation.dropped
                 ]
@@ -1210,7 +1220,9 @@ class RecommendationOrchestrator:
                                 refill_validation.support_warnings
                             )
                         for item in refill_validation.accepted[:refill_slots]:
-                            item.rank = len(accepted) + 1
+                            agent_order.setdefault(
+                                item.candidate_id, len(agent_order)
+                            )
                             accepted.append(item)
                         round_drop_reasons = [
                             drop.reason for drop in refill_validation.dropped
@@ -1251,6 +1263,7 @@ class RecommendationOrchestrator:
                     if metrics.get("refill_attempted")
                     else "ranking_insufficient"
                 )
+                fallback_scoring_errors: List[str] = []
                 fallback_items = self._validator.build_fallback_items(
                     candidates,
                     accepted,
@@ -1264,10 +1277,37 @@ class RecommendationOrchestrator:
                         *current_profile.ranking_tags,
                     ],
                     limit=RECOMMENDATION_LIMIT,
+                    policy_snapshot=policy_snapshot,
+                    confirmed_memory=confirmed_memory,
+                    profile_preferences=profile_preferences,
+                    playback_snapshot=playback_snapshot,
+                    scoring_errors=fallback_scoring_errors,
                 )
+                ranking_fallback_errors.extend(fallback_scoring_errors)
                 accepted.extend(fallback_items)
                 fallback_candidate_ids.update(
                     item.candidate_id for item in fallback_items
+                )
+
+            try:
+                accepted = self._ranker.rank(
+                    accepted,
+                    candidates,
+                    agent_order=agent_order,
+                )[:RECOMMENDATION_LIMIT]
+            except Exception as error:
+                errors.append(f"stable ranking: {error}")
+                return self._failure(
+                    target,
+                    username,
+                    run_id,
+                    "ranking_validation_failed",
+                    "确定性排序失败，已保留当前画像和旧榜单",
+                    started_at,
+                    started_clock,
+                    metrics,
+                    errors,
+                    agent_calls=int(metrics["agent_calls"]),
                 )
 
             fallback_count = len(fallback_candidate_ids)
@@ -1341,9 +1381,8 @@ class RecommendationOrchestrator:
                             for item in accepted
                             if item.candidate_id not in commit_excluded_ids
                         ]
-                        for rank, item in enumerate(accepted, start=1):
-                            item.rank = rank
                         fallback_candidate_ids.difference_update(commit_excluded_ids)
+                        commit_scoring_errors: List[str] = []
                         commit_fallback_items = self._validator.build_fallback_items(
                             candidates,
                             accepted,
@@ -1357,7 +1396,13 @@ class RecommendationOrchestrator:
                                 *current_profile.ranking_tags,
                             ],
                             limit=RECOMMENDATION_LIMIT,
+                            policy_snapshot=policy_snapshot,
+                            confirmed_memory=confirmed_memory,
+                            profile_preferences=profile_preferences,
+                            playback_snapshot=playback_snapshot,
+                            scoring_errors=commit_scoring_errors,
                         )
+                        ranking_fallback_errors.extend(commit_scoring_errors)
                         accepted.extend(commit_fallback_items)
                         fallback_candidate_ids.update(
                             item.candidate_id for item in commit_fallback_items
@@ -1365,8 +1410,26 @@ class RecommendationOrchestrator:
                         self._candidate_service.enrich_recommendation_sources(
                             commit_fallback_items
                         )
-                    for rank, item in enumerate(accepted, start=1):
-                        item.rank = rank
+                    try:
+                        accepted = self._ranker.rank(
+                            accepted,
+                            candidates,
+                            agent_order=agent_order,
+                        )[:RECOMMENDATION_LIMIT]
+                    except Exception as error:
+                        errors.append(f"commit stable ranking: {error}")
+                        return self._failure(
+                            target,
+                            username,
+                            run_id,
+                            "ranking_validation_failed",
+                            "提交前确定性排序失败，已保留旧榜单",
+                            started_at,
+                            started_clock,
+                            metrics,
+                            errors,
+                            agent_calls=int(metrics["agent_calls"]),
+                        )
 
                     fallback_count = sum(
                         item.candidate_id in fallback_candidate_ids
@@ -1410,6 +1473,19 @@ class RecommendationOrchestrator:
                         max(item.support.percentage for item in supported_items)
                         if supported_items
                         else 0
+                    )
+                    selection_source_counts = {
+                        source: sum(
+                            item.selection_source == source for item in accepted
+                        )
+                        for source in ("agent", "safe_fallback")
+                    }
+                    metrics["selection_source_counts"] = selection_source_counts
+                    metrics["agent_selected_count"] = selection_source_counts[
+                        "agent"
+                    ]
+                    metrics["safe_fallback_selected_count"] = (
+                        selection_source_counts["safe_fallback"]
                     )
 
                     if not accepted:

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from ..model.board import RecommendationItem
 from ..model.config import WEIGHT_DEFAULTS
 from ..model.memory import PreferenceMemory
 from ..model.playback import PlaybackSample, PlaybackSnapshot
@@ -65,16 +66,6 @@ _DIMENSION_ALIASES = {
 }
 _DIMENSION_ALIASES.update(
     {name.removesuffix("_weight"): name for name in POLICY_WEIGHT_NAMES}
-)
-_CATEGORICAL_DIMENSIONS = frozenset(
-    {
-        "type_weight",
-        "theme_weight",
-        "actor_weight",
-        "director_weight",
-        "region_weight",
-        "similarity_weight",
-    }
 )
 _TYPE_ALIASES = {
     "movie": "movie",
@@ -208,6 +199,11 @@ class PolicyLearningService:
             separators=(",", ":"),
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def playback_fingerprint(cls, playback: PlaybackSnapshot) -> str:
+        """公开返回策略快照使用的规范化播放事实指纹。"""
+        return cls._playback_fingerprint(playback)
 
     @classmethod
     def _memory_signals(cls, memory: PreferenceMemory) -> List[_PolicySignal]:
@@ -761,38 +757,81 @@ class DeterministicSupportScorer:
         return cls._contribution(policy, direction, dimension, signal, fact)
 
     @classmethod
-    def _automatic_counter_contributions(
+    def _automatic_contributions(
         cls,
         signals: Sequence[_TrustedPreferenceSignal],
         facts: Sequence[_CandidateFact],
         policy: PolicySnapshot,
+        *,
+        polarity: str,
+        direction: str,
     ) -> List[SupportContribution]:
-        """自动计入可验证的负向匹配，防止 Agent 省略反证抬高百分比。"""
+        """按用户信号和候选事实自动生成每个维度的可验证贡献。"""
         result = []
         for signal in signals:
-            if signal.polarity != "negative":
+            if signal.polarity != polarity:
                 continue
-            for fact in facts:
-                if signal.dimension and signal.dimension != fact.dimension:
+            dimensions = sorted(
+                {
+                    fact.dimension
+                    for fact in facts
+                    if not signal.dimension or signal.dimension == fact.dimension
+                }
+            )
+            for dimension in dimensions:
+                matched_facts = [
+                    fact
+                    for fact in facts
+                    if fact.dimension == dimension
+                    and cls._values_compatible(
+                        dimension,
+                        signal.value,
+                        fact.value,
+                    )
+                ]
+                if not matched_facts:
                     continue
-                if fact.dimension not in _CATEGORICAL_DIMENSIONS:
-                    continue
-                if not cls._values_compatible(
-                    fact.dimension,
-                    signal.value,
-                    fact.value,
-                ):
-                    continue
+                fact = sorted(
+                    matched_facts,
+                    key=lambda item: (item.ref, item.value.casefold()),
+                )[0]
                 contribution = cls._contribution(
                     policy,
-                    "counter",
-                    fact.dimension,
+                    direction,
+                    dimension,
                     signal,
                     fact,
                 )
                 if contribution is not None:
                     result.append(contribution)
         return result
+
+    @staticmethod
+    def _strongest_per_dimension(
+        contributions: Iterable[SupportContribution],
+    ) -> List[SupportContribution]:
+        """每个方向和权重维度只保留最强且确定性破局的贡献。"""
+        selected: Dict[Tuple[str, str], SupportContribution] = {}
+        for item in contributions or ():
+            key = (item.direction, item.dimension)
+            current = selected.get(key)
+            if current is None or (
+                item.contribution_units,
+                item.certainty_units,
+                tuple(item.user_refs),
+                item.candidate_ref,
+                item.user_value.casefold(),
+                item.candidate_value.casefold(),
+            ) > (
+                current.contribution_units,
+                current.certainty_units,
+                tuple(current.user_refs),
+                current.candidate_ref,
+                current.user_value.casefold(),
+                current.candidate_value.casefold(),
+            ):
+                selected[key] = item
+        return [selected[key] for key in sorted(selected)]
 
     def score_candidate(
         self,
@@ -827,7 +866,10 @@ class DeterministicSupportScorer:
             *self._manual_signals(preferences),
             *self._playback_signals(playback),
         ]
-        contributions: List[SupportContribution] = []
+        claimed_contributions: Dict[str, List[SupportContribution]] = {
+            "positive": [],
+            "counter": [],
+        }
         unsupported: List[str] = []
         for direction, claims in (
             ("positive", positive_claims),
@@ -846,21 +888,80 @@ class DeterministicSupportScorer:
                         f"{direction}:{index}:{self._claim_dimension(claim) or 'invalid'}"
                     )
                     continue
-                contributions.append(contribution)
-        contributions.extend(
-            self._automatic_counter_contributions(signals, facts, policy)
-        )
+                claimed_contributions[direction].append(contribution)
+        contributions = [
+            *claimed_contributions["positive"],
+            *claimed_contributions["counter"],
+            *self._automatic_contributions(
+                signals,
+                facts,
+                policy,
+                polarity="positive",
+                direction="positive",
+            ),
+            *self._automatic_contributions(
+                signals,
+                facts,
+                policy,
+                polarity="negative",
+                direction="counter",
+            ),
+        ]
+        contributions = self._strongest_per_dimension(contributions)
+        verified_positive_claims = {
+            item.identity for item in claimed_contributions["positive"]
+        }
         score = SupportScore.from_contributions(
             policy.policy_version,
             contributions,
         )
         return SupportScoringResult(
             score=score,
-            verified_positive_count=sum(
-                item.direction == "positive" for item in score.contributions
-            ),
+            verified_positive_count=len(verified_positive_claims),
             verified_counter_count=sum(
                 item.direction == "counter" for item in score.contributions
             ),
             unsupported_claims=tuple(unsupported),
         )
+
+
+class StableRecommendationRanker:
+    """按确定性净分和固定破同分规则生成最终榜单顺序。"""
+
+    @staticmethod
+    def rank(
+        items: Sequence[RecommendationItem],
+        candidates: Sequence[Any],
+        agent_order: Mapping[str, int] = None,
+    ) -> List[RecommendationItem]:
+        """依次使用净分、Agent 顺序、冻结顺序和身份稳定排序。"""
+        values = list(items or ())
+        if not values:
+            return []
+        if any(item.support is None for item in values):
+            raise RuntimeError("deterministic ranking requires support for every item")
+        policy_versions = {item.support.policy_version for item in values}
+        if len(policy_versions) != 1:
+            raise RuntimeError("deterministic ranking requires one policy version")
+        candidate_order = {
+            str(getattr(candidate, "candidate_id", "") or ""): index
+            for index, candidate in enumerate(candidates or ())
+        }
+        trusted_agent_order = {
+            str(candidate_id): int(index)
+            for candidate_id, index in dict(agent_order or {}).items()
+        }
+        missing_agent_order = len(trusted_agent_order) + len(values) + 1
+        missing_candidate_order = len(candidate_order) + len(values) + 1
+        ranked = sorted(
+            values,
+            key=lambda item: (
+                -item.support.net_units,
+                trusted_agent_order.get(item.candidate_id, missing_agent_order),
+                candidate_order.get(item.candidate_id, missing_candidate_order),
+                item.candidate_id,
+            ),
+        )
+        for index, item in enumerate(ranked, start=1):
+            item.rank = index
+        return ranked

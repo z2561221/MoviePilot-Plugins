@@ -3,6 +3,7 @@
 import importlib
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
 
@@ -16,10 +17,23 @@ package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
 
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
+config_module = importlib.import_module(f"{PACKAGE_NAME}.model.config")
+memory_module = importlib.import_module(f"{PACKAGE_NAME}.model.memory")
+playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
+preferences_module = importlib.import_module(
+    f"{PACKAGE_NAME}.model.profile_preferences"
+)
 prompt_module = importlib.import_module(f"{PACKAGE_NAME}.service.prompt")
+scoring_module = importlib.import_module(f"{PACKAGE_NAME}.service.scoring")
 validation_module = importlib.import_module(f"{PACKAGE_NAME}.service.validation")
 
 Candidate = candidate_module.Candidate
+WEIGHT_DEFAULTS = config_module.WEIGHT_DEFAULTS
+PreferenceMemory = memory_module.PreferenceMemory
+PlaybackSample = playback_module.PlaybackSample
+PlaybackSnapshot = playback_module.PlaybackSnapshot
+ProfilePreferences = preferences_module.ProfilePreferences
+PolicyLearningService = scoring_module.PolicyLearningService
 ProfileOutputParser = validation_module.ProfileOutputParser
 RankingOutputParser = validation_module.RankingOutputParser
 AgentOutputParser = RankingOutputParser
@@ -29,6 +43,38 @@ fallback_summary = validation_module.fallback_summary
 build_ranking_prompt = prompt_module.build_ranking_prompt
 build_profile_prompt = prompt_module.build_profile_prompt
 build_refill_prompt = prompt_module.build_refill_prompt
+
+
+def _support_context():
+    """构造可重放的同策略补位上下文。"""
+    profile_id = "emby:home:user-1"
+    now = datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc)
+    playback = PlaybackSnapshot(
+        profile_id=profile_id,
+        source="playback_reporting",
+        confidence="high",
+        status="ready",
+        samples=[
+            PlaybackSample(
+                stable_id=f"tmdb:movie:{index}",
+                title=f"已看悬疑片{index}",
+                media_type="movie",
+                genres=["悬疑"],
+                completed=True,
+                play_count=1,
+                watch_minutes=90,
+            )
+            for index in range(1, 3)
+        ],
+        synced_at=now.isoformat(),
+    )
+    memory = PreferenceMemory.empty(profile_id)
+    preferences = ProfilePreferences(profile_id=profile_id)
+    policy = PolicyLearningService(
+        repository=None,
+        now_factory=lambda: now,
+    ).build_snapshot(profile_id, WEIGHT_DEFAULTS, memory, playback)
+    return policy, memory, preferences, playback
 
 
 def _profile_output(profile=None, filters=None, ranking_tags=None):
@@ -480,8 +526,8 @@ def test_validator_rejects_every_unsafe_item_with_specific_reason():
     ]
 
 
-def test_validator_builds_five_unique_grounded_fallback_items_in_frozen_order():
-    """安全保底按冻结顺序补齐五条，并只引用画像与候选事实。"""
+def test_validator_scores_five_unique_grounded_fallback_items_with_same_policy():
+    """安全补位使用同一策略评分，并按净分和冻结顺序稳定破局。"""
     candidates = [
         Candidate(
             candidate_id=f"tmdb:{index}",
@@ -494,23 +540,30 @@ def test_validator_builds_five_unique_grounded_fallback_items_in_frozen_order():
         for index in range(1, 8)
     ]
 
+    policy, memory, preferences, playback = _support_context()
     fallback = RecommendationValidator().build_fallback_items(
         candidates,
         accepted=[],
         blocked_candidate_ids={"tmdb:2"},
         preference_evidence=["偏好悬疑犯罪作品"],
         limit=5,
+        policy_snapshot=policy,
+        confirmed_memory=memory,
+        profile_preferences=preferences,
+        playback_snapshot=playback,
     )
 
     assert [item.candidate_id for item in fallback] == [
         "tmdb:1",
         "tmdb:3",
-        "tmdb:4",
         "tmdb:5",
-        "tmdb:6",
+        "tmdb:7",
+        "tmdb:4",
     ]
     assert [item.rank for item in fallback] == [1, 2, 3, 4, 5]
-    assert all(item.confidence == 60 for item in fallback)
+    assert all(item.support is not None for item in fallback)
+    assert all(item.selection_source == "safe_fallback" for item in fallback)
+    assert all(item.confidence == item.support.percentage for item in fallback)
     assert all("安全" in item.reason or "保底" in item.reason for item in fallback)
     assert all(item.summary for item in fallback)
     assert all(len(item.reason) <= 30 for item in fallback)

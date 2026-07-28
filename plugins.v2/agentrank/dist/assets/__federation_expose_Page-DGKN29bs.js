@@ -373,6 +373,13 @@ function historyRankingText(run) {
   if (!Number.isFinite(valid)) return '未记录'
   return `校验通过 ${valid} 条；备用 ${Number.isFinite(reserve) ? reserve : 0} 条；补选 ${refill} 次${fallback ? `；保底 ${fallback} 条（${fallbackReason}）` : ''}`
 }
+function historySelectionSourceText(run) {
+  const metrics = run?.metrics || {};
+  const counts = metrics.selection_source_counts || {};
+  const agent = Number(metrics.agent_selected_count ?? counts.agent ?? 0);
+  const fallback = Number(metrics.safe_fallback_selected_count ?? counts.safe_fallback ?? 0);
+  return `Agent 选择 ${agent} 条；安全补位 ${fallback} 条`
+}
 
 async function initialize() {
   try {
@@ -1272,7 +1279,11 @@ return (_ctx, _cache) => {
                                   _createElementVNode("span", null, _toDisplayString(historyRankingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[46] || (_cache[46] = _createElementVNode("span", null, "候选排除", -1)),
+                                  _cache[46] || (_cache[46] = _createElementVNode("span", null, "选择来源", -1)),
+                                  _createElementVNode("span", null, _toDisplayString(historySelectionSourceText(run)), 1)
+                                ]),
+                                _createElementVNode("div", null, [
+                                  _cache[47] || (_cache[47] = _createElementVNode("span", null, "候选排除", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyExclusionText(run)), 1)
                                 ])
                               ]))
@@ -1313,6 +1324,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7c456199"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7987e89c"]]);
 
 export { Page as default };

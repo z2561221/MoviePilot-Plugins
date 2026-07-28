@@ -187,6 +187,12 @@ class DataLifecycleService:
             "summary": _redact_text(item.get("summary")),
             "reason": _redact_text(item.get("reason")),
             "support": DataLifecycleService._safe_support(item.get("support")),
+            "selection_source": (
+                str(item.get("selection_source") or "legacy")
+                if str(item.get("selection_source") or "legacy")
+                in {"legacy", "agent", "safe_fallback"}
+                else "legacy"
+            ),
             "source_ids": {
                 str(key): _safe_scalar(value)
                 for key, value in dict(item.get("source_ids") or {}).items()
@@ -221,13 +227,22 @@ class DataLifecycleService:
             "support_scored_count",
             "support_min",
             "support_max",
+            "agent_selected_count",
+            "safe_fallback_selected_count",
+            "selection_source_counts",
         }
         result: Dict[str, Any] = {}
         for key in allowed:
             if key not in (metrics or {}):
                 continue
             value = metrics[key]
-            result[key] = _safe_scalar(value)
+            if key == "selection_source_counts" and isinstance(value, Mapping):
+                result[key] = {
+                    source: max(0, int(value.get(source) or 0))
+                    for source in ("agent", "safe_fallback")
+                }
+            else:
+                result[key] = _safe_scalar(value)
         return result
 
     def export_profile(self, profile_id: str) -> Dict[str, Any]:

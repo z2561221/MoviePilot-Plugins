@@ -45,6 +45,7 @@ ProfilePreferences = preferences_module.ProfilePreferences
 AgentRankRepository = repository_module.AgentRankRepository
 DeterministicSupportScorer = scoring_module.DeterministicSupportScorer
 PolicyLearningService = scoring_module.PolicyLearningService
+StableRecommendationRanker = scoring_module.StableRecommendationRanker
 SupportContribution = support_module.SupportContribution
 SupportScore = support_module.SupportScore
 AgentOutputError = validation_module.AgentOutputError
@@ -162,6 +163,72 @@ def _contribution(direction, weight_units, *, suffix):
         certainty_units=10_000,
         contribution_units=weight_units,
     )
+
+
+def _rank_item(candidate_id, units, *, policy_version="policy-v1-rank"):
+    """构造具有指定确定性净分的榜单条目。"""
+    support = SupportScore.from_contributions(
+        policy_version,
+        [_contribution("positive", units, suffix=candidate_id)],
+    )
+    return RecommendationItem(
+        candidate_id=candidate_id,
+        rank=99,
+        support=support,
+        selection_source="agent",
+    )
+
+
+def test_stable_ranker_replays_score_and_all_tie_breakers_one_hundred_times():
+    """净分优先，随后按 Agent、冻结候选和身份顺序稳定破同分。"""
+    ranker = StableRecommendationRanker()
+    candidates = [
+        _candidate("tmdb:movie:a"),
+        _candidate("tmdb:movie:b"),
+        _candidate("tmdb:movie:c"),
+        _candidate("tmdb:movie:d"),
+    ]
+
+    def replay():
+        """每次创建新对象，排除原地 rank 赋值对重放的影响。"""
+        items = [
+            _rank_item("tmdb:movie:a", 4_000),
+            _rank_item("tmdb:movie:b", 8_000),
+            _rank_item("tmdb:movie:c", 4_000),
+            _rank_item("tmdb:movie:e", 4_000),
+            _rank_item("tmdb:movie:d", 4_000),
+        ]
+        ranked = ranker.rank(
+            items,
+            candidates,
+            agent_order={"tmdb:movie:c": 0, "tmdb:movie:a": 1},
+        )
+        return [
+            (item.candidate_id, item.rank, item.support.to_dict())
+            for item in ranked
+        ]
+
+    expected = replay()
+    assert [item[0] for item in expected] == [
+        "tmdb:movie:b",
+        "tmdb:movie:c",
+        "tmdb:movie:a",
+        "tmdb:movie:d",
+        "tmdb:movie:e",
+    ]
+    assert all(replay() == expected for _ in range(100))
+
+
+def test_stable_ranker_rejects_mixed_policy_versions():
+    """不同策略版本的条目不能被静默混排。"""
+    with pytest.raises(RuntimeError, match="one policy version"):
+        StableRecommendationRanker.rank(
+            [
+                _rank_item("tmdb:movie:a", 4_000, policy_version="policy-a"),
+                _rank_item("tmdb:movie:b", 4_000, policy_version="policy-b"),
+            ],
+            [_candidate("tmdb:movie:a"), _candidate("tmdb:movie:b")],
+        )
 
 
 def test_support_score_round_trips_with_zero_recalculation_error():

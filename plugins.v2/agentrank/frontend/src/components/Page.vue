@@ -265,6 +265,13 @@ function historyRankingText(run) {
   if (!Number.isFinite(valid)) return '未记录'
   return `校验通过 ${valid} 条；备用 ${Number.isFinite(reserve) ? reserve : 0} 条；补选 ${refill} 次${fallback ? `；保底 ${fallback} 条（${fallbackReason}）` : ''}`
 }
+function historySelectionSourceText(run) {
+  const metrics = run?.metrics || {}
+  const counts = metrics.selection_source_counts || {}
+  const agent = Number(metrics.agent_selected_count ?? counts.agent ?? 0)
+  const fallback = Number(metrics.safe_fallback_selected_count ?? counts.safe_fallback ?? 0)
+  return `Agent 选择 ${agent} 条；安全补位 ${fallback} 条`
+}
 
 async function initialize() {
   try {
@@ -637,6 +644,7 @@ onMounted(initialize)
                   <div><span>候选耗时</span><span>{{ historyCandidateTimingText(run) }}</span></div>
                   <div><span>候选处理</span><span>{{ historyCandidateProcessingText(run) }}</span></div>
                   <div><span>排序校验</span><span>{{ historyRankingText(run) }}</span></div>
+                  <div><span>选择来源</span><span>{{ historySelectionSourceText(run) }}</span></div>
                   <div><span>候选排除</span><span>{{ historyExclusionText(run) }}</span></div>
                 </div>
               </article>

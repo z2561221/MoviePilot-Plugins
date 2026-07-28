@@ -362,6 +362,12 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert history[0].metrics["agent_calls"] == 2
     assert history[0].metrics["profile_agent_calls"] == 1
     assert history[0].metrics["ranking_agent_calls"] == 1
+    assert history[0].metrics["selection_source_counts"] == {
+        "agent": 5,
+        "safe_fallback": 0,
+    }
+    assert history[0].metrics["agent_selected_count"] == 5
+    assert history[0].metrics["safe_fallback_selected_count"] == 0
     assert "candidate_source_counts" in history[0].metrics
     assert "candidate_exclusion_counts" in history[0].metrics
     assert "source_errors" in history[0].metrics
@@ -433,10 +439,24 @@ def test_run_history_aggregates_actual_agent_model_provenance():
 
 
 def test_main_ranking_uses_three_reserves_but_persists_only_top_five():
-    """主排序一次返回八条时只保存前五条，并且不启动补选 Agent。"""
+    """主排序八条先按确定性净分选前五，不能先截 Agent 前五。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
-        [_agent_output([f"tmdb:{index}" for index in range(1, 9)])],
+        [
+            _agent_output_with_overrides(
+                [f"tmdb:{index}" for index in range(1, 9)],
+                {
+                    "tmdb:8": {
+                        "reason": "偏爱悬疑电影，这部法国密室追凶更贴合。",
+                        "match_tags": ["悬疑", "法国"],
+                    }
+                },
+            )
+        ],
+    )
+    orchestrator._candidate_service.candidates[7].regions = ["法国"]
+    repository.save_profile_preferences(
+        ProfilePreferences(profile_id=PROFILE_ID, custom_tags=["法国"])
     )
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
@@ -445,7 +465,11 @@ def test_main_ranking_uses_three_reserves_but_persists_only_top_five():
     assert result.status == "success"
     assert result.agent_calls == 2
     assert [item.candidate_id for item in board.recommendations] == [
-        f"tmdb:{index}" for index in range(1, 6)
+        "tmdb:8",
+        "tmdb:1",
+        "tmdb:2",
+        "tmdb:3",
+        "tmdb:4",
     ]
     assert len(orchestrator.agent_adapter.ranking_calls) == 1
     assert "最多 8 条" in orchestrator.agent_adapter.ranking_calls[0][0]
@@ -453,6 +477,10 @@ def test_main_ranking_uses_three_reserves_but_persists_only_top_five():
     assert history.metrics["ranking_valid_count"] == 8
     assert history.metrics["ranking_reserve_count"] == 3
     assert history.metrics["refill_attempted"] is False
+    assert history.metrics["selection_source_counts"] == {
+        "agent": 5,
+        "safe_fallback": 0,
+    }
 
 
 def test_fewer_than_twenty_frozen_candidates_skips_ranking_agent():
@@ -1170,6 +1198,15 @@ def test_ranking_failure_uses_frozen_candidates_to_build_five_item_board():
     assert history.errors == []
     assert history.metrics["ranking_fallback_count"] == 5
     assert history.metrics["ranking_fallback_reason"] == "ranking_agent_failed"
+    assert all(item.support is not None for item in board.recommendations)
+    assert all(
+        item.selection_source == "safe_fallback"
+        for item in board.recommendations
+    )
+    assert history.metrics["selection_source_counts"] == {
+        "agent": 0,
+        "safe_fallback": 5,
+    }
 
 
 def test_profile_failure_preserves_previous_profile_and_skips_ranking():
@@ -1662,6 +1699,11 @@ def test_zero_valid_agent_items_builds_five_item_fallback_board():
     assert history.errors == []
     assert history.metrics["ranking_fallback_count"] == 5
     assert history.metrics["ranking_fallback_reason"] == "refill_insufficient"
+    assert all(item.support is not None for item in board.recommendations)
+    assert all(
+        item.selection_source == "safe_fallback"
+        for item in board.recommendations
+    )
 
 
 def test_board_save_failure_keeps_new_profile_and_previous_board():

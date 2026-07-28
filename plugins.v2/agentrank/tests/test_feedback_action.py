@@ -4,6 +4,7 @@ import copy
 import importlib
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
 
@@ -20,14 +21,26 @@ package.__path__ = [str(PLUGIN_DIR)]
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
+config_module = importlib.import_module(f"{PACKAGE_NAME}.model.config")
+playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
+preferences_module = importlib.import_module(
+    f"{PACKAGE_NAME}.model.profile_preferences"
+)
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
+scoring_module = importlib.import_module(f"{PACKAGE_NAME}.service.scoring")
 service_module = importlib.import_module(f"{PACKAGE_NAME}.service.feedback_action")
 
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
 Candidate = candidate_module.Candidate
 CandidateSnapshot = snapshot_module.CandidateSnapshot
+WEIGHT_DEFAULTS = config_module.WEIGHT_DEFAULTS
+PlaybackSample = playback_module.PlaybackSample
+PlaybackSnapshot = playback_module.PlaybackSnapshot
+ProfilePreferences = preferences_module.ProfilePreferences
 AgentRankRepository = repository_module.AgentRankRepository
+DeterministicSupportScorer = scoring_module.DeterministicSupportScorer
+PolicyLearningService = scoring_module.PolicyLearningService
 FeedbackActionError = service_module.FeedbackActionError
 FeedbackActionService = service_module.FeedbackActionService
 
@@ -81,28 +94,76 @@ def _act(service, kind, candidate_id, request_id, **kwargs):
     )
 
 
-def _save_snapshot(repository, candidate_ids=range(101, 109)):
-    """保存与当前榜单同 run 的冻结安全候选池。"""
+def _save_snapshot(repository, candidate_ids=range(101, 109), *, with_context=True):
+    """保存同轮冻结候选，并默认补齐确定性评分所需上下文。"""
+    candidates = [
+        Candidate(
+            candidate_id=f"tmdb:tv:{candidate_id}",
+            title=f"候选{candidate_id}",
+            media_type="tv",
+            source_ids={"tmdb": str(candidate_id)},
+            sources=["tmdb"],
+            overview=f"候选{candidate_id}简介",
+            genres=["科幻"],
+        )
+        for candidate_id in candidate_ids
+    ]
     repository.save_candidate_snapshot(
         CandidateSnapshot.create(
             profile_id=PROFILE_ID,
             run_id="run-1",
             profile_version={"run_id": "run-1", "schema_version": 4},
             retrieval_plan={"media_types": ["tv"]},
-            candidates=[
-                Candidate(
-                    candidate_id=f"tmdb:tv:{candidate_id}",
-                    title=f"候选{candidate_id}",
-                    media_type="tv",
-                    source_ids={"tmdb": str(candidate_id)},
-                    sources=["tmdb"],
-                    overview=f"候选{candidate_id}简介",
-                    genres=["科幻"],
-                )
-                for candidate_id in candidate_ids
-            ],
+            candidates=candidates,
         )
     )
+    if not with_context:
+        return
+    now = datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc)
+    playback = PlaybackSnapshot(
+        profile_id=PROFILE_ID,
+        source="playback_reporting",
+        confidence="high",
+        status="ready",
+        samples=[
+            PlaybackSample(
+                stable_id=f"tmdb:tv:{index}",
+                title=f"已看科幻剧{index}",
+                media_type="tv",
+                genres=["科幻"],
+                completed=True,
+                play_count=1,
+                watch_minutes=90,
+            )
+            for index in range(1, 3)
+        ],
+        synced_at=now.isoformat(),
+    )
+    preferences = ProfilePreferences(profile_id=PROFILE_ID)
+    repository.save_playback_snapshot(playback)
+    repository.save_profile_preferences(preferences)
+    policy = PolicyLearningService(
+        repository,
+        now_factory=lambda: now,
+    ).refresh(PROFILE_ID, WEIGHT_DEFAULTS, playback)
+    memory = repository.load_preference_memory(PROFILE_ID)
+    scorer = DeterministicSupportScorer()
+    candidate_map = {item.candidate_id: item for item in candidates}
+    board = repository.load_board(PROFILE_ID)
+    for item in board.recommendations:
+        scoring = scorer.score_candidate(
+            candidate_map[item.candidate_id],
+            policy,
+            (),
+            (),
+            memory,
+            preferences,
+            playback,
+        )
+        item.support = scoring.score
+        item.confidence = scoring.score.percentage
+        item.selection_source = "agent"
+    repository.save_board(board)
 
 
 def test_three_actions_share_one_ledger_and_return_latest_board_revision():
@@ -364,6 +425,64 @@ def test_dislike_reports_safe_candidate_insufficient_without_recollecting():
     assert board.status == "recommendation_incomplete"
     assert "安全候选不足" in board.message
     assert [item.candidate_id for item in board.recommendations] == ["tmdb:tv:102"]
+
+
+def test_missing_support_context_removes_item_but_never_creates_legacy_fallback():
+    """旧榜单缺少策略上下文时只执行移除，并明确闭锁无评分补位。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    repository.save_board(_board())
+    _save_snapshot(repository, with_context=False)
+
+    result = _act(
+        FeedbackActionService(repository),
+        "dislike",
+        "tmdb:tv:101",
+        "missing-support-context",
+    )
+
+    board = repository.load_board(PROFILE_ID)
+    assert result.refill_status == "safe_candidate_insufficient"
+    assert result.refill_count == 0
+    assert [item.candidate_id for item in board.recommendations] == [
+        "tmdb:tv:102"
+    ]
+    assert "同策略评分上下文不可用" in board.message
+
+
+def test_feedback_refill_rejects_a_newer_policy_than_the_current_board():
+    """榜单与当前策略版本不同时不得把新策略补位混入旧榜单。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    repository.save_board(_board())
+    _save_snapshot(repository)
+    old_policy_version = repository.load_board(
+        PROFILE_ID
+    ).recommendations[0].support.policy_version
+    playback = repository.load_playback_snapshot(PROFILE_ID)
+    new_policy = PolicyLearningService(repository).refresh(
+        PROFILE_ID,
+        {**WEIGHT_DEFAULTS, "rating_weight": 0.1},
+        playback,
+    )
+    assert new_policy.policy_version != old_policy_version
+
+    result = _act(
+        FeedbackActionService(repository),
+        "ignore",
+        "tmdb:tv:102",
+        "mixed-policy-refill",
+    )
+
+    board = repository.load_board(PROFILE_ID)
+    assert result.refill_status == "safe_candidate_insufficient"
+    assert result.refill_count == 0
+    assert [item.candidate_id for item in board.recommendations] == [
+        "tmdb:tv:101"
+    ]
+    assert {
+        item.support.policy_version for item in board.recommendations
+    } == {old_policy_version}
 
 
 def test_dislike_refill_save_failure_restores_board_archive_and_event_state():
