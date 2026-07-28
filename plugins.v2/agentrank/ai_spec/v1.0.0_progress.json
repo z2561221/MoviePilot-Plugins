@@ -5,9 +5,9 @@
   "target_release_date": "2026-07-31",
   "status": {
     "overall": "in_progress",
-    "phase": "phase-5",
-    "task": "5.5",
-    "next_allowed_action": "Execute task 5.5: enforce semantic summaries within 30 Chinese characters using complete sentences, one directed rewrite, and deterministic template restatement without hard string truncation"
+    "phase": "phase-6",
+    "task": "6.1",
+    "next_allowed_action": "Execute task 6.1: let users comment on a specific structured analysis, persist a superseding correction event, and preserve the original analysis as immutable audit history"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -478,7 +478,7 @@
     {
       "id": "phase-5",
       "title": "确定性评分、支持度、Agent分析与策略版本",
-      "status": "in_progress",
+      "status": "completed",
       "goal": "生成可重算排序、百分比和结构化依据",
       "acceptance": [
         "重放顺序和百分比一致",
@@ -487,7 +487,13 @@
         "不展示原始思维链",
         "30字总结无残句"
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        "ten immutable configured base weights plus bounded confirmed deltas produce content-addressed policy snapshots and deterministic support contributions",
+        "stable ranking and all safe fallback paths use the same policy, memory revision, playback snapshot, frozen candidate snapshot, and deterministic scorer",
+        "every visible recommendation links to a sanitized structured analysis with evidence, counter evidence, contribution units, uncertainty, source, and version provenance",
+        "recommendation and summary copy is never sliced; overlong or clearly incomplete multilingual copy receives one directed rewrite and then a deterministic complete template",
+        "AgentRank plugin suite after phase 5: 567 passed; static contracts: 25 passed; baseline smoke: 53 passed; Vue federation build: 67 modules transformed"
+      ],
       "tasks": [
         {
           "id": "5.1",
@@ -577,10 +583,23 @@
         {
           "id": "5.5",
           "title": "实现30字内语义总结",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["推荐和简介为完整短句", "不使用字符串硬截断"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "recommendation and summary copy is normalized but never sliced; an AST regression contract rejects string Slice usage in semantic validation and fallback templates",
+            "copy longer than thirty characters, unbalanced or reversed paired punctuation, trailing Chinese conjunctions, trailing Latin function words, ellipsis fragments, and exact-limit text without terminal punctuation are rejected as whole records",
+            "complete Chinese, English, Japanese, and Korean short sentences remain unchanged; exact thirty-character copy with a terminal mark inside balanced closing quotes is accepted",
+            "copy validation failure enters the existing single bounded refill Agent call with only candidate_id and a safe reason code; the rejected raw copy is not echoed into the rewrite prompt",
+            "successful directed rewrite is persisted exactly once; a failed rewrite uses complete deterministic reason and summary templates from trusted candidate facts without including or truncating long titles",
+            "the effective base and rewrite prompt protocol is stored only as a combined SHA-256 fingerprint, never as prompt text",
+            "run history and sanitized export record copy rewrite candidates, successes, and template fallback counts",
+            "Task 5.5 focused copy, orchestration, and lifecycle regression: 130 passed",
+            "AgentRank plugin suite: 567 passed",
+            "AgentRank static contracts: 25 passed; baseline smoke contracts: 53 passed",
+            "Vue federation build: passed with 67 modules transformed and remoteEntry.js present",
+            "compileall, Chinese docstring audit, progress JSON parse, placeholder scan, sensitive-field review, branch scope check, and git diff check: passed"
+          ],
+          "commit": "ea04bd61"
         }
       ]
     },
@@ -912,6 +931,12 @@
       "task": "5.4",
       "result": "every visible recommendation now links to a structured auditable analysis built from verified deterministic contributions; feedback refill preserves policy and prompt provenance, historical analyses remain referenceable, and all board archive analysis mutations roll back atomically without exposing raw reasoning",
       "commit": "3dcf3d18"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "5.5",
+      "result": "recommendation reasons and summaries now pass a multilingual semantic completeness gate, receive at most one safe-code directed rewrite, and fall back to deterministic complete templates without ever slicing the rejected text or long titles",
+      "commit": "ea04bd61"
     }
   ],
   "residual_risks": [
