@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-8",
-    "task": "8.1",
-    "next_allowed_action": "Execute task 8.1: run the full AgentRank quality and privacy gates"
+    "task": "8.2",
+    "next_allowed_action": "Execute task 8.2: sync AgentRank to the MoviePilot local source and run the real five-item feedback loop"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -15,7 +15,7 @@
     "protected_paths": [
       "tests/static/test_localtoolkit_standard_completion.py"
     ],
-    "smoke_check": "C:/Users/ZhaoYu/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe -m compileall -q plugins.v2/agentrank; C:/Users/ZhaoYu/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe -m pytest --confcutdir=plugins.v2/agentrank/tests --import-mode=append plugins.v2/agentrank/tests/test_runtime_contracts.py plugins.v2/agentrank/tests/test_frontend_contract.py -q",
+    "smoke_check": "$python = Join-Path $env:USERPROFILE '.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe'; & $python -m compileall -q plugins.v2/agentrank; & $python -m pytest --confcutdir=plugins.v2/agentrank/tests --import-mode=append plugins.v2/agentrank/tests/test_runtime_contracts.py plugins.v2/agentrank/tests/test_frontend_contract.py -q",
     "commit_each_verified_task": true,
     "no_commit_on_failed_verification": true,
     "never_push_merge_amend_rebase_reset_or_release_automatically": true,
@@ -857,15 +857,27 @@
         "分支提交和路径纯净",
         "用户授权后main tag Release zip一致"
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        "Task 8.1 quality gate passed on commit 9f2f1cf5: 621 plugin tests, 30 static contracts, and 137 Agent/eval tests",
+        "compileall, Vite 5.4.21 build with 75 transformed modules, four remote exposes, and JSON parsing all passed",
+        "git diff --check passed; privacy scan found zero personal paths, usernames, private addresses, API-key prefixes, JWTs, or credential URLs"
+      ],
       "tasks": [
         {
           "id": "8.1",
           "title": "执行全量质量和隐私门禁",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["插件测试不少于381项且全通过", "静态契约不少于25项且全通过", "eval构建JSON diff和扫描通过"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "plugin tests: 621 passed in 5.52s",
+            "static contracts: 30 passed in 0.62s",
+            "Agent/eval set: 137 passed in 0.98s",
+            "compileall passed; plugin.json, frontend/package.json, progress.json, and package.v2.json parsed successfully",
+            "Vite 5.4.21 built 75 modules and remoteEntry.js contains ./Config, ./Dashboard, ./Page, and ./AppPage",
+            "git diff --check passed",
+            "privacy scan returned zero hits for personal environment paths, usernames, private addresses, API-key prefixes, JWTs, or credential URLs"
+          ],
+          "commit": "9f2f1cf5"
         },
         {
           "id": "8.2",
@@ -1114,6 +1126,12 @@
       "task": "7.4",
       "result": "detail and discovery now provide structured analysis comments, retryable critic chat, and a resumable pending-confirmation center; every mobile interaction uses a full-screen dialog while raw chain-of-thought and unconfirmed writes remain blocked",
       "commit": "c25f4851"
+    },
+    {
+      "date": "2026-07-29",
+      "task": "8.1",
+      "result": "full quality and privacy gates passed after isolating FastAPI exception stubs, replacing personal environment samples, and making preview confirmation tokens runtime-generated",
+      "commit": "9f2f1cf5"
     }
   ],
   "residual_risks": [
