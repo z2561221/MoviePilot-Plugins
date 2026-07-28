@@ -6,8 +6,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-7",
-    "task": "7.1",
-    "next_allowed_action": "Execute task 7.1: centralize frontend API state with explicit loading, error, and retry recovery"
+    "task": "7.5",
+    "next_allowed_action": "Execute task 7.5: integrate access mapping, retention, export, reset, and prompt settings UI"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -784,10 +784,22 @@
         {
           "id": "7.4",
           "title": "集成分析评论对话待确认UI",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["桌面紧凑窗口", "移动全屏对话", "可稍后继续回答"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "detail and discovery surfaces expose structured analysis, per-judgment comments, critic chat, and pending-confirmation entry points while the dashboard remains lightweight",
+            "analysis presents verified judgments, supporting evidence, counter-evidence, and uncertainty without raw chain-of-thought, system prompts, or prompt fingerprints",
+            "comments remain bound to the current candidate and analysis revision and enter the durable asynchronous understanding flow",
+            "critic chat preserves retryable failed messages and renders every write request as an explicit confirm-or-reject command",
+            "the pending center supports memory proposals, clarification questions, controlled commands, custom answers, one-, three-, or seven-day reminders, and never-remind state",
+            "mobile analysis, comment, critic chat, and pending dialogs use full-screen presentation and remain resumable from persisted state",
+            "Task 7.4 static and frontend contracts: 28 passed; API controller regression: 28 passed",
+            "Vue federation build completed with Vite 5.4.21 and 75 modules; compileall and git diff checks passed",
+            "browser console remained free of errors and warnings across the inspected detail and discovery surfaces",
+            "390x844, 768x1024, and 1440x900 checks showed no horizontal overflow, text loss, or function-area overlap; mobile interactive dialogs measured the full 844-pixel viewport",
+            "screenshots stored under D:/AIGC/MoviePilot/artifacts/agentrank-v1.0.0/phase-7/task-7.4-*.png"
+          ],
+          "commit": "c25f4851"
         },
         {
           "id": "7.5",
@@ -1069,6 +1081,12 @@
       "task": "7.3",
       "result": "the detail function area now keeps Download Center navigation density and hierarchy while exposing every mobile function in a complete two-column wrap, omits the idle readiness chip, and preserves the compact desktop geometry required for five visible ranking rows",
       "commit": "71613a09"
+    },
+    {
+      "date": "2026-07-29",
+      "task": "7.4",
+      "result": "detail and discovery now provide structured analysis comments, retryable critic chat, and a resumable pending-confirmation center; every mobile interaction uses a full-screen dialog while raw chain-of-thought and unconfirmed writes remain blocked",
+      "commit": "c25f4851"
     }
   ],
   "residual_risks": [
