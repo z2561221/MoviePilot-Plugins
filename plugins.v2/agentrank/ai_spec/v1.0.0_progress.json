@@ -752,10 +752,18 @@
         {
           "id": "7.2",
           "title": "统一三榜单表面五条布局",
-          "status": "pending",
+          "status": "completed",
           "acceptance": ["百分比靠右且无置信度文字", "推荐简介自然换行无展开收起", "操作按钮集合符合计划"],
-          "verification": [],
-          "commit": null
+          "verification": [
+            "Dashboard, detail page, and discovery page each bind their visible recommendation list to slice(0, 5)",
+            "all three support chips render only the numeric percentage and use an explicit automatic left margin inside right-aligned action containers",
+            "recommendation reason and summary remain block-level, overflow-visible, anywhere-wrapping text with no toggle controls, line clamp, ellipsis, or confidence label",
+            "the shared action component exposes icon-only like and dislike controls plus exactly three labeled actions: subscription, TMDB, and ignore",
+            "native TV subscription drawer integration and source ID aliases remain intact without restoring Douban or Bangumi buttons",
+            "Task 7.2 static contracts: 26 passed; frontend source contracts: 42 passed",
+            "Vue federation build completed with Vite 5.4.21 and 67 modules; post-build asset graph and git diff checks passed"
+          ],
+          "commit": "8e87da8c"
         },
         {
           "id": "7.3",
@@ -1041,6 +1049,12 @@
       "task": "7.1",
       "result": "all new AgentRank reads and mutations now share explicit operation state, visible retry, latest-response guards, profile-bound retry closures, immediate cross-profile view clearing, and a current-board-only structured analysis endpoint without bare browser authentication",
       "commit": "7bba66af"
+    },
+    {
+      "date": "2026-07-28",
+      "task": "7.2",
+      "result": "dashboard, detail, and discovery ranking surfaces now enforce the same fixed five-item list, complete wrapping reason and summary copy, right-aligned percentage-only support chip, and one shared action set containing icon-only preference feedback plus subscription, TMDB, and ignore",
+      "commit": "8e87da8c"
     }
   ],
   "residual_risks": [
