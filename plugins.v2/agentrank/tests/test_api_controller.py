@@ -591,6 +591,18 @@ def test_pending_endpoints_reuse_profile_access_and_hide_actor_from_response():
     assert caught.value.detail["error"]["code"] == "profile_forbidden"
 
 
+def test_lazy_pending_center_receives_configured_persona_prompt():
+    """API 懒创建待办中心时保留独立人设配置。"""
+    plugin = FakePlugin()
+    plugin._config["persona_prompt"] = "克里斯蒂娜式未来道具研究所语气"
+    plugin._conversation = object()
+    controller = AgentRankApiController(plugin)
+
+    service = controller._pending_center_service()
+
+    assert service._persona_prompt == plugin._config["persona_prompt"]
+
+
 def test_data_export_and_reset_endpoints_reuse_profile_authorization_and_bound_token():
     """数据接口沿用 profile 鉴权，彻底重置令牌还绑定签发时的 MP 用户。"""
     plugin = FakePlugin()

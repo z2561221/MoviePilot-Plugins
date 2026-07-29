@@ -994,7 +994,7 @@ const _hoisted_8$1 = {
 };
 const _hoisted_9$1 = { class: "ar-pending__actions" };
 
-const {computed: computed$1,reactive: reactive$1,ref: ref$1,watch: watch$1} = await importShared('vue');
+const {computed: computed$1,onBeforeUnmount,reactive: reactive$1,ref: ref$1,watch: watch$1} = await importShared('vue');
 
 const {useDisplay} = await importShared('vuetify');
 
@@ -1015,6 +1015,7 @@ const { smAndDown } = useDisplay();
 const answers = reactive$1({});
 const localError = ref$1('');
 const activeView = ref$1('pending');
+let visibilityTimer = null;
 
 const center = computed$1(() => activeView.value === 'resolved'
   ? props.state.processedCenter.value
@@ -1026,6 +1027,14 @@ const statusLabels = {
   pending_confirmation: '待确认', pending: '待回答', confirmed: '已采纳', rejected: '已拒绝',
   answered: '已回答', dismissed: '已关闭', expired: '已过期', failed: '执行失败', superseded: '已替代',
 };
+
+function statusText(item) {
+  if (item.item_type === 'command' && item.status === 'confirmed') return '已执行'
+  if (item.item_type === 'command' && item.status === 'rejected') return '未执行'
+  if (item.item_type === 'proposal' && item.status === 'confirmed') return '已采纳'
+  if (item.item_type === 'proposal' && item.status === 'rejected') return '未采纳'
+  return statusLabels[item.status] || item.status
+}
 
 function close() {
   emit('update:modelValue', false);
@@ -1086,7 +1095,20 @@ function reopenQuestion(item) {
   respond(item, 'reopen');
 }
 
-watch$1(() => props.modelValue, open => { if (open) load(); }, { immediate: true });
+function stopVisibilityHeartbeat() {
+  if (visibilityTimer) window.clearInterval(visibilityTimer);
+  visibilityTimer = null;
+}
+
+watch$1(() => props.modelValue, open => {
+  stopVisibilityHeartbeat();
+  if (!open) return
+  load();
+  visibilityTimer = window.setInterval(() => {
+    if (activeView.value === 'pending') load();
+  }, 15000);
+}, { immediate: true });
+onBeforeUnmount(stopVisibilityHeartbeat);
 
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent$1("VIcon");
@@ -1227,7 +1249,7 @@ return (_ctx, _cache) => {
                                   variant: "outlined"
                                 }, {
                                   default: _withCtx$1(() => [
-                                    _createTextVNode$1(_toDisplayString$1(statusLabels[item.status] || item.status), 1)
+                                    _createTextVNode$1(_toDisplayString$1(statusText(item)), 1)
                                   ]),
                                   _: 2
                                 }, 1024))
@@ -1394,7 +1416,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-de53a665"]]);
+const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-cd27469c"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,mergeProps:_mergeProps,vShow:_vShow,withDirectives:_withDirectives,withKeys:_withKeys} = await importShared('vue');
 

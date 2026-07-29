@@ -14,7 +14,11 @@ from ..model.feedback_decision import (
 from ..model.feedback_understanding import FeedbackSignal, FeedbackUnderstandingRecord
 from ..model.memory import PreferenceMemory, PreferenceMemoryItem
 from ..storage.repository import AgentRankRepository
-from .critic_skills import ask_clarification, propose_memory_change
+from .critic_skills import (
+    ask_clarification,
+    propose_memory_change,
+    style_clarification_question,
+)
 from .questioning_policy import QuestioningPolicy
 
 
@@ -36,6 +40,7 @@ class FeedbackProposalService:
         record_limit: int = 500,
         expiry_days: int = 30,
         now_factory: Callable[[], datetime] = None,
+        persona_prompt: str = "",
     ):
         """绑定仓储、保留上限、过期窗口和可测试时钟。"""
         if not isinstance(repository, AgentRankRepository):
@@ -44,6 +49,7 @@ class FeedbackProposalService:
         self._record_limit = max(1, min(int(record_limit), 100000))
         self._expiry_days = max(1, min(int(expiry_days), 365))
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
+        self._persona_prompt = str(persona_prompt or "").strip()
         self._questioning_policy = QuestioningPolicy()
 
     def questioning_state(
@@ -132,7 +138,10 @@ class FeedbackProposalService:
             event_sequence=event.sequence,
             candidate_id="profile:playback",
             understanding_record_id=f"playback-calibration:{fingerprint[:24] or event.event_id}",
-            question="根据近期有效观看记录，未来推荐更应该延续熟悉体验，还是主动带来变化？",
+            question=style_clarification_question(
+                "根据近期有效观看记录，未来推荐更应该延续熟悉体验，还是主动带来变化？",
+                self._persona_prompt,
+            ),
             options=(
                 PendingQuestionOption(
                     option_id="continue_patterns", label="延续已看作品的共同点"
@@ -317,7 +326,9 @@ class FeedbackProposalService:
             event_sequence=record.event_sequence,
             candidate_id=record.candidate_id,
             understanding_record_id=record.record_id,
-            question=draft.get("question"),
+            question=style_clarification_question(
+                draft.get("question"), self._persona_prompt
+            ),
             options=options,
             allow_custom_answer=draft.get("allow_custom_answer") is True,
             uncertainties=tuple(draft.get("uncertainties") or ()),

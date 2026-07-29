@@ -595,8 +595,8 @@ def test_unrecognizable_candidate_and_add_failure_are_visible():
     assert failed.message == "recognition failed"
 
 
-def test_runtime_notify_mode_sends_summary_after_success_without_subscribing():
-    """Runtime post-processing invokes only NotificationService in notify mode."""
+def test_runtime_notify_mode_only_sends_summary_for_background_run():
+    """页面手动运行不重复通知，后台周期运行仍发送一次交互榜单。"""
     plugin = FakePlugin()
     board = RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="run-1", status="success")
 
@@ -613,12 +613,14 @@ def test_runtime_notify_mode_sends_summary_after_success_without_subscribing():
     )
 
     asyncio.run(runtime.refresh(PROFILE_ID))
+    assert plugin.messages == []
+    asyncio.run(runtime.run_scheduled())
 
     assert len(plugin.messages) == 1
 
 
-def test_runtime_failure_sends_one_plugin_notification_with_old_board_state():
-    """A failed Agent result emits one concise configured notification."""
+def test_runtime_failure_only_notifies_for_background_run_with_old_board_state():
+    """页面手动失败留在界面，后台失败才发送一次配置通知。"""
     plugin = FakePlugin()
     board = RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success")
 
@@ -640,6 +642,8 @@ def test_runtime_failure_sends_one_plugin_notification_with_old_board_state():
     )
 
     asyncio.run(runtime.refresh(PROFILE_ID))
+    assert plugin.messages == []
+    asyncio.run(runtime.run_scheduled())
 
     assert len(plugin.messages) == 1
     assert plugin.messages[0]["mtype"] == NotificationType.Plugin

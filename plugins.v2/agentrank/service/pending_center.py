@@ -6,6 +6,7 @@ from ..model.conversation import ConversationCommand
 from ..model.feedback_decision import MemoryProposal, PendingQuestion
 from ..model.pending_center import PendingCenterItem, PendingNotice
 from ..storage.repository import AgentRankRepository
+from .critic_skills import style_agent_message
 
 
 class PendingCenterError(RuntimeError):
@@ -29,6 +30,7 @@ class PendingCenterService:
         feedback_response: Any,
         memory_projection: Any,
         conversation: Any,
+        persona_prompt: str = "",
     ):
         """绑定仓储与三个既有受控状态机。"""
         if not isinstance(repository, AgentRankRepository):
@@ -37,6 +39,7 @@ class PendingCenterService:
         self._feedback_response = feedback_response
         self._memory_projection = memory_projection
         self._conversation = conversation
+        self._persona_prompt = str(persona_prompt or "").strip()
 
     @staticmethod
     def _profile_id(value: Any) -> str:
@@ -58,9 +61,15 @@ class PendingCenterService:
             )
         return target
 
-    @staticmethod
-    def _proposal_item(record: MemoryProposal) -> PendingCenterItem:
+    def _proposal_item(self, record: MemoryProposal) -> PendingCenterItem:
         """把记忆提案投影为不含证据身份的安全展示项。"""
+        result_message = (
+            "已写入长期画像"
+            if record.status == "confirmed"
+            else "已拒绝采纳"
+            if record.status == "rejected"
+            else ""
+        )
         return PendingCenterItem(
             item_type="proposal",
             item_id=record.proposal_id,
@@ -74,17 +83,13 @@ class PendingCenterService:
             status=record.status,
             resolved_at=record.resolved_at,
             result_code=record.resolution_reason,
-            result_message=(
-                "已写入长期画像"
-                if record.status == "confirmed"
-                else "已拒绝采纳"
-                if record.status == "rejected"
-                else ""
+            result_message=style_agent_message(
+                result_message,
+                self._persona_prompt,
             ),
         )
 
-    @staticmethod
-    def _question_item(record: PendingQuestion) -> PendingCenterItem:
+    def _question_item(self, record: PendingQuestion) -> PendingCenterItem:
         """把歧义问询投影为安全选项与自定义回答能力。"""
         return PendingCenterItem(
             item_type="question",
@@ -106,8 +111,7 @@ class PendingCenterService:
             reversible=record.status in {"answered", "dismissed"},
         )
 
-    @staticmethod
-    def _command_item(record: ConversationCommand) -> PendingCenterItem:
+    def _command_item(self, record: ConversationCommand) -> PendingCenterItem:
         """把对话命令投影为待处理预览，不公开命令载荷。"""
         return PendingCenterItem(
             item_type="command",
@@ -120,7 +124,10 @@ class PendingCenterService:
             requires_superuser=record.requires_superuser,
             resolved_at=record.resolved_at,
             result_code=record.execution_code,
-            result_message=record.execution_message,
+            result_message=style_agent_message(
+                record.execution_message,
+                self._persona_prompt,
+            ),
             reversible=(
                 record.status == "confirmed"
                 and record.kind in {"profile_tag", "weight"}

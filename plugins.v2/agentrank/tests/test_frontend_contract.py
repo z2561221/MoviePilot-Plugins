@@ -11,7 +11,7 @@ def _read(name: str) -> str:
 
 
 def test_advanced_options_exposes_four_character_prompt_subtab():
-    """提示设置用四类紧凑入口和统一弹窗编辑。"""
+    """提示设置用五类紧凑入口和统一弹窗编辑。"""
     config = _read("Config.vue")
     assert "{ key: 'runtime', title: '运行参数'" in config
     assert "{ key: 'prompt', title: '提示设置'" in config
@@ -19,10 +19,12 @@ def test_advanced_options_exposes_four_character_prompt_subtab():
         ("profile_prompt", "画像理解规则"),
         ("ranking_prompt", "榜单推荐策略"),
         ("copy_prompt", "推荐文案风格"),
+        ("persona_prompt", "CinePilot Agent 人设语气"),
         ("critic_prompt", "CinePilot Agent 扩展提示词"),
     ):
         assert field_name in config
         assert title in config
+    assert config.index("CinePilot Agent 人设语气") < config.index("CinePilot Agent 扩展提示词")
     assert 'v-model="form.agent_prompt"' not in config
     assert 'v-model="promptEditor.open"' in config
     assert 'v-model="promptEditor.draft"' in config
@@ -110,13 +112,13 @@ def test_basic_settings_selects_stable_emby_identities_for_run_once():
     assert 'emby_identities: []' in config
     assert "default_profile_id: ''" in config
     assert 'v-model="selectedServerName"' in config
-    assert 'label="媒体库（Emby 服务实例）"' in config
+    assert 'label="媒体库"' in config
     assert 'v-model="selectedUserProfileId"' in config
     assert 'label="用户"' in config
     assert 'v-model="selectedLibraryIds"' in config
     assert 'label="内容库筛选"' in config
     assert 'v-model="form.onlyonce"' in config
-    assert 'label="立即运行一次"' in config
+    assert 'label="立即运行"' in config
     assert "!form.emby_identities.length" in config
     assert "只同步所选用户在所选内容库" in config
     for legacy in ("form.users", "form.default_user", "playback_user_map"):
@@ -485,13 +487,19 @@ def test_config_uses_five_main_sections_and_places_execution_controls_once():
         ("advanced", "高级选项"),
     ):
         assert f"{{ key: '{key}', title: '{title}'" in config
-    for removed in ("条件筛选", "榜单行为"):
-        assert removed not in config
+    assert "条件筛选" not in config
+    assert "{ key: 'behavior'" not in config
+    for group in ("画像来源", "运行计划", "页面入口", "榜单行为", "后台提醒"):
+        assert f"<span>{group}</span>" in config
     assert "activeProfile" in config
     assert "activeStrategy" in config
     assert "activeMain.value === 'basic' ? []" in config
     assert config.count('v-model.number="form.candidate_pool_size"') == 1
     assert "最低支持度" in config
+    assert 'label="安全上限"' not in config
+    assert 'label="订阅数量"' in config
+    assert "index < 2" in config
+    assert "index === 2" in config
     assert 'v-model="form.media_types"' not in config
     assert 'v-model="form.exclude_keywords"' not in config
     assert "negative_keyword: '避雷命中'" in config

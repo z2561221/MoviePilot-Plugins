@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 
 const props = defineProps({
@@ -11,6 +11,7 @@ const { smAndDown } = useDisplay()
 const answers = reactive({})
 const localError = ref('')
 const activeView = ref('pending')
+let visibilityTimer = null
 
 const center = computed(() => activeView.value === 'resolved'
   ? props.state.processedCenter.value
@@ -90,7 +91,20 @@ function reopenQuestion(item) {
   respond(item, 'reopen')
 }
 
-watch(() => props.modelValue, open => { if (open) load() }, { immediate: true })
+function stopVisibilityHeartbeat() {
+  if (visibilityTimer) window.clearInterval(visibilityTimer)
+  visibilityTimer = null
+}
+
+watch(() => props.modelValue, open => {
+  stopVisibilityHeartbeat()
+  if (!open) return
+  load()
+  visibilityTimer = window.setInterval(() => {
+    if (activeView.value === 'pending') load()
+  }, 15000)
+}, { immediate: true })
+onBeforeUnmount(stopVisibilityHeartbeat)
 </script>
 
 <template>

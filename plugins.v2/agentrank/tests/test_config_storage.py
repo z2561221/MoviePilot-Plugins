@@ -31,6 +31,7 @@ DEFAULT_PROFILE_PROMPT = config_module.DEFAULT_PROFILE_PROMPT
 DEFAULT_RANKING_PROMPT = config_module.DEFAULT_RANKING_PROMPT
 DEFAULT_COPY_PROMPT = config_module.DEFAULT_COPY_PROMPT
 DEFAULT_CRITIC_PROMPT = config_module.DEFAULT_CRITIC_PROMPT
+DEFAULT_PERSONA_PROMPT = config_module.DEFAULT_PERSONA_PROMPT
 LEGACY_DEFAULT_AGENT_PROMPT = config_module.LEGACY_DEFAULT_AGENT_PROMPT
 LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT = config_module.LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT
 LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT = (
@@ -353,12 +354,13 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
     assert corrupted["_validation_errors"] == ["config must be a mapping"]
 
 
-def test_four_prompts_are_editable_but_non_empty_and_bounded():
-    """四类提示词独立持久化，空值或超长值安全回退。"""
+def test_five_prompts_are_editable_but_non_empty_and_bounded():
+    """五类提示词独立持久化，空值或超长值安全回退。"""
     defaults = {
         "profile_prompt": DEFAULT_PROFILE_PROMPT,
         "ranking_prompt": DEFAULT_RANKING_PROMPT,
         "copy_prompt": DEFAULT_COPY_PROMPT,
+        "persona_prompt": DEFAULT_PERSONA_PROMPT,
         "critic_prompt": DEFAULT_CRITIC_PROMPT,
     }
     for field_name, default in defaults.items():

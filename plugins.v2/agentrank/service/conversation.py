@@ -22,7 +22,11 @@ from ..storage.repository import AgentRankRepository
 from .data_lifecycle import DataLifecycleService
 from .feedback_action import FeedbackActionService
 from .profile_preferences import ProfilePreferenceService
-from .prompt import DEFAULT_CRITIC_PROMPT, build_conversation_prompt
+from .prompt import (
+    DEFAULT_CRITIC_PROMPT,
+    DEFAULT_PERSONA_PROMPT,
+    build_conversation_prompt,
+)
 
 
 _SENSITIVE_PSYCHOLOGY_TERMS = (
@@ -272,6 +276,7 @@ class ConversationService:
         now_factory: Callable[[], datetime] = None,
         pending_handler: Callable[[ConversationCommand], Any] = None,
         critic_prompt: str = DEFAULT_CRITIC_PROMPT,
+        persona_prompt: str = DEFAULT_PERSONA_PROMPT,
         profile_ids: Iterable[str] = (),
         max_workers: int = 2,
         total_timeout_seconds: float = 90.0,
@@ -289,6 +294,7 @@ class ConversationService:
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
         self._pending_handler = pending_handler
         self._critic_prompt = str(critic_prompt or DEFAULT_CRITIC_PROMPT).strip()
+        self._persona_prompt = str(persona_prompt or DEFAULT_PERSONA_PROMPT).strip()
         self._profiles = {
             str(profile_id or "").strip()
             for profile_id in profile_ids or ()
@@ -1067,7 +1073,9 @@ class ConversationService:
                 raise RuntimeError("conversation Agent adapter is unavailable")
             raw = await self._call_agent_with_budget(
                 method,
-                build_conversation_prompt(self._critic_prompt),
+                build_conversation_prompt(
+                    self._critic_prompt, self._persona_prompt
+                ),
                 trusted_context,
             )
             parsed = ConversationReplyParser.parse(

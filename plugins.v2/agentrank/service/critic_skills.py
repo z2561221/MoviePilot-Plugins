@@ -327,3 +327,32 @@ def ask_clarification(
         "confidence_gap": confidence_gap,
         "writes_applied": False,
     }
+
+
+def style_clarification_question(question: str, persona_prompt: str = "") -> str:
+    """按可编辑人设对问询做有界表达修饰，不改变问题语义或选项。"""
+    text = _text(question, 220)
+    persona = str(persona_prompt or "").strip().casefold()
+    if not text or not persona:
+        return text
+    if any(token in persona for token in ("克里斯蒂娜", "未来道具研究所", "世界线")):
+        return _text(f"唔……根据实验数据，{text}", 240)
+    if any(token in persona for token in ("温柔", "耐心", "亲切")):
+        return _text(f"想和你确认一下：{text}", 240)
+    if any(token in persona for token in ("简洁", "直接", "克制")):
+        return text
+    return _text(f"想确认一下：{text}", 240)
+
+
+def style_agent_message(message: str, persona_prompt: str = "") -> str:
+    """按人设修饰简短处理结果，同时保持原始结论完整可见。"""
+    text = _text(message, 220)
+    persona = str(persona_prompt or "").strip().casefold()
+    if not text or not persona:
+        return text
+    if any(token in persona for token in ("克里斯蒂娜", "未来道具研究所", "世界线")):
+        prefix = "唔……" if any(token in text for token in ("失败", "拒绝", "风险")) else "知道啦，"
+        return _text(f"{prefix}{text}", 240)
+    if any(token in persona for token in ("温柔", "耐心", "亲切")):
+        return _text(f"已为你处理：{text}", 240)
+    return text

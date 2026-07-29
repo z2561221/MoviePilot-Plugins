@@ -126,11 +126,65 @@ def _config(**overrides):
     return config
 
 
-def test_runtime_wires_configured_critic_prompt_into_both_agent_services():
-    """运行时把影评师扩展提示词同时注入反馈理解和专属对话。"""
+def test_runtime_wires_configured_critic_and_persona_prompts_into_agent_services():
+    """运行时把扩展提示词和独立人设注入反馈、对话与处理结果。"""
     source = (PLUGIN_DIR / "service" / "runtime.py").read_text(encoding="utf-8")
 
     assert source.count('critic_prompt=str(config.get("critic_prompt") or "")') == 2
+    assert source.count('persona_prompt=str(config.get("persona_prompt") or "")') == 3
+
+
+def test_page_origin_pending_items_do_not_emit_duplicate_background_notice():
+    """带页面操作者的反馈和对话命令只更新待办，不重复外发通知。"""
+    sent = []
+
+    class Notifications:
+        def send_pending(self, username, notice):
+            sent.append((username, notice))
+
+    class Pending:
+        def __init__(self):
+            self.notice = SimpleNamespace(actor_id="mp-user-1")
+
+        def notice_for_event(self, profile_id, event_id):
+            return self.notice
+
+        def notice_for_command(self, command):
+            return SimpleNamespace(actor_id=command.requested_by_mp_user_id)
+
+    pending = Pending()
+    plugin = FakePlugin()
+    runtime = AgentRankRuntime(
+        plugin,
+        _config(notify=True),
+        FakeOrchestrator(),
+        lambda cron: cron,
+        notification_service=Notifications(),
+        pending_center_service=pending,
+    )
+
+    runtime._notify_feedback_decision(
+        SimpleNamespace(profile_id=HOME_PROFILE, event_id="event-1")
+    )
+    runtime._notify_conversation_command(
+        SimpleNamespace(
+            profile_id=HOME_PROFILE,
+            requested_by_mp_user_id="mp-user-1",
+        )
+    )
+    pending.notice = SimpleNamespace(actor_id="")
+    plugin._agentrank_pending_visible_until = {
+        HOME_PROFILE: runtime_module.time.monotonic() + 30
+    }
+    runtime._notify_feedback_decision(
+        SimpleNamespace(profile_id=HOME_PROFILE, event_id="event-2")
+    )
+    plugin._agentrank_pending_visible_until = {}
+    runtime._notify_feedback_decision(
+        SimpleNamespace(profile_id=HOME_PROFILE, event_id="event-3")
+    )
+
+    assert len(sent) == 1
 
 
 def test_disabled_or_schedule_off_runtime_registers_no_service():

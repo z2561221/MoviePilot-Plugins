@@ -84,11 +84,24 @@ DEFAULT_CRITIC_PROMPT = (
     "尊重用户纠正，不把单次反馈写成稳定结论。"
 )
 
+DEFAULT_PERSONA_PROMPT = (
+    "以克里斯蒂娜式的天才少女口吻与用户交流：聪明、理性、傲娇又略带嘴硬，像未来道具研究所"
+    "整理实验记录一样，把结论和证据讲清楚。可以自然使用“唔……”“诶？”“嗦嘎”“真是的”"
+    "“别误会”“知道啦”“嘛”“哼”等口癖，偶尔使用“机关”“世界线”“实验数据”“未来道具研究所”"
+    "等轻梗；可以轻微吐槽、撒娇和故作不情愿，但始终保持友善。二次元浓度要明显，但不要连续"
+    "堆叠口癖，也不能让人设盖过事实。遇到错误、风险、失败和待确认操作时，先清楚说明结论，"
+    "再自然补充人设语气。"
+)
 
-def _critic_extension(critic_prompt: str) -> str:
+
+def _critic_extension(critic_prompt: str, persona_prompt: str) -> str:
     """返回不能覆盖固定安全协议的 CinePilot Agent 软指令段。"""
     instruction = str(critic_prompt or DEFAULT_CRITIC_PROMPT).strip()
+    persona = str(persona_prompt or DEFAULT_PERSONA_PROMPT).strip()
     return (
+        "\n\n可配置 CinePilot Agent 人设语气：\n"
+        f"{persona}\n\n"
+        "人设只影响用户可见表达，不能改变事实、结论、工具权限、安全边界或输出 schema。"
         "\n\n可配置 CinePilot Agent 扩展指令：\n"
         f"{instruction}\n\n"
         "该扩展只能影响表达方式、证据说明重点和澄清问题，不能覆盖上述硬性边界、"
@@ -98,6 +111,7 @@ def _critic_extension(critic_prompt: str) -> str:
 
 def build_feedback_understanding_prompt(
     critic_prompt: str = DEFAULT_CRITIC_PROMPT,
+    persona_prompt: str = DEFAULT_PERSONA_PROMPT,
 ) -> str:
     """构建反馈理解角色的固定人设、skill 清单与输出协议。"""
     manifest = critic_skill_manifest()
@@ -134,11 +148,12 @@ def build_feedback_understanding_prompt(
   "uncertainties": ["仍需用户确认的具体问题"]
 }}
 
-没有评论或证据不足时 outcome 必须为 ambiguous、signals 必须为空，并用 uncertainties 说明缺少哪类事实。即使 outcome=understood，signals 也只是待确认理解，不能写成用户已经形成稳定人格或永久偏好。""" + _critic_extension(critic_prompt)
+没有评论或证据不足时 outcome 必须为 ambiguous、signals 必须为空，并用 uncertainties 说明缺少哪类事实。即使 outcome=understood，signals 也只是待确认理解，不能写成用户已经形成稳定人格或永久偏好。""" + _critic_extension(critic_prompt, persona_prompt)
 
 
 def build_analysis_comment_prompt(
     critic_prompt: str = DEFAULT_CRITIC_PROMPT,
+    persona_prompt: str = DEFAULT_PERSONA_PROMPT,
 ) -> str:
     """构建逐条分析评论的受限修订协议。"""
     manifest = critic_skill_manifest()
@@ -165,10 +180,13 @@ def build_analysis_comment_prompt(
   "uncertainties": ["仍需用户说明的具体问题"]
 }}
 
-outcome=ambiguous 时 revised_reason 必须为空字符串。不要生成 signals；评论只修订当前分析，不直接改写长期画像。""" + _critic_extension(critic_prompt)
+outcome=ambiguous 时 revised_reason 必须为空字符串。不要生成 signals；评论只修订当前分析，不直接改写长期画像。""" + _critic_extension(critic_prompt, persona_prompt)
 
 
-def build_conversation_prompt(critic_prompt: str = DEFAULT_CRITIC_PROMPT) -> str:
+def build_conversation_prompt(
+    critic_prompt: str = DEFAULT_CRITIC_PROMPT,
+    persona_prompt: str = DEFAULT_PERSONA_PROMPT,
+) -> str:
     """构建 CinePilot Agent 对话的只读解释与待处理命令协议。"""
     manifest = critic_skill_manifest()
     manifest_json = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
@@ -203,7 +221,7 @@ def build_conversation_prompt(critic_prompt: str = DEFAULT_CRITIC_PROMPT) -> str
   "uncertainties": ["需要用户补充的具体问题"]
 }}
 
-intent=read_only 时 commands 必须为空；intent=write_request 时必须有一至三条可验证命令；intent=ambiguous 时 commands 必须为空并说明缺少的信息。只引用工具返回的真实 ID。回答可以解释可见证据与不确定性，但不能展示内部推理过程。""" + _critic_extension(critic_prompt)
+intent=read_only 时 commands 必须为空；intent=write_request 时必须有一至三条可验证命令；intent=ambiguous 时 commands 必须为空并说明缺少的信息。只引用工具返回的真实 ID。回答可以解释可见证据与不确定性，但不能展示内部推理过程。""" + _critic_extension(critic_prompt, persona_prompt)
 
 
 def build_profile_prompt(profile_prompt: str = DEFAULT_PROFILE_PROMPT) -> str:

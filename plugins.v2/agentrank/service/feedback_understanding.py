@@ -23,6 +23,7 @@ from .critic_skills import (
 from .analysis_comment import ANALYSIS_COMMENT_KIND, AnalysisCommentService
 from .prompt import (
     DEFAULT_CRITIC_PROMPT,
+    DEFAULT_PERSONA_PROMPT,
     build_analysis_comment_prompt,
     build_feedback_understanding_prompt,
 )
@@ -230,6 +231,7 @@ class FeedbackUnderstandingService:
         proposal_service: Any = None,
         analysis_comment_service: Any = None,
         critic_prompt: str = DEFAULT_CRITIC_PROMPT,
+        persona_prompt: str = DEFAULT_PERSONA_PROMPT,
     ):
         """绑定仓储、受限 Agent、解析器和确定性提案服务。"""
         if not isinstance(repository, AgentRankRepository):
@@ -240,8 +242,11 @@ class FeedbackUnderstandingService:
         self._comment_parser = comment_parser or AnalysisCommentParser()
         self._analysis_limit = max(1, min(int(analysis_limit), 100000))
         self._critic_prompt = str(critic_prompt or DEFAULT_CRITIC_PROMPT).strip()
+        self._persona_prompt = str(persona_prompt or DEFAULT_PERSONA_PROMPT).strip()
         self._proposal_service = proposal_service or FeedbackProposalService(
-            repository, record_limit=self._analysis_limit
+            repository,
+            record_limit=self._analysis_limit,
+            persona_prompt=self._persona_prompt,
         )
         self._analysis_comment_service = (
             analysis_comment_service
@@ -488,9 +493,13 @@ class FeedbackUnderstandingService:
         ):
             raise FeedbackUnderstandingError("分析评论缺少可修订的用户内容")
         prompt = (
-            build_analysis_comment_prompt(self._critic_prompt)
+            build_analysis_comment_prompt(
+                self._critic_prompt, self._persona_prompt
+            )
             if event.kind == ANALYSIS_COMMENT_KIND
-            else build_feedback_understanding_prompt(self._critic_prompt)
+            else build_feedback_understanding_prompt(
+                self._critic_prompt, self._persona_prompt
+            )
         )
         fingerprint = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         if guard["required_outcome"] == "exclusion_only":

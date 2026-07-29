@@ -5,8 +5,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-9",
-    "task": "9.3",
-    "next_allowed_action": "Implement and verify Task 9.3 persona prompt, grouped basic settings, and notification deduplication without Git synchronization or release work"
+    "task": "9.4",
+    "next_allowed_action": "Run the full AgentRank gates, sync MP local source, reload, and verify runtime plus three browser viewports without Git synchronization or release work"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -1085,7 +1085,7 @@
             "聚焦反馈动作队列API测试63 passed，基线与聚焦合同合计122 passed",
             "compileall和git diff --check通过，LocalToolkit用户改动保持未暂存"
           ],
-          "commit": null
+          "commit": "226298fd"
         },
         {
           "id": "9.2",
@@ -1104,25 +1104,31 @@
             "首次有效播放同步只基于完播重复观看或有效时长创建一个整体校准问题，弱样本不创建",
             "运行时前端与领域聚焦测试114 passed，Vue federation build转换75 modules，compileall和git diff check通过"
           ],
-          "commit": null
+          "commit": "4590b737"
         },
         {
           "id": "9.3",
           "title": "接入人设语气并重排基础设置通知",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": [
             "独立persona_prompt位于扩展提示词上方并进入运行链",
             "基础设置五组内容库省略安全上限隐藏和条件显示正确",
             "手动页面运行和页面待办操作不重复外发通知",
             "窄测Vue build和静态契约通过"
           ],
-          "verification": [],
+          "verification": [
+            "独立persona_prompt位于CinePilot Agent扩展提示词上方，并注入反馈理解、对话、动态问询、评论修订和待办处理结果表达",
+            "基础设置重排为画像来源、运行计划、页面入口、榜单行为、后台提醒五个全宽扁平功能组",
+            "内容库仅展示前两项和省略号且可查看余项，可见安全上限已移除但后端仍保留最多10项硬保护",
+            "订阅数量与订阅门槛按动作模式条件显示，页面手动运行和页面待办不重复外发通知",
+            "聚焦测试227 passed，基线smoke 59 passed，Vue federation build转换75 modules，compileall和git diff check通过"
+          ],
           "commit": null
         },
         {
           "id": "9.4",
           "title": "执行全量门禁并交付MP本地试用",
-          "status": "pending",
+          "status": "in_progress",
           "acceptance": [
             "全量测试构建扫描和git diff check通过",
             "MP本地同步reload SHA history和is_local核验通过",

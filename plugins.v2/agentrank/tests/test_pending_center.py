@@ -205,7 +205,7 @@ def _command(repository):
     return command
 
 
-def _services():
+def _services(persona_prompt=""):
     """创建共享仓储、时钟和统一中心。"""
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
@@ -223,6 +223,7 @@ def _services():
         feedback_response=response,
         memory_projection=projection,
         conversation=conversation,
+        persona_prompt=persona_prompt,
     )
     return plugin, repository, clock, queue, center
 
@@ -328,6 +329,36 @@ def test_proposal_confirmation_is_explicit_and_rejection_writes_no_memory():
     assert confirmed["item"]["status"] == "confirmed"
     assert confirmed["memory_revision"] == 1
     assert repository.load_preference_memory(PROFILE_ID).memory_revision == 1
+
+
+def test_persona_styles_resolved_proposal_and_command_messages_only():
+    """人设只修饰处理结果表达，不改变状态、结果码和执行事实。"""
+    _, repository, _, _, center = _services(
+        "以克里斯蒂娜和未来道具研究所的高浓度二次元语气交流"
+    )
+    proposal = _proposal(repository, _event(repository, "p-event", "tmdb:1"))
+    command = _command(repository)
+
+    confirmed_proposal = center.respond(
+        profile_id=PROFILE_ID,
+        item_type="proposal",
+        item_id=proposal.proposal_id,
+        action="confirm",
+        actor_id="mp-user-1",
+    )
+    confirmed_command = center.respond(
+        profile_id=PROFILE_ID,
+        item_type="command",
+        item_id=command.command_id,
+        action="confirm",
+        actor_id="mp-user-1",
+    )
+
+    assert confirmed_proposal["item"]["status"] == "confirmed"
+    assert confirmed_proposal["item"]["result_message"] == "知道啦，已写入长期画像"
+    assert confirmed_command["item"]["status"] == "confirmed"
+    assert confirmed_command["item"]["result_code"] == "profile_tag_updated"
+    assert confirmed_command["item"]["result_message"] == "知道啦，明确偏好标签已更新"
 
 
 def test_pending_center_rejects_removed_reminder_action_and_has_no_claim_api():

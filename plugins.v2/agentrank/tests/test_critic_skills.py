@@ -142,6 +142,27 @@ def test_conflict_preview_and_clarification_are_deterministic_and_non_writing():
     assert question["writes_applied"] is False
 
 
+def test_editable_persona_changes_question_expression_without_changing_semantics():
+    """人设只修饰问询表达，不修改问题核心与选项契约。"""
+    original = "你更希望推荐保持熟悉感，还是主动尝试新方向？"
+
+    styled = skills_module.style_clarification_question(
+        original, "使用克里斯蒂娜和未来道具研究所的二次元语气"
+    )
+    direct = skills_module.style_clarification_question(
+        original, "表达简洁、直接、克制"
+    )
+
+    assert styled.startswith("唔……根据实验数据，")
+    assert styled.endswith(original)
+    assert direct == original
+
+    result = skills_module.style_agent_message(
+        "已写入长期画像", "使用克里斯蒂娜和未来道具研究所的语气"
+    )
+    assert result == "知道啦，已写入长期画像"
+
+
 def test_feedback_prompt_locks_persona_tools_schema_and_psychology_boundary():
     """反馈提示固定人设、只读工具、版本和禁止心理推断边界。"""
     prompt = prompt_module.build_feedback_understanding_prompt()

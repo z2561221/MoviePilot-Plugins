@@ -1,6 +1,7 @@
 """Agent榜单中心 bearer API 控制器与稳定响应契约。"""
 
 import asyncio
+import time
 from typing import Any, Dict, List, Mapping
 
 from fastapi import Depends
@@ -368,6 +369,9 @@ class AgentRankApiController:
             feedback_response=feedback_response,
             memory_projection=memory_projection,
             conversation=self._conversation_service(),
+            persona_prompt=str(
+                self.plugin._config.get("persona_prompt") or ""
+            ),
         )
         self.plugin._pending_center = service
         return service
@@ -912,6 +916,12 @@ class AgentRankApiController:
     ) -> Dict[str, Any]:
         """返回当前 MP 用户可见的统一待确认项目。"""
         target = self._profile_id(profile_id)
+        if str(view or "pending").strip().casefold() == "pending":
+            visible = dict(
+                getattr(self.plugin, "_agentrank_pending_visible_until", {}) or {}
+            )
+            visible[target] = time.monotonic() + 30.0
+            self.plugin._agentrank_pending_visible_until = visible
         try:
             service = self._pending_center_service()
             method = getattr(service, "list_items", None)
@@ -1130,6 +1140,9 @@ class AgentRankApiController:
                 self._repository(),
                 record_limit=int(
                     self.plugin._config.get("analysis_record_limit") or 500
+                ),
+                persona_prompt=str(
+                    self.plugin._config.get("persona_prompt") or ""
                 ),
             ).create_playback_calibration(
                 target,

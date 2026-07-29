@@ -64,6 +64,7 @@ const defaults = {
   profile_prompt: '基于用户真实播放记录和明确偏好，归纳稳定的内容偏好与观看动机。除题材、主创、地区、年代和风格外，可观察情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感。稳定结论必须由至少两条相互独立的播放证据支持，或由一项用户明确添加的偏好支持；单一样本不得形成稳定结论，弃看只能作为弱负向信号。',
   ranking_prompt: '以用户画像、真实播放证据和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。兼顾相关性、新鲜感与题材多样性；评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名，相关性明显不足时宁可少推。',
   copy_prompt: '推荐理由要用自然、具体、克制的内容语言说明用户偏好与作品事实之间的匹配，不输出心理诊断或心理学术语，也避免空泛夸赞。作品简介只概括作品本身，不剧透；推荐理由和简介都要总结为语义完整的短句。',
+  persona_prompt: '以克里斯蒂娜式的天才少女口吻与用户交流：聪明、理性、傲娇又略带嘴硬，像未来道具研究所整理实验记录一样，把结论和证据讲清楚。可以自然使用“唔……”“诶？”“嗦嘎”“真是的”“别误会”“知道啦”“嘛”“哼”等口癖，偶尔使用“机关”“世界线”“实验数据”“未来道具研究所”等轻梗；可以轻微吐槽、撒娇和故作不情愿，但始终保持友善。二次元浓度要明显，但不要连续堆叠口癖，也不能让人设盖过事实。遇到错误、风险、失败和待确认操作时，先清楚说明结论，再自然补充人设语气。',
   critic_prompt: '先复述用户可核对的内容偏好，再区分已确认事实、当前推测和仍待确认的信息。发现证据冲突时要明确承认不确定性并优先提出具体澄清问题；回复保持自然、具体、克制，尊重用户纠正，不把单次反馈写成稳定结论。',
 }
 
@@ -145,7 +146,7 @@ const sourceMeta = {
 const actionOptions = [
   { title: '仅更新榜单', value: 'update' },
   { title: '通知内选择', value: 'notify' },
-  { title: '自动订阅前几名', value: 'auto_subscribe' },
+  { title: '自动订阅', value: 'auto_subscribe' },
 ]
 const profileTabs = [
   { key: 'playback', title: '播放画像', icon: 'mdi-play-circle-outline' },
@@ -165,6 +166,7 @@ const promptDefinitions = [
   { key: 'profile_prompt', title: '画像理解规则', icon: 'mdi-account-search-outline', purpose: '控制 Agent 如何从播放事实和人工标签归纳稳定偏好与观看动机。' },
   { key: 'ranking_prompt', title: '榜单推荐策略', icon: 'mdi-sort-variant', purpose: '控制冻结候选池内的相关性、新鲜感、多样性和最终排序。' },
   { key: 'copy_prompt', title: '推荐文案风格', icon: 'mdi-text-box-edit-outline', purpose: '控制推荐理由和作品简介的表达风格，不改变候选和安全校验。' },
+  { key: 'persona_prompt', title: 'CinePilot Agent 人设语气', icon: 'mdi-account-voice', purpose: '控制对话、问询和处理结果的角色语气；不改变事实、安全边界、工具权限或榜单理由。' },
   { key: 'critic_prompt', title: 'CinePilot Agent 扩展提示词', icon: 'mdi-message-text-outline', purpose: '控制反馈理解、逐条评论和对话的表达重点；不能覆盖人设、安全边界和写操作确认。' },
 ]
 const retentionDefinitions = [
@@ -234,6 +236,9 @@ const selectedLibraryIds = computed({
     form.emby_library_ids = { ...(form.emby_library_ids || {}), [selectedProfileId.value]: [...(libraryIds || [])] }
   },
 })
+const selectedLibraryNames = computed(() => selectedLibraryIds.value.map(id => (
+  libraryOptions.value.find(item => item.value === id)?.title || id
+)))
 const latestMetrics = computed(() => overview.value?.latest_run?.metrics || {})
 const currentPlayback = computed(() => overview.value?.playback || status.value.playback || null)
 const currentEnablement = computed(() => overview.value?.enablement || status.value.enablement || null)
@@ -821,28 +826,62 @@ onMounted(loadRuntime)
 
             <div v-show="activeMain === 'basic'" class="ar-config__pane">
               <div class="ar-config__section-title">基础设置</div>
-              <VRow>
-                <VCol cols="12" md="4"><VSelect v-model="selectedServerName" :items="serverOptions" label="媒体库（Emby 服务实例）" density="compact" variant="outlined" hide-details /></VCol>
-                <VCol cols="12" md="4"><VSelect v-model="selectedUserProfileId" :items="userOptions" label="用户" density="compact" variant="outlined" hide-details :disabled="!selectedServerName" /></VCol>
-                <VCol cols="12" md="4"><VAutocomplete v-model="selectedLibraryIds" :items="libraryOptions" label="内容库筛选" multiple chips closable-chips density="compact" variant="outlined" hide-details :disabled="!selectedUserProfileId" /></VCol>
-                <VCol cols="12" md="4"><VSwitch v-model="form.onlyonce" color="warning" label="立即运行一次" hide-details inset :disabled="!form.enabled || !form.emby_identities.length || currentEnablement?.allowed === false" /></VCol>
-                <VCol cols="12" md="4"><VSwitch v-model="form.schedule_enabled" color="success" label="周期运行" hide-details inset /></VCol>
-                <VCol cols="12" md="4"><VCronField v-model="form.cron" label="运行周期" density="compact" variant="outlined" hide-details :disabled="!form.schedule_enabled" /></VCol>
-                <VCol cols="12" md="4"><VSwitch v-model="form.discovery_page_enabled" color="success" label="开启发现页" hide-details inset /></VCol>
-                <VCol cols="12" md="4"><VSelect v-model="form.action_mode" :items="actionOptions" label="动作模式" density="compact" variant="outlined" hide-details /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.auto_subscribe_top_n" type="number" min="0" :max="form.auto_subscribe_limit" label="自动订阅前几名" density="compact" variant="outlined" hide-details :disabled="form.action_mode !== 'auto_subscribe'" /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.auto_subscribe_limit" type="number" min="0" max="10" label="安全上限" density="compact" variant="outlined" hide-details /></VCol>
-                <VCol cols="12" md="4"><VSwitch v-model="form.notify" color="info" label="发送通知" hide-details inset :disabled="form.action_mode === 'update'" /></VCol>
-                <VCol cols="12" md="4"><VSelect v-model="form.notification_type" :items="notificationTypeOptions" label="通知类型" density="compact" variant="outlined" hide-details :disabled="!form.notify || form.action_mode === 'update'" /></VCol>
-                <VCol cols="12" md="8">
-                  <div class="text-caption mb-1">订阅门槛 · 最低支持度 {{ Math.round(form.confidence_threshold * 100) }}%</div>
-                  <VSlider v-model="form.confidence_threshold" :min="0" :max="1" :step="0.05" color="primary" hide-details thumb-label />
-                </VCol>
-              </VRow>
-              <VAlert type="info" variant="tonal" class="mt-4">Emby 画像身份由服务实例与用户组成；画像只同步所选用户在所选内容库中的 Playback Reporting 记录，未安装或不可访问时插件保持停用。</VAlert>
-              <VAlert :type="form.action_mode === 'auto_subscribe' ? 'warning' : 'info'" variant="tonal" class="mt-3">
-                {{ form.action_mode === 'auto_subscribe' ? '自动订阅仍会逐项检查候选快照、归档、最低支持度、识别 ID 和重复订阅。' : '最低支持度只限制订阅，不过滤榜单；通知模式由用户在消息中确认后执行。' }}
-              </VAlert>
+              <div class="ar-config__basic-groups">
+                <section class="ar-config__basic-group">
+                  <div class="ar-config__basic-head"><VIcon icon="mdi-account-search-outline" size="18" color="primary" /><span>画像来源</span></div>
+                  <VRow>
+                    <VCol cols="12" md="4"><VSelect v-model="selectedServerName" :items="serverOptions" label="媒体库" density="compact" variant="outlined" hide-details /></VCol>
+                    <VCol cols="12" md="4"><VSelect v-model="selectedUserProfileId" :items="userOptions" label="用户" density="compact" variant="outlined" hide-details :disabled="!selectedServerName" /></VCol>
+                    <VCol cols="12" md="4">
+                      <VAutocomplete v-model="selectedLibraryIds" :items="libraryOptions" label="内容库筛选" multiple density="compact" variant="outlined" hide-details :disabled="!selectedUserProfileId" class="ar-config__library-select">
+                        <template #selection="{ item, index }">
+                          <VChip v-if="index < 2" size="small" closable @click:close="selectedLibraryIds = selectedLibraryIds.filter(id => id !== item.value)">{{ item.title }}</VChip>
+                          <VTooltip v-else-if="index === 2" :text="selectedLibraryNames.slice(2).join('、')" location="top">
+                            <template #activator="{ props: tooltipProps }"><VChip v-bind="tooltipProps" size="small">…</VChip></template>
+                          </VTooltip>
+                        </template>
+                      </VAutocomplete>
+                    </VCol>
+                  </VRow>
+                  <div class="ar-config__hint mt-2">Emby 画像身份由媒体库与用户组成；只同步所选用户在所选内容库中的 Playback Reporting 记录。</div>
+                </section>
+
+                <section class="ar-config__basic-group">
+                  <div class="ar-config__basic-head"><VIcon icon="mdi-calendar-clock" size="18" color="primary" /><span>运行计划</span></div>
+                  <VRow>
+                    <VCol cols="12" md="4"><VSwitch v-model="form.onlyonce" color="warning" label="立即运行" hide-details inset :disabled="!form.enabled || !form.emby_identities.length || currentEnablement?.allowed === false" /></VCol>
+                    <VCol cols="12" md="4"><VSwitch v-model="form.schedule_enabled" color="success" label="周期运行" hide-details inset /></VCol>
+                    <VCol cols="12" md="4"><VCronField v-model="form.cron" label="运行周期" density="compact" variant="outlined" hide-details :disabled="!form.schedule_enabled" /></VCol>
+                  </VRow>
+                </section>
+
+                <section class="ar-config__basic-group">
+                  <div class="ar-config__basic-head"><VIcon icon="mdi-page-layout-sidebar-left" size="18" color="primary" /><span>页面入口</span></div>
+                  <VRow><VCol cols="12"><VSwitch v-model="form.discovery_page_enabled" color="success" label="开启发现页" hide-details inset /></VCol></VRow>
+                </section>
+
+                <section class="ar-config__basic-group">
+                  <div class="ar-config__basic-head"><VIcon icon="mdi-format-list-checks" size="18" color="primary" /><span>榜单行为</span></div>
+                  <VRow>
+                    <VCol cols="12" md="4"><VSelect v-model="form.action_mode" :items="actionOptions" label="动作模式" density="compact" variant="outlined" hide-details /></VCol>
+                    <VCol v-if="form.action_mode === 'auto_subscribe'" cols="12" md="4"><VTextField v-model.number="form.auto_subscribe_top_n" type="number" min="0" max="10" label="订阅数量" density="compact" variant="outlined" hide-details /></VCol>
+                    <VCol v-if="form.action_mode !== 'update'" cols="12" md="8">
+                      <div class="text-caption mb-1">订阅门槛 · 最低支持度 {{ Math.round(form.confidence_threshold * 100) }}%</div>
+                      <VSlider v-model="form.confidence_threshold" :min="0" :max="1" :step="0.05" color="primary" hide-details thumb-label />
+                    </VCol>
+                  </VRow>
+                  <div class="ar-config__hint mt-2">订阅门槛只限制通知确认和自动订阅，不过滤榜单；后端始终保留最多 10 项硬保护。</div>
+                </section>
+
+                <section class="ar-config__basic-group">
+                  <div class="ar-config__basic-head"><VIcon icon="mdi-bell-outline" size="18" color="primary" /><span>后台提醒</span></div>
+                  <VRow>
+                    <VCol cols="12" md="4"><VSwitch v-model="form.notify" color="info" label="后台提醒" hide-details inset /></VCol>
+                    <VCol cols="12" md="4"><VSelect v-model="form.notification_type" :items="notificationTypeOptions" label="通知类型" density="compact" variant="outlined" hide-details :disabled="!form.notify" /></VCol>
+                  </VRow>
+                  <div class="ar-config__hint mt-2">页面内已看见的榜单、待办和操作结果不重复通知；后台新榜单、新问询和需要介入的失败才按此设置提醒。</div>
+                </section>
+              </div>
             </div>
 
             <div v-show="activeMain === 'profile' && activeProfile === 'playback'" class="ar-config__pane">
@@ -1218,6 +1257,13 @@ onMounted(loadRuntime)
 .ar-config__overview-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; color: rgba(var(--v-theme-on-surface), .62); font-size: 11px; }
 .ar-config__overview-foot .v-chip { margin-left: auto; }
 .ar-config__source-card { border-radius: 8px; }
+.ar-config__basic-groups { display: grid; gap: 12px; }
+.ar-config__basic-group { padding: 12px 14px; border-radius: 9px; background: rgba(var(--v-theme-on-surface), .025); }
+.ar-config__basic-group + .ar-config__basic-group { border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
+.ar-config__basic-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+.ar-config__library-select :deep(.v-field__input) { min-height: 40px; flex-wrap: nowrap; overflow: hidden; }
+.ar-config__library-select :deep(.v-chip) { flex: 0 0 auto; max-width: 120px; }
+.ar-config__library-select :deep(.v-chip__content) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ar-config__hint, .ar-config__default { color: rgba(var(--v-theme-on-surface), .62); font-size: 12px; line-height: 1.5; }
 .ar-config__source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .ar-config__weight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }

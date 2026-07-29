@@ -261,6 +261,24 @@ def test_custom_critic_prompt_extends_all_critic_roles_without_overriding_safety
     assert "你没有任何写工具" in prompts[2]
 
 
+def test_persona_prompt_is_separate_and_cannot_override_agent_safety():
+    """独立人设进入三类用户表达，但安全协议和JSON契约仍优先。"""
+    persona = "用高浓度二次元天才少女语气，偶尔提到世界线。"
+    prompts = (
+        build_feedback_understanding_prompt(persona_prompt=persona),
+        build_analysis_comment_prompt(persona_prompt=persona),
+        build_conversation_prompt(persona_prompt=persona),
+    )
+
+    for prompt in prompts:
+        assert persona in prompt
+        assert "人设只影响用户可见表达" in prompt
+        assert "输出 schema" in prompt
+    assert "signals" in prompts[0]
+    assert "revised_reason" in prompts[1]
+    assert "commands" in prompts[2]
+
+
 def test_parser_accepts_one_schema_object_and_preserves_agent_order():
     """A valid object parses without sorting or changing recommendation order."""
     payload = _output(

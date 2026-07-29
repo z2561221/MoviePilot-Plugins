@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Any, Callable, Dict, List, Mapping
 
 from ..model.config import configured_identities
@@ -86,6 +87,7 @@ class AgentRankRuntime:
                 AgentRankAgentAdapter(),
                 analysis_limit=int(config.get("analysis_record_limit") or 500),
                 critic_prompt=str(config.get("critic_prompt") or ""),
+                persona_prompt=str(config.get("persona_prompt") or ""),
             )
         if feedback_handler is None and feedback_understanding_service is not None:
             feedback_handler = getattr(
@@ -137,6 +139,7 @@ class AgentRankRuntime:
                 plugin=plugin,
                 message_limit=int(config.get("conversation_message_limit") or 200),
                 critic_prompt=str(config.get("critic_prompt") or ""),
+                persona_prompt=str(config.get("persona_prompt") or ""),
                 profile_ids=(
                     identity.profile_id for identity in configured_identities(config)
                 ),
@@ -159,6 +162,7 @@ class AgentRankRuntime:
                 feedback_response=feedback_response_service,
                 memory_projection=memory_projection_service,
                 conversation=conversation_service,
+                persona_prompt=str(config.get("persona_prompt") or ""),
             )
         self.pending_center_service = pending_center_service
         plugin._pending_center = pending_center_service
@@ -411,22 +415,28 @@ class AgentRankRuntime:
             result = await self.orchestrator.run(profile_id, self.config)
         except Exception as error:
             logger.exception("AgentRank 手动运行异常 profile_id=%s", profile_id)
-            self._notify_exception(profile_id, "manual_refresh", error)
             raise
-        self._apply_post_action(profile_id, result)
+        self._apply_post_action(profile_id, result, source="manual")
         return result
 
-    def _apply_post_action(self, profile_id: str, result: Any) -> None:
+    def _apply_post_action(
+        self, profile_id: str, result: Any, *, source: str = "scheduled"
+    ) -> None:
         """按动作模式执行通知或自动订阅后处理。"""
         status = getattr(result, "status", "")
         if status not in {"success", "recommendation_incomplete"}:
             if status not in {"", "running"}:
-                self._notify_result_failure(profile_id, result)
+                if source != "manual":
+                    self._notify_result_failure(profile_id, result)
             return
         mode = self.config.get("action_mode")
         board = getattr(result, "board", None)
         if mode == "notify":
-            if self.notification_service is not None and board is not None:
+            if (
+                source != "manual"
+                and self.notification_service is not None
+                and board is not None
+            ):
                 self.notification_service.send_confirmation(
                     getattr(board, "username", "")
                     or self._display_name(profile_id, self.config),
@@ -529,10 +539,15 @@ class AgentRankRuntime:
             or self.pending_center_service is None
         ):
             return
+        visible = dict(
+            getattr(self.plugin, "_agentrank_pending_visible_until", {}) or {}
+        )
+        if float(visible.get(job.profile_id) or 0.0) >= time.monotonic():
+            return
         notice = self.pending_center_service.notice_for_event(
             job.profile_id, job.event_id
         )
-        if notice is None:
+        if notice is None or notice.actor_id:
             return
         self.notification_service.send_pending(
             self._display_name(job.profile_id, self.config), notice
@@ -545,6 +560,13 @@ class AgentRankRuntime:
             or self.notification_service is None
             or self.pending_center_service is None
         ):
+            return
+        visible = dict(
+            getattr(self.plugin, "_agentrank_pending_visible_until", {}) or {}
+        )
+        if float(visible.get(command.profile_id) or 0.0) >= time.monotonic():
+            return
+        if str(getattr(command, "requested_by_mp_user_id", "") or "").strip():
             return
         notice = self.pending_center_service.notice_for_command(command)
         self.notification_service.send_pending(
@@ -595,7 +617,7 @@ class AgentRankRuntime:
                 profile_id = identity.profile_id
                 try:
                     result = await self.orchestrator.run(profile_id, self.config)
-                    self._apply_post_action(profile_id, result)
+                    self._apply_post_action(profile_id, result, source="scheduled")
                     results.append(
                         {
                             "profile_id": profile_id,
