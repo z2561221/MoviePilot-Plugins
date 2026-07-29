@@ -3,10 +3,10 @@
   "target_version": "1.0.0",
   "current_milestone": "second_trial_feedback_mp_local_handoff",
   "status": {
-    "overall": "in_progress",
+    "overall": "completed",
     "phase": "phase-8",
     "task": "8.6",
-    "next_allowed_action": "Execute task 8.6: run final gates, sync AgentRank to the MP local repository, reload, and complete runtime plus three-viewport acceptance without changing version or history"
+    "next_allowed_action": "Await user acceptance of the MP-local trial; Git synchronization, version/history changes, PR, main merge, tag, Release, and publication remain forbidden until a separate explicit request"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -847,7 +847,7 @@
     {
       "id": "phase-8",
       "title": "试用反馈收束与MP本地交付",
-      "status": "in_progress",
+      "status": "completed",
       "goal": "落实第二次试用反馈并完成可复核的MP本地试用交付",
       "acceptance": [
         "全量测试构建扫描通过",
@@ -875,7 +875,14 @@
         "MoviePilot repeated Inception recognition logged 'Inception 使用TMDB识别缓存：盗梦空间' on the second call",
         "runtime feedback persisted candidate tmdb:tv:273114 as like while keeping five recommendations; dynamic questions progressed from a broad continuation-driver question to a narrower familiar-genre variation question with four generated options and custom-answer support",
         "CinePilot Agent accepted the validation message in 1294ms and persisted a retryable_failed invalid_evidence_reference result instead of hanging; public pending and export responses contain no reminder fields",
-        "390x844, 768x1024, and 1440x900 DOM geometry audits reported no horizontal overflow, visible five-item boards, and 40px action controls; final browser console warnings and errors were empty"
+        "390x844, 768x1024, and 1440x900 DOM geometry audits reported no horizontal overflow, visible five-item boards, and 40px action controls; final browser console warnings and errors were empty",
+        "Task 8.4 completed on efe9ada9 and Task 8.5 completed on 76fb2d9d; the second-trial gate reached 638 AgentRank tests, 30 static contracts, 119 focused Agent/eval tests, a 75-module Vue build, JSON and asset closure, sensitive-scan review, and git diff check",
+        "Task 8.6 rechecked compileall plus 112 focused runtime/frontend/Telegram/config/questioning tests and 30 static contracts after MP-local reload",
+        "Win and MP-local copies matched SHA256 for all 38 AgentRank files changed since Task 8.3; the AgentRank package entry matched exactly at v1.0.0 with unchanged v1.0.0 history",
+        "MoviePilot runtime reports AgentRank v1.0.0 with installed=true, state=true, and is_local=true; persisted configuration contains notification_type=Plugin without changing the user's other settings",
+        "authenticated browser acceptance loaded the MP-local remoteEntry.js, config/options, and overview resources; the live page showed five recommendations, 32 playback samples, all nine notification types, and questioning state low_interruption as 低打扰",
+        "390x844, 768x1024, and 1440x900 iframe viewport audits showed page scrollWidth equal to clientWidth, five visible recommendation rows, 25 action buttons with minimum 40px height, no button overlap, all five four-character config sections, all ten basic-setting fields, and zero console warnings or errors",
+        "the live pending center contained zero items, so no synthetic production Telegram callback was created; delete-on-success, buttonless edit fallback, and duplicate-callback behavior remain covered by the passing focused Telegram suite and are handed off for the user's next natural Telegram interaction"
       ],
       "tasks": [
         {
@@ -1011,12 +1018,12 @@
             "Task 8.5窄测118 passed，AgentRank全量638 passed，静态合同30 passed，Agent/eval聚焦119 passed",
             "compileall、Vue production build 75 modules、资产闭包、JSON解析、敏感扫描人工复核和git diff check通过"
           ],
-          "commit": null
+          "commit": "76fb2d9d"
         },
         {
           "id": "8.6",
           "title": "执行全量门禁并交付MP本地试用",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": [
             "第二次反馈窄测全量插件测试静态契约Agent eval全部通过",
             "Vue build资产闭包JSON解析敏感扫描和git diff check通过",
@@ -1027,7 +1034,19 @@
             "插件版本和history保持Task 8.3基线",
             "未fetch push PR merge tag Release且本轮状态可标记完成"
           ],
-          "verification": [],
+          "verification": [
+            "Second-trial final gate: AgentRank 638 passed, static contracts 30 passed, focused Agent/eval 119 passed, compileall passed, Vue build transformed 75 modules, asset closure and JSON parse passed, sensitive scan was reviewed, and git diff check passed",
+            "Post-reload narrow gate: 112 runtime/frontend/Telegram/config/questioning tests and 30 static contracts passed",
+            "sync_to_mp_local.py --plugin AgentRank and reload completed before acceptance; 38 changed AgentRank files matched SHA256 between Win and MP-local sources",
+            "runtime state: AgentRank v1.0.0, installed=true, state=true, is_local=true; AgentRank package version and v1.0.0 history match the MP-local entry exactly",
+            "runtime configuration preserves notification_type=Plugin and the authenticated Config UI exposes all nine MoviePilot NotificationType choices",
+            "live Page showed five recommendations and 32 playback samples; live profile state rendered 低打扰 and the pending center contained zero items",
+            "MP browser resource inventory observed the AgentRank remoteEntry.js plus config/options and overview requests from the local plugin source",
+            "390x844, 768x1024, and 1440x900 audits: scrollWidth equals clientWidth, five visible rows, 25 action buttons, minimum action height 40px, no button overlap, all five config sections and ten basic-setting fields visible, zero console warnings or errors",
+            "no synthetic production Telegram callback was created because the live pending center was empty; successful delete, buttonless fallback edit, and duplicate-callback safety are verified by the passing focused Telegram suite for the user's next natural interaction",
+            "tests/static/test_localtoolkit_standard_completion.py remained unstaged and uncommitted; plugin_version and history remained at the Task 8.3 baseline",
+            "no fetch, push, PR, merge, tag, Release, version bump, or history edit was performed"
+          ],
           "commit": null
         }
       ]
@@ -1282,6 +1301,24 @@
       "task": "plan-v6",
       "result": "second-trial feedback was mapped to Tasks 8.4 through 8.6; former release Tasks 8.4 through 8.7 were removed, completed Tasks 8.1 through 8.3 and their evidence were preserved, and the milestone now ends at MP-local trial handoff",
       "commit": null
+    },
+    {
+      "date": "2026-07-29",
+      "task": "8.4",
+      "result": "configuration was consolidated into five four-character sections, user-visible feedback became 点赞 and 点踩, legacy media type and exclusion keyword intent migrated into reversible profile evidence, candidate pool size moved to runtime parameters, and the support threshold became subscription-only",
+      "commit": "efe9ada9"
+    },
+    {
+      "date": "2026-07-29",
+      "task": "8.5",
+      "result": "MoviePilot notification types became selectable with Plugin as the default, Telegram terminal interactions delete the stale card or remove all buttons on fallback, and profile maturity now drives exploration, stabilization, and low-interruption questioning",
+      "commit": "76fb2d9d"
+    },
+    {
+      "date": "2026-07-29",
+      "task": "8.6",
+      "result": "final automated gates, MP-local SHA and runtime verification, authenticated resource and UI readback, and three-viewport geometry audits completed the second-trial MP-local handoff without Git synchronization, version changes, or publication",
+      "commit": null
     }
   ],
   "residual_risks": [
@@ -1293,6 +1330,7 @@
     "Telegram删除权限或消息类型可能不支持删除，回退编辑必须保证按钮集合为空",
     "429和上游慢响应必须共享90秒后端总预算，重试不得重置总计时器",
     "独立验收夹具未加载MoviePilot宿主MDI字体，图标最终绘制已在Task 8.3运行中MP通过DOM和宿主资源回读复核",
-    "浏览器截图CDP接口在390x844视口连续超时，未产出静态截图文件；三视口DOM几何、可见元素、运行资源和控制台均已实机回读"
+    "浏览器截图CDP接口在390x844视口连续超时，未产出静态截图文件；三视口DOM几何、可见元素、运行资源和控制台均已实机回读",
+    "Task 8.6验收时真实待处理中心为0项，为避免制造生产数据未伪造Telegram回调；删除原卡片的最终现网观测留给用户下一次自然交互，当前由聚焦测试覆盖成功删除、无按钮回退和重复回调幂等"
   ]
 }
