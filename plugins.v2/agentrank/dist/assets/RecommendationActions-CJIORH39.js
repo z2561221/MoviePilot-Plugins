@@ -474,7 +474,7 @@ function useAgentRankState(api) {
           run_id: currentBoard.run_id || '',
           board_revision: currentBoard.revision || 1,
         },
-        action === 'like' ? '喜欢' : '不喜欢',
+        action === 'like' ? '点赞' : '点踩',
         `feedback:${action}:${candidateId}`,
       );
     } catch (error) {
@@ -1099,7 +1099,7 @@ return (_ctx, _cache) => {
       _: 1
     }),
     _createVNode(_component_VTooltip, {
-      text: likePressed.value ? '已喜欢' : '喜欢',
+      text: likePressed.value ? '已点赞' : '点赞',
       location: "top"
     }, {
       activator: _withCtx(({ props: tooltipProps }) => [
@@ -1111,12 +1111,12 @@ return (_ctx, _cache) => {
           "prepend-icon": likePressed.value ? 'mdi-thumb-up' : 'mdi-thumb-up-outline',
           loading: likeLoading.value,
           disabled: actionBusy.value && !likeLoading.value,
-          "aria-label": likePressed.value ? '已喜欢' : '喜欢',
+          "aria-label": likePressed.value ? '已点赞' : '点赞',
           "aria-pressed": likePressed.value ? 'true' : 'false',
           onClick: _cache[1] || (_cache[1] = $event => (emit('like', __props.item.candidate_id)))
         }), {
           default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
-            _createElementVNode("span", { class: "ar-actions__label" }, "喜欢", -1)
+            _createElementVNode("span", { class: "ar-actions__label" }, "点赞", -1)
           ]))]),
           _: 1
         }, 16, ["size", "color", "prepend-icon", "loading", "disabled", "aria-label", "aria-pressed"])
@@ -1124,7 +1124,7 @@ return (_ctx, _cache) => {
       _: 1
     }, 8, ["text"]),
     _createVNode(_component_VTooltip, {
-      text: dislikePressed.value ? '已不喜欢' : '不喜欢',
+      text: dislikePressed.value ? '已点踩' : '点踩',
       location: "top"
     }, {
       activator: _withCtx(({ props: tooltipProps }) => [
@@ -1136,12 +1136,12 @@ return (_ctx, _cache) => {
           "prepend-icon": dislikePressed.value ? 'mdi-thumb-down' : 'mdi-thumb-down-outline',
           loading: dislikeLoading.value,
           disabled: actionBusy.value && !dislikeLoading.value,
-          "aria-label": dislikePressed.value ? '已不喜欢' : '不喜欢',
+          "aria-label": dislikePressed.value ? '已点踩' : '点踩',
           "aria-pressed": dislikePressed.value ? 'true' : 'false',
           onClick: _cache[2] || (_cache[2] = $event => (emit('dislike', __props.item.candidate_id)))
         }), {
           default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
-            _createElementVNode("span", { class: "ar-actions__label" }, "不喜欢", -1)
+            _createElementVNode("span", { class: "ar-actions__label" }, "点踩", -1)
           ]))]),
           _: 1
         }, 16, ["size", "color", "prepend-icon", "loading", "disabled", "aria-label", "aria-pressed"])
@@ -1153,6 +1153,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5505be1a"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ed420796"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };

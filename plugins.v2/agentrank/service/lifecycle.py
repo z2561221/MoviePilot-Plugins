@@ -6,6 +6,7 @@ from ..model.config import configured_identities, normalize_config
 from ..model.playback import PlaybackCapability
 from .runtime import AgentRankRuntime
 from .storage_migration import AgentRankStorageMigrationService
+from .legacy_config_migration import migrate_legacy_profile_config
 
 
 _BLOCK_MESSAGES = {
@@ -139,6 +140,7 @@ def initialize_plugin(
 ) -> None:
     """停止旧运行时、规范化配置、探测硬依赖并组装运行时。"""
     plugin.stop_service()
+    raw_config = dict(config) if isinstance(config, Mapping) else {}
     normalized = normalize_config(config)
     runtime_config = dict(normalized)
     plugin._config = dict(normalized)
@@ -166,6 +168,19 @@ def initialize_plugin(
                 "profiles": [],
             }
             plugin._migration_status = migration_status
+    legacy_config_migration = migrate_legacy_profile_config(
+        plugin, raw_config, plugin._config
+    )
+    plugin._legacy_config_migration_status = legacy_config_migration
+    legacy_config_migration_failed = legacy_config_migration.get("status") == "failed"
+    if legacy_config_migration_failed:
+        errors = plugin._config.get("_validation_errors")
+        if not isinstance(errors, list):
+            errors = []
+            plugin._config["_validation_errors"] = errors
+        message = "旧筛选配置迁移失败，已回滚画像并保留旧配置等待重试"
+        if message not in errors:
+            errors.append(message)
     if int(dict(migration_status or {}).get("failure_count") or 0):
         errors = plugin._config.get("_validation_errors")
         if not isinstance(errors, list):
@@ -174,7 +189,16 @@ def initialize_plugin(
         message = "AgentRank 新存储初始化失败，请查看迁移状态"
         if message not in errors:
             errors.append(message)
-    plugin._enablement = _probe_enablement(plugin, plugin._config)
+    plugin._enablement = (
+        _enablement(
+            bool(plugin._config.get("enabled")),
+            False,
+            "configuration_error",
+            "旧筛选配置迁移失败，插件保持停用",
+        )
+        if legacy_config_migration_failed
+        else _probe_enablement(plugin, plugin._config)
+    )
     plugin._enabled = bool(plugin._enablement.get("allowed"))
     if not plugin._enabled:
         runtime_config["enabled"] = False

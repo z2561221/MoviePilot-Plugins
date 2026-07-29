@@ -342,6 +342,9 @@ def test_success_atomically_saves_profile_board_and_run_history():
     ranking_weights = orchestrator.agent_adapter.ranking_calls[0][1].weights
     assert ranking_weights["policy_version"].startswith("policy-v1-")
     assert len(ranking_weights["weights"]) == 10
+    assert "confidence_threshold" not in ranking_weights
+    assert "media_types" not in ranking_weights
+    assert "exclude_keywords" not in ranking_weights
     assert ranking_weights["base_weights"]["rating_weight"] == 0.7
     assert {
         (item["dimension"], item["value"], item["evidence_count"])

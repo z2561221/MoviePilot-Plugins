@@ -472,7 +472,7 @@ export function useAgentRankState(api) {
           run_id: currentBoard.run_id || '',
           board_revision: currentBoard.revision || 1,
         },
-        action === 'like' ? '喜欢' : '不喜欢',
+        action === 'like' ? '点赞' : '点踩',
         `feedback:${action}:${candidateId}`,
       )
     } catch (error) {

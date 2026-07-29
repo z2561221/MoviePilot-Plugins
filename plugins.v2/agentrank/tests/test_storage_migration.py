@@ -17,11 +17,15 @@ package.__path__ = [str(PLUGIN_DIR)]
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 migration_module = importlib.import_module(f"{PACKAGE_NAME}.service.storage_migration")
 lifecycle_module = importlib.import_module(f"{PACKAGE_NAME}.service.lifecycle")
+profile_preference_module = importlib.import_module(
+    f"{PACKAGE_NAME}.service.profile_preferences"
+)
 
 AgentRankRepository = repository_module.AgentRankRepository
 AgentRankStorageMigrationService = migration_module.AgentRankStorageMigrationService
 initialize_plugin = lifecycle_module.initialize_plugin
 stop_plugin = lifecycle_module.stop_plugin
+ProfilePreferenceService = profile_preference_module.ProfilePreferenceService
 
 
 class FakePlugin:
@@ -278,3 +282,139 @@ def test_real_runtime_runs_migration_before_legacy_board_repairs():
 
     assert source.index(migration_call) < source.index(poster_repair_call)
     assert source.index(migration_call) < source.index(source_repair_call)
+
+
+def test_lifecycle_migrates_legacy_filters_to_reversible_profile_evidence_once():
+    """旧媒体类型与排除词只迁一次，并以可归档标签和来源证据保留语义。"""
+    plugin = FakePlugin()
+
+    def runtime_factory(plugin_arg, config_arg):
+        plugin_arg._repository = AgentRankRepository(plugin_arg)
+        return SimpleNamespace(config=config_arg, stop=lambda: None)
+
+    legacy_config = {
+        "enabled": False,
+        "emby_identities": [
+            {
+                "server_name": "home",
+                "user_id": "user-1",
+                "username": "Alice",
+                "profile_id": PROFILE_ID,
+                "schema_version": 1,
+            }
+        ],
+        "default_profile_id": PROFILE_ID,
+        "media_types": ["movie"],
+        "exclude_keywords": ["真人秀", "真人秀", "过度煽情"],
+    }
+
+    initialize_plugin(plugin, legacy_config, runtime_factory=runtime_factory)
+
+    preferences = plugin._repository.load_profile_preferences(PROFILE_ID)
+    assert preferences.custom_tags == ["电影"]
+    assert preferences.custom_negative_tags == ["剧集", "动漫", "真人秀", "过度煽情"]
+    assert preferences.legacy_config_evidence == [
+        {"kind": "positive", "tag": "电影", "source": "legacy_config"},
+        {"kind": "negative", "tag": "剧集", "source": "legacy_config"},
+        {"kind": "negative", "tag": "动漫", "source": "legacy_config"},
+        {"kind": "negative", "tag": "真人秀", "source": "legacy_config"},
+        {"kind": "negative", "tag": "过度煽情", "source": "legacy_config"},
+    ]
+    assert "media_types" not in plugin._config
+    assert "exclude_keywords" not in plugin._config
+    assert "media_types" not in plugin.saved_config
+    assert "exclude_keywords" not in plugin.saved_config
+
+    removed = ProfilePreferenceService(plugin._repository).update(
+        PROFILE_ID, "negative", "remove", "剧集"
+    )
+    assert removed.preferences.custom_negative_tags == ["动漫", "真人秀", "过度煽情"]
+    assert removed.preferences.archived_negative_tags == ["剧集"]
+    restored = ProfilePreferenceService(plugin._repository).update(
+        PROFILE_ID, "negative", "restore", "剧集"
+    )
+    assert restored.preferences.custom_negative_tags == ["动漫", "真人秀", "过度煽情", "剧集"]
+    assert restored.preferences.archived_negative_tags == []
+
+    initialize_plugin(plugin, plugin.saved_config, runtime_factory=runtime_factory)
+    repeated = plugin._repository.load_profile_preferences(PROFILE_ID)
+    assert repeated.to_dict() == restored.preferences.to_dict()
+
+
+def test_default_legacy_media_types_do_not_create_profile_evidence():
+    """旧值为全媒体类型时只清理配置键，不制造没有信息量的画像。"""
+    plugin = FakePlugin()
+
+    def runtime_factory(plugin_arg, config_arg):
+        plugin_arg._repository = AgentRankRepository(plugin_arg)
+        return SimpleNamespace(config=config_arg, stop=lambda: None)
+
+    initialize_plugin(
+        plugin,
+        {
+            "enabled": False,
+            "emby_identities": [
+                {
+                    "server_name": "home",
+                    "user_id": "user-1",
+                    "username": "Alice",
+                    "profile_id": PROFILE_ID,
+                    "schema_version": 1,
+                }
+            ],
+            "default_profile_id": PROFILE_ID,
+            "media_types": ["movie", "tv", "anime"],
+            "exclude_keywords": [],
+        },
+        runtime_factory=runtime_factory,
+    )
+
+    preferences = plugin._repository.load_profile_preferences(PROFILE_ID)
+    assert preferences.custom_tags == []
+    assert preferences.custom_negative_tags == []
+    assert preferences.legacy_config_evidence == []
+
+
+def test_legacy_filter_migration_rolls_back_profile_writes_on_failure():
+    """任一画像写入失败时回滚本轮画像迁移，并保留旧配置等待重试。"""
+    second_profile = "emby:home:user-2"
+    plugin = FakePlugin()
+    probe = AgentRankRepository(plugin)
+    plugin.fail_once_on_key = probe._profile_key("profile_preferences", second_profile)
+
+    def runtime_factory(plugin_arg, config_arg):
+        plugin_arg._repository = AgentRankRepository(plugin_arg)
+        return SimpleNamespace(config=config_arg, stop=lambda: None)
+
+    initialize_plugin(
+        plugin,
+        {
+            "enabled": False,
+            "emby_identities": [
+                {
+                    "server_name": "home",
+                    "user_id": "user-1",
+                    "username": "Alice",
+                    "profile_id": PROFILE_ID,
+                    "schema_version": 1,
+                },
+                {
+                    "server_name": "home",
+                    "user_id": "user-2",
+                    "username": "Bob",
+                    "profile_id": second_profile,
+                    "schema_version": 1,
+                },
+            ],
+            "default_profile_id": PROFILE_ID,
+            "media_types": ["movie"],
+            "exclude_keywords": ["真人秀"],
+        },
+        runtime_factory=runtime_factory,
+    )
+
+    assert probe._profile_key("profile_preferences", PROFILE_ID) not in plugin.data
+    assert probe._profile_key("profile_preferences", second_profile) not in plugin.data
+    assert plugin.saved_config is None
+    assert plugin._enablement["status"] == "configuration_error"
+    assert any("旧筛选配置迁移失败" in item for item in plugin._config["_validation_errors"])

@@ -1,13 +1,12 @@
 {
   "plan": "plugins.v2/agentrank/ai_spec/v1.0.0_implementation_plan.md",
-  "goal_starter": "plugins.v2/agentrank/ai_spec/v1.0.0_goal_starter.md",
   "target_version": "1.0.0",
-  "target_release_date": "2026-07-31",
+  "current_milestone": "second_trial_feedback_mp_local_handoff",
   "status": {
     "overall": "in_progress",
     "phase": "phase-8",
-    "task": "8.3",
-    "next_allowed_action": "Execute task 8.3: sync the verified AgentRank source to the MP local repository, reload the plugin, and complete API plus responsive browser runtime acceptance"
+    "task": "8.4",
+    "next_allowed_action": "Execute task 8.4: implement the second-trial wording, configuration-area consolidation, legacy media-type and exclusion migration, candidate-pool relocation, and subscription-threshold semantics without changing version or history"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -18,15 +17,14 @@
     "smoke_check": "$python = Join-Path $env:USERPROFILE '.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe'; & $python -m compileall -q plugins.v2/agentrank; & $python -m pytest --confcutdir=plugins.v2/agentrank/tests --import-mode=append plugins.v2/agentrank/tests/test_runtime_contracts.py plugins.v2/agentrank/tests/test_frontend_contract.py -q",
     "commit_each_verified_task": true,
     "no_commit_on_failed_verification": true,
-    "never_push_merge_amend_rebase_reset_or_release_automatically": true,
+    "remote_git_sync_and_release_out_of_scope": true,
+    "never_fetch_push_pr_merge_tag_release_amend_rebase_or_reset": true,
     "advance_after_verified_phase": true,
     "no_user_confirmation_between_phases": true,
     "pause_only_for": [
       "missing_product_decision",
       "unisolatable_unrelated_changes",
-      "push",
-      "merge_to_main",
-      "release"
+      "mp_local_unavailable_for_three_consecutive_turns"
     ],
     "mutable_fields_only": [
       "status",
@@ -848,15 +846,18 @@
     },
     {
       "id": "phase-8",
-      "title": "全量质量门禁、MP本地收束与正式发布",
+      "title": "试用反馈收束与MP本地交付",
       "status": "in_progress",
-      "goal": "在用户授权下完成v1.0.0可复核发布",
+      "goal": "落实第二次试用反馈并完成可复核的MP本地试用交付",
       "acceptance": [
         "全量测试构建扫描通过",
-        "试用反馈收束且无旧提醒行为",
-        "MP本地真实五条反馈闭环通过",
-        "分支提交和路径纯净",
-        "用户授权后main tag Release zip一致"
+        "第一次和第二次试用反馈均收束且无旧提醒行为",
+        "配置功能区迁移通知类型和订阅门槛符合V6决策",
+        "Telegram交互后无陈旧按钮卡片",
+        "画像成熟后常规主动问询降为零且必要冲突问询可恢复",
+        "MP本地真实五条反馈闭环和三视口验收通过",
+        "本地提交和路径纯净且版本history不变",
+        "未执行Git在线同步PR合入main或正式发布"
       ],
       "acceptance_evidence": [
         "Task 8.1 quality gate passed on commit 9f2f1cf5: 621 plugin tests, 30 static contracts, and 137 Agent/eval tests",
@@ -867,7 +868,14 @@
         "post-clear MoviePilot probe recognized Inception normally, then logged '使用TMDB识别缓存：盗梦空间' on the repeated call; observed wall time fell from 6091ms to 329ms",
         "Task 8.2 completed on commit 234dfbcc: Page.vue is the shared detail and discovery implementation, CinePilot Agent naming and action semantics are unified, conversation handling is immediate and bounded, dynamic questions replace reminder behavior, and MoviePilot recognition cache metrics are auditable",
         "Task 8.2 gate passed: 628 plugin tests, 30 static contracts, 27 Agent and dynamic-question tests, 13 conversation tests, 50 reminder-removal tests, and 84 recognition/candidate/orchestration tests",
-        "Task 8.2 Vite build transformed 75 modules; JSON parsing, federation asset closure, sensitive scan, legacy visible-copy scan, and git diff --check all passed"
+        "Task 8.2 Vite build transformed 75 modules; JSON parsing, federation asset closure, sensitive scan, legacy visible-copy scan, and git diff --check all passed",
+        "Task 8.3 synced AgentRank to the MP local repository, force-installed from the registered local:// source, reloaded successfully, and matched SHA256 for backend, conversation, Page.vue, AppPage.vue, and remoteEntry.js",
+        "MP history reports plugin_version 1.0.0, package/history consistency, installed=true, state=true, and is_local=true; the browser loaded the new AppPage, Page, and RecommendationActions hashed assets",
+        "runtime run abc58bf61af345b69dc18fecf199dc9e completed in 118833ms with 37 safe candidates and 5 final recommendations; 3 recognition cache hits plus 60 misses equal all 63 recognition inputs",
+        "MoviePilot repeated Inception recognition logged 'Inception 使用TMDB识别缓存：盗梦空间' on the second call",
+        "runtime feedback persisted candidate tmdb:tv:273114 as like while keeping five recommendations; dynamic questions progressed from a broad continuation-driver question to a narrower familiar-genre variation question with four generated options and custom-answer support",
+        "CinePilot Agent accepted the validation message in 1294ms and persisted a retryable_failed invalid_evidence_reference result instead of hanging; public pending and export responses contain no reminder fields",
+        "390x844, 768x1024, and 1440x900 DOM geometry audits reported no horizontal overflow, visible five-item boards, and 40px action controls; final browser console warnings and errors were empty"
       ],
       "tasks": [
         {
@@ -922,7 +930,7 @@
         {
           "id": "8.3",
           "title": "同步MP本地并运行真实闭环",
-          "status": "pending",
+          "status": "completed",
           "acceptance": [
             "SHA一致并reload成功",
             "history版本历史is_local一致",
@@ -932,39 +940,85 @@
             "390x844 768x1024 1440x900无溢出且控制台干净"
           ],
           "verification": [
-            "pre-change runtime connectivity and cache reuse are proven by the 2026-07-29 evidence recorded at phase level; repeat the complete runtime gate after Task 8.2 code is synced"
+            "sync_to_mp_local.py --plugin AgentRank completed for plugin source, icon, and package entry",
+            "registered local:// source force-install and subsequent reload both returned success=true",
+            "Win and MP-local SHA256 matched for __init__.py, service/conversation.py, AppPage.vue, Page.vue, and dist/assets/remoteEntry.js",
+            "browser resource inventory loaded __federation_expose_AppPage-DkiSlaDF.js, __federation_expose_Page-YA-IPjr5.js, and RecommendationActions-Ffewpr4a.js",
+            "plugin history: plugin_version=1.0.0, installed=true, state=true, is_local=true, and v1.0.0 history equals package.v2.json",
+            "runtime run abc58bf61af345b69dc18fecf199dc9e: status=success, final_count=5, candidate_count=37, elapsed_ms=118833",
+            "runtime recognition metrics: recognition_input=63, candidate_recognition_cache_hit_count=3, candidate_recognition_cache_miss_count=60, and hit plus miss equals input",
+            "second Inception recognition logged 'Inception 使用TMDB识别缓存：盗梦空间' in MoviePilot",
+            "runtime like feedback: board remained at five items and tmdb:tv:273114 persisted feedback_kind=like with pressed UI state",
+            "dynamic question chain used four generated options with custom answers: broad '在题材与设定之外，什么最容易让你继续看下去？' then narrower '面对熟悉题材时，你更希望作品怎样变化？'",
+            "pending API exposes only profile_id, items, counts, and total; public pending and export payloads contain no reminder_policy, next_remind_at, remind_after, or never_remind",
+            "CinePilot Agent message submission returned in 1294ms and persisted retryable_failed with invalid_evidence_reference instead of indefinite processing",
+            "390x844: scrollWidth=clientWidth=390, no overflow, five visible recommendations, 40px actions",
+            "768x1024: scrollWidth=clientWidth=768, no overflow, five visible recommendations, 40px actions",
+            "1440x900: scrollWidth=clientWidth=1440, no overflow, five visible recommendations, 40px actions",
+            "browser console errors and warnings: 0"
+          ],
+          "commit": "234dfbcc"
+        },
+        {
+          "id": "8.4",
+          "title": "重构配置与用户可见交互",
+          "status": "completed",
+          "acceptance": [
+            "用户可见喜欢不喜欢及已选中态统一为点赞点踩且内部like dislike不迁移",
+            "一级功能区仅运行总览基础设置画像学习推荐策略高级选项且标题均为四字",
+            "基础设置无二级页签并按服务用户运行计划入口动作通知门槛顺序集中展示",
+            "运行总览保留Agent实际检索计划且冻结候选统计显示避雷命中",
+            "条件筛选和榜单行为一级入口移除",
+            "旧媒体类型默认全选不制造画像非默认子集转换为可撤销的legacy_config正向避雷证据且旧排除关键词去重迁入避雷标签",
+            "候选池数量仅位于高级选项运行参数",
+            "订阅门槛仅拦截手动Telegram CinePilot Agent和自动订阅且不影响榜单显示",
+            "配置迁移保存重载测试和前端窄测通过",
+            "版本和history不变且仅提交当前工作单元路径"
+          ],
+          "verification": [
+            "用户可见榜单动作和反馈提示统一为点赞点踩，内部事件仍为like dislike",
+            "Config一级入口固定为运行总览基础设置画像学习推荐策略高级选项，基础设置无二级页签",
+            "候选池数量仅位于高级选项运行参数，最低支持度只进入订阅链而不进入Agent排序上下文",
+            "旧媒体类型子集和排除关键词迁为legacy_config来源画像证据，覆盖默认全选幂等撤销恢复及失败回滚",
+            "冻结候选negative_keyword显示为避雷命中，配置模型不再输出media_types或exclude_keywords",
+            "Task 8.4窄测78 passed，AgentRank全量632 passed，静态合同30 passed，Vue production build通过，git diff --check通过"
           ],
           "commit": null
         },
         {
-          "id": "8.4",
-          "title": "审计分支和整理发布元数据",
-          "status": "pending",
-          "acceptance": ["release workflow只监听main", "独有提交和路径仅AgentRank范围", "版本三处均为1.0.0"],
-          "verification": [],
-          "commit": null
-        },
-        {
           "id": "8.5",
-          "title": "生成发布preview并等待push授权",
+          "title": "收束通知与低打扰学习",
           "status": "pending",
-          "acceptance": ["preview仅一次且范围正确", "用户明确授权push前不写远端"],
+          "acceptance": [
+            "榜单通知位于基础设置且通知类型默认插件",
+            "MoviePilot全部NotificationType均可选择保存和恢复",
+            "榜单异常待处理通知统一读取配置类型",
+            "Telegram成功交互删除原按钮消息并发送简短结果",
+            "Telegram删除失败回退原地编辑且按钮集合为空",
+            "重复Telegram回调无第二次副作用",
+            "画像状态仅探索中趋于稳定低打扰且不显示精确百分比",
+            "偏好覆盖冲突率预期信息增益和打扰成本共同控制问询",
+            "低打扰时常规主动问询为零且冲突漂移关键未知可恢复必要问询",
+            "关闭问询只增加打扰成本不写负向偏好且不恢复时效提醒",
+            "通知问询eval和窄测通过且仅提交当前工作单元路径"
+          ],
           "verification": [],
           "commit": null
         },
         {
           "id": "8.6",
-          "title": "等待合入发布授权并执行发布",
+          "title": "执行全量门禁并交付MP本地试用",
           "status": "pending",
-          "acceptance": ["使用真实merge commit", "Action tag Release zip成功", "相同门禁失败两次即停止"],
-          "verification": [],
-          "commit": null
-        },
-        {
-          "id": "8.7",
-          "title": "回读远端并完成目标",
-          "status": "pending",
-          "acceptance": ["远端main package plugin Release均为1.0.0", "保留MP本地源和业务分支", "记录最终残余风险"],
+          "acceptance": [
+            "第二次反馈窄测全量插件测试静态契约Agent eval全部通过",
+            "Vue build资产闭包JSON解析敏感扫描和git diff check通过",
+            "MP本地同步reload SHA history和is_local核验通过",
+            "旧配置迁移通知类型Telegram单次交互和问询降频通过实机验收",
+            "390x844 768x1024 1440x900无溢出且控制台干净",
+            "LocalToolkit文件未暂存未提交",
+            "插件版本和history保持Task 8.3基线",
+            "未fetch push PR merge tag Release且本轮状态可标记完成"
+          ],
           "verification": [],
           "commit": null
         }
@@ -991,6 +1045,11 @@
       "date": "2026-07-29",
       "decision": "榜单识别继续复用MoviePilot MediaChain与TmdbChain缓存并新增命中未命中指标，不创建插件持久化识别缓存",
       "source": "源码审计与MP本地运行态缓存探针"
+    },
+    {
+      "date": "2026-07-29",
+      "decision": "V6将第二次试用反馈拆为配置交互通知低打扰学习和MP本地交付三个任务，Git在线同步PR合入版本整理与正式发布全部移出本轮",
+      "source": "用户第二次试用反馈逐项确认及最终计划范围确认"
     }
   ],
   "turn_log": [
@@ -1203,14 +1262,29 @@
       "task": "8.2",
       "result": "detail and discovery now share the complete Page.vue experience; CinePilot Agent conversation is immediately accepted and processed with bounded profile-ordered recovery; dynamic whole-user preference questions replace all reminder behavior; MoviePilot recognition cache reuse is surfaced through candidate hit and miss metrics",
       "commit": "234dfbcc"
+    },
+    {
+      "date": "2026-07-29",
+      "task": "8.3",
+      "result": "MP-local force-install and reload loaded the verified AgentRank assets; a successful five-item run, persisted like feedback, immediate retryable conversation failure, broad-to-narrow dynamic questions, reminder-free APIs, exact recognition cache accounting, repeated host-cache logs, responsive geometry, and a clean browser console completed runtime acceptance",
+      "commit": "234dfbcc"
+    },
+    {
+      "date": "2026-07-29",
+      "task": "plan-v6",
+      "result": "second-trial feedback was mapped to Tasks 8.4 through 8.6; former release Tasks 8.4 through 8.7 were removed, completed Tasks 8.1 through 8.3 and their evidence were preserved, and the milestone now ends at MP-local trial handoff",
+      "commit": null
     }
   ],
   "residual_risks": [
-    "目标发布日期紧，任何高严重度权限数据隐私问题优先于日期",
+    "第二次试用交付不设发布日期，任何高严重度权限数据隐私问题优先于进度",
     "真实用户口味只能通过证据规则和反馈评估逼近，不能声称绝对正确",
     "MoviePilot或Agent Tokens运行时更新可能造成宿主契约漂移",
-    "动态问询若缺少信息增益和冷却约束会造成重复打扰或偏好过拟合",
+    "画像成熟度门禁若校准过快会漏掉关键偏好，过慢会造成重复打扰或偏好过拟合",
+    "旧媒体类型和排除关键词迁移必须保持原有意图，无法证明等价时不得静默丢弃",
+    "Telegram删除权限或消息类型可能不支持删除，回退编辑必须保证按钮集合为空",
     "429和上游慢响应必须共享90秒后端总预算，重试不得重置总计时器",
-    "独立验收夹具未加载MoviePilot宿主MDI字体，图标最终绘制需在Task 8.3运行中MP复核"
+    "独立验收夹具未加载MoviePilot宿主MDI字体，图标最终绘制已在Task 8.3运行中MP通过DOM和宿主资源回读复核",
+    "浏览器截图CDP接口在390x844视口连续超时，未产出静态截图文件；三视口DOM几何、可见元素、运行资源和控制台均已实机回读"
   ]
 }

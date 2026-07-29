@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-Ffewpr4a.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CJIORH39.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-Z-mQLghu.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
@@ -240,8 +240,8 @@ return (_ctx, _cache) => {
                             item: item,
                             "loading-action": _unref(state).loading.action,
                             "native-subscribe": __props.nativeSubscribe,
-                            onLike: _cache[0] || (_cache[0] = candidateId => runItemAction(() => _unref(state).reactToRecommendation('like', candidateId), '已记录喜欢')),
-                            onDislike: _cache[1] || (_cache[1] = candidateId => runItemAction(() => _unref(state).reactToRecommendation('dislike', candidateId), '已记录不喜欢')),
+                            onLike: _cache[0] || (_cache[0] = candidateId => runItemAction(() => _unref(state).reactToRecommendation('like', candidateId), '已记录点赞')),
+                            onDislike: _cache[1] || (_cache[1] = candidateId => runItemAction(() => _unref(state).reactToRecommendation('dislike', candidateId), '已记录点踩')),
                             onSubscribe: _cache[2] || (_cache[2] = candidateId => runItemAction(() => _unref(state).subscribe(candidateId), '订阅操作已完成')),
                             onNativeSubscribeOpened: _cache[3] || (_cache[3] = candidateId => runItemAction(() => _unref(state).recordNativeDrawerOpened(candidateId), '已打开订阅设置')),
                             onArchive: _cache[4] || (_cache[4] = candidateId => runItemAction(() => _unref(state).archive(candidateId), '已忽略推荐'))
@@ -299,6 +299,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6846d220"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-db82a6e9"]]);
 
 export { Dashboard as default };

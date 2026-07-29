@@ -13,7 +13,7 @@ def _read(name: str) -> str:
 def test_advanced_options_exposes_four_character_prompt_subtab():
     """提示设置用四类紧凑入口和统一弹窗编辑。"""
     config = _read("Config.vue")
-    assert "{ key: 'runtime', title: '运行设置'" in config
+    assert "{ key: 'runtime', title: '运行参数'" in config
     assert "{ key: 'prompt', title: '提示设置'" in config
     for field_name, title in (
         ("profile_prompt", "画像理解规则"),
@@ -214,8 +214,10 @@ def test_like_and_dislike_controls_are_shape_first_accessible_and_persistent():
         assert icon in actions
     assert ":aria-pressed=" in actions
     assert actions.count('variant="tonal"') >= 5
-    assert '<span class="ar-actions__label">喜欢</span>' in actions
-    assert '<span class="ar-actions__label">不喜欢</span>' in actions
+    assert '<span class="ar-actions__label">点赞</span>' in actions
+    assert '<span class="ar-actions__label">点踩</span>' in actions
+    assert "likePressed ? '已点赞' : '点赞'" in actions
+    assert "dislikePressed ? '已点踩' : '点踩'" in actions
     assert actions.count('class="ar-actions__button text-none"') >= 4
     assert "reactToRecommendation" in state
     assert "idempotency_key" in state
@@ -292,8 +294,8 @@ def test_ranking_surfaces_cache_overview_by_stable_profile_id():
     assert "if (!initialized.value || !value || value === oldValue) return" in page
 
 
-def test_profile_clear_only_lives_in_advanced_runtime_settings():
-    """发现页和详情页不暴露清除入口，危险操作集中在高级运行设置并二次确认。"""
+def test_profile_clear_only_lives_in_profile_policy_settings():
+    """发现页和详情页不暴露清除入口，危险操作集中在画像策略并二次确认。"""
     app_page = _read("AppPage.vue")
     detail_page = _read("Page.vue")
     config = _read("Config.vue")
@@ -469,7 +471,30 @@ def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse()
     assert "<Page" in app_page
     assert page.index('icon="mdi-text-box-search-outline"') < page.index("ar-page__support") < page.index("<RecommendationActions")
     assert actions.index('aria-label="订阅"') < actions.index('aria-label="打开 TMDB"') < actions.index('aria-label="忽略"')
-    assert actions.index('aria-label="忽略"') < actions.index("likePressed ? '已喜欢' : '喜欢'") < actions.index("dislikePressed ? '已不喜欢' : '不喜欢'")
+    assert actions.index('aria-label="忽略"') < actions.index("likePressed ? '已点赞' : '点赞'") < actions.index("dislikePressed ? '已点踩' : '点踩'")
+
+
+def test_config_uses_five_main_sections_and_places_execution_controls_once():
+    """配置页固定五个四字一级区，基础设置集中，运行参数只保留技术容量。"""
+    config = _read("Config.vue")
+    for key, title in (
+        ("overview", "运行总览"),
+        ("basic", "基础设置"),
+        ("profile", "画像学习"),
+        ("strategy", "推荐策略"),
+        ("advanced", "高级选项"),
+    ):
+        assert f"{{ key: '{key}', title: '{title}'" in config
+    for removed in ("条件筛选", "榜单行为"):
+        assert removed not in config
+    assert "activeProfile" in config
+    assert "activeStrategy" in config
+    assert "activeMain.value === 'basic' ? []" in config
+    assert config.count('v-model.number="form.candidate_pool_size"') == 1
+    assert "最低支持度" in config
+    assert 'v-model="form.media_types"' not in config
+    assert 'v-model="form.exclude_keywords"' not in config
+    assert "negative_keyword: '避雷命中'" in config
 
 
 def test_cinepilot_chat_is_immediate_bounded_and_retryable():

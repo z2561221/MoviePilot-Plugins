@@ -261,10 +261,7 @@ class RecommendationOrchestrator:
                 if policy is not None
                 else dict(config.get("weights") or {})
             ),
-            "media_types": list(config.get("media_types") or []),
             "candidate_pool_size": int(config.get("candidate_pool_size") or 100),
-            "confidence_threshold": float(config.get("confidence_threshold") or 0.0),
-            "exclude_keywords": list(config.get("exclude_keywords") or []),
         }
         if policy is not None:
             values.update(
@@ -941,11 +938,8 @@ class RecommendationOrchestrator:
                 self._repository
             ).active_disliked_candidate_ids(target)
             metrics["active_disliked_candidate_count"] = len(disliked_ids)
-            negative_keywords = list(config.get("exclude_keywords") or [])
-            negative_keywords.extend(
-                profile_preferences.effective_negative_tags(
-                    current_profile.negative_tags
-                )
+            negative_keywords = profile_preferences.effective_negative_tags(
+                current_profile.negative_tags
             )
             stage_clock = time.monotonic()
             try:

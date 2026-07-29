@@ -63,11 +63,9 @@ class AgentRankConfig:
         default_factory=lambda: dict(DISCOVERY_SOURCE_DEFAULTS)
     )
     weights: Dict[str, float] = field(default_factory=lambda: dict(WEIGHT_DEFAULTS))
-    media_types: List[str] = field(default_factory=lambda: ["movie", "tv", "anime"])
     minimum_samples: int = 5
     candidate_pool_size: int = 100
     confidence_threshold: float = 0.6
-    exclude_keywords: List[str] = field(default_factory=list)
     action_mode: str = "notify"
     notify: bool = True
     auto_subscribe_top_n: int = 0
@@ -313,12 +311,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         for name, default in DISCOVERY_SOURCE_DEFAULTS.items()
     }
 
-    media_types = _unique_strings(raw.get("media_types", ["movie", "tv", "anime"]))
-    unsupported_types = sorted(set(media_types) - {"movie", "tv", "anime"})
-    if unsupported_types or not media_types:
-        errors.append("media_types must contain only movie, tv, or anime")
-        media_types = ["movie", "tv", "anime"]
-
     action_mode = str(raw.get("action_mode") or "notify")
     if action_mode not in {"update", "notify", "auto_subscribe"}:
         errors.append("action_mode must be update, notify, or auto_subscribe")
@@ -343,7 +335,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         emby_library_ids=emby_library_ids,
         discovery_sources=discovery_sources,
         weights=weights,
-        media_types=media_types,
         minimum_samples=_bounded_integer(
             raw.get("minimum_samples", 5), 5, 1, 100, "minimum_samples", errors
         ),
@@ -363,7 +354,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
             "confidence_threshold",
             errors,
         ),
-        exclude_keywords=_unique_strings(raw.get("exclude_keywords", [])),
         action_mode=action_mode,
         notify=bool(raw.get("notify", True)),
         auto_subscribe_top_n=auto_top_n,

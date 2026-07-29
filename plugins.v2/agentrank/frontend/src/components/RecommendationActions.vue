@@ -152,7 +152,7 @@ async function handleSubscribe() {
         <VBtn v-bind="tooltipProps" :size="size" variant="tonal" color="default" class="ar-actions__button text-none" prepend-icon="mdi-eye-off-outline" :loading="loadingAction === 'archive'" :disabled="actionBusy && loadingAction !== 'archive'" aria-label="忽略" @click="emit('archive', item.candidate_id)"><span class="ar-actions__label">忽略</span></VBtn>
       </template>
     </VTooltip>
-    <VTooltip :text="likePressed ? '已喜欢' : '喜欢'" location="top">
+    <VTooltip :text="likePressed ? '已点赞' : '点赞'" location="top">
       <template #activator="{ props: tooltipProps }">
         <VBtn
           v-bind="tooltipProps"
@@ -163,13 +163,13 @@ async function handleSubscribe() {
           :prepend-icon="likePressed ? 'mdi-thumb-up' : 'mdi-thumb-up-outline'"
           :loading="likeLoading"
           :disabled="actionBusy && !likeLoading"
-          :aria-label="likePressed ? '已喜欢' : '喜欢'"
+          :aria-label="likePressed ? '已点赞' : '点赞'"
           :aria-pressed="likePressed ? 'true' : 'false'"
           @click="emit('like', item.candidate_id)"
-        ><span class="ar-actions__label">喜欢</span></VBtn>
+        ><span class="ar-actions__label">点赞</span></VBtn>
       </template>
     </VTooltip>
-    <VTooltip :text="dislikePressed ? '已不喜欢' : '不喜欢'" location="top">
+    <VTooltip :text="dislikePressed ? '已点踩' : '点踩'" location="top">
       <template #activator="{ props: tooltipProps }">
         <VBtn
           v-bind="tooltipProps"
@@ -180,10 +180,10 @@ async function handleSubscribe() {
           :prepend-icon="dislikePressed ? 'mdi-thumb-down' : 'mdi-thumb-down-outline'"
           :loading="dislikeLoading"
           :disabled="actionBusy && !dislikeLoading"
-          :aria-label="dislikePressed ? '已不喜欢' : '不喜欢'"
+          :aria-label="dislikePressed ? '已点踩' : '点踩'"
           :aria-pressed="dislikePressed ? 'true' : 'false'"
           @click="emit('dislike', item.candidate_id)"
-        ><span class="ar-actions__label">不喜欢</span></VBtn>
+        ><span class="ar-actions__label">点踩</span></VBtn>
       </template>
     </VTooltip>
   </div>

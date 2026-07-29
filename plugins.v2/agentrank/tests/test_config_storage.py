@@ -151,11 +151,9 @@ def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
             "freshness_weight": 0.9,
             "similarity_weight": 0.9,
         },
-        "media_types": ["movie", "tv", "anime"],
         "minimum_samples": 5,
         "candidate_pool_size": 100,
         "confidence_threshold": 0.6,
-        "exclude_keywords": [],
         "action_mode": "notify",
         "notify": True,
         "auto_subscribe_top_n": 0,
@@ -182,6 +180,8 @@ def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
     assert defaults["default_profile_id"] == ""
     assert defaults["profile_access_map"] == {}
     assert defaults["emby_library_ids"] is None
+    assert "media_types" not in defaults
+    assert "exclude_keywords" not in defaults
 
 
 @pytest.mark.parametrize(

@@ -60,11 +60,9 @@ const config = {
   profile_access_map: { 7: [identities[0].profile_id] },
   discovery_sources: { douban: true, tmdb_movies: true, tmdb_tv: true, bangumi: true, anilist: true },
   weights,
-  media_types: ['movie', 'tv', 'anime'],
   minimum_samples: 5,
   candidate_pool_size: 100,
   confidence_threshold: 0.6,
-  exclude_keywords: [],
   action_mode: 'notify',
   notify: true,
   auto_subscribe_top_n: 0,
@@ -294,7 +292,7 @@ function previewFeedback(kind, candidateId) {
   if (kind === 'like') {
     const target = boardRecommendations.value.find(item => item.candidate_id === candidateId)
     if (target) target.feedback_kind = 'like'
-    return { changed: false, board_changed: false, event: { kind }, board_revision: boardRevision.value, message: '已记录喜欢' }
+    return { changed: false, board_changed: false, event: { kind }, board_revision: boardRevision.value, message: '已记录点赞' }
   }
   blockedCandidateIds.add(candidateId)
   const remaining = boardRecommendations.value.filter(item => item.candidate_id !== candidateId)
@@ -313,7 +311,7 @@ function previewFeedback(kind, candidateId) {
     current_count: boardRecommendations.value.length,
     refill_count: replacement ? 1 : 0,
     refill_status: complete ? 'filled' : 'safe_candidate_insufficient',
-    message: complete ? `${kind === 'ignore' ? '忽略' : '不喜欢'}已生效，并从本轮冻结安全候选池补位` : '安全候选不足',
+    message: complete ? `${kind === 'ignore' ? '忽略' : '点踩'}已生效，并从本轮冻结安全候选池补位` : '安全候选不足',
   }
 }
 

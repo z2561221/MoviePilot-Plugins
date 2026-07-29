@@ -120,10 +120,10 @@ def test_config_is_the_authoritative_complete_weight_write_surface():
     for tab in (
         "运行总览",
         "基础设置",
+        "画像学习",
+        "推荐策略",
         "发现来源",
         "权重设置",
-        "条件筛选",
-        "榜单行为",
         "高级选项",
     ):
         assert tab in source
@@ -155,7 +155,8 @@ def test_config_is_the_authoritative_complete_weight_write_surface():
     assert "auto_subscribe_top_n" in source
     assert "candidate_pool_size" in source
     assert "confidence_threshold" in source
-    assert "exclude_keywords" in source
+    assert 'v-model="form.media_types"' not in source
+    assert 'v-model="form.exclude_keywords"' not in source
     assert "emby_identities" in source
     assert "default_profile_id" in source
     for legacy in (
@@ -205,7 +206,7 @@ def test_config_data_governance_and_critic_prompt_are_complete_and_guarded():
     """配置页完整接入访问、保留、导出、双重置和影评师扩展提示词。"""
     source = CONFIG.read_text(encoding="utf-8")
     api = API.read_text(encoding="utf-8")
-    for tab in ("运行设置", "访问控制", "数据管理", "提示设置"):
+    for tab in ("运行参数", "访问控制", "数据管理", "提示设置"):
         assert tab in source
     for field in (
         "profile_access_map",
@@ -467,7 +468,7 @@ def test_dashboard_is_a_lightweight_vertical_top_five():
 def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
     """榜单共享同尺寸文字赞踩，并把电视剧订阅交给宿主原生抽屉。"""
     actions = ACTIONS.read_text(encoding="utf-8")
-    for label in ("订阅", "TMDB", "忽略", "喜欢", "不喜欢"):
+    for label in ("订阅", "TMDB", "忽略", "点赞", "点踩"):
         assert f'<span class="ar-actions__label">{label}</span>' in actions
         assert actions.count(f'<span class="ar-actions__label">{label}</span>') == 1
     for forbidden in ("豆瓣", "Bgm", "搜索豆瓣", "doubanSearchText", "sourceLabel"):

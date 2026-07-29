@@ -452,6 +452,9 @@ class AgentRankApiController:
                 "archived_negative_tags": list(
                     preferences.archived_negative_tags
                 ),
+                "legacy_config_evidence": list(
+                    preferences.legacy_config_evidence
+                ),
                 "archived_profile_tags": preferences.archived_entries(),
             }
         )

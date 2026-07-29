@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-Ffewpr4a.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CJIORH39.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-Z-mQLghu.js';
 
 const {unref:_unref$4,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,createElementVNode:_createElementVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,openBlock:_openBlock$4,createBlock:_createBlock$4,createCommentVNode:_createCommentVNode$4,createElementBlock:_createElementBlock$3,withModifiers:_withModifiers$2,mergeProps:_mergeProps$1,renderList:_renderList$3,Fragment:_Fragment$3} = await importShared('vue');
@@ -2190,8 +2190,8 @@ return (_ctx, _cache) => {
                             "loading-action": _unref(state).loading.action,
                             "native-subscribe": __props.nativeSubscribe,
                             size: "small",
-                            onLike: _cache[6] || (_cache[6] = candidateId => runAction(() => _unref(state).reactToRecommendation('like', candidateId), '已记录喜欢')),
-                            onDislike: _cache[7] || (_cache[7] = candidateId => runAction(() => _unref(state).reactToRecommendation('dislike', candidateId), '已记录不喜欢')),
+                            onLike: _cache[6] || (_cache[6] = candidateId => runAction(() => _unref(state).reactToRecommendation('like', candidateId), '已记录点赞')),
+                            onDislike: _cache[7] || (_cache[7] = candidateId => runAction(() => _unref(state).reactToRecommendation('dislike', candidateId), '已记录点踩')),
                             onSubscribe: _cache[8] || (_cache[8] = candidateId => runAction(() => _unref(state).subscribe(candidateId), '订阅操作已完成')),
                             onNativeSubscribeOpened: _cache[9] || (_cache[9] = candidateId => runAction(() => _unref(state).recordNativeDrawerOpened(candidateId), '已打开订阅设置')),
                             onArchive: _cache[10] || (_cache[10] = candidateId => runAction(() => _unref(state).archive(candidateId), '已忽略推荐'))
@@ -2824,6 +2824,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b738b113"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b8c3e946"]]);
 
 export { Page as default };

@@ -16,6 +16,7 @@ class ProfilePreferences:
     custom_negative_tags: List[str] = field(default_factory=list)
     archived_tags: List[str] = field(default_factory=list)
     archived_negative_tags: List[str] = field(default_factory=list)
+    legacy_config_evidence: List[Dict[str, str]] = field(default_factory=list)
     schema_version: int = 3
 
     def __post_init__(self) -> None:
@@ -28,6 +29,9 @@ class ProfilePreferences:
         self.custom_negative_tags = self._unique(self.custom_negative_tags)
         self.archived_tags = self._unique(self.archived_tags)
         self.archived_negative_tags = self._unique(self.archived_negative_tags)
+        self.legacy_config_evidence = self._legacy_evidence(
+            self.legacy_config_evidence
+        )
 
     @staticmethod
     def _unique(values: Iterable[Any]) -> List[str]:
@@ -37,6 +41,26 @@ class ProfilePreferences:
             text = str(value or "").strip()
             if text and text not in result:
                 result.append(text)
+        return result
+
+    @classmethod
+    def _legacy_evidence(cls, values: Iterable[Any]) -> List[Dict[str, str]]:
+        """清洗旧配置迁移证据并保持标签类别与来源可追溯。"""
+        result: List[Dict[str, str]] = []
+        seen = set()
+        for value in values or []:
+            if not isinstance(value, Mapping):
+                continue
+            kind = str(value.get("kind") or "").strip()
+            tag = str(value.get("tag") or "").strip()
+            source = str(value.get("source") or "").strip()
+            key = (kind, tag.casefold(), source)
+            if kind not in {"positive", "negative"} or not tag:
+                continue
+            if source != "legacy_config" or key in seen:
+                continue
+            seen.add(key)
+            result.append({"kind": kind, "tag": tag, "source": source})
         return result
 
     def to_dict(self) -> Dict[str, Any]:
@@ -59,6 +83,9 @@ class ProfilePreferences:
         archived_negative_tags = cls._unique(
             value.get("archived_negative_tags") or []
         )
+        legacy_config_evidence = cls._legacy_evidence(
+            value.get("legacy_config_evidence") or []
+        )
         if not archived_tags and "archived_tags" not in value:
             archived_tags = [
                 tag
@@ -80,6 +107,7 @@ class ProfilePreferences:
             custom_negative_tags=custom_negative_tags,
             archived_tags=archived_tags,
             archived_negative_tags=archived_negative_tags,
+            legacy_config_evidence=legacy_config_evidence,
             schema_version=max(3, int(value.get("schema_version") or 3)),
         )
 
