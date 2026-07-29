@@ -1,4 +1,4 @@
-"""专属影评师固定人设、六个内部 skills 与提示边界测试。"""
+"""CinePilot Agent 固定人设、六个内部 skills 与提示边界测试。"""
 
 import copy
 import importlib
@@ -22,7 +22,7 @@ def test_manifest_versions_exact_six_read_only_internal_skills():
     manifest = skills_module.critic_skill_manifest()
 
     assert manifest["persona_version"] == "1.0.0"
-    assert manifest["skills_version"] == "1.0.0"
+    assert manifest["skills_version"] == "1.1.0"
     assert manifest["skills"] == [
         "summarize_evidence",
         "understand_feedback",
@@ -135,7 +135,9 @@ def test_conflict_preview_and_clarification_are_deterministic_and_non_writing():
             "reason": "与已确认偏好方向相反",
         }
     ]
-    assert len(question["options"]) == 3
+    assert len(question["options"]) == 5
+    assert question["preference_dimension"] == "selection_basis"
+    assert question["exploration_level"] == 0
     assert question["allow_custom_answer"] is True
     assert question["writes_applied"] is False
 
@@ -147,7 +149,8 @@ def test_feedback_prompt_locks_persona_tools_schema_and_psychology_boundary():
     for required in (
         "谨慎、具体、尊重用户纠正",
         '"persona_version":"1.0.0"',
-        '"skills_version":"1.0.0"',
+        '"skills_version":"1.1.0"',
+        "CinePilot Agent",
         "read_agentrank_feedback_event",
         "read_agentrank_analysis",
         "read_agentrank_confirmed_memory",

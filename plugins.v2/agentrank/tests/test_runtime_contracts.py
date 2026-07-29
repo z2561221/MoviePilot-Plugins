@@ -181,18 +181,21 @@ def test_feedback_response_is_profile_serialized_and_cannot_project_memory():
     runtime_source = _source("service/runtime.py")
     for contract in (
         "class FeedbackResponseService",
-        "REMINDER_DELAYS",
-        '"in_1_day"',
-        '"in_3_days"',
-        '"in_7_days"',
-        '"never"',
         "profile_data_guard",
         "answer_question",
-        "claim_due_reminders",
         "supersedes=original.event_id",
     ):
         assert contract in source
     assert "FeedbackResponseService" in runtime_source
+    for removed in (
+        "REMINDER_DELAYS",
+        "set_reminder",
+        "claim_due_reminders",
+        "AgentRank.PendingReminders",
+        "send_pending_reminders",
+    ):
+        assert removed not in source
+        assert removed not in runtime_source
     for forbidden_write in (
         "project_preference_memory",
         "save_preference_memory",

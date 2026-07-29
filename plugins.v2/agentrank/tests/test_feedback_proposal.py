@@ -268,8 +268,8 @@ def test_proposal_previews_conflict_or_archived_restore_explicitly(
     assert repository.load_preference_memory(PROFILE_ID) == memory
 
 
-def test_ambiguous_feedback_creates_three_options_and_custom_answer_only():
-    """歧义反馈只生成三选一加自定义问询，不生成记忆提案。"""
+def test_ambiguous_feedback_creates_dynamic_global_question_and_custom_answer():
+    """歧义反馈生成整体偏好动态问询，不绑定单部作品或生成记忆提案。"""
     repository = AgentRankRepository(FakePlugin())
     event = _event(repository, comment="")
     before = repository.load_preference_memory(PROFILE_ID)
@@ -287,17 +287,48 @@ def test_ambiguous_feedback_creates_three_options_and_custom_answer_only():
     )
 
     assert isinstance(question, PendingQuestion)
-    assert question.question == "你喜欢《候选作品》的哪一点？"
+    assert question.question == "平时挑选影视内容时，你通常最先看重什么？"
+    assert "候选作品" not in question.question
+    assert len(question.options) == 5
     assert [item.option_id for item in question.options] == [
-        "option_1",
-        "option_2",
-        "option_3",
+        "option_1", "option_2", "option_3", "option_4", "option_5"
     ]
+    assert question.preference_dimension == "selection_basis"
+    assert question.exploration_level == 0
+    assert 0.0 < question.confidence_gap <= 1.0
     assert question.allow_custom_answer is True
     assert question.reminder_policy == "unselected"
     assert question.next_remind_at == ""
     assert repository.load_memory_proposals(PROFILE_ID) == []
     assert repository.load_preference_memory(PROFILE_ID) == before
+
+
+def test_only_one_pending_global_question_is_active_per_profile():
+    """新的歧义事件复用当前待问询，避免连续弹出标准化问题。"""
+    repository = AgentRankRepository(FakePlugin())
+    service = _service(repository)
+    first_event = _event(repository, key="question-first", comment="")
+    second_event = _event(
+        repository,
+        key="question-second",
+        candidate_id="tmdb:tv:2",
+        comment="",
+    )
+    first = service.materialize(
+        _understanding(first_event, outcome="ambiguous", uncertainties=("信息不足",)),
+        event=first_event,
+        candidate={"candidate_id": first_event.candidate_id, "title": "作品一"},
+        memory=repository.load_preference_memory(PROFILE_ID),
+    )
+    second = service.materialize(
+        _understanding(second_event, outcome="ambiguous", uncertainties=("仍需了解",)),
+        event=second_event,
+        candidate={"candidate_id": second_event.candidate_id, "title": "作品二"},
+        memory=repository.load_preference_memory(PROFILE_ID),
+    )
+
+    assert second.question_id == first.question_id
+    assert len(repository.load_pending_questions(PROFILE_ID)) == 1
 
 
 def test_exclusion_only_creates_no_proposal_or_question():
@@ -341,8 +372,8 @@ def test_existing_understanding_materializes_missing_question_without_agent_retr
     assert len(repository.load_pending_questions(PROFILE_ID)) == 1
 
 
-def test_pending_records_survive_limits_and_safe_export_contains_no_internal_reasoning():
-    """未完成项不被数量上限挤掉，导出只含安全提案和问询字段。"""
+def test_single_pending_record_survives_limits_and_safe_export_is_sanitized():
+    """唯一未完成问询不被裁剪，导出只含安全提案和问询字段。"""
     repository = AgentRankRepository(FakePlugin())
     service = _service(repository)
     for index in range(1, 4):
@@ -377,9 +408,9 @@ def test_pending_records_survive_limits_and_safe_export_contains_no_internal_rea
     serialized = json.dumps(exported, ensure_ascii=False)
 
     assert removed == 1
-    assert len(retained) == 2
+    assert len(retained) == 1
     assert all(item.status == "pending" for item in retained)
-    assert len(exported["pending_questions"]) == 2
+    assert len(exported["pending_questions"]) == 1
     assert "secret.invalid" not in serialized
     assert "secret-value" not in serialized
     for forbidden in ("prompt", "raw_output", "chain_of_thought", "思维链"):

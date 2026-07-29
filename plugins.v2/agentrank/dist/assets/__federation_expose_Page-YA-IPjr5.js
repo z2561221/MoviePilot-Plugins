@@ -1,7 +1,1293 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-UzHV-9iU.js';
-import { A as AgentAnalysisDialog, F as FeedbackCommentDialog, C as CriticChatDialog, P as PendingConfirmations } from './PendingConfirmations-BypWoBSA.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-Ffewpr4a.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-Z-mQLghu.js';
+
+const {unref:_unref$4,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,createElementVNode:_createElementVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,openBlock:_openBlock$4,createBlock:_createBlock$4,createCommentVNode:_createCommentVNode$4,createElementBlock:_createElementBlock$3,withModifiers:_withModifiers$2,mergeProps:_mergeProps$1,renderList:_renderList$3,Fragment:_Fragment$3} = await importShared('vue');
+
+
+const _hoisted_1$4 = { class: "ar-analysis__heading" };
+const _hoisted_2$4 = { class: "ar-analysis__subtitle" };
+const _hoisted_3$4 = {
+  key: 0,
+  class: "ar-analysis__state"
+};
+const _hoisted_4$4 = {
+  key: 3,
+  class: "ar-analysis__sections"
+};
+const _hoisted_5$3 = { class: "ar-analysis__section-head" };
+const _hoisted_6$3 = { class: "ar-analysis__section-copy" };
+const _hoisted_7$3 = {
+  key: 0,
+  class: "ar-analysis__list"
+};
+const _hoisted_8$3 = ["onClick"];
+const _hoisted_9$3 = { class: "ar-analysis__row-main" };
+const _hoisted_10$2 = { class: "ar-analysis__row-meta" };
+const _hoisted_11$2 = {
+  key: 1,
+  class: "ar-analysis__empty"
+};
+const _hoisted_12$2 = {
+  key: 0,
+  class: "ar-analysis__list"
+};
+const _hoisted_13$1 = ["onClick"];
+const _hoisted_14$1 = { class: "ar-analysis__row-main" };
+const _hoisted_15$1 = {
+  key: 1,
+  class: "ar-analysis__empty"
+};
+const _hoisted_16$1 = {
+  key: 0,
+  class: "ar-analysis__list"
+};
+const _hoisted_17$1 = ["onClick"];
+const _hoisted_18$1 = { class: "ar-analysis__row-main" };
+const _hoisted_19$1 = {
+  key: 1,
+  class: "ar-analysis__empty"
+};
+const _hoisted_20$1 = { class: "ar-analysis__provenance" };
+
+const {computed: computed$4,watch: watch$4} = await importShared('vue');
+
+const {useDisplay: useDisplay$3} = await importShared('vuetify');
+
+
+
+const _sfc_main$4 = {
+  __name: 'AgentAnalysisDialog',
+  props: {
+  modelValue: { type: Boolean, default: false },
+  state: { type: Object, required: true },
+  item: { type: Object, default: null },
+},
+  emits: ['update:modelValue', 'comment'],
+  setup(__props, { emit: __emit }) {
+
+const props = __props;
+const emit = __emit;
+const { smAndDown } = useDisplay$3();
+
+const candidateId = computed$4(() => String(props.item?.candidate_id || ''));
+const analysis = computed$4(() => props.state.currentAnalysis(candidateId.value));
+const operation = computed$4(() => props.state.operationState(`analysis:${candidateId.value}`));
+
+const dimensionLabels = {
+  type: '类型', theme: '题材', actor: '演员', director: '主创', region: '地区',
+  year: '年代', rating: '评分', heat: '热度', freshness: '新鲜感', similarity: '相似性',
+};
+
+function close() {
+  emit('update:modelValue', false);
+}
+
+function evidenceText(evidence) {
+  const dimension = dimensionLabels[evidence?.dimension] || evidence?.dimension || '内容特征';
+  const relation = evidence?.direction === 'negative' ? '存在冲突' : '具体匹配';
+  return `${dimension}：${evidence?.user_value || '偏好未注明'} 与 ${evidence?.candidate_value || '作品特征未注明'} ${relation}`
+}
+
+function requestComment(label, content) {
+  emit('comment', { label, content: String(content || '').trim() });
+}
+
+async function load() {
+  if (!props.modelValue || !candidateId.value || !props.item?.analysis_id) return
+  try {
+    await props.state.loadAnalysis(candidateId.value, props.item.analysis_id);
+  } catch (_) {
+    // 共享状态保存可见错误和重试动作。
+  }
+}
+
+watch$4(
+  () => [props.modelValue, props.item?.analysis_id],
+  ([open]) => { if (open) load(); },
+  { immediate: true },
+);
+
+return (_ctx, _cache) => {
+  const _component_VIcon = _resolveComponent$4("VIcon");
+  const _component_VSpacer = _resolveComponent$4("VSpacer");
+  const _component_VChip = _resolveComponent$4("VChip");
+  const _component_VBtn = _resolveComponent$4("VBtn");
+  const _component_VToolbar = _resolveComponent$4("VToolbar");
+  const _component_VDivider = _resolveComponent$4("VDivider");
+  const _component_VProgressCircular = _resolveComponent$4("VProgressCircular");
+  const _component_VAlert = _resolveComponent$4("VAlert");
+  const _component_VEmptyState = _resolveComponent$4("VEmptyState");
+  const _component_VTooltip = _resolveComponent$4("VTooltip");
+  const _component_VCardText = _resolveComponent$4("VCardText");
+  const _component_VCard = _resolveComponent$4("VCard");
+  const _component_VDialog = _resolveComponent$4("VDialog");
+
+  return (_openBlock$4(), _createBlock$4(_component_VDialog, {
+    "model-value": __props.modelValue,
+    fullscreen: _unref$4(smAndDown),
+    "max-width": "780",
+    scrollable: "",
+    "onUpdate:modelValue": _cache[3] || (_cache[3] = value => emit('update:modelValue', value))
+  }, {
+    default: _withCtx$4(() => [
+      _createVNode$4(_component_VCard, { class: "ar-analysis" }, {
+        default: _withCtx$4(() => [
+          _createVNode$4(_component_VToolbar, {
+            density: "compact",
+            class: "ar-analysis__toolbar"
+          }, {
+            default: _withCtx$4(() => [
+              _createVNode$4(_component_VIcon, {
+                icon: "mdi-text-box-search-outline",
+                color: "primary",
+                class: "ms-4 me-3"
+              }),
+              _createElementVNode$4("div", _hoisted_1$4, [
+                _cache[4] || (_cache[4] = _createElementVNode$4("div", { class: "ar-analysis__title" }, "Agent分析", -1)),
+                _createElementVNode$4("div", _hoisted_2$4, _toDisplayString$4(__props.item?.title || '当前推荐'), 1)
+              ]),
+              _createVNode$4(_component_VSpacer),
+              (analysis.value)
+                ? (_openBlock$4(), _createBlock$4(_component_VChip, {
+                    key: 0,
+                    size: "small",
+                    color: "primary",
+                    variant: "tonal",
+                    class: "me-1"
+                  }, {
+                    default: _withCtx$4(() => [
+                      _createTextVNode$4(_toDisplayString$4(analysis.value.support_percentage) + "% ", 1)
+                    ]),
+                    _: 1
+                  }))
+                : _createCommentVNode$4("", true),
+              _createVNode$4(_component_VBtn, {
+                icon: "mdi-close",
+                variant: "text",
+                "aria-label": "关闭 Agent 分析",
+                onClick: close
+              })
+            ]),
+            _: 1
+          }),
+          _createVNode$4(_component_VDivider),
+          _createVNode$4(_component_VCardText, { class: "ar-analysis__body" }, {
+            default: _withCtx$4(() => [
+              (operation.value.loading)
+                ? (_openBlock$4(), _createElementBlock$3("div", _hoisted_3$4, [
+                    _createVNode$4(_component_VProgressCircular, {
+                      indeterminate: "",
+                      color: "primary"
+                    })
+                  ]))
+                : (operation.value.error)
+                  ? (_openBlock$4(), _createBlock$4(_component_VAlert, {
+                      key: 1,
+                      type: "error",
+                      variant: "tonal"
+                    }, {
+                      append: _withCtx$4(() => [
+                        _createVNode$4(_component_VBtn, {
+                          variant: "text",
+                          size: "small",
+                          onClick: _cache[0] || (_cache[0] = $event => (props.state.retryOperation('analysis:' + candidateId.value)))
+                        }, {
+                          default: _withCtx$4(() => [...(_cache[5] || (_cache[5] = [
+                            _createTextVNode$4("重试", -1)
+                          ]))]),
+                          _: 1
+                        })
+                      ]),
+                      default: _withCtx$4(() => [
+                        _createTextVNode$4(_toDisplayString$4(operation.value.error.message) + " ", 1)
+                      ]),
+                      _: 1
+                    }))
+                  : (!analysis.value)
+                    ? (_openBlock$4(), _createBlock$4(_component_VEmptyState, {
+                        key: 2,
+                        icon: "mdi-text-box-remove-outline",
+                        title: "分析暂不可用"
+                      }))
+                    : (_openBlock$4(), _createElementBlock$3("div", _hoisted_4$4, [
+                        _createElementVNode$4("section", {
+                          class: "ar-analysis__summary",
+                          onClick: _cache[2] || (_cache[2] = $event => (requestComment('推荐判断', analysis.value.reason || analysis.value.summary)))
+                        }, [
+                          _createElementVNode$4("div", _hoisted_5$3, [
+                            _createElementVNode$4("div", null, [
+                              _cache[6] || (_cache[6] = _createElementVNode$4("div", { class: "ar-analysis__section-title" }, "推荐判断", -1)),
+                              _createElementVNode$4("div", _hoisted_6$3, _toDisplayString$4(analysis.value.reason || analysis.value.summary), 1)
+                            ]),
+                            _createVNode$4(_component_VTooltip, { text: "评论这条判断" }, {
+                              activator: _withCtx$4(({ props: tooltipProps }) => [
+                                _createVNode$4(_component_VBtn, _mergeProps$1(tooltipProps, {
+                                  icon: "mdi-comment-edit-outline",
+                                  variant: "text",
+                                  "aria-label": "评论推荐判断",
+                                  onClick: _cache[1] || (_cache[1] = _withModifiers$2($event => (requestComment('推荐判断', analysis.value.reason || analysis.value.summary)), ["stop"]))
+                                }), null, 16)
+                              ]),
+                              _: 1
+                            })
+                          ])
+                        ]),
+                        _createElementVNode$4("section", null, [
+                          _cache[7] || (_cache[7] = _createElementVNode$4("div", { class: "ar-analysis__section-title" }, "匹配证据", -1)),
+                          (analysis.value.positive_evidence?.length)
+                            ? (_openBlock$4(), _createElementBlock$3("div", _hoisted_7$3, [
+                                (_openBlock$4(true), _createElementBlock$3(_Fragment$3, null, _renderList$3(analysis.value.positive_evidence, (evidence, index) => {
+                                  return (_openBlock$4(), _createElementBlock$3("div", {
+                                    key: `positive-${index}`,
+                                    class: "ar-analysis__row",
+                                    onClick: $event => (requestComment(`匹配证据 ${index + 1}`, evidenceText(evidence)))
+                                  }, [
+                                    _createVNode$4(_component_VIcon, {
+                                      icon: "mdi-check-circle-outline",
+                                      color: "success",
+                                      size: "20"
+                                    }),
+                                    _createElementVNode$4("div", _hoisted_9$3, [
+                                      _createElementVNode$4("div", null, _toDisplayString$4(evidenceText(evidence)), 1),
+                                      _createElementVNode$4("div", _hoisted_10$2, "贡献 " + _toDisplayString$4(evidence.contribution_units) + " · 证据 " + _toDisplayString$4(evidence.user_refs?.length || 0) + " 项", 1)
+                                    ]),
+                                    _createVNode$4(_component_VTooltip, { text: "评论这条证据" }, {
+                                      activator: _withCtx$4(({ props: tooltipProps }) => [
+                                        _createVNode$4(_component_VBtn, _mergeProps$1({ ref_for: true }, tooltipProps, {
+                                          icon: "mdi-comment-edit-outline",
+                                          variant: "text",
+                                          size: "small",
+                                          "aria-label": `评论匹配证据 ${index + 1}`,
+                                          onClick: _withModifiers$2($event => (requestComment(`匹配证据 ${index + 1}`, evidenceText(evidence))), ["stop"])
+                                        }), null, 16, ["aria-label", "onClick"])
+                                      ]),
+                                      _: 2
+                                    }, 1024)
+                                  ], 8, _hoisted_8$3))
+                                }), 128))
+                              ]))
+                            : (_openBlock$4(), _createElementBlock$3("div", _hoisted_11$2, "没有足够的正向具体证据。"))
+                        ]),
+                        _createElementVNode$4("section", null, [
+                          _cache[8] || (_cache[8] = _createElementVNode$4("div", { class: "ar-analysis__section-title" }, "反向证据", -1)),
+                          (analysis.value.counter_evidence?.length)
+                            ? (_openBlock$4(), _createElementBlock$3("div", _hoisted_12$2, [
+                                (_openBlock$4(true), _createElementBlock$3(_Fragment$3, null, _renderList$3(analysis.value.counter_evidence, (evidence, index) => {
+                                  return (_openBlock$4(), _createElementBlock$3("div", {
+                                    key: `counter-${index}`,
+                                    class: "ar-analysis__row",
+                                    onClick: $event => (requestComment(`反向证据 ${index + 1}`, evidenceText(evidence)))
+                                  }, [
+                                    _createVNode$4(_component_VIcon, {
+                                      icon: "mdi-alert-circle-outline",
+                                      color: "warning",
+                                      size: "20"
+                                    }),
+                                    _createElementVNode$4("div", _hoisted_14$1, _toDisplayString$4(evidenceText(evidence)), 1),
+                                    _createVNode$4(_component_VTooltip, { text: "评论这条证据" }, {
+                                      activator: _withCtx$4(({ props: tooltipProps }) => [
+                                        _createVNode$4(_component_VBtn, _mergeProps$1({ ref_for: true }, tooltipProps, {
+                                          icon: "mdi-comment-edit-outline",
+                                          variant: "text",
+                                          size: "small",
+                                          "aria-label": `评论反向证据 ${index + 1}`,
+                                          onClick: _withModifiers$2($event => (requestComment(`反向证据 ${index + 1}`, evidenceText(evidence))), ["stop"])
+                                        }), null, 16, ["aria-label", "onClick"])
+                                      ]),
+                                      _: 2
+                                    }, 1024)
+                                  ], 8, _hoisted_13$1))
+                                }), 128))
+                              ]))
+                            : (_openBlock$4(), _createElementBlock$3("div", _hoisted_15$1, "未发现需要特别提示的反向证据。"))
+                        ]),
+                        _createElementVNode$4("section", null, [
+                          _cache[9] || (_cache[9] = _createElementVNode$4("div", { class: "ar-analysis__section-title" }, "不确定点", -1)),
+                          (analysis.value.uncertainties?.length)
+                            ? (_openBlock$4(), _createElementBlock$3("div", _hoisted_16$1, [
+                                (_openBlock$4(true), _createElementBlock$3(_Fragment$3, null, _renderList$3(analysis.value.uncertainties, (uncertainty, index) => {
+                                  return (_openBlock$4(), _createElementBlock$3("div", {
+                                    key: `uncertainty-${index}`,
+                                    class: "ar-analysis__row",
+                                    onClick: $event => (requestComment(`不确定点 ${index + 1}`, uncertainty))
+                                  }, [
+                                    _createVNode$4(_component_VIcon, {
+                                      icon: "mdi-help-circle-outline",
+                                      color: "info",
+                                      size: "20"
+                                    }),
+                                    _createElementVNode$4("div", _hoisted_18$1, _toDisplayString$4(uncertainty), 1),
+                                    _createVNode$4(_component_VTooltip, { text: "评论这条判断" }, {
+                                      activator: _withCtx$4(({ props: tooltipProps }) => [
+                                        _createVNode$4(_component_VBtn, _mergeProps$1({ ref_for: true }, tooltipProps, {
+                                          icon: "mdi-comment-edit-outline",
+                                          variant: "text",
+                                          size: "small",
+                                          "aria-label": `评论不确定点 ${index + 1}`,
+                                          onClick: _withModifiers$2($event => (requestComment(`不确定点 ${index + 1}`, uncertainty)), ["stop"])
+                                        }), null, 16, ["aria-label", "onClick"])
+                                      ]),
+                                      _: 2
+                                    }, 1024)
+                                  ], 8, _hoisted_17$1))
+                                }), 128))
+                              ]))
+                            : (_openBlock$4(), _createElementBlock$3("div", _hoisted_19$1, "当前没有额外不确定点。"))
+                        ]),
+                        _createElementVNode$4("div", _hoisted_20$1, [
+                          _createElementVNode$4("span", null, "选择：" + _toDisplayString$4(analysis.value.selection_source === 'agent' ? 'Agent排序' : '安全候选补位'), 1),
+                          _createElementVNode$4("span", null, "策略：" + _toDisplayString$4(analysis.value.policy_version), 1),
+                          _createElementVNode$4("span", null, "记忆版本：" + _toDisplayString$4(analysis.value.memory_revision), 1)
+                        ])
+                      ]))
+            ]),
+            _: 1
+          })
+        ]),
+        _: 1
+      })
+    ]),
+    _: 1
+  }, 8, ["model-value", "fullscreen"]))
+}
+}
+
+};
+const AgentAnalysisDialog = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-24c1291e"]]);
+
+const {unref:_unref$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,withCtx:_withCtx$3,createElementVNode:_createElementVNode$3,toDisplayString:_toDisplayString$3,openBlock:_openBlock$3,createBlock:_createBlock$3,createCommentVNode:_createCommentVNode$3,createTextVNode:_createTextVNode$3,createElementBlock:_createElementBlock$2,renderList:_renderList$2,Fragment:_Fragment$2,normalizeClass:_normalizeClass$1,withModifiers:_withModifiers$1,withKeys:_withKeys$2} = await importShared('vue');
+
+
+const _hoisted_1$3 = { class: "ar-chat__subtitle" };
+const _hoisted_2$3 = {
+  key: 1,
+  class: "ar-chat__empty"
+};
+const _hoisted_3$3 = { class: "ar-chat__content" };
+const _hoisted_4$3 = { class: "ar-chat__meta" };
+const _hoisted_5$2 = { key: 0 };
+const _hoisted_6$2 = { key: 1 };
+const _hoisted_7$2 = { key: 2 };
+const _hoisted_8$2 = {
+  key: 0,
+  class: "ar-chat__failure"
+};
+const _hoisted_9$2 = {
+  key: 2,
+  class: "ar-chat__commands"
+};
+const _hoisted_10$1 = { class: "ar-chat__command-main" };
+const _hoisted_11$1 = { class: "ar-chat__command-actions" };
+const _hoisted_12$1 = { class: "ar-chat__composer" };
+
+const {computed: computed$3,nextTick,onUnmounted,ref: ref$3,watch: watch$3} = await importShared('vue');
+
+const {useDisplay: useDisplay$2} = await importShared('vuetify');
+
+
+const frontendTimeoutMs = 100000;
+
+
+const _sfc_main$3 = {
+  __name: 'CriticChatDialog',
+  props: {
+  modelValue: { type: Boolean, default: false },
+  state: { type: Object, required: true },
+},
+  emits: ['update:modelValue', 'pending-change'],
+  setup(__props, { emit: __emit }) {
+
+const props = __props;
+const emit = __emit;
+const { smAndDown } = useDisplay$2();
+const draft = ref$3('');
+const localError = ref$3('');
+const messageList = ref$3(null);
+const pollTimer = ref$3(null);
+const pollDeadline = ref$3(0);
+const messages = computed$3(() => props.state.conversation.value?.messages || []);
+const commands = computed$3(() => props.state.conversation.value?.commands || []);
+const pendingCommands = computed$3(() => commands.value.filter(item => item.status === 'pending_confirmation'));
+const conversationOperation = computed$3(() => props.state.operationState('conversation'));
+const sendOperation = computed$3(() => props.state.operationState('conversation:send'));
+const canSend = computed$3(() => draft.value.trim().length > 0 && !sendOperation.value.loading);
+const hasPendingMessages = computed$3(() => messages.value.some(item => ['queued', 'processing'].includes(item.status)));
+
+function stopPolling() {
+  if (pollTimer.value) clearTimeout(pollTimer.value);
+  pollTimer.value = null;
+  pollDeadline.value = 0;
+}
+
+function markFrontendTimeout() {
+  const current = props.state.conversation.value || {};
+  props.state.conversation.value = {
+    ...current,
+    messages: (current.messages || []).map(message => (
+      ['queued', 'processing'].includes(message.status)
+        ? {
+            ...message,
+            status: 'retryable_failed',
+            error_code: 'frontend_timeout',
+            error_message: 'CinePilot Agent 响应超时，消息已保留，可重试',
+          }
+        : message
+    )),
+  };
+}
+
+async function pollConversation() {
+  if (!props.modelValue || !hasPendingMessages.value) {
+    stopPolling();
+    return
+  }
+  if (Date.now() >= pollDeadline.value) {
+    markFrontendTimeout();
+    stopPolling();
+    return
+  }
+  try { await props.state.loadConversation(); } catch (_) { /* 保留共享可重试错误。 */ }
+  if (!hasPendingMessages.value) {
+    stopPolling();
+    await scrollToEnd();
+    return
+  }
+  pollTimer.value = setTimeout(pollConversation, 1500);
+}
+
+function startPolling() {
+  stopPolling();
+  if (!hasPendingMessages.value || !props.modelValue) return
+  pollDeadline.value = Date.now() + frontendTimeoutMs;
+  pollTimer.value = setTimeout(pollConversation, 500);
+}
+
+function close() {
+  emit('update:modelValue', false);
+}
+
+function formatTime(value) {
+  if (!value) return ''
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
+}
+
+async function scrollToEnd() {
+  await nextTick();
+  if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight;
+}
+
+async function load() {
+  try {
+    await Promise.all([props.state.loadConversation(), props.state.loadPendingCenter()]);
+    await scrollToEnd();
+    startPolling();
+  } catch (_) {
+    // 共享状态保存可见错误和重试动作。
+  }
+}
+
+async function send() {
+  const value = draft.value.trim();
+  if (!value) return
+  localError.value = '';
+  try {
+    await props.state.sendConversationMessage(value);
+    draft.value = '';
+    emit('pending-change');
+    await scrollToEnd();
+    startPolling();
+  } catch (error) {
+    localError.value = error?.message || '消息发送失败，草稿已保留';
+    try { await props.state.loadConversation(); } catch (_) { /* 对话读取错误由共享状态展示。 */ }
+    await scrollToEnd();
+  }
+}
+
+async function retryMessage(messageId) {
+  localError.value = '';
+  try {
+    await props.state.retryConversationMessage(messageId);
+    emit('pending-change');
+    await scrollToEnd();
+    startPolling();
+  } catch (error) {
+    localError.value = error?.message || '重试失败';
+    try { await props.state.loadConversation(); } catch (_) { /* 对话读取错误由共享状态展示。 */ }
+  }
+}
+
+async function respondCommand(command, action) {
+  localError.value = '';
+  try {
+    await props.state.respondConversationCommand(command.command_id, action);
+    emit('pending-change');
+  } catch (error) {
+    localError.value = error?.message || '待执行操作失败';
+  }
+}
+
+watch$3(() => props.modelValue, open => { if (open) load(); else stopPolling(); }, { immediate: true });
+watch$3(() => messages.value.length, () => { if (props.modelValue) scrollToEnd(); });
+onUnmounted(stopPolling);
+
+return (_ctx, _cache) => {
+  const _component_VIcon = _resolveComponent$3("VIcon");
+  const _component_VAvatar = _resolveComponent$3("VAvatar");
+  const _component_VSpacer = _resolveComponent$3("VSpacer");
+  const _component_VBadge = _resolveComponent$3("VBadge");
+  const _component_VBtn = _resolveComponent$3("VBtn");
+  const _component_VToolbar = _resolveComponent$3("VToolbar");
+  const _component_VDivider = _resolveComponent$3("VDivider");
+  const _component_VAlert = _resolveComponent$3("VAlert");
+  const _component_VTextarea = _resolveComponent$3("VTextarea");
+  const _component_VCard = _resolveComponent$3("VCard");
+  const _component_VDialog = _resolveComponent$3("VDialog");
+
+  return (_openBlock$3(), _createBlock$3(_component_VDialog, {
+    "model-value": __props.modelValue,
+    fullscreen: _unref$3(smAndDown),
+    "max-width": "820",
+    scrollable: "",
+    "onUpdate:modelValue": _cache[2] || (_cache[2] = value => emit('update:modelValue', value))
+  }, {
+    default: _withCtx$3(() => [
+      _createVNode$3(_component_VCard, { class: "ar-chat" }, {
+        default: _withCtx$3(() => [
+          _createVNode$3(_component_VToolbar, {
+            density: "compact",
+            class: "ar-chat__toolbar"
+          }, {
+            default: _withCtx$3(() => [
+              _createVNode$3(_component_VAvatar, {
+                color: "primary",
+                variant: "tonal",
+                size: "34",
+                class: "ms-3 me-3"
+              }, {
+                default: _withCtx$3(() => [
+                  _createVNode$3(_component_VIcon, { icon: "mdi-forum-outline" })
+                ]),
+                _: 1
+              }),
+              _createElementVNode$3("div", null, [
+                _cache[3] || (_cache[3] = _createElementVNode$3("div", { class: "ar-chat__title" }, "CinePilot Agent", -1)),
+                _createElementVNode$3("div", _hoisted_1$3, _toDisplayString$3(props.state.selectedUsername.value || '当前画像'), 1)
+              ]),
+              _createVNode$3(_component_VSpacer),
+              (pendingCommands.value.length)
+                ? (_openBlock$3(), _createBlock$3(_component_VBadge, {
+                    key: 0,
+                    content: pendingCommands.value.length,
+                    color: "warning",
+                    inline: ""
+                  }, {
+                    default: _withCtx$3(() => [
+                      _createVNode$3(_component_VIcon, {
+                        icon: "mdi-inbox-outline",
+                        size: "20"
+                      })
+                    ]),
+                    _: 1
+                  }, 8, ["content"]))
+                : _createCommentVNode$3("", true),
+              _createVNode$3(_component_VBtn, {
+                icon: "mdi-refresh",
+                variant: "text",
+                "aria-label": "刷新 CinePilot Agent 对话",
+                loading: conversationOperation.value.loading,
+                onClick: load
+              }, null, 8, ["loading"]),
+              _createVNode$3(_component_VBtn, {
+                icon: "mdi-close",
+                variant: "text",
+                "aria-label": "关闭 CinePilot Agent 对话",
+                onClick: close
+              })
+            ]),
+            _: 1
+          }),
+          _createVNode$3(_component_VDivider),
+          _createElementVNode$3("div", {
+            ref_key: "messageList",
+            ref: messageList,
+            class: "ar-chat__messages"
+          }, [
+            (conversationOperation.value.error)
+              ? (_openBlock$3(), _createBlock$3(_component_VAlert, {
+                  key: 0,
+                  type: "error",
+                  variant: "tonal",
+                  density: "compact",
+                  class: "mb-3"
+                }, {
+                  append: _withCtx$3(() => [
+                    _createVNode$3(_component_VBtn, {
+                      variant: "text",
+                      size: "small",
+                      onClick: _cache[0] || (_cache[0] = $event => (props.state.retryOperation('conversation')))
+                    }, {
+                      default: _withCtx$3(() => [...(_cache[4] || (_cache[4] = [
+                        _createTextVNode$3("重试", -1)
+                      ]))]),
+                      _: 1
+                    })
+                  ]),
+                  default: _withCtx$3(() => [
+                    _createTextVNode$3(_toDisplayString$3(conversationOperation.value.error.message) + " ", 1)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode$3("", true),
+            (!messages.value.length && !conversationOperation.value.loading)
+              ? (_openBlock$3(), _createElementBlock$2("div", _hoisted_2$3, [
+                  _createVNode$3(_component_VIcon, {
+                    icon: "mdi-forum-outline",
+                    size: "34",
+                    color: "primary"
+                  }),
+                  _cache[5] || (_cache[5] = _createElementVNode$3("span", null, "还没有对话记录", -1))
+                ]))
+              : _createCommentVNode$3("", true),
+            (_openBlock$3(true), _createElementBlock$2(_Fragment$2, null, _renderList$2(messages.value, (message) => {
+              return (_openBlock$3(), _createElementBlock$2("div", {
+                key: message.message_id,
+                class: _normalizeClass$1(["ar-chat__message", `ar-chat__message--${message.role}`])
+              }, [
+                _createElementVNode$3("div", {
+                  class: _normalizeClass$1(["ar-chat__bubble", { 'ar-chat__bubble--failed': ['failed', 'retryable_failed'].includes(message.status) }])
+                }, [
+                  _createElementVNode$3("div", _hoisted_3$3, _toDisplayString$3(message.content), 1),
+                  _createElementVNode$3("div", _hoisted_4$3, [
+                    _createElementVNode$3("span", null, _toDisplayString$3(formatTime(message.created_at)), 1),
+                    (message.role === 'assistant' && (message.provider || message.model))
+                      ? (_openBlock$3(), _createElementBlock$2("span", _hoisted_5$2, _toDisplayString$3([message.provider, message.model].filter(Boolean).join(' · ')), 1))
+                      : _createCommentVNode$3("", true),
+                    (message.role === 'user' && message.status === 'queued')
+                      ? (_openBlock$3(), _createElementBlock$2("span", _hoisted_6$2, "已受理"))
+                      : (message.role === 'user' && message.status === 'processing')
+                        ? (_openBlock$3(), _createElementBlock$2("span", _hoisted_7$2, "处理中"))
+                        : _createCommentVNode$3("", true)
+                  ]),
+                  (['failed', 'retryable_failed'].includes(message.status))
+                    ? (_openBlock$3(), _createElementBlock$2("div", _hoisted_8$2, [
+                        _createElementVNode$3("span", null, _toDisplayString$3(message.error_message || '消息处理失败'), 1),
+                        _createVNode$3(_component_VBtn, {
+                          size: "x-small",
+                          variant: "text",
+                          "prepend-icon": "mdi-refresh",
+                          onClick: $event => (retryMessage(message.message_id))
+                        }, {
+                          default: _withCtx$3(() => [...(_cache[6] || (_cache[6] = [
+                            _createTextVNode$3("重试", -1)
+                          ]))]),
+                          _: 1
+                        }, 8, ["onClick"])
+                      ]))
+                    : _createCommentVNode$3("", true)
+                ], 2)
+              ], 2))
+            }), 128)),
+            (pendingCommands.value.length)
+              ? (_openBlock$3(), _createElementBlock$2("div", _hoisted_9$2, [
+                  _cache[9] || (_cache[9] = _createElementVNode$3("div", { class: "ar-chat__commands-title" }, "待执行操作", -1)),
+                  (_openBlock$3(true), _createElementBlock$2(_Fragment$2, null, _renderList$2(pendingCommands.value, (command) => {
+                    return (_openBlock$3(), _createElementBlock$2("div", {
+                      key: command.command_id,
+                      class: "ar-chat__command"
+                    }, [
+                      _createElementVNode$3("div", _hoisted_10$1, [
+                        _createElementVNode$3("strong", null, _toDisplayString$3(command.title), 1),
+                        _createElementVNode$3("span", null, _toDisplayString$3(command.preview), 1)
+                      ]),
+                      _createElementVNode$3("div", _hoisted_11$1, [
+                        _createVNode$3(_component_VBtn, {
+                          size: "small",
+                          variant: "text",
+                          onClick: $event => (respondCommand(command, 'reject'))
+                        }, {
+                          default: _withCtx$3(() => [...(_cache[7] || (_cache[7] = [
+                            _createTextVNode$3("拒绝执行", -1)
+                          ]))]),
+                          _: 1
+                        }, 8, ["onClick"]),
+                        _createVNode$3(_component_VBtn, {
+                          size: "small",
+                          color: "primary",
+                          variant: "tonal",
+                          disabled: command.requires_superuser,
+                          onClick: $event => (respondCommand(command, 'confirm'))
+                        }, {
+                          default: _withCtx$3(() => [...(_cache[8] || (_cache[8] = [
+                            _createTextVNode$3("确认执行", -1)
+                          ]))]),
+                          _: 1
+                        }, 8, ["disabled", "onClick"])
+                      ])
+                    ]))
+                  }), 128))
+                ]))
+              : _createCommentVNode$3("", true)
+          ], 512),
+          _createVNode$3(_component_VDivider),
+          _createElementVNode$3("div", _hoisted_12$1, [
+            _createVNode$3(_component_VTextarea, {
+              modelValue: draft.value,
+              "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((draft).value = $event)),
+              label: "给 CinePilot Agent 留言",
+              density: "compact",
+              variant: "outlined",
+              rows: "2",
+              "auto-grow": "",
+              "max-rows": "5",
+              maxlength: "1000",
+              "hide-details": "",
+              onKeydown: _withKeys$2(_withModifiers$1(send, ["exact","prevent"]), ["enter"])
+            }, null, 8, ["modelValue", "onKeydown"]),
+            _createVNode$3(_component_VBtn, {
+              icon: "mdi-send",
+              color: "primary",
+              variant: "flat",
+              "aria-label": "发送消息",
+              loading: sendOperation.value.loading,
+              disabled: !canSend.value,
+              onClick: send
+            }, null, 8, ["loading", "disabled"])
+          ]),
+          (localError.value || sendOperation.value.error)
+            ? (_openBlock$3(), _createBlock$3(_component_VAlert, {
+                key: 0,
+                type: "error",
+                variant: "tonal",
+                density: "compact",
+                class: "ar-chat__composer-error"
+              }, {
+                default: _withCtx$3(() => [
+                  _createTextVNode$3(_toDisplayString$3(localError.value || sendOperation.value.error?.message), 1)
+                ]),
+                _: 1
+              }))
+            : _createCommentVNode$3("", true)
+        ]),
+        _: 1
+      })
+    ]),
+    _: 1
+  }, 8, ["model-value", "fullscreen"]))
+}
+}
+
+};
+const CriticChatDialog = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-c43dd21a"]]);
+
+const {unref:_unref$2,resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,createElementVNode:_createElementVNode$2,toDisplayString:_toDisplayString$2,withCtx:_withCtx$2,withModifiers:_withModifiers,withKeys:_withKeys$1,createTextVNode:_createTextVNode$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2} = await importShared('vue');
+
+
+const _hoisted_1$2 = { class: "ar-comment__heading" };
+const _hoisted_2$2 = { class: "ar-comment__subtitle" };
+const _hoisted_3$2 = { class: "ar-comment__label" };
+const _hoisted_4$2 = { class: "ar-comment__judgment" };
+
+const {computed: computed$2,ref: ref$2,watch: watch$2} = await importShared('vue');
+
+const {useDisplay: useDisplay$1} = await importShared('vuetify');
+
+
+
+const _sfc_main$2 = {
+  __name: 'FeedbackCommentDialog',
+  props: {
+  modelValue: { type: Boolean, default: false },
+  state: { type: Object, required: true },
+  item: { type: Object, default: null },
+  judgment: { type: Object, default: null },
+},
+  emits: ['update:modelValue', 'submitted'],
+  setup(__props, { emit: __emit }) {
+
+const props = __props;
+const emit = __emit;
+const { smAndDown } = useDisplay$1();
+const comment = ref$2('');
+const localError = ref$2('');
+
+const candidateId = computed$2(() => String(props.item?.candidate_id || ''));
+const operation = computed$2(() => props.state.operationState(`analysis-comment:${candidateId.value}`));
+const canSubmit = computed$2(() => comment.value.trim().length >= 2 && !operation.value.loading);
+
+watch$2(
+  () => [props.modelValue, props.judgment?.label, props.item?.candidate_id],
+  ([open]) => {
+    if (!open) return
+    comment.value = '';
+    localError.value = '';
+    props.state.clearOperationError(`analysis-comment:${candidateId.value}`);
+  },
+);
+
+function close() {
+  emit('update:modelValue', false);
+}
+
+async function submit() {
+  const value = comment.value.trim();
+  if (value.length < 2) {
+    localError.value = '请写下需要纠正的具体内容';
+    return
+  }
+  const label = String(props.judgment?.label || 'Agent判断');
+  try {
+    const result = await props.state.commentOnAnalysis(candidateId.value, `【${label}】${value}`);
+    emit('submitted', result);
+    close();
+  } catch (error) {
+    localError.value = error?.message || '评论提交失败';
+  }
+}
+
+return (_ctx, _cache) => {
+  const _component_VIcon = _resolveComponent$2("VIcon");
+  const _component_VSpacer = _resolveComponent$2("VSpacer");
+  const _component_VBtn = _resolveComponent$2("VBtn");
+  const _component_VToolbar = _resolveComponent$2("VToolbar");
+  const _component_VDivider = _resolveComponent$2("VDivider");
+  const _component_VTextarea = _resolveComponent$2("VTextarea");
+  const _component_VAlert = _resolveComponent$2("VAlert");
+  const _component_VCardText = _resolveComponent$2("VCardText");
+  const _component_VCardActions = _resolveComponent$2("VCardActions");
+  const _component_VCard = _resolveComponent$2("VCard");
+  const _component_VDialog = _resolveComponent$2("VDialog");
+
+  return (_openBlock$2(), _createBlock$2(_component_VDialog, {
+    "model-value": __props.modelValue,
+    fullscreen: _unref$2(smAndDown),
+    "max-width": "620",
+    "onUpdate:modelValue": _cache[1] || (_cache[1] = value => emit('update:modelValue', value))
+  }, {
+    default: _withCtx$2(() => [
+      _createVNode$2(_component_VCard, { class: "ar-comment" }, {
+        default: _withCtx$2(() => [
+          _createVNode$2(_component_VToolbar, {
+            density: "compact",
+            class: "ar-comment__toolbar"
+          }, {
+            default: _withCtx$2(() => [
+              _createVNode$2(_component_VIcon, {
+                icon: "mdi-comment-edit-outline",
+                color: "primary",
+                class: "ms-4 me-3"
+              }),
+              _createElementVNode$2("div", _hoisted_1$2, [
+                _cache[2] || (_cache[2] = _createElementVNode$2("div", { class: "ar-comment__title" }, "评论 Agent 判断", -1)),
+                _createElementVNode$2("div", _hoisted_2$2, _toDisplayString$2(__props.item?.title || '当前推荐'), 1)
+              ]),
+              _createVNode$2(_component_VSpacer),
+              _createVNode$2(_component_VBtn, {
+                icon: "mdi-close",
+                variant: "text",
+                "aria-label": "关闭评论窗口",
+                onClick: close
+              })
+            ]),
+            _: 1
+          }),
+          _createVNode$2(_component_VDivider),
+          _createVNode$2(_component_VCardText, { class: "ar-comment__body" }, {
+            default: _withCtx$2(() => [
+              _createElementVNode$2("div", _hoisted_3$2, _toDisplayString$2(__props.judgment?.label || 'Agent判断'), 1),
+              _createElementVNode$2("div", _hoisted_4$2, _toDisplayString$2(__props.judgment?.content || '当前判断内容未返回'), 1),
+              _createVNode$2(_component_VTextarea, {
+                modelValue: comment.value,
+                "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((comment).value = $event)),
+                label: "你的评论",
+                placeholder: "指出哪里不准确，并写下你真实的偏好或原因",
+                density: "compact",
+                variant: "outlined",
+                rows: "4",
+                "auto-grow": "",
+                maxlength: "1000",
+                counter: "",
+                class: "mt-4",
+                onKeydown: _withKeys$1(_withModifiers(submit, ["ctrl","prevent"]), ["enter"])
+              }, null, 8, ["modelValue", "onKeydown"]),
+              (localError.value || operation.value.error)
+                ? (_openBlock$2(), _createBlock$2(_component_VAlert, {
+                    key: 0,
+                    type: "error",
+                    variant: "tonal",
+                    density: "compact",
+                    class: "mt-2"
+                  }, {
+                    default: _withCtx$2(() => [
+                      _createTextVNode$2(_toDisplayString$2(localError.value || operation.value.error?.message), 1)
+                    ]),
+                    _: 1
+                  }))
+                : _createCommentVNode$2("", true)
+            ]),
+            _: 1
+          }),
+          _createVNode$2(_component_VDivider),
+          _createVNode$2(_component_VCardActions, { class: "ar-comment__actions" }, {
+            default: _withCtx$2(() => [
+              _createVNode$2(_component_VSpacer),
+              _createVNode$2(_component_VBtn, {
+                variant: "text",
+                onClick: close
+              }, {
+                default: _withCtx$2(() => [...(_cache[3] || (_cache[3] = [
+                  _createTextVNode$2("取消", -1)
+                ]))]),
+                _: 1
+              }),
+              _createVNode$2(_component_VBtn, {
+                color: "primary",
+                variant: "flat",
+                "prepend-icon": "mdi-send-outline",
+                loading: operation.value.loading,
+                disabled: !canSubmit.value,
+                onClick: submit
+              }, {
+                default: _withCtx$2(() => [...(_cache[4] || (_cache[4] = [
+                  _createTextVNode$2("提交评论", -1)
+                ]))]),
+                _: 1
+              }, 8, ["loading", "disabled"])
+            ]),
+            _: 1
+          })
+        ]),
+        _: 1
+      })
+    ]),
+    _: 1
+  }, 8, ["model-value", "fullscreen"]))
+}
+}
+
+};
+const FeedbackCommentDialog = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-ad9ce515"]]);
+
+const {unref:_unref$1,resolveComponent:_resolveComponent$1,createVNode:_createVNode$1,createElementVNode:_createElementVNode$1,toDisplayString:_toDisplayString$1,withCtx:_withCtx$1,createTextVNode:_createTextVNode$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createElementBlock:_createElementBlock$1,renderList:_renderList$1,Fragment:_Fragment$1} = await importShared('vue');
+
+
+const _hoisted_1$1 = { class: "ar-pending__subtitle" };
+const _hoisted_2$1 = {
+  key: 1,
+  class: "ar-pending__state"
+};
+const _hoisted_3$1 = {
+  key: 3,
+  class: "ar-pending__list"
+};
+const _hoisted_4$1 = { class: "ar-pending__item-head" };
+const _hoisted_5$1 = { class: "ar-pending__item-title" };
+const _hoisted_6$1 = { class: "ar-pending__summary" };
+const _hoisted_7$1 = {
+  key: 0,
+  class: "ar-pending__details"
+};
+const _hoisted_8$1 = {
+  key: 1,
+  class: "ar-pending__answer"
+};
+const _hoisted_9$1 = { class: "ar-pending__actions" };
+
+const {computed: computed$1,reactive: reactive$1,ref: ref$1,watch: watch$1} = await importShared('vue');
+
+const {useDisplay} = await importShared('vuetify');
+
+
+
+const _sfc_main$1 = {
+  __name: 'PendingConfirmations',
+  props: {
+  modelValue: { type: Boolean, default: false },
+  state: { type: Object, required: true },
+},
+  emits: ['update:modelValue', 'changed'],
+  setup(__props, { emit: __emit }) {
+
+const props = __props;
+const emit = __emit;
+const { smAndDown } = useDisplay();
+const answers = reactive$1({});
+const localError = ref$1('');
+
+const items = computed$1(() => props.state.pendingCenter.value?.items || []);
+const operation = computed$1(() => props.state.operationState('pending'));
+const typeLabels = { proposal: '偏好提案', question: '偏好问询', command: '执行确认' };
+
+function close() {
+  emit('update:modelValue', false);
+}
+
+function answerState(item) {
+  if (!answers[item.item_id]) answers[item.item_id] = { optionId: '', customAnswer: '' };
+  return answers[item.item_id]
+}
+
+function itemOperation(item) {
+  return props.state.operationState(`pending:${item.item_type}:${item.item_id}`)
+}
+
+function formatTime(value) {
+  if (!value) return ''
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
+}
+
+async function load() {
+  localError.value = '';
+  try { await props.state.loadPendingCenter(); }
+  catch (error) { localError.value = error?.message || '待处理项目读取失败'; }
+}
+
+async function respond(item, action, options = {}) {
+  localError.value = '';
+  try {
+    await props.state.respondPending(item, action, options);
+    emit('changed');
+  } catch (error) {
+    localError.value = error?.message || '待处理操作失败';
+  }
+}
+
+function answerQuestion(item) {
+  const answer = answerState(item);
+  const customAnswer = answer.customAnswer.trim();
+  if (!answer.optionId && !customAnswer) {
+    localError.value = '请选择一个答案或填写自定义回答';
+    return
+  }
+  respond(item, 'answer', { optionId: customAnswer ? '' : answer.optionId, customAnswer });
+}
+
+watch$1(() => props.modelValue, open => { if (open) load(); }, { immediate: true });
+
+return (_ctx, _cache) => {
+  const _component_VIcon = _resolveComponent$1("VIcon");
+  const _component_VSpacer = _resolveComponent$1("VSpacer");
+  const _component_VBtn = _resolveComponent$1("VBtn");
+  const _component_VToolbar = _resolveComponent$1("VToolbar");
+  const _component_VDivider = _resolveComponent$1("VDivider");
+  const _component_VAlert = _resolveComponent$1("VAlert");
+  const _component_VProgressCircular = _resolveComponent$1("VProgressCircular");
+  const _component_VEmptyState = _resolveComponent$1("VEmptyState");
+  const _component_VChip = _resolveComponent$1("VChip");
+  const _component_VRadio = _resolveComponent$1("VRadio");
+  const _component_VRadioGroup = _resolveComponent$1("VRadioGroup");
+  const _component_VTextField = _resolveComponent$1("VTextField");
+  const _component_VCardText = _resolveComponent$1("VCardText");
+  const _component_VCard = _resolveComponent$1("VCard");
+  const _component_VDialog = _resolveComponent$1("VDialog");
+
+  return (_openBlock$1(), _createBlock$1(_component_VDialog, {
+    "model-value": __props.modelValue,
+    fullscreen: _unref$1(smAndDown),
+    "max-width": "820",
+    scrollable: "",
+    "onUpdate:modelValue": _cache[0] || (_cache[0] = value => emit('update:modelValue', value))
+  }, {
+    default: _withCtx$1(() => [
+      _createVNode$1(_component_VCard, { class: "ar-pending" }, {
+        default: _withCtx$1(() => [
+          _createVNode$1(_component_VToolbar, {
+            density: "compact",
+            class: "ar-pending__toolbar"
+          }, {
+            default: _withCtx$1(() => [
+              _createVNode$1(_component_VIcon, {
+                icon: "mdi-inbox-outline",
+                color: "primary",
+                class: "ms-4 me-3"
+              }),
+              _createElementVNode$1("div", null, [
+                _cache[1] || (_cache[1] = _createElementVNode$1("div", { class: "ar-pending__title" }, "待处理", -1)),
+                _createElementVNode$1("div", _hoisted_1$1, _toDisplayString$1(items.value.length) + " 项待处理", 1)
+              ]),
+              _createVNode$1(_component_VSpacer),
+              _createVNode$1(_component_VBtn, {
+                icon: "mdi-refresh",
+                variant: "text",
+                "aria-label": "刷新待处理项目",
+                loading: operation.value.loading,
+                onClick: load
+              }, null, 8, ["loading"]),
+              _createVNode$1(_component_VBtn, {
+                icon: "mdi-close",
+                variant: "text",
+                "aria-label": "关闭待处理窗口",
+                onClick: close
+              })
+            ]),
+            _: 1
+          }),
+          _createVNode$1(_component_VDivider),
+          _createVNode$1(_component_VCardText, { class: "ar-pending__body" }, {
+            default: _withCtx$1(() => [
+              (localError.value || operation.value.error)
+                ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+                    key: 0,
+                    type: "error",
+                    variant: "tonal",
+                    density: "compact",
+                    class: "mb-3"
+                  }, {
+                    default: _withCtx$1(() => [
+                      _createTextVNode$1(_toDisplayString$1(localError.value || operation.value.error?.message), 1)
+                    ]),
+                    _: 1
+                  }))
+                : _createCommentVNode$1("", true),
+              (operation.value.loading && !items.value.length)
+                ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_2$1, [
+                    _createVNode$1(_component_VProgressCircular, {
+                      indeterminate: "",
+                      color: "primary"
+                    })
+                  ]))
+                : (!items.value.length)
+                  ? (_openBlock$1(), _createBlock$1(_component_VEmptyState, {
+                      key: 2,
+                      icon: "mdi-check-all",
+                      title: "当前没有待处理项目"
+                    }))
+                  : (_openBlock$1(), _createElementBlock$1("div", _hoisted_3$1, [
+                      (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(items.value, (item) => {
+                        return (_openBlock$1(), _createElementBlock$1("section", {
+                          key: `${item.item_type}:${item.item_id}`,
+                          class: "ar-pending__item"
+                        }, [
+                          _createElementVNode$1("div", _hoisted_4$1, [
+                            _createVNode$1(_component_VChip, {
+                              size: "x-small",
+                              color: "primary",
+                              variant: "tonal"
+                            }, {
+                              default: _withCtx$1(() => [
+                                _createTextVNode$1(_toDisplayString$1(typeLabels[item.item_type] || '待处理'), 1)
+                              ]),
+                              _: 2
+                            }, 1024),
+                            _createElementVNode$1("span", null, _toDisplayString$1(formatTime(item.created_at)), 1),
+                            _createVNode$1(_component_VSpacer)
+                          ]),
+                          _createElementVNode$1("div", _hoisted_5$1, _toDisplayString$1(item.title), 1),
+                          _createElementVNode$1("div", _hoisted_6$1, _toDisplayString$1(item.summary), 1),
+                          (item.detail_lines?.length)
+                            ? (_openBlock$1(), _createElementBlock$1("ul", _hoisted_7$1, [
+                                (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(item.detail_lines, (line) => {
+                                  return (_openBlock$1(), _createElementBlock$1("li", { key: line }, _toDisplayString$1(line), 1))
+                                }), 128))
+                              ]))
+                            : _createCommentVNode$1("", true),
+                          (item.item_type === 'question')
+                            ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_8$1, [
+                                _createVNode$1(_component_VRadioGroup, {
+                                  modelValue: answerState(item).optionId,
+                                  "onUpdate:modelValue": $event => ((answerState(item).optionId) = $event),
+                                  density: "compact",
+                                  "hide-details": ""
+                                }, {
+                                  default: _withCtx$1(() => [
+                                    (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(item.options || [], (option) => {
+                                      return (_openBlock$1(), _createBlock$1(_component_VRadio, {
+                                        key: option.option_id,
+                                        label: option.label,
+                                        value: option.option_id
+                                      }, null, 8, ["label", "value"]))
+                                    }), 128))
+                                  ]),
+                                  _: 2
+                                }, 1032, ["modelValue", "onUpdate:modelValue"]),
+                                (item.allow_custom_answer)
+                                  ? (_openBlock$1(), _createBlock$1(_component_VTextField, {
+                                      key: 0,
+                                      modelValue: answerState(item).customAnswer,
+                                      "onUpdate:modelValue": $event => ((answerState(item).customAnswer) = $event),
+                                      label: "自定义回答",
+                                      density: "compact",
+                                      variant: "outlined",
+                                      "hide-details": "",
+                                      maxlength: "1000",
+                                      class: "mt-2"
+                                    }, null, 8, ["modelValue", "onUpdate:modelValue"]))
+                                  : _createCommentVNode$1("", true)
+                              ]))
+                            : _createCommentVNode$1("", true),
+                          _createElementVNode$1("div", _hoisted_9$1, [
+                            (item.item_type === 'question')
+                              ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                                  key: 0,
+                                  size: "small",
+                                  variant: "text",
+                                  onClick: $event => (respond(item, 'close'))
+                                }, {
+                                  default: _withCtx$1(() => [...(_cache[2] || (_cache[2] = [
+                                    _createTextVNode$1("关闭问询", -1)
+                                  ]))]),
+                                  _: 1
+                                }, 8, ["onClick"]))
+                              : (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                                  key: 1,
+                                  size: "small",
+                                  variant: "text",
+                                  color: "error",
+                                  onClick: $event => (respond(item, 'reject'))
+                                }, {
+                                  default: _withCtx$1(() => [
+                                    _createTextVNode$1(_toDisplayString$1(item.item_type === 'proposal' ? '拒绝采纳' : '拒绝执行'), 1)
+                                  ]),
+                                  _: 2
+                                }, 1032, ["onClick"])),
+                            (item.item_type === 'question')
+                              ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                                  key: 2,
+                                  size: "small",
+                                  color: "primary",
+                                  variant: "tonal",
+                                  loading: itemOperation(item).loading,
+                                  onClick: $event => (answerQuestion(item))
+                                }, {
+                                  default: _withCtx$1(() => [...(_cache[3] || (_cache[3] = [
+                                    _createTextVNode$1("提交回答", -1)
+                                  ]))]),
+                                  _: 1
+                                }, 8, ["loading", "onClick"]))
+                              : (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                                  key: 3,
+                                  size: "small",
+                                  color: "primary",
+                                  variant: "tonal",
+                                  loading: itemOperation(item).loading,
+                                  disabled: item.requires_superuser,
+                                  onClick: $event => (respond(item, 'confirm'))
+                                }, {
+                                  default: _withCtx$1(() => [
+                                    _createTextVNode$1(_toDisplayString$1(item.item_type === 'proposal' ? '确认采纳' : '确认执行'), 1)
+                                  ]),
+                                  _: 2
+                                }, 1032, ["loading", "disabled", "onClick"]))
+                          ])
+                        ]))
+                      }), 128))
+                    ]))
+            ]),
+            _: 1
+          })
+        ]),
+        _: 1
+      })
+    ]),
+    _: 1
+  }, 8, ["model-value", "fullscreen"]))
+}
+}
+
+};
+const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-bf0cdd89"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,mergeProps:_mergeProps,vShow:_vShow,withDirectives:_withDirectives,withKeys:_withKeys} = await importShared('vue');
 
@@ -123,6 +1409,7 @@ const _sfc_main = {
   props: {
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
+  showClose: { type: Boolean, default: true },
 },
   emits: ['action', 'switch', 'close'],
   setup(__props, { emit: __emit }) {
@@ -242,6 +1529,24 @@ const rankingFallbackReasonLabels = {
   refill_validation_failed: '补选格式失败',
   refill_insufficient: '补选数量不足',
   ranking_insufficient: '排序数量不足',
+};
+const historyValidationDropLabels = {
+  unknown_candidate: '候选不在冻结池',
+  duplicate_candidate: '候选重复',
+  disliked_candidate: '已点踩',
+  archived_candidate: '已忽略',
+  subscribed_candidate: '已订阅',
+  legacy_evidence_schema: '仍使用旧支持度字段',
+  invalid_confidence: '支持度无效',
+  summary_too_long: '简介超过30字',
+  reason_too_long: '推荐理由超过30字',
+  invalid_summary: '简介语义不完整',
+  invalid_reason: '推荐理由不可信',
+  ambiguous_playback_count: '播放次数误写为看完次数',
+  unsupported_playback_claim: '观看经历无法回溯',
+  unsupported_candidate_claim: '作品信息无法回溯',
+  insufficient_match_evidence: '具体匹配证据不足',
+  insufficient_verified_evidence: '可验证正向证据不足',
 };
 const historyAgentStageLabels = {
   profile: '画像',
@@ -438,6 +1743,25 @@ function historyRankingText(run) {
   if (!Number.isFinite(valid)) return '未记录'
   return `校验通过 ${valid} 条；备用 ${Number.isFinite(reserve) ? reserve : 0} 条；补选 ${refill} 次${fallback ? `；保底 ${fallback} 条（${fallbackReason}）` : ''}`
 }
+function historyValidationDropText(run) {
+  const summarize = values => {
+    if (!Array.isArray(values) || !values.length) return ''
+    const counts = new Map();
+    values.forEach(value => {
+      const code = String(value || '').trim();
+      if (code) counts.set(code, (counts.get(code) || 0) + 1);
+    });
+    return [...counts.entries()]
+      .map(([code, count]) => `${historyValidationDropLabels[code] || '其他校验原因'} ${count}`)
+      .join('、')
+  };
+  const initial = summarize(run?.metrics?.validation_drops);
+  const refill = summarize(run?.metrics?.refill_drops);
+  const parts = [];
+  if (initial) parts.push(`首轮：${initial}`);
+  if (refill) parts.push(`补选：${refill}`);
+  return parts.join('；') || '无'
+}
 function historySelectionSourceText(run) {
   const metrics = run?.metrics || {};
   const counts = metrics.selection_source_counts || {};
@@ -604,7 +1928,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_VBtn, {
           icon: "mdi-forum-outline",
           variant: "text",
-          "aria-label": "打开专属影评师",
+          "aria-label": "打开 CinePilot Agent",
           onClick: _cache[2] || (_cache[2] = $event => (criticDialog.value = true))
         }),
         _createVNode(_component_VBadge, {
@@ -617,7 +1941,7 @@ return (_ctx, _cache) => {
             _createVNode(_component_VBtn, {
               icon: "mdi-inbox-outline",
               variant: "text",
-              "aria-label": "打开待确认中心",
+              "aria-label": "打开待处理中心",
               onClick: _cache[3] || (_cache[3] = $event => (pendingDialog.value = true))
             })
           ]),
@@ -627,15 +1951,18 @@ return (_ctx, _cache) => {
           icon: "mdi-cog-outline",
           variant: "text",
           "aria-label": "打开设置",
-          onClick: _cache[4] || (_cache[4] = $event => (emit('switch')))
+          onClick: _cache[4] || (_cache[4] = $event => (emit('switch', _unref(state).options.value?.config || {})))
         }),
-        _createVNode(_component_VBtn, {
-          icon: "mdi-close",
-          variant: "text",
-          "aria-label": "关闭详情",
-          class: "me-2",
-          onClick: _cache[5] || (_cache[5] = $event => (emit('close')))
-        })
+        (__props.showClose)
+          ? (_openBlock(), _createBlock(_component_VBtn, {
+              key: 1,
+              icon: "mdi-close",
+              variant: "text",
+              "aria-label": "关闭详情",
+              class: "me-2",
+              onClick: _cache[5] || (_cache[5] = $event => (emit('close')))
+            }))
+          : _createCommentVNode("", true)
       ]),
       _: 1
     }),
@@ -834,17 +2161,6 @@ return (_ctx, _cache) => {
                             : _createCommentVNode("", true)
                         ]),
                         _createElementVNode("div", _hoisted_21, [
-                          _createVNode(_component_VChip, {
-                            size: "x-small",
-                            color: "primary",
-                            variant: "tonal",
-                            class: "ar-page__support"
-                          }, {
-                            default: _withCtx(() => [
-                              _createTextVNode(_toDisplayString(item.support?.percentage ?? '—') + _toDisplayString(item.support ? '%' : ''), 1)
-                            ]),
-                            _: 2
-                          }, 1024),
                           _createVNode(_component_VTooltip, { text: "查看 Agent 分析" }, {
                             activator: _withCtx(({ props: tooltipProps }) => [
                               _createVNode(_component_VBtn, _mergeProps({ ref_for: true }, tooltipProps, {
@@ -855,6 +2171,17 @@ return (_ctx, _cache) => {
                                 disabled: !item.analysis_id,
                                 onClick: $event => (openAnalysis(item))
                               }), null, 16, ["aria-label", "disabled", "onClick"])
+                            ]),
+                            _: 2
+                          }, 1024),
+                          _createVNode(_component_VChip, {
+                            size: "x-small",
+                            color: "primary",
+                            variant: "tonal",
+                            class: "ar-page__support"
+                          }, {
+                            default: _withCtx(() => [
+                              _createTextVNode(_toDisplayString(item.support?.percentage ?? '—') + _toDisplayString(item.support ? '%' : ''), 1)
                             ]),
                             _: 2
                           }, 1024),
@@ -1421,11 +2748,15 @@ return (_ctx, _cache) => {
                                   _createElementVNode("span", null, _toDisplayString(historyRankingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[56] || (_cache[56] = _createElementVNode("span", null, "选择来源", -1)),
+                                  _cache[56] || (_cache[56] = _createElementVNode("span", null, "校验丢弃", -1)),
+                                  _createElementVNode("span", null, _toDisplayString(historyValidationDropText(run)), 1)
+                                ]),
+                                _createElementVNode("div", null, [
+                                  _cache[57] || (_cache[57] = _createElementVNode("span", null, "选择来源", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historySelectionSourceText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[57] || (_cache[57] = _createElementVNode("span", null, "候选排除", -1)),
+                                  _cache[58] || (_cache[58] = _createElementVNode("span", null, "候选排除", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyExclusionText(run)), 1)
                                 ])
                               ]))
@@ -1476,7 +2807,7 @@ return (_ctx, _cache) => {
       modelValue: pendingDialog.value,
       "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((pendingDialog).value = $event)),
       state: _unref(state),
-      onChanged: _cache[23] || (_cache[23] = $event => (showFeedbackResult('待确认项目已更新')))
+      onChanged: _cache[23] || (_cache[23] = $event => (showFeedbackResult('待处理项目已更新')))
     }, null, 8, ["modelValue", "state"]),
     _createVNode(_component_VSnackbar, {
       modelValue: snackbar.value.show,
@@ -1493,6 +2824,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4525333b"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b738b113"]]);
 
 export { Page as default };

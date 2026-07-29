@@ -245,7 +245,7 @@ def test_ranking_surfaces_and_preview_use_emby_identity_contracts_only():
     assert "profile_id: targetProfile" in state
     assert "retryForProfile" in state
     assert "Emby 用户" in page and "state.selectedUsername.value" in page
-    assert "Emby 用户" in app_page and "identityOptions" in app_page
+    assert '<Page' in app_page and ':show-close="false"' in app_page
     assert "default_profile_id" in dashboard
     assert "emby_identities: identities" in preview
     assert "playback_count: 36" in preview
@@ -291,34 +291,26 @@ def test_config_advanced_navigation_uses_a_host_supported_mdi_icon():
     assert "mdi-shield-cog-outline" not in source
 
 
-def test_app_page_is_a_ranking_only_vertical_top_five():
-    """The discovery page keeps ranking actions and removes all right-side summaries."""
+def test_app_page_is_a_thin_host_shell_reusing_the_complete_page():
+    """发现页只适配宿主设置，并完整复用 Page 业务能力。"""
     source = APP_PAGE.read_text(encoding="utf-8")
-    assert "useAgentRankState" in source
-    assert "个性化前5名" in source
-    assert "Top 10" not in source
-    assert "selectedProfileId" in source
-    assert "identityOptions" in source
-    assert "clearProfile" not in source
-    assert "subscribe" in source
-    assert "archive" in source
-    assert "restore" in source
-    assert "画像摘要" not in source
-    assert "权重摘要" not in source
-    assert "最近归档" not in source
-    assert "运行历史" not in source
-    assert "ar-app-page__aside" not in source
-    assert "榜单刷新已完成" not in source
-    assert "clearDialog" not in source
-    assert "清除画像" in CONFIG.read_text(encoding="utf-8")
-    assert ".ar-app-page__layout { display: block; }" in source
-    assert "@media (max-width: 760px)" in source
-    assert "min-width: 40px" in source or "min-height: 40px" in source
-    assert "item.reason" in source
-    assert "推荐：" in source
-    assert "简介：" in source
-    assert "#error" in source
-    assert "mdi-image-off-outline" in source
+    assert "import Page from './Page.vue'" in source
+    assert "import Config from './Config.vue'" in source
+    assert '<Page' in source
+    assert ':show-close="false"' in source
+    assert '@switch="openSettings"' in source
+    assert ':key="pageKey"' in source
+    assert "pageKey.value += 1" in source
+    assert "savePluginConfig" in source
+    for duplicated in (
+        "useAgentRankState",
+        "RecommendationActions",
+        "AgentAnalysisDialog",
+        "CriticChatDialog",
+        "PendingConfirmations",
+        "item.reason",
+    ):
+        assert duplicated not in source
 
 
 def test_page_has_four_management_tabs_editable_tags_and_backend_history_paging():
@@ -336,7 +328,7 @@ def test_page_has_four_management_tabs_editable_tags_and_backend_history_paging(
     assert "historyPage" in source
     assert "page_size" in source
     assert "emit('close')" in source
-    assert "emit('switch')" in source
+    assert "emit('switch'," in source
     assert "item.poster_path" in source
     assert "mdi-image-off-outline" in source
     assert "statusMetaFor(run.status)" in source
@@ -373,35 +365,37 @@ def test_page_mobile_runtime_and_copy_layout_stay_readable():
     assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in source
 
 
-def test_discovery_mobile_copy_wraps_fully_without_toggle_controls():
-    """发现页移动端完整显示推荐与简介，并移除展开收起按钮。"""
-    source = APP_PAGE.read_text(encoding="utf-8")
-    assert ".ar-app-page__copy { grid-template-columns: 34px minmax(0, 1fr);" in source
-    assert ".ar-app-page__copy-toggle" not in source
-    assert "toggleCopy(item, 'reason')" not in source
-    assert "toggleCopy(item, 'summary')" not in source
-    assert ".ar-app-page__copy-text--reason," in source
-    assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in source
+def test_discovery_inherits_full_mobile_copy_layout_from_page():
+    """发现页通过同一 Page 获得完整换行和无展开控件的移动布局。"""
+    app_page = APP_PAGE.read_text(encoding="utf-8")
+    page = PAGE.read_text(encoding="utf-8")
+    assert '<Page' in app_page
+    assert ".ar-page__rank-copy { grid-template-columns: 34px minmax(0, 1fr); }" in page
+    assert ".ar-page__copy-toggle" not in page
+    assert "toggleCopy(item, 'reason')" not in page
+    assert "toggleCopy(item, 'summary')" not in page
+    assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in page
 
 
 def test_analysis_comment_chat_and_pending_ui_are_reachable_and_safe():
-    """结构化分析、评论、对话和待确认从详情及发现页均可到达。"""
+    """结构化分析、评论、对话和待处理从详情及复用发现页均可到达。"""
     page = PAGE.read_text(encoding="utf-8")
     app_page = APP_PAGE.read_text(encoding="utf-8")
     for component in (ANALYSIS_DIALOG, COMMENT_DIALOG, CRITIC_DIALOG, PENDING_DIALOG):
         assert component.exists(), component.name
-    for source in (page, app_page):
-        for name in (
-            "AgentAnalysisDialog",
-            "FeedbackCommentDialog",
-            "CriticChatDialog",
-            "PendingConfirmations",
-        ):
-            assert name in source
-        assert "openAnalysis(item)" in source
-        assert "打开专属影评师" in source
-        assert "打开待确认中心" in source
-        assert "state.loadPendingCenter()" in source
+    for name in (
+        "AgentAnalysisDialog",
+        "FeedbackCommentDialog",
+        "CriticChatDialog",
+        "PendingConfirmations",
+    ):
+        assert name in page
+        assert name not in app_page
+    assert "openAnalysis(item)" in page
+    assert "打开 CinePilot Agent" in page
+    assert "打开待处理中心" in page
+    assert "state.loadPendingCenter()" in page
+    assert '<Page' in app_page
     analysis = ANALYSIS_DIALOG.read_text(encoding="utf-8")
     assert "positive_evidence" in analysis
     assert "counter_evidence" in analysis
@@ -412,7 +406,7 @@ def test_analysis_comment_chat_and_pending_ui_are_reachable_and_safe():
 
 
 def test_critic_and_pending_dialogs_preserve_deferred_work_and_use_mobile_fullscreen():
-    """移动端对话全屏，失败可重试，待确认支持拒绝、回答和稍后提醒。"""
+    """移动端对话全屏，失败可重试，待处理动作对称且没有提醒。"""
     critic = CRITIC_DIALOG.read_text(encoding="utf-8")
     pending = PENDING_DIALOG.read_text(encoding="utf-8")
     comment = COMMENT_DIALOG.read_text(encoding="utf-8")
@@ -431,15 +425,20 @@ def test_critic_and_pending_dialogs_preserve_deferred_work_and_use_mobile_fullsc
         assert marker in critic
     for marker in (
         "respondPending",
-        "in_1_day",
-        "in_3_days",
-        "in_7_days",
-        "never",
         "answerQuestion",
         "'reject'",
         "'confirm'",
+        "'close'",
+        "提交回答",
+        "关闭问询",
+        "确认采纳",
+        "拒绝采纳",
+        "确认执行",
+        "拒绝执行",
     ):
         assert marker in pending
+    for removed in ("in_1_day", "in_3_days", "in_7_days", "never", "不提醒"):
+        assert removed not in pending
     assert "commentOnAnalysis" in comment
     assert "localError" in critic and "localError" in pending
 
@@ -466,9 +465,9 @@ def test_dashboard_is_a_lightweight_vertical_top_five():
 
 
 def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
-    """三处榜单共享无文字赞踩，并把电视剧订阅交给宿主原生抽屉。"""
+    """榜单共享同尺寸文字赞踩，并把电视剧订阅交给宿主原生抽屉。"""
     actions = ACTIONS.read_text(encoding="utf-8")
-    for label in ("订阅", "TMDB", "忽略"):
+    for label in ("订阅", "TMDB", "忽略", "喜欢", "不喜欢"):
         assert f'<span class="ar-actions__label">{label}</span>' in actions
         assert actions.count(f'<span class="ar-actions__label">{label}</span>') == 1
     for forbidden in ("豆瓣", "Bgm", "搜索豆瓣", "doubanSearchText", "sourceLabel"):
@@ -484,12 +483,9 @@ def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
     ):
         assert icon in actions
     assert ":aria-pressed=" in actions
-    assert "likePressed ? 'tonal' : 'text'" in actions
-    assert "dislikePressed ? 'tonal' : 'text'" in actions
-    assert '<span class="ar-actions__label">喜欢</span>' not in actions
-    assert '<span class="ar-actions__label">不喜欢</span>' not in actions
-    assert ".ar-actions__feedback-button { min-width: 40px; min-height: 40px;" in actions
-    for component_path in (DASHBOARD, APP_PAGE, PAGE):
+    assert actions.count('variant="tonal"') == 5
+    assert ".ar-actions__button { flex: 0 0 auto; min-width: 68px; min-height: 40px;" in actions
+    for component_path in (DASHBOARD, PAGE):
         source = component_path.read_text(encoding="utf-8")
         assert ".slice(0, 5)" in source
         assert "nativeSubscribe" in source
@@ -498,9 +494,9 @@ def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
         assert "置信度" not in source
         assert "{{ item.support?.percentage ?? '—' }}" in source
         assert "{{ item.support ? '%' : '' }}" in source
+    assert '<Page' in APP_PAGE.read_text(encoding="utf-8")
     for component_path, support_class in (
         (DASHBOARD, "ar-dashboard__support"),
-        (APP_PAGE, "ar-app-page__support"),
         (PAGE, "ar-page__support"),
     ):
         support_rule = next(
@@ -515,7 +511,7 @@ def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
 
 def test_primary_surface_exposes_the_complete_semantic_state_matrix():
     """Every backend board state has a visible label and recovery message."""
-    source = APP_PAGE.read_text(encoding="utf-8")
+    source = PAGE.read_text(encoding="utf-8")
     expected = {
         "idle": "待生成",
         "running": "运行中",
@@ -534,21 +530,27 @@ def test_primary_surface_exposes_the_complete_semantic_state_matrix():
 
 def test_icon_buttons_are_named_and_all_surfaces_keep_touch_targets():
     """Icon-only actions remain screen-reader named and at least 40 by 40 pixels."""
-    for component in (APP_PAGE, PAGE, DASHBOARD):
+    for component in (PAGE, DASHBOARD):
         source = component.read_text(encoding="utf-8")
         icon_buttons = re.findall(r"<VBtn\b(?=[^>]*\sicon(?:=|\s))[^>]*>", source)
         assert icon_buttons, component.name
         assert all("aria-label=" in button for button in icon_buttons), component.name
         assert "min-width: 40px" in source, component.name
         assert "min-height: 40px" in source, component.name
+    app_page = APP_PAGE.read_text(encoding="utf-8")
+    assert '<Page' in app_page
+    assert re.findall(r"<VBtn\b(?=[^>]*\sicon(?:=|\s))[^>]*>", app_page) == []
 
 
 def test_responsive_surfaces_have_390px_and_page_overflow_guards():
     """Named mobile viewport gets an explicit fallback and no page-level x overflow."""
-    for component in (CONFIG, APP_PAGE, PAGE):
+    for component in (CONFIG, PAGE):
         source = component.read_text(encoding="utf-8")
         assert "@media (max-width: 390px)" in source, component.name
         assert "overflow-x: hidden" in source, component.name
+    app_page = APP_PAGE.read_text(encoding="utf-8")
+    assert "width: 100%" in app_page and "min-width: 0" in app_page
+    assert '<Page' in app_page
 
 
 def test_federation_exposes_and_all_built_asset_references_are_coherent():

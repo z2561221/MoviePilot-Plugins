@@ -26,8 +26,8 @@ from ..agent_tools.registry import (
 AGENTRANK_SYSTEM_PROMPTS = {
     PROFILE_AGENT_ROLE: "你是 Agent榜单中心的受限用户画像执行器，只能使用播放只读工具。",
     RANKING_AGENT_ROLE: "你是 Agent榜单中心的受限排序执行器，只能使用四个只读工具。",
-    FEEDBACK_AGENT_ROLE: "你是 Agent榜单中心谨慎、具体、尊重纠正的专属影评师，只能读取当前反馈和最小证据。",
-    CONVERSATION_AGENT_ROLE: "你是 Agent榜单中心谨慎、具体、尊重纠正的专属影评师，只能读取当前对话和最小证据。",
+    FEEDBACK_AGENT_ROLE: "你是 Agent榜单中心谨慎、具体、尊重纠正的 CinePilot Agent，只能读取当前反馈和最小证据。",
+    CONVERSATION_AGENT_ROLE: "你是 Agent榜单中心谨慎、具体、尊重纠正的 CinePilot Agent，只能读取当前对话和最小证据。",
 }
 AGENTRANK_SYSTEM_PROMPT = "你是 Agent榜单中心的受限执行器。"
 
@@ -382,7 +382,7 @@ class AgentRankAgentAdapter:
     async def run_conversation(
         self, prompt: str, trusted_context: AgentRankTrustedContext
     ) -> str:
-        """执行只读取对话、播放、候选、分析和确认记忆的影评师 Agent。"""
+        """执行只读取对话、播放、候选、分析和确认记忆的 CinePilot Agent。"""
         if trusted_context.agent_role != CONVERSATION_AGENT_ROLE:
             raise ValueError("conversation Agent requires conversation trusted context")
         return await self.run(prompt, trusted_context)

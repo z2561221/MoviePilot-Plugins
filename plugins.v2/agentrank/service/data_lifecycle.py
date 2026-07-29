@@ -588,9 +588,6 @@ class DataLifecycleService:
                     "expires_at": _redact_text(proposal.expires_at),
                     "status": _redact_text(proposal.status),
                     "supersedes": _safe_scalar(proposal.supersedes),
-                    "reminder_policy": _redact_text(proposal.reminder_policy),
-                    "next_remind_at": _redact_text(proposal.next_remind_at),
-                    "last_reminded_at": _redact_text(proposal.last_reminded_at),
                     "resolved_at": _redact_text(proposal.resolved_at),
                     "resolved_by_mp_user_id": _safe_scalar(
                         proposal.resolved_by_mp_user_id
@@ -634,8 +631,6 @@ class DataLifecycleService:
                     "created_at": _redact_text(question.created_at),
                     "expires_at": _redact_text(question.expires_at),
                     "status": _redact_text(question.status),
-                    "reminder_policy": _redact_text(question.reminder_policy),
-                    "next_remind_at": _redact_text(question.next_remind_at),
                     "supersedes": _safe_scalar(question.supersedes),
                     "selected_option_id": _safe_scalar(
                         question.selected_option_id
@@ -645,7 +640,6 @@ class DataLifecycleService:
                     "answered_by_mp_user_id": _safe_scalar(
                         question.answered_by_mp_user_id
                     ),
-                    "last_reminded_at": _redact_text(question.last_reminded_at),
                     "resolved_at": _redact_text(question.resolved_at),
                 }
                 for question in pending_questions
@@ -724,15 +718,6 @@ class DataLifecycleService:
                         "status": _redact_text(command.status),
                         "requires_superuser": command.requires_superuser,
                         "supersedes": _safe_scalar(command.supersedes),
-                        "reminder_policy": _redact_text(
-                            command.reminder_policy
-                        ),
-                        "next_remind_at": _redact_text(
-                            command.next_remind_at
-                        ),
-                        "last_reminded_at": _redact_text(
-                            command.last_reminded_at
-                        ),
                         "created_at": _redact_text(command.created_at),
                         "resolved_at": _redact_text(command.resolved_at),
                         "execution_code": _redact_text(command.execution_code),

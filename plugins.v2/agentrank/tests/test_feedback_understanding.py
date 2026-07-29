@@ -6,7 +6,7 @@ import importlib
 import json
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -377,6 +377,7 @@ def test_runtime_injects_feedback_understanding_handler_into_queue():
         orchestrator=object(),
         feedback_queue=queue,
         feedback_understanding_service=understanding,
+        conversation_service=SimpleNamespace(),
     )
 
     assert runtime.feedback_understanding_service is understanding

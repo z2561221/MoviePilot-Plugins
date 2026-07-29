@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 
 const props = defineProps({
@@ -11,6 +11,9 @@ const { smAndDown } = useDisplay()
 const draft = ref('')
 const localError = ref('')
 const messageList = ref(null)
+const pollTimer = ref(null)
+const pollDeadline = ref(0)
+const frontendTimeoutMs = 100000
 
 const messages = computed(() => props.state.conversation.value?.messages || [])
 const commands = computed(() => props.state.conversation.value?.commands || [])
@@ -18,6 +21,56 @@ const pendingCommands = computed(() => commands.value.filter(item => item.status
 const conversationOperation = computed(() => props.state.operationState('conversation'))
 const sendOperation = computed(() => props.state.operationState('conversation:send'))
 const canSend = computed(() => draft.value.trim().length > 0 && !sendOperation.value.loading)
+const hasPendingMessages = computed(() => messages.value.some(item => ['queued', 'processing'].includes(item.status)))
+
+function stopPolling() {
+  if (pollTimer.value) clearTimeout(pollTimer.value)
+  pollTimer.value = null
+  pollDeadline.value = 0
+}
+
+function markFrontendTimeout() {
+  const current = props.state.conversation.value || {}
+  props.state.conversation.value = {
+    ...current,
+    messages: (current.messages || []).map(message => (
+      ['queued', 'processing'].includes(message.status)
+        ? {
+            ...message,
+            status: 'retryable_failed',
+            error_code: 'frontend_timeout',
+            error_message: 'CinePilot Agent 响应超时，消息已保留，可重试',
+          }
+        : message
+    )),
+  }
+}
+
+async function pollConversation() {
+  if (!props.modelValue || !hasPendingMessages.value) {
+    stopPolling()
+    return
+  }
+  if (Date.now() >= pollDeadline.value) {
+    markFrontendTimeout()
+    stopPolling()
+    return
+  }
+  try { await props.state.loadConversation() } catch (_) { /* 保留共享可重试错误。 */ }
+  if (!hasPendingMessages.value) {
+    stopPolling()
+    await scrollToEnd()
+    return
+  }
+  pollTimer.value = setTimeout(pollConversation, 1500)
+}
+
+function startPolling() {
+  stopPolling()
+  if (!hasPendingMessages.value || !props.modelValue) return
+  pollDeadline.value = Date.now() + frontendTimeoutMs
+  pollTimer.value = setTimeout(pollConversation, 500)
+}
 
 function close() {
   emit('update:modelValue', false)
@@ -38,6 +91,7 @@ async function load() {
   try {
     await Promise.all([props.state.loadConversation(), props.state.loadPendingCenter()])
     await scrollToEnd()
+    startPolling()
   } catch (_) {
     // 共享状态保存可见错误和重试动作。
   }
@@ -52,6 +106,7 @@ async function send() {
     draft.value = ''
     emit('pending-change')
     await scrollToEnd()
+    startPolling()
   } catch (error) {
     localError.value = error?.message || '消息发送失败，草稿已保留'
     try { await props.state.loadConversation() } catch (_) { /* 对话读取错误由共享状态展示。 */ }
@@ -65,6 +120,7 @@ async function retryMessage(messageId) {
     await props.state.retryConversationMessage(messageId)
     emit('pending-change')
     await scrollToEnd()
+    startPolling()
   } catch (error) {
     localError.value = error?.message || '重试失败'
     try { await props.state.loadConversation() } catch (_) { /* 对话读取错误由共享状态展示。 */ }
@@ -77,12 +133,13 @@ async function respondCommand(command, action) {
     await props.state.respondConversationCommand(command.command_id, action)
     emit('pending-change')
   } catch (error) {
-    localError.value = error?.message || '待确认操作失败'
+    localError.value = error?.message || '待执行操作失败'
   }
 }
 
-watch(() => props.modelValue, open => { if (open) load() }, { immediate: true })
+watch(() => props.modelValue, open => { if (open) load(); else stopPolling() }, { immediate: true })
 watch(() => messages.value.length, () => { if (props.modelValue) scrollToEnd() })
+onUnmounted(stopPolling)
 </script>
 
 <template>
@@ -97,15 +154,15 @@ watch(() => messages.value.length, () => { if (props.modelValue) scrollToEnd() }
       <VToolbar density="compact" class="ar-chat__toolbar">
         <VAvatar color="primary" variant="tonal" size="34" class="ms-3 me-3"><VIcon icon="mdi-forum-outline" /></VAvatar>
         <div>
-          <div class="ar-chat__title">专属影评师</div>
+          <div class="ar-chat__title">CinePilot Agent</div>
           <div class="ar-chat__subtitle">{{ props.state.selectedUsername.value || '当前画像' }}</div>
         </div>
         <VSpacer />
         <VBadge v-if="pendingCommands.length" :content="pendingCommands.length" color="warning" inline>
           <VIcon icon="mdi-inbox-outline" size="20" />
         </VBadge>
-        <VBtn icon="mdi-refresh" variant="text" aria-label="刷新影评师对话" :loading="conversationOperation.loading" @click="load" />
-        <VBtn icon="mdi-close" variant="text" aria-label="关闭影评师对话" @click="close" />
+        <VBtn icon="mdi-refresh" variant="text" aria-label="刷新 CinePilot Agent 对话" :loading="conversationOperation.loading" @click="load" />
+        <VBtn icon="mdi-close" variant="text" aria-label="关闭 CinePilot Agent 对话" @click="close" />
       </VToolbar>
       <VDivider />
 
@@ -124,13 +181,15 @@ watch(() => messages.value.length, () => { if (props.modelValue) scrollToEnd() }
           class="ar-chat__message"
           :class="`ar-chat__message--${message.role}`"
         >
-          <div class="ar-chat__bubble" :class="{ 'ar-chat__bubble--failed': message.status === 'failed' }">
+          <div class="ar-chat__bubble" :class="{ 'ar-chat__bubble--failed': ['failed', 'retryable_failed'].includes(message.status) }">
             <div class="ar-chat__content">{{ message.content }}</div>
             <div class="ar-chat__meta">
               <span>{{ formatTime(message.created_at) }}</span>
               <span v-if="message.role === 'assistant' && (message.provider || message.model)">{{ [message.provider, message.model].filter(Boolean).join(' · ') }}</span>
+              <span v-if="message.role === 'user' && message.status === 'queued'">已受理</span>
+              <span v-else-if="message.role === 'user' && message.status === 'processing'">处理中</span>
             </div>
-            <div v-if="message.status === 'failed'" class="ar-chat__failure">
+            <div v-if="['failed', 'retryable_failed'].includes(message.status)" class="ar-chat__failure">
               <span>{{ message.error_message || '消息处理失败' }}</span>
               <VBtn size="x-small" variant="text" prepend-icon="mdi-refresh" @click="retryMessage(message.message_id)">重试</VBtn>
             </div>
@@ -138,15 +197,15 @@ watch(() => messages.value.length, () => { if (props.modelValue) scrollToEnd() }
         </div>
 
         <div v-if="pendingCommands.length" class="ar-chat__commands">
-          <div class="ar-chat__commands-title">待确认操作</div>
+          <div class="ar-chat__commands-title">待执行操作</div>
           <div v-for="command in pendingCommands" :key="command.command_id" class="ar-chat__command">
             <div class="ar-chat__command-main">
               <strong>{{ command.title }}</strong>
               <span>{{ command.preview }}</span>
             </div>
             <div class="ar-chat__command-actions">
-              <VBtn size="small" variant="text" @click="respondCommand(command, 'reject')">拒绝</VBtn>
-              <VBtn size="small" color="primary" variant="tonal" :disabled="command.requires_superuser" @click="respondCommand(command, 'confirm')">确认</VBtn>
+              <VBtn size="small" variant="text" @click="respondCommand(command, 'reject')">拒绝执行</VBtn>
+              <VBtn size="small" color="primary" variant="tonal" :disabled="command.requires_superuser" @click="respondCommand(command, 'confirm')">确认执行</VBtn>
             </div>
           </div>
         </div>
@@ -156,7 +215,7 @@ watch(() => messages.value.length, () => { if (props.modelValue) scrollToEnd() }
       <div class="ar-chat__composer">
         <VTextarea
           v-model="draft"
-          label="给专属影评师留言"
+          label="给 CinePilot Agent 留言"
           density="compact"
           variant="outlined"
           rows="2"

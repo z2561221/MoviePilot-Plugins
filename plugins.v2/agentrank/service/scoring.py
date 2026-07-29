@@ -650,6 +650,43 @@ class DeterministicSupportScorer:
             )
         return signals
 
+    @classmethod
+    def trusted_signal_catalog(
+        cls,
+        memory: PreferenceMemory,
+        preferences: ProfilePreferences,
+        playback: PlaybackSnapshot,
+    ) -> List[Dict[str, Any]]:
+        """返回与确定性校验器同源的最小证据目录。"""
+        signals = [
+            *cls._memory_signals(memory),
+            *cls._manual_signals(preferences),
+            *cls._playback_signals(playback),
+        ]
+        catalog: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        for signal in signals:
+            dimension = signal.dimension.removesuffix("_weight") or "any"
+            key = (dimension, signal.value.casefold(), signal.polarity)
+            current = catalog.get(key)
+            item = {
+                "dimension": dimension,
+                "value": signal.value,
+                "polarity": signal.polarity,
+                "certainty": signal.certainty,
+                "evidence_count": len(signal.refs),
+            }
+            if current is None or (
+                item["certainty"],
+                item["evidence_count"],
+                item["value"].casefold(),
+            ) > (
+                current["certainty"],
+                current["evidence_count"],
+                current["value"].casefold(),
+            ):
+                catalog[key] = item
+        return [catalog[key] for key in sorted(catalog)]
+
     @staticmethod
     def _claim_field(claim: Any, field_name: str) -> str:
         """从冻结对象或映射读取结构化证据声明字段。"""

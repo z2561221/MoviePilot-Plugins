@@ -1,10 +1,14 @@
-"""专属影评师对话、待确认命令与受控执行服务。"""
+"""CinePilot Agent 对话、待确认命令与受控执行服务。"""
 
+import asyncio
 import hashlib
 import json
 import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..agent_tools.context import CONVERSATION_AGENT_ROLE, build_trusted_context
@@ -32,13 +36,6 @@ _SENSITIVE_PSYCHOLOGY_TERMS = (
     "心理障碍",
 )
 _INTENTS = frozenset({"read_only", "write_request", "ambiguous"})
-_REMINDER_DELAYS = {
-    "in_1_day": timedelta(days=1),
-    "in_3_days": timedelta(days=3),
-    "in_7_days": timedelta(days=7),
-}
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -73,7 +70,7 @@ class ConversationAgentReply:
 
 
 class ConversationReplyParser:
-    """严格解析专属影评师 JSON 并拒绝越权命令。"""
+    """严格解析 CinePilot Agent JSON 并拒绝越权命令。"""
 
     root_keys = frozenset(
         {"intent", "reply", "evidence_refs", "commands", "uncertainties"}
@@ -263,7 +260,7 @@ class ConversationReplyParser:
 
 
 class ConversationService:
-    """维护有界对话并把全部写请求收敛为待确认命令。"""
+    """维护有界对话并在可恢复后台队列中串行处理每个 profile。"""
 
     def __init__(
         self,
@@ -275,8 +272,14 @@ class ConversationService:
         now_factory: Callable[[], datetime] = None,
         pending_handler: Callable[[ConversationCommand], Any] = None,
         critic_prompt: str = DEFAULT_CRITIC_PROMPT,
+        profile_ids: Iterable[str] = (),
+        max_workers: int = 2,
+        total_timeout_seconds: float = 90.0,
+        retry_base_seconds: float = 1.0,
+        retry_max_seconds: float = 15.0,
+        poll_seconds: float = 0.25,
     ):
-        """绑定仓储、受限 Agent、运行插件与可测试时钟。"""
+        """绑定仓储、受限 Agent、后台并发边界与可测试时钟。"""
         if not isinstance(repository, AgentRankRepository):
             raise TypeError("repository must be AgentRankRepository")
         self._repository = repository
@@ -286,6 +289,208 @@ class ConversationService:
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
         self._pending_handler = pending_handler
         self._critic_prompt = str(critic_prompt or DEFAULT_CRITIC_PROMPT).strip()
+        self._profiles = {
+            str(profile_id or "").strip()
+            for profile_id in profile_ids or ()
+            if str(profile_id or "").strip()
+        }
+        self._max_workers = max(1, min(int(max_workers), 32))
+        self._total_timeout_seconds = max(0.1, float(total_timeout_seconds))
+        self._retry_base_seconds = max(0.0, float(retry_base_seconds))
+        self._retry_max_seconds = max(
+            self._retry_base_seconds, float(retry_max_seconds)
+        )
+        self._poll_seconds = max(0.01, float(poll_seconds))
+        self._state_lock = threading.RLock()
+        self._wake = threading.Event()
+        self._stop_event = threading.Event()
+        self._dispatcher: Optional[threading.Thread] = None
+        self._executor: Optional[ThreadPoolExecutor] = None
+        self._active_profiles: set[str] = set()
+        self._started = False
+
+    @property
+    def started(self) -> bool:
+        """返回后台对话调度器是否已经启动。"""
+        with self._state_lock:
+            return self._started
+
+    def register_profiles(self, profile_ids: Iterable[str]) -> None:
+        """登记可恢复的 profile，并唤醒后台调度器。"""
+        with self._state_lock:
+            self._profiles.update(
+                str(profile_id or "").strip()
+                for profile_id in profile_ids or ()
+                if str(profile_id or "").strip()
+            )
+        self._wake.set()
+
+    def start(self) -> None:
+        """启动后台调度器，并把 reload 遗留 processing 恢复为 queued。"""
+        with self._state_lock:
+            if self._started:
+                return
+            self._stop_event.clear()
+            self._active_profiles.clear()
+            profiles = tuple(self._profiles)
+            for profile_id in profiles:
+                self._recover_profile(profile_id)
+            self._executor = ThreadPoolExecutor(
+                max_workers=self._max_workers,
+                thread_name_prefix="agentrank-conversation",
+            )
+            self._started = True
+            self._dispatcher = threading.Thread(
+                target=self._dispatch_loop,
+                name="agentrank-conversation-dispatcher",
+                daemon=True,
+            )
+            self._dispatcher.start()
+        self._wake.set()
+
+    def stop(self) -> None:
+        """停止后台调度并把未完成消息恢复为 queued，供 reload 后续跑。"""
+        with self._state_lock:
+            if not self._started:
+                return
+            self._stop_event.set()
+            dispatcher = self._dispatcher
+            executor = self._executor
+            profiles = tuple(self._profiles)
+            self._wake.set()
+        if dispatcher is not None and dispatcher is not threading.current_thread():
+            dispatcher.join(timeout=max(1.0, self._poll_seconds * 4))
+        for profile_id in profiles:
+            self._recover_profile(profile_id)
+        if executor is not None:
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                executor.shutdown(wait=False)
+        with self._state_lock:
+            self._started = False
+            self._dispatcher = None
+            self._executor = None
+            self._active_profiles.clear()
+
+    def _recover_profile(self, profile_id: str) -> None:
+        """把一个 profile 的中断消息恢复到可重新领取状态。"""
+        try:
+            with self._repository.feedback_action_guard(profile_id):
+                thread = self._repository.load_conversation_thread(profile_id)
+                if thread is None:
+                    return
+                messages, commands = self._repository.load_conversation_records(
+                    profile_id, strict=True
+                )
+                changed = False
+                recovered = []
+                for message in messages:
+                    if message.role == "user" and message.status == "processing":
+                        message = replace(message, status="queued")
+                        changed = True
+                    recovered.append(message)
+                if changed:
+                    self._repository.save_conversation_state(
+                        thread,
+                        recovered,
+                        commands,
+                        limit=self._message_limit,
+                        action="conversation_recovery_write_failed",
+                    )
+        except Exception:
+            logger.exception(
+                "AgentRank 对话恢复失败 profile_id=%s", profile_id
+            )
+
+    def _claim_next_message(self, profile_id: str) -> Optional[str]:
+        """原子领取一个 profile 最早的 queued 用户消息。"""
+        with self._repository.feedback_action_guard(profile_id):
+            thread = self._repository.load_conversation_thread(profile_id)
+            if thread is None:
+                return None
+            messages, commands = self._repository.load_conversation_records(
+                profile_id, strict=True
+            )
+            source = next(
+                (
+                    item
+                    for item in messages
+                    if item.role == "user" and item.status == "queued"
+                ),
+                None,
+            )
+            if source is None:
+                return None
+            claimed = replace(source, status="processing")
+            messages = [
+                claimed if item.message_id == source.message_id else item
+                for item in messages
+            ]
+            self._repository.save_conversation_state(
+                thread,
+                messages,
+                commands,
+                limit=self._message_limit,
+                action="conversation_claim_write_failed",
+            )
+            return claimed.message_id
+
+    def _dispatch_loop(self) -> None:
+        """按 profile 串行、跨 profile 有界并发地分发 queued 消息。"""
+        while not self._stop_event.is_set():
+            dispatched = False
+            with self._state_lock:
+                available = self._max_workers - len(self._active_profiles)
+                profiles = sorted(self._profiles)
+            if available > 0:
+                for profile_id in profiles:
+                    if self._stop_event.is_set() or available <= 0:
+                        break
+                    with self._state_lock:
+                        if profile_id in self._active_profiles:
+                            continue
+                        executor = self._executor
+                    if executor is None:
+                        break
+                    try:
+                        message_id = self._claim_next_message(profile_id)
+                    except Exception:
+                        logger.exception(
+                            "AgentRank 对话消息领取失败 profile_id=%s", profile_id
+                        )
+                        continue
+                    if not message_id:
+                        continue
+                    with self._state_lock:
+                        self._active_profiles.add(profile_id)
+                    executor.submit(self._process_message, profile_id, message_id)
+                    available -= 1
+                    dispatched = True
+            if not dispatched:
+                self._wake.wait(timeout=self._poll_seconds)
+                self._wake.clear()
+
+    def _process_message(self, profile_id: str, message_id: str) -> None:
+        """在独立 worker 中执行一条消息，并确保下一条同 profile 消息再开始。"""
+        try:
+            asyncio.run(self._run_message(profile_id, message_id, created=False))
+        except ConversationError:
+            logger.info(
+                "AgentRank 对话消息已落为可重试失败 profile_id=%s message_id=%s",
+                profile_id,
+                message_id,
+            )
+        except Exception:
+            logger.exception(
+                "AgentRank 对话后台处理异常 profile_id=%s message_id=%s",
+                profile_id,
+                message_id,
+            )
+        finally:
+            with self._state_lock:
+                self._active_profiles.discard(profile_id)
+            self._wake.set()
 
     def set_pending_handler(
         self, handler: Callable[[ConversationCommand], Any] = None
@@ -578,7 +783,7 @@ class ConversationService:
                     preview = f"确认后订阅：{item.title}"
             else:
                 payload = {}
-                title = "重置专属影评师学习数据"
+                title = "重置 CinePilot Agent 学习数据"
                 preview = "清除反馈、记忆、对话与学习策略；保留榜单和人工标签"
             payload_json = json.dumps(
                 payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -666,7 +871,7 @@ class ConversationService:
         idempotency_key: Any,
         actor_id: str,
     ) -> Dict[str, Any]:
-        """幂等保存用户草稿、调用只读 Agent 并原子完成一轮对话。"""
+        """幂等保存用户消息并立即返回，由后台队列继续调用只读 Agent。"""
         target = str(profile_id or "").strip()
         actor = str(actor_id or "").strip()
         if not target or not actor:
@@ -693,7 +898,7 @@ class ConversationService:
                 thread_id=thread.thread_id,
                 role="user",
                 content=text,
-                status="processing",
+                status="queued",
                 created_at=now,
                 idempotency_key=key,
                 created_by_mp_user_id=actor,
@@ -708,12 +913,17 @@ class ConversationService:
             self._repository.save_conversation_state(
                 thread, messages, commands, limit=self._message_limit
             )
-        return await self._run_message(target, message.message_id, created=True)
+            snapshot = self._snapshot_data(thread, messages, commands, created=True)
+        self.register_profiles([target])
+        if not self.started:
+            self.start()
+        self._wake.set()
+        return snapshot
 
     async def retry(
         self, *, profile_id: str, message_id: str, actor_id: str
     ) -> Dict[str, Any]:
-        """仅重试当前操作者的一条失败草稿，不创建重复消息。"""
+        """仅重新排队当前操作者的一条可重试失败消息，不创建重复记录。"""
         target = str(profile_id or "").strip()
         actor = str(actor_id or "").strip()
         source_id = str(message_id or "").strip()
@@ -729,11 +939,11 @@ class ConversationService:
                 raise ConversationError("message_not_found", "待重试消息不存在", 404)
             if source.created_by_mp_user_id != actor:
                 raise ConversationError("message_forbidden", "不能重试其他用户的消息", 403)
-            if source.status != "failed":
+            if source.status not in {"failed", "retryable_failed"}:
                 raise ConversationError("message_not_retryable", "该消息当前不能重试", 409)
             source = replace(
                 source,
-                status="processing",
+                status="queued",
                 error_code="",
                 error_message="",
                 provider="",
@@ -743,7 +953,97 @@ class ConversationService:
             self._repository.save_conversation_state(
                 thread, messages, commands, limit=self._message_limit
             )
-        return await self._run_message(target, source_id, created=False)
+            snapshot = self._snapshot_data(thread, messages, commands, created=False)
+        self.register_profiles([target])
+        if not self.started:
+            self.start()
+        self._wake.set()
+        return snapshot
+
+    @staticmethod
+    def _rate_limited(error: BaseException) -> bool:
+        """判断异常链是否表示供应商 HTTP 429，避免对普通失败盲目重试。"""
+        seen: set[int] = set()
+        current: Optional[BaseException] = error
+        for _ in range(6):
+            if current is None or id(current) in seen:
+                break
+            seen.add(id(current))
+            response = getattr(current, "response", None)
+            status = getattr(current, "status_code", None) or getattr(
+                response, "status_code", None
+            )
+            code = str(getattr(current, "code", "") or "").casefold()
+            text = str(current or "").casefold()
+            if status == 429 or code in {"429", "rate_limit", "rate_limit_exceeded"}:
+                return True
+            if "429" in text or "rate limit" in text or "too many requests" in text:
+                return True
+            current = getattr(current, "__cause__", None) or getattr(
+                current, "__context__", None
+            )
+        return False
+
+    @staticmethod
+    def _retry_after_seconds(error: BaseException) -> float:
+        """从 429 响应读取 Retry-After 秒数，读取失败时返回零。"""
+        response = getattr(error, "response", None)
+        headers = getattr(response, "headers", None) or getattr(error, "headers", None)
+        value = ""
+        if isinstance(headers, Mapping):
+            value = headers.get("retry-after") or headers.get("Retry-After") or ""
+        try:
+            return max(0.0, float(value))
+        except (TypeError, ValueError):
+            return 0.0
+
+    async def _call_agent_with_budget(
+        self,
+        method: Callable[..., Any],
+        prompt: str,
+        trusted_context: Any,
+    ) -> Any:
+        """在同一个 90 秒总预算内执行 Agent，并仅对 429 做指数退避。"""
+        deadline = time.monotonic() + self._total_timeout_seconds
+        attempt = 0
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ConversationError(
+                    "conversation_timeout",
+                    "CinePilot Agent 响应超时，消息已保留，可重试",
+                    504,
+                )
+            try:
+                result = method(prompt, trusted_context)
+                if hasattr(result, "__await__"):
+                    return await asyncio.wait_for(result, timeout=remaining)
+                return result
+            except asyncio.TimeoutError as error:
+                raise ConversationError(
+                    "conversation_timeout",
+                    "CinePilot Agent 响应超时，消息已保留，可重试",
+                    504,
+                ) from error
+            except Exception as error:
+                if not self._rate_limited(error):
+                    raise
+                attempt += 1
+                suggested = self._retry_after_seconds(error)
+                delay = suggested or min(
+                    self._retry_max_seconds,
+                    self._retry_base_seconds * (2 ** max(0, attempt - 1)),
+                )
+                remaining = deadline - time.monotonic()
+                if delay <= 0:
+                    delay = min(0.05, max(0.0, remaining))
+                if remaining <= delay:
+                    raise ConversationError(
+                        "conversation_rate_limited",
+                        "CinePilot Agent 请求受限且已超过处理时限，消息已保留，可重试",
+                        429,
+                    ) from error
+                await asyncio.sleep(delay)
 
     async def _run_message(
         self, profile_id: str, message_id: str, *, created: bool
@@ -765,8 +1065,10 @@ class ConversationService:
                 method = getattr(self._agent_adapter, "run", None)
             if not callable(method):
                 raise RuntimeError("conversation Agent adapter is unavailable")
-            raw = await method(
-                build_conversation_prompt(self._critic_prompt), trusted_context
+            raw = await self._call_agent_with_budget(
+                method,
+                build_conversation_prompt(self._critic_prompt),
+                trusted_context,
             )
             parsed = ConversationReplyParser.parse(
                 raw, allowed_evidence_refs=allowed_refs
@@ -787,13 +1089,17 @@ class ConversationService:
                     safe = dict(provenance) if isinstance(provenance, Mapping) else {}
                     failed = replace(
                         current,
-                        status="failed",
+                        status="retryable_failed",
                         error_code=(
                             error.code
                             if isinstance(error, ConversationError)
                             else "agent_unavailable"
                         ),
-                        error_message="对话生成失败，草稿已保留，可重试",
+                        error_message=(
+                            error.message
+                            if isinstance(error, ConversationError)
+                            else "CinePilot Agent 生成失败，消息已保留，可重试"
+                        ),
                         provider=str(safe.get("provider") or "")[:80],
                         model=str(safe.get("model") or "")[:120],
                     )
@@ -811,7 +1117,9 @@ class ConversationService:
             if isinstance(error, ConversationError):
                 raise
             raise ConversationError(
-                "conversation_failed", "对话生成失败，草稿已保留，可重试", 502
+                "conversation_failed",
+                "CinePilot Agent 生成失败，消息已保留，可重试",
+                502,
             ) from error
         with self._repository.feedback_action_guard(profile_id):
             thread = self._repository.load_conversation_thread(profile_id)
@@ -832,7 +1140,7 @@ class ConversationService:
             except Exception as error:
                 failed = replace(
                     source,
-                    status="failed",
+                    status="retryable_failed",
                     error_code=(
                         error.code
                         if isinstance(error, ConversationError)
@@ -920,119 +1228,6 @@ class ConversationService:
             )
         self._emit_pending(created_commands)
         return snapshot
-
-    def set_command_reminder(
-        self,
-        *,
-        profile_id: str,
-        command_id: str,
-        reminder_policy: str,
-        actor_id: str,
-        is_superuser: bool = False,
-    ) -> ConversationCommand:
-        """为用户自己的待确认命令设置稍后提醒或永不提醒。"""
-        target = str(profile_id or "").strip()
-        target_id = str(command_id or "").strip()
-        actor = str(actor_id or "").strip()
-        policy = str(reminder_policy or "").strip().casefold()
-        if policy not in {*_REMINDER_DELAYS, "never"}:
-            raise ConversationError(
-                "reminder_policy_invalid", "提醒时间必须是一、三、七天后或不提醒", 422
-            )
-        if not actor:
-            raise ConversationError(
-                "conversation_actor_required", "无法确认当前操作用户", 403
-            )
-        with self._repository.feedback_action_guard(target):
-            thread = self._repository.load_conversation_thread(target)
-            messages, commands = self._repository.load_conversation_records(
-                target, strict=True
-            )
-            if thread is None:
-                raise ConversationError("conversation_not_found", "对话不存在", 404)
-            command = next(
-                (item for item in commands if item.command_id == target_id), None
-            )
-            if command is None:
-                raise ConversationError("command_not_found", "待确认命令不存在", 404)
-            if command.requested_by_mp_user_id != actor and not is_superuser:
-                raise ConversationError("command_forbidden", "不能操作其他用户的命令", 403)
-            if command.terminal:
-                raise ConversationError(
-                    "command_already_resolved", "命令已经处理", 409
-                )
-            current = self._now_factory()
-            if current.tzinfo is None:
-                current = current.replace(tzinfo=timezone.utc)
-            next_remind_at = (
-                (current.astimezone(timezone.utc) + _REMINDER_DELAYS[policy]).isoformat()
-                if policy in _REMINDER_DELAYS
-                else ""
-            )
-            updated = replace(
-                command,
-                reminder_policy=policy,
-                next_remind_at=next_remind_at,
-            )
-            commands = [
-                updated if item.command_id == target_id else item for item in commands
-            ]
-            thread = replace(
-                thread,
-                updated_at=self._now(),
-                revision=thread.revision + 1,
-            )
-            self._repository.save_conversation_state(
-                thread, messages, commands, limit=self._message_limit
-            )
-            return updated
-
-    def claim_due_command_reminders(
-        self, profile_id: str
-    ) -> List[ConversationCommand]:
-        """原子领取到期命令提醒并清空本次提醒时间。"""
-        target = str(profile_id or "").strip()
-        current = self._now_factory()
-        if current.tzinfo is None:
-            current = current.replace(tzinfo=timezone.utc)
-        current = current.astimezone(timezone.utc)
-        with self._repository.feedback_action_guard(target):
-            thread = self._repository.load_conversation_thread(target)
-            messages, commands = self._repository.load_conversation_records(
-                target, strict=True
-            )
-            if thread is None:
-                return []
-            claimed: List[ConversationCommand] = []
-            updated_commands: List[ConversationCommand] = []
-            for command in commands:
-                if command.status != "pending_confirmation" or not command.next_remind_at:
-                    updated_commands.append(command)
-                    continue
-                due = datetime.fromisoformat(
-                    command.next_remind_at.replace("Z", "+00:00")
-                ).astimezone(timezone.utc)
-                if due > current:
-                    updated_commands.append(command)
-                    continue
-                updated = replace(
-                    command,
-                    next_remind_at="",
-                    last_reminded_at=current.isoformat(),
-                )
-                updated_commands.append(updated)
-                claimed.append(updated)
-            if not claimed:
-                return []
-            thread = replace(
-                thread,
-                updated_at=current.isoformat(),
-                revision=thread.revision + 1,
-            )
-            self._repository.save_conversation_state(
-                thread, messages, updated_commands, limit=self._message_limit
-            )
-            return claimed
 
     def _execute_command(
         self, command: ConversationCommand, *, actor_id: str, is_superuser: bool
@@ -1134,7 +1329,7 @@ class ConversationService:
             getattr(self._plugin, "_config", {}) if self._plugin else {},
         )
         result = lifecycle.reset_learning(command.profile_id, True)
-        return "learning_reset", "专属影评师学习数据已重置", result
+        return "learning_reset", "CinePilot Agent 学习数据已重置", result
 
     def respond_command(
         self,
@@ -1197,7 +1392,7 @@ class ConversationService:
                     actor_id=actor,
                     resolved_at=now,
                     code="learning_reset",
-                    message="专属影评师学习数据已重置",
+                    message="CinePilot Agent 学习数据已重置",
                 )
                 commands = [
                     prepared if item.command_id == command.command_id else item
@@ -1226,7 +1421,7 @@ class ConversationService:
                     created_at=thread.created_at,
                     updated_at=now,
                     revision=thread.revision + 1,
-                    summary="专属影评师学习数据已重置。",
+                    summary="CinePilot Agent 学习数据已重置。",
                 )
                 self._repository.save_conversation_state(
                     receipt_thread,

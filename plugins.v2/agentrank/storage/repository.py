@@ -327,7 +327,7 @@ class AgentRankRepository:
     def load_conversation_thread(
         self, profile_id: str
     ) -> Optional[ConversationThread]:
-        """读取按 profile 隔离的专属影评师对话线程。"""
+        """读取按 profile 隔离的 CinePilot Agent 对话线程。"""
         return self._load_scoped_model(
             self._learning_key("conversation", profile_id),
             ConversationThread,
@@ -2232,7 +2232,7 @@ class AgentRankRepository:
                 updated_proposal = replace(
                     current,
                     status="confirmed",
-                    reminder_policy="never",
+                    reminder_policy="unselected",
                     next_remind_at="",
                     resolved_at=resolved_at,
                     resolved_by_mp_user_id=actor,
@@ -2246,7 +2246,7 @@ class AgentRankRepository:
                 updated_proposal = replace(
                     current,
                     status="superseded",
-                    reminder_policy="never",
+                    reminder_policy="unselected",
                     next_remind_at="",
                     resolved_at=resolved_at,
                     resolved_by_mp_user_id=actor,

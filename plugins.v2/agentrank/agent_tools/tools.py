@@ -193,5 +193,5 @@ class ReadAgentRankConversationTool(_ReadAgentRankTool):
     )
 
     async def run(self, **kwargs: Any) -> str:
-        """返回当前专属影评师对话切片。"""
+        """返回当前 CinePilot Agent 对话切片。"""
         return self._slice("conversation", "conversation")

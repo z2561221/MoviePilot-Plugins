@@ -1,10 +1,12 @@
-"""专属影评师对话、待确认命令和安全边界测试。"""
+"""CinePilot Agent 对话、待处理命令和安全边界测试。"""
 
 import asyncio
 import copy
 import importlib
 import json
 import sys
+import threading
+import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -26,6 +28,7 @@ candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
 support_module = importlib.import_module(f"{PACKAGE_NAME}.model.support")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
+conversation_model = importlib.import_module(f"{PACKAGE_NAME}.model.conversation")
 conversation_module = importlib.import_module(f"{PACKAGE_NAME}.service.conversation")
 lifecycle_module = importlib.import_module(f"{PACKAGE_NAME}.service.data_lifecycle")
 
@@ -38,6 +41,8 @@ CandidateSnapshot = snapshot_module.CandidateSnapshot
 SupportContribution = support_module.SupportContribution
 SupportScore = support_module.SupportScore
 AgentRankRepository = repository_module.AgentRankRepository
+ConversationMessage = conversation_model.ConversationMessage
+ConversationThread = conversation_model.ConversationThread
 ConversationError = conversation_module.ConversationError
 ConversationReplyParser = conversation_module.ConversationReplyParser
 ConversationService = conversation_module.ConversationService
@@ -102,14 +107,94 @@ class FakeConversationAgent:
     def __init__(self, *outputs):
         self.outputs = list(outputs)
         self.calls = []
+        self.call_times = []
 
     async def run_conversation(self, prompt, trusted_context):
         """记录只读上下文并返回下一项结果。"""
         self.calls.append((prompt, trusted_context))
+        self.call_times.append(time.monotonic())
         output = self.outputs.pop(0)
         if isinstance(output, Exception):
             raise output
         return FakeResult(json.dumps(output, ensure_ascii=False))
+
+
+class ControlledConversationAgent:
+    """阻塞前两条跨 profile 消息，用于观测并发和同 profile 保序。"""
+
+    def __init__(self):
+        self.release = threading.Event()
+        self.lock = threading.Lock()
+        self.started = []
+        self.active = 0
+        self.max_active = 0
+
+    async def run_conversation(self, _prompt, trusted_context):
+        """记录开始顺序并等待测试释放。"""
+        content = trusted_context.conversation["current_message"]["content"]
+        with self.lock:
+            self.started.append(content)
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            while not self.release.is_set():
+                await asyncio.sleep(0.005)
+            return FakeResult(json.dumps(_agent_output(reply=f"已处理：{content}")))
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
+class RateLimitError(RuntimeError):
+    """携带 429 状态和 Retry-After 的测试异常。"""
+
+    def __init__(self, retry_after=""):
+        super().__init__("429 too many requests")
+        self.status_code = 429
+        self.response = SimpleNamespace(
+            status_code=429,
+            headers={"Retry-After": str(retry_after)} if retry_after != "" else {},
+        )
+
+
+class SlowConversationAgent:
+    """模拟超过后端总预算的异步上游。"""
+
+    async def run_conversation(self, _prompt, _trusted_context):
+        await asyncio.sleep(1)
+        return FakeResult(json.dumps(_agent_output()))
+
+
+def _wait_snapshot(service, predicate, *, profile_id=PROFILE_ID, timeout=3.0):
+    """在有界时间内等待后台对话状态满足断言。"""
+    deadline = time.monotonic() + timeout
+    snapshot = service.snapshot(profile_id)
+    while time.monotonic() < deadline:
+        if predicate(snapshot):
+            return snapshot
+        time.sleep(0.01)
+        snapshot = service.snapshot(profile_id)
+    pytest.fail(f"conversation state did not settle: {snapshot}")
+
+
+def _wait_until(predicate, *, timeout=3.0):
+    """有界等待线程观测条件。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    pytest.fail("conversation concurrency condition did not settle")
+
+
+def _user_message(snapshot, message_id=""):
+    """从公开快照读取目标用户消息。"""
+    return next(
+        item
+        for item in snapshot["messages"]
+        if item["role"] == "user"
+        and (not message_id or item["message_id"] == message_id)
+    )
 
 
 def _agent_output(
@@ -120,7 +205,7 @@ def _agent_output(
     commands=None,
     uncertainties=None,
 ):
-    """构造严格的专属影评师 JSON 输出。"""
+    """构造严格的 CinePilot Agent JSON 输出。"""
     return {
         "intent": intent,
         "reply": reply,
@@ -259,7 +344,7 @@ def test_parser_rejects_unknown_fields_write_mismatch_and_forged_evidence():
 
 
 def test_read_only_turn_uses_minimal_context_and_is_strictly_idempotent():
-    """只读回答不产生命令，同幂等消息不重复调用模型。"""
+    """消息立即入队，只读回答不产生命令且重复投递不重复调用模型。"""
     _plugin, repository = _seed()
     agent = FakeConversationAgent(
         _agent_output(
@@ -271,34 +356,43 @@ def test_read_only_turn_uses_minimal_context_and_is_strictly_idempotent():
     )
     service = ConversationService(repository, agent, message_limit=20)
 
-    first = asyncio.run(
-        service.send(
-            profile_id=PROFILE_ID,
-            content="为什么推荐这部？",
-            idempotency_key="message-1",
-            actor_id="7",
+    try:
+        first = asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="为什么推荐这部？",
+                idempotency_key="message-1",
+                actor_id="7",
+            )
         )
-    )
-    duplicate = asyncio.run(
-        service.send(
-            profile_id=PROFILE_ID,
-            content="为什么推荐这部？",
-            idempotency_key="message-1",
-            actor_id="7",
+        duplicate = asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="为什么推荐这部？",
+                idempotency_key="message-1",
+                actor_id="7",
+            )
         )
-    )
 
-    assert first["created"] is True
-    assert duplicate["created"] is False
-    assert len(agent.calls) == 1
-    assert len(first["messages"]) == 2
-    assert first["commands"] == []
-    context = agent.calls[0][1]
-    assert context.agent_role == "conversation"
-    assert len(context.candidates) == 1
-    assert context.archive_feedback["entries"] == ()
-    assert context.weights == {}
-    assert "raw_output" not in json.dumps(first, ensure_ascii=False)
+        assert first["created"] is True
+        assert len(first["messages"]) == 1
+        assert first["messages"][0]["status"] == "queued"
+        assert duplicate["created"] is False
+        completed = _wait_snapshot(
+            service,
+            lambda value: len(value["messages"]) == 2
+            and _user_message(value)["status"] == "completed",
+        )
+        assert len(agent.calls) == 1
+        assert completed["commands"] == []
+        context = agent.calls[0][1]
+        assert context.agent_role == "conversation"
+        assert len(context.candidates) == 1
+        assert context.archive_feedback["entries"] == ()
+        assert context.weights == {}
+        assert "raw_output" not in json.dumps(completed, ensure_ascii=False)
+    finally:
+        service.stop()
 
 
 def test_profile_tag_write_waits_for_confirmation_and_confirm_is_idempotent():
@@ -322,33 +416,38 @@ def test_profile_tag_write_waits_for_confirmation_and_confirm_is_idempotent():
     )
     service = ConversationService(repository, agent, plugin=plugin)
 
-    sent = asyncio.run(
-        service.send(
+    try:
+        sent = asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="以后多推荐科幻",
+                idempotency_key="tag-message",
+                actor_id="7",
+            )
+        )
+        assert _user_message(sent)["status"] == "queued"
+        completed = _wait_snapshot(service, lambda value: bool(value["commands"]))
+        command = completed["commands"][0]
+        assert command["status"] == "pending_confirmation"
+        assert repository.load_profile_preferences(PROFILE_ID).custom_tags == []
+
+        confirmed = service.respond_command(
             profile_id=PROFILE_ID,
-            content="以后多推荐科幻",
-            idempotency_key="tag-message",
+            command_id=command["command_id"],
+            action="confirm",
             actor_id="7",
         )
-    )
-    command = sent["commands"][0]
-    assert command["status"] == "pending_confirmation"
-    assert repository.load_profile_preferences(PROFILE_ID).custom_tags == []
-
-    confirmed = service.respond_command(
-        profile_id=PROFILE_ID,
-        command_id=command["command_id"],
-        action="confirm",
-        actor_id="7",
-    )
-    replayed = service.respond_command(
-        profile_id=PROFILE_ID,
-        command_id=command["command_id"],
-        action="confirm",
-        actor_id="7",
-    )
-    assert confirmed["command"]["status"] == "confirmed"
-    assert replayed["idempotent"] is True
-    assert repository.load_profile_preferences(PROFILE_ID).custom_tags == ["科幻"]
+        replayed = service.respond_command(
+            profile_id=PROFILE_ID,
+            command_id=command["command_id"],
+            action="confirm",
+            actor_id="7",
+        )
+        assert confirmed["command"]["status"] == "confirmed"
+        assert replayed["idempotent"] is True
+        assert repository.load_profile_preferences(PROFILE_ID).custom_tags == ["科幻"]
+    finally:
+        service.stop()
 
 
 def test_weight_command_requires_superuser_and_newer_command_supersedes_old():
@@ -377,51 +476,64 @@ def test_weight_command_requires_superuser_and_newer_command_supersedes_old():
         ),
     )
     service = ConversationService(repository, agent, plugin=plugin)
-    first = asyncio.run(
-        service.send(
-            profile_id=PROFILE_ID,
-            content="把题材权重调到0.7",
-            idempotency_key="weight-1",
-            actor_id="7",
+    try:
+        first = asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="把题材权重调到0.7",
+                idempotency_key="weight-1",
+                actor_id="7",
+            )
         )
-    )
-    second = asyncio.run(
-        service.send(
-            profile_id=PROFILE_ID,
-            content="改成0.9",
-            idempotency_key="weight-2",
-            actor_id="7",
+        first_completed = _wait_snapshot(
+            service, lambda value: len(value["commands"]) == 1
         )
-    )
-    commands = {item["command_id"]: item for item in second["commands"]}
-    first_id = first["commands"][0]["command_id"]
-    second_id = next(
-        item["command_id"]
-        for item in second["commands"]
-        if item["status"] == "pending_confirmation"
-    )
-    assert commands[first_id]["status"] == "superseded"
-    assert commands[second_id]["supersedes"] == first_id
-    with pytest.raises(ConversationError) as caught:
-        service.respond_command(
+        first_id = first_completed["commands"][0]["command_id"]
+        assert _user_message(first)["status"] == "queued"
+        second = asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="改成0.9",
+                idempotency_key="weight-2",
+                actor_id="7",
+            )
+        )
+        assert _user_message(second, second["messages"][-1]["message_id"])["status"] == "queued"
+        second_completed = _wait_snapshot(
+            service, lambda value: len(value["commands"]) == 2
+        )
+        commands = {
+            item["command_id"]: item for item in second_completed["commands"]
+        }
+        second_id = next(
+            item["command_id"]
+            for item in second_completed["commands"]
+            if item["status"] == "pending_confirmation"
+        )
+        assert commands[first_id]["status"] == "superseded"
+        assert commands[second_id]["supersedes"] == first_id
+        with pytest.raises(ConversationError) as caught:
+            service.respond_command(
+                profile_id=PROFILE_ID,
+                command_id=second_id,
+                action="confirm",
+                actor_id="7",
+                is_superuser=False,
+            )
+        assert caught.value.code == "superuser_required"
+        assert plugin._config["weights"]["theme_weight"] == 0.8
+
+        result = service.respond_command(
             profile_id=PROFILE_ID,
             command_id=second_id,
             action="confirm",
-            actor_id="7",
-            is_superuser=False,
+            actor_id="admin",
+            is_superuser=True,
         )
-    assert caught.value.code == "superuser_required"
-    assert plugin._config["weights"]["theme_weight"] == 0.8
-
-    result = service.respond_command(
-        profile_id=PROFILE_ID,
-        command_id=second_id,
-        action="confirm",
-        actor_id="admin",
-        is_superuser=True,
-    )
-    assert result["command"]["status"] == "confirmed"
-    assert plugin._config["weights"]["theme_weight"] == 0.9
+        assert result["command"]["status"] == "confirmed"
+        assert plugin._config["weights"]["theme_weight"] == 0.9
+    finally:
+        service.stop()
 
 
 def test_agent_failure_keeps_retryable_draft_and_retry_reuses_message():
@@ -433,8 +545,8 @@ def test_agent_failure_keeps_retryable_draft_and_retry_reuses_message():
     )
     service = ConversationService(repository, agent, plugin=plugin)
 
-    with pytest.raises(ConversationError) as caught:
-        asyncio.run(
+    try:
+        sent = asyncio.run(
             service.send(
                 profile_id=PROFILE_ID,
                 content="解释当前榜单",
@@ -442,26 +554,34 @@ def test_agent_failure_keeps_retryable_draft_and_retry_reuses_message():
                 actor_id="7",
             )
         )
-    assert caught.value.code == "conversation_failed"
-    failed = service.snapshot(PROFILE_ID)
-    failed_message = next(
-        item for item in failed["messages"] if item["role"] == "user"
-    )
-    assert failed_message["status"] == "failed"
-    assert "upstream" not in json.dumps(failed, ensure_ascii=False)
-
-    retried = asyncio.run(
-        service.retry(
-            profile_id=PROFILE_ID,
-            message_id=failed_message["message_id"],
-            actor_id="7",
+        assert _user_message(sent)["status"] == "queued"
+        failed = _wait_snapshot(
+            service,
+            lambda value: _user_message(value)["status"] == "retryable_failed",
         )
-    )
-    user_messages = [item for item in retried["messages"] if item["role"] == "user"]
-    assert len(user_messages) == 1
-    assert user_messages[0]["message_id"] == failed_message["message_id"]
-    assert user_messages[0]["status"] == "completed"
-    assert len(agent.calls) == 2
+        failed_message = _user_message(failed)
+        assert failed_message["error_code"] == "agent_unavailable"
+        assert "upstream" not in json.dumps(failed, ensure_ascii=False)
+
+        retried = asyncio.run(
+            service.retry(
+                profile_id=PROFILE_ID,
+                message_id=failed_message["message_id"],
+                actor_id="7",
+            )
+        )
+        assert _user_message(retried)["status"] == "queued"
+        completed = _wait_snapshot(
+            service, lambda value: _user_message(value)["status"] == "completed"
+        )
+        user_messages = [
+            item for item in completed["messages"] if item["role"] == "user"
+        ]
+        assert len(user_messages) == 1
+        assert user_messages[0]["message_id"] == failed_message["message_id"]
+        assert len(agent.calls) == 2
+    finally:
+        service.stop()
 
 
 def test_stale_write_command_fails_draft_instead_of_sticking_processing():
@@ -478,8 +598,8 @@ def test_stale_write_command_fails_draft_instead_of_sticking_processing():
     )
     service = ConversationService(repository, agent, plugin=plugin)
 
-    with pytest.raises(ConversationError) as caught:
-        asyncio.run(
+    try:
+        sent = asyncio.run(
             service.send(
                 profile_id=PROFILE_ID,
                 content="忽略不存在的候选",
@@ -487,14 +607,16 @@ def test_stale_write_command_fails_draft_instead_of_sticking_processing():
                 actor_id="7",
             )
         )
-    assert caught.value.code == "stale_agent_command"
-    snapshot = service.snapshot(PROFILE_ID)
-    user_message = next(
-        item for item in snapshot["messages"] if item["role"] == "user"
-    )
-    assert user_message["status"] == "failed"
-    assert user_message["error_code"] == "stale_agent_command"
-    assert snapshot["commands"] == []
+        assert _user_message(sent)["status"] == "queued"
+        snapshot = _wait_snapshot(
+            service,
+            lambda value: _user_message(value)["status"] == "retryable_failed",
+        )
+        user_message = _user_message(snapshot)
+        assert user_message["error_code"] == "stale_agent_command"
+        assert snapshot["commands"] == []
+    finally:
+        service.stop()
 
 
 def test_learning_reset_confirmation_clears_old_messages_and_keeps_idempotent_receipt():
@@ -508,33 +630,240 @@ def test_learning_reset_confirmation_clears_old_messages_and_keeps_idempotent_re
         )
     )
     service = ConversationService(repository, agent, plugin=plugin)
-    sent = asyncio.run(
-        service.send(
+    try:
+        sent = asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="重置学习数据",
+                idempotency_key="reset-learning",
+                actor_id="7",
+            )
+        )
+        assert _user_message(sent)["status"] == "queued"
+        completed = _wait_snapshot(service, lambda value: bool(value["commands"]))
+        command_id = completed["commands"][0]["command_id"]
+
+        confirmed = service.respond_command(
             profile_id=PROFILE_ID,
-            content="重置学习数据",
-            idempotency_key="reset-learning",
+            command_id=command_id,
+            action="confirm",
             actor_id="7",
         )
-    )
-    command_id = sent["commands"][0]["command_id"]
+        replayed = service.respond_command(
+            profile_id=PROFILE_ID,
+            command_id=command_id,
+            action="confirm",
+            actor_id="7",
+        )
+        snapshot = service.snapshot(PROFILE_ID)
+        assert confirmed["conversation_cleared"] is True
+        assert replayed["idempotent"] is True
+        assert snapshot["messages"] == []
+        assert [item["status"] for item in snapshot["commands"]] == ["confirmed"]
+    finally:
+        service.stop()
 
-    confirmed = service.respond_command(
-        profile_id=PROFILE_ID,
-        command_id=command_id,
-        action="confirm",
-        actor_id="7",
+
+def test_same_profile_is_serial_and_two_profiles_can_run_concurrently():
+    """同 profile 严格保序，跨 profile 最多两个 worker 并发。"""
+    _plugin, repository = _seed()
+    other_profile = "emby:home:user-2"
+    agent = ControlledConversationAgent()
+    service = ConversationService(
+        repository,
+        agent,
+        profile_ids=(PROFILE_ID, other_profile),
+        max_workers=2,
+        poll_seconds=0.01,
     )
-    replayed = service.respond_command(
+    try:
+        first = asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="home-1",
+                idempotency_key="home-1",
+                actor_id="7",
+            )
+        )
+        second = asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="home-2",
+                idempotency_key="home-2",
+                actor_id="7",
+            )
+        )
+        other = asyncio.run(
+            service.send(
+                profile_id=other_profile,
+                content="other-1",
+                idempotency_key="other-1",
+                actor_id="8",
+            )
+        )
+        assert _user_message(first)["status"] == "queued"
+        assert any(
+            item["content"] == "home-2" and item["status"] == "queued"
+            for item in second["messages"]
+        )
+        assert _user_message(other)["status"] == "queued"
+
+        _wait_until(lambda: len(agent.started) == 2)
+        assert set(agent.started) == {"home-1", "other-1"}
+        assert agent.max_active == 2
+        assert "home-2" not in agent.started
+
+        agent.release.set()
+        home_completed = _wait_snapshot(
+            service,
+            lambda value: len(
+                [
+                    item
+                    for item in value["messages"]
+                    if item["role"] == "user" and item["status"] == "completed"
+                ]
+            )
+            == 2,
+        )
+        _wait_snapshot(
+            service,
+            lambda value: _user_message(value)["status"] == "completed",
+            profile_id=other_profile,
+        )
+        assert agent.started == ["home-1", "other-1", "home-2"]
+        assert agent.max_active == 2
+        assert len(
+            [item for item in home_completed["messages"] if item["role"] == "assistant"]
+        ) == 2
+    finally:
+        agent.release.set()
+        service.stop()
+
+
+def test_reload_recovers_processing_message_without_duplicate_reply():
+    """reload 将 processing 恢复入队，并只生成一条稳定回复。"""
+    _plugin, repository = _seed()
+    created_at = "2026-07-29T00:00:00+00:00"
+    thread = ConversationThread(
+        thread_id="thread-reload",
         profile_id=PROFILE_ID,
-        command_id=command_id,
-        action="confirm",
-        actor_id="7",
+        created_by_mp_user_id="7",
+        created_at=created_at,
+        updated_at=created_at,
+        last_message_id="message-reload",
     )
-    snapshot = service.snapshot(PROFILE_ID)
-    assert confirmed["conversation_cleared"] is True
-    assert replayed["idempotent"] is True
-    assert snapshot["messages"] == []
-    assert [item["status"] for item in snapshot["commands"]] == ["confirmed"]
+    message = ConversationMessage(
+        message_id="message-reload",
+        profile_id=PROFILE_ID,
+        thread_id=thread.thread_id,
+        role="user",
+        content="恢复这条消息",
+        status="processing",
+        created_at=created_at,
+        idempotency_key="reload-key",
+        created_by_mp_user_id="7",
+    )
+    repository.save_conversation_state(thread, [message], [])
+    agent = FakeConversationAgent(_agent_output(reply="恢复后完成。"))
+    service = ConversationService(
+        repository,
+        agent,
+        profile_ids=(PROFILE_ID,),
+        poll_seconds=0.01,
+    )
+    try:
+        service.start()
+        completed = _wait_snapshot(
+            service, lambda value: _user_message(value)["status"] == "completed"
+        )
+        assert len(agent.calls) == 1
+        assert len(
+            [item for item in completed["messages"] if item["role"] == "assistant"]
+        ) == 1
+        assert completed["messages"][-1]["reply_to"] == message.message_id
+    finally:
+        service.stop()
+
+
+def test_429_uses_retry_after_then_exponential_backoff_within_shared_budget():
+    """429 读取 Retry-After，后续按指数退避且最终复用同一消息成功。"""
+    _plugin, repository = _seed()
+    agent = FakeConversationAgent(
+        RateLimitError("0.03"),
+        RateLimitError(),
+        _agent_output(reply="限流解除后完成。"),
+    )
+    service = ConversationService(
+        repository,
+        agent,
+        total_timeout_seconds=0.3,
+        retry_base_seconds=0.02,
+        retry_max_seconds=0.04,
+        poll_seconds=0.01,
+    )
+    try:
+        sent = asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="限流后继续",
+                idempotency_key="rate-limit-retry",
+                actor_id="7",
+            )
+        )
+        assert _user_message(sent)["status"] == "queued"
+        completed = _wait_snapshot(
+            service, lambda value: _user_message(value)["status"] == "completed"
+        )
+        assert len(agent.calls) == 3
+        assert agent.call_times[1] - agent.call_times[0] >= 0.02
+        assert agent.call_times[2] - agent.call_times[1] >= 0.03
+        assert len(
+            [item for item in completed["messages"] if item["role"] == "assistant"]
+        ) == 1
+    finally:
+        service.stop()
+
+
+def test_429_and_slow_upstream_end_as_retryable_failure_at_total_budget():
+    """429 与慢响应都共享单次总预算，并落为可重试失败。"""
+    scenarios = (
+        (
+            FakeConversationAgent(RateLimitError("1")),
+            "conversation_rate_limited",
+            "rate-limit-budget",
+        ),
+        (SlowConversationAgent(), "conversation_timeout", "slow-budget"),
+    )
+    for agent, expected_code, key in scenarios:
+        _plugin, repository = _seed()
+        service = ConversationService(
+            repository,
+            agent,
+            total_timeout_seconds=0.05,
+            retry_base_seconds=0.01,
+            retry_max_seconds=0.02,
+            poll_seconds=0.01,
+        )
+        try:
+            asyncio.run(
+                service.send(
+                    profile_id=PROFILE_ID,
+                    content=key,
+                    idempotency_key=key,
+                    actor_id="7",
+                )
+            )
+            failed = _wait_snapshot(
+                service,
+                lambda value: _user_message(value)["status"]
+                == "retryable_failed",
+            )
+            assert _user_message(failed)["error_code"] == expected_code
+            assert len(
+                [item for item in failed["messages"] if item["role"] == "assistant"]
+            ) == 0
+        finally:
+            service.stop()
 
 
 def test_export_and_public_snapshot_do_not_expose_actor_keys_or_agent_raw_output():
@@ -542,28 +871,37 @@ def test_export_and_public_snapshot_do_not_expose_actor_keys_or_agent_raw_output
     plugin, repository = _seed()
     agent = FakeConversationAgent(_agent_output())
     service = ConversationService(repository, agent, plugin=plugin)
-    public = asyncio.run(
-        service.send(
-            profile_id=PROFILE_ID,
-            content="说明一下",
-            idempotency_key="secret-idempotency",
-            actor_id="private-actor",
+    try:
+        public = asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="说明一下",
+                idempotency_key="secret-idempotency",
+                actor_id="private-actor",
+            )
         )
-    )
-    exported = DataLifecycleService(repository, plugin._config).export_profile(
-        PROFILE_ID
-    )
-    serialized = json.dumps({"public": public, "export": exported}, ensure_ascii=False)
-    for forbidden in (
-        "private-actor",
-        "secret-idempotency",
-        "secret.invalid",
-        "Bearer",
-        "authorization",
-        "raw_output",
-        "chain_of_thought",
-    ):
-        assert forbidden not in serialized
+        completed = _wait_snapshot(
+            service, lambda value: _user_message(value)["status"] == "completed"
+        )
+        exported = DataLifecycleService(repository, plugin._config).export_profile(
+            PROFILE_ID
+        )
+        serialized = json.dumps(
+            {"public": public, "completed": completed, "export": exported},
+            ensure_ascii=False,
+        )
+        for forbidden in (
+            "private-actor",
+            "secret-idempotency",
+            "secret.invalid",
+            "Bearer",
+            "authorization",
+            "raw_output",
+            "chain_of_thought",
+        ):
+            assert forbidden not in serialized
+    finally:
+        service.stop()
 
 
 def test_conversation_state_write_failure_rolls_back_thread_and_records():

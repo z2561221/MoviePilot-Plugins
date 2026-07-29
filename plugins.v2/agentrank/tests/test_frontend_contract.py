@@ -19,7 +19,7 @@ def test_advanced_options_exposes_four_character_prompt_subtab():
         ("profile_prompt", "画像理解规则"),
         ("ranking_prompt", "榜单推荐策略"),
         ("copy_prompt", "推荐文案风格"),
-        ("critic_prompt", "影评师扩展提示词"),
+        ("critic_prompt", "CinePilot Agent 扩展提示词"),
     ):
         assert field_name in config
         assert title in config
@@ -160,45 +160,18 @@ def test_profile_runtime_switches_describe_incremental_semantics():
     assert "按冻结的 Playback Reporting 快照重新生成" in config
 
 
-def test_discovery_cards_use_non_black_theme_surface():
-    """发现页榜单条目常态透明，仅在悬停时显示主题反馈。"""
+def test_discovery_page_is_a_thin_host_shell_over_the_shared_page():
+    """发现页只适配宿主设置弹窗，完整业务能力复用同一个 Page。"""
     app_page = _read("AppPage.vue")
-    item_style = next(
-        line for line in app_page.splitlines() if line.startswith(".ar-app-page__item {")
-    )
-    assert "surface-variant" not in item_style
-    assert "color-mix" not in item_style
-    assert "background: transparent;" in item_style
-    assert "color: rgb(var(--v-theme-on-surface));" in item_style
-    assert ".ar-app-page__item:hover" in app_page
-    assert "background: rgba(var(--v-theme-primary), .07);" in app_page
-
-
-def test_discovery_card_height_follows_ranking_content():
-    """发现页卡片随榜单内容收口，不按视口强制撑出底部空白。"""
-    app_page = _read("AppPage.vue")
-    card_styles = [
-        line for line in app_page.splitlines()
-        if line.strip().startswith(".ar-app-page__card {")
-    ]
-    assert len(card_styles) == 2
-    assert all("min-height" not in line for line in card_styles)
-
-
-def test_discovery_page_translates_internal_source_codes():
-    """发现页将候选来源内部码转换为用户可读名称。"""
-    app_page = _read("AppPage.vue")
-    for source, label in (
-        ("douban", "豆瓣发现"),
-        ("tmdb", "TMDB"),
-        ("tmdb_recommend", "TMDB 推荐"),
-        ("tmdb_movies", "TMDB 电影"),
-        ("tmdb_tv", "TMDB 剧集"),
-        ("bangumi", "Bangumi"),
-        ("anilist", "AniList"),
-    ):
-        assert f"{source}: '{label}'" in app_page
-    assert "sources.map(source => sourceLabels[source] || '其他来源').join(' · ')" in app_page
+    assert "import Page from './Page.vue'" in app_page
+    assert "<Page" in app_page
+    assert ':show-close="false"' in app_page
+    assert '@switch="openSettings"' in app_page
+    assert "useAgentRankState" not in app_page
+    assert "RecommendationActions" not in app_page
+    assert "AgentAnalysisDialog" not in app_page
+    assert "CriticChatDialog" not in app_page
+    assert "PendingConfirmations" not in app_page
 
 
 def test_all_ranking_surfaces_use_feedback_icons_and_three_labeled_actions():
@@ -220,7 +193,7 @@ def test_all_ranking_surfaces_use_feedback_icons_and_three_labeled_actions():
     assert "'attribution/native-drawer-opened'" in state
     assert "recordNativeDrawerOpened" in state
     assert "VDialog" not in actions
-    for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
+    for name in ("Dashboard.vue", "Page.vue"):
         component = _read(name)
         assert "RecommendationActions" in component
         assert "nativeSubscribe" in component
@@ -240,11 +213,10 @@ def test_like_and_dislike_controls_are_shape_first_accessible_and_persistent():
     ):
         assert icon in actions
     assert ":aria-pressed=" in actions
-    assert "likePressed ? 'tonal' : 'text'" in actions
-    assert "dislikePressed ? 'tonal' : 'text'" in actions
-    assert '<span class="ar-actions__label">喜欢</span>' not in actions
-    assert '<span class="ar-actions__label">不喜欢</span>' not in actions
-    assert ".ar-actions__feedback-button { min-width: 40px; min-height: 40px;" in actions
+    assert actions.count('variant="tonal"') >= 5
+    assert '<span class="ar-actions__label">喜欢</span>' in actions
+    assert '<span class="ar-actions__label">不喜欢</span>' in actions
+    assert actions.count('class="ar-actions__button text-none"') >= 4
     assert "reactToRecommendation" in state
     assert "idempotency_key" in state
     assert "board_revision" in state
@@ -288,7 +260,7 @@ def test_shared_state_centralizes_new_agent_workflows_and_retryable_failures():
     ):
         assert marker in state
     assert "catch(() => {})" not in state
-    for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
+    for name in ("Dashboard.vue", "Page.vue"):
         component = _read(name)
         assert "@like=" in component
         assert "@dislike=" in component
@@ -299,7 +271,7 @@ def test_discovery_settings_open_embedded_config_and_use_core_save_api():
     """发现页设置入口不再依赖宿主未监听的 switch 事件。"""
     app_page = _read("AppPage.vue")
     api = _read("api.js")
-    assert '@click="openSettings"' in app_page
+    assert '@switch="openSettings"' in app_page
     assert "<Config" in app_page
     assert "emit('switch')" not in app_page
     assert "api.put('plugin/AgentRank', payload)" in api
@@ -395,32 +367,25 @@ def test_discovery_page_contains_only_ranking_content_and_no_success_banner():
 
 
 def test_ranking_posters_do_not_force_eager_loading():
-    """三个榜单页面的海报均按需加载，避免首屏争抢网络。"""
-    for name in ("Dashboard.vue", "AppPage.vue", "Page.vue"):
+    """实际渲染榜单的共享页面与仪表盘均按需加载海报。"""
+    for name in ("Dashboard.vue", "Page.vue"):
         assert "<VImg" in _read(name)
         assert " eager>" not in _read(name)
+    assert "<Page" in _read("AppPage.vue")
 
 
 def test_ranking_copy_wraps_fully_without_toggle_controls():
-    """发现页与详情页理由和简介始终完整换行，不保留展开控件。"""
+    """共享 Page 的理由和简介始终完整换行，发现页直接复用该行为。"""
     app_page = _read("AppPage.vue")
     page = _read("Page.vue")
-    assert "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" not in next(
-        line for line in app_page.splitlines() if line.startswith(".ar-app-page__copy")
-    )
-    for source in (app_page, page):
-        assert "推荐：" in source
-        assert "简介：" in source
-    assert "ar-app-page__copy-text--reason" in app_page
-    assert "ar-app-page__copy-text--intro" in app_page
-    assert "toggleCopy(item, 'reason')" not in app_page
-    assert "toggleCopy(item, 'summary')" not in app_page
+    assert "<Page" in app_page
+    assert "推荐：" in page
+    assert "简介：" in page
     assert "toggleCopy(item, 'reason')" not in page
     assert "toggleCopy(item, 'summary')" not in page
-    assert ".ar-app-page__copy { grid-template-columns: 34px minmax(0, 1fr);" in app_page
-    assert ".ar-app-page__copy-toggle" not in app_page
-    assert ".ar-app-page__copy-text--reason," in app_page
-    assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in app_page
+    assert ".ar-page__copy-toggle" not in page
+    assert ".ar-page__copy-text--reason," in page
+    assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in page
 
 
 def test_mobile_detail_tabs_wrap_without_arrow_or_collapse_controls():
@@ -486,7 +451,6 @@ def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse()
         assert actions.count(f'<span class="ar-actions__label">{label}</span>') == 1
     for name, support_class in (
         ("Dashboard.vue", "ar-dashboard__support"),
-        ("AppPage.vue", "ar-app-page__support"),
         ("Page.vue", "ar-page__support"),
     ):
         component = _read(name)
@@ -500,6 +464,41 @@ def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse()
             if line.startswith(f".{support_class} {{")
         )
         assert "margin-left: auto" in support_rule
+    app_page = _read("AppPage.vue")
+    page = _read("Page.vue")
+    assert "<Page" in app_page
+    assert page.index('icon="mdi-text-box-search-outline"') < page.index("ar-page__support") < page.index("<RecommendationActions")
+    assert actions.index('aria-label="订阅"') < actions.index('aria-label="打开 TMDB"') < actions.index('aria-label="忽略"')
+    assert actions.index('aria-label="忽略"') < actions.index("likePressed ? '已喜欢' : '喜欢'") < actions.index("dislikePressed ? '已不喜欢' : '不喜欢'")
+
+
+def test_cinepilot_chat_is_immediate_bounded_and_retryable():
+    """对话显示排队状态，轮询最多一百秒并把超时消息转为可重试失败。"""
+    chat = _read("CriticChatDialog.vue")
+    state = _read("useAgentRankState.js")
+    assert "CinePilot Agent" in chat
+    assert "const frontendTimeoutMs = 100000" in chat
+    assert "['queued', 'processing'].includes" in chat
+    assert "status: 'retryable_failed'" in chat
+    assert "startPolling()" in chat
+    assert "conversation/messages/retry" in state
+    assert "reminder_policy" not in state
+
+
+def test_pending_center_uses_symmetric_actions_without_reminders():
+    """三类待处理项使用锁定文案，前端不再暴露时效提醒。"""
+    pending = _read("PendingConfirmations.vue")
+    for label in (
+        "确认执行",
+        "拒绝执行",
+        "确认采纳",
+        "拒绝采纳",
+        "提交回答",
+        "关闭问询",
+    ):
+        assert label in pending
+    for forbidden in ("稍后", "1天后", "3天后", "7天后", "不提醒", "reminder"):
+        assert forbidden not in pending
 
 
 def test_native_subscribe_payload_keeps_source_id_aliases_without_source_buttons():
@@ -598,6 +597,21 @@ def test_runtime_history_explains_agent_and_safe_fallback_selection_sources():
     assert "metrics.safe_fallback_selected_count" in page
     assert "Agent 选择 ${agent} 条；安全补位 ${fallback} 条" in page
     assert "<span>选择来源</span>" in page
+
+
+def test_runtime_history_explains_validation_drop_reasons_in_chinese():
+    """运行历史汇总首轮和补选的校验丢弃原因。"""
+    page = _read("Page.vue")
+
+    assert "function historyValidationDropText(run)" in page
+    assert "run?.metrics?.validation_drops" in page
+    assert "run?.metrics?.refill_drops" in page
+    assert "仍使用旧支持度字段" in page
+    assert "支持度无效" in page
+    assert "简介超过30字" in page
+    assert "具体匹配证据不足" in page
+    assert "可验证正向证据不足" in page
+    assert "<span>校验丢弃</span>" in page
 
 
 def test_preview_status_selector_uses_chinese_titles_for_internal_codes():

@@ -449,6 +449,9 @@ class MediaRecognitionAdapter:
             mediainfo, moviepilot_type, candidate.genres
         )
         candidate.metadata["recognized_by"] = "moviepilot"
+        candidate.metadata["_recognize_cache_hit"] = (
+            getattr(mediainfo, "recognize_cache_hit", False) is True
+        )
         return candidate
 
     def recognize_many(

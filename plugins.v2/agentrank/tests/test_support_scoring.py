@@ -318,6 +318,66 @@ def test_two_verified_positive_claims_are_required():
     assert validated.dropped[0].reason == "insufficient_verified_evidence"
 
 
+def test_anime_candidate_uses_two_verified_themes_instead_of_tv_type():
+    """动画候选可用两项稳定题材证据，不得把播放 tv 类型冒充 anime。"""
+    playback = PlaybackSnapshot(
+        profile_id=PROFILE_ID,
+        source="playback_reporting",
+        confidence="high",
+        status="ready",
+        samples=[
+            PlaybackSample(
+                stable_id=f"tmdb:tv:{index}",
+                title=f"已看动画 {index}",
+                media_type="tv",
+                genres=["动画", "科幻奇幻"],
+                completed=True,
+            )
+            for index in range(1, 3)
+        ],
+        synced_at=FIXED_NOW.isoformat(),
+    )
+    memory = PreferenceMemory.empty(PROFILE_ID)
+    preferences = ProfilePreferences(profile_id=PROFILE_ID)
+    policy = _policy(memory, playback)
+    candidate = Candidate(
+        candidate_id="tmdb:tv:99",
+        title="新科幻动画",
+        media_type="anime",
+        genres=["动画", "科幻"],
+    )
+
+    result = DeterministicSupportScorer().score_candidate(
+        candidate,
+        policy,
+        [
+            {"dimension": "theme", "user_value": "动画", "candidate_value": "动画"},
+            {
+                "dimension": "theme",
+                "user_value": "科幻奇幻",
+                "candidate_value": "科幻",
+            },
+        ],
+        [],
+        memory,
+        preferences,
+        playback,
+    )
+    catalog = DeterministicSupportScorer.trusted_signal_catalog(
+        memory, preferences, playback
+    )
+
+    assert result.verified_positive_count == 2
+    assert result.unsupported_claims == ()
+    assert {(
+        item["dimension"], item["value"], item["evidence_count"]
+    ) for item in catalog} >= {
+        ("type", "tv", 2),
+        ("theme", "动画", 2),
+        ("theme", "科幻奇幻", 2),
+    }
+
+
 def test_counter_evidence_is_automatically_included_when_agent_omits_it():
     """人工负向标签匹配候选时，Agent 不声明反证也不能抬高百分比。"""
     positive_only = _score()

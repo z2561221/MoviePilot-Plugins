@@ -1,10 +1,10 @@
-"""专属影评师使用的版本化无副作用分析 skills。"""
+"""CinePilot Agent 使用的版本化无副作用分析 skills。"""
 
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 
 CRITIC_PERSONA_VERSION = "1.0.0"
-CRITIC_SKILLS_VERSION = "1.0.0"
+CRITIC_SKILLS_VERSION = "1.1.0"
 CRITIC_SKILL_NAMES = (
     "summarize_evidence",
     "understand_feedback",
@@ -186,28 +186,144 @@ def explain_recommendation(
     }
 
 
+_PREFERENCE_QUESTION_CATALOG = (
+    {
+        "dimension": "selection_basis",
+        "level": 0,
+        "question": "平时挑选影视内容时，你通常最先看重什么？",
+        "options": ("题材与设定", "叙事节奏", "人物关系", "情绪体验", "主创风格"),
+        "keywords": (),
+    },
+    {
+        "dimension": "viewing_goal",
+        "level": 0,
+        "question": "你最常希望一次观看带来什么体验？",
+        "options": ("放松陪伴", "情绪冲击", "思考启发", "沉浸冒险", "轻松消遣"),
+        "keywords": (),
+    },
+    {
+        "dimension": "story_focus",
+        "level": 1,
+        "question": "在题材与设定之外，什么最容易让你继续看下去？",
+        "options": ("世界观展开", "悬念推进", "现实议题", "创意概念"),
+        "keywords": ("题材", "设定", "故事", "世界观"),
+    },
+    {
+        "dimension": "pacing",
+        "level": 1,
+        "question": "你通常更偏好哪种整体叙事节奏？",
+        "options": ("紧凑直接", "张弛有度", "舒缓细腻", "节奏不限但要连贯"),
+        "keywords": ("节奏", "叙事"),
+    },
+    {
+        "dimension": "character_focus",
+        "level": 1,
+        "question": "人物塑造中，哪种侧重点更吸引你？",
+        "options": ("个人成长", "群像互动", "复杂关系", "鲜明角色魅力"),
+        "keywords": ("人物", "角色", "关系"),
+    },
+    {
+        "dimension": "emotion_tone",
+        "level": 1,
+        "question": "你通常更享受哪种观看情绪？",
+        "options": ("温暖治愈", "轻松幽默", "紧张刺激", "克制深沉", "热血振奋"),
+        "keywords": ("情绪", "体验", "氛围"),
+    },
+    {
+        "dimension": "creator_style",
+        "level": 1,
+        "question": "主创因素会怎样影响你的选择？",
+        "options": ("导演风格优先", "演员阵容优先", "编剧口碑优先", "通常不看主创"),
+        "keywords": ("主创", "导演", "演员", "编剧"),
+    },
+    {
+        "dimension": "novelty_balance",
+        "level": 2,
+        "question": "面对熟悉题材时，你更希望作品怎样变化？",
+        "options": ("保留经典套路", "熟悉框架中有新意", "大胆颠覆类型", "取决于完成度"),
+        "keywords": ("世界观", "悬念", "题材", "设定", "创意"),
+    },
+    {
+        "dimension": "structure_preference",
+        "level": 2,
+        "question": "同样的故事，你更容易接受哪种讲述结构？",
+        "options": ("线性清晰", "多线并行", "慢热铺陈", "非线性拼图"),
+        "keywords": ("紧凑", "舒缓", "节奏", "叙事"),
+    },
+    {
+        "dimension": "relationship_density",
+        "level": 2,
+        "question": "角色关系复杂时，你更看重哪一点？",
+        "options": ("关系变化可信", "冲突足够强", "群像分配均衡", "主角线集中"),
+        "keywords": ("人物", "角色", "群像", "关系"),
+    },
+    {
+        "dimension": "emotional_intensity",
+        "level": 2,
+        "question": "作品情绪较强时，你更适应哪种表达方式？",
+        "options": ("直接浓烈", "克制留白", "幽默缓冲", "强弱交替"),
+        "keywords": ("温暖", "紧张", "深沉", "热血", "情绪"),
+    },
+)
+
+
 def ask_clarification(
-    action: str, candidate_title: str, uncertainties: Iterable[Any] = ()
+    action: str,
+    candidate_title: str,
+    uncertainties: Iterable[Any] = (),
+    *,
+    question_history: Iterable[Mapping[str, Any]] = (),
+    confirmed_memory: Mapping[str, Any] = None,
 ) -> Dict[str, Any]:
-    """为不明确反馈构造 2 至 3 个可回答选项和自定义入口。"""
-    kind = _text(action, 24).casefold()
-    title = _text(candidate_title, 120) or "这部作品"
-    if kind == "like":
-        options = ["喜欢题材或设定", "喜欢节奏或叙事", "喜欢主创或角色"]
-        question = f"你喜欢《{title}》的哪一点？"
-    elif kind == "dislike":
-        options = ["不喜欢题材或设定", "不喜欢节奏或叙事", "不喜欢主创或角色"]
-        question = f"你不喜欢《{title}》的哪一点？"
-    elif kind == "analysis_comment":
-        options = ["推荐依据有误", "作品事实有误", "证据关系需要说明"]
-        question = f"你希望怎样修正《{title}》的 Agent 分析？"
-    else:
-        options = ["暂时不想看", "已经看过", "仅排除这部作品"]
-        question = f"你忽略《{title}》的主要原因是什么？"
+    """按信息缺口从宽到细选择一个面向整体偏好的动态问题。"""
+    del action, candidate_title
+    history = [dict(item) for item in question_history or () if isinstance(item, Mapping)]
+    asked_counts: Dict[str, int] = {}
+    recent_dimensions: List[str] = []
+    latest_answer = ""
+    for item in history:
+        dimension = _text(item.get("preference_dimension"), 48)
+        if dimension:
+            asked_counts[dimension] = asked_counts.get(dimension, 0) + 1
+            recent_dimensions.append(dimension)
+        if str(item.get("status") or "") == "answered":
+            latest_answer = _text(item.get("answer_text"), 1000) or latest_answer
+    active_memory = [
+        dict(item)
+        for item in dict(confirmed_memory or {}).get("items") or ()
+        if isinstance(item, Mapping)
+        and str(item.get("status") or "") == "active"
+        and not bool(item.get("tombstone"))
+    ]
+    memory_values = " ".join(_text(item.get("value"), 120) for item in active_memory)
+    ranked = []
+    for index, template in enumerate(_PREFERENCE_QUESTION_CATALOG):
+        dimension = str(template["dimension"])
+        count = asked_counts.get(dimension, 0)
+        keyword_match = sum(
+            1 for keyword in template["keywords"] if keyword and keyword in latest_answer
+        )
+        memory_match = sum(
+            1 for keyword in template["keywords"] if keyword and keyword in memory_values
+        )
+        score = 100.0 if count == 0 else -60.0 * count
+        score += keyword_match * 35.0
+        score -= memory_match * 5.0
+        score -= float(template["level"]) * (8.0 if not history else 1.0)
+        if dimension in recent_dimensions[-3:]:
+            score -= 80.0
+        if not history and template["level"] == 0:
+            score += 40.0
+        ranked.append((score, -index, template))
+    selected = max(ranked, key=lambda item: (item[0], item[1]))[2]
+    confidence_gap = max(0.2, min(1.0, 1.0 - 0.12 * len(active_memory)))
     return {
-        "question": question,
-        "options": options,
+        "question": selected["question"],
+        "options": list(selected["options"]),
         "allow_custom_answer": True,
         "uncertainties": _unique_texts(uncertainties, 8),
+        "preference_dimension": selected["dimension"],
+        "exploration_level": selected["level"],
+        "confidence_gap": confidence_gap,
         "writes_applied": False,
     }

@@ -573,6 +573,59 @@ def test_same_source_identity_is_merged_before_media_recognition():
     }
 
 
+def test_recognition_cache_metrics_cover_all_inputs_without_persisting_temp_flag():
+    """宿主缓存命中统计覆盖全部识别输入，临时标志不得进入冻结快照。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {
+                    "title": f"Cache Movie {index}",
+                    "media_type": "movie",
+                    "tmdb_id": index,
+                }
+                for index in range(1, 3)
+            ]
+        }
+    )
+
+    class MediaAdapter:
+        """模拟一个宿主缓存命中和一个未命中。"""
+
+        @staticmethod
+        def recognize_many(candidates):
+            values = list(candidates)
+            for index, candidate in enumerate(values):
+                candidate.metadata["mp_media_type"] = "电影"
+                candidate.metadata["_recognize_cache_hit"] = index == 0
+            return values
+
+    result = CandidateCollectionService(
+        adapter,
+        AgentRankRepository(FakePlugin()),
+        MediaAdapter(),
+    ).collect_and_freeze(
+        "alice", "run-cache-metrics", {"tmdb_movies": True}, 10
+    )
+
+    counts = result.processing_counts
+    assert counts["recognition_input"] == 2
+    assert counts["candidate_recognition_cache_hit_count"] == 1
+    assert counts["candidate_recognition_cache_miss_count"] == 1
+    assert (
+        counts["candidate_recognition_cache_hit_count"]
+        + counts["candidate_recognition_cache_miss_count"]
+        == counts["recognition_input"]
+    )
+    assert all(
+        "_recognize_cache_hit" not in candidate.metadata
+        for candidate in result.candidates
+    )
+    assert all(
+        "_recognize_cache_hit" not in candidate.metadata
+        for candidate in result.snapshot.candidates
+    )
+
+
 def test_serial_media_adapter_failure_only_rejects_the_failed_candidate():
     """兼容适配器单条识别异常时继续冻结其余候选。"""
     adapter = DiscoveryAdapter(

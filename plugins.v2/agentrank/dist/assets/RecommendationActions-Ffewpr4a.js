@@ -687,7 +687,6 @@ function useAgentRankState(api) {
       item_type: item?.item_type,
       item_id: item?.item_id,
       action,
-      reminder_policy: options.reminderPolicy || '',
       option_id: options.optionId || '',
       custom_answer: options.customAnswer || '',
       idempotency_key: options.idempotencyKey || requestId('pending'),
@@ -872,11 +871,10 @@ function useAgentRankState(api) {
   }
 }
 
-const {resolveComponent:_resolveComponent,mergeProps:_mergeProps,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = ["aria-label"];
-const _hoisted_2 = ["aria-label", "aria-busy"];
 
 const {computed,inject,ref} = await importShared('vue');
 
@@ -1030,53 +1028,6 @@ return (_ctx, _cache) => {
     role: "group",
     "aria-label": `${__props.item.title} 操作`
   }, [
-    _createElementVNode("div", {
-      class: "ar-actions__feedback-group",
-      role: "group",
-      "aria-label": `${__props.item.title} 喜好反馈`,
-      "aria-busy": likeLoading.value || dislikeLoading.value ? 'true' : 'false'
-    }, [
-      _createVNode(_component_VTooltip, {
-        text: likePressed.value ? '已喜欢' : '喜欢',
-        location: "top"
-      }, {
-        activator: _withCtx(({ props: tooltipProps }) => [
-          _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
-            icon: likePressed.value ? 'mdi-thumb-up' : 'mdi-thumb-up-outline',
-            size: __props.size,
-            variant: likePressed.value ? 'tonal' : 'text',
-            color: likePressed.value ? 'primary' : undefined,
-            class: ["ar-actions__feedback-button", { 'ar-actions__feedback-button--pressed': likePressed.value }],
-            loading: likeLoading.value,
-            disabled: actionBusy.value && !likeLoading.value,
-            "aria-label": likePressed.value ? '已喜欢' : '喜欢',
-            "aria-pressed": likePressed.value ? 'true' : 'false',
-            onClick: _cache[0] || (_cache[0] = $event => (emit('like', __props.item.candidate_id)))
-          }), null, 16, ["icon", "size", "variant", "color", "class", "loading", "disabled", "aria-label", "aria-pressed"])
-        ]),
-        _: 1
-      }, 8, ["text"]),
-      _createVNode(_component_VTooltip, {
-        text: dislikePressed.value ? '已不喜欢' : '不喜欢',
-        location: "top"
-      }, {
-        activator: _withCtx(({ props: tooltipProps }) => [
-          _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
-            icon: dislikePressed.value ? 'mdi-thumb-down' : 'mdi-thumb-down-outline',
-            size: __props.size,
-            variant: dislikePressed.value ? 'tonal' : 'text',
-            color: dislikePressed.value ? 'primary' : undefined,
-            class: ["ar-actions__feedback-button", { 'ar-actions__feedback-button--pressed': dislikePressed.value }],
-            loading: dislikeLoading.value,
-            disabled: actionBusy.value && !dislikeLoading.value,
-            "aria-label": dislikePressed.value ? '已不喜欢' : '不喜欢',
-            "aria-pressed": dislikePressed.value ? 'true' : 'false',
-            onClick: _cache[1] || (_cache[1] = $event => (emit('dislike', __props.item.candidate_id)))
-          }), null, 16, ["icon", "size", "variant", "color", "class", "loading", "disabled", "aria-label", "aria-pressed"])
-        ]),
-        _: 1
-      }, 8, ["text"])
-    ], 8, _hoisted_2),
     _createVNode(_component_VTooltip, {
       text: "订阅",
       location: "top"
@@ -1137,7 +1088,7 @@ return (_ctx, _cache) => {
           loading: __props.loadingAction === 'archive',
           disabled: actionBusy.value && __props.loadingAction !== 'archive',
           "aria-label": "忽略",
-          onClick: _cache[2] || (_cache[2] = $event => (emit('archive', __props.item.candidate_id)))
+          onClick: _cache[0] || (_cache[0] = $event => (emit('archive', __props.item.candidate_id)))
         }), {
           default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "忽略", -1)
@@ -1146,12 +1097,62 @@ return (_ctx, _cache) => {
         }, 16, ["size", "loading", "disabled"])
       ]),
       _: 1
-    })
+    }),
+    _createVNode(_component_VTooltip, {
+      text: likePressed.value ? '已喜欢' : '喜欢',
+      location: "top"
+    }, {
+      activator: _withCtx(({ props: tooltipProps }) => [
+        _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
+          size: __props.size,
+          variant: "tonal",
+          color: likePressed.value ? 'primary' : 'default',
+          class: "ar-actions__button text-none",
+          "prepend-icon": likePressed.value ? 'mdi-thumb-up' : 'mdi-thumb-up-outline',
+          loading: likeLoading.value,
+          disabled: actionBusy.value && !likeLoading.value,
+          "aria-label": likePressed.value ? '已喜欢' : '喜欢',
+          "aria-pressed": likePressed.value ? 'true' : 'false',
+          onClick: _cache[1] || (_cache[1] = $event => (emit('like', __props.item.candidate_id)))
+        }), {
+          default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
+            _createElementVNode("span", { class: "ar-actions__label" }, "喜欢", -1)
+          ]))]),
+          _: 1
+        }, 16, ["size", "color", "prepend-icon", "loading", "disabled", "aria-label", "aria-pressed"])
+      ]),
+      _: 1
+    }, 8, ["text"]),
+    _createVNode(_component_VTooltip, {
+      text: dislikePressed.value ? '已不喜欢' : '不喜欢',
+      location: "top"
+    }, {
+      activator: _withCtx(({ props: tooltipProps }) => [
+        _createVNode(_component_VBtn, _mergeProps(tooltipProps, {
+          size: __props.size,
+          variant: "tonal",
+          color: dislikePressed.value ? 'primary' : 'default',
+          class: "ar-actions__button text-none",
+          "prepend-icon": dislikePressed.value ? 'mdi-thumb-down' : 'mdi-thumb-down-outline',
+          loading: dislikeLoading.value,
+          disabled: actionBusy.value && !dislikeLoading.value,
+          "aria-label": dislikePressed.value ? '已不喜欢' : '不喜欢',
+          "aria-pressed": dislikePressed.value ? 'true' : 'false',
+          onClick: _cache[2] || (_cache[2] = $event => (emit('dislike', __props.item.candidate_id)))
+        }), {
+          default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
+            _createElementVNode("span", { class: "ar-actions__label" }, "不喜欢", -1)
+          ]))]),
+          _: 1
+        }, 16, ["size", "color", "prepend-icon", "loading", "disabled", "aria-label", "aria-pressed"])
+      ]),
+      _: 1
+    }, 8, ["text"])
   ], 8, _hoisted_1))
 }
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ac43e58b"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5505be1a"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };

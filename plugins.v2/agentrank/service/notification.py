@@ -148,7 +148,7 @@ class NotificationService:
         )
 
     def _pending_detail_link(self) -> Any:
-        """返回待确认中心深链；未配置外部域名时交给宿主默认详情链接。"""
+        """返回待处理中心深链；未配置外部域名时交给宿主默认详情链接。"""
         try:
             from app.core.config import settings
 
@@ -163,10 +163,8 @@ class NotificationService:
         self,
         username: str,
         notice: PendingNotice,
-        *,
-        reminder: bool = False,
     ) -> bool:
-        """发送安全待确认摘要，Telegram 可用时提供直接交互。"""
+        """发送安全待处理摘要，Telegram 可用时提供直接交互。"""
         if not isinstance(notice, PendingNotice):
             raise TypeError("notice must be PendingNotice")
         detail_link = self._pending_detail_link()
@@ -178,29 +176,24 @@ class NotificationService:
                         username=username,
                         notice=notice,
                         detail_link=detail_link or "",
-                        reminder=reminder,
                     ):
                         return True
                 except Exception:
                     logger.exception(
-                        "AgentRank Telegram 待确认通知失败，回退普通通知 type=%s",
+                        "AgentRank Telegram 待处理通知失败，回退普通通知 type=%s",
                         notice.item.item_type,
                     )
         item = notice.item
-        label = PENDING_TYPE_LABELS.get(item.item_type, "待确认")
+        label = PENDING_TYPE_LABELS.get(item.item_type, "待处理")
         lines = [
             f"类型：{label}",
             f"内容：{_compact_text(_safe_notice_text(item.summary), 240)}",
             "状态：尚未生效",
-            "请前往 Agent榜单中心的待确认区域处理。",
+            "请前往 Agent榜单中心的待处理区域处理。",
         ]
         kwargs = {
             "mtype": NotificationType.Subscribe,
-            "title": (
-                "Agent榜单中心待确认提醒"
-                if reminder
-                else "Agent榜单中心需要确认"
-            ),
+            "title": "Agent榜单中心待处理",
             "text": "\n".join(lines),
             "username": username,
         }

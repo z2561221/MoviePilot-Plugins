@@ -1,7 +1,7 @@
-"""待确认提案与问询的回答、提醒、拒绝和过期状态机。"""
+"""待确认提案与问询的回答、关闭、拒绝和过期状态机。"""
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from ..model.feedback import FeedbackEvent
@@ -10,13 +10,6 @@ from ..storage.repository import AgentRankRepository
 
 
 DecisionRecord = Union[MemoryProposal, PendingQuestion]
-REMINDER_DELAYS = {
-    "in_1_day": timedelta(days=1),
-    "in_3_days": timedelta(days=3),
-    "in_7_days": timedelta(days=7),
-}
-
-
 class FeedbackDecisionError(RuntimeError):
     """表示待确认状态转换无法安全完成。"""
 
@@ -26,29 +19,6 @@ class FeedbackDecisionError(RuntimeError):
         self.message = str(message)
         self.status_code = int(status_code)
         super().__init__(self.message)
-
-
-@dataclass(frozen=True)
-class DecisionReminder:
-    """表示一次已经原子领取、可交给通知层发送的提醒。"""
-
-    decision_type: str
-    decision_id: str
-    profile_id: str
-    candidate_id: str
-    prompt: str
-    reminded_at: str
-
-    def to_dict(self) -> Dict[str, str]:
-        """返回通知层可安全消费的提醒摘要。"""
-        return {
-            "decision_type": self.decision_type,
-            "decision_id": self.decision_id,
-            "profile_id": self.profile_id,
-            "candidate_id": self.candidate_id,
-            "prompt": self.prompt,
-            "reminded_at": self.reminded_at,
-        }
 
 
 @dataclass(frozen=True)
@@ -189,7 +159,7 @@ class FeedbackResponseService:
         updated = replace(
             record,
             status="expired",
-            reminder_policy="never",
+            reminder_policy="unselected",
             next_remind_at="",
             resolved_at=self._now().isoformat(),
         )
@@ -200,51 +170,6 @@ class FeedbackResponseService:
             "proposal" if isinstance(record, MemoryProposal) else "question",
             self._decision_id(record),
         )
-
-    def set_reminder(
-        self,
-        profile_id: str,
-        decision_type: str,
-        decision_id: str,
-        reminder_policy: str,
-    ) -> DecisionRecord:
-        """设置一天、三天、七天后提醒或永不提醒。"""
-        target = self._profile_id(profile_id)
-        with self._repository.profile_data_guard(target):
-            return self._set_reminder_locked(
-                target, decision_type, decision_id, reminder_policy
-            )
-
-    def _set_reminder_locked(
-        self,
-        profile_id: str,
-        decision_type: str,
-        decision_id: str,
-        reminder_policy: str,
-    ) -> DecisionRecord:
-        """在 profile 写锁内更新待确认项提醒策略。"""
-        record = self._load_decision(profile_id, decision_type, decision_id)
-        pending_status = self._ensure_pending(record)
-        policy = str(reminder_policy or "").strip().casefold()
-        if policy not in {*REMINDER_DELAYS, "never"}:
-            raise FeedbackDecisionError(
-                "reminder_policy_invalid", "提醒时间必须是一、三、七天后或不提醒", 422
-            )
-        next_remind_at = (
-            (self._now() + REMINDER_DELAYS[policy]).isoformat()
-            if policy in REMINDER_DELAYS
-            else ""
-        )
-        updated = replace(
-            record,
-            reminder_policy=policy,
-            next_remind_at=next_remind_at,
-        )
-        if not self._replace(updated, expected_status=pending_status):
-            raise FeedbackDecisionError(
-                "decision_state_conflict", "待确认状态已变化，请刷新后重试", 409
-            )
-        return updated
 
     def reject(
         self, profile_id: str, decision_type: str, decision_id: str
@@ -263,7 +188,7 @@ class FeedbackResponseService:
         updated = replace(
             record,
             status="rejected" if isinstance(record, MemoryProposal) else "dismissed",
-            reminder_policy="never",
+            reminder_policy="unselected",
             next_remind_at="",
             resolved_at=self._now().isoformat(),
         )
@@ -295,55 +220,6 @@ class FeedbackResponseService:
             if updated.status == "expired":
                 expired.append(updated)
         return expired
-
-    def claim_due_reminders(self, profile_id: str) -> List[DecisionReminder]:
-        """原子领取到期提醒并清空本次 next_remind_at，避免重复发送。"""
-        target = self._profile_id(profile_id)
-        with self._repository.profile_data_guard(target):
-            return self._claim_due_reminders_locked(target)
-
-    def _claim_due_reminders_locked(
-        self, profile_id: str
-    ) -> List[DecisionReminder]:
-        """在 profile 写锁内领取当前到期提醒。"""
-        now = self._now()
-        reminded_at = now.isoformat()
-        reminders: List[DecisionReminder] = []
-        self._expire_due_locked(profile_id)
-        records: List[DecisionRecord] = [
-            *self._repository.load_memory_proposals(profile_id),
-            *self._repository.load_pending_questions(profile_id),
-        ]
-        for record in records:
-            pending_status = self._pending_status(record)
-            if record.status != pending_status or not record.next_remind_at:
-                continue
-            if self._parse_time(record.next_remind_at) > now:
-                continue
-            updated = replace(
-                record,
-                next_remind_at="",
-                last_reminded_at=reminded_at,
-            )
-            if not self._replace(updated, expected_status=pending_status):
-                continue
-            reminders.append(
-                DecisionReminder(
-                    decision_type=(
-                        "proposal" if isinstance(record, MemoryProposal) else "question"
-                    ),
-                    decision_id=self._decision_id(record),
-                    profile_id=record.profile_id,
-                    candidate_id=record.candidate_id,
-                    prompt=(
-                        record.restatement
-                        if isinstance(record, MemoryProposal)
-                        else record.question
-                    ),
-                    reminded_at=reminded_at,
-                )
-            )
-        return reminders
 
     def _original_event(self, question: PendingQuestion) -> FeedbackEvent:
         """读取问询来源的原始反馈事实。"""
@@ -527,7 +403,7 @@ class FeedbackResponseService:
         updated = replace(
             question,
             status="answered",
-            reminder_policy="never",
+            reminder_policy="unselected",
             next_remind_at="",
             selected_option_id=selected_option,
             answer_text=answer_text,

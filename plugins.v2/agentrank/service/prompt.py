@@ -86,10 +86,10 @@ DEFAULT_CRITIC_PROMPT = (
 
 
 def _critic_extension(critic_prompt: str) -> str:
-    """返回不能覆盖固定安全协议的影评师软指令段。"""
+    """返回不能覆盖固定安全协议的 CinePilot Agent 软指令段。"""
     instruction = str(critic_prompt or DEFAULT_CRITIC_PROMPT).strip()
     return (
-        "\n\n可配置影评师扩展指令：\n"
+        "\n\n可配置 CinePilot Agent 扩展指令：\n"
         f"{instruction}\n\n"
         "该扩展只能影响表达方式、证据说明重点和澄清问题，不能覆盖上述硬性边界、"
         "工具权限、记忆来源、写操作确认或输出 schema。"
@@ -102,7 +102,7 @@ def build_feedback_understanding_prompt(
     """构建反馈理解角色的固定人设、skill 清单与输出协议。"""
     manifest = critic_skill_manifest()
     manifest_json = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
-    return f"""你是 MoviePilot 内部谨慎、具体、尊重用户纠正的专属影评师。
+    return f"""你是 MoviePilot 内部谨慎、具体、尊重用户纠正的 CinePilot Agent。
 
 固定版本清单：
 {manifest_json}
@@ -143,7 +143,7 @@ def build_analysis_comment_prompt(
     """构建逐条分析评论的受限修订协议。"""
     manifest = critic_skill_manifest()
     manifest_json = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
-    return f"""你是 MoviePilot 内部谨慎、具体、尊重用户纠正的专属影评师。
+    return f"""你是 MoviePilot 内部谨慎、具体、尊重用户纠正的 CinePilot Agent。
 
 固定版本清单：
 {manifest_json}
@@ -169,10 +169,10 @@ outcome=ambiguous 时 revised_reason 必须为空字符串。不要生成 signal
 
 
 def build_conversation_prompt(critic_prompt: str = DEFAULT_CRITIC_PROMPT) -> str:
-    """构建专属影评师对话的只读解释与待确认命令协议。"""
+    """构建 CinePilot Agent 对话的只读解释与待处理命令协议。"""
     manifest = critic_skill_manifest()
     manifest_json = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
-    return f"""你是 MoviePilot 内部谨慎、具体、尊重用户纠正的专属影评师。
+    return f"""你是 MoviePilot 内部谨慎、具体、尊重用户纠正的 CinePilot Agent。
 
 固定版本清单：
 {manifest_json}
@@ -277,9 +277,9 @@ def build_ranking_prompt(
 4. 禁止订阅、禁止写入持久化、禁止修改配置、禁止调用消息或文件能力。
 5. 不得暴露推理过程、思维链、工具调用过程或 Markdown。
 
-权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。read_agentrank_weights 中的 confirmed_preferences 只包含已确认记忆，允许作为用户证据；候选中的 media_type、genres、actors、directors、regions、year、rating、popularity、release_date 与 overview 是可用作品证据，但来源名称本身不能证明作品类型或用户偏好。
+权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。read_agentrank_weights 中的 evidence_catalog 是确定性校验器实际认可的用户证据目录；confirmed_preferences 只包含已确认记忆。候选中的 media_type、genres、actors、directors、regions、year、rating、popularity、release_date 与 overview 是可用作品证据，但来源名称本身不能证明作品类型或用户偏好。
 
-当前画像规则：先读取 read_agentrank_playback 返回的 current profile、profile_preferences 与 playback。profile 是上游画像 Agent 的只读结果，排序 Agent 不得重新解释成新的画像或向输出写入 profile 根键。人工标签是当前明确偏好，归档标签不得作为推荐证据或 match_tags。play_count/play_event_count 只表示播放事件数，绝不能写成“看完 X 次”或“整剧重看 X 次”；电视剧应使用 watched_episode_count、completed_episode_count 与 completed 表达“看过多集”“完成若干集”或“整剧已看完”，其中 play_count 不能替代集数。电影若有多个播放事件，也只能说“多次播放”，不能把事件数当作完成次数。abandoned 只能作为弱负向信号，不能把一次早退直接解释成讨厌。
+当前画像规则：先读取 read_agentrank_playback 返回的 current profile、profile_preferences 与 playback。profile 是上游画像 Agent 的只读结果，可用于软排序，但 profile.tags 和 ranking_tags 只有在 evidence_catalog 同时出现时才能写入 positive_evidence。排序 Agent 不得重新解释成新的画像或向输出写入 profile 根键。归档标签不得作为推荐证据或 match_tags。play_count/play_event_count 只表示播放事件数，绝不能写成“看完 X 次”或“整剧重看 X 次”；电视剧应使用 watched_episode_count、completed_episode_count 与 completed 表达“看过多集”“完成若干集”或“整剧已看完”，其中 play_count 不能替代集数。电影若有多个播放事件，也只能说“多次播放”，不能把事件数当作完成次数。abandoned 只能作为弱负向信号，不能把一次早退直接解释成讨厌。
 
 观看动机规则：情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感只能作为软排序信号。稳定动机必须来自至少两条相互独立的播放证据，或一项人工明确偏好；单一样本不得形成稳定结论。禁止推断人格、焦虑、孤独、疾病、创伤等敏感心理状态。reason 必须使用自然的内容语言，不得输出心理诊断或心理学术语。
 
@@ -299,9 +299,10 @@ def build_ranking_prompt(
 3. 不得把老经典、热门作品、续作或熟悉 IP 当成缺少用户证据时的安全答案；没有足够匹配证据时宁可少于 {limit} 条。
 4. reason 必须同时写出“用户为何会感兴趣”的偏好证据与“这部作品具体有什么”的作品特征，至少自然包含一个 match_tags 标签；请重新概括为不超过三十个字符的完整短句，禁止截取原文前若干字符交差。
 5. 禁止使用“神作”“必看”“肯定喜欢”“不能错过”“不容错过”“值得一看”“强烈推荐”等空泛结论，也不要用“哈、呀、嘛、哒、喂”凑语气或字数。
-6. 若播放证据支持，reason 要自然说明“你最近看完/反复看过什么行为”与候选的具体联系；若播放证据不足，不得写成虚假的观看经历，也不得自报确定性或置信度。
+6. reason 优先使用 evidence_catalog 中的类型或题材值说明偏好；只有确有必要时才引用具体播放片名，且必须从 playback.samples.title 逐字复制。若播放证据不足，不得写成虚假的观看经历，也不得自报确定性或置信度。
 7. summary 只能依据候选 overview 总结作品剧情或设定；请重新概括为不超过三十个字符的完整短句，禁止直接截取 overview 前若干字符；overview 为空时才可依据其他结构化作品事实概括，禁止补写未提供的剧情。
-8. positive_evidence 至少提交两项，counter_evidence 必须如实列出已知反证，没有时返回空数组。每项声明的 dimension 只能是 type/theme/actor/director/region/year/rating/heat/freshness/similarity；user_value 必须逐字来自人工偏好、confirmed_preferences 或由至少两部独立 playback.samples 共同支持的类型/题材；candidate_value 必须逐字来自该候选对应维度的结构化字段。宿主会重新核对并忽略无法支撑的声明。
+8. positive_evidence 至少提交两项，counter_evidence 必须如实列出已知反证，没有时返回空数组。每项声明的 dimension 只能是 type/theme/actor/director/region/year/rating/heat/freshness/similarity；user_value 必须选自 evidence_catalog 中同极性且 dimension 一致的 value，dimension=any 的人工证据可在内容相符时用于任一维度；candidate_value 必须逐字来自该候选对应维度的结构化字段。两项证据可以同为 theme，但必须是两个不同且各自可核对的值。宿主会重新核对并忽略无法支撑的声明。
+9. 维度必须严格对齐：type 只对应 candidate.media_type，theme 只对应 candidate.genres，region 只对应 candidate.regions。例如 evidence_catalog 只有 type=tv 时，不能用它支撑 candidate.media_type=anime；此时应改用双方都真实共有的 theme，如“动画”和“科幻”。画像中的“日本动画”若没有 region 证据目录，不能声明用户地区偏好。
 
 播放片名连接示例（“片名甲/乙”只是句式占位，绝不是本轮事实）：
 - 正例：“你看过《片名甲》和《片名乙》，这部作品同样侧重真人互动。”
@@ -317,8 +318,8 @@ def build_ranking_prompt(
       "summary": "三十字内且语义完整的作品简介",
       "match_tags": ["偏好标签", "作品标签"],
       "positive_evidence": [
-        {{"dimension": "theme", "user_value": "用户证据原值", "candidate_value": "候选字段原值"}},
-        {{"dimension": "type", "user_value": "用户证据原值", "candidate_value": "候选字段原值"}}
+        {{"dimension": "theme", "user_value": "动画", "candidate_value": "动画"}},
+        {{"dimension": "theme", "user_value": "科幻奇幻", "candidate_value": "科幻"}}
       ],
       "counter_evidence": [
         {{"dimension": "theme", "user_value": "负向证据原值", "candidate_value": "候选字段原值"}}

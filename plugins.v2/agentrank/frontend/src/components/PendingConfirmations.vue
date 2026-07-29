@@ -13,14 +13,7 @@ const localError = ref('')
 
 const items = computed(() => props.state.pendingCenter.value?.items || [])
 const operation = computed(() => props.state.operationState('pending'))
-const typeLabels = { proposal: '偏好提案', question: '需要回答', command: '操作确认' }
-const reminderLabels = { unselected: '未设置', in_1_day: '1天后', in_3_days: '3天后', in_7_days: '7天后', never: '不提醒' }
-const reminderOptions = [
-  { value: 'in_1_day', title: '1天后提醒' },
-  { value: 'in_3_days', title: '3天后提醒' },
-  { value: 'in_7_days', title: '7天后提醒' },
-  { value: 'never', title: '不提醒' },
-]
+const typeLabels = { proposal: '偏好提案', question: '偏好问询', command: '执行确认' }
 
 function close() {
   emit('update:modelValue', false)
@@ -44,7 +37,7 @@ function formatTime(value) {
 async function load() {
   localError.value = ''
   try { await props.state.loadPendingCenter() }
-  catch (error) { localError.value = error?.message || '待确认项目读取失败' }
+  catch (error) { localError.value = error?.message || '待处理项目读取失败' }
 }
 
 async function respond(item, action, options = {}) {
@@ -53,7 +46,7 @@ async function respond(item, action, options = {}) {
     await props.state.respondPending(item, action, options)
     emit('changed')
   } catch (error) {
-    localError.value = error?.message || '待确认操作失败'
+    localError.value = error?.message || '待处理操作失败'
   }
 }
 
@@ -82,12 +75,12 @@ watch(() => props.modelValue, open => { if (open) load() }, { immediate: true })
       <VToolbar density="compact" class="ar-pending__toolbar">
         <VIcon icon="mdi-inbox-outline" color="primary" class="ms-4 me-3" />
         <div>
-          <div class="ar-pending__title">待确认</div>
+          <div class="ar-pending__title">待处理</div>
           <div class="ar-pending__subtitle">{{ items.length }} 项待处理</div>
         </div>
         <VSpacer />
-        <VBtn icon="mdi-refresh" variant="text" aria-label="刷新待确认项目" :loading="operation.loading" @click="load" />
-        <VBtn icon="mdi-close" variant="text" aria-label="关闭待确认窗口" @click="close" />
+        <VBtn icon="mdi-refresh" variant="text" aria-label="刷新待处理项目" :loading="operation.loading" @click="load" />
+        <VBtn icon="mdi-close" variant="text" aria-label="关闭待处理窗口" @click="close" />
       </VToolbar>
       <VDivider />
 
@@ -96,16 +89,13 @@ watch(() => props.modelValue, open => { if (open) load() }, { immediate: true })
           {{ localError || operation.error?.message }}
         </VAlert>
         <div v-if="operation.loading && !items.length" class="ar-pending__state"><VProgressCircular indeterminate color="primary" /></div>
-        <VEmptyState v-else-if="!items.length" icon="mdi-check-all" title="当前没有待确认项目" />
+        <VEmptyState v-else-if="!items.length" icon="mdi-check-all" title="当前没有待处理项目" />
         <div v-else class="ar-pending__list">
           <section v-for="item in items" :key="`${item.item_type}:${item.item_id}`" class="ar-pending__item">
             <div class="ar-pending__item-head">
-              <VChip size="x-small" color="primary" variant="tonal">{{ typeLabels[item.item_type] || '待确认' }}</VChip>
+              <VChip size="x-small" color="primary" variant="tonal">{{ typeLabels[item.item_type] || '待处理' }}</VChip>
               <span>{{ formatTime(item.created_at) }}</span>
               <VSpacer />
-              <VChip v-if="item.reminder_policy && item.reminder_policy !== 'unselected'" size="x-small" variant="outlined">
-                {{ reminderLabels[item.reminder_policy] || '已设置提醒' }}
-              </VChip>
             </div>
             <div class="ar-pending__item-title">{{ item.title }}</div>
             <div class="ar-pending__summary">{{ item.summary }}</div>
@@ -130,15 +120,19 @@ watch(() => props.modelValue, open => { if (open) load() }, { immediate: true })
             </div>
 
             <div class="ar-pending__actions">
-              <VMenu>
-                <template #activator="{ props: menuProps }">
-                  <VBtn v-bind="menuProps" size="small" variant="text" append-icon="mdi-chevron-down">稍后</VBtn>
-                </template>
-                <VList density="compact">
-                  <VListItem v-for="reminder in reminderOptions" :key="reminder.value" :title="reminder.title" @click="respond(item, 'remind', { reminderPolicy: reminder.value })" />
-                </VList>
-              </VMenu>
-              <VBtn size="small" variant="text" color="error" @click="respond(item, 'reject')">拒绝</VBtn>
+              <VBtn
+                v-if="item.item_type === 'question'"
+                size="small"
+                variant="text"
+                @click="respond(item, 'close')"
+              >关闭问询</VBtn>
+              <VBtn
+                v-else
+                size="small"
+                variant="text"
+                color="error"
+                @click="respond(item, 'reject')"
+              >{{ item.item_type === 'proposal' ? '拒绝采纳' : '拒绝执行' }}</VBtn>
               <VBtn
                 v-if="item.item_type === 'question'"
                 size="small"
@@ -146,7 +140,7 @@ watch(() => props.modelValue, open => { if (open) load() }, { immediate: true })
                 variant="tonal"
                 :loading="itemOperation(item).loading"
                 @click="answerQuestion(item)"
-              >回答</VBtn>
+              >提交回答</VBtn>
               <VBtn
                 v-else
                 size="small"
@@ -155,7 +149,7 @@ watch(() => props.modelValue, open => { if (open) load() }, { immediate: true })
                 :loading="itemOperation(item).loading"
                 :disabled="item.requires_superuser"
                 @click="respond(item, 'confirm')"
-              >确认</VBtn>
+              >{{ item.item_type === 'proposal' ? '确认采纳' : '确认执行' }}</VBtn>
             </div>
           </section>
         </div>

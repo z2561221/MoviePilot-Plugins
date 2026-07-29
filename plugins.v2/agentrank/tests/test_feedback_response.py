@@ -173,74 +173,44 @@ def _proposal(repository, event, *, suffix="1", expires_at=None):
     return repository.append_memory_proposal(proposal)
 
 
-@pytest.mark.parametrize(
-    ("policy", "days"),
-    [("in_1_day", 1), ("in_3_days", 3), ("in_7_days", 7)],
-)
-def test_scheduled_reminders_use_exact_supported_delays(policy, days):
-    """一、三、七天提醒均从用户操作时刻精确计算。"""
+def test_feedback_response_exposes_no_reminder_actions_and_pending_does_not_learn():
+    """问询保持待回答且不学习，响应服务不再暴露任何提醒入口。"""
     clock = FixedClock()
     repository = AgentRankRepository(FakePlugin())
     question = _question(repository, _event(repository))
     before = repository.load_preference_memory(PROFILE_ID)
     service = FeedbackResponseService(repository, now_factory=clock)
 
-    updated = service.set_reminder(
-        PROFILE_ID, "question", question.question_id, policy
-    )
-
-    assert updated.reminder_policy == policy
-    assert updated.next_remind_at == (FIXED_NOW + timedelta(days=days)).isoformat()
-    assert repository.load_preference_memory(PROFILE_ID) == before
-
-
-def test_never_remind_and_no_reply_keep_pending_memory_unchanged():
-    """不提醒与暂不回复只保留待确认项，不形成隐式偏好。"""
-    clock = FixedClock()
-    repository = AgentRankRepository(FakePlugin())
-    question = _question(repository, _event(repository))
-    before = repository.load_preference_memory(PROFILE_ID)
-    service = FeedbackResponseService(repository, now_factory=clock)
-
-    updated = service.set_reminder(
-        PROFILE_ID, "question", question.question_id, "never"
-    )
     clock.advance(days=20)
 
-    assert updated.status == "pending"
-    assert updated.next_remind_at == ""
-    assert service.claim_due_reminders(PROFILE_ID) == []
-    assert repository.get_pending_question(PROFILE_ID, question.question_id).status == "pending"
+    assert not hasattr(service, "set_reminder")
+    assert not hasattr(service, "claim_due_reminders")
+    current = repository.get_pending_question(PROFILE_ID, question.question_id)
+    assert current.status == "pending"
+    assert current.reminder_policy == "unselected"
+    assert current.next_remind_at == ""
     assert repository.load_preference_memory(PROFILE_ID) == before
 
 
-def test_due_reminders_are_claimed_once_even_under_concurrency():
-    """同一到期提醒在并发领取时最多返回一次。"""
-    clock = FixedClock()
-    repository = AgentRankRepository(FakePlugin())
-    question_event = _event(repository, key="question-event")
-    proposal_event = _event(
-        repository, key="proposal-event", candidate_id="tmdb:tv:2"
-    )
-    question = _question(repository, question_event)
-    proposal = _proposal(repository, proposal_event)
-    service = FeedbackResponseService(repository, now_factory=clock)
-    service.set_reminder(PROFILE_ID, "question", question.question_id, "in_1_day")
-    service.set_reminder(PROFILE_ID, "proposal", proposal.proposal_id, "in_1_day")
-    clock.advance(days=1)
+def test_legacy_reminder_fields_remain_readable_but_have_no_runtime_behavior():
+    """旧提醒字段可兼容读取，但不会恢复提醒 API 或改变待处理事实。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    question = _question(repository, _event(repository))
+    key = repository._learning_key("pending_questions", PROFILE_ID)
+    raw = plugin.get_data(key=key)
+    raw[0]["reminder_policy"] = "in_3_days"
+    raw[0]["next_remind_at"] = (FIXED_NOW + timedelta(days=3)).isoformat()
+    plugin.save_data(key=key, value=raw)
+    service = FeedbackResponseService(repository, now_factory=FixedClock())
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        batches = list(executor.map(lambda _: service.claim_due_reminders(PROFILE_ID), range(8)))
+    loaded = repository.get_pending_question(PROFILE_ID, question.question_id)
 
-    reminders = [item for batch in batches for item in batch]
-    assert {(item.decision_type, item.decision_id) for item in reminders} == {
-        ("question", question.question_id),
-        ("proposal", proposal.proposal_id),
-    }
-    assert len(reminders) == 2
-    assert service.claim_due_reminders(PROFILE_ID) == []
-    assert repository.get_pending_question(PROFILE_ID, question.question_id).last_reminded_at
-    assert repository.get_memory_proposal(PROFILE_ID, proposal.proposal_id).last_reminded_at
+    assert loaded.reminder_policy == "in_3_days"
+    assert loaded.next_remind_at
+    assert loaded.status == "pending"
+    assert not hasattr(service, "set_reminder")
+    assert not hasattr(service, "claim_due_reminders")
 
 
 def test_reject_and_expire_are_terminal_without_memory_projection():

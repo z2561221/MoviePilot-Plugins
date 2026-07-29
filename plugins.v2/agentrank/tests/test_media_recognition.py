@@ -73,6 +73,7 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
                 origin_country=["中国大陆"],
                 vote_average=8.6,
                 popularity=123.4,
+                recognize_cache_hit=True,
             )
 
     candidate = Candidate(
@@ -102,6 +103,7 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
     assert result.rating == 8.6
     assert result.popularity == 123.4
     assert result.metadata["recognized_by"] == "moviepilot"
+    assert result.metadata["_recognize_cache_hit"] is True
 
 
 def test_recognize_many_is_bounded_and_preserves_input_order():

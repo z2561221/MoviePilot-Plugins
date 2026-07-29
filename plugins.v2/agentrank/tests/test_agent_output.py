@@ -149,6 +149,10 @@ def test_prompt_states_hard_boundaries_without_embedding_untrusted_media_text():
     assert "不超过三十" in prompt
     assert "两个 match_tags" in prompt
     assert "评分高、热度高" in prompt
+    assert "evidence_catalog" in prompt
+    assert "type=tv" in prompt
+    assert "candidate.media_type=anime" in prompt
+    assert "两项证据可以同为 theme" in prompt
     assert '"reason"' in prompt
     assert "文案要具体、流畅" in prompt
     assert "最多 8 条" in prompt
@@ -237,7 +241,7 @@ def test_refill_reuses_ranking_and_copy_prompts():
 
 
 def test_custom_critic_prompt_extends_all_critic_roles_without_overriding_safety():
-    """影评师扩展指令进入三种角色，同时保留工具、记忆和写操作边界。"""
+    """CinePilot Agent 扩展指令进入三种角色，同时保留工具、记忆和写操作边界。"""
     custom = "发现证据冲突时先向用户确认，不要自行归因。"
     prompts = (
         build_feedback_understanding_prompt(custom),

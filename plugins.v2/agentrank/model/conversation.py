@@ -1,4 +1,4 @@
-"""专属影评师对话线程、消息与待确认命令领域模型。"""
+"""CinePilot Agent 对话线程、消息与待确认命令领域模型。"""
 
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -8,7 +8,15 @@ from typing import Any, Dict, Iterable, Mapping, Tuple
 CONVERSATION_SCHEMA_VERSION = 1
 CONVERSATION_MESSAGE_ROLES = frozenset({"user", "assistant"})
 CONVERSATION_MESSAGE_STATUSES = frozenset(
-    {"draft", "processing", "completed", "failed", "superseded"}
+    {
+        "draft",
+        "queued",
+        "processing",
+        "completed",
+        "failed",
+        "retryable_failed",
+        "superseded",
+    }
 )
 CONVERSATION_COMMAND_STATUSES = frozenset(
     {"pending_confirmation", "confirmed", "rejected", "failed", "superseded"}
@@ -233,7 +241,7 @@ class ConversationCommand:
         return replace(
             self,
             status=status,
-            reminder_policy="never",
+            reminder_policy="unselected",
             next_remind_at="",
             resolved_by_mp_user_id=actor_id,
             resolved_at=resolved_at,
@@ -273,6 +281,9 @@ class ConversationCommand:
         value = self.to_dict()
         value.pop("requested_by_mp_user_id", None)
         value.pop("resolved_by_mp_user_id", None)
+        value.pop("reminder_policy", None)
+        value.pop("next_remind_at", None)
+        value.pop("last_reminded_at", None)
         return value
 
     @classmethod
@@ -375,9 +386,11 @@ class ConversationMessage:
             raise ValueError("user conversation message requires actor and idempotency")
         if self.role == "assistant" and not self.reply_to:
             raise ValueError("assistant conversation message requires reply_to")
-        if self.status == "failed" and not self.error_code:
+        if self.status in {"failed", "retryable_failed"} and not self.error_code:
             raise ValueError("failed conversation message requires error_code")
-        if self.status != "failed" and (self.error_code or self.error_message):
+        if self.status not in {"failed", "retryable_failed"} and (
+            self.error_code or self.error_message
+        ):
             raise ValueError("non-failed conversation message cannot contain error")
         if self.schema_version != CONVERSATION_SCHEMA_VERSION:
             raise ValueError("conversation message schema_version is unsupported")
@@ -442,7 +455,7 @@ class ConversationMessage:
 
 @dataclass(frozen=True)
 class ConversationThread:
-    """表示按 profile 隔离的有界专属影评师对话线程。"""
+    """表示按 profile 隔离的有界 CinePilot Agent 对话线程。"""
 
     thread_id: str
     profile_id: str

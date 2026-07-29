@@ -30,7 +30,6 @@ class AgentRankRuntime:
         memory_projection_service: Any = None,
         conversation_service: Any = None,
         pending_center_service: Any = None,
-        reminder_trigger_factory: Callable[[], Any] = None,
         attribution_service: Any = None,
         attribution_trigger_factory: Callable[[], Any] = None,
     ):
@@ -41,9 +40,6 @@ class AgentRankRuntime:
         self._trigger_factory = trigger_factory or self._default_trigger_factory
         self._date_trigger_factory = (
             date_trigger_factory or self._default_date_trigger_factory
-        )
-        self._reminder_trigger_factory = (
-            reminder_trigger_factory or self._default_reminder_trigger_factory
         )
         self._attribution_trigger_factory = (
             attribution_trigger_factory or self._default_attribution_trigger_factory
@@ -141,6 +137,11 @@ class AgentRankRuntime:
                 plugin=plugin,
                 message_limit=int(config.get("conversation_message_limit") or 200),
                 critic_prompt=str(config.get("critic_prompt") or ""),
+                profile_ids=(
+                    identity.profile_id for identity in configured_identities(config)
+                ),
+                max_workers=2,
+                total_timeout_seconds=90.0,
             )
         self.conversation_service = conversation_service
         plugin._conversation = conversation_service
@@ -185,6 +186,9 @@ class AgentRankRuntime:
         queue = self.feedback_queue
         if queue is not None and hasattr(queue, "start"):
             queue.start()
+        conversation = self.conversation_service
+        if conversation is not None and hasattr(conversation, "start"):
+            conversation.start()
 
     @staticmethod
     def _build_orchestrator(plugin: Any, config: Mapping[str, Any]) -> Any:
@@ -307,13 +311,6 @@ class AgentRankRuntime:
         return DateTrigger(run_date=datetime.now() + timedelta(seconds=3))
 
     @staticmethod
-    def _default_reminder_trigger_factory() -> Any:
-        """创建每五分钟领取一次待确认提醒的稳定触发器。"""
-        from apscheduler.triggers.interval import IntervalTrigger
-
-        return IntervalTrigger(minutes=5)
-
-    @staticmethod
     def _default_attribution_trigger_factory() -> Any:
         """创建每十分钟复查一次结果归因的稳定触发器。"""
         from apscheduler.triggers.interval import IntervalTrigger
@@ -369,24 +366,6 @@ class AgentRankRuntime:
                         "name": "Agent榜单中心周期生成",
                         "trigger": trigger,
                         "func": self.run_scheduled,
-                        "kwargs": {},
-                    }
-                )
-        if self.pending_center_service is not None and self.notification_service is not None:
-            try:
-                reminder_trigger = self._reminder_trigger_factory()
-            except Exception as error:
-                message = f"pending reminder trigger invalid: {error}"
-                errors = self._config_errors()
-                if message not in errors:
-                    errors.append(message)
-            else:
-                services.append(
-                    {
-                        "id": "AgentRank.PendingReminders",
-                        "name": "Agent榜单中心待确认提醒",
-                        "trigger": reminder_trigger,
-                        "func": self.send_pending_reminders,
                         "kwargs": {},
                     }
                 )
@@ -572,52 +551,6 @@ class AgentRankRuntime:
             self._display_name(command.profile_id, self.config), notice
         )
 
-    def send_pending_reminders(self) -> List[Dict[str, Any]]:
-        """领取全部画像的到期提醒并逐条安全发送。"""
-        if (
-            self._stopped
-            or not self.config.get("enabled")
-            or not self._notifications_enabled()
-            or self.pending_center_service is None
-            or self.notification_service is None
-        ):
-            return []
-        results: List[Dict[str, Any]] = []
-        for identity in configured_identities(self.config):
-            notices = self.pending_center_service.claim_due_notices(
-                identity.profile_id
-            )
-            for notice in notices:
-                try:
-                    interactive = self.notification_service.send_pending(
-                        identity.username, notice, reminder=True
-                    )
-                    results.append(
-                        {
-                            "profile_id": identity.profile_id,
-                            "item_type": notice.item.item_type,
-                            "item_id": notice.item.item_id,
-                            "status": "sent",
-                            "interactive": bool(interactive),
-                        }
-                    )
-                except Exception:
-                    logger.exception(
-                        "AgentRank 待确认提醒发送失败 profile_id=%s type=%s",
-                        identity.profile_id,
-                        notice.item.item_type,
-                    )
-                    results.append(
-                        {
-                            "profile_id": identity.profile_id,
-                            "item_type": notice.item.item_type,
-                            "item_id": notice.item.item_id,
-                            "status": "failed",
-                            "interactive": False,
-                        }
-                    )
-        return results
-
     def verify_outcomes(self) -> List[Dict[str, Any]]:
         """复查全部配置画像的订阅、入库和播放归因。"""
         if (
@@ -697,6 +630,10 @@ class AgentRankRuntime:
         self._stopped = True
         if self.feedback_queue is not None and hasattr(self.feedback_queue, "stop"):
             self.feedback_queue.stop()
+        if self.conversation_service is not None and hasattr(
+            self.conversation_service, "stop"
+        ):
+            self.conversation_service.stop()
         current = None
         try:
             current = asyncio.current_task()

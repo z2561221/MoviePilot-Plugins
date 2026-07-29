@@ -267,7 +267,7 @@ class MemoryProjectionService:
                 expired = replace(
                     proposal,
                     status="expired",
-                    reminder_policy="never",
+                    reminder_policy="unselected",
                     next_remind_at="",
                     resolved_at=now.isoformat(),
                 )

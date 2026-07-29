@@ -685,7 +685,6 @@ export function useAgentRankState(api) {
       item_type: item?.item_type,
       item_id: item?.item_id,
       action,
-      reminder_policy: options.reminderPolicy || '',
       option_id: options.optionId || '',
       custom_answer: options.customAnswer || '',
       idempotency_key: options.idempotencyKey || requestId('pending'),

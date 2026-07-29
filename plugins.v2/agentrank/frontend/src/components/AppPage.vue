@@ -1,12 +1,7 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
-import { useAgentRankState } from './useAgentRankState'
-import AgentAnalysisDialog from './AgentAnalysisDialog.vue'
+import { ref } from 'vue'
 import Config from './Config.vue'
-import CriticChatDialog from './CriticChatDialog.vue'
-import FeedbackCommentDialog from './FeedbackCommentDialog.vue'
-import PendingConfirmations from './PendingConfirmations.vue'
-import RecommendationActions from './RecommendationActions.vue'
+import Page from './Page.vue'
 import { savePluginConfig } from './api'
 
 const props = defineProps({
@@ -15,411 +10,66 @@ const props = defineProps({
   navKey: { type: String, default: 'main' },
   pluginId: { type: String, default: 'AgentRank' },
 })
-const state = useAgentRankState(props.api)
-const {
-  options,
-  identities,
-  identityOptions,
-  selectedProfileId,
-  overview,
-  board,
-  loading,
-  error,
-  isRunning,
-} = state
 
 const settingsDialog = ref(false)
 const savingSettings = ref(false)
-const snackbar = ref({ show: false, message: '', color: 'success', undo: false })
-const lastArchivedId = ref('')
-const initialized = ref(false)
-const analysisDialog = ref(false)
-const commentDialog = ref(false)
-const criticDialog = ref(false)
-const pendingDialog = ref(false)
-const selectedAnalysisItem = ref(null)
-const selectedJudgment = ref(null)
+const settingsConfig = ref({})
+const pageKey = ref(0)
+const snackbar = ref({ show: false, message: '', color: 'success' })
 
-const recommendations = computed(() => board.value?.recommendations?.slice(0, 5) || [])
-const generatedAt = computed(() => board.value?.generated_at || overview.value?.latest_run?.finished_at || '')
-const boardStatus = computed(() => board.value?.status || 'idle')
-
-const statusMeta = computed(() => {
-  const map = {
-    idle: { text: '待生成', color: 'default', icon: 'mdi-clock-outline' },
-    running: { text: '运行中', color: 'primary', icon: 'mdi-loading mdi-spin' },
-    success: { text: '已完成', color: 'success', icon: 'mdi-check-circle-outline' },
-    sample_insufficient: { text: '样本不足', color: 'warning', icon: 'mdi-database-alert-outline' },
-    candidate_insufficient: { text: '候选不足', color: 'warning', icon: 'mdi-compass-off-outline' },
-    recommendation_incomplete: { text: '榜单不足', color: 'warning', icon: 'mdi-format-list-numbered' },
-    agent_failed: { text: 'Agent失败', color: 'error', icon: 'mdi-robot-confused-outline' },
-    validation_failed: { text: '校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
-    profile_agent_failed: { text: '画像生成失败', color: 'error', icon: 'mdi-account-alert-outline' },
-    profile_validation_failed: { text: '画像校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
-    policy_superseded: { text: '策略已过期', color: 'warning', icon: 'mdi-alert-circle-outline' },
-    ranking_agent_failed: { text: '排序生成失败', color: 'error', icon: 'mdi-robot-confused-outline' },
-    ranking_validation_failed: { text: '排序校验失败', color: 'error', icon: 'mdi-shield-alert-outline' },
-    candidate_failed: { text: '候选采集失败', color: 'error', icon: 'mdi-compass-off-outline' },
-    candidate_filter_failed: { text: '候选过滤失败', color: 'error', icon: 'mdi-filter-remove-outline' },
-    subscription_partial_failed: { text: '部分订阅失败', color: 'warning', icon: 'mdi-alert-circle-outline' },
-  }
-  return map[boardStatus.value] || { text: '运行异常', color: 'error', icon: 'mdi-alert-circle-outline' }
-})
-
-const stateMessage = computed(() => {
-  if (error.value) return error.value.message
-  const messages = {
-    sample_insufficient: '当前 Emby 画像身份需要更多播放样本，旧榜单不会被覆盖。',
-    candidate_insufficient: '当前发现来源没有足够候选，请检查来源设置。',
-    recommendation_incomplete: `本轮仅生成 ${recommendations.value.length} 条安全推荐。`,
-    agent_failed: '本轮 Agent 调用失败，正在展示上一次成功榜单。',
-    validation_failed: '本轮输出未通过安全校验，旧榜单已保留。',
-    profile_agent_failed: '画像生成失败，旧画像与旧榜单已保留。',
-    profile_validation_failed: '画像输出校验失败，旧画像与旧榜单已保留。',
-    policy_superseded: '偏好已更新，本轮旧策略未保存，请重新生成榜单。',
-    ranking_agent_failed: '排序 Agent 调用失败，旧榜单已保留。',
-    ranking_validation_failed: '排序输出校验失败，旧榜单已保留。',
-    candidate_failed: '候选采集失败，请检查发现来源。',
-    candidate_filter_failed: '候选过滤失败，旧榜单已保留。',
-    subscription_partial_failed: '部分自动订阅失败，成功项不受影响。',
-  }
-  return messages[boardStatus.value] || ''
-})
-
-function formatTime(value) {
-  if (!value) return '尚未生成'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString()
-}
-
-function mediaTypeLabel(value) {
-  return { movie: '电影', tv: '剧集', anime: '动漫' }[value] || '其他类型'
-}
-
-const sourceLabels = {
-  douban: '豆瓣发现',
-  tmdb: 'TMDB',
-  tmdb_recommend: 'TMDB 推荐',
-  tmdb_movies: 'TMDB 电影',
-  tmdb_tv: 'TMDB 剧集',
-  bangumi: 'Bangumi',
-  anilist: 'AniList',
-}
-
-function sourceLabel(item) {
-  const sources = item?.sources || Object.keys(item?.source_ids || {})
-  if (!sources.length) return 'MP 发现'
-  return sources.map(source => sourceLabels[source] || '其他来源').join(' · ')
-}
-
-function posterSource(item) {
-  return item?.poster_path || ''
-}
-
-async function initialize() {
-  try {
-    await state.loadOptions()
-    if (selectedProfileId.value) {
-      await Promise.all([state.loadProfileData(), state.loadPendingCenter()])
-    }
-  } catch (_) {
-    // 共享状态已保存可见错误。
-  } finally {
-    initialized.value = true
-  }
-}
-
-async function refreshBoard() {
-  try {
-    await state.refresh()
-  } catch (err) {
-    snackbar.value = { show: true, message: err?.message || '榜单刷新失败', color: 'error', undo: false }
-  }
-}
-
-async function subscribeItem(candidateId) {
-  try {
-    const result = await state.subscribe(candidateId)
-    snackbar.value = { show: true, message: result?.message || '订阅操作已完成', color: 'success', undo: false }
-  } catch (err) {
-    snackbar.value = { show: true, message: err?.message || '订阅失败', color: 'error', undo: false }
-  }
-}
-
-async function archiveItem(candidateId) {
-  try {
-    const result = await state.archive(candidateId)
-    lastArchivedId.value = candidateId
-    snackbar.value = { show: true, message: result?.message || '已忽略该推荐', color: 'success', undo: true }
-  } catch (err) {
-    snackbar.value = { show: true, message: err?.message || '忽略失败', color: 'error', undo: false }
-  }
-}
-
-async function recordNativeDrawerOpened(candidateId) {
-  try {
-    await state.recordNativeDrawerOpened(candidateId)
-    snackbar.value = { show: true, message: '已打开订阅设置', color: 'success', undo: false }
-  } catch (err) {
-    snackbar.value = { show: true, message: err?.message || '订阅交互记录失败', color: 'error', undo: false }
-  }
-}
-
-async function feedbackItem(kind, candidateId) {
-  try {
-    const result = await state.reactToRecommendation(kind, candidateId)
-    snackbar.value = {
-      show: true,
-      message: result?.message || (kind === 'like' ? '已记录喜欢' : '已记录不喜欢'),
-      color: 'success',
-      undo: false,
-    }
-  } catch (err) {
-    snackbar.value = { show: true, message: err?.message || '反馈失败', color: 'error', undo: false }
-  }
-}
-
-async function undoArchive() {
-  if (!lastArchivedId.value) return
-  try {
-    await state.restore(lastArchivedId.value)
-    snackbar.value = { show: true, message: '已撤销忽略', color: 'success', undo: false }
-    lastArchivedId.value = ''
-  } catch (err) {
-    snackbar.value = { show: true, message: err?.message || '撤销失败', color: 'error', undo: false }
-  }
-}
-
-function openSettings() {
+function openSettings(config = {}) {
+  settingsConfig.value = { ...(config || {}) }
   settingsDialog.value = true
 }
 
-function openAnalysis(item) {
-  selectedAnalysisItem.value = item
-  selectedJudgment.value = null
-  analysisDialog.value = true
-}
-
-function openAnalysisComment(judgment) {
-  selectedJudgment.value = judgment
-  commentDialog.value = true
-}
-
-function showFeedbackResult(message) {
-  snackbar.value = { show: true, message, color: 'success', undo: false }
-}
-
-async function saveSettings(payload) {
+async function saveSettings(config) {
   savingSettings.value = true
   try {
-    await savePluginConfig(props.api, payload)
-    await state.loadOptions({ force: true })
+    await savePluginConfig(props.api, config)
+    settingsConfig.value = { ...(config || {}) }
     settingsDialog.value = false
-    snackbar.value = { show: true, message: '插件设置已保存', color: 'success', undo: false }
-  } catch (err) {
-    snackbar.value = { show: true, message: err?.message || '设置保存失败', color: 'error', undo: false }
+    pageKey.value += 1
+    snackbar.value = { show: true, message: '设置已保存', color: 'success' }
+  } catch (error) {
+    snackbar.value = {
+      show: true,
+      message: error?.message || '设置保存失败',
+      color: 'error',
+    }
   } finally {
     savingSettings.value = false
   }
 }
-
-watch(selectedProfileId, async (value, oldValue) => {
-  if (!initialized.value || !value || value === oldValue) return
-  try { await Promise.all([state.loadProfileData(value), state.loadPendingCenter()]) } catch (_) { /* 可见错误由共享状态承载 */ }
-})
-
-onMounted(initialize)
 </script>
 
 <template>
-  <div class="ar-app-page">
-    <VCard flat class="ar-app-page__card">
-      <VToolbar density="comfortable" class="ar-app-page__toolbar">
-        <VAvatar color="primary" variant="tonal" rounded="lg" size="40" class="ms-3 me-3">
-          <VIcon icon="mdi-brain" />
-        </VAvatar>
-        <div class="ar-app-page__heading">
-          <div class="text-h6">Agent榜单中心</div>
-          <div class="text-caption text-medium-emphasis">最近生成：{{ formatTime(generatedAt) }}</div>
-        </div>
-        <VChip v-if="boardStatus !== 'success'" :color="statusMeta.color" variant="tonal" size="small" class="ar-app-page__status ms-3">
-          <VIcon :icon="statusMeta.icon" size="16" class="mr-1" />{{ statusMeta.text }}
-        </VChip>
-        <VSpacer />
-        <VSelect v-if="identities.length > 1" v-model="selectedProfileId" :items="identityOptions" item-title="title" item-value="value" label="Emby 用户" density="compact" variant="outlined" hide-details class="ar-app-page__identity" aria-label="切换 Emby 画像身份" />
-        <VBtn icon="mdi-refresh" variant="text" :loading="loading.action === 'refresh' || loading.data" :disabled="isRunning || !selectedProfileId" aria-label="刷新榜单" @click="refreshBoard" />
-        <VBtn icon="mdi-forum-outline" variant="text" aria-label="打开专属影评师" @click="criticDialog = true" />
-        <VBadge :content="state.pendingCenter.value?.total || 0" :model-value="Boolean(state.pendingCenter.value?.total)" color="warning" class="ar-app-page__pending-badge">
-          <VBtn icon="mdi-inbox-outline" variant="text" aria-label="打开待确认中心" @click="pendingDialog = true" />
-        </VBadge>
-        <VBtn icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="openSettings" />
-      </VToolbar>
-      <VDivider />
-
-      <div v-if="loading.options && !initialized" class="ar-app-page__state">
-        <VSkeletonLoader type="article, article, article" width="100%" />
-      </div>
-      <div v-else-if="!identities.length" class="ar-app-page__state">
-        <VEmptyState icon="mdi-account-alert-outline" title="尚未配置 Emby 画像身份" text="请先打开设置，选择画像身份和默认身份。">
-          <template #actions><VBtn color="primary" variant="tonal" prepend-icon="mdi-cog-outline" @click="openSettings">打开设置</VBtn></template>
-        </VEmptyState>
-      </div>
-      <div v-else class="ar-app-page__content">
-        <VAlert v-if="stateMessage" :type="['agent_failed', 'validation_failed'].includes(boardStatus) ? 'error' : 'warning'" variant="tonal" class="ar-app-page__alert">{{ stateMessage }}</VAlert>
-
-        <main class="ar-app-page__layout">
-          <section class="ar-app-page__ranking" aria-label="前5名推荐榜单">
-            <div class="ar-app-page__section-head">
-              <div>
-                <div class="text-subtitle-1 font-weight-bold">个性化前5名</div>
-                <div class="text-caption text-medium-emphasis">保持 Agent 最终顺序，仅展示通过安全校验的候选</div>
-              </div>
-              <VChip size="small" variant="outlined">{{ recommendations.length }} / 5</VChip>
-            </div>
-
-            <VSkeletonLoader v-if="loading.data" type="list-item-avatar-three-line@5" />
-            <VEmptyState v-else-if="!recommendations.length" icon="mdi-format-list-numbered" title="推荐榜单尚未生成" text="点击刷新，Agent 将根据播放画像对冻结候选池排序。" />
-            <div v-else class="ar-app-page__list">
-              <article v-for="item in recommendations" :key="item.candidate_id" class="ar-app-page__item">
-                <div class="ar-app-page__rank" :class="{ 'ar-app-page__rank--top': item.rank <= 3 }">{{ item.rank }}</div>
-                <div class="ar-app-page__poster">
-                  <VImg v-if="posterSource(item)" :src="posterSource(item)" :alt="`${item.title} 海报`" cover>
-                    <template #error><div class="ar-app-page__poster-error"><VIcon icon="mdi-image-off-outline" size="30" /></div></template>
-                  </VImg>
-                  <VIcon v-else icon="mdi-image-off-outline" size="30" />
-                </div>
-                <div class="ar-app-page__item-main">
-                  <div class="ar-app-page__title-row">
-                    <div class="ar-app-page__title">{{ item.title }}</div>
-                    <VChip size="x-small" variant="tonal">{{ mediaTypeLabel(item.media_type) }}</VChip>
-                  </div>
-                  <div class="ar-app-page__meta">{{ item.year || '年份未知' }} · {{ sourceLabel(item) }}</div>
-                  <div class="ar-app-page__copy">
-                    <span class="ar-app-page__copy-label">推荐：</span>
-                    <span class="ar-app-page__copy-text ar-app-page__copy-text--reason">{{ item.reason || item.summary || '等待 Agent 补充推荐理由' }}</span>
-                  </div>
-                  <div class="ar-app-page__copy ar-app-page__copy--intro">
-                    <span class="ar-app-page__copy-label">简介：</span>
-                    <span class="ar-app-page__copy-text ar-app-page__copy-text--intro">{{ item.summary || '暂无简介' }}</span>
-                  </div>
-                  <div class="ar-app-page__tags">
-                    <VChip v-for="tag in item.match_tags || []" :key="tag" size="x-small" variant="outlined">{{ tag }}</VChip>
-                  </div>
-                </div>
-                <div class="ar-app-page__item-actions">
-                  <VChip size="x-small" color="primary" variant="tonal" class="ar-app-page__support">{{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
-                  <VTooltip text="查看 Agent 分析">
-                    <template #activator="{ props: tooltipProps }">
-                      <VBtn
-                        v-bind="tooltipProps"
-                        icon="mdi-text-box-search-outline"
-                        variant="text"
-                        size="small"
-                        :aria-label="`查看 ${item.title} 的 Agent 分析`"
-                        :disabled="!item.analysis_id"
-                        @click="openAnalysis(item)"
-                      />
-                    </template>
-                  </VTooltip>
-                  <RecommendationActions :item="item" :loading-action="loading.action" :native-subscribe="nativeSubscribe" size="small" @like="candidateId => feedbackItem('like', candidateId)" @dislike="candidateId => feedbackItem('dislike', candidateId)" @subscribe="subscribeItem" @native-subscribe-opened="recordNativeDrawerOpened" @archive="archiveItem" />
-                </div>
-              </article>
-            </div>
-          </section>
-        </main>
-      </div>
-    </VCard>
+  <div class="ar-app-page" :data-nav-key="navKey" :data-plugin-id="pluginId">
+    <Page
+      :key="pageKey"
+      :api="api"
+      :native-subscribe="nativeSubscribe"
+      :show-close="false"
+      @switch="openSettings"
+    />
 
     <VDialog v-model="settingsDialog" max-width="1160" :persistent="savingSettings">
-      <Config :api="api" :initial-config="options.config || {}" @save="saveSettings" @close="settingsDialog = false" />
+      <Config
+        :api="api"
+        :initial-config="settingsConfig"
+        @save="saveSettings"
+        @close="settingsDialog = false"
+      />
     </VDialog>
-
-    <AgentAnalysisDialog v-model="analysisDialog" :state="state" :item="selectedAnalysisItem" @comment="openAnalysisComment" />
-    <FeedbackCommentDialog
-      v-model="commentDialog"
-      :state="state"
-      :item="selectedAnalysisItem"
-      :judgment="selectedJudgment"
-      @submitted="showFeedbackResult('评论已记录，Agent 将异步重新理解')"
-    />
-    <CriticChatDialog v-model="criticDialog" :state="state" @pending-change="state.loadPendingCenter" />
-    <PendingConfirmations v-model="pendingDialog" :state="state" @changed="showFeedbackResult('待确认项目已更新')" />
 
     <VSnackbar v-model="snackbar.show" :color="snackbar.color" timeout="5000">
       {{ snackbar.message }}
-      <template v-if="snackbar.undo" #actions><VBtn variant="text" @click="undoArchive">撤销</VBtn></template>
     </VSnackbar>
   </div>
 </template>
 
 <style scoped>
-.ar-app-page { width: 100%; max-width: 1440px; margin: 0 auto; padding: 16px; overflow-x: hidden; }
-.ar-app-page__card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 16px; overflow: hidden; }
-.ar-app-page__toolbar { position: sticky; top: 0; z-index: 10; background: rgb(var(--v-theme-surface)); }
-.ar-app-page :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
-.ar-app-page__heading { min-width: 180px; }
-.ar-app-page__identity { max-width: 220px; min-width: 160px; margin-right: 4px; }
-.ar-app-page__content { padding: 16px; }
-.ar-app-page__alert { margin-bottom: 14px; }
-.ar-app-page__layout { display: block; }
-.ar-app-page__ranking { min-width: 0; }
-.ar-app-page__section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.ar-app-page__list { display: flex; flex-direction: column; gap: 10px; }
-.ar-app-page__item { display: grid; grid-template-columns: 42px 92px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; background: transparent; color: rgb(var(--v-theme-on-surface)); transition: background .12s; }
-.ar-app-page__item:hover { background: rgba(var(--v-theme-primary), .07); }
-.ar-app-page__rank { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: rgba(var(--v-theme-on-surface), .06); font-size: 14px; font-weight: 700; }
-.ar-app-page__rank--top { color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .14); }
-.ar-app-page__poster { width: 92px; height: 138px; display: grid; place-items: center; overflow: hidden; border-radius: 8px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
-.ar-app-page__poster :deep(.v-img) { width: 100%; height: 100%; }
-.ar-app-page__poster-error { width: 100%; height: 100%; display: grid; place-items: center; }
-.ar-app-page__item-main { min-width: 0; }
-.ar-app-page__title-row { display: flex; align-items: flex-start; gap: 8px; }
-.ar-app-page__title { min-width: 0; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 16px; font-weight: 700; line-height: 1.35; }
-.ar-app-page__meta { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ar-app-page__copy { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: start; gap: 7px; margin-top: 10px; font-size: 14px; line-height: 1.55; }
-.ar-app-page__copy--intro { margin-top: 5px; color: rgba(var(--v-theme-on-surface), .64); }
-.ar-app-page__copy-label { color: rgb(var(--v-theme-primary)); font-size: 12px; font-weight: 700; line-height: 1.8; }
-.ar-app-page__copy-text { min-width: 0; display: block; overflow: visible; overflow-wrap: anywhere; }
-.ar-app-page__copy-text--reason { font-weight: 600; }
-.ar-app-page__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.ar-app-page__item-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
-.ar-app-page__support { flex: 0 0 auto; margin-left: auto; }
-.ar-app-page__state { min-height: 480px; display: flex; align-items: center; justify-content: center; padding: 24px; }
-@media (max-width: 760px) {
-  .ar-app-page { padding: 8px; }
-  .ar-app-page__card { border-radius: 12px; }
-  .ar-app-page__toolbar { min-height: 64px; }
-  .ar-app-page__toolbar :deep(.v-toolbar__content) { min-height: 64px; height: auto !important; flex-wrap: wrap; overflow: visible; padding-block: 6px; }
-  .ar-app-page__toolbar :deep(.v-spacer) { display: none; }
-  .ar-app-page__heading { order: 1; flex: 1 1 180px; }
-  .ar-app-page__toolbar :deep(.v-btn--icon) { order: 2; }
-  .ar-app-page__pending-badge { order: 2; }
-  .ar-app-page__status { order: 3; }
-  .ar-app-page__identity { order: 4; flex: 1 1 100%; max-width: none; margin: 6px 12px 0; }
-  .ar-app-page__content { padding: 10px; }
-  .ar-app-page__item { grid-template-columns: 30px 64px minmax(0, 1fr); gap: 9px; padding: 9px; align-items: start; }
-  .ar-app-page__rank { width: 28px; height: 28px; font-size: 12px; }
-  .ar-app-page__poster { width: 64px; height: 96px; }
-  .ar-app-page__item-actions { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; padding-top: 2px; border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
-  .ar-app-page__title { font-size: 14px; }
-  .ar-app-page__copy { grid-template-columns: 34px minmax(0, 1fr); gap: 5px; margin-top: 7px; font-size: 13px; line-height: 1.5; }
-  .ar-app-page__copy--intro { margin-top: 4px; }
-  .ar-app-page__copy-label { font-size: 11px; }
-  .ar-app-page__copy-text,
-  .ar-app-page__copy-text--reason,
-  .ar-app-page__copy-text--intro { display: block; overflow: visible; -webkit-line-clamp: initial; }
-  .ar-app-page__meta { white-space: normal; }
-  .ar-app-page__section-head { align-items: flex-start; }
+.ar-app-page {
+  width: 100%;
+  min-width: 0;
 }
-@media (max-width: 390px) {
-  .ar-app-page { padding: 4px; }
-  .ar-app-page__toolbar :deep(.v-avatar) { display: none; }
-  .ar-app-page__heading { min-width: 0; flex: 1 1 150px; margin-left: 12px; }
-  .ar-app-page__status { order: 7; margin: 6px 12px 0 !important; }
-  .ar-app-page__identity { margin-inline: 8px; }
-  .ar-app-page__content { padding: 8px; }
-  .ar-app-page__item { grid-template-columns: 26px 56px minmax(0, 1fr); gap: 7px; padding: 8px; }
-  .ar-app-page__poster { width: 56px; height: 84px; }
-}
-
 </style>

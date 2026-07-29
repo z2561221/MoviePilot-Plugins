@@ -176,12 +176,19 @@ class FeedbackProposalService:
         record: FeedbackUnderstandingRecord,
         event: FeedbackEvent,
         candidate: Mapping[str, Any],
+        memory: PreferenceMemory,
     ) -> PendingQuestion:
-        """从歧义理解构造三选一加自定义回答的待确认问题。"""
+        """从歧义理解和既有偏好缺口构造动态整体偏好问题。"""
+        history = [
+            item.to_dict()
+            for item in self._repository.load_pending_questions(record.profile_id)
+        ]
         draft = ask_clarification(
             record.action,
             self._candidate_title(candidate),
             record.uncertainties,
+            question_history=history,
+            confirmed_memory=memory.to_dict(),
         )
         options = tuple(
             PendingQuestionOption(option_id=f"option_{index}", label=label)
@@ -206,6 +213,9 @@ class FeedbackProposalService:
             expected_memory_revision=record.memory_revision,
             created_at=created_at,
             expires_at=expires_at,
+            preference_dimension=draft.get("preference_dimension"),
+            exploration_level=draft.get("exploration_level") or 0,
+            confidence_gap=draft.get("confidence_gap") or 0.0,
         )
 
     def materialize(
@@ -241,6 +251,16 @@ class FeedbackProposalService:
         )
         if existing is not None:
             return existing
+        pending = next(
+            (
+                item
+                for item in self._repository.load_pending_questions(record.profile_id)
+                if item.status == "pending"
+            ),
+            None,
+        )
+        if pending is not None:
+            return pending
         return self._repository.append_pending_question(
-            self._question(record, event, candidate), limit=self._record_limit
+            self._question(record, event, candidate, memory), limit=self._record_limit
         )

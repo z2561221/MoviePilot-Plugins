@@ -15,6 +15,7 @@ MEMORY_CHANGE_OPERATIONS = frozenset(
 PENDING_QUESTION_STATUSES = frozenset(
     {"pending", "answered", "dismissed", "expired", "superseded"}
 )
+# 旧提醒值仅用于兼容读取；新记录始终使用 unselected 且不生成提醒时间。
 QUESTION_REMINDER_POLICIES = frozenset(
     {"unselected", "in_1_day", "in_3_days", "in_7_days", "never"}
 )
@@ -420,6 +421,9 @@ class PendingQuestion:
     created_at: str
     expires_at: str
     status: str = "pending"
+    preference_dimension: str = ""
+    exploration_level: int = 0
+    confidence_gap: float = 0.0
     reminder_policy: str = "unselected"
     next_remind_at: str = ""
     supersedes: str = ""
@@ -441,6 +445,7 @@ class PendingQuestion:
             ("understanding_record_id", 200),
             ("question", 240),
             ("status", 32),
+            ("preference_dimension", 48),
             ("reminder_policy", 32),
             ("next_remind_at", 64),
             ("supersedes", 160),
@@ -455,6 +460,12 @@ class PendingQuestion:
                 self, field_name, _text(getattr(self, field_name), limit)
             )
         object.__setattr__(self, "event_sequence", int(self.event_sequence))
+        object.__setattr__(self, "exploration_level", max(0, int(self.exploration_level)))
+        try:
+            confidence_gap = float(self.confidence_gap)
+        except (TypeError, ValueError):
+            confidence_gap = 0.0
+        object.__setattr__(self, "confidence_gap", min(1.0, max(0.0, confidence_gap)))
         object.__setattr__(self, "options", tuple(self.options or ()))
         object.__setattr__(self, "allow_custom_answer", bool(self.allow_custom_answer))
         object.__setattr__(
@@ -496,10 +507,10 @@ class PendingQuestion:
             raise ValueError("pending question identity is incomplete")
         if self.event_sequence <= 0:
             raise ValueError("pending question event_sequence must be positive")
-        if not 2 <= len(self.options) <= 3 or any(
+        if not 2 <= len(self.options) <= 5 or any(
             not isinstance(item, PendingQuestionOption) for item in self.options
         ):
-            raise ValueError("pending question must contain two or three options")
+            raise ValueError("pending question must contain two to five options")
         if len({item.option_id for item in self.options}) != len(self.options):
             raise ValueError("pending question option ids must be unique")
         if not self.allow_custom_answer or not self.evidence_refs:
@@ -558,6 +569,9 @@ class PendingQuestion:
             "created_at": self.created_at,
             "expires_at": self.expires_at,
             "status": self.status,
+            "preference_dimension": self.preference_dimension,
+            "exploration_level": self.exploration_level,
+            "confidence_gap": self.confidence_gap,
             "reminder_policy": self.reminder_policy,
             "next_remind_at": self.next_remind_at,
             "supersedes": self.supersedes,
@@ -594,6 +608,9 @@ class PendingQuestion:
             created_at=value.get("created_at"),
             expires_at=value.get("expires_at"),
             status=value.get("status") or "pending",
+            preference_dimension=value.get("preference_dimension"),
+            exploration_level=value.get("exploration_level") or 0,
+            confidence_gap=value.get("confidence_gap") or 0.0,
             reminder_policy=value.get("reminder_policy") or "unselected",
             next_remind_at=value.get("next_remind_at"),
             supersedes=value.get("supersedes"),

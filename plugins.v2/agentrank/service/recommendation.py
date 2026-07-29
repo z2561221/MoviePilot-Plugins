@@ -41,7 +41,7 @@ from .keyword_resolution import (
     RetrievalPlanResolution,
 )
 from .feedback_action import FeedbackActionService
-from .scoring import StableRecommendationRanker
+from .scoring import DeterministicSupportScorer, StableRecommendationRanker
 from .validation import (
     AgentOutputError,
     COPY_REWRITE_REASON_CODES,
@@ -251,6 +251,8 @@ class RecommendationOrchestrator:
         config: Mapping[str, Any],
         policy: PolicySnapshot = None,
         confirmed_memory: Any = None,
+        profile_preferences: Any = None,
+        playback_snapshot: Any = None,
     ) -> Dict[str, Any]:
         """选择 Agent 允许读取的权重和筛选配置。"""
         values = {
@@ -287,6 +289,17 @@ class RecommendationOrchestrator:
                             else ()
                         )
                     ],
+                    "evidence_catalog": (
+                        DeterministicSupportScorer.trusted_signal_catalog(
+                            confirmed_memory,
+                            profile_preferences,
+                            playback_snapshot,
+                        )
+                        if confirmed_memory is not None
+                        and profile_preferences is not None
+                        and playback_snapshot is not None
+                        else []
+                    ),
                 }
             )
         return values
@@ -1031,8 +1044,27 @@ class RecommendationOrchestrator:
                 metrics[f"candidate_{timing_name}_ms"] = max(
                     0, int(timing_value or 0)
                 )
-            metrics["candidate_processing_counts"] = dict(
+            candidate_processing_counts = dict(
                 getattr(candidate_result, "processing_counts", {}) or {}
+            )
+            metrics["candidate_processing_counts"] = candidate_processing_counts
+            metrics["candidate_recognition_cache_hit_count"] = max(
+                0,
+                int(
+                    candidate_processing_counts.get(
+                        "candidate_recognition_cache_hit_count", 0
+                    )
+                    or 0
+                ),
+            )
+            metrics["candidate_recognition_cache_miss_count"] = max(
+                0,
+                int(
+                    candidate_processing_counts.get(
+                        "candidate_recognition_cache_miss_count", 0
+                    )
+                    or 0
+                ),
             )
             minimum_frozen_candidates = max(
                 0,
@@ -1113,6 +1145,8 @@ class RecommendationOrchestrator:
                     config,
                     policy_snapshot,
                     confirmed_memory,
+                    profile_preferences,
+                    playback_snapshot,
                 ),
                 previous_profile=None,
                 profile_preferences=profile_preferences.to_dict(),

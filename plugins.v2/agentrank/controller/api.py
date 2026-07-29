@@ -327,7 +327,7 @@ class AgentRankApiController:
         return queue
 
     def _conversation_service(self) -> ConversationService:
-        """返回运行时专属影评师对话服务或创建等价门面。"""
+        """返回运行时 CinePilot Agent 对话服务或创建等价门面。"""
         service = getattr(self.plugin, "_conversation", None)
         if service is None:
             from ..adapter.agent import AgentRankAgentAdapter
@@ -790,7 +790,7 @@ class AgentRankApiController:
         return self._success(record.to_dict())
 
     def conversation(self, profile_id: Any) -> Dict[str, Any]:
-        """返回一个 profile 的专属影评师对话线程。"""
+        """返回一个 profile 的 CinePilot Agent 对话线程。"""
         target = self._profile_id(profile_id)
         try:
             data = self._conversation_service().snapshot(target)
@@ -807,7 +807,7 @@ class AgentRankApiController:
     async def conversation_message(
         self, payload: Any, actor_id: str = ""
     ) -> Dict[str, Any]:
-        """保存并处理一条专属影评师对话消息。"""
+        """保存并排队一条 CinePilot Agent 对话消息。"""
         body = self._payload(payload)
         target = self._profile_id(body.get("profile_id"))
         try:
@@ -855,7 +855,7 @@ class AgentRankApiController:
         actor_id: str = "",
         is_superuser: bool = False,
     ) -> Dict[str, Any]:
-        """确认或拒绝一条专属影评师待确认命令。"""
+        """确认或拒绝一条 CinePilot Agent 待执行命令。"""
         body = self._payload(payload)
         target = self._profile_id(body.get("profile_id"))
         try:
@@ -917,7 +917,6 @@ class AgentRankApiController:
                 action=body.get("action"),
                 actor_id=actor_id,
                 is_superuser=bool(is_superuser),
-                reminder_policy=str(body.get("reminder_policy") or ""),
                 idempotency_key=str(body.get("idempotency_key") or ""),
                 option_id=str(body.get("option_id") or ""),
                 custom_answer=str(body.get("custom_answer") or ""),
@@ -1326,7 +1325,7 @@ class AgentRankApiController:
         profile_id: str = "",
         token_payload: schemas.TokenPayload = Depends(verify_token),
     ) -> Dict[str, Any]:
-        """FastAPI 专属影评师对话读取入口。"""
+        """FastAPI CinePilot Agent 对话读取入口。"""
         target = self._endpoint(self._authorize_profile, token_payload, profile_id)
         return self._endpoint(self.conversation, target)
 
@@ -1335,7 +1334,7 @@ class AgentRankApiController:
         payload: dict,
         token_payload: schemas.TokenPayload = Depends(verify_token),
     ) -> Dict[str, Any]:
-        """FastAPI 专属影评师消息入口。"""
+        """FastAPI CinePilot Agent 消息入口。"""
         self._endpoint(self._authorize_payload_profile, token_payload, payload)
         actor_id = self._endpoint(self._feedback_actor_id, token_payload)
         return await self._endpoint_async(self.conversation_message, payload, actor_id)
@@ -1345,7 +1344,7 @@ class AgentRankApiController:
         payload: dict,
         token_payload: schemas.TokenPayload = Depends(verify_token),
     ) -> Dict[str, Any]:
-        """FastAPI 专属影评师失败草稿重试入口。"""
+        """FastAPI CinePilot Agent 失败草稿重试入口。"""
         self._endpoint(self._authorize_payload_profile, token_payload, payload)
         actor_id = self._endpoint(self._feedback_actor_id, token_payload)
         return await self._endpoint_async(
@@ -1357,7 +1356,7 @@ class AgentRankApiController:
         payload: dict,
         token_payload: schemas.TokenPayload = Depends(verify_token),
     ) -> Dict[str, Any]:
-        """FastAPI 专属影评师命令确认或拒绝入口。"""
+        """FastAPI CinePilot Agent 命令确认或拒绝入口。"""
         self._endpoint(self._authorize_payload_profile, token_payload, payload)
         actor_id = self._endpoint(self._feedback_actor_id, token_payload)
         return self._endpoint(
@@ -1504,30 +1503,30 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
             ["POST"],
             "评论并修订 Agent 分析",
         ),
-        ("/conversation", controller.endpoint_conversation, ["GET"], "获取专属影评师对话"),
+        ("/conversation", controller.endpoint_conversation, ["GET"], "获取 CinePilot Agent 对话"),
         (
             "/conversation/messages",
             controller.endpoint_conversation_message,
             ["POST"],
-            "发送专属影评师消息",
+            "发送 CinePilot Agent 消息",
         ),
         (
             "/conversation/messages/retry",
             controller.endpoint_retry_conversation_message,
             ["POST"],
-            "重试专属影评师消息",
+            "重试 CinePilot Agent 消息",
         ),
         (
             "/conversation/commands/respond",
             controller.endpoint_respond_conversation_command,
             ["POST"],
-            "确认或拒绝专属影评师命令",
+            "确认或拒绝 CinePilot Agent 命令",
         ),
         (
             "/pending",
             controller.endpoint_pending_center,
             ["GET"],
-            "获取统一待确认中心",
+            "获取统一待处理中心",
         ),
         (
             "/pending/respond",

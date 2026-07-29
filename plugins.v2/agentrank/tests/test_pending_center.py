@@ -1,14 +1,14 @@
-"""统一待确认中心、提醒并发、响应脱敏与零隐式学习测试。"""
+"""统一待处理中心、响应脱敏与零隐式学习测试。"""
 
 import copy
 import importlib
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 
+import pytest
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 PACKAGE_NAME = "agentrank_pending_center_test"
@@ -40,6 +40,7 @@ ConversationService = conversation_module.ConversationService
 FeedbackResponseService = response_module.FeedbackResponseService
 MemoryProjectionService = projection_module.MemoryProjectionService
 PendingCenterService = pending_module.PendingCenterService
+PendingCenterError = pending_module.PendingCenterError
 DataLifecycleService = lifecycle_module.DataLifecycleService
 
 
@@ -152,16 +153,16 @@ def _proposal(repository, event):
     )
 
 
-def _question(repository, event):
+def _question(repository, event, question_id="question-1"):
     """创建一个带三个选项的待回答问询。"""
     return repository.append_pending_question(
         PendingQuestion(
-            question_id="question-1",
+            question_id=question_id,
             profile_id=PROFILE_ID,
             event_id=event.event_id,
             event_sequence=event.sequence,
             candidate_id=event.candidate_id,
-            understanding_record_id="understanding-2",
+            understanding_record_id=f"understanding:{question_id}",
             question="你更喜欢这部作品的节奏、人物还是世界观？",
             options=(
                 PendingQuestionOption("pace", "节奏"),
@@ -249,20 +250,12 @@ def test_center_aggregates_three_types_without_actor_or_evidence_leak():
     assert center.list_pending(PROFILE_ID, actor_id="other")["counts"]["command"] == 0
 
 
-def test_question_answer_and_reminders_never_return_raw_event_or_implicitly_learn():
-    """稍后、不提醒和回答仅改变待确认事实，不隐式写入长期记忆。"""
+def test_question_answer_and_close_never_return_raw_event_or_implicitly_learn():
+    """提交回答与关闭问询只改变待处理事实，不隐式写入长期记忆。"""
     _, repository, _, queue, center = _services()
     question = _question(repository, _event(repository, "q-event", "tmdb:2"))
     before = repository.load_preference_memory(PROFILE_ID)
 
-    reminded = center.respond(
-        profile_id=PROFILE_ID,
-        item_type="question",
-        item_id=question.question_id,
-        action="remind",
-        reminder_policy="in_3_days",
-        actor_id="mp-user-1",
-    )
     answered = center.respond(
         profile_id=PROFILE_ID,
         item_type="question",
@@ -272,10 +265,22 @@ def test_question_answer_and_reminders_never_return_raw_event_or_implicitly_lear
         idempotency_key="answer-question-1",
         actor_id="mp-user-1",
     )
+    closing = _question(
+        repository,
+        _event(repository, "q-close-event", "tmdb:3"),
+        question_id="question-2",
+    )
+    closed = center.respond(
+        profile_id=PROFILE_ID,
+        item_type="question",
+        item_id=closing.question_id,
+        action="close",
+        actor_id="mp-user-1",
+    )
 
-    assert reminded["item"]["reminder_policy"] == "in_3_days"
     assert answered["item"]["status"] == "answered"
     assert answered["queue_status"] == "queued"
+    assert closed["item"]["status"] == "dismissed"
     assert "event" not in answered
     rendered = str(answered)
     assert "created_by_mp_user_id" not in rendered
@@ -303,53 +308,31 @@ def test_proposal_confirmation_is_explicit_and_rejection_writes_no_memory():
     assert repository.load_preference_memory(PROFILE_ID).memory_revision == 1
 
 
-def test_three_types_due_reminders_are_claimed_once_under_concurrency():
-    """提案、问询和命令提醒在并发领取时各自最多出现一次。"""
-    _, repository, clock, _, center = _services()
+def test_pending_center_rejects_removed_reminder_action_and_has_no_claim_api():
+    """统一待处理中心不接受提醒动作，也不暴露到期领取入口。"""
+    _, repository, _, _, center = _services()
     proposal = _proposal(repository, _event(repository, "p-event", "tmdb:1"))
-    question = _question(repository, _event(repository, "q-event", "tmdb:2"))
-    command = _command(repository)
-    for item_type, item_id in (
-        ("proposal", proposal.proposal_id),
-        ("question", question.question_id),
-        ("command", command.command_id),
-    ):
+    before = repository.load_preference_memory(PROFILE_ID)
+
+    with pytest.raises(PendingCenterError) as caught:
         center.respond(
             profile_id=PROFILE_ID,
-            item_type=item_type,
-            item_id=item_id,
+            item_type="proposal",
+            item_id=proposal.proposal_id,
             action="remind",
-            reminder_policy="in_1_day",
             actor_id="mp-user-1",
         )
-    clock.advance(days=1)
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        batches = list(executor.map(lambda _: center.claim_due_notices(PROFILE_ID), range(8)))
-    notices = [item for batch in batches for item in batch]
-
-    assert {(item.item.item_type, item.item.item_id) for item in notices} == {
-        ("proposal", proposal.proposal_id),
-        ("question", question.question_id),
-        ("command", command.command_id),
-    }
-    assert len(notices) == 3
-    assert center.claim_due_notices(PROFILE_ID) == []
-    assert repository.load_preference_memory(PROFILE_ID).memory_revision == 0
+    assert caught.value.code == "pending_action_invalid"
+    assert not hasattr(center, "claim_due_notices")
+    assert repository.get_memory_proposal(PROFILE_ID, proposal.proposal_id).status == "pending_confirmation"
+    assert repository.load_preference_memory(PROFILE_ID) == before
 
 
-def test_export_keeps_command_reminder_audit_without_requester_identity():
-    """脱敏导出保留提醒策略，但不导出命令请求者或 Telegram 会话。"""
-    plugin, repository, _, _, center = _services()
-    command = _command(repository)
-    center.respond(
-        profile_id=PROFILE_ID,
-        item_type="command",
-        item_id=command.command_id,
-        action="remind",
-        reminder_policy="in_7_days",
-        actor_id="mp-user-1",
-    )
+def test_export_omits_command_reminder_fields_and_requester_identity():
+    """脱敏导出不暴露旧提醒字段、命令请求者或 Telegram 会话。"""
+    plugin, repository, _, _, _ = _services()
+    _command(repository)
 
     exported = DataLifecycleService(repository, plugin._config).export_profile(
         PROFILE_ID
@@ -357,7 +340,8 @@ def test_export_keeps_command_reminder_audit_without_requester_identity():
     rendered = str(exported)
     exported_command = exported["conversation"]["commands"][0]
 
-    assert exported_command["reminder_policy"] == "in_7_days"
-    assert exported_command["next_remind_at"]
+    assert "reminder_policy" not in exported_command
+    assert "next_remind_at" not in exported_command
+    assert "last_reminded_at" not in exported_command
     assert "requested_by_mp_user_id" not in rendered
     assert "telegram_pending_sessions" not in rendered

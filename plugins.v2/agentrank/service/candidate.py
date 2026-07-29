@@ -458,6 +458,23 @@ class CandidateCollectionService:
             0, int((time.monotonic() - stage_clock) * 1000)
         )
         processing_counts["recognition_input"] = len(pre_recognition)
+        cache_hit_count = 0
+        for index, source in enumerate(pre_recognition):
+            recognized = (
+                recognized_items[index] if index < len(recognized_items) else None
+            )
+            cache_hit = False
+            for value in (source, recognized):
+                metadata = getattr(value, "metadata", None)
+                if not isinstance(metadata, dict):
+                    continue
+                cache_hit = metadata.pop("_recognize_cache_hit", None) is True or cache_hit
+            if cache_hit:
+                cache_hit_count += 1
+        processing_counts["candidate_recognition_cache_hit_count"] = cache_hit_count
+        processing_counts["candidate_recognition_cache_miss_count"] = max(
+            0, len(pre_recognition) - cache_hit_count
+        )
 
         normalized_candidates: List[Candidate] = []
         by_id: Dict[str, Candidate] = {}

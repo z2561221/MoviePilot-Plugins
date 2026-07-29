@@ -268,13 +268,13 @@ const promptDefinitions = [
   { key: 'profile_prompt', title: '画像理解规则', icon: 'mdi-account-search-outline', purpose: '控制 Agent 如何从播放事实和人工标签归纳稳定偏好与观看动机。' },
   { key: 'ranking_prompt', title: '榜单推荐策略', icon: 'mdi-sort-variant', purpose: '控制冻结候选池内的相关性、新鲜感、多样性和最终排序。' },
   { key: 'copy_prompt', title: '推荐文案风格', icon: 'mdi-text-box-edit-outline', purpose: '控制推荐理由和作品简介的表达风格，不改变候选和安全校验。' },
-  { key: 'critic_prompt', title: '影评师扩展提示词', icon: 'mdi-message-text-outline', purpose: '控制反馈理解、逐条评论和对话的表达重点；不能覆盖人设、安全边界和写操作确认。' },
+  { key: 'critic_prompt', title: 'CinePilot Agent 扩展提示词', icon: 'mdi-message-text-outline', purpose: '控制反馈理解、逐条评论和对话的表达重点；不能覆盖人设、安全边界和写操作确认。' },
 ];
 const retentionDefinitions = [
   { key: 'candidate_snapshot_limit', title: '候选快照', hint: '每个画像保留的冻结候选批次', max: 500 },
   { key: 'feedback_event_limit', title: '反馈事件', hint: '喜欢、不喜欢、忽略和评论事实', max: 100000 },
   { key: 'feedback_queue_limit', title: '理解队列', hint: '待处理、重试和失败任务', max: 100000 },
-  { key: 'conversation_message_limit', title: '对话消息', hint: '专属影评师会话消息', max: 100000 },
+  { key: 'conversation_message_limit', title: '对话消息', hint: 'CinePilot Agent 会话消息', max: 100000 },
   { key: 'attribution_record_limit', title: '结果归因', hint: '订阅、入库和播放观察', max: 100000 },
   { key: 'analysis_record_limit', title: '分析记录', hint: '结构化推荐分析与修订', max: 100000 },
 ];
@@ -2399,7 +2399,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode(_component_VCardText, null, {
               default: _withCtx(() => [
-                _createTextVNode(" 将清除“" + _toDisplayString(selectedIdentity.value?.username || selectedProfileId.value) + "”的反馈学习、已确认记忆、待确认项、影评师对话和结果归因。当前画像、榜单、忽略归档、人工标签与播放记录会保留。 ", 1)
+                _createTextVNode(" 将清除“" + _toDisplayString(selectedIdentity.value?.username || selectedProfileId.value) + "”的反馈学习、已确认记忆、待处理项、CinePilot Agent 对话和结果归因。当前画像、榜单、忽略归档、人工标签与播放记录会保留。 ", 1)
               ]),
               _: 1
             }),
@@ -2547,6 +2547,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2eaef4b0"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c3990ef1"]]);
 
 export { Config as default };

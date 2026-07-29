@@ -597,7 +597,7 @@ def test_pending_question_buttons_answer_directly_and_reject_wrong_user():
         item_type="question",
         item_id="question-1",
         profile_id="alice",
-        title="专属影评师需要你确认",
+        title="CinePilot Agent 需要你确认",
         summary="你更喜欢人物、节奏还是世界观？",
         created_at="2026-07-18T00:00:00+00:00",
         status="pending",
@@ -617,7 +617,8 @@ def test_pending_question_buttons_answer_directly_and_reject_wrong_user():
     ) is True
     first = plugin.messages[-1]
     rendered = str(first)
-    assert "人物" in rendered and "1 天后" in rendered and "不提醒" in rendered
+    assert "人物" in rendered and "关闭问询" in rendered
+    assert "1 天后" not in rendered and "不提醒" not in rendered
     assert "打开详情" in rendered
     assert "mp-user-1" not in rendered
     assert "profile_id" not in rendered
@@ -638,7 +639,7 @@ def test_pending_question_buttons_answer_directly_and_reject_wrong_user():
 
 
 def test_pending_superuser_command_never_offers_direct_confirmation():
-    """需要管理员的全局权重命令只提供提醒和详情入口。"""
+    """需要管理员的全局权重命令不在 Telegram 提供直接确认。"""
     center = FakePendingCenter()
     plugin, _, _, service, _ = _service(pending_center=center)
     notice = PendingNotice(
@@ -662,8 +663,8 @@ def test_pending_superuser_command_never_offers_direct_confirmation():
     assert "需要管理员" in plugin.messages[-1]["text"]
 
 
-def test_pending_reminder_button_maps_exact_three_day_policy():
-    """Telegram 三天后按钮准确映射统一中心提醒策略。"""
+def test_legacy_pending_reminder_callback_is_ignored_without_state_change():
+    """旧提醒回调不再映射任何动作，也不改变待处理会话状态。"""
     center = FakePendingCenter()
     plugin, repository, _, service, _ = _service(pending_center=center)
     notice = PendingNotice(
@@ -680,9 +681,9 @@ def test_pending_reminder_button_maps_exact_three_day_policy():
     )
     service.start_pending(username="alice", notice=notice)
 
-    service.handle_callback(_pending_event("3"))
+    handled = service.handle_callback(_pending_event("3"))
 
-    assert center.calls[0]["action"] == "remind"
-    assert center.calls[0]["reminder_policy"] == "in_3_days"
-    assert repository.load_telegram_pending_session("token123").status == "scheduled"
-    assert "3 天后" in plugin.messages[-1]["text"]
+    assert handled is False
+    assert center.calls == []
+    assert repository.load_telegram_pending_session("token123").status == "open"
+    assert "天后" not in str(plugin.messages[-1])

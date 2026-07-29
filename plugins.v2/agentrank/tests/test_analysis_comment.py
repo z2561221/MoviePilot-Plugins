@@ -296,7 +296,7 @@ def test_understood_comment_supersedes_analysis_without_changing_support_or_memo
 
 
 def test_ambiguous_comment_creates_question_without_revising_analysis():
-    """含义不明的评论进入待确认问询，不静默修改分析或长期画像。"""
+    """含义不明的评论进入整体偏好问询，不静默修改分析或长期画像。"""
     _plugin, repository, original = _seed()
     submitted = _submit(repository, comment="这里不对")
     before_memory = repository.load_preference_memory(PROFILE_ID)
@@ -323,7 +323,9 @@ def test_ambiguous_comment_creates_question_without_revising_analysis():
     assert board.revision == 1
     assert len(questions) == 1
     assert questions[0].event_id == submitted.event.event_id
-    assert "修正" in questions[0].question
+    assert questions[0].question == "平时挑选影视内容时，你通常最先看重什么？"
+    assert questions[0].preference_dimension == "selection_basis"
+    assert questions[0].exploration_level == 0
     assert repository.load_preference_memory(PROFILE_ID) == before_memory
 
 

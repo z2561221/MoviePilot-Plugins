@@ -121,6 +121,7 @@ class FakeCandidateService:
             for index in range(1, count + 1)
         ]
         self.minimum_frozen_candidates = None
+        self.processing_counts = {}
 
     def collect_and_freeze(
         self,
@@ -150,6 +151,7 @@ class FakeCandidateService:
             rejected_sources=[],
             rejected_count=0,
             request_recipes=[],
+            processing_counts=dict(self.processing_counts),
         )
         if self.minimum_frozen_candidates is not None:
             values["minimum_frozen_candidates"] = self.minimum_frozen_candidates
@@ -341,6 +343,10 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert ranking_weights["policy_version"].startswith("policy-v1-")
     assert len(ranking_weights["weights"]) == 10
     assert ranking_weights["base_weights"]["rating_weight"] == 0.7
+    assert {
+        (item["dimension"], item["value"], item["evidence_count"])
+        for item in ranking_weights["evidence_catalog"]
+    } >= {("type", "movie", 5), ("theme", "悬疑", 5)}
     assert orchestrator._candidate_service.retrieval_plan.filters.genre_ids == (80,)
     assert [item.tmdb_id for item in orchestrator._candidate_service.playback_samples] == [
         "1",
@@ -480,6 +486,11 @@ def test_main_ranking_uses_three_reserves_but_persists_only_top_five():
         ],
     )
     orchestrator._candidate_service.candidates[7].regions = ["法国"]
+    orchestrator._candidate_service.processing_counts = {
+        "recognition_input": 12,
+        "candidate_recognition_cache_hit_count": 3,
+        "candidate_recognition_cache_miss_count": 9,
+    }
     repository.save_profile_preferences(
         ProfilePreferences(profile_id=PROFILE_ID, custom_tags=["法国"])
     )
@@ -506,6 +517,9 @@ def test_main_ranking_uses_three_reserves_but_persists_only_top_five():
         "agent": 5,
         "safe_fallback": 0,
     }
+    assert history.metrics["candidate_recognition_cache_hit_count"] == 3
+    assert history.metrics["candidate_recognition_cache_miss_count"] == 9
+    assert history.metrics["candidate_processing_counts"]["recognition_input"] == 12
 
 
 def test_fewer_than_twenty_frozen_candidates_skips_ranking_agent():

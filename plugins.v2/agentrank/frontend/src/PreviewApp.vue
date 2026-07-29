@@ -136,22 +136,22 @@ const conversationCommands = ref([{
 }])
 const pendingItems = ref([
   {
-    item_type: 'proposal', item_id: 'preview-proposal-1', title: '确认专属影评师的新理解',
+    item_type: 'proposal', item_id: 'preview-proposal-1', title: '确认 CinePilot Agent 的新理解',
     summary: '你更重视悬疑作品的推理闭环，而不是单纯追求反转数量。',
     detail_lines: ['加强“推理闭环”偏好', '轻微削弱“高密度反转”偏好'],
-    created_at: '2026-07-12T10:30:00+08:00', status: 'pending_confirmation', reminder_policy: 'unselected',
+    created_at: '2026-07-12T10:30:00+08:00', status: 'pending_confirmation',
   },
   {
-    item_type: 'question', item_id: 'preview-question-1', title: '专属影评师需要你确认',
-    summary: '你不喜欢这部作品，主要是因为节奏还是人物塑造？',
-    detail_lines: ['当前反馈不足以形成稳定负向偏好'],
-    options: [{ option_id: 'pace', label: '节奏拖沓' }, { option_id: 'character', label: '人物单薄' }],
-    allow_custom_answer: true, created_at: '2026-07-12T10:31:00+08:00', status: 'pending', reminder_policy: 'unselected',
+    item_type: 'question', item_id: 'preview-question-1', title: 'CinePilot Agent 需要你的回答',
+    summary: '平时挑选影视内容时，你通常最先看重什么？',
+    detail_lines: ['当前整体偏好仍有高价值信息缺口'],
+    options: [{ option_id: 'theme', label: '题材与设定' }, { option_id: 'pace', label: '叙事节奏' }, { option_id: 'character', label: '人物关系' }],
+    allow_custom_answer: true, created_at: '2026-07-12T10:31:00+08:00', status: 'pending',
   },
   {
     item_type: 'command', item_id: 'preview-command-1', title: '归档偏好标签',
     summary: '将“高口碑”从稳定偏好移入归档，后续不再用于排序。',
-    created_at: '2026-07-12T10:32:00+08:00', status: 'pending_confirmation', reminder_policy: 'unselected',
+    created_at: '2026-07-12T10:32:00+08:00', status: 'pending_confirmation',
   },
 ])
 
@@ -337,9 +337,7 @@ const api = {
       return { data: { success: true, data: { changed: true } } }
     }
     if (path.endsWith('pending/respond')) {
-      if (!(payload.action === 'remind' && payload.reminder_policy !== 'never')) {
-        pendingItems.value = pendingItems.value.filter(item => item.item_id !== payload.item_id)
-      }
+      pendingItems.value = pendingItems.value.filter(item => item.item_id !== payload.item_id)
       return { data: { success: true, data: { changed: true } } }
     }
     if (path.endsWith('profile/tags')) {

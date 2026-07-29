@@ -7,7 +7,7 @@
     "overall": "in_progress",
     "phase": "phase-8",
     "task": "8.2",
-    "next_allowed_action": "Execute task 8.2: sync AgentRank to the MoviePilot local source and run the real five-item feedback loop"
+    "next_allowed_action": "Execute task 8.2: converge the confirmed trial feedback, run focused tests and evals, build Vue assets, and commit only the verified AgentRank change set"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -605,7 +605,7 @@
     },
     {
       "id": "phase-6",
-      "title": "评论、专属影评师对话、待确认与结果归因",
+      "title": "评论、CinePilot Agent对话、待处理与结果归因",
       "status": "completed",
       "goal": "闭合纠正、对话、确认和真实结果反馈",
       "acceptance": [
@@ -644,9 +644,9 @@
         },
         {
           "id": "6.2",
-          "title": "实现专属影评师对话服务",
+          "title": "实现CinePilot Agent对话服务",
           "status": "completed",
-          "acceptance": ["只读上下文最小化", "全部写操作返回待确认命令"],
+          "acceptance": ["只读上下文最小化", "全部写操作返回待处理命令"],
           "verification": [
             "ConversationThread, ConversationMessage, and ConversationCommand enforce profile and thread scope, bounded text, strict status transitions, exact command payload schemas, and public views without actor or idempotency fields",
             "the independent conversation Agent role uses its own private session and exactly six explicitly registered read-only tools for current conversation, bounded playback, current-board candidates, structured analyses, confirmed memory, and pending summaries",
@@ -666,7 +666,7 @@
         },
         {
           "id": "6.3",
-          "title": "实现待确认中心与提醒",
+          "title": "实现待处理中心与旧提醒（提醒由Task 8.2移除）",
           "status": "completed",
           "acceptance": ["可答复拒绝稍后和不提醒", "支持交互的渠道直接提供选项", "榜单通知保持榜首海报整齐五条和订阅交互", "通知不暴露画像全文"],
           "verification": [
@@ -722,7 +722,7 @@
       "id": "phase-7",
       "title": "四个Vue表面、移动端与端到端验收",
       "status": "completed",
-      "goal": "在全部表面交付一致且可用的专属影评师体验",
+      "goal": "在全部表面交付一致且可用的CinePilot Agent体验",
       "acceptance": [
         "联邦构建和四expose正常",
         "三个视口无重叠溢出丢字",
@@ -790,7 +790,7 @@
         },
         {
           "id": "7.4",
-          "title": "集成分析评论对话待确认UI",
+          "title": "集成分析评论对话待处理UI",
           "status": "completed",
           "acceptance": ["桌面紧凑窗口", "移动全屏对话", "可稍后继续回答"],
           "verification": [
@@ -853,6 +853,7 @@
       "goal": "在用户授权下完成v1.0.0可复核发布",
       "acceptance": [
         "全量测试构建扫描通过",
+        "试用反馈收束且无旧提醒行为",
         "MP本地真实五条反馈闭环通过",
         "分支提交和路径纯净",
         "用户授权后main tag Release zip一致"
@@ -860,7 +861,10 @@
       "acceptance_evidence": [
         "Task 8.1 quality gate passed on commit 9f2f1cf5: 621 plugin tests, 30 static contracts, and 137 Agent/eval tests",
         "compileall, Vite 5.4.21 build with 75 transformed modules, four remote exposes, and JSON parsing all passed",
-        "git diff --check passed; privacy scan found zero personal paths, usernames, private addresses, API-key prefixes, JWTs, or credential URLs"
+        "git diff --check passed; privacy scan found zero personal paths, usernames, private addresses, API-key prefixes, JWTs, or credential URLs",
+        "2026-07-29 pre-change runtime probe: AgentRank is enabled and local at v1.0.0; Win and MP-local adapter/media.py share SHA256 3911B583553FA350976FE647637E7A677F8AB26A64C9F6E4287AD4CA79B61DB1",
+        "controlled run 3ccb4c06bc064fb1895c42cf5cea2708 succeeded with 63 recognition inputs, 60 recognized items, 38 safe candidates, 5 final recommendations, and 30.744s recognition time",
+        "post-clear MoviePilot probe recognized Inception normally, then logged '使用TMDB识别缓存：盗梦空间' on the repeated call; observed wall time fell from 6091ms to 329ms"
       ],
       "tasks": [
         {
@@ -881,14 +885,43 @@
         },
         {
           "id": "8.2",
-          "title": "同步MP本地并运行真实闭环",
+          "title": "收束试用反馈并完成代码门禁",
           "status": "pending",
-          "acceptance": ["SHA一致并reload成功", "history版本历史is_local一致", "五条榜单和反馈闭环持久"],
+          "acceptance": [
+            "发现页与详情页完全复用Page.vue且均可执行全部操作",
+            "操作顺序固定且喜欢不喜欢使用统一图标文字尺寸tonal样式",
+            "所有用户可见名称均为CinePilot Agent且内部conversation契约不迁移",
+            "消息立即受理并具备profile串行processing恢复幂等防重以及90秒后端100秒前端有界失败",
+            "429仅在总时限内退避重试且超限落为可重试失败",
+            "命令记忆问询文案分别收敛为确认拒绝执行确认拒绝采纳提交回答关闭问询",
+            "动态问询面向整体偏好从宽到细且支持2至5个动态选项和自定义回答",
+            "前端API Telegram后台调度均无问询提醒且旧字段仅兼容读取",
+            "复用MoviePilot MediaChain TmdbChain缓存并记录候选级candidate_recognition_cache_hit_count和candidate_recognition_cache_miss_count",
+            "相关pytest eval Vue build资产闭包静态扫描和git diff check通过",
+            "不修改版本history且仅提交当前工作单元路径"
+          ],
           "verification": [],
           "commit": null
         },
         {
           "id": "8.3",
+          "title": "同步MP本地并运行真实闭环",
+          "status": "pending",
+          "acceptance": [
+            "SHA一致并reload成功",
+            "history版本历史is_local一致",
+            "五条榜单和反馈闭环持久",
+            "发现页详情页即时对话动态问询无提醒均通过实机验收",
+            "运行历史候选级缓存命中未命中计数之和与识别输入一致",
+            "390x844 768x1024 1440x900无溢出且控制台干净"
+          ],
+          "verification": [
+            "pre-change runtime connectivity and cache reuse are proven by the 2026-07-29 evidence recorded at phase level; repeat the complete runtime gate after Task 8.2 code is synced"
+          ],
+          "commit": null
+        },
+        {
+          "id": "8.4",
           "title": "审计分支和整理发布元数据",
           "status": "pending",
           "acceptance": ["release workflow只监听main", "独有提交和路径仅AgentRank范围", "版本三处均为1.0.0"],
@@ -896,7 +929,7 @@
           "commit": null
         },
         {
-          "id": "8.4",
+          "id": "8.5",
           "title": "生成发布preview并等待push授权",
           "status": "pending",
           "acceptance": ["preview仅一次且范围正确", "用户明确授权push前不写远端"],
@@ -904,7 +937,7 @@
           "commit": null
         },
         {
-          "id": "8.5",
+          "id": "8.6",
           "title": "等待合入发布授权并执行发布",
           "status": "pending",
           "acceptance": ["使用真实merge commit", "Action tag Release zip成功", "相同门禁失败两次即停止"],
@@ -912,7 +945,7 @@
           "commit": null
         },
         {
-          "id": "8.6",
+          "id": "8.7",
           "title": "回读远端并完成目标",
           "status": "pending",
           "acceptance": ["远端main package plugin Release均为1.0.0", "保留MP本地源和业务分支", "记录最终残余风险"],
@@ -932,6 +965,16 @@
       "date": "2026-07-28",
       "decision": "只有产品决策、push、合入main和发布暂停",
       "source": "用户目标与仓库门禁"
+    },
+    {
+      "date": "2026-07-29",
+      "decision": "V5试用反馈采用Page.vue完全复用、固定动作顺序、CinePilot Agent即时对话、动态整体偏好问询并完整移除问询提醒",
+      "source": "用户逐项确认并授权更新计划书"
+    },
+    {
+      "date": "2026-07-29",
+      "decision": "榜单识别继续复用MoviePilot MediaChain与TmdbChain缓存并新增命中未命中指标，不创建插件持久化识别缓存",
+      "source": "源码审计与MP本地运行态缓存探针"
     }
   ],
   "turn_log": [
@@ -1132,12 +1175,20 @@
       "task": "8.1",
       "result": "full quality and privacy gates passed after isolating FastAPI exception stubs, replacing personal environment samples, and making preview confirmation tokens runtime-generated",
       "commit": "9f2f1cf5"
+    },
+    {
+      "date": "2026-07-29",
+      "task": "plan-v5",
+      "result": "confirmed trial feedback and MoviePilot cache evidence were mapped into new Task 8.2; former Tasks 8.2 through 8.6 were shifted to 8.3 through 8.7 without changing completed implementation history",
+      "commit": null
     }
   ],
   "residual_risks": [
     "目标发布日期紧，任何高严重度权限数据隐私问题优先于日期",
     "真实用户口味只能通过证据规则和反馈评估逼近，不能声称绝对正确",
     "MoviePilot或Agent Tokens运行时更新可能造成宿主契约漂移",
-    "独立验收夹具未加载MoviePilot宿主MDI字体，图标最终绘制需在Phase 7运行中MP复核"
+    "动态问询若缺少信息增益和冷却约束会造成重复打扰或偏好过拟合",
+    "429和上游慢响应必须共享90秒后端总预算，重试不得重置总计时器",
+    "独立验收夹具未加载MoviePilot宿主MDI字体，图标最终绘制需在Task 8.3运行中MP复核"
   ]
 }

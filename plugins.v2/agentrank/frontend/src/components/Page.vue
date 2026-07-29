@@ -10,6 +10,7 @@ import RecommendationActions from './RecommendationActions.vue'
 const props = defineProps({
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
+  showClose: { type: Boolean, default: true },
 })
 const emit = defineEmits(['action', 'switch', 'close'])
 const state = useAgentRankState(props.api)
@@ -127,6 +128,24 @@ const rankingFallbackReasonLabels = {
   refill_validation_failed: '补选格式失败',
   refill_insufficient: '补选数量不足',
   ranking_insufficient: '排序数量不足',
+}
+const historyValidationDropLabels = {
+  unknown_candidate: '候选不在冻结池',
+  duplicate_candidate: '候选重复',
+  disliked_candidate: '已点踩',
+  archived_candidate: '已忽略',
+  subscribed_candidate: '已订阅',
+  legacy_evidence_schema: '仍使用旧支持度字段',
+  invalid_confidence: '支持度无效',
+  summary_too_long: '简介超过30字',
+  reason_too_long: '推荐理由超过30字',
+  invalid_summary: '简介语义不完整',
+  invalid_reason: '推荐理由不可信',
+  ambiguous_playback_count: '播放次数误写为看完次数',
+  unsupported_playback_claim: '观看经历无法回溯',
+  unsupported_candidate_claim: '作品信息无法回溯',
+  insufficient_match_evidence: '具体匹配证据不足',
+  insufficient_verified_evidence: '可验证正向证据不足',
 }
 const historyAgentStageLabels = {
   profile: '画像',
@@ -323,6 +342,25 @@ function historyRankingText(run) {
   if (!Number.isFinite(valid)) return '未记录'
   return `校验通过 ${valid} 条；备用 ${Number.isFinite(reserve) ? reserve : 0} 条；补选 ${refill} 次${fallback ? `；保底 ${fallback} 条（${fallbackReason}）` : ''}`
 }
+function historyValidationDropText(run) {
+  const summarize = values => {
+    if (!Array.isArray(values) || !values.length) return ''
+    const counts = new Map()
+    values.forEach(value => {
+      const code = String(value || '').trim()
+      if (code) counts.set(code, (counts.get(code) || 0) + 1)
+    })
+    return [...counts.entries()]
+      .map(([code, count]) => `${historyValidationDropLabels[code] || '其他校验原因'} ${count}`)
+      .join('、')
+  }
+  const initial = summarize(run?.metrics?.validation_drops)
+  const refill = summarize(run?.metrics?.refill_drops)
+  const parts = []
+  if (initial) parts.push(`首轮：${initial}`)
+  if (refill) parts.push(`补选：${refill}`)
+  return parts.join('；') || '无'
+}
 function historySelectionSourceText(run) {
   const metrics = run?.metrics || {}
   const counts = metrics.selection_source_counts || {}
@@ -442,12 +480,12 @@ onMounted(initialize)
         aria-label="刷新详情"
         @click="runAction(state.refresh, '榜单刷新已完成')"
       />
-      <VBtn icon="mdi-forum-outline" variant="text" aria-label="打开专属影评师" @click="criticDialog = true" />
+      <VBtn icon="mdi-forum-outline" variant="text" aria-label="打开 CinePilot Agent" @click="criticDialog = true" />
       <VBadge :content="state.pendingCenter.value?.total || 0" :model-value="Boolean(state.pendingCenter.value?.total)" color="warning" class="ar-page__pending-badge">
-        <VBtn icon="mdi-inbox-outline" variant="text" aria-label="打开待确认中心" @click="pendingDialog = true" />
+        <VBtn icon="mdi-inbox-outline" variant="text" aria-label="打开待处理中心" @click="pendingDialog = true" />
       </VBadge>
-      <VBtn icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="emit('switch')" />
-      <VBtn icon="mdi-close" variant="text" aria-label="关闭详情" class="me-2" @click="emit('close')" />
+      <VBtn icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="emit('switch', state.options.value?.config || {})" />
+      <VBtn v-if="showClose" icon="mdi-close" variant="text" aria-label="关闭详情" class="me-2" @click="emit('close')" />
     </VToolbar>
     <VDivider />
 
@@ -540,7 +578,6 @@ onMounted(initialize)
                 </div>
               </div>
               <div class="ar-page__rank-actions">
-                <VChip size="x-small" color="primary" variant="tonal" class="ar-page__support">{{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
                 <VTooltip text="查看 Agent 分析">
                   <template #activator="{ props: tooltipProps }">
                     <VBtn
@@ -554,6 +591,7 @@ onMounted(initialize)
                     />
                   </template>
                 </VTooltip>
+                <VChip size="x-small" color="primary" variant="tonal" class="ar-page__support">{{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
                 <RecommendationActions
                   :item="item"
                   :loading-action="state.loading.action"
@@ -751,6 +789,7 @@ onMounted(initialize)
                   <div><span>候选耗时</span><span>{{ historyCandidateTimingText(run) }}</span></div>
                   <div><span>候选处理</span><span>{{ historyCandidateProcessingText(run) }}</span></div>
                   <div><span>排序校验</span><span>{{ historyRankingText(run) }}</span></div>
+                  <div><span>校验丢弃</span><span>{{ historyValidationDropText(run) }}</span></div>
                   <div><span>选择来源</span><span>{{ historySelectionSourceText(run) }}</span></div>
                   <div><span>候选排除</span><span>{{ historyExclusionText(run) }}</span></div>
                 </div>
@@ -772,7 +811,7 @@ onMounted(initialize)
       @submitted="showFeedbackResult('评论已记录，Agent 将异步重新理解')"
     />
     <CriticChatDialog v-model="criticDialog" :state="state" @pending-change="state.loadPendingCenter" />
-    <PendingConfirmations v-model="pendingDialog" :state="state" @changed="showFeedbackResult('待确认项目已更新')" />
+    <PendingConfirmations v-model="pendingDialog" :state="state" @changed="showFeedbackResult('待处理项目已更新')" />
 
     <VSnackbar v-model="snackbar.show" :color="snackbar.color">{{ snackbar.message }}</VSnackbar>
   </div>

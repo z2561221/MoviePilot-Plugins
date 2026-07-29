@@ -137,44 +137,6 @@ async function handleSubscribe() {
 
 <template>
   <div class="ar-actions" role="group" :aria-label="`${item.title} 操作`">
-    <div class="ar-actions__feedback-group" role="group" :aria-label="`${item.title} 喜好反馈`" :aria-busy="likeLoading || dislikeLoading ? 'true' : 'false'">
-      <VTooltip :text="likePressed ? '已喜欢' : '喜欢'" location="top">
-        <template #activator="{ props: tooltipProps }">
-          <VBtn
-            v-bind="tooltipProps"
-            :icon="likePressed ? 'mdi-thumb-up' : 'mdi-thumb-up-outline'"
-            :size="size"
-            :variant="likePressed ? 'tonal' : 'text'"
-            :color="likePressed ? 'primary' : undefined"
-            class="ar-actions__feedback-button"
-            :class="{ 'ar-actions__feedback-button--pressed': likePressed }"
-            :loading="likeLoading"
-            :disabled="actionBusy && !likeLoading"
-            :aria-label="likePressed ? '已喜欢' : '喜欢'"
-            :aria-pressed="likePressed ? 'true' : 'false'"
-            @click="emit('like', item.candidate_id)"
-          />
-        </template>
-      </VTooltip>
-      <VTooltip :text="dislikePressed ? '已不喜欢' : '不喜欢'" location="top">
-        <template #activator="{ props: tooltipProps }">
-          <VBtn
-            v-bind="tooltipProps"
-            :icon="dislikePressed ? 'mdi-thumb-down' : 'mdi-thumb-down-outline'"
-            :size="size"
-            :variant="dislikePressed ? 'tonal' : 'text'"
-            :color="dislikePressed ? 'primary' : undefined"
-            class="ar-actions__feedback-button"
-            :class="{ 'ar-actions__feedback-button--pressed': dislikePressed }"
-            :loading="dislikeLoading"
-            :disabled="actionBusy && !dislikeLoading"
-            :aria-label="dislikePressed ? '已不喜欢' : '不喜欢'"
-            :aria-pressed="dislikePressed ? 'true' : 'false'"
-            @click="emit('dislike', item.candidate_id)"
-          />
-        </template>
-      </VTooltip>
-    </div>
     <VTooltip text="订阅" location="top">
       <template #activator="{ props: tooltipProps }">
         <VBtn v-bind="tooltipProps" :size="size" variant="tonal" color="primary" class="ar-actions__button text-none" prepend-icon="mdi-bookmark-plus-outline" :loading="loadingAction === 'subscribe' || nativeSubscribePending" :disabled="actionBusy && loadingAction !== 'subscribe'" aria-label="订阅" @click="handleSubscribe"><span class="ar-actions__label">订阅</span></VBtn>
@@ -190,15 +152,46 @@ async function handleSubscribe() {
         <VBtn v-bind="tooltipProps" :size="size" variant="tonal" color="default" class="ar-actions__button text-none" prepend-icon="mdi-eye-off-outline" :loading="loadingAction === 'archive'" :disabled="actionBusy && loadingAction !== 'archive'" aria-label="忽略" @click="emit('archive', item.candidate_id)"><span class="ar-actions__label">忽略</span></VBtn>
       </template>
     </VTooltip>
+    <VTooltip :text="likePressed ? '已喜欢' : '喜欢'" location="top">
+      <template #activator="{ props: tooltipProps }">
+        <VBtn
+          v-bind="tooltipProps"
+          :size="size"
+          variant="tonal"
+          :color="likePressed ? 'primary' : 'default'"
+          class="ar-actions__button text-none"
+          :prepend-icon="likePressed ? 'mdi-thumb-up' : 'mdi-thumb-up-outline'"
+          :loading="likeLoading"
+          :disabled="actionBusy && !likeLoading"
+          :aria-label="likePressed ? '已喜欢' : '喜欢'"
+          :aria-pressed="likePressed ? 'true' : 'false'"
+          @click="emit('like', item.candidate_id)"
+        ><span class="ar-actions__label">喜欢</span></VBtn>
+      </template>
+    </VTooltip>
+    <VTooltip :text="dislikePressed ? '已不喜欢' : '不喜欢'" location="top">
+      <template #activator="{ props: tooltipProps }">
+        <VBtn
+          v-bind="tooltipProps"
+          :size="size"
+          variant="tonal"
+          :color="dislikePressed ? 'primary' : 'default'"
+          class="ar-actions__button text-none"
+          :prepend-icon="dislikePressed ? 'mdi-thumb-down' : 'mdi-thumb-down-outline'"
+          :loading="dislikeLoading"
+          :disabled="actionBusy && !dislikeLoading"
+          :aria-label="dislikePressed ? '已不喜欢' : '不喜欢'"
+          :aria-pressed="dislikePressed ? 'true' : 'false'"
+          @click="emit('dislike', item.candidate_id)"
+        ><span class="ar-actions__label">不喜欢</span></VBtn>
+      </template>
+    </VTooltip>
   </div>
 </template>
 
 <style scoped>
 .ar-actions { width: max-content; max-width: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px; }
-.ar-actions__feedback-group { display: inline-flex; align-items: center; gap: 2px; padding: 1px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 9px; background: rgba(var(--v-theme-on-surface), .025); }
-.ar-actions__feedback-button { min-width: 40px; min-height: 40px; border-radius: 7px; }
-.ar-actions__feedback-button--pressed { box-shadow: inset 0 0 0 1px rgba(var(--v-theme-primary), .28); }
-.ar-actions__button { flex: 0 0 auto; min-width: 68px; padding-inline: 8px; }
+.ar-actions__button { flex: 0 0 auto; min-width: 68px; min-height: 40px; padding-inline: 8px; }
 .ar-actions__button--tmdb {
   color: #0288d1 !important;
   color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;
@@ -208,7 +201,6 @@ async function handleSubscribe() {
 }
 @media (max-width: 390px) {
   .ar-actions { gap: 3px; }
-  .ar-actions__feedback-group { gap: 0; }
   .ar-actions__button { min-width: 56px; padding-inline: 4px; }
   .ar-actions__button :deep(.v-btn__prepend) { display: none; }
 }

@@ -644,7 +644,7 @@ def test_feedback_role_uses_separate_session_and_feedback_only_tools():
 
 
 def test_conversation_role_uses_separate_session_and_read_only_tools():
-    """专属影评师对话使用独立 session 且只实例化六个只读工具。"""
+    """CinePilot Agent 对话使用独立 session 且只实例化六个只读工具。"""
     FakeRunner.instances.clear()
     adapter = AgentRankAgentAdapter(
         agent_factory=FakeRunner, memory_clearer=lambda *_: None
@@ -739,7 +739,7 @@ def test_restricted_feedback_agent_instantiates_only_feedback_read_tools():
         "read_agentrank_confirmed_memory",
         "read_agentrank_pending_context",
     )
-    assert "专属影评师" in graph["system_prompt"]
+    assert "CinePilot Agent" in graph["system_prompt"]
     assert "外部 MCP" in graph["system_prompt"]
 
 

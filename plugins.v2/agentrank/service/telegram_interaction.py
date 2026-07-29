@@ -58,7 +58,7 @@ class TelegramSelectionService:
         self._lock = threading.RLock()
 
     def set_pending_center(self, service: Any) -> None:
-        """绑定统一待确认中心，供运行时完成依赖组装。"""
+        """绑定统一待处理中心，供运行时完成依赖组装。"""
         self._pending_center = service
 
     @staticmethod
@@ -115,7 +115,7 @@ class TelegramSelectionService:
     def _pending_callback(
         self, token: str, action: str, argument: str = ""
     ) -> str:
-        """生成紧凑的待确认回调数据。"""
+        """生成紧凑的待处理回调数据。"""
         suffix = f":{argument}" if argument else ""
         value = (
             f"[PLUGIN]{self._plugin.__class__.__name__}|"
@@ -127,19 +127,19 @@ class TelegramSelectionService:
 
     @staticmethod
     def _pending_type_label(item_type: str) -> str:
-        """返回 Telegram 待确认卡片的类型标签。"""
+        """返回 Telegram 待处理卡片的类型标签。"""
         return {
             "proposal": "偏好理解",
             "question": "需要补充",
             "command": "操作确认",
-        }.get(str(item_type or ""), "待确认")
+        }.get(str(item_type or ""), "待处理")
 
     def _pending_buttons(
         self,
         session: TelegramPendingSession,
         notice: PendingNotice,
     ) -> List[List[Dict[str, str]]]:
-        """生成直接答复、拒绝、稍后和详情按钮。"""
+        """生成直接答复、确认、拒绝、关闭与详情按钮。"""
         item = notice.item
         buttons: List[List[Dict[str, str]]] = []
         direct_allowed = bool(session.actor_id) and not item.requires_superuser
@@ -156,14 +156,16 @@ class TelegramSelectionService:
                     ]
                 )
         elif item.item_type in {"proposal", "command"} and direct_allowed:
+            confirm_text = "确认采纳" if item.item_type == "proposal" else "确认执行"
+            reject_text = "拒绝采纳" if item.item_type == "proposal" else "拒绝执行"
             buttons.append(
                 [
                     {
-                        "text": "确认",
+                        "text": confirm_text,
                         "callback_data": self._pending_callback(session.token, "y"),
                     },
                     {
-                        "text": "拒绝",
+                        "text": reject_text,
                         "callback_data": self._pending_callback(session.token, "x"),
                     },
                 ]
@@ -172,36 +174,16 @@ class TelegramSelectionService:
             buttons.append(
                 [
                     {
-                        "text": "跳过",
+                        "text": "关闭问询",
                         "callback_data": self._pending_callback(session.token, "x"),
                     }
                 ]
             )
-        buttons.append(
-            [
-                {
-                    "text": "1 天后",
-                    "callback_data": self._pending_callback(session.token, "1"),
-                },
-                {
-                    "text": "3 天后",
-                    "callback_data": self._pending_callback(session.token, "3"),
-                },
-                {
-                    "text": "7 天后",
-                    "callback_data": self._pending_callback(session.token, "7"),
-                },
-            ]
-        )
-        final_row: List[Dict[str, str]] = [
-            {
-                "text": "不提醒",
-                "callback_data": self._pending_callback(session.token, "n"),
-            }
-        ]
+        final_row: List[Dict[str, str]] = []
         if session.detail_link:
             final_row.append({"text": "打开详情", "url": session.detail_link})
-        buttons.append(final_row)
+        if final_row:
+            buttons.append(final_row)
         return buttons
 
     def start_pending(
@@ -210,16 +192,15 @@ class TelegramSelectionService:
         username: str,
         notice: PendingNotice,
         detail_link: str = "",
-        reminder: bool = False,
     ) -> bool:
-        """向已绑定 Telegram 的用户发送安全待确认交互卡片。"""
+        """向已绑定 Telegram 的用户发送安全待处理交互卡片。"""
         if not isinstance(notice, PendingNotice):
             raise TypeError("notice must be PendingNotice")
         try:
             telegram_userid = self._target_adapter.resolve_userid(username)
         except Exception as error:
             logger.warning(
-                "AgentRank Telegram 待确认目标解析失败 user=%s reason=%s",
+                "AgentRank Telegram 待处理目标解析失败 user=%s reason=%s",
                 username,
                 error,
             )
@@ -257,14 +238,12 @@ class TelegramSelectionService:
             lines.extend(["", "此操作需要管理员在插件详情页确认。"])
         elif item.allow_custom_answer:
             lines.extend(["", "自定义回答请在插件详情页填写。"])
-        if reminder:
-            lines.extend(["", "这是你设置的稍后提醒。"])
         with self._lock:
             self._repository.save_telegram_pending_session(session)
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
             mtype=NotificationType.Subscribe,
-            title="Agent榜单中心 · 待确认",
+            title="Agent榜单中心 · 待处理",
             text="\n".join(lines),
             username=username,
             targets={"telegram_userid": session.telegram_userid},
@@ -278,7 +257,7 @@ class TelegramSelectionService:
     def _parse_pending_callback(
         text: str,
     ) -> Optional[Tuple[str, str, str]]:
-        """解析 Telegram 待确认回调。"""
+        """解析 Telegram 待处理回调。"""
         parts = str(text or "").split(":", 3)
         if len(parts) < 3 or parts[0] != TelegramSelectionService.pending_callback_prefix:
             return None
@@ -295,12 +274,12 @@ class TelegramSelectionService:
         event_data: Dict[str, Any],
         text: str,
     ) -> None:
-        """把待确认卡片编辑为无按钮安全结果。"""
+        """把待处理卡片编辑为无按钮安全结果。"""
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
             mtype=NotificationType.Subscribe,
-            title="Agent榜单中心 · 待确认",
+            title="Agent榜单中心 · 待处理",
             text=html.escape(_compact_text(text, 300)),
             username=session.username,
             targets={"telegram_userid": session.telegram_userid},
@@ -314,7 +293,7 @@ class TelegramSelectionService:
     def _handle_pending_callback(
         self, event_data: Dict[str, Any]
     ) -> Optional[bool]:
-        """处理待确认回调；不是本协议时返回 None。"""
+        """处理待处理回调；不是本协议时返回 None。"""
         parsed = self._parse_pending_callback((event_data or {}).get("text"))
         if not parsed:
             return None
@@ -325,21 +304,21 @@ class TelegramSelectionService:
         with self._lock:
             session = self._repository.load_telegram_pending_session(token)
             if session is None:
-                self._post_rejection(event_data, "待确认会话不存在或已清理。")
+                self._post_rejection(event_data, "待处理会话不存在或已清理。")
                 return True
             if str(event_data.get("userid") or "") != session.telegram_userid:
-                self._post_rejection(event_data, "这不是发送给你的待确认消息。")
+                self._post_rejection(event_data, "这不是发送给你的待处理消息。")
                 return True
             if session.is_expired(self._now_factory()):
                 session.status = "expired"
                 self._repository.save_telegram_pending_session(session)
                 self._post_pending_terminal(
-                    session, event_data, "这条待确认通知已过期，请前往详情页查看。"
+                    session, event_data, "这条待处理通知已过期，请前往详情页查看。"
                 )
                 return True
             if session.status != "open":
                 self._post_pending_terminal(
-                    session, event_data, "这条待确认通知已经处理，不会重复提交。"
+                    session, event_data, "这条待处理通知已经处理，不会重复提交。"
                 )
                 return True
             get_state = getattr(self._plugin, "get_state", None)
@@ -347,12 +326,12 @@ class TelegramSelectionService:
                 session.status = "disabled"
                 self._repository.save_telegram_pending_session(session)
                 self._post_pending_terminal(
-                    session, event_data, "插件当前已停用，待确认操作不会执行。"
+                    session, event_data, "插件当前已停用，待处理操作不会执行。"
                 )
                 return True
             if self._pending_center is None:
                 self._post_pending_terminal(
-                    session, event_data, "待确认服务暂不可用，请前往详情页处理。"
+                    session, event_data, "待处理服务暂不可用，请前往详情页处理。"
                 )
                 return True
             if not session.actor_id:
@@ -367,7 +346,7 @@ class TelegramSelectionService:
                 "actor_id": session.actor_id,
                 "is_superuser": False,
             }
-            message = "待确认项已处理。"
+            message = "待处理项已处理。"
             if action == "o" and session.item_type == "question":
                 try:
                     option_index = int(argument)
@@ -382,7 +361,7 @@ class TelegramSelectionService:
                         f"telegram-pending:{session.token}:{session.option_ids[option_index]}"
                     ),
                 )
-                message = "回答已记录，专属影评师会异步重新理解。"
+                message = "回答已提交，CinePilot Agent 会异步重新理解。"
             elif action == "y" and not session.requires_superuser:
                 kwargs["action"] = "confirm"
                 message = "已确认并完成受控处理。"
@@ -392,29 +371,23 @@ class TelegramSelectionService:
                 )
                 return True
             elif action == "x":
-                kwargs["action"] = "reject"
-                message = "已拒绝，本次内容不会生效。"
-            elif action in {"1", "3", "7", "n"}:
-                kwargs.update(
-                    action="remind",
-                    reminder_policy=(
-                        "never" if action == "n" else f"in_{action}_day" + ("s" if action != "1" else "")
-                    ),
+                kwargs["action"] = (
+                    "close" if session.item_type == "question" else "reject"
                 )
                 message = (
-                    "已设为不再提醒，待确认项仍可在详情页处理。"
-                    if action == "n"
-                    else f"已设置 {action} 天后提醒。"
+                    "问询已关闭，不会形成负向偏好。"
+                    if session.item_type == "question"
+                    else "已拒绝，本次内容不会生效。"
                 )
             else:
                 return False
             try:
                 self._pending_center.respond(**kwargs)
             except Exception as error:
-                safe = getattr(error, "message", "待确认处理失败，请前往详情页重试")
+                safe = getattr(error, "message", "待处理失败，请前往详情页重试")
                 self._post_pending_terminal(session, event_data, str(safe))
                 return True
-            session.status = "resolved" if action in {"o", "y", "x"} else "scheduled"
+            session.status = "resolved"
             self._repository.save_telegram_pending_session(session)
             self._post_pending_terminal(session, event_data, message)
             return True

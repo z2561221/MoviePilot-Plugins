@@ -25,9 +25,6 @@ class PendingCenterItem:
     status: str
     candidate_id: str = ""
     expires_at: str = ""
-    reminder_policy: str = "unselected"
-    next_remind_at: str = ""
-    last_reminded_at: str = ""
     detail_lines: Tuple[str, ...] = ()
     options: Tuple[Mapping[str, str], ...] = ()
     allow_custom_answer: bool = False
@@ -45,9 +42,6 @@ class PendingCenterItem:
             ("status", 32),
             ("candidate_id", 160),
             ("expires_at", 64),
-            ("reminder_policy", 32),
-            ("next_remind_at", 64),
-            ("last_reminded_at", 64),
         ):
             object.__setattr__(self, field_name, _text(getattr(self, field_name), limit))
         object.__setattr__(
@@ -68,7 +62,7 @@ class PendingCenterItem:
             label = _text(raw.get("label"), 120)
             if option_id and label:
                 normalized_options.append({"option_id": option_id, "label": label})
-            if len(normalized_options) >= 3:
+            if len(normalized_options) >= 5:
                 break
         object.__setattr__(self, "options", tuple(normalized_options))
         object.__setattr__(self, "allow_custom_answer", bool(self.allow_custom_answer))
@@ -90,9 +84,6 @@ class PendingCenterItem:
             "status": self.status,
             "candidate_id": self.candidate_id,
             "expires_at": self.expires_at,
-            "reminder_policy": self.reminder_policy,
-            "next_remind_at": self.next_remind_at,
-            "last_reminded_at": self.last_reminded_at,
             "detail_lines": list(self.detail_lines),
             "options": [dict(item) for item in self.options],
             "allow_custom_answer": self.allow_custom_answer,
