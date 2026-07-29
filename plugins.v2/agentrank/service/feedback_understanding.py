@@ -449,6 +449,15 @@ class FeedbackUnderstandingService:
         if not isinstance(job, FeedbackQueueJob):
             raise TypeError("job must be FeedbackQueueJob")
         event = self._event_for_job(job)
+        if event.kind in {"like", "dislike"}:
+            from .feedback_action import FeedbackActionService
+
+            actions = FeedbackActionService(
+                self._repository, analysis_limit=self._analysis_limit
+            )
+            if not actions.is_current_polarity(event):
+                return None
+            actions.finalize_deferred_polarity(event)
         candidate = self._candidate_context(event)
         memory_model = self._repository.load_preference_memory(event.profile_id)
         memory = memory_model.to_dict()

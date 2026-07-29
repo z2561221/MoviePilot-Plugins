@@ -124,12 +124,17 @@ class FeedbackQueueJob:
 
     @classmethod
     def from_event(
-        cls, event: FeedbackEvent, *, max_attempts: int = 3
+        cls,
+        event: FeedbackEvent,
+        *,
+        max_attempts: int = 3,
+        available_at: Optional[datetime] = None,
     ) -> "FeedbackQueueJob":
         """从已持久化反馈事实创建确定性且可幂等入队的任务。"""
         if not isinstance(event, FeedbackEvent) or not event.is_persisted:
             raise ValueError("feedback queue requires a persisted feedback event")
         now = _iso()
+        delayed_until = _parse_iso(_iso(available_at)) if available_at else None
         return cls(
             job_id=f"feedback:{event.event_id}",
             profile_id=event.profile_id,
@@ -138,6 +143,22 @@ class FeedbackQueueJob:
             max_attempts=max(1, min(int(max_attempts), 20)),
             created_at=now,
             updated_at=now,
+            status="retry_wait" if delayed_until else "queued",
+            next_attempt_at=_iso(delayed_until) if delayed_until else "",
+        )
+
+    def defer(
+        self, available_at: datetime, now: Optional[datetime] = None
+    ) -> "FeedbackQueueJob":
+        """把尚未认领的任务延后，保留尝试次数与持久身份。"""
+        if self.terminal or self.status == "running":
+            return self
+        return replace(
+            self,
+            status="retry_wait",
+            updated_at=_iso(now),
+            next_attempt_at=_iso(available_at),
+            lease_id="",
         )
 
     def claim(self, lease_id: str, now: Optional[datetime] = None) -> "FeedbackQueueJob":

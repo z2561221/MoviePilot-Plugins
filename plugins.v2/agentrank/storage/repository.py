@@ -1327,18 +1327,30 @@ class AgentRankRepository:
         )
 
     def enqueue_feedback_job(
-        self, job: FeedbackQueueJob, *, limit: int = 200
+        self,
+        job: FeedbackQueueJob,
+        *,
+        limit: int = 200,
+        debounce_until: datetime = None,
     ) -> FeedbackQueueJob:
-        """幂等追加反馈任务，优先淘汰最旧终态且绝不丢弃未完成任务。"""
+        """幂等追加任务，并可把同 profile 未认领任务推迟到统一截止时间。"""
         if not isinstance(job, FeedbackQueueJob):
             raise TypeError("job must be FeedbackQueueJob")
         keep_limit = max(1, min(int(limit), 100000))
         with self._feedback_lock(job.profile_id):
             jobs = self._load_feedback_queue_locked(job.profile_id, strict=True)
+            if debounce_until is not None:
+                jobs = [
+                    item.defer(debounce_until)
+                    if not item.terminal and item.status != "running"
+                    else item
+                    for item in jobs
+                ]
             existing = next(
                 (item for item in jobs if item.job_id == job.job_id), None
             )
             if existing is not None:
+                self._save_feedback_queue_locked(job.profile_id, jobs)
                 return existing
             while len(jobs) >= keep_limit:
                 terminal_index = next(

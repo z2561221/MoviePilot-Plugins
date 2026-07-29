@@ -116,6 +116,40 @@ def test_enqueue_is_idempotent_and_never_evicts_unfinished_jobs():
     assert [job.event_sequence for job in jobs] == [2, 3]
 
 
+def test_profile_debounce_moves_all_unclaimed_feedback_to_last_action_deadline():
+    """同一画像的新赞踩会把全部未认领任务推迟到最后操作后30秒。"""
+    repository = AgentRankRepository(FakePlugin())
+    clock = [datetime.now(timezone.utc)]
+    queue = FeedbackQueueService(
+        repository,
+        profile_ids=[PROFILE_ID],
+        now_factory=lambda: clock[0],
+    )
+    first = _stored(repository, "debounce-1", index=1)
+    second = _stored(repository, "debounce-2", index=2)
+
+    first_job = queue.enqueue_event(
+        first, delay_seconds=30, debounce_profile=True
+    )
+    first_deadline = datetime.fromisoformat(first_job.next_attempt_at)
+    clock[0] += timedelta(seconds=10)
+    second_job = queue.enqueue_event(
+        second, delay_seconds=30, debounce_profile=True
+    )
+    jobs = repository.load_feedback_queue(PROFILE_ID)
+    final_deadline = datetime.fromisoformat(second_job.next_attempt_at)
+
+    assert final_deadline == clock[0] + timedelta(seconds=30)
+    assert datetime.fromisoformat(jobs[0].next_attempt_at) == final_deadline
+    assert final_deadline > first_deadline
+    assert repository.claim_next_feedback_job(
+        PROFILE_ID, lease_id="too-early", now=first_deadline
+    ) is None
+    assert repository.claim_next_feedback_job(
+        PROFILE_ID, lease_id="ready", now=final_deadline
+    ).event_id == first.event_id
+
+
 def test_feedback_retention_preserves_events_referenced_by_unfinished_jobs():
     """反馈账本裁剪保留未完成任务引用，终态后再恢复正常上限。"""
     repository = AgentRankRepository(FakePlugin(), feedback_event_limit=2)

@@ -170,13 +170,27 @@ class FeedbackQueueService:
             self._executor = None
             self._active_profiles.clear()
 
-    def enqueue_event(self, event: FeedbackEvent) -> FeedbackQueueJob:
-        """为已持久化反馈事实幂等落入队列并立即返回任务状态。"""
-        job = FeedbackQueueJob.from_event(event, max_attempts=self._max_attempts)
+    def enqueue_event(
+        self,
+        event: FeedbackEvent,
+        *,
+        delay_seconds: float = 0.0,
+        debounce_profile: bool = False,
+    ) -> FeedbackQueueJob:
+        """持久入队；可从 profile 最后一次操作起统一延迟处理。"""
+        delay = max(0.0, float(delay_seconds))
+        available_at = self._now() + timedelta(seconds=delay) if delay else None
+        job = FeedbackQueueJob.from_event(
+            event,
+            max_attempts=self._max_attempts,
+            available_at=available_at,
+        )
         self.register_profiles([event.profile_id])
         try:
             queued = self._repository.enqueue_feedback_job(
-                job, limit=self._queue_limit
+                job,
+                limit=self._queue_limit,
+                debounce_until=available_at if debounce_profile else None,
             )
         except Exception as error:
             raise FeedbackQueueError("反馈理解任务入队失败") from error

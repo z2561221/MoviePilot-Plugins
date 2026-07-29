@@ -10,7 +10,7 @@ from .archive import ArchiveService
 from .board_refill import BoardRefillService
 
 
-FEEDBACK_ACTION_KINDS = frozenset({"like", "dislike", "ignore"})
+FEEDBACK_ACTION_KINDS = frozenset({"like", "dislike", "neutral", "ignore"})
 
 
 class FeedbackActionError(Exception):
@@ -85,6 +85,8 @@ class FeedbackActionResult:
             "learning_effect": (
                 "exclusion_only"
                 if self.event.kind == "ignore"
+                else "none"
+                if self.event.kind == "neutral"
                 else "pending_confirmation"
             ),
             "memory_delta": {},
@@ -116,11 +118,14 @@ class FeedbackActionService:
         for event in self._events(profile_id):
             if (
                 event.run_id == target_run
-                and event.kind in {"like", "dislike"}
+                and event.kind in {"like", "dislike", "neutral"}
                 and event.candidate_id
                 and event.status == "recorded"
             ):
-                states[event.candidate_id] = event.kind
+                if event.kind == "neutral":
+                    states.pop(event.candidate_id, None)
+                else:
+                    states[event.candidate_id] = event.kind
         return states
 
     def active_candidate_polarities(self, profile_id: str) -> Dict[str, str]:
@@ -128,11 +133,14 @@ class FeedbackActionService:
         states: Dict[str, str] = {}
         for event in self._events(profile_id):
             if (
-                event.kind in {"like", "dislike"}
+                event.kind in {"like", "dislike", "neutral"}
                 and event.candidate_id
                 and event.status == "recorded"
             ):
-                states[event.candidate_id] = event.kind
+                if event.kind == "neutral":
+                    states.pop(event.candidate_id, None)
+                else:
+                    states[event.candidate_id] = event.kind
         return states
 
     def active_disliked_candidate_ids(self, profile_id: str) -> set[str]:
@@ -253,6 +261,7 @@ class FeedbackActionService:
         analysis_id: str = "",
         expected_board_revision: Optional[int] = None,
         expected_run_id: str = "",
+        defer_polarity_side_effects: bool = False,
     ) -> FeedbackActionResult:
         """幂等记录三态动作；忽略同时原子更新榜单和归档。"""
         target = str(profile_id or "").strip()
@@ -262,13 +271,14 @@ class FeedbackActionService:
         actor = str(actor_id or "").strip()
         analysis = str(analysis_id or "").strip()
         expected_run = str(expected_run_id or "").strip()
+        defer_polarity = bool(defer_polarity_side_effects)
         if not target or not candidate:
             raise FeedbackActionError(
                 "invalid_feedback_target", "反馈必须指定 profile_id 和 candidate_id", 422
             )
         if action not in FEEDBACK_ACTION_KINDS:
             raise FeedbackActionError(
-                "invalid_feedback_kind", "反馈类型必须是喜欢、不喜欢或忽略", 422
+                "invalid_feedback_kind", "反馈类型必须是点赞、点踩、取消或忽略", 422
             )
         if not request_key:
             raise FeedbackActionError(
@@ -348,7 +358,7 @@ class FeedbackActionService:
                 (
                     event
                     for event in reversed(events)
-                    if event.kind in {"like", "dislike"}
+                    if event.kind in {"like", "dislike", "neutral"}
                     and event.candidate_id == candidate
                     and event.run_id == board.run_id
                     and event.status == "recorded"
@@ -362,10 +372,16 @@ class FeedbackActionService:
                 and not (action == "dislike" and item_present)
             ):
                 return self._result(latest_polarity, False, board)
+            if action == "neutral":
+                if latest_polarity is None or latest_polarity.kind == "neutral":
+                    raise FeedbackActionError(
+                        "feedback_already_neutral", "当前作品没有可取消的点赞或点踩", 409
+                    )
             if action == "ignore" and same_action is not None and archived and not item_present:
                 return self._result(same_action, False, board)
             if not item_present and not (
-                action in {"like", "dislike"} and latest_polarity is not None
+                action in {"like", "dislike", "neutral"}
+                and latest_polarity is not None
             ):
                 raise FeedbackActionError(
                     "candidate_not_on_board", "该作品已不在当前榜单中", 409
@@ -385,7 +401,7 @@ class FeedbackActionService:
             analysis = bound_analysis
 
             supersedes = ""
-            if action in {"like", "dislike"}:
+            if action in {"like", "dislike", "neutral"}:
                 if latest_polarity is not None:
                     supersedes = latest_polarity.event_id
             elif same_action is not None:
@@ -406,7 +422,11 @@ class FeedbackActionService:
             refill_count = 0
             refill_status = "not_applicable"
             try:
-                if action in {"dislike", "ignore"} and item_present:
+                if (
+                    action in {"dislike", "ignore"}
+                    and item_present
+                    and not (action == "dislike" and defer_polarity)
+                ):
                     old_board_archive = self._repository.capture_feedback_action_raw(
                         target
                     )
@@ -491,3 +511,78 @@ class FeedbackActionService:
                 refill_count=refill_count,
                 refill_status=refill_status,
             )
+
+    def is_current_polarity(self, event: FeedbackEvent) -> bool:
+        """判断延迟任务引用的赞踩事实是否仍是当前最终状态。"""
+        if not isinstance(event, FeedbackEvent) or event.kind not in {"like", "dislike"}:
+            return False
+        latest = next(
+            (
+                item
+                for item in reversed(self._events(event.profile_id))
+                if item.candidate_id == event.candidate_id
+                and item.run_id == event.run_id
+                and item.kind in {"like", "dislike", "neutral"}
+                and item.status == "recorded"
+            ),
+            None,
+        )
+        return latest is not None and latest.event_id == event.event_id
+
+    def finalize_deferred_polarity(self, event: FeedbackEvent) -> bool:
+        """在防抖截止后应用最终点踩的榜单移除与安全补位。"""
+        if not self.is_current_polarity(event) or event.kind != "dislike":
+            return False
+        target = event.profile_id
+        with self._repository.feedback_action_guard(target):
+            if not self.is_current_polarity(event):
+                return False
+            board = self._repository.load_board(target)
+            if board is None or board.run_id != event.run_id:
+                return False
+            item = next(
+                (
+                    value
+                    for value in board.recommendations
+                    if value.candidate_id == event.candidate_id
+                ),
+                None,
+            )
+            if item is None:
+                return False
+            archive = self._repository.load_archive(target)
+            raw = self._repository.capture_feedback_action_raw(target)
+            try:
+                board.recommendations = [
+                    value
+                    for value in board.recommendations
+                    if value.candidate_id != event.candidate_id
+                ]
+                board.revision += 1
+                disliked_ids = {
+                    candidate_id
+                    for candidate_id, polarity in self.active_polarities(
+                        target, board.run_id
+                    ).items()
+                    if polarity == "dislike"
+                }
+                archived_ids = {entry.candidate_id for entry in archive.entries}
+                refill = self._refill.refill(
+                    target,
+                    board,
+                    blocked_candidate_ids={*disliked_ids, *archived_ids},
+                    action_label="点踩",
+                )
+                if refill.analysis_context_ready:
+                    self._repository.save_board_with_recommendation_analyses(
+                        board,
+                        refill.analyses,
+                        limit=self._analysis_limit,
+                        archive=archive,
+                    )
+                else:
+                    self._repository.save_board_and_archive(board, archive)
+            except Exception:
+                self._repository.restore_feedback_action_raw(target, raw)
+                raise
+            return True

@@ -726,6 +726,36 @@ def test_dislike_projection_is_title_scoped_and_never_writes_long_term_memory():
     assert repository.load_preference_memory(PROFILE_ID).to_dict() == before_memory
 
 
+def test_deferred_polarity_can_cancel_without_removing_board_item_or_learning_state():
+    """页面点踩在防抖期只改变投影，再次点击以neutral事实完整取消。"""
+    repository = AgentRankRepository(FakePlugin())
+    repository.save_board(_board())
+    _save_snapshot(repository)
+    service = FeedbackActionService(repository)
+
+    disliked = _act(
+        service,
+        "dislike",
+        "tmdb:tv:101",
+        "deferred-dislike",
+        defer_polarity_side_effects=True,
+    )
+    cancelled = _act(
+        service,
+        "neutral",
+        "tmdb:tv:101",
+        "cancel-dislike",
+        defer_polarity_side_effects=True,
+    )
+
+    assert disliked.board_changed is False
+    assert cancelled.event.supersedes == disliked.event.event_id
+    assert service.active_candidate_polarities(PROFILE_ID) == {}
+    assert [
+        item.candidate_id for item in repository.load_board(PROFILE_ID).recommendations
+    ] == ["tmdb:tv:101", "tmdb:tv:102"]
+    assert service.is_current_polarity(disliked.event) is False
+
 def test_concurrent_dislike_and_ignore_share_one_refill_transaction_order():
     """并发点踩与忽略串行提交后均不回流且榜单仍恰好五条。"""
     plugin = FakePlugin()

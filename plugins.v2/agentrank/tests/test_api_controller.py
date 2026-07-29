@@ -682,16 +682,34 @@ def test_unified_feedback_endpoint_returns_event_state_and_board_revision():
     assert disliked["data"]["event"]["supersedes"] == created["data"]["event"][
         "event_id"
     ]
-    assert disliked["data"]["board_changed"] is True
-    assert disliked["data"]["current_count"] == 0
-    assert disliked["data"]["refill_status"] == "safe_candidate_insufficient"
-    assert disliked["data"]["reason_code"] == "safe_candidate_insufficient"
-    assert controller.board(HOME_PROFILE)["data"]["recommendations"] == []
+    assert disliked["data"]["board_changed"] is False
+    assert disliked["data"]["current_count"] == 1
+    assert disliked["data"]["queue_status"] == "retry_wait"
+    assert controller.board(HOME_PROFILE)["data"]["recommendations"][0][
+        "feedback_kind"
+    ] == "dislike"
+
+    cancelled = controller.endpoint_feedback(
+        {
+            **payload,
+            "kind": "neutral",
+            "idempotency_key": "neutral-request-1",
+        },
+        token,
+    )
+    assert cancelled["data"]["event"]["supersedes"] == disliked["data"]["event"][
+        "event_id"
+    ]
+    assert cancelled["data"]["queue_status"] == "cancelled"
+    assert controller.board(HOME_PROFILE)["data"]["recommendations"][0][
+        "feedback_kind"
+    ] == ""
 
 
 def test_feedback_api_returns_queued_without_waiting_for_blocked_handler():
     """理解处理器阻塞时，反馈 API 仍立即返回已入队状态。"""
     plugin = FakePlugin()
+    plugin._config["feedback_debounce_seconds"] = 0
     _seed(plugin)
     started = threading.Event()
     release = threading.Event()
@@ -737,6 +755,7 @@ def test_feedback_api_returns_queued_without_waiting_for_blocked_handler():
 def test_feedback_api_queue_persists_understanding_without_changing_memory():
     """反馈 API 经后台队列落理解记录，但未确认前长期记忆保持不变。"""
     plugin = FakePlugin()
+    plugin._config["feedback_debounce_seconds"] = 0
     _seed(plugin)
     repository = plugin._repository
     before = repository.load_preference_memory(HOME_PROFILE)

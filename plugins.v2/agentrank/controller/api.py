@@ -682,6 +682,7 @@ class AgentRankApiController:
                 analysis_id=str(body.get("analysis_id") or ""),
                 expected_board_revision=body.get("board_revision"),
                 expected_run_id=str(body.get("run_id") or ""),
+                defer_polarity_side_effects=True,
             )
         except FeedbackActionError as error:
             raise ApiContractError(
@@ -692,7 +693,23 @@ class AgentRankApiController:
                 500, "feedback_failed", "反馈保存失败，榜单与归档已恢复"
             ) from error
         try:
-            queue_job = self._feedback_queue().enqueue_event(result.event)
+            queue_job = (
+                None
+                if result.event.kind == "neutral"
+                else self._feedback_queue().enqueue_event(
+                    result.event,
+                    delay_seconds=(
+                        float(
+                            self.plugin._config.get(
+                                "feedback_debounce_seconds", 30.0
+                            )
+                        )
+                        if result.event.kind in {"like", "dislike"}
+                        else 0.0
+                    ),
+                    debounce_profile=result.event.kind in {"like", "dislike"},
+                )
+            )
         except FeedbackQueueError as error:
             raise ApiContractError(
                 503,
@@ -700,8 +717,8 @@ class AgentRankApiController:
                 "反馈已保存，但理解任务入队失败；可使用原操作重试",
             ) from error
         data = result.to_dict()
-        data["queue_status"] = queue_job.status
-        data["queue_job"] = queue_job.to_public_dict()
+        data["queue_status"] = queue_job.status if queue_job is not None else "cancelled"
+        data["queue_job"] = queue_job.to_public_dict() if queue_job is not None else None
         return self._success(data)
 
     def analysis_comment(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:

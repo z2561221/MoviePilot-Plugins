@@ -447,9 +447,11 @@ export function useAgentRankState(api) {
 
   async function reactToRecommendation(kind, candidateId) {
     const targetProfile = activeProfileScope()
-    const action = String(kind || '').trim().toLowerCase()
-    if (!['like', 'dislike'].includes(action)) throw new Error('未知的榜单反馈类型')
+    const requestedAction = String(kind || '').trim().toLowerCase()
+    if (!['like', 'dislike'].includes(requestedAction)) throw new Error('未知的榜单反馈类型')
     const currentBoard = board.value || emptyBoard(targetProfile)
+    const currentItem = currentBoard.recommendations?.find(entry => entry.candidate_id === candidateId)
+    const action = currentItem?.feedback_kind === requestedAction ? 'neutral' : requestedAction
     const requestScope = [
       targetProfile,
       currentBoard.run_id || '',
@@ -472,8 +474,8 @@ export function useAgentRankState(api) {
           run_id: currentBoard.run_id || '',
           board_revision: currentBoard.revision || 1,
         },
-        action === 'like' ? '点赞' : '点踩',
-        `feedback:${action}:${candidateId}`,
+        action === 'neutral' ? '取消反馈' : action === 'like' ? '点赞' : '点踩',
+        `feedback:${requestedAction}:${candidateId}`,
       )
     } catch (error) {
       if (['board_run_conflict', 'board_revision_conflict'].includes(error?.code)) {
@@ -490,8 +492,7 @@ export function useAgentRankState(api) {
       return result
     }
     const effectiveKind = result?.event?.kind || action
-    const item = currentBoard.recommendations?.find(entry => entry.candidate_id === candidateId)
-    if (item) item.feedback_kind = effectiveKind
+    if (currentItem) currentItem.feedback_kind = effectiveKind === 'neutral' ? '' : effectiveKind
     currentBoard.revision = Number(result?.board_revision || currentBoard.revision || 1)
     return result
   }
