@@ -65,6 +65,7 @@ const config = {
   confidence_threshold: 0.6,
   action_mode: 'notify',
   notify: true,
+  notification_type: 'Plugin',
   auto_subscribe_top_n: 0,
   auto_subscribe_limit: 10,
   history_limit: 50,
@@ -237,7 +238,7 @@ function dataFor(path, params = {}) {
   const playback = { profile_id: identity.profile_id, username: identity.username, source: 'playback_reporting', confidence: 'high', status: 'ready', sample_count: 36, mapped_count: 36, unmapped_count: 4, synced_at: '2026-07-12T10:18:00+08:00', message: 'Playback Reporting 已同步' }
   const enablement = { requested: true, allowed: true, status: 'ready', message: 'Playback Reporting 已就绪', capabilities: {} }
   if (path === 'user/' || path.endsWith('/user/')) return moviePilotUsers
-  if (path.endsWith('config/options')) return { emby_identities: identities, default_profile_id: identities[0].profile_id, config, defaults: config, enablement, playback_status: { [identities[0].profile_id]: playback } }
+  if (path.endsWith('config/options')) return { emby_identities: identities, default_profile_id: identities[0].profile_id, config, defaults: config, notification_type_options: [{ title: '插件', value: 'Plugin' }, { title: '智能体', value: 'Agent' }], enablement, playback_status: { [identities[0].profile_id]: playback } }
   if (path.endsWith('status')) return { state: 'ready', validation_errors: [], default_profile_id: identities[0].profile_id, playback, enablement }
   if (path.endsWith('overview')) {
     const visible = status.value === 'idle'
@@ -252,7 +253,7 @@ function dataFor(path, params = {}) {
       latest_run: history[0],
       history: history.slice(0, 10).map(item => ({ ...item, profile_id: identity.profile_id, username: identity.username })),
       history_total: history.length,
-      profile: { ...profile, profile_id: identity.profile_id, username: identity.username },
+      profile: { ...profile, profile_id: identity.profile_id, username: identity.username, questioning_state: 'low_interruption' },
       playback,
       enablement,
       board: { profile_id: identity.profile_id, username: identity.username, run_id: 'preview-run', revision: boardRevision.value, status: status.value, generated_at: '2026-07-12T10:20:30+08:00', recommendations: visible },

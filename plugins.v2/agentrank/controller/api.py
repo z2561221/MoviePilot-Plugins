@@ -16,6 +16,7 @@ from ..service.conversation import ConversationError, ConversationService
 from ..service.data_lifecycle import DataLifecycleError, DataLifecycleService
 from ..service.feedback_action import FeedbackActionError, FeedbackActionService
 from ..service.feedback_queue import FeedbackQueueError, FeedbackQueueService
+from ..service.feedback_proposal import FeedbackProposalService
 from ..service.profile_preferences import ProfilePreferenceService
 
 
@@ -434,6 +435,7 @@ class AgentRankApiController:
         value["profile_id"] = profile_id
         value["username"] = self._display_name(profile_id)
         preferences = self._repository().load_profile_preferences(profile_id)
+        memory = self._repository().load_preference_memory(profile_id)
         agent_tags = preferences.active_agent_tags(value.get("tags") or [])
         agent_negative_tags = preferences.active_agent_negative_tags(
             value.get("negative_tags") or []
@@ -456,6 +458,9 @@ class AgentRankApiController:
                     preferences.legacy_config_evidence
                 ),
                 "archived_profile_tags": preferences.archived_entries(),
+                "questioning_state": FeedbackProposalService(
+                    self._repository()
+                ).questioning_state(profile_id, memory=memory),
             }
         )
         return value
@@ -518,6 +523,7 @@ class AgentRankApiController:
     def config_options(self) -> Dict[str, Any]:
         """返回 Config 与 Emby 身份切换器需要的安全选项。"""
         from ..adapter.discovery import DiscoveryAdapter
+        from ..service.notification_type import notification_type_options
 
         selected_identities = [
             identity.to_dict()
@@ -552,6 +558,7 @@ class AgentRankApiController:
                 "config": dict(self.plugin._config),
                 "defaults": default_config(),
                 "source_options": DiscoveryAdapter.source_options(),
+                "notification_type_options": notification_type_options(),
                 "enablement": self._enablement_data(),
                 "playback_status": {
                     identity["profile_id"]: self._playback_data(identity["profile_id"])

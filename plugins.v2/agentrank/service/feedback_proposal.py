@@ -15,6 +15,7 @@ from ..model.feedback_understanding import FeedbackSignal, FeedbackUnderstanding
 from ..model.memory import PreferenceMemory, PreferenceMemoryItem
 from ..storage.repository import AgentRankRepository
 from .critic_skills import ask_clarification, propose_memory_change
+from .questioning_policy import QuestioningPolicy
 
 
 FeedbackDecision = Optional[Union[MemoryProposal, PendingQuestion]]
@@ -43,6 +44,17 @@ class FeedbackProposalService:
         self._record_limit = max(1, min(int(record_limit), 100000))
         self._expiry_days = max(1, min(int(expiry_days), 365))
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
+        self._questioning_policy = QuestioningPolicy()
+
+    def questioning_state(
+        self, profile_id: str, *, memory: PreferenceMemory = None
+    ) -> str:
+        """返回画像当前的用户可见问询状态。"""
+        target_memory = memory or self._repository.load_preference_memory(profile_id)
+        decision = self._questioning_policy.evaluate(
+            target_memory, self._repository.load_pending_questions(profile_id)
+        )
+        return decision.state
 
     def _time_window(self) -> tuple[str, str]:
         """返回当前创建时间和固定过期时间。"""
@@ -261,6 +273,14 @@ class FeedbackProposalService:
         )
         if pending is not None:
             return pending
+        questioning = self._questioning_policy.evaluate(
+            memory,
+            self._repository.load_pending_questions(record.profile_id),
+            conflict_count=len(record.conflicts),
+            uncertainty_count=len(record.uncertainties),
+        )
+        if not questioning.allow_question:
+            return None
         return self._repository.append_pending_question(
             self._question(record, event, candidate, memory), limit=self._record_limit
         )

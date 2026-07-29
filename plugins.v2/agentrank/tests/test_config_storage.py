@@ -107,6 +107,7 @@ def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_one_hundred()
     """发现页入口保持兼容开启，候选池默认使用当前配置的一百。"""
     defaults = AgentRankConfig.from_mapping({})
     assert defaults.discovery_page_enabled is True
+    assert defaults.notification_type == "Plugin"
     assert defaults.candidate_pool_size == 100
     assert set(defaults.discovery_sources) == {
         "douban",
@@ -121,6 +122,12 @@ def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_one_hundred()
     assert AgentRankConfig.from_mapping(
         {"discovery_page_enabled": False}
     ).discovery_page_enabled is False
+    assert AgentRankConfig.from_mapping(
+        {"notification_type": "Agent"}
+    ).notification_type == "Agent"
+    invalid_notice = normalize_config({"notification_type": "unknown"})
+    assert invalid_notice["notification_type"] == "Plugin"
+    assert any("notification_type" in item for item in invalid_notice["_validation_errors"])
 
 
 def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
@@ -156,6 +163,7 @@ def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
         "confidence_threshold": 0.6,
         "action_mode": "notify",
         "notify": True,
+        "notification_type": "Plugin",
         "auto_subscribe_top_n": 0,
         "auto_subscribe_limit": 10,
         "history_limit": 50,

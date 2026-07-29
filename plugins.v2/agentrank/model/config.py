@@ -37,6 +37,18 @@ DISCOVERY_SOURCE_DEFAULTS: Dict[str, bool] = {
     "anilist": True,
 }
 
+NOTIFICATION_TYPE_NAMES = {
+    "Download",
+    "Organize",
+    "Subscribe",
+    "SiteMessage",
+    "MediaServer",
+    "Manual",
+    "Plugin",
+    "Agent",
+    "Other",
+}
+
 class ConfigValidationError(ValueError):
     """表示配置包含一个或多个可见校验错误。"""
 
@@ -68,6 +80,7 @@ class AgentRankConfig:
     confidence_threshold: float = 0.6
     action_mode: str = "notify"
     notify: bool = True
+    notification_type: str = "Plugin"
     auto_subscribe_top_n: int = 0
     auto_subscribe_limit: int = 10
     history_limit: int = 50
@@ -316,6 +329,13 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         errors.append("action_mode must be update, notify, or auto_subscribe")
         action_mode = "notify"
 
+    notification_type = str(raw.get("notification_type") or "Plugin").strip()
+    if notification_type not in NOTIFICATION_TYPE_NAMES:
+        errors.append(
+            "notification_type must be a valid MoviePilot NotificationType name"
+        )
+        notification_type = "Plugin"
+
     auto_limit = _bounded_integer(
         raw.get("auto_subscribe_limit", 10), 10, 0, 10, "auto_subscribe_limit", errors
     )
@@ -356,6 +376,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         ),
         action_mode=action_mode,
         notify=bool(raw.get("notify", True)),
+        notification_type=notification_type,
         auto_subscribe_top_n=auto_top_n,
         auto_subscribe_limit=auto_limit,
         history_limit=_bounded_integer(

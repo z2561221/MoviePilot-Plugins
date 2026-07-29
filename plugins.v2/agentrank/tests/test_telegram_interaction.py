@@ -23,6 +23,7 @@ class NotificationType(Enum):
     """测试使用的通知类型。"""
 
     Subscribe = "订阅"
+    Plugin = "插件"
 
 
 class MessageChannel(Enum):
@@ -54,14 +55,28 @@ PendingCenterItem = pending_model_module.PendingCenterItem
 PendingNotice = pending_model_module.PendingNotice
 
 
+class FakeMessageChain:
+    """记录删除原消息调用并允许测试编辑回退。"""
+
+    def __init__(self, delete_result=True):
+        self.delete_result = delete_result
+        self.delete_calls = []
+
+    def delete_message(self, **kwargs):
+        """记录 MoviePilot 消息删除参数。"""
+        self.delete_calls.append(kwargs)
+        return self.delete_result
+
+
 class FakePlugin:
     """记录插件数据与发送消息的测试替身。"""
 
-    def __init__(self):
+    def __init__(self, delete_result=True):
         self.data = {}
         self.messages = []
         self._poster_service = None
         self.enabled = True
+        self.chain = FakeMessageChain(delete_result)
 
     def get_data(self, key=None):
         """读取内存插件数据。"""
@@ -187,9 +202,9 @@ def _oversized_board():
     return board
 
 
-def _service(now=None, target="1001", pending_center=None):
+def _service(now=None, target="1001", pending_center=None, delete_result=True):
     """创建固定令牌和时钟的交互服务。"""
-    plugin = FakePlugin()
+    plugin = FakePlugin(delete_result=delete_result)
     repository = AgentRankRepository(plugin)
     repository.save_board(_board())
     subscription = FakeSubscriptionService()
@@ -198,7 +213,7 @@ def _service(now=None, target="1001", pending_center=None):
         plugin=plugin,
         repository=repository,
         subscription_service=subscription,
-        config={"confidence_threshold": 0.6},
+        config={"confidence_threshold": 0.6, "notification_type": "Plugin"},
         pending_center=pending_center,
         target_adapter=FakeTargetAdapter(target),
         token_factory=lambda: "token123",
@@ -344,7 +359,7 @@ def test_start_sends_linked_three_line_top_list_with_horizontal_cover():
     assert len(message["buttons"]) == 2
     assert max(len(row) for row in message["buttons"]) == 3
     assert len(message["text"]) <= service.caption_limit
-    assert message["mtype"] is NotificationType.Subscribe
+    assert message["mtype"] is NotificationType.Plugin
     assert all(len(value.encode("utf-8")) <= 64 for value in _callbacks(message))
     session = repository.load_telegram_session("token123")
     assert session.candidate_ids == ["tmdb:1", "tmdb:2"]
@@ -425,7 +440,7 @@ def test_number_toggle_and_clear_update_single_original_message():
     assert "已清空本轮选择" in plugin.messages[-1]["text"]
     assert "确认 0" in str(plugin.messages[-1]["buttons"])
     assert all(
-        message["mtype"] is NotificationType.Subscribe for message in plugin.messages
+        message["mtype"] is NotificationType.Plugin for message in plugin.messages
     )
     assert all(message.get("userid") is None for message in plugin.messages)
     assert all(
@@ -452,10 +467,27 @@ def test_confirm_subscribes_only_selected_items_and_is_idempotent():
     assert "已存在" in plugin.messages[-1]["text"]
     assert plugin.messages[-1]["buttons"] is None
     assert repository.load_telegram_session("token123").status == "completed"
+    assert plugin.chain.delete_calls[-1]["message_id"] == 77
+    assert plugin.chain.delete_calls[-1]["chat_id"] == "1001"
+    assert plugin.messages[-1].get("original_message_id") is None
 
     service.handle_callback(_event("c"))
     assert len(subscription.calls) == 2
     assert "不会重复提交" in plugin.messages[-1]["text"]
+
+
+def test_terminal_interaction_falls_back_to_edit_without_buttons_when_delete_fails():
+    """删除原 Telegram 卡片失败时原地编辑为无按钮终态。"""
+    plugin, repository, _, service, _ = _service(delete_result=False)
+    service.start("alice", "alice", _board())
+    service.handle_callback(_event("t:0"))
+
+    service.handle_callback(_event("c"))
+
+    assert repository.load_telegram_session("token123").status == "completed"
+    assert plugin.chain.delete_calls[-1]["message_id"] == 77
+    assert plugin.messages[-1]["original_message_id"] == 77
+    assert plugin.messages[-1]["buttons"] is None
 
 
 def test_profile_id_scopes_telegram_confirmation_while_username_is_display_only():
@@ -635,7 +667,8 @@ def test_pending_question_buttons_answer_directly_and_reject_wrong_user():
     assert center.calls[0]["actor_id"] == "mp-user-1"
     assert center.calls[0]["idempotency_key"].startswith("telegram-pending:")
     assert repository.load_telegram_pending_session("token123").status == "resolved"
-    assert plugin.messages[-1]["buttons"] is None
+    assert plugin.chain.delete_calls[-1]["message_id"] == 88
+    assert plugin.messages[-1].get("original_message_id") is None
 
 
 def test_pending_superuser_command_never_offers_direct_confirmation():

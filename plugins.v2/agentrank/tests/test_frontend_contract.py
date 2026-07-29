@@ -497,6 +497,19 @@ def test_config_uses_five_main_sections_and_places_execution_controls_once():
     assert "negative_keyword: '避雷命中'" in config
 
 
+def test_notification_type_and_low_interruption_state_are_user_visible_without_scores():
+    """基础设置可选完整通知类型，画像只显示三档状态而不暴露精确成熟度。"""
+    config = _read("Config.vue")
+    page = _read("Page.vue")
+    assert 'notification_type: \'Plugin\'' in config
+    assert 'v-model="form.notification_type"' in config
+    assert "notificationTypeOptions" in config
+    for label in ("探索中", "趋于稳定", "低打扰"):
+        assert label in page
+    for forbidden in ("画像成熟度", "成熟度百分比", "questioning_score"):
+        assert forbidden not in page
+
+
 def test_cinepilot_chat_is_immediate_bounded_and_retryable():
     """对话显示排队状态，轮询最多一百秒并把超时消息转为可重试失败。"""
     chat = _read("CriticChatDialog.vue")

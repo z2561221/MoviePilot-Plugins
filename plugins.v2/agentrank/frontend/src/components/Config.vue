@@ -44,6 +44,7 @@ const defaults = {
   confidence_threshold: 0.6,
   action_mode: 'notify',
   notify: true,
+  notification_type: 'Plugin',
   auto_subscribe_top_n: 0,
   auto_subscribe_limit: 10,
   history_limit: 50,
@@ -84,6 +85,17 @@ const overview = ref(null)
 const availableIdentities = ref([])
 const availableLibraries = ref({})
 const sourceOptions = ref([])
+const notificationTypeOptions = ref([
+  { title: '资源下载', value: 'Download' },
+  { title: '整理入库', value: 'Organize' },
+  { title: '订阅', value: 'Subscribe' },
+  { title: '站点', value: 'SiteMessage' },
+  { title: '媒体服务器', value: 'MediaServer' },
+  { title: '手动处理', value: 'Manual' },
+  { title: '插件', value: 'Plugin' },
+  { title: '智能体', value: 'Agent' },
+  { title: '其它', value: 'Other' },
+])
 const moviePilotUsers = ref([])
 const accessLoading = ref(false)
 const accessError = ref('')
@@ -434,6 +446,9 @@ async function loadRuntime() {
     availableIdentities.value = Array.isArray(optionsData?.emby_identities) ? optionsData.emby_identities : []
     availableLibraries.value = optionsData?.emby_libraries && typeof optionsData.emby_libraries === 'object' ? optionsData.emby_libraries : {}
     sourceOptions.value = Array.isArray(optionsData?.source_options) ? optionsData.source_options : []
+    if (Array.isArray(optionsData?.notification_type_options) && optionsData.notification_type_options.length) {
+      notificationTypeOptions.value = optionsData.notification_type_options
+    }
     runtimeDefaults.value = { ...structuredClone(defaults), ...(optionsData?.defaults || {}) }
     applyConfig(optionsData?.config || props.initialConfig)
     await Promise.all([
@@ -818,6 +833,7 @@ onMounted(loadRuntime)
                 <VCol cols="12" md="4"><VTextField v-model.number="form.auto_subscribe_top_n" type="number" min="0" :max="form.auto_subscribe_limit" label="自动订阅前几名" density="compact" variant="outlined" hide-details :disabled="form.action_mode !== 'auto_subscribe'" /></VCol>
                 <VCol cols="12" md="4"><VTextField v-model.number="form.auto_subscribe_limit" type="number" min="0" max="10" label="安全上限" density="compact" variant="outlined" hide-details /></VCol>
                 <VCol cols="12" md="4"><VSwitch v-model="form.notify" color="info" label="发送通知" hide-details inset :disabled="form.action_mode === 'update'" /></VCol>
+                <VCol cols="12" md="4"><VSelect v-model="form.notification_type" :items="notificationTypeOptions" label="通知类型" density="compact" variant="outlined" hide-details :disabled="!form.notify || form.action_mode === 'update'" /></VCol>
                 <VCol cols="12" md="8">
                   <div class="text-caption mb-1">订阅门槛 · 最低支持度 {{ Math.round(form.confidence_threshold * 100) }}%</div>
                   <VSlider v-model="form.confidence_threshold" :min="0" :max="1" :step="0.05" color="primary" hide-details thumb-label />

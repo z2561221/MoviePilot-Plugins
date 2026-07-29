@@ -185,6 +185,44 @@ def _seed_memory(repository, *, tombstone=False):
     return result.memory
 
 
+def _seed_mature_memory(repository):
+    """投影五个覆盖维度的确认偏好，构造低打扰画像。"""
+    source = _event(
+        repository,
+        key="mature-memory-source",
+        comment="已确认多维整体偏好",
+        candidate_id="tmdb:tv:99",
+    )
+    items = [
+        PreferenceMemoryItem(
+            item_id=f"memory-{category}",
+            category=category,
+            value=value,
+            polarity="positive",
+            strength=0.8,
+            certainty=0.9,
+            evidence_refs=(f"event:{source.event_id}",),
+            source_event_sequence=source.sequence,
+            created_at=FIXED_NOW.isoformat(),
+        )
+        for category, value in (
+            ("genre", "悬疑"),
+            ("creator", "导演风格"),
+            ("pacing", "紧凑"),
+            ("character", "群像"),
+            ("novelty", "熟悉框架有新意"),
+        )
+    ]
+    result = repository.project_preference_memory(
+        PROFILE_ID,
+        items,
+        expected_revision=0,
+        source_event_sequence=source.sequence,
+    )
+    assert result.applied is True
+    return result.memory
+
+
 def test_understood_feedback_creates_evidence_linked_add_proposal_without_memory_write():
     """明确反馈生成新增预览，重复物化幂等且长期记忆保持空白。"""
     repository = AgentRankRepository(FakePlugin())
@@ -329,6 +367,90 @@ def test_only_one_pending_global_question_is_active_per_profile():
 
     assert second.question_id == first.question_id
     assert len(repository.load_pending_questions(PROFILE_ID)) == 1
+
+
+def test_mature_profile_suppresses_routine_question_but_conflict_restores_it():
+    """低打扰画像不再常规追问，明显冲突仍恢复必要问询。"""
+    repository = AgentRankRepository(FakePlugin())
+    memory = _seed_mature_memory(repository)
+    service = _service(repository)
+    routine_event = _event(repository, key="mature-routine", comment="")
+    routine_record = _understanding(
+        routine_event,
+        outcome="ambiguous",
+        uncertainties=("仍可补充细节",),
+        memory_revision=memory.memory_revision,
+    )
+
+    assert service.questioning_state(PROFILE_ID, memory=memory) == "low_interruption"
+    assert service.materialize(
+        routine_record,
+        event=routine_event,
+        candidate={"candidate_id": routine_event.candidate_id, "title": "候选作品"},
+        memory=memory,
+    ) is None
+
+    conflict_event = _event(
+        repository,
+        key="mature-conflict",
+        kind="dislike",
+        comment="",
+        candidate_id="tmdb:tv:102",
+    )
+    conflict_record = _understanding(
+        conflict_event,
+        outcome="ambiguous",
+        conflicts=(
+            {
+                "memory_item_id": "memory-pacing",
+                "category": "pacing",
+                "value": "紧凑",
+                "reason": "当前反馈与已确认偏好冲突",
+            },
+        ),
+        uncertainties=("需要确认是否口味变化",),
+        memory_revision=memory.memory_revision,
+    )
+    question = service.materialize(
+        conflict_record,
+        event=conflict_event,
+        candidate={"candidate_id": conflict_event.candidate_id, "title": "候选作品"},
+        memory=memory,
+    )
+
+    assert isinstance(question, PendingQuestion)
+
+
+def test_dismissed_question_raises_interruption_cost_without_negative_memory():
+    """关闭问询提高打扰成本并抑制连续追问，但不写任何负向偏好。"""
+    repository = AgentRankRepository(FakePlugin())
+    service = _service(repository)
+    first_event = _event(repository, key="dismiss-cost-first", comment="")
+    first = service.materialize(
+        _understanding(first_event, outcome="ambiguous", uncertainties=("信息不足",)),
+        event=first_event,
+        candidate={"candidate_id": first_event.candidate_id, "title": "作品一"},
+        memory=repository.load_preference_memory(PROFILE_ID),
+    )
+    dismissed = replace(first, status="dismissed", resolved_at=FIXED_NOW.isoformat())
+    assert repository.replace_pending_question(dismissed, expected_status="pending") is True
+    before = repository.load_preference_memory(PROFILE_ID)
+    second_event = _event(
+        repository,
+        key="dismiss-cost-second",
+        comment="",
+        candidate_id="tmdb:tv:103",
+    )
+
+    second = service.materialize(
+        _understanding(second_event, outcome="ambiguous", uncertainties=("仍可询问",)),
+        event=second_event,
+        candidate={"candidate_id": second_event.candidate_id, "title": "作品二"},
+        memory=before,
+    )
+
+    assert second is None
+    assert repository.load_preference_memory(PROFILE_ID) == before
 
 
 def test_exclusion_only_creates_no_proposal_or_question():

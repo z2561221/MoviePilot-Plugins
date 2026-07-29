@@ -9,6 +9,7 @@ from app.schemas.types import NotificationType
 from ..model.board import RecommendationBoard
 from ..model.constants import RECOMMENDATION_LIMIT
 from ..model.pending_center import PendingNotice
+from .notification_type import resolve_notification_type
 
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,9 @@ class NotificationService:
         text = f"本轮 Agent 推荐已生成，共 {count} 条：\n\n{ranking}"
         text += "\n\n请前往 **Agent榜单中心** 手动订阅；此通知不会自动创建订阅。"
         self._plugin.post_message(
-            mtype=NotificationType.Subscribe,
+            mtype=resolve_notification_type(
+                getattr(self._plugin, "_config", {}), NotificationType
+            ),
             title="Agent榜单中心推荐确认",
             text=text,
             username=username,
@@ -141,7 +144,9 @@ class NotificationService:
             "旧榜单：已保留" if old_board_preserved else "旧榜单：无可用数据",
         ]
         self._plugin.post_message(
-            mtype=NotificationType.Subscribe,
+            mtype=resolve_notification_type(
+                getattr(self._plugin, "_config", {}), NotificationType
+            ),
             title="Agent榜单中心运行异常",
             text="\n".join(lines),
             username=username,
@@ -192,7 +197,9 @@ class NotificationService:
             "请前往 Agent榜单中心的待处理区域处理。",
         ]
         kwargs = {
-            "mtype": NotificationType.Subscribe,
+            "mtype": resolve_notification_type(
+                getattr(self._plugin, "_config", {}), NotificationType
+            ),
             "title": "Agent榜单中心待处理",
             "text": "\n".join(lines),
             "username": username,

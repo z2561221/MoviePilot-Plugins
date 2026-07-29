@@ -68,6 +68,9 @@ class NotificationType(Enum):
     """测试使用的最小 MoviePilot 通知类型枚举。"""
 
     Subscribe = "订阅"
+    Manual = "手动处理"
+    Plugin = "插件"
+    Agent = "智能体"
 
 
 app_module.schemas = schemas_module
@@ -89,6 +92,9 @@ archive_module = importlib.import_module(f"{PACKAGE_NAME}.model.archive")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 service_module = importlib.import_module(f"{PACKAGE_NAME}.service.subscription")
 notification_module = importlib.import_module(f"{PACKAGE_NAME}.service.notification")
+notification_type_module = importlib.import_module(
+    f"{PACKAGE_NAME}.service.notification_type"
+)
 runtime_module = importlib.import_module(f"{PACKAGE_NAME}.service.runtime")
 controller_module = importlib.import_module(f"{PACKAGE_NAME}.controller.api")
 
@@ -107,6 +113,15 @@ AgentRankRuntime = runtime_module.AgentRankRuntime
 AgentRankApiController = controller_module.AgentRankApiController
 PendingCenterItem = pending_model_module.PendingCenterItem
 PendingNotice = pending_model_module.PendingNotice
+
+
+def test_notification_type_options_follow_current_host_enum():
+    """配置选项动态复用当前 MoviePilot 宿主通知类型。"""
+    options = notification_type_module.notification_type_options(NotificationType)
+
+    assert options == [
+        {"title": item.value, "value": item.name} for item in NotificationType
+    ]
 
 PROFILE_ID = "emby:home:user-1"
 IDENTITY_CONFIG = {
@@ -164,6 +179,7 @@ class FakePlugin:
     def __init__(self):
         self.data = {}
         self.messages = []
+        self._config = {"notification_type": "Plugin"}
 
     def get_state(self):
         """模拟已通过硬依赖门禁的运行中插件。"""
@@ -294,7 +310,7 @@ def test_notification_confirmation_sends_summary_without_subscription_dependency
 
     assert len(plugin.messages) == 1
     assert plugin.messages[0]["username"] == "Alice"
-    assert plugin.messages[0]["mtype"] is NotificationType.Subscribe
+    assert plugin.messages[0]["mtype"] is NotificationType.Plugin
     assert plugin.messages[0]["parse_mode"] == "MarkdownV2"
     assert plugin.messages[0]["disable_web_page_preview"] is True
     assert plugin.messages[0]["text"].startswith("本轮 Agent 推荐已生成，共 1 条：\n\n```")
@@ -372,6 +388,7 @@ def test_failure_notification_hides_addresses_credentials_and_emby_identity():
     )
 
     text = plugin.messages[-1]["text"]
+    assert plugin.messages[-1]["mtype"] is NotificationType.Plugin
     assert "Alice" not in text
     assert "emby:home:user-1" not in text
     assert "192.0.2.12" not in text
@@ -380,6 +397,40 @@ def test_failure_notification_hides_addresses_credentials_and_emby_identity():
     assert "secret-value" not in text
     assert "user-1" not in text
     assert "已隐藏" in text
+
+
+def test_notification_type_is_shared_by_ranking_failure_and_pending_messages():
+    """榜单、异常与待处理通知统一读取用户选择的 MoviePilot 通知类型。"""
+    plugin = FakePlugin()
+    plugin._config["notification_type"] = "Manual"
+    board = RecommendationBoard(
+        profile_id=PROFILE_ID,
+        username="Alice",
+        run_id="run-notice-type",
+        status="success",
+        recommendations=[RecommendationItem(candidate_id="tmdb:1", rank=1, title="One")],
+    )
+    service = NotificationService(plugin)
+
+    service.send_confirmation("Alice", board)
+    service.send_failure("Alice", "failed", "run-notice-type", "失败", True)
+    service.send_pending(
+        "Alice",
+        PendingNotice(
+            item=PendingCenterItem(
+                item_type="question",
+                item_id="question-notice-type",
+                profile_id=PROFILE_ID,
+                title="需要补充",
+                summary="请补充整体偏好",
+                created_at="2026-07-29T00:00:00+00:00",
+                status="pending",
+            )
+        ),
+    )
+
+    assert len(plugin.messages) == 3
+    assert all(message["mtype"] is NotificationType.Manual for message in plugin.messages)
 
 
 def test_manual_subscription_passes_username_and_identifiers_after_all_gates():
@@ -566,8 +617,8 @@ def test_runtime_notify_mode_sends_summary_after_success_without_subscribing():
     assert len(plugin.messages) == 1
 
 
-def test_runtime_failure_sends_one_subscribe_notification_with_old_board_state():
-    """A failed Agent result emits one concise Subscribe notification."""
+def test_runtime_failure_sends_one_plugin_notification_with_old_board_state():
+    """A failed Agent result emits one concise configured notification."""
     plugin = FakePlugin()
     board = RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success")
 
@@ -591,7 +642,7 @@ def test_runtime_failure_sends_one_subscribe_notification_with_old_board_state()
     asyncio.run(runtime.refresh(PROFILE_ID))
 
     assert len(plugin.messages) == 1
-    assert plugin.messages[0]["mtype"] == NotificationType.Subscribe
+    assert plugin.messages[0]["mtype"] == NotificationType.Plugin
     assert plugin.messages[0]["title"] == "Agent榜单中心运行异常"
     assert "run-failed" in plugin.messages[0]["text"]
     assert "状态：Agent 调用失败" in plugin.messages[0]["text"]

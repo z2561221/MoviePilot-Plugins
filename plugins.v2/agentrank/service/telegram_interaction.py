@@ -15,6 +15,7 @@ from ..model.constants import RECOMMENDATION_LIMIT
 from ..model.pending_center import PendingNotice
 from ..model.telegram_pending import TelegramPendingSession
 from ..model.telegram_selection import TelegramSelectionSession
+from .notification_type import resolve_notification_type
 
 
 logger = logging.getLogger(__name__)
@@ -242,7 +243,7 @@ class TelegramSelectionService:
             self._repository.save_telegram_pending_session(session)
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
-            mtype=NotificationType.Subscribe,
+            mtype=resolve_notification_type(self._config, NotificationType),
             title="Agent榜单中心 · 待处理",
             text="\n".join(lines),
             username=username,
@@ -274,18 +275,23 @@ class TelegramSelectionService:
         event_data: Dict[str, Any],
         text: str,
     ) -> None:
-        """把待处理卡片编辑为无按钮安全结果。"""
+        """删除待处理卡片并另发结果；失败时原地收束为无按钮状态。"""
+        deleted = self._delete_original_message(event_data)
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
-            mtype=NotificationType.Subscribe,
+            mtype=resolve_notification_type(self._config, NotificationType),
             title="Agent榜单中心 · 待处理",
             text=html.escape(_compact_text(text, 300)),
             username=session.username,
             targets={"telegram_userid": session.telegram_userid},
             buttons=None,
-            original_message_id=event_data.get("original_message_id"),
-            original_chat_id=event_data.get("original_chat_id"),
+            original_message_id=(
+                None if deleted else event_data.get("original_message_id")
+            ),
+            original_chat_id=(
+                None if deleted else event_data.get("original_chat_id")
+            ),
             parse_mode="HTML",
             save_history=False,
         )
@@ -481,7 +487,7 @@ class TelegramSelectionService:
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
-            mtype=NotificationType.Subscribe,
+            mtype=resolve_notification_type(self._config, NotificationType),
             title=f"Agent榜单中心 · Top {len(session.candidate_ids):02d}",
             text=text,
             image=image,
@@ -502,7 +508,7 @@ class TelegramSelectionService:
         title: str,
         text: str,
     ) -> None:
-        """编辑为无按钮终态并保留榜首横版封面。"""
+        """删除原榜单卡片并另发结果；失败时编辑为无按钮终态。"""
         board = (
             self._repository.load_board(session.profile_id)
             if session.profile_id
@@ -510,29 +516,54 @@ class TelegramSelectionService:
         )
         items = self._ranked_items(board) if board is not None else []
         image = self._image_url(items[0]) if items else None
+        deleted = self._delete_original_message(event_data)
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
-            mtype=NotificationType.Subscribe,
+            mtype=resolve_notification_type(self._config, NotificationType),
             title=title,
             text=text,
             image=image,
             username=session.username,
             targets={"telegram_userid": session.telegram_userid},
             buttons=None,
-            original_message_id=event_data.get("original_message_id"),
-            original_chat_id=event_data.get("original_chat_id"),
+            original_message_id=(
+                None if deleted else event_data.get("original_message_id")
+            ),
+            original_chat_id=(
+                None if deleted else event_data.get("original_chat_id")
+            ),
             parse_mode="HTML",
             disable_web_page_preview=True,
             save_history=False,
         )
+
+    def _delete_original_message(self, event_data: Dict[str, Any]) -> bool:
+        """通过 MoviePilot 消息链删除原 Telegram 交互卡片。"""
+        message_id = (event_data or {}).get("original_message_id")
+        chain = getattr(self._plugin, "chain", None)
+        delete_message = getattr(chain, "delete_message", None)
+        if message_id in (None, "") or not callable(delete_message):
+            return False
+        try:
+            return bool(
+                delete_message(
+                    channel=MessageChannel.Telegram,
+                    source=(event_data or {}).get("source"),
+                    message_id=message_id,
+                    chat_id=(event_data or {}).get("original_chat_id"),
+                )
+            )
+        except Exception:
+            logger.exception("AgentRank Telegram 原交互消息删除失败，回退原地编辑")
+            return False
 
     def _post_rejection(self, event_data: Dict[str, Any], text: str) -> None:
         """向越权点击者单独发送拒绝提示，不修改原卡片。"""
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
-            mtype=NotificationType.Subscribe,
+            mtype=resolve_notification_type(self._config, NotificationType),
             title="Agent榜单中心",
             text=html.escape(text),
             targets={"telegram_userid": str(event_data.get("userid") or "")},

@@ -35,6 +35,11 @@ const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.val
 const positiveTags = computed(() => state.profile.value?.tags || [])
 const negativeTags = computed(() => state.profile.value?.negative_tags || [])
 const archivedProfileTags = computed(() => state.profile.value?.archived_profile_tags || [])
+const questioningStateMeta = computed(() => ({
+  exploring: { text: '探索中', color: 'info', icon: 'mdi-compass-outline' },
+  stabilizing: { text: '趋于稳定', color: 'primary', icon: 'mdi-chart-timeline-variant-shimmer' },
+  low_interruption: { text: '低打扰', color: 'success', icon: 'mdi-bell-sleep-outline' },
+}[state.profile.value?.questioning_state] || { text: '探索中', color: 'info', icon: 'mdi-compass-outline' }))
 const profileStats = computed(() => [
   { label: '播放样本', value: state.profile.value?.playback_count || 0, suffix: '条', icon: 'mdi-database-check-outline' },
   { label: '偏好标签', value: positiveTags.value.length, suffix: '个', icon: 'mdi-heart-outline' },
@@ -614,7 +619,10 @@ onMounted(initialize)
               <div class="ar-page__section-title">用户画像</div>
               <div class="ar-page__section-desc">用播放样本描述偏好、避雷方向与本轮榜单命中。</div>
             </div>
-            <VChip size="small" variant="tonal" prepend-icon="mdi-clock-outline">{{ formatTime(state.profile.value?.generated_at) }}</VChip>
+            <div class="d-flex align-center ga-2 flex-wrap justify-end">
+              <VChip :color="questioningStateMeta.color" size="small" variant="tonal" :prepend-icon="questioningStateMeta.icon">{{ questioningStateMeta.text }}</VChip>
+              <VChip size="small" variant="tonal" prepend-icon="mdi-clock-outline">{{ formatTime(state.profile.value?.generated_at) }}</VChip>
+            </div>
           </div>
 
           <VCard variant="outlined" class="ar-page__section-card">
