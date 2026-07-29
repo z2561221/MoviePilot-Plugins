@@ -3,10 +3,10 @@
   "target_version": "1.0.0",
   "current_milestone": "trial_correction_low_interruption_loop",
   "status": {
-    "overall": "in_progress",
+    "overall": "waiting_for_user_trial",
     "phase": "phase-9",
     "task": "9.4",
-    "next_allowed_action": "Run the full AgentRank gates, sync MP local source, reload, and verify runtime plus three browser viewports without Git synchronization or release work"
+    "next_allowed_action": "Wait for the user's next trial feedback; Git synchronization, PR, merge, version/history changes, and release remain forbidden until a separate explicit instruction"
   },
   "execution_rules": {
     "repository": "D:/AIGC/MoviePilot/MoviePilot-Plugins",
@@ -1054,7 +1054,7 @@
     {
       "id": "phase-9",
       "title": "试用纠错与低打扰闭环",
-      "status": "in_progress",
+      "status": "completed",
       "goal": "落实试用验收追加反馈并再次交付可复核的MP本地试用版本",
       "acceptance": [
         "推荐反馈30秒内可取消或替换且只学习最终事实",
@@ -1066,7 +1066,18 @@
         "全量门禁和MP本地三视口验收通过",
         "未执行Git在线同步版本history PR合入或发布"
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        "Tasks 9.1 through 9.3 were implemented by commits 226298fd, 4590b737, 0d79ec2c, and the final persona/docstring contract closure 4de1f7e1",
+        "focused tests 227 passed, baseline smoke 59 passed, AgentRank full suite 648 passed, and static contracts 30 passed",
+        "Vue federation build transformed 75 modules and all 10 assets referenced by remoteEntry.js were present; compileall, JSON parsing, sensitive scan, and git diff check passed",
+        "sync_to_mp_local.py --plugin AgentRank completed and the Win and MP-local SHA256 values matched for pending_center.py, runtime.py, Config.vue, and remoteEntry.js",
+        "MoviePilot reload succeeded; /api/v1/plugin/history/AgentRank reported plugin_version=1.0.0, installed=true, state=true, is_local=true, author_url=https://github.com/z2561221, and the unchanged v1.0.0 history",
+        "plugin/remotes and plugin/sidebar_nav both exposed AgentRank from the MP-local source",
+        "the authenticated Config UI showed CinePilot Agent 人设语气 above CinePilot Agent 扩展提示词 with the high-concentration Kristina/Future Gadget Lab default persona",
+        "390x844, 768x1024, and 1440x900 browser audits kept document scrollWidth equal to clientWidth; the five basic-setting groups remained separate and the library selector rendered 剧集、电影、…",
+        "the live pending center exposed 待办事项 and 处理记录; processed questions showed 撤销回答, 更新回答, and 重新打开 controls without mutating user data",
+        "browser warnings and errors were empty; tests/static/test_localtoolkit_standard_completion.py remained unstaged and no fetch, push, PR, merge, version/history edit, tag, Release, or publication was performed"
+      ],
       "tasks": [
         {
           "id": "9.1",
@@ -1128,7 +1139,7 @@
         {
           "id": "9.4",
           "title": "执行全量门禁并交付MP本地试用",
-          "status": "in_progress",
+          "status": "completed",
           "acceptance": [
             "全量测试构建扫描和git diff check通过",
             "MP本地同步reload SHA history和is_local核验通过",
@@ -1140,7 +1151,14 @@
             "Vue federation build转换75 modules，remoteEntry引用的10个JS和CSS资产全部存在",
             "compileall、进度JSON解析和git diff check通过",
             "敏感扫描命中均为字段名、运行时生成令牌或脱敏测试样本，无真实凭据",
-            "package、plugin_version和history保持1.0.0不变，LocalToolkit用户改动仍未暂存"
+            "package、plugin_version和history保持1.0.0不变，LocalToolkit用户改动仍未暂存",
+            "sync_to_mp_local.py --plugin AgentRank完成，pending_center.py、runtime.py、Config.vue和remoteEntry.js源目标SHA256一致",
+            "MP reload成功，history接口确认plugin_version=1.0.0、installed=true、state=true、is_local=true且package与history未改",
+            "plugin/remotes和plugin/sidebar_nav均包含AgentRank，联邦页面由MP本地源正常加载",
+            "提示设置实页确认CinePilot Agent人设语气位于扩展提示词上方，默认值为高浓度克里斯蒂娜与未来道具研究所语气",
+            "390x844、768x1024、1440x900三视口document scrollWidth等于clientWidth，五个基础设置功能组独立成排且内容库固定显示剧集、电影、…",
+            "待办中心实页确认待办事项与处理记录双视图，已回答问询提供撤销回答和更新回答，已关闭问询提供重新打开",
+            "浏览器error和warn日志为空，验收期间未执行任何会修改用户画像或待办状态的操作"
           ],
           "commit": null
         }
@@ -1413,6 +1431,30 @@
       "date": "2026-07-29",
       "task": "8.6",
       "result": "final automated gates, MP-local SHA and runtime verification, authenticated resource and UI readback, and three-viewport geometry audits completed the second-trial MP-local handoff without Git synchronization, version changes, or publication",
+      "commit": null
+    },
+    {
+      "date": "2026-07-30",
+      "task": "9.1",
+      "result": "recommendation feedback now uses a profile-last-action 30-second debounce with same-state cancellation, opposite-state replacement, final-fact-only learning, and safe delayed removal or replenishment",
+      "commit": "226298fd"
+    },
+    {
+      "date": "2026-07-30",
+      "task": "9.2",
+      "result": "the pending center now keeps symmetric todo and processed history views, supports answer revision, answer withdrawal, and reopening, and creates at most one playback-grounded whole-user calibration question after the first effective sync",
+      "commit": "4590b737"
+    },
+    {
+      "date": "2026-07-30",
+      "task": "9.3",
+      "result": "a separate high-concentration CinePilot Agent persona now precedes the extension prompt and applies across dialogue, questions, revisions, and result copy; basic settings were regrouped into five full-width sections and visible-page operations no longer duplicate background notifications",
+      "commit": "0d79ec2c"
+    },
+    {
+      "date": "2026-07-30",
+      "task": "9.4",
+      "result": "all automated gates, MP-local sync and reload, SHA and runtime metadata checks, authenticated prompt and pending-center readback, three responsive viewport audits, and clean browser logs completed the Phase 9 trial handoff without Git synchronization or release work",
       "commit": null
     }
   ],
