@@ -1123,7 +1123,7 @@
             "订阅数量与订阅门槛按动作模式条件显示，页面手动运行和页面待办不重复外发通知",
             "聚焦测试227 passed，基线smoke 59 passed，Vue federation build转换75 modules，compileall和git diff check通过"
           ],
-          "commit": null
+          "commit": "0d79ec2c"
         },
         {
           "id": "9.4",
@@ -1135,7 +1135,13 @@
             "390x844 768x1024 1440x900实页无溢出且控制台干净",
             "LocalToolkit文件未暂存未提交且版本history不变"
           ],
-          "verification": [],
+          "verification": [
+            "AgentRank插件全量测试648 passed，静态契约30 passed",
+            "Vue federation build转换75 modules，remoteEntry引用的10个JS和CSS资产全部存在",
+            "compileall、进度JSON解析和git diff check通过",
+            "敏感扫描命中均为字段名、运行时生成令牌或脱敏测试样本，无真实凭据",
+            "package、plugin_version和history保持1.0.0不变，LocalToolkit用户改动仍未暂存"
+          ],
           "commit": null
         }
       ]

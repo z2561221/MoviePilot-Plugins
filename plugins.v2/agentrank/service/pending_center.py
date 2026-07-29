@@ -198,10 +198,16 @@ class PendingCenterService:
             raise PendingCenterError(
                 "pending_view_invalid", "待处理视图不受支持", 422
             )
+
         def visible(status: str, pending_status: str) -> bool:
+            """判断当前视图是否应展示指定状态。"""
             if scope == "all":
                 return True
-            return (status == pending_status) if scope == "pending" else (status != pending_status)
+            return (
+                status == pending_status
+                if scope == "pending"
+                else status != pending_status
+            )
 
         items: List[PendingCenterItem] = []
         items.extend(
