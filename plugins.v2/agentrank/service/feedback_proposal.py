@@ -63,6 +63,106 @@ class FeedbackProposalService:
             now = now.replace(tzinfo=timezone.utc)
         return now.isoformat(), (now + timedelta(days=self._expiry_days)).isoformat()
 
+    def create_playback_calibration(
+        self,
+        profile_id: str,
+        snapshot: Any,
+        *,
+        actor_id: str = "",
+    ) -> tuple[Optional[PendingQuestion], bool]:
+        """首次有效播放同步后创建一个不直接写画像的整体偏好校准问题。"""
+        target = str(profile_id or "").strip()
+        if not target or snapshot is None:
+            return None, False
+        questions = self._repository.load_pending_questions(target)
+        existing = next(
+            (
+                item
+                for item in questions
+                if item.preference_dimension == "playback_calibration"
+            ),
+            None,
+        )
+        if existing is not None:
+            return existing, False
+        if any(item.status == "pending" for item in questions):
+            return None, False
+        if str(getattr(snapshot, "status", "") or "") not in {"ready", "cached"}:
+            return None, False
+        strong_samples = [
+            item
+            for item in getattr(snapshot, "samples", ()) or ()
+            if bool(getattr(item, "completed", False))
+            or int(getattr(item, "play_count", 0) or 0) >= 2
+            or int(getattr(item, "completed_episode_count", 0) or 0) >= 2
+            or int(getattr(item, "watch_minutes", 0) or 0) >= 60
+        ]
+        if not strong_samples:
+            return None, False
+        fingerprint = str(getattr(snapshot, "fingerprint", lambda: "")() or "")
+        genres = []
+        for sample in strong_samples:
+            for genre in getattr(sample, "genres", ()) or ():
+                label = _text(genre, 20)
+                if label and label not in genres:
+                    genres.append(label)
+                if len(genres) >= 3:
+                    break
+            if len(genres) >= 3:
+                break
+        summary = f"有效观看样本 {len(strong_samples)} 项"
+        if genres:
+            summary += "；常见类型 " + "、".join(genres)
+        appended = self._repository.append_feedback_event(
+            FeedbackEvent(
+                profile_id=target,
+                kind="playback_calibration",
+                candidate_id="profile:playback",
+                comment=summary,
+                created_by_mp_user_id=str(actor_id or "").strip()[:128],
+                idempotency_key=f"playback-calibration:{target}",
+            )
+        )
+        event = appended.event
+        created_at, expires_at = self._time_window()
+        question = PendingQuestion(
+            question_id=self._stable_id("pending-question", event.event_id),
+            profile_id=target,
+            event_id=event.event_id,
+            event_sequence=event.sequence,
+            candidate_id="profile:playback",
+            understanding_record_id=f"playback-calibration:{fingerprint[:24] or event.event_id}",
+            question="根据近期有效观看记录，未来推荐更应该延续熟悉体验，还是主动带来变化？",
+            options=(
+                PendingQuestionOption(
+                    option_id="continue_patterns", label="延续已看作品的共同点"
+                ),
+                PendingQuestionOption(option_id="either", label="都可以"),
+                PendingQuestionOption(option_id="uncertain", label="不确定"),
+                PendingQuestionOption(option_id="not_me", label="不是我看的"),
+            ),
+            allow_custom_answer=True,
+            uncertainties=("播放记录只能提出偏好假设，不能直接等同于喜欢",),
+            evidence_refs=(
+                f"event:{event.event_id}",
+                f"playback:{fingerprint[:24]}",
+            ),
+            expected_memory_revision=self._repository.load_preference_memory(
+                target
+            ).memory_revision,
+            created_at=created_at,
+            expires_at=expires_at,
+            preference_dimension="playback_calibration",
+            exploration_level=0,
+            confidence_gap=1.0,
+        )
+        return (
+            self._repository.append_pending_question(
+                question, limit=self._record_limit
+            ),
+            True,
+        )
+
     @staticmethod
     def _stable_id(prefix: str, event_id: str, suffix: str = "") -> str:
         """根据事件身份生成重试稳定且不泄露原文的记录 ID。"""

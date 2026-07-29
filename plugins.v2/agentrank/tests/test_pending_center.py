@@ -284,10 +284,32 @@ def test_question_answer_and_close_never_return_raw_event_or_implicitly_learn():
     assert "event" not in answered
     rendered = str(answered)
     assert "created_by_mp_user_id" not in rendered
-    assert "answer_text" not in rendered
+    assert answered["item"]["answer_text"] == "人物"
     assert "event_id" not in rendered
     assert queue.events[0].supersedes
     assert repository.load_preference_memory(PROFILE_ID) == before
+
+    history = center.list_items(
+        PROFILE_ID,
+        view="resolved",
+        actor_id="mp-user-1",
+    )
+    assert [item["status"] for item in history["items"]] == [
+        "dismissed",
+        "answered",
+    ]
+    assert history["items"][1]["answer_text"] == "人物"
+    assert history["items"][1]["editable"] is True
+
+    reopened = center.respond(
+        profile_id=PROFILE_ID,
+        item_type="question",
+        item_id=question.question_id,
+        action="reopen",
+        actor_id="mp-user-1",
+    )
+    assert reopened["item"]["status"] == "pending"
+    assert center.list_items(PROFILE_ID, view="pending")["total"] == 1
 
 
 def test_proposal_confirmation_is_explicit_and_rejection_writes_no_memory():

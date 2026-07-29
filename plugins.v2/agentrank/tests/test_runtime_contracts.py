@@ -183,7 +183,8 @@ def test_feedback_response_is_profile_serialized_and_cannot_project_memory():
         "class FeedbackResponseService",
         "profile_data_guard",
         "answer_question",
-        "supersedes=original.event_id",
+        "supersedes = question.answer_event_id or original.event_id",
+        "supersedes=supersedes",
     ):
         assert contract in source
     assert "FeedbackResponseService" in runtime_source

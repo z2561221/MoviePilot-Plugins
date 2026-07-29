@@ -91,6 +91,7 @@ function useAgentRankState(api) {
   const activity = ref$1([]);
   const conversation = ref$1(emptyConversation());
   const pendingCenter = ref$1(emptyPendingCenter());
+  const processedCenter = ref$1({ ...emptyPendingCenter(), view: 'resolved' });
   const attribution = ref$1(emptyAttribution());
   const exportedData = ref$1(null);
   const fullResetConfirmation = ref$1(null);
@@ -210,6 +211,7 @@ function useAgentRankState(api) {
     activity.value = [];
     conversation.value = emptyConversation();
     pendingCenter.value = emptyPendingCenter(target);
+    processedCenter.value = { ...emptyPendingCenter(target), view: 'resolved' };
     attribution.value = emptyAttribution(target);
     exportedData.value = null;
     fullResetConfirmation.value = null;
@@ -449,9 +451,11 @@ function useAgentRankState(api) {
 
   async function reactToRecommendation(kind, candidateId) {
     const targetProfile = activeProfileScope();
-    const action = String(kind || '').trim().toLowerCase();
-    if (!['like', 'dislike'].includes(action)) throw new Error('未知的榜单反馈类型')
+    const requestedAction = String(kind || '').trim().toLowerCase();
+    if (!['like', 'dislike'].includes(requestedAction)) throw new Error('未知的榜单反馈类型')
     const currentBoard = board.value || emptyBoard(targetProfile);
+    const currentItem = currentBoard.recommendations?.find(entry => entry.candidate_id === candidateId);
+    const action = currentItem?.feedback_kind === requestedAction ? 'neutral' : requestedAction;
     const requestScope = [
       targetProfile,
       currentBoard.run_id || '',
@@ -474,8 +478,8 @@ function useAgentRankState(api) {
           run_id: currentBoard.run_id || '',
           board_revision: currentBoard.revision || 1,
         },
-        action === 'like' ? '点赞' : '点踩',
-        `feedback:${action}:${candidateId}`,
+        action === 'neutral' ? '取消反馈' : action === 'like' ? '点赞' : '点踩',
+        `feedback:${requestedAction}:${candidateId}`,
       );
     } catch (error) {
       if (['board_run_conflict', 'board_revision_conflict'].includes(error?.code)) {
@@ -492,8 +496,7 @@ function useAgentRankState(api) {
       return result
     }
     const effectiveKind = result?.event?.kind || action;
-    const item = currentBoard.recommendations?.find(entry => entry.candidate_id === candidateId);
-    if (item) item.feedback_kind = effectiveKind;
+    if (currentItem) currentItem.feedback_kind = effectiveKind === 'neutral' ? '' : effectiveKind;
     currentBoard.revision = Number(result?.board_revision || currentBoard.revision || 1);
     return result
   }
@@ -663,19 +666,24 @@ function useAgentRankState(api) {
     return result
   }
 
-  async function loadPendingCenter() {
+  async function loadPendingCenter(view = 'pending') {
     const targetProfile = activeProfileScope();
     if (!targetProfile) return emptyPendingCenter()
+    const scope = view === 'resolved' ? 'resolved' : 'pending';
     return runOperation(
-      'pending',
+      `pending:${scope}`,
       async ({ isCurrent }) => {
         const result = await getPluginApi(api, 'pending', {
           profile_id: targetProfile,
+          view: scope,
         }) || emptyPendingCenter(targetProfile);
-        if (isCurrent() && selectedProfileId.value === targetProfile) pendingCenter.value = result;
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          if (scope === 'resolved') processedCenter.value = result;
+          else pendingCenter.value = result;
+        }
         return result
       },
-      retryForProfile(targetProfile, loadPendingCenter),
+      retryForProfile(targetProfile, () => loadPendingCenter(scope)),
       { globalError: false },
     )
   }
@@ -699,7 +707,11 @@ function useAgentRankState(api) {
       { globalError: false },
     );
     if (selectedProfileId.value === targetProfile) {
-      await Promise.allSettled([loadPendingCenter(), loadConversation()]);
+      await Promise.allSettled([
+        loadPendingCenter('pending'),
+        loadPendingCenter('resolved'),
+        loadConversation(),
+      ]);
     }
     invalidateProfileCache(targetProfile);
     return result
@@ -758,6 +770,7 @@ function useAgentRankState(api) {
     activity.value = [];
     conversation.value = emptyConversation();
     pendingCenter.value = emptyPendingCenter(selectedProfileId.value);
+    processedCenter.value = { ...emptyPendingCenter(selectedProfileId.value), view: 'resolved' };
     attribution.value = emptyAttribution(selectedProfileId.value);
     exportedData.value = null;
     fullResetConfirmation.value = null;
@@ -834,6 +847,7 @@ function useAgentRankState(api) {
     activity,
     conversation,
     pendingCenter,
+    processedCenter,
     attribution,
     exportedData,
     fullResetConfirmation,

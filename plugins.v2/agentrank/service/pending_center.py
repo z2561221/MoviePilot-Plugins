@@ -72,6 +72,15 @@ class PendingCenterService:
             created_at=record.created_at,
             expires_at=record.expires_at,
             status=record.status,
+            resolved_at=record.resolved_at,
+            result_code=record.resolution_reason,
+            result_message=(
+                "已写入长期画像"
+                if record.status == "confirmed"
+                else "已拒绝采纳"
+                if record.status == "rejected"
+                else ""
+            ),
         )
 
     @staticmethod
@@ -90,6 +99,11 @@ class PendingCenterService:
             created_at=record.created_at,
             expires_at=record.expires_at,
             status=record.status,
+            selected_option_id=record.selected_option_id,
+            answer_text=record.answer_text,
+            resolved_at=record.resolved_at,
+            editable=record.status in {"answered", "dismissed"},
+            reversible=record.status in {"answered", "dismissed"},
         )
 
     @staticmethod
@@ -104,6 +118,13 @@ class PendingCenterService:
             created_at=record.created_at,
             status=record.status,
             requires_superuser=record.requires_superuser,
+            resolved_at=record.resolved_at,
+            result_code=record.execution_code,
+            result_message=record.execution_message,
+            reversible=(
+                record.status == "confirmed"
+                and record.kind in {"profile_tag", "weight"}
+            ),
         )
 
     def _actor_for_event(self, profile_id: str, event_id: str) -> str:
@@ -147,33 +168,63 @@ class PendingCenterService:
         is_superuser: bool = False,
     ) -> Dict[str, Any]:
         """返回当前用户可见的三类未完成项目。"""
+        return self.list_items(
+            profile_id,
+            view="pending",
+            actor_id=actor_id,
+            is_superuser=is_superuser,
+        )
+
+    def list_items(
+        self,
+        profile_id: Any,
+        *,
+        view: str = "pending",
+        actor_id: str = "",
+        is_superuser: bool = False,
+    ) -> Dict[str, Any]:
+        """按待办、处理记录或全部返回当前用户可见项目。"""
         target = self._profile_id(profile_id)
         self._feedback_response.expire_due(target)
+        scope = str(view or "pending").strip().casefold()
+        if scope not in {"pending", "resolved", "all"}:
+            raise PendingCenterError(
+                "pending_view_invalid", "待处理视图不受支持", 422
+            )
+        def visible(status: str, pending_status: str) -> bool:
+            if scope == "all":
+                return True
+            return (status == pending_status) if scope == "pending" else (status != pending_status)
+
         items: List[PendingCenterItem] = []
         items.extend(
             self._proposal_item(item)
             for item in self._repository.load_memory_proposals(target)
-            if item.status == "pending_confirmation"
+            if visible(item.status, "pending_confirmation")
         )
         items.extend(
             self._question_item(item)
             for item in self._repository.load_pending_questions(target)
-            if item.status == "pending"
+            if visible(item.status, "pending")
         )
         requester = str(actor_id or "").strip()
         items.extend(
             self._command_item(item)
             for item in self._command_records(target)
-            if item.status == "pending_confirmation"
+            if visible(item.status, "pending_confirmation")
             and (is_superuser or item.requested_by_mp_user_id == requester)
         )
-        items.sort(key=lambda item: (item.created_at, item.item_type, item.item_id))
+        items.sort(
+            key=lambda item: (item.resolved_at or item.created_at, item.item_type, item.item_id),
+            reverse=scope == "resolved",
+        )
         counts = {
             item_type: sum(1 for item in items if item.item_type == item_type)
             for item_type in ("proposal", "question", "command")
         }
         return {
             "profile_id": target,
+            "view": scope,
             "items": [item.to_dict() for item in items],
             "counts": counts,
             "total": len(items),
@@ -306,6 +357,10 @@ class PendingCenterService:
             )
             changed = bool(result.event_created)
             queue_status = result.queue_status
+        elif decision == "reopen" and target_type == "question":
+            before = self._repository.get_pending_question(target, target_id)
+            result = self._feedback_response.reopen_question(target, target_id)
+            changed = before is None or before.status != result.status
         else:
             raise PendingCenterError(
                 "pending_action_invalid", "该待处理项目不支持此操作", 422

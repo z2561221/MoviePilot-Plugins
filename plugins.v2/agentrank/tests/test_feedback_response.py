@@ -320,6 +320,69 @@ def test_duplicate_answer_is_idempotent_and_conflicting_key_is_rejected():
     assert caught.value.code == "idempotency_conflict"
 
 
+def test_answer_can_be_revised_and_reopened_without_rewriting_old_events():
+    """已回答问询可追加修订事实，也可清空展示答案后重新进入待办。"""
+    repository = AgentRankRepository(FakePlugin())
+    original = _event(repository)
+    question = _question(repository, original)
+    queue = FakeQueue()
+    service = FeedbackResponseService(
+        repository, feedback_queue=queue, now_factory=FixedClock()
+    )
+
+    first = service.answer_question(
+        PROFILE_ID,
+        question.question_id,
+        idempotency_key="answer-first",
+        actor_id="mp-user-1",
+        option_id="option_1",
+    )
+    revised = service.answer_question(
+        PROFILE_ID,
+        question.question_id,
+        idempotency_key="answer-revised",
+        actor_id="mp-user-1",
+        custom_answer="其实更看重角色关系是否可信",
+    )
+    reopened = service.reopen_question(PROFILE_ID, question.question_id)
+
+    assert revised.event.supersedes == first.event.event_id
+    assert revised.question.answer_text == "其实更看重角色关系是否可信"
+    assert [item.event_id for item in repository.load_feedback_events(PROFILE_ID)] == [
+        original.event_id,
+        first.event.event_id,
+        revised.event.event_id,
+    ]
+    assert reopened.status == "pending"
+    assert reopened.answer_text == ""
+    assert reopened.answer_event_id == ""
+    assert queue.events == [first.event, revised.event]
+
+
+def test_dismissed_question_can_be_reopened_but_expired_question_cannot():
+    """关闭问询可重新打开，过期事实保持终态。"""
+    clock = FixedClock()
+    repository = AgentRankRepository(FakePlugin())
+    dismissed = _question(repository, _event(repository, key="dismiss-reopen"))
+    expired = _question(
+        repository,
+        _event(repository, key="expired-reopen", candidate_id="tmdb:tv:2"),
+        suffix="expired",
+        expires_at=FIXED_NOW + timedelta(hours=1),
+    )
+    service = FeedbackResponseService(repository, now_factory=clock)
+
+    service.reject(PROFILE_ID, "question", dismissed.question_id)
+    reopened = service.reopen_question(PROFILE_ID, dismissed.question_id)
+    clock.advance(hours=2)
+    service.expire_due(PROFILE_ID)
+
+    assert reopened.status == "pending"
+    with pytest.raises(FeedbackDecisionError) as caught:
+        service.reopen_question(PROFILE_ID, expired.question_id)
+    assert caught.value.code == "question_cannot_reopen"
+
+
 def test_queue_failure_keeps_answer_audited_and_retry_recovers_enqueue():
     """入队失败后回答状态与事件保留，同一请求重试可恢复队列。"""
     repository = AgentRankRepository(FakePlugin())

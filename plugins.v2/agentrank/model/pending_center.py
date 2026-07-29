@@ -29,6 +29,13 @@ class PendingCenterItem:
     options: Tuple[Mapping[str, str], ...] = ()
     allow_custom_answer: bool = False
     requires_superuser: bool = False
+    selected_option_id: str = ""
+    answer_text: str = ""
+    resolved_at: str = ""
+    result_code: str = ""
+    result_message: str = ""
+    editable: bool = False
+    reversible: bool = False
 
     def __post_init__(self) -> None:
         """规范化安全展示字段并拒绝未知项目类型。"""
@@ -42,6 +49,11 @@ class PendingCenterItem:
             ("status", 32),
             ("candidate_id", 160),
             ("expires_at", 64),
+            ("selected_option_id", 64),
+            ("answer_text", 1000),
+            ("resolved_at", 64),
+            ("result_code", 64),
+            ("result_message", 240),
         ):
             object.__setattr__(self, field_name, _text(getattr(self, field_name), limit))
         object.__setattr__(
@@ -67,6 +79,8 @@ class PendingCenterItem:
         object.__setattr__(self, "options", tuple(normalized_options))
         object.__setattr__(self, "allow_custom_answer", bool(self.allow_custom_answer))
         object.__setattr__(self, "requires_superuser", bool(self.requires_superuser))
+        object.__setattr__(self, "editable", bool(self.editable))
+        object.__setattr__(self, "reversible", bool(self.reversible))
         if self.item_type not in PENDING_ITEM_TYPES:
             raise ValueError("pending center item_type is invalid")
         if not all((self.item_id, self.profile_id, self.title, self.summary, self.created_at)):
@@ -88,6 +102,13 @@ class PendingCenterItem:
             "options": [dict(item) for item in self.options],
             "allow_custom_answer": self.allow_custom_answer,
             "requires_superuser": self.requires_superuser,
+            "selected_option_id": self.selected_option_id,
+            "answer_text": self.answer_text,
+            "resolved_at": self.resolved_at,
+            "result_code": self.result_code,
+            "result_message": self.result_message,
+            "editable": self.editable,
+            "reversible": self.reversible,
         }
 
 

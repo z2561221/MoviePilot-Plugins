@@ -30,6 +30,7 @@ understanding_module = importlib.import_module(
 )
 queue_module = importlib.import_module(f"{PACKAGE_NAME}.model.feedback_queue")
 memory_module = importlib.import_module(f"{PACKAGE_NAME}.model.memory")
+playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 proposal_service_module = importlib.import_module(
     f"{PACKAGE_NAME}.service.feedback_proposal"
@@ -48,6 +49,8 @@ FeedbackSignal = understanding_module.FeedbackSignal
 FeedbackUnderstandingRecord = understanding_module.FeedbackUnderstandingRecord
 FeedbackQueueJob = queue_module.FeedbackQueueJob
 PreferenceMemoryItem = memory_module.PreferenceMemoryItem
+PlaybackSample = playback_module.PlaybackSample
+PlaybackSnapshot = playback_module.PlaybackSnapshot
 AgentRankRepository = repository_module.AgentRankRepository
 FeedbackProposalService = proposal_service_module.FeedbackProposalService
 FeedbackUnderstandingService = understanding_service_module.FeedbackUnderstandingService
@@ -79,6 +82,63 @@ class ExplodingAdapter:
     async def run_feedback(self, _prompt, _trusted_context):
         """任何重复模型调用都使测试失败。"""
         raise AssertionError("existing understanding must not call Agent again")
+
+
+def test_first_playback_calibration_uses_only_strong_watched_evidence_once():
+    """首次有效播放同步只创建一个整体偏好问题，弱样本不会直接形成假设。"""
+    repository = AgentRankRepository(FakePlugin())
+    service = FeedbackProposalService(repository, now_factory=lambda: FIXED_NOW)
+    weak = PlaybackSnapshot(
+        PROFILE_ID,
+        source="playback_reporting",
+        confidence="medium",
+        status="ready",
+        samples=[PlaybackSample("weak-1", "只点开过", "movie", watch_minutes=5)],
+    )
+    strong = PlaybackSnapshot(
+        PROFILE_ID,
+        source="playback_reporting",
+        confidence="high",
+        status="ready",
+        samples=[
+            PlaybackSample(
+                "strong-1",
+                "已看作品甲",
+                "movie",
+                genres=["科幻", "悬疑"],
+                completed=True,
+                watch_minutes=110,
+            ),
+            PlaybackSample(
+                "strong-2",
+                "重复观看乙",
+                "tv",
+                genres=["剧情"],
+                play_count=2,
+                completed_episode_count=3,
+            ),
+        ],
+    )
+
+    assert service.create_playback_calibration(PROFILE_ID, weak) == (None, False)
+    question, created = service.create_playback_calibration(
+        PROFILE_ID, strong, actor_id="mp-user-1"
+    )
+    duplicate, duplicate_created = service.create_playback_calibration(
+        PROFILE_ID, strong, actor_id="mp-user-1"
+    )
+
+    assert created is True
+    assert question.preference_dimension == "playback_calibration"
+    assert [item.label for item in question.options][-3:] == [
+        "都可以",
+        "不确定",
+        "不是我看的",
+    ]
+    assert question.allow_custom_answer is True
+    assert duplicate.question_id == question.question_id
+    assert duplicate_created is False
+    assert len(repository.load_pending_questions(PROFILE_ID)) == 1
 
 
 def _event(

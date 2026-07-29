@@ -89,6 +89,7 @@ export function useAgentRankState(api) {
   const activity = ref([])
   const conversation = ref(emptyConversation())
   const pendingCenter = ref(emptyPendingCenter())
+  const processedCenter = ref({ ...emptyPendingCenter(), view: 'resolved' })
   const attribution = ref(emptyAttribution())
   const exportedData = ref(null)
   const fullResetConfirmation = ref(null)
@@ -208,6 +209,7 @@ export function useAgentRankState(api) {
     activity.value = []
     conversation.value = emptyConversation()
     pendingCenter.value = emptyPendingCenter(target)
+    processedCenter.value = { ...emptyPendingCenter(target), view: 'resolved' }
     attribution.value = emptyAttribution(target)
     exportedData.value = null
     fullResetConfirmation.value = null
@@ -662,19 +664,24 @@ export function useAgentRankState(api) {
     return result
   }
 
-  async function loadPendingCenter() {
+  async function loadPendingCenter(view = 'pending') {
     const targetProfile = activeProfileScope()
     if (!targetProfile) return emptyPendingCenter()
+    const scope = view === 'resolved' ? 'resolved' : 'pending'
     return runOperation(
-      'pending',
+      `pending:${scope}`,
       async ({ isCurrent }) => {
         const result = await getPluginApi(api, 'pending', {
           profile_id: targetProfile,
+          view: scope,
         }) || emptyPendingCenter(targetProfile)
-        if (isCurrent() && selectedProfileId.value === targetProfile) pendingCenter.value = result
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          if (scope === 'resolved') processedCenter.value = result
+          else pendingCenter.value = result
+        }
         return result
       },
-      retryForProfile(targetProfile, loadPendingCenter),
+      retryForProfile(targetProfile, () => loadPendingCenter(scope)),
       { globalError: false },
     )
   }
@@ -698,7 +705,11 @@ export function useAgentRankState(api) {
       { globalError: false },
     )
     if (selectedProfileId.value === targetProfile) {
-      await Promise.allSettled([loadPendingCenter(), loadConversation()])
+      await Promise.allSettled([
+        loadPendingCenter('pending'),
+        loadPendingCenter('resolved'),
+        loadConversation(),
+      ])
     }
     invalidateProfileCache(targetProfile)
     return result
@@ -757,6 +768,7 @@ export function useAgentRankState(api) {
     activity.value = []
     conversation.value = emptyConversation()
     pendingCenter.value = emptyPendingCenter(selectedProfileId.value)
+    processedCenter.value = { ...emptyPendingCenter(selectedProfileId.value), view: 'resolved' }
     attribution.value = emptyAttribution(selectedProfileId.value)
     exportedData.value = null
     fullResetConfirmation.value = null
@@ -833,6 +845,7 @@ export function useAgentRankState(api) {
     activity,
     conversation,
     pendingCenter,
+    processedCenter,
     attribution,
     exportedData,
     fullResetConfirmation,

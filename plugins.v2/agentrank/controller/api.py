@@ -906,17 +906,28 @@ class AgentRankApiController:
     def pending_center(
         self,
         profile_id: Any,
+        view: str = "pending",
         actor_id: str = "",
         is_superuser: bool = False,
     ) -> Dict[str, Any]:
         """返回当前 MP 用户可见的统一待确认项目。"""
         target = self._profile_id(profile_id)
         try:
-            data = self._pending_center_service().list_pending(
-                target,
-                actor_id=actor_id,
-                is_superuser=bool(is_superuser),
-            )
+            service = self._pending_center_service()
+            method = getattr(service, "list_items", None)
+            if callable(method):
+                data = method(
+                    target,
+                    view=view,
+                    actor_id=actor_id,
+                    is_superuser=bool(is_superuser),
+                )
+            else:
+                data = service.list_pending(
+                    target,
+                    actor_id=actor_id,
+                    is_superuser=bool(is_superuser),
+                )
         except Exception as error:
             if all(hasattr(error, name) for name in ("status_code", "code", "message")):
                 raise ApiContractError(
@@ -1101,7 +1112,7 @@ class AgentRankApiController:
             }
         )
 
-    async def playback_sync(self, payload: Any) -> Dict[str, Any]:
+    async def playback_sync(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:
         """立即同步指定用户播放画像并返回数据源状态。"""
         body = self._payload(payload)
         target = self._profile_id(body.get("profile_id"))
@@ -1112,7 +1123,28 @@ class AgentRankApiController:
             snapshot = await asyncio.to_thread(service.collect, target, self.plugin._config)
         except Exception as error:
             raise ApiContractError(502, "playback_sync_failed", "播放画像同步失败") from error
-        return self._success(snapshot.to_dict())
+        calibration = None
+        calibration_created = False
+        try:
+            calibration, calibration_created = FeedbackProposalService(
+                self._repository(),
+                record_limit=int(
+                    self.plugin._config.get("analysis_record_limit") or 500
+                ),
+            ).create_playback_calibration(
+                target,
+                snapshot,
+                actor_id=actor_id,
+            )
+        except Exception:
+            calibration = None
+            calibration_created = False
+        data = snapshot.to_dict()
+        data["calibration_created"] = calibration_created
+        data["calibration_question_id"] = (
+            calibration.question_id if calibration is not None else ""
+        )
+        return self._success(data)
 
     def subscribe(self, payload: Any) -> Dict[str, Any]:
         """通过运行时安全链创建单项手动订阅。"""
@@ -1304,7 +1336,8 @@ class AgentRankApiController:
     ) -> Dict[str, Any]:
         """FastAPI 播放画像立即同步入口。"""
         self._endpoint(self._authorize_payload_profile, token_payload, payload)
-        return await self._endpoint_async(self.playback_sync, payload)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return await self._endpoint_async(self.playback_sync, payload, actor_id)
 
     def endpoint_archive(
         self,
@@ -1397,6 +1430,7 @@ class AgentRankApiController:
         self,
         profile_id: str = "",
         token_payload: schemas.TokenPayload = Depends(verify_token),
+        view: str = "pending",
     ) -> Dict[str, Any]:
         """FastAPI 统一待确认中心读取入口。"""
         target = self._endpoint(self._authorize_profile, token_payload, profile_id)
@@ -1404,6 +1438,7 @@ class AgentRankApiController:
         return self._endpoint(
             self.pending_center,
             target,
+            view,
             actor_id,
             self._is_superuser(token_payload),
         )

@@ -1,7 +1,7 @@
 """待确认提案与问询的回答、关闭、拒绝和过期状态机。"""
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from ..model.feedback import FeedbackEvent
@@ -278,6 +278,7 @@ class FeedbackResponseService:
         original: FeedbackEvent,
         answer_text: str,
         actor_id: str,
+        supersedes: str,
     ) -> bool:
         """判断幂等键命中的事件是否属于同一问询回答。"""
         return all(
@@ -288,7 +289,7 @@ class FeedbackResponseService:
                 event.run_id == original.run_id,
                 event.comment == answer_text,
                 event.created_by_mp_user_id == actor_id,
-                event.supersedes == original.event_id,
+                event.supersedes == supersedes,
                 event.status == "recorded",
             )
         )
@@ -348,19 +349,20 @@ class FeedbackResponseService:
         existing_event = self._repository.load_feedback_event(
             question.profile_id, request_key
         )
-        if question.status == "answered":
-            if (
-                existing_event is None
-                or existing_event.event_id != question.answer_event_id
-                or not self._same_answer_event(
-                    existing_event,
-                    original=original,
-                    answer_text=answer_text,
-                    actor_id=actor,
-                )
+        if (
+            question.status == "answered"
+            and existing_event is not None
+            and existing_event.event_id == question.answer_event_id
+        ):
+            if not self._same_answer_event(
+                existing_event,
+                original=original,
+                answer_text=answer_text,
+                actor_id=actor,
+                supersedes=existing_event.supersedes,
             ):
                 raise FeedbackDecisionError(
-                    "question_already_answered", "该问题已经回答", 409
+                    "idempotency_conflict", "幂等标识已被其他回答使用", 409
                 )
             queue_status = ""
             if self._feedback_queue is not None:
@@ -371,13 +373,18 @@ class FeedbackResponseService:
                 event_created=False,
                 queue_status=queue_status,
             )
-        pending_status = self._ensure_pending(question)
+        supersedes = question.answer_event_id or original.event_id
+        if question.status == "answered":
+            expected_status = "answered"
+        else:
+            expected_status = self._ensure_pending(question)
         if existing_event is not None:
             if not self._same_answer_event(
                 existing_event,
                 original=original,
                 answer_text=answer_text,
                 actor_id=actor,
+                supersedes=supersedes,
             ):
                 raise FeedbackDecisionError(
                     "idempotency_conflict", "幂等标识已被其他回答使用", 409
@@ -395,7 +402,7 @@ class FeedbackResponseService:
                     comment=answer_text,
                     created_by_mp_user_id=actor,
                     idempotency_key=request_key,
-                    supersedes=original.event_id,
+                    supersedes=supersedes,
                 )
             )
             event = appended.event
@@ -411,7 +418,7 @@ class FeedbackResponseService:
             answered_by_mp_user_id=actor,
             resolved_at=self._now().isoformat(),
         )
-        if not self._replace(updated, expected_status=pending_status):
+        if not self._replace(updated, expected_status=expected_status):
             current = self._load_decision(
                 profile_id, "question", question.question_id
             )
@@ -433,3 +440,37 @@ class FeedbackResponseService:
             event_created=event_created,
             queue_status=queue_status,
         )
+
+    def reopen_question(self, profile_id: str, question_id: str) -> PendingQuestion:
+        """把已回答或已关闭问询重新放回待办，不删除旧答案事实。"""
+        target = self._profile_id(profile_id)
+        with self._repository.profile_data_guard(target):
+            question = self._load_decision(target, "question", question_id)
+            if not isinstance(question, PendingQuestion):
+                raise FeedbackDecisionError(
+                    "question_not_found", "待回答问题不存在", 404
+                )
+            if question.status == "pending":
+                return question
+            if question.status not in {"answered", "dismissed"}:
+                raise FeedbackDecisionError(
+                    "question_cannot_reopen", "该问询当前不能重新打开", 409
+                )
+            now = self._now()
+            reopened = replace(
+                question,
+                status="pending",
+                expires_at=(now + timedelta(days=30)).isoformat(),
+                reminder_policy="unselected",
+                next_remind_at="",
+                selected_option_id="",
+                answer_text="",
+                answer_event_id="",
+                answered_by_mp_user_id="",
+                resolved_at="",
+            )
+            if not self._replace(reopened, expected_status=question.status):
+                raise FeedbackDecisionError(
+                    "decision_state_conflict", "问题状态已变化，请刷新后重试", 409
+                )
+            return reopened
