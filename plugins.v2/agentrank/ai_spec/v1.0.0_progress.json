@@ -1159,6 +1159,8 @@
             "390x844、768x1024、1440x900三视口document scrollWidth等于clientWidth，内容库固定显示剧集 +2且摘要无重叠",
             "内容库下拉保持剧集、电影、动漫已选和儿童未选，三视口菜单均未越界，悬停+2显示电影、动漫且未点击任何选项",
             "待办中心实页确认待办事项与处理记录双视图，已回答问询提供撤销回答和更新回答，已关闭问询提供重新打开",
+            "待办中心处理记录正文可独立滚动；390x844实页滚动至scrollTop=700时标题和工具栏仍固定可见，切换待办事项与处理记录后正文scrollTop复位为0",
+            "推荐榜单、用户画像、忽略归档、运行历史在390x844、768x1024、1440x900三视口均保持同排；手机端scrollWidth 480大于clientWidth 373，可横向滑动且滚动条隐藏",
             "浏览器error和warn日志为空，验收期间未执行任何会修改用户画像或待办状态的操作"
           ],
           "commit": null
@@ -1196,6 +1198,11 @@
       "date": "2026-07-30",
       "decision": "内容库筛选借鉴订阅助手增强版多选摘要，采用首项加剩余数量与原生复选下拉，不改变emby_library_ids和后端语义",
       "source": "用户指定参考设计并要求继续执行"
+    },
+    {
+      "date": "2026-07-30",
+      "decision": "待办中心顶栏固定且仅正文滚动，详情四入口统一单排横向滑动并隐藏滚动条",
+      "source": "用户第三次试用中的移动端布局反馈"
     }
   ],
   "turn_log": [
@@ -1468,6 +1475,12 @@
       "task": "trial-followup-library-select-summary",
       "result": "library selection now summarizes as the first item plus the remaining count, preserves native checkbox states and hover details, and passed MP-local three-viewport geometry plus clean browser-log acceptance without saving configuration",
       "commit": "1cd2eabe"
+    },
+    {
+      "date": "2026-07-30",
+      "task": "trial-followup-pending-and-detail-navigation",
+      "result": "the pending-center toolbar now remains visible while processed history scrolls and both tab switches reset the body to the top; all four detail entries remain on one hidden-scrollbar horizontal row across mobile, tablet, and desktop MP-local views",
+      "commit": "d0589fcf"
     }
   ],
   "residual_risks": [
