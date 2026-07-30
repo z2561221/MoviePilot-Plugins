@@ -64,6 +64,7 @@ class AgentRankRepository:
         "pending_questions",
         "conversation",
         "conversation_messages",
+        "conversation_reads",
         "policy_snapshot",
         "attribution",
         "agent_analysis",
@@ -378,6 +379,48 @@ class AgentRankRepository:
                 if strict:
                     raise ValueError("conversation record is corrupt") from error
         return messages, commands
+
+    def load_conversation_read_marker(
+        self, profile_id: str, actor_id: str
+    ) -> Optional[str]:
+        """读取一个 MP 用户在指定画像下最后已读的 Agent 回复 ID。"""
+        target = str(profile_id or "").strip()
+        actor = self._scope(actor_id, "actor_id")
+        key = self._learning_key("conversation_reads", target)
+        raw = self._plugin.get_data(key=key)
+        if raw is None:
+            return None
+        if not isinstance(raw, Mapping):
+            self._record_recovery(
+                key, "ignored_corrupt_data", "conversation reads must be a mapping"
+            )
+            return None
+        value = raw.get(actor)
+        if not isinstance(value, Mapping):
+            return None
+        message_id = value.get("message_id")
+        return str(message_id or "")[:128]
+
+    def save_conversation_read_marker(
+        self, profile_id: str, actor_id: str, message_id: str
+    ) -> None:
+        """保存一个 MP 用户在指定画像下最后已读的 Agent 回复 ID。"""
+        target = str(profile_id or "").strip()
+        actor = self._scope(actor_id, "actor_id")
+        marker = str(message_id or "").strip()[:128]
+        key = self._learning_key("conversation_reads", target)
+        with self._feedback_lock(target):
+            raw = self._plugin.get_data(key=key)
+            values = dict(raw) if isinstance(raw, Mapping) else {}
+            values[actor] = {
+                "message_id": marker,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            self._atomic_raw_update(
+                updates={key: values},
+                recovery_key=key,
+                action="conversation_read_marker_write_failed",
+            )
 
     def save_conversation_state(
         self,

@@ -1,7 +1,6 @@
 """Agent榜单中心 bearer API 控制器与稳定响应契约。"""
 
 import asyncio
-import time
 from typing import Any, Dict, List, Mapping
 
 from fastapi import Depends
@@ -820,11 +819,23 @@ class AgentRankApiController:
             )
         return self._success(record.to_dict())
 
-    def conversation(self, profile_id: Any) -> Dict[str, Any]:
+    def conversation(
+        self,
+        profile_id: Any,
+        actor_id: str = "",
+        mark_read: bool = False,
+    ) -> Dict[str, Any]:
         """返回一个 profile 的 CinePilot Agent 对话线程。"""
         target = self._profile_id(profile_id)
         try:
-            data = self._conversation_service().snapshot(target)
+            service = self._conversation_service()
+            data = service.snapshot(target)
+            if actor_id:
+                data["status"] = service.status(
+                    target,
+                    actor_id=actor_id,
+                    mark_read=bool(mark_read),
+                )
         except ConversationError as error:
             raise ApiContractError(
                 error.status_code, error.code, error.message
@@ -832,6 +843,25 @@ class AgentRankApiController:
         except Exception as error:
             raise ApiContractError(
                 500, "conversation_read_failed", "对话读取失败，请稍后重试"
+            ) from error
+        return self._success(data)
+
+    def conversation_status(
+        self, profile_id: Any, actor_id: str = ""
+    ) -> Dict[str, Any]:
+        """返回当前 MP 用户的 CinePilot Agent 轻量未读状态。"""
+        target = self._profile_id(profile_id)
+        try:
+            data = self._conversation_service().status(
+                target, actor_id=actor_id, mark_read=False
+            )
+        except ConversationError as error:
+            raise ApiContractError(
+                error.status_code, error.code, error.message
+            ) from error
+        except Exception as error:
+            raise ApiContractError(
+                500, "conversation_status_failed", "对话状态读取失败，请稍后重试"
             ) from error
         return self._success(data)
 
@@ -916,12 +946,6 @@ class AgentRankApiController:
     ) -> Dict[str, Any]:
         """返回当前 MP 用户可见的统一待确认项目。"""
         target = self._profile_id(profile_id)
-        if str(view or "pending").strip().casefold() == "pending":
-            visible = dict(
-                getattr(self.plugin, "_agentrank_pending_visible_until", {}) or {}
-            )
-            visible[target] = time.monotonic() + 30.0
-            self.plugin._agentrank_pending_visible_until = visible
         try:
             service = self._pending_center_service()
             method = getattr(service, "list_items", None)
@@ -1397,10 +1421,22 @@ class AgentRankApiController:
         self,
         profile_id: str = "",
         token_payload: schemas.TokenPayload = Depends(verify_token),
+        mark_read: bool = False,
     ) -> Dict[str, Any]:
         """FastAPI CinePilot Agent 对话读取入口。"""
         target = self._endpoint(self._authorize_profile, token_payload, profile_id)
-        return self._endpoint(self.conversation, target)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return self._endpoint(self.conversation, target, actor_id, mark_read)
+
+    def endpoint_conversation_status(
+        self,
+        profile_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI CinePilot Agent 未读状态入口。"""
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return self._endpoint(self.conversation_status, target, actor_id)
 
     async def endpoint_conversation_message(
         self,
@@ -1579,6 +1615,12 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
             "评论并修订 Agent 分析",
         ),
         ("/conversation", controller.endpoint_conversation, ["GET"], "获取 CinePilot Agent 对话"),
+        (
+            "/conversation/status",
+            controller.endpoint_conversation_status,
+            ["GET"],
+            "获取 CinePilot Agent 未读状态",
+        ),
         (
             "/conversation/messages",
             controller.endpoint_conversation_message,

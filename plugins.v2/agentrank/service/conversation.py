@@ -869,6 +869,49 @@ class ConversationService:
         messages, commands = self._repository.load_conversation_records(profile_id)
         return self._snapshot_data(thread, messages, commands)
 
+    def status(
+        self, profile_id: str, *, actor_id: str, mark_read: bool = False
+    ) -> Dict[str, Any]:
+        """返回按 MP 用户隔离的未读回复数量与后台处理状态。"""
+        target = str(profile_id or "").strip()
+        actor = str(actor_id or "").strip()
+        if not target or not actor:
+            raise ConversationError(
+                "conversation_actor_required", "无法确认当前操作用户", 403
+            )
+        thread = self._repository.load_conversation_thread(target)
+        messages, _commands = self._repository.load_conversation_records(target)
+        assistant_ids = [
+            item.message_id
+            for item in messages
+            if item.role == "assistant" and item.status == "completed"
+        ]
+        latest = assistant_ids[-1] if assistant_ids else ""
+        marker = self._repository.load_conversation_read_marker(target, actor)
+        if marker is None:
+            self._repository.save_conversation_read_marker(target, actor, latest)
+            marker = latest
+        if mark_read and marker != latest:
+            self._repository.save_conversation_read_marker(target, actor, latest)
+            marker = latest
+        if marker and marker in assistant_ids:
+            unread_count = len(assistant_ids) - assistant_ids.index(marker) - 1
+        elif marker:
+            unread_count = len(assistant_ids)
+        else:
+            unread_count = len(assistant_ids)
+        return {
+            "profile_id": target,
+            "thread_revision": int(getattr(thread, "revision", 0) or 0),
+            "updated_at": str(getattr(thread, "updated_at", "") or ""),
+            "latest_assistant_message_id": latest,
+            "unread_count": 0 if mark_read else max(0, unread_count),
+            "has_pending": any(
+                item.role == "user" and item.status in {"queued", "processing"}
+                for item in messages
+            ),
+        }
+
     async def send(
         self,
         *,

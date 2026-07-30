@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-BdgSqkzl.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CDfNnDxo.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-CXFsw50i.js';
 
 const {unref:_unref$4,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,createElementVNode:_createElementVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,openBlock:_openBlock$4,createBlock:_createBlock$4,createCommentVNode:_createCommentVNode$4,createElementBlock:_createElementBlock$3,withModifiers:_withModifiers$2,mergeProps:_mergeProps$1,renderList:_renderList$3,Fragment:_Fragment$3} = await importShared('vue');
@@ -23,7 +23,7 @@ const _hoisted_7$3 = {
 };
 const _hoisted_8$3 = ["onClick"];
 const _hoisted_9$3 = { class: "ar-analysis__row-main" };
-const _hoisted_10$2 = { class: "ar-analysis__row-meta" };
+const _hoisted_10$3 = { class: "ar-analysis__row-meta" };
 const _hoisted_11$2 = {
   key: 1,
   class: "ar-analysis__empty"
@@ -250,7 +250,7 @@ return (_ctx, _cache) => {
                                     }),
                                     _createElementVNode$4("div", _hoisted_9$3, [
                                       _createElementVNode$4("div", null, _toDisplayString$4(evidenceText(evidence)), 1),
-                                      _createElementVNode$4("div", _hoisted_10$2, "贡献 " + _toDisplayString$4(evidence.contribution_units) + " · 证据 " + _toDisplayString$4(evidence.user_refs?.length || 0) + " 项", 1)
+                                      _createElementVNode$4("div", _hoisted_10$3, "贡献 " + _toDisplayString$4(evidence.contribution_units) + " · 证据 " + _toDisplayString$4(evidence.user_refs?.length || 0) + " 项", 1)
                                     ]),
                                     _createVNode$4(_component_VTooltip, { text: "评论这条证据" }, {
                                       activator: _withCtx$4(({ props: tooltipProps }) => [
@@ -377,7 +377,7 @@ const _hoisted_9$2 = {
   key: 2,
   class: "ar-chat__commands"
 };
-const _hoisted_10$1 = { class: "ar-chat__command-main" };
+const _hoisted_10$2 = { class: "ar-chat__command-main" };
 const _hoisted_11$1 = { class: "ar-chat__command-actions" };
 const _hoisted_12$1 = { class: "ar-chat__composer" };
 
@@ -447,7 +447,7 @@ async function pollConversation() {
     stopPolling();
     return
   }
-  try { await props.state.loadConversation(); } catch (_) { /* 保留共享可重试错误。 */ }
+  try { await props.state.loadConversation({ markRead: true }); } catch (_) { /* 保留共享可重试错误。 */ }
   if (!hasPendingMessages.value) {
     stopPolling();
     await scrollToEnd();
@@ -480,7 +480,7 @@ async function scrollToEnd() {
 
 async function load() {
   try {
-    await Promise.all([props.state.loadConversation(), props.state.loadPendingCenter()]);
+    await Promise.all([props.state.loadConversation({ markRead: true }), props.state.loadPendingCenter()]);
     await scrollToEnd();
     startPolling();
   } catch (_) {
@@ -500,7 +500,7 @@ async function send() {
     startPolling();
   } catch (error) {
     localError.value = error?.message || '消息发送失败，草稿已保留';
-    try { await props.state.loadConversation(); } catch (_) { /* 对话读取错误由共享状态展示。 */ }
+    try { await props.state.loadConversation({ markRead: true }); } catch (_) { /* 对话读取错误由共享状态展示。 */ }
     await scrollToEnd();
   }
 }
@@ -514,7 +514,7 @@ async function retryMessage(messageId) {
     startPolling();
   } catch (error) {
     localError.value = error?.message || '重试失败';
-    try { await props.state.loadConversation(); } catch (_) { /* 对话读取错误由共享状态展示。 */ }
+    try { await props.state.loadConversation({ markRead: true }); } catch (_) { /* 对话读取错误由共享状态展示。 */ }
   }
 }
 
@@ -697,7 +697,7 @@ return (_ctx, _cache) => {
                       key: command.command_id,
                       class: "ar-chat__command"
                     }, [
-                      _createElementVNode$3("div", _hoisted_10$1, [
+                      _createElementVNode$3("div", _hoisted_10$2, [
                         _createElementVNode$3("strong", null, _toDisplayString$3(command.title), 1),
                         _createElementVNode$3("span", null, _toDisplayString$3(command.preview), 1)
                       ]),
@@ -779,7 +779,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CriticChatDialog = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-05897825"]]);
+const CriticChatDialog = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-903e8cd1"]]);
 
 const {unref:_unref$2,resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,createElementVNode:_createElementVNode$2,toDisplayString:_toDisplayString$2,withCtx:_withCtx$2,withModifiers:_withModifiers,withKeys:_withKeys$1,createTextVNode:_createTextVNode$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2} = await importShared('vue');
 
@@ -973,28 +973,29 @@ const {unref:_unref$1,resolveComponent:_resolveComponent$1,createVNode:_createVN
 
 
 const _hoisted_1$1 = { class: "ar-pending__subtitle" };
-const _hoisted_2$1 = {
-  key: 1,
+const _hoisted_2$1 = { class: "ar-pending__content" };
+const _hoisted_3$1 = {
+  key: 2,
   class: "ar-pending__state"
 };
-const _hoisted_3$1 = {
-  key: 3,
+const _hoisted_4$1 = {
+  key: 4,
   class: "ar-pending__list"
 };
-const _hoisted_4$1 = { class: "ar-pending__item-head" };
-const _hoisted_5$1 = { class: "ar-pending__item-title" };
-const _hoisted_6$1 = { class: "ar-pending__summary" };
-const _hoisted_7$1 = {
+const _hoisted_5$1 = { class: "ar-pending__item-head" };
+const _hoisted_6$1 = { class: "ar-pending__item-title" };
+const _hoisted_7$1 = { class: "ar-pending__summary" };
+const _hoisted_8$1 = {
   key: 0,
   class: "ar-pending__details"
 };
-const _hoisted_8$1 = {
+const _hoisted_9$1 = {
   key: 2,
   class: "ar-pending__answer"
 };
-const _hoisted_9$1 = { class: "ar-pending__actions" };
+const _hoisted_10$1 = { class: "ar-pending__actions" };
 
-const {computed: computed$1,nextTick,onBeforeUnmount,reactive: reactive$1,ref: ref$1,watch: watch$1} = await importShared('vue');
+const {computed: computed$1,nextTick,onBeforeUnmount: onBeforeUnmount$1,reactive: reactive$1,ref: ref$1,watch: watch$1} = await importShared('vue');
 
 const {useDisplay} = await importShared('vuetify');
 
@@ -1016,6 +1017,7 @@ const answers = reactive$1({});
 const localError = ref$1('');
 const activeView = ref$1('pending');
 const bodyRef = ref$1(null);
+const loadedViews = reactive$1({ pending: false, resolved: false });
 let visibilityTimer = null;
 
 const center = computed$1(() => activeView.value === 'resolved'
@@ -1061,10 +1063,16 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
 }
 
-async function load() {
-  localError.value = '';
-  try { await props.state.loadPendingCenter(activeView.value); }
-  catch (error) { localError.value = error?.message || '待处理项目读取失败'; }
+async function load(view = activeView.value) {
+  if (view === activeView.value) localError.value = '';
+  try {
+    await props.state.loadPendingCenter(view);
+    loadedViews[view] = true;
+  } catch (error) {
+    if (view === activeView.value) {
+      localError.value = error?.message || '待处理项目读取失败';
+    }
+  }
 }
 
 function resetBodyScroll() {
@@ -1077,9 +1085,7 @@ async function switchView(value) {
   activeView.value = value;
   await nextTick();
   resetBodyScroll();
-  await load();
-  await nextTick();
-  resetBodyScroll();
+  void load(value);
 }
 
 async function respond(item, action, options = {}) {
@@ -1115,12 +1121,12 @@ watch$1(() => props.modelValue, open => {
   stopVisibilityHeartbeat();
   if (!open) return
   void nextTick(resetBodyScroll);
-  load();
+  load(activeView.value);
   visibilityTimer = window.setInterval(() => {
-    if (activeView.value === 'pending') load();
+    if (activeView.value === 'pending') load('pending');
   }, 15000);
 }, { immediate: true });
-onBeforeUnmount(stopVisibilityHeartbeat);
+onBeforeUnmount$1(stopVisibilityHeartbeat);
 
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent$1("VIcon");
@@ -1130,6 +1136,7 @@ return (_ctx, _cache) => {
   const _component_VDivider = _resolveComponent$1("VDivider");
   const _component_VTab = _resolveComponent$1("VTab");
   const _component_VTabs = _resolveComponent$1("VTabs");
+  const _component_VProgressLinear = _resolveComponent$1("VProgressLinear");
   const _component_VAlert = _resolveComponent$1("VAlert");
   const _component_VProgressCircular = _resolveComponent$1("VProgressCircular");
   const _component_VEmptyState = _resolveComponent$1("VEmptyState");
@@ -1144,9 +1151,10 @@ return (_ctx, _cache) => {
   return (_openBlock$1(), _createBlock$1(_component_VDialog, {
     "model-value": __props.modelValue,
     fullscreen: _unref$1(smAndDown),
+    height: _unref$1(smAndDown) ? undefined : 760,
     "max-width": "820",
     scrollable: "",
-    "onUpdate:modelValue": _cache[0] || (_cache[0] = value => emit('update:modelValue', value))
+    "onUpdate:modelValue": _cache[1] || (_cache[1] = value => emit('update:modelValue', value))
   }, {
     default: _withCtx$1(() => [
       _createVNode$1(_component_VCard, { class: "ar-pending" }, {
@@ -1162,7 +1170,7 @@ return (_ctx, _cache) => {
                 class: "ms-4 me-3"
               }),
               _createElementVNode$1("div", null, [
-                _cache[1] || (_cache[1] = _createElementVNode$1("div", { class: "ar-pending__title" }, "待办中心", -1)),
+                _cache[2] || (_cache[2] = _createElementVNode$1("div", { class: "ar-pending__title" }, "待办中心", -1)),
                 _createElementVNode$1("div", _hoisted_1$1, _toDisplayString$1(activeView.value === 'pending' ? `${items.value.length} 项待办` : `${items.value.length} 条记录`), 1)
               ]),
               _createVNode$1(_component_VSpacer),
@@ -1171,7 +1179,7 @@ return (_ctx, _cache) => {
                 variant: "text",
                 "aria-label": "刷新待处理项目",
                 loading: operation.value.loading,
-                onClick: load
+                onClick: _cache[0] || (_cache[0] = $event => (load(activeView.value)))
               }, null, 8, ["loading"]),
               _createVNode$1(_component_VBtn, {
                 icon: "mdi-close",
@@ -1192,13 +1200,13 @@ return (_ctx, _cache) => {
           }, {
             default: _withCtx$1(() => [
               _createVNode$1(_component_VTab, { value: "pending" }, {
-                default: _withCtx$1(() => [...(_cache[2] || (_cache[2] = [
+                default: _withCtx$1(() => [...(_cache[3] || (_cache[3] = [
                   _createTextVNode$1("待办事项", -1)
                 ]))]),
                 _: 1
               }),
               _createVNode$1(_component_VTab, { value: "resolved" }, {
-                default: _withCtx$1(() => [...(_cache[3] || (_cache[3] = [
+                default: _withCtx$1(() => [...(_cache[4] || (_cache[4] = [
                   _createTextVNode$1("处理记录", -1)
                 ]))]),
                 _: 1
@@ -1210,229 +1218,242 @@ return (_ctx, _cache) => {
           _createVNode$1(_component_VCardText, {
             ref_key: "bodyRef",
             ref: bodyRef,
-            class: "ar-pending__body"
+            class: "ar-pending__body",
+            "aria-busy": operation.value.loading
           }, {
             default: _withCtx$1(() => [
-              (localError.value || operation.value.error)
-                ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
-                    key: 0,
-                    type: "error",
-                    variant: "tonal",
-                    density: "compact",
-                    class: "mb-3"
-                  }, {
-                    default: _withCtx$1(() => [
-                      _createTextVNode$1(_toDisplayString$1(localError.value || operation.value.error?.message), 1)
-                    ]),
-                    _: 1
-                  }))
-                : _createCommentVNode$1("", true),
-              (operation.value.loading && !items.value.length)
-                ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_2$1, [
-                    _createVNode$1(_component_VProgressCircular, {
+              _createElementVNode$1("div", _hoisted_2$1, [
+                (operation.value.loading && loadedViews[activeView.value])
+                  ? (_openBlock$1(), _createBlock$1(_component_VProgressLinear, {
+                      key: 0,
                       indeterminate: "",
-                      color: "primary"
-                    })
-                  ]))
-                : (!items.value.length)
-                  ? (_openBlock$1(), _createBlock$1(_component_VEmptyState, {
-                      key: 2,
-                      icon: "mdi-check-all",
-                      title: activeView.value === 'pending' ? '当前没有待办事项' : '当前没有处理记录'
-                    }, null, 8, ["title"]))
-                  : (_openBlock$1(), _createElementBlock$1("div", _hoisted_3$1, [
-                      (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(items.value, (item) => {
-                        return (_openBlock$1(), _createElementBlock$1("section", {
-                          key: `${item.item_type}:${item.item_id}`,
-                          class: "ar-pending__item"
-                        }, [
-                          _createElementVNode$1("div", _hoisted_4$1, [
-                            _createVNode$1(_component_VChip, {
-                              size: "x-small",
-                              color: "primary",
-                              variant: "tonal"
-                            }, {
-                              default: _withCtx$1(() => [
-                                _createTextVNode$1(_toDisplayString$1(typeLabels[item.item_type] || '待处理'), 1)
-                              ]),
-                              _: 2
-                            }, 1024),
-                            _createElementVNode$1("span", null, _toDisplayString$1(formatTime(item.created_at)), 1),
-                            (activeView.value === 'resolved')
-                              ? (_openBlock$1(), _createBlock$1(_component_VChip, {
-                                  key: 0,
-                                  size: "x-small",
-                                  variant: "outlined"
+                      color: "primary",
+                      height: "2",
+                      class: "ar-pending__refresh-progress"
+                    }))
+                  : _createCommentVNode$1("", true),
+                (localError.value || operation.value.error)
+                  ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+                      key: 1,
+                      type: "error",
+                      variant: "tonal",
+                      density: "compact",
+                      class: "mb-3"
+                    }, {
+                      default: _withCtx$1(() => [
+                        _createTextVNode$1(_toDisplayString$1(localError.value || operation.value.error?.message), 1)
+                      ]),
+                      _: 1
+                    }))
+                  : _createCommentVNode$1("", true),
+                (operation.value.loading && !loadedViews[activeView.value])
+                  ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_3$1, [
+                      _createVNode$1(_component_VProgressCircular, {
+                        indeterminate: "",
+                        color: "primary"
+                      })
+                    ]))
+                  : (!items.value.length)
+                    ? (_openBlock$1(), _createBlock$1(_component_VEmptyState, {
+                        key: 3,
+                        class: "ar-pending__state",
+                        icon: "mdi-check-all",
+                        title: activeView.value === 'pending' ? '当前没有待办事项' : '当前没有处理记录'
+                      }, null, 8, ["title"]))
+                    : (_openBlock$1(), _createElementBlock$1("div", _hoisted_4$1, [
+                        (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(items.value, (item) => {
+                          return (_openBlock$1(), _createElementBlock$1("section", {
+                            key: `${item.item_type}:${item.item_id}`,
+                            class: "ar-pending__item"
+                          }, [
+                            _createElementVNode$1("div", _hoisted_5$1, [
+                              _createVNode$1(_component_VChip, {
+                                size: "x-small",
+                                color: "primary",
+                                variant: "tonal"
+                              }, {
+                                default: _withCtx$1(() => [
+                                  _createTextVNode$1(_toDisplayString$1(typeLabels[item.item_type] || '待处理'), 1)
+                                ]),
+                                _: 2
+                              }, 1024),
+                              _createElementVNode$1("span", null, _toDisplayString$1(formatTime(item.created_at)), 1),
+                              (activeView.value === 'resolved')
+                                ? (_openBlock$1(), _createBlock$1(_component_VChip, {
+                                    key: 0,
+                                    size: "x-small",
+                                    variant: "outlined"
+                                  }, {
+                                    default: _withCtx$1(() => [
+                                      _createTextVNode$1(_toDisplayString$1(statusText(item)), 1)
+                                    ]),
+                                    _: 2
+                                  }, 1024))
+                                : _createCommentVNode$1("", true),
+                              _createVNode$1(_component_VSpacer)
+                            ]),
+                            _createElementVNode$1("div", _hoisted_6$1, _toDisplayString$1(item.title), 1),
+                            _createElementVNode$1("div", _hoisted_7$1, _toDisplayString$1(item.summary), 1),
+                            (item.detail_lines?.length)
+                              ? (_openBlock$1(), _createElementBlock$1("ul", _hoisted_8$1, [
+                                  (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(item.detail_lines, (line) => {
+                                    return (_openBlock$1(), _createElementBlock$1("li", { key: line }, _toDisplayString$1(line), 1))
+                                  }), 128))
+                                ]))
+                              : _createCommentVNode$1("", true),
+                            (activeView.value === 'resolved' && item.result_message)
+                              ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+                                  key: 1,
+                                  density: "compact",
+                                  variant: "tonal",
+                                  type: "info",
+                                  class: "mt-2"
                                 }, {
                                   default: _withCtx$1(() => [
-                                    _createTextVNode$1(_toDisplayString$1(statusText(item)), 1)
+                                    _createTextVNode$1(_toDisplayString$1(item.result_message), 1)
                                   ]),
                                   _: 2
                                 }, 1024))
                               : _createCommentVNode$1("", true),
-                            _createVNode$1(_component_VSpacer)
-                          ]),
-                          _createElementVNode$1("div", _hoisted_5$1, _toDisplayString$1(item.title), 1),
-                          _createElementVNode$1("div", _hoisted_6$1, _toDisplayString$1(item.summary), 1),
-                          (item.detail_lines?.length)
-                            ? (_openBlock$1(), _createElementBlock$1("ul", _hoisted_7$1, [
-                                (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(item.detail_lines, (line) => {
-                                  return (_openBlock$1(), _createElementBlock$1("li", { key: line }, _toDisplayString$1(line), 1))
-                                }), 128))
-                              ]))
-                            : _createCommentVNode$1("", true),
-                          (activeView.value === 'resolved' && item.result_message)
-                            ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
-                                key: 1,
-                                density: "compact",
-                                variant: "tonal",
-                                type: "info",
-                                class: "mt-2"
-                              }, {
-                                default: _withCtx$1(() => [
-                                  _createTextVNode$1(_toDisplayString$1(item.result_message), 1)
-                                ]),
-                                _: 2
-                              }, 1024))
-                            : _createCommentVNode$1("", true),
-                          (item.item_type === 'question' && (activeView.value === 'pending' || item.status === 'answered'))
-                            ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_8$1, [
-                                _createVNode$1(_component_VRadioGroup, {
-                                  modelValue: answerState(item).optionId,
-                                  "onUpdate:modelValue": [$event => ((answerState(item).optionId) = $event), $event => (answerState(item).customAnswer = '')],
-                                  density: "compact",
-                                  "hide-details": ""
-                                }, {
-                                  default: _withCtx$1(() => [
-                                    (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(item.options || [], (option) => {
-                                      return (_openBlock$1(), _createBlock$1(_component_VRadio, {
-                                        key: option.option_id,
-                                        label: option.label,
-                                        value: option.option_id
-                                      }, null, 8, ["label", "value"]))
-                                    }), 128))
-                                  ]),
-                                  _: 2
-                                }, 1032, ["modelValue", "onUpdate:modelValue"]),
-                                (item.allow_custom_answer)
-                                  ? (_openBlock$1(), _createBlock$1(_component_VTextField, {
-                                      key: 0,
-                                      modelValue: answerState(item).customAnswer,
-                                      "onUpdate:modelValue": [$event => ((answerState(item).customAnswer) = $event), value => { if (value) answerState(item).optionId = ''; }],
-                                      label: "自定义回答",
-                                      density: "compact",
-                                      variant: "outlined",
-                                      "hide-details": "",
-                                      maxlength: "1000",
-                                      class: "mt-2"
-                                    }, null, 8, ["modelValue", "onUpdate:modelValue"]))
-                                  : _createCommentVNode$1("", true)
-                              ]))
-                            : _createCommentVNode$1("", true),
-                          _createElementVNode$1("div", _hoisted_9$1, [
-                            (activeView.value === 'pending' && item.item_type === 'question')
-                              ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
-                                  key: 0,
-                                  size: "small",
-                                  variant: "text",
-                                  onClick: $event => (respond(item, 'close'))
-                                }, {
-                                  default: _withCtx$1(() => [...(_cache[4] || (_cache[4] = [
-                                    _createTextVNode$1("关闭问询", -1)
-                                  ]))]),
-                                  _: 1
-                                }, 8, ["onClick"]))
-                              : (activeView.value === 'pending')
-                                ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
-                                    key: 1,
-                                    size: "small",
-                                    variant: "text",
-                                    color: "error",
-                                    onClick: $event => (respond(item, 'reject'))
+                            (item.item_type === 'question' && (activeView.value === 'pending' || item.status === 'answered'))
+                              ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_9$1, [
+                                  _createVNode$1(_component_VRadioGroup, {
+                                    modelValue: answerState(item).optionId,
+                                    "onUpdate:modelValue": [$event => ((answerState(item).optionId) = $event), $event => (answerState(item).customAnswer = '')],
+                                    density: "compact",
+                                    "hide-details": ""
                                   }, {
                                     default: _withCtx$1(() => [
-                                      _createTextVNode$1(_toDisplayString$1(item.item_type === 'proposal' ? '拒绝采纳' : '拒绝执行'), 1)
+                                      (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(item.options || [], (option) => {
+                                        return (_openBlock$1(), _createBlock$1(_component_VRadio, {
+                                          key: option.option_id,
+                                          label: option.label,
+                                          value: option.option_id
+                                        }, null, 8, ["label", "value"]))
+                                      }), 128))
                                     ]),
                                     _: 2
-                                  }, 1032, ["onClick"]))
-                                : _createCommentVNode$1("", true),
-                            (activeView.value === 'pending' && item.item_type === 'question')
-                              ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
-                                  key: 2,
-                                  size: "small",
-                                  color: "primary",
-                                  variant: "tonal",
-                                  loading: itemOperation(item).loading,
-                                  onClick: $event => (answerQuestion(item))
-                                }, {
-                                  default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
-                                    _createTextVNode$1("提交回答", -1)
-                                  ]))]),
-                                  _: 1
-                                }, 8, ["loading", "onClick"]))
-                              : (activeView.value === 'pending')
+                                  }, 1032, ["modelValue", "onUpdate:modelValue"]),
+                                  (item.allow_custom_answer)
+                                    ? (_openBlock$1(), _createBlock$1(_component_VTextField, {
+                                        key: 0,
+                                        modelValue: answerState(item).customAnswer,
+                                        "onUpdate:modelValue": [$event => ((answerState(item).customAnswer) = $event), value => { if (value) answerState(item).optionId = ''; }],
+                                        label: "自定义回答",
+                                        density: "compact",
+                                        variant: "outlined",
+                                        "hide-details": "",
+                                        maxlength: "1000",
+                                        class: "mt-2"
+                                      }, null, 8, ["modelValue", "onUpdate:modelValue"]))
+                                    : _createCommentVNode$1("", true)
+                                ]))
+                              : _createCommentVNode$1("", true),
+                            _createElementVNode$1("div", _hoisted_10$1, [
+                              (activeView.value === 'pending' && item.item_type === 'question')
                                 ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
-                                    key: 3,
+                                    key: 0,
+                                    size: "small",
+                                    variant: "text",
+                                    onClick: $event => (respond(item, 'close'))
+                                  }, {
+                                    default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
+                                      _createTextVNode$1("关闭问询", -1)
+                                    ]))]),
+                                    _: 1
+                                  }, 8, ["onClick"]))
+                                : (activeView.value === 'pending')
+                                  ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                                      key: 1,
+                                      size: "small",
+                                      variant: "text",
+                                      color: "error",
+                                      onClick: $event => (respond(item, 'reject'))
+                                    }, {
+                                      default: _withCtx$1(() => [
+                                        _createTextVNode$1(_toDisplayString$1(item.item_type === 'proposal' ? '拒绝采纳' : '拒绝执行'), 1)
+                                      ]),
+                                      _: 2
+                                    }, 1032, ["onClick"]))
+                                  : _createCommentVNode$1("", true),
+                              (activeView.value === 'pending' && item.item_type === 'question')
+                                ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                                    key: 2,
                                     size: "small",
                                     color: "primary",
                                     variant: "tonal",
                                     loading: itemOperation(item).loading,
-                                    disabled: item.requires_superuser,
-                                    onClick: $event => (respond(item, 'confirm'))
+                                    onClick: $event => (answerQuestion(item))
                                   }, {
-                                    default: _withCtx$1(() => [
-                                      _createTextVNode$1(_toDisplayString$1(item.item_type === 'proposal' ? '确认采纳' : '确认执行'), 1)
-                                    ]),
-                                    _: 2
-                                  }, 1032, ["loading", "disabled", "onClick"]))
-                                : (activeView.value === 'resolved' && item.item_type === 'question')
-                                  ? (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 4 }, [
-                                      _createVNode$1(_component_VBtn, {
-                                        size: "small",
-                                        variant: "text",
-                                        loading: itemOperation(item).loading,
-                                        onClick: $event => (reopenQuestion(item))
-                                      }, {
-                                        default: _withCtx$1(() => [
-                                          _createTextVNode$1(_toDisplayString$1(item.status === 'answered' ? '撤销回答' : '重新打开'), 1)
-                                        ]),
-                                        _: 2
-                                      }, 1032, ["loading", "onClick"]),
-                                      (item.status === 'answered')
-                                        ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
-                                            key: 0,
-                                            size: "small",
-                                            color: "primary",
-                                            variant: "tonal",
-                                            loading: itemOperation(item).loading,
-                                            onClick: $event => (answerQuestion(item))
-                                          }, {
-                                            default: _withCtx$1(() => [...(_cache[6] || (_cache[6] = [
-                                              _createTextVNode$1("更新回答", -1)
-                                            ]))]),
-                                            _: 1
-                                          }, 8, ["loading", "onClick"]))
-                                        : _createCommentVNode$1("", true)
-                                    ], 64))
-                                  : _createCommentVNode$1("", true)
-                          ])
-                        ]))
-                      }), 128))
-                    ]))
+                                    default: _withCtx$1(() => [...(_cache[6] || (_cache[6] = [
+                                      _createTextVNode$1("提交回答", -1)
+                                    ]))]),
+                                    _: 1
+                                  }, 8, ["loading", "onClick"]))
+                                : (activeView.value === 'pending')
+                                  ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                                      key: 3,
+                                      size: "small",
+                                      color: "primary",
+                                      variant: "tonal",
+                                      loading: itemOperation(item).loading,
+                                      disabled: item.requires_superuser,
+                                      onClick: $event => (respond(item, 'confirm'))
+                                    }, {
+                                      default: _withCtx$1(() => [
+                                        _createTextVNode$1(_toDisplayString$1(item.item_type === 'proposal' ? '确认采纳' : '确认执行'), 1)
+                                      ]),
+                                      _: 2
+                                    }, 1032, ["loading", "disabled", "onClick"]))
+                                  : (activeView.value === 'resolved' && item.item_type === 'question')
+                                    ? (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 4 }, [
+                                        _createVNode$1(_component_VBtn, {
+                                          size: "small",
+                                          variant: "text",
+                                          loading: itemOperation(item).loading,
+                                          onClick: $event => (reopenQuestion(item))
+                                        }, {
+                                          default: _withCtx$1(() => [
+                                            _createTextVNode$1(_toDisplayString$1(item.status === 'answered' ? '撤销回答' : '重新打开'), 1)
+                                          ]),
+                                          _: 2
+                                        }, 1032, ["loading", "onClick"]),
+                                        (item.status === 'answered')
+                                          ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                                              key: 0,
+                                              size: "small",
+                                              color: "primary",
+                                              variant: "tonal",
+                                              loading: itemOperation(item).loading,
+                                              onClick: $event => (answerQuestion(item))
+                                            }, {
+                                              default: _withCtx$1(() => [...(_cache[7] || (_cache[7] = [
+                                                _createTextVNode$1("更新回答", -1)
+                                              ]))]),
+                                              _: 1
+                                            }, 8, ["loading", "onClick"]))
+                                          : _createCommentVNode$1("", true)
+                                      ], 64))
+                                    : _createCommentVNode$1("", true)
+                            ])
+                          ]))
+                        }), 128))
+                      ]))
+              ])
             ]),
             _: 1
-          }, 512)
+          }, 8, ["aria-busy"])
         ]),
         _: 1
       })
     ]),
     _: 1
-  }, 8, ["model-value", "fullscreen"]))
+  }, 8, ["model-value", "fullscreen", "height"]))
 }
 }
 
 };
-const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-fbb944a5"]]);
+const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-50f1e448"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,mergeProps:_mergeProps,vShow:_vShow,withDirectives:_withDirectives,withKeys:_withKeys} = await importShared('vue');
 
@@ -1545,10 +1566,9 @@ const _hoisted_68 = {
   class: "ar-page__history-agent-error"
 };
 
-const {computed,onMounted,reactive,ref,watch} = await importShared('vue');
+const {computed,onBeforeUnmount,onMounted,reactive,ref,watch} = await importShared('vue');
 
 const historyPageSize = 10;
-
 
 const _sfc_main = {
   __name: 'Page',
@@ -1576,7 +1596,11 @@ const criticDialog = ref(false);
 const pendingDialog = ref(false);
 const selectedAnalysisItem = ref(null);
 const selectedJudgment = ref(null);
+let conversationStatusTimer = null;
+let pageUnmounted = false;
+
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 5) || []);
+const criticUnreadCount = computed(() => Number(state.conversationStatus.value?.unread_count || 0));
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || []);
 const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.value.total || 0) / historyPageSize)));
 const positiveTags = computed(() => state.profile.value?.tags || []);
@@ -1925,13 +1949,36 @@ async function initialize() {
   try {
     await state.loadOptions();
     if (state.selectedProfileId.value) {
-      await Promise.all([state.loadProfileData(), state.loadPendingCenter()]);
+      await Promise.all([
+        state.loadProfileData(),
+        state.loadPendingCenter(),
+        state.loadConversationStatus(),
+      ]);
     }
   } catch (_) {
     // 共享状态承载错误。
   } finally {
     initialized.value = true;
+    scheduleConversationStatusPoll();
   }
+}
+
+function stopConversationStatusPoll() {
+  if (conversationStatusTimer) window.clearTimeout(conversationStatusTimer);
+  conversationStatusTimer = null;
+}
+
+function scheduleConversationStatusPoll() {
+  stopConversationStatusPoll();
+  if (pageUnmounted || !initialized.value || !state.selectedProfileId.value) return
+  const delay = state.conversationStatus.value?.has_pending ? 2000 : 15000;
+  conversationStatusTimer = window.setTimeout(pollConversationStatus, delay);
+}
+
+async function pollConversationStatus() {
+  stopConversationStatusPoll();
+  try { await state.loadConversationStatus(); } catch (_) { /* 轻量状态错误不打断主页面。 */ }
+  scheduleConversationStatusPoll();
 }
 
 async function runAction(action, successMessage) {
@@ -1990,14 +2037,29 @@ function showFeedbackResult(message) {
 watch(state.selectedProfileId, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
   historyPage.value = 1;
-  try { await Promise.all([state.loadProfileData(value), state.loadPendingCenter()]); } catch (_) { /* 错误已保存 */ }
+  stopConversationStatusPoll();
+  try {
+    await Promise.all([
+      state.loadProfileData(value),
+      state.loadPendingCenter(),
+      state.loadConversationStatus(),
+    ]);
+  } catch (_) { /* 错误已保存 */ }
+  scheduleConversationStatusPoll();
 });
 
 watch(activeTab, async value => {
   if (value === 'history') await changeHistoryPage(1);
 });
 
-onMounted(initialize);
+onMounted(() => {
+  pageUnmounted = false;
+  initialize();
+});
+onBeforeUnmount(() => {
+  pageUnmounted = true;
+  stopConversationStatusPoll();
+});
 
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent("VIcon");
@@ -2076,12 +2138,22 @@ return (_ctx, _cache) => {
           "aria-label": "刷新详情",
           onClick: _cache[1] || (_cache[1] = $event => (runAction(_unref(state).refresh, '榜单刷新已完成')))
         }, null, 8, ["loading", "disabled"]),
-        _createVNode(_component_VBtn, {
-          icon: "mdi-forum-outline",
-          variant: "text",
-          "aria-label": "打开 CinePilot Agent",
-          onClick: _cache[2] || (_cache[2] = $event => (criticDialog.value = true))
-        }),
+        _createVNode(_component_VBadge, {
+          content: criticUnreadCount.value,
+          "model-value": !criticDialog.value && criticUnreadCount.value > 0,
+          color: "error",
+          class: "ar-page__critic-badge"
+        }, {
+          default: _withCtx(() => [
+            _createVNode(_component_VBtn, {
+              icon: "mdi-forum-outline",
+              variant: "text",
+              "aria-label": criticUnreadCount.value > 0 ? `打开 CinePilot Agent，${criticUnreadCount.value} 条未读回复` : '打开 CinePilot Agent',
+              onClick: _cache[2] || (_cache[2] = $event => (criticDialog.value = true))
+            }, null, 8, ["aria-label"])
+          ]),
+          _: 1
+        }, 8, ["content", "model-value"]),
         _createVNode(_component_VBadge, {
           content: _unref(state).pendingCenter.value?.total || 0,
           "model-value": Boolean(_unref(state).pendingCenter.value?.total),
@@ -2988,6 +3060,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-54ebd0b8"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-555c1018"]]);
 
 export { Page as default };

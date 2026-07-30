@@ -595,8 +595,8 @@ def test_unrecognizable_candidate_and_add_failure_are_visible():
     assert failed.message == "recognition failed"
 
 
-def test_runtime_notify_mode_only_sends_summary_for_background_run():
-    """页面手动运行不重复通知，后台周期运行仍发送一次交互榜单。"""
+def test_runtime_notify_mode_sends_board_for_manual_and_background_runs():
+    """通知内选择模式下，页面手动与后台周期运行都发送交互榜单。"""
     plugin = FakePlugin()
     board = RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="run-1", status="success")
 
@@ -613,10 +613,10 @@ def test_runtime_notify_mode_only_sends_summary_for_background_run():
     )
 
     asyncio.run(runtime.refresh(PROFILE_ID))
-    assert plugin.messages == []
+    assert len(plugin.messages) == 1
     asyncio.run(runtime.run_scheduled())
 
-    assert len(plugin.messages) == 1
+    assert len(plugin.messages) == 2
 
 
 def test_runtime_failure_only_notifies_for_background_run_with_old_board_state():

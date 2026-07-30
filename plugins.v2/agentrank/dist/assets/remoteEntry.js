@@ -6,13 +6,13 @@ const currentImports = {};
       return __federation_import('./__federation_expose_Config-CcZdhtEf.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Dashboard":()=>{
       dynamicLoadingCss(["__federation_expose_Dashboard-BjIq28Y3.css","RecommendationActions-D2IlxkgU.css"], false, './Dashboard');
-      return __federation_import('./__federation_expose_Dashboard-BD4GFkoD.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      return __federation_import('./__federation_expose_Dashboard-B9xyWVQS.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Page":()=>{
-      dynamicLoadingCss(["__federation_expose_Page-BeDV0Cyt.css","RecommendationActions-D2IlxkgU.css"], false, './Page');
-      return __federation_import('./__federation_expose_Page-GPExiIOI.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Page-DzDAGeGg.css","RecommendationActions-D2IlxkgU.css"], false, './Page');
+      return __federation_import('./__federation_expose_Page-Ct6oZEdX.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./AppPage":()=>{
-      dynamicLoadingCss(["__federation_expose_AppPage-Ci6czfbT.css","__federation_expose_Config-D7QEUEp5.css","__federation_expose_Page-BeDV0Cyt.css","RecommendationActions-D2IlxkgU.css"], false, './AppPage');
-      return __federation_import('./__federation_expose_AppPage-ZS1Nv8Y7.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_AppPage-Ci6czfbT.css","__federation_expose_Config-D7QEUEp5.css","__federation_expose_Page-DzDAGeGg.css","RecommendationActions-D2IlxkgU.css"], false, './AppPage');
+      return __federation_import('./__federation_expose_AppPage-BF6uISCQ.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;

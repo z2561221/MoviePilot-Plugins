@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import time
 from typing import Any, Callable, Dict, List, Mapping
 
 from ..model.config import configured_identities
@@ -170,18 +169,6 @@ class AgentRankRuntime:
             set_pending_center = getattr(interaction_service, "set_pending_center", None)
             if callable(set_pending_center):
                 set_pending_center(pending_center_service)
-        if conversation_service is not None:
-            set_pending_handler = getattr(
-                conversation_service, "set_pending_handler", None
-            )
-            if callable(set_pending_handler):
-                set_pending_handler(self._notify_conversation_command)
-        if feedback_queue is not None:
-            set_completion_handler = getattr(
-                feedback_queue, "set_completion_handler", None
-            )
-            if callable(set_completion_handler):
-                set_completion_handler(self._notify_feedback_decision)
         self._stopped = False
         self._active_tasks: set[asyncio.Task] = set()
 
@@ -432,11 +419,7 @@ class AgentRankRuntime:
         mode = self.config.get("action_mode")
         board = getattr(result, "board", None)
         if mode == "notify":
-            if (
-                source != "manual"
-                and self.notification_service is not None
-                and board is not None
-            ):
+            if self.notification_service is not None and board is not None:
                 self.notification_service.send_confirmation(
                     getattr(board, "username", "")
                     or self._display_name(profile_id, self.config),
@@ -528,49 +511,6 @@ class AgentRankRuntime:
             run_id="",
             message="反馈理解多次失败，请稍后在插件详情页重试",
             old_board_preserved=True,
-        )
-
-    def _notify_feedback_decision(self, job: Any, result: Any = None) -> None:
-        """在反馈理解成功后发送一次新提案或问询通知。"""
-        del result
-        if (
-            not self._notifications_enabled()
-            or self.notification_service is None
-            or self.pending_center_service is None
-        ):
-            return
-        visible = dict(
-            getattr(self.plugin, "_agentrank_pending_visible_until", {}) or {}
-        )
-        if float(visible.get(job.profile_id) or 0.0) >= time.monotonic():
-            return
-        notice = self.pending_center_service.notice_for_event(
-            job.profile_id, job.event_id
-        )
-        if notice is None or notice.actor_id:
-            return
-        self.notification_service.send_pending(
-            self._display_name(job.profile_id, self.config), notice
-        )
-
-    def _notify_conversation_command(self, command: Any) -> None:
-        """发送对话新建命令的安全待确认通知。"""
-        if (
-            not self._notifications_enabled()
-            or self.notification_service is None
-            or self.pending_center_service is None
-        ):
-            return
-        visible = dict(
-            getattr(self.plugin, "_agentrank_pending_visible_until", {}) or {}
-        )
-        if float(visible.get(command.profile_id) or 0.0) >= time.monotonic():
-            return
-        if str(getattr(command, "requested_by_mp_user_id", "") or "").strip():
-            return
-        notice = self.pending_center_service.notice_for_command(command)
-        self.notification_service.send_pending(
-            self._display_name(command.profile_id, self.config), notice
         )
 
     def verify_outcomes(self) -> List[Dict[str, Any]]:

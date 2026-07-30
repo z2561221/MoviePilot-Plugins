@@ -56,6 +56,17 @@ function emptyConversation() {
   return { thread: null, messages: [], commands: [] }
 }
 
+function emptyConversationStatus(profileId = '') {
+  return {
+    profile_id: profileId,
+    thread_revision: 0,
+    updated_at: '',
+    latest_assistant_message_id: '',
+    unread_count: 0,
+    has_pending: false,
+  }
+}
+
 function emptyPendingCenter(profileId = '') {
   return {
     profile_id: profileId,
@@ -88,6 +99,7 @@ export function useAgentRankState(api) {
   const analyses = reactive({})
   const activity = ref([])
   const conversation = ref(emptyConversation())
+  const conversationStatus = ref(emptyConversationStatus())
   const pendingCenter = ref(emptyPendingCenter())
   const processedCenter = ref({ ...emptyPendingCenter(), view: 'resolved' })
   const attribution = ref(emptyAttribution())
@@ -208,6 +220,7 @@ export function useAgentRankState(api) {
     Object.keys(analyses).forEach(key => delete analyses[key])
     activity.value = []
     conversation.value = emptyConversation()
+    conversationStatus.value = emptyConversationStatus(target)
     pendingCenter.value = emptyPendingCenter(target)
     processedCenter.value = { ...emptyPendingCenter(target), view: 'resolved' }
     attribution.value = emptyAttribution(target)
@@ -599,18 +612,43 @@ export function useAgentRankState(api) {
     return result
   }
 
-  async function loadConversation() {
+  async function loadConversation({ markRead = false } = {}) {
     const targetProfile = activeProfileScope()
     if (!targetProfile) return emptyConversation()
     return runOperation(
       'conversation',
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'conversation', { profile_id: targetProfile }) || emptyConversation()
-        if (isCurrent() && selectedProfileId.value === targetProfile) conversation.value = result
+        const result = await getPluginApi(api, 'conversation', {
+          profile_id: targetProfile,
+          mark_read: markRead,
+        }) || emptyConversation()
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          conversation.value = result
+          if (result.status) conversationStatus.value = result.status
+        }
         return result
       },
-      retryForProfile(targetProfile, loadConversation),
+      retryForProfile(targetProfile, () => loadConversation({ markRead })),
       { globalError: false },
+    )
+  }
+
+  async function loadConversationStatus() {
+    const targetProfile = activeProfileScope()
+    if (!targetProfile) return emptyConversationStatus()
+    return runOperation(
+      'conversation:status',
+      async ({ isCurrent }) => {
+        const result = await getPluginApi(api, 'conversation/status', {
+          profile_id: targetProfile,
+        }) || emptyConversationStatus(targetProfile)
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          conversationStatus.value = result
+        }
+        return result
+      },
+      retryForProfile(targetProfile, loadConversationStatus),
+      { globalError: false, throwOnError: false, fallback: conversationStatus.value },
     )
   }
 
@@ -625,7 +663,14 @@ export function useAgentRankState(api) {
       'conversation:send',
       async ({ isCurrent }) => {
         const result = await postPluginApi(api, 'conversation/messages', payload) || emptyConversation()
-        if (isCurrent() && selectedProfileId.value === targetProfile) conversation.value = result
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          conversation.value = result
+          conversationStatus.value = {
+            ...conversationStatus.value,
+            profile_id: targetProfile,
+            has_pending: true,
+          }
+        }
         return result
       },
       retryForProfile(targetProfile, () => sendConversationMessage(content, idempotencyKey)),
@@ -640,7 +685,14 @@ export function useAgentRankState(api) {
       `conversation:retry:${messageId}`,
       async ({ isCurrent }) => {
         const result = await postPluginApi(api, 'conversation/messages/retry', payload) || emptyConversation()
-        if (isCurrent() && selectedProfileId.value === targetProfile) conversation.value = result
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          conversation.value = result
+          conversationStatus.value = {
+            ...conversationStatus.value,
+            profile_id: targetProfile,
+            has_pending: true,
+          }
+        }
         return result
       },
       retryForProfile(targetProfile, () => retryConversationMessage(messageId)),
@@ -844,6 +896,7 @@ export function useAgentRankState(api) {
     analyses,
     activity,
     conversation,
+    conversationStatus,
     pendingCenter,
     processedCenter,
     attribution,
@@ -869,6 +922,7 @@ export function useAgentRankState(api) {
     loadAnalysis,
     commentOnAnalysis,
     loadConversation,
+    loadConversationStatus,
     sendConversationMessage,
     retryConversationMessage,
     respondConversationCommand,

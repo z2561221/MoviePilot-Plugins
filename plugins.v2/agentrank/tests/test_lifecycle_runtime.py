@@ -134,57 +134,38 @@ def test_runtime_wires_configured_critic_and_persona_prompts_into_agent_services
     assert source.count('persona_prompt=str(config.get("persona_prompt") or "")') == 3
 
 
-def test_page_origin_pending_items_do_not_emit_duplicate_background_notice():
-    """带页面操作者的反馈和对话命令只更新待办，不重复外发通知。"""
-    sent = []
-
-    class Notifications:
-        def send_pending(self, username, notice):
-            sent.append((username, notice))
-
-    class Pending:
+def test_runtime_does_not_wire_pending_items_to_telegram_notifications():
+    """提案、问询和命令只进入待办中心，不注册 Telegram 待办通知回调。"""
+    class Conversation:
         def __init__(self):
-            self.notice = SimpleNamespace(actor_id="mp-user-1")
+            self.pending_handler = "unset"
 
-        def notice_for_event(self, profile_id, event_id):
-            return self.notice
+        def set_pending_handler(self, handler):
+            self.pending_handler = handler
 
-        def notice_for_command(self, command):
-            return SimpleNamespace(actor_id=command.requested_by_mp_user_id)
+    class Queue:
+        def __init__(self):
+            self.completion_handler = "unset"
 
-    pending = Pending()
+        def set_completion_handler(self, handler):
+            self.completion_handler = handler
+
+    conversation = Conversation()
+    queue = Queue()
     plugin = FakePlugin()
-    runtime = AgentRankRuntime(
+    AgentRankRuntime(
         plugin,
         _config(notify=True),
         FakeOrchestrator(),
         lambda cron: cron,
-        notification_service=Notifications(),
-        pending_center_service=pending,
+        notification_service=SimpleNamespace(),
+        pending_center_service=SimpleNamespace(),
+        conversation_service=conversation,
+        feedback_queue=queue,
     )
 
-    runtime._notify_feedback_decision(
-        SimpleNamespace(profile_id=HOME_PROFILE, event_id="event-1")
-    )
-    runtime._notify_conversation_command(
-        SimpleNamespace(
-            profile_id=HOME_PROFILE,
-            requested_by_mp_user_id="mp-user-1",
-        )
-    )
-    pending.notice = SimpleNamespace(actor_id="")
-    plugin._agentrank_pending_visible_until = {
-        HOME_PROFILE: runtime_module.time.monotonic() + 30
-    }
-    runtime._notify_feedback_decision(
-        SimpleNamespace(profile_id=HOME_PROFILE, event_id="event-2")
-    )
-    plugin._agentrank_pending_visible_until = {}
-    runtime._notify_feedback_decision(
-        SimpleNamespace(profile_id=HOME_PROFILE, event_id="event-3")
-    )
-
-    assert len(sent) == 1
+    assert conversation.pending_handler == "unset"
+    assert queue.completion_handler == "unset"
 
 
 def test_disabled_or_schedule_off_runtime_registers_no_service():

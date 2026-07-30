@@ -12,6 +12,7 @@ const answers = reactive({})
 const localError = ref('')
 const activeView = ref('pending')
 const bodyRef = ref(null)
+const loadedViews = reactive({ pending: false, resolved: false })
 let visibilityTimer = null
 
 const center = computed(() => activeView.value === 'resolved'
@@ -57,10 +58,16 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
 }
 
-async function load() {
-  localError.value = ''
-  try { await props.state.loadPendingCenter(activeView.value) }
-  catch (error) { localError.value = error?.message || '待处理项目读取失败' }
+async function load(view = activeView.value) {
+  if (view === activeView.value) localError.value = ''
+  try {
+    await props.state.loadPendingCenter(view)
+    loadedViews[view] = true
+  } catch (error) {
+    if (view === activeView.value) {
+      localError.value = error?.message || '待处理项目读取失败'
+    }
+  }
 }
 
 function resetBodyScroll() {
@@ -73,9 +80,7 @@ async function switchView(value) {
   activeView.value = value
   await nextTick()
   resetBodyScroll()
-  await load()
-  await nextTick()
-  resetBodyScroll()
+  void load(value)
 }
 
 async function respond(item, action, options = {}) {
@@ -111,9 +116,9 @@ watch(() => props.modelValue, open => {
   stopVisibilityHeartbeat()
   if (!open) return
   void nextTick(resetBodyScroll)
-  load()
+  load(activeView.value)
   visibilityTimer = window.setInterval(() => {
-    if (activeView.value === 'pending') load()
+    if (activeView.value === 'pending') load('pending')
   }, 15000)
 }, { immediate: true })
 onBeforeUnmount(stopVisibilityHeartbeat)
@@ -123,6 +128,7 @@ onBeforeUnmount(stopVisibilityHeartbeat)
   <VDialog
     :model-value="modelValue"
     :fullscreen="smAndDown"
+    :height="smAndDown ? undefined : 760"
     max-width="820"
     scrollable
     @update:model-value="value => emit('update:modelValue', value)"
@@ -135,7 +141,7 @@ onBeforeUnmount(stopVisibilityHeartbeat)
           <div class="ar-pending__subtitle">{{ activeView === 'pending' ? `${items.length} 项待办` : `${items.length} 条记录` }}</div>
         </div>
         <VSpacer />
-        <VBtn icon="mdi-refresh" variant="text" aria-label="刷新待处理项目" :loading="operation.loading" @click="load" />
+        <VBtn icon="mdi-refresh" variant="text" aria-label="刷新待处理项目" :loading="operation.loading" @click="load(activeView)" />
         <VBtn icon="mdi-close" variant="text" aria-label="关闭待处理窗口" @click="close" />
       </VToolbar>
       <VDivider />
@@ -146,13 +152,21 @@ onBeforeUnmount(stopVisibilityHeartbeat)
       </VTabs>
       <VDivider />
 
-      <VCardText ref="bodyRef" class="ar-pending__body">
-        <VAlert v-if="localError || operation.error" type="error" variant="tonal" density="compact" class="mb-3">
-          {{ localError || operation.error?.message }}
-        </VAlert>
-        <div v-if="operation.loading && !items.length" class="ar-pending__state"><VProgressCircular indeterminate color="primary" /></div>
-        <VEmptyState v-else-if="!items.length" icon="mdi-check-all" :title="activeView === 'pending' ? '当前没有待办事项' : '当前没有处理记录'" />
-        <div v-else class="ar-pending__list">
+      <VCardText ref="bodyRef" class="ar-pending__body" :aria-busy="operation.loading">
+        <div class="ar-pending__content">
+          <VProgressLinear
+            v-if="operation.loading && loadedViews[activeView]"
+            indeterminate
+            color="primary"
+            height="2"
+            class="ar-pending__refresh-progress"
+          />
+          <VAlert v-if="localError || operation.error" type="error" variant="tonal" density="compact" class="mb-3">
+            {{ localError || operation.error?.message }}
+          </VAlert>
+          <div v-if="operation.loading && !loadedViews[activeView]" class="ar-pending__state"><VProgressCircular indeterminate color="primary" /></div>
+          <VEmptyState v-else-if="!items.length" class="ar-pending__state" icon="mdi-check-all" :title="activeView === 'pending' ? '当前没有待办事项' : '当前没有处理记录'" />
+          <div v-else class="ar-pending__list">
           <section v-for="item in items" :key="`${item.item_type}:${item.item_id}`" class="ar-pending__item">
             <div class="ar-pending__item-head">
               <VChip size="x-small" color="primary" variant="tonal">{{ typeLabels[item.item_type] || '待处理' }}</VChip>
@@ -235,6 +249,7 @@ onBeforeUnmount(stopVisibilityHeartbeat)
               </template>
             </div>
           </section>
+          </div>
         </div>
       </VCardText>
     </VCard>
@@ -248,7 +263,9 @@ onBeforeUnmount(stopVisibilityHeartbeat)
 .ar-pending__title { font-size: 15px; font-weight: 700; }
 .ar-pending__subtitle { color: rgba(var(--v-theme-on-surface), .58); font-size: 11px; }
 .ar-pending__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
-.ar-pending__state { min-height: 300px; display: grid; place-items: center; }
+.ar-pending__content { position: relative; min-height: 100%; }
+.ar-pending__refresh-progress { position: absolute; z-index: 2; top: -8px; right: 0; left: 0; }
+.ar-pending__state { min-height: 100%; display: grid; place-items: center; }
 .ar-pending__list { display: grid; gap: 10px; }
 .ar-pending__item { padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: transparent; }
 .ar-pending__item-head { display: flex; align-items: center; gap: 8px; color: rgba(var(--v-theme-on-surface), .5); font-size: 10px; }

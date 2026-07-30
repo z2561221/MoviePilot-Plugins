@@ -266,6 +266,7 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/analysis",
         "/analysis/comment",
         "/conversation",
+        "/conversation/status",
         "/conversation/messages",
             "/conversation/messages/retry",
             "/conversation/commands/respond",
@@ -475,6 +476,11 @@ def test_conversation_endpoints_reuse_profile_access_and_pass_actor_privilege():
             self.calls.append(("snapshot", profile_id))
             return {"thread": None, "messages": [], "commands": []}
 
+        def status(self, profile_id, *, actor_id, mark_read=False):
+            """记录未读状态查询与已读动作。"""
+            self.calls.append(("status", profile_id, actor_id, mark_read))
+            return {"profile_id": profile_id, "unread_count": 0, "has_pending": False}
+
         async def send(self, **kwargs):
             """记录发送参数。"""
             self.calls.append(("send", kwargs))
@@ -498,7 +504,8 @@ def test_conversation_endpoints_reuse_profile_access_and_pass_actor_privilege():
     forbidden = TokenPayload(sub=8, username="Alice", super_user=False)
     admin = TokenPayload(sub=1, username="admin", super_user=True)
 
-    assert controller.endpoint_conversation(HOME_PROFILE, allowed)["success"] is True
+    assert controller.endpoint_conversation(HOME_PROFILE, allowed, True)["success"] is True
+    assert controller.endpoint_conversation_status(HOME_PROFILE, allowed)["success"] is True
     sent = asyncio.run(
         controller.endpoint_conversation_message(
             {
@@ -529,6 +536,8 @@ def test_conversation_endpoints_reuse_profile_access_and_pass_actor_privilege():
     send_call = next(item for item in service.calls if item[0] == "send")
     respond_calls = [item for item in service.calls if item[0] == "respond"]
     assert send_call[1]["actor_id"] == "7"
+    assert ("status", HOME_PROFILE, "7", True) in service.calls
+    assert ("status", HOME_PROFILE, "7", False) in service.calls
     assert respond_calls[0][1]["is_superuser"] is False
     assert respond_calls[1][1]["is_superuser"] is True
 

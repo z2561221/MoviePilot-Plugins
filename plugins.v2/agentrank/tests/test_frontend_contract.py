@@ -538,7 +538,22 @@ def test_cinepilot_chat_is_immediate_bounded_and_retryable():
     assert "status: 'retryable_failed'" in chat
     assert "startPolling()" in chat
     assert "conversation/messages/retry" in state
+    assert "loadConversation({ markRead = false } = {})" in state
+    assert "conversation/status" in state
+    assert "loadConversation({ markRead: true })" in chat
     assert "reminder_policy" not in state
+
+
+def test_cinepilot_entry_has_persistent_unread_reply_badge():
+    """对话入口展示后端持久化的未读回复数，并在页面级轮询异步结果。"""
+    page = _read("Page.vue")
+    state = _read("useAgentRankState.js")
+    assert 'class="ar-page__critic-badge"' in page
+    assert "criticUnreadCount" in page
+    assert "!criticDialog && criticUnreadCount > 0" in page
+    assert "state.loadConversationStatus()" in page
+    assert "has_pending ? 2000 : 15000" in page
+    assert "const conversationStatus = ref(emptyConversationStatus())" in state
 
 
 def test_pending_center_uses_symmetric_actions_without_reminders():
@@ -559,6 +574,14 @@ def test_pending_center_uses_symmetric_actions_without_reminders():
     assert 'ref="bodyRef"' in pending
     assert "function resetBodyScroll()" in pending
     assert "element.scrollTop = 0" in pending
+    assert "const loadedViews = reactive({ pending: false, resolved: false })" in pending
+    assert ':height="smAndDown ? undefined : 760"' in pending
+    assert "operation.loading && loadedViews[activeView]" in pending
+    assert "operation.loading && !loadedViews[activeView]" in pending
+    assert "void load(value)" in pending
+    assert "await load()" not in pending
+    assert ".ar-pending__content { position: relative; min-height: 100%; }" in pending
+    assert ".ar-pending__state { min-height: 100%;" in pending
     assert "overflow: hidden" in pending
     assert "overscroll-behavior: contain" in pending
 

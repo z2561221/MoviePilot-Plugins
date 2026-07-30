@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { p as postPluginApi, g as getPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-CXFsw50i.js';
+import { g as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-CXFsw50i.js';
 
 const {computed: computed$1,reactive,ref: ref$1,watch} = await importShared('vue');
 
@@ -58,6 +58,17 @@ function emptyConversation() {
   return { thread: null, messages: [], commands: [] }
 }
 
+function emptyConversationStatus(profileId = '') {
+  return {
+    profile_id: profileId,
+    thread_revision: 0,
+    updated_at: '',
+    latest_assistant_message_id: '',
+    unread_count: 0,
+    has_pending: false,
+  }
+}
+
 function emptyPendingCenter(profileId = '') {
   return {
     profile_id: profileId,
@@ -90,6 +101,7 @@ function useAgentRankState(api) {
   const analyses = reactive({});
   const activity = ref$1([]);
   const conversation = ref$1(emptyConversation());
+  const conversationStatus = ref$1(emptyConversationStatus());
   const pendingCenter = ref$1(emptyPendingCenter());
   const processedCenter = ref$1({ ...emptyPendingCenter(), view: 'resolved' });
   const attribution = ref$1(emptyAttribution());
@@ -210,6 +222,7 @@ function useAgentRankState(api) {
     Object.keys(analyses).forEach(key => delete analyses[key]);
     activity.value = [];
     conversation.value = emptyConversation();
+    conversationStatus.value = emptyConversationStatus(target);
     pendingCenter.value = emptyPendingCenter(target);
     processedCenter.value = { ...emptyPendingCenter(target), view: 'resolved' };
     attribution.value = emptyAttribution(target);
@@ -601,18 +614,43 @@ function useAgentRankState(api) {
     return result
   }
 
-  async function loadConversation() {
+  async function loadConversation({ markRead = false } = {}) {
     const targetProfile = activeProfileScope();
     if (!targetProfile) return emptyConversation()
     return runOperation(
       'conversation',
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'conversation', { profile_id: targetProfile }) || emptyConversation();
-        if (isCurrent() && selectedProfileId.value === targetProfile) conversation.value = result;
+        const result = await getPluginApi(api, 'conversation', {
+          profile_id: targetProfile,
+          mark_read: markRead,
+        }) || emptyConversation();
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          conversation.value = result;
+          if (result.status) conversationStatus.value = result.status;
+        }
         return result
       },
-      retryForProfile(targetProfile, loadConversation),
+      retryForProfile(targetProfile, () => loadConversation({ markRead })),
       { globalError: false },
+    )
+  }
+
+  async function loadConversationStatus() {
+    const targetProfile = activeProfileScope();
+    if (!targetProfile) return emptyConversationStatus()
+    return runOperation(
+      'conversation:status',
+      async ({ isCurrent }) => {
+        const result = await getPluginApi(api, 'conversation/status', {
+          profile_id: targetProfile,
+        }) || emptyConversationStatus(targetProfile);
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          conversationStatus.value = result;
+        }
+        return result
+      },
+      retryForProfile(targetProfile, loadConversationStatus),
+      { globalError: false, throwOnError: false, fallback: conversationStatus.value },
     )
   }
 
@@ -627,7 +665,14 @@ function useAgentRankState(api) {
       'conversation:send',
       async ({ isCurrent }) => {
         const result = await postPluginApi(api, 'conversation/messages', payload) || emptyConversation();
-        if (isCurrent() && selectedProfileId.value === targetProfile) conversation.value = result;
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          conversation.value = result;
+          conversationStatus.value = {
+            ...conversationStatus.value,
+            profile_id: targetProfile,
+            has_pending: true,
+          };
+        }
         return result
       },
       retryForProfile(targetProfile, () => sendConversationMessage(content, idempotencyKey)),
@@ -642,7 +687,14 @@ function useAgentRankState(api) {
       `conversation:retry:${messageId}`,
       async ({ isCurrent }) => {
         const result = await postPluginApi(api, 'conversation/messages/retry', payload) || emptyConversation();
-        if (isCurrent() && selectedProfileId.value === targetProfile) conversation.value = result;
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          conversation.value = result;
+          conversationStatus.value = {
+            ...conversationStatus.value,
+            profile_id: targetProfile,
+            has_pending: true,
+          };
+        }
         return result
       },
       retryForProfile(targetProfile, () => retryConversationMessage(messageId)),
@@ -846,6 +898,7 @@ function useAgentRankState(api) {
     analyses,
     activity,
     conversation,
+    conversationStatus,
     pendingCenter,
     processedCenter,
     attribution,
@@ -871,6 +924,7 @@ function useAgentRankState(api) {
     loadAnalysis,
     commentOnAnalysis,
     loadConversation,
+    loadConversationStatus,
     sendConversationMessage,
     retryConversationMessage,
     respondConversationCommand,

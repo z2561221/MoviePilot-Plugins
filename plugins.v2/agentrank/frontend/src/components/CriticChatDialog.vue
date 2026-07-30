@@ -56,7 +56,7 @@ async function pollConversation() {
     stopPolling()
     return
   }
-  try { await props.state.loadConversation() } catch (_) { /* 保留共享可重试错误。 */ }
+  try { await props.state.loadConversation({ markRead: true }) } catch (_) { /* 保留共享可重试错误。 */ }
   if (!hasPendingMessages.value) {
     stopPolling()
     await scrollToEnd()
@@ -89,7 +89,7 @@ async function scrollToEnd() {
 
 async function load() {
   try {
-    await Promise.all([props.state.loadConversation(), props.state.loadPendingCenter()])
+    await Promise.all([props.state.loadConversation({ markRead: true }), props.state.loadPendingCenter()])
     await scrollToEnd()
     startPolling()
   } catch (_) {
@@ -109,7 +109,7 @@ async function send() {
     startPolling()
   } catch (error) {
     localError.value = error?.message || '消息发送失败，草稿已保留'
-    try { await props.state.loadConversation() } catch (_) { /* 对话读取错误由共享状态展示。 */ }
+    try { await props.state.loadConversation({ markRead: true }) } catch (_) { /* 对话读取错误由共享状态展示。 */ }
     await scrollToEnd()
   }
 }
@@ -123,7 +123,7 @@ async function retryMessage(messageId) {
     startPolling()
   } catch (error) {
     localError.value = error?.message || '重试失败'
-    try { await props.state.loadConversation() } catch (_) { /* 对话读取错误由共享状态展示。 */ }
+    try { await props.state.loadConversation({ markRead: true }) } catch (_) { /* 对话读取错误由共享状态展示。 */ }
   }
 }
 

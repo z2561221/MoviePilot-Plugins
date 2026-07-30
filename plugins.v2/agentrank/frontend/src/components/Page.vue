@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
 import AgentAnalysisDialog from './AgentAnalysisDialog.vue'
 import CriticChatDialog from './CriticChatDialog.vue'
@@ -28,8 +28,11 @@ const pendingDialog = ref(false)
 const selectedAnalysisItem = ref(null)
 const selectedJudgment = ref(null)
 const historyPageSize = 10
+let conversationStatusTimer = null
+let pageUnmounted = false
 
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 5) || [])
+const criticUnreadCount = computed(() => Number(state.conversationStatus.value?.unread_count || 0))
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || [])
 const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.value.total || 0) / historyPageSize)))
 const positiveTags = computed(() => state.profile.value?.tags || [])
@@ -378,13 +381,36 @@ async function initialize() {
   try {
     await state.loadOptions()
     if (state.selectedProfileId.value) {
-      await Promise.all([state.loadProfileData(), state.loadPendingCenter()])
+      await Promise.all([
+        state.loadProfileData(),
+        state.loadPendingCenter(),
+        state.loadConversationStatus(),
+      ])
     }
   } catch (_) {
     // 共享状态承载错误。
   } finally {
     initialized.value = true
+    scheduleConversationStatusPoll()
   }
+}
+
+function stopConversationStatusPoll() {
+  if (conversationStatusTimer) window.clearTimeout(conversationStatusTimer)
+  conversationStatusTimer = null
+}
+
+function scheduleConversationStatusPoll() {
+  stopConversationStatusPoll()
+  if (pageUnmounted || !initialized.value || !state.selectedProfileId.value) return
+  const delay = state.conversationStatus.value?.has_pending ? 2000 : 15000
+  conversationStatusTimer = window.setTimeout(pollConversationStatus, delay)
+}
+
+async function pollConversationStatus() {
+  stopConversationStatusPoll()
+  try { await state.loadConversationStatus() } catch (_) { /* 轻量状态错误不打断主页面。 */ }
+  scheduleConversationStatusPoll()
 }
 
 async function runAction(action, successMessage) {
@@ -443,14 +469,29 @@ function showFeedbackResult(message) {
 watch(state.selectedProfileId, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
   historyPage.value = 1
-  try { await Promise.all([state.loadProfileData(value), state.loadPendingCenter()]) } catch (_) { /* 错误已保存 */ }
+  stopConversationStatusPoll()
+  try {
+    await Promise.all([
+      state.loadProfileData(value),
+      state.loadPendingCenter(),
+      state.loadConversationStatus(),
+    ])
+  } catch (_) { /* 错误已保存 */ }
+  scheduleConversationStatusPoll()
 })
 
 watch(activeTab, async value => {
   if (value === 'history') await changeHistoryPage(1)
 })
 
-onMounted(initialize)
+onMounted(() => {
+  pageUnmounted = false
+  initialize()
+})
+onBeforeUnmount(() => {
+  pageUnmounted = true
+  stopConversationStatusPoll()
+})
 </script>
 
 <template>
@@ -485,7 +526,19 @@ onMounted(initialize)
         aria-label="刷新详情"
         @click="runAction(state.refresh, '榜单刷新已完成')"
       />
-      <VBtn icon="mdi-forum-outline" variant="text" aria-label="打开 CinePilot Agent" @click="criticDialog = true" />
+      <VBadge
+        :content="criticUnreadCount"
+        :model-value="!criticDialog && criticUnreadCount > 0"
+        color="error"
+        class="ar-page__critic-badge"
+      >
+        <VBtn
+          icon="mdi-forum-outline"
+          variant="text"
+          :aria-label="criticUnreadCount > 0 ? `打开 CinePilot Agent，${criticUnreadCount} 条未读回复` : '打开 CinePilot Agent'"
+          @click="criticDialog = true"
+        />
+      </VBadge>
       <VBadge :content="state.pendingCenter.value?.total || 0" :model-value="Boolean(state.pendingCenter.value?.total)" color="warning" class="ar-page__pending-badge">
         <VBtn icon="mdi-inbox-outline" variant="text" aria-label="打开待处理中心" @click="pendingDialog = true" />
       </VBadge>

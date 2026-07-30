@@ -395,6 +395,44 @@ def test_read_only_turn_uses_minimal_context_and_is_strictly_idempotent():
         service.stop()
 
 
+def test_unread_agent_replies_are_persisted_per_actor_and_profile():
+    """Agent 完成回复后增加未读数，读取后清零且新操作者不继承旧未读。"""
+    _plugin, repository = _seed()
+    agent = FakeConversationAgent(_agent_output(reply="第一条 Agent 回复。"))
+    service = ConversationService(repository, agent, message_limit=20)
+
+    try:
+        assert service.status(PROFILE_ID, actor_id="7")["unread_count"] == 0
+        asyncio.run(
+            service.send(
+                profile_id=PROFILE_ID,
+                content="开始一次异步对话",
+                idempotency_key="unread-message-1",
+                actor_id="7",
+            )
+        )
+        _wait_snapshot(
+            service,
+            lambda value: any(
+                item["role"] == "assistant" and item["status"] == "completed"
+                for item in value["messages"]
+            ),
+        )
+
+        unread = service.status(PROFILE_ID, actor_id="7")
+        assert unread["unread_count"] == 1
+        assert unread["has_pending"] is False
+        assert unread["latest_assistant_message_id"]
+        assert service.status(PROFILE_ID, actor_id="8")["unread_count"] == 0
+
+        read = service.status(PROFILE_ID, actor_id="7", mark_read=True)
+        assert read["unread_count"] == 0
+        restarted = ConversationService(repository, FakeConversationAgent(), message_limit=20)
+        assert restarted.status(PROFILE_ID, actor_id="7")["unread_count"] == 0
+    finally:
+        service.stop()
+
+
 def test_profile_tag_write_waits_for_confirmation_and_confirm_is_idempotent():
     """标签请求确认前零副作用，确认后复用人工偏好服务且可重放。"""
     plugin, repository = _seed()
