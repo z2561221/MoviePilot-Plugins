@@ -1130,7 +1130,7 @@
           "verification": [
             "独立persona_prompt位于CinePilot Agent扩展提示词上方，并注入反馈理解、对话、动态问询、评论修订和待办处理结果表达",
             "基础设置重排为画像来源、运行计划、页面入口、榜单行为、后台提醒五个全宽扁平功能组",
-            "内容库仅展示前两项和省略号且可查看余项，可见安全上限已移除但后端仍保留最多10项硬保护",
+            "内容库折叠态仅展示首项和剩余数量，悬停数量可查看其余项，可见安全上限已移除但后端仍保留最多10项硬保护",
             "订阅数量与订阅门槛按动作模式条件显示，页面手动运行和页面待办不重复外发通知",
             "聚焦测试227 passed，基线smoke 59 passed，Vue federation build转换75 modules，compileall和git diff check通过"
           ],
@@ -1156,7 +1156,8 @@
             "MP reload成功，history接口确认plugin_version=1.0.0、installed=true、state=true、is_local=true且package与history未改",
             "plugin/remotes和plugin/sidebar_nav均包含AgentRank，联邦页面由MP本地源正常加载",
             "提示设置实页确认CinePilot Agent人设语气位于扩展提示词上方，默认值为高浓度克里斯蒂娜与未来道具研究所语气",
-            "390x844、768x1024、1440x900三视口document scrollWidth等于clientWidth，五个基础设置功能组独立成排且内容库固定显示剧集、电影、…",
+            "390x844、768x1024、1440x900三视口document scrollWidth等于clientWidth，内容库固定显示剧集 +2且摘要无重叠",
+            "内容库下拉保持剧集、电影、动漫已选和儿童未选，三视口菜单均未越界，悬停+2显示电影、动漫且未点击任何选项",
             "待办中心实页确认待办事项与处理记录双视图，已回答问询提供撤销回答和更新回答，已关闭问询提供重新打开",
             "浏览器error和warn日志为空，验收期间未执行任何会修改用户画像或待办状态的操作"
           ],
@@ -1190,6 +1191,11 @@
       "date": "2026-07-29",
       "decision": "V6将第二次试用反馈拆为配置交互通知低打扰学习和MP本地交付三个任务，Git在线同步PR合入版本整理与正式发布全部移出本轮",
       "source": "用户第二次试用反馈逐项确认及最终计划范围确认"
+    },
+    {
+      "date": "2026-07-30",
+      "decision": "内容库筛选借鉴订阅助手增强版多选摘要，采用首项加剩余数量与原生复选下拉，不改变emby_library_ids和后端语义",
+      "source": "用户指定参考设计并要求继续执行"
     }
   ],
   "turn_log": [
@@ -1456,6 +1462,12 @@
       "task": "9.4",
       "result": "all automated gates, MP-local sync and reload, SHA and runtime metadata checks, authenticated prompt and pending-center readback, three responsive viewport audits, and clean browser logs completed the Phase 9 trial handoff without Git synchronization or release work",
       "commit": null
+    },
+    {
+      "date": "2026-07-30",
+      "task": "trial-followup-library-select-summary",
+      "result": "library selection now summarizes as the first item plus the remaining count, preserves native checkbox states and hover details, and passed MP-local three-viewport geometry plus clean browser-log acceptance without saving configuration",
+      "commit": "1cd2eabe"
     }
   ],
   "residual_risks": [
