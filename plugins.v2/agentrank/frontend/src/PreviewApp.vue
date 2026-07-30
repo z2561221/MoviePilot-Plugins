@@ -22,6 +22,7 @@ const statuses = [
   { title: '播放样本不足', value: 'sample_insufficient' },
   { title: '候选数量不足', value: 'candidate_insufficient' },
   { title: '推荐榜单不足', value: 'recommendation_incomplete' },
+  { title: '推荐榜单已降级', value: 'recommendation_degraded' },
   { title: '画像输出校验失败', value: 'profile_validation_failed' },
   { title: 'Agent 调用失败', value: 'agent_failed' },
   { title: '输出校验失败', value: 'validation_failed' },

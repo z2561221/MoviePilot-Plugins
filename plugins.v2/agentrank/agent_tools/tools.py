@@ -27,6 +27,13 @@ class _ReadAgentRankTool(MoviePilotTool):
             raise PermissionError(
                 f"{self.name} is not allowed for {trusted_context.agent_role} Agent"
             )
+        if trusted_context.agent_role == "ranking":
+            if getattr(self, "_agentrank_ranking_read", False):
+                raise RuntimeError(
+                    f"{self.name} already returned this immutable snapshot; "
+                    "reuse the previous result and return the final JSON object"
+                )
+            self._agentrank_ranking_read = True
         return trusted_context
 
     def get_tool_message(self, **kwargs: Any) -> Optional[str]:

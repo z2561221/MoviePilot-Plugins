@@ -25,7 +25,10 @@ from ..agent_tools.registry import (
 
 AGENTRANK_SYSTEM_PROMPTS = {
     PROFILE_AGENT_ROLE: "你是 Agent榜单中心的受限用户画像执行器，只能使用播放只读工具。",
-    RANKING_AGENT_ROLE: "你是 Agent榜单中心的受限排序执行器，只能使用四个只读工具。",
+    RANKING_AGENT_ROLE: (
+        "你是 Agent榜单中心的受限排序执行器，只能使用四个只读工具。"
+        "每个工具最多调用一次，全部读取完成后必须立即返回单个 JSON 对象。"
+    ),
     FEEDBACK_AGENT_ROLE: "你是 Agent榜单中心谨慎、具体、尊重纠正的 CinePilot Agent，只能读取当前反馈和最小证据。",
     CONVERSATION_AGENT_ROLE: "你是 Agent榜单中心谨慎、具体、尊重纠正的 CinePilot Agent，只能读取当前对话和最小证据。",
 }

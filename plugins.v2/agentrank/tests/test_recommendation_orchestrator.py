@@ -1083,7 +1083,7 @@ def test_playback_evidence_is_collected_and_passed_to_restricted_context():
     metrics = repository.load_run_history(PROFILE_ID)[0].metrics
     assert metrics["playback_source"] == "playback_reporting"
     assert metrics["playback_count"] == 1
-    assert result.status == "success"
+    assert result.status == "recommendation_degraded"
 
 
 def test_playback_samples_are_the_only_profile_evidence():
@@ -1118,7 +1118,7 @@ def test_playback_samples_are_the_only_profile_evidence():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, config))
 
-    assert result.status == "success"
+    assert result.status == "recommendation_degraded"
     assert repository.load_run_history(PROFILE_ID)[0].metrics["profile_evidence_count"] == 5
 
 
@@ -1242,15 +1242,15 @@ def test_ranking_failure_uses_frozen_candidates_to_build_five_item_board():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
+    assert result.status == "recommendation_degraded"
     assert result.agent_calls == 2
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     board = repository.load_board(PROFILE_ID)
     assert board.run_id == "run-1"
     assert len(board.recommendations) == 5
     history = repository.load_run_history(PROFILE_ID)[0]
-    assert history.status == "success"
-    assert history.errors == []
+    assert history.status == "recommendation_degraded"
+    assert history.errors
     assert history.metrics["ranking_fallback_count"] == 5
     assert history.metrics["ranking_fallback_reason"] == "ranking_agent_failed"
     assert all(item.support is not None for item in board.recommendations)
@@ -1444,14 +1444,14 @@ def test_retryable_empty_agent_output_falls_back_after_one_retry():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
+    assert result.status == "recommendation_degraded"
     assert result.agent_calls == 3
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     board = repository.load_board(PROFILE_ID)
     assert board.run_id == "run-1"
     assert len(board.recommendations) == 5
     history = repository.load_run_history(PROFILE_ID)[0]
-    assert history.errors == []
+    assert history.errors == ["attempt 1: first", "attempt 2: second"]
     assert history.metrics["agent_calls"] == 3
     assert history.metrics["ranking_fallback_count"] == 5
     assert history.metrics["ranking_fallback_reason"] == "ranking_agent_failed"
@@ -1519,13 +1519,14 @@ def test_invalid_json_falls_back_after_one_strict_retry():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
+    assert result.status == "recommendation_degraded"
     assert result.agent_calls == 3
     board = repository.load_board(PROFILE_ID)
     assert board.run_id == "run-1"
     assert len(board.recommendations) == 5
     history = repository.load_run_history(PROFILE_ID)[0]
-    assert history.errors == []
+    assert len(history.errors) == 2
+    assert all("Agent output must be one JSON object" in item for item in history.errors)
     assert history.metrics["agent_calls"] == 3
     assert history.metrics["ranking_fallback_count"] == 5
     assert history.metrics["ranking_fallback_reason"] == "ranking_validation_failed"
@@ -1846,7 +1847,7 @@ def test_zero_valid_agent_items_builds_five_item_fallback_board():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
+    assert result.status == "recommendation_degraded"
     assert result.agent_calls == 3
     board = repository.load_board(PROFILE_ID)
     assert board.run_id == "run-1"

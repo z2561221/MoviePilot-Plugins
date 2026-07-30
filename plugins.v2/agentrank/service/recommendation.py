@@ -1200,7 +1200,7 @@ class RecommendationOrchestrator:
                 prompt = base_ranking_prompt
                 if attempt:
                     prompt += (
-                        "\n\n上一次输出未通过严格校验。请重新读取受限工具数据，"
+                        "\n\n上一次输出未通过严格校验。请在本次独立会话中各读取一次受限工具数据，"
                         "这次只返回一个符合既定 schema 的 JSON 对象，禁止代码块、"
                         "解释、前后缀或额外字段。"
                     )
@@ -1745,9 +1745,11 @@ class RecommendationOrchestrator:
                         )
 
                     status = (
-                        "success"
-                        if len(accepted) >= RECOMMENDATION_LIMIT
-                        else "recommendation_incomplete"
+                        "recommendation_incomplete"
+                        if len(accepted) < RECOMMENDATION_LIMIT
+                        else "recommendation_degraded"
+                        if fallback_count and not selection_source_counts["agent"]
+                        else "success"
                     )
                     if status != "success":
                         errors.extend(ranking_fallback_errors)
@@ -1794,8 +1796,8 @@ class RecommendationOrchestrator:
                         recommendations=accepted,
                         generated_at=generated_at,
                         message=(
-                            f"榜单生成成功，安全候选池补位 {fallback_count} 条"
-                            if status == "success" and fallback_count
+                            f"榜单降级完成，安全候选池补位 {fallback_count} 条"
+                            if status == "recommendation_degraded"
                             else "榜单生成成功"
                             if status == "success"
                             else f"仅生成 {len(accepted)} 条有效推荐"

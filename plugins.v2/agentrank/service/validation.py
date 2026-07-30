@@ -958,11 +958,9 @@ def fallback_summary(candidate: Candidate) -> str:
 def fallback_reason(tags: Sequence[str]) -> str:
     """根据已验证短标签生成三十字内且语义完整的保底理由。"""
     safe_tags = [str(item or "").strip() for item in tags or () if str(item or "").strip()]
-    if len(safe_tags) >= 2:
-        return f"画像检索包含{safe_tags[0]}，作品具备{safe_tags[1]}要素，安全补位。"
     if safe_tags:
-        return f"作品通过本轮画像检索与安全过滤，按{safe_tags[0]}要素保底补位。"
-    return "作品通过本轮画像检索与安全过滤，作为榜单保底补位。"
+        return f"作品具备{safe_tags[-1]}要素，经安全过滤保底补位。"
+    return "作品通过本轮安全过滤，作为榜单保底补位。"
 
 
 class RecommendationValidator:

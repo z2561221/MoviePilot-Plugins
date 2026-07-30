@@ -127,6 +127,23 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
     assert outputs["read_agentrank_playback"]["playback"] == playback
 
 
+def test_ranking_tools_reject_duplicate_snapshot_reads():
+    """同一排序会话内每个不可变快照只允许读取一次。"""
+    context = build_trusted_context(
+        username="alice",
+        run_id="run-once",
+        candidates=[],
+        archive_feedback={"entries": []},
+        weights={"weights": {}},
+        playback={"source": "playback_reporting", "samples": []},
+    )
+    tool = _tools_with_context(context)[0]
+
+    asyncio.run(tool.run())
+    with pytest.raises(RuntimeError, match="already returned"):
+        asyncio.run(tool.run())
+
+
 def test_tools_reject_missing_or_wrong_trusted_context():
     """General Agent sessions cannot use AgentRank tools without adapter injection."""
     for tool_class in AGENT_TOOL_CLASSES:

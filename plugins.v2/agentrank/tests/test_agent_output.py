@@ -1463,8 +1463,18 @@ def test_fallback_copy_templates_are_complete_and_never_include_long_titles():
 
     assert candidate.title not in summary
     assert candidate.title not in reason
+    assert "画像检索" not in reason
+    assert "剧集" in reason
     assert is_complete_recommendation_copy(summary) is True
     assert is_complete_recommendation_copy(reason) is True
+
+
+def test_fallback_reason_never_projects_profile_tag_onto_candidate():
+    """保底理由只描述候选事实，不把首个画像标签冒充作品属性。"""
+    reason = fallback_reason(["中国动画", "真人剧情"])
+
+    assert "中国动画" not in reason
+    assert "真人剧情" in reason
 
 
 def test_recommendation_copy_validation_and_templates_never_slice_text():

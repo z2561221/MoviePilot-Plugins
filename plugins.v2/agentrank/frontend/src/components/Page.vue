@@ -74,6 +74,7 @@ const statusMetaFor = status => ({
   sample_insufficient: { text: '样本不足', color: 'warning' },
   candidate_insufficient: { text: '候选不足', color: 'warning' },
   recommendation_incomplete: { text: '榜单不足', color: 'warning' },
+  recommendation_degraded: { text: '降级榜单', color: 'warning' },
   agent_failed: { text: 'Agent失败', color: 'error' },
   validation_failed: { text: '校验失败', color: 'error' },
   subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
@@ -104,6 +105,7 @@ const historyStageStatusLabels = {
   success: '成功', pending: '等待', running: '进行中', stopped: '停止', failed: '失败',
   sample_insufficient: '样本不足', candidate_insufficient: '候选不足',
   recommendation_incomplete: '榜单不足', agent_failed: 'Agent失败',
+  recommendation_degraded: '降级榜单',
   validation_failed: '校验失败', subscription_partial_failed: '部分订阅失败',
   profile_agent_failed: '画像生成失败', profile_validation_failed: '画像校验失败',
   policy_failed: '策略生成失败',
@@ -445,7 +447,7 @@ async function pollRunProgress() {
     if (wasActive && !progress?.active && state.selectedProfileId.value === profileId) {
       await state.loadProfileData(profileId, { force: true })
       if (activeTab.value === 'history') await state.loadHistory(historyPage.value, historyPageSize)
-      const completed = ['success', 'recommendation_incomplete'].includes(progress?.status)
+      const completed = ['success', 'recommendation_incomplete', 'recommendation_degraded'].includes(progress?.status)
       snackbar.value = {
         show: true,
         message: progress?.message || (completed ? '榜单生成已完成' : '榜单生成未完成'),

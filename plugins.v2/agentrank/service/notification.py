@@ -24,6 +24,7 @@ STATUS_LABELS = {
     "sample_insufficient": "播放样本不足",
     "candidate_insufficient": "候选数量不足",
     "recommendation_incomplete": "推荐榜单不足",
+    "recommendation_degraded": "推荐榜单已降级",
     "profile_agent_failed": "画像 Agent 调用失败",
     "profile_validation_failed": "画像输出校验失败",
     "profile_save_failed": "画像保存失败",

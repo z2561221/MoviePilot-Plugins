@@ -27,6 +27,7 @@ const statusMeta = computed(() => ({
   sample_insufficient: { text: '样本不足', color: 'warning' },
   candidate_insufficient: { text: '候选不足', color: 'warning' },
   recommendation_incomplete: { text: '榜单不足', color: 'warning' },
+  recommendation_degraded: { text: '降级榜单', color: 'warning' },
   agent_failed: { text: 'Agent失败', color: 'error' },
   validation_failed: { text: '校验失败', color: 'error' },
   profile_agent_failed: { text: '画像生成失败', color: 'error' },
