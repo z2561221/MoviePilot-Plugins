@@ -381,7 +381,7 @@ const _hoisted_10$1 = { class: "ar-chat__command-main" };
 const _hoisted_11$1 = { class: "ar-chat__command-actions" };
 const _hoisted_12$1 = { class: "ar-chat__composer" };
 
-const {computed: computed$3,nextTick,onUnmounted,ref: ref$3,watch: watch$3} = await importShared('vue');
+const {computed: computed$3,nextTick: nextTick$1,onUnmounted,ref: ref$3,watch: watch$3} = await importShared('vue');
 
 const {useDisplay: useDisplay$2} = await importShared('vuetify');
 
@@ -474,7 +474,7 @@ function formatTime(value) {
 }
 
 async function scrollToEnd() {
-  await nextTick();
+  await nextTick$1();
   if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight;
 }
 
@@ -994,7 +994,7 @@ const _hoisted_8$1 = {
 };
 const _hoisted_9$1 = { class: "ar-pending__actions" };
 
-const {computed: computed$1,onBeforeUnmount,reactive: reactive$1,ref: ref$1,watch: watch$1} = await importShared('vue');
+const {computed: computed$1,nextTick,onBeforeUnmount,reactive: reactive$1,ref: ref$1,watch: watch$1} = await importShared('vue');
 
 const {useDisplay} = await importShared('vuetify');
 
@@ -1015,6 +1015,7 @@ const { smAndDown } = useDisplay();
 const answers = reactive$1({});
 const localError = ref$1('');
 const activeView = ref$1('pending');
+const bodyRef = ref$1(null);
 let visibilityTimer = null;
 
 const center = computed$1(() => activeView.value === 'resolved'
@@ -1066,9 +1067,19 @@ async function load() {
   catch (error) { localError.value = error?.message || '待处理项目读取失败'; }
 }
 
+function resetBodyScroll() {
+  const element = bodyRef.value?.$el || bodyRef.value;
+  if (element) element.scrollTop = 0;
+}
+
 async function switchView(value) {
+  if (activeView.value === value) return
   activeView.value = value;
+  await nextTick();
+  resetBodyScroll();
   await load();
+  await nextTick();
+  resetBodyScroll();
 }
 
 async function respond(item, action, options = {}) {
@@ -1103,6 +1114,7 @@ function stopVisibilityHeartbeat() {
 watch$1(() => props.modelValue, open => {
   stopVisibilityHeartbeat();
   if (!open) return
+  void nextTick(resetBodyScroll);
   load();
   visibilityTimer = window.setInterval(() => {
     if (activeView.value === 'pending') load();
@@ -1195,7 +1207,11 @@ return (_ctx, _cache) => {
             _: 1
           }, 8, ["model-value"]),
           _createVNode$1(_component_VDivider),
-          _createVNode$1(_component_VCardText, { class: "ar-pending__body" }, {
+          _createVNode$1(_component_VCardText, {
+            ref_key: "bodyRef",
+            ref: bodyRef,
+            class: "ar-pending__body"
+          }, {
             default: _withCtx$1(() => [
               (localError.value || operation.value.error)
                 ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
@@ -1405,7 +1421,7 @@ return (_ctx, _cache) => {
                     ]))
             ]),
             _: 1
-          })
+          }, 512)
         ]),
         _: 1
       })
@@ -1416,7 +1432,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-ff31bd73"]]);
+const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-fbb944a5"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,mergeProps:_mergeProps,vShow:_vShow,withDirectives:_withDirectives,withKeys:_withKeys} = await importShared('vue');
 
@@ -2972,6 +2988,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-596eef31"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-54ebd0b8"]]);
 
 export { Page as default };

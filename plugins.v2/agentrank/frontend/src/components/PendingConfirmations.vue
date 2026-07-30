@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 
 const props = defineProps({
@@ -11,6 +11,7 @@ const { smAndDown } = useDisplay()
 const answers = reactive({})
 const localError = ref('')
 const activeView = ref('pending')
+const bodyRef = ref(null)
 let visibilityTimer = null
 
 const center = computed(() => activeView.value === 'resolved'
@@ -62,9 +63,19 @@ async function load() {
   catch (error) { localError.value = error?.message || '待处理项目读取失败' }
 }
 
+function resetBodyScroll() {
+  const element = bodyRef.value?.$el || bodyRef.value
+  if (element) element.scrollTop = 0
+}
+
 async function switchView(value) {
+  if (activeView.value === value) return
   activeView.value = value
+  await nextTick()
+  resetBodyScroll()
   await load()
+  await nextTick()
+  resetBodyScroll()
 }
 
 async function respond(item, action, options = {}) {
@@ -99,6 +110,7 @@ function stopVisibilityHeartbeat() {
 watch(() => props.modelValue, open => {
   stopVisibilityHeartbeat()
   if (!open) return
+  void nextTick(resetBodyScroll)
   load()
   visibilityTimer = window.setInterval(() => {
     if (activeView.value === 'pending') load()
@@ -134,7 +146,7 @@ onBeforeUnmount(stopVisibilityHeartbeat)
       </VTabs>
       <VDivider />
 
-      <VCardText class="ar-pending__body">
+      <VCardText ref="bodyRef" class="ar-pending__body">
         <VAlert v-if="localError || operation.error" type="error" variant="tonal" density="compact" class="mb-3">
           {{ localError || operation.error?.message }}
         </VAlert>
@@ -230,11 +242,12 @@ onBeforeUnmount(stopVisibilityHeartbeat)
 </template>
 
 <style scoped>
-.ar-pending { height: min(760px, calc(100dvh - 32px)); display: flex; flex-direction: column; border-radius: 10px; }
+.ar-pending { height: min(760px, calc(100dvh - 32px)); min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 10px; }
 .ar-pending__toolbar { flex: 0 0 auto; background: rgb(var(--v-theme-surface)); }
+.ar-pending :deep(.v-tabs) { flex: 0 0 auto; }
 .ar-pending__title { font-size: 15px; font-weight: 700; }
 .ar-pending__subtitle { color: rgba(var(--v-theme-on-surface), .58); font-size: 11px; }
-.ar-pending__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
+.ar-pending__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
 .ar-pending__state { min-height: 300px; display: grid; place-items: center; }
 .ar-pending__list { display: grid; gap: 10px; }
 .ar-pending__item { padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: transparent; }
@@ -245,7 +258,7 @@ onBeforeUnmount(stopVisibilityHeartbeat)
 .ar-pending__answer { margin-top: 10px; padding: 8px 10px; border-left: 3px solid rgba(var(--v-theme-primary), .38); background: rgba(var(--v-theme-primary), .035); }
 .ar-pending__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-top: 10px; }
 @media (max-width: 760px) {
-  .ar-pending { width: 100%; height: 100dvh; max-height: none; border-radius: 0; }
+  .ar-pending { width: 100%; height: 100%; max-height: 100%; border-radius: 0; }
   .ar-pending__body { padding: 12px; }
 }
 </style>

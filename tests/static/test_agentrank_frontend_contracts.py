@@ -339,17 +339,19 @@ def test_page_has_four_management_tabs_editable_tags_and_backend_history_paging(
     assert "#error" in source
 
 
-def test_detail_mobile_navigation_matches_download_center_and_wraps():
-    """详情页复用下载中心导航结构，并在移动端完整换行。"""
+def test_detail_mobile_navigation_stays_in_one_scrollable_row():
+    """详情页复用下载中心导航结构，并在移动端保持单行横滑。"""
     source = PAGE.read_text(encoding="utf-8")
     assert '<VList density="compact" nav class="ar-page__tab-list">' in source
     assert 'rounded="lg"' in source
     assert ".ar-page__tab-list { display: flex; flex-wrap: nowrap" in source
     assert "min-width: max-content" in source
-    assert "padding: 8px 12px !important" in source
-    assert ".ar-page__tabs { min-height: 40px; overflow-x: hidden; }" in source
-    assert "width: 100%; min-width: 0; flex-wrap: wrap" in source
-    assert "flex: 1 1 calc(50% - 3px); min-width: 0" in source
+    assert "padding: 6px 10px !important" in source
+    assert ".ar-page__tabs { min-height: 40px; overflow-x: auto; }" in source
+    assert "width: max-content; min-width: max-content; flex-wrap: nowrap" in source
+    assert "flex: 0 0 auto; min-width: 112px" in source
+    assert ".ar-page__tabs::-webkit-scrollbar { display: none; }" in source
+    assert "scrollbar-width: none" in source
     assert "functionTabsExpanded" not in source
     assert "toggleFunctionTabs" not in source
 
@@ -440,6 +442,12 @@ def test_critic_and_pending_dialogs_preserve_deferred_work_and_use_mobile_fullsc
         assert marker in pending
     for removed in ("in_1_day", "in_3_days", "in_7_days", "never", "不提醒"):
         assert removed not in pending
+    assert "const bodyRef = ref(null)" in pending
+    assert 'ref="bodyRef"' in pending
+    assert "function resetBodyScroll()" in pending
+    assert "element.scrollTop = 0" in pending
+    assert "overflow: hidden" in pending
+    assert "overscroll-behavior: contain" in pending
     assert "commentOnAnalysis" in comment
     assert "localError" in critic and "localError" in pending
 

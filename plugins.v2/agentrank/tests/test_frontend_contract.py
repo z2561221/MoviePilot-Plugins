@@ -392,16 +392,18 @@ def test_ranking_copy_wraps_fully_without_toggle_controls():
     assert "display: block; overflow: visible; -webkit-line-clamp: initial;" in page
 
 
-def test_mobile_detail_tabs_wrap_without_arrow_or_collapse_controls():
-    """详情页使用下载中心同款导航层级，并在移动端完整换行。"""
+def test_mobile_detail_tabs_scroll_in_one_row_without_visible_scrollbar():
+    """详情页四个入口在移动端保持同排横滑并隐藏滚动条。"""
     page = _read("Page.vue")
     assert '<nav class="ar-page__tabs"' in page
     assert "show-arrows" not in page
     assert '<VList density="compact" nav class="ar-page__tab-list">' in page
     assert '<template #prepend><VIcon :icon="tab.icon"' in page
-    assert ".ar-page__tabs { min-height: 40px; overflow-x: hidden; }" in page
-    assert "width: 100%; min-width: 0; flex-wrap: wrap" in page
-    assert "flex: 1 1 calc(50% - 3px); min-width: 0" in page
+    assert ".ar-page__tabs { min-height: 40px; overflow-x: auto; }" in page
+    assert "width: max-content; min-width: max-content; flex-wrap: nowrap" in page
+    assert "flex: 0 0 auto; min-width: 112px" in page
+    assert ".ar-page__tabs::-webkit-scrollbar { display: none; }" in page
+    assert "scrollbar-width: none" in page
     assert "functionTabsExpanded" not in page
     assert "toggleFunctionTabs" not in page
 
@@ -553,6 +555,12 @@ def test_pending_center_uses_symmetric_actions_without_reminders():
         assert label in pending
     for forbidden in ("稍后", "1天后", "3天后", "7天后", "不提醒", "reminder"):
         assert forbidden not in pending
+    assert "const bodyRef = ref(null)" in pending
+    assert 'ref="bodyRef"' in pending
+    assert "function resetBodyScroll()" in pending
+    assert "element.scrollTop = 0" in pending
+    assert "overflow: hidden" in pending
+    assert "overscroll-behavior: contain" in pending
 
 
 def test_native_subscribe_payload_keeps_source_id_aliases_without_source_buttons():
