@@ -147,6 +147,7 @@ onUnmounted(stopPolling)
     :model-value="modelValue"
     :fullscreen="smAndDown"
     max-width="820"
+    content-class="ar-chat-dialog"
     scrollable
     @update:model-value="value => emit('update:modelValue', value)"
   >
@@ -235,11 +236,12 @@ onUnmounted(stopPolling)
 </template>
 
 <style scoped>
-.ar-chat { height: min(760px, calc(100dvh - 32px)); display: flex; flex-direction: column; border-radius: 10px; }
+:global(.ar-chat-dialog) { width: min(820px, calc(100vw - 32px)); height: min(760px, calc(100dvh - 32px)); max-height: calc(100dvh - 32px); margin: 16px; overflow: hidden; }
+.ar-chat { width: 100%; height: 100%; min-height: 0; max-height: 100%; display: flex; flex-direction: column; overflow: hidden; border-radius: 10px; }
 .ar-chat__toolbar { flex: 0 0 auto; background: rgb(var(--v-theme-surface)); }
 .ar-chat__title { font-size: 15px; font-weight: 700; }
 .ar-chat__subtitle { color: rgba(var(--v-theme-on-surface), .58); font-size: 11px; }
-.ar-chat__messages { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
+.ar-chat__messages { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 16px; }
 .ar-chat__empty { min-height: 260px; display: grid; place-items: center; align-content: center; gap: 10px; color: rgba(var(--v-theme-on-surface), .55); font-size: 13px; }
 .ar-chat__message { display: flex; margin-bottom: 10px; }
 .ar-chat__message--user { justify-content: flex-end; }
@@ -260,6 +262,7 @@ onUnmounted(stopPolling)
 .ar-chat__composer { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: end; gap: 8px; padding: 12px 14px; }
 .ar-chat__composer-error { flex: 0 0 auto; margin: 0 14px 12px; }
 @media (max-width: 760px) {
+  :global(.ar-chat-dialog) { width: 100%; height: 100dvh; max-height: 100dvh; margin: 0; }
   .ar-chat { width: 100%; height: 100dvh; max-height: none; border-radius: 0; }
   .ar-chat__messages { padding: 12px; }
   .ar-chat__bubble { max-width: 90%; }
