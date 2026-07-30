@@ -408,7 +408,8 @@ onMounted(load)
 .dc-tl-cell { overflow: hidden; max-width: 100%; }
 .dc-rank-head { display: flex; align-items: center; font-size: 12px; font-weight: 600; margin-bottom: 3px; padding-bottom: 3px; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .3)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dc-rank-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; max-width: 100%; }
-.dc-timeline-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; overscroll-behavior-y: auto; touch-action: pan-x; scrollbar-width: thin; }
+.dc-timeline-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; overscroll-behavior-y: auto; touch-action: pan-x; scrollbar-width: none; -ms-overflow-style: none; }
+.dc-timeline-scroll::-webkit-scrollbar { display: none; }
 .dc-timeline-months { display: flex; flex-wrap: nowrap; gap: 8px; width: max-content; min-width: 100%; }
 .dc-timeline-month { flex: 0 0 auto; min-width: 0; }
 .dc-timeline-posters { display: flex; flex-wrap: nowrap; gap: 3px; }
