@@ -239,6 +239,7 @@ const selectedLibraryIds = computed({
 const selectedLibraryNames = computed(() => selectedLibraryIds.value.map(id => (
   libraryOptions.value.find(item => item.value === id)?.title || id
 )))
+const selectedLibraryOverflowCount = computed(() => Math.max(0, selectedLibraryIds.value.length - 1))
 const latestMetrics = computed(() => overview.value?.latest_run?.metrics || {})
 const currentPlayback = computed(() => overview.value?.playback || status.value.playback || null)
 const currentEnablement = computed(() => overview.value?.enablement || status.value.enablement || null)
@@ -833,14 +834,14 @@ onMounted(loadRuntime)
                     <VCol cols="12" md="4"><VSelect v-model="selectedServerName" :items="serverOptions" label="媒体库" density="compact" variant="outlined" hide-details /></VCol>
                     <VCol cols="12" md="4"><VSelect v-model="selectedUserProfileId" :items="userOptions" label="用户" density="compact" variant="outlined" hide-details :disabled="!selectedServerName" /></VCol>
                     <VCol cols="12" md="4">
-                      <VAutocomplete v-model="selectedLibraryIds" :items="libraryOptions" label="内容库筛选" multiple density="compact" variant="outlined" hide-details :disabled="!selectedUserProfileId" class="ar-config__library-select">
+                      <VSelect v-model="selectedLibraryIds" :items="libraryOptions" item-title="title" item-value="value" label="内容库筛选" multiple density="compact" variant="outlined" hide-details :disabled="!selectedUserProfileId" class="ar-config__library-select">
                         <template #selection="{ item, index }">
-                          <VChip v-if="index < 2" size="small" closable @click:close="selectedLibraryIds = selectedLibraryIds.filter(id => id !== item.value)">{{ item.title }}</VChip>
-                          <VTooltip v-else-if="index === 2" :text="selectedLibraryNames.slice(2).join('、')" location="top">
-                            <template #activator="{ props: tooltipProps }"><VChip v-bind="tooltipProps" size="small">…</VChip></template>
+                          <span v-if="index === 0" class="ar-config__select-summary-primary">{{ item.title }}</span>
+                          <VTooltip v-else-if="index === 1" :text="selectedLibraryNames.slice(1).join('、')" location="top">
+                            <template #activator="{ props: tooltipProps }"><span v-bind="tooltipProps" class="ar-config__select-summary-count">+{{ selectedLibraryOverflowCount }}</span></template>
                           </VTooltip>
                         </template>
-                      </VAutocomplete>
+                      </VSelect>
                     </VCol>
                   </VRow>
                   <div class="ar-config__hint mt-2">Emby 画像身份由媒体库与用户组成；只同步所选用户在所选内容库中的 Playback Reporting 记录。</div>
@@ -1262,8 +1263,9 @@ onMounted(loadRuntime)
 .ar-config__basic-group + .ar-config__basic-group { border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
 .ar-config__basic-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
 .ar-config__library-select :deep(.v-field__input) { min-height: 40px; flex-wrap: nowrap; overflow: hidden; }
-.ar-config__library-select :deep(.v-chip) { flex: 0 0 auto; max-width: 120px; }
-.ar-config__library-select :deep(.v-chip__content) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-config__library-select :deep(.v-select__selection) { min-width: 0; }
+.ar-config__select-summary-primary { display: block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-config__select-summary-count { flex: 0 0 auto; margin-left: 6px; color: rgba(var(--v-theme-on-surface), .58); white-space: nowrap; }
 .ar-config__hint, .ar-config__default { color: rgba(var(--v-theme-on-surface), .62); font-size: 12px; line-height: 1.5; }
 .ar-config__source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .ar-config__weight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }

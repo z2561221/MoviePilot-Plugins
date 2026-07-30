@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { p as postPluginApi, g as getPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-Z-mQLghu.js';
+import { p as postPluginApi, g as getPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-CXFsw50i.js';
 
 const {computed: computed$1,reactive,ref: ref$1,watch} = await importShared('vue');
 
@@ -1167,6 +1167,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ed420796"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c1d009f5"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };

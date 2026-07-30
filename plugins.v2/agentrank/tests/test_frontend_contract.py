@@ -498,8 +498,16 @@ def test_config_uses_five_main_sections_and_places_execution_controls_once():
     assert "最低支持度" in config
     assert 'label="安全上限"' not in config
     assert 'label="订阅数量"' in config
-    assert "index < 2" in config
-    assert "index === 2" in config
+    assert '<VSelect v-model="selectedLibraryIds"' in config
+    assert 'item-title="title" item-value="value"' in config
+    assert "selectedLibraryOverflowCount" in config
+    assert "index === 0" in config
+    assert "index === 1" in config
+    assert "ar-config__select-summary-primary" in config
+    assert "ar-config__select-summary-count" in config
+    assert "selectedLibraryNames.slice(1).join('、')" in config
+    assert "index < 2" not in config
+    assert "index === 2" not in config
     assert 'v-model="form.media_types"' not in config
     assert 'v-model="form.exclude_keywords"' not in config
     assert "negative_keyword: '避雷命中'" in config
