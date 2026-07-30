@@ -29,6 +29,7 @@ const selectedAnalysisItem = ref(null)
 const selectedJudgment = ref(null)
 const historyPageSize = 10
 let conversationStatusTimer = null
+let runProgressTimer = null
 let pageUnmounted = false
 
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 5) || [])
@@ -383,15 +384,21 @@ async function initialize() {
     if (state.selectedProfileId.value) {
       await Promise.all([
         state.loadProfileData(),
+        state.loadRunProgress(),
         state.loadPendingCenter(),
         state.loadConversationStatus(),
       ])
+      const progress = state.runProgress.value
+      if (!progress?.active && progress?.run_id && state.board.value?.run_id !== progress.run_id) {
+        await state.loadProfileData(state.selectedProfileId.value, { force: true })
+      }
     }
   } catch (_) {
     // 共享状态承载错误。
   } finally {
     initialized.value = true
     scheduleConversationStatusPoll()
+    scheduleRunProgressPoll(1000, true)
   }
 }
 
@@ -411,6 +418,59 @@ async function pollConversationStatus() {
   stopConversationStatusPoll()
   try { await state.loadConversationStatus() } catch (_) { /* 轻量状态错误不打断主页面。 */ }
   scheduleConversationStatusPoll()
+}
+
+function stopRunProgressPoll() {
+  if (runProgressTimer) window.clearTimeout(runProgressTimer)
+  runProgressTimer = null
+}
+
+function scheduleRunProgressPoll(delay = 1000, force = false) {
+  stopRunProgressPoll()
+  if (
+    pageUnmounted
+    || !initialized.value
+    || !state.selectedProfileId.value
+    || (!force && !state.runProgress.value?.active)
+  ) return
+  runProgressTimer = window.setTimeout(pollRunProgress, delay)
+}
+
+async function pollRunProgress() {
+  stopRunProgressPoll()
+  const profileId = state.selectedProfileId.value
+  const wasActive = Boolean(state.runProgress.value?.active)
+  try {
+    const progress = await state.loadRunProgress(profileId)
+    if (wasActive && !progress?.active && state.selectedProfileId.value === profileId) {
+      await state.loadProfileData(profileId, { force: true })
+      if (activeTab.value === 'history') await state.loadHistory(historyPage.value, historyPageSize)
+      const completed = ['success', 'recommendation_incomplete'].includes(progress?.status)
+      snackbar.value = {
+        show: true,
+        message: progress?.message || (completed ? '榜单生成已完成' : '榜单生成未完成'),
+        color: completed ? 'success' : 'error',
+      }
+    }
+  } catch (_) {
+    scheduleRunProgressPoll(2000, true)
+    return
+  }
+  scheduleRunProgressPoll()
+}
+
+async function handleRefresh() {
+  try {
+    const result = await state.refresh()
+    snackbar.value = {
+      show: true,
+      message: result?.message || '榜单生成已开始',
+      color: 'success',
+    }
+    scheduleRunProgressPoll(250)
+  } catch (error) {
+    snackbar.value = { show: true, message: error?.message || '榜单生成启动失败', color: 'error' }
+  }
 }
 
 async function runAction(action, successMessage) {
@@ -470,14 +530,17 @@ watch(state.selectedProfileId, async (value, oldValue) => {
   if (!initialized.value || !value || value === oldValue) return
   historyPage.value = 1
   stopConversationStatusPoll()
+  stopRunProgressPoll()
   try {
     await Promise.all([
       state.loadProfileData(value),
+      state.loadRunProgress(value),
       state.loadPendingCenter(),
       state.loadConversationStatus(),
     ])
   } catch (_) { /* 错误已保存 */ }
   scheduleConversationStatusPoll()
+  scheduleRunProgressPoll(1000, true)
 })
 
 watch(activeTab, async value => {
@@ -491,6 +554,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   pageUnmounted = true
   stopConversationStatusPoll()
+  stopRunProgressPoll()
 })
 </script>
 
@@ -524,7 +588,7 @@ onBeforeUnmount(() => {
         :loading="state.loading.action === 'refresh' || state.loading.data"
         :disabled="state.isRunning.value"
         aria-label="刷新详情"
-        @click="runAction(state.refresh, '榜单刷新已完成')"
+        @click="handleRefresh"
       />
       <VBadge
         :content="criticUnreadCount"
@@ -555,6 +619,18 @@ onBeforeUnmount(() => {
           <div class="ar-page__stat-label">{{ stat.label }}</div>
         </div>
       </div>
+      <div
+        v-if="state.runProgress.value?.active"
+        class="ar-page__progress"
+        :class="{ 'ar-page__progress--agent': state.runProgress.value?.agent_active }"
+        aria-live="polite"
+      >
+        <VProgressCircular indeterminate color="primary" size="22" width="2" />
+        <div class="ar-page__progress-copy">
+          <div class="ar-page__progress-title">CinePilot Agent</div>
+          <div class="ar-page__progress-message">{{ state.runProgress.value?.message || '正在生成榜单' }}</div>
+        </div>
+      </div>
       <VChip
         v-if="state.isRunning.value"
         color="primary"
@@ -563,7 +639,7 @@ onBeforeUnmount(() => {
         prepend-icon="mdi-loading"
         class="ar-page__runtime-chip"
       >
-        正在生成
+        {{ state.runProgress.value?.stage_index ? `${state.runProgress.value.stage_index}/${state.runProgress.value.stage_total}` : '准备中' }}
       </VChip>
     </div>
 
@@ -889,11 +965,16 @@ onBeforeUnmount(() => {
 .ar-page__title { font-size: 1.08rem; font-weight: 700; line-height: 1.35; }
 .ar-page__subtitle { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; }
 .ar-page__identity { width: 210px; margin-right: 4px; }
-.ar-page__summary-bar { min-height: 56px; display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)) auto; align-items: center; gap: 8px; padding: 6px 14px; background: transparent; }
+.ar-page__summary-bar { min-height: 56px; display: grid; grid-template-columns: repeat(3, minmax(120px, .7fr)) minmax(220px, 1.3fr) auto; align-items: center; gap: 8px; padding: 6px 14px; background: transparent; }
 .ar-page__stat { min-width: 0; display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .7)); }
 .ar-page__stat-value { font-size: 17px; font-weight: 700; line-height: 1.2; }
 .ar-page__stat-value span { margin-left: 2px; color: rgba(var(--v-theme-on-surface), .48); font-size: 11px; font-weight: 500; }
 .ar-page__stat-label { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .55); font-size: 11px; }
+.ar-page__progress { min-width: 0; display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-left: 2px solid rgba(var(--v-theme-primary), .42); background: rgba(var(--v-theme-primary), .035); }
+.ar-page__progress--agent { background: rgba(var(--v-theme-primary), .075); }
+.ar-page__progress-copy { min-width: 0; }
+.ar-page__progress-title { color: rgb(var(--v-theme-primary)); font-size: 11px; font-weight: 700; }
+.ar-page__progress-message { margin-top: 1px; overflow: hidden; color: rgba(var(--v-theme-on-surface), .72); font-size: 12px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .ar-page__runtime-chip { margin-inline: 8px; }
 .ar-page__tabs { flex: 0 0 auto; min-height: 40px; overflow-x: auto; overflow-y: hidden; background: transparent; scrollbar-width: none; overscroll-behavior-inline: contain; touch-action: pan-x; -webkit-overflow-scrolling: touch; }
 .ar-page__tabs::-webkit-scrollbar { display: none; }
@@ -993,7 +1074,8 @@ onBeforeUnmount(() => {
 .ar-page__history-agent-error { color: rgb(var(--v-theme-error)) !important; }
 @media (max-width: 900px) {
   .ar-page__summary-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .ar-page__runtime-chip { grid-column: 1 / -1; justify-self: end; margin-top: -2px; }
+  .ar-page__progress { grid-column: 1 / 3; }
+  .ar-page__runtime-chip { grid-column: 3; justify-self: end; margin-top: -2px; }
   .ar-page__rank-item { grid-template-columns: 34px 60px minmax(0, 1fr); }
   .ar-page__poster { width: 60px; height: 90px; }
   .ar-page__rank-actions { grid-column: 2 / -1; justify-content: flex-end; }
@@ -1013,7 +1095,8 @@ onBeforeUnmount(() => {
   .ar-page__summary-bar { min-height: 60px; gap: 4px; padding: 8px 10px; }
   .ar-page__stat { gap: 6px; padding-inline: 6px; }
   .ar-page__stat :deep(.v-icon) { display: none; }
-  .ar-page__runtime-chip { justify-self: stretch; justify-content: center; margin: 2px 4px 0; }
+  .ar-page__progress { grid-column: 1 / -1; margin-top: 2px; }
+  .ar-page__runtime-chip { display: none; }
   .ar-page__tabs { min-height: 40px; overflow-x: auto; }
   .ar-page__tab-list { width: max-content; min-width: max-content; flex-wrap: nowrap; gap: 4px; padding: 6px 10px !important; }
   .ar-page__tab { flex: 0 0 auto; min-width: 112px; min-height: 40px; padding-inline: 10px; }

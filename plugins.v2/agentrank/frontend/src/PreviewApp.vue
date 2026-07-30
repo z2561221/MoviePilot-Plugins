@@ -240,6 +240,22 @@ function dataFor(path, params = {}) {
   if (path === 'user/' || path.endsWith('/user/')) return moviePilotUsers
   if (path.endsWith('config/options')) return { emby_identities: identities, default_profile_id: identities[0].profile_id, config, defaults: config, notification_type_options: [{ title: '插件', value: 'Plugin' }, { title: '智能体', value: 'Agent' }], enablement, playback_status: { [identities[0].profile_id]: playback } }
   if (path.endsWith('status')) return { state: 'ready', validation_errors: [], default_profile_id: identities[0].profile_id, playback, enablement }
+  if (path.endsWith('run-progress')) {
+    const active = status.value === 'running'
+    return {
+      profile_id: identity.profile_id,
+      username: identity.username,
+      run_id: active ? 'preview-running' : 'preview-run',
+      status: active ? 'running' : status.value,
+      stage: active ? 'ranking' : 'save',
+      stage_index: active ? 6 : 7,
+      stage_total: 7,
+      message: active ? 'CinePilot Agent 正在分析候选' : '榜单生成已完成',
+      active,
+      agent_active: active,
+      revision: 1,
+    }
+  }
   if (path.endsWith('overview')) {
     const visible = status.value === 'idle'
       ? []
@@ -319,7 +335,11 @@ function previewFeedback(kind, candidateId) {
 const api = {
   async get(path, request = {}) { return { data: { success: true, data: dataFor(path, request.params || {}) } } },
   async post(path, payload = {}) {
-    if (path.endsWith('refresh')) status.value = 'success'
+    if (path.endsWith('refresh')) {
+      status.value = 'running'
+      window.setTimeout(() => { status.value = 'success' }, 3500)
+      return { data: { success: true, data: dataFor('run-progress', payload) } }
+    }
     if (path.endsWith('feedback')) return { data: { success: true, data: previewFeedback(payload.kind, payload.candidate_id) } }
     if (path.endsWith('archive')) return { data: { success: true, data: previewFeedback('ignore', payload.candidate_id) } }
     if (path.endsWith('analysis/comment')) return { data: { success: true, data: { changed: true, message: '评论已进入异步理解队列' } } }

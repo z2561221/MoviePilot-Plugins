@@ -643,7 +643,7 @@ class AgentRankApiController:
         )
 
     async def refresh(self, payload: Any) -> Dict[str, Any]:
-        """触发一次手动推荐并映射运行结果。"""
+        """立即受理一次后台手动推荐。"""
         body = self._payload(payload)
         target = self._profile_id(body.get("profile_id"))
         self._require_enabled()
@@ -651,6 +651,10 @@ class AgentRankApiController:
         if runtime is None:
             raise ApiContractError(503, "runtime_unavailable", "插件运行时尚未就绪")
         try:
+            starter = getattr(runtime, "start_refresh", None)
+            if callable(starter):
+                progress = starter(target)
+                return self._success(dict(progress or {}))
             result = await runtime.refresh(target)
         except Exception as error:
             raise ApiContractError(502, "refresh_failed", f"榜单刷新失败：{error}") from error
@@ -664,6 +668,14 @@ class AgentRankApiController:
                 "final_count": int(getattr(result, "final_count", 0) or 0),
             }
         )
+
+    def run_progress(self, profile_id: Any) -> Dict[str, Any]:
+        """返回页面刷新后仍可读取的榜单生成进度。"""
+        target = self._profile_id(profile_id)
+        runtime = getattr(self.plugin, "_runtime", None)
+        if runtime is None or not callable(getattr(runtime, "run_progress", None)):
+            raise ApiContractError(503, "runtime_unavailable", "插件运行时尚未就绪")
+        return self._success(runtime.run_progress(target))
 
     def feedback(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:
         """通过统一事实入口记录喜欢、不喜欢或忽略。"""
@@ -1319,6 +1331,15 @@ class AgentRankApiController:
         target = self._endpoint(self._authorize_profile, token_payload, profile_id)
         return self._endpoint(self.run_history, target, page, page_size)
 
+    def endpoint_run_progress(
+        self,
+        profile_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 实时运行进度入口。"""
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.run_progress, target)
+
     def endpoint_data_export(
         self,
         profile_id: str = "",
@@ -1590,6 +1611,7 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
         ("/config/options", controller.endpoint_config_options, ["GET"], "获取配置选项"),
         ("/board", controller.endpoint_board, ["GET"], "获取推荐榜单"),
         ("/profile", controller.endpoint_profile, ["GET"], "获取用户画像"),
+        ("/run-progress", controller.endpoint_run_progress, ["GET"], "获取实时运行进度"),
         ("/refresh", controller.endpoint_refresh, ["POST"], "刷新推荐榜单"),
         ("/playback/sync", controller.endpoint_playback_sync, ["POST"], "同步播放画像"),
         ("/attribution", controller.endpoint_attribution, ["GET"], "获取结果归因"),

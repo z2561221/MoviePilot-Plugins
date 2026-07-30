@@ -180,7 +180,15 @@ class FakePlugin:
         self.refresh_result = SimpleNamespace(
             status="success", message="ok", run_id="run-new", final_count=5
         )
-        self._runtime = SimpleNamespace(refresh=self._refresh)
+        self._runtime = SimpleNamespace(
+            refresh=self._refresh,
+            run_progress=lambda profile_id: {
+                "profile_id": profile_id,
+                "username": "Alice",
+                "status": "idle",
+                "active": False,
+            },
+        )
 
     def get_state(self):
         return self._enabled
@@ -256,6 +264,7 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/config/options",
         "/board",
         "/profile",
+        "/run-progress",
         "/refresh",
         "/playback/sync",
         "/attribution",
@@ -1046,6 +1055,32 @@ def test_refresh_maps_running_and_downstream_failure_to_stable_contracts():
         asyncio.run(controller.refresh({"profile_id": HOME_PROFILE}))
     assert caught.value.status_code == 502
     assert caught.value.code == "refresh_failed"
+
+
+def test_refresh_can_immediately_accept_background_run_and_expose_progress():
+    """后台刷新立即返回受理快照，进度端点读取同一运行状态。"""
+    plugin = FakePlugin()
+    calls = []
+    progress = {
+        "profile_id": HOME_PROFILE,
+        "username": "Alice",
+        "status": "queued",
+        "message": "正在准备生成榜单",
+        "active": True,
+    }
+    plugin._runtime = SimpleNamespace(
+        start_refresh=lambda profile_id: calls.append(profile_id) or progress,
+        run_progress=lambda profile_id: {**progress, "profile_id": profile_id},
+    )
+    controller = AgentRankApiController(plugin)
+
+    accepted = asyncio.run(controller.refresh({"profile_id": HOME_PROFILE}))
+    current = controller.run_progress(HOME_PROFILE)
+
+    assert calls == [HOME_PROFILE]
+    assert accepted["data"]["status"] == "queued"
+    assert accepted["data"]["active"] is True
+    assert current["data"] == progress
 
 
 def test_playback_sync_uses_profile_scope_and_returns_status():

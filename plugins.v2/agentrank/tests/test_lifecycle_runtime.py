@@ -430,6 +430,53 @@ def test_runtime_refresh_rejects_direct_bypass_when_gate_is_blocked():
         asyncio.run(runtime.refresh(HOME_PROFILE))
 
 
+def test_manual_refresh_runs_in_background_and_duplicate_click_reuses_task():
+    """手动刷新立即返回，后台继续运行，同画像重复点击不创建第二任务。"""
+    async def scenario():
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        class BlockingOrchestrator(FakeOrchestrator):
+            async def run(self, profile_id, config):
+                self.calls.append(profile_id)
+                entered.set()
+                await release.wait()
+                return SimpleNamespace(
+                    profile_id=profile_id,
+                    status="success",
+                    message="榜单生成成功",
+                    run_id="run-background",
+                    final_count=5,
+                )
+
+        plugin = FakePlugin()
+        plugin._enabled = True
+        orchestrator = BlockingOrchestrator()
+        runtime = AgentRankRuntime(plugin, _config(), orchestrator, lambda cron: cron)
+
+        accepted = runtime.start_refresh(HOME_PROFILE)
+        await entered.wait()
+        duplicate = runtime.start_refresh(HOME_PROFILE)
+
+        assert accepted["status"] == "queued"
+        assert accepted["active"] is True
+        assert duplicate["active"] is True
+        assert orchestrator.calls == [HOME_PROFILE]
+        assert len(runtime._manual_tasks) == 1
+
+        task = runtime._manual_tasks[HOME_PROFILE]
+        release.set()
+        await task
+        finished = runtime.run_progress(HOME_PROFILE)
+
+        assert finished["status"] == "success"
+        assert finished["active"] is False
+        assert finished["run_id"] == "run-background"
+        assert finished["final_count"] == 5
+
+    asyncio.run(scenario())
+
+
 def test_stop_is_idempotent_cancels_active_task_and_blocks_refresh():
     """Stopping twice is safe and cancels a currently blocked scheduled run."""
     entered = asyncio.Event()

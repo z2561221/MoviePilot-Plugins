@@ -361,6 +361,11 @@ def test_page_mobile_runtime_and_copy_layout_stay_readable():
     source = PAGE.read_text(encoding="utf-8")
     assert 'v-if="state.isRunning.value"' in source
     assert "运行就绪" not in source
+    assert "state.loadRunProgress()" in source
+    assert "scheduleRunProgressPoll" in source
+    assert "stopRunProgressPoll()" in source
+    assert "CinePilot Agent" in source
+    assert "state.runProgress.value?.message" in source
     assert ".ar-page__rank-copy { grid-template-columns: 34px minmax(0, 1fr); }" in source
     assert ".ar-page__copy-toggle" not in source
     assert "toggleCopy(item, 'reason')" not in source

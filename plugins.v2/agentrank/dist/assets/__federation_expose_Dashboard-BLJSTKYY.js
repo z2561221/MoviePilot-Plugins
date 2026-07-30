@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CDfNnDxo.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DCqNU6jr.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-CXFsw50i.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
@@ -18,7 +18,7 @@ const _hoisted_7 = { class: "ar-dashboard__copy text-caption" };
 const _hoisted_8 = { class: "ar-dashboard__copy text-caption text-medium-emphasis" };
 const _hoisted_9 = { class: "ar-dashboard__controls" };
 
-const {computed,onMounted,ref} = await importShared('vue');
+const {computed,onBeforeUnmount,onMounted,ref} = await importShared('vue');
 
 
 const _sfc_main = {
@@ -34,13 +34,14 @@ const _sfc_main = {
 const props = __props;
 const state = useAgentRankState(props.api);
 const snackbar = ref({ show: false, message: '', color: 'success' });
+let runProgressTimer = null;
 
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5));
 const fullBoardHref = computed(() => {
   const pluginId = String(props.config?.id || 'AgentRank').trim() || 'AgentRank';
   return `#/plugin-app/${encodeURIComponent(pluginId)}/main`
 });
-const status = computed(() => state.board.value?.status || 'idle');
+const status = computed(() => state.isRunning.value ? 'running' : (state.board.value?.status || 'idle'));
 const generatedAt = computed(() => state.board.value?.generated_at || '');
 const statusMeta = computed(() => ({
   idle: { text: '待生成', color: 'default' },
@@ -75,12 +76,45 @@ async function initialize() {
     if (props.config?.default_profile_id && state.identities.value.some(identity => identity.profile_id === props.config.default_profile_id)) {
       state.selectedProfileId.value = props.config.default_profile_id;
     }
-    if (state.selectedProfileId.value) await state.loadProfileData();
+    if (state.selectedProfileId.value) {
+      await Promise.all([state.loadProfileData(), state.loadRunProgress()]);
+      scheduleRunProgressPoll(1000, true);
+    }
   } catch (_) { /* 卡片内显示共享错误 */ }
 }
 
 async function refreshBoard() {
-  try { await state.refresh(); } catch (_) { /* 卡片内显示共享错误 */ }
+  try {
+    await state.refresh();
+    scheduleRunProgressPoll(250);
+  } catch (_) { /* 卡片内显示共享错误 */ }
+}
+
+function stopRunProgressPoll() {
+  if (runProgressTimer) window.clearTimeout(runProgressTimer);
+  runProgressTimer = null;
+}
+
+function scheduleRunProgressPoll(delay = 1000, force = false) {
+  stopRunProgressPoll();
+  if (!state.selectedProfileId.value || (!force && !state.runProgress.value?.active)) return
+  runProgressTimer = window.setTimeout(pollRunProgress, delay);
+}
+
+async function pollRunProgress() {
+  stopRunProgressPoll();
+  const profileId = state.selectedProfileId.value;
+  const wasActive = Boolean(state.runProgress.value?.active);
+  try {
+    const progress = await state.loadRunProgress(profileId);
+    if (wasActive && !progress?.active && state.selectedProfileId.value === profileId) {
+      await state.loadProfileData(profileId, { force: true });
+    }
+  } catch (_) {
+    scheduleRunProgressPoll(2000, true);
+    return
+  }
+  scheduleRunProgressPoll();
 }
 
 async function runItemAction(action, successMessage) {
@@ -97,6 +131,7 @@ function openFullBoard() {
 }
 
 onMounted(initialize);
+onBeforeUnmount(stopRunProgressPoll);
 
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent("VIcon");
@@ -299,6 +334,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-050d0d3d"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-51dfba54"]]);
 
 export { Dashboard as default };

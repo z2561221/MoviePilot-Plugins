@@ -5,6 +5,7 @@ import logging
 from typing import Any, Callable, Dict, List, Mapping
 
 from ..model.config import configured_identities
+from .run_progress import RunProgressStore
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,8 @@ class AgentRankRuntime:
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
         self.config = config
+        self._run_progress = RunProgressStore()
+        self._manual_tasks: Dict[str, asyncio.Task] = {}
         self.orchestrator = orchestrator or self._build_orchestrator(plugin, config)
         self._trigger_factory = trigger_factory or self._default_trigger_factory
         self._date_trigger_factory = (
@@ -181,8 +184,7 @@ class AgentRankRuntime:
         if conversation is not None and hasattr(conversation, "start"):
             conversation.start()
 
-    @staticmethod
-    def _build_orchestrator(plugin: Any, config: Mapping[str, Any]) -> Any:
+    def _build_orchestrator(self, plugin: Any, config: Mapping[str, Any]) -> Any:
         """延迟导入 MoviePilot 宿主依赖并创建推荐编排器。"""
         from ..adapter.agent import AgentRankAgentAdapter
         from ..adapter.discovery import DiscoveryAdapter
@@ -283,6 +285,7 @@ class AgentRankRuntime:
             retrieval_plan_resolver=ControlledRetrievalPlanResolver(
                 keyword_searcher=TmdbKeywordAdapter().search
             ),
+            progress_callback=self._update_run_progress,
         )
 
     @staticmethod
@@ -388,6 +391,91 @@ class AgentRankRuntime:
                 return identity.username
         return ""
 
+    def _update_run_progress(self, payload: Mapping[str, Any]) -> None:
+        """接收编排器发布的安全阶段快照。"""
+        profile_id = str((payload or {}).get("profile_id") or "").strip()
+        if profile_id:
+            self._run_progress.update(profile_id, payload)
+
+    def run_progress(self, profile_id: str) -> Dict[str, Any]:
+        """返回指定画像可在页面重连读取的当前进度。"""
+        return self._run_progress.snapshot(
+            profile_id,
+            username=self._display_name(profile_id, self.config),
+        )
+
+    async def _execute_refresh(self, profile_id: str, *, source: str) -> Any:
+        """执行一次推荐并确保所有出口都收束实时进度。"""
+        self._run_progress.begin(profile_id)
+        try:
+            result = await self.orchestrator.run(profile_id, self.config)
+        except asyncio.CancelledError:
+            self._run_progress.finish(
+                profile_id,
+                status="stopped",
+                message="榜单生成已停止",
+            )
+            raise
+        except Exception:
+            self._run_progress.finish(
+                profile_id,
+                status="runtime_exception",
+                message="榜单生成失败，请稍后重试",
+            )
+            logger.exception("AgentRank %s运行异常 profile_id=%s", source, profile_id)
+            raise
+
+        if str(getattr(result, "status", "") or "") == "running":
+            return result
+        self._apply_post_action(profile_id, result, source=source)
+        self._run_progress.finish(
+            profile_id,
+            status=str(getattr(result, "status", "failed") or "failed"),
+            run_id=str(getattr(result, "run_id", "") or ""),
+            message=str(getattr(result, "message", "") or "榜单生成已结束"),
+            final_count=int(getattr(result, "final_count", 0) or 0),
+        )
+        return result
+
+    def _forget_manual_task(self, profile_id: str, task: asyncio.Task) -> None:
+        """释放后台任务强引用并消费已记录的异常。"""
+        self._active_tasks.discard(task)
+        if self._manual_tasks.get(profile_id) is task:
+            self._manual_tasks.pop(profile_id, None)
+        if task.cancelled():
+            return
+        try:
+            task.exception()
+        except asyncio.CancelledError:
+            pass
+
+    def start_refresh(self, profile_id: str) -> Dict[str, Any]:
+        """立即受理一次手动刷新并在当前事件循环后台执行。"""
+        if self._stopped:
+            raise RuntimeError("AgentRank runtime is stopped")
+        get_state = getattr(self.plugin, "get_state", None)
+        if callable(get_state) and not get_state():
+            enablement = getattr(self.plugin, "_enablement", {}) or {}
+            raise RuntimeError(
+                str(enablement.get("message") or "AgentRank 插件当前不可用")
+            )
+        current = self._manual_tasks.get(profile_id)
+        if current is not None and not current.done():
+            return self.run_progress(profile_id)
+        self._run_progress.begin(profile_id)
+        task = asyncio.create_task(
+            self.refresh(profile_id),
+            name=f"AgentRank.manual.{profile_id}",
+        )
+        self._manual_tasks[profile_id] = task
+        self._active_tasks.add(task)
+        task.add_done_callback(
+            lambda completed, target=profile_id: self._forget_manual_task(
+                target, completed
+            )
+        )
+        return self.run_progress(profile_id)
+
     async def refresh(self, profile_id: str) -> Any:
         """执行一次手动身份刷新；停止后拒绝新任务。"""
         if self._stopped:
@@ -398,13 +486,7 @@ class AgentRankRuntime:
             raise RuntimeError(
                 str(enablement.get("message") or "AgentRank 插件当前不可用")
             )
-        try:
-            result = await self.orchestrator.run(profile_id, self.config)
-        except Exception as error:
-            logger.exception("AgentRank 手动运行异常 profile_id=%s", profile_id)
-            raise
-        self._apply_post_action(profile_id, result, source="manual")
-        return result
+        return await self._execute_refresh(profile_id, source="manual")
 
     def _apply_post_action(
         self, profile_id: str, result: Any, *, source: str = "scheduled"
@@ -556,8 +638,7 @@ class AgentRankRuntime:
                     break
                 profile_id = identity.profile_id
                 try:
-                    result = await self.orchestrator.run(profile_id, self.config)
-                    self._apply_post_action(profile_id, result, source="scheduled")
+                    result = await self._execute_refresh(profile_id, source="scheduled")
                     results.append(
                         {
                             "profile_id": profile_id,
@@ -605,3 +686,5 @@ class AgentRankRuntime:
             if task is not current and not task.done():
                 task.cancel()
         self._active_tasks.clear()
+        self._manual_tasks.clear()
+        self._run_progress.stop_all()

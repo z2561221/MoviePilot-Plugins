@@ -291,6 +291,7 @@ def _orchestrator(
     candidate_count=12,
     profile_outputs=None,
     retrieval_plan_resolver=None,
+    progress_callback=None,
 ):
     repository = AgentRankRepository(plugin)
     return (
@@ -301,6 +302,7 @@ def _orchestrator(
             run_id_factory=lambda: "run-1",
             playback_service=FakePlaybackService(),
             retrieval_plan_resolver=retrieval_plan_resolver,
+            progress_callback=progress_callback,
         ),
         repository,
     )
@@ -323,8 +325,11 @@ def _config():
 def test_success_atomically_saves_profile_board_and_run_history():
     """A complete valid run replaces both current objects and records metrics."""
     plugin = FakePlugin()
+    progress_events = []
     orchestrator, repository = _orchestrator(
-        plugin, [_agent_output([f"tmdb:{index}" for index in range(1, 6)])]
+        plugin,
+        [_agent_output([f"tmdb:{index}" for index in range(1, 6)])],
+        progress_callback=progress_events.append,
     )
     config = _config()
     result = asyncio.run(orchestrator.run(PROFILE_ID, config))
@@ -401,6 +406,14 @@ def test_success_atomically_saves_profile_board_and_run_history():
         "save",
     ]
     assert history[0].metrics["stage_order"] == expected_stages
+    observed_stages = []
+    for event in progress_events:
+        if not observed_stages or observed_stages[-1] != event["stage"]:
+            observed_stages.append(event["stage"])
+    assert observed_stages == expected_stages
+    assert all(event["profile_id"] == PROFILE_ID for event in progress_events)
+    assert all(event["run_id"] == "run-1" for event in progress_events)
+    assert all(set(event) <= {"profile_id", "run_id", "stage", "message"} for event in progress_events)
     assert set(history[0].metrics["stage_status"]) == set(expected_stages)
     assert set(history[0].metrics["stage_ms"]) == set(expected_stages)
     assert all(

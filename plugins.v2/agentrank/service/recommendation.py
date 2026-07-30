@@ -105,6 +105,7 @@ class RecommendationOrchestrator:
         policy_service: Any = None,
         ranker: Any = None,
         analysis_builder: Any = None,
+        progress_callback: Callable[[Mapping[str, Any]], Any] = None,
     ):
         """注入可测试的领域依赖并初始化用户锁集合。"""
         self._repository = repository
@@ -127,6 +128,7 @@ class RecommendationOrchestrator:
         self._policy_service = policy_service
         self._ranker = ranker or StableRecommendationRanker()
         self._analysis_builder = analysis_builder or RecommendationAnalysisBuilder()
+        self._progress_callback = progress_callback
         self._retrieval_plan_resolver = (
             retrieval_plan_resolver or ControlledRetrievalPlanResolver()
         )
@@ -332,14 +334,36 @@ class RecommendationOrchestrator:
             return "profile_prompt_changed"
         return "hit"
 
-    @staticmethod
-    def _start_stage(metrics: Dict[str, Any], stage: str) -> None:
+    def _publish_progress(
+        self,
+        metrics: Mapping[str, Any],
+        stage: str,
+        message: str = "",
+    ) -> None:
+        """发布只含运行身份和阶段的安全实时进度。"""
+        callback = self._progress_callback
+        if not callable(callback):
+            return
+        payload = {
+            "profile_id": str(metrics.get("_profile_id") or ""),
+            "run_id": str(metrics.get("_run_id") or ""),
+            "stage": str(stage or ""),
+        }
+        if message:
+            payload["message"] = str(message)[:120]
+        try:
+            callback(payload)
+        except Exception:
+            logger.exception("AgentRank 实时进度回调失败 stage=%s", stage)
+
+    def _start_stage(self, metrics: Dict[str, Any], stage: str) -> None:
         """开始一个可审计运行阶段，并记录稳定执行顺序。"""
         if metrics.get("_stage_name"):
             raise RuntimeError("previous recommendation stage is still active")
         metrics.setdefault("stage_order", []).append(stage)
         metrics["_stage_name"] = stage
         metrics["_stage_started_at"] = time.monotonic()
+        self._publish_progress(metrics, stage)
 
     @staticmethod
     def _finish_stage(metrics: Dict[str, Any], status: str) -> None:
@@ -388,6 +412,8 @@ class RecommendationOrchestrator:
         final_metrics = dict(metrics)
         final_metrics.pop("_stage_name", None)
         final_metrics.pop("_stage_started_at", None)
+        final_metrics.pop("_profile_id", None)
+        final_metrics.pop("_run_id", None)
         final_metrics["elapsed_ms"] = max(0, int((time.monotonic() - started_clock) * 1000))
         self._repository.append_run(
             RecommendationRun(
@@ -509,6 +535,8 @@ class RecommendationOrchestrator:
         started_at = datetime.now(timezone.utc).isoformat()
         started_clock = time.monotonic()
         metrics: Dict[str, Any] = {
+            "_profile_id": target,
+            "_run_id": run_id,
             "agent_calls": 0,
             "refill_attempted": False,
             "copy_rewrite_attempted": False,
@@ -1001,6 +1029,11 @@ class RecommendationOrchestrator:
                 0, int((time.monotonic() - stage_clock) * 1000)
             )
             metrics["candidate_count"] = len(candidates)
+            self._publish_progress(
+                metrics,
+                "candidate",
+                f"已筛选 {len(candidates)} 个候选，正在整理候选池",
+            )
             metrics["library_excluded_count"] = len(library_excluded)
             metrics["candidate_rejected_count"] = candidate_result.rejected_count
             metrics["source_errors"] = dict(candidate_result.source_errors)

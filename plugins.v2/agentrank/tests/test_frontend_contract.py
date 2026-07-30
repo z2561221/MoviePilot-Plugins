@@ -413,7 +413,12 @@ def test_mobile_detail_hides_idle_runtime_and_wraps_copy_without_toggles():
     page = _read("Page.vue")
     assert 'v-if="state.isRunning.value"' in page
     assert "运行就绪" not in page
-    assert ">\n        正在生成\n      </VChip>" in page
+    assert 'class="ar-page__progress"' in page
+    assert "CinePilot Agent" in page
+    assert "state.runProgress.value?.message" in page
+    assert "state.runProgress.value?.stage_index" in page
+    assert ".ar-page__progress { grid-column: 1 / -1;" in page
+    assert ".ar-page__runtime-chip { display: none; }" in page
     assert ".ar-page__rank-copy { grid-template-columns: 34px minmax(0, 1fr); }" in page
     assert ".ar-page__copy-toggle" not in page
     assert ".ar-page__copy-text--intro {" in page

@@ -56,6 +56,22 @@ function emptyConversation() {
   return { thread: null, messages: [], commands: [] }
 }
 
+function emptyRunProgress(profileId, username = '') {
+  return {
+    profile_id: profileId,
+    username,
+    run_id: '',
+    status: 'idle',
+    stage: '',
+    stage_index: 0,
+    stage_total: 7,
+    message: '尚未生成榜单',
+    active: false,
+    agent_active: false,
+    revision: 0,
+  }
+}
+
 function emptyConversationStatus(profileId = '') {
   return {
     profile_id: profileId,
@@ -90,6 +106,7 @@ export function useAgentRankState(api) {
   const overview = ref(null)
   const board = ref(null)
   const profile = ref(null)
+  const runProgress = ref(emptyRunProgress(''))
   const history = ref([])
   const historyMeta = ref({ total: 0, page: 1, page_size: 15 })
   const loading = reactive({ options: false, data: false, action: '' })
@@ -118,7 +135,7 @@ export function useAgentRankState(api) {
   })))
   const selectedIdentity = computed(() => identities.value.find(identity => identity.profile_id === selectedProfileId.value) || null)
   const selectedUsername = computed(() => overview.value?.username || selectedIdentity.value?.username || '')
-  const isRunning = computed(() => board.value?.status === 'running' || loading.action === 'refresh')
+  const isRunning = computed(() => Boolean(runProgress.value?.active) || loading.action === 'refresh')
 
   function operationState(key) {
     const name = String(key || 'unknown')
@@ -215,6 +232,7 @@ export function useAgentRankState(api) {
     overview.value = null
     board.value = emptyBoard(target, username)
     profile.value = emptyProfile(target, username)
+    runProgress.value = emptyRunProgress(target, username)
     history.value = []
     historyMeta.value = { total: 0, page: 1, page_size: 15 }
     Object.keys(analyses).forEach(key => delete analyses[key])
@@ -412,6 +430,19 @@ export function useAgentRankState(api) {
     )
   }
 
+  async function loadRunProgress(profileId = selectedProfileId.value) {
+    if (!profileId) return emptyRunProgress('')
+    requireCurrentProfile(profileId)
+    ensureSecondaryScope(profileId)
+    const result = await getPluginApi(api, 'run-progress', { profile_id: profileId })
+    if (selectedProfileId.value !== profileId) return result
+    runProgress.value = {
+      ...emptyRunProgress(profileId, selectedIdentity.value?.username || ''),
+      ...(result || {}),
+    }
+    return runProgress.value
+  }
+
   async function runAction(path, payload, label, loadingKey = path) {
     if (loading.action) return null
     feedback.value = null
@@ -439,7 +470,12 @@ export function useAgentRankState(api) {
   async function refresh() {
     const targetProfile = activeProfileScope()
     const result = await runAction('refresh', { profile_id: targetProfile }, '刷新')
-    await refreshProfileAfterMutation(targetProfile)
+    if (result && selectedProfileId.value === targetProfile) {
+      runProgress.value = {
+        ...emptyRunProgress(targetProfile, selectedIdentity.value?.username || ''),
+        ...result,
+      }
+    }
     return result
   }
 
@@ -887,6 +923,7 @@ export function useAgentRankState(api) {
     overview,
     board,
     profile,
+    runProgress,
     history,
     historyMeta,
     loading,
@@ -909,6 +946,7 @@ export function useAgentRankState(api) {
     loadOptions,
     loadProfileData,
     loadHistory,
+    loadRunProgress,
     refresh,
     archive,
     reactToRecommendation,
