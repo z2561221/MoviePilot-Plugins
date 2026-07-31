@@ -130,7 +130,7 @@ def _recommendation(candidate_id):
         "reason": "悬疑题材与已确认偏好相符。",
         "summary": "密室旧案牵出尘封真相。",
         "match_tags": ["悬疑", "电影"],
-        "positive_evidence": [_evidence()],
+        "positive_evidence": [_evidence(), _evidence("type")],
         "counter_evidence": [],
     }
 
@@ -477,6 +477,14 @@ def test_submission_schemas_enforce_extra_enum_count_and_length_boundaries():
     with pytest.raises(ValidationError):
         schemas_module.SubmitFinalBoardInput.model_validate(
             {"recommendations": [too_long]}
+        )
+    insufficient_evidence = _recommendation("tmdb:movie:1")
+    insufficient_evidence["positive_evidence"] = [
+        insufficient_evidence["positive_evidence"][0]
+    ]
+    with pytest.raises(ValidationError):
+        schemas_module.SubmitFinalBoardInput.model_validate(
+            {"recommendations": [insufficient_evidence]}
         )
 
     try:

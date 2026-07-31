@@ -203,6 +203,24 @@ VAGUE_REASON_PHRASES = (
     "一定要看",
     "不看可惜",
 )
+PROCESS_REASON_PHRASES = (
+    "画像检索",
+    "画像标签",
+    "匹配画像",
+    "符合画像",
+    "检索策略",
+    "检索结果",
+    "候选池",
+    "召回来源",
+    "来源名称",
+    "Agent判断",
+    "模型判断",
+    "算法推荐",
+    "安全过滤",
+)
+GENERIC_REASON_PATTERN = re.compile(
+    r"^(?:这部|本片|作品)?(?:包含|具备|属于|符合|匹配).{1,14}(?:元素|要素|题材|类型|画像)?[。！？]?$"
+)
 REGION_LABELS = {
     "CN": "中国",
     "HK": "中国香港",
@@ -271,7 +289,14 @@ INCOMPLETE_LATIN_END_PATTERN = re.compile(
     r"(?i)(?:^|\s)(?:and|or|but|with|of|in|on|at|to|for|from|by|the|a|an)$"
 )
 COPY_REWRITE_REASON_CODES = frozenset(
-    {"invalid_summary", "summary_too_long", "invalid_reason", "reason_too_long"}
+    {
+        "invalid_summary",
+        "summary_too_long",
+        "invalid_reason",
+        "reason_too_long",
+        "process_or_generic_reason",
+        "missing_counter_evidence",
+    }
 )
 
 
@@ -285,6 +310,14 @@ def compact_profile_text(value: str, maximum: int) -> str:
     if boundary >= max(1, maximum // 2):
         return window[: boundary + 1].strip().rstrip("，、；：")
     return window.strip()
+
+
+def is_process_or_generic_reason(value: str) -> bool:
+    """拒绝以画像、检索过程或单个宽泛分类充当推荐理由。"""
+    text = "".join(str(value or "").split())
+    return any(phrase in text for phrase in PROCESS_REASON_PHRASES) or bool(
+        GENERIC_REASON_PATTERN.fullmatch(text)
+    )
 
 
 def has_unbalanced_copy_pairs(value: str) -> bool:
@@ -1151,21 +1184,6 @@ class RecommendationValidator:
             )
         if not preference:
             preference = ""
-        if not fact:
-            fact = next(
-                (
-                    self._evidence_label(item)
-                    for item in [
-                        *candidate.genres,
-                        *candidate.regions,
-                        *candidate.actors,
-                        *candidate.directors,
-                    ]
-                    if self._evidence_label(item)
-                    and self._evidence_label(item) != preference
-                ),
-                "",
-            )
         return [tag for tag in (preference, fact) if tag]
 
     @staticmethod
@@ -1698,6 +1716,7 @@ class RecommendationValidator:
             unsupported_candidate_claim = self._unsupported_candidate_claim(
                 reason, candidate
             )
+            process_or_generic_reason = is_process_or_generic_reason(reason)
             if not is_complete_recommendation_copy(summary):
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "invalid_summary", index)
@@ -1712,12 +1731,15 @@ class RecommendationValidator:
                 or AMBIGUOUS_WATCH_COUNT_PATTERN.search(reason)
                 or unsupported_playback_claim
                 or unsupported_candidate_claim
+                or process_or_generic_reason
             ):
                 result.dropped.append(
                     DroppedRecommendation(
                         candidate_id,
                         "ambiguous_playback_count"
                         if AMBIGUOUS_WATCH_COUNT_PATTERN.search(reason)
+                        else "process_or_generic_reason"
+                        if process_or_generic_reason
                         else "unsupported_playback_claim"
                         if unsupported_playback_claim
                         else "invalid_reason",
@@ -1754,6 +1776,18 @@ class RecommendationValidator:
                         DroppedRecommendation(
                             candidate_id,
                             "insufficient_verified_evidence",
+                            index,
+                        )
+                    )
+                    continue
+                if (
+                    scoring.verified_counter_count > 0
+                    and scoring.verified_counter_claim_count < 1
+                ):
+                    result.dropped.append(
+                        DroppedRecommendation(
+                            candidate_id,
+                            "missing_counter_evidence",
                             index,
                         )
                     )

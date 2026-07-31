@@ -157,6 +157,8 @@ const historyValidationDropLabels = {
   unsupported_candidate_claim: '作品信息无法回溯',
   insufficient_match_evidence: '具体匹配证据不足',
   insufficient_verified_evidence: '可验证正向证据不足',
+  missing_counter_evidence: '遗漏已存在的主要反证',
+  process_or_generic_reason: '理由仍是过程描述或宽泛分类',
 }
 const historyAgentStageLabels = {
   profile: '画像',
@@ -378,6 +380,38 @@ function historySelectionSourceText(run) {
   const agent = Number(metrics.agent_selected_count ?? counts.agent ?? 0)
   const fallback = Number(metrics.safe_fallback_selected_count ?? counts.safe_fallback ?? 0)
   return `Agent 选择 ${agent} 条；安全补位 ${fallback} 条`
+}
+function historyTournamentText(run) {
+  const metrics = run?.metrics || {}
+  const batches = Number(metrics.preliminary_batch_count || 0)
+  const cacheHits = Number(metrics.judgment_card_cache_hit_count ?? metrics.preliminary_cache_hit_count ?? 0)
+  const failed = Number(metrics.preliminary_failed_count || 0)
+  return `初赛 ${batches} 批；缓存命中 ${cacheHits} 批；失败 ${failed} 批`
+}
+function historyTournamentTimingText(run) {
+  const metrics = run?.metrics || {}
+  return `初赛 ${formatDuration(metrics.preliminary_ms)}；决赛 ${formatDuration(metrics.final_ms)}`
+}
+function historyRepairText(run) {
+  const metrics = run?.metrics || {}
+  const repairs = Number(metrics.agent_repair_count || 0)
+  const finalRetries = Number(metrics.final_retry_count || 0)
+  return `结构修正 ${repairs} 次；决赛重试 ${finalRetries} 次`
+}
+function historyDegradeSourceText(run) {
+  const metrics = run?.metrics || {}
+  const fallbackCount = Number(metrics.ranking_fallback_count || 0)
+  const failedBatches = Number(metrics.preliminary_failed_count || 0)
+  const safeFillCount = Number(metrics.preliminary_safe_fill_count || 0)
+  if (fallbackCount > 0 || run?.status === 'recommendation_degraded') {
+    const reason = rankingFallbackReasonLabels[metrics.ranking_fallback_reason] || '安全候选补位'
+    return `安全降级：${reason}`
+  }
+  if (failedBatches > 0 || safeFillCount > 0) {
+    return `部分成功：失败批次补位 ${safeFillCount} 条`
+  }
+  const inputSource = metrics.final_input_source === 'cached_judgments' ? '复用判断卡' : '本轮判断卡'
+  return `完整成功：${inputSource}`
 }
 
 async function initialize() {
@@ -927,6 +961,10 @@ onBeforeUnmount(() => {
                   <div><span>播放快照</span><span>{{ run.metrics?.playback_count ?? 0 }} 条，{{ historyPlaybackStatus(run.metrics?.playback_status) }}</span></div>
                   <div><span>候选耗时</span><span>{{ historyCandidateTimingText(run) }}</span></div>
                   <div><span>候选处理</span><span>{{ historyCandidateProcessingText(run) }}</span></div>
+                  <div><span>初赛批次</span><span>{{ historyTournamentText(run) }}</span></div>
+                  <div><span>阶段耗时</span><span>{{ historyTournamentTimingText(run) }}</span></div>
+                  <div><span>修正次数</span><span>{{ historyRepairText(run) }}</span></div>
+                  <div><span>降级来源</span><span>{{ historyDegradeSourceText(run) }}</span></div>
                   <div><span>排序校验</span><span>{{ historyRankingText(run) }}</span></div>
                   <div><span>校验丢弃</span><span>{{ historyValidationDropText(run) }}</span></div>
                   <div><span>选择来源</span><span>{{ historySelectionSourceText(run) }}</span></div>

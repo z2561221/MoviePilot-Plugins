@@ -148,7 +148,7 @@ class FinalRecommendation(_StrictSubmissionModel):
     reason: str = Field(min_length=1, max_length=100)
     summary: str = Field(min_length=1, max_length=100)
     match_tags: List[str] = Field(min_length=1, max_length=10)
-    positive_evidence: List[EvidenceClaim] = Field(min_length=1, max_length=8)
+    positive_evidence: List[EvidenceClaim] = Field(min_length=2, max_length=8)
     counter_evidence: List[EvidenceClaim] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")

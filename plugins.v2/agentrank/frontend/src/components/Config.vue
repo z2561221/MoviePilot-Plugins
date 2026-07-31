@@ -40,7 +40,7 @@ const defaults = {
   },
   weights: { ...weightDefaults },
   minimum_samples: 5,
-  candidate_pool_size: 100,
+  candidate_pool_size: 15,
   confidence_threshold: 0.6,
   action_mode: 'notify',
   notify: true,
@@ -260,7 +260,8 @@ const pipelineSteps = [
   { key: 'playback_snapshot', title: '冻结播放' },
   { key: 'profile', title: '生成画像' },
   { key: 'candidate', title: '冻结候选' },
-  { key: 'ranking', title: '池内排序' },
+  { key: 'preliminary', title: '初赛判断', statusKey: 'ranking', durationMetric: 'preliminary_ms' },
+  { key: 'final', title: '决赛榜单', statusMetric: 'final_status', durationMetric: 'final_ms' },
   { key: 'save', title: '校验保存' },
 ]
 
@@ -345,12 +346,18 @@ function selectSubTab(key) {
 }
 
 function stageStatus(step) {
-  const value = latestMetrics.value.stage_status?.[step.key] || ''
+  const value = step.statusMetric
+    ? latestMetrics.value[step.statusMetric]
+    : latestMetrics.value.stage_status?.[step.statusKey || step.key] || ''
   return stageLabels[value] || '未记录'
 }
 
 function stageDuration(step) {
-  const value = Number(latestMetrics.value.stage_ms?.[step.key])
+  const value = Number(
+    step.durationMetric
+      ? latestMetrics.value[step.durationMetric]
+      : latestMetrics.value.stage_ms?.[step.key],
+  )
   if (!Number.isFinite(value) || value < 0) return ''
   if (value < 1000) return `${Math.round(value)} 毫秒`
   return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} 秒`
@@ -969,10 +976,10 @@ onMounted(loadRuntime)
               <template v-if="activeAdvanced === 'runtime'">
                 <div class="ar-config__section-title">运行参数</div>
                 <VRow>
-                  <VCol cols="12" md="4"><VTextField v-model.number="form.candidate_pool_size" type="number" min="10" max="500" label="候选池数量" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model.number="form.candidate_pool_size" type="number" min="10" max="15" label="冻结候选目标" density="compact" variant="outlined" hide-details /></VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.history_limit" type="number" min="1" max="200" label="历史上限" density="compact" variant="outlined" hide-details /></VCol>
                 </VRow>
-                <VAlert type="info" variant="tonal" class="mt-4">候选池数量控制每轮冻结候选容量；它是运行参数，不代表内容偏好，也不会改变最低支持度的订阅边界。</VAlert>
+                <VAlert type="info" variant="tonal" class="mt-4">冻结候选目标可设为 10-15 条；达到目标即停止识别，来源耗尽后至少 10 条才进入 Agent 初赛。</VAlert>
               </template>
               <template v-else-if="activeAdvanced === 'access'">
                 <div class="ar-config__section-title">访问控制</div>

@@ -57,7 +57,7 @@ def _output(candidate_ids):
     )
 
 
-def _accepted(output, candidates, archived=None):
+def _accepted(output, candidates, archived=None, preference_evidence=()):
     """解析并返回经过冻结候选门的安全推荐结果。"""
     parsed = AgentOutputParser().parse(output)
     return RecommendationValidator().validate(
@@ -65,6 +65,25 @@ def _accepted(output, candidates, archived=None):
         candidates,
         archived_candidate_ids=set(archived or set()),
         subscribed_candidate_ids=set(),
+        preference_evidence=preference_evidence,
+    )
+
+
+def _quality_output(reason):
+    """构造用于推荐理由质量门禁的单条输出。"""
+    return json.dumps(
+        {
+            "recommendations": [
+                {
+                    "candidate_id": "movie:animation",
+                    "reason": reason,
+                    "summary": "中国动画讲述少年踏上奇幻冒险旅程。",
+                    "match_tags": ["动画", "中国"],
+                    "confidence": 88,
+                }
+            ]
+        },
+        ensure_ascii=False,
     )
 
 
@@ -129,6 +148,55 @@ def test_eval_out_of_pool_candidate_is_rejected():
 
     assert result.accepted == []
     assert result.dropped[0].reason == "unknown_candidate"
+
+
+@pytest.mark.parametrize(
+    "reason",
+    (
+        "画像检索显示这部作品很适合你。",
+        "这部包含中国动画元素。",
+    ),
+)
+def test_eval_rejects_process_or_generic_recommendation_reason(reason):
+    """画像检索过程和单一宽泛分类都不能充当推荐理由。"""
+    candidate = Candidate(
+        candidate_id="movie:animation",
+        title="动画新作",
+        media_type="movie",
+        genres=["动画"],
+        regions=["中国"],
+    )
+
+    result = _accepted(
+        _quality_output(reason),
+        [candidate],
+        preference_evidence=["动画"],
+    )
+
+    assert result.accepted == []
+    assert result.dropped[0].reason == "process_or_generic_reason"
+
+
+def test_eval_accepts_reason_with_user_evidence_and_candidate_fact():
+    """真实用户偏好和候选作品事实同时落入理由时通过质量门禁。"""
+    candidate = Candidate(
+        candidate_id="movie:animation",
+        title="动画新作",
+        media_type="movie",
+        genres=["动画"],
+        regions=["中国"],
+    )
+
+    result = _accepted(
+        _quality_output("你明确偏好动画，这部中国作品延续了对应题材。"),
+        [candidate],
+        preference_evidence=["动画"],
+    )
+
+    assert [item.candidate_id for item in result.accepted] == [
+        "movie:animation"
+    ]
+    assert result.dropped == []
 
 
 @pytest.mark.parametrize("payload", ["不是JSON", "```json\n{}\n```", '{"profile":'])

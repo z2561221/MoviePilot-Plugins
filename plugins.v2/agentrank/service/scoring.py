@@ -426,6 +426,7 @@ class SupportScoringResult:
     score: SupportScore
     verified_positive_count: int
     verified_counter_count: int
+    verified_counter_claim_count: int
     unsupported_claims: Tuple[str, ...]
 
 
@@ -957,6 +958,12 @@ class DeterministicSupportScorer:
             verified_positive_count=len(verified_positive_claims),
             verified_counter_count=sum(
                 item.direction == "counter" for item in score.contributions
+            ),
+            verified_counter_claim_count=len(
+                {
+                    item.identity
+                    for item in claimed_contributions["counter"]
+                }
             ),
             unsupported_claims=tuple(unsupported),
         )

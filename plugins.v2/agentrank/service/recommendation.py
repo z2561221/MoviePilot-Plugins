@@ -53,6 +53,7 @@ from .scoring import DeterministicSupportScorer, StableRecommendationRanker
 from .tournament import (
     PreliminaryBatch,
     PreliminaryBatchResult,
+    judgment_weights_fingerprint,
     partition_preliminary_batches,
     retrieval_fingerprint,
 )
@@ -222,6 +223,10 @@ class RecommendationOrchestrator:
             model_call_count = max(0, int(raw.get("model_call_count") or 0))
         except (TypeError, ValueError):
             model_call_count = 0
+        try:
+            repair_count = max(0, int(raw.get("repair_count") or 0))
+        except (TypeError, ValueError):
+            repair_count = 0
         entry = {
             "role": role,
             "provider_id": safe_text("provider_id"),
@@ -230,6 +235,7 @@ class RecommendationOrchestrator:
             "model": safe_text("model", "unknown"),
             "source": safe_text("source", "unknown"),
             "model_call_count": model_call_count,
+            "repair_count": repair_count,
             "stage": str(stage or role).strip()[:32],
             "attempt": max(1, int(attempt or 1)),
             "duration_ms": max(0, int(duration_ms or 0)),
@@ -242,6 +248,12 @@ class RecommendationOrchestrator:
         metrics[f"{role}_model_call_count"] = int(
             metrics.get(f"{role}_model_call_count", 0) or 0
         ) + model_call_count
+        metrics["agent_repair_count"] = int(
+            metrics.get("agent_repair_count", 0) or 0
+        ) + repair_count
+        metrics[f"{role}_repair_count"] = int(
+            metrics.get(f"{role}_repair_count", 0) or 0
+        ) + repair_count
         metrics[f"{role}_agent_model"] = entry["model"]
         metrics[f"{role}_agent_source"] = entry["source"]
 
@@ -747,6 +759,7 @@ class RecommendationOrchestrator:
                 idempotency_key=batch.idempotency_key,
                 profile_fingerprint=profile_fingerprint,
                 retrieval_fingerprint=retrieval_plan_fingerprint,
+                weights_fingerprint=batch.weights_fingerprint,
                 candidate_fingerprint=batch.candidate_fingerprint,
                 judgments=judgments,
             )
@@ -856,10 +869,12 @@ class RecommendationOrchestrator:
                 ).encode("utf-8")
             ).hexdigest()
         retrieval_plan_fingerprint = retrieval_fingerprint(current_profile)
+        weights_fingerprint = judgment_weights_fingerprint(trusted_weights)
         batches = partition_preliminary_batches(
             candidates,
             profile_fingerprint,
             retrieval_plan_fingerprint,
+            weights_fingerprint,
         )
         metrics["preliminary_batch_count"] = len(batches)
         metrics["preliminary_candidate_count"] = len(candidates)
@@ -898,6 +913,9 @@ class RecommendationOrchestrator:
         metrics["preliminary_failed_count"] = sum(
             item.status == "failed" for item in results
         )
+        metrics["judgment_card_cache_hit_count"] = metrics[
+            "preliminary_cache_hit_count"
+        ]
 
         finalist_pairs: List[Tuple[Any, Dict[str, Any]]] = []
         processing: Dict[str, Dict[str, Any]] = {}
@@ -970,6 +988,29 @@ class RecommendationOrchestrator:
         metrics["candidate_preliminary_status"] = processing
         metrics["preliminary_safe_fill_count"] = safe_fill_count
         metrics["finalist_count"] = len(finalists)
+        metrics["final_input_fingerprint"] = hashlib.sha256(
+            json.dumps(
+                {
+                    "profile_fingerprint": profile_fingerprint,
+                    "retrieval_fingerprint": retrieval_plan_fingerprint,
+                    "weights_fingerprint": weights_fingerprint,
+                    "candidate_ids": [item.candidate_id for item in finalists],
+                    "judgment_cards": judgment_cards,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        metrics["final_input_source"] = (
+            "cached_judgments"
+            if results
+            and all(
+                item.status in {"cache_hit", "cache_recovered"}
+                for item in results
+            )
+            else "current_judgments"
+        )
         if len(processing) != len(candidates):
             raise RuntimeError("preliminary processing coverage is incomplete")
 
@@ -990,6 +1031,7 @@ class RecommendationOrchestrator:
         )
         expected_count = min(RECOMMENDATION_LIMIT, len(finalists))
         last_reason = "final_agent_failed"
+        final_stage_clock = time.monotonic()
         for attempt in range(2):
             prompt = base_prompt
             if attempt:
@@ -1045,6 +1087,9 @@ class RecommendationOrchestrator:
                     )
                 self._finish_agent_provenance(call_entry, "completed")
                 metrics["final_status"] = "success"
+                metrics["final_ms"] = max(
+                    0, int((time.monotonic() - final_stage_clock) * 1000)
+                )
                 return TournamentOutcome(
                     validation=validation,
                     agent_order={
@@ -1079,6 +1124,9 @@ class RecommendationOrchestrator:
                     else "final_agent_failed"
                 )
         metrics["final_status"] = "failed"
+        metrics["final_ms"] = max(
+            0, int((time.monotonic() - final_stage_clock) * 1000)
+        )
         return TournamentOutcome(
             validation=None,
             agent_order={},

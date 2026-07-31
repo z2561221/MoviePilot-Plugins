@@ -692,8 +692,9 @@ def test_adapter_captures_agent_tokens_provenance_without_secrets():
         "selected_provider_name": "家庭配额",
         "provider": "openai",
         "model": "gpt-5.1",
-        "source": "agent_tokens",
-        "model_call_count": 3,
+            "source": "agent_tokens",
+            "model_call_count": 3,
+            "repair_count": 0,
     }
     serialized = json.dumps(output.provenance, ensure_ascii=False)
     for forbidden in ("base_url", "api_key", "authorization", "must-not-persist"):
@@ -715,8 +716,9 @@ def test_adapter_marks_unmanaged_provider_as_moviepilot_system():
         "selected_provider_name": "",
         "provider": "openai",
         "model": "system-gpt",
-        "source": "moviepilot_system",
-        "model_call_count": 1,
+            "source": "moviepilot_system",
+            "model_call_count": 1,
+            "repair_count": 0,
     }
 
 
@@ -738,9 +740,10 @@ def test_adapter_uses_safe_unknown_model_for_incomplete_host_status():
         "selected_provider_name",
         "provider",
         "model",
-        "source",
-        "model_call_count",
-    }
+            "source",
+            "model_call_count",
+            "repair_count",
+        }
 
 
 def test_profile_role_uses_separate_session_and_terminal_submission():
@@ -801,6 +804,7 @@ def test_terminal_role_repairs_one_named_field_in_same_session():
     )
 
     assert json.loads(output) == _profile_submission()
+    assert output.provenance["repair_count"] == 1
     runner = FakeRepairSubmissionRunner.instances[-1]
     assert len(runner.prompts) == 2
     assert "code=schema_validation_failed field=profile.summary" in runner.prompts[1]

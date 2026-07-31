@@ -16,6 +16,7 @@ class PreliminaryBatch:
     index: int
     candidates: List[Any]
     advance_quota: int
+    weights_fingerprint: str
     candidate_fingerprint: str
     idempotency_key: str
 
@@ -51,10 +52,16 @@ def retrieval_fingerprint(profile: Any) -> str:
     )
 
 
+def judgment_weights_fingerprint(weights: Any) -> str:
+    """对影响 Agent 判断的权重、策略版本和证据目录计算指纹。"""
+    return _fingerprint(dict(weights or {}))
+
+
 def partition_preliminary_batches(
     candidates: Iterable[Any],
     profile_fingerprint: str,
     retrieval_plan_fingerprint: str,
+    weights_fingerprint: str = "",
 ) -> List[PreliminaryBatch]:
     """把 10-15 条冻结候选无重叠地分成两组或三组。"""
     values = list(candidates or ())
@@ -81,6 +88,7 @@ def partition_preliminary_batches(
             {
                 "profile_fingerprint": str(profile_fingerprint),
                 "retrieval_fingerprint": str(retrieval_plan_fingerprint),
+                "weights_fingerprint": str(weights_fingerprint),
                 "candidate_fingerprint": candidate_fingerprint,
                 "protocol_version": JUDGMENT_PROTOCOL_VERSION,
             }
@@ -91,6 +99,7 @@ def partition_preliminary_batches(
                 index=index,
                 candidates=items,
                 advance_quota=advance_quota,
+                weights_fingerprint=str(weights_fingerprint),
                 candidate_fingerprint=candidate_fingerprint,
                 idempotency_key=idempotency_key,
             )

@@ -76,7 +76,7 @@ def test_runtime_settings_exposes_discovery_page_switch_and_current_defaults():
     assert 'label="开启发现页"' in config
     assert 'schedule_enabled: true' in config
     assert "cron: '5 18 * * *'" in config
-    assert 'candidate_pool_size: 100' in config
+    assert 'candidate_pool_size: 15' in config
     assert 'playback_recent_days: 90' in config
 
 
@@ -790,13 +790,36 @@ def test_run_history_exposes_candidate_timing_cache_and_ranking_diagnostics():
         "ranking_reserve_count",
         "ranking_fallback_count",
         "ranking_fallback_reason",
+        "preliminary_batch_count",
+        "judgment_card_cache_hit_count",
+        "preliminary_failed_count",
+        "preliminary_ms",
+        "final_ms",
+        "agent_repair_count",
+        "final_retry_count",
+        "final_input_source",
         "候选耗时",
         "候选处理",
         "画像缓存",
+        "初赛批次",
+        "阶段耗时",
+        "修正次数",
+        "降级来源",
         "排序校验",
         "保底",
     ):
         assert text in page
+
+
+def test_config_uses_frozen_candidate_target_and_tournament_pipeline():
+    """配置页固定 10-15 条冻结目标，并展示初赛到决赛的实际链路。"""
+    config = _read("Config.vue")
+
+    assert 'candidate_pool_size: 15' in config
+    assert 'min="10" max="15" label="冻结候选目标"' in config
+    for title in ("冻结候选", "初赛判断", "决赛榜单"):
+        assert f"title: '{title}'" in config
+    assert "title: '池内排序'" not in config
 
 
 def test_profile_filter_aliases_remain_readable_for_legacy_agent_payloads():

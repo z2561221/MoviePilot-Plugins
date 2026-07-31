@@ -65,6 +65,7 @@ class AgentSubmissionUnavailableError(RuntimeError):
     retryable = False
 
     def __init__(self, code: str, field: str):
+        """保存终结提交失败的稳定错误码与字段。"""
         self.code = str(code or "submission_required")
         self.field = str(field or "submission")
         super().__init__(f"Agent submission failed: {self.code} ({self.field})")
@@ -375,6 +376,7 @@ class AgentRankAgentAdapter:
             output_callback=capture_output,
         )
         provenance: Dict[str, Any] = {}
+        repair_count = 0
         try:
             result = await agent.process(str(prompt or ""))
             if trusted_context.agent_role in TERMINAL_AGENT_ROLES:
@@ -383,6 +385,7 @@ class AgentRankAgentAdapter:
                     [result, getattr(agent, "_streamed_output", ""), *captured_outputs],
                 )
                 if not result_collector.submitted and result_collector.can_repair:
+                    repair_count += 1
                     issue = result_collector.last_issue
                     code = issue.code if issue is not None else "submission_required"
                     field = issue.field if issue is not None else "submission"
@@ -400,6 +403,7 @@ class AgentRankAgentAdapter:
                             allow_existing=True,
                         )
                 provenance = await self._capture_provenance(agent)
+                provenance["repair_count"] = repair_count
                 if result_collector.submitted:
                     return AgentExecutionResult(
                         result_collector.result_json(), provenance
@@ -410,6 +414,7 @@ class AgentRankAgentAdapter:
                     issue.field if issue is not None else "submission",
                 )
             provenance = await self._capture_provenance(agent)
+            provenance["repair_count"] = repair_count
             candidates: List[Any] = [result]
             # 新版宿主的 CAPTURE_ONLY 路径可能只把最终文本留在 Agent
             # 自身的流式缓冲区，或以结构化 tuple/dict 返回，而不再完整
@@ -439,6 +444,7 @@ class AgentRankAgentAdapter:
         except Exception as error:
             if not provenance:
                 provenance = await self._capture_provenance(agent)
+            provenance["repair_count"] = repair_count
             try:
                 error.agentrank_provenance = dict(provenance)
             except Exception:

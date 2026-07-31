@@ -196,7 +196,8 @@ def test_config_runtime_overview_exposes_identity_gate_and_frozen_pool_evidence(
         "冻结播放",
         "生成画像",
         "冻结候选",
-        "池内排序",
+        "初赛判断",
+        "决赛榜单",
         "校验保存",
     ):
         assert step in source

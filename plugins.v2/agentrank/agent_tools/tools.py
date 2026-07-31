@@ -288,6 +288,7 @@ class ReadAgentRankProfileContextTool(_ReadAgentRankTool):
     )
 
     async def run(self, **kwargs: Any) -> str:
+        """返回画像增量更新所需的最小受信上下文。"""
         trusted_context = self._trusted_context()
         return json.dumps(
             _minimal_profile_update_context(trusted_context),
@@ -307,6 +308,7 @@ class ReadAgentRankBatchContextTool(_ReadAgentRankTool):
     )
 
     async def run(self, **kwargs: Any) -> str:
+        """返回当前初赛批次的候选、权重和证据目录。"""
         trusted_context = self._trusted_context()
         payload = {
             "candidates": [
@@ -343,6 +345,7 @@ class ReadAgentRankFinalContextTool(_ReadAgentRankTool):
     )
 
     async def run(self, **kwargs: Any) -> str:
+        """返回晋级候选及其初赛判断卡。"""
         trusted_context = self._trusted_context()
         candidates = [
             _minimal_candidate(item)
@@ -366,6 +369,7 @@ class _SubmissionValidationErrorFormatter:
     """避免函数描述符绑定，供 LangChain 安全调用的字段错误格式器。"""
 
     def __call__(self, error: ValidationError) -> str:
+        """把宿主参数校验错误收束为稳定字段反馈。"""
         first = error.errors()[0] if error.errors() else {}
         field_name = ".".join(str(item) for item in first.get("loc") or ())
         return json.dumps(
@@ -390,9 +394,11 @@ class _SubmitAgentRankTool(MoviePilotTool):
     allowed_roles: ClassVar[Tuple[str, ...]] = ()
 
     def get_tool_message(self, **kwargs: Any) -> Optional[str]:
+        """返回不包含提交内容的安全工具提示。"""
         return "提交本轮 AgentRank 结构化结果"
 
     async def run(self, **kwargs: Any) -> str:
+        """校验并暂存当前角色唯一允许的终结结果。"""
         trusted_context = resolve_trusted_context(self._agent_context)
         if trusted_context.agent_role not in self.allowed_roles:
             raise PermissionError(

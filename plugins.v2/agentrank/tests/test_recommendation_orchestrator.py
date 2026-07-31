@@ -23,6 +23,7 @@ memory_module = importlib.import_module(f"{PACKAGE_NAME}.model.memory")
 playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 orchestrator_module = importlib.import_module(f"{PACKAGE_NAME}.service.recommendation")
+tournament_module = importlib.import_module(f"{PACKAGE_NAME}.service.tournament")
 archive_service_module = importlib.import_module(f"{PACKAGE_NAME}.service.archive")
 keyword_module = importlib.import_module(f"{PACKAGE_NAME}.service.keyword_resolution")
 analysis_builder_module = importlib.import_module(f"{PACKAGE_NAME}.service.analysis")
@@ -374,6 +375,24 @@ def _agent_output_with_overrides(candidate_ids, overrides):
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _agent_output_with_counter_evidence(candidate_ids, *, include_counter):
+    """构造保留或遗漏已存在反证的决赛输出。"""
+    payload = json.loads(_agent_output(candidate_ids))
+    for recommendation in payload["recommendations"]:
+        recommendation["counter_evidence"] = (
+            [
+                {
+                    "dimension": "region",
+                    "user_value": "中国",
+                    "candidate_value": "中国",
+                }
+            ]
+            if include_counter
+            else []
+        )
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _orchestrator(
     plugin,
     outputs,
@@ -543,6 +562,7 @@ def test_run_history_aggregates_actual_agent_model_provenance():
             "model": "gpt-5.1",
             "source": "agent_tokens",
             "model_call_count": 2,
+            "repair_count": 1,
             "base_url": "must-not-persist",
         },
     )
@@ -555,6 +575,7 @@ def test_run_history_aggregates_actual_agent_model_provenance():
             "model": "system-gpt",
             "source": "moviepilot_system",
             "model_call_count": 3,
+            "repair_count": 2,
             "api_key": "must-not-persist",
         },
     )
@@ -572,6 +593,9 @@ def test_run_history_aggregates_actual_agent_model_provenance():
     assert metrics["model_call_count"] == 5
     assert metrics["profile_model_call_count"] == 2
     assert metrics["ranking_model_call_count"] == 3
+    assert metrics["agent_repair_count"] == 3
+    assert metrics["profile_repair_count"] == 1
+    assert metrics["ranking_repair_count"] == 2
     assert [item["role"] for item in metrics["agent_provenance"]] == [
         "profile",
         "ranking",
@@ -2337,6 +2361,43 @@ def test_preliminary_partition_covers_ten_to_fifteen_candidates_once():
         }
 
 
+def test_judgment_cache_key_invalidates_every_judgment_input_dimension():
+    """画像、候选、策略、权重或协议变化都会生成新的判断卡键。"""
+    candidates = FakeCandidateService(15).candidates
+
+    def keys(
+        values,
+        profile_fingerprint="profile-v1",
+        retrieval_fingerprint="retrieval-v1",
+        weights_fingerprint="weights-v1",
+    ):
+        """返回当前输入生成的三个批次幂等键。"""
+        return tuple(
+            batch.idempotency_key
+            for batch in tournament_module.partition_preliminary_batches(
+                values,
+                profile_fingerprint,
+                retrieval_fingerprint,
+                weights_fingerprint,
+            )
+        )
+
+    baseline = keys(candidates)
+    changed_candidates = FakeCandidateService(15).candidates
+    changed_candidates[0].title = "Changed title"
+    assert keys(candidates, profile_fingerprint="profile-v2") != baseline
+    assert keys(changed_candidates) != baseline
+    assert keys(candidates, retrieval_fingerprint="retrieval-v2") != baseline
+    assert keys(candidates, weights_fingerprint="weights-v2") != baseline
+
+    protocol_version = tournament_module.JUDGMENT_PROTOCOL_VERSION
+    try:
+        tournament_module.JUDGMENT_PROTOCOL_VERSION = protocol_version + 1
+        assert keys(candidates) != baseline
+    finally:
+        tournament_module.JUDGMENT_PROTOCOL_VERSION = protocol_version
+
+
 def test_fifteen_candidate_tournament_is_parallel_and_preserves_final_order():
     """15 条并行初赛汇入六人决赛，最终 Top 5 严格保留 Agent 顺序。"""
     orchestrator, repository, _, agent = _tournament_orchestrator(FakePlugin())
@@ -2405,6 +2466,128 @@ def test_failed_batch_uses_safe_fill_then_only_that_batch_retries_next_run():
         "agent",
         "cache_hit",
     ]
+
+
+def test_judgment_checkpoints_never_cross_profile_scope():
+    """相同候选和策略在不同画像下仍分别调用初赛 Agent。"""
+    other_profile_id = "emby:home:user-2"
+    config = _config()
+    config["emby_identities"] = [
+        *config["emby_identities"],
+        {
+            "server_name": "home",
+            "user_id": "user-2",
+            "username": "Bob",
+            "profile_id": other_profile_id,
+            "schema_version": 1,
+        },
+    ]
+    agent = FakeTournamentAgentAdapter()
+    run_ids = iter(("run-profile-1", "run-profile-2"))
+    orchestrator, _, _, _ = _tournament_orchestrator(
+        FakePlugin(),
+        agent=agent,
+        run_id_factory=lambda: next(run_ids),
+    )
+
+    first = asyncio.run(orchestrator.run(PROFILE_ID, config))
+    second = asyncio.run(orchestrator.run(other_profile_id, config))
+
+    assert [first.status, second.status] == ["success", "success"]
+    assert len(agent.preliminary_calls) == 6
+
+
+def test_cached_judgments_rebuild_same_final_input_but_final_runs_again():
+    """全部初赛命中时复建同一决赛输入，但不缓存自由文本决赛输出。"""
+    plugin = FakePlugin()
+    agent = FakeTournamentAgentAdapter()
+    run_ids = iter(("run-cache-1", "run-cache-2"))
+    orchestrator, repository, _, _ = _tournament_orchestrator(
+        plugin,
+        agent=agent,
+        run_id_factory=lambda: next(run_ids),
+    )
+
+    first = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+    second = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert [first.status, second.status] == ["success", "success"]
+    assert len(agent.preliminary_calls) == 3
+    assert len(agent.final_calls) == 2
+    assert agent.final_calls[0][1].candidates == agent.final_calls[1][1].candidates
+    assert (
+        agent.final_calls[0][1].judgment_cards
+        == agent.final_calls[1][1].judgment_cards
+    )
+    histories = repository.load_run_history(PROFILE_ID)
+    current_metrics = histories[0].metrics
+    previous_metrics = histories[1].metrics
+    assert current_metrics["judgment_card_cache_hit_count"] == 3
+    assert current_metrics["final_input_source"] == "cached_judgments"
+    assert (
+        current_metrics["final_input_fingerprint"]
+        == previous_metrics["final_input_fingerprint"]
+    )
+    assert current_metrics["final_agent_calls"] == 1
+
+
+def test_final_rejects_missing_counter_evidence_when_counter_signal_exists():
+    """受信数据存在主要反证时，决赛遗漏反证会被拒绝并安全降级。"""
+    plugin = FakePlugin()
+    ordered_ids = ["tmdb:12", "tmdb:11", "tmdb:7", "tmdb:6", "tmdb:2"]
+    missing_counter = _agent_output_with_counter_evidence(
+        ordered_ids,
+        include_counter=False,
+    )
+    agent = FakeTournamentAgentAdapter(
+        final_outputs=[missing_counter, missing_counter]
+    )
+    orchestrator, repository, _, _ = _tournament_orchestrator(
+        plugin,
+        agent=agent,
+    )
+    repository.save_profile_preferences(
+        ProfilePreferences(
+            profile_id=PROFILE_ID,
+            custom_negative_tags=["中国"],
+        )
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "recommendation_degraded"
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["final_status"] == "failed"
+    assert history.metrics["ranking_fallback_reason"] == "final_validation_failed"
+
+
+def test_final_accepts_verified_counter_evidence_when_counter_signal_exists():
+    """决赛提交可验证反证后仍保留 Agent Top 5 顺序并正常完成。"""
+    plugin = FakePlugin()
+    ordered_ids = ["tmdb:12", "tmdb:11", "tmdb:7", "tmdb:6", "tmdb:2"]
+    agent = FakeTournamentAgentAdapter(
+        final_outputs=[
+            _agent_output_with_counter_evidence(
+                ordered_ids,
+                include_counter=True,
+            )
+        ]
+    )
+    orchestrator, repository, _, _ = _tournament_orchestrator(
+        plugin,
+        agent=agent,
+    )
+    repository.save_profile_preferences(
+        ProfilePreferences(
+            profile_id=PROFILE_ID,
+            custom_negative_tags=["中国"],
+        )
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert [item.candidate_id for item in result.board.recommendations] == ordered_ids
 
 
 def test_final_failure_retries_only_final_then_builds_safe_board():

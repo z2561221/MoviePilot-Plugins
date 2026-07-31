@@ -66,6 +66,7 @@ class JudgmentBatchCheckpoint:
     idempotency_key: str
     profile_fingerprint: str
     retrieval_fingerprint: str
+    weights_fingerprint: str
     candidate_fingerprint: str
     judgments: List[PreliminaryJudgment]
     protocol_version: int = JUDGMENT_PROTOCOL_VERSION
@@ -79,6 +80,7 @@ class JudgmentBatchCheckpoint:
             "idempotency_key",
             "profile_fingerprint",
             "retrieval_fingerprint",
+            "weights_fingerprint",
             "candidate_fingerprint",
         ):
             if not str(getattr(self, field_name) or "").strip():
@@ -101,6 +103,7 @@ class JudgmentBatchCheckpoint:
             "idempotency_key": self.idempotency_key,
             "profile_fingerprint": self.profile_fingerprint,
             "retrieval_fingerprint": self.retrieval_fingerprint,
+            "weights_fingerprint": self.weights_fingerprint,
             "candidate_fingerprint": self.candidate_fingerprint,
             "judgments": [item.to_dict() for item in self.judgments],
             "protocol_version": self.protocol_version,
@@ -126,6 +129,7 @@ class JudgmentBatchCheckpoint:
             idempotency_key=str(value.get("idempotency_key") or ""),
             profile_fingerprint=str(value.get("profile_fingerprint") or ""),
             retrieval_fingerprint=str(value.get("retrieval_fingerprint") or ""),
+            weights_fingerprint=str(value.get("weights_fingerprint") or ""),
             candidate_fingerprint=str(value.get("candidate_fingerprint") or ""),
             judgments=[
                 PreliminaryJudgment.from_dict(item)

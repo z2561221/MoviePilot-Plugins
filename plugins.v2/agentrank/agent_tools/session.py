@@ -31,6 +31,7 @@ class SubmissionIssue:
     field: str
 
     def to_dict(self) -> Dict[str, str]:
+        """返回可安全反馈给当前 Agent 的错误字段。"""
         return {"code": self.code, "field": self.field}
 
 
@@ -46,6 +47,7 @@ class AgentRankSessionResultCollector:
     _allowed_candidate_ids: frozenset[str] = field(init=False)
 
     def __post_init__(self) -> None:
+        """按角色冻结允许提交的候选身份集合。"""
         candidates = list(self.trusted_context.candidates or ())
         if self.trusted_context.agent_role == PRELIMINARY_AGENT_ROLE:
             candidates = candidates[:5]
@@ -64,10 +66,12 @@ class AgentRankSessionResultCollector:
 
     @property
     def submitted(self) -> bool:
+        """判断当前会话是否已经接收合法终结结果。"""
         return self.payload is not None
 
     @property
     def can_repair(self) -> bool:
+        """判断当前会话是否仍允许一次有界修正。"""
         return not self.submitted and self.attempts < self.max_attempts
 
     def reject(self, code: str, field_name: str) -> SubmissionIssue:
@@ -83,6 +87,7 @@ class AgentRankSessionResultCollector:
 
     @staticmethod
     def _candidate_ids(payload: Mapping[str, Any], role: str) -> list[str]:
+        """提取当前角色提交载荷中的候选身份。"""
         key = "judgments" if role == PRELIMINARY_AGENT_ROLE else "recommendations"
         return [
             str(item.get("candidate_id") or "").strip()
