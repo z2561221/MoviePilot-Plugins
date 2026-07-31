@@ -183,13 +183,15 @@ def test_profile_prompt_uses_one_read_one_submit_without_repeating_schema():
 def test_preliminary_and_final_prompts_only_name_their_one_read_one_submit_tools():
     """初赛与决赛提示不重复候选数据或大段输出 schema。"""
     preliminary = build_preliminary_prompt()
-    final = build_final_prompt("文案克制")
+    final = build_final_prompt("文案克制", "相关性优先")
 
     assert preliminary.count("read_agentrank_batch_context") == 1
     assert preliminary.count("submit_agentrank_batch_result") == 1
     assert "每一条候选" in preliminary
     assert final.count("read_agentrank_final_context") == 1
     assert final.count("submit_agentrank_final_board") == 1
+    assert "排序要求：相关性优先" in final
+    assert "文案要求：文案克制" in final
     assert "文案要求：文案克制" in final
     for prompt in (preliminary, final):
         assert "candidate_id\"" not in prompt

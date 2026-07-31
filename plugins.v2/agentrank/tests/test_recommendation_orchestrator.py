@@ -210,6 +210,90 @@ class FakeAgentAdapter:
         return await self.run_ranking(prompt, trusted_context)
 
 
+class FakeTournamentAgentAdapter(FakeAgentAdapter):
+    """模拟支持独立初赛、决赛与批次失败的生产适配器。"""
+
+    def __init__(self, preliminary_failures=None, final_outputs=None):
+        """初始化按批次消费的失败队列和可选决赛输出。"""
+        super().__init__([])
+        self.preliminary_failures = {
+            str(batch_id): list(values)
+            for batch_id, values in dict(preliminary_failures or {}).items()
+        }
+        self.final_outputs = list(final_outputs or ())
+        self.preliminary_calls = []
+        self.final_calls = []
+        self.preliminary_active = 0
+        self.preliminary_max_active = 0
+
+    @staticmethod
+    def _batch_id(trusted_context):
+        """从隔离会话 ID 取出稳定的初赛批次 ID。"""
+        marker = trusted_context.run_id.rfind("batch-")
+        return trusted_context.run_id[marker:] if marker >= 0 else ""
+
+    @staticmethod
+    def _preliminary_output(trusted_context):
+        """为当前批次生成覆盖全部候选的严格判断卡。"""
+        quota = int(trusted_context.submission_constraints["advance_quota"])
+        return json.dumps(
+            {
+                "judgments": [
+                    {
+                        "candidate_id": item["candidate_id"],
+                        "fit_score": 100 - index,
+                        "positive_evidence": [
+                            {
+                                "dimension": "type",
+                                "user_value": "movie",
+                                "candidate_value": "movie",
+                            },
+                            {
+                                "dimension": "theme",
+                                "user_value": "悬疑",
+                                "candidate_value": "悬疑",
+                            },
+                        ],
+                        "counter_evidence": None,
+                        "advance": index < quota,
+                    }
+                    for index, item in enumerate(trusted_context.candidates)
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+    async def run_preliminary(self, prompt, trusted_context):
+        """记录并发状态，按需让一个批次失败或返回完整判断卡。"""
+        batch_id = self._batch_id(trusted_context)
+        self.calls.append(("preliminary", prompt, trusted_context))
+        self.preliminary_calls.append((batch_id, prompt, trusted_context))
+        self.preliminary_active += 1
+        self.preliminary_max_active = max(
+            self.preliminary_max_active,
+            self.preliminary_active,
+        )
+        try:
+            await asyncio.sleep(0.01)
+            queue = self.preliminary_failures.get(batch_id) or []
+            if queue:
+                return self._result(queue.pop(0))
+            return self._preliminary_output(trusted_context)
+        finally:
+            self.preliminary_active -= 1
+
+    async def run_final(self, prompt, trusted_context):
+        """按队列返回决赛失败，默认逆序提交以验证 Agent 顺序。"""
+        self.calls.append(("final", prompt, trusted_context))
+        self.final_calls.append((prompt, trusted_context))
+        if self.final_outputs:
+            return self._result(self.final_outputs.pop(0))
+        candidate_ids = [
+            item["candidate_id"] for item in trusted_context.candidates
+        ]
+        return _agent_output(list(reversed(candidate_ids))[:5])
+
+
 class ProvenanceText(str):
     """模拟字符串兼容且携带模型溯源的适配器结果。"""
 
@@ -325,6 +409,27 @@ def _config():
         "profile_cache_enabled": True,
         "rebuild_profile_each_run": False,
     }
+
+
+def _tournament_orchestrator(
+    plugin,
+    *,
+    candidate_count=15,
+    agent=None,
+    run_id_factory=None,
+):
+    """构建启用初赛和决赛协议的测试编排器。"""
+    repository = AgentRankRepository(plugin)
+    candidate_service = FakeCandidateService(candidate_count)
+    tournament_agent = agent or FakeTournamentAgentAdapter()
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=candidate_service,
+        agent_adapter=tournament_agent,
+        run_id_factory=run_id_factory or (lambda: "run-tournament"),
+        playback_service=FakePlaybackService(),
+    )
+    return orchestrator, repository, candidate_service, tournament_agent
 
 
 def test_success_atomically_saves_profile_board_and_run_history():
@@ -2200,3 +2305,137 @@ def test_different_profiles_can_enter_profile_stage_concurrently():
 
     assert [result.status for result in results] == ["success", "success"]
     assert len(agent.profile_calls) == 2
+
+
+def test_preliminary_partition_covers_ten_to_fifteen_candidates_once():
+    """10 条分两组，11-15 条分三组，且每条候选只出现一次。"""
+    expected = {
+        10: ([5, 5], [3, 3]),
+        11: ([4, 4, 3], [2, 2, 2]),
+        12: ([4, 4, 4], [2, 2, 2]),
+        13: ([5, 4, 4], [2, 2, 2]),
+        14: ([5, 5, 4], [2, 2, 2]),
+        15: ([5, 5, 5], [2, 2, 2]),
+    }
+    for count, (sizes, quotas) in expected.items():
+        candidates = FakeCandidateService(count).candidates
+        batches = orchestrator_module.partition_preliminary_batches(
+            candidates,
+            "a" * 64,
+            "b" * 64,
+        )
+        processed_ids = [
+            candidate.candidate_id
+            for batch in batches
+            for candidate in batch.candidates
+        ]
+        assert [len(batch.candidates) for batch in batches] == sizes
+        assert [batch.advance_quota for batch in batches] == quotas
+        assert len(processed_ids) == len(set(processed_ids)) == count
+        assert set(processed_ids) == {
+            candidate.candidate_id for candidate in candidates
+        }
+
+
+def test_fifteen_candidate_tournament_is_parallel_and_preserves_final_order():
+    """15 条并行初赛汇入六人决赛，最终 Top 5 严格保留 Agent 顺序。"""
+    orchestrator, repository, _, agent = _tournament_orchestrator(FakePlugin())
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert [
+        len(call[2].candidates) for call in agent.preliminary_calls
+    ] == [5, 5, 5]
+    assert [
+        call[2].submission_constraints["advance_quota"]
+        for call in agent.preliminary_calls
+    ] == [2, 2, 2]
+    assert agent.preliminary_max_active == 3
+    final_context = agent.final_calls[0][1]
+    assert len(final_context.candidates) == 6
+    expected_order = [
+        item["candidate_id"]
+        for item in reversed(final_context.candidates)
+    ][:5]
+    board = repository.load_board(PROFILE_ID)
+    assert [item.candidate_id for item in board.recommendations] == expected_order
+    assert [item.rank for item in board.recommendations] == [1, 2, 3, 4, 5]
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert len(history.metrics["candidate_preliminary_status"]) == 15
+    assert history.metrics["preliminary_candidate_count"] == 15
+    assert history.metrics["finalist_count"] == 6
+    assert history.metrics["final_status"] == "success"
+
+
+def test_failed_batch_uses_safe_fill_then_only_that_batch_retries_next_run():
+    """无检查点批次安全补位，下一轮只重跑失败批次并复用成功检查点。"""
+    plugin = FakePlugin()
+    agent = FakeTournamentAgentAdapter(
+        preliminary_failures={"batch-2": [RuntimeError("batch offline")]}
+    )
+    run_ids = iter(("run-tournament-1", "run-tournament-2"))
+    orchestrator, repository, _, _ = _tournament_orchestrator(
+        plugin,
+        agent=agent,
+        run_id_factory=lambda: next(run_ids),
+    )
+
+    first = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+    first_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    second = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+    second_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+
+    assert first.status == "success"
+    assert first_metrics["preliminary_failed_count"] == 1
+    assert first_metrics["preliminary_safe_fill_count"] == 2
+    assert first_metrics["finalist_count"] == 6
+    assert second.status == "success"
+    assert [call[0] for call in agent.preliminary_calls] == [
+        "batch-1",
+        "batch-2",
+        "batch-3",
+        "batch-2",
+    ]
+    assert second_metrics["preliminary_cache_hit_count"] == 2
+    assert second_metrics["preliminary_failed_count"] == 0
+    assert second_metrics["preliminary_safe_fill_count"] == 0
+    assert [item["status"] for item in second_metrics["preliminary_batch_statuses"]] == [
+        "cache_hit",
+        "agent",
+        "cache_hit",
+    ]
+
+
+def test_final_failure_retries_only_final_then_builds_safe_board():
+    """决赛连续失败只重试决赛，不重建画像、候选或初赛。"""
+    agent = FakeTournamentAgentAdapter(
+        final_outputs=[RuntimeError("final offline"), RuntimeError("final offline")]
+    )
+    orchestrator, repository, candidate_service, _ = _tournament_orchestrator(
+        FakePlugin(),
+        agent=agent,
+    )
+    collect_calls = 0
+    original_collect = candidate_service.collect_and_freeze
+
+    def counted_collect(*args, **kwargs):
+        """统计候选冻结调用，验证决赛重试不回退整轮。"""
+        nonlocal collect_calls
+        collect_calls += 1
+        return original_collect(*args, **kwargs)
+
+    candidate_service.collect_and_freeze = counted_collect
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "recommendation_degraded"
+    assert collect_calls == 1
+    assert len(agent.profile_calls) == 1
+    assert len(agent.preliminary_calls) == 3
+    assert len(agent.final_calls) == 2
+    assert len(result.board.recommendations) == 5
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["final_retry_count"] == 1
+    assert history.metrics["final_status"] == "failed"
+    assert history.metrics["ranking_fallback_reason"] == "final_agent_failed"

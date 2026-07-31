@@ -315,6 +315,19 @@ class ReadAgentRankBatchContextTool(_ReadAgentRankTool):
             ][:5],
             "profile": _minimal_profile(to_jsonable(trusted_context.profile) or {}),
             **_minimal_weights(to_jsonable(trusted_context.weights) or {}),
+            "advance_quota": max(
+                1,
+                min(
+                    3,
+                    int(
+                        (
+                            to_jsonable(trusted_context.submission_constraints)
+                            or {}
+                        ).get("advance_quota")
+                        or 3
+                    ),
+                ),
+            ),
         }
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 

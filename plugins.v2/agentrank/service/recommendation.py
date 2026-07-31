@@ -10,17 +10,21 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Mapping, Optional, Set
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from ..agent_tools.context import (
+    FINAL_AGENT_ROLE,
+    PRELIMINARY_AGENT_ROLE,
     PROFILE_AGENT_ROLE,
     RANKING_AGENT_ROLE,
     build_trusted_context,
 )
+from ..agent_tools.schemas import SubmitBatchResultInput
 from ..model.candidate import typed_tmdb_candidate_id
 from ..model.config import configured_identities
 from ..model.constants import RANKING_OUTPUT_LIMIT, RECOMMENDATION_LIMIT
 from ..model.board import RecommendationBoard, RecommendationItem
+from ..model.judgment import JudgmentBatchCheckpoint, PreliminaryJudgment
 from ..model.profile import (
     PROFILE_SCHEMA_VERSION,
     RETRIEVAL_RESOLUTION_VERSION,
@@ -30,9 +34,12 @@ from ..model.retrieval import RetrievalPlan
 from ..model.run import RecommendationRun
 from ..model.policy import PolicySnapshot
 from ..storage.repository import AgentRankRepository
+from ..storage.judgment import JudgmentCheckpointStore
 from .prompt import (
     DEFAULT_PROFILE_PROMPT,
     build_profile_prompt,
+    build_preliminary_prompt,
+    build_final_prompt,
     build_ranking_prompt,
     build_refill_prompt,
 )
@@ -43,6 +50,12 @@ from .keyword_resolution import (
 )
 from .feedback_action import FeedbackActionService
 from .scoring import DeterministicSupportScorer, StableRecommendationRanker
+from .tournament import (
+    PreliminaryBatch,
+    PreliminaryBatchResult,
+    partition_preliminary_batches,
+    retrieval_fingerprint,
+)
 from .validation import (
     AgentOutputError,
     COPY_REWRITE_REASON_CODES,
@@ -87,6 +100,17 @@ class RecommendationRunResult:
     board: Optional[RecommendationBoard] = None
 
 
+@dataclass
+class TournamentOutcome:
+    """汇总初赛、决赛及安全补位边界。"""
+
+    validation: Any = None
+    agent_order: Dict[str, int] = None
+    fallback_reason: str = ""
+    errors: List[str] = None
+    prompt_fingerprint_source: str = ""
+
+
 class RecommendationOrchestrator:
     """串联输入、候选、受限 Agent、校验、补选与原子保存。"""
 
@@ -107,6 +131,8 @@ class RecommendationOrchestrator:
         ranker: Any = None,
         analysis_builder: Any = None,
         progress_callback: Callable[[Mapping[str, Any]], Any] = None,
+        judgment_store: Any = None,
+        support_scorer: Any = None,
     ):
         """注入可测试的领域依赖并初始化用户锁集合。"""
         self._repository = repository
@@ -129,6 +155,8 @@ class RecommendationOrchestrator:
         self._policy_service = policy_service
         self._ranker = ranker or StableRecommendationRanker()
         self._analysis_builder = analysis_builder or RecommendationAnalysisBuilder()
+        self._judgment_store = judgment_store or JudgmentCheckpointStore(repository)
+        self._support_scorer = support_scorer or DeterministicSupportScorer()
         self._progress_callback = progress_callback
         self._retrieval_plan_resolver = (
             retrieval_plan_resolver or ControlledRetrievalPlanResolver()
@@ -158,9 +186,12 @@ class RecommendationOrchestrator:
         """调用指定角色 Agent，并拒绝跨角色上下文。"""
         if trusted_context.agent_role != role:
             raise ValueError("AgentRank role and trusted context do not match")
-        method_name = (
-            "run_profile" if role == PROFILE_AGENT_ROLE else "run_ranking"
-        )
+        method_name = {
+            PROFILE_AGENT_ROLE: "run_profile",
+            RANKING_AGENT_ROLE: "run_ranking",
+            PRELIMINARY_AGENT_ROLE: "run_preliminary",
+            FINAL_AGENT_ROLE: "run_final",
+        }.get(role, "run")
         method = getattr(self.agent_adapter, method_name, None)
         if callable(method):
             return await method(prompt, trusted_context)
@@ -603,6 +634,457 @@ class RecommendationOrchestrator:
             message=message,
             agent_calls=agent_calls,
             board=old_board,
+        )
+
+    def _uses_tournament_protocol(self) -> bool:
+        """生产适配器必须同时实现初赛和决赛终结角色。"""
+        return all(
+            callable(getattr(self.agent_adapter, name, None))
+            for name in ("run_preliminary", "run_final")
+        )
+
+    def _rank_final_items(
+        self,
+        items: List[RecommendationItem],
+        candidates: List[Any],
+        agent_order: Mapping[str, int],
+        *,
+        preserve_agent_order: bool,
+    ) -> List[RecommendationItem]:
+        """保留有效决赛顺序，并只对安全补位项做确定性排序。"""
+        values = list(items or ())
+        trusted_order = {
+            str(candidate_id): int(index)
+            for candidate_id, index in dict(agent_order or {}).items()
+        }
+        if not preserve_agent_order or not trusted_order:
+            return self._ranker.rank(values, candidates, agent_order=trusted_order)
+        agent_items = [
+            item for item in values if item.candidate_id in trusted_order
+        ]
+        agent_items.sort(key=lambda item: trusted_order[item.candidate_id])
+        fallback_items = [
+            item for item in values if item.candidate_id not in trusted_order
+        ]
+        if fallback_items:
+            fallback_items = self._ranker.rank(fallback_items, candidates)
+        ranked = [*agent_items, *fallback_items]
+        for index, item in enumerate(ranked, start=1):
+            item.rank = index
+        return ranked
+
+    async def _run_preliminary_batch(
+        self,
+        *,
+        profile_id: str,
+        run_id: str,
+        username: str,
+        batch: PreliminaryBatch,
+        profile_fingerprint: str,
+        retrieval_plan_fingerprint: str,
+        ranking_profile: Mapping[str, Any],
+        trusted_weights: Mapping[str, Any],
+        metrics: Dict[str, Any],
+    ) -> PreliminaryBatchResult:
+        """运行一个初赛批次，成功即持久化，失败后只读同指纹检查点。"""
+        cached = self._judgment_store.load(profile_id, batch.idempotency_key)
+        if cached is not None:
+            return PreliminaryBatchResult(
+                batch=batch,
+                status="cache_hit",
+                judgments=list(cached.judgments),
+            )
+        context = build_trusted_context(
+            username=username,
+            run_id=f"{run_id}-{batch.batch_id}",
+            candidates=[item.to_dict() for item in batch.candidates],
+            archive_feedback={"entries": []},
+            weights=trusted_weights,
+            profile=ranking_profile,
+            agent_role=PRELIMINARY_AGENT_ROLE,
+            submission_constraints={"advance_quota": batch.advance_quota},
+        )
+        call_entry: Optional[Dict[str, Any]] = None
+        stage_clock = time.monotonic()
+        metrics["agent_calls"] = int(metrics.get("agent_calls", 0) or 0) + 1
+        metrics["preliminary_agent_calls"] = int(
+            metrics.get("preliminary_agent_calls", 0) or 0
+        ) + 1
+        try:
+            raw = await self._run_agent_role(
+                PRELIMINARY_AGENT_ROLE,
+                build_preliminary_prompt(),
+                context,
+            )
+            duration_ms = max(0, int((time.monotonic() - stage_clock) * 1000))
+            metrics["agent_ms"] = int(metrics.get("agent_ms", 0) or 0) + duration_ms
+            call_entry = self._record_agent_provenance(
+                metrics,
+                PRELIMINARY_AGENT_ROLE,
+                raw,
+                stage=batch.batch_id,
+                attempt=1,
+                duration_ms=duration_ms,
+            )
+            parsed = SubmitBatchResultInput.model_validate_json(str(raw))
+            judgments = [
+                PreliminaryJudgment.from_dict(item.model_dump(mode="json"))
+                for item in parsed.judgments
+            ]
+            expected_ids = {
+                str(item.candidate_id) for item in batch.candidates
+            }
+            actual_ids = [item.candidate_id for item in judgments]
+            if len(actual_ids) != len(set(actual_ids)) or set(actual_ids) != expected_ids:
+                raise AgentOutputError(
+                    "preliminary judgments must cover the exact batch candidate set"
+                )
+            if sum(item.advance for item in judgments) > batch.advance_quota:
+                raise AgentOutputError("preliminary advance quota exceeded")
+            checkpoint = JudgmentBatchCheckpoint(
+                profile_id=profile_id,
+                batch_id=batch.batch_id,
+                idempotency_key=batch.idempotency_key,
+                profile_fingerprint=profile_fingerprint,
+                retrieval_fingerprint=retrieval_plan_fingerprint,
+                candidate_fingerprint=batch.candidate_fingerprint,
+                judgments=judgments,
+            )
+            saved = self._judgment_store.save(checkpoint)
+            self._finish_agent_provenance(call_entry, "completed")
+            return PreliminaryBatchResult(
+                batch=batch,
+                status="agent",
+                judgments=list(saved.judgments),
+            )
+        except Exception as error:
+            duration_ms = max(0, int((time.monotonic() - stage_clock) * 1000))
+            if call_entry is None:
+                call_entry = self._record_agent_provenance(
+                    metrics,
+                    PRELIMINARY_AGENT_ROLE,
+                    error,
+                    stage=batch.batch_id,
+                    attempt=1,
+                    duration_ms=duration_ms,
+                )
+                metrics["agent_ms"] = int(metrics.get("agent_ms", 0) or 0) + duration_ms
+            self._finish_agent_provenance(call_entry, "failed", error)
+            cached = self._judgment_store.load(profile_id, batch.idempotency_key)
+            if cached is not None:
+                return PreliminaryBatchResult(
+                    batch=batch,
+                    status="cache_recovered",
+                    judgments=list(cached.judgments),
+                    error=_safe_agent_failure_reason(error),
+                )
+            return PreliminaryBatchResult(
+                batch=batch,
+                status="failed",
+                error=_safe_agent_failure_reason(error),
+            )
+
+    def _support_fill_candidates(
+        self,
+        candidates: List[Any],
+        quota: int,
+        *,
+        policy_snapshot: PolicySnapshot,
+        confirmed_memory: Any,
+        profile_preferences: Any,
+        playback_snapshot: Any,
+        errors: List[str],
+    ) -> List[Tuple[Any, int]]:
+        """只为失败批次补决赛席位，不决定最终 Top 5 顺序。"""
+        scored: List[Tuple[int, int, Any, int]] = []
+        for index, candidate in enumerate(candidates):
+            try:
+                result = self._support_scorer.score_candidate(
+                    candidate,
+                    policy_snapshot,
+                    (),
+                    (),
+                    confirmed_memory,
+                    profile_preferences,
+                    playback_snapshot,
+                )
+                net_units = int(result.score.net_units)
+                percentage = int(result.score.percentage)
+            except Exception as error:
+                errors.append(
+                    f"preliminary safe fill {candidate.candidate_id}: "
+                    f"{_safe_agent_failure_reason(error)}"
+                )
+                net_units = -(10**18)
+                percentage = 0
+            scored.append((net_units, -index, candidate, percentage))
+        scored.sort(key=lambda item: (-item[0], -item[1], item[2].candidate_id))
+        return [
+            (candidate, max(0, min(100, percentage)))
+            for _, _, candidate, percentage in scored[: max(0, int(quota))]
+        ]
+
+    async def _run_tournament(
+        self,
+        *,
+        profile_id: str,
+        run_id: str,
+        username: str,
+        candidates: List[Any],
+        current_profile: UserProfile,
+        ranking_profile: Mapping[str, Any],
+        trusted_weights: Mapping[str, Any],
+        policy_snapshot: PolicySnapshot,
+        confirmed_memory: Any,
+        profile_preferences: Any,
+        playback_snapshot: Any,
+        archived_ids: Set[str],
+        disliked_ids: Set[str],
+        subscribed_ids: Set[str],
+        config: Mapping[str, Any],
+        metrics: Dict[str, Any],
+    ) -> TournamentOutcome:
+        """并行初赛、批次恢复、席位补齐和独立决赛。"""
+        profile_fingerprint = str(current_profile.profile_input_fingerprint or "")
+        if not profile_fingerprint:
+            profile_fingerprint = hashlib.sha256(
+                json.dumps(
+                    current_profile.to_dict(),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+        retrieval_plan_fingerprint = retrieval_fingerprint(current_profile)
+        batches = partition_preliminary_batches(
+            candidates,
+            profile_fingerprint,
+            retrieval_plan_fingerprint,
+        )
+        metrics["preliminary_batch_count"] = len(batches)
+        metrics["preliminary_candidate_count"] = len(candidates)
+        stage_clock = time.monotonic()
+        results = await asyncio.gather(
+            *[
+                self._run_preliminary_batch(
+                    profile_id=profile_id,
+                    run_id=run_id,
+                    username=username,
+                    batch=batch,
+                    profile_fingerprint=profile_fingerprint,
+                    retrieval_plan_fingerprint=retrieval_plan_fingerprint,
+                    ranking_profile=ranking_profile,
+                    trusted_weights=trusted_weights,
+                    metrics=metrics,
+                )
+                for batch in batches
+            ]
+        )
+        metrics["preliminary_ms"] = max(
+            0, int((time.monotonic() - stage_clock) * 1000)
+        )
+        results.sort(key=lambda item: item.batch.index)
+        metrics["preliminary_batch_statuses"] = [
+            {
+                "batch_id": item.batch.batch_id,
+                "status": item.status,
+                "candidate_count": len(item.batch.candidates),
+            }
+            for item in results
+        ]
+        metrics["preliminary_cache_hit_count"] = sum(
+            item.status in {"cache_hit", "cache_recovered"} for item in results
+        )
+        metrics["preliminary_failed_count"] = sum(
+            item.status == "failed" for item in results
+        )
+
+        finalist_pairs: List[Tuple[Any, Dict[str, Any]]] = []
+        processing: Dict[str, Dict[str, Any]] = {}
+        tournament_errors: List[str] = []
+        safe_fill_count = 0
+        for result in results:
+            candidate_by_id = {
+                item.candidate_id: item for item in result.batch.candidates
+            }
+            if result.judgments:
+                indexed = list(enumerate(result.judgments))
+                indexed.sort(
+                    key=lambda item: (
+                        not item[1].advance,
+                        -item[1].fit_score,
+                        item[0],
+                    )
+                )
+                selected = indexed[: result.batch.advance_quota]
+                selected_ids = {item.candidate_id for _, item in selected}
+                for judgment in result.judgments:
+                    processing[judgment.candidate_id] = {
+                        "batch_id": result.batch.batch_id,
+                        "status": result.status,
+                        "selected": judgment.candidate_id in selected_ids,
+                    }
+                for _, judgment in selected:
+                    finalist_pairs.append(
+                        (candidate_by_id[judgment.candidate_id], judgment.to_dict())
+                    )
+            else:
+                if result.error:
+                    tournament_errors.append(
+                        f"{result.batch.batch_id}: {result.error}"
+                    )
+                filled = self._support_fill_candidates(
+                    result.batch.candidates,
+                    result.batch.advance_quota,
+                    policy_snapshot=policy_snapshot,
+                    confirmed_memory=confirmed_memory,
+                    profile_preferences=profile_preferences,
+                    playback_snapshot=playback_snapshot,
+                    errors=tournament_errors,
+                )
+                filled_ids = {candidate.candidate_id for candidate, _ in filled}
+                safe_fill_count += len(filled)
+                for candidate in result.batch.candidates:
+                    processing[candidate.candidate_id] = {
+                        "batch_id": result.batch.batch_id,
+                        "status": "failed",
+                        "selected": candidate.candidate_id in filled_ids,
+                    }
+                for candidate, percentage in filled:
+                    finalist_pairs.append(
+                        (
+                            candidate,
+                            {
+                                "candidate_id": candidate.candidate_id,
+                                "fit_score": percentage,
+                                "positive_evidence": [],
+                                "counter_evidence": None,
+                                "advance": True,
+                                "source": "safe_fill",
+                            },
+                        )
+                    )
+        finalist_pairs = finalist_pairs[:6]
+        finalists = [candidate for candidate, _ in finalist_pairs]
+        judgment_cards = [card for _, card in finalist_pairs]
+        metrics["candidate_preliminary_status"] = processing
+        metrics["preliminary_safe_fill_count"] = safe_fill_count
+        metrics["finalist_count"] = len(finalists)
+        if len(processing) != len(candidates):
+            raise RuntimeError("preliminary processing coverage is incomplete")
+
+        final_context = build_trusted_context(
+            username=username,
+            run_id=f"{run_id}-final",
+            candidates=[item.to_dict() for item in finalists],
+            archive_feedback={"entries": []},
+            weights={},
+            profile=ranking_profile,
+            judgment_cards=judgment_cards,
+            agent_role=FINAL_AGENT_ROLE,
+            submission_constraints={"top_n": min(5, len(finalists))},
+        )
+        base_prompt = build_final_prompt(
+            copy_prompt=str(config.get("copy_prompt") or ""),
+            ranking_prompt=str(config.get("ranking_prompt") or ""),
+        )
+        expected_count = min(RECOMMENDATION_LIMIT, len(finalists))
+        last_reason = "final_agent_failed"
+        for attempt in range(2):
+            prompt = base_prompt
+            if attempt:
+                prompt += (
+                    "\nAGENTRANK_FINAL_RETRY code=final_validation_failed. "
+                    "只重做决赛并重新提交完整 Top 5。"
+                )
+                metrics["final_retry_count"] = int(
+                    metrics.get("final_retry_count", 0) or 0
+                ) + 1
+            stage_clock = time.monotonic()
+            metrics["agent_calls"] = int(metrics.get("agent_calls", 0) or 0) + 1
+            metrics["final_agent_calls"] = int(
+                metrics.get("final_agent_calls", 0) or 0
+            ) + 1
+            call_entry: Optional[Dict[str, Any]] = None
+            try:
+                raw = await self._run_agent_role(
+                    FINAL_AGENT_ROLE, prompt, final_context
+                )
+                duration_ms = max(
+                    0, int((time.monotonic() - stage_clock) * 1000)
+                )
+                metrics["agent_ms"] = int(metrics.get("agent_ms", 0) or 0) + duration_ms
+                call_entry = self._record_agent_provenance(
+                    metrics,
+                    FINAL_AGENT_ROLE,
+                    raw,
+                    stage="final",
+                    attempt=attempt + 1,
+                    duration_ms=duration_ms,
+                )
+                parsed = self._ranking_parser.parse(raw)
+                validation = self._validator.validate(
+                    parsed,
+                    finalists,
+                    archived_ids,
+                    subscribed_ids,
+                    preference_evidence=[
+                        *current_profile.tags,
+                        *current_profile.ranking_tags,
+                    ],
+                    playback_samples=playback_snapshot.samples,
+                    disliked_candidate_ids=disliked_ids,
+                    policy_snapshot=policy_snapshot,
+                    confirmed_memory=confirmed_memory,
+                    profile_preferences=profile_preferences,
+                    playback_snapshot=playback_snapshot,
+                )
+                if len(validation.accepted) != expected_count:
+                    raise AgentOutputError(
+                        "final board must contain the complete validated Top 5"
+                    )
+                self._finish_agent_provenance(call_entry, "completed")
+                metrics["final_status"] = "success"
+                return TournamentOutcome(
+                    validation=validation,
+                    agent_order={
+                        item.candidate_id: index
+                        for index, item in enumerate(validation.accepted)
+                    },
+                    fallback_reason="",
+                    errors=tournament_errors,
+                    prompt_fingerprint_source=base_prompt,
+                )
+            except Exception as error:
+                duration_ms = max(
+                    0, int((time.monotonic() - stage_clock) * 1000)
+                )
+                if call_entry is None:
+                    call_entry = self._record_agent_provenance(
+                        metrics,
+                        FINAL_AGENT_ROLE,
+                        error,
+                        stage="final",
+                        attempt=attempt + 1,
+                        duration_ms=duration_ms,
+                    )
+                    metrics["agent_ms"] = int(metrics.get("agent_ms", 0) or 0) + duration_ms
+                self._finish_agent_provenance(call_entry, "failed", error)
+                tournament_errors.append(
+                    f"final attempt {attempt + 1}: {_safe_agent_failure_reason(error)}"
+                )
+                last_reason = (
+                    "final_validation_failed"
+                    if isinstance(error, AgentOutputError)
+                    else "final_agent_failed"
+                )
+        metrics["final_status"] = "failed"
+        return TournamentOutcome(
+            validation=None,
+            agent_order={},
+            fallback_reason=last_reason,
+            errors=tournament_errors,
+            prompt_fingerprint_source=base_prompt,
         )
 
     async def run(
@@ -1294,18 +1776,19 @@ class RecommendationOrchestrator:
                     current_profile.negative_tags
                 )
             )
+            trusted_weights = self._trusted_weights(
+                config,
+                policy_snapshot,
+                confirmed_memory,
+                profile_preferences,
+                playback_snapshot,
+            )
             ranking_context = build_trusted_context(
                 username=username,
                 run_id=run_id,
                 candidates=[candidate.to_dict() for candidate in candidates],
                 archive_feedback=archive.to_dict(),
-                weights=self._trusted_weights(
-                    config,
-                    policy_snapshot,
-                    confirmed_memory,
-                    profile_preferences,
-                    playback_snapshot,
-                ),
+                weights=trusted_weights,
                 previous_profile=None,
                 profile_preferences=profile_preferences.to_dict(),
                 playback=playback_snapshot.to_dict(),
@@ -1327,7 +1810,37 @@ class RecommendationOrchestrator:
             ranking_attempt_errors: List[str] = []
             ranking_fallback_reason = ""
             ranking_fallback_errors: List[str] = []
-            for attempt in range(2):
+            tournament_protocol = self._uses_tournament_protocol()
+            if tournament_protocol:
+                tournament = await self._run_tournament(
+                    profile_id=target,
+                    run_id=run_id,
+                    username=username,
+                    candidates=candidates,
+                    current_profile=current_profile,
+                    ranking_profile=ranking_profile,
+                    trusted_weights=trusted_weights,
+                    policy_snapshot=policy_snapshot,
+                    confirmed_memory=confirmed_memory,
+                    profile_preferences=profile_preferences,
+                    playback_snapshot=playback_snapshot,
+                    archived_ids=archived_ids,
+                    disliked_ids=disliked_ids,
+                    subscribed_ids=subscribed_ids,
+                    config=config,
+                    metrics=metrics,
+                )
+                validation = tournament.validation
+                agent_order.update(tournament.agent_order or {})
+                ranking_fallback_reason = tournament.fallback_reason
+                ranking_fallback_errors.extend(tournament.errors or ())
+                analysis_prompt_fingerprint = (
+                    self._analysis_builder.prompt_fingerprint(
+                        tournament.prompt_fingerprint_source,
+                        "",
+                    )
+                )
+            for attempt in (() if tournament_protocol else range(2)):
                 prompt = base_ranking_prompt
                 if attempt:
                     prompt += (
@@ -1459,7 +1972,11 @@ class RecommendationOrchestrator:
                 copy_rewrite_candidate_ids
             )
 
-            if validation is not None and len(accepted) < RECOMMENDATION_LIMIT:
+            if (
+                not tournament_protocol
+                and validation is not None
+                and len(accepted) < RECOMMENDATION_LIMIT
+            ):
                 trusted_candidate_ids = {
                     candidate.candidate_id for candidate in candidates
                 }
@@ -1662,10 +2179,11 @@ class RecommendationOrchestrator:
                 )
 
             try:
-                accepted = self._ranker.rank(
+                accepted = self._rank_final_items(
                     accepted,
                     candidates,
                     agent_order=agent_order,
+                    preserve_agent_order=tournament_protocol,
                 )[:RECOMMENDATION_LIMIT]
             except Exception as error:
                 errors.append(f"stable ranking: {error}")
@@ -1783,10 +2301,11 @@ class RecommendationOrchestrator:
                             commit_fallback_items
                         )
                     try:
-                        accepted = self._ranker.rank(
+                        accepted = self._rank_final_items(
                             accepted,
                             candidates,
                             agent_order=agent_order,
+                            preserve_agent_order=tournament_protocol,
                         )[:RECOMMENDATION_LIMIT]
                     except Exception as error:
                         errors.append(f"commit stable ranking: {error}")

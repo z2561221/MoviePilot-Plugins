@@ -123,6 +123,23 @@ class AgentRankSessionResultCollector:
                     "missing_candidate", "judgments"
                 )
                 return self.last_issue
+            if self.trusted_context.agent_role == PRELIMINARY_AGENT_ROLE:
+                constraints = self.trusted_context.submission_constraints or {}
+                if constraints.get("advance_quota") is not None:
+                    quota = max(
+                        1,
+                        min(3, int(constraints.get("advance_quota") or 3)),
+                    )
+                    advance_count = sum(
+                        bool(item.get("advance"))
+                        for item in payload.get("judgments") or []
+                        if isinstance(item, Mapping)
+                    )
+                    if advance_count > quota:
+                        self.last_issue = SubmissionIssue(
+                            "advance_quota_exceeded", "judgments.advance"
+                        )
+                        return self.last_issue
         if self.trusted_context.agent_role == PROFILE_AGENT_ROLE:
             expected_count = int(
                 (self.trusted_context.playback or {}).get("sample_count") or 0
