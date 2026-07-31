@@ -2137,6 +2137,73 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(records[0]["title"], "测试电影")
         self.assertTrue(service.history_item_subscribed({"subscribed": True}))
 
+    def test_completed_subscription_history_blocks_cross_rank_auto_subscription(self):
+        """其他榜单已完成的同季订阅会阻止当前榜单再次自动订阅。"""
+        service = _import_service("subscription")
+        plugin = _Plugin()
+        mediainfo = _MediaInfo(title="野狗骨头", year="2026", mtype=_MediaType.TV, tmdb_id=291392)
+        meta = _MetaInfo("野狗骨头")
+        meta.type = _MediaType.TV
+        history_calls = []
+
+        class SubscribeChain:
+            def exists(self, mediainfo=None, meta=None):
+                return False
+
+            def add(self, **kwargs):
+                raise AssertionError("已完成订阅不得再次添加")
+
+        class SubscribeOper:
+            def exist_history(self, tmdbid=None, doubanid=None, season=None):
+                history_calls.append((tmdbid, doubanid, season))
+                return True
+
+        result = service.add_subscription(
+            plugin,
+            mediainfo,
+            meta=meta,
+            rank_key="tv_real_time",
+            rank_name="实时热门",
+            subscribe_chain_cls=SubscribeChain,
+            subscribe_oper_cls=SubscribeOper,
+        )
+
+        self.assertFalse(result)
+        self.assertEqual(history_calls, [(291392, None, None)])
+        self.assertNotIn("subscribe_records", plugin.data)
+
+    def test_missing_active_and_completed_subscription_allows_auto_subscription(self):
+        """活动订阅和完成历史均不存在时仍可正常自动订阅。"""
+        service = _import_service("subscription")
+        plugin = _Plugin()
+        mediainfo = _MediaInfo(title="新剧", year="2026", mtype=_MediaType.TV, tmdb_id=296003)
+        add_calls = []
+
+        class SubscribeChain:
+            def exists(self, mediainfo=None, meta=None):
+                return False
+
+            def add(self, **kwargs):
+                add_calls.append(kwargs)
+                return 1, ""
+
+        class SubscribeOper:
+            def exist_history(self, tmdbid=None, doubanid=None, season=None):
+                return False
+
+        result = service.add_subscription(
+            plugin,
+            mediainfo,
+            rank_key="coming",
+            rank_name="即将上映",
+            subscribe_chain_cls=SubscribeChain,
+            subscribe_oper_cls=SubscribeOper,
+        )
+
+        self.assertTrue(result)
+        self.assertEqual(len(add_calls), 1)
+        self.assertEqual(plugin.data["subscribe_records"][0]["tmdbid"], 296003)
+
     def test_archive_service_deduplicates_more_complete_record(self):
         service = _import_service("archive")
         plugin = _Plugin()

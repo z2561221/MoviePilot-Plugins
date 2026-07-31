@@ -11,6 +11,13 @@ from ..storage import records as storage
 from . import observation
 
 
+def _default_subscribe_oper_cls():
+    """按调用时环境读取 MoviePilot 订阅数据库操作类。"""
+    from app.db.subscribe_oper import SubscribeOper
+
+    return SubscribeOper
+
+
 def history_item_subscribed(item: dict) -> bool:
     """判断历史条目是否已经产生过订阅。"""
     if not isinstance(item, dict):
@@ -34,13 +41,23 @@ def history_index_by_unique(history: List[dict]) -> Dict[str, dict]:
     }
 
 
-def is_existing_media(mediainfo, meta=None, subscribe_chain_cls=SubscribeChain) -> bool:
-    """判断媒体是否已存在订阅。"""
+def is_existing_media(mediainfo, meta=None, subscribe_chain_cls=SubscribeChain, subscribe_oper_cls=None) -> bool:
+    """判断媒体是否存在活动订阅或已完成订阅历史。"""
     try:
         if subscribe_chain_cls().exists(mediainfo=mediainfo, meta=meta):
             return True
     except Exception as err:
         logger.warning(f"豆瓣中心：检查订阅存在状态失败：{err}")
+    try:
+        subscribe_oper_cls = subscribe_oper_cls or _default_subscribe_oper_cls()
+        if subscribe_oper_cls().exist_history(
+            tmdbid=getattr(mediainfo, "tmdb_id", None),
+            doubanid=getattr(mediainfo, "douban_id", None),
+            season=getattr(meta, "begin_season", None) if meta else None,
+        ):
+            return True
+    except Exception as err:
+        logger.warning(f"豆瓣中心：检查已完成订阅状态失败：{err}")
     return False
 
 
@@ -113,9 +130,23 @@ def write_subscribe_record(plugin, mediainfo, rank_key: str = "", rank_name: str
     storage.save_subscribe_records(plugin, kept)
 
 
-def add_subscription(plugin, mediainfo, meta=None, rank_key: str = "", rank_name: str = "", source_link: str = "", subscribe_chain_cls=SubscribeChain) -> bool:
+def add_subscription(
+    plugin,
+    mediainfo,
+    meta=None,
+    rank_key: str = "",
+    rank_name: str = "",
+    source_link: str = "",
+    subscribe_chain_cls=SubscribeChain,
+    subscribe_oper_cls=None,
+) -> bool:
     """按 MP 默认 TMDB 语义执行自动订阅。"""
-    if is_existing_media(mediainfo, meta, subscribe_chain_cls=subscribe_chain_cls):
+    if is_existing_media(
+        mediainfo,
+        meta,
+        subscribe_chain_cls=subscribe_chain_cls,
+        subscribe_oper_cls=subscribe_oper_cls,
+    ):
         observation.cleanup_observe_logs(plugin, title=getattr(mediainfo, "title", ""))
         return False
     subscribe_chain = subscribe_chain_cls()
