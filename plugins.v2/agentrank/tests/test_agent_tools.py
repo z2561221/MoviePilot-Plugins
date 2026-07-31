@@ -9,6 +9,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from pydantic import ValidationError
 
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
@@ -48,6 +49,13 @@ ALLOWED_AGENT_TOOL_NAMES = registry_module.ALLOWED_AGENT_TOOL_NAMES
 AGENT_TOOL_CLASSES = registry_module.AGENT_TOOL_CLASSES
 ALL_AGENT_TOOL_CLASSES = registry_module.ALL_AGENT_TOOL_CLASSES
 FEEDBACK_AGENT_TOOL_CLASSES = registry_module.FEEDBACK_AGENT_TOOL_CLASSES
+PROFILE_AGENT_TOOL_CLASSES = registry_module.PROFILE_AGENT_TOOL_CLASSES
+PRELIMINARY_AGENT_TOOL_CLASSES = registry_module.PRELIMINARY_AGENT_TOOL_CLASSES
+FINAL_AGENT_TOOL_CLASSES = registry_module.FINAL_AGENT_TOOL_CLASSES
+session_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.session")
+schemas_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.schemas")
+RESULT_COLLECTOR_KEY = session_module.RESULT_COLLECTOR_KEY
+AgentRankSessionResultCollector = session_module.AgentRankSessionResultCollector
 
 
 def _tools_with_context(context):
@@ -59,8 +67,76 @@ def _tools_with_context(context):
     return tools
 
 
-def test_registry_contains_exact_four_read_only_tools_with_empty_call_schemas():
-    """The model can choose only a tool name, never username or run_id."""
+def _role_tools(context, tool_classes):
+    """创建带受信上下文和会话结果收集器的角色工具。"""
+    collector = AgentRankSessionResultCollector(context)
+    tools = []
+    for tool_class in tool_classes:
+        tool = tool_class(session_id="session", user_id="system")
+        tool.set_agent_context(
+            {
+                TRUSTED_CONTEXT_KEY: context,
+                RESULT_COLLECTOR_KEY: collector,
+            }
+        )
+        tools.append(tool)
+    return tools, collector
+
+
+def _profile_submission(playback_count=1):
+    return {
+        "profile": {
+            "summary": "偏好悬疑电影",
+            "tags": ["悬疑"],
+            "negative_tags": [],
+            "playback_count": playback_count,
+        },
+        "filters": {
+            "media_types": ["movie"],
+            "genre_ids": [9648],
+            "keyword_ids": [],
+            "original_languages": ["zh"],
+            "year_min": None,
+            "year_max": None,
+            "rating_min": 7.0,
+            "vote_count_min": 100,
+            "sort_by": "popularity.desc",
+        },
+        "ranking_tags": ["高质量悬疑"],
+    }
+
+
+def _evidence(dimension="theme"):
+    return {
+        "dimension": dimension,
+        "user_value": "悬疑",
+        "candidate_value": "悬疑",
+    }
+
+
+def _judgment(candidate_id, *, advance=True):
+    return {
+        "candidate_id": candidate_id,
+        "fit_score": 80,
+        "positive_evidence": [_evidence(), _evidence("type")],
+        "counter_evidence": None,
+        "advance": advance,
+    }
+
+
+def _recommendation(candidate_id):
+    return {
+        "candidate_id": candidate_id,
+        "reason": "悬疑题材与已确认偏好相符。",
+        "summary": "密室旧案牵出尘封真相。",
+        "match_tags": ["悬疑", "电影"],
+        "positive_evidence": [_evidence()],
+        "counter_evidence": [],
+    }
+
+
+def test_registry_keeps_legacy_ranking_reads_and_adds_exact_role_tool_pairs():
+    """画像、初赛和决赛各自只能选择一个空参读取与一个严格提交。"""
     assert set(ALLOWED_AGENT_TOOL_NAMES) == {
         "read_agentrank_candidates",
         "read_agentrank_archive_feedback",
@@ -70,6 +146,26 @@ def test_registry_contains_exact_four_read_only_tools_with_empty_call_schemas():
     assert {tool.name for tool in AGENT_TOOL_CLASSES} == set(ALLOWED_AGENT_TOOL_NAMES)
     for tool_class in AGENT_TOOL_CLASSES:
         assert tool_class.args_schema.model_fields == {}
+    assert [tool.name for tool in PROFILE_AGENT_TOOL_CLASSES] == [
+        "read_agentrank_profile_context",
+        "submit_agentrank_profile_result",
+    ]
+    assert [tool.name for tool in PRELIMINARY_AGENT_TOOL_CLASSES] == [
+        "read_agentrank_batch_context",
+        "submit_agentrank_batch_result",
+    ]
+    assert [tool.name for tool in FINAL_AGENT_TOOL_CLASSES] == [
+        "read_agentrank_final_context",
+        "submit_agentrank_final_board",
+    ]
+    for tool_classes in (
+        PROFILE_AGENT_TOOL_CLASSES,
+        PRELIMINARY_AGENT_TOOL_CLASSES,
+        FINAL_AGENT_TOOL_CLASSES,
+    ):
+        assert tool_classes[0].args_schema.model_fields == {}
+        assert tool_classes[1].args_schema.model_fields
+        assert tool_classes[1].return_direct is True
 
 
 def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
@@ -224,27 +320,281 @@ def test_archive_tool_exposes_only_minimal_validated_fields():
 
 
 def test_profile_role_cannot_read_candidate_slices():
-    """画像角色即使拿到同一组工具实例也不能读取候选、归档或权重。"""
+    """画像角色只能读取最小画像上下文，不能读取候选、归档或权重。"""
     context = build_trusted_context(
         username="alice",
         run_id="run-profile",
         candidates=[],
         archive_feedback={"entries": []},
         weights={},
-        playback={"source": "playback_reporting", "samples": []},
+        previous_profile={"summary": "old", "tags": ["悬疑"]},
+        profile_preferences={"custom_tags": ["冷门佳作"]},
+        playback={
+            "source": "playback_reporting",
+            "sample_count": 1,
+            "samples": [
+                {
+                    "stable_id": "tmdb:movie:1",
+                    "title": "Watched",
+                    "media_type": "movie",
+                    "overview": "x" * 500,
+                }
+            ],
+        },
         agent_role="profile",
     )
+    profile_tools, _ = _role_tools(context, PROFILE_AGENT_TOOL_CLASSES)
+    payload = json.loads(asyncio.run(profile_tools[0].run()))
+    assert payload["previous_profile"]["summary"] == "old"
+    assert payload["confirmed_preferences"]["custom_tags"] == ["冷门佳作"]
+    assert len(payload["playback"]["samples"][0]["overview"]) == 240
+    assert "candidates" not in payload
+
     for tool in _tools_with_context(context):
-        if tool.name == "read_agentrank_playback":
-            payload = json.loads(asyncio.run(tool.run()))
-            assert payload["profile"] is None
-            continue
-        try:
+        with pytest.raises(PermissionError, match="profile"):
             asyncio.run(tool.run())
-        except PermissionError as error:
-            assert "profile" in str(error)
-        else:
-            raise AssertionError(f"{tool.name} leaked data to profile Agent")
+
+
+def test_preliminary_and_final_contexts_are_bounded_and_role_specific():
+    """初赛最多五条、决赛最多六条，长文本和无关来源字段不得泄露。"""
+    candidates = [
+        {
+            "candidate_id": f"tmdb:movie:{index}",
+            "title": f"Movie {index}",
+            "media_type": "movie",
+            "overview": "x" * 500,
+            "source_ids": {"tmdb": str(index), "private": "must-not-leak"},
+        }
+        for index in range(1, 9)
+    ]
+    preliminary = build_trusted_context(
+        "alice",
+        "run-batch",
+        candidates[:5],
+        {"entries": []},
+        {"weights": {"theme_weight": 0.8}, "evidence_catalog": []},
+        profile={"summary": "悬疑偏好", "tags": ["悬疑"]},
+        agent_role="preliminary",
+    )
+    tools, _ = _role_tools(preliminary, PRELIMINARY_AGENT_TOOL_CLASSES)
+    batch_payload = json.loads(asyncio.run(tools[0].run()))
+    assert len(batch_payload["candidates"]) == 5
+    assert len(batch_payload["candidates"][0]["overview"]) == 240
+    assert batch_payload["weights"] == {"theme_weight": 0.8}
+    assert "source_ids" not in batch_payload["candidates"][0]
+
+    judgment_cards = [
+        {
+            **_judgment(f"tmdb:movie:{index}"),
+            "private_reasoning": "must-not-leak",
+        }
+        for index in range(1, 9)
+    ]
+    final = build_trusted_context(
+        "alice",
+        "run-final",
+        candidates[:6],
+        {"entries": []},
+        {},
+        profile={"summary": "悬疑偏好"},
+        judgment_cards=judgment_cards,
+        agent_role="final",
+    )
+    final_tools, _ = _role_tools(final, FINAL_AGENT_TOOL_CLASSES)
+    final_output = asyncio.run(final_tools[0].run())
+    final_payload = json.loads(final_output)
+    assert len(final_payload["candidates"]) == 6
+    assert len(final_payload["judgment_cards"]) == 6
+    assert "private_reasoning" not in final_output
+    assert "must-not-leak" not in final_output
+
+
+def test_profile_submission_schema_reports_field_and_allows_one_repair():
+    """缺字段返回稳定字段错误，同一 collector 只允许一次修正提交。"""
+    context = build_trusted_context(
+        "alice",
+        "run-profile-submit",
+        [],
+        {"entries": []},
+        {},
+        playback={"sample_count": 1, "samples": []},
+        agent_role="profile",
+    )
+    tools, collector = _role_tools(context, PROFILE_AGENT_TOOL_CLASSES)
+    submit = tools[1]
+
+    rejected = json.loads(
+        asyncio.run(
+            submit.run(
+                filters=_profile_submission()["filters"],
+                ranking_tags=[],
+            )
+        )
+    )
+    assert rejected == {
+        "status": "rejected",
+        "code": "schema_validation_failed",
+        "field": "profile",
+    }
+    assert json.loads(asyncio.run(submit.run(**_profile_submission()))) == {
+        "status": "accepted"
+    }
+    assert collector.attempts == 2
+    assert json.loads(collector.result_json())["profile"]["playback_count"] == 1
+
+
+def test_submission_schemas_enforce_extra_enum_count_and_length_boundaries():
+    """字段约束由 Pydantic schema 承担，不依赖提示词重复说明。"""
+    with pytest.raises(ValidationError):
+        schemas_module.SubmitProfileResultInput.model_validate(
+            {**_profile_submission(), "unexpected": True}
+        )
+    with pytest.raises(ValidationError):
+        schemas_module.SubmitBatchResultInput.model_validate(
+            {
+                "judgments": [
+                    _judgment(f"tmdb:movie:{index}") for index in range(1, 7)
+                ]
+            }
+        )
+    with pytest.raises(ValidationError):
+        schemas_module.SubmitFinalBoardInput.model_validate(
+            {
+                "recommendations": [
+                    _recommendation(f"tmdb:movie:{index}")
+                    for index in range(1, 7)
+                ]
+            }
+        )
+    invalid_dimension = _recommendation("tmdb:movie:1")
+    invalid_dimension["positive_evidence"][0]["dimension"] = "unsupported"
+    with pytest.raises(ValidationError):
+        schemas_module.SubmitFinalBoardInput.model_validate(
+            {"recommendations": [invalid_dimension]}
+        )
+    too_long = _recommendation("tmdb:movie:1")
+    too_long["summary"] = "x" * 101
+    with pytest.raises(ValidationError):
+        schemas_module.SubmitFinalBoardInput.model_validate(
+            {"recommendations": [too_long]}
+        )
+
+    try:
+        schemas_module.SubmitProfileResultInput.model_validate(
+            {
+                "filters": _profile_submission()["filters"],
+                "ranking_tags": [],
+            }
+        )
+    except ValidationError as error:
+        formatted = json.loads(
+            PROFILE_AGENT_TOOL_CLASSES[1].handle_validation_error(error)
+        )
+    else:
+        raise AssertionError("missing profile field was accepted")
+    assert formatted == {
+        "status": "rejected",
+        "code": "schema_validation_failed",
+        "field": "profile",
+    }
+
+
+@pytest.mark.parametrize(
+    ("judgments", "error_code", "field"),
+    (
+        (
+            [_judgment("tmdb:movie:1"), _judgment("tmdb:movie:1")],
+            "duplicate_candidate",
+            "candidate_id",
+        ),
+        (
+            [_judgment("tmdb:movie:1"), _judgment("tmdb:movie:999")],
+            "candidate_out_of_pool",
+            "candidate_id",
+        ),
+        (
+            [_judgment("tmdb:movie:1")],
+            "missing_candidate",
+            "judgments",
+        ),
+    ),
+)
+def test_batch_submission_rejects_duplicate_out_of_pool_and_missing_candidates(
+    judgments, error_code, field
+):
+    """初赛结果必须恰好覆盖当前批次且候选身份唯一。"""
+    context = build_trusted_context(
+        "alice",
+        "run-batch-submit",
+        [
+            {"candidate_id": "tmdb:movie:1"},
+            {"candidate_id": "tmdb:movie:2"},
+        ],
+        {"entries": []},
+        {},
+        agent_role="preliminary",
+    )
+    tools, collector = _role_tools(context, PRELIMINARY_AGENT_TOOL_CLASSES)
+
+    output = json.loads(asyncio.run(tools[1].run(judgments=judgments)))
+
+    assert output == {"status": "rejected", "code": error_code, "field": field}
+    assert collector.payload is None
+
+
+def test_batch_and_final_submissions_capture_only_session_results():
+    """合法提交仅写入内存 collector，不直接产生业务副作用。"""
+    candidates = [
+        {"candidate_id": "tmdb:movie:1"},
+        {"candidate_id": "tmdb:movie:2"},
+    ]
+    batch_context = build_trusted_context(
+        "alice",
+        "run-batch-valid",
+        candidates,
+        {"entries": []},
+        {},
+        agent_role="preliminary",
+    )
+    batch_tools, batch_collector = _role_tools(
+        batch_context, PRELIMINARY_AGENT_TOOL_CLASSES
+    )
+    batch_result = json.loads(
+        asyncio.run(
+            batch_tools[1].run(
+                judgments=[
+                    _judgment("tmdb:movie:1"),
+                    _judgment("tmdb:movie:2", advance=False),
+                ]
+            )
+        )
+    )
+    assert batch_result == {"status": "accepted"}
+    assert len(batch_collector.payload["judgments"]) == 2
+
+    final_context = build_trusted_context(
+        "alice",
+        "run-final-valid",
+        candidates,
+        {"entries": []},
+        {},
+        agent_role="final",
+    )
+    final_tools, final_collector = _role_tools(final_context, FINAL_AGENT_TOOL_CLASSES)
+    final_result = json.loads(
+        asyncio.run(
+            final_tools[1].run(
+                recommendations=[
+                    _recommendation("tmdb:movie:2"),
+                    _recommendation("tmdb:movie:1"),
+                ]
+            )
+        )
+    )
+    assert final_result == {"status": "accepted"}
+    assert [
+        item["candidate_id"] for item in final_collector.payload["recommendations"]
+    ] == ["tmdb:movie:2", "tmdb:movie:1"]
 
 
 def test_feedback_role_reads_only_event_analysis_confirmed_memory_and_pending_context():
@@ -330,7 +680,7 @@ def test_agent_tool_role_whitelists_are_class_variables():
             continue
         role_assignments.append(ast.unparse(node.annotation))
 
-    assert len(role_assignments) == 1 + len(ALL_AGENT_TOOL_CLASSES)
+    assert len(role_assignments) == 2 + len(ALL_AGENT_TOOL_CLASSES)
     assert set(role_assignments) == {"ClassVar[Tuple[str, ...]]"}
     assert not any(
         isinstance(node, ast.Assign)

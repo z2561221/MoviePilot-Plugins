@@ -1,13 +1,19 @@
 """读取 AgentRank 受信上下文的 MoviePilotTool 实现。"""
 
 import json
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type
+from typing import Any, ClassVar, Dict, Iterable, Mapping, Optional, Tuple, Type
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.agent.tools.base import MoviePilotTool
 
 from .context import resolve_trusted_context, to_jsonable
+from .schemas import (
+    SubmitBatchResultInput,
+    SubmitFinalBoardInput,
+    SubmitProfileResultInput,
+)
+from .session import resolve_result_collector
 
 
 class ReadAgentRankInput(BaseModel):
@@ -27,13 +33,18 @@ class _ReadAgentRankTool(MoviePilotTool):
             raise PermissionError(
                 f"{self.name} is not allowed for {trusted_context.agent_role} Agent"
             )
-        if trusted_context.agent_role == "ranking":
-            if getattr(self, "_agentrank_ranking_read", False):
+        if trusted_context.agent_role in {
+            "profile",
+            "ranking",
+            "preliminary",
+            "final",
+        }:
+            if getattr(self, "_agentrank_context_read", False):
                 raise RuntimeError(
                     f"{self.name} already returned this immutable snapshot; "
-                    "reuse the previous result and return the final JSON object"
+                    "reuse the previous result and call the submission tool"
                 )
-            self._agentrank_ranking_read = True
+            self._agentrank_context_read = True
         return trusted_context
 
     def get_tool_message(self, **kwargs: Any) -> Optional[str]:
@@ -55,7 +66,7 @@ class ReadAgentRankPlaybackTool(_ReadAgentRankTool):
     """读取播放画像证据与可选的上一版画像上下文。"""
 
     name: str = "read_agentrank_playback"
-    allowed_roles: ClassVar[Tuple[str, ...]] = ("profile", "ranking", "conversation")
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("ranking", "conversation")
     description: str = (
         "Read normalized playback evidence and the optional previous profile for "
         "the trusted AgentRank run. The username and run id are fixed by the host "
@@ -76,6 +87,355 @@ class ReadAgentRankPlaybackTool(_ReadAgentRankTool):
             "profile": to_jsonable(trusted_context.profile),
         }
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _bounded_text(value: Any, maximum: int) -> str:
+    """压缩自由文本并丢弃控制字符。"""
+    text = " ".join(str(value or "").split())
+    return "".join(char for char in text if ord(char) >= 32)[:maximum]
+
+
+def _bounded_strings(
+    values: Iterable[Any], *, maximum_items: int, maximum_chars: int
+) -> list[str]:
+    """返回去重、限项、限长的短字符串列表。"""
+    result = []
+    for value in values or ():
+        text = _bounded_text(value, maximum_chars)
+        if text and text not in result:
+            result.append(text)
+        if len(result) >= maximum_items:
+            break
+    return result
+
+
+def _minimal_candidate(value: Any) -> Dict[str, Any]:
+    """投影初赛和决赛所需的候选事实，删除长来源载荷。"""
+    item = value if isinstance(value, Mapping) else {}
+    return {
+        "candidate_id": _bounded_text(item.get("candidate_id"), 128),
+        "title": _bounded_text(item.get("title"), 120),
+        "media_type": _bounded_text(item.get("media_type"), 12),
+        "year": item.get("year") if isinstance(item.get("year"), int) else None,
+        "overview": _bounded_text(item.get("overview"), 240),
+        "genres": _bounded_strings(
+            item.get("genres") or (), maximum_items=8, maximum_chars=30
+        ),
+        "regions": _bounded_strings(
+            item.get("regions") or (), maximum_items=6, maximum_chars=30
+        ),
+        "actors": _bounded_strings(
+            item.get("actors") or (), maximum_items=8, maximum_chars=40
+        ),
+        "directors": _bounded_strings(
+            item.get("directors") or (), maximum_items=4, maximum_chars=40
+        ),
+        "rating": item.get("rating")
+        if isinstance(item.get("rating"), (int, float))
+        else None,
+        "popularity": item.get("popularity")
+        if isinstance(item.get("popularity"), (int, float))
+        else None,
+        "release_date": _bounded_text(item.get("release_date"), 20),
+    }
+
+
+def _minimal_profile(value: Any) -> Dict[str, Any]:
+    """只暴露判断所需的稳定画像摘要和标签。"""
+    item = value if isinstance(value, Mapping) else {}
+    return {
+        "summary": _bounded_text(item.get("summary"), 200),
+        "tags": _bounded_strings(
+            item.get("tags") or (), maximum_items=20, maximum_chars=20
+        ),
+        "negative_tags": _bounded_strings(
+            item.get("negative_tags") or (), maximum_items=20, maximum_chars=20
+        ),
+        "ranking_tags": _bounded_strings(
+            item.get("ranking_tags") or (), maximum_items=20, maximum_chars=40
+        ),
+    }
+
+
+def _minimal_evidence_claim(value: Any) -> Dict[str, str]:
+    """投影一条判断证据并限制所有自由文本。"""
+    item = value if isinstance(value, Mapping) else {}
+    return {
+        "dimension": _bounded_text(item.get("dimension"), 20),
+        "user_value": _bounded_text(item.get("user_value"), 80),
+        "candidate_value": _bounded_text(item.get("candidate_value"), 80),
+    }
+
+
+def _minimal_judgment_card(value: Any) -> Dict[str, Any]:
+    """投影决赛所需的初赛判断卡。"""
+    item = value if isinstance(value, Mapping) else {}
+    counter = item.get("counter_evidence")
+    return {
+        "candidate_id": _bounded_text(item.get("candidate_id"), 128),
+        "fit_score": item.get("fit_score")
+        if isinstance(item.get("fit_score"), int)
+        else 0,
+        "positive_evidence": [
+            _minimal_evidence_claim(claim)
+            for claim in item.get("positive_evidence") or ()
+            if isinstance(claim, Mapping)
+        ][:2],
+        "counter_evidence": (
+            _minimal_evidence_claim(counter)
+            if isinstance(counter, Mapping)
+            else None
+        ),
+        "advance": bool(item.get("advance")),
+    }
+
+
+def _minimal_weights(value: Any) -> Dict[str, Any]:
+    """只返回当前权重和已验证证据目录。"""
+    item = value if isinstance(value, Mapping) else {}
+    raw_weights = item.get("weights") if isinstance(item.get("weights"), Mapping) else {}
+    catalog = []
+    for raw in item.get("evidence_catalog") or ():
+        if not isinstance(raw, Mapping):
+            continue
+        catalog.append(
+            {
+                "dimension": _bounded_text(raw.get("dimension"), 20),
+                "value": _bounded_text(raw.get("value"), 80),
+                "polarity": _bounded_text(raw.get("polarity"), 16),
+                "certainty": float(raw.get("certainty") or 0.0)
+                if isinstance(raw.get("certainty"), (int, float))
+                else 0.0,
+                "evidence_count": max(0, int(raw.get("evidence_count") or 0)),
+            }
+        )
+        if len(catalog) >= 50:
+            break
+    return {
+        "weights": {
+            str(key): float(number)
+            for key, number in raw_weights.items()
+            if isinstance(number, (int, float)) and not isinstance(number, bool)
+        },
+        "evidence_catalog": catalog,
+    }
+
+
+def _minimal_profile_update_context(trusted_context: Any) -> Dict[str, Any]:
+    """构造画像 Agent 需要的新增事实、旧画像与确认偏好。"""
+    playback = to_jsonable(trusted_context.playback) or {}
+    if isinstance(playback, Mapping):
+        playback = dict(playback)
+        playback["samples"] = [
+            {
+                "stable_id": _bounded_text(item.get("stable_id"), 128),
+                "title": _bounded_text(item.get("title"), 120),
+                "media_type": _bounded_text(item.get("media_type"), 12),
+                "tmdb_id": _bounded_text(item.get("tmdb_id"), 24),
+                "overview": _bounded_text(item.get("overview"), 240),
+                "genres": _bounded_strings(
+                    item.get("genres") or (), maximum_items=8, maximum_chars=30
+                ),
+                "completed": bool(item.get("completed")),
+                "play_event_count": max(
+                    0, int(item.get("play_event_count") or item.get("play_count") or 0)
+                ),
+                "watched_episode_count": max(
+                    0, int(item.get("watched_episode_count") or 0)
+                ),
+                "completed_episode_count": max(
+                    0, int(item.get("completed_episode_count") or 0)
+                ),
+                "watch_minutes": max(0, int(item.get("watch_minutes") or 0)),
+                "abandoned": bool(item.get("abandoned")),
+            }
+            for item in playback.get("samples") or ()
+            if isinstance(item, Mapping)
+        ][:100]
+        for field_name in ("message", "username", "fallback_from"):
+            playback.pop(field_name, None)
+    preferences = to_jsonable(trusted_context.profile_preferences) or {}
+    if isinstance(preferences, Mapping):
+        preferences = {
+            key: value
+            for key, value in preferences.items()
+            if key
+            in {
+                "custom_tags",
+                "custom_negative_tags",
+                "archived_tags",
+                "archived_negative_tags",
+                "confirmed_preferences",
+            }
+        }
+    return {
+        "playback": playback,
+        "previous_profile": _minimal_profile(
+            to_jsonable(trusted_context.previous_profile) or {}
+        ),
+        "confirmed_preferences": preferences,
+    }
+
+
+class ReadAgentRankProfileContextTool(_ReadAgentRankTool):
+    """画像角色一次性读取增量画像所需的最小上下文。"""
+
+    name: str = "read_agentrank_profile_context"
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("profile",)
+    description: str = (
+        "Read the previous profile, changed playback facts and confirmed preferences "
+        "for this profile update. Call once, then submit the structured result."
+    )
+
+    async def run(self, **kwargs: Any) -> str:
+        trusted_context = self._trusted_context()
+        return json.dumps(
+            _minimal_profile_update_context(trusted_context),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+
+class ReadAgentRankBatchContextTool(_ReadAgentRankTool):
+    """初赛角色一次性读取最多五条候选和受控证据。"""
+
+    name: str = "read_agentrank_batch_context"
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("preliminary",)
+    description: str = (
+        "Read up to five candidates, the profile summary, effective weights and "
+        "verified evidence catalog for this preliminary batch."
+    )
+
+    async def run(self, **kwargs: Any) -> str:
+        trusted_context = self._trusted_context()
+        payload = {
+            "candidates": [
+                _minimal_candidate(item)
+                for item in to_jsonable(trusted_context.candidates) or ()
+            ][:5],
+            "profile": _minimal_profile(to_jsonable(trusted_context.profile) or {}),
+            **_minimal_weights(to_jsonable(trusted_context.weights) or {}),
+        }
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+class ReadAgentRankFinalContextTool(_ReadAgentRankTool):
+    """决赛角色一次性读取最多六条晋级候选及初赛判断卡。"""
+
+    name: str = "read_agentrank_final_context"
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("final",)
+    description: str = (
+        "Read up to six finalists and their preliminary judgment cards. "
+        "Return the final Top 5 only through the submission tool."
+    )
+
+    async def run(self, **kwargs: Any) -> str:
+        trusted_context = self._trusted_context()
+        candidates = [
+            _minimal_candidate(item)
+            for item in to_jsonable(trusted_context.candidates) or ()
+        ][:6]
+        allowed_ids = {item["candidate_id"] for item in candidates}
+        payload = {
+            "candidates": candidates,
+            "judgment_cards": list(
+                _minimal_judgment_card(item)
+                for item in to_jsonable(trusted_context.judgment_cards) or ()
+                if isinstance(item, Mapping)
+                and _bounded_text(item.get("candidate_id"), 128) in allowed_ids
+            )[:6],
+            "profile": _minimal_profile(to_jsonable(trusted_context.profile) or {}),
+        }
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+class _SubmissionValidationErrorFormatter:
+    """避免函数描述符绑定，供 LangChain 安全调用的字段错误格式器。"""
+
+    def __call__(self, error: ValidationError) -> str:
+        first = error.errors()[0] if error.errors() else {}
+        field_name = ".".join(str(item) for item in first.get("loc") or ())
+        return json.dumps(
+            {
+                "status": "rejected",
+                "code": "schema_validation_failed",
+                "field": field_name or "submission",
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+
+_SUBMISSION_VALIDATION_ERROR_FORMATTER = _SubmissionValidationErrorFormatter()
+
+
+class _SubmitAgentRankTool(MoviePilotTool):
+    """终结型提交工具共用的角色、schema 与临时收集逻辑。"""
+
+    return_direct: bool = True
+    handle_validation_error: Any = _SUBMISSION_VALIDATION_ERROR_FORMATTER
+    allowed_roles: ClassVar[Tuple[str, ...]] = ()
+
+    def get_tool_message(self, **kwargs: Any) -> Optional[str]:
+        return "提交本轮 AgentRank 结构化结果"
+
+    async def run(self, **kwargs: Any) -> str:
+        trusted_context = resolve_trusted_context(self._agent_context)
+        if trusted_context.agent_role not in self.allowed_roles:
+            raise PermissionError(
+                f"{self.name} is not allowed for {trusted_context.agent_role} Agent"
+            )
+        collector = resolve_result_collector(self._agent_context)
+        if collector.trusted_context is not trusted_context:
+            raise PermissionError("AgentRank result collector scope mismatch")
+        try:
+            validated = self.args_schema.model_validate(kwargs)
+        except ValidationError as error:
+            first = error.errors()[0] if error.errors() else {}
+            field_name = ".".join(str(item) for item in first.get("loc") or ())
+            issue = collector.reject("schema_validation_failed", field_name)
+            return json.dumps(
+                {"status": "rejected", **issue.to_dict()},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        issue = collector.submit(
+            self.name, validated.model_dump(mode="json")
+        )
+        if issue is not None:
+            return json.dumps(
+                {"status": "rejected", **issue.to_dict()},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        return '{"status":"accepted"}'
+
+
+class SubmitAgentRankProfileResultTool(_SubmitAgentRankTool):
+    """终结画像会话并提交严格画像结果。"""
+
+    name: str = "submit_agentrank_profile_result"
+    description: str = "Submit the complete profile result and end this Agent turn."
+    args_schema: Type[BaseModel] = SubmitProfileResultInput
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("profile",)
+
+
+class SubmitAgentRankBatchResultTool(_SubmitAgentRankTool):
+    """终结初赛会话并提交本批所有候选判断。"""
+
+    name: str = "submit_agentrank_batch_result"
+    description: str = "Submit one judgment for every candidate in this batch."
+    args_schema: Type[BaseModel] = SubmitBatchResultInput
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("preliminary",)
+
+
+class SubmitAgentRankFinalBoardTool(_SubmitAgentRankTool):
+    """终结决赛会话并提交最多五条最终推荐。"""
+
+    name: str = "submit_agentrank_final_board"
+    description: str = "Submit the ordered final Top 5 and end this Agent turn."
+    args_schema: Type[BaseModel] = SubmitFinalBoardInput
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("final",)
 
 
 class ReadAgentRankCandidatesTool(_ReadAgentRankTool):

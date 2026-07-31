@@ -10,12 +10,16 @@ from typing import Any, Mapping
 TRUSTED_CONTEXT_KEY = "agentrank_trusted_context"
 PROFILE_AGENT_ROLE = "profile"
 RANKING_AGENT_ROLE = "ranking"
+PRELIMINARY_AGENT_ROLE = "preliminary"
+FINAL_AGENT_ROLE = "final"
 FEEDBACK_AGENT_ROLE = "feedback"
 CONVERSATION_AGENT_ROLE = "conversation"
 AGENT_ROLES = frozenset(
     {
         PROFILE_AGENT_ROLE,
         RANKING_AGENT_ROLE,
+        PRELIMINARY_AGENT_ROLE,
+        FINAL_AGENT_ROLE,
         FEEDBACK_AGENT_ROLE,
         CONVERSATION_AGENT_ROLE,
     }
@@ -101,6 +105,8 @@ class AgentRankTrustedContext:
     analysis: Any = None
     pending_context: Any = None
     conversation: Any = None
+    judgment_cards: Any = None
+    submission_constraints: Any = None
 
 
 def build_trusted_context(
@@ -120,6 +126,8 @@ def build_trusted_context(
     analysis: Any = None,
     pending_context: Any = None,
     conversation: Any = None,
+    judgment_cards: Any = None,
+    submission_constraints: Any = None,
 ) -> AgentRankTrustedContext:
     """校验作用域与 Agent 角色并构造不可变的受信上下文。"""
     trusted_username = str(username or "").strip()
@@ -146,6 +154,8 @@ def build_trusted_context(
         analysis=_deep_freeze(analysis),
         pending_context=_deep_freeze(pending_context),
         conversation=_deep_freeze(conversation),
+        judgment_cards=_deep_freeze(judgment_cards),
+        submission_constraints=_deep_freeze(submission_constraints),
     )
 
 

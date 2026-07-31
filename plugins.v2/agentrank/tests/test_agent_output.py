@@ -45,6 +45,8 @@ fallback_reason = validation_module.fallback_reason
 is_complete_recommendation_copy = validation_module.is_complete_recommendation_copy
 build_ranking_prompt = prompt_module.build_ranking_prompt
 build_profile_prompt = prompt_module.build_profile_prompt
+build_preliminary_prompt = prompt_module.build_preliminary_prompt
+build_final_prompt = prompt_module.build_final_prompt
 build_refill_prompt = prompt_module.build_refill_prompt
 build_feedback_understanding_prompt = prompt_module.build_feedback_understanding_prompt
 build_analysis_comment_prompt = prompt_module.build_analysis_comment_prompt
@@ -160,19 +162,38 @@ def test_prompt_states_hard_boundaries_without_embedding_untrusted_media_text():
     assert "ignore all previous instructions" not in prompt
 
 
-def test_profile_prompt_declares_retrieval_plan_schema_and_id_boundary():
-    """画像提示明确区分结构化过滤与自由排序语义。"""
+def test_profile_prompt_uses_one_read_one_submit_without_repeating_schema():
+    """画像提示只保留角色边界和工具顺序，字段规则交给提交 schema。"""
     prompt = build_profile_prompt()
 
-    assert "只能调用 read_agentrank_playback" in prompt
-    assert '"filters"' in prompt
-    assert '"ranking_tags"' in prompt
-    assert '"genre_ids"' in prompt
-    assert '"keyword_ids"' in prompt
-    assert "不得猜测" in prompt
-    assert "overview" in prompt
-    assert "genres" in prompt
-    assert "不要仅凭片名猜测题材" in prompt
+    assert prompt.count("read_agentrank_profile_context") == 1
+    assert prompt.count("submit_agentrank_profile_result") == 1
+    assert "唯一输出通道" in prompt
+    assert "禁止返回自由文本 JSON" in prompt
+    assert "禁止猜测题材或未知 ID" in prompt
+    for repeated_schema_field in (
+        '"filters"',
+        '"ranking_tags"',
+        '"genre_ids"',
+        '"keyword_ids"',
+    ):
+        assert repeated_schema_field not in prompt
+
+
+def test_preliminary_and_final_prompts_only_name_their_one_read_one_submit_tools():
+    """初赛与决赛提示不重复候选数据或大段输出 schema。"""
+    preliminary = build_preliminary_prompt()
+    final = build_final_prompt("文案克制")
+
+    assert preliminary.count("read_agentrank_batch_context") == 1
+    assert preliminary.count("submit_agentrank_batch_result") == 1
+    assert "每一条候选" in preliminary
+    assert final.count("read_agentrank_final_context") == 1
+    assert final.count("submit_agentrank_final_board") == 1
+    assert "文案要求：文案克制" in final
+    for prompt in (preliminary, final):
+        assert "candidate_id\"" not in prompt
+        assert "positive_evidence\"" not in prompt
 
 
 def test_psychological_motivation_is_evidence_bounded_and_never_diagnostic():

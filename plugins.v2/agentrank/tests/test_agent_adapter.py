@@ -186,6 +186,9 @@ build_trusted_context = context_module.build_trusted_context
 AGENT_TOOL_CLASSES = registry_module.AGENT_TOOL_CLASSES
 FEEDBACK_AGENT_TOOL_CLASSES = registry_module.FEEDBACK_AGENT_TOOL_CLASSES
 CONVERSATION_AGENT_TOOL_CLASSES = registry_module.CONVERSATION_AGENT_TOOL_CLASSES
+PROFILE_AGENT_TOOL_CLASSES = registry_module.PROFILE_AGENT_TOOL_CLASSES
+PRELIMINARY_AGENT_TOOL_CLASSES = registry_module.PRELIMINARY_AGENT_TOOL_CLASSES
+FINAL_AGENT_TOOL_CLASSES = registry_module.FINAL_AGENT_TOOL_CLASSES
 AgentRankAgentAdapter = adapter_module.AgentRankAgentAdapter
 RestrictedAgentRankAgent = adapter_module.RestrictedAgentRankAgent
 
@@ -209,6 +212,113 @@ class FakeRunner:
 
     async def cleanup(self):
         self.cleaned = True
+
+
+class FakeProfileSubmissionRunner(FakeRunner):
+    """模拟模型调用终结工具提交画像，不返回自由文本 JSON。"""
+
+    async def process(self, prompt):
+        self.prompt = prompt
+        self.prompts = [*getattr(self, "prompts", []), prompt]
+        collector = self.kwargs["result_collector"]
+        if not collector.submitted:
+            collector.submit(
+                "submit_agentrank_profile_result",
+                _profile_submission(),
+            )
+        return "提交完成"
+
+
+class FakeMissingSubmissionRunner(FakeRunner):
+    """模拟两轮都没有调用终结提交工具。"""
+
+    async def process(self, prompt):
+        self.prompt = prompt
+        self.prompts = [*getattr(self, "prompts", []), prompt]
+        return "没有提交"
+
+
+class FakeRepairSubmissionRunner(FakeRunner):
+    """首次提交失败，收到短错误后在同一会话修正。"""
+
+    async def process(self, prompt):
+        self.prompt = prompt
+        self.prompts = [*getattr(self, "prompts", []), prompt]
+        collector = self.kwargs["result_collector"]
+        if len(self.prompts) == 1:
+            collector.reject("schema_validation_failed", "profile.summary")
+        else:
+            collector.submit(
+                "submit_agentrank_profile_result",
+                _profile_submission(),
+            )
+        return "工具回合结束"
+
+
+class FakeSchemaErrorResultRunner(FakeRunner):
+    """模拟 LangChain 在调用 run 前返回字段化 args_schema 错误。"""
+
+    async def process(self, prompt):
+        self.prompt = prompt
+        self.prompts = [*getattr(self, "prompts", []), prompt]
+        if len(self.prompts) == 1:
+            return {
+                "content": (
+                    '{"status":"rejected","code":"schema_validation_failed",'
+                    '"field":"profile.summary"}'
+                )
+            }
+        self.kwargs["result_collector"].submit(
+            "submit_agentrank_profile_result", _profile_submission()
+        )
+        return "submitted"
+
+
+class FakeTournamentSubmissionRunner(FakeRunner):
+    """按初赛或决赛角色提交对应的临时结构化结果。"""
+
+    async def process(self, prompt):
+        self.prompt = prompt
+        collector = self.kwargs["result_collector"]
+        role = self.kwargs["trusted_context"].agent_role
+        candidate_ids = [
+            item["candidate_id"]
+            for item in self.kwargs["trusted_context"].candidates
+        ]
+        if role == "preliminary":
+            collector.submit(
+                "submit_agentrank_batch_result",
+                {
+                    "judgments": [
+                        {
+                            "candidate_id": candidate_id,
+                            "fit_score": 80,
+                            "positive_evidence": [],
+                            "counter_evidence": None,
+                            "advance": True,
+                        }
+                        for candidate_id in candidate_ids
+                    ]
+                },
+            )
+        else:
+            collector.submit(
+                "submit_agentrank_final_board",
+                {
+                    "recommendations": [
+                        {
+                            "candidate_id": candidate_id,
+                            "reason": "候选事实与用户证据相符。",
+                            "summary": "密室旧案牵出尘封真相。",
+                            "match_tags": ["悬疑"],
+                            "positive_evidence": [],
+                            "counter_evidence": [],
+                        }
+                        for candidate_id in candidate_ids[:5]
+                    ]
+                },
+            )
+        return "submitted"
 
 
 class FakeCallbackRunner(FakeRunner):
@@ -352,6 +462,30 @@ def _trusted_context(run_id="run-1", username="alice", agent_role="ranking"):
         playback={"source": "playback_reporting", "samples": []},
         agent_role=agent_role,
     )
+
+
+def _profile_submission():
+    """构造适配器 collector 可直接返回给既有 parser 的画像结果。"""
+    return {
+        "profile": {
+            "summary": "偏好悬疑电影",
+            "tags": ["悬疑"],
+            "negative_tags": [],
+            "playback_count": 0,
+        },
+        "filters": {
+            "media_types": ["movie"],
+            "genre_ids": [9648],
+            "keyword_ids": [],
+            "original_languages": ["zh"],
+            "year_min": None,
+            "year_max": None,
+            "rating_min": 7.0,
+            "vote_count_min": 100,
+            "sort_by": "popularity.desc",
+        },
+        "ranking_tags": ["高质量悬疑"],
+    }
 
 
 def test_adapter_uses_exact_capture_only_session_and_cleans_success():
@@ -609,21 +743,125 @@ def test_adapter_uses_safe_unknown_model_for_incomplete_host_status():
     }
 
 
-def test_profile_role_uses_separate_session_and_single_playback_tool():
-    """画像角色使用独立 session，并且只能实例化播放工具。"""
-    FakeRunner.instances.clear()
-    FakeRunner.fail = False
+def test_profile_role_uses_separate_session_and_terminal_submission():
+    """画像角色使用独立 session，并从 collector 取得结构化提交。"""
+    FakeProfileSubmissionRunner.instances.clear()
     adapter = AgentRankAgentAdapter(
-        agent_factory=FakeRunner, memory_clearer=lambda *_: None
+        agent_factory=FakeProfileSubmissionRunner, memory_clearer=lambda *_: None
     )
     trusted = _trusted_context(agent_role="profile")
 
     output = asyncio.run(adapter.run_profile("profile", trusted))
 
-    assert output == '{"recommendations": []}'
-    runner = FakeRunner.instances[-1]
+    assert json.loads(output) == _profile_submission()
+    runner = FakeProfileSubmissionRunner.instances[-1]
     assert runner.kwargs["session_id"] == "__agentrank_profile_run-1_alice__"
     assert runner.kwargs["trusted_context"].agent_role == "profile"
+    assert len(runner.prompts) == 1
+
+
+def test_terminal_role_missing_submission_gets_one_short_repair_only():
+    """未调用提交工具只在同一会话收到一次短错误，随后明确失败。"""
+    FakeMissingSubmissionRunner.instances.clear()
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeMissingSubmissionRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    try:
+        asyncio.run(
+            adapter.run_profile("完整画像协议和上下文", _trusted_context(agent_role="profile"))
+        )
+    except adapter_module.AgentSubmissionUnavailableError as error:
+        assert error.code == "submission_required"
+        assert error.field == "submission"
+        assert error.retryable is False
+    else:
+        raise AssertionError("missing terminal submission was accepted")
+
+    runner = FakeMissingSubmissionRunner.instances[-1]
+    assert len(runner.prompts) == 2
+    assert runner.prompts[1].startswith(
+        "AGENTRANK_REPAIR code=submission_required field=submission."
+    )
+    assert "完整画像协议和上下文" not in runner.prompts[1]
+    assert "read_agentrank" not in runner.prompts[1]
+
+
+def test_terminal_role_repairs_one_named_field_in_same_session():
+    """首次结构错误只反馈错误码和字段，第二次提交成功即停止。"""
+    FakeRepairSubmissionRunner.instances.clear()
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeRepairSubmissionRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    output = asyncio.run(
+        adapter.run_profile("profile", _trusted_context(agent_role="profile"))
+    )
+
+    assert json.loads(output) == _profile_submission()
+    runner = FakeRepairSubmissionRunner.instances[-1]
+    assert len(runner.prompts) == 2
+    assert "code=schema_validation_failed field=profile.summary" in runner.prompts[1]
+
+
+def test_adapter_preserves_field_from_host_schema_validation_error():
+    """宿主参数预校验错误也只反馈明确字段，不退化为泛化未提交。"""
+    FakeSchemaErrorResultRunner.instances.clear()
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeSchemaErrorResultRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    output = asyncio.run(
+        adapter.run_profile("profile", _trusted_context(agent_role="profile"))
+    )
+
+    assert json.loads(output) == _profile_submission()
+    prompts = FakeSchemaErrorResultRunner.instances[-1].prompts
+    assert len(prompts) == 2
+    assert "code=schema_validation_failed field=profile.summary" in prompts[1]
+
+
+def test_preliminary_and_final_adapter_methods_use_terminal_collectors():
+    """初赛和决赛方法各自返回 collector 结果并保持角色隔离。"""
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeTournamentSubmissionRunner,
+        memory_clearer=lambda *_: None,
+    )
+    candidates = [
+        {"candidate_id": f"tmdb:movie:{index}"}
+        for index in range(1, 7)
+    ]
+    preliminary = build_trusted_context(
+        "alice",
+        "run-preliminary",
+        candidates[:5],
+        {"entries": []},
+        {},
+        agent_role="preliminary",
+    )
+    final = build_trusted_context(
+        "alice",
+        "run-final",
+        candidates,
+        {"entries": []},
+        {},
+        agent_role="final",
+    )
+
+    batch = json.loads(asyncio.run(adapter.run_preliminary("batch", preliminary)))
+    board = json.loads(asyncio.run(adapter.run_final("final", final)))
+
+    assert len(batch["judgments"]) == 5
+    assert len(board["recommendations"]) == 5
+    try:
+        asyncio.run(adapter.run_final("wrong", preliminary))
+    except ValueError as error:
+        assert "final trusted context" in str(error)
+    else:
+        raise AssertionError("final adapter accepted preliminary context")
 
 
 def test_feedback_role_uses_separate_session_and_feedback_only_tools():
@@ -698,8 +936,8 @@ def test_restricted_agent_injects_context_and_instantiates_exact_tool_classes():
     assert all(tool.message_attr == (None, None, None) for tool in tools)
 
 
-def test_restricted_profile_agent_instantiates_only_playback_tool():
-    """画像 Agent 的图中不得出现候选、归档或权重工具。"""
+def test_restricted_profile_agent_instantiates_one_read_and_one_submit_tool():
+    """画像 Agent 图只包含最小上下文读取和终结提交。"""
     trusted = _trusted_context(agent_role="profile")
     agent = RestrictedAgentRankAgent(
         session_id="__agentrank_profile_run-1_alice__",
@@ -713,7 +951,11 @@ def test_restricted_profile_agent_instantiates_only_playback_tool():
     agent._tool_context.update(asyncio.run(agent._build_tool_context(False)))
     tools = agent._initialize_tools()
 
-    assert [tool.name for tool in tools] == ["read_agentrank_playback"]
+    assert tuple(type(tool) for tool in tools) == tuple(PROFILE_AGENT_TOOL_CLASSES)
+    assert [tool.name for tool in tools] == [
+        "read_agentrank_profile_context",
+        "submit_agentrank_profile_result",
+    ]
 
 
 def test_restricted_feedback_agent_instantiates_only_feedback_read_tools():

@@ -11,10 +11,17 @@ from app.utils.identity import SYSTEM_INTERNAL_USER_ID
 from ..agent_tools.context import (
     CONVERSATION_AGENT_ROLE,
     FEEDBACK_AGENT_ROLE,
+    FINAL_AGENT_ROLE,
+    PRELIMINARY_AGENT_ROLE,
     PROFILE_AGENT_ROLE,
     RANKING_AGENT_ROLE,
     TRUSTED_CONTEXT_KEY,
     AgentRankTrustedContext,
+)
+from ..agent_tools.session import (
+    RESULT_COLLECTOR_KEY,
+    TERMINAL_AGENT_ROLES,
+    AgentRankSessionResultCollector,
 )
 from ..agent_tools.registry import (
     ALL_AGENT_TOOL_NAMES,
@@ -24,7 +31,18 @@ from ..agent_tools.registry import (
 
 
 AGENTRANK_SYSTEM_PROMPTS = {
-    PROFILE_AGENT_ROLE: "你是 Agent榜单中心的受限用户画像执行器，只能使用播放只读工具。",
+    PROFILE_AGENT_ROLE: (
+        "你是 Agent榜单中心的受限用户画像执行器。先调用一次画像上下文工具，"
+        "再调用一次画像提交工具；提交工具是唯一输出通道。"
+    ),
+    PRELIMINARY_AGENT_ROLE: (
+        "你是 Agent榜单中心的受限初赛执行器。先调用一次批次上下文工具，"
+        "再为每条候选提交判断；提交工具是唯一输出通道。"
+    ),
+    FINAL_AGENT_ROLE: (
+        "你是 Agent榜单中心的受限决赛执行器。先调用一次决赛上下文工具，"
+        "再提交有序 Top 5；提交工具是唯一输出通道。"
+    ),
     RANKING_AGENT_ROLE: (
         "你是 Agent榜单中心的受限排序执行器，只能使用四个只读工具。"
         "每个工具最多调用一次，全部读取完成后必须立即返回单个 JSON 对象。"
@@ -39,6 +57,17 @@ class AgentTextUnavailableError(RuntimeError):
     """表示 Agent 完成工具调用后没有产生可捕获的合法 JSON。"""
 
     retryable = True
+
+
+class AgentSubmissionUnavailableError(RuntimeError):
+    """表示终结角色在一次定向修正后仍未提交合法结果。"""
+
+    retryable = False
+
+    def __init__(self, code: str, field: str):
+        self.code = str(code or "submission_required")
+        self.field = str(field or "submission")
+        super().__init__(f"Agent submission failed: {self.code} ({self.field})")
 
 
 class AgentExecutionResult(str):
@@ -59,6 +88,9 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
     def __init__(self, trusted_context: AgentRankTrustedContext, **kwargs: Any):
         """强制捕获模式、无消息渠道和无消息工具。"""
         self._agentrank_trusted_context = trusted_context
+        self._agentrank_result_collector = kwargs.pop(
+            "result_collector", None
+        ) or AgentRankSessionResultCollector(trusted_context)
         kwargs["replay_mode"] = ReplyMode.CAPTURE_ONLY
         kwargs["allow_message_tools"] = False
         kwargs["channel"] = None
@@ -70,6 +102,7 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
         context = await super()._build_tool_context(False)
         context["should_dispatch_reply"] = False
         context[TRUSTED_CONTEXT_KEY] = self._agentrank_trusted_context
+        context[RESULT_COLLECTOR_KEY] = self._agentrank_result_collector
         return context
 
     def _initialize_tools(self) -> List[Any]:
@@ -110,7 +143,7 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
                     self._agentrank_trusted_context.agent_role,
                     AGENTRANK_SYSTEM_PROMPT,
                 )
-                + " 严格按照用户消息返回 JSON；禁止委派子代理、加载技能或记忆、"
+                + " 禁止委派子代理、加载技能或记忆、"
                 "管理任务、调用外部 MCP，以及使用任何未提供的工具。"
             ),
             middleware=[UsageMiddleware(on_usage=self._record_usage)],
@@ -291,6 +324,31 @@ class AgentRankAgentAdapter:
         text = str(value or "").strip()
         return next((marker for marker in cls._host_failure_markers if marker in text), "")
 
+    @classmethod
+    def _capture_submission_issue(
+        cls,
+        collector: AgentRankSessionResultCollector,
+        values: List[Any],
+        *,
+        allow_existing: bool = False,
+    ) -> None:
+        """识别宿主在 args_schema 阶段返回的字段化工具错误。"""
+        if collector.last_issue is not None and not allow_existing:
+            return
+        for value in values:
+            for text in cls._text_candidates(value):
+                normalized = cls._normalize_captured_text(text)
+                try:
+                    payload = json.loads(normalized)
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(payload, Mapping) or payload.get("status") != "rejected":
+                    continue
+                code = str(payload.get("code") or "submission_invalid")
+                field = str(payload.get("field") or "submission")
+                collector.reject(code, field)
+                return
+
     async def run(self, prompt: str, trusted_context: AgentRankTrustedContext) -> str:
         """执行捕获式 Agent 调用，并在成功或异常后清理全部会话状态。"""
         if not isinstance(trusted_context, AgentRankTrustedContext):
@@ -303,6 +361,7 @@ class AgentRankAgentAdapter:
             if isinstance(text, str):
                 captured_outputs.append(text)
 
+        result_collector = AgentRankSessionResultCollector(trusted_context)
         agent = self._agent_factory(
             session_id=session_id,
             user_id=self._user_id,
@@ -312,11 +371,44 @@ class AgentRankAgentAdapter:
             replay_mode=ReplyMode.CAPTURE_ONLY,
             allow_message_tools=False,
             trusted_context=trusted_context,
+            result_collector=result_collector,
             output_callback=capture_output,
         )
         provenance: Dict[str, Any] = {}
         try:
             result = await agent.process(str(prompt or ""))
+            if trusted_context.agent_role in TERMINAL_AGENT_ROLES:
+                self._capture_submission_issue(
+                    result_collector,
+                    [result, getattr(agent, "_streamed_output", ""), *captured_outputs],
+                )
+                if not result_collector.submitted and result_collector.can_repair:
+                    issue = result_collector.last_issue
+                    code = issue.code if issue is not None else "submission_required"
+                    field = issue.field if issue is not None else "submission"
+                    captured_outputs.clear()
+                    repair_result = await agent.process(
+                        "AGENTRANK_REPAIR "
+                        f"code={code} field={field}. "
+                        "不要再次调用读取工具；只修正该字段并调用一次 "
+                        f"{result_collector.expected_tool}。"
+                    )
+                    if not result_collector.submitted:
+                        self._capture_submission_issue(
+                            result_collector,
+                            [repair_result, *captured_outputs],
+                            allow_existing=True,
+                        )
+                provenance = await self._capture_provenance(agent)
+                if result_collector.submitted:
+                    return AgentExecutionResult(
+                        result_collector.result_json(), provenance
+                    )
+                issue = result_collector.last_issue
+                raise AgentSubmissionUnavailableError(
+                    issue.code if issue is not None else "submission_required",
+                    issue.field if issue is not None else "submission",
+                )
             provenance = await self._capture_provenance(agent)
             candidates: List[Any] = [result]
             # 新版宿主的 CAPTURE_ONLY 路径可能只把最终文本留在 Agent
@@ -372,6 +464,22 @@ class AgentRankAgentAdapter:
         """执行只允许排序冻结候选的排序 Agent。"""
         if trusted_context.agent_role != RANKING_AGENT_ROLE:
             raise ValueError("ranking Agent requires ranking trusted context")
+        return await self.run(prompt, trusted_context)
+
+    async def run_preliminary(
+        self, prompt: str, trusted_context: AgentRankTrustedContext
+    ) -> str:
+        """执行一读一提交的初赛 Agent。"""
+        if trusted_context.agent_role != PRELIMINARY_AGENT_ROLE:
+            raise ValueError("preliminary Agent requires preliminary trusted context")
+        return await self.run(prompt, trusted_context)
+
+    async def run_final(
+        self, prompt: str, trusted_context: AgentRankTrustedContext
+    ) -> str:
+        """执行一读一提交的决赛 Agent。"""
+        if trusted_context.agent_role != FINAL_AGENT_ROLE:
+            raise ValueError("final Agent requires final trusted context")
         return await self.run(prompt, trusted_context)
 
     async def run_feedback(
