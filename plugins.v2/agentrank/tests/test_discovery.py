@@ -2,6 +2,7 @@
 
 import importlib
 import sys
+import threading
 from pathlib import Path
 from types import ModuleType
 
@@ -20,6 +21,7 @@ repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository"
 retrieval_module = importlib.import_module(f"{PACKAGE_NAME}.model.retrieval")
 
 DiscoveryAdapter = adapter_module.DiscoveryAdapter
+DiscoveryFetchResult = adapter_module.DiscoveryFetchResult
 RawDiscoveredItem = adapter_module.RawDiscoveredItem
 CandidateCollectionService = service_module.CandidateCollectionService
 AgentRankRepository = repository_module.AgentRankRepository
@@ -78,7 +80,7 @@ def test_multi_source_candidates_are_deduplicated_and_frozen_before_use():
         candidate_limit=10,
     )
 
-    assert result.status == "ready"
+    assert result.status == "candidate_insufficient"
     assert [candidate.candidate_id for candidate in result.candidates] == [
         "tmdb:movie:100",
         "tmdb:movie:101",
@@ -181,7 +183,7 @@ def test_partial_source_failure_preserves_other_candidates_and_error_evidence():
         "alice", "run-2", {"douban": True, "bangumi": True}, 10
     )
 
-    assert result.status == "ready"
+    assert result.status == "candidate_insufficient"
     assert [candidate.candidate_id for candidate in result.candidates] == [
         "tmdb:tv:7"
     ]
@@ -267,8 +269,8 @@ def test_discovery_adapter_has_no_extension_event_or_token_fetch_path():
     assert [name for name in sorted(forbidden) if name in source] == []
 
 
-def test_candidate_limit_is_applied_after_normalization_and_deduplication():
-    """The frozen candidate pool never exceeds its configured safety bound."""
+def test_candidate_target_is_clamped_to_supported_minimum():
+    """Direct service callers cannot lower the frozen target below ten."""
     adapter = DiscoveryAdapter(
         source_fetchers={
             "tmdb_movies": lambda count: [
@@ -283,11 +285,13 @@ def test_candidate_limit_is_applied_after_normalization_and_deduplication():
         "alice", "run-5", {"tmdb_movies": True}, candidate_limit=3
     )
 
-    assert len(result.candidates) == 3
+    assert len(result.candidates) == 7
+    assert result.status == "candidate_insufficient"
+    assert result.minimum_frozen_candidates == 10
 
 
 def test_enabled_sources_share_the_default_global_raw_fetch_limit():
-    """默认 150 条原始上限在来源间无损均分，不按来源重复放大。"""
+    """默认 45 条原始上限在来源间无损均分，不按来源重复放大。"""
     requested = {}
 
     def fetcher(name):
@@ -306,12 +310,12 @@ def test_enabled_sources_share_the_default_global_raw_fetch_limit():
     )
 
     assert requested == {
-        "douban": 38,
-        "tmdb_movies": 38,
-        "tmdb_tv": 37,
-        "bangumi": 37,
+        "douban": 12,
+        "tmdb_movies": 11,
+        "tmdb_tv": 11,
+        "bangumi": 11,
     }
-    assert sum(requested.values()) == 150
+    assert sum(requested.values()) == 45
 
 
 def test_candidate_limit_round_robins_sources_before_global_cutoff():
@@ -340,20 +344,20 @@ def test_candidate_limit_round_robins_sources_before_global_cutoff():
         "alice",
         "run-balanced",
         {"douban": True, "tmdb_movies": True, "tmdb_tv": True, "bangumi": True},
-        candidate_limit=4,
+        candidate_limit=10,
     )
 
-    assert [candidate.sources[0] for candidate in result.candidates] == [
+    assert [candidate.sources[0] for candidate in result.candidates[:4]] == [
         "douban",
         "tmdb_movies",
         "tmdb_tv",
         "bangumi",
     ]
     assert result.accepted_source_counts == {
-        "douban": 1,
-        "tmdb_movies": 1,
-        "tmdb_tv": 1,
-        "bangumi": 1,
+        "douban": 3,
+        "tmdb_movies": 3,
+        "tmdb_tv": 2,
+        "bangumi": 2,
     }
 
 
@@ -483,7 +487,7 @@ def test_anilist_candidate_is_recognized_to_typed_tmdb_identity():
         "alice", "run-anilist", {"anilist": True}, 10
     )
 
-    assert result.status == "ready"
+    assert result.status == "candidate_insufficient"
     assert result.candidates[0].candidate_id == "tmdb:tv:654"
     assert result.candidates[0].source_ids == {"anilist": "321", "tmdb": "654"}
 
@@ -701,8 +705,13 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
     )
 
     class LibraryAdapter:
-        def exists(self, candidate):
-            return candidate.candidate_id == "tmdb:movie:2"
+        def __init__(self):
+            self.batch_sizes = []
+
+        def candidate_ids(self, candidates):
+            values = list(candidates)
+            self.batch_sizes.append(len(values))
+            return {"tmdb:movie:2"}
 
     class SubscriptionAdapter:
         def candidate_ids(self):
@@ -710,10 +719,11 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
 
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
+    library_adapter = LibraryAdapter()
     service = CandidateCollectionService(
         adapter,
         repository,
-        library_adapter=LibraryAdapter(),
+        library_adapter=library_adapter,
         subscription_adapter=SubscriptionAdapter(),
     )
 
@@ -746,6 +756,8 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
     ]
     assert result.exclusion_counts == {
         "invalid_or_unrecognized": 0,
+        "cheap_media_type": 0,
+        "cheap_year": 0,
         "watched_completed": 1,
         "library": 1,
         "subscribed": 1,
@@ -753,9 +765,188 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
         "archived": 1,
         "negative_keyword": 1,
     }
+    assert library_adapter.batch_sizes == [6]
     assert [item.candidate_id for item in repository.load_candidate_snapshot(
         "run-hard-filter", "alice"
     )] == ["tmdb:movie:7"]
+
+
+def test_dynamic_recall_freezes_fifteen_and_stops_recognition_by_batch():
+    """默认目标十五，首批预算三十，并在第三个六条批次内提前停止。"""
+    requested = []
+
+    def fetch(count):
+        requested.append(count)
+        return [
+            {
+                "title": f"Movie {index}",
+                "media_type": "movie",
+                "tmdb_id": index,
+            }
+            for index in range(1, count + 1)
+        ]
+
+    result = CandidateCollectionService(
+        DiscoveryAdapter(source_fetchers={"tmdb_movies": fetch}),
+        AgentRankRepository(FakePlugin()),
+    ).collect_and_freeze(
+        "alice", "run-dynamic-target", {"tmdb_movies": True}, 15
+    )
+
+    assert result.status == "ready"
+    assert len(result.candidates) == 15
+    assert requested == [30]
+    assert result.processing_counts["initial_recall_budget"] == 30
+    assert result.processing_counts["recognition_batch_count"] == 3
+    assert result.processing_counts["recognition_input"] == 18
+    assert result.processing_counts["early_stop"] == 1
+
+
+def test_exhausted_sources_allow_ten_to_fourteen_candidates_to_proceed():
+    """来源耗尽后只要冻结候选达到十条便允许进入 Agent 阶段。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {
+                    "title": f"Movie {index}",
+                    "media_type": "movie",
+                    "tmdb_id": index,
+                }
+                for index in range(1, 13)
+            ]
+        }
+    )
+
+    result = CandidateCollectionService(
+        adapter, AgentRankRepository(FakePlugin())
+    ).collect_and_freeze(
+        "alice", "run-minimum-ready", {"tmdb_movies": True}, 15
+    )
+
+    assert result.status == "ready"
+    assert len(result.candidates) == 12
+    assert result.processing_counts["recall_round_count"] == 1
+
+
+def test_supplement_recall_stays_between_five_and_ten_and_caps_at_forty_five():
+    """低存活率按十条、五条补充，并在四十五条原始候选处闭锁。"""
+    class PagingAdapter:
+        def __init__(self):
+            self.budgets = []
+            self.next_id = 1
+
+        def fetch(self, enabled_sources, count, retrieval_plan=None, raw_limit=None):
+            del enabled_sources, count, retrieval_plan
+            budget = int(raw_limit)
+            self.budgets.append(budget)
+            rows = [
+                RawDiscoveredItem(
+                    source="tmdb_movies",
+                    payload={
+                        "title": f"Blocked {index}",
+                        "media_type": "movie",
+                        "tmdb_id": index,
+                        "overview": "blocked-topic",
+                    },
+                )
+                for index in range(self.next_id, self.next_id + budget)
+            ]
+            self.next_id += budget
+            return DiscoveryFetchResult(
+                items=rows,
+                source_counts={"tmdb_movies": budget},
+                raw_limit=budget,
+            )
+
+    adapter = PagingAdapter()
+    result = CandidateCollectionService(
+        adapter, AgentRankRepository(FakePlugin())
+    ).collect_and_freeze(
+        "alice",
+        "run-recall-cap",
+        {"tmdb_movies": True},
+        15,
+        negative_keywords=["blocked-topic"],
+    )
+
+    assert result.status == "candidate_insufficient"
+    assert adapter.budgets == [30, 10, 5]
+    assert result.processing_counts["raw"] == 45
+    assert result.processing_counts["supplement_recall_count"] == 15
+    assert result.processing_counts["recognition_input"] == 0
+
+
+def test_media_type_year_and_negative_keyword_filters_run_before_recognition():
+    """只依赖来源字段的类型、年份和负向词过滤不得消耗识别调用。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {"title": "Wrong type", "media_type": "tv", "tmdb_id": 1},
+                {"title": "Too old", "media_type": "movie", "tmdb_id": 2, "year": 1999},
+                {
+                    "title": "Blocked",
+                    "media_type": "movie",
+                    "tmdb_id": 3,
+                    "year": 2024,
+                    "overview": "skip-this",
+                },
+                {"title": "Accepted", "media_type": "movie", "tmdb_id": 4, "year": 2024},
+            ]
+        }
+    )
+
+    class MediaAdapter:
+        def __init__(self):
+            self.inputs = []
+
+        def recognize_many(self, candidates):
+            self.inputs.extend(candidate.candidate_id for candidate in candidates)
+            return list(candidates)
+
+    media_adapter = MediaAdapter()
+    result = CandidateCollectionService(
+        adapter,
+        AgentRankRepository(FakePlugin()),
+        media_adapter,
+    ).collect_and_freeze(
+        "alice",
+        "run-cheap-filter",
+        {"tmdb_movies": True},
+        10,
+        retrieval_plan=RetrievalPlan(
+            filters=RetrievalFilters(media_types=("movie",), year_min=2020)
+        ),
+        negative_keywords=["skip-this"],
+    )
+
+    assert media_adapter.inputs == ["tmdb:movie:4"]
+    assert result.exclusion_counts["cheap_media_type"] == 1
+    assert result.exclusion_counts["cheap_year"] == 1
+    assert result.exclusion_counts["negative_keyword"] == 1
+
+
+def test_legacy_sources_execute_concurrently_and_isolate_failures():
+    """多个来源必须并发开始，且单来源失败仍保留其余候选。"""
+    barrier = threading.Barrier(2)
+
+    def successful(count):
+        barrier.wait(timeout=1)
+        return [{"title": "Movie", "media_type": "movie", "tmdb_id": 1}]
+
+    def failed(count):
+        barrier.wait(timeout=1)
+        raise RuntimeError("network down")
+
+    result = DiscoveryAdapter(
+        source_fetchers={"douban": failed, "tmdb_movies": successful}
+    ).fetch(
+        {"douban": True, "tmdb_movies": True},
+        count=2,
+        raw_limit=2,
+    )
+
+    assert [item.source for item in result.items] == ["tmdb_movies"]
+    assert result.source_errors == {"douban": "network down"}
 
 
 def test_subscription_filter_failure_stops_before_snapshot():

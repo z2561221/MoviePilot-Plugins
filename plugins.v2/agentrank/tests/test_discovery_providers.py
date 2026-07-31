@@ -225,7 +225,7 @@ def test_anilist_accepts_tv_profile_alias_but_not_movie_only_profile():
 
 
 def test_fetch_requests_enforces_one_global_raw_limit():
-    """多个 provider 请求的有效配额总和永远不超过 150。"""
+    """多个 provider 请求的有效配额总和永远不超过 45。"""
     seen_limits = []
 
     def handler(request):
@@ -238,19 +238,19 @@ def test_fetch_requests_enforces_one_global_raw_limit():
     adapter = DiscoveryAdapter(
         provider=MoviePilotProvider({"tmdb_discover": handler})
     )
-    first = _tmdb_request(limit=100)
+    first = _tmdb_request(limit=30)
     second = _tmdb_request(
         request_id="tmdb_tv",
         source="tmdb_tv",
         media_type="tv",
-        limit=100,
+        limit=30,
     )
 
-    result = adapter.fetch_requests([first, second], raw_limit=150)
+    result = adapter.fetch_requests([first, second], raw_limit=45)
 
-    assert seen_limits == [100, 50]
-    assert len(result.items) == 150
-    assert sum(item["limit"] for item in result.request_recipes) == 150
+    assert seen_limits == [30, 15]
+    assert len(result.items) == 45
+    assert sum(item["limit"] for item in result.request_recipes) == 45
 
 
 def test_small_global_limit_skips_sources_without_a_positive_quota():
@@ -315,8 +315,8 @@ def test_recommend_provider_uses_only_valid_typed_playback_seeds():
     assert all(recipe["method"] == "tmdb_recommend" for recipe in result.request_recipes)
 
 
-def test_default_layered_recall_uses_25_10_5_10_quotas():
-    """默认 50 候选按精确、放宽、相邻和公共推荐四层分配。"""
+def test_default_layered_recall_scales_layer_quotas_to_forty_five():
+    """默认层权重在四十五条安全上限内按稳定比例分配。"""
     calls = []
 
     def handler(request):
@@ -361,14 +361,14 @@ def test_default_layered_recall_uses_25_10_5_10_quotas():
                 initial_totals.get(recipe["layer"], 0) + recipe["limit"]
             )
     assert initial_totals == {
-        "exact": 25,
-        "relaxed": 10,
-        "adjacent": 5,
-        "public_recommend": 10,
+        "exact": 23,
+        "relaxed": 9,
+        "adjacent": 4,
+        "public_recommend": 9,
     }
     request_ids = [item["request_id"] for item in result.request_recipes]
     assert len(request_ids) == len(set(request_ids))
-    assert len(result.items) == 50
+    assert len(result.items) == 45
     relaxed = next(item for item in calls if item.layer == "relaxed")
     assert dict(relaxed.params) == {
         "sort_by": "popularity.desc",
@@ -422,9 +422,8 @@ def test_layer_shortfall_is_refilled_from_other_valid_layers():
     fallback = [
         item for item in result.request_recipes if item["recall_pass"] == "fallback"
     ]
-    assert len(result.items) == 50
-    assert sum(item["limit"] for item in fallback) == 25
-    assert sum(item["limit"] for item in result.request_recipes) <= 150
+    assert len(result.items) == 45
+    assert sum(item["limit"] for item in fallback) == 23
     assert {item["layer"] for item in fallback} == {
         "relaxed",
         "adjacent",

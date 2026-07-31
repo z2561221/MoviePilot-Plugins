@@ -2,18 +2,27 @@
 
 from collections import deque
 from dataclasses import dataclass, field
+import math
 import re
 import time
 from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
-from ..adapter.discovery import DiscoveryAdapter, RawDiscoveredItem
+from ..adapter.discovery import DiscoveryAdapter, DiscoveryFetchResult, RawDiscoveredItem
 from ..model.candidate import Candidate, typed_tmdb_candidate_id
 from ..model.candidate_snapshot import CandidateSnapshot
 from ..model.retrieval import RetrievalPlan
 from ..storage.repository import AgentRankRepository
 
 
-DEFAULT_MINIMUM_FROZEN_CANDIDATES = 20
+DEFAULT_FROZEN_CANDIDATE_TARGET = 15
+DEFAULT_MINIMUM_FROZEN_CANDIDATES = 10
+DEFAULT_CANDIDATE_SURVIVAL_RATE = 0.5
+MIN_INITIAL_RECALL = 20
+MAX_INITIAL_RECALL = 30
+MIN_SUPPLEMENT_RECALL = 5
+MAX_SUPPLEMENT_RECALL = 10
+MAX_RAW_RECALL = 45
+RECOGNITION_BATCH_SIZE = 6
 _MEDIAID_PREFIX_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 _MEDIAID_PREFIX_ALIASES = {
     "tmdb": "tmdb",
@@ -49,6 +58,8 @@ class CandidateCollectionResult:
     minimum_frozen_candidates: int = DEFAULT_MINIMUM_FROZEN_CANDIDATES
     timings_ms: Dict[str, int] = field(default_factory=dict)
     processing_counts: Dict[str, int] = field(default_factory=dict)
+    survival_rate_used: float = DEFAULT_CANDIDATE_SURVIVAL_RATE
+    candidate_survival_rate: float = 0.0
 
 
 class CandidateCollectionService:
@@ -361,6 +372,147 @@ class CandidateCollectionService:
             raise RuntimeError("subscription adapter does not expose candidate_ids")
         return set(candidate_ids() or set())
 
+    def _library_candidate_ids(self, candidates: Iterable[Candidate]) -> Set[str]:
+        """批量读取媒体库身份；旧适配器回退为兼容逐条检查。"""
+        items = list(candidates or ())
+        if self._library_adapter is None or not items:
+            return set()
+        candidate_ids = getattr(self._library_adapter, "candidate_ids", None)
+        if callable(candidate_ids):
+            return set(candidate_ids(items) or set())
+        return {
+            candidate.candidate_id
+            for candidate in items
+            if self._library_adapter.exists(candidate)
+        }
+
+    def _recent_survival_rate(self, profile_id: str) -> float:
+        """读取最近成功运行的候选存活率，没有历史时使用保守默认值。"""
+        try:
+            history = self._repository.load_run_history(profile_id)
+        except Exception:
+            return DEFAULT_CANDIDATE_SURVIVAL_RATE
+        for run in history:
+            if str(getattr(run, "status", "")) not in {
+                "success",
+                "recommendation_degraded",
+                "recommendation_incomplete",
+            }:
+                continue
+            metrics = dict(getattr(run, "metrics", {}) or {})
+            try:
+                rate = float(metrics.get("candidate_survival_rate") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if rate > 0:
+                return max(0.1, min(rate, 1.0))
+        return DEFAULT_CANDIDATE_SURVIVAL_RATE
+
+    @staticmethod
+    def _initial_recall_budget(target: int, survival_rate: float) -> int:
+        """按最近存活率计算 20-30 条首批原始召回预算。"""
+        estimated = math.ceil(max(1, int(target)) / max(0.1, survival_rate))
+        return max(MIN_INITIAL_RECALL, min(estimated, MAX_INITIAL_RECALL))
+
+    @staticmethod
+    def _supplement_recall_budget(remaining: int, survival_rate: float) -> int:
+        """按剩余缺口计算 5-10 条补充召回预算。"""
+        estimated = math.ceil(max(1, int(remaining)) / max(0.1, survival_rate))
+        return max(MIN_SUPPLEMENT_RECALL, min(estimated, MAX_SUPPLEMENT_RECALL))
+
+    @staticmethod
+    def _merge_fetch_result(
+        target: DiscoveryFetchResult,
+        incoming: DiscoveryFetchResult,
+        recall_round: int,
+    ) -> None:
+        """汇总多轮召回证据并保留每轮编号。"""
+        target.items.extend(incoming.items)
+        target.source_errors.update(incoming.source_errors)
+        target.rejected_sources.extend(
+            source
+            for source in incoming.rejected_sources
+            if source not in target.rejected_sources
+        )
+        for source, count in incoming.source_counts.items():
+            target.source_counts[source] = target.source_counts.get(source, 0) + count
+        for layer, count in incoming.layer_counts.items():
+            target.layer_counts[layer] = target.layer_counts.get(layer, 0) + count
+        for recipe in incoming.request_recipes:
+            marked = dict(recipe)
+            marked["recall_round"] = recall_round
+            target.request_recipes.append(marked)
+
+    @classmethod
+    def _cheap_filter_reason(
+        cls,
+        candidate: Candidate,
+        retrieval_plan: Optional[RetrievalPlan],
+        negative_keywords: Iterable[str],
+    ) -> str:
+        """在媒体识别前执行只依赖来源字段的廉价硬过滤。"""
+        filters = retrieval_plan.filters if retrieval_plan is not None else None
+        if filters and filters.media_types:
+            allowed = set(filters.media_types)
+            candidate_type = candidate.media_type
+            if candidate_type == "anime" and "anime" not in allowed:
+                return "media_type"
+            if candidate_type in {"movie", "tv"} and candidate_type not in allowed:
+                return "media_type"
+        if filters and candidate.year is not None:
+            if filters.year_min is not None and candidate.year < filters.year_min:
+                return "year"
+            if filters.year_max is not None and candidate.year > filters.year_max:
+                return "year"
+        if cls._negative_match(candidate, negative_keywords):
+            return "negative_keyword"
+        return ""
+
+    @staticmethod
+    def _recognition_priority(
+        candidate: Candidate, retrieval_plan: Optional[RetrievalPlan]
+    ) -> Tuple[float, ...]:
+        """按来源现有事实生成媒体识别优先级，不表达最终用户契合度。"""
+        filters = retrieval_plan.filters if retrieval_plan is not None else None
+        type_match = 1.0
+        if filters and filters.media_types:
+            type_match = float(candidate.media_type in set(filters.media_types))
+        rating = float(candidate.rating or 0.0)
+        popularity = float(candidate.popularity or 0.0)
+        freshness = float(candidate.year or 0)
+        completeness = float(
+            sum(
+                bool(value)
+                for value in (
+                    candidate.year,
+                    candidate.original_title,
+                    candidate.overview,
+                    candidate.rating,
+                    candidate.popularity,
+                    candidate.release_date,
+                )
+            )
+        )
+        return type_match, completeness, rating, popularity, freshness
+
+    def _recognize_batch(
+        self, candidates: Iterable[Candidate]
+    ) -> List[Optional[Candidate]]:
+        """通过批量适配器识别一批候选并隔离单条预期失败。"""
+        items = list(candidates or ())
+        if self._media_adapter is None:
+            return list(items)
+        recognize_many = getattr(self._media_adapter, "recognize_many", None)
+        if callable(recognize_many):
+            return list(recognize_many(items))
+        result: List[Optional[Candidate]] = []
+        for candidate in items:
+            try:
+                result.append(self._media_adapter.recognize(candidate))
+            except (TypeError, ValueError, KeyError):
+                result.append(None)
+        return result
+
     def enrich_recommendation_sources(self, recommendations: Iterable[Any]) -> None:
         """仅为最终榜单条目按需补齐跨来源按钮所需的媒体 ID。"""
         enrich = getattr(self._media_adapter, "enrich_cross_source_ids", None)
@@ -387,121 +539,40 @@ class CandidateCollectionService:
         profile_version: Optional[Mapping[str, Any]] = None,
         disliked_candidate_ids: Optional[Iterable[str]] = None,
     ) -> CandidateCollectionResult:
-        """采集、类型化去重、硬过滤并在返回前冻结候选快照。"""
+        """动态召回、廉价预过滤、分批识别并冻结 10-15 条候选。"""
         playback_samples = list(playback_samples or ())
-        timings_ms: Dict[str, int] = {}
-        processing_counts: Dict[str, int] = {}
-        stage_clock = time.monotonic()
-        if hasattr(self._adapter, "fetch_layered") and (
-            retrieval_plan is not None or playback_samples
-        ):
-            fetched = self._adapter.fetch_layered(
-                enabled_sources,
-                max(1, int(candidate_limit)),
-                retrieval_plan=retrieval_plan,
-                playback_samples=playback_samples,
-                raw_limit=raw_limit,
-            )
-        else:
-            fetched = self._adapter.fetch(
-                enabled_sources,
-                max(1, int(candidate_limit)),
-                retrieval_plan=retrieval_plan,
-                raw_limit=raw_limit,
-            )
-        timings_ms["recall"] = max(
-            0, int((time.monotonic() - stage_clock) * 1000)
+        target = max(
+            DEFAULT_MINIMUM_FROZEN_CANDIDATES,
+            min(int(candidate_limit or DEFAULT_FROZEN_CANDIDATE_TARGET), DEFAULT_FROZEN_CANDIDATE_TARGET),
         )
-        processing_counts["raw"] = len(fetched.items)
-
-        stage_clock = time.monotonic()
-        pre_recognition: List[Candidate] = []
-        pre_recognition_by_id: Dict[str, Candidate] = {}
-        rejected_count = 0
-        for raw in self._round_robin(fetched.items):
-            try:
-                candidate = self._normalize(raw)
-            except (TypeError, ValueError, KeyError):
-                rejected_count += 1
-                continue
-            existing = pre_recognition_by_id.get(candidate.candidate_id)
-            if existing:
-                self._merge(existing, candidate)
-                continue
-            pre_recognition_by_id[candidate.candidate_id] = candidate
-            pre_recognition.append(candidate)
-        timings_ms["normalize"] = max(
-            0, int((time.monotonic() - stage_clock) * 1000)
+        maximum_raw = min(MAX_RAW_RECALL, max(1, int(raw_limit or MAX_RAW_RECALL)))
+        survival_rate = self._recent_survival_rate(profile_id)
+        initial_budget = min(
+            maximum_raw, self._initial_recall_budget(target, survival_rate)
         )
-        processing_counts["normalized"] = len(pre_recognition)
-        processing_counts["pre_recognition_deduplicated"] = max(
-            0, processing_counts["raw"] - rejected_count - len(pre_recognition)
-        )
-
-        stage_clock = time.monotonic()
-        if self._media_adapter is None:
-            recognized_items: List[Optional[Candidate]] = list(pre_recognition)
-        else:
-            recognize_many = getattr(self._media_adapter, "recognize_many", None)
-            if callable(recognize_many):
-                recognized_items = list(recognize_many(pre_recognition))
-            else:
-                recognized_items = []
-                for candidate in pre_recognition:
-                    try:
-                        recognized_items.append(
-                            self._media_adapter.recognize(candidate)
-                        )
-                    except (TypeError, ValueError, KeyError):
-                        recognized_items.append(None)
-        timings_ms["recognition"] = max(
-            0, int((time.monotonic() - stage_clock) * 1000)
-        )
-        processing_counts["recognition_input"] = len(pre_recognition)
-        cache_hit_count = 0
-        for index, source in enumerate(pre_recognition):
-            recognized = (
-                recognized_items[index] if index < len(recognized_items) else None
-            )
-            cache_hit = False
-            for value in (source, recognized):
-                metadata = getattr(value, "metadata", None)
-                if not isinstance(metadata, dict):
-                    continue
-                cache_hit = metadata.pop("_recognize_cache_hit", None) is True or cache_hit
-            if cache_hit:
-                cache_hit_count += 1
-        processing_counts["candidate_recognition_cache_hit_count"] = cache_hit_count
-        processing_counts["candidate_recognition_cache_miss_count"] = max(
-            0, len(pre_recognition) - cache_hit_count
-        )
-
-        normalized_candidates: List[Candidate] = []
-        by_id: Dict[str, Candidate] = {}
-        limit = max(1, int(candidate_limit))
-        for candidate in recognized_items:
-            try:
-                if candidate is None:
-                    raise ValueError("candidate could not be recognized as TMDB media")
-                candidate.candidate_id = self._typed_identity(candidate)
-            except (TypeError, ValueError, KeyError):
-                rejected_count += 1
-                continue
-            existing = by_id.get(candidate.candidate_id)
-            if existing:
-                self._merge(existing, candidate)
-                continue
-            by_id[candidate.candidate_id] = candidate
-            normalized_candidates.append(candidate)
-        processing_counts["recognized"] = len(normalized_candidates)
-        processing_counts["post_recognition_deduplicated"] = max(
-            0,
-            len([item for item in recognized_items if item is not None])
-            - len(normalized_candidates),
-        )
-
+        timings_ms: Dict[str, int] = {
+            "recall": 0,
+            "normalize": 0,
+            "recognition": 0,
+            "filter": 0,
+        }
+        processing_counts: Dict[str, int] = {
+            "raw": 0,
+            "normalized": 0,
+            "pre_recognition_deduplicated": 0,
+            "recognition_input": 0,
+            "recognized": 0,
+            "post_recognition_deduplicated": 0,
+            "candidate_recognition_cache_hit_count": 0,
+            "candidate_recognition_cache_miss_count": 0,
+            "initial_recall_budget": initial_budget,
+            "supplement_recall_count": 0,
+            "recognition_batch_count": 0,
+        }
         exclusion_counts = {
-            "invalid_or_unrecognized": rejected_count,
+            "invalid_or_unrecognized": 0,
+            "cheap_media_type": 0,
+            "cheap_year": 0,
             "watched_completed": 0,
             "library": 0,
             "subscribed": 0,
@@ -510,7 +581,6 @@ class CandidateCollectionService:
             "negative_keyword": 0,
         }
         filter_errors: Dict[str, str] = {}
-        stage_clock = time.monotonic()
         watched_ids = self._completed_candidate_ids(playback_samples)
         archived_ids = {
             str(candidate_id or "").strip()
@@ -528,48 +598,194 @@ class CandidateCollectionService:
             filter_errors["subscriptions"] = str(error)
             subscribed_ids = set()
 
+        fetched = DiscoveryFetchResult(raw_limit=maximum_raw)
+        pre_recognition_by_id: Dict[str, Candidate] = {}
+        recognized_by_id: Dict[str, Candidate] = {}
         candidates: List[Candidate] = []
-        if not filter_errors:
-            for candidate in normalized_candidates:
-                candidate_id = candidate.candidate_id
-                if candidate_id in watched_ids:
-                    exclusion_counts["watched_completed"] += 1
-                    continue
+        rejected_count = 0
+        recall_round = 0
+        next_budget = initial_budget
+        while (
+            not filter_errors
+            and len(candidates) < target
+            and processing_counts["raw"] < maximum_raw
+        ):
+            recall_round += 1
+            budget = min(next_budget, maximum_raw - processing_counts["raw"])
+            stage_clock = time.monotonic()
+            if hasattr(self._adapter, "fetch_layered") and (
+                retrieval_plan is not None or playback_samples
+            ):
+                incoming = self._adapter.fetch_layered(
+                    enabled_sources,
+                    budget,
+                    retrieval_plan=retrieval_plan,
+                    playback_samples=playback_samples,
+                    raw_limit=budget,
+                    page=recall_round,
+                )
+            else:
+                incoming = self._adapter.fetch(
+                    enabled_sources,
+                    budget,
+                    retrieval_plan=retrieval_plan,
+                    raw_limit=budget,
+                )
+            timings_ms["recall"] += max(
+                0, int((time.monotonic() - stage_clock) * 1000)
+            )
+            rows = list(incoming.items)[:budget]
+            incoming.items = rows
+            self._merge_fetch_result(fetched, incoming, recall_round)
+            processing_counts["raw"] += len(rows)
+            if recall_round > 1:
+                processing_counts["supplement_recall_count"] += len(rows)
+            if not rows:
+                break
+
+            stage_clock = time.monotonic()
+            pending: List[Candidate] = []
+            new_identity_count = 0
+            for raw in self._round_robin(rows):
                 try:
-                    in_library = bool(
-                        self._library_adapter is not None
-                        and self._library_adapter.exists(candidate)
+                    candidate = self._normalize(raw)
+                except (TypeError, ValueError, KeyError):
+                    rejected_count += 1
+                    exclusion_counts["invalid_or_unrecognized"] += 1
+                    continue
+                existing = pre_recognition_by_id.get(candidate.candidate_id)
+                if existing:
+                    self._merge(existing, candidate)
+                    processing_counts["pre_recognition_deduplicated"] += 1
+                    continue
+                pre_recognition_by_id[candidate.candidate_id] = candidate
+                new_identity_count += 1
+                reason = self._cheap_filter_reason(
+                    candidate, retrieval_plan, negative_keywords or ()
+                )
+                if reason:
+                    exclusion_counts[
+                        "negative_keyword" if reason == "negative_keyword" else f"cheap_{reason}"
+                    ] += 1
+                    continue
+                pending.append(candidate)
+            processing_counts["normalized"] = len(pre_recognition_by_id)
+            pending.sort(
+                key=lambda item: self._recognition_priority(item, retrieval_plan),
+                reverse=True,
+            )
+            timings_ms["normalize"] += max(
+                0, int((time.monotonic() - stage_clock) * 1000)
+            )
+
+            while pending and len(candidates) < target and not filter_errors:
+                batch = pending[:RECOGNITION_BATCH_SIZE]
+                del pending[:RECOGNITION_BATCH_SIZE]
+                processing_counts["recognition_batch_count"] += 1
+                processing_counts["recognition_input"] += len(batch)
+                stage_clock = time.monotonic()
+                recognized_items = self._recognize_batch(batch)
+                timings_ms["recognition"] += max(
+                    0, int((time.monotonic() - stage_clock) * 1000)
+                )
+                valid_batch: List[Candidate] = []
+                for index, source in enumerate(batch):
+                    recognized = (
+                        recognized_items[index]
+                        if index < len(recognized_items)
+                        else None
                     )
+                    cache_hit = False
+                    for value in (source, recognized):
+                        metadata = getattr(value, "metadata", None)
+                        if isinstance(metadata, dict):
+                            cache_hit = (
+                                metadata.pop("_recognize_cache_hit", None) is True
+                                or cache_hit
+                            )
+                    count_key = (
+                        "candidate_recognition_cache_hit_count"
+                        if cache_hit
+                        else "candidate_recognition_cache_miss_count"
+                    )
+                    processing_counts[count_key] += 1
+                    try:
+                        if recognized is None:
+                            raise ValueError("candidate could not be recognized")
+                        recognized.candidate_id = self._typed_identity(recognized)
+                    except (TypeError, ValueError, KeyError):
+                        rejected_count += 1
+                        exclusion_counts["invalid_or_unrecognized"] += 1
+                        continue
+                    existing = recognized_by_id.get(recognized.candidate_id)
+                    if existing:
+                        self._merge(existing, recognized)
+                        processing_counts["post_recognition_deduplicated"] += 1
+                        continue
+                    recognized_by_id[recognized.candidate_id] = recognized
+                    valid_batch.append(recognized)
+                processing_counts["recognized"] = len(recognized_by_id)
+
+                stage_clock = time.monotonic()
+                try:
+                    library_ids = self._library_candidate_ids(valid_batch)
                 except Exception as error:
                     filter_errors["library"] = str(error)
                     candidates = []
                     break
-                if in_library:
-                    exclusion_counts["library"] += 1
-                    continue
-                if candidate_id in subscribed_ids:
-                    exclusion_counts["subscribed"] += 1
-                    continue
-                if candidate_id in disliked_ids:
-                    exclusion_counts["disliked"] += 1
-                    continue
-                if candidate_id in archived_ids:
-                    exclusion_counts["archived"] += 1
-                    continue
-                if self._negative_match(candidate, negative_keywords or ()):
-                    exclusion_counts["negative_keyword"] += 1
-                    continue
-                candidates.append(candidate)
-                if len(candidates) >= limit:
-                    break
-        timings_ms["filter"] = max(
-            0, int((time.monotonic() - stage_clock) * 1000)
+                for candidate in valid_batch:
+                    candidate_id = candidate.candidate_id
+                    if candidate_id in watched_ids:
+                        exclusion_counts["watched_completed"] += 1
+                    elif candidate_id in library_ids:
+                        exclusion_counts["library"] += 1
+                    elif candidate_id in subscribed_ids:
+                        exclusion_counts["subscribed"] += 1
+                    elif candidate_id in disliked_ids:
+                        exclusion_counts["disliked"] += 1
+                    elif candidate_id in archived_ids:
+                        exclusion_counts["archived"] += 1
+                    elif self._negative_match(candidate, negative_keywords or ()):
+                        exclusion_counts["negative_keyword"] += 1
+                    else:
+                        candidates.append(candidate)
+                        if len(candidates) >= target:
+                            break
+                timings_ms["filter"] += max(
+                    0, int((time.monotonic() - stage_clock) * 1000)
+                )
+
+            if len(candidates) >= target or processing_counts["raw"] >= maximum_raw:
+                break
+            legacy_exhausted = (
+                getattr(self._adapter, "_source_fetchers", None) is not None
+                and len(rows) < budget
+            )
+            if legacy_exhausted:
+                break
+            if new_identity_count == 0:
+                break
+            next_budget = self._supplement_recall_budget(
+                target - len(candidates), survival_rate
+            )
+
+        processing_counts["recall_round_count"] = recall_round
+        processing_counts["accepted"] = len(candidates)
+        processing_counts["early_stop"] = int(len(candidates) >= target)
+        current_survival_rate = (
+            len(candidates) / processing_counts["raw"]
+            if processing_counts["raw"]
+            else 0.0
         )
 
         if filter_errors:
             status = "candidate_filter_failed"
         else:
-            status = "ready" if candidates else "candidate_insufficient"
+            status = (
+                "ready"
+                if len(candidates) >= DEFAULT_MINIMUM_FROZEN_CANDIDATES
+                else "candidate_insufficient"
+            )
         snapshot = None
         snapshot_error = ""
         stage_clock = time.monotonic()
@@ -609,7 +825,6 @@ class CandidateCollectionService:
         timings_ms["snapshot"] = max(
             0, int((time.monotonic() - stage_clock) * 1000)
         )
-        processing_counts["accepted"] = len(candidates)
         return CandidateCollectionResult(
             profile_id=profile_id,
             run_id=run_id,
@@ -626,7 +841,9 @@ class CandidateCollectionService:
             filter_errors=filter_errors,
             snapshot=snapshot,
             snapshot_error=snapshot_error,
-            minimum_frozen_candidates=min(DEFAULT_MINIMUM_FROZEN_CANDIDATES, limit),
+            minimum_frozen_candidates=min(DEFAULT_MINIMUM_FROZEN_CANDIDATES, target),
             timings_ms=timings_ms,
             processing_counts=processing_counts,
+            survival_rate_used=survival_rate,
+            candidate_survival_rate=current_survival_rate,
         )

@@ -104,12 +104,12 @@ def test_config_has_exact_ten_weight_defaults_and_valid_bounds():
         AgentRankConfig.from_mapping({"weights": {"type_weight": 1.1}})
 
 
-def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_one_hundred():
-    """发现页入口保持兼容开启，候选池默认使用当前配置的一百。"""
+def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_fifteen():
+    """发现页入口保持兼容开启，冻结候选目标默认使用十五。"""
     defaults = AgentRankConfig.from_mapping({})
     assert defaults.discovery_page_enabled is True
     assert defaults.notification_type == "Plugin"
-    assert defaults.candidate_pool_size == 100
+    assert defaults.candidate_pool_size == 15
     assert set(defaults.discovery_sources) == {
         "douban",
         "tmdb_movies",
@@ -160,7 +160,7 @@ def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
             "similarity_weight": 0.9,
         },
         "minimum_samples": 5,
-        "candidate_pool_size": 100,
+        "candidate_pool_size": 15,
         "confidence_threshold": 0.6,
         "action_mode": "notify",
         "notify": True,

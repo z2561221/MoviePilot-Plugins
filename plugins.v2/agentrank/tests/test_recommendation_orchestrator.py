@@ -188,7 +188,12 @@ class FakeAgentAdapter:
         output = (
             self.profile_outputs.pop(0)
             if self.profile_outputs is not None
-            else _profile_output(len(trusted_context.playback["samples"]))
+            else _profile_output(
+                int(
+                    trusted_context.playback.get("sample_count")
+                    or len(trusted_context.playback["samples"])
+                )
+            )
         )
         return self._result(output)
 
@@ -820,7 +825,7 @@ def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches
 
     assert result.status == "success"
     assert len(orchestrator.agent_adapter.profile_calls) == 1
-    assert repository.load_profile(PROFILE_ID).schema_version == 6
+    assert repository.load_profile(PROFILE_ID).schema_version == 7
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["profile_cache_miss_reason"] == "profile_schema_changed"
 
@@ -838,7 +843,7 @@ def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches
             summary="old",
             playback_count=len(snapshot.samples),
             playback_fingerprint=snapshot.fingerprint(),
-            schema_version=6,
+            schema_version=7,
             retrieval_resolution_version=0,
             run_id="old",
         )
@@ -857,6 +862,69 @@ def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches
     assert history.metrics["profile_cache_miss_reason"] == (
         "retrieval_resolution_changed"
     )
+
+
+def test_changed_playback_fact_triggers_one_incremental_profile_update():
+    """新增播放事实只触发一次增量画像，随后相同输入再次命中缓存。"""
+    class MutablePlaybackService(FakePlaybackService):
+        def __init__(self):
+            self.extra_sample = False
+
+        def collect(self, profile_id, config):
+            snapshot = super().collect(profile_id, config)
+            if self.extra_sample:
+                snapshot.samples.append(
+                    PlaybackSample(
+                        "tmdb:movie:6",
+                        "Watched 6",
+                        "movie",
+                        tmdb_id="6",
+                        genres=["科幻"],
+                        completed=True,
+                    )
+                )
+                snapshot.mapped_count = len(snapshot.samples)
+            return snapshot
+
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    playback = MutablePlaybackService()
+    agent = FakeAgentAdapter(
+        [
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+            _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
+        ]
+    )
+    run_ids = iter(("run-initial", "run-incremental", "run-reused"))
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=FakeCandidateService(12),
+        agent_adapter=agent,
+        run_id_factory=lambda: next(run_ids),
+        playback_service=playback,
+    )
+
+    first = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+    playback.extra_sample = True
+    second = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+    second_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    third = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+    third_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+
+    assert [first.status, second.status, third.status] == ["success"] * 3
+    assert len(agent.profile_calls) == 2
+    incremental_context = agent.profile_calls[1][1]
+    assert incremental_context.previous_profile["run_id"] == "run-initial"
+    assert incremental_context.playback["incremental"] is True
+    assert incremental_context.playback["sample_count"] == 6
+    assert incremental_context.playback["full_sample_count"] == 6
+    assert [
+        item["stable_id"] for item in incremental_context.playback["samples"]
+    ] == ["tmdb:movie:6"]
+    assert second_metrics["profile_cache_miss_reason"] == "playback_changed"
+    assert second_metrics["profile_incremental_sample_count"] == 1
+    assert third_metrics["profile_cache_status"] == "hit"
 
 
 def test_controlled_resolution_is_persisted_and_exposed_to_ranking_context():

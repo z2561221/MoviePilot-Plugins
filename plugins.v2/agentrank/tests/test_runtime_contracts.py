@@ -249,9 +249,9 @@ def test_runtime_injects_controlled_tmdb_keyword_resolution():
 
 
 def test_discovery_provider_contract_has_global_raw_cap_and_recipe_boundary():
-    """发现 Provider 必须保留 150 原始上限与 recipe 观测边界。"""
+    """发现 Provider 必须保留 45 原始上限与 recipe 观测边界。"""
     source = _source("adapter/discovery.py")
-    assert "DEFAULT_RAW_FETCH_LIMIT = 150" in source
+    assert "DEFAULT_RAW_FETCH_LIMIT = 45" in source
     assert "class ProviderRequest" in source
     assert "class MoviePilotProvider" in source
     assert "request_recipes" in source
@@ -261,7 +261,7 @@ def test_discovery_provider_contract_has_global_raw_cap_and_recipe_boundary():
 
 
 def test_layered_recall_contract_has_fixed_default_quotas_and_minimum_gate():
-    """分层召回必须固定默认配额并在排序前执行 20 条门槛。"""
+    """分层召回保留层权重并在排序前执行 10 条门槛。"""
     discovery = _source("adapter/discovery.py")
     candidate = _source("service/candidate.py")
     recommendation = _source("service/recommendation.py")
@@ -275,7 +275,7 @@ def test_layered_recall_contract_has_fixed_default_quotas_and_minimum_gate():
         assert quota > 0
     assert "def fetch_layered(" in discovery
     assert 'marked["recall_pass"] = recall_pass' in discovery
-    assert "DEFAULT_MINIMUM_FROZEN_CANDIDATES = 20" in candidate
+    assert "DEFAULT_MINIMUM_FROZEN_CANDIDATES = 10" in candidate
     assert "len(candidates) < minimum_frozen_candidates" in recommendation
 
 

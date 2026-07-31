@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
 import threading
@@ -263,7 +264,7 @@ class RecommendationOrchestrator:
                 if policy is not None
                 else dict(config.get("weights") or {})
             ),
-            "candidate_pool_size": int(config.get("candidate_pool_size") or 100),
+            "candidate_pool_size": int(config.get("candidate_pool_size") or 15),
         }
         if policy is not None:
             values.update(
@@ -311,6 +312,7 @@ class RecommendationOrchestrator:
         playback_fingerprint: str,
         preferences_fingerprint: str,
         profile_prompt_fingerprint: str,
+        profile_input_fingerprint: str,
     ) -> str:
         """返回画像缓存命中或未命中的稳定原因码。"""
         if not enabled:
@@ -332,7 +334,95 @@ class RecommendationOrchestrator:
             return "preferences_changed"
         if previous_profile.profile_prompt_fingerprint != profile_prompt_fingerprint:
             return "profile_prompt_changed"
+        if previous_profile.profile_input_fingerprint != profile_input_fingerprint:
+            return "profile_input_changed"
         return "hit"
+
+    @staticmethod
+    def _playback_evidence_fingerprints(playback_snapshot: Any) -> Dict[str, str]:
+        """按稳定样本身份计算逐条播放事实指纹。"""
+        result: Dict[str, str] = {}
+        for sample in list(getattr(playback_snapshot, "samples", ()) or ()):
+            payload = sample.to_dict() if hasattr(sample, "to_dict") else dict(sample)
+            stable_id = str(payload.get("stable_id") or "").strip()
+            if not stable_id:
+                continue
+            raw = json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            result[stable_id] = hashlib.sha256(raw).hexdigest()
+        return result
+
+    @staticmethod
+    def _profile_input_fingerprint(
+        playback_fingerprint: str,
+        preferences_fingerprint: str,
+        confirmed_memory: Any,
+        config: Mapping[str, Any],
+    ) -> str:
+        """计算播放事实、确认偏好和画像规则组成的完整输入指纹。"""
+        memory = (
+            confirmed_memory.to_dict()
+            if confirmed_memory is not None and hasattr(confirmed_memory, "to_dict")
+            else {}
+        )
+        payload = {
+            "playback_fingerprint": playback_fingerprint,
+            "preferences_fingerprint": preferences_fingerprint,
+            "confirmed_memory": memory,
+            "profile_config": {
+                "profile_prompt": str(config.get("profile_prompt") or ""),
+                "playback_recent_days": int(config.get("playback_recent_days") or 90),
+                "playback_completion_threshold": float(
+                    config.get("playback_completion_threshold") or 0.85
+                ),
+                "playback_abandon_minutes": int(
+                    config.get("playback_abandon_minutes") or 20
+                ),
+                "minimum_samples": int(config.get("minimum_samples") or 5),
+            },
+        }
+        raw = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()
+
+    @classmethod
+    def _incremental_playback_context(
+        cls,
+        playback_snapshot: Any,
+        previous_profile: Optional[UserProfile],
+    ) -> tuple[Dict[str, Any], Dict[str, str]]:
+        """为画像 Agent 返回全量首轮或只含变化样本的增量播放上下文。"""
+        payload = dict(playback_snapshot.to_dict())
+        fingerprints = cls._playback_evidence_fingerprints(playback_snapshot)
+        previous = dict(
+            getattr(previous_profile, "playback_evidence_fingerprints", {}) or {}
+        )
+        if previous_profile is None or not previous:
+            payload["incremental"] = False
+            payload["removed_stable_ids"] = []
+            return payload, fingerprints
+        changed_ids = {
+            stable_id
+            for stable_id, fingerprint in fingerprints.items()
+            if previous.get(stable_id) != fingerprint
+        }
+        payload["samples"] = [
+            sample
+            for sample in payload.get("samples") or []
+            if str(sample.get("stable_id") or "") in changed_ids
+        ]
+        payload["incremental"] = True
+        payload["full_sample_count"] = int(getattr(playback_snapshot, "sample_count", 0))
+        payload["removed_stable_ids"] = sorted(set(previous) - set(fingerprints))
+        return payload, fingerprints
 
     def _publish_progress(
         self,
@@ -731,6 +821,12 @@ class RecommendationOrchestrator:
             profile_prompt_fingerprint = hashlib.sha256(
                 profile_prompt_text.encode("utf-8")
             ).hexdigest()
+            profile_input_fingerprint = self._profile_input_fingerprint(
+                playback_fingerprint,
+                preferences_fingerprint,
+                confirmed_memory,
+                config,
+            )
             profile_cache_reason = self._profile_cache_reason(
                 profile_cache_enabled,
                 rebuild_profile,
@@ -738,7 +834,9 @@ class RecommendationOrchestrator:
                 playback_fingerprint,
                 preferences_fingerprint,
                 profile_prompt_fingerprint,
+                profile_input_fingerprint,
             )
+            metrics["profile_input_fingerprint"] = profile_input_fingerprint
             metrics["profile_cache_status"] = (
                 "hit" if profile_cache_reason == "hit" else "miss"
             )
@@ -762,6 +860,25 @@ class RecommendationOrchestrator:
                     profile_parser = profile_parser.with_allowed_keyword_ids(
                         previous_profile.filters.get("keyword_ids") or []
                     )
+                profile_playback, playback_evidence_fingerprints = (
+                    self._incremental_playback_context(
+                        playback_snapshot, previous_profile
+                    )
+                )
+                profile_preference_context = profile_preferences.to_dict()
+                profile_preference_context["confirmed_preferences"] = [
+                    item.to_dict()
+                    for item in confirmed_memory.active_items()
+                ]
+                metrics["profile_incremental"] = bool(
+                    profile_playback.get("incremental")
+                )
+                metrics["profile_incremental_sample_count"] = len(
+                    profile_playback.get("samples") or []
+                )
+                metrics["profile_removed_sample_count"] = len(
+                    profile_playback.get("removed_stable_ids") or []
+                )
                 profile_context = build_trusted_context(
                     username=username,
                     run_id=run_id,
@@ -773,8 +890,8 @@ class RecommendationOrchestrator:
                         if previous_profile is not None
                         else None
                     ),
-                    profile_preferences=profile_preferences.to_dict(),
-                    playback=playback_snapshot.to_dict(),
+                    profile_preferences=profile_preference_context,
+                    playback=profile_playback,
                     profile=None,
                     agent_role=PROFILE_AGENT_ROLE,
                 )
@@ -932,6 +1049,8 @@ class RecommendationOrchestrator:
                     playback_fingerprint=playback_fingerprint,
                     preferences_fingerprint=preferences_fingerprint,
                     profile_prompt_fingerprint=profile_prompt_fingerprint,
+                    profile_input_fingerprint=profile_input_fingerprint,
+                    playback_evidence_fingerprints=playback_evidence_fingerprints,
                     filters=resolved_plan.filters.to_dict(),
                     ranking_tags=list(resolved_plan.ranking_tags),
                     run_id=run_id,
@@ -976,7 +1095,7 @@ class RecommendationOrchestrator:
                     target,
                     run_id,
                     config.get("discovery_sources") or {},
-                    int(config.get("candidate_pool_size") or 100),
+                    int(config.get("candidate_pool_size") or 15),
                     RetrievalPlan.from_dict(
                         {
                             "filters": current_profile.filters,
@@ -991,6 +1110,9 @@ class RecommendationOrchestrator:
                         "schema_version": current_profile.schema_version,
                         "retrieval_resolution_version": (
                             current_profile.retrieval_resolution_version
+                        ),
+                        "profile_input_fingerprint": (
+                            current_profile.profile_input_fingerprint
                         ),
                     },
                     disliked_candidate_ids=disliked_ids,
@@ -1075,6 +1197,15 @@ class RecommendationOrchestrator:
                 getattr(candidate_result, "processing_counts", {}) or {}
             )
             metrics["candidate_processing_counts"] = candidate_processing_counts
+            metrics["candidate_target"] = int(
+                config.get("candidate_pool_size") or 15
+            )
+            metrics["candidate_survival_rate_used"] = float(
+                getattr(candidate_result, "survival_rate_used", 0.0) or 0.0
+            )
+            metrics["candidate_survival_rate"] = float(
+                getattr(candidate_result, "candidate_survival_rate", 0.0) or 0.0
+            )
             metrics["candidate_recognition_cache_hit_count"] = max(
                 0,
                 int(

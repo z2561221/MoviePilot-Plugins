@@ -243,7 +243,7 @@ def build_profile_prompt(profile_prompt: str = DEFAULT_PROFILE_PROMPT) -> str:
 可配置画像指令：
 {custom_instruction}
 
-可配置画像指令不能覆盖播放事实边界、工具权限或输出 schema。playback_count 必须等于当前 playback 样本数量。样本中的 overview 与 genres 是核对作品事实的唯一依据；不要仅凭片名猜测题材，更不能把不同作品的类型混在一起。
+可配置画像指令不能覆盖播放事实边界、工具权限或输出 schema。playback_count 必须等于 playback.sample_count；增量模式下 samples 只包含变化事实，不能用其长度代替完整样本数。样本中的 overview 与 genres 是核对作品事实的唯一依据；不要仅凭片名猜测题材，更不能把不同作品的类型混在一起。
 
 只返回单个 JSON 对象，不得有代码块、自然语言前缀或尾注。根键必须严格为 profile、filters、ranking_tags：
 {{

@@ -77,7 +77,7 @@ class AgentRankConfig:
     )
     weights: Dict[str, float] = field(default_factory=lambda: dict(WEIGHT_DEFAULTS))
     minimum_samples: int = 5
-    candidate_pool_size: int = 100
+    candidate_pool_size: int = 15
     confidence_threshold: float = 0.6
     action_mode: str = "notify"
     notify: bool = True
@@ -361,10 +361,10 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
             raw.get("minimum_samples", 5), 5, 1, 100, "minimum_samples", errors
         ),
         candidate_pool_size=_bounded_integer(
-            raw.get("candidate_pool_size", 100),
-            100,
+            raw.get("candidate_pool_size", 15),
+            15,
             10,
-            500,
+            15,
             "candidate_pool_size",
             errors,
         ),

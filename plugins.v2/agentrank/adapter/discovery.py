@@ -2,6 +2,7 @@
 
 import inspect
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
@@ -14,7 +15,8 @@ from ..model.retrieval import (
 )
 
 
-DEFAULT_RAW_FETCH_LIMIT = 150
+DEFAULT_RAW_FETCH_LIMIT = 45
+MAX_DISCOVERY_WORKERS = 5
 RECALL_LAYER_ORDER = ("exact", "relaxed", "adjacent", "public_recommend")
 DEFAULT_RECALL_LAYER_QUOTAS = {
     "exact": 25,
@@ -166,7 +168,9 @@ class ProviderRequest:
         if isinstance(self.limit, bool) or not isinstance(self.limit, int):
             raise ValueError("provider limit must be an integer")
         if not 1 <= self.limit <= DEFAULT_RAW_FETCH_LIMIT:
-            raise ValueError("provider limit must be between 1 and 150")
+            raise ValueError(
+                f"provider limit must be between 1 and {DEFAULT_RAW_FETCH_LIMIT}"
+            )
         if not isinstance(self.params, Mapping):
             raise ValueError("provider params must be a mapping")
         params = dict(self.params)
@@ -690,7 +694,27 @@ class DiscoveryAdapter:
             if enabled_sources.get(name, False)
             and (allowed is None or name in allowed)
         ]
-        for source, limit in self._quotas(enabled_names, raw_limit).items():
+        requests = list(self._quotas(enabled_names, raw_limit).items())
+
+        def execute(item: tuple[str, int]) -> tuple[str, int, List[Any], str]:
+            """并发执行一个兼容来源并保留来源级失败。"""
+            source, limit = item
+            try:
+                rows = self._invoke_legacy(self._source_fetchers[source], limit)
+                return source, limit, rows, ""
+            except Exception as error:
+                return source, limit, [], str(error)
+
+        workers = min(MAX_DISCOVERY_WORKERS, len(requests))
+        if workers <= 1:
+            executed = [execute(item) for item in requests]
+        else:
+            with ThreadPoolExecutor(
+                max_workers=workers,
+                thread_name_prefix="agentrank-discovery",
+            ) as executor:
+                executed = list(executor.map(execute, requests))
+        for source, limit, rows, error in executed:
             request_id = (
                 source
                 if layer == "exact" and not request_suffix
@@ -708,10 +732,8 @@ class DiscoveryAdapter:
                 "params": {},
             }
             result.request_recipes.append(recipe)
-            try:
-                rows = self._invoke_legacy(self._source_fetchers[source], limit)
-            except Exception as error:
-                result.source_errors[request_id] = str(error)
+            if error:
+                result.source_errors[request_id] = error
                 continue
             result.source_counts[source] = len(rows)
             result.items.extend(
@@ -741,6 +763,7 @@ class DiscoveryAdapter:
         )
         result = DiscoveryFetchResult(raw_limit=limit)
         remaining = limit
+        effective_requests: List[ProviderRequest] = []
         for request in requests:
             if not isinstance(request, ProviderRequest):
                 raise ValueError("fetch_requests only accepts ProviderRequest")
@@ -751,13 +774,31 @@ class DiscoveryAdapter:
                 effective = replace(request, limit=remaining)
             result.request_recipes.append(effective.recipe())
             remaining -= effective.limit
+            effective_requests.append(effective)
+
+        def execute(request: ProviderRequest) -> tuple[ProviderRequest, List[Any], str]:
+            """执行单个来源请求并把失败收敛为来源级结果。"""
             try:
-                rows = self._provider.execute(effective)
+                return request, list(self._provider.execute(request) or []), ""
             except Exception as error:
-                result.source_errors[effective.request_id] = str(error)
+                return request, [], str(error)
+
+        workers = min(MAX_DISCOVERY_WORKERS, len(effective_requests))
+        if workers <= 1:
+            executed = [execute(item) for item in effective_requests]
+        else:
+            with ThreadPoolExecutor(
+                max_workers=workers,
+                thread_name_prefix="agentrank-discovery",
+            ) as executor:
+                executed = list(executor.map(execute, effective_requests))
+        for effective, rows, error in executed:
+            if error:
+                result.source_errors[effective.request_id] = error
                 continue
+            bounded_rows = rows[: effective.limit]
             result.source_counts[effective.source] = (
-                result.source_counts.get(effective.source, 0) + len(rows)
+                result.source_counts.get(effective.source, 0) + len(bounded_rows)
             )
             result.items.extend(
                 RawDiscoveredItem(
@@ -766,10 +807,10 @@ class DiscoveryAdapter:
                     mediaid_prefix=_trusted_mediaid_prefix(effective.source),
                     layer=effective.layer,
                 )
-                for row in rows
+                for row in bounded_rows
             )
             result.layer_counts[effective.layer] = (
-                result.layer_counts.get(effective.layer, 0) + len(rows)
+                result.layer_counts.get(effective.layer, 0) + len(bounded_rows)
             )
         return result
 
@@ -780,7 +821,7 @@ class DiscoveryAdapter:
         retrieval_plan: Optional[RetrievalPlan] = None,
         raw_limit: Optional[int] = None,
     ) -> DiscoveryFetchResult:
-        """按默认 150 条原始上限执行公共探索 Provider。"""
+        """按默认 45 条原始上限执行公共探索 Provider。"""
         if not isinstance(enabled_sources, Mapping):
             return DiscoveryFetchResult(raw_limit=self._raw_fetch_limit)
         limit = max(
@@ -905,9 +946,12 @@ class DiscoveryAdapter:
         playback_samples: Iterable[Mapping[str, Any]],
         limit: int,
         fallback: bool,
+        page: int = 1,
     ) -> DiscoveryFetchResult:
         """执行一层召回并保持同一来源与参数边界。"""
-        suffix = ":fallback" if fallback else ""
+        suffix = (f":page{page}" if page > 1 else "") + (
+            ":fallback" if fallback else ""
+        )
         if layer == "public_recommend":
             allowed_samples = []
             for sample in playback_samples or ():
@@ -943,7 +987,7 @@ class DiscoveryAdapter:
             limit,
             layer=layer,
             request_suffix=suffix,
-            page=2 if fallback else 1,
+            page=max(1, int(page)) + (1 if fallback else 0),
         )
         return self.fetch_requests(requests, raw_limit=limit)
 
@@ -954,6 +998,7 @@ class DiscoveryAdapter:
         retrieval_plan: Optional[RetrievalPlan] = None,
         playback_samples: Iterable[Mapping[str, Any]] = (),
         raw_limit: Optional[int] = None,
+        page: int = 1,
     ) -> DiscoveryFetchResult:
         """按四层配额召回候选，并在短缺时从有效层补足。"""
         if not isinstance(enabled_sources, Mapping):
@@ -968,9 +1013,8 @@ class DiscoveryAdapter:
         result = DiscoveryFetchResult(raw_limit=limit)
         valid_layers: List[str] = []
         initial_budgets: Dict[str, int] = {}
-        consumed = 0
         for layer in RECALL_LAYER_ORDER:
-            budget = min(quotas.get(layer, 0), max(0, limit - consumed))
+            budget = quotas.get(layer, 0)
             if budget <= 0:
                 continue
             incoming = self._run_recall_layer(
@@ -980,22 +1024,23 @@ class DiscoveryAdapter:
                 playback_samples,
                 budget,
                 fallback=False,
+                page=page,
             )
             if not incoming.request_recipes:
                 continue
             valid_layers.append(layer)
             initial_budgets[layer] = budget
             self._merge_fetch_result(result, incoming, "initial")
-            consumed += sum(int(item.get("limit") or 0) for item in incoming.request_recipes)
         shortfall = max(0, target - len(result.items))
-        if shortfall and valid_layers and consumed < limit:
+        remaining_capacity = max(0, limit - len(result.items))
+        if shortfall and valid_layers and remaining_capacity:
             full_layers = [
                 layer
                 for layer in valid_layers
                 if result.layer_counts.get(layer, 0) >= initial_budgets[layer]
             ]
             eligible = full_layers or valid_layers
-            extra = min(shortfall, limit - consumed)
+            extra = min(shortfall, remaining_capacity)
             for layer, budget in self._quotas(eligible, extra).items():
                 incoming = self._run_recall_layer(
                     layer,
@@ -1004,9 +1049,10 @@ class DiscoveryAdapter:
                     playback_samples,
                     budget,
                     fallback=True,
+                    page=page,
                 )
                 self._merge_fetch_result(result, incoming, "fallback")
-                consumed += sum(
-                    int(item.get("limit") or 0) for item in incoming.request_recipes
-                )
+                if len(result.items) >= limit:
+                    break
+        result.items = result.items[:limit]
         return result
