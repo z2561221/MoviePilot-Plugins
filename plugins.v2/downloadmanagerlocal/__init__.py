@@ -31,6 +31,7 @@ from .service.events import handle_transfer_complete_event as _handle_transfer_c
 from .service.lifecycle import initialize_plugin as _initialize_plugin_impl
 from .service.scheduler import build_plugin_services as _build_plugin_services_impl
 from .service.cleanup import handle_sync_delete_by_hash_event as _handle_sync_delete_by_hash_event_impl, handle_webhook_message_event as _handle_webhook_message_event_impl, handle_plugin_action_event as _handle_plugin_action_event_impl
+from .service.speed_notification import handle_speed_message_action_event as _handle_speed_message_action_event_impl
 
 class DownloadManagerLocal(_PluginBase):
     """下载中心插件入口，负责声明 MoviePilot 契约并委托 service 层执行。"""
@@ -437,6 +438,11 @@ class DownloadManagerLocal(_PluginBase):
     @eventmanager.register(EventType.PluginAction)
     def on_plugin_action(self, event: Event):
         """监听网盘同步删除动作，同步删除转种和辅种任务。"""; return _handle_plugin_action_event_impl(self, event)
+
+    @eventmanager.register(EventType.MessageAction)
+    def on_speed_monitor_message_action(self, event: Event):
+        """转发属于下载速度异常监控的 Telegram 按钮回调。"""; return _handle_speed_message_action_event_impl(self, event)
+
     def _delayed_transfer(self):
         """执行 TransferComplete 延迟触发后的转移任务。"""; return _delayed_transfer_impl(self)
     @property
