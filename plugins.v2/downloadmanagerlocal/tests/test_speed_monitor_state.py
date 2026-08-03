@@ -7,6 +7,8 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 PLUGIN_DIR = Path(
     os.environ.get("DOWNLOADMANAGERLOCAL_PLUGIN_DIR")
@@ -58,9 +60,15 @@ class FakePlugin:
     _speed_monitor_enabled = True
     _speed_monitor_downloaders = ["qb-main"]
 
-    def __init__(self, downloader=None, data=None):
+    def __init__(
+        self, downloader=None, data=None,
+        downloader_type="qbittorrent", downloader_id="qb-main",
+    ):
         """保存 fake 下载器和插件数据副本。"""
         self.downloader = downloader
+        self.downloader_type = downloader_type
+        self.downloader_id = downloader_id
+        self._speed_monitor_downloaders = [downloader_id]
         self.data = dict(data or {})
         self.saved = []
         self._speed_monitor_runtime = None
@@ -68,9 +76,9 @@ class FakePlugin:
 
     def service_info(self, name):
         """按固定名称返回 fake qBittorrent 服务。"""
-        if name != "qb-main" or self.downloader is None:
+        if name != self.downloader_id or self.downloader is None:
             return None
-        return SimpleNamespace(type="qbittorrent", instance=self.downloader)
+        return SimpleNamespace(type=self.downloader_type, instance=self.downloader)
 
     def get_data(self, key):
         """读取插件数据。"""
@@ -93,6 +101,17 @@ def _qb_item(downloaded=100, state="downloading"):
         "state": state,
         "dlspeed": 10,
     }
+
+
+def _matrix_item(downloader_type, downloaded=100, state="downloading"):
+    """构造 qB 字典或 Transmission camelCase 对象。"""
+    if downloader_type == "transmission":
+        return SimpleNamespace(
+            hashString="ABC", name="Example", totalSize=1000,
+            downloadedEver=downloaded, dateAdded=1,
+            status=state, rateDownload=10,
+        )
+    return _qb_item(downloaded, state)
 
 
 def test_session_persists_and_reload_restores_first_observation_fields():
@@ -236,3 +255,39 @@ def test_retention_keeps_active_sessions_and_caps_terminal_alerts_and_samples():
     assert "terminal-0" in trimmed
     assert "terminal-1001" not in trimmed
     assert state.trim_health_samples(list(range(25))) == list(range(5, 25))
+
+
+@pytest.mark.parametrize(
+    ("downloader_type", "downloader_id"),
+    [("qbittorrent", "qb-main"), ("transmission", "tr-backup")],
+)
+def test_qb_tr_error_recovery_and_reload_matrix(downloader_type, downloader_id):
+    """qB/TR API 错误均冻结会话，恢复和重载后不得重复创建。"""
+    monitor = _load("service.speed_monitor")
+    item = lambda downloaded: _matrix_item(downloader_type, downloaded)
+    downloader = MutableDownloader(([item(100)], None))
+    plugin = FakePlugin(
+        downloader, downloader_type=downloader_type, downloader_id=downloader_id
+    )
+
+    monitor.scan_speed_monitor(plugin, now=10)
+    downloader.response = TimeoutError("offline")
+    failed = monitor.scan_speed_monitor(plugin, now=20)
+    session = plugin._speed_monitor_runtime.sessions[f"{downloader_id}:abc"]
+    assert session.status == "active"
+    assert session.effective_seconds == 0
+    assert "offline" in failed["errors"][downloader_id]
+
+    downloader.response = ([item(200)], None)
+    monitor.scan_speed_monitor(plugin, now=30)
+    saved = dict(plugin.data)
+    reloaded = FakePlugin(
+        downloader, saved,
+        downloader_type=downloader_type, downloader_id=downloader_id,
+    )
+    result = monitor.scan_speed_monitor(reloaded, now=40)
+    restored = reloaded._speed_monitor_runtime.sessions[f"{downloader_id}:abc"]
+
+    assert result["created_sessions"] == 0
+    assert restored.downloader_type == downloader_type
+    assert restored.first_observed_at == 10

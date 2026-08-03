@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-08-04-download-speed-monitor-phased-plan.md",
   "status": {
     "phase": "phase-5",
-    "task": "5.1",
-    "next_allowed_action": "执行全量窄测试和 qB/TR fake 模拟任务矩阵；未通过 5.1 不得同步 MP 本地源",
-    "residual_risk": "源码、静态契约、federation 构建和三视口已通过；尚未执行 Phase 5 全量模拟矩阵、MP 本地 reload 与发布前完整审计"
+    "task": "5.2",
+    "next_allowed_action": "按既有脚本 dry-run 后仅同步 DownloadManagerLocal 到 MP 本地源，reload 并回读 history、overview、remoteEntry 和目标日志",
+    "residual_risk": "全量静态测试与 qB/TR fake 模拟矩阵已通过；尚未完成 MP 本地源同步、reload、运行态 API 回读与 Phase 5.3 完整审计"
   },
   "execution_rules": {
     "branch": "worldlinefix/downloadmanagerlocal",
@@ -121,7 +121,7 @@
       "tasks": [
         { "id": "4.1", "title": "发送可配置分类的异常通知卡片", "status": "completed", "verification": ["Phase 4 bundled Python compileall passed", "Phase 4 bundled Python pytest unavailable: No module named pytest", "fallback Phase 4 baseline: 87 passed, 5 subtests passed", "isolated speed notification tests: 15 passed", "notification/dedup/telegram related summary: 29 passed", "all current MoviePilot NotificationType enum names and values resolve; invalid values fall back to Plugin", "message body includes downloader, name/hash, size, progress, current/reference speed, effective/allowed time and irreversible delete warning", "MoviePilot telegram_userid target is resolved through host adapter without plugin ACL", "configured Telegram gets short close/delete callbacks; missing Telegram still sends plain MP notification", "notification failure keeps alert pending for retry and notified alert is not duplicated", "python -m compileall and git diff --check passed", "fake post_message only; no real notification or deletion executed"], "commit": "6a038bd2" },
         { "id": "4.2", "title": "实现关闭、二次确认和删除全量数据交互", "status": "completed", "verification": ["isolated fake delete tests: 6 passed", "planned telegram and delete summary: 16 passed", "notification/telegram/delete related summary: 31 passed", "close keeps downloader task unchanged and suppresses the current anomaly cycle", "delete request only enters confirming state; cancel never calls downloader", "qBittorrent and Transmission confirmation both call ids=[hash], delete_file=True", "unauthorized, expired, terminal and repeated callbacks never delete again", "delete success/failure results are persisted and failures remain retryable", "completion and deletion share the session lock; concurrent test permits one terminal winner", "close/delete/confirm/cancel callback payloads remain within 64 bytes", "python -m compileall and git diff --check passed", "fake downloaders only; no real torrent or data deletion executed"], "commit": "e5a8edcc" },
-        { "id": "4.3", "title": "扩展总览 API 和配置页", "status": "completed", "verification": ["planned speed monitor frontend and API inventory: 11 passed", "related bearer route and frontend build contract: 9 passed", "federation build: 58 modules transformed, exit code 0", "remoteEntry references generated Config asset with speed-monitor flow", "390x844, 768x1024 and 1440x900 browser checks have exact viewport width, no horizontal overflow and no console errors", "desktop overview clientHeight equals scrollHeight at 1440x900; mobile and tablet use vertical scrolling", "runtime flow contains only DownloadManagerLocal nodes; SubscribeAssistantEnhanced appears only in external-link explanation", "Phase 4 fake notification/telegram/delete summary: 31 passed", "bundled Python compileall and git diff --check passed", "no SubscribeAssistantEnhanced changes, real notification or real deletion"], "commit": "pending-task-commit" }
+        { "id": "4.3", "title": "扩展总览 API 和配置页", "status": "completed", "verification": ["planned speed monitor frontend and API inventory: 11 passed", "related bearer route and frontend build contract: 9 passed", "federation build: 58 modules transformed, exit code 0", "remoteEntry references generated Config asset with speed-monitor flow", "390x844, 768x1024 and 1440x900 browser checks have exact viewport width, no horizontal overflow and no console errors", "desktop overview clientHeight equals scrollHeight at 1440x900; mobile and tablet use vertical scrolling", "runtime flow contains only DownloadManagerLocal nodes; SubscribeAssistantEnhanced appears only in external-link explanation", "Phase 4 fake notification/telegram/delete summary: 31 passed", "bundled Python compileall and git diff --check passed", "no SubscribeAssistantEnhanced changes, real notification or real deletion"], "commit": "92d4bcf3" }
       ]
     },
     {
@@ -133,7 +133,7 @@
         "未发生真实删除、push、merge 或 release，残余风险已记录"
       ],
       "tasks": [
-        { "id": "5.1", "title": "执行全量窄测试和模拟任务矩阵", "status": "pending", "verification": [], "commit": null },
+        { "id": "5.1", "title": "执行全量窄测试和模拟任务矩阵", "status": "completed", "verification": ["Phase 5 bundled Python compileall passed", "PowerShell-expanded DownloadManagerLocal static baseline: 93 passed", "planned plugin-directory pytest collected 75 items but package import of test_safety was blocked without MoviePilot app", "isolated speed monitor suite: 81 passed", "original-path safety unittest after minimal adapter stub: 4 tests OK", "qBittorrent and Transmission both cover pause, queue, checking, completion, slow anomaly, API error, recovery, reload, close and confirm-delete paths", "multi-downloader baseline isolation and repeated slow-sample contamination protection remain covered", "all successful equivalent verification commands exited 0", "git diff --check passed", "fake downloaders only; no real notification, torrent deletion or data deletion"], "commit": "pending-task-commit" },
         { "id": "5.2", "title": "同步 MP 本地源并回读运行态", "status": "pending", "verification": [], "commit": null },
         { "id": "5.3", "title": "完成发布前审计与残余风险记录", "status": "pending", "verification": [], "commit": null }
       ]
@@ -219,6 +219,11 @@
       "phase": "phase-4",
       "status": "completed",
       "summary": "MP 分类通知、Telegram 两步删除、关闭幂等、准确运行链路、配置警告和前端三视口汇总验收通过；未修改订阅助手增强版。"
+    },
+    {
+      "task": "5.1",
+      "status": "completed",
+      "summary": "全量静态 baseline 与隔离 speed monitor/safety 测试通过；补齐 qB/TR 暂停、排队、校验、慢速、错误恢复、重载、关闭和确认删除的双实现矩阵。"
     }
   ]
 }

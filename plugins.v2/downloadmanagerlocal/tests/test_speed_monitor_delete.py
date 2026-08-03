@@ -96,12 +96,12 @@ class FakePlugin:
         self.messages.append(kwargs)
 
 
-def _runtime(status="notified"):
+def _runtime(status="notified", downloader_type="qbittorrent"):
     """构造一个已通知且可操作的异常会话。"""
     monitor = _load("service.speed_monitor")
     session = monitor.SpeedMonitorSession(
         downloader_id="qb-main",
-        downloader_type="qbittorrent",
+        downloader_type=downloader_type,
         torrent_hash="abc123",
         name="Example",
         total_bytes=1000,
@@ -163,13 +163,14 @@ def _process(actions, plugin, action, now=100, **overrides):
     )
 
 
-def test_close_and_cancel_never_call_downloader_delete():
+@pytest.mark.parametrize("downloader_type", ["qbittorrent", "transmission"])
+def test_close_and_cancel_never_call_downloader_delete(downloader_type):
     """关闭与取消删除只收束卡片，不能改变下载器任务。"""
     actions = _load("service.speed_actions")
 
-    close_runtime = _runtime()
+    close_runtime = _runtime(downloader_type=downloader_type)
     close_downloader = FakeDownloader()
-    close_plugin = FakePlugin(close_runtime, close_downloader)
+    close_plugin = FakePlugin(close_runtime, close_downloader, downloader_type)
     assert _process(actions, close_plugin, "close") is True
     close_session = close_runtime.sessions["qb-main:abc123"]
     assert close_downloader.delete_calls == []
@@ -178,9 +179,9 @@ def test_close_and_cancel_never_call_downloader_delete():
     assert close_runtime.alerts["qb-main:abc123:1"]["status"] == "closed"
     assert close_plugin.messages[-1]["buttons"] is None
 
-    cancel_runtime = _runtime()
+    cancel_runtime = _runtime(downloader_type=downloader_type)
     cancel_downloader = FakeDownloader()
-    cancel_plugin = FakePlugin(cancel_runtime, cancel_downloader)
+    cancel_plugin = FakePlugin(cancel_runtime, cancel_downloader, downloader_type)
     _process(actions, cancel_plugin, "delete")
     assert cancel_runtime.alerts["qb-main:abc123:1"]["status"] == "confirming"
     assert cancel_downloader.delete_calls == []

@@ -44,6 +44,9 @@ def _prepare_imports():
     package = types.ModuleType("downloadmanagerlocal")
     package.__path__ = [str(PLUGIN_DIR)]
     sys.modules["downloadmanagerlocal"] = package
+    adapter = types.ModuleType("downloadmanagerlocal.adapter.moviepilot")
+    adapter.get_downloader_service = lambda name: None
+    sys.modules["downloadmanagerlocal.adapter.moviepilot"] = adapter
 
 
 class DownloadManagerSafetyTest(unittest.TestCase):

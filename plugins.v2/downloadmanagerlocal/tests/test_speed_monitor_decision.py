@@ -7,6 +7,8 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 PLUGIN_DIR = Path(
     os.environ.get("DOWNLOADMANAGERLOCAL_PLUGIN_DIR")
@@ -64,15 +66,19 @@ class FakePlugin:
     _speed_monitor_manual_speed_bps = {"qb-main": 100.0}
     _speed_monitor_floor_speed_bps = {}
 
-    def __init__(self, downloader):
+    def __init__(self, downloader, downloader_type="qbittorrent", downloader_id="qb-main"):
         """保存 fake 下载器并初始化空持久化数据。"""
         self.downloader = downloader
+        self.downloader_type = downloader_type
+        self.downloader_id = downloader_id
+        self._speed_monitor_downloaders = [downloader_id]
+        self._speed_monitor_manual_speed_bps = {downloader_id: 100.0}
         self.data = {}
         self._speed_monitor_runtime = None
 
     def service_info(self, name):
         """返回 fake qBittorrent 服务。"""
-        return SimpleNamespace(type="qbittorrent", instance=self.downloader)
+        return SimpleNamespace(type=self.downloader_type, instance=self.downloader)
 
     def get_data(self, key):
         """读取内存插件数据。"""
@@ -83,8 +89,13 @@ class FakePlugin:
         self.data[key] = value
 
 
-def _item(downloaded, *, state="downloading", speed=10, total=1000):
+def _item(downloaded, *, state="downloading", speed=10, total=1000, downloader_type="qbittorrent"):
     """构造指定进度、状态和瞬时速度的 qB 任务。"""
+    if downloader_type == "transmission":
+        return SimpleNamespace(
+            hashString="ABC", name="Example", totalSize=total,
+            downloadedEver=downloaded, status=state, rateDownload=speed,
+        )
     return {
         "hash": "ABC",
         "name": "Example",
@@ -158,25 +169,34 @@ def test_reference_speed_and_tolerance_formula_cover_floor_boundaries():
     assert rejected["reason"] == "invalid_tolerance"
 
 
-def test_partial_remaining_grace_zero_speed_and_consecutive_samples():
+@pytest.mark.parametrize(
+    ("downloader_type", "downloader_id"),
+    [("qbittorrent", "qb-main"), ("transmission", "tr-backup")],
+)
+def test_partial_remaining_grace_zero_speed_and_consecutive_samples(
+    downloader_type, downloader_id
+):
     """部分下载预算应在宽限后把零速超时连续采样提升为异常。"""
     monitor = _load("service.speed_monitor")
-    downloader = MutableDownloader(([_item(400, speed=0)], None))
-    plugin = FakePlugin(downloader)
+    item = lambda downloaded: _item(
+        downloaded, speed=0, downloader_type=downloader_type
+    )
+    downloader = MutableDownloader(([item(400)], None))
+    plugin = FakePlugin(downloader, downloader_type, downloader_id)
 
     monitor.scan_speed_monitor(plugin, now=0)
-    _scan(monitor, plugin, downloader, 5, [_item(450, speed=0)])
-    session = plugin._speed_monitor_runtime.sessions["qb-main:abc"]
+    _scan(monitor, plugin, downloader, 5, [item(450)])
+    session = plugin._speed_monitor_runtime.sessions[f"{downloader_id}:abc"]
     assert session.start_remaining_bytes == 600
     assert session.decision["status"] == "grace"
 
-    _scan(monitor, plugin, downloader, 10, [_item(500, speed=0)])
+    _scan(monitor, plugin, downloader, 10, [item(500)])
     assert session.decision["expected_seconds"] == 6
     assert session.decision["allowed_seconds"] == 9
     assert session.decision["status"] == "suspected"
     assert session.consecutive_abnormal_samples == 1
 
-    _scan(monitor, plugin, downloader, 15, [_item(500, speed=0)])
+    _scan(monitor, plugin, downloader, 15, [item(500)])
     assert session.decision["status"] == "anomalous"
     assert session.decision["current_speed_bps"] == 0
     assert session.consecutive_abnormal_samples == 2

@@ -7,6 +7,8 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 PLUGIN_DIR = Path(
     os.environ.get("DOWNLOADMANAGERLOCAL_PLUGIN_DIR")
@@ -58,15 +60,20 @@ class FakePlugin:
     _speed_monitor_enabled = True
     _speed_monitor_downloaders = ["qb-main"]
 
-    def __init__(self, downloader):
+    def __init__(self, downloader, downloader_type="qbittorrent", downloader_id="qb-main"):
         """保存 fake 下载器并初始化空插件数据。"""
         self.downloader = downloader
+        self.downloader_type = downloader_type
+        self.downloader_id = downloader_id
+        self._speed_monitor_downloaders = [downloader_id]
         self.data = {}
         self._speed_monitor_runtime = None
 
     def service_info(self, name):
         """返回 fake qBittorrent 服务。"""
-        return SimpleNamespace(type="qbittorrent", instance=self.downloader)
+        if name != self.downloader_id:
+            return None
+        return SimpleNamespace(type=self.downloader_type, instance=self.downloader)
 
     def get_data(self, key):
         """读取插件数据。"""
@@ -87,6 +94,16 @@ def _item(downloaded, state="downloading", total=1000):
         "state": state,
         "dlspeed": 10,
     }
+
+
+def _matrix_item(downloader_type, downloaded, state="downloading", total=1000):
+    """构造 qB 字典或 Transmission camelCase 对象。"""
+    if downloader_type == "transmission":
+        return SimpleNamespace(
+            hashString="ABC", name="Example", totalSize=total,
+            downloadedEver=downloaded, status=state, rateDownload=10,
+        )
+    return _item(downloaded, state, total)
 
 
 def _scan(monitor, plugin, downloader, now, items):
@@ -217,3 +234,36 @@ def test_repeated_completed_snapshot_does_not_duplicate_health_sample():
 
     assert len(plugin._speed_monitor_runtime.baselines["qb-main"]["samples"]) == 1
     assert plugin._speed_monitor_runtime.sessions["qb-main:abc"].terminal_at == 30
+
+
+@pytest.mark.parametrize(
+    ("downloader_type", "downloader_id", "states"),
+    [
+        ("qbittorrent", "qb-main", ("pausedDL", "queuedDL", "checkingDL", "uploading")),
+        ("transmission", "tr-backup", ("stopped", "queued", "checking", "seeding")),
+    ],
+)
+def test_qb_tr_pause_queue_checking_and_completion_matrix(
+    downloader_type, downloader_id, states
+):
+    """qB/TR 暂停、排队和校验都冻结计时，恢复后均可完成。"""
+    monitor = _load_monitor()
+    item = lambda downloaded, state="downloading": _matrix_item(
+        downloader_type, downloaded, state
+    )
+    downloader = MutableDownloader([item(100)])
+    plugin = FakePlugin(downloader, downloader_type, downloader_id)
+
+    monitor.scan_speed_monitor(plugin, now=10)
+    _scan(monitor, plugin, downloader, 20, [item(100, states[0])])
+    _scan(monitor, plugin, downloader, 30, [item(100, states[1])])
+    _scan(monitor, plugin, downloader, 40, [item(100, states[2])])
+    _scan(monitor, plugin, downloader, 50, [item(200)])
+    _scan(monitor, plugin, downloader, 60, [item(300)])
+    _scan(monitor, plugin, downloader, 70, [item(1000, states[3])])
+    session = plugin._speed_monitor_runtime.sessions[f"{downloader_id}:abc"]
+
+    assert session.downloader_type == downloader_type
+    assert session.status == "completed"
+    assert session.effective_seconds == 20
+    assert session.sample_eligible is True
