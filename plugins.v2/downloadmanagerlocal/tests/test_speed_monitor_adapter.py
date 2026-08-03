@@ -46,6 +46,7 @@ class FakeDownloader:
 
 
 def test_qbittorrent_dict_normalizes_all_monitor_fields():
+    """qB 字典应完整归一为稳定监控快照。"""
     adapter = _load_adapter()
     snapshot = adapter.normalize_torrent({
         "hash": "ABC123",
@@ -72,6 +73,7 @@ def test_qbittorrent_dict_normalizes_all_monitor_fields():
 
 
 def test_transmission_object_and_missing_fields_return_stable_snapshot():
+    """TR 对象与缺失字段都应返回稳定快照。"""
     adapter = _load_adapter()
     torrent = SimpleNamespace(
         hashString="DEF456",
@@ -111,12 +113,14 @@ def test_transmission_object_and_missing_fields_return_stable_snapshot():
     ],
 )
 def test_status_names_map_to_monitor_categories(state, category):
+    """qB/TR 状态名应归一为固定监控分类。"""
     adapter = _load_adapter()
 
     assert adapter.classify_torrent_state(state, 1, 10) == category
 
 
 def test_poll_result_distinguishes_success_empty_from_api_error():
+    """成功空列表必须与下载器 API 错误保持不同结果。"""
     adapter = _load_adapter()
 
     empty = adapter.poll_downloader(FakeDownloader(([], None)), "qb", "qbittorrent")
@@ -139,6 +143,7 @@ def test_poll_result_distinguishes_success_empty_from_api_error():
 
 @pytest.mark.parametrize("downloader_type", ["qbittorrent", "transmission"])
 def test_delete_requires_explicit_true_and_always_deletes_torrent_files(downloader_type):
+    """删除适配器必须显式确认并固定清理种子全部数据。"""
     adapter = _load_adapter()
     downloader = FakeDownloader()
 

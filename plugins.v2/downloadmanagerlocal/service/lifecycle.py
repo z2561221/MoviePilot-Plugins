@@ -12,13 +12,18 @@ from app.log import logger
 from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
 
 from .config import initialize_runtime_config
+from .speed_monitor import ensure_speed_monitor_runtime, stop_speed_monitor_runtime
 from .transfer import validate_config
+from ..utils.config import is_speed_monitor_active
 
 
 def initialize_plugin(plugin, config: dict = None) -> None:
     """初始化插件运行时配置，并按当前配置登记一次性后台任务。"""
     config = initialize_runtime_config(plugin, config)
     plugin.stop_service()
+
+    if is_speed_monitor_active(plugin):
+        ensure_speed_monitor_runtime(plugin)
 
     if plugin._transfer_active or plugin._onlyonce:
         if not validate_config(plugin):
@@ -87,4 +92,21 @@ def _start_scheduler_if_needed(plugin, print_jobs: bool = False) -> None:
         plugin._scheduler.start()
 
 
-__all__ = ("initialize_plugin",)
+def stop_plugin_service(plugin) -> None:
+    """停止插件持有的后台调度器并清理退出事件。"""
+    try:
+        if not plugin._scheduler:
+            return
+        plugin._scheduler.remove_all_jobs()
+        if plugin._scheduler.running:
+            plugin._event.set()
+            plugin._scheduler.shutdown()
+            plugin._event.clear()
+        plugin._scheduler = None
+    except Exception as error:
+        logger.error(f"停止服务失败: {error}")
+    finally:
+        stop_speed_monitor_runtime(plugin)
+
+
+__all__ = ("initialize_plugin", "stop_plugin_service")

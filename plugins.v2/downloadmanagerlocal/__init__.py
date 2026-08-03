@@ -15,7 +15,7 @@ from app.schemas.types import EventType
 
 from .adapter.moviepilot import get_downloader_service
 from .model.state import SEED_RECHECK_QUEUE_KEY
-from .utils.config import is_plugin_active, is_transfer_active
+from .utils.config import SPEED_MONITOR_CONFIG_DEFAULTS, is_plugin_active, is_transfer_active
 from .utils.path import convert_save_path
 from .utils.torrent_adapter import get_hash, get_label, get_category, get_save_path, get_torrent_size
 from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent, api_retry_renames as _api_retry_renames, api_retry_rename as _api_retry_rename, api_diagnostics as _api_diagnostics, api_overview as _api_overview, api_rename_archive as _api_rename_archive, api_restore_rename_archive as _api_restore_rename_archive, api_delete_rename_archive as _api_delete_rename_archive
@@ -28,10 +28,11 @@ from .service.transfer import validate_config as _validate_config_impl, download
 from .service.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
 from .controller.api import build_api_routes as _build_api_routes_impl
 from .service.events import handle_transfer_complete_event as _handle_transfer_complete_event_impl
-from .service.lifecycle import initialize_plugin as _initialize_plugin_impl
+from .service.lifecycle import initialize_plugin as _initialize_plugin_impl, stop_plugin_service as _stop_plugin_service_impl
 from .service.scheduler import build_plugin_services as _build_plugin_services_impl
 from .service.cleanup import handle_sync_delete_by_hash_event as _handle_sync_delete_by_hash_event_impl, handle_webhook_message_event as _handle_webhook_message_event_impl, handle_plugin_action_event as _handle_plugin_action_event_impl
 from .service.speed_notification import handle_speed_message_action_event as _handle_speed_message_action_event_impl
+from .service.speed_monitor import scan_speed_monitor as _scan_speed_monitor_impl
 
 class DownloadManagerLocal(_PluginBase):
     """下载中心插件入口，负责声明 MoviePilot 契约并委托 service 层执行。"""
@@ -86,19 +87,6 @@ class DownloadManagerLocal(_PluginBase):
     _seed_skipverify: bool = False
     _seed_check_interval: int = 60
     _seed_max_wait_minutes: int = 120
-
-    # ── 下载速度异常监控配置 ──
-    _speed_monitor_enabled: bool = False
-    _speed_monitor_downloaders: list = []
-    _speed_monitor_mode: str = "auto"
-    _speed_monitor_tolerance: float = 1.5
-    _speed_monitor_min_samples: int = 5
-    _speed_monitor_interval_minutes: int = 5
-    _speed_monitor_grace_minutes: int = 10
-    _speed_monitor_consecutive_abnormal_samples: int = 2
-    _speed_monitor_manual_speed_bps: dict = {}
-    _speed_monitor_floor_speed_bps: dict = {}
-    _speed_monitor_notification_type: str = "Plugin"
 
     # ── 重命名配置 ──
     _rename_enabled: bool = True
@@ -300,18 +288,7 @@ class DownloadManagerLocal(_PluginBase):
             "seed_autostart": True, "seed_skipverify": False,
             "seed_check_interval": 60, "seed_max_wait_minutes": 120,
             "iyuu_clearcache": False,
-            # 下载速度异常监控
-            "speed_monitor_enabled": False,
-            "speed_monitor_downloaders": [],
-            "speed_monitor_mode": "auto",
-            "speed_monitor_tolerance": 1.5,
-            "speed_monitor_min_samples": 5,
-            "speed_monitor_interval_minutes": 5,
-            "speed_monitor_grace_minutes": 10,
-            "speed_monitor_consecutive_abnormal_samples": 2,
-            "speed_monitor_manual_speed_bps": {},
-            "speed_monitor_floor_speed_bps": {},
-            "speed_monitor_notification_type": "Plugin",
+            **SPEED_MONITOR_CONFIG_DEFAULTS,
         }
 
     def get_page(self) -> Optional[List[dict]]:
@@ -443,6 +420,9 @@ class DownloadManagerLocal(_PluginBase):
     def on_speed_monitor_message_action(self, event: Event):
         """转发属于下载速度异常监控的 Telegram 按钮回调。"""; return _handle_speed_message_action_event_impl(self, event)
 
+    def _scan_download_speed(self):
+        """执行一轮多下载器速度监控扫描。"""; return _scan_speed_monitor_impl(self)
+
     def _delayed_transfer(self):
         """执行 TransferComplete 延迟触发后的转移任务。"""; return _delayed_transfer_impl(self)
     @property
@@ -536,16 +516,4 @@ class DownloadManagerLocal(_PluginBase):
 
 
     def stop_service(self):
-        """
-        退出插件
-        """
-        try:
-            if self._scheduler:
-                self._scheduler.remove_all_jobs()
-                if self._scheduler.running:
-                    self._event.set()
-                    self._scheduler.shutdown()
-                    self._event.clear()
-                self._scheduler = None
-        except Exception as e:
-            logger.error(f"停止服务失败: {e}")
+        """停止插件后台调度器并释放运行资源。"""; return _stop_plugin_service_impl(self)

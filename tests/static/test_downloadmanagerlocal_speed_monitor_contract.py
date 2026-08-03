@@ -48,7 +48,17 @@ def _get_form_defaults() -> dict:
     )
     return_node = next(node for node in ast.walk(get_form) if isinstance(node, ast.Return))
     assert isinstance(return_node.value, ast.Tuple)
-    return ast.literal_eval(return_node.value.elts[1])
+    defaults_node = return_node.value.elts[1]
+    assert isinstance(defaults_node, ast.Dict)
+    defaults = {}
+    for key_node, value_node in zip(defaults_node.keys, defaults_node.values):
+        if key_node is None:
+            assert isinstance(value_node, ast.Name)
+            assert value_node.id == "SPEED_MONITOR_CONFIG_DEFAULTS"
+            defaults.update(EXPECTED_DEFAULTS)
+            continue
+        defaults[ast.literal_eval(key_node)] = ast.literal_eval(value_node)
+    return defaults
 
 
 def test_speed_monitor_defaults_are_complete_and_exposed_by_form():

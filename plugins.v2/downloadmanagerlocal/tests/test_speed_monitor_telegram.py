@@ -54,6 +54,7 @@ def _validate(protocol, event_data):
 
 
 def test_callback_format_is_plugin_scoped_and_within_telegram_limit():
+    """回调必须带插件前缀并满足 Telegram 64 字节限制。"""
     protocol = _load_protocol()
 
     callback = protocol.build_speed_monitor_callback(
@@ -79,6 +80,7 @@ def test_callback_format_is_plugin_scoped_and_within_telegram_limit():
     ],
 )
 def test_callback_rejects_foreign_or_unauthorized_events(event_data, reason):
+    """非本插件、非 Telegram 或越权回调必须被拒绝。"""
     protocol = _load_protocol()
 
     result = _validate(protocol, event_data)
@@ -88,6 +90,7 @@ def test_callback_rejects_foreign_or_unauthorized_events(event_data, reason):
 
 
 def test_callback_rejects_expired_token_and_accepts_target_user():
+    """过期 token 被拒绝，MP 目标用户的有效 token 被接受。"""
     protocol = _load_protocol()
 
     expired = protocol.validate_speed_monitor_callback(
@@ -107,6 +110,7 @@ def test_callback_rejects_expired_token_and_accepts_target_user():
 
 
 def test_original_message_fields_are_preserved_for_in_place_collapse():
+    """原消息字段应保留给 post_message 原地收束。"""
     protocol = _load_protocol()
 
     assert protocol.original_message_kwargs(_event()) == {
@@ -126,6 +130,7 @@ def test_original_message_fields_are_preserved_for_in_place_collapse():
 
 
 def test_entry_registers_message_action_and_has_no_plugin_acl():
+    """入口注册 MessageAction 且不引入插件自有 ACL。"""
     protocol_source = (PLUGIN_DIR / "service" / "speed_notification.py").read_text(encoding="utf-8")
     entry_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
     module = ast.parse(entry_source)
@@ -150,6 +155,7 @@ def test_entry_registers_message_action_and_has_no_plugin_acl():
 
 
 def test_fake_message_action_routes_only_current_telegram_callback():
+    """入口骨架只转发当前插件的 Telegram 回调。"""
     protocol = _load_protocol()
 
     class DownloadManagerLocal:

@@ -131,6 +131,21 @@ def is_iyuu_active(plugin) -> bool:
     )
 
 
+def is_speed_monitor_active(plugin) -> bool:
+    """判断下载速度异常监控是否具备稳定运行门禁。"""
+    selected = getattr(plugin, "_speed_monitor_downloaders", [])
+    return bool(
+        getattr(plugin, "_enabled", False)
+        and getattr(plugin, "_speed_monitor_enabled", False)
+        and isinstance(selected, (list, tuple, set))
+        and any(isinstance(name, str) and name.strip() for name in selected)
+    )
+
+
 def is_plugin_active(plugin) -> bool:
     """判断插件是否至少有一个主要能力处于可运行状态。"""
-    return is_transfer_active(plugin) or is_iyuu_active(plugin)
+    return (
+        is_transfer_active(plugin)
+        or is_iyuu_active(plugin)
+        or is_speed_monitor_active(plugin)
+    )
