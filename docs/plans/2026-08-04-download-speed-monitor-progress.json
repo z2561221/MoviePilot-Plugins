@@ -3,7 +3,7 @@
   "status": {
     "phase": "phase-1",
     "task": "1.1",
-    "next_allowed_action": "建立配置、状态与删除文件契约的静态红门禁；未通过当前任务验收不得进入 1.2",
+    "next_allowed_action": "建立配置、状态与删除种子及全部数据契约的静态红门禁；未通过当前任务验收不得进入 1.2",
     "residual_risk": "尚未实现速度监控；Telegram MessageAction 字段和 qB/TR 精确字段需在 Phase 1 核验"
   },
   "execution_rules": {
@@ -11,6 +11,10 @@
     "worktree": "D:/AIGC/MoviePilot/.worktrees/downloadmanagerlocal-release",
     "baseline_commit": "be446255",
     "smoke_check": "python -m compileall plugins.v2/downloadmanagerlocal; pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_*.py",
+    "baseline_smoke_frequency": "每个 Phase 首个任务；触及共享边界或窄验证失败时补跑",
+    "task_verification_scope": "当前任务窄测试",
+    "manual_audit_between_tasks": false,
+    "full_audit_phase": "phase-5.task-5.3",
     "commit_each_verified_task": true,
     "no_commit_on_failed_verification": true,
     "never_push_merge_or_amend": true,
@@ -27,8 +31,28 @@
       "recorded_at": "2026-08-04"
     },
     {
-      "decision": "Telegram 确认删除固定传 delete_file=True，关闭不删除",
+      "decision": "Telegram 确认删除固定传 delete_file=True，删除该种子全部数据，关闭不删除",
       "source": "用户确认",
+      "recorded_at": "2026-08-04"
+    },
+    {
+      "decision": "保护下限按下载器实例可选配置，默认不填写；填写后与自动稳健基准取较大值",
+      "source": "用户确认",
+      "recorded_at": "2026-08-04"
+    },
+    {
+      "decision": "速度监控启停独立于转移/IYUU；get_state、生命周期、调度器和 get_form 必须在转种关闭时仍支持监控",
+      "source": "计划实现约束",
+      "recorded_at": "2026-08-04"
+    },
+    {
+      "decision": "自动基准使用最近 20 条健康样本的中位数 + MAD 过滤，保留 trusted 基准并通过显式重置恢复校准；未设置保护下限时不宣称能识别首批样本整体偏慢",
+      "source": "计划实现约束",
+      "recorded_at": "2026-08-04"
+    },
+    {
+      "decision": "部分下载任务按首次观察时的剩余体积预算；下载器 API 错误期间暂停有效时长和超时钟，恢复后继续",
+      "source": "计划实现约束",
       "recorded_at": "2026-08-04"
     }
   ],
@@ -39,6 +63,8 @@
       "acceptance": [
         "配置/状态/适配器/回调契约测试通过",
         "delete_file=True 语义和订阅助手外部边界有可执行测试",
+        "成功空列表与下载器 API 错误的三态轮询契约有可执行测试",
+        "Telegram 权限复用 MP 主程序目标用户字段，不新增插件自有 ACL",
         "没有修改 SubscribeAssistantEnhanced"
       ],
       "tasks": [
@@ -52,7 +78,11 @@
       "goal": "实现多下载器监控会话、持久化与完成统计",
       "acceptance": [
         "多下载器会话、重载恢复、完成/删除终止和有效时长测试通过",
-        "转种关闭时监控仍可工作",
+        "转种/IYUU 全关闭时 get_state、生命周期、调度器和 get_form 仍支持监控",
+        "成功空列表才终止缺失任务，API 错误保留 session",
+        "部分下载任务使用观察期间新增字节和剩余体积预算",
+        "API 错误暂停有效时长/超时钟并可恢复",
+        "状态迁移、终态 TTL/数量上限和健康样本窗口有测试",
         "没有发送通知或删除真实任务"
       ],
       "tasks": [
@@ -66,6 +96,10 @@
       "goal": "实现自动/手动异常判断与基准污染保护",
       "acceptance": [
         "自动/手动模式、公式边界、样本门槛和污染保护测试通过",
+        "按下载器保护下限为空/已填写的分支均有明确结果",
+        "首次校准、MAD 过滤、trusted 保留和显式重置规则固定",
+        "首批整体偏慢且未设置保护下限时只标记相对基准，不伪造绝对异常结论",
+        "关闭后的异常去重按 anomaly epoch，恢复后允许再次通知",
         "异常判断只产生通知状态，不自动删除任务"
       ],
       "tasks": [
@@ -79,12 +113,14 @@
       "goal": "实现 MP 分类通知、Telegram 交互和准确的配置页总览",
       "acceptance": [
         "MP 分类通知、Telegram 两步删除、关闭幂等和配置页警告通过",
+        "完成/删除并发至多一个终态动作和一条异常通知",
+        "同一异常周期不重复提醒，恢复后可进入新异常周期",
         "运行总览链路不含订阅助手，外部联动说明完整",
         "前端三视口和 federation 构建验收通过"
       ],
       "tasks": [
         { "id": "4.1", "title": "发送可配置分类的异常通知卡片", "status": "pending", "verification": [], "commit": null },
-        { "id": "4.2", "title": "实现关闭、二次确认和删除文件交互", "status": "pending", "verification": [], "commit": null },
+        { "id": "4.2", "title": "实现关闭、二次确认和删除全量数据交互", "status": "pending", "verification": [], "commit": null },
         { "id": "4.3", "title": "扩展总览 API 和配置页", "status": "pending", "verification": [], "commit": null }
       ]
     },
