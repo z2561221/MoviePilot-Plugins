@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-08-04-download-speed-monitor-phased-plan.md",
   "status": {
     "phase": "phase-2",
-    "task": "2.2",
-    "next_allowed_action": "持久化采样快照，处理重载、迁移、成功空列表/API 错误和终态历史清理；未通过当前任务验收不得进入 2.3",
-    "residual_risk": "独立监控门禁、调度和首次会话已实现；会话尚未持久化，完成统计、通知与 Telegram 动作尚未实现"
+    "task": "2.3",
+    "next_allowed_action": "结束完成/删除会话并生成观察期间原始统计与健康样本候选；未通过当前任务验收不得进入 Phase 3",
+    "residual_risk": "会话持久化、迁移、断连冻结和终态清理已实现；完成统计、异常算法、通知与 Telegram 动作尚未实现"
   },
   "execution_rules": {
     "branch": "worldlinefix/downloadmanagerlocal",
@@ -86,8 +86,8 @@
         "没有发送通知或删除真实任务"
       ],
       "tasks": [
-        { "id": "2.1", "title": "接入可选下载器监控服务", "status": "completed", "verification": ["Phase 2 bundled Python compileall passed", "Phase 2 bundled Python pytest unavailable: No module named pytest", "fallback baseline initially exposed Phase 1 docstring and entry-size regressions: 84 passed, 3 failed", "baseline regressions repaired: 87 passed", "planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated lifecycle and multi-downloader fake tests: 4 passed", "related static lifecycle/entry regressions: 25 passed", "entrypoint remains within slim gate: 519 lines", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "pending-task-commit" },
-        { "id": "2.2", "title": "持久化采样快照并处理重载/缺失任务", "status": "pending", "verification": [], "commit": null },
+        { "id": "2.1", "title": "接入可选下载器监控服务", "status": "completed", "verification": ["Phase 2 bundled Python compileall passed", "Phase 2 bundled Python pytest unavailable: No module named pytest", "fallback baseline initially exposed Phase 1 docstring and entry-size regressions: 84 passed, 3 failed", "baseline regressions repaired: 87 passed", "planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated lifecycle and multi-downloader fake tests: 4 passed", "related static lifecycle/entry regressions: 25 passed", "entrypoint remains within slim gate: 519 lines", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "0262075a" },
+        { "id": "2.2", "title": "持久化采样快照并处理重载/缺失任务", "status": "completed", "verification": ["planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated persistence/reload/error/empty-list/migration/retention tests: 6 passed", "state key and standard completion regressions: 16 passed", "schema migration failure disables monitor without overwriting source data", "terminal retention: 30 days and 1000 items; health window: 20 samples", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "pending-task-commit" },
         { "id": "2.3", "title": "结束会话并生成原始统计", "status": "pending", "verification": [], "commit": null }
       ]
     },
@@ -164,6 +164,11 @@
       "task": "2.1",
       "status": "completed",
       "summary": "速度监控独立于转移/IYUU 启停，按下载器与会话加锁扫描 qB/TR，并从插件首次观察时创建会话和注册 interval 服务。"
+    },
+    {
+      "task": "2.2",
+      "status": "completed",
+      "summary": "版本化持久化 sessions/baselines/alerts，重载恢复首见预算与有效时长，成功空列表单次终止，API 错误冻结计时，终态按 TTL/上限清理。"
     }
   ]
 }
