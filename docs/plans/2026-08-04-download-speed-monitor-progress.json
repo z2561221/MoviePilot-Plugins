@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-08-04-download-speed-monitor-phased-plan.md",
   "status": {
     "phase": "phase-5",
-    "task": "5.3",
-    "next_allowed_action": "执行唯一一次完整发布前审计，核对分支差异、配置/API/UI/测试契约、SubscribeAssistantEnhanced 零改动和残余风险",
-    "residual_risk": "MP 本地源 78/78 文件 hash、reload、history、overview、remotes 声明、remoteEntry 服务器文件与日志窗口均已验证；受保护的 remoteEntry HTTP 请求需要登录资源 Cookie，Codex 浏览器控制层初始化失败，未取得已登录 HTTP 200 证据；尚待 Phase 5.3 完整审计"
+    "task": "completed",
+    "next_allowed_action": "无；本地开发与 MP 本地运行闭环已完成，后续 push、merge、版本整理或 release 必须由用户另行明确授权",
+    "residual_risk": "受保护的 remoteEntry HTTP 请求需要登录资源 Cookie，Codex 浏览器控制层初始化失败，因此仅证明 remotes 声明、MP 本地服务器文件可读及 Win/MP SHA256 一致，未声称已登录 HTTP 200；监控当前按默认配置关闭，未执行真实异常通知或真实种子删除；首次校准在未配置保护下限时仍只能提供相对基准；订阅助手增强版联动取决于外部插件自行监听，本插件不保证换种"
   },
   "execution_rules": {
     "branch": "worldlinefix/downloadmanagerlocal",
@@ -134,8 +134,8 @@
       ],
       "tasks": [
         { "id": "5.1", "title": "执行全量窄测试和模拟任务矩阵", "status": "completed", "verification": ["Phase 5 bundled Python compileall passed", "PowerShell-expanded DownloadManagerLocal static baseline: 93 passed", "planned plugin-directory pytest collected 75 items but package import of test_safety was blocked without MoviePilot app", "isolated speed monitor suite: 81 passed", "original-path safety unittest after minimal adapter stub: 4 tests OK", "qBittorrent and Transmission both cover pause, queue, checking, completion, slow anomaly, API error, recovery, reload, close and confirm-delete paths", "multi-downloader baseline isolation and repeated slow-sample contamination protection remain covered", "all successful equivalent verification commands exited 0", "git diff --check passed", "fake downloaders only; no real notification, torrent deletion or data deletion"], "commit": "f7d1780e" },
-        { "id": "5.2", "title": "同步 MP 本地源并回读运行态", "status": "completed", "verification": ["scripts/sync_to_mp_local.py --plugin DownloadManagerLocal --dry-run exited 0", "targeted sync to Z:\\moviepilot-v2\\config\\local plugins exited 0", "all 78 source/runtime files have identical SHA256 and package structure; plugin version remains 3.2.7", "POST /api/v1/plugin/reload/DownloadManagerLocal returned success=true", "GET /api/v1/plugin/history/DownloadManagerLocal confirms installed=true, state=true, is_local=true and version 3.2.7", "overview returned code=0 with speed_monitor service, downloader, session, alert, baseline and recent-action fields", "runtime config readback contains all speed_monitor_* defaults with monitoring disabled and no selected downloader", "GET /api/v1/plugin/remotes?token=moviepilot advertises /plugin/file/downloadmanagerlocal/dist/assets/remoteEntry.js", "MP local remoteEntry.js is readable and SHA256 A0B1315FE11E7345E37D9D31CE896AF049A5BA0149010D5B8D2231B529858032 matches Win source; it references current Config-BZupU09T.js and Config-DsGbeXfH.css assets", "direct unauthenticated remoteEntry HTTP request is correctly rejected with resource token not found; Codex browser control could not initialize, so an authenticated HTTP 200 was not claimed", "latest 55-line DownloadManagerLocal reload log window contains zero error-like lines and no import failure", "no GitHub version was installed and no real torrent or data deletion was executed"], "commit": "pending-task-commit" },
-        { "id": "5.3", "title": "完成发布前审计与残余风险记录", "status": "pending", "verification": [], "commit": null }
+        { "id": "5.2", "title": "同步 MP 本地源并回读运行态", "status": "completed", "verification": ["scripts/sync_to_mp_local.py --plugin DownloadManagerLocal --dry-run exited 0", "targeted sync to Z:\\moviepilot-v2\\config\\local plugins exited 0", "all 78 source/runtime files have identical SHA256 and package structure; plugin version remains 3.2.7", "POST /api/v1/plugin/reload/DownloadManagerLocal returned success=true", "GET /api/v1/plugin/history/DownloadManagerLocal confirms installed=true, state=true, is_local=true and version 3.2.7", "overview returned code=0 with speed_monitor service, downloader, session, alert, baseline and recent-action fields", "runtime config readback contains all speed_monitor_* defaults with monitoring disabled and no selected downloader", "GET /api/v1/plugin/remotes?token=moviepilot advertises /plugin/file/downloadmanagerlocal/dist/assets/remoteEntry.js", "MP local remoteEntry.js is readable and SHA256 A0B1315FE11E7345E37D9D31CE896AF049A5BA0149010D5B8D2231B529858032 matches Win source; it references current Config-BZupU09T.js and Config-DsGbeXfH.css assets", "direct unauthenticated remoteEntry HTTP request is correctly rejected with resource token not found; Codex browser control could not initialize, so an authenticated HTTP 200 was not claimed", "latest 55-line DownloadManagerLocal reload log window contains zero error-like lines and no import failure", "no GitHub version was installed and no real torrent or data deletion was executed"], "commit": "32d1be66" },
+        { "id": "5.3", "title": "完成发布前审计与残余风险记录", "status": "completed", "verification": ["bundled Python 3.12 compileall exited 0", "complete DownloadManagerLocal static suite: 93 passed", "isolated speed monitor fake matrix: 81 passed", "original-path safety unittest: 4 tests OK", "Vue federation build: 58 modules transformed and built in 944ms", "origin/main...HEAD contains 42 changed files and all match the DownloadManagerLocal, named static-test or current-plan allowlist", "origin/main..HEAD contains 17 DownloadManagerLocal branch commits, zero merge commits and zero SubscribeAssistantEnhanced source diff", "SubscribeAssistantEnhanced or 订阅助手 appears only in two plan files, Config.vue explanation and three DownloadManagerLocal static tests", "current package, origin/main package and plugin source versions all remain 3.2.7", "all 11 speed_monitor configuration keys and 11 overview response fields are present; runtime flow node order, irreversible warning and external-listener explanation match the plan", "delete_file=True and unauthorized, expired, repeated and cancel callback risks are covered by source and fake tests", "secret-pattern scan found zero candidate credentials", "Win and MP local remoteEntry SHA256 both equal A0B1315FE11E7345E37D9D31CE896AF049A5BA0149010D5B8D2231B529858032 and reference current Config assets", "git diff --check passed and the tracked worktree was clean before final ledger update", "no real notification, real torrent deletion, online install, push, merge, amend or release was executed"], "commit": "pending-task-commit" }
       ]
     }
   ],
@@ -229,6 +229,16 @@
       "task": "5.2",
       "status": "completed",
       "summary": "仅同步 DownloadManagerLocal 到 MP 本地源并完成 78/78 hash、reload、history、overview、remotes、remoteEntry 服务器文件和日志回读；受资源 Cookie 保护的 HTTP 入口未伪报 200，未安装在线版本或执行真实删除。"
+    },
+    {
+      "task": "5.3",
+      "status": "completed",
+      "summary": "唯一一次完整发布前审计通过：93 项静态、81 项速度监控、4 项 safety 和 federation 构建均成功，42 个变更文件全部在白名单，版本保持 3.2.7，残余风险已显式记录。"
+    },
+    {
+      "phase": "phase-5",
+      "status": "completed",
+      "summary": "模拟矩阵、MP 本地运行闭环和发布前审计全部完成；未修改订阅助手增强版，未真实删除、push、merge、amend 或 release。"
     }
   ]
 }
