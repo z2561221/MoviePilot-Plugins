@@ -35,6 +35,8 @@ def resolve_reference_speed(
     floor_speed = _positive_number((floor_speeds or {}).get(downloader_id))
     if floor_speed > trusted_speed:
         return floor_speed, "trusted_baseline_with_floor"
+    if bool((baseline or {}).get("relative_only")):
+        return trusted_speed, "trusted_relative_baseline"
     return trusted_speed, "trusted_baseline"
 
 

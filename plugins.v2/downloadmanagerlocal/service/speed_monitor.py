@@ -28,6 +28,7 @@ from ..utils.torrent_adapter import (
     poll_error,
 )
 from .speed_decision import evaluate_speed_anomaly, resolve_reference_speed
+from .speed_baseline import record_health_sample
 
 
 SUPPORTED_DOWNLOADER_TYPES = {"qbittorrent", "transmission"}
@@ -333,6 +334,7 @@ def _completion_stats(session: SpeedMonitorSession, completed_at: float) -> dict
 
 
 def _complete_session(
+    plugin: Any,
     runtime: SpeedMonitorRuntime,
     key: str,
     observed_at: float,
@@ -356,12 +358,27 @@ def _complete_session(
         session.completion_stats = stats
         session.sample_eligible = bool(stats["eligible"])
         if session.sample_eligible:
-            baseline = runtime.baselines.setdefault(
-                session.downloader_id, {"samples": []}
+            floor_speeds = getattr(
+                plugin, "_speed_monitor_floor_speed_bps", {}
             )
-            samples = list(baseline.get("samples") or [])
-            samples.append(dict(stats))
-            baseline["samples"] = trim_health_samples(samples)
+            floor_speed = (
+                floor_speeds.get(session.downloader_id, 0.0)
+                if isinstance(floor_speeds, dict)
+                else 0.0
+            )
+            baseline, accepted, rejection_reason = record_health_sample(
+                runtime.baselines.get(session.downloader_id),
+                stats,
+                min_samples=_int(
+                    getattr(plugin, "_speed_monitor_min_samples", 5), 5
+                ),
+                floor_speed_bps=_float(floor_speed),
+            )
+            runtime.baselines[session.downloader_id] = baseline
+            session.sample_eligible = accepted
+            if not accepted:
+                stats["eligible"] = False
+                stats["rejection_reasons"].append(rejection_reason)
         return _finish_session(runtime, key, "completed", observed_at)
 
 
@@ -426,6 +443,7 @@ def _evaluate_session(
 
 
 def _observe_snapshot(
+    plugin: Any,
     runtime: SpeedMonitorRuntime,
     snapshot: Any,
     observed_at: float,
@@ -450,7 +468,7 @@ def _observe_snapshot(
                 session.total_bytes = snapshot.total_bytes or session.total_bytes
                 session.last_success_poll_at = observed_at
                 _complete_session(
-                    runtime, key, observed_at, resume_after_error
+                    plugin, runtime, key, observed_at, resume_after_error
                 )
             return False, key
         if session is None:
@@ -559,7 +577,7 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
             seen_keys = set()
             for snapshot in result.items:
                 created, key = _observe_snapshot(
-                    runtime, snapshot, observed_at, resume_after_error
+                    plugin, runtime, snapshot, observed_at, resume_after_error
                 )
                 if key:
                     seen_keys.add(key)

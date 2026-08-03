@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-08-04-download-speed-monitor-phased-plan.md",
   "status": {
     "phase": "phase-3",
-    "task": "3.2",
-    "next_allowed_action": "实现自动健康基准、MAD 过滤、trusted 保留、显式重置和手动模式；未通过当前任务验收不得进入 3.3",
-    "residual_risk": "会话、完成统计与基础超时判定已实现；稳健基准、污染保护、通知与 Telegram 动作尚未实现"
+    "task": "3.3",
+    "next_allowed_action": "加入基准污染保护、异常 epoch 与告警状态去重；未通过当前任务验收不得进入 Phase 4",
+    "residual_risk": "会话、判定和稳健基准已实现；异常周期去重、通知与 Telegram 动作尚未实现"
   },
   "execution_rules": {
     "branch": "worldlinefix/downloadmanagerlocal",
@@ -103,8 +103,8 @@
         "异常判断只产生通知状态，不自动删除任务"
       ],
       "tasks": [
-        { "id": "3.1", "title": "实现有效时长、预计时限和连续异常判定", "status": "completed", "verification": ["Phase 3 bundled Python compileall passed", "Phase 3 bundled Python pytest unavailable: No module named pytest", "fallback Phase 3 baseline: 87 passed, 5 subtests passed", "isolated speed decision tests: 4 passed", "expected_seconds=start_remaining_bytes/reference_speed and allowed_seconds=expected_seconds*tolerance", "tolerance 1.0 rejected and 1.5 accepted", "startup grace, zero speed, consecutive samples, completion transition and disconnect freeze covered", "automatic floor absent/high and manual reference branches covered", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "pending-task-commit" },
-        { "id": "3.2", "title": "实现自动健康基准与手动模式", "status": "pending", "verification": [], "commit": null },
+        { "id": "3.1", "title": "实现有效时长、预计时限和连续异常判定", "status": "completed", "verification": ["Phase 3 bundled Python compileall passed", "Phase 3 bundled Python pytest unavailable: No module named pytest", "fallback Phase 3 baseline: 87 passed, 5 subtests passed", "isolated speed decision tests: 4 passed", "expected_seconds=start_remaining_bytes/reference_speed and allowed_seconds=expected_seconds*tolerance", "tolerance 1.0 rejected and 1.5 accepted", "startup grace, zero speed, consecutive samples, completion transition and disconnect freeze covered", "automatic floor absent/high and manual reference branches covered", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "19c2cf13" },
+        { "id": "3.2", "title": "实现自动健康基准与手动模式", "status": "completed", "verification": ["isolated robust baseline tests: 6 passed", "baseline/completion/decision related summary: 15 passed", "speed monitor config contract regressions: 4 passed", "minimum sample gate, provisional relative-only state and trusted promotion covered", "median plus MAD filter with 25 percent minimum band covered", "floor filtering, calibration outlier, trusted outlier and downloader isolation covered", "trusted baseline persists until explicit reset", "manual mode ignores history and requires positive speed for every selected downloader", "versioned baseline state round-trip covered", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "pending-task-commit" },
         { "id": "3.3", "title": "加入基准污染保护和告警去重", "status": "pending", "verification": [], "commit": null }
       ]
     },
@@ -184,6 +184,11 @@
       "task": "3.1",
       "status": "completed",
       "summary": "按首次观察剩余体积、参考速度和容忍倍数计算允许时限，宽限后以连续采样提升异常状态；断连冻结且完成切换不产生异常。"
+    },
+    {
+      "task": "3.2",
+      "status": "completed",
+      "summary": "按下载器保存最近 20 条已接受健康样本，以中位数和 MAD 过滤污染；样本门槛后提升 trusted，无保护下限时明确标记相对基准，手动模式独立读取正数配置。"
     }
   ]
 }
