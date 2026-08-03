@@ -29,6 +29,7 @@ from ..utils.torrent_adapter import (
 )
 from .speed_decision import evaluate_speed_anomaly, resolve_reference_speed
 from .speed_baseline import record_health_sample, reset_downloader_baseline
+from .speed_notification import dispatch_pending_speed_alerts
 
 
 SUPPORTED_DOWNLOADER_TYPES = {"qbittorrent", "transmission"}
@@ -647,6 +648,7 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
                     and key not in seen_keys
                 ):
                     _finish_session(runtime, key, "missing", observed_at)
+    dispatch_pending_speed_alerts(plugin, runtime, observed_at)
     persist_speed_monitor_runtime(plugin, runtime, observed_at)
     summary["active_sessions"] = sum(
         session.status == SESSION_ACTIVE
