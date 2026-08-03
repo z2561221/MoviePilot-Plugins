@@ -9,6 +9,11 @@ RENAME_RECORDS_KEY = "rename_records"
 RENAME_RETRY_STATE_KEY = "rename_retry_state"
 SEED_RECHECK_QUEUE_KEY = "seed_recheck_queue"
 
+SPEED_MONITOR_SCHEMA_VERSION = 1
+SPEED_MONITOR_SESSIONS_KEY = "speed_monitor_sessions"
+SPEED_MONITOR_BASELINES_KEY = "speed_monitor_baselines"
+SPEED_MONITOR_ALERTS_KEY = "speed_monitor_alerts"
+
 IYUU_HISTORY_KEY_PREFIX = "iyuu_"
 IYUU_SOURCE_KEY_PREFIX = "iyuu_source_"
 IYUU_PERMANENT_ERROR_CACHES_KEY = "iyuu_permanent_error_caches"
@@ -25,6 +30,9 @@ PERSISTED_STATE_KEYS = {
     "rename_history": RENAME_RECORDS_KEY,
     "rename_retry_state": RENAME_RETRY_STATE_KEY,
     "seed_recheck_queue": SEED_RECHECK_QUEUE_KEY,
+    "speed_monitor_sessions": SPEED_MONITOR_SESSIONS_KEY,
+    "speed_monitor_baselines": SPEED_MONITOR_BASELINES_KEY,
+    "speed_monitor_alerts": SPEED_MONITOR_ALERTS_KEY,
     "iyuu_history": f"{IYUU_HISTORY_KEY_PREFIX}<source_hash>",
     "iyuu_source": f"{IYUU_SOURCE_KEY_PREFIX}<seed_hash>",
     "iyuu_cache_config": IYUU_CACHE_CONFIG_KEYS,

@@ -86,6 +86,19 @@ class DownloadManagerLocal(_PluginBase):
     _seed_check_interval: int = 60
     _seed_max_wait_minutes: int = 120
 
+    # ── 下载速度异常监控配置 ──
+    _speed_monitor_enabled: bool = False
+    _speed_monitor_downloaders: list = []
+    _speed_monitor_mode: str = "auto"
+    _speed_monitor_tolerance: float = 1.5
+    _speed_monitor_min_samples: int = 5
+    _speed_monitor_interval_minutes: int = 5
+    _speed_monitor_grace_minutes: int = 10
+    _speed_monitor_consecutive_abnormal_samples: int = 2
+    _speed_monitor_manual_speed_bps: dict = {}
+    _speed_monitor_floor_speed_bps: dict = {}
+    _speed_monitor_notification_type: str = "Plugin"
+
     # ── 重命名配置 ──
     _rename_enabled: bool = True
     _rename_movie_format: str = "[ {{ title }}{% if year %} ({{ year }}){% endif %} ] - {{original_name}}"
@@ -286,6 +299,18 @@ class DownloadManagerLocal(_PluginBase):
             "seed_autostart": True, "seed_skipverify": False,
             "seed_check_interval": 60, "seed_max_wait_minutes": 120,
             "iyuu_clearcache": False,
+            # 下载速度异常监控
+            "speed_monitor_enabled": False,
+            "speed_monitor_downloaders": [],
+            "speed_monitor_mode": "auto",
+            "speed_monitor_tolerance": 1.5,
+            "speed_monitor_min_samples": 5,
+            "speed_monitor_interval_minutes": 5,
+            "speed_monitor_grace_minutes": 10,
+            "speed_monitor_consecutive_abnormal_samples": 2,
+            "speed_monitor_manual_speed_bps": {},
+            "speed_monitor_floor_speed_bps": {},
+            "speed_monitor_notification_type": "Plugin",
         }
 
     def get_page(self) -> Optional[List[dict]]:

@@ -9,7 +9,7 @@ from ..model.state import (
     IYUU_PERMANENT_ERROR_CACHES_KEY,
     IYUU_SUCCESS_CACHES_KEY,
 )
-from ..utils.config import safe_int
+from ..utils.config import normalize_speed_monitor_config, safe_int
 from ..utils.tracker import parse_tracker_mappings
 
 
@@ -25,8 +25,14 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
     )
     plugin._tracker_mappings = parse_tracker_mappings(default_mappings)
 
+    monitor_config = normalize_speed_monitor_config(config)
+    for key, value in monitor_config.items():
+        setattr(plugin, f"_{key}", value)
+
     if not config:
         return config
+
+    config.update(monitor_config)
 
     plugin._enabled = config.get("enabled")
     plugin._transfer_enabled = config.get("transfer_enabled", True)
