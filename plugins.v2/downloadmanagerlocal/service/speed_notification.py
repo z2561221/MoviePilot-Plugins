@@ -289,4 +289,6 @@ def handle_speed_message_action_event(plugin: Any, event: Any) -> bool:
     handler = getattr(plugin, "_speed_monitor_callback_handler", None)
     if callable(handler):
         return bool(handler(event_data))
-    return True
+    from .speed_actions import process_speed_message_action
+
+    return process_speed_message_action(plugin, event_data)

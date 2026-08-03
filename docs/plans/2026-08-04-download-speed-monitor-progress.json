@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-08-04-download-speed-monitor-phased-plan.md",
   "status": {
     "phase": "phase-4",
-    "task": "4.2",
-    "next_allowed_action": "实现关闭、二次确认、取消删除和显式 delete_file=True 的 Telegram 动作；未通过当前任务验收不得进入 4.3",
-    "residual_risk": "异常检测和分类通知已实现；Telegram 动作处理与配置页总览尚未实现"
+    "task": "4.3",
+    "next_allowed_action": "扩展总览 API、监控配置页、运行链路与 federation 构建资产；未通过当前任务和 Phase 4 验收不得进入 Phase 5",
+    "residual_risk": "异常检测、分类通知和 Telegram 两步删除已实现；总览 API、配置 UI 与运行态验收尚未完成"
   },
   "execution_rules": {
     "branch": "worldlinefix/downloadmanagerlocal",
@@ -119,8 +119,8 @@
         "前端三视口和 federation 构建验收通过"
       ],
       "tasks": [
-        { "id": "4.1", "title": "发送可配置分类的异常通知卡片", "status": "completed", "verification": ["Phase 4 bundled Python compileall passed", "Phase 4 bundled Python pytest unavailable: No module named pytest", "fallback Phase 4 baseline: 87 passed, 5 subtests passed", "isolated speed notification tests: 15 passed", "notification/dedup/telegram related summary: 29 passed", "all current MoviePilot NotificationType enum names and values resolve; invalid values fall back to Plugin", "message body includes downloader, name/hash, size, progress, current/reference speed, effective/allowed time and irreversible delete warning", "MoviePilot telegram_userid target is resolved through host adapter without plugin ACL", "configured Telegram gets short close/delete callbacks; missing Telegram still sends plain MP notification", "notification failure keeps alert pending for retry and notified alert is not duplicated", "python -m compileall and git diff --check passed", "fake post_message only; no real notification or deletion executed"], "commit": "pending-task-commit" },
-        { "id": "4.2", "title": "实现关闭、二次确认和删除全量数据交互", "status": "pending", "verification": [], "commit": null },
+        { "id": "4.1", "title": "发送可配置分类的异常通知卡片", "status": "completed", "verification": ["Phase 4 bundled Python compileall passed", "Phase 4 bundled Python pytest unavailable: No module named pytest", "fallback Phase 4 baseline: 87 passed, 5 subtests passed", "isolated speed notification tests: 15 passed", "notification/dedup/telegram related summary: 29 passed", "all current MoviePilot NotificationType enum names and values resolve; invalid values fall back to Plugin", "message body includes downloader, name/hash, size, progress, current/reference speed, effective/allowed time and irreversible delete warning", "MoviePilot telegram_userid target is resolved through host adapter without plugin ACL", "configured Telegram gets short close/delete callbacks; missing Telegram still sends plain MP notification", "notification failure keeps alert pending for retry and notified alert is not duplicated", "python -m compileall and git diff --check passed", "fake post_message only; no real notification or deletion executed"], "commit": "6a038bd2" },
+        { "id": "4.2", "title": "实现关闭、二次确认和删除全量数据交互", "status": "completed", "verification": ["isolated fake delete tests: 6 passed", "planned telegram and delete summary: 16 passed", "notification/telegram/delete related summary: 31 passed", "close keeps downloader task unchanged and suppresses the current anomaly cycle", "delete request only enters confirming state; cancel never calls downloader", "qBittorrent and Transmission confirmation both call ids=[hash], delete_file=True", "unauthorized, expired, terminal and repeated callbacks never delete again", "delete success/failure results are persisted and failures remain retryable", "completion and deletion share the session lock; concurrent test permits one terminal winner", "close/delete/confirm/cancel callback payloads remain within 64 bytes", "python -m compileall and git diff --check passed", "fake downloaders only; no real torrent or data deletion executed"], "commit": "pending-task-commit" },
         { "id": "4.3", "title": "扩展总览 API 和配置页", "status": "pending", "verification": [], "commit": null }
       ]
     },
@@ -204,6 +204,11 @@
       "task": "4.1",
       "status": "completed",
       "summary": "pending 告警按合法 NotificationType 发送一次完整依据卡片；Telegram 目标来自 MP 用户设置并使用短 token，未配置 Telegram 时回退普通 MP 通知。"
+    },
+    {
+      "task": "4.2",
+      "status": "completed",
+      "summary": "关闭只收束当前告警；删除先进入二次确认，取消不调用下载器，确认后 qB/TR 固定 delete_file=True；身份、过期、终态、重复点击和完成/删除并发均受门禁。"
     }
   ]
 }
