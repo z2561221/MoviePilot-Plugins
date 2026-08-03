@@ -1,10 +1,10 @@
 {
   "plan": "docs/plans/2026-08-04-download-speed-monitor-phased-plan.md",
   "status": {
-    "phase": "phase-2",
-    "task": "2.3",
-    "next_allowed_action": "结束完成/删除会话并生成观察期间原始统计与健康样本候选；未通过当前任务验收不得进入 Phase 3",
-    "residual_risk": "会话持久化、迁移、断连冻结和终态清理已实现；完成统计、异常算法、通知与 Telegram 动作尚未实现"
+    "phase": "phase-3",
+    "task": "3.1",
+    "next_allowed_action": "先运行 Phase 3 baseline，再实现有效时长、预计时限和连续异常判定；未通过当前任务验收不得进入 3.2",
+    "residual_risk": "会话、持久化和完成统计已实现；异常算法、通知与 Telegram 动作尚未实现"
   },
   "execution_rules": {
     "branch": "worldlinefix/downloadmanagerlocal",
@@ -87,8 +87,8 @@
       ],
       "tasks": [
         { "id": "2.1", "title": "接入可选下载器监控服务", "status": "completed", "verification": ["Phase 2 bundled Python compileall passed", "Phase 2 bundled Python pytest unavailable: No module named pytest", "fallback baseline initially exposed Phase 1 docstring and entry-size regressions: 84 passed, 3 failed", "baseline regressions repaired: 87 passed", "planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated lifecycle and multi-downloader fake tests: 4 passed", "related static lifecycle/entry regressions: 25 passed", "entrypoint remains within slim gate: 519 lines", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "0262075a" },
-        { "id": "2.2", "title": "持久化采样快照并处理重载/缺失任务", "status": "completed", "verification": ["planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated persistence/reload/error/empty-list/migration/retention tests: 6 passed", "state key and standard completion regressions: 16 passed", "schema migration failure disables monitor without overwriting source data", "terminal retention: 30 days and 1000 items; health window: 20 samples", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "pending-task-commit" },
-        { "id": "2.3", "title": "结束会话并生成原始统计", "status": "pending", "verification": [], "commit": null }
+        { "id": "2.2", "title": "持久化采样快照并处理重载/缺失任务", "status": "completed", "verification": ["planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated persistence/reload/error/empty-list/migration/retention tests: 6 passed", "state key and standard completion regressions: 16 passed", "schema migration failure disables monitor without overwriting source data", "terminal retention: 30 days and 1000 items; health window: 20 samples", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "cba9e7da" },
+        { "id": "2.3", "title": "结束会话并生成原始统计", "status": "completed", "verification": ["planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated completion statistics and health-sample tests: 5 passed", "Phase 2 lifecycle/state/completion summary: 15 passed", "Phase 2 DownloadManagerLocal static summary: 87 passed", "partial downloads use observed byte delta and active effective time", "paused/queued/error/disconnected/missing/zero-value sessions do not pollute health samples", "duplicate completed snapshots write one sample", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "pending-task-commit" }
       ]
     },
     {
@@ -169,6 +169,16 @@
       "task": "2.2",
       "status": "completed",
       "summary": "版本化持久化 sessions/baselines/alerts，重载恢复首见预算与有效时长，成功空列表单次终止，API 错误冻结计时，终态按 TTL/上限清理。"
+    },
+    {
+      "task": "2.3",
+      "status": "completed",
+      "summary": "完成会话按首次观察后的新增字节与有效下载时长生成原始统计，仅将无错误、无异常、非零数据的完成任务写入下载器健康样本。"
+    },
+    {
+      "phase": "phase-2",
+      "status": "completed",
+      "summary": "多下载器会话、重载恢复、三态缺失处理、有效时长、完成统计和健康样本隔离汇总验收通过；未发送通知或删除真实任务。"
     }
   ]
 }

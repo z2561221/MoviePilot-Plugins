@@ -59,11 +59,20 @@ class FakePlugin:
     def __init__(self, services):
         """保存按名称索引的 fake 下载器服务。"""
         self.services = services
+        self.data = {}
         self._speed_monitor_runtime = None
 
     def service_info(self, name):
         """按名称返回 fake 下载器服务。"""
         return self.services.get(name)
+
+    def get_data(self, key):
+        """读取内存插件数据。"""
+        return self.data.get(key)
+
+    def save_data(self, key, value):
+        """保存内存插件数据。"""
+        self.data[key] = value
 
 
 def test_speed_monitor_is_independent_from_transfer_and_iyuu_state():

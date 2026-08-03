@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ..model.state import (
@@ -22,6 +22,7 @@ from ..utils.config import is_speed_monitor_active
 from ..utils.torrent_adapter import (
     TORRENT_ACTIVE,
     TORRENT_COMPLETED,
+    TORRENT_ERROR,
     DownloaderPollResult,
     poll_downloader,
     poll_error,
@@ -55,6 +56,10 @@ class SpeedMonitorSession:
     status: str = SESSION_ACTIVE
     terminal_at: float = 0.0
     terminal_reason: str = ""
+    had_error: bool = False
+    had_anomaly: bool = False
+    sample_eligible: bool = False
+    completion_stats: dict = field(default_factory=dict)
     schema_version: int = SPEED_MONITOR_SCHEMA_VERSION
 
     def to_dict(self) -> dict:
@@ -94,6 +99,14 @@ class SpeedMonitorSession:
             status=str(value.get("status") or SESSION_ACTIVE),
             terminal_at=_float(value.get("terminal_at")),
             terminal_reason=str(value.get("terminal_reason") or ""),
+            had_error=bool(value.get("had_error", False)),
+            had_anomaly=bool(value.get("had_anomaly", False)),
+            sample_eligible=bool(value.get("sample_eligible", False)),
+            completion_stats=(
+                dict(value.get("completion_stats"))
+                if isinstance(value.get("completion_stats"), dict)
+                else {}
+            ),
             schema_version=SPEED_MONITOR_SCHEMA_VERSION,
         )
 
@@ -270,6 +283,88 @@ def _finish_session(
         return True
 
 
+def _completion_stats(session: SpeedMonitorSession, completed_at: float) -> dict:
+    """根据观察期间新增字节和有效时长生成原始完成统计。"""
+    observed_bytes = max(
+        0, session.last_downloaded_bytes - session.start_downloaded_bytes
+    )
+    effective_seconds = max(0.0, session.effective_seconds)
+    average_speed_bps = (
+        observed_bytes / effective_seconds
+        if observed_bytes > 0 and effective_seconds > 0
+        else 0.0
+    )
+    rejection_reasons = []
+    if session.total_bytes <= 0:
+        rejection_reasons.append("zero_total_bytes")
+    if observed_bytes <= 0:
+        rejection_reasons.append("no_observed_bytes")
+    if effective_seconds <= 0:
+        rejection_reasons.append("no_effective_time")
+    if session.had_error:
+        rejection_reasons.append("session_error")
+    if session.had_anomaly:
+        rejection_reasons.append("session_anomaly")
+    return {
+        "downloader_id": session.downloader_id,
+        "torrent_hash": session.torrent_hash,
+        "name": session.name,
+        "total_bytes": session.total_bytes,
+        "observed_bytes": observed_bytes,
+        "effective_seconds": effective_seconds,
+        "average_speed_bps": average_speed_bps,
+        "completed_at": completed_at,
+        "eligible": not rejection_reasons,
+        "rejection_reasons": rejection_reasons,
+    }
+
+
+def _complete_session(
+    runtime: SpeedMonitorRuntime,
+    key: str,
+    observed_at: float,
+    resume_after_error: bool,
+) -> bool:
+    """结束完成会话并仅保存合格的健康样本候选。"""
+    with runtime.session_lock(key):
+        session = runtime.sessions.get(key)
+        if session is None or session.status != SESSION_ACTIVE:
+            return False
+        if (
+            not resume_after_error
+            and session.last_state == TORRENT_ACTIVE
+        ):
+            session.effective_seconds += max(
+                0.0, observed_at - session.last_effective_at
+            )
+        session.last_effective_at = observed_at
+        session.last_valid_sample_at = observed_at
+        stats = _completion_stats(session, observed_at)
+        session.completion_stats = stats
+        session.sample_eligible = bool(stats["eligible"])
+        if session.sample_eligible:
+            baseline = runtime.baselines.setdefault(
+                session.downloader_id, {"samples": []}
+            )
+            samples = list(baseline.get("samples") or [])
+            samples.append(dict(stats))
+            baseline["samples"] = trim_health_samples(samples)
+        return _finish_session(runtime, key, "completed", observed_at)
+
+
+def _mark_downloader_error(
+    runtime: SpeedMonitorRuntime,
+    downloader_id: str,
+) -> None:
+    """标记下载器错误期间仍活跃的会话不可作为健康样本。"""
+    for session in runtime.sessions.values():
+        if (
+            session.downloader_id == downloader_id
+            and session.status == SESSION_ACTIVE
+        ):
+            session.had_error = True
+
+
 def _observe_snapshot(
     runtime: SpeedMonitorRuntime,
     snapshot: Any,
@@ -292,8 +387,11 @@ def _observe_snapshot(
         if is_completed:
             if session is not None and session.status == SESSION_ACTIVE:
                 session.last_downloaded_bytes = snapshot.downloaded_bytes
+                session.total_bytes = snapshot.total_bytes or session.total_bytes
                 session.last_success_poll_at = observed_at
-                _finish_session(runtime, key, "completed", observed_at)
+                _complete_session(
+                    runtime, key, observed_at, resume_after_error
+                )
             return False, key
         if session is None:
             is_active = snapshot.state_category == TORRENT_ACTIVE
@@ -336,6 +434,8 @@ def _observe_snapshot(
         if snapshot.state_category == TORRENT_ACTIVE:
             session.last_valid_sample_at = observed_at
         session.last_state = snapshot.state_category
+        if snapshot.state_category == TORRENT_ERROR:
+            session.had_error = True
         return False, key
 
 
@@ -377,6 +477,7 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
                 runtime.last_poll_results[downloader_id] = poll_error(
                     "downloader unavailable"
                 )
+                _mark_downloader_error(runtime, downloader_id)
                 continue
             downloader_type = _downloader_type(service)
             if downloader_type not in SUPPORTED_DOWNLOADER_TYPES:
@@ -384,6 +485,7 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
                 runtime.last_poll_results[downloader_id] = poll_error(
                     "unsupported downloader"
                 )
+                _mark_downloader_error(runtime, downloader_id)
                 continue
             previous_result = runtime.last_poll_results.get(downloader_id)
             result = poll_downloader(service.instance, downloader_id, downloader_type)
@@ -391,6 +493,7 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
             summary["scanned_downloaders"] += 1
             if not result.success:
                 summary["errors"][downloader_id] = result.error
+                _mark_downloader_error(runtime, downloader_id)
                 continue
             resume_after_error = bool(previous_result and not previous_result.success)
             seen_keys = set()
