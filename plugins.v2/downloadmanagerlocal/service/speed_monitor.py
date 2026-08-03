@@ -27,6 +27,7 @@ from ..utils.torrent_adapter import (
     poll_downloader,
     poll_error,
 )
+from .speed_decision import evaluate_speed_anomaly, resolve_reference_speed
 
 
 SUPPORTED_DOWNLOADER_TYPES = {"qbittorrent", "transmission"}
@@ -60,6 +61,9 @@ class SpeedMonitorSession:
     had_anomaly: bool = False
     sample_eligible: bool = False
     completion_stats: dict = field(default_factory=dict)
+    current_speed_bps: float = 0.0
+    consecutive_abnormal_samples: int = 0
+    decision: dict = field(default_factory=dict)
     schema_version: int = SPEED_MONITOR_SCHEMA_VERSION
 
     def to_dict(self) -> dict:
@@ -105,6 +109,15 @@ class SpeedMonitorSession:
             completion_stats=(
                 dict(value.get("completion_stats"))
                 if isinstance(value.get("completion_stats"), dict)
+                else {}
+            ),
+            current_speed_bps=_float(value.get("current_speed_bps")),
+            consecutive_abnormal_samples=_int(
+                value.get("consecutive_abnormal_samples")
+            ),
+            decision=(
+                dict(value.get("decision"))
+                if isinstance(value.get("decision"), dict)
                 else {}
             ),
             schema_version=SPEED_MONITOR_SCHEMA_VERSION,
@@ -365,6 +378,53 @@ def _mark_downloader_error(
             session.had_error = True
 
 
+def _evaluate_session(
+    plugin: Any,
+    runtime: SpeedMonitorRuntime,
+    key: str,
+    snapshot: Any,
+) -> None:
+    """更新活跃会话的当前速度与连续异常判定快照。"""
+    session = runtime.sessions.get(key)
+    if session is None or session.status != SESSION_ACTIVE:
+        return
+    mode = str(getattr(plugin, "_speed_monitor_mode", "auto") or "auto")
+    reference_speed, reference_source = resolve_reference_speed(
+        mode=mode,
+        downloader_id=session.downloader_id,
+        baseline=runtime.baselines.get(session.downloader_id),
+        manual_speeds=getattr(plugin, "_speed_monitor_manual_speed_bps", {}),
+        floor_speeds=getattr(plugin, "_speed_monitor_floor_speed_bps", {}),
+    )
+    session.current_speed_bps = max(
+        0.0, _float(getattr(snapshot, "download_speed_bps", 0.0))
+    )
+    decision = evaluate_speed_anomaly(
+        start_remaining_bytes=session.start_remaining_bytes,
+        total_bytes=session.total_bytes,
+        downloaded_bytes=session.last_downloaded_bytes,
+        current_speed_bps=session.current_speed_bps,
+        effective_seconds=session.effective_seconds,
+        reference_speed_bps=reference_speed,
+        reference_source=reference_source,
+        tolerance=_float(getattr(plugin, "_speed_monitor_tolerance", 1.5), 1.5),
+        grace_seconds=(
+            _float(getattr(plugin, "_speed_monitor_grace_minutes", 10.0), 10.0)
+            * 60.0
+        ),
+        required_samples=_int(
+            getattr(plugin, "_speed_monitor_consecutive_abnormal_samples", 2), 2
+        ),
+        previous_abnormal_samples=session.consecutive_abnormal_samples,
+    )
+    session.decision = decision
+    session.consecutive_abnormal_samples = _int(
+        decision.get("abnormal_samples")
+    )
+    if decision.get("is_anomalous"):
+        session.had_anomaly = True
+
+
 def _observe_snapshot(
     runtime: SpeedMonitorRuntime,
     snapshot: Any,
@@ -503,6 +563,7 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
                 )
                 if key:
                     seen_keys.add(key)
+                    _evaluate_session(plugin, runtime, key, snapshot)
                 if created:
                     summary["created_sessions"] += 1
             for key, session in list(runtime.sessions.items()):

@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-08-04-download-speed-monitor-phased-plan.md",
   "status": {
     "phase": "phase-3",
-    "task": "3.1",
-    "next_allowed_action": "先运行 Phase 3 baseline，再实现有效时长、预计时限和连续异常判定；未通过当前任务验收不得进入 3.2",
-    "residual_risk": "会话、持久化和完成统计已实现；异常算法、通知与 Telegram 动作尚未实现"
+    "task": "3.2",
+    "next_allowed_action": "实现自动健康基准、MAD 过滤、trusted 保留、显式重置和手动模式；未通过当前任务验收不得进入 3.3",
+    "residual_risk": "会话、完成统计与基础超时判定已实现；稳健基准、污染保护、通知与 Telegram 动作尚未实现"
   },
   "execution_rules": {
     "branch": "worldlinefix/downloadmanagerlocal",
@@ -88,7 +88,7 @@
       "tasks": [
         { "id": "2.1", "title": "接入可选下载器监控服务", "status": "completed", "verification": ["Phase 2 bundled Python compileall passed", "Phase 2 bundled Python pytest unavailable: No module named pytest", "fallback baseline initially exposed Phase 1 docstring and entry-size regressions: 84 passed, 3 failed", "baseline regressions repaired: 87 passed", "planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated lifecycle and multi-downloader fake tests: 4 passed", "related static lifecycle/entry regressions: 25 passed", "entrypoint remains within slim gate: 519 lines", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "0262075a" },
         { "id": "2.2", "title": "持久化采样快照并处理重载/缺失任务", "status": "completed", "verification": ["planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated persistence/reload/error/empty-list/migration/retention tests: 6 passed", "state key and standard completion regressions: 16 passed", "schema migration failure disables monitor without overwriting source data", "terminal retention: 30 days and 1000 items; health window: 20 samples", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "cba9e7da" },
-        { "id": "2.3", "title": "结束会话并生成原始统计", "status": "completed", "verification": ["planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated completion statistics and health-sample tests: 5 passed", "Phase 2 lifecycle/state/completion summary: 15 passed", "Phase 2 DownloadManagerLocal static summary: 87 passed", "partial downloads use observed byte delta and active effective time", "paused/queued/error/disconnected/missing/zero-value sessions do not pollute health samples", "duplicate completed snapshots write one sample", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "pending-task-commit" }
+        { "id": "2.3", "title": "结束会话并生成原始统计", "status": "completed", "verification": ["planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated completion statistics and health-sample tests: 5 passed", "Phase 2 lifecycle/state/completion summary: 15 passed", "Phase 2 DownloadManagerLocal static summary: 87 passed", "partial downloads use observed byte delta and active effective time", "paused/queued/error/disconnected/missing/zero-value sessions do not pollute health samples", "duplicate completed snapshots write one sample", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "57a5a7da" }
       ]
     },
     {
@@ -103,7 +103,7 @@
         "异常判断只产生通知状态，不自动删除任务"
       ],
       "tasks": [
-        { "id": "3.1", "title": "实现有效时长、预计时限和连续异常判定", "status": "pending", "verification": [], "commit": null },
+        { "id": "3.1", "title": "实现有效时长、预计时限和连续异常判定", "status": "completed", "verification": ["Phase 3 bundled Python compileall passed", "Phase 3 bundled Python pytest unavailable: No module named pytest", "fallback Phase 3 baseline: 87 passed, 5 subtests passed", "isolated speed decision tests: 4 passed", "expected_seconds=start_remaining_bytes/reference_speed and allowed_seconds=expected_seconds*tolerance", "tolerance 1.0 rejected and 1.5 accepted", "startup grace, zero speed, consecutive samples, completion transition and disconnect freeze covered", "automatic floor absent/high and manual reference branches covered", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "pending-task-commit" },
         { "id": "3.2", "title": "实现自动健康基准与手动模式", "status": "pending", "verification": [], "commit": null },
         { "id": "3.3", "title": "加入基准污染保护和告警去重", "status": "pending", "verification": [], "commit": null }
       ]
@@ -179,6 +179,11 @@
       "phase": "phase-2",
       "status": "completed",
       "summary": "多下载器会话、重载恢复、三态缺失处理、有效时长、完成统计和健康样本隔离汇总验收通过；未发送通知或删除真实任务。"
+    },
+    {
+      "task": "3.1",
+      "status": "completed",
+      "summary": "按首次观察剩余体积、参考速度和容忍倍数计算允许时限，宽限后以连续采样提升异常状态；断连冻结且完成切换不产生异常。"
     }
   ]
 }
