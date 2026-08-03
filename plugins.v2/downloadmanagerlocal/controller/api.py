@@ -3,7 +3,11 @@
 from functools import partial
 from typing import Any, Dict, List
 
-from .handlers import api_tag_cleanup_execute, api_tag_cleanup_scan
+from .handlers import (
+    api_reset_speed_monitor_baseline,
+    api_tag_cleanup_execute,
+    api_tag_cleanup_scan,
+)
 
 
 def build_api_routes(plugin) -> List[Dict[str, Any]]:
@@ -29,6 +33,13 @@ def build_api_routes(plugin) -> List[Dict[str, Any]]:
             "auth": "bear",
             "methods": ["GET"],
             "summary": "获取下载中心总览",
+        },
+        {
+            "path": "/reset_speed_monitor_baseline",
+            "endpoint": partial(api_reset_speed_monitor_baseline, plugin),
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "重置下载速度基准",
         },
         {
             "path": "/diagnostics",

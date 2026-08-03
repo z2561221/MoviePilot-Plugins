@@ -1,10 +1,10 @@
 {
   "plan": "docs/plans/2026-08-04-download-speed-monitor-phased-plan.md",
   "status": {
-    "phase": "phase-4",
-    "task": "4.3",
-    "next_allowed_action": "扩展总览 API、监控配置页、运行链路与 federation 构建资产；未通过当前任务和 Phase 4 验收不得进入 Phase 5",
-    "residual_risk": "异常检测、分类通知和 Telegram 两步删除已实现；总览 API、配置 UI 与运行态验收尚未完成"
+    "phase": "phase-5",
+    "task": "5.1",
+    "next_allowed_action": "执行全量窄测试和 qB/TR fake 模拟任务矩阵；未通过 5.1 不得同步 MP 本地源",
+    "residual_risk": "源码、静态契约、federation 构建和三视口已通过；尚未执行 Phase 5 全量模拟矩阵、MP 本地 reload 与发布前完整审计"
   },
   "execution_rules": {
     "branch": "worldlinefix/downloadmanagerlocal",
@@ -120,8 +120,8 @@
       ],
       "tasks": [
         { "id": "4.1", "title": "发送可配置分类的异常通知卡片", "status": "completed", "verification": ["Phase 4 bundled Python compileall passed", "Phase 4 bundled Python pytest unavailable: No module named pytest", "fallback Phase 4 baseline: 87 passed, 5 subtests passed", "isolated speed notification tests: 15 passed", "notification/dedup/telegram related summary: 29 passed", "all current MoviePilot NotificationType enum names and values resolve; invalid values fall back to Plugin", "message body includes downloader, name/hash, size, progress, current/reference speed, effective/allowed time and irreversible delete warning", "MoviePilot telegram_userid target is resolved through host adapter without plugin ACL", "configured Telegram gets short close/delete callbacks; missing Telegram still sends plain MP notification", "notification failure keeps alert pending for retry and notified alert is not duplicated", "python -m compileall and git diff --check passed", "fake post_message only; no real notification or deletion executed"], "commit": "6a038bd2" },
-        { "id": "4.2", "title": "实现关闭、二次确认和删除全量数据交互", "status": "completed", "verification": ["isolated fake delete tests: 6 passed", "planned telegram and delete summary: 16 passed", "notification/telegram/delete related summary: 31 passed", "close keeps downloader task unchanged and suppresses the current anomaly cycle", "delete request only enters confirming state; cancel never calls downloader", "qBittorrent and Transmission confirmation both call ids=[hash], delete_file=True", "unauthorized, expired, terminal and repeated callbacks never delete again", "delete success/failure results are persisted and failures remain retryable", "completion and deletion share the session lock; concurrent test permits one terminal winner", "close/delete/confirm/cancel callback payloads remain within 64 bytes", "python -m compileall and git diff --check passed", "fake downloaders only; no real torrent or data deletion executed"], "commit": "pending-task-commit" },
-        { "id": "4.3", "title": "扩展总览 API 和配置页", "status": "pending", "verification": [], "commit": null }
+        { "id": "4.2", "title": "实现关闭、二次确认和删除全量数据交互", "status": "completed", "verification": ["isolated fake delete tests: 6 passed", "planned telegram and delete summary: 16 passed", "notification/telegram/delete related summary: 31 passed", "close keeps downloader task unchanged and suppresses the current anomaly cycle", "delete request only enters confirming state; cancel never calls downloader", "qBittorrent and Transmission confirmation both call ids=[hash], delete_file=True", "unauthorized, expired, terminal and repeated callbacks never delete again", "delete success/failure results are persisted and failures remain retryable", "completion and deletion share the session lock; concurrent test permits one terminal winner", "close/delete/confirm/cancel callback payloads remain within 64 bytes", "python -m compileall and git diff --check passed", "fake downloaders only; no real torrent or data deletion executed"], "commit": "e5a8edcc" },
+        { "id": "4.3", "title": "扩展总览 API 和配置页", "status": "completed", "verification": ["planned speed monitor frontend and API inventory: 11 passed", "related bearer route and frontend build contract: 9 passed", "federation build: 58 modules transformed, exit code 0", "remoteEntry references generated Config asset with speed-monitor flow", "390x844, 768x1024 and 1440x900 browser checks have exact viewport width, no horizontal overflow and no console errors", "desktop overview clientHeight equals scrollHeight at 1440x900; mobile and tablet use vertical scrolling", "runtime flow contains only DownloadManagerLocal nodes; SubscribeAssistantEnhanced appears only in external-link explanation", "Phase 4 fake notification/telegram/delete summary: 31 passed", "bundled Python compileall and git diff --check passed", "no SubscribeAssistantEnhanced changes, real notification or real deletion"], "commit": "pending-task-commit" }
       ]
     },
     {
@@ -209,6 +209,16 @@
       "task": "4.2",
       "status": "completed",
       "summary": "关闭只收束当前告警；删除先进入二次确认，取消不调用下载器，确认后 qB/TR 固定 delete_file=True；身份、过期、终态、重复点击和完成/删除并发均受门禁。"
+    },
+    {
+      "task": "4.3",
+      "status": "completed",
+      "summary": "总览 API 返回服务、会话、告警、按下载器基准和最近处置；配置页提供完整阈值、显式重置、不可恢复警告和纯说明性的外部联动，三视口与 federation 构建通过。"
+    },
+    {
+      "phase": "phase-4",
+      "status": "completed",
+      "summary": "MP 分类通知、Telegram 两步删除、关闭幂等、准确运行链路、配置警告和前端三视口汇总验收通过；未修改订阅助手增强版。"
     }
   ]
 }

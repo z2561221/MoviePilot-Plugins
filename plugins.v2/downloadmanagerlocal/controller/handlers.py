@@ -7,6 +7,102 @@ from app.log import logger
 from ..adapter.moviepilot import get_downloader_config, list_builtin_sites
 from ..model.state import RENAME_RECORDS_KEY, RENAME_RETRY_STATE_KEY
 from ..service.site_tag import execute_tag_cleanup, scan_and_clean_tags
+from ..service.speed_decision import resolve_reference_speed
+from ..service.speed_monitor import (
+    SESSION_ACTIVE,
+    ensure_speed_monitor_runtime,
+    reset_speed_monitor_baseline,
+)
+from ..utils.config import is_speed_monitor_active
+
+
+def _speed_monitor_overview(plugin):
+    """根据持久化运行态生成速度监控总览。"""
+    runtime = ensure_speed_monitor_runtime(plugin)
+    mode = str(getattr(plugin, "_speed_monitor_mode", "auto") or "auto")
+    selected = list(getattr(plugin, "_speed_monitor_downloaders", []) or [])
+    manual_speeds = getattr(plugin, "_speed_monitor_manual_speed_bps", {}) or {}
+    floor_speeds = getattr(plugin, "_speed_monitor_floor_speed_bps", {}) or {}
+    baselines = []
+    for downloader_id in selected:
+        baseline = runtime.baselines.get(downloader_id, {})
+        reference_speed, reference_source = resolve_reference_speed(
+            mode=mode,
+            downloader_id=downloader_id,
+            baseline=baseline,
+            manual_speeds=manual_speeds,
+            floor_speeds=floor_speeds,
+        )
+        baselines.append({
+            "downloader_id": downloader_id,
+            "status": str(baseline.get("status") or "provisional"),
+            "sample_count": int(baseline.get("sample_count") or 0),
+            "min_samples": int(
+                baseline.get("min_samples")
+                or getattr(plugin, "_speed_monitor_min_samples", 5)
+                or 5
+            ),
+            "provisional_speed_bps": float(
+                baseline.get("provisional_speed_bps") or 0
+            ),
+            "trusted_speed_bps": float(baseline.get("trusted_speed_bps") or 0),
+            "floor_speed_bps": float(floor_speeds.get(downloader_id) or 0),
+            "reference_speed_bps": float(reference_speed or 0),
+            "reference_source": reference_source,
+            "relative_only": bool(baseline.get("relative_only", not bool(
+                floor_speeds.get(downloader_id)
+            ))),
+        })
+
+    alert_counts = {"pending": 0, "notified": 0, "confirming": 0}
+    dispositions = []
+    for alert in runtime.alerts.values():
+        if not isinstance(alert, dict):
+            continue
+        status = str(alert.get("status") or "")
+        if status in alert_counts:
+            alert_counts[status] += 1
+        if alert.get("last_action") or alert.get("handled_at"):
+            timestamp = max(
+                float(alert.get("handled_at") or 0),
+                float(alert.get("updated_at") or 0),
+                float(alert.get("notified_at") or 0),
+            )
+            dispositions.append((timestamp, alert))
+    last_disposition = None
+    if dispositions:
+        timestamp, alert = max(dispositions, key=lambda item: item[0])
+        deletion_result = alert.get("deletion_result") or {}
+        last_disposition = {
+            "downloader_id": str(alert.get("downloader_id") or ""),
+            "torrent_hash": str(alert.get("torrent_hash") or ""),
+            "name": str(alert.get("name") or ""),
+            "status": str(alert.get("status") or ""),
+            "action": str(alert.get("last_action") or alert.get("status") or ""),
+            "success": deletion_result.get("success"),
+            "error": str(deletion_result.get("error") or ""),
+            "updated_at": timestamp,
+        }
+
+    state_error = str(runtime.state_error or getattr(
+        plugin, "_speed_monitor_state_error", ""
+    ) or "")
+    active = bool(is_speed_monitor_active(plugin) and not state_error)
+    return {
+        "enabled": bool(getattr(plugin, "_speed_monitor_enabled", False)),
+        "active": active,
+        "service_status": "error" if state_error else ("running" if active else "disabled"),
+        "state_error": state_error,
+        "mode": mode,
+        "selected_downloaders": selected,
+        "active_sessions": sum(
+            session.status == SESSION_ACTIVE for session in runtime.sessions.values()
+        ),
+        "pending_alerts": sum(alert_counts.values()),
+        "alert_counts": alert_counts,
+        "baselines": baselines,
+        "last_disposition": last_disposition,
+    }
 
 
 def api_retry_renames(plugin):
@@ -49,6 +145,7 @@ def api_overview(plugin):
             "downloaders": diagnostics.get("downloaders", {}) if isinstance(diagnostics, dict) else {},
             "rename_history": rename_history,
             "archive": archive,
+            "speed_monitor": _speed_monitor_overview(plugin),
             "cards": {
                 "transfer": {
                     "enabled": bool(getattr(plugin, "_transfer_enabled", False)),
@@ -76,6 +173,23 @@ def api_overview(plugin):
     except Exception as e:
         logger.error(f"总览信息生成失败: {e}")
         return {"code": 1, "msg": f"总览失败: {e}"}
+
+
+def api_reset_speed_monitor_baseline(plugin, payload: dict = None):
+    """显式重置一个下载器的自动速度基准。"""
+    try:
+        request = payload if isinstance(payload, dict) else {}
+        result = reset_speed_monitor_baseline(
+            plugin, request.get("downloader_id") or ""
+        )
+        return {
+            "code": 0 if result.get("success") else 1,
+            "msg": "速度基准已重置" if result.get("success") else result.get("error", "重置失败"),
+            **result,
+        }
+    except Exception as e:
+        logger.error(f"速度基准重置失败: {e}")
+        return {"code": 1, "msg": f"重置失败: {e}", "success": False}
 
 
 def api_downloaders(plugin):

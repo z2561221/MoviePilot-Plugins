@@ -29,8 +29,27 @@ def test_downloadmanagerlocal_overview_response_inventory():
         '"iyuu"',
         '"rename"',
         '"seed"',
+        '"speed_monitor"',
+        '"service_status"',
+        '"selected_downloaders"',
+        '"active_sessions"',
+        '"pending_alerts"',
+        '"alert_counts"',
+        '"baselines"',
+        '"reference_speed_bps"',
+        '"relative_only"',
+        '"last_disposition"',
     ]:
         assert key in source
+
+
+def test_downloadmanagerlocal_speed_baseline_reset_response_inventory():
+    source = _handler_source()
+
+    assert "def api_reset_speed_monitor_baseline(plugin, payload: dict = None):" in source
+    assert 'request.get("downloader_id")' in source
+    assert "reset_speed_monitor_baseline(" in source
+    assert '"速度基准已重置"' in source
 
 
 def test_downloadmanagerlocal_history_and_archive_response_inventory():
