@@ -28,7 +28,7 @@ from ..utils.torrent_adapter import (
     poll_error,
 )
 from .speed_decision import evaluate_speed_anomaly, resolve_reference_speed
-from .speed_baseline import record_health_sample
+from .speed_baseline import record_health_sample, reset_downloader_baseline
 
 
 SUPPORTED_DOWNLOADER_TYPES = {"qbittorrent", "transmission"}
@@ -55,6 +55,7 @@ class SpeedMonitorSession:
     effective_seconds: float
     last_state: str
     anomaly_epoch: int = 0
+    anomaly_active: bool = False
     status: str = SESSION_ACTIVE
     terminal_at: float = 0.0
     terminal_reason: str = ""
@@ -101,6 +102,7 @@ class SpeedMonitorSession:
             effective_seconds=_float(value.get("effective_seconds")),
             last_state=last_state,
             anomaly_epoch=_int(value.get("anomaly_epoch")),
+            anomaly_active=bool(value.get("anomaly_active", False)),
             status=str(value.get("status") or SESSION_ACTIVE),
             terminal_at=_float(value.get("terminal_at")),
             terminal_reason=str(value.get("terminal_reason") or ""),
@@ -231,7 +233,7 @@ def _trim_runtime(runtime: SpeedMonitorRuntime, now: float) -> None:
     runtime.alerts = trim_terminal_records(
         runtime.alerts,
         now=now,
-        active_statuses=("pending",),
+        active_statuses=("pending", "notified", "confirming"),
         timestamp_field="handled_at",
     )
     for downloader_id, baseline in list(runtime.baselines.items()):
@@ -289,12 +291,66 @@ def _finish_session(
         session = runtime.sessions.get(key)
         if session is None or session.status != SESSION_ACTIVE:
             return False
+        _close_anomaly_cycle(runtime, session, status, observed_at)
         session.status = status
         session.terminal_reason = status
         session.terminal_at = observed_at
         session.last_observed_at = observed_at
         session.last_success_poll_at = observed_at
         return True
+
+
+def _alert_key(session: SpeedMonitorSession) -> str:
+    """生成按下载器、hash 和异常 epoch 隔离的告警 key。"""
+    session_key = _session_key(session.downloader_id, session.torrent_hash)
+    return f"{session_key}:{session.anomaly_epoch}"
+
+
+def _close_anomaly_cycle(
+    runtime: SpeedMonitorRuntime,
+    session: SpeedMonitorSession,
+    status: str,
+    observed_at: float,
+) -> None:
+    """把当前异常周期收束为终态并允许后续建立新周期。"""
+    if not session.anomaly_active or session.anomaly_epoch <= 0:
+        return
+    alert = runtime.alerts.get(_alert_key(session))
+    if isinstance(alert, dict) and alert.get("status") in {
+        "pending", "notified", "confirming"
+    }:
+        alert["status"] = str(status or "recovered")
+        alert["handled_at"] = observed_at
+        alert["updated_at"] = observed_at
+    session.anomaly_active = False
+
+
+def _update_anomaly_cycle(
+    runtime: SpeedMonitorRuntime,
+    session: SpeedMonitorSession,
+    observed_at: float,
+) -> None:
+    """根据判定快照创建唯一 pending 告警或收束恢复周期。"""
+    if session.decision.get("is_anomalous"):
+        session.had_anomaly = True
+        if session.anomaly_active:
+            return
+        session.anomaly_epoch += 1
+        session.anomaly_active = True
+        key = _alert_key(session)
+        runtime.alerts.setdefault(key, {
+            "status": "pending",
+            "downloader_id": session.downloader_id,
+            "torrent_hash": session.torrent_hash,
+            "name": session.name,
+            "anomaly_epoch": session.anomaly_epoch,
+            "created_at": observed_at,
+            "updated_at": observed_at,
+            "handled_at": 0.0,
+            "decision": dict(session.decision),
+        })
+        return
+    _close_anomaly_cycle(runtime, session, "recovered", observed_at)
 
 
 def _completion_stats(session: SpeedMonitorSession, completed_at: float) -> dict:
@@ -400,6 +456,7 @@ def _evaluate_session(
     runtime: SpeedMonitorRuntime,
     key: str,
     snapshot: Any,
+    observed_at: float,
 ) -> None:
     """更新活跃会话的当前速度与连续异常判定快照。"""
     session = runtime.sessions.get(key)
@@ -438,8 +495,7 @@ def _evaluate_session(
     session.consecutive_abnormal_samples = _int(
         decision.get("abnormal_samples")
     )
-    if decision.get("is_anomalous"):
-        session.had_anomaly = True
+    _update_anomaly_cycle(runtime, session, observed_at)
 
 
 def _observe_snapshot(
@@ -581,7 +637,7 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
                 )
                 if key:
                     seen_keys.add(key)
-                    _evaluate_session(plugin, runtime, key, snapshot)
+                    _evaluate_session(plugin, runtime, key, snapshot, observed_at)
                 if created:
                     summary["created_sessions"] += 1
             for key, session in list(runtime.sessions.items()):
@@ -597,3 +653,27 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
         for session in runtime.sessions.values()
     )
     return summary
+
+
+def reset_speed_monitor_baseline(
+    plugin: Any,
+    downloader_id: str,
+    now: float | None = None,
+) -> dict:
+    """显式重置指定下载器基准并立即持久化。"""
+    runtime = ensure_speed_monitor_runtime(plugin)
+    if runtime.state_error:
+        return {"success": False, "error": runtime.state_error}
+    clean_id = str(downloader_id or "").strip()
+    if not clean_id:
+        return {"success": False, "error": "downloader_id is required"}
+    observed_at = float(time.time() if now is None else now)
+    baseline = reset_downloader_baseline(
+        runtime.baselines, clean_id, reset_at=observed_at
+    )
+    persist_speed_monitor_runtime(plugin, runtime, observed_at)
+    return {
+        "success": True,
+        "downloader_id": clean_id,
+        "baseline": dict(baseline),
+    }
