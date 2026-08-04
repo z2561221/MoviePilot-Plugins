@@ -239,6 +239,11 @@
       "phase": "phase-5",
       "status": "completed",
       "summary": "模拟矩阵、MP 本地运行闭环和发布前审计全部完成；未修改订阅助手增强版，未真实删除、push、merge、amend 或 release。"
+    },
+    {
+      "phase": "phase-5",
+      "status": "completed",
+      "summary": "回归修复：DownloadAdded 事件立即建立目标任务监控会话，短任务不再等待五分钟轮询；82 项速度监控隔离矩阵、5 项生命周期窄测和 11 项静态相关测试通过，未重复完整审计。"
     }
   ]
 }

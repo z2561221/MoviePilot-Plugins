@@ -178,3 +178,45 @@ def test_scheduler_and_lifecycle_register_monitor_without_transfer_dependency():
     assert "if is_speed_monitor_active(plugin):" in lifecycle_source
     assert "ensure_speed_monitor_runtime(plugin)" in lifecycle_source
     assert "def _scan_download_speed(self):" in entry_source
+    assert "EventType.DownloadAdded" in entry_source
+    assert "def on_download_added(self, event: Event):" in entry_source
+
+
+def test_download_added_event_starts_session_before_interval_scan():
+    """下载新增事件应立即建会话，短任务不能等下一轮五分钟扫描。"""
+    monitor = _load("service.speed_monitor")
+    downloader = FakeDownloader(([{
+        "hash": "QB-HASH",
+        "name": "Short QB Task",
+        "total_size": 1000,
+        "downloaded": 200,
+        "added_on": 1,
+        "state": "downloading",
+        "dlspeed": 40,
+    }], None))
+    plugin = FakePlugin({
+        "qb-main": SimpleNamespace(type="qbittorrent", instance=downloader),
+    })
+    plugin._speed_monitor_downloaders = ["qb-main"]
+    event = SimpleNamespace(event_data={"hash": "QB-HASH", "downloader": "qb-main"})
+
+    started = monitor.handle_download_added_event(plugin, event, now=500)
+
+    assert started["handled"] is True
+    assert started["created_sessions"] == 1
+    session = plugin._speed_monitor_runtime.sessions["qb-main:qb-hash"]
+    assert session.first_observed_at == 500
+    assert session.status == "active"
+
+    downloader.response = ([{
+        "hash": "QB-HASH",
+        "name": "Short QB Task",
+        "total_size": 1000,
+        "downloaded": 1000,
+        "added_on": 1,
+        "state": "uploading",
+        "dlspeed": 0,
+    }], None)
+    monitor.scan_speed_monitor(plugin, now=520)
+
+    assert session.status == "completed"

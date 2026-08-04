@@ -657,6 +657,144 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
     return summary
 
 
+def handle_download_added_event(
+    plugin: Any,
+    event: Any,
+    now: float | None = None,
+) -> dict:
+    """处理下载新增事件并立即为目标任务建立监控会话。"""
+    if not is_speed_monitor_active(plugin):
+        return {
+            "handled": False,
+            "reason": "monitor disabled",
+            "created_sessions": 0,
+            "active_sessions": 0,
+            "errors": {},
+        }
+
+    runtime = ensure_speed_monitor_runtime(plugin)
+    if runtime.state_error:
+        return {
+            "handled": False,
+            "reason": "state error",
+            "created_sessions": 0,
+            "active_sessions": 0,
+            "errors": {"state": runtime.state_error},
+        }
+
+    event_data = getattr(event, "event_data", None)
+    if not isinstance(event_data, dict):
+        event_data = {}
+    downloader_id = str(
+        event_data.get("downloader")
+        or event_data.get("downloader_name")
+        or ""
+    ).strip()
+    torrent_hash = str(
+        event_data.get("hash") or event_data.get("torrent_hash") or ""
+    ).strip().lower()
+    selected = {
+        str(value).strip()
+        for value in (getattr(plugin, "_speed_monitor_downloaders", []) or [])
+        if str(value).strip()
+    }
+    if not downloader_id or not torrent_hash or downloader_id not in selected:
+        return {
+            "handled": False,
+            "reason": "event outside selected downloaders",
+            "created_sessions": 0,
+            "active_sessions": sum(
+                session.status == SESSION_ACTIVE for session in runtime.sessions.values()
+            ),
+            "errors": {},
+        }
+
+    observed_at = float(time.time() if now is None else now)
+    with runtime.downloader_lock(downloader_id):
+        service = plugin.service_info(downloader_id)
+        if not service or not getattr(service, "instance", None):
+            error = "downloader unavailable"
+            runtime.last_poll_results[downloader_id] = poll_error(error)
+            _mark_downloader_error(runtime, downloader_id)
+            persist_speed_monitor_runtime(plugin, runtime, observed_at)
+            return {
+                "handled": False,
+                "reason": error,
+                "created_sessions": 0,
+                "active_sessions": sum(
+                    session.status == SESSION_ACTIVE
+                    for session in runtime.sessions.values()
+                ),
+                "errors": {downloader_id: error},
+            }
+
+        downloader_type = _downloader_type(service)
+        if downloader_type not in SUPPORTED_DOWNLOADER_TYPES:
+            error = "unsupported downloader"
+            runtime.last_poll_results[downloader_id] = poll_error(error)
+            _mark_downloader_error(runtime, downloader_id)
+            persist_speed_monitor_runtime(plugin, runtime, observed_at)
+            return {
+                "handled": False,
+                "reason": error,
+                "created_sessions": 0,
+                "active_sessions": sum(
+                    session.status == SESSION_ACTIVE
+                    for session in runtime.sessions.values()
+                ),
+                "errors": {downloader_id: error},
+            }
+
+        previous_result = runtime.last_poll_results.get(downloader_id)
+        result = poll_downloader(service.instance, downloader_id, downloader_type)
+        runtime.last_poll_results[downloader_id] = result
+        if not result.success:
+            _mark_downloader_error(runtime, downloader_id)
+            persist_speed_monitor_runtime(plugin, runtime, observed_at)
+            return {
+                "handled": False,
+                "reason": result.error,
+                "created_sessions": 0,
+                "active_sessions": sum(
+                    session.status == SESSION_ACTIVE
+                    for session in runtime.sessions.values()
+                ),
+                "errors": {downloader_id: result.error},
+            }
+
+        snapshot = next(
+            (
+                item
+                for item in result.items
+                if str(item.torrent_hash or "").strip().lower() == torrent_hash
+            ),
+            None,
+        )
+        created = False
+        key = _session_key(downloader_id, torrent_hash)
+        if snapshot is not None:
+            created, key = _observe_snapshot(
+                plugin,
+                runtime,
+                snapshot,
+                observed_at,
+                bool(previous_result and not previous_result.success),
+            )
+            _evaluate_session(plugin, runtime, key, snapshot, observed_at)
+
+    dispatch_pending_speed_alerts(plugin, runtime, observed_at)
+    persist_speed_monitor_runtime(plugin, runtime, observed_at)
+    return {
+        "handled": snapshot is not None,
+        "found": snapshot is not None,
+        "created_sessions": int(created),
+        "active_sessions": sum(
+            session.status == SESSION_ACTIVE for session in runtime.sessions.values()
+        ),
+        "errors": {},
+    }
+
+
 def reset_speed_monitor_baseline(
     plugin: Any,
     downloader_id: str,
