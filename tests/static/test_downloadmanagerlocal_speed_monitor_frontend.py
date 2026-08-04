@@ -86,6 +86,11 @@ def test_monitor_layout_has_mobile_and_tablet_overflow_guards():
 
     assert re.search(r"\.dm-config\s*\{[^}]*max-width:\s*100%", source, re.S)
     assert re.search(r"\.dm-content\s*\{[^}]*min-width:\s*0", source, re.S)
+    assert re.search(
+        r"\.dm-flow\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)",
+        source,
+        re.S,
+    )
     assert re.search(r"@media \(max-width: 760px\).*?\.dm-monitor-summary, .*?grid-template-columns:\s*1fr", source, re.S)
     assert re.search(r"@media \(min-width: 761px\) and \(max-width: 960px\)", source)
     assert "overflow-wrap: anywhere" in source

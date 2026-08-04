@@ -1001,7 +1001,7 @@ async function executeCleanupTags() {
 .dm-stat > div { min-width: 0; overflow-wrap: anywhere; }
 .dm-overview-section { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px 12px; min-width: 0; }
 .dm-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.dm-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+.dm-flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .dm-flow-block { min-width: 0; }
 .dm-flow-block:first-child { grid-column: 1 / -1; }
 .dm-flow-label { font-size: 12px; font-weight: 600; color: rgb(var(--v-theme-primary)); margin-bottom: 5px; }
