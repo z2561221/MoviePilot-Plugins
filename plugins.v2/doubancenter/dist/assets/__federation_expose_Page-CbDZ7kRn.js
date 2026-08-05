@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-ChLM6U1z.js';
-import { s as sourceDescriptor } from './source-BlrJwotf.js';
+import { s as sourceDescriptor } from './source-CRsaYtJX.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,unref:_unref,withModifiers:_withModifiers} = await importShared('vue');
 
@@ -497,15 +497,6 @@ async function doSubscribe() {
     actionOk.value = false;
     actionMessage.value = `订阅失败: ${e?.message || e}`;
   }
-}
-
-function doOpenSource() {
-  if (!dialogItem.value) return
-  const { rk, item } = dialogItem.value;
-  const source = sourceDescriptor(rk, item, configData.value);
-  if (!source.url) return
-  showDialog.value = false;
-  window.open(source.url, '_blank');
 }
 
 function sourceButtonColor() {
@@ -1287,18 +1278,20 @@ return (_ctx, _cache) => {
                     _: 1
                   }, 8, ["disabled"]),
                   _createVNode(_component_VBtn, {
+                    href: sourceButtonUrl() || undefined,
+                    target: "_blank",
+                    rel: "noopener noreferrer",
                     variant: "tonal",
                     color: sourceButtonColor(),
                     "prepend-icon": sourceButtonIcon(),
                     disabled: !sourceButtonUrl(),
-                    class: "dc-dialog-action text-none",
-                    onClick: doOpenSource
+                    class: "dc-dialog-action text-none"
                   }, {
                     default: _withCtx(() => [
                       _createTextVNode(_toDisplayString(sourceButtonLabel()), 1)
                     ]),
                     _: 1
-                  }, 8, ["color", "prepend-icon", "disabled"])
+                  }, 8, ["href", "color", "prepend-icon", "disabled"])
                 ]),
                 _: 1
               })
@@ -1315,6 +1308,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6aecfe4a"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-da338a6d"]]);
 
 export { Page as default };

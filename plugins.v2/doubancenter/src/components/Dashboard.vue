@@ -224,15 +224,6 @@ async function doSubscribe() {
   setTimeout(() => { subscribeResult.value = '' }, 3000)
 }
 
-function doOpenSource() {
-  if (!dialogItem.value) return
-  const { rk, item } = dialogItem.value
-  const source = sourceDescriptor(rk, item, config.value)
-  if (!source.url) return
-  showDialog.value = false
-  window.open(source.url, '_blank')
-}
-
 function sourceButtonColor() {
   if (!dialogItem.value) return 'primary'
   const { rk, item } = dialogItem.value
@@ -385,7 +376,7 @@ onMounted(load)
         <VCardActions class="pa-3 pt-2" style="gap: 8px">
           <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
           <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
-          <VBtn variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none" @click="doOpenSource">{{ sourceButtonLabel() }}</VBtn>
+          <VBtn :href="sourceButtonUrl() || undefined" target="_blank" rel="noopener noreferrer" variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>

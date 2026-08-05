@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-ChLM6U1z.js';
-import { s as sourceDescriptor } from './source-BlrJwotf.js';
+import { s as sourceDescriptor } from './source-CRsaYtJX.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeStyle:_normalizeStyle,unref:_unref} = await importShared('vue');
 
@@ -275,15 +275,6 @@ async function doSubscribe() {
     subscribeResult.value = `订阅失败: ${e?.message || e}`;
   }
   setTimeout(() => { subscribeResult.value = ''; }, 3000);
-}
-
-function doOpenSource() {
-  if (!dialogItem.value) return
-  const { rk, item } = dialogItem.value;
-  const source = sourceDescriptor(rk, item, config.value);
-  if (!source.url) return
-  showDialog.value = false;
-  window.open(source.url, '_blank');
 }
 
 function sourceButtonColor() {
@@ -691,18 +682,20 @@ return (_ctx, _cache) => {
                     _: 1
                   }, 8, ["disabled"]),
                   _createVNode(_component_VBtn, {
+                    href: sourceButtonUrl() || undefined,
+                    target: "_blank",
+                    rel: "noopener noreferrer",
                     variant: "tonal",
                     color: sourceButtonColor(),
                     "prepend-icon": sourceButtonIcon(),
                     disabled: !sourceButtonUrl(),
-                    class: "dc-dialog-action text-none",
-                    onClick: doOpenSource
+                    class: "dc-dialog-action text-none"
                   }, {
                     default: _withCtx(() => [
                       _createTextVNode(_toDisplayString(sourceButtonLabel()), 1)
                     ]),
                     _: 1
-                  }, 8, ["color", "prepend-icon", "disabled"])
+                  }, 8, ["href", "color", "prepend-icon", "disabled"])
                 ]),
                 _: 1
               })
@@ -719,6 +712,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ef4291e1"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f0a8013c"]]);
 
 export { Dashboard as default };

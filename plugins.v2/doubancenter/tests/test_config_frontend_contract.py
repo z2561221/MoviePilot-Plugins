@@ -565,6 +565,31 @@ class ConfigFrontendContractTest(unittest.TestCase):
             self.assertIn('prepend-icon="mdi-movie-open-outline"', text, path.name)
             self.assertIn(".dc-dialog-action {", text, path.name)
 
+    def test_source_action_uses_real_href_and_douban_route_fallback(self):
+        """豆瓣条目没有 item link 时仍应生成可点击的来源地址。"""
+        source_text = (PLUGIN_DIR / "src" / "components" / "source.js").read_text(encoding="utf-8")
+        for path in (PAGE_VUE, DASHBOARD_VUE):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn(':href="sourceButtonUrl() || undefined"', text, path.name)
+            self.assertIn('target="_blank"', text, path.name)
+            self.assertIn('rel="noopener noreferrer"', text, path.name)
+            self.assertNotIn("doOpenSource", text, path.name)
+
+        for fragment in (
+            "function routePath(value)",
+            "function isDoubanRoute(value)",
+            "subject_collection",
+            "function doubanSearchUrl(item)",
+            "return isDoubanRoute(route) ? doubanSearchUrl(item) : ''",
+        ):
+            self.assertIn(fragment, source_text)
+
+        built_source = next(DIST_ASSETS.glob("source-*.js"), None)
+        self.assertIsNotNone(built_source)
+        built_text = built_source.read_text(encoding="utf-8")
+        self.assertIn("function routePath(value)", built_text)
+        self.assertIn("subject_collection", built_text)
+
 
 if __name__ == "__main__":
     unittest.main()
