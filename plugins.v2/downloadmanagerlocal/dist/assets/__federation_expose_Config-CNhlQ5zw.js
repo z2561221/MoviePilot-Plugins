@@ -1157,7 +1157,7 @@ return (_ctx, _cache) => {
                   class: "mt-2"
                 }, {
                   default: _withCtx(() => [...(_cache[84] || (_cache[84] = [
-                    _createTextVNode(" 换种需要订阅助手增强版（SubscribeAssistantEnhanced）监听 MoviePilot 删除事件；它是外部联动组件，不属于本插件运行链路，本页不展示其运行状态。 ", -1)
+                    _createTextVNode(" 如有换种需求，可配合订阅助手增强版（SubscribeAssistantEnhanced）使用，由其负责监听 MoviePilot 删除事件。 ", -1)
                   ]))]),
                   _: 1
                 })
@@ -2483,6 +2483,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4b52cbe2"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4c3e79d3"]]);
 
 export { Config as default };

@@ -583,7 +583,7 @@ async function executeCleanupTags() {
                 Telegram 二次确认后会删除种子及全部数据，且不可恢复；关闭告警不会删除任务。
               </VAlert>
               <VAlert type="info" variant="tonal" density="compact" class="mt-2">
-                换种需要订阅助手增强版（SubscribeAssistantEnhanced）监听 MoviePilot 删除事件；它是外部联动组件，不属于本插件运行链路，本页不展示其运行状态。
+                如有换种需求，可配合订阅助手增强版（SubscribeAssistantEnhanced）使用，由其负责监听 MoviePilot 删除事件。
               </VAlert>
             </div>
 

@@ -62,8 +62,8 @@ def test_runtime_flow_is_internal_and_external_link_is_explanatory_only():
         flow_source.index(step) for step in expected
     )
     assert "SubscribeAssistantEnhanced" not in flow_source
-    assert "订阅助手增强版（SubscribeAssistantEnhanced）" in source
-    assert "不属于本插件运行链路" in source
+    assert "如有换种需求，可配合订阅助手增强版（SubscribeAssistantEnhanced）使用" in source
+    assert "由其负责监听 MoviePilot 删除事件" in source
 
 
 def test_monitor_status_matches_overview_contract_and_warns_before_deletion():
