@@ -1089,6 +1089,7 @@ def _merge_rank_items(self, rank_key, items, rd, return_snapshot: bool = False):
                 "year": year or "",
                 "media_type": meta_type,
                 "link": link,
+                "rank_route": rd.get("route", ""),
                 "tmdbid": tmdbid,
                 "poster": poster,
                 "time": refresh_time,
@@ -1100,6 +1101,9 @@ def _merge_rank_items(self, rank_key, items, rd, return_snapshot: bool = False):
                 "rank_name": rd.get("name", ""),
                 "rank_refreshed_at": refresh_time,
             }
+            source_link = item.get("source_link") or ""
+            if source_link:
+                entry["source_link"] = source_link
             mediainfo = None
             if rank_key == "coming":
                 entry.update({"year": year, "wish_count": item.get("wish_count", 0)})

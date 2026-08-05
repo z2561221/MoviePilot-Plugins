@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getPluginApi, postPluginApi, toPosterThumbnail } from './api'
+import { sourceDescriptor } from './source'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -371,48 +372,34 @@ async function doSubscribe() {
 function doOpenSource() {
   if (!dialogItem.value) return
   const { rk, item } = dialogItem.value
+  const source = sourceDescriptor(rk, item, configData.value)
+  if (!source.url) return
   showDialog.value = false
-  const link = item?.link || ''
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) {
-    if (link) window.open(link, '_blank')
-    return
-  }
-  const subjectId = item?.douban_id || item?.doubanid || ''
-  if (subjectId) {
-    window.open(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${subjectId}?from=mdouban&open=app`, '_blank')
-    return
-  }
-  const match = link.match(/subject\/(\d+)/)
-  if (match && (link.includes('douban.com') || link.includes('doubanapp'))) {
-    window.open(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${match[1]}?from=mdouban&open=app`, '_blank')
-    return
-  }
-  if (link) window.open(link, '_blank')
+  window.open(source.url, '_blank')
 }
 
 function sourceButtonColor() {
   if (!dialogItem.value) return 'primary'
   const { rk, item } = dialogItem.value
-  const link = String(item?.link || '')
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return '#F838A0'
-  if (link.includes('douban') || item?.douban_id || item?.doubanid) return '#08B810'
-  return 'primary'
+  return sourceDescriptor(rk, item, configData.value).color
 }
 
 function sourceButtonIcon() {
-  const { rk, item } = dialogItem.value || {}
-  const link = String(item?.link || '')
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'mdi-link-variant'
-  if (link.includes('douban')) return 'mdi-open-in-new'
-  return 'mdi-link-variant'
+  if (!dialogItem.value) return 'mdi-link-variant'
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, configData.value).icon
 }
 
 function sourceButtonLabel() {
-  const { rk, item } = dialogItem.value || {}
-  const link = String(item?.link || '')
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'Bgm'
-  if (link.includes('douban') || item?.douban_id || item?.doubanid) return '豆瓣'
-  return '详情'
+  if (!dialogItem.value) return '详情'
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, configData.value).label
+}
+
+function sourceButtonUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, configData.value).url
 }
 
 function doOpenTmdb() {
@@ -616,7 +603,7 @@ onMounted(loadAll)
         <VCardActions class="pa-3 pt-2" style="gap: 8px">
           <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
           <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
-          <VBtn variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" class="dc-dialog-action text-none" @click="doOpenSource">{{ sourceButtonLabel() }}</VBtn>
+          <VBtn variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none" @click="doOpenSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>

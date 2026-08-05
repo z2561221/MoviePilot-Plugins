@@ -362,7 +362,8 @@ onMounted(loadOverview)
               </div>
               <div class="dc-custom-ranks-head mt-4">
                 <div class="dc-section-title mb-0">自定义榜单</div>
-                <VBtn icon="mdi-plus" size="small" variant="tonal" color="primary" aria-label="新增自定义榜单" @click="addCustomRank">
+                <VBtn icon size="small" variant="tonal" color="primary" aria-label="新增自定义榜单" @click="addCustomRank">
+                  <span class="dc-add-rank-icon" aria-hidden="true">+</span>
                   <VTooltip activator="parent" location="top">新增自定义榜单</VTooltip>
                 </VBtn>
               </div>
@@ -508,6 +509,7 @@ onMounted(loadOverview)
 .dc-rank-input :deep(.v-field) { min-height: 28px; max-height: 28px; border-radius: 6px; }
 .dc-rank-input :deep(.v-field__input) { min-height: 24px; padding-top: 1px; padding-bottom: 1px; font-size: 13px; }
 .dc-custom-ranks-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dc-add-rank-icon { font-size: 24px; font-weight: 500; line-height: 1; }
 .dc-custom-ranks-empty { border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 12px; text-align: center; }
 .dc-custom-rank-card { display: grid; gap: 8px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px; margin-bottom: 6px; background: rgba(var(--v-theme-on-surface), .02); }
 .dc-custom-rank-header, .dc-custom-rank-source { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; min-width: 0; }

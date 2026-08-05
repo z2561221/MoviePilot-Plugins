@@ -397,6 +397,33 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(items[0]["regions"], ["英国"])
         self.assertEqual(items[0]["genres"], ["剧情", "惊悚"])
 
+    def test_fetch_rss_keeps_channel_source_link_for_empty_item_link(self):
+        rss = """<?xml version="1.0"?>
+<rss><channel><title>豆瓣榜单</title><link>https://m.douban.com/subject_collection/tv_domestic</link><item><title>天才，女友</title><link/><description>2026 / 中国大陆</description></item></channel></rss>"""
+
+        class RequestUtils:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def get_res(self, addr):
+                return types.SimpleNamespace(text=rss)
+
+        def tag_value(item, tag, default=""):
+            nodes = item.getElementsByTagName(tag)
+            if not nodes or not nodes[0].firstChild:
+                return default
+            return nodes[0].firstChild.nodeValue
+
+        plugin = _Plugin()
+        plugin._proxy = False
+        self.feed.RequestUtils = RequestUtils
+        self.feed.DomUtils.tag_value = staticmethod(tag_value)
+
+        items = self.feed._fetch_rss(plugin, "https://rsshub.example/douban/list/tv_domestic")
+
+        self.assertEqual(items[0]["link"], "")
+        self.assertEqual(items[0]["source_link"], "https://m.douban.com/subject_collection/tv_domestic")
+
     def test_record_history_item_replaces_observe_placeholder(self):
         history = [{"unique": "rank:1", "title": "旧标题", "time": "2026-01-01 00:00:00", "observing": True}]
         entry = {"unique": "rank:1", "title": "新标题", "tmdbid": 123}
@@ -1368,6 +1395,23 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertEqual(history[0]["media_type"], "movie")
         self.assertEqual(history[0]["year"], "2026")
+
+    def test_merge_rank_items_keeps_source_link_and_route_for_douban_rank(self):
+        plugin = _Plugin()
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
+        )
+        rank = {"key": "custom_domestic", "name": "近期热门", "route": "/douban/list/tv_domestic"}
+
+        history = self.feed._merge_rank_items(
+            plugin,
+            "custom_domestic",
+            [{"title": "天才，女友", "link": "", "source_link": "https://m.douban.com/subject_collection/tv_domestic", "mtype": "tv", "year": "2026"}],
+            rank,
+        )
+
+        self.assertEqual(history[0]["source_link"], "https://m.douban.com/subject_collection/tv_domestic")
+        self.assertEqual(history[0]["rank_route"], "/douban/list/tv_domestic")
 
     def test_merge_bangumi_rank_items_stores_recognized_chinese_title(self):
         plugin = _Plugin()

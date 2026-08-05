@@ -13,6 +13,20 @@ from app.utils.http import RequestUtils
 from .. import utils
 
 
+def _channel_link(root) -> str:
+    """读取 RSS channel 的来源链接，供榜单条目回到原站。"""
+    channels = root.getElementsByTagName("channel")
+    if not channels:
+        return ""
+    for node in channels[0].childNodes:
+        if getattr(node, "tagName", "").lower() != "link":
+            continue
+        value = "".join(getattr(child, "data", "") for child in node.childNodes).strip()
+        if value:
+            return value
+    return ""
+
+
 def default_media_type(addr: str) -> str:
     """根据 RSS 地址推断默认媒体类型。"""
     text = str(addr or "").lower()
@@ -60,6 +74,7 @@ def fetch_coming(plugin, addr: str) -> List[dict]:
             return []
         dom = xml.dom.minidom.parseString(ret.text)
         root = dom.documentElement
+        source_link = _channel_link(root)
         result = []
         for item in root.getElementsByTagName("item"):
             title = DomUtils.tag_value(item, "title", default="")
@@ -73,6 +88,7 @@ def fetch_coming(plugin, addr: str) -> List[dict]:
                 {
                     "title": title,
                     "link": link,
+                    "source_link": source_link,
                     "description": desc,
                     "category": cat,
                     "wish_count": utils.parse_wish_count(desc),
@@ -95,6 +111,7 @@ def fetch_rank(plugin, addr: str) -> List[dict]:
             return []
         dom = xml.dom.minidom.parseString(ret.text)
         root = dom.documentElement
+        source_link = _channel_link(root)
         result = []
         default_mtype = default_media_type(addr)
         for item in root.getElementsByTagName("item"):
@@ -122,6 +139,7 @@ def fetch_rank(plugin, addr: str) -> List[dict]:
                 {
                     "title": title,
                     "link": link,
+                    "source_link": source_link,
                     "description": desc,
                     "category": cat,
                     "mtype": mtype,
