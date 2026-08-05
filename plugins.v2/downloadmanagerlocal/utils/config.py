@@ -7,7 +7,7 @@ SPEED_MONITOR_CONFIG_DEFAULTS = {
     "speed_monitor_mode": "auto",
     "speed_monitor_tolerance": 1.5,
     "speed_monitor_min_samples": 5,
-    "speed_monitor_interval_minutes": 5,
+    "speed_monitor_interval_seconds": 30,
     "speed_monitor_grace_minutes": 10,
     "speed_monitor_consecutive_abnormal_samples": 2,
     "speed_monitor_manual_speed_bps": {},
@@ -91,8 +91,8 @@ def normalize_speed_monitor_config(config: dict | None) -> dict:
         "speed_monitor_min_samples": safe_int(
             source.get("speed_monitor_min_samples"), 5, 1, 100
         ),
-        "speed_monitor_interval_minutes": safe_int(
-            source.get("speed_monitor_interval_minutes"), 5, 1, 60
+        "speed_monitor_interval_seconds": safe_int(
+            source.get("speed_monitor_interval_seconds"), 30, 10, 300
         ),
         "speed_monitor_grace_minutes": safe_int(
             source.get("speed_monitor_grace_minutes"), 10, 0, 1440

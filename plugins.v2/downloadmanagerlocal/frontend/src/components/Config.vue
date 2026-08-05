@@ -73,7 +73,7 @@ const defaults = {
   seed_check_interval: 60, seed_max_wait_minutes: 120,
   speed_monitor_enabled: false, speed_monitor_downloaders: [], speed_monitor_mode: 'auto',
   speed_monitor_tolerance: 1.5, speed_monitor_min_samples: 5,
-  speed_monitor_interval_minutes: 5, speed_monitor_grace_minutes: 10,
+  speed_monitor_interval_seconds: 30, speed_monitor_grace_minutes: 10,
   speed_monitor_consecutive_abnormal_samples: 2,
   speed_monitor_manual_speed_bps: {}, speed_monitor_floor_speed_bps: {},
   speed_monitor_notification_type: 'Plugin',
@@ -124,6 +124,15 @@ const qbDownloaderItems = computed(() => downloaderItems.value.filter(item => it
 const monitorDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
 const speedMonitor = computed(() => overview.value?.speed_monitor || {})
 const speedBaselines = computed(() => speedMonitor.value.baselines || [])
+const speedMonitorStatus = computed(() => {
+  const status = speedMonitor.value.service_status
+  return {
+    disabled: { label: '未启用', color: 'default' },
+    idle: { label: '空闲', color: 'primary' },
+    running: { label: '监控中', color: 'success' },
+    error: { label: '状态异常', color: 'error' },
+  }[status] || { label: '空闲', color: 'primary' }
+})
 const notificationTypeItems = [
   { title: '插件', value: 'Plugin' },
   { title: '资源下载', value: 'Download' },
@@ -160,8 +169,8 @@ const overviewCards = computed(() => {
     {
       title: '速度监控',
       icon: 'mdi-speedometer',
-      color: speedMonitor.value.active ? 'success' : (speedMonitor.value.state_error ? 'error' : 'default'),
-      value: speedMonitor.value.active ? '运行中' : (speedMonitor.value.state_error ? '状态异常' : '未运行'),
+      color: speedMonitorStatus.value.color,
+      value: speedMonitorStatus.value.label,
       desc: `会话 ${speedMonitor.value.active_sessions || 0} · 待处理 ${speedMonitor.value.pending_alerts || 0}`,
     },
     {
@@ -481,8 +490,8 @@ async function executeCleanupTags() {
               <div class="dm-section-title">采样与判定</div>
               <VRow>
                 <VCol cols="12" sm="6" md="3">
-                  <VTextField v-model.number="form.speed_monitor_interval_minutes" label="扫描间隔（分钟）" type="number" min="1" max="60"
-                    density="compact" variant="outlined" hint="范围 1–60" persistent-hint />
+                  <VTextField v-model.number="form.speed_monitor_interval_seconds" label="活跃扫描间隔（秒）" type="number" min="10" max="300"
+                    density="compact" variant="outlined" hint="范围 10–300，默认 30" persistent-hint />
                 </VCol>
                 <VCol cols="12" sm="6" md="3">
                   <VTextField v-model.number="form.speed_monitor_grace_minutes" label="启动宽限（分钟）" type="number" min="0" max="1440"
@@ -534,7 +543,7 @@ async function executeCleanupTags() {
               <VAlert v-if="monitorMessage" :type="monitorMessageStatus" variant="tonal" density="compact" closable class="mb-3"
                 @click:close="monitorMessage = ''">{{ monitorMessage }}</VAlert>
               <div class="dm-monitor-summary">
-                <div class="dm-monitor-metric"><span>服务</span><strong>{{ speedMonitor.active ? '运行中' : (speedMonitor.state_error ? '状态异常' : '未运行') }}</strong></div>
+                <div class="dm-monitor-metric"><span>服务</span><strong>{{ speedMonitorStatus.label }}</strong></div>
                 <div class="dm-monitor-metric"><span>选中下载器</span><strong>{{ speedMonitor.selected_downloaders?.length || 0 }}</strong></div>
                 <div class="dm-monitor-metric"><span>活跃会话</span><strong>{{ speedMonitor.active_sessions || 0 }}</strong></div>
                 <div class="dm-monitor-metric"><span>待处理告警</span><strong>{{ speedMonitor.pending_alerts || 0 }}</strong></div>

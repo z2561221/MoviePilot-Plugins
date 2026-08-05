@@ -87,17 +87,27 @@ def _speed_monitor_overview(plugin):
     state_error = str(runtime.state_error or getattr(
         plugin, "_speed_monitor_state_error", ""
     ) or "")
-    active = bool(is_speed_monitor_active(plugin) and not state_error)
+    active_sessions = sum(
+        session.status == SESSION_ACTIVE for session in runtime.sessions.values()
+    )
+    configured = bool(is_speed_monitor_active(plugin) and not state_error)
+    active = bool(configured and active_sessions > 0)
+    if state_error:
+        service_status = "error"
+    elif not configured:
+        service_status = "disabled"
+    elif active:
+        service_status = "running"
+    else:
+        service_status = "idle"
     return {
         "enabled": bool(getattr(plugin, "_speed_monitor_enabled", False)),
         "active": active,
-        "service_status": "error" if state_error else ("running" if active else "disabled"),
+        "service_status": service_status,
         "state_error": state_error,
         "mode": mode,
         "selected_downloaders": selected,
-        "active_sessions": sum(
-            session.status == SESSION_ACTIVE for session in runtime.sessions.values()
-        ),
+        "active_sessions": active_sessions,
         "pending_alerts": sum(alert_counts.values()),
         "alert_counts": alert_counts,
         "baselines": baselines,

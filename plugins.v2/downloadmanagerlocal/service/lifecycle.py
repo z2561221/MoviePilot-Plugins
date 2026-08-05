@@ -13,6 +13,10 @@ from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
 
 from .config import initialize_runtime_config
 from .speed_monitor import ensure_speed_monitor_runtime, stop_speed_monitor_runtime
+from .speed_worker import (
+    start_speed_monitor_worker_if_needed,
+    stop_speed_monitor_worker,
+)
 from .transfer import validate_config
 from ..utils.config import is_speed_monitor_active
 
@@ -23,7 +27,8 @@ def initialize_plugin(plugin, config: dict = None) -> None:
     plugin.stop_service()
 
     if is_speed_monitor_active(plugin):
-        ensure_speed_monitor_runtime(plugin)
+        runtime = ensure_speed_monitor_runtime(plugin)
+        start_speed_monitor_worker_if_needed(plugin, runtime)
 
     if plugin._transfer_active or plugin._onlyonce:
         if not validate_config(plugin):
@@ -106,6 +111,7 @@ def stop_plugin_service(plugin) -> None:
     except Exception as error:
         logger.error(f"停止服务失败: {error}")
     finally:
+        stop_speed_monitor_worker(plugin)
         stop_speed_monitor_runtime(plugin)
 
 

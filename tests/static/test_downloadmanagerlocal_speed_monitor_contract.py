@@ -14,7 +14,7 @@ EXPECTED_DEFAULTS = {
     "speed_monitor_mode": "auto",
     "speed_monitor_tolerance": 1.5,
     "speed_monitor_min_samples": 5,
-    "speed_monitor_interval_minutes": 5,
+    "speed_monitor_interval_seconds": 30,
     "speed_monitor_grace_minutes": 10,
     "speed_monitor_consecutive_abnormal_samples": 2,
     "speed_monitor_manual_speed_bps": {},
@@ -78,7 +78,7 @@ def test_speed_monitor_config_normalizes_ranges_modes_and_per_downloader_speeds(
         "speed_monitor_mode": "invalid",
         "speed_monitor_tolerance": 1.0,
         "speed_monitor_min_samples": 0,
-        "speed_monitor_interval_minutes": 999,
+        "speed_monitor_interval_seconds": 999,
         "speed_monitor_grace_minutes": -5,
         "speed_monitor_consecutive_abnormal_samples": 99,
         "speed_monitor_manual_speed_bps": {
@@ -99,13 +99,19 @@ def test_speed_monitor_config_normalizes_ranges_modes_and_per_downloader_speeds(
         "speed_monitor_mode": "auto",
         "speed_monitor_tolerance": 1.5,
         "speed_monitor_min_samples": 1,
-        "speed_monitor_interval_minutes": 60,
+        "speed_monitor_interval_seconds": 300,
         "speed_monitor_grace_minutes": 0,
         "speed_monitor_consecutive_abnormal_samples": 10,
         "speed_monitor_manual_speed_bps": {"qb-main": 1024.0},
         "speed_monitor_floor_speed_bps": {"tr-backup": 2048.5},
         "speed_monitor_notification_type": "Plugin",
     }
+
+    legacy = config.normalize_speed_monitor_config({
+        "speed_monitor_interval_minutes": 1,
+    })
+    assert legacy["speed_monitor_interval_seconds"] == 30
+    assert "speed_monitor_interval_minutes" not in legacy
 
 
 def test_speed_monitor_persisted_state_keys_are_explicit_and_versioned():

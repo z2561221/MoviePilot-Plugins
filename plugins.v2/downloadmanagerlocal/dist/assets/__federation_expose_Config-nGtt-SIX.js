@@ -210,7 +210,7 @@ const defaults = {
   seed_check_interval: 60, seed_max_wait_minutes: 120,
   speed_monitor_enabled: false, speed_monitor_downloaders: [], speed_monitor_mode: 'auto',
   speed_monitor_tolerance: 1.5, speed_monitor_min_samples: 5,
-  speed_monitor_interval_minutes: 5, speed_monitor_grace_minutes: 10,
+  speed_monitor_interval_seconds: 30, speed_monitor_grace_minutes: 10,
   speed_monitor_consecutive_abnormal_samples: 2,
   speed_monitor_manual_speed_bps: {}, speed_monitor_floor_speed_bps: {},
   speed_monitor_notification_type: 'Plugin',
@@ -261,6 +261,15 @@ const qbDownloaderItems = computed(() => downloaderItems.value.filter(item => it
 const monitorDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)));
 const speedMonitor = computed(() => overview.value?.speed_monitor || {});
 const speedBaselines = computed(() => speedMonitor.value.baselines || []);
+const speedMonitorStatus = computed(() => {
+  const status = speedMonitor.value.service_status;
+  return {
+    disabled: { label: '未启用', color: 'default' },
+    idle: { label: '空闲', color: 'primary' },
+    running: { label: '监控中', color: 'success' },
+    error: { label: '状态异常', color: 'error' },
+  }[status] || { label: '空闲', color: 'primary' }
+});
 const notificationTypeItems = [
   { title: '插件', value: 'Plugin' },
   { title: '资源下载', value: 'Download' },
@@ -297,8 +306,8 @@ const overviewCards = computed(() => {
     {
       title: '速度监控',
       icon: 'mdi-speedometer',
-      color: speedMonitor.value.active ? 'success' : (speedMonitor.value.state_error ? 'error' : 'default'),
-      value: speedMonitor.value.active ? '运行中' : (speedMonitor.value.state_error ? '状态异常' : '未运行'),
+      color: speedMonitorStatus.value.color,
+      value: speedMonitorStatus.value.label,
       desc: `会话 ${speedMonitor.value.active_sessions || 0} · 待处理 ${speedMonitor.value.pending_alerts || 0}`,
     },
     {
@@ -836,16 +845,16 @@ return (_ctx, _cache) => {
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: form.speed_monitor_interval_minutes,
-                          "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.speed_monitor_interval_minutes) = $event)),
+                          modelValue: form.speed_monitor_interval_seconds,
+                          "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.speed_monitor_interval_seconds) = $event)),
                           modelModifiers: { number: true },
-                          label: "扫描间隔（分钟）",
+                          label: "活跃扫描间隔（秒）",
                           type: "number",
-                          min: "1",
-                          max: "60",
+                          min: "10",
+                          max: "300",
                           density: "compact",
                           variant: "outlined",
-                          hint: "范围 1–60",
+                          hint: "范围 10–300，默认 30",
                           "persistent-hint": ""
                         }, null, 8, ["modelValue"])
                       ]),
@@ -1044,7 +1053,7 @@ return (_ctx, _cache) => {
                 _createElementVNode("div", _hoisted_35, [
                   _createElementVNode("div", _hoisted_36, [
                     _cache[76] || (_cache[76] = _createElementVNode("span", null, "服务", -1)),
-                    _createElementVNode("strong", null, _toDisplayString(speedMonitor.value.active ? '运行中' : (speedMonitor.value.state_error ? '状态异常' : '未运行')), 1)
+                    _createElementVNode("strong", null, _toDisplayString(speedMonitorStatus.value.label), 1)
                   ]),
                   _createElementVNode("div", _hoisted_37, [
                     _cache[77] || (_cache[77] = _createElementVNode("span", null, "选中下载器", -1)),
@@ -2474,6 +2483,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-311e4600"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4b52cbe2"]]);
 
 export { Config as default };

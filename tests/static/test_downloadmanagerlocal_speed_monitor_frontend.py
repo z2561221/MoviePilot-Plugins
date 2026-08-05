@@ -23,7 +23,7 @@ def test_speed_monitor_configuration_fields_and_ranges_are_visible():
         "speed_monitor_mode",
         "speed_monitor_tolerance",
         "speed_monitor_min_samples",
-        "speed_monitor_interval_minutes",
+        "speed_monitor_interval_seconds",
         "speed_monitor_grace_minutes",
         "speed_monitor_consecutive_abnormal_samples",
         "speed_monitor_manual_speed_bps",
@@ -35,6 +35,9 @@ def test_speed_monitor_configuration_fields_and_ranges_are_visible():
     assert 'min="0.01" max="102400"' in source
     assert "自动稳健基准" in source
     assert "手动最低速度" in source
+    assert "活跃扫描间隔（秒）" in source
+    assert 'min="10" max="300"' in source
+    assert "speed_monitor_interval_minutes" not in source
 
 
 def test_runtime_flow_is_internal_and_external_link_is_explanatory_only():
@@ -79,6 +82,8 @@ def test_monitor_status_matches_overview_contract_and_warns_before_deletion():
     assert "关闭告警不会删除任务" in source
     assert "reset_speed_monitor_baseline" in source
     assert "重置自动基准" in source
+    assert "空闲" in source
+    assert "监控中" in source
 
 
 def test_monitor_layout_has_mobile_and_tablet_overflow_guards():

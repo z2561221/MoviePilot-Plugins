@@ -244,6 +244,11 @@
       "phase": "phase-5",
       "status": "completed",
       "summary": "回归修复：DownloadAdded 事件立即建立目标任务监控会话，短任务不再等待五分钟轮询；82 项速度监控隔离矩阵、5 项生命周期窄测和 11 项静态相关测试通过，未重复完整审计。"
+    },
+    {
+      "phase": "phase-5",
+      "status": "completed",
+      "summary": "动态生命周期收束：移除常驻速度调度器，DownloadAdded/重载按活跃会话启动单 worker，30 秒扫描且最后会话结束即停；91 项速度矩阵、18 项相关静态、9 项后端契约、compileall 和 federation 构建通过，未重复 Phase 5.3 审计。"
     }
   ]
 }

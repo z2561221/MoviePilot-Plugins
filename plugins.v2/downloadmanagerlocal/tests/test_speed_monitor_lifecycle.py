@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+import threading
 import types
 from pathlib import Path
 from types import SimpleNamespace
@@ -61,6 +62,10 @@ class FakePlugin:
         self.services = services
         self.data = {}
         self._speed_monitor_runtime = None
+        self._speed_monitor_interval_seconds = 30
+        self._speed_monitor_thread = None
+        self._speed_monitor_stop_event = None
+        self._speed_monitor_worker_lock = None
 
     def service_info(self, name):
         """按名称返回 fake 下载器服务。"""
@@ -164,22 +169,164 @@ def test_disabled_monitor_does_not_poll_or_create_runtime():
     assert plugin._speed_monitor_runtime is None
 
 
-def test_scheduler_and_lifecycle_register_monitor_without_transfer_dependency():
-    """调度器和生命周期应按独立速度监控门禁接入。"""
+def test_scheduler_and_lifecycle_use_on_demand_monitor_worker():
+    """宿主调度器不得常驻轮询，生命周期只恢复活跃会话 worker。"""
     scheduler_source = (PLUGIN_DIR / "service" / "scheduler.py").read_text(encoding="utf-8")
     lifecycle_source = (PLUGIN_DIR / "service" / "lifecycle.py").read_text(encoding="utf-8")
     entry_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
 
-    assert '"id": "DownloadSpeedMonitor"' in scheduler_source
-    assert '"name": "下载速度异常监控"' in scheduler_source
-    assert '"trigger": "interval"' in scheduler_source
-    assert '"func": plugin._scan_download_speed' in scheduler_source
-    assert '"minutes": plugin._speed_monitor_interval_minutes' in scheduler_source
+    assert '"id": "DownloadSpeedMonitor"' not in scheduler_source
+    assert '"name": "下载速度异常监控"' not in scheduler_source
     assert "if is_speed_monitor_active(plugin):" in lifecycle_source
     assert "ensure_speed_monitor_runtime(plugin)" in lifecycle_source
+    assert "start_speed_monitor_worker_if_needed(plugin, runtime)" in lifecycle_source
+    assert "stop_speed_monitor_worker(plugin)" in lifecycle_source
+    assert lifecycle_source.index("stop_speed_monitor_worker(plugin)") < lifecycle_source.index(
+        "stop_speed_monitor_runtime(plugin)"
+    )
     assert "def _scan_download_speed(self):" in entry_source
     assert "EventType.DownloadAdded" in entry_source
     assert "def on_download_added(self, event: Event):" in entry_source
+    assert "start_speed_monitor_worker(self)" in entry_source
+
+
+def test_worker_starts_once_and_plugin_stop_signals_and_joins_it():
+    """重复启动只能保留一个 worker，停止时必须唤醒并完成 join。"""
+    worker = _load("service.speed_worker")
+    plugin = FakePlugin({})
+    plugin._speed_monitor_interval_seconds = 300
+    plugin._scan_download_speed = lambda: {"active_sessions": 1}
+
+    assert worker.start_speed_monitor_worker(plugin) is True
+    first_thread = plugin._speed_monitor_thread
+    assert first_thread is not None
+    assert worker.is_speed_monitor_worker_running(plugin) is True
+    assert worker.start_speed_monitor_worker(plugin) is False
+    assert plugin._speed_monitor_thread is first_thread
+
+    assert worker.stop_speed_monitor_worker(plugin) is True
+    assert first_thread.is_alive() is False
+    assert worker.is_speed_monitor_worker_running(plugin) is False
+
+
+def test_concurrent_worker_starts_create_only_one_thread():
+    """并发下载新增触发也只能创建一个速度监控 worker。"""
+    worker = _load("service.speed_worker")
+    plugin = FakePlugin({})
+    plugin._speed_monitor_interval_seconds = 300
+    plugin._scan_download_speed = lambda: {"active_sessions": 1}
+    barrier = threading.Barrier(8)
+    results = []
+
+    def start_after_barrier():
+        """等待并发门闩后尝试启动同一插件 worker。"""
+        barrier.wait()
+        results.append(worker.start_speed_monitor_worker(plugin))
+
+    starters = [threading.Thread(target=start_after_barrier) for _ in range(8)]
+    for starter in starters:
+        starter.start()
+    for starter in starters:
+        starter.join(timeout=2)
+
+    assert results.count(True) == 1
+    assert results.count(False) == 7
+    assert worker.is_speed_monitor_worker_running(plugin) is True
+    worker.stop_speed_monitor_worker(plugin)
+
+
+def test_worker_scans_every_configured_seconds_and_exits_after_last_session():
+    """worker 应按秒级间隔扫描，并在最后活跃会话结束后自行退出。"""
+    worker = _load("service.speed_worker")
+    plugin = FakePlugin({})
+    waits = []
+    scans = iter(({"active_sessions": 1}, {"active_sessions": 0}))
+
+    class ControlledEvent:
+        """记录等待间隔且不阻塞测试线程。"""
+
+        def wait(self, timeout):
+            """记录本轮等待秒数并允许继续扫描。"""
+            waits.append(timeout)
+            return False
+
+        def is_set(self):
+            """测试期间不触发外部停止。"""
+            return False
+
+        def set(self):
+            """兼容停止事件接口。"""
+            return None
+
+    stop_event = ControlledEvent()
+    plugin._speed_monitor_worker_lock = threading.RLock()
+    plugin._speed_monitor_stop_event = stop_event
+    plugin._speed_monitor_thread = threading.current_thread()
+    plugin._scan_download_speed = lambda: next(scans)
+
+    worker._speed_monitor_loop(plugin, stop_event)
+
+    assert waits == [30, 30]
+    assert plugin._speed_monitor_thread is None
+    assert plugin._speed_monitor_stop_event is None
+
+
+def test_worker_retries_after_unexpected_scan_exception():
+    """单轮扫描异常不得杀死 worker，应在下一间隔继续扫描。"""
+    worker = _load("service.speed_worker")
+    plugin = FakePlugin({})
+    waits = []
+    scan_calls = 0
+
+    class ControlledEvent:
+        """提供无阻塞等待的停止事件替身。"""
+
+        def wait(self, timeout):
+            """记录等待秒数并允许继续扫描。"""
+            waits.append(timeout)
+            return False
+
+        def is_set(self):
+            """测试期间不触发外部停止。"""
+            return False
+
+    def scan_once_failed():
+        """首轮抛错，第二轮返回无活跃会话。"""
+        nonlocal scan_calls
+        scan_calls += 1
+        if scan_calls == 1:
+            raise RuntimeError("temporary failure")
+        return {"active_sessions": 0}
+
+    stop_event = ControlledEvent()
+    plugin._speed_monitor_worker_lock = threading.RLock()
+    plugin._speed_monitor_stop_event = stop_event
+    plugin._speed_monitor_thread = threading.current_thread()
+    plugin._scan_download_speed = scan_once_failed
+
+    worker._speed_monitor_loop(plugin, stop_event)
+
+    assert scan_calls == 2
+    assert waits == [30, 30]
+
+
+def test_reload_resumes_worker_only_for_persisted_active_sessions():
+    """重载时只有持久化活跃会话存在才恢复监控 worker。"""
+    worker = _load("service.speed_worker")
+    plugin = FakePlugin({})
+    plugin._speed_monitor_interval_seconds = 300
+    plugin._scan_download_speed = lambda: {"active_sessions": 1}
+    idle_runtime = SimpleNamespace(sessions={})
+
+    assert worker.start_speed_monitor_worker_if_needed(plugin, idle_runtime) is False
+    assert worker.is_speed_monitor_worker_running(plugin) is False
+
+    active_runtime = SimpleNamespace(
+        sessions={"qb-main:abc": SimpleNamespace(status="active")}
+    )
+    assert worker.start_speed_monitor_worker_if_needed(plugin, active_runtime) is True
+    assert worker.is_speed_monitor_worker_running(plugin) is True
+    worker.stop_speed_monitor_worker(plugin)
 
 
 def test_download_added_event_starts_session_before_interval_scan():

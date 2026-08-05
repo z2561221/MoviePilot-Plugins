@@ -134,8 +134,50 @@ def test_overview_reloads_persisted_state_without_overwriting_worker_runtime():
 
     assert overview["baselines"][0]["sample_count"] == 2
     assert overview["active_sessions"] == 0
+    assert overview["active"] is False
+    assert overview["service_status"] == "idle"
     assert viewer._speed_monitor_runtime is viewer_runtime
     assert viewer_runtime.baselines == {}
+
+
+def test_overview_reports_running_only_while_an_active_session_exists():
+    """总览只在持久化活跃会话存在时显示监控中。"""
+    _prepare_imports()
+    monitor = importlib.import_module("downloadmanagerlocal.service.speed_monitor")
+    handlers = importlib.import_module("downloadmanagerlocal.controller.handlers")
+    shared_data = {}
+    writer = SharedDataPlugin(shared_data)
+    runtime = monitor.ensure_speed_monitor_runtime(writer)
+    runtime.sessions["qb-main:abc"] = _active_session(monitor)
+    monitor.persist_speed_monitor_runtime(writer, runtime, now=20)
+
+    overview = handlers._speed_monitor_overview(SharedDataPlugin(shared_data))
+
+    assert overview["active_sessions"] == 1
+    assert overview["active"] is True
+    assert overview["service_status"] == "running"
+
+
+def test_overview_distinguishes_disabled_and_state_error():
+    """总览应分别暴露未启用和持久化状态异常。"""
+    _prepare_imports()
+    handlers = importlib.import_module("downloadmanagerlocal.controller.handlers")
+    disabled = SharedDataPlugin({})
+    disabled._speed_monitor_enabled = False
+
+    disabled_overview = handlers._speed_monitor_overview(disabled)
+
+    assert disabled_overview["active"] is False
+    assert disabled_overview["service_status"] == "disabled"
+
+    invalid_state = {
+        "speed_monitor_sessions": {"schema_version": 99, "items": {}},
+    }
+    error_overview = handlers._speed_monitor_overview(SharedDataPlugin(invalid_state))
+
+    assert error_overview["active"] is False
+    assert error_overview["service_status"] == "error"
+    assert "unsupported sessions schema version" in error_overview["state_error"]
 
 
 def test_overview_drops_active_session_completed_by_another_worker():
@@ -160,5 +202,7 @@ def test_overview_drops_active_session_completed_by_another_worker():
     overview = handlers._speed_monitor_overview(viewer)
 
     assert overview["active_sessions"] == 0
+    assert overview["active"] is False
+    assert overview["service_status"] == "idle"
     assert viewer._speed_monitor_runtime is viewer_runtime
     assert viewer_runtime.sessions["qb-main:abc"].status == "active"

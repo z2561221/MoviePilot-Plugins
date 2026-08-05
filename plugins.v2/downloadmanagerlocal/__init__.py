@@ -33,6 +33,7 @@ from .service.scheduler import build_plugin_services as _build_plugin_services_i
 from .service.cleanup import handle_sync_delete_by_hash_event as _handle_sync_delete_by_hash_event_impl, handle_webhook_message_event as _handle_webhook_message_event_impl, handle_plugin_action_event as _handle_plugin_action_event_impl
 from .service.speed_notification import handle_speed_message_action_event as _handle_speed_message_action_event_impl
 from .service.speed_monitor import handle_download_added_event as _handle_download_added_event_impl, scan_speed_monitor as _scan_speed_monitor_impl
+from .service.speed_worker import start_speed_monitor_worker
 
 class DownloadManagerLocal(_PluginBase):
     """下载中心插件入口，负责声明 MoviePilot 契约并委托 service 层执行。"""
@@ -59,6 +60,9 @@ class DownloadManagerLocal(_PluginBase):
 
     # 私有属性
     _scheduler = None
+    _speed_monitor_thread = None
+    _speed_monitor_stop_event = None
+    _speed_monitor_worker_lock = None
 
     # ── 转移做种配置 ──
     _enabled = False
@@ -405,7 +409,11 @@ class DownloadManagerLocal(_PluginBase):
         """监听 TransferComplete 事件，延迟 N 分钟后自动转移做种。"""; return _handle_transfer_complete_event_impl(self, event)
     @eventmanager.register(EventType.DownloadAdded)
     def on_download_added(self, event: Event):
-        """监听下载新增事件，立即建立速度监控会话。"""; return _handle_download_added_event_impl(self, event)
+        """监听下载新增事件，立即建立会话并启动按需监控。"""
+        result = _handle_download_added_event_impl(self, event)
+        if isinstance(result, dict) and int(result.get("active_sessions") or 0) > 0:
+            start_speed_monitor_worker(self)
+        return result
     @eventmanager.register([EventType.DownloadFileDeleted, EventType.DownloadDeleted])
     def on_download_sync_delete(self, event: Event):
         """监听下载删除事件，同步删除转种和辅种任务。"""; return _handle_sync_delete_by_hash_event_impl(self, event, trigger=getattr(getattr(event, "event_type", None), "value", "DownloadDeleted"))

@@ -4,8 +4,6 @@ from typing import Any, Dict, List
 
 from apscheduler.triggers.cron import CronTrigger
 
-from ..utils.config import is_speed_monitor_active
-
 
 def build_plugin_services(plugin) -> List[Dict[str, Any]]:
     """根据插件运行状态构造 MoviePilot 调度服务声明。"""
@@ -27,15 +25,6 @@ def build_plugin_services(plugin) -> List[Dict[str, Any]]:
             "trigger": CronTrigger.from_crontab(plugin._iyuu_cron),
             "func": plugin.iyuu_auto_seed,
             "kwargs": {}
-        })
-
-    if is_speed_monitor_active(plugin):
-        services.append({
-            "id": "DownloadSpeedMonitor",
-            "name": "下载速度异常监控",
-            "trigger": "interval",
-            "func": plugin._scan_download_speed,
-            "kwargs": {"minutes": plugin._speed_monitor_interval_minutes},
         })
 
     return services
