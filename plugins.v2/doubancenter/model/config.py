@@ -113,6 +113,34 @@ DEFAULT_RANK_CONFIGS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+CUSTOM_RANK_CONFIG: Dict[str, Any] = {
+    "enabled": False,
+    "count": 0,
+    "wish_count": 0,
+    "air_days": 0,
+    "vote": 0,
+    "year": 0,
+}
+
+
+def normalize_rank_configs(values: Any, ranks: List[dict]) -> Dict[str, Dict[str, Any]]:
+    """按有效榜单集合清理并补齐榜单订阅配置。"""
+    source = values if isinstance(values, dict) else {}
+    result: Dict[str, Dict[str, Any]] = {}
+    for rank in ranks or []:
+        if not isinstance(rank, dict):
+            continue
+        key = str(rank.get("key") or "")
+        if not key:
+            continue
+        defaults = DEFAULT_RANK_CONFIGS.get(key, CUSTOM_RANK_CONFIG)
+        current = source.get(key)
+        result[key] = {
+            **deepcopy(defaults),
+            **(current if isinstance(current, dict) else {}),
+        }
+    return result
+
 
 def default_config() -> Dict[str, Any]:
     """返回插件表单和配置清理使用的默认配置。"""
@@ -124,6 +152,7 @@ def default_config() -> Dict[str, Any]:
         "onlyonce": False,
         "rsshub_domain": DEFAULT_RSSHUB_DOMAIN,
         "rank_configs": deepcopy(DEFAULT_RANK_CONFIGS),
+        "custom_ranks": [],
         "region_filters": [],
         "genre_filters": [],
         "resolution_filters": [],

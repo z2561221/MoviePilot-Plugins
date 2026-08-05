@@ -73,7 +73,17 @@ def api_resolve_media(plugin, media_type=None, title="", year="", tmdb_id=None, 
         return {"success": False, "message": f"识别失败：{err}"}
 
 
-def api_subscribe(plugin, tmdb_id=None, media_type=None, title="", year="", bangumi_id=None):
+def api_subscribe(
+    plugin,
+    tmdb_id=None,
+    media_type=None,
+    title="",
+    year="",
+    bangumi_id=None,
+    rank_key="",
+    rank_name="",
+    source_link="",
+):
     """根据榜单条目创建媒体订阅。"""
     try:
         if not title and not tmdb_id and not bangumi_id:
@@ -85,6 +95,9 @@ def api_subscribe(plugin, tmdb_id=None, media_type=None, title="", year="", bang
             title,
             year,
             bangumi_id=bangumi_id,
+            rank_key=rank_key,
+            rank_name=rank_name,
+            source_link=source_link,
         )
     except Exception as err:
         logger.error(f"豆瓣中心：api_subscribe 异常：{err}", exc_info=True)

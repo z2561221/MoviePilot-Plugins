@@ -29,6 +29,11 @@ DEFAULT_OBSERVE_RANK_KEYS = rank_model.DEFAULT_OBSERVE_RANK_KEYS
 BUILTIN_RANKS: List[Dict[str, Any]] = rank_model.BUILTIN_RANKS
 
 
+def get_rank_definitions(plugin) -> List[Dict[str, Any]]:
+    """返回当前插件配置下的有效榜单集合。"""
+    return rank_model.effective_ranks(getattr(plugin, "_custom_ranks", []))
+
+
 def _trim_history(history: List[dict], limit: int = RANK_HISTORY_LIMIT) -> List[dict]:
     """裁剪榜单历史，只保留最新条目。"""
     return storage.trim_records(history, limit)
@@ -87,9 +92,29 @@ def _is_existing_media(mediainfo, meta=None) -> bool:
     return subscription_service.is_existing_media(mediainfo, meta=meta, subscribe_chain_cls=SubscribeChain)
 
 
-def _record_existing_history(history: List[dict], unique: str, title: str = "", year: Any = "", link: str = "", mediainfo=None) -> None:
+def _record_existing_history(
+    history: List[dict],
+    unique: str,
+    title: str = "",
+    year: Any = "",
+    link: str = "",
+    mediainfo=None,
+    rank_key: str = "",
+    rank_name: str = "",
+    media_type: str = "",
+) -> None:
     """记录已存在订阅，避免后续再次进入观察队列。"""
-    subscription_service.record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+    subscription_service.record_existing_history(
+        history,
+        unique,
+        title=title,
+        year=year,
+        link=link,
+        mediainfo=mediainfo,
+        rank_key=rank_key,
+        rank_name=rank_name,
+        media_type=media_type,
+    )
 
 
 def _match_blacklist_line(line: str, haystack: str) -> bool:
@@ -388,7 +413,7 @@ def _has_subscription_safety_filter(self) -> bool:
     """判断当前配置是否足以安全执行自动订阅。"""
     return rank_subscription_service.has_safety_filter(
         self._rank_configs,
-        BUILTIN_RANKS,
+        get_rank_definitions(self),
         blacklist_keywords=self._blacklist_keywords,
         observe_enabled=_rank_observe_enabled(self),
     )
@@ -403,7 +428,7 @@ def subscribe_to_ranks(self, refresh_when_unsafe: bool = True) -> None:
         return
 
     rsshub = utils.normalize_rss_domain(self._rsshub_domain)
-    for rd in BUILTIN_RANKS:
+    for rd in get_rank_definitions(self):
         key = rd["key"]
         if not _ren(self, key):
             continue
@@ -411,24 +436,20 @@ def subscribe_to_ranks(self, refresh_when_unsafe: bool = True) -> None:
         if count <= 0:
             logger.info(f"豆瓣中心：[{rd['name']}] 自动订阅数量为 0，跳过订阅候选")
             continue
-        url = f"{rsshub.rstrip('/')}{rd['route']}?limit={count}"
+        url = rss_adapter.build_rsshub_url(rsshub, rd["route"], count)
         logger.info(f"豆瓣中心：开始处理 [{rd['name']}] {url}")
         if rd["coming"]:
             _process_coming(self, url, rd)
         else:
             _process_general(self, url, rd)
         time.sleep(1)
-    for cu in (getattr(self, "_custom_rss_addrs", []) or []):
-        u = cu.strip()
-        if u:
-            logger.info(f"豆瓣中心：自定义 RSS 已在本轮改造中跳过：{u}")
     logger.info("豆瓣中心：榜单订阅刷新完成")
 
 
 def _subscription_limit_by_rank(self) -> Dict[str, int]:
     """生成运行周期每个启用榜单需要拉取的候选数量。"""
     limits: Dict[str, int] = {}
-    for rd in BUILTIN_RANKS:
+    for rd in get_rank_definitions(self):
         key = rd["key"]
         if not _ren(self, key):
             continue
@@ -494,7 +515,7 @@ def subscribe_to_rank_snapshots(self, rank_snapshots: Dict[str, dict]) -> None:
         logger.warning("豆瓣中心：未配置有效订阅筛选条件，本轮已刷新榜单展示，跳过自动订阅")
         return
 
-    for rd in BUILTIN_RANKS:
+    for rd in get_rank_definitions(self):
         key = rd["key"]
         if not _ren(self, key):
             continue
@@ -522,10 +543,6 @@ def subscribe_to_rank_snapshots(self, rank_snapshots: Dict[str, dict]) -> None:
             _process_general_snapshots(self, subscribe_items, rd, result_lines=result_lines)
         _emit_rank_subscription_summary(rd, description, result_lines)
         time.sleep(1)
-    for cu in (getattr(self, "_custom_rss_addrs", []) or []):
-        u = cu.strip()
-        if u:
-            logger.info(f"豆瓣中心：自定义 RSS 已在本轮改造中跳过：{u}")
     logger.info("豆瓣中心：榜单订阅刷新完成")
 
 
@@ -567,7 +584,17 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
         meta = _snapshot_meta(item, entry, MediaType.TV)
         if _is_existing_media(mediainfo, meta):
             _log_rank_skip(rd, getattr(mediainfo, "title", "") or title, "已存在订阅，跳过观察与订阅", result_lines=result_lines)
-            _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type="tv",
+            )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""), unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
@@ -597,6 +624,9 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
                 "unique": unique,
                 "subscribed": True,
                 "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": "tv",
             })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
             if result_lines is not None:
@@ -653,7 +683,17 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         meta = _snapshot_meta(item, entry, media_type)
         if _is_existing_media(mediainfo, meta):
             _log_rank_skip(rd, getattr(mediainfo, "title", "") or title, "已存在订阅，跳过观察与订阅", result_lines=result_lines)
-            _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type=mtype,
+            )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""), unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
@@ -675,6 +715,9 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
                 "unique": unique,
                 "subscribed": True,
                 "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": mtype,
             })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
             if result_lines is not None:
@@ -738,7 +781,17 @@ def _process_coming(self, url: str, rd: dict) -> None:
             continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
-            _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type="tv",
+            )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
@@ -753,7 +806,22 @@ def _process_coming(self, url: str, rd: dict) -> None:
             # 使用 TMDB 识别后的中文名替换原始标题
             cn_title = mediainfo.title or title
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            _record_history_item(history, {"title": cn_title, "year": year, "wish_count": wish, "air_date": ad, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": subscribed_at, "unique": unique, "subscribed": True, "subscribed_at": subscribed_at})
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": year,
+                "wish_count": wish,
+                "air_date": ad,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": "tv",
+            })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
     _drop_stale_observations(history, current_candidates)
     storage.save_rank_history(self, rd["key"], history)
@@ -795,7 +863,17 @@ def _process_general(self, url: str, rd: dict) -> None:
             continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
-            _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type=mtype,
+            )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
@@ -806,14 +884,27 @@ def _process_general(self, url: str, rd: dict) -> None:
         if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
             cn_title = mediainfo.title or title
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            _record_history_item(history, {"title": cn_title, "year": mediainfo.year or year or "", "media_type": mtype, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": subscribed_at, "unique": unique, "subscribed": True, "subscribed_at": subscribed_at})
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": mediainfo.year or year or "",
+                "media_type": mtype,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+            })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
     _drop_stale_observations(history, current_candidates)
     storage.save_rank_history(self, rd["key"], history)
 
 
 def _process_items(self, items: List[dict], source: str) -> None:
-    history: List[dict] = storage.read_custom_rank_history(self, source)
+    history: List[dict] = storage.read_rank_history(self, source)
     history_index = _history_index_by_unique(history)
     for item in items:
         title, link, mtype, year = item.get("title", ""), item.get("link", ""), item.get("mtype", ""), item.get("year")
@@ -833,7 +924,17 @@ def _process_items(self, items: List[dict], source: str) -> None:
             continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
-            _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=source,
+                rank_name=source,
+                media_type=mtype,
+            )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
@@ -844,9 +945,21 @@ def _process_items(self, items: List[dict], source: str) -> None:
         if _add_sub(self, mediainfo, meta, source_link=link):
             cn_title = mediainfo.title or title
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            _record_history_item(history, {"title": cn_title, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": subscribed_at, "unique": unique, "subscribed": True, "subscribed_at": subscribed_at})
+            _record_history_item(history, {
+                "title": cn_title,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": source,
+                "rank_name": source,
+                "media_type": mtype,
+            })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
-    storage.save_custom_rank_history(self, source, history)
+    storage.save_rank_history(self, source, history)
 
 
 def _write_subscribe_record(self, mediainfo, rank_key: str = "", rank_name: str = "", status: str = "success", reason: str = "", source_link: str = "") -> None:
@@ -880,8 +993,8 @@ def _fetch_rss(self, addr: str) -> List[dict]:
 
 
 def get_enabled_rank_keys(self) -> List[str]:
-    """返回当前配置中启用的内置榜单 key。"""
-    return [rd["key"] for rd in BUILTIN_RANKS if _ren(self, rd["key"])]
+    """返回当前配置中启用的榜单 key。"""
+    return [rd["key"] for rd in get_rank_definitions(self) if _ren(self, rd["key"])]
 
 
 def get_rank_history_by_key(self, rank_key: str) -> List[dict]:
@@ -910,7 +1023,12 @@ def refresh_rank_data(self, rank_keys=None, limit_by_rank: Optional[Dict[str, in
     snapshots = {}
     try:
         rsshub = utils.normalize_rss_domain(self._rsshub_domain)
-        targets = [rd for rd in BUILTIN_RANKS if (rank_keys is None and _ren(self, rd["key"])) or (rank_keys and rd["key"] in rank_keys)]
+        targets = [
+            rd
+            for rd in get_rank_definitions(self)
+            if (rank_keys is None and _ren(self, rd["key"]))
+            or (rank_keys and rd["key"] in rank_keys)
+        ]
         for rd in targets:
             key = rd["key"]
             # 仪表盘刷新只拉取 5 条；运行周期可按订阅候选数放大拉取窗口。
@@ -920,9 +1038,9 @@ def refresh_rank_data(self, rank_keys=None, limit_by_rank: Optional[Dict[str, in
                     limit = max(5, int(limit_by_rank.get(key) or 0))
                 except (TypeError, ValueError):
                     limit = 5
-            url = f"{rsshub.rstrip('/')}{rd['route']}?limit={limit}"
+            url = rss_adapter.build_rsshub_url(rsshub, rd["route"], limit)
             logger.info(f"豆瓣中心：刷新 RSS [{rd['name']}] {url}")
-            if rd["coming"]:
+            if rd.get("coming"):
                 items = _fetch_coming_rss(self, url)
             else:
                 items = _fetch_rss(self, url)
@@ -1050,7 +1168,19 @@ def _refresh_coming(self, url, rd):
             if not mediainfo:
                 continue
             cn_title = mediainfo.title or title
-            _record_history_item(history, {"title": cn_title, "year": year, "wish_count": item.get("wish_count", 0), "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "unique": unique})
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": year,
+                "wish_count": item.get("wish_count", 0),
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "unique": unique,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": "tv",
+            })
             uh.add(unique)
             new_count += 1
         except Exception as e:
@@ -1085,7 +1215,18 @@ def _refresh_general(self, url, rd):
             if not mediainfo:
                 continue
             cn_title = mediainfo.title or title
-            _record_history_item(history, {"title": cn_title, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "unique": unique})
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": mediainfo.year or year or "",
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "unique": unique,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": mtype,
+            })
             uh.add(unique)
             new_count += 1
         except Exception as e:

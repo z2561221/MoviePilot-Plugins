@@ -19,7 +19,7 @@ const loadError = ref('')
 const dialogItem = ref(null)
 const showDialog = ref(false)
 
-const rankDefs = {
+const builtinRankDefs = {
   coming: { name: '即将上映' },
   tv_real_time: { name: '实时热门' },
   tv_chinese: { name: '华语口碑' },
@@ -46,6 +46,12 @@ function rankColorOf(key) {
 
 function rankIconStyle(key) {
   return { color: rankColorOf(key) }
+}
+
+function rankNameOf(key, item = null) {
+  if (item?.rank_name) return item.rank_name
+  const option = (config.value?.rank_options || []).find(entry => entry?.value === key)
+  return option?.title || builtinRankDefs[key]?.name || key
 }
 
 function queryString(params) {
@@ -194,6 +200,9 @@ async function subscribeRankItem(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    rank_key: rk,
+    rank_name: item?.rank_name || rankNameOf(rk, item),
+    source_link: item?.link || '',
   })
   const res = await postPluginApi(props.api, `subscribe?${params}`, {})
   if (!res?.success) throw new Error(res?.message || '订阅失败')
@@ -356,7 +365,7 @@ onMounted(load)
       <div v-if="config.dashboard_rank_keys && config.dashboard_rank_keys.length">
         <div class="dc-rank-grid">
           <div v-for="rk in config.dashboard_rank_keys" :key="rk" class="dc-rank-cell">
-            <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(rk)" class="mr-1" /><span>{{ rankDefs[rk]?.name || rk }}</span></div>
+            <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(rk)" class="mr-1" /><span>{{ rankNameOf(rk, rankHistory[rk]?.[0]) }}</span></div>
             <div class="dc-rank-body">
               <div v-for="(item, i) in (rankHistory[rk] || []).slice(0, 5)" :key="i" class="dc-rank-row" :title="item.title" @click="showActionDialog(rk, item)">
                 <VAvatar rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
@@ -383,7 +392,7 @@ onMounted(load)
             </VAvatar>
           </template>
           <VCardTitle class="text-body-1 font-weight-bold pa-0">{{ dialogItem?.item?.title || '' }}</VCardTitle>
-          <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? (rankDefs[dialogItem.rk]?.name || dialogItem.rk) : '' }}</VCardSubtitle>
+          <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? rankNameOf(dialogItem.rk, dialogItem.item) : '' }}</VCardSubtitle>
         </VCardItem>
         <VDivider />
         <VCardActions class="pa-3 pt-2" style="gap: 8px">

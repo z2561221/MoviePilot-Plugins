@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-C3eD-LZW.js';
+import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-ChLM6U1z.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeStyle:_normalizeStyle,unref:_unref} = await importShared('vue');
 
@@ -76,7 +76,7 @@ const loadError = ref('');
 const dialogItem = ref(null);
 const showDialog = ref(false);
 
-const rankDefs = {
+const builtinRankDefs = {
   coming: { name: '即将上映' },
   tv_real_time: { name: '实时热门' },
   tv_chinese: { name: '华语口碑' },
@@ -99,6 +99,12 @@ function rankColorOf(key) {
 
 function rankIconStyle(key) {
   return { color: rankColorOf(key) }
+}
+
+function rankNameOf(key, item = null) {
+  if (item?.rank_name) return item.rank_name
+  const option = (config.value?.rank_options || []).find(entry => entry?.value === key);
+  return option?.title || builtinRankDefs[key]?.name || key
 }
 
 function queryString(params) {
@@ -247,6 +253,9 @@ async function subscribeRankItem(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    rank_key: rk,
+    rank_name: item?.rank_name || rankNameOf(rk, item),
+    source_link: item?.link || '',
   });
   const res = await postPluginApi(props.api, `subscribe?${params}`, {});
   if (!res?.success) throw new Error(res?.message || '订阅失败')
@@ -566,7 +575,7 @@ return (_ctx, _cache) => {
                           style: _normalizeStyle(rankIconStyle(rk)),
                           class: "mr-1"
                         }, null, 8, ["style"]),
-                        _createElementVNode("span", null, _toDisplayString(rankDefs[rk]?.name || rk), 1)
+                        _createElementVNode("span", null, _toDisplayString(rankNameOf(rk, rankHistory.value[rk]?.[0])), 1)
                       ]),
                       _createElementVNode("div", _hoisted_16, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((rankHistory.value[rk] || []).slice(0, 5), (item, i) => {
@@ -657,7 +666,7 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode(_component_VCardSubtitle, { class: "text-caption pa-0" }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(dialogItem.value?.rk ? (rankDefs[dialogItem.value.rk]?.name || dialogItem.value.rk) : ''), 1)
+                      _createTextVNode(_toDisplayString(dialogItem.value?.rk ? rankNameOf(dialogItem.value.rk, dialogItem.value.item) : ''), 1)
                     ]),
                     _: 1
                   })
@@ -722,6 +731,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6b2a368c"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-862c88bc"]]);
 
 export { Dashboard as default };

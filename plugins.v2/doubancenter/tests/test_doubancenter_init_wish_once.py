@@ -165,6 +165,28 @@ class DoubanCenterWishOnlyOnceTest(unittest.TestCase):
         self.assertEqual(calls["rank"], [])
         self.assertFalse(plugin.saved_config["wish_onlyonce"])
 
+    def test_init_plugin_preserves_valid_custom_rank_and_cleans_legacy_source(self):
+        """插件初始化会保留结构化榜单并继续清理旧完整 RSS 字段。"""
+        module, _calls = _load_plugin_entry()
+        plugin = module.DoubanCenter()
+
+        plugin.init_plugin({
+            "enabled": True,
+            "custom_ranks": [{
+                "key": "custom_highscore",
+                "name": "高分动画",
+                "route": "/anime/feed?tag=top",
+                "media_type": "movie",
+            }],
+            "rank_configs": {"custom_highscore": {"enabled": True, "count": 5, "vote": 8, "year": 2020}},
+            "custom_rss_addrs": "https://legacy.example/rss",
+        })
+
+        self.assertEqual(plugin._custom_ranks[0]["key"], "custom_highscore")
+        self.assertTrue(plugin._rank_configs["custom_highscore"]["enabled"])
+        self.assertEqual(plugin.saved_config["custom_rss_addrs"], "")
+        self.assertEqual(plugin.saved_config["custom_ranks"][0]["name"], "高分动画")
+
     def test_discovery_page_nav_respects_plugin_state_and_switch(self):
         """发现页入口应同时受插件启用状态与独立开关控制。"""
         module, _calls = _load_plugin_entry()

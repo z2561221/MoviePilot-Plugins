@@ -3,6 +3,7 @@
 import re
 import xml.dom.minidom
 from typing import List
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.core.config import settings
 from app.log import logger
@@ -18,6 +19,29 @@ def default_media_type(addr: str) -> str:
     if "movie_" in text or "/movie" in text:
         return "movie"
     return "tv"
+
+
+def build_rsshub_url(domain: str, route: str, limit: int = 5) -> str:
+    """构造公共 RSSHub 请求地址并安全合并 limit 参数。"""
+    raw_route = str(route or "").strip()
+    parsed_route = urlsplit(raw_route)
+    if (
+        not raw_route.startswith("/")
+        or "#" in raw_route
+        or parsed_route.scheme
+        or parsed_route.netloc
+        or parsed_route.fragment
+        or not parsed_route.path
+    ):
+        raise ValueError("RSSHub 路由必须是以 / 开头的不带主机和 fragment 的相对路径")
+    try:
+        normalized_limit = max(1, int(limit or 0))
+    except (TypeError, ValueError):
+        normalized_limit = 5
+    query = [(key, value) for key, value in parse_qsl(parsed_route.query, keep_blank_values=True) if key != "limit"]
+    query.append(("limit", str(normalized_limit)))
+    route_url = urlunsplit(("", "", parsed_route.path, urlencode(query, doseq=True), ""))
+    return f"{utils.normalize_rss_domain(domain)}{route_url}"
 
 
 def _get_response(plugin, addr: str):

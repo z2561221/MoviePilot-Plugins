@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-C3eD-LZW.js';
+import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-ChLM6U1z.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,unref:_unref,withModifiers:_withModifiers} = await importShared('vue');
 
@@ -187,6 +187,12 @@ function rankIconStyle(key) {
   return { color: rankColorOf(key) }
 }
 
+function rankNameOf(key, item = null) {
+  if (item?.rank_name) return item.rank_name
+  const option = (configData.value?.rank_options || []).find(entry => entry?.value === key);
+  return option?.title || rankNames[key] || key
+}
+
 function rankChipStyle(key) {
   const color = rankColorOf(key);
   return {
@@ -233,7 +239,7 @@ function archiveRankKey(item) {
 function archiveRankName(item) {
   const key = archiveRankKey(item);
   const record = archiveRecord(item);
-  return item?.rank_name || record.rank_name || rankNames[key] || key
+  return item?.rank_name || record.rank_name || rankNameOf(key, record) || key
 }
 
 function archiveTime(item) {
@@ -466,6 +472,9 @@ async function subscribeRankItem(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    rank_key: rk,
+    rank_name: item?.rank_name || rankNameOf(rk, item),
+    source_link: item?.link || '',
   });
   const res = await postPluginApi(props.api, `subscribe?${params}`, {});
   if (!res?.success) throw new Error(res?.message || '订阅失败')
@@ -819,7 +828,7 @@ return (_ctx, _cache) => {
                               class: "dc-stat-value",
                               style: _normalizeStyle({ color: rankColorOf(key) })
                             }, _toDisplayString(count), 5),
-                            _createElementVNode("div", _hoisted_21, _toDisplayString(rankNames[key] || key), 1)
+                            _createElementVNode("div", _hoisted_21, _toDisplayString(rankNameOf(key)), 1)
                           ]))
                         }), 128))
                       ])
@@ -844,7 +853,7 @@ return (_ctx, _cache) => {
                                 style: _normalizeStyle(rankIconStyle(key)),
                                 class: "mr-1"
                               }, null, 8, ["style"]),
-                              _createElementVNode("span", null, _toDisplayString(rankNames[key] || key), 1)
+                              _createElementVNode("span", null, _toDisplayString(rankNameOf(key, items?.[0])), 1)
                             ]),
                             (items && items.length)
                               ? (_openBlock(true), _createElementBlock(_Fragment, { key: 0 }, _renderList(items.slice(0, 5), (item, i) => {
@@ -995,7 +1004,7 @@ return (_ctx, _cache) => {
                                   class: "dc-rank-chip mr-1"
                                 }, {
                                   default: _withCtx(() => [
-                                    _createTextVNode(_toDisplayString(item.rank_name), 1)
+                                    _createTextVNode(_toDisplayString(item.rank_name || rankNameOf(item.rank_key, item)), 1)
                                   ]),
                                   _: 2
                                 }, 1032, ["style"]),
@@ -1070,7 +1079,7 @@ return (_ctx, _cache) => {
                                   class: "dc-rank-chip mr-1"
                                 }, {
                                   default: _withCtx(() => [
-                                    _createTextVNode(_toDisplayString(item.rank_name), 1)
+                                    _createTextVNode(_toDisplayString(item.rank_name || rankNameOf(item.rank_key, item)), 1)
                                   ]),
                                   _: 2
                                 }, 1032, ["style"]),
@@ -1253,7 +1262,7 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode(_component_VCardSubtitle, { class: "text-caption pa-0" }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(dialogItem.value?.rk ? (rankNames[dialogItem.value.rk] || dialogItem.value.rk) : ''), 1)
+                      _createTextVNode(_toDisplayString(dialogItem.value?.rk ? rankNameOf(dialogItem.value.rk, dialogItem.value.item) : ''), 1)
                     ]),
                     _: 1
                   })
@@ -1318,6 +1327,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4b4907fc"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d5f482ff"]]);
 
 export { Page as default };

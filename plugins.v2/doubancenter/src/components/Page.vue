@@ -57,6 +57,12 @@ function rankIconStyle(key) {
   return { color: rankColorOf(key) }
 }
 
+function rankNameOf(key, item = null) {
+  if (item?.rank_name) return item.rank_name
+  const option = (configData.value?.rank_options || []).find(entry => entry?.value === key)
+  return option?.title || rankNames[key] || key
+}
+
 function rankChipStyle(key) {
   const color = rankColorOf(key)
   return {
@@ -103,7 +109,7 @@ function archiveRankKey(item) {
 function archiveRankName(item) {
   const key = archiveRankKey(item)
   const record = archiveRecord(item)
-  return item?.rank_name || record.rank_name || rankNames[key] || key
+  return item?.rank_name || record.rank_name || rankNameOf(key, record) || key
 }
 
 function archiveTime(item) {
@@ -336,6 +342,9 @@ async function subscribeRankItem(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    rank_key: rk,
+    rank_name: item?.rank_name || rankNameOf(rk, item),
+    source_link: item?.link || '',
   })
   const res = await postPluginApi(props.api, `subscribe?${params}`, {})
   if (!res?.success) throw new Error(res?.message || '订阅失败')
@@ -486,7 +495,7 @@ onMounted(loadAll)
             </div>
             <div v-for="(count, key) in stats.rank_dist" :key="key" class="dc-stat-card">
               <div class="dc-stat-value" :style="{ color: rankColorOf(key) }">{{ count }}</div>
-              <div class="dc-stat-label">{{ rankNames[key] || key }}</div>
+              <div class="dc-stat-label">{{ rankNameOf(key) }}</div>
             </div>
           </div>
         </div>
@@ -495,7 +504,7 @@ onMounted(loadAll)
           <div class="dc-section-title mb-2">榜单快照 <span class="text-caption font-weight-regular text-medium-emphasis">（点击条目订阅或打开来源）</span></div>
           <div class="dc-rank-grid">
             <div v-for="[key, items] in Object.entries(rankHistory)" :key="key" class="dc-rank-card">
-              <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(key)" class="mr-1" /><span>{{ rankNames[key] || key }}</span></div>
+              <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(key)" class="mr-1" /><span>{{ rankNameOf(key, items?.[0]) }}</span></div>
               <template v-if="items && items.length">
                 <div v-for="(item, i) in items.slice(0, 5)" :key="`${key}-${i}`" class="dc-rank-row" title="订阅 / 打开详情" @click="showActionDialog(key, item)">
                   <VAvatar rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
@@ -536,7 +545,7 @@ onMounted(loadAll)
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ item.title }}</div>
                 <div class="dc-history-meta">
-                  <VChip size="x-small" :style="rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name }}</VChip>
+                  <VChip size="x-small" :style="rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name || rankNameOf(item.rank_key, item) }}</VChip>
                   <span class="text-caption text-medium-emphasis">观察 {{ item.elapsed_days || 0 }} / {{ item.observe_days || 0 }} 天</span>
                 </div>
               </div>
@@ -555,7 +564,7 @@ onMounted(loadAll)
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ item.title }}</div>
                 <div class="dc-history-meta">
-                  <VChip size="x-small" :style="rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name }}</VChip>
+                  <VChip size="x-small" :style="rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name || rankNameOf(item.rank_key, item) }}</VChip>
                   <span class="text-caption text-medium-emphasis">{{ item.time ? item.time.split(' ')[0] : '' }}</span>
                 </div>
               </div>
@@ -601,7 +610,7 @@ onMounted(loadAll)
             </VAvatar>
           </template>
           <VCardTitle class="text-body-1 font-weight-bold pa-0">{{ dialogItem?.item?.title || '' }}</VCardTitle>
-          <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? (rankNames[dialogItem.rk] || dialogItem.rk) : '' }}</VCardSubtitle>
+          <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? rankNameOf(dialogItem.rk, dialogItem.item) : '' }}</VCardSubtitle>
         </VCardItem>
         <VDivider />
         <VCardActions class="pa-3 pt-2" style="gap: 8px">

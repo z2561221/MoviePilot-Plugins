@@ -281,6 +281,51 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertTrue(first.startswith("rank_history_custom_"))
         self.assertNotIn("-", first)
 
+    def test_effective_rank_definitions_include_configured_custom_rank(self):
+        plugin = _Plugin()
+        plugin._custom_ranks = [{
+            "key": "custom_highscore",
+            "name": "高分动画",
+            "route": "/anime/feed?tag=top",
+            "media_type": "movie",
+        }]
+
+        ranks = self.feed.get_rank_definitions(plugin)
+
+        self.assertEqual(ranks[-1]["key"], "custom_highscore")
+        self.assertEqual(ranks[-1]["name"], "高分动画")
+        self.assertFalse(ranks[-1]["coming"])
+
+    def test_refresh_rank_data_uses_custom_route_and_writes_rank_snapshot(self):
+        plugin = _Plugin()
+        plugin._rsshub_domain = "https://rsshub.example"
+        plugin._custom_ranks = [{
+            "key": "custom_highscore",
+            "name": "高分动画",
+            "route": "/anime/feed?tag=top&limit=1",
+            "media_type": "movie",
+        }]
+        plugin._rank_configs = {"custom_highscore": {"enabled": True, "count": 5, "vote": 8, "year": 2020}}
+        captured = []
+
+        def fetch(_plugin, url):
+            captured.append(url)
+            return [{"title": "测试动画", "link": "https://douban.example/subject/1", "mtype": "", "year": "2026"}]
+
+        self.feed._fetch_rss = fetch
+        self.feed._apply_display_recognition = lambda *args, **kwargs: None
+        self.feed.time.sleep = lambda *_args, **_kwargs: None
+
+        result = self.feed.refresh_rank_data(plugin, rank_keys=["custom_highscore"])
+        history = self.feed.storage.read_rank_history(plugin, "custom_highscore")
+
+        self.assertEqual(captured, ["https://rsshub.example/anime/feed?tag=top&limit=5"])
+        self.assertIn("custom_highscore", result)
+        self.assertEqual(history[0]["rank_key"], "custom_highscore")
+        self.assertEqual(history[0]["rank_name"], "高分动画")
+        self.assertEqual(history[0]["media_type"], "movie")
+        self.assertTrue(history[0]["rank_refreshed_at"])
+
     def test_migration_normalizes_legacy_subscribe_usernames(self):
         migration = _import_migration()
 
@@ -2110,6 +2155,42 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(plugin.messages, [])
         self.assertNotEqual(captured.get("message"), False)
+
+    def test_dashboard_manual_subscription_records_rank_context(self):
+        dashboard = _import_dashboard()
+        plugin = _Plugin()
+
+        class MediaChain:
+            def recognize_media(self, meta, mtype):
+                return _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=24681)
+
+        class SubscribeChain:
+            def exists(self, mediainfo, meta):
+                return False
+
+            def add(self, **kwargs):
+                return 1, ""
+
+        sys.modules["app.chain.media"].MediaChain = MediaChain
+        sys.modules["app.chain.subscribe"].SubscribeChain = SubscribeChain
+
+        result = dashboard.api_subscribe_from_rank(
+            plugin,
+            None,
+            "movie",
+            "高分动画",
+            "2026",
+            rank_key="custom_highscore",
+            rank_name="高分动画",
+            source_link="https://rsshub.example/anime/1",
+        )
+
+        self.assertTrue(result["success"])
+        record = plugin.data["subscribe_records"][0]
+        self.assertEqual(record["rank_key"], "custom_highscore")
+        self.assertEqual(record["rank_name"], "高分动画")
+        self.assertEqual(record["media_type"], "电影")
+        self.assertEqual(record["link"], "https://rsshub.example/anime/1")
 
     def test_observation_service_records_first_seen(self):
         service = _import_service("observation")

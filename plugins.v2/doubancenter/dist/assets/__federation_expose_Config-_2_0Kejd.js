@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi } from './_plugin-vue_export-helper-C3eD-LZW.js';
+import { _ as _export_sfc, g as getPluginApi } from './_plugin-vue_export-helper-ChLM6U1z.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -62,15 +62,26 @@ const _hoisted_40 = {
   key: 3,
   class: "dc-rank-field"
 };
-const _hoisted_41 = { class: "dc-pane" };
-const _hoisted_42 = { class: "dc-pane" };
-const _hoisted_43 = { class: "dc-wish-status mt-3" };
-const _hoisted_44 = { class: "dc-kv" };
-const _hoisted_45 = { class: "dc-kv" };
-const _hoisted_46 = { class: "dc-kv" };
-const _hoisted_47 = { class: "dc-kv" };
-const _hoisted_48 = { class: "dc-pane" };
+const _hoisted_41 = { class: "dc-custom-ranks-head mt-4" };
+const _hoisted_42 = {
+  key: 1,
+  class: "dc-custom-ranks-empty text-caption text-medium-emphasis"
+};
+const _hoisted_43 = { class: "dc-custom-rank-header" };
+const _hoisted_44 = { class: "dc-custom-rank-source" };
+const _hoisted_45 = { class: "dc-custom-rank-settings" };
+const _hoisted_46 = { class: "dc-rank-field" };
+const _hoisted_47 = { class: "dc-rank-field" };
+const _hoisted_48 = { class: "dc-rank-field" };
 const _hoisted_49 = { class: "dc-pane" };
+const _hoisted_50 = { class: "dc-pane" };
+const _hoisted_51 = { class: "dc-wish-status mt-3" };
+const _hoisted_52 = { class: "dc-kv" };
+const _hoisted_53 = { class: "dc-kv" };
+const _hoisted_54 = { class: "dc-kv" };
+const _hoisted_55 = { class: "dc-kv" };
+const _hoisted_56 = { class: "dc-pane" };
+const _hoisted_57 = { class: "dc-pane" };
 
 const {computed,onMounted,reactive,ref,watch} = await importShared('vue');
 
@@ -92,6 +103,7 @@ const activeMain = ref('overview');
 const activeSub = ref('overview');
 const overview = ref(null);
 const loadingOverview = ref(false);
+const customRankError = ref('');
 
 const defaults = {
   enabled: false, cron: '0 8 * * *', notify: false, proxy: false, onlyonce: false,
@@ -104,7 +116,7 @@ const defaults = {
     movie_weekly: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
     bangumi: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
   },
-  region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '',
+  region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '', custom_ranks: [],
   folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false, folio_exclude_live_tv: true,
   folio_user: '', folio_exclude: '', folio_cookie: '',
   wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_onlyonce: false, wish_max_pages: 1, wish_days: 7,
@@ -115,7 +127,7 @@ const defaults = {
   observe_rank_keys: ['coming', 'tv_real_time'],
 };
 
-const rankDefs = [
+const builtinRankDefs = [
   { key: 'coming', name: '即将上映', route: '/douban/tv/coming', filters: ['wish_count', 'air_days'] },
   { key: 'tv_real_time', name: '实时热门', route: '/douban/list/tv_real_time_hotest', filters: ['vote', 'year'] },
   { key: 'tv_chinese', name: '华语口碑', route: '/douban/list/tv_chinese_best_weekly', filters: ['vote', 'year'] },
@@ -124,9 +136,24 @@ const rankDefs = [
   { key: 'bangumi', name: 'BangumiTV', route: '/bangumi.tv/anime/followrank', filters: ['vote', 'year'] },
 ];
 
+const customMediaTypes = [
+  { title: '自动识别', value: 'auto' },
+  { title: '电影', value: 'movie' },
+  { title: '电视剧', value: 'tv' },
+];
+
+const rankDefs = computed(() => [
+  ...builtinRankDefs,
+  ...(Array.isArray(form.custom_ranks) ? form.custom_ranks : []).map(rank => ({
+    ...rank,
+    custom: true,
+    filters: ['vote', 'year'],
+  })),
+]);
+
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '运行链路、模块状态和待关注事项。' },
-  { key: 'rank', title: '榜单订阅', icon: 'mdi-trophy-outline', desc: '6 个内置榜单统一订阅到豆瓣中心。' },
+  { key: 'rank', title: '榜单订阅', icon: 'mdi-trophy-outline', desc: '内置与自定义榜单统一订阅到豆瓣中心。' },
   { key: 'folio', title: '豆瓣时间', icon: 'mdi-book-clock-outline', desc: '追剧观影自动同步进度到豆瓣时间线。' },
   { key: 'dashboard', title: '仪表显示', icon: 'mdi-view-dashboard-outline', desc: '时间线 + 榜单排行双面板。' },
 ];
@@ -140,7 +167,7 @@ const subTabs = {
 
 const currentMain = computed(() => mainTabs.find(i => i.key === activeMain.value) || mainTabs[0]);
 const currentSubs = computed(() => subTabs[activeMain.value] || []);
-const enabledRankCount = computed(() => rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).length);
+const enabledRankCount = computed(() => rankDefs.value.filter(r => form.rank_configs?.[r.key]?.enabled).length);
 const overviewCards = computed(() => {
   const cards = overview.value?.cards || {};
   return [
@@ -148,7 +175,7 @@ const overviewCards = computed(() => {
       title: '榜单订阅',
       icon: 'mdi-rss',
       color: cards.rss?.enabled ? 'success' : 'warning',
-      value: `${cards.rss?.enabled || 0}/${cards.rss?.total || rankDefs.length}`,
+      value: `${cards.rss?.enabled || 0}/${cards.rss?.total || rankDefs.value.length}`,
       desc: cards.rss?.last_refresh ? `最近刷新 ${cards.rss.last_refresh}` : '等待 RSS 刷新',
     },
     {
@@ -183,14 +210,70 @@ function isPlainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value)
 }
 
+function customRankKey() {
+  return `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function addCustomRank() {
+  customRankError.value = '';
+  const key = customRankKey();
+  form.custom_ranks.push({ key, name: '', route: '', media_type: 'auto' });
+  form.rank_configs[key] = { enabled: false, count: 0, vote: 0, year: 0 };
+  activeMain.value = 'rank';
+  activeSub.value = 'list';
+}
+
+function removeCustomRank(key) {
+  customRankError.value = '';
+  form.custom_ranks = form.custom_ranks.filter(rank => rank.key !== key);
+  delete form.rank_configs[key];
+  form.dashboard_rank_keys = (form.dashboard_rank_keys || []).filter(value => value !== key);
+  form.observe_rank_keys = (form.observe_rank_keys || []).filter(value => value !== key);
+}
+
+function validCustomRoute(route) {
+  const value = String(route || '').trim();
+  return value.startsWith('/') && !value.startsWith('//') && !value.includes('#') && (() => {
+    try {
+      const parsed = new URL(value, 'https://rsshub.local');
+      return parsed.origin === 'https://rsshub.local'
+    } catch {
+      return false
+    }
+  })()
+}
+
+function validateCustomRanks() {
+  const seen = new Set(builtinRankDefs.map(rank => rank.key));
+  for (const rank of form.custom_ranks || []) {
+    const key = String(rank?.key || '').trim();
+    if (!key || seen.has(key)) return '自定义榜单标识重复或无效'
+    if (!String(rank?.name || '').trim()) return '请填写自定义榜单名称'
+    if (!validCustomRoute(rank?.route)) return 'RSSHub 路由必须是以 / 开头的相对路径'
+    if (!customMediaTypes.some(item => item.value === String(rank?.media_type || 'auto'))) return '媒体类型配置无效'
+    seen.add(key);
+  }
+  return ''
+}
+
 function normalizeInitialConfig(value) {
   const m = Object.assign({}, cloneConfig(defaults), cloneConfig(value));
+  m.custom_ranks = Array.isArray(m.custom_ranks)
+    ? m.custom_ranks.filter(rank => isPlainObject(rank)).map(rank => ({
+      key: String(rank.key || ''),
+      name: String(rank.name || ''),
+      route: String(rank.route || ''),
+      media_type: ['auto', 'movie', 'tv'].includes(String(rank.media_type || '').toLowerCase())
+        ? String(rank.media_type || '').toLowerCase()
+        : 'auto',
+    }))
+    : [];
   if (!(m.rank_configs && typeof m.rank_configs === 'object' && !Array.isArray(m.rank_configs))) {
     m.rank_configs = {};
   }
-  for (const rd of rankDefs) {
+  for (const rd of [...builtinRankDefs, ...m.custom_ranks.map(rank => ({ ...rank, filters: ['vote', 'year'] }))]) {
     m.rank_configs[rd.key] = {
-      ...defaults.rank_configs[rd.key],
+      ...(defaults.rank_configs[rd.key] || { enabled: false, count: 0, vote: 0, year: 0 }),
       ...(isPlainObject(m.rank_configs[rd.key]) ? m.rank_configs[rd.key] : {}),
     };
   }
@@ -205,8 +288,15 @@ watch(() => props.initialConfig, val => {
 }, { immediate: true, deep: true });
 
 function saveConfig() {
+  customRankError.value = validateCustomRanks();
+  if (customRankError.value) {
+    activeMain.value = 'rank';
+    activeSub.value = 'list';
+    return
+  }
   emit('save', {
     ...form,
+    custom_ranks: cloneConfig(form.custom_ranks),
     region_filters: [],
     genre_filters: [],
     resolution_filters: [],
@@ -251,10 +341,11 @@ return (_ctx, _cache) => {
   const _component_VTextField = _resolveComponent("VTextField");
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VCheckbox = _resolveComponent("VCheckbox");
+  const _component_VTooltip = _resolveComponent("VTooltip");
+  const _component_VBtn = _resolveComponent("VBtn");
   const _component_VSelect = _resolveComponent("VSelect");
   const _component_VTextarea = _resolveComponent("VTextarea");
   const _component_VSpacer = _resolveComponent("VSpacer");
-  const _component_VBtn = _resolveComponent("VBtn");
   const _component_VCardActions = _resolveComponent("VCardActions");
   const _component_VCard = _resolveComponent("VCard");
 
@@ -566,17 +657,17 @@ return (_ctx, _cache) => {
               _withDirectives(_createElementVNode("div", _hoisted_30, [
                 _createElementVNode("div", _hoisted_31, [
                   _cache[35] || (_cache[35] = _createTextVNode("榜单列表 ", -1)),
-                  _createElementVNode("span", _hoisted_32, "（已启用 " + _toDisplayString(enabledRankCount.value) + "/" + _toDisplayString(rankDefs.length) + "）", 1)
+                  _createElementVNode("span", _hoisted_32, "（已启用 " + _toDisplayString(enabledRankCount.value) + "/" + _toDisplayString(rankDefs.value.length) + "）", 1)
                 ]),
                 _createVNode(_component_VAlert, {
                   type: "info",
                   variant: "tonal",
                   density: "compact",
                   class: "mb-3",
-                  text: "每个榜单独立控制，条件框之间是且的关系。即将上映保留特殊处理。"
+                  text: "每个榜单独立控制，条件框之间是且的关系。自定义榜单仅接受 RSSHub 相对路由。"
                 }),
                 _createElementVNode("div", _hoisted_33, [
-                  (_openBlock(), _createElementBlock(_Fragment, null, _renderList(rankDefs, (rd) => {
+                  (_openBlock(), _createElementBlock(_Fragment, null, _renderList(builtinRankDefs, (rd) => {
                     return _createElementVNode("div", {
                       key: rd.key,
                       class: _normalizeClass(["dc-rank-card", { 'dc-rank-card--on': form.rank_configs[rd.key]?.enabled }])
@@ -674,12 +765,161 @@ return (_ctx, _cache) => {
                       ])
                     ], 2)
                   }), 64))
-                ])
+                ]),
+                _createElementVNode("div", _hoisted_41, [
+                  _cache[42] || (_cache[42] = _createElementVNode("div", { class: "dc-section-title mb-0" }, "自定义榜单", -1)),
+                  _createVNode(_component_VBtn, {
+                    icon: "mdi-plus",
+                    size: "small",
+                    variant: "tonal",
+                    color: "primary",
+                    "aria-label": "新增自定义榜单",
+                    onClick: addCustomRank
+                  }, {
+                    default: _withCtx(() => [
+                      _createVNode(_component_VTooltip, {
+                        activator: "parent",
+                        location: "top"
+                      }, {
+                        default: _withCtx(() => [...(_cache[41] || (_cache[41] = [
+                          _createTextVNode("新增自定义榜单", -1)
+                        ]))]),
+                        _: 1
+                      })
+                    ]),
+                    _: 1
+                  })
+                ]),
+                (customRankError.value)
+                  ? (_openBlock(), _createBlock(_component_VAlert, {
+                      key: 0,
+                      type: "error",
+                      variant: "tonal",
+                      density: "compact",
+                      class: "mb-2",
+                      text: customRankError.value
+                    }, null, 8, ["text"]))
+                  : _createCommentVNode("", true),
+                (!form.custom_ranks.length)
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_42, "尚未添加自定义榜单"))
+                  : _createCommentVNode("", true),
+                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(form.custom_ranks, (rd, index) => {
+                  return (_openBlock(), _createElementBlock("div", {
+                    key: rd.key,
+                    class: _normalizeClass(["dc-custom-rank-card", { 'dc-rank-card--on': form.rank_configs[rd.key]?.enabled }])
+                  }, [
+                    _createElementVNode("div", _hoisted_43, [
+                      _createVNode(_component_VTextField, {
+                        modelValue: rd.name,
+                        "onUpdate:modelValue": $event => ((rd.name) = $event),
+                        label: "榜单名称",
+                        density: "compact",
+                        variant: "outlined",
+                        "hide-details": ""
+                      }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                      _createVNode(_component_VBtn, {
+                        icon: "mdi-delete-outline",
+                        size: "small",
+                        variant: "text",
+                        color: "error",
+                        "aria-label": `删除${rd.name || '自定义榜单'}`,
+                        onClick: $event => (removeCustomRank(rd.key))
+                      }, {
+                        default: _withCtx(() => [
+                          _createVNode(_component_VTooltip, {
+                            activator: "parent",
+                            location: "top"
+                          }, {
+                            default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
+                              _createTextVNode("删除自定义榜单", -1)
+                            ]))]),
+                            _: 1
+                          })
+                        ]),
+                        _: 1
+                      }, 8, ["aria-label", "onClick"])
+                    ]),
+                    _createElementVNode("div", _hoisted_44, [
+                      _createVNode(_component_VTextField, {
+                        modelValue: rd.route,
+                        "onUpdate:modelValue": $event => ((rd.route) = $event),
+                        label: "RSSHub 路由",
+                        placeholder: "/example/rsshub/route?foo=bar",
+                        density: "compact",
+                        variant: "outlined",
+                        "hide-details": ""
+                      }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                      _createVNode(_component_VSelect, {
+                        modelValue: rd.media_type,
+                        "onUpdate:modelValue": $event => ((rd.media_type) = $event),
+                        items: customMediaTypes,
+                        label: "媒体类型",
+                        density: "compact",
+                        variant: "outlined",
+                        "hide-details": ""
+                      }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                    ]),
+                    _createElementVNode("div", _hoisted_45, [
+                      _createVNode(_component_VCheckbox, {
+                        modelValue: form.rank_configs[rd.key].enabled,
+                        "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].enabled) = $event),
+                        label: "启用",
+                        color: "primary",
+                        "hide-details": "",
+                        density: "compact"
+                      }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                      _createElementVNode("div", _hoisted_46, [
+                        _cache[44] || (_cache[44] = _createElementVNode("span", { class: "dc-rank-label" }, "数量", -1)),
+                        _createVNode(_component_VTextField, {
+                          modelValue: form.rank_configs[rd.key].count,
+                          "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].count) = $event),
+                          modelModifiers: { number: true },
+                          type: "number",
+                          min: "0",
+                          density: "compact",
+                          variant: "outlined",
+                          "hide-details": "",
+                          class: "dc-rank-input"
+                        }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                      ]),
+                      _createElementVNode("div", _hoisted_47, [
+                        _cache[45] || (_cache[45] = _createElementVNode("span", { class: "dc-rank-label" }, "评分", -1)),
+                        _createVNode(_component_VTextField, {
+                          modelValue: form.rank_configs[rd.key].vote,
+                          "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].vote) = $event),
+                          modelModifiers: { number: true },
+                          type: "number",
+                          min: "0",
+                          max: "10",
+                          step: "0.1",
+                          density: "compact",
+                          variant: "outlined",
+                          "hide-details": "",
+                          class: "dc-rank-input"
+                        }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                      ]),
+                      _createElementVNode("div", _hoisted_48, [
+                        _cache[46] || (_cache[46] = _createElementVNode("span", { class: "dc-rank-label" }, "年份", -1)),
+                        _createVNode(_component_VTextField, {
+                          modelValue: form.rank_configs[rd.key].year,
+                          "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].year) = $event),
+                          modelModifiers: { number: true },
+                          type: "number",
+                          min: "0",
+                          density: "compact",
+                          variant: "outlined",
+                          "hide-details": "",
+                          class: "dc-rank-input"
+                        }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                      ])
+                    ])
+                  ], 2))
+                }), 128))
               ], 512), [
                 [_vShow, activeSub.value === 'list']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_41, [
-                _cache[41] || (_cache[41] = _createElementVNode("div", { class: "dc-section-title" }, "观察设置", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_49, [
+                _cache[47] || (_cache[47] = _createElementVNode("div", { class: "dc-section-title" }, "观察设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -690,7 +930,7 @@ return (_ctx, _cache) => {
                         _createVNode(_component_VSelect, {
                           modelValue: form.observe_rank_keys,
                           "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((form.observe_rank_keys) = $event)),
-                          items: rankDefs.map(r => ({ title: r.name, value: r.key })),
+                          items: rankDefs.value.map(r => ({ title: r.name, value: r.key })),
                           label: "观察榜单",
                           multiple: "",
                           chips: "",
@@ -753,8 +993,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'filter']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_42, [
-                _cache[46] || (_cache[46] = _createElementVNode("div", { class: "dc-section-title" }, "同步想看", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_50, [
+                _cache[52] || (_cache[52] = _createElementVNode("div", { class: "dc-section-title" }, "同步想看", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -875,29 +1115,29 @@ return (_ctx, _cache) => {
                   density: "compact",
                   text: "通过豆瓣动态 feed 同步，首次只建立最近天数内的基线；后续周期只处理最近天数内新增的想看。"
                 }),
-                _createElementVNode("div", _hoisted_43, [
-                  _createElementVNode("div", _hoisted_44, [
-                    _cache[42] || (_cache[42] = _createElementVNode("span", null, "队列待处理", -1)),
+                _createElementVNode("div", _hoisted_51, [
+                  _createElementVNode("div", _hoisted_52, [
+                    _cache[48] || (_cache[48] = _createElementVNode("span", null, "队列待处理", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.queue || 0), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_45, [
-                    _cache[43] || (_cache[43] = _createElementVNode("span", null, "失败记录", -1)),
+                  _createElementVNode("div", _hoisted_53, [
+                    _cache[49] || (_cache[49] = _createElementVNode("span", null, "失败记录", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.failed || 0), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_46, [
-                    _cache[44] || (_cache[44] = _createElementVNode("span", null, "最近运行", -1)),
+                  _createElementVNode("div", _hoisted_54, [
+                    _cache[50] || (_cache[50] = _createElementVNode("span", null, "最近运行", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.last_run || '尚未运行'), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_47, [
-                    _cache[45] || (_cache[45] = _createElementVNode("span", null, "状态错误", -1)),
+                  _createElementVNode("div", _hoisted_55, [
+                    _cache[51] || (_cache[51] = _createElementVNode("span", null, "状态错误", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.last_error || '无'), 1)
                   ])
                 ])
               ], 512), [
                 [_vShow, activeSub.value === 'wish']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_48, [
-                _cache[47] || (_cache[47] = _createElementVNode("div", { class: "dc-section-title" }, "同步观影", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_56, [
+                _cache[53] || (_cache[53] = _createElementVNode("div", { class: "dc-section-title" }, "同步观影", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1046,8 +1286,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'sync']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_49, [
-                _cache[48] || (_cache[48] = _createElementVNode("div", { class: "dc-section-title" }, "仪表盘选择", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_57, [
+                _cache[54] || (_cache[54] = _createElementVNode("div", { class: "dc-section-title" }, "仪表盘选择", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
                   variant: "tonal",
@@ -1066,7 +1306,7 @@ return (_ctx, _cache) => {
                           modelValue: form.dashboard_rank_keys,
                           "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((form.dashboard_rank_keys) = $event)),
                           label: "选择要显示的榜单",
-                          items: rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key })),
+                          items: rankDefs.value.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key })),
                           multiple: "",
                           chips: "",
                           clearable: "",
@@ -1111,7 +1351,7 @@ return (_ctx, _cache) => {
               class: "dc-action-btn",
               onClick: _cache[23] || (_cache[23] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[49] || (_cache[49] = [
+              default: _withCtx(() => [...(_cache[55] || (_cache[55] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -1123,7 +1363,7 @@ return (_ctx, _cache) => {
               class: "dc-action-btn dc-action-btn--save",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[50] || (_cache[50] = [
+              default: _withCtx(() => [...(_cache[56] || (_cache[56] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -1139,6 +1379,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a7f65584"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-fb29ca3f"]]);
 
 export { Config as default };
