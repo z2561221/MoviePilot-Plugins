@@ -10,7 +10,7 @@ from ..service.site_tag import execute_tag_cleanup, scan_and_clean_tags
 from ..service.speed_decision import resolve_reference_speed
 from ..service.speed_monitor import (
     SESSION_ACTIVE,
-    ensure_speed_monitor_runtime,
+    load_speed_monitor_runtime_snapshot,
     reset_speed_monitor_baseline,
 )
 from ..utils.config import is_speed_monitor_active
@@ -18,7 +18,7 @@ from ..utils.config import is_speed_monitor_active
 
 def _speed_monitor_overview(plugin):
     """根据持久化运行态生成速度监控总览。"""
-    runtime = ensure_speed_monitor_runtime(plugin)
+    runtime = load_speed_monitor_runtime_snapshot(plugin)
     mode = str(getattr(plugin, "_speed_monitor_mode", "auto") or "auto")
     selected = list(getattr(plugin, "_speed_monitor_downloaders", []) or [])
     manual_speeds = getattr(plugin, "_speed_monitor_manual_speed_bps", {}) or {}

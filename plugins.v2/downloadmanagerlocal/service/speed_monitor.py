@@ -192,11 +192,8 @@ def _restore_sessions(items: dict) -> dict[str, SpeedMonitorSession]:
     return restored
 
 
-def ensure_speed_monitor_runtime(plugin: Any) -> SpeedMonitorRuntime:
-    """恢复或创建速度监控运行态，迁移失败时明确停用监控。"""
-    runtime = getattr(plugin, "_speed_monitor_runtime", None)
-    if isinstance(runtime, SpeedMonitorRuntime):
-        return runtime
+def load_speed_monitor_runtime_snapshot(plugin: Any) -> SpeedMonitorRuntime:
+    """从持久层构造独立快照，不复用或覆盖当前进程的可写运行态。"""
     try:
         session_items = load_speed_monitor_items(
             plugin, SPEED_MONITOR_SESSIONS_KEY, "sessions"
@@ -205,16 +202,26 @@ def ensure_speed_monitor_runtime(plugin: Any) -> SpeedMonitorRuntime:
             plugin, SPEED_MONITOR_BASELINES_KEY, "baselines"
         )
         alerts = load_speed_monitor_items(plugin, SPEED_MONITOR_ALERTS_KEY, "alerts")
-        runtime = SpeedMonitorRuntime(
+        return SpeedMonitorRuntime(
             sessions=_restore_sessions(session_items),
             baselines=baselines,
             alerts=alerts,
         )
-        plugin._speed_monitor_state_error = ""
     except SpeedMonitorStateMigrationError as error:
+        return SpeedMonitorRuntime(state_error=str(error))
+
+
+def ensure_speed_monitor_runtime(plugin: Any) -> SpeedMonitorRuntime:
+    """恢复或创建速度监控运行态，迁移失败时明确停用监控。"""
+    runtime = getattr(plugin, "_speed_monitor_runtime", None)
+    if isinstance(runtime, SpeedMonitorRuntime):
+        return runtime
+    runtime = load_speed_monitor_runtime_snapshot(plugin)
+    if not runtime.state_error:
+        plugin._speed_monitor_state_error = ""
+    else:
         plugin._speed_monitor_enabled = False
-        plugin._speed_monitor_state_error = str(error)
-        runtime = SpeedMonitorRuntime(state_error=str(error))
+        plugin._speed_monitor_state_error = runtime.state_error
     plugin._speed_monitor_runtime = runtime
     return runtime
 
