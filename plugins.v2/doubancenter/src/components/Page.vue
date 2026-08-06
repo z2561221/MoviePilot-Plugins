@@ -433,16 +433,29 @@ onMounted(loadAll)
 <template>
   <VCard flat class="dc-page" :class="{ 'dc-page--app': props.appPage }">
     <VToolbar density="comfortable" class="dc-page-toolbar">
-      <VAvatar color="primary" variant="tonal" rounded="lg" class="ms-3 me-2"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
+      <VAvatar color="primary" variant="tonal" rounded="lg" class="ms-3 me-2 dc-page-avatar"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
       <div class="dc-page-heading">
         <div class="text-h6">{{ archivePage ? '豆瓣中心 · 归档记录' : '豆瓣中心 · 运行详情' }}</div>
         <div class="text-caption text-medium-emphasis">{{ archivePage ? '删除进入归档，支持恢复或彻底删除' : '榜单刷新 -> 黑名筛选 -> 观察队列 -> 订阅记录' }}</div>
       </div>
       <VSpacer />
-      <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-1 dc-toolbar-action" title="刷新" aria-label="刷新" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">刷新</VBtn>
-      <VBtn variant="text" size="small" :prepend-icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" class="text-none me-1 dc-toolbar-action" :title="archivePage ? '返回' : '归档'" :aria-label="archivePage ? '返回' : '归档'" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">{{ archivePage ? '返回' : '归档' }}</VBtn>
-      <VBtn v-if="props.showSettings || !props.appPage" variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1 dc-toolbar-action" title="设置" aria-label="设置" @click="emit('switch')">设置</VBtn>
-      <VBtn v-if="!props.appPage" icon="mdi-close" variant="text" size="small" class="dc-toolbar-action" title="关闭" aria-label="关闭" @click="emit('close')" />
+      <div class="dc-page-toolbar-actions">
+        <VBtn variant="text" size="small" class="text-none dc-toolbar-action" title="刷新" aria-label="刷新" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">
+          <VIcon icon="mdi-refresh" size="18" class="dc-toolbar-icon" />
+          <span class="dc-toolbar-label">刷新</span>
+        </VBtn>
+        <VBtn variant="text" size="small" class="text-none dc-toolbar-action" :title="archivePage ? '返回' : '归档'" :aria-label="archivePage ? '返回' : '归档'" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">
+          <VIcon :icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" size="18" class="dc-toolbar-icon" />
+          <span class="dc-toolbar-label">{{ archivePage ? '返回' : '归档' }}</span>
+        </VBtn>
+        <VBtn v-if="props.showSettings || !props.appPage" variant="text" size="small" class="text-none dc-toolbar-action" title="设置" aria-label="设置" @click="emit('switch')">
+          <VIcon icon="mdi-cog-outline" size="18" class="dc-toolbar-icon" />
+          <span class="dc-toolbar-label">设置</span>
+        </VBtn>
+        <VBtn v-if="!props.appPage" icon variant="text" size="small" class="dc-toolbar-action" title="关闭" aria-label="关闭" @click="emit('close')">
+          <VIcon icon="mdi-close" size="18" class="dc-toolbar-icon" />
+        </VBtn>
+      </div>
     </VToolbar>
     <VDivider />
     <VProgressLinear v-if="loading" indeterminate color="primary" height="2" />
@@ -629,6 +642,9 @@ onMounted(loadAll)
 .dc-page--app { width: 100%; min-height: calc(100dvh - 104px); border-radius: 14px; }
 .dc-page-toolbar { background: rgb(var(--v-theme-surface)); padding-right: 8px; }
 .dc-page-heading { min-width: 0; }
+.dc-page-toolbar-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 2px; }
+.dc-toolbar-icon { flex: 0 0 auto; }
+.dc-toolbar-label { white-space: nowrap; }
 .dc-page-heading .text-h6,
 .dc-page-heading .text-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -689,24 +705,24 @@ onMounted(loadAll)
 }
 @media (max-width: 760px) {
   .dc-page-toolbar { min-height: 56px; padding-inline: 4px; }
-  .dc-page-toolbar :deep(.v-avatar) { display: none; }
-  .dc-page-heading { flex: 1 1 auto; max-width: calc(100% - 144px); }
+  .dc-page-avatar { display: none !important; }
+  .dc-page-heading { flex: 1 1 auto; max-width: none; }
   .dc-page-heading .text-h6 { font-size: 15px !important; }
   .dc-page-heading .text-caption { display: none; }
-  .dc-toolbar-action { flex: 0 0 36px; min-width: 36px !important; width: 36px; padding-inline: 0 !important; }
-  .dc-toolbar-action :deep(.v-btn__content) { display: none; }
-  .dc-toolbar-action :deep(.v-btn__prepend) { margin-inline: 0; }
+  .dc-page-toolbar-actions { gap: 0; }
+  .dc-toolbar-action { flex: 0 0 34px; min-width: 34px !important; width: 34px; padding-inline: 0 !important; }
+  .dc-toolbar-label { display: none; }
   .dc-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dc-section { grid-column: 1 / -1; padding: 10px; }
   .dc-section--blacklist,
   .dc-section--observe,
   .dc-section--history,
-  .dc-section--logs { grid-column: span 1; }
+  .dc-section--logs { grid-column: 1 / -1; }
   .dc-rank-grid { grid-template-columns: minmax(0, 1fr); overflow-x: visible; padding-bottom: 0; }
   .dc-rank-card { width: 100%; }
   .dc-rank-grid--snapshot { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; scrollbar-width: none; -ms-overflow-style: none; touch-action: pan-x; overscroll-behavior-x: contain; }
   .dc-rank-grid--snapshot::-webkit-scrollbar { display: none; }
-  .dc-rank-grid--snapshot .dc-rank-card { flex: 0 0 min(78vw, 280px); width: min(78vw, 280px); }
+  .dc-rank-grid--snapshot .dc-rank-card { flex: 0 0 calc((100% - 8px) / 2); width: calc((100% - 8px) / 2); }
   .dc-history-row { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 4px; padding: 4px 6px; }
   .dc-archive-row { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
   .dc-status-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
@@ -717,9 +733,6 @@ onMounted(loadAll)
 }
 @media (max-width: 360px) {
   .dc-flow { grid-template-columns: 1fr; }
-  .dc-section--blacklist,
-  .dc-section--observe,
-  .dc-section--history,
-  .dc-section--logs { grid-column: 1 / -1; }
+  .dc-rank-grid--snapshot .dc-rank-card { flex-basis: 100%; width: 100%; }
 }
 </style>
