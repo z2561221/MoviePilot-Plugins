@@ -570,9 +570,11 @@ class ConfigFrontendContractTest(unittest.TestCase):
         source_text = (PLUGIN_DIR / "src" / "components" / "source.js").read_text(encoding="utf-8")
         for path in (PAGE_VUE, DASHBOARD_VUE):
             text = path.read_text(encoding="utf-8")
-            self.assertIn(':href="sourceButtonUrl() || undefined"', text, path.name)
+            self.assertIn(':href="sourceButtonHref() || undefined"', text, path.name)
+            self.assertIn('@click="openSource"', text, path.name)
             self.assertIn('target="_blank"', text, path.name)
             self.assertIn('rel="noopener noreferrer"', text, path.name)
+            self.assertIn('return sourceButtonAppUrl() || webUrl', text, path.name)
             self.assertNotIn("doOpenSource", text, path.name)
 
         for fragment in (
@@ -583,6 +585,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
             "https://movie.douban.com/subject/",
             "const year = stringValue(item?.year)",
             "function isDoubanSubjectLink(value)",
+            "export function doubanDispatchUrl(subjectId, mediaType = 'tv')",
+            "appUrl: doubanAppUrl(rankKey, item, config)",
         ):
             self.assertIn(fragment, source_text)
         self.assertNotIn("function doubanCollectionUrl", source_text)
@@ -594,6 +598,16 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("function routePath(value)", built_text)
         self.assertIn("https://movie.douban.com/subject/", built_text)
         self.assertNotIn("function doubanCollectionUrl", built_text)
+
+    def test_mobile_layout_uses_single_column_page_and_dispatch_timeline(self):
+        """移动端榜单保持可读单列，时间线继续使用豆瓣 App dispatch。"""
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+        dashboard_text = DASHBOARD_VUE.read_text(encoding="utf-8")
+        self.assertIn(".dc-rank-grid { grid-template-columns: minmax(0, 1fr);", page_text)
+        self.assertIn(".dc-toolbar-action", page_text)
+        self.assertIn(".dc-dialog-actions", page_text)
+        self.assertIn(":href=\"doubanDispatchUrl(item.subject_id, item.type)\"", dashboard_text)
+        self.assertIn(".dc-dialog-actions", dashboard_text)
 
 
 if __name__ == "__main__":

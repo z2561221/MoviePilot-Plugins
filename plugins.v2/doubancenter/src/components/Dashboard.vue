@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getPluginApi, postPluginApi, toPosterThumbnail } from './api'
-import { sourceDescriptor } from './source'
+import { sourceDescriptor, doubanDispatchUrl } from './source'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -248,6 +248,28 @@ function sourceButtonUrl() {
   return sourceDescriptor(rk, item, config.value).url
 }
 
+function sourceButtonAppUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, config.value).appUrl || ''
+}
+
+function sourceButtonHref() {
+  const webUrl = sourceButtonUrl()
+  return sourceButtonAppUrl() || webUrl
+}
+
+function openSource(event) {
+  const appUrl = sourceButtonAppUrl()
+  if (!appUrl) {
+    showDialog.value = false
+    return
+  }
+  event?.preventDefault?.()
+  showDialog.value = false
+  window.open(appUrl, '_blank')
+}
+
 function doOpenTmdb() {
   if (!dialogItem.value) return
   const { rk, item } = dialogItem.value
@@ -323,8 +345,9 @@ onMounted(load)
                       <a
                         v-for="item in group.items"
                         :key="item.key"
-                        :href="`https://www.douban.com/doubanapp/dispatch?uri=/movie/${item.subject_id}?from=mdouban&open=app`"
+                        :href="doubanDispatchUrl(item.subject_id, item.type)"
                         target="_blank"
+                        rel="noopener noreferrer"
                         class="dc-poster"
                         :title="item.subject_name"
                       >
@@ -373,10 +396,10 @@ onMounted(load)
           <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? rankNameOf(dialogItem.rk, dialogItem.item) : '' }}</VCardSubtitle>
         </VCardItem>
         <VDivider />
-        <VCardActions class="pa-3 pt-2" style="gap: 8px">
+        <VCardActions class="pa-3 pt-2 dc-dialog-actions">
           <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
           <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
-          <VBtn :href="sourceButtonUrl() || undefined" target="_blank" rel="noopener noreferrer" variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none">{{ sourceButtonLabel() }}</VBtn>
+          <VBtn :href="sourceButtonHref() || undefined" target="_blank" rel="noopener noreferrer" variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none" @click="openSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
@@ -407,10 +430,18 @@ onMounted(load)
 .dc-rank-num { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; }
 .dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
 .dc-dialog-action { flex: 1 1 0; min-width: 0; height: 36px; }
+.dc-dialog-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .dc-dialog-action--tmdb {
   color: #0288d1 !important;
   color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;
 }
-@media (max-width: 960px) { .dc-rank-grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 600px) { .dc-rank-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 960px) { .dc-rank-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+  .dc-card :deep(.v-card-item) { padding: 10px 12px; }
+  .dc-card :deep(.v-card-subtitle) { display: none; }
+  .dc-rank-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .dc-rank-cell { padding: 6px; }
+  .dc-action-dialog { width: min(420px, calc(100vw - 24px)); max-width: calc(100vw - 24px); }
+}
+@media (max-width: 360px) { .dc-rank-grid { grid-template-columns: minmax(0, 1fr); } }
 </style>

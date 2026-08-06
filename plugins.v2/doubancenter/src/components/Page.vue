@@ -393,6 +393,28 @@ function sourceButtonUrl() {
   return sourceDescriptor(rk, item, configData.value).url
 }
 
+function sourceButtonAppUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, configData.value).appUrl || ''
+}
+
+function sourceButtonHref() {
+  const webUrl = sourceButtonUrl()
+  return sourceButtonAppUrl() || webUrl
+}
+
+function openSource(event) {
+  const appUrl = sourceButtonAppUrl()
+  if (!appUrl) {
+    showDialog.value = false
+    return
+  }
+  event?.preventDefault?.()
+  showDialog.value = false
+  window.open(appUrl, '_blank')
+}
+
 function doOpenTmdb() {
   if (!dialogItem.value) return
   const { rk, item } = dialogItem.value
@@ -416,10 +438,10 @@ onMounted(loadAll)
         <div class="text-caption text-medium-emphasis">{{ archivePage ? '删除进入归档，支持恢复或彻底删除' : '榜单刷新 -> 黑名筛选 -> 观察队列 -> 订阅记录' }}</div>
       </div>
       <VSpacer />
-      <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-1" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">刷新</VBtn>
-      <VBtn variant="text" size="small" :prepend-icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" class="text-none me-1" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">{{ archivePage ? '返回' : '归档' }}</VBtn>
-      <VBtn v-if="!props.appPage" variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1" @click="emit('switch')">设置</VBtn>
-      <VBtn v-if="!props.appPage" icon="mdi-close" variant="text" size="small" @click="emit('close')" />
+      <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-1 dc-toolbar-action" title="刷新" aria-label="刷新" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">刷新</VBtn>
+      <VBtn variant="text" size="small" :prepend-icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" class="text-none me-1 dc-toolbar-action" :title="archivePage ? '返回' : '归档'" :aria-label="archivePage ? '返回' : '归档'" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">{{ archivePage ? '返回' : '归档' }}</VBtn>
+      <VBtn v-if="!props.appPage" variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1 dc-toolbar-action" title="设置" aria-label="设置" @click="emit('switch')">设置</VBtn>
+      <VBtn v-if="!props.appPage" icon="mdi-close" variant="text" size="small" class="dc-toolbar-action" title="关闭" aria-label="关闭" @click="emit('close')" />
     </VToolbar>
     <VDivider />
     <VProgressLinear v-if="loading" indeterminate color="primary" height="2" />
@@ -591,10 +613,10 @@ onMounted(loadAll)
           <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? rankNameOf(dialogItem.rk, dialogItem.item) : '' }}</VCardSubtitle>
         </VCardItem>
         <VDivider />
-        <VCardActions class="pa-3 pt-2" style="gap: 8px">
+        <VCardActions class="pa-3 pt-2 dc-dialog-actions">
           <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
           <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
-          <VBtn :href="sourceButtonUrl() || undefined" target="_blank" rel="noopener noreferrer" variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none">{{ sourceButtonLabel() }}</VBtn>
+          <VBtn :href="sourceButtonHref() || undefined" target="_blank" rel="noopener noreferrer" variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none" @click="openSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
@@ -659,19 +681,30 @@ onMounted(loadAll)
 .dc-row-status { max-width: 160px; }
 .dc-row-action { flex: 0 0 auto; }
 .dc-dialog-action { flex: 1 1 0; min-width: 0; height: 36px; }
+.dc-dialog-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .dc-dialog-action--tmdb {
   color: #0288d1 !important;
   color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;
 }
 @media (max-width: 760px) {
+  .dc-page-toolbar { min-height: 56px; padding-inline: 4px; }
+  .dc-page-toolbar :deep(.v-avatar) { display: none; }
+  .dc-page-heading { flex: 1 1 auto; max-width: calc(100% - 144px); }
+  .dc-page-heading .text-h6 { font-size: 15px !important; }
+  .dc-page-heading .text-caption { display: none; }
+  .dc-toolbar-action { flex: 0 0 36px; min-width: 36px !important; width: 36px; padding-inline: 0 !important; }
+  .dc-toolbar-action :deep(.v-btn__content) { display: none; }
+  .dc-toolbar-action :deep(.v-btn__prepend) { margin-inline: 0; }
   .dc-flow { grid-template-columns: 1fr; }
   .dc-section { grid-column: 1 / -1; padding: 10px; }
-  .dc-rank-grid { grid-template-columns: repeat(6, 150px); overflow-x: auto; padding-bottom: 2px; }
+  .dc-rank-grid { grid-template-columns: minmax(0, 1fr); overflow-x: visible; padding-bottom: 0; }
+  .dc-rank-card { width: 100%; }
   .dc-history-row { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 4px; padding: 4px 6px; }
   .dc-archive-row { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
   .dc-status-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
   .dc-row-status { max-width: 96px; }
   .dc-history-meta .v-chip { max-width: 120px; }
   .dc-history-row span.text-caption { display: none; }
+  .dc-action-dialog { width: min(420px, calc(100vw - 24px)); max-width: calc(100vw - 24px); }
 }
 </style>

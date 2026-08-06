@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-ChLM6U1z.js';
-import { s as sourceDescriptor } from './source-DxmGXHM6.js';
+import { s as sourceDescriptor } from './source-BA3qKZgr.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,unref:_unref,withModifiers:_withModifiers} = await importShared('vue');
 
@@ -523,6 +523,28 @@ function sourceButtonUrl() {
   return sourceDescriptor(rk, item, configData.value).url
 }
 
+function sourceButtonAppUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value;
+  return sourceDescriptor(rk, item, configData.value).appUrl || ''
+}
+
+function sourceButtonHref() {
+  const webUrl = sourceButtonUrl();
+  return sourceButtonAppUrl() || webUrl
+}
+
+function openSource(event) {
+  const appUrl = sourceButtonAppUrl();
+  if (!appUrl) {
+    showDialog.value = false;
+    return
+  }
+  event?.preventDefault?.();
+  showDialog.value = false;
+  window.open(appUrl, '_blank');
+}
+
 function doOpenTmdb() {
   if (!dialogItem.value) return
   const { rk, item } = dialogItem.value;
@@ -585,7 +607,9 @@ return (_ctx, _cache) => {
             variant: "text",
             size: "small",
             "prepend-icon": "mdi-refresh",
-            class: "text-none me-1",
+            class: "text-none me-1 dc-toolbar-action",
+            title: "刷新",
+            "aria-label": "刷新",
             loading: loading.value,
             onClick: _cache[0] || (_cache[0] = $event => (archivePage.value ? loadArchive() : loadAll()))
           }, {
@@ -598,7 +622,9 @@ return (_ctx, _cache) => {
             variant: "text",
             size: "small",
             "prepend-icon": archivePage.value ? 'mdi-arrow-left' : 'mdi-archive-outline',
-            class: "text-none me-1",
+            class: "text-none me-1 dc-toolbar-action",
+            title: archivePage.value ? '返回' : '归档',
+            "aria-label": archivePage.value ? '返回' : '归档',
             color: archivePage.value ? 'primary' : undefined,
             onClick: _cache[1] || (_cache[1] = $event => (archivePage.value ? closeArchivePage() : openArchivePage()))
           }, {
@@ -606,14 +632,16 @@ return (_ctx, _cache) => {
               _createTextVNode(_toDisplayString(archivePage.value ? '返回' : '归档'), 1)
             ]),
             _: 1
-          }, 8, ["prepend-icon", "color"]),
+          }, 8, ["prepend-icon", "title", "aria-label", "color"]),
           (!props.appPage)
             ? (_openBlock(), _createBlock(_component_VBtn, {
                 key: 0,
                 variant: "text",
                 size: "small",
                 "prepend-icon": "mdi-cog-outline",
-                class: "text-none me-1",
+                class: "text-none me-1 dc-toolbar-action",
+                title: "设置",
+                "aria-label": "设置",
                 onClick: _cache[2] || (_cache[2] = $event => (emit('switch')))
               }, {
                 default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
@@ -628,6 +656,9 @@ return (_ctx, _cache) => {
                 icon: "mdi-close",
                 variant: "text",
                 size: "small",
+                class: "dc-toolbar-action",
+                title: "关闭",
+                "aria-label": "关闭",
                 onClick: _cache[3] || (_cache[3] = $event => (emit('close')))
               }))
             : _createCommentVNode("", true)
@@ -1248,10 +1279,7 @@ return (_ctx, _cache) => {
                 _: 1
               }),
               _createVNode(_component_VDivider),
-              _createVNode(_component_VCardActions, {
-                class: "pa-3 pt-2",
-                style: {"gap":"8px"}
-              }, {
+              _createVNode(_component_VCardActions, { class: "pa-3 pt-2 dc-dialog-actions" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
@@ -1278,14 +1306,15 @@ return (_ctx, _cache) => {
                     _: 1
                   }, 8, ["disabled"]),
                   _createVNode(_component_VBtn, {
-                    href: sourceButtonUrl() || undefined,
+                    href: sourceButtonHref() || undefined,
                     target: "_blank",
                     rel: "noopener noreferrer",
                     variant: "tonal",
                     color: sourceButtonColor(),
                     "prepend-icon": sourceButtonIcon(),
                     disabled: !sourceButtonUrl(),
-                    class: "dc-dialog-action text-none"
+                    class: "dc-dialog-action text-none",
+                    onClick: openSource
                   }, {
                     default: _withCtx(() => [
                       _createTextVNode(_toDisplayString(sourceButtonLabel()), 1)
@@ -1308,6 +1337,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-da338a6d"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d9ec8ae0"]]);
 
 export { Page as default };

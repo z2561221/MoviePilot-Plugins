@@ -52,6 +52,27 @@ function doubanSubjectUrl(subjectId) {
   return `https://movie.douban.com/subject/${encodeURIComponent(stringValue(subjectId))}/`
 }
 
+function mediaSubtypeOf(rankKey, item, config) {
+  const rawType = stringValue(item?.media_type || item?.mtype || item?.type).toLowerCase()
+  if (rawType === 'movie' || rawType === '电影') return 'movie'
+  if (rawType === 'tv' || rawType === '电视剧') return 'tv'
+  const custom = (config?.custom_ranks || []).find(entry => entry?.key === rankKey)
+  if (custom?.media_type === 'movie') return 'movie'
+  if (custom?.media_type === 'tv') return 'tv'
+  return rankKey === 'movie_weekly' ? 'movie' : 'tv'
+}
+
+export function doubanDispatchUrl(subjectId, mediaType = 'tv') {
+  const id = stringValue(subjectId)
+  if (!id) return ''
+  const subtype = mediaType === 'movie' || mediaType === '电影' ? 'movie' : 'tv'
+  const uri = subtype === 'movie'
+    ? `/movie/${encodeURIComponent(id)}?from=mdouban&open=app`
+    : `/subject/${encodeURIComponent(id)}?subtype=tv&from=mdouban&open=app`
+  // 豆瓣原生榜单使用未编码的 uri 参数，dispatch 页面才能继续唤起 douban:// 深链。
+  return `https://www.douban.com/doubanapp/dispatch?uri=${uri}`
+}
+
 function doubanSearchUrl(item) {
   const title = stringValue(item?.title || item?.name)
   const year = stringValue(item?.year)
@@ -68,12 +89,25 @@ function isDoubanSubjectLink(value) {
   }
 }
 
-function doubanSourceUrl(item) {
+function subjectIdOf(item) {
   const subjectId = item?.douban_id || item?.doubanid
+  if (subjectId) return stringValue(subjectId)
+  const link = stringValue(item?.link)
+  const match = link.match(/\/subject\/(\d+)/i)
+  return match ? match[1] : ''
+}
+
+function doubanSourceUrl(item) {
+  const subjectId = subjectIdOf(item)
   if (subjectId) return doubanSubjectUrl(subjectId)
   const link = stringValue(item?.link)
   if (isDoubanSubjectLink(link)) return link
   return doubanSearchUrl(item)
+}
+
+function doubanAppUrl(rankKey, item, config) {
+  const subjectId = subjectIdOf(item)
+  return subjectId ? doubanDispatchUrl(subjectId, mediaSubtypeOf(rankKey, item, config)) : ''
 }
 
 export function sourceDescriptor(rankKey, item, config) {
@@ -88,7 +122,13 @@ export function sourceDescriptor(rankKey, item, config) {
 
   const isDouban = Boolean(item?.douban_id || item?.doubanid) || isDoubanHost(link) || isDoubanHost(sourceLink) || isDoubanRoute(route)
   if (isDouban || customRank) {
-    return { label: '豆瓣', icon: 'mdi-open-in-new', color: '#08B810', url: doubanSourceUrl(item) }
+    return {
+      label: '豆瓣',
+      icon: 'mdi-open-in-new',
+      color: '#08B810',
+      url: doubanSourceUrl(item),
+      appUrl: doubanAppUrl(rankKey, item, config),
+    }
   }
 
   return { label: '详情', icon: 'mdi-link-variant', color: 'primary', url: link || sourceLink }

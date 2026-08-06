@@ -1,8 +1,8 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-ChLM6U1z.js';
-import { s as sourceDescriptor } from './source-DxmGXHM6.js';
+import { d as doubanDispatchUrl, s as sourceDescriptor } from './source-BA3qKZgr.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeStyle:_normalizeStyle,unref:_unref} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,unref:_unref,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dc-load-alert__content" };
@@ -301,6 +301,28 @@ function sourceButtonUrl() {
   return sourceDescriptor(rk, item, config.value).url
 }
 
+function sourceButtonAppUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value;
+  return sourceDescriptor(rk, item, config.value).appUrl || ''
+}
+
+function sourceButtonHref() {
+  const webUrl = sourceButtonUrl();
+  return sourceButtonAppUrl() || webUrl
+}
+
+function openSource(event) {
+  const appUrl = sourceButtonAppUrl();
+  if (!appUrl) {
+    showDialog.value = false;
+    return
+  }
+  event?.preventDefault?.();
+  showDialog.value = false;
+  window.open(appUrl, '_blank');
+}
+
 function doOpenTmdb() {
   if (!dialogItem.value) return
   const { rk, item } = dialogItem.value;
@@ -506,8 +528,9 @@ return (_ctx, _cache) => {
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(group.items, (item) => {
                                   return (_openBlock(), _createElementBlock("a", {
                                     key: item.key,
-                                    href: `https://www.douban.com/doubanapp/dispatch?uri=/movie/${item.subject_id}?from=mdouban&open=app`,
+                                    href: _unref(doubanDispatchUrl)(item.subject_id, item.type),
                                     target: "_blank",
+                                    rel: "noopener noreferrer",
                                     class: "dc-poster",
                                     title: item.subject_name
                                   }, [
@@ -652,10 +675,7 @@ return (_ctx, _cache) => {
                 _: 1
               }),
               _createVNode(_component_VDivider),
-              _createVNode(_component_VCardActions, {
-                class: "pa-3 pt-2",
-                style: {"gap":"8px"}
-              }, {
+              _createVNode(_component_VCardActions, { class: "pa-3 pt-2 dc-dialog-actions" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
@@ -682,14 +702,15 @@ return (_ctx, _cache) => {
                     _: 1
                   }, 8, ["disabled"]),
                   _createVNode(_component_VBtn, {
-                    href: sourceButtonUrl() || undefined,
+                    href: sourceButtonHref() || undefined,
                     target: "_blank",
                     rel: "noopener noreferrer",
                     variant: "tonal",
                     color: sourceButtonColor(),
                     "prepend-icon": sourceButtonIcon(),
                     disabled: !sourceButtonUrl(),
-                    class: "dc-dialog-action text-none"
+                    class: "dc-dialog-action text-none",
+                    onClick: openSource
                   }, {
                     default: _withCtx(() => [
                       _createTextVNode(_toDisplayString(sourceButtonLabel()), 1)
@@ -712,6 +733,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f0a8013c"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-80490bcb"]]);
 
 export { Dashboard as default };
