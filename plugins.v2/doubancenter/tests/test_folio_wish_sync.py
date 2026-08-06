@@ -269,6 +269,52 @@ class FolioWishSyncTest(unittest.TestCase):
 
         self.assertEqual(plugin.data.get("folio_wish_queue"), [])
 
+    def test_later_run_recovers_exhausted_legacy_recognition_input(self):
+        """旧识别输入已耗尽重试时会按新输入策略恢复一次。"""
+        plugin = _MemoryPlugin()
+        plugin.data["folio_wish_state"] = {"initialized": True}
+        plugin.data["folio_wish_seen"] = [{"subject_id": "1", "title": "旧标题"}]
+        plugin.data["folio_wish_failed"] = [
+            {
+                "subject_id": "1",
+                "title": "年会不能停！2 / 年会不能停2 / 年会不能停2！",
+                "reason": "recognize_failed",
+                "retry": folio.WISH_RECOGNIZE_MAX_RETRIES,
+            }
+        ]
+
+        folio.run_wish_sync(
+            plugin,
+            api=_FakeApi([_item("1", "年会不能停！2 / 年会不能停2 / 年会不能停2！")]),
+        )
+
+        queue = plugin.data.get("folio_wish_queue") or []
+        self.assertEqual([r["subject_id"] for r in queue], ["1"])
+        self.assertEqual(queue[0].get("retry"), 0)
+        self.assertEqual(plugin.data.get("folio_wish_failed"), [])
+
+    def test_later_run_does_not_recover_exhausted_current_recognition_input(self):
+        """当前识别输入已连续失败三次后仍停止自动重试。"""
+        plugin = _MemoryPlugin()
+        plugin.data["folio_wish_state"] = {"initialized": True}
+        plugin.data["folio_wish_seen"] = [{"subject_id": "1", "title": "旧标题"}]
+        plugin.data["folio_wish_failed"] = [
+            {
+                "subject_id": "1",
+                "title": "年会不能停！2 / 年会不能停2 / 年会不能停2！",
+                "reason": "recognize_failed",
+                "recognize_title": "年会不能停！2",
+                "retry": folio.WISH_RECOGNIZE_MAX_RETRIES,
+            }
+        ]
+
+        folio.run_wish_sync(
+            plugin,
+            api=_FakeApi([_item("1", "年会不能停！2 / 年会不能停2 / 年会不能停2！")]),
+        )
+
+        self.assertEqual(plugin.data.get("folio_wish_queue"), [])
+
     def test_default_sync_passes_user_and_recent_days(self):
         """默认同步带上配置的想看用户和最近天数。"""
         plugin = _MemoryPlugin()
@@ -306,7 +352,7 @@ class FolioWishQueueProcessTest(unittest.TestCase):
         return plugin
 
     def test_default_recognizer_uses_full_recognition_chain(self):
-        """默认想看识别复用系统完整识别链并保留年份。"""
+        """默认想看识别提取主标题并复用系统完整识别链。"""
         calls = []
 
         class _MetaInfo:
@@ -330,7 +376,10 @@ class FolioWishQueueProcessTest(unittest.TestCase):
         folio.MetaInfo = _MetaInfo
         folio.MediaChain = _MediaChain
         try:
-            result = folio._default_wish_recognize(_MemoryPlugin())("年会不能停！2", "2026")
+            result = folio._default_wish_recognize(_MemoryPlugin())(
+                "年会不能停！2 / 年会不能停2 / 年会不能停2！",
+                "2026",
+            )
         finally:
             folio.MetaInfo = original_meta
             folio.MediaChain = original_chain
