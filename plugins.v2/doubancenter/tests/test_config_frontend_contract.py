@@ -86,6 +86,27 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("@media(max-width:760px)", compact_css)
         self.assertIn("grid-template-columns:1fr", compact_css)
 
+    def test_rank_list_uses_layout_safe_detail_transition(self):
+        """榜单详情展开应避免高度动画引发整列重排。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        self.assertIn('<Transition name="dc-rank-details">', text)
+        self.assertNotIn("<VExpandTransition>", text)
+        self.assertIn(
+            ".dc-rank-details-enter-active,\n.dc-rank-details-leave-active { transition: opacity .15s ease, transform .15s ease;",
+            text,
+        )
+        self.assertIn(
+            ".dc-rank-details-enter-from,\n.dc-rank-details-leave-to { opacity: 0; transform: translateY(-4px); }",
+            text,
+        )
+        self.assertNotIn("transition: height", text)
+
+        compact_css = _compact_css(_active_css_text("./Config"))
+        self.assertIn("transition:opacity.15sease,transform.15sease", compact_css)
+        self.assertIn("transform:translateY(-4px)", compact_css)
+        self.assertNotIn("transition:height", compact_css)
+
     def test_config_normalizes_legacy_null_nested_config(self):
         """旧配置中的空嵌套对象不应导致 Vue 设置页白屏。"""
         text = CONFIG_VUE.read_text(encoding="utf-8")

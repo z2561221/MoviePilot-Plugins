@@ -412,7 +412,7 @@ onMounted(loadOverview)
                       </VBtn>
                     </div>
                   </div>
-                  <VExpandTransition>
+                  <Transition name="dc-rank-details">
                     <div v-if="isExpanded(rd.key)" class="dc-rank-card-details">
                       <div class="dc-rank-card-body">
                         <VCheckbox v-model="form.rank_configs[rd.key].enabled" label="自动订阅" color="primary" hide-details density="compact" class="dc-rank-detail-enable" />
@@ -428,7 +428,7 @@ onMounted(loadOverview)
                       </div>
                       <div v-else class="dc-rank-route-hint text-caption text-medium-emphasis">路由：{{ rd.route }}</div>
                     </div>
-                  </VExpandTransition>
+                  </Transition>
                 </div>
               </div>
               <div v-if="!form.custom_ranks.length" class="dc-custom-ranks-empty text-caption text-medium-emphasis">尚未添加自定义榜单</div>
@@ -627,6 +627,11 @@ onMounted(loadOverview)
 .dc-custom-rank-route-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.5fr); gap: 8px; align-items: end; min-width: 0; }
 .dc-custom-rank-route { min-width: 0; }
 .dc-rank-route-hint { overflow-wrap: anywhere; }
+
+.dc-rank-details-enter-active,
+.dc-rank-details-leave-active { transition: opacity .15s ease, transform .15s ease; will-change: opacity, transform; }
+.dc-rank-details-enter-from,
+.dc-rank-details-leave-to { opacity: 0; transform: translateY(-4px); }
 
 @media (max-width: 760px) {
   .dc-rank-card-summary { grid-template-columns: 34px 34px minmax(0, 1fr) 40px; padding: 6px 4px; }

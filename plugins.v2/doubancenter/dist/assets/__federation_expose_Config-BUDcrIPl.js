@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, a as getPluginApi } from './_plugin-vue_export-helper-Cd7yiqDA.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives,withModifiers:_withModifiers} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives,withModifiers:_withModifiers,Transition:_Transition} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dc-config" };
@@ -400,7 +400,6 @@ return (_ctx, _cache) => {
   const _component_VCheckbox = _resolveComponent("VCheckbox");
   const _component_VChip = _resolveComponent("VChip");
   const _component_VCombobox = _resolveComponent("VCombobox");
-  const _component_VExpandTransition = _resolveComponent("VExpandTransition");
   const _component_VCardText = _resolveComponent("VCardText");
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VCardActions = _resolveComponent("VCardActions");
@@ -860,7 +859,7 @@ return (_ctx, _cache) => {
                             : _createCommentVNode("", true)
                         ])
                       ]),
-                      _createVNode(_component_VExpandTransition, null, {
+                      _createVNode(_Transition, { name: "dc-rank-details" }, {
                         default: _withCtx(() => [
                           (isExpanded(rd.key))
                             ? (_openBlock(), _createElementBlock("div", _hoisted_42, [
@@ -1512,6 +1511,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2b3b9352"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4b8b4579"]]);
 
 export { Config as default };
