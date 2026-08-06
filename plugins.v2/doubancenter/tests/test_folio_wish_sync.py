@@ -240,6 +240,35 @@ class FolioWishSyncTest(unittest.TestCase):
         self.assertEqual([r["subject_id"] for r in queue], ["2"])
         self.assertEqual(seen_ids, {"1", "2"})
 
+    def test_later_run_recovers_recent_retryable_failure(self):
+        """最近 feed 中仍存在的识别失败条目会恢复进重试队列。"""
+        plugin = _MemoryPlugin()
+        plugin.data["folio_wish_state"] = {"initialized": True}
+        plugin.data["folio_wish_seen"] = [{"subject_id": "1", "title": "甲"}]
+        plugin.data["folio_wish_failed"] = [
+            {"subject_id": "1", "title": "甲", "reason": "recognize_failed", "retry": 1}
+        ]
+
+        folio.run_wish_sync(plugin, api=_FakeApi([_item("1", "甲")]))
+
+        queue = plugin.data.get("folio_wish_queue") or []
+        self.assertEqual([r["subject_id"] for r in queue], ["1"])
+        self.assertEqual(queue[0].get("retry"), 1)
+
+    def test_later_run_does_not_recover_superseded_recognition_failure(self):
+        """最新失败已进入订阅阶段时不再恢复识别重试。"""
+        plugin = _MemoryPlugin()
+        plugin.data["folio_wish_state"] = {"initialized": True}
+        plugin.data["folio_wish_seen"] = [{"subject_id": "1", "title": "甲"}]
+        plugin.data["folio_wish_failed"] = [
+            {"subject_id": "1", "reason": "recognize_failed", "retry": 1},
+            {"subject_id": "1", "reason": "subscribe_failed", "retry": 1},
+        ]
+
+        folio.run_wish_sync(plugin, api=_FakeApi([_item("1", "甲")]))
+
+        self.assertEqual(plugin.data.get("folio_wish_queue"), [])
+
     def test_default_sync_passes_user_and_recent_days(self):
         """默认同步带上配置的想看用户和最近天数。"""
         plugin = _MemoryPlugin()
@@ -298,7 +327,7 @@ class FolioWishQueueProcessTest(unittest.TestCase):
         self.assertEqual({r["subject_id"] for r in processed}, {"1", "2"})
 
     def test_process_queue_records_failed_recognition_without_crash(self):
-        """\u8bc6\u522b\u5931\u8d25\u7684\u6761\u76ee\u4f1a\u88ab\u8bb0\u5f55\u4e14\u4e0d\u5d29\u6e83\u8c03\u5ea6\u3002"""
+        """识别失败条目会记录失败并保留到下一运行周期。"""
         plugin = self._plugin_with_queue()
 
         def fake_recognize(title, year):
@@ -317,7 +346,47 @@ class FolioWishQueueProcessTest(unittest.TestCase):
         failed = plugin.data.get("folio_wish_failed") or []
         self.assertEqual({r["subject_id"] for r in failed}, {"1"})
         self.assertEqual(subscribed, ["\u4e59"])
+        queue = plugin.data.get("folio_wish_queue") or []
+        self.assertEqual([r["subject_id"] for r in queue], ["1"])
+        self.assertEqual(queue[0].get("retry"), 1)
+
+    def test_process_queue_clears_failure_after_retry_succeeds(self):
+        """识别重试成功后会清空队列和对应失败记录。"""
+        plugin = _MemoryPlugin()
+        plugin.data["folio_wish_state"] = {"initialized": True}
+        plugin.data["folio_wish_queue"] = [_item("1", "甲")]
+        attempts = []
+
+        def fake_recognize(title, year):
+            attempts.append(title)
+            if len(attempts) == 1:
+                return None
+            return types.SimpleNamespace(title=title, year=year, tmdb_id=1)
+
+        def fake_subscribe(self, mediainfo, meta=None, rank_key="", rank_name="", source_link=""):
+            return True
+
+        folio.process_wish_queue(plugin, recognize=fake_recognize, subscribe=fake_subscribe)
+        folio.process_wish_queue(plugin, recognize=fake_recognize, subscribe=fake_subscribe)
+
+        self.assertEqual(attempts, ["甲", "甲"])
         self.assertEqual(plugin.data.get("folio_wish_queue"), [])
+        self.assertEqual(plugin.data.get("folio_wish_failed"), [])
+        processed = plugin.data.get("folio_wish_processed") or []
+        self.assertEqual([r["subject_id"] for r in processed], ["1"])
+
+    def test_process_queue_stops_after_three_recognition_failures(self):
+        """识别连续失败三次后停止自动重试。"""
+        plugin = _MemoryPlugin()
+        plugin.data["folio_wish_state"] = {"initialized": True}
+        plugin.data["folio_wish_queue"] = [_item("1", "甲")]
+
+        for _ in range(folio.WISH_RECOGNIZE_MAX_RETRIES):
+            folio.process_wish_queue(plugin, recognize=lambda title, year: None, subscribe=lambda *a, **k: True)
+
+        self.assertEqual(plugin.data.get("folio_wish_queue"), [])
+        failed = plugin.data.get("folio_wish_failed") or []
+        self.assertEqual([r.get("retry") for r in failed], [1, 2, 3])
 
     def test_process_queue_marks_existing_without_infinite_retry(self):
         """\u5df2\u5b58\u5728\u8ba2\u9605\u7684\u6761\u76ee\u4e0d\u4f1a\u65e0\u9650\u91cd\u8bd5\u3002"""
