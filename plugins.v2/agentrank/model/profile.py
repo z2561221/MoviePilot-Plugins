@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping
 
 
-PROFILE_SCHEMA_VERSION = 7
+PROFILE_SCHEMA_VERSION = 8
 RETRIEVAL_RESOLUTION_VERSION = 1
 
 

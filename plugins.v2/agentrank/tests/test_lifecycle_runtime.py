@@ -134,8 +134,8 @@ def test_runtime_wires_configured_critic_and_persona_prompts_into_agent_services
     assert source.count('persona_prompt=str(config.get("persona_prompt") or "")') == 3
 
 
-def test_runtime_does_not_wire_pending_items_to_telegram_notifications():
-    """提案、问询和命令只进入待办中心，不注册 Telegram 待办通知回调。"""
+def test_runtime_wires_pending_items_to_telegram_notifications():
+    """提案、问询和命令生成后都注册 Telegram 待办通知回调。"""
     class Conversation:
         def __init__(self):
             self.pending_handler = "unset"
@@ -164,8 +164,8 @@ def test_runtime_does_not_wire_pending_items_to_telegram_notifications():
         feedback_queue=queue,
     )
 
-    assert conversation.pending_handler == "unset"
-    assert queue.completion_handler == "unset"
+    assert callable(conversation.pending_handler)
+    assert callable(queue.completion_handler)
 
 
 def test_disabled_or_schedule_off_runtime_registers_no_service():

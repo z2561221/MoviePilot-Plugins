@@ -318,6 +318,106 @@ def test_two_verified_positive_claims_are_required():
     assert validated.dropped[0].reason == "insufficient_verified_evidence"
 
 
+def test_verified_claims_drive_match_tags_instead_of_unrelated_profile_tags():
+    """决赛展示标签必须与已验证证据同源，不能被旧画像标签误杀。"""
+    playback = _playback()
+    memory = PreferenceMemory.empty(PROFILE_ID)
+    policy = _policy(memory, playback)
+    parsed = RankingOutputParser().parse(
+        json.dumps(
+            {
+                "recommendations": [
+                    {
+                        "candidate_id": "tmdb:movie:99",
+                        "reason": "偏爱悬疑电影，这部悬疑电影围绕追凶展开。",
+                        "summary": "密室谜案牵出多年前的隐秘真相。",
+                        "match_tags": ["无关旧标签"],
+                        "positive_evidence": _claims(),
+                        "counter_evidence": [],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    validated = RecommendationValidator().validate(
+        parsed,
+        [_candidate()],
+        set(),
+        set(),
+        preference_evidence=["修仙玄幻"],
+        playback_samples=playback.samples,
+        policy_snapshot=policy,
+        confirmed_memory=memory,
+        profile_preferences=ProfilePreferences(profile_id=PROFILE_ID),
+        playback_snapshot=playback,
+    )
+
+    assert validated.dropped == []
+    assert validated.accepted[0].match_tags == ["电影", "悬疑"]
+
+
+def test_verified_claims_survive_semantic_copy_without_literal_labels():
+    """合法证据不因 Agent 对理由作自然同义改写而被误判为不足。"""
+    playback = _playback()
+    memory = PreferenceMemory.empty(PROFILE_ID)
+    policy = _policy(memory, playback)
+    parsed = RankingOutputParser().parse(
+        json.dumps(
+            {
+                "recommendations": [
+                    {
+                        "candidate_id": "tmdb:movie:99",
+                        "reason": "偏爱推理故事，这部作品围绕追凶展开。",
+                        "summary": "密室谜案牵出多年前的隐秘真相。",
+                        "match_tags": ["推理", "追凶"],
+                        "positive_evidence": _claims(),
+                        "counter_evidence": [],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    validated = RecommendationValidator().validate(
+        parsed,
+        [_candidate()],
+        set(),
+        set(),
+        preference_evidence=["悬疑"],
+        playback_samples=playback.samples,
+        policy_snapshot=policy,
+        confirmed_memory=memory,
+        profile_preferences=ProfilePreferences(profile_id=PROFILE_ID),
+        playback_snapshot=playback,
+    )
+
+    assert validated.dropped == []
+    assert validated.accepted[0].match_tags == ["电影", "悬疑"]
+
+
+def test_verified_claims_project_role_labels_for_long_values():
+    """长演员名无法直接作短标签时仍从证据维度生成稳定展示标签。"""
+    tags = RecommendationValidator._verified_evidence_tags(
+        [
+            {
+                "dimension": "actor",
+                "user_value": "克里斯托弗诺兰",
+                "candidate_value": "克里斯托弗诺兰",
+            },
+            {
+                "dimension": "director",
+                "user_value": "亚历杭德罗冈萨雷斯伊纳里图",
+                "candidate_value": "亚历杭德罗冈萨雷斯伊纳里图",
+            },
+        ]
+    )
+
+    assert tags == ["演员偏好", "演员契合"]
+
+
 def test_anime_candidate_uses_two_verified_themes_instead_of_tv_type():
     """动画候选可用两项稳定题材证据，不得把播放 tv 类型冒充 anime。"""
     playback = PlaybackSnapshot(
@@ -376,6 +476,52 @@ def test_anime_candidate_uses_two_verified_themes_instead_of_tv_type():
         ("theme", "动画", 2),
         ("theme", "科幻奇幻", 2),
     }
+
+
+def test_verified_evidence_options_are_directly_accepted_by_support_scorer():
+    """候选证据选项必须逐项来自同一校验规则且无需 Agent 改写。"""
+    playback = _playback()
+    memory = PreferenceMemory.empty(PROFILE_ID)
+    preferences = ProfilePreferences(
+        profile_id=PROFILE_ID,
+        custom_negative_tags=["中国"],
+    )
+    policy = _policy(memory, playback)
+    candidate = _candidate()
+    scorer = DeterministicSupportScorer()
+
+    options = scorer.verified_evidence_options(
+        candidate,
+        policy,
+        memory,
+        preferences,
+        playback,
+    )
+    result = scorer.score_candidate(
+        candidate,
+        policy,
+        options["positive_evidence_options"],
+        options["counter_evidence_options"],
+        memory,
+        preferences,
+        playback,
+    )
+
+    assert len(options["positive_evidence_options"]) >= 2
+    assert options["counter_evidence_options"] == [
+        {
+            "dimension": "region",
+            "user_value": "中国",
+            "candidate_value": "中国",
+        }
+    ]
+    assert result.verified_positive_count == len(
+        options["positive_evidence_options"]
+    )
+    assert result.verified_counter_claim_count == len(
+        options["counter_evidence_options"]
+    )
+    assert result.unsupported_claims == ()
 
 
 def test_counter_evidence_is_automatically_included_when_agent_omits_it():

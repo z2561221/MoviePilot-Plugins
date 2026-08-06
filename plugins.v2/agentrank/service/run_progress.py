@@ -64,10 +64,21 @@ class RunProgressSnapshot:
 class RunProgressStore:
     """按画像隔离保存页面刷新后仍可读取的运行期进度。"""
 
-    def __init__(self) -> None:
+    def __init__(self, agent_name: str = "CinePilot Agent") -> None:
         """创建空进度表并初始化并发保护。"""
         self._values: Dict[str, RunProgressSnapshot] = {}
         self._lock = threading.RLock()
+        self._agent_name = " ".join(str(agent_name or "").split()).strip()[:64] or "CinePilot Agent"
+
+    def _stage_message(self, stage: str) -> str:
+        """返回带用户配置名称的进度文案；默认文案保持兼容。"""
+        if self._agent_name == "CinePilot Agent":
+            return RUN_STAGE_MESSAGES.get(stage, "正在生成榜单")
+        if stage == "profile":
+            return f"{self._agent_name} 正在更新用户画像"
+        if stage == "ranking":
+            return f"{self._agent_name} 正在分析候选"
+        return RUN_STAGE_MESSAGES.get(stage, "正在生成榜单")
 
     @staticmethod
     def _profile_id(profile_id: Any) -> str:
@@ -97,7 +108,7 @@ class RunProgressStore:
             current = RunProgressSnapshot(
                 profile_id=target,
                 status="queued",
-                message=RUN_STAGE_MESSAGES["queued"],
+                message=self._stage_message("queued"),
                 started_at=now,
                 updated_at=now,
                 revision=revision,
@@ -121,8 +132,7 @@ class RunProgressStore:
             current.stage_index = self._stage_index(stage)
             current.message = str(
                 data.get("message")
-                or RUN_STAGE_MESSAGES.get(stage)
-                or "正在生成榜单"
+                or self._stage_message(stage)
             )[:120]
             current.updated_at = _now()
             return current.to_public_dict()

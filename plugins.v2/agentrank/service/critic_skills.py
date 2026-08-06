@@ -1,5 +1,6 @@
 """CinePilot Agent 使用的版本化无副作用分析 skills。"""
 
+import hashlib
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 
@@ -267,6 +268,101 @@ _PREFERENCE_QUESTION_CATALOG = (
 )
 
 
+_QUESTION_VARIANTS = {
+    "selection_basis": (
+        "平时挑选影视内容时，你通常最先看重什么？",
+        "看到一部还不了解的新作品时，什么最容易让你想点开？",
+        "如果要给推荐设一个优先级，你通常会先看哪一项？",
+    ),
+    "viewing_goal": (
+        "你最常希望一次观看带来什么体验？",
+        "最近打开一部作品时，你更期待它带来哪种感觉？",
+        "对你来说，一次满意的观看通常应该满足什么？",
+    ),
+    "story_focus": (
+        "在题材与设定之外，什么最容易让你继续看下去？",
+        "作品开篇之后，哪种内容最容易让你保持兴趣？",
+        "当题材已经对胃口时，什么因素会让你愿意继续追？",
+    ),
+    "pacing": (
+        "你通常更偏好哪种整体叙事节奏？",
+        "一部作品的节奏怎样安排，会让你看得更舒服？",
+        "面对不同类型的故事时，你通常希望叙事推进得多快？",
+    ),
+    "character_focus": (
+        "人物塑造中，哪种侧重点更吸引你？",
+        "你通常会因为人物的哪一面而更想继续看？",
+        "看一部群像或单主角作品时，什么样的人物表现更打动你？",
+    ),
+    "emotion_tone": (
+        "你通常更享受哪种观看情绪？",
+        "最近想看点什么时，你更希望作品带来哪种情绪？",
+        "一部作品的情绪氛围怎样，最容易让你觉得对味？",
+    ),
+    "creator_style": (
+        "主创因素会怎样影响你的选择？",
+        "挑选作品时，导演、演员或编剧会怎样影响你的判断？",
+        "你通常会在意作品背后的哪类主创信息？",
+    ),
+    "novelty_balance": (
+        "面对熟悉题材时，你更希望作品怎样变化？",
+        "熟悉的类型再出现时，你更期待它保留什么、改变什么？",
+        "如果题材已经很熟悉，你希望新作品靠什么带来新鲜感？",
+    ),
+    "structure_preference": (
+        "同样的故事，你更容易接受哪种讲述结构？",
+        "一部作品的故事展开方式怎样，会让你更容易投入？",
+        "面对复杂剧情时，你更希望作品怎样组织叙事？",
+    ),
+    "relationship_density": (
+        "角色关系复杂时，你更看重哪一点？",
+        "群像作品里的角色关系，哪种处理方式更吸引你？",
+        "当人物之间的联系变多时，什么会让你觉得关系写得好？",
+    ),
+    "emotional_intensity": (
+        "作品情绪较强时，你更适应哪种表达方式？",
+        "遇到情绪浓度较高的故事时，你更喜欢它怎样表达？",
+        "强烈情绪出现时，哪种处理方式最符合你的观看习惯？",
+    ),
+}
+
+
+_PLAYBACK_CALIBRATION_VARIANTS = (
+    "根据近期有效观看记录，未来推荐更应该延续熟悉体验，还是主动带来变化？",
+    "从最近真正看完的内容来看，下一轮推荐你更想继续相似方向，还是探索新方向？",
+    "结合这些有效观看样本，后续推荐更适合稳住熟悉感，还是多安排一些新鲜尝试？",
+)
+
+
+def _stable_variant_index(seed: str, size: int) -> int:
+    """按受信事件身份稳定选择文案变体，重试时不发生漂移。"""
+    if size <= 1:
+        return 0
+    digest = hashlib.sha256(str(seed or "").encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big") % size
+
+
+def ask_playback_calibration(
+    *,
+    selection_seed: str = "",
+) -> Dict[str, Any]:
+    """生成首次播放校准问询，问题变体稳定且保留安全兜底选项。"""
+    return {
+        "question": _PLAYBACK_CALIBRATION_VARIANTS[
+            _stable_variant_index(selection_seed, len(_PLAYBACK_CALIBRATION_VARIANTS))
+        ],
+        "options": [
+            "延续已看作品的共同点",
+            "主动尝试新的类型与风格",
+            "都可以",
+            "不确定",
+            "不是我看的",
+        ],
+        "allow_custom_answer": True,
+        "writes_applied": False,
+    }
+
+
 def ask_clarification(
     action: str,
     candidate_title: str,
@@ -274,6 +370,7 @@ def ask_clarification(
     *,
     question_history: Iterable[Mapping[str, Any]] = (),
     confirmed_memory: Mapping[str, Any] = None,
+    selection_seed: str = "",
 ) -> Dict[str, Any]:
     """按信息缺口从宽到细选择一个面向整体偏好的动态问题。"""
     del action, candidate_title
@@ -317,8 +414,19 @@ def ask_clarification(
         ranked.append((score, -index, template))
     selected = max(ranked, key=lambda item: (item[0], item[1]))[2]
     confidence_gap = max(0.2, min(1.0, 1.0 - 0.12 * len(active_memory)))
+    variants = _QUESTION_VARIANTS.get(str(selected["dimension"]), ())
+    question = (
+        variants[
+            _stable_variant_index(
+                f"{selection_seed}:{selected['dimension']}:{asked_counts.get(selected['dimension'], 0)}",
+                len(variants),
+            )
+        ]
+        if variants
+        else selected["question"]
+    )
     return {
-        "question": selected["question"],
+        "question": question,
         "options": list(selected["options"]),
         "allow_custom_answer": True,
         "uncertainties": _unique_texts(uncertainties, 8),
@@ -332,6 +440,15 @@ def ask_clarification(
 def style_clarification_question(question: str, persona_prompt: str = "") -> str:
     """按可编辑人设对问询做有界表达修饰，不改变问题语义或选项。"""
     text = _text(question, 220)
+    for prefix in (
+        "唔……根据实验数据，",
+        "想和你确认一下：",
+        "想确认一下：",
+        "根据当前信息，",
+    ):
+        if text.startswith(prefix):
+            text = text[len(prefix):].lstrip()
+            break
     persona = str(persona_prompt or "").strip().casefold()
     if not text or not persona:
         return text

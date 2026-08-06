@@ -37,6 +37,7 @@ function emptyBoard(profileId, username = '') {
     recommendations: [],
     generated_at: '',
     revision: 0,
+    consumption: null,
     message: '尚未生成榜单',
   }
 }
@@ -111,6 +112,14 @@ function useAgentRankState(api) {
   const runProgress = ref$1(emptyRunProgress(''));
   const history = ref$1([]);
   const historyMeta = ref$1({ total: 0, page: 1, page_size: 15 });
+  const boardHistory = ref$1([]);
+  const boardHistoryMeta = ref$1({
+    total: 0,
+    page: 1,
+    page_size: 10,
+    notice: '',
+    legacy_fallback: false,
+  });
   const loading = reactive({ options: false, data: false, action: '' });
   const error = ref$1(null);
   const feedback = ref$1(null);
@@ -122,10 +131,12 @@ function useAgentRankState(api) {
   const pendingCenter = ref$1(emptyPendingCenter());
   const processedCenter = ref$1({ ...emptyPendingCenter(), view: 'resolved' });
   const attribution = ref$1(emptyAttribution());
+  const learningHealth = ref$1(null);
   const exportedData = ref$1(null);
   const fullResetConfirmation = ref$1(null);
   const secondaryProfileId = ref$1('');
   const pendingFeedbackRequests = new Map();
+  const recordedExposureKeys = new Set();
 
   const identities = computed$1(() => {
     const configured = options.value.config?.emby_identities;
@@ -137,6 +148,11 @@ function useAgentRankState(api) {
   })));
   const selectedIdentity = computed$1(() => identities.value.find(identity => identity.profile_id === selectedProfileId.value) || null);
   const selectedUsername = computed$1(() => overview.value?.username || selectedIdentity.value?.username || '');
+  const agentDisplayName = computed$1(() => (
+    overview.value?.agent_display_name
+    || options.value.config?.agent_display_name
+    || 'CinePilot Agent'
+  ));
   const isRunning = computed$1(() => Boolean(runProgress.value?.active) || loading.action === 'refresh');
 
   function operationState(key) {
@@ -237,6 +253,14 @@ function useAgentRankState(api) {
     runProgress.value = emptyRunProgress(target, username);
     history.value = [];
     historyMeta.value = { total: 0, page: 1, page_size: 15 };
+    boardHistory.value = [];
+    boardHistoryMeta.value = {
+      total: 0,
+      page: 1,
+      page_size: 10,
+      notice: '',
+      legacy_fallback: false,
+    };
     Object.keys(analyses).forEach(key => delete analyses[key]);
     activity.value = [];
     conversation.value = emptyConversation();
@@ -244,6 +268,7 @@ function useAgentRankState(api) {
     pendingCenter.value = emptyPendingCenter(target);
     processedCenter.value = { ...emptyPendingCenter(target), view: 'resolved' };
     attribution.value = emptyAttribution(target);
+    learningHealth.value = null;
     exportedData.value = null;
     fullResetConfirmation.value = null;
   }
@@ -349,6 +374,7 @@ function useAgentRankState(api) {
     overview.value = overviewData;
     board.value = overviewData.board || emptyBoard(profileId, username);
     profile.value = overviewData.profile || emptyProfile(profileId, username);
+    learningHealth.value = overviewData.learning_health || null;
     history.value = recentHistory;
     historyMeta.value = {
       total: Number(overviewData.history_total ?? recentHistory.length),
@@ -566,7 +592,7 @@ function useAgentRankState(api) {
 
   async function clearProfile() {
     const targetProfile = activeProfileScope();
-    const result = await runAction('profile/clear', { profile_id: targetProfile, confirm: true }, '清除画像');
+    const result = await runAction('profile/clear', { profile_id: targetProfile, confirm: true }, '重建画像');
     await refreshProfileAfterMutation(targetProfile);
     return result
   }
@@ -596,6 +622,90 @@ function useAgentRankState(api) {
     );
     await refreshProfileAfterMutation(targetProfile);
     return result
+  }
+
+  async function recordBoardExposure(candidateIds = []) {
+    const targetProfile = activeProfileScope();
+    const currentBoard = board.value || emptyBoard(targetProfile);
+    if (!targetProfile || !currentBoard.run_id || !currentBoard.revision) return null
+    const key = `${targetProfile}:${currentBoard.run_id}:${currentBoard.revision}`;
+    if (recordedExposureKeys.has(key)) return null
+    const payload = {
+      profile_id: targetProfile,
+      run_id: currentBoard.run_id,
+      board_revision: currentBoard.revision,
+      candidate_ids: candidateIds,
+    };
+    try {
+      const result = await runOperation(
+        `consumption:exposure:${currentBoard.run_id}:${currentBoard.revision}`,
+        async ({ isCurrent }) => {
+          const response = await postPluginApi(api, 'consumption/exposure', payload);
+          recordedExposureKeys.add(key);
+          if (isCurrent() && selectedProfileId.value === targetProfile) {
+            board.value = { ...board.value, consumption: response?.consumption || null };
+            learningHealth.value = response?.learning_health || learningHealth.value;
+          }
+          return response
+        },
+        retryForProfile(targetProfile, () => recordBoardExposure(candidateIds)),
+        { globalError: false },
+      );
+      return result
+    } catch (error) {
+      recordedExposureKeys.delete(key);
+      throw error
+    }
+  }
+
+  async function recordRecommendationDetailOpened(candidateId) {
+    const targetProfile = activeProfileScope();
+    const currentBoard = board.value || emptyBoard(targetProfile);
+    if (!targetProfile || !currentBoard.run_id || !currentBoard.revision) return null
+    return runOperation(
+      `consumption:detail:${currentBoard.run_id}:${currentBoard.revision}:${candidateId}`,
+      async ({ isCurrent }) => {
+        const response = await postPluginApi(api, 'consumption/detail-opened', {
+          profile_id: targetProfile,
+          run_id: currentBoard.run_id,
+          board_revision: currentBoard.revision,
+          candidate_id: candidateId,
+        });
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          board.value = { ...board.value, consumption: response?.consumption || null };
+          learningHealth.value = response?.short_term?.learning_health || learningHealth.value;
+        }
+        return response
+      },
+      retryForProfile(targetProfile, () => recordRecommendationDetailOpened(candidateId)),
+      { globalError: false, throwOnError: false, fallback: null },
+    )
+  }
+
+  async function recordConsumptionInteraction(kind, candidateId, idempotencyKey = '') {
+    const targetProfile = activeProfileScope();
+    const currentBoard = board.value || emptyBoard(targetProfile);
+    if (!targetProfile || !currentBoard.run_id || !currentBoard.revision) return null
+    return runOperation(
+      `consumption:${kind}:${candidateId}`,
+      async ({ isCurrent }) => {
+        const response = await postPluginApi(api, 'consumption/interaction', {
+          profile_id: targetProfile,
+          run_id: currentBoard.run_id,
+          board_revision: currentBoard.revision,
+          candidate_id: candidateId,
+          kind,
+          idempotency_key: idempotencyKey || requestId(`consumption:${kind}`),
+        });
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          board.value = { ...board.value, consumption: response?.consumption || null };
+          learningHealth.value = response?.short_term?.learning_health || learningHealth.value;
+        }
+        return response
+      },
+      retryForProfile(targetProfile, () => recordConsumptionInteraction(kind, candidateId, idempotencyKey)),
+      { globalError: false, throwOnError: false, fallback: null },
+    )
   }
 
   function currentAnalysis(candidateId) {
@@ -667,6 +777,33 @@ function useAgentRankState(api) {
         return result
       },
       retryForProfile(targetProfile, () => loadConversation({ markRead })),
+      { globalError: false },
+    )
+  }
+
+  async function loadBoardHistory(page = 1, pageSize = 10) {
+    const targetProfile = activeProfileScope();
+    if (!targetProfile) return []
+    return runOperation(
+      'board-history',
+      async ({ isCurrent }) => {
+        const result = await getPluginApi(api, 'board-history', {
+          profile_id: targetProfile,
+          page,
+          page_size: pageSize,
+        });
+        if (!isCurrent() || selectedProfileId.value !== targetProfile) return result?.items || []
+        boardHistory.value = result?.items || [];
+        boardHistoryMeta.value = {
+          total: result?.total || 0,
+          page: result?.page || page,
+          page_size: result?.page_size || pageSize,
+          notice: result?.notice || '',
+          legacy_fallback: Boolean(result?.legacy_fallback),
+        };
+        return boardHistory.value
+      },
+      retryForProfile(targetProfile, () => loadBoardHistory(page, pageSize)),
       { globalError: false },
     )
   }
@@ -822,6 +959,21 @@ function useAgentRankState(api) {
     )
   }
 
+  async function loadLearningHealth() {
+    const targetProfile = activeProfileScope();
+    if (!targetProfile) return null
+    return runOperation(
+      'learning-health',
+      async ({ isCurrent }) => {
+        const result = await getPluginApi(api, 'learning-health', { profile_id: targetProfile });
+        if (isCurrent() && selectedProfileId.value === targetProfile) learningHealth.value = result;
+        return result
+      },
+      retryForProfile(targetProfile, loadLearningHealth),
+      { globalError: false, throwOnError: false, fallback: learningHealth.value },
+    )
+  }
+
   async function verifyAttribution() {
     const targetProfile = activeProfileScope();
     const payload = { profile_id: targetProfile };
@@ -922,12 +1074,15 @@ function useAgentRankState(api) {
     selectedProfileId,
     selectedIdentity,
     selectedUsername,
+    agentDisplayName,
     overview,
     board,
     profile,
     runProgress,
     history,
     historyMeta,
+    boardHistory,
+    boardHistoryMeta,
     loading,
     error,
     feedback,
@@ -939,6 +1094,7 @@ function useAgentRankState(api) {
     pendingCenter,
     processedCenter,
     attribution,
+    learningHealth,
     exportedData,
     fullResetConfirmation,
     isRunning,
@@ -948,6 +1104,7 @@ function useAgentRankState(api) {
     loadOptions,
     loadProfileData,
     loadHistory,
+    loadBoardHistory,
     loadRunProgress,
     refresh,
     archive,
@@ -958,6 +1115,9 @@ function useAgentRankState(api) {
     updateProfileTag,
     subscribe,
     recordNativeDrawerOpened,
+    recordBoardExposure,
+    recordRecommendationDetailOpened,
+    recordConsumptionInteraction,
     currentAnalysis,
     loadAnalysis,
     commentOnAnalysis,
@@ -969,6 +1129,7 @@ function useAgentRankState(api) {
     loadPendingCenter,
     respondPending,
     loadAttribution,
+    loadLearningHealth,
     verifyAttribution,
     loadDataExport,
     resetLearning,

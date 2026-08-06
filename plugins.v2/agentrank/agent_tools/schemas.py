@@ -1,11 +1,15 @@
 """AgentRank 终结型提交工具的严格 Pydantic schema。"""
 
+import re
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 CandidateId = str
+EXPLICIT_NEGATIVE_SUMMARY_PATTERN = re.compile(
+    r"(?<!不)(?:明确|已)?(?:排除|避雷)|(?:明确|已)?(?:不喜欢|拒绝|不看|不想看|不考虑)"
+)
 EvidenceDimension = Literal[
     "type",
     "theme",
@@ -32,7 +36,7 @@ class ProfileBody(_StrictSubmissionModel):
     summary: str = Field(min_length=1, max_length=200)
     tags: List[str] = Field(default_factory=list, max_length=20)
     negative_tags: List[str] = Field(default_factory=list, max_length=20)
-    playback_count: int = Field(ge=0)
+    playback_count: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def validate_tags(self):
@@ -43,6 +47,13 @@ class ProfileBody(_StrictSubmissionModel):
                 raise ValueError(f"{field_name} items must contain 1 to 20 characters")
             if len(values) != len(set(values)):
                 raise ValueError(f"{field_name} contains duplicate items")
+        if (
+            EXPLICIT_NEGATIVE_SUMMARY_PATTERN.search(self.summary)
+            and not self.negative_tags
+        ):
+            raise ValueError(
+                "profile.summary contains an explicit negative preference without negative_tags"
+            )
         return self
 
 
@@ -121,6 +132,19 @@ class EvidenceClaim(_StrictSubmissionModel):
     candidate_value: str = Field(min_length=1, max_length=80)
 
 
+class EvidenceReference(_StrictSubmissionModel):
+    """引用决赛上下文中已验证的证据选项。"""
+
+    evidence_ref: str = Field(
+        min_length=2,
+        max_length=4,
+        pattern=r"^[pc][1-8]$",
+    )
+
+
+EvidenceSelection = EvidenceClaim | EvidenceReference
+
+
 class BatchJudgment(_StrictSubmissionModel):
     """一条初赛判断卡。"""
 
@@ -145,11 +169,11 @@ class FinalRecommendation(_StrictSubmissionModel):
     candidate_id: CandidateId = Field(
         min_length=1, max_length=128, pattern=r"^[A-Za-z0-9:_-]+$"
     )
-    reason: str = Field(min_length=1, max_length=100)
-    summary: str = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=1, max_length=30)
+    summary: str = Field(min_length=1, max_length=30)
     match_tags: List[str] = Field(min_length=1, max_length=10)
-    positive_evidence: List[EvidenceClaim] = Field(min_length=2, max_length=8)
-    counter_evidence: List[EvidenceClaim] = Field(default_factory=list, max_length=8)
+    positive_evidence: List[EvidenceSelection] = Field(default_factory=list, max_length=8)
+    counter_evidence: List[EvidenceSelection] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def validate_match_tags(self):

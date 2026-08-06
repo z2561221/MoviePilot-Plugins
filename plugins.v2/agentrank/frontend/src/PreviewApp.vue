@@ -65,6 +65,7 @@ const config = {
   candidate_pool_size: 100,
   confidence_threshold: 0.6,
   action_mode: 'notify',
+  interaction_mode: 'auto',
   notify: true,
   notification_type: 'Plugin',
   auto_subscribe_top_n: 0,
@@ -285,6 +286,30 @@ function dataFor(path, params = {}) {
     return { run_id: 'preview-run', revision: boardRevision.value, status: status.value, generated_at: '2026-07-12T10:20:30+08:00', recommendations: visible }
   }
   if (path.endsWith('profile')) return profile
+  if (path.endsWith('board-history')) {
+    const items = history.slice(0, 10).map((run, index) => {
+      const recommendations = boardRecommendations.value.slice(0, 5).map((item, itemIndex) => ({
+        ...item,
+        history_state: index === 0 || itemIndex === 0 ? 'new' : 'repeat',
+      }))
+      return {
+        board: {
+          profile_id: identity.profile_id,
+          username: identity.username,
+          run_id: run.run_id,
+          status: run.status,
+          generated_at: run.finished_at,
+          message: run.status === 'recommendation_degraded' ? '榜单降级完成，安全候选池补位 1 条' : '榜单生成成功',
+          recommendations,
+        },
+        run: { ...run, profile_id: identity.profile_id, username: identity.username },
+        new_count: index === 0 ? 5 : 1,
+        overlap_count: index === 0 ? 0 : 4,
+        legacy_fallback: false,
+      }
+    })
+    return { profile_id: identity.profile_id, username: identity.username, items, total: items.length, page: 1, page_size: 10, notice: '', legacy_fallback: false }
+  }
   if (path.endsWith('run-history')) return { items: history.slice(0, 10).map(item => ({ ...item, profile_id: identity.profile_id, username: identity.username })), total: history.length, page: 1, page_size: 10 }
   if (path.endsWith('analysis')) return previewAnalysis(params)
   if (path.endsWith('conversation')) return previewConversation(identity)

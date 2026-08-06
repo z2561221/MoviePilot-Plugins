@@ -291,7 +291,7 @@ class FeedbackQueueService:
                 self._notify_completion(job, result)
         except Exception as error:
             safe_error = self._safe_error(error)
-            if job.attempts >= job.max_attempts:
+            if getattr(error, "terminal_retryable", False) or job.attempts >= job.max_attempts:
                 attention_job = job.needs_attention(error=safe_error, now=self._now())
             else:
                 delay = min(

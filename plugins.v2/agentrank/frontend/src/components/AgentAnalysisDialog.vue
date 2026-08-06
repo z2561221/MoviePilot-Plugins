@@ -18,6 +18,7 @@ const dimensionLabels = {
   type: '类型', theme: '题材', actor: '演员', director: '主创', region: '地区',
   year: '年代', rating: '评分', heat: '热度', freshness: '新鲜感', similarity: '相似性',
 }
+const confidenceLabels = { high: '高置信', medium: '中置信', exploration: '探索推荐' }
 
 function close() {
   emit('update:modelValue', false)
@@ -25,8 +26,16 @@ function close() {
 
 function evidenceText(evidence) {
   const dimension = dimensionLabels[evidence?.dimension] || evidence?.dimension || '内容特征'
-  const relation = evidence?.direction === 'negative' ? '存在冲突' : '具体匹配'
+  const relation = evidence?.direction === 'counter' ? '存在冲突' : '具体匹配'
   return `${dimension}：${evidence?.user_value || '偏好未注明'} 与 ${evidence?.candidate_value || '作品特征未注明'} ${relation}`
+}
+
+function dimensionText(values) {
+  return (values || []).map(value => dimensionLabels[value] || value).filter(Boolean).join('、') || '未记录'
+}
+
+function selectionText(value) {
+  return ({ agent: 'Agent主选', safe_fallback: '安全补位', returning: '回归推荐' }[value] || '历史来源')
 }
 
 function requestComment(label, content) {
@@ -84,6 +93,12 @@ watch(
         </VAlert>
         <VEmptyState v-else-if="!analysis" icon="mdi-text-box-remove-outline" title="分析暂不可用" />
         <div v-else class="ar-analysis__sections">
+          <div class="ar-analysis__evidence-overview">
+            <div><strong>{{ analysis.evidence_count || 0 }}</strong><span>证据数量</span></div>
+            <div><strong>{{ analysis.evidence_dimension_count || 0 }}</strong><span>证据维度</span></div>
+            <div><strong>{{ analysis.counter_evidence_count || 0 }}</strong><span>反证数量</span></div>
+            <div><strong>{{ confidenceLabels[analysis.confidence_level] || '探索推荐' }}</strong><span>置信等级</span></div>
+          </div>
           <section class="ar-analysis__summary" @click="requestComment('推荐判断', analysis.reason || analysis.summary)">
             <div class="ar-analysis__section-head">
               <div>
@@ -150,7 +165,10 @@ watch(
           </section>
 
           <div class="ar-analysis__provenance">
-            <span>选择：{{ analysis.selection_source === 'agent' ? 'Agent排序' : '安全候选补位' }}</span>
+            <span>选择来源：{{ selectionText(analysis.selection_source) }}</span>
+            <span>正向维度：{{ dimensionText(analysis.positive_dimensions) }}</span>
+            <span>反向维度：{{ dimensionText(analysis.counter_dimensions) }}</span>
+            <span>数据来源：{{ (analysis.data_sources || []).join('、') || '未记录' }}</span>
             <span>策略：{{ analysis.policy_version }}</span>
             <span>记忆版本：{{ analysis.memory_revision }}</span>
           </div>
@@ -169,6 +187,10 @@ watch(
 .ar-analysis__body { min-height: 340px; padding: 16px; }
 .ar-analysis__state { min-height: 300px; display: grid; place-items: center; }
 .ar-analysis__sections { display: grid; gap: 16px; }
+.ar-analysis__evidence-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.ar-analysis__evidence-overview > div { min-width: 0; display: grid; gap: 2px; padding: 9px 10px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-primary), .025); }
+.ar-analysis__evidence-overview strong { overflow-wrap: anywhere; color: rgb(var(--v-theme-primary)); font-size: 14px; }
+.ar-analysis__evidence-overview span { color: rgba(var(--v-theme-on-surface), .58); font-size: 10px; }
 .ar-analysis__summary, .ar-analysis__row { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: transparent; }
 .ar-analysis__summary { padding: 12px; cursor: pointer; transition: background .12s, border-color .12s; }
 .ar-analysis__summary:hover, .ar-analysis__row:hover { border-color: rgba(var(--v-theme-primary), .3); background: rgba(var(--v-theme-primary), .04); }
@@ -186,5 +208,6 @@ watch(
   .ar-analysis { width: 100%; height: 100dvh; max-height: none; border-radius: 0; }
   .ar-analysis__body { padding: 12px; }
   .ar-analysis__subtitle { max-width: min(54vw, 320px); }
+  .ar-analysis__evidence-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>

@@ -22,6 +22,8 @@ retrieval_module = importlib.import_module(f"{PACKAGE_NAME}.model.retrieval")
 
 DiscoveryAdapter = adapter_module.DiscoveryAdapter
 DiscoveryFetchResult = adapter_module.DiscoveryFetchResult
+MoviePilotProvider = adapter_module.MoviePilotProvider
+ProviderRequest = adapter_module.ProviderRequest
 RawDiscoveredItem = adapter_module.RawDiscoveredItem
 CandidateCollectionService = service_module.CandidateCollectionService
 AgentRankRepository = repository_module.AgentRankRepository
@@ -92,6 +94,113 @@ def test_multi_source_candidates_are_deduplicated_and_frozen_before_use():
         "tmdb:movie:100",
         "tmdb:movie:101",
     ]
+
+
+def test_recent_recommendations_remain_eligible_and_are_not_negative_excluded():
+    """无操作的旧推荐仍可进入候选池，不被伪装成负向排除。"""
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {
+                    "title": f"Title {index}",
+                    "media_type": "movie",
+                    "tmdb_id": index,
+                }
+                for index in range(1, 13)
+            ]
+        }
+    )
+    service = CandidateCollectionService(adapter, AgentRankRepository(FakePlugin()))
+
+    result = service.collect_and_freeze(
+        profile_id="alice",
+        run_id="run-cooldown",
+        enabled_sources={"tmdb_movies": True},
+        candidate_limit=10,
+    )
+
+    assert result.status == "ready"
+    assert [candidate.candidate_id for candidate in result.candidates] == [
+        f"tmdb:movie:{index}" for index in range(1, 11)
+    ]
+    assert "recent_recommendation" not in result.exclusion_counts
+    assert "recent_recommendation_fallback_count" not in result.processing_counts
+
+
+def test_previous_board_exclusion_keeps_recalling_until_candidate_target_is_met():
+    """上一榜被排除后继续翻页补召回，不把短缺静默降级成旧榜回填。"""
+    class PagedDiscoveryAdapter(DiscoveryAdapter):
+        """按页返回不同候选的分层来源适配器。"""
+
+        def __init__(self):
+            """记录分层召回页码。"""
+            super().__init__()
+            self.pages = []
+
+        def fetch_layered(
+            self,
+            enabled_sources,
+            candidate_limit,
+            retrieval_plan=None,
+            playback_samples=(),
+            raw_limit=None,
+            page=1,
+        ):
+            """返回当前页候选，模拟来源仍可提供后续新内容。"""
+            del enabled_sources, candidate_limit, retrieval_plan, playback_samples
+            self.pages.append(page)
+            start = 1 if page == 1 else 11
+            rows = [
+                RawDiscoveredItem(
+                    source="tmdb_movies",
+                    mediaid_prefix="tmdb",
+                    payload={
+                        "title": f"Movie {index}",
+                        "media_type": "movie",
+                        "tmdb_id": index,
+                    },
+                )
+                for index in range(start, start + 10)
+            ]
+            return DiscoveryFetchResult(
+                items=rows,
+                source_counts={"tmdb_movies": len(rows)},
+                request_recipes=[
+                    {
+                        "request_id": f"tmdb_movies:page{page}",
+                        "source": "tmdb_movies",
+                        "layer": "exact",
+                        "limit": len(rows),
+                        "params": {"page": page},
+                    }
+                ],
+                raw_limit=raw_limit or len(rows),
+                layer_counts={"exact": len(rows)},
+            )
+
+    adapter = PagedDiscoveryAdapter()
+    service = CandidateCollectionService(adapter, AgentRankRepository(FakePlugin()))
+    result = service.collect_and_freeze(
+        "alice",
+        "run-previous-board-page",
+        {"tmdb_movies": True},
+        candidate_limit=10,
+        retrieval_plan=RetrievalPlan(
+            filters=RetrievalFilters(media_types=("movie",))
+        ),
+        previous_board_candidate_ids={
+            f"tmdb:movie:{index}" for index in range(1, 6)
+        },
+    )
+
+    assert result.status == "ready"
+    assert [candidate.candidate_id for candidate in result.candidates] == [
+        f"tmdb:movie:{index}" for index in range(6, 16)
+    ]
+    assert adapter.pages == [1, 2]
+    assert result.exclusion_counts["previous_board"] == 5
+    assert result.processing_counts["previous_board_exclusion_count"] == 5
+    assert result.processing_counts["supplement_recall_count"] == 10
 
 
 def test_builtin_source_prefix_is_trusted_when_payload_uses_media_id():
@@ -758,6 +867,7 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
         "invalid_or_unrecognized": 0,
         "cheap_media_type": 0,
         "cheap_year": 0,
+        "previous_board": 0,
         "watched_completed": 1,
         "library": 1,
         "subscribed": 1,
@@ -828,8 +938,8 @@ def test_exhausted_sources_allow_ten_to_fourteen_candidates_to_proceed():
     assert result.processing_counts["recall_round_count"] == 1
 
 
-def test_supplement_recall_stays_between_five_and_ten_and_caps_at_forty_five():
-    """低存活率按十条、五条补充，并在四十五条原始候选处闭锁。"""
+def test_supplement_recall_continues_past_forty_five_until_target_is_met():
+    """前四十五条均被过滤时继续分页补充，直到冻结十五条候选。"""
     class PagingAdapter:
         def __init__(self):
             self.budgets = []
@@ -846,7 +956,9 @@ def test_supplement_recall_stays_between_five_and_ten_and_caps_at_forty_five():
                         "title": f"Blocked {index}",
                         "media_type": "movie",
                         "tmdb_id": index,
-                        "overview": "blocked-topic",
+                        "overview": (
+                            "blocked-topic" if index <= 45 else "available-topic"
+                        ),
                     },
                 )
                 for index in range(self.next_id, self.next_id + budget)
@@ -869,11 +981,50 @@ def test_supplement_recall_stays_between_five_and_ten_and_caps_at_forty_five():
         negative_keywords=["blocked-topic"],
     )
 
+    assert result.status == "ready"
+    assert adapter.budgets == [30, 10, 10, 10]
+    assert result.processing_counts["raw"] == 60
+    assert result.processing_counts["supplement_recall_count"] == 30
+    assert result.processing_counts["recognition_input"] == 15
+
+
+def test_supplement_recall_stops_after_three_rounds_without_new_ids():
+    """来源持续返回同一批 ID 时以连续无新增身份熔断。"""
+    class RepeatingAdapter:
+        def __init__(self):
+            self.budgets = []
+
+        def fetch(self, enabled_sources, count, retrieval_plan=None, raw_limit=None):
+            del enabled_sources, count, retrieval_plan
+            budget = int(raw_limit)
+            self.budgets.append(budget)
+            return DiscoveryFetchResult(
+                items=[
+                    RawDiscoveredItem(
+                        source="tmdb_movies",
+                        payload={
+                            "title": "Repeated",
+                            "media_type": "movie",
+                            "tmdb_id": 1,
+                        },
+                    )
+                    for _ in range(budget)
+                ],
+                source_counts={"tmdb_movies": budget},
+                raw_limit=budget,
+            )
+
+    adapter = RepeatingAdapter()
+    result = CandidateCollectionService(
+        adapter, AgentRankRepository(FakePlugin())
+    ).collect_and_freeze(
+        "alice", "run-recall-stalled", {"tmdb_movies": True}, 15
+    )
+
     assert result.status == "candidate_insufficient"
-    assert adapter.budgets == [30, 10, 5]
-    assert result.processing_counts["raw"] == 45
-    assert result.processing_counts["supplement_recall_count"] == 15
-    assert result.processing_counts["recognition_input"] == 0
+    assert adapter.budgets == [30, 10, 10, 10]
+    assert result.processing_counts["no_new_identity_rounds"] == 3
+    assert result.processing_counts["raw"] == 60
 
 
 def test_media_type_year_and_negative_keyword_filters_run_before_recognition():
@@ -923,6 +1074,141 @@ def test_media_type_year_and_negative_keyword_filters_run_before_recognition():
     assert result.exclusion_counts["cheap_media_type"] == 1
     assert result.exclusion_counts["cheap_year"] == 1
     assert result.exclusion_counts["negative_keyword"] == 1
+
+
+def test_provider_requests_preserve_requested_media_type_for_filtering():
+    """类型化 Provider 请求会把请求媒体类型传给候选过滤层。"""
+    provider = MoviePilotProvider(
+        handlers={
+            "bangumi_discover": lambda request: [
+                {"title": "Bangumi Anime", "bangumi_id": "bgm-1"}
+            ]
+        }
+    )
+    adapter = DiscoveryAdapter(provider=provider)
+
+    result = adapter.fetch_requests(
+        [
+            ProviderRequest(
+                request_id="bangumi",
+                source="bangumi",
+                provider="bangumi",
+                mode="discover",
+                method="bangumi_discover",
+                media_type="anime",
+                limit=1,
+                params={
+                    "type": 2,
+                    "cat": None,
+                    "sort": "rank",
+                    "year": None,
+                    "offset": 0,
+                },
+            )
+        ],
+        raw_limit=1,
+    )
+
+    assert result.items[0].requested_media_type == "anime"
+
+
+def test_anime_filter_waits_for_recognition_when_animation_hints_exist():
+    """anime 过滤可放行动画线索候选，但识别后仍拒绝真人剧集。"""
+
+    class Adapter:
+        def fetch(self, enabled_sources, count, retrieval_plan=None, raw_limit=None):
+            del enabled_sources, count, retrieval_plan, raw_limit
+            return DiscoveryFetchResult(
+                items=[
+                    RawDiscoveredItem(
+                        source="tmdb_tv",
+                        payload={
+                            "title": "Animated Series",
+                            "media_type": "tv",
+                            "tmdb_id": 101,
+                            "genre_ids": [16],
+                        },
+                        mediaid_prefix="themoviedb",
+                        requested_media_type="tv",
+                    ),
+                    RawDiscoveredItem(
+                        source="bangumi",
+                        payload={"title": "Bangumi Anime", "bangumi_id": "bgm-2"},
+                        mediaid_prefix="bangumi",
+                        requested_media_type="anime",
+                    ),
+                    RawDiscoveredItem(
+                        source="bangumi",
+                        payload={"title": "Live Action", "bangumi_id": "bgm-3"},
+                        mediaid_prefix="bangumi",
+                        requested_media_type="anime",
+                    ),
+                    RawDiscoveredItem(
+                        source="tmdb_tv",
+                        payload={
+                            "title": "Plain Series",
+                            "media_type": "tv",
+                            "tmdb_id": 104,
+                            "genres": ["Drama"],
+                        },
+                        mediaid_prefix="themoviedb",
+                        requested_media_type="tv",
+                    ),
+                ],
+                raw_limit=4,
+                source_counts={"tmdb_tv": 2, "bangumi": 2},
+            )
+
+    class MediaAdapter:
+        def __init__(self):
+            self.inputs = []
+
+        def recognize_many(self, candidates):
+            self.inputs.extend(candidate.title for candidate in candidates)
+            recognized = []
+            for candidate in candidates:
+                if candidate.title == "Bangumi Anime":
+                    candidate.source_ids["tmdb"] = "102"
+                    candidate.media_type = "anime"
+                elif candidate.title == "Live Action":
+                    candidate.source_ids["tmdb"] = "103"
+                    candidate.media_type = "tv"
+                else:
+                    candidate.media_type = "anime"
+                candidate.metadata["mp_media_type"] = "电视剧"
+                recognized.append(candidate)
+            return recognized
+
+    media_adapter = MediaAdapter()
+    result = CandidateCollectionService(
+        Adapter(),
+        AgentRankRepository(FakePlugin()),
+        media_adapter,
+    ).collect_and_freeze(
+        "alice",
+        "run-anime-filter",
+        {"tmdb_tv": True, "bangumi": True},
+        10,
+        retrieval_plan=RetrievalPlan(
+            filters=RetrievalFilters(media_types=("anime",))
+        ),
+    )
+
+    assert media_adapter.inputs == [
+        "Animated Series",
+        "Bangumi Anime",
+        "Live Action",
+    ]
+    assert [candidate.candidate_id for candidate in result.candidates] == [
+        "tmdb:tv:101",
+        "tmdb:tv:102",
+    ]
+    assert {candidate.media_type for candidate in result.candidates} == {"anime"}
+    assert all(
+        "requested_media_type" not in candidate.metadata
+        for candidate in result.candidates
+    )
+    assert result.exclusion_counts["cheap_media_type"] == 2
 
 
 def test_legacy_sources_execute_concurrently_and_isolate_failures():

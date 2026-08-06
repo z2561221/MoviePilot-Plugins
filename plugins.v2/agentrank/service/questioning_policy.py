@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from ..model.constants import INTERACTION_MODE_DEFAULT, INTERACTION_MODE_NAMES
 from ..model.memory import PreferenceMemory
 
 
@@ -22,6 +23,19 @@ class QuestioningPolicy:
     """评估是否仍值得用问询打扰用户。"""
 
     low_interruption_memory_count = 5
+
+    def __init__(self, interaction_mode: str = INTERACTION_MODE_DEFAULT):
+        """绑定用户选择的交互模式；未知值回退为自动模式。"""
+        normalized = str(interaction_mode or INTERACTION_MODE_DEFAULT).strip().casefold()
+        self.interaction_mode = (
+            normalized
+            if normalized in INTERACTION_MODE_NAMES
+            else INTERACTION_MODE_DEFAULT
+        )
+
+    def allows_playback_calibration(self) -> bool:
+        """判断首次播放校准问题是否允许自动创建。"""
+        return self.interaction_mode != "quiet"
 
     @staticmethod
     def _active_dimensions(memory: PreferenceMemory) -> set[str]:
@@ -57,11 +71,16 @@ class QuestioningPolicy:
             state = "stabilizing"
         else:
             state = "exploring"
-        allow_question = has_conflict or (
-            not mature
-            and interruption_cost < 0.5
-            and (expected_information_gain > 0 or confirmed_count == 0)
-        )
+        if self.interaction_mode == "normal":
+            allow_question = has_conflict or uncertainty_count > 0 or confirmed_count == 0
+        elif self.interaction_mode == "quiet":
+            allow_question = has_conflict
+        else:
+            allow_question = has_conflict or (
+                not mature
+                and interruption_cost < 0.5
+                and (expected_information_gain > 0 or confirmed_count == 0)
+            )
         return QuestioningDecision(
             state=state,
             preference_coverage=preference_coverage,

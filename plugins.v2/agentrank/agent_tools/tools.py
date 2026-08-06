@@ -39,6 +39,13 @@ class _ReadAgentRankTool(MoviePilotTool):
             "preliminary",
             "final",
         }:
+            if trusted_context.agent_role in {"profile", "preliminary", "final"}:
+                collector = resolve_result_collector(self._agent_context)
+                if not collector.mark_context_read():
+                    raise RuntimeError(
+                        f"{self.name} already returned this immutable snapshot; "
+                        "repair must call the submission tool directly"
+                    )
             if getattr(self, "_agentrank_context_read", False):
                 raise RuntimeError(
                     f"{self.name} already returned this immutable snapshot; "
@@ -138,6 +145,24 @@ def _minimal_candidate(value: Any) -> Dict[str, Any]:
         else None,
         "release_date": _bounded_text(item.get("release_date"), 20),
     }
+
+
+def _minimal_evidence_options(values: Any) -> list[Dict[str, str]]:
+    """只返回候选绑定的有界证据三元组。"""
+    result = []
+    for value in values or ():
+        if not isinstance(value, Mapping):
+            continue
+        item = {
+            "dimension": _bounded_text(value.get("dimension"), 20),
+            "user_value": _bounded_text(value.get("user_value"), 80),
+            "candidate_value": _bounded_text(value.get("candidate_value"), 80),
+        }
+        if all(item.values()) and item not in result:
+            result.append(item)
+        if len(result) >= 8:
+            break
+    return result
 
 
 def _minimal_profile(value: Any) -> Dict[str, Any]:
@@ -347,12 +372,55 @@ class ReadAgentRankFinalContextTool(_ReadAgentRankTool):
     async def run(self, **kwargs: Any) -> str:
         """返回晋级候选及其初赛判断卡。"""
         trusted_context = self._trusted_context()
+        constraints = to_jsonable(trusted_context.submission_constraints) or {}
+        raw_options = (
+            constraints.get("evidence_options")
+            if isinstance(constraints.get("evidence_options"), Mapping)
+            else {}
+        )
+        candidates = []
+        candidate_refs = constraints.get("candidate_refs") if isinstance(constraints.get("candidate_refs"), Mapping) else {}
+        for raw_candidate in to_jsonable(trusted_context.candidates) or ():
+            candidate = _minimal_candidate(raw_candidate)
+            candidate["candidate_ref"] = _bounded_text(candidate_refs.get(candidate["candidate_id"], ""), 16)
+            candidate_options = raw_options.get(candidate["candidate_id"], {})
+            if not isinstance(candidate_options, Mapping):
+                candidate_options = {}
+            candidate["positive_evidence_options"] = _minimal_evidence_options(
+                candidate_options.get("positive_evidence_options")
+            )
+            candidate["counter_evidence_options"] = _minimal_evidence_options(
+                candidate_options.get("counter_evidence_options")
+            )
+            candidate["positive_evidence_refs"] = [
+                f"p{index}"
+                for index, _ in enumerate(candidate["positive_evidence_options"], start=1)
+            ]
+            candidate["counter_evidence_refs"] = [
+                f"c{index}"
+                for index, _ in enumerate(candidate["counter_evidence_options"], start=1)
+            ]
+            candidates.append(candidate)
+            if len(candidates) >= 6:
+                break
+        candidate_ids = [item["candidate_id"] for item in candidates]
+        requested_ids = [
+            _bounded_text(item, 128)
+            for item in constraints.get("allowed_candidate_ids") or ()
+            if _bounded_text(item, 128) in candidate_ids
+        ]
+        allowed_candidate_ids = requested_ids or candidate_ids
+        allowed_ids = set(allowed_candidate_ids)
         candidates = [
-            _minimal_candidate(item)
-            for item in to_jsonable(trusted_context.candidates) or ()
-        ][:6]
-        allowed_ids = {item["candidate_id"] for item in candidates}
+            item for item in candidates if item["candidate_id"] in allowed_ids
+        ]
         payload = {
+            "allowed_candidate_ids": allowed_candidate_ids,
+            "allowed_candidate_refs": [
+                _bounded_text(candidate_refs.get(item, ""), 16)
+                for item in allowed_candidate_ids
+                if candidate_refs.get(item)
+            ],
             "candidates": candidates,
             "judgment_cards": list(
                 _minimal_judgment_card(item)
@@ -361,6 +429,23 @@ class ReadAgentRankFinalContextTool(_ReadAgentRankTool):
                 and _bounded_text(item.get("candidate_id"), 128) in allowed_ids
             )[:6],
             "profile": _minimal_profile(to_jsonable(trusted_context.profile) or {}),
+            "evidence_catalog": _minimal_weights(
+                to_jsonable(trusted_context.weights) or {}
+            ).get("evidence_catalog", []),
+                "freshness": {
+                    "previous_board_candidate_refs": [
+                        _bounded_text(candidate_refs.get(item, ""), 16)
+                        for item in constraints.get("previous_board_candidate_ids") or ()
+                        if candidate_refs.get(item)
+                    ],
+                    "minimum_new_items": max(
+                        0, int(constraints.get("minimum_new_items") or 0)
+                    ),
+                    "maximum_previous_items": max(
+                        0, int(constraints.get("maximum_previous_items") or 0)
+                    ),
+                    "status": _bounded_text(constraints.get("freshness_status"), 32),
+                },
         }
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 

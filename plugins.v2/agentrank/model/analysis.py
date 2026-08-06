@@ -171,7 +171,60 @@ class RecommendationAnalysis:
             **asdict(self),
             "positive_evidence": [item.to_dict() for item in self.positive_evidence],
             "counter_evidence": [item.to_dict() for item in self.counter_evidence],
+            "evidence_count": self.evidence_count,
+            "positive_dimensions": self.positive_dimensions,
+            "counter_dimensions": self.counter_dimensions,
+            "evidence_dimensions": self.evidence_dimensions,
+            "evidence_dimension_count": self.evidence_dimension_count,
+            "counter_evidence_count": self.counter_evidence_count,
+            "confidence_level": self.confidence_level,
         }
+
+    @property
+    def evidence_count(self) -> int:
+        """返回正反证据引用的唯一数量。"""
+        return len(
+            {
+                ref
+                for item in (*self.positive_evidence, *self.counter_evidence)
+                for ref in (*item.user_refs, item.candidate_ref)
+                if str(ref or "").strip()
+            }
+        )
+
+    @property
+    def positive_dimensions(self) -> List[str]:
+        """返回正向证据覆盖的独立维度。"""
+        return sorted({item.dimension for item in self.positive_evidence if item.dimension})
+
+    @property
+    def counter_dimensions(self) -> List[str]:
+        """返回反向证据覆盖的独立维度。"""
+        return sorted({item.dimension for item in self.counter_evidence if item.dimension})
+
+    @property
+    def evidence_dimensions(self) -> List[str]:
+        """返回正反证据覆盖的独立维度。"""
+        return sorted(set(self.positive_dimensions) | set(self.counter_dimensions))
+
+    @property
+    def evidence_dimension_count(self) -> int:
+        """返回正反证据覆盖的独立维度数量。"""
+        return len(self.evidence_dimensions)
+
+    @property
+    def counter_evidence_count(self) -> int:
+        """返回反向证据数量。"""
+        return len(self.counter_evidence)
+
+    @property
+    def confidence_level(self) -> str:
+        """按独立证据维度投影置信档位，避免百分比冒充概率。"""
+        if len(self.positive_dimensions) >= 2 and not self.counter_dimensions:
+            return "high"
+        if self.positive_dimensions:
+            return "medium"
+        return "exploration"
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RecommendationAnalysis":

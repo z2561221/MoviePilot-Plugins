@@ -21,6 +21,9 @@ class TelegramPendingSession:
     option_ids: List[str] = field(default_factory=list)
     requires_superuser: bool = False
     detail_link: str = ""
+    message_id: str = ""
+    chat_id: str = ""
+    source: str = ""
     status: str = "open"
     created_at: str = ""
     expires_at: str = ""
@@ -38,6 +41,9 @@ class TelegramPendingSession:
             ("title", 80),
             ("summary", 240),
             ("detail_link", 500),
+            ("message_id", 128),
+            ("chat_id", 128),
+            ("source", 128),
             ("status", 32),
             ("created_at", 64),
             ("expires_at", 64),
@@ -50,7 +56,7 @@ class TelegramPendingSession:
                 for item in self.option_ids or []
                 if str(item or "").strip()
             )
-        )[:3]
+        )[:5]
         self.requires_superuser = bool(self.requires_superuser)
         if self.item_type not in {"proposal", "question", "command"}:
             raise ValueError("telegram pending item_type is invalid")
@@ -91,6 +97,9 @@ class TelegramPendingSession:
             option_ids=list(value.get("option_ids") or ()),
             requires_superuser=value.get("requires_superuser") is True,
             detail_link=value.get("detail_link"),
+            message_id=value.get("message_id"),
+            chat_id=value.get("chat_id"),
+            source=value.get("source"),
             status=value.get("status") or "open",
             created_at=value.get("created_at"),
             expires_at=value.get("expires_at"),

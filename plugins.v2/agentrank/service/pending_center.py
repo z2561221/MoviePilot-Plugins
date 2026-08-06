@@ -1,12 +1,18 @@
 """统一待处理中心与确认式响应编排服务。"""
 
+import logging
+
 from typing import Any, Dict, Iterable, List, Optional
 
 from ..model.conversation import ConversationCommand
 from ..model.feedback_decision import MemoryProposal, PendingQuestion
 from ..model.pending_center import PendingCenterItem, PendingNotice
 from ..storage.repository import AgentRankRepository
-from .critic_skills import style_agent_message
+from .critic_skills import style_agent_message, style_clarification_question
+from .prompt import AGENT_DISPLAY_NAME_DEFAULT, configured_agent_display_name
+
+
+logger = logging.getLogger(__name__)
 
 
 class PendingCenterError(RuntimeError):
@@ -31,6 +37,9 @@ class PendingCenterService:
         memory_projection: Any,
         conversation: Any,
         persona_prompt: str = "",
+        agent_name: str = AGENT_DISPLAY_NAME_DEFAULT,
+        resolution_handler: Any = None,
+        pending_handler: Any = None,
     ):
         """绑定仓储与三个既有受控状态机。"""
         if not isinstance(repository, AgentRankRepository):
@@ -40,6 +49,17 @@ class PendingCenterService:
         self._memory_projection = memory_projection
         self._conversation = conversation
         self._persona_prompt = str(persona_prompt or "").strip()
+        self._agent_name = configured_agent_display_name(agent_name)
+        self._resolution_handler = resolution_handler
+        self._pending_handler = pending_handler
+
+    def set_resolution_handler(self, handler: Any = None) -> None:
+        """设置待办终态后的非阻断跨端收束回调。"""
+        self._resolution_handler = handler
+
+    def set_pending_handler(self, handler: Any = None) -> None:
+        """设置事项重新打开后的非阻断通知回调。"""
+        self._pending_handler = handler
 
     @staticmethod
     def _profile_id(value: Any) -> str:
@@ -74,7 +94,7 @@ class PendingCenterService:
             item_type="proposal",
             item_id=record.proposal_id,
             profile_id=record.profile_id,
-            title="确认 CinePilot Agent 的新理解",
+            title=f"确认 {self._agent_name} 的新理解",
             summary=record.restatement,
             candidate_id=record.candidate_id,
             detail_lines=record.impact_preview,
@@ -95,8 +115,11 @@ class PendingCenterService:
             item_type="question",
             item_id=record.question_id,
             profile_id=record.profile_id,
-            title="CinePilot Agent 需要你的回答",
-            summary=record.question,
+            title=f"{self._agent_name} 需要你的回答",
+            summary=style_clarification_question(
+                record.question,
+                self._persona_prompt,
+            ),
             candidate_id=record.candidate_id,
             detail_lines=record.uncertainties,
             options=tuple(item.to_dict() for item in record.options),
@@ -379,6 +402,24 @@ class PendingCenterService:
                 "pending_action_invalid", "该待处理项目不支持此操作", 422
             )
         item = self.item(target, target_type, target_id)
+        if decision == "reopen" and changed and callable(self._pending_handler):
+            try:
+                self._pending_handler(PendingNotice(item, actor))
+            except Exception:
+                logger.exception(
+                    "AgentRank 待办重新通知失败 type=%s item_id=%s",
+                    target_type,
+                    target_id,
+                )
+        elif decision != "reopen" and callable(self._resolution_handler):
+            try:
+                self._resolution_handler(item)
+            except Exception:
+                logger.exception(
+                    "AgentRank 待办跨端收束失败 type=%s item_id=%s",
+                    target_type,
+                    target_id,
+                )
         return {
             "action": decision,
             "changed": changed,

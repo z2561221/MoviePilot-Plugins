@@ -395,16 +395,66 @@ def test_preliminary_and_final_contexts_are_bounded_and_role_specific():
         "run-final",
         candidates[:6],
         {"entries": []},
-        {},
+        {
+            "weights": {"theme_weight": 0.8},
+            "evidence_catalog": [
+                {
+                    "dimension": "theme",
+                    "value": "悬疑",
+                    "polarity": "positive",
+                    "certainty": 0.9,
+                    "evidence_count": 5,
+                    "private_source": "must-not-leak",
+                }
+            ],
+        },
         profile={"summary": "悬疑偏好"},
         judgment_cards=judgment_cards,
         agent_role="final",
+        submission_constraints={
+            "allowed_candidate_ids": [
+                "tmdb:movie:1",
+                "tmdb:movie:2",
+                "tmdb:movie:3",
+                "tmdb:movie:4",
+                "tmdb:movie:5",
+            ],
+            "evidence_options": {
+                "tmdb:movie:1": {
+                    "positive_evidence_options": [
+                        _evidence(),
+                        _evidence("type"),
+                    ],
+                    "counter_evidence_options": [],
+                }
+            },
+        },
     )
     final_tools, _ = _role_tools(final, FINAL_AGENT_TOOL_CLASSES)
     final_output = asyncio.run(final_tools[0].run())
     final_payload = json.loads(final_output)
-    assert len(final_payload["candidates"]) == 6
-    assert len(final_payload["judgment_cards"]) == 6
+    assert final_payload["allowed_candidate_ids"] == [
+        "tmdb:movie:1",
+        "tmdb:movie:2",
+        "tmdb:movie:3",
+        "tmdb:movie:4",
+        "tmdb:movie:5",
+    ]
+    assert len(final_payload["candidates"]) == 5
+    assert len(final_payload["judgment_cards"]) == 5
+    assert final_payload["candidates"][0]["positive_evidence_options"] == [
+        _evidence(),
+        _evidence("type"),
+    ]
+    assert final_payload["evidence_catalog"] == [
+        {
+            "dimension": "theme",
+            "value": "悬疑",
+            "polarity": "positive",
+            "certainty": 0.9,
+            "evidence_count": 5,
+        }
+    ]
     assert "private_reasoning" not in final_output
     assert "must-not-leak" not in final_output
 
@@ -443,6 +493,63 @@ def test_profile_submission_schema_reports_field_and_allows_one_repair():
     assert json.loads(collector.result_json())["profile"]["playback_count"] == 1
 
 
+def test_profile_submission_uses_frozen_playback_count_instead_of_agent_count():
+    """播放样本数属于宿主事实，Agent 误填时直接按冻结快照纠正。"""
+    context = build_trusted_context(
+        "alice",
+        "run-profile-count-recovery",
+        [],
+        {"entries": []},
+        {},
+        playback={"sample_count": 33, "samples": []},
+        agent_role="profile",
+    )
+    tools, collector = _role_tools(context, PROFILE_AGENT_TOOL_CLASSES)
+    payload = _profile_submission(playback_count=1)
+
+    result = json.loads(asyncio.run(tools[1].run(**payload)))
+
+    assert result == {"status": "accepted"}
+    assert collector.payload["profile"]["playback_count"] == 33
+
+
+def test_profile_submission_rejects_unstructured_explicit_negative_preference():
+    """画像摘要声称明确排除时必须同时提交结构化负向标签。"""
+    payload = _profile_submission()
+    payload["profile"]["summary"] = "真人秀已明确排除。"
+
+    with pytest.raises(ValidationError, match="negative_tags"):
+        schemas_module.SubmitProfileResultInput.model_validate(payload)
+
+
+def test_profile_submission_filters_archived_tag_from_negative_preferences():
+    """已归档标签应被剔除，且不得阻断其他当前避雷标签。"""
+    context = build_trusted_context(
+        "alice",
+        "run-profile-archived-negative",
+        [],
+        {"entries": []},
+        {},
+        playback={"sample_count": 1, "samples": []},
+        profile_preferences={
+            "archived_tags": ["真人秀"],
+            "archived_negative_tags": [],
+        },
+        agent_role="profile",
+    )
+    tools, collector = _role_tools(context, PROFILE_AGENT_TOOL_CLASSES)
+    payload = _profile_submission()
+    payload["profile"]["negative_tags"] = ["真人秀", "拖沓"]
+
+    output = json.loads(asyncio.run(tools[1].run(**payload)))
+
+    assert output == {"status": "accepted"}
+    assert collector.payload["profile"]["negative_tags"] == ["拖沓"]
+    assert json.loads(collector.result_json())["profile"]["negative_tags"] == [
+        "拖沓"
+    ]
+
+
 def test_submission_schemas_enforce_extra_enum_count_and_length_boundaries():
     """字段约束由 Pydantic schema 承担，不依赖提示词重复说明。"""
     with pytest.raises(ValidationError):
@@ -473,7 +580,13 @@ def test_submission_schemas_enforce_extra_enum_count_and_length_boundaries():
             {"recommendations": [invalid_dimension]}
         )
     too_long = _recommendation("tmdb:movie:1")
-    too_long["summary"] = "x" * 101
+    too_long["summary"] = "x" * 31
+    with pytest.raises(ValidationError):
+        schemas_module.SubmitFinalBoardInput.model_validate(
+            {"recommendations": [too_long]}
+        )
+    too_long = _recommendation("tmdb:movie:1")
+    too_long["reason"] = "x" * 31
     with pytest.raises(ValidationError):
         schemas_module.SubmitFinalBoardInput.model_validate(
             {"recommendations": [too_long]}
@@ -482,10 +595,10 @@ def test_submission_schemas_enforce_extra_enum_count_and_length_boundaries():
     insufficient_evidence["positive_evidence"] = [
         insufficient_evidence["positive_evidence"][0]
     ]
-    with pytest.raises(ValidationError):
-        schemas_module.SubmitFinalBoardInput.model_validate(
-            {"recommendations": [insufficient_evidence]}
-        )
+    validated = schemas_module.SubmitFinalBoardInput.model_validate(
+        {"recommendations": [insufficient_evidence]}
+    )
+    assert len(validated.recommendations[0].positive_evidence) == 1
 
     try:
         schemas_module.SubmitProfileResultInput.model_validate(
@@ -603,6 +716,240 @@ def test_batch_and_final_submissions_capture_only_session_results():
     assert [
         item["candidate_id"] for item in final_collector.payload["recommendations"]
     ] == ["tmdb:movie:2", "tmdb:movie:1"]
+
+
+def test_final_submission_recovers_rewritten_evidence_from_verified_options():
+    """Agent 改写证据时保留其候选决策并由宿主补回已验证选项。"""
+    candidate_id = "tmdb:movie:1"
+    context = build_trusted_context(
+        "alice",
+        "run-final-options",
+        [{"candidate_id": candidate_id}],
+        {"entries": []},
+        {},
+        agent_role="final",
+        submission_constraints={
+            "allowed_candidate_ids": [candidate_id],
+            "evidence_options": {
+                candidate_id: {
+                    "positive_evidence_options": [_evidence(), _evidence("type")],
+                    "counter_evidence_options": [],
+                }
+            },
+        },
+    )
+    tools, collector = _role_tools(context, FINAL_AGENT_TOOL_CLASSES)
+    invalid = _recommendation(candidate_id)
+    invalid["positive_evidence"][0]["candidate_value"] = "悬疑动画"
+
+    result = json.loads(
+        asyncio.run(tools[1].run(recommendations=[invalid]))
+    )
+
+    assert result == {"status": "accepted"}
+    recommendation = collector.payload["recommendations"][0]
+    assert recommendation["candidate_id"] == candidate_id
+    assert recommendation["reason"] == invalid["reason"]
+    assert recommendation["positive_evidence"] == [_evidence(), _evidence("type")]
+
+
+def test_final_submission_resolves_evidence_refs_to_verified_options():
+    """决赛证据短引用必须解析为当前候选的冻结证据对象。"""
+    candidate_id = "tmdb:movie:1"
+    options = [_evidence(), _evidence("type")]
+    counter_options = [
+        {
+            "dimension": "region",
+            "user_value": "中国",
+            "candidate_value": "中国",
+        }
+    ]
+    context = build_trusted_context(
+        "alice",
+        "run-final-evidence-refs",
+        [{"candidate_id": candidate_id}],
+        {"entries": []},
+        {},
+        agent_role="final",
+        submission_constraints={
+            "allowed_candidate_ids": [candidate_id],
+            "evidence_options": {
+                candidate_id: {
+                    "positive_evidence_options": options,
+                    "counter_evidence_options": counter_options,
+                }
+            },
+        },
+    )
+    tools, collector = _role_tools(context, FINAL_AGENT_TOOL_CLASSES)
+    recommendation = _recommendation(candidate_id)
+    recommendation["positive_evidence"] = [
+        {"evidence_ref": "p1"},
+        {"evidence_ref": "p2"},
+    ]
+
+    result = json.loads(
+        asyncio.run(tools[1].run(recommendations=[recommendation]))
+    )
+
+    assert result == {"status": "accepted"}
+    serialized = json.loads(collector.result_json())
+    recommendation = serialized["recommendations"][0]
+    assert recommendation["positive_evidence"] == options
+    assert recommendation["counter_evidence"] == counter_options
+
+
+def test_final_submission_fills_match_tags_from_verified_evidence():
+    """单个 Agent 标签用冻结证据补足，仍保留 Agent 的候选和文案决策。"""
+    candidate_id = "tmdb:movie:1"
+    type_evidence = _evidence("type")
+    context = build_trusted_context(
+        "alice",
+        "run-final-match-tags",
+        [{"candidate_id": candidate_id}],
+        {"entries": []},
+        {},
+        agent_role="final",
+        submission_constraints={
+            "allowed_candidate_ids": [candidate_id],
+            "evidence_options": {
+                candidate_id: {
+                    "positive_evidence_options": [_evidence(), type_evidence],
+                    "counter_evidence_options": [],
+                }
+            },
+        },
+    )
+    tools, collector = _role_tools(context, FINAL_AGENT_TOOL_CLASSES)
+    recommendation = _recommendation(candidate_id)
+    recommendation["match_tags"] = ["悬疑"]
+    recommendation["positive_evidence"] = []
+
+    result = json.loads(
+        asyncio.run(tools[1].run(recommendations=[recommendation]))
+    )
+
+    assert result == {"status": "accepted"}
+    normalized = collector.payload["recommendations"][0]
+    assert normalized["match_tags"] == ["悬疑", "题材·悬疑"]
+    assert normalized["reason"] == recommendation["reason"]
+    assert normalized["summary"] == recommendation["summary"]
+
+
+def test_final_submission_constraint_locks_retry_candidate_pool():
+    """决赛重试约束只允许上一轮锁定的候选身份。"""
+    context = build_trusted_context(
+        "alice",
+        "run-final-locked",
+        [
+            {"candidate_id": "tmdb:movie:1"},
+            {"candidate_id": "tmdb:movie:2"},
+        ],
+        {"entries": []},
+        {},
+        agent_role="final",
+        submission_constraints={"allowed_candidate_ids": ["tmdb:movie:1"]},
+    )
+    tools, collector = _role_tools(context, FINAL_AGENT_TOOL_CLASSES)
+
+    rejected = json.loads(
+        asyncio.run(
+            tools[1].run(
+                recommendations=[_recommendation("tmdb:movie:2")]
+            )
+        )
+    )
+
+    assert rejected == {
+        "status": "rejected",
+        "code": "candidate_out_of_pool",
+        "field": "candidate_id",
+    }
+    assert collector.payload is None
+
+
+def test_final_submission_maps_stable_candidate_refs_back_to_real_ids():
+    """决赛短引用按上下文顺序映射回冻结候选真实身份。"""
+    context = build_trusted_context(
+        "alice",
+        "run-final-refs",
+        [
+            {"candidate_id": "tmdb:tv:101"},
+            {"candidate_id": "tmdb:movie:202"},
+        ],
+        {"entries": []},
+        {},
+        agent_role="final",
+        submission_constraints={
+            "allowed_candidate_ids": ["tmdb:tv:101", "tmdb:movie:202"],
+            "candidate_refs": {
+                "tmdb:tv:101": "c1",
+                "tmdb:movie:202": "c2",
+            },
+        },
+    )
+    tools, collector = _role_tools(context, FINAL_AGENT_TOOL_CLASSES)
+    result = json.loads(
+        asyncio.run(
+            tools[1].run(
+                recommendations=[
+                    _recommendation("c2"),
+                    _recommendation("c1"),
+                ]
+            )
+        )
+    )
+    assert result == {"status": "accepted"}
+    assert [
+        item["candidate_id"] for item in collector.payload["recommendations"]
+    ] == ["tmdb:movie:202", "tmdb:tv:101"]
+
+
+@pytest.mark.parametrize(
+    "candidate_ref",
+    ["C2", "candidate-2", "candidate_2", "candidate:002", "2"],
+)
+def test_final_submission_accepts_bounded_normalized_candidate_refs(candidate_ref):
+    """模型规范化短引用时仍只能映射当前冻结候选顺序。"""
+    context = build_trusted_context(
+        "alice",
+        "run-final-normalized-ref",
+        [{"candidate_id": "tmdb:tv:101"}, {"candidate_id": "tmdb:movie:202"}],
+        {"entries": []},
+        {},
+        agent_role="final",
+        submission_constraints={"allowed_candidate_ids": ["tmdb:tv:101", "tmdb:movie:202"]},
+    )
+    tools, collector = _role_tools(context, FINAL_AGENT_TOOL_CLASSES)
+    result = json.loads(
+        asyncio.run(tools[1].run(recommendations=[_recommendation(candidate_ref)]))
+    )
+    assert result == {"status": "accepted"}
+    assert collector.payload["recommendations"][0]["candidate_id"] == "tmdb:movie:202"
+
+
+def test_final_submission_rejects_out_of_range_candidate_sequence_alias():
+    """序号别名只能映射当前冻结候选，越界仍按池外候选拒绝。"""
+    context = build_trusted_context(
+        "alice",
+        "run-final-alias-out-of-range",
+        [{"candidate_id": "tmdb:tv:101"}, {"candidate_id": "tmdb:movie:202"}],
+        {"entries": []},
+        {},
+        agent_role="final",
+    )
+    tools, collector = _role_tools(context, FINAL_AGENT_TOOL_CLASSES)
+
+    result = json.loads(
+        asyncio.run(tools[1].run(recommendations=[_recommendation("candidate:003")]))
+    )
+
+    assert result == {
+        "status": "rejected",
+        "code": "candidate_out_of_pool",
+        "field": "candidate_id",
+    }
+    assert collector.payload is None
 
 
 def test_feedback_role_reads_only_event_analysis_confirmed_memory_and_pending_context():

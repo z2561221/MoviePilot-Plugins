@@ -249,6 +249,51 @@ class SupportScore:
             }
         )
 
+    @property
+    def positive_dimensions(self) -> Tuple[str, ...]:
+        """返回支持度中独立正向证据维度。"""
+        return tuple(
+            sorted(
+                {
+                    item.dimension
+                    for item in self.contributions
+                    if item.direction == "positive"
+                }
+            )
+        )
+
+    @property
+    def counter_dimensions(self) -> Tuple[str, ...]:
+        """返回支持度中独立反向证据维度。"""
+        return tuple(
+            sorted(
+                {
+                    item.dimension
+                    for item in self.contributions
+                    if item.direction == "counter"
+                }
+            )
+        )
+
+    @property
+    def evidence_dimension_count(self) -> int:
+        """返回正反证据涉及的独立维度数。"""
+        return len(set(self.positive_dimensions) | set(self.counter_dimensions))
+
+    @property
+    def counter_evidence_count(self) -> int:
+        """返回反向贡献数量，用于解释主要反证。"""
+        return sum(item.direction == "counter" for item in self.contributions)
+
+    @property
+    def confidence_level(self) -> str:
+        """按证据维度而非百分比投影高/中/探索置信度。"""
+        if len(self.positive_dimensions) >= 2 and not self.counter_dimensions:
+            return "high"
+        if self.positive_dimensions:
+            return "medium"
+        return "exploration"
+
     def to_dict(self) -> Dict[str, Any]:
         """返回可持久化且可独立重算的支持度字典。"""
         return {
@@ -259,6 +304,12 @@ class SupportScore:
             "available_units": self.available_units,
             "net_units": self.net_units,
             "percentage": self.percentage,
+            "evidence_count": self.evidence_count,
+            "positive_dimensions": list(self.positive_dimensions),
+            "counter_dimensions": list(self.counter_dimensions),
+            "evidence_dimension_count": self.evidence_dimension_count,
+            "counter_evidence_count": self.counter_evidence_count,
+            "confidence_level": self.confidence_level,
             "schema_version": self.schema_version,
         }
 

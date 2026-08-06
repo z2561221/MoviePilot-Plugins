@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
 
 from ..model.config import configured_identities
+from ..model.feedback import ShortTermSignal
 from ..model.identity import EmbyIdentity
 from ..model.playback import PlaybackCapability, PlaybackSnapshot
 
@@ -42,6 +43,75 @@ class PlaybackProfileService:
                 profile_id,
             )
         return snapshot
+
+    def _record_playback_signals(
+        self,
+        profile_id: str,
+        previous: Optional[PlaybackSnapshot],
+        snapshot: PlaybackSnapshot,
+    ) -> None:
+        """仅记录相对上次快照新增的播放开始、完成或弃看事实。"""
+        append_signal = getattr(self._repository, "append_short_term_signal", None)
+        if not callable(append_signal) or snapshot.status not in {"ready", "cached"}:
+            return
+        previous_by_id = {
+            sample.stable_id: sample
+            for sample in (previous.samples if previous is not None else ())
+        }
+        board = self._repository.load_board(profile_id)
+        run_id = board.run_id if board is not None else ""
+        board_revision = board.revision if board is not None else 0
+        observed_at = snapshot.synced_at
+        for sample in snapshot.samples:
+            old = previous_by_id.get(sample.stable_id)
+            old_played = (
+                old is not None
+                and (
+                    old.play_count > 0
+                    or old.watch_minutes > 0
+                    or bool(old.last_played_at)
+                )
+            )
+            current_played = bool(
+                sample.play_count > 0
+                or sample.watch_minutes > 0
+                or sample.last_played_at
+            )
+            events = []
+            if current_played and not old_played:
+                events.append(("playback_start", 0.45, 30))
+            if sample.completed and not bool(getattr(old, "completed", False)):
+                events.append(("playback_completed", 0.95, 90))
+            if (
+                sample.abandoned
+                and not bool(getattr(old, "abandoned", False))
+                and not sample.completed
+            ):
+                events.append(("playback_abandoned", -0.35, 30))
+            for kind, strength, decay_days in events:
+                signal = ShortTermSignal(
+                    profile_id=profile_id,
+                    kind=kind,
+                    idempotency_key=(
+                        f"playback:{kind}:{sample.stable_id}:{observed_at}"
+                    ),
+                    candidate_id=sample.stable_id,
+                    run_id=run_id,
+                    board_revision=board_revision,
+                    strength=strength,
+                    decay_days=decay_days,
+                    observed_at=observed_at,
+                    source="playback_reporting",
+                )
+                try:
+                    append_signal(signal)
+                except Exception:
+                    logger.exception(
+                        "AgentRank 播放短期信号写入失败 profile_id=%s candidate_id=%s kind=%s",
+                        profile_id,
+                        sample.stable_id,
+                        kind,
+                    )
 
     @staticmethod
     def _identity(profile_id: str, config: Mapping[str, Any]) -> EmbyIdentity:
@@ -124,4 +194,5 @@ class PlaybackProfileService:
             cached.fallback_from = ["playback_reporting:transient_error"]
             return self._verify_attribution(target, cached)
         self._repository.save_playback_snapshot(result)
+        self._record_playback_signals(target, previous, result)
         return self._verify_attribution(target, result)

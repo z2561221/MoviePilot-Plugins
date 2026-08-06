@@ -277,15 +277,20 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/conversation",
         "/conversation/status",
         "/conversation/messages",
-            "/conversation/messages/retry",
-            "/conversation/commands/respond",
-            "/pending",
-            "/pending/respond",
-            "/restore",
+        "/conversation/messages/retry",
+        "/conversation/commands/respond",
+        "/pending",
+        "/pending/respond",
+        "/restore",
         "/archive/delete",
         "/profile/clear",
         "/profile/tags",
         "/run-history",
+        "/board-history",
+        "/learning-health",
+        "/consumption/exposure",
+        "/consumption/detail-opened",
+        "/consumption/interaction",
         "/data/export",
         "/data/reset/learning",
         "/data/reset/full/prepare",
@@ -965,6 +970,7 @@ def test_options_overview_board_profile_and_history_have_stable_data_shape():
     board = controller.board(HOME_PROFILE)
     profile = controller.profile(HOME_PROFILE)
     history = controller.run_history(HOME_PROFILE)
+    board_history = controller.board_history(HOME_PROFILE)
 
     assert options["success"] is True
     assert options["data"]["emby_identities"] == [HOME_IDENTITY, REMOTE_IDENTITY]
@@ -981,6 +987,9 @@ def test_options_overview_board_profile_and_history_have_stable_data_shape():
     assert board["data"]["recommendations"][0]["candidate_id"] == "tmdb:1"
     assert profile["data"]["summary"] == "画像"
     assert history["data"]["items"][0]["run_id"] == "run-old"
+    assert board_history["data"]["items"][0]["board"]["run_id"] == "run-old"
+    assert board_history["data"]["items"][0]["new_count"] == 1
+    assert board_history["data"]["items"][0]["overlap_count"] == 0
 
 
 def test_config_options_merges_online_emby_identities_with_selected_offline_values():

@@ -12,47 +12,23 @@ const draft = ref('')
 const localError = ref('')
 const messageList = ref(null)
 const pollTimer = ref(null)
-const pollDeadline = ref(0)
-const frontendTimeoutMs = 100000
 
 const messages = computed(() => props.state.conversation.value?.messages || [])
 const commands = computed(() => props.state.conversation.value?.commands || [])
 const pendingCommands = computed(() => commands.value.filter(item => item.status === 'pending_confirmation'))
 const conversationOperation = computed(() => props.state.operationState('conversation'))
 const sendOperation = computed(() => props.state.operationState('conversation:send'))
+const agentName = computed(() => props.state.agentDisplayName?.value || 'CinePilot Agent')
 const canSend = computed(() => draft.value.trim().length > 0 && !sendOperation.value.loading)
 const hasPendingMessages = computed(() => messages.value.some(item => ['queued', 'processing'].includes(item.status)))
 
 function stopPolling() {
   if (pollTimer.value) clearTimeout(pollTimer.value)
   pollTimer.value = null
-  pollDeadline.value = 0
-}
-
-function markFrontendTimeout() {
-  const current = props.state.conversation.value || {}
-  props.state.conversation.value = {
-    ...current,
-    messages: (current.messages || []).map(message => (
-      ['queued', 'processing'].includes(message.status)
-        ? {
-            ...message,
-            status: 'retryable_failed',
-            error_code: 'frontend_timeout',
-            error_message: 'CinePilot Agent 响应超时，消息已保留，可重试',
-          }
-        : message
-    )),
-  }
 }
 
 async function pollConversation() {
   if (!props.modelValue || !hasPendingMessages.value) {
-    stopPolling()
-    return
-  }
-  if (Date.now() >= pollDeadline.value) {
-    markFrontendTimeout()
     stopPolling()
     return
   }
@@ -68,7 +44,6 @@ async function pollConversation() {
 function startPolling() {
   stopPolling()
   if (!hasPendingMessages.value || !props.modelValue) return
-  pollDeadline.value = Date.now() + frontendTimeoutMs
   pollTimer.value = setTimeout(pollConversation, 500)
 }
 
@@ -155,15 +130,15 @@ onUnmounted(stopPolling)
       <VToolbar density="compact" class="ar-chat__toolbar">
         <VAvatar color="primary" variant="tonal" size="34" class="ms-3 me-3"><VIcon icon="mdi-forum-outline" /></VAvatar>
         <div>
-          <div class="ar-chat__title">CinePilot Agent</div>
+          <div class="ar-chat__title">{{ agentName }}</div>
           <div class="ar-chat__subtitle">{{ props.state.selectedUsername.value || '当前画像' }}</div>
         </div>
         <VSpacer />
         <VBadge v-if="pendingCommands.length" :content="pendingCommands.length" color="warning" inline>
           <VIcon icon="mdi-inbox-outline" size="20" />
         </VBadge>
-        <VBtn icon="mdi-refresh" variant="text" aria-label="刷新 CinePilot Agent 对话" :loading="conversationOperation.loading" @click="load" />
-        <VBtn icon="mdi-close" variant="text" aria-label="关闭 CinePilot Agent 对话" @click="close" />
+        <VBtn icon="mdi-refresh" variant="text" :aria-label="`刷新 ${agentName} 对话`" :loading="conversationOperation.loading" @click="load" />
+        <VBtn icon="mdi-close" variant="text" :aria-label="`关闭 ${agentName} 对话`" @click="close" />
       </VToolbar>
       <VDivider />
 
@@ -216,7 +191,7 @@ onUnmounted(stopPolling)
       <div class="ar-chat__composer">
         <VTextarea
           v-model="draft"
-          label="给 CinePilot Agent 留言"
+          :label="`给 ${agentName} 发消息`"
           density="compact"
           variant="outlined"
           rows="2"

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Mapping, Optional
 from .support import SupportScore
 
 
-SELECTION_SOURCES = frozenset({"legacy", "agent", "safe_fallback"})
+SELECTION_SOURCES = frozenset({"legacy", "agent", "safe_fallback", "returning"})
 
 
 @dataclass
@@ -126,6 +126,16 @@ class RecommendationBoard:
         if not self.profile_id:
             raise ValueError("board profile_id is required")
 
+    @property
+    def board_revision(self) -> int:
+        """返回面向曝光与交互 API 的榜单版本别名。"""
+        return self.revision
+
+    @board_revision.setter
+    def board_revision(self, value: Any) -> None:
+        """兼容 API 调用方以 board_revision 更新当前版本。"""
+        self.revision = max(1, int(value or 1))
+
     def to_dict(self) -> Dict[str, Any]:
         """返回可持久化字典。"""
         return {
@@ -138,6 +148,7 @@ class RecommendationBoard:
             "message": self.message,
             "previous_run_id": self.previous_run_id,
             "revision": self.revision,
+            "board_revision": self.revision,
             "schema_version": self.schema_version,
         }
 
@@ -165,6 +176,6 @@ class RecommendationBoard:
                 if value.get("previous_run_id") is not None
                 else None
             ),
-            revision=max(1, int(value.get("revision") or 1)),
+            revision=max(1, int(value.get("revision") or value.get("board_revision") or 1)),
             schema_version=int(value.get("schema_version") or 2),
         )

@@ -21,7 +21,9 @@ MIN_INITIAL_RECALL = 20
 MAX_INITIAL_RECALL = 30
 MIN_SUPPLEMENT_RECALL = 5
 MAX_SUPPLEMENT_RECALL = 10
-MAX_RAW_RECALL = 45
+MAX_RAW_RECALL = 150
+MAX_RECALL_ROUNDS = 25
+MAX_STALLED_RECALL_ROUNDS = 3
 RECOGNITION_BATCH_SIZE = 6
 _MEDIAID_PREFIX_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 _MEDIAID_PREFIX_ALIASES = {
@@ -222,6 +224,17 @@ class CandidateCollectionService:
         original_language = cls._first(data, "original_language", "language")
         if original_language:
             safe_metadata["original_language"] = str(original_language)
+        requested_media_type = str(
+            getattr(raw, "requested_media_type", "") or ""
+        ).strip().casefold()
+        if requested_media_type in {"movie", "tv", "anime"}:
+            safe_metadata["requested_media_type"] = requested_media_type
+        genre_ids = cls._strings(cls._first(data, "genre_ids", "genreIds"))
+        if genre_ids:
+            safe_metadata["genre_ids"] = genre_ids
+        category = cls._first(data, "category")
+        if category:
+            safe_metadata["category"] = str(category)
         media_type = cls._media_type(data, raw.source)
         return Candidate(
             candidate_id=cls._candidate_id(ids, media_type),
@@ -355,6 +368,54 @@ class CandidateCollectionService:
         return False
 
     @staticmethod
+    def _metadata_values(candidate: Candidate, name: str) -> List[str]:
+        """读取候选 metadata 中可作为过滤线索的字符串列表。"""
+        value = candidate.metadata.get(name, "")
+        if isinstance(value, (list, tuple, set)):
+            items = value
+        else:
+            items = [value]
+        return [str(item).strip() for item in items if str(item or "").strip()]
+
+    @classmethod
+    def _has_animation_hint(
+        cls, candidate: Candidate, include_requested_type: bool = False
+    ) -> bool:
+        """判断识别前候选是否带有动画事实线索。"""
+        genre_ids = {
+            item.casefold()
+            for item in cls._metadata_values(candidate, "genre_ids")
+        }
+        if "16" in genre_ids:
+            return True
+        texts = [
+            *candidate.genres,
+            candidate.metadata.get("category", ""),
+        ]
+        if include_requested_type:
+            texts.append(candidate.metadata.get("requested_media_type", ""))
+        haystack = " ".join(str(item or "") for item in texts).casefold()
+        return any(
+            token in haystack
+            for token in ("animation", "anime", "动画", "动漫", "番剧")
+        )
+
+    @classmethod
+    def _media_type_matches_filter(
+        cls,
+        candidate: Candidate,
+        allowed: Set[str],
+        allow_animation_hints: bool = False,
+    ) -> bool:
+        """按过滤条件判断候选媒体类型是否可进入下一阶段。"""
+        candidate_type = str(candidate.media_type or "").strip().casefold()
+        if candidate_type in allowed:
+            return True
+        if allow_animation_hints and "anime" in allowed:
+            return cls._has_animation_hint(candidate, include_requested_type=True)
+        return False
+
+    @staticmethod
     def _typed_identity(candidate: Candidate) -> str:
         """从 TMDB ID 与基础媒体类型生成候选最终身份。"""
         return typed_tmdb_candidate_id(
@@ -454,10 +515,9 @@ class CandidateCollectionService:
         filters = retrieval_plan.filters if retrieval_plan is not None else None
         if filters and filters.media_types:
             allowed = set(filters.media_types)
-            candidate_type = candidate.media_type
-            if candidate_type == "anime" and "anime" not in allowed:
-                return "media_type"
-            if candidate_type in {"movie", "tv"} and candidate_type not in allowed:
+            if not cls._media_type_matches_filter(
+                candidate, allowed, allow_animation_hints=True
+            ):
                 return "media_type"
         if filters and candidate.year is not None:
             if filters.year_min is not None and candidate.year < filters.year_min:
@@ -468,15 +528,21 @@ class CandidateCollectionService:
             return "negative_keyword"
         return ""
 
-    @staticmethod
+    @classmethod
     def _recognition_priority(
-        candidate: Candidate, retrieval_plan: Optional[RetrievalPlan]
+        cls, candidate: Candidate, retrieval_plan: Optional[RetrievalPlan]
     ) -> Tuple[float, ...]:
         """按来源现有事实生成媒体识别优先级，不表达最终用户契合度。"""
         filters = retrieval_plan.filters if retrieval_plan is not None else None
         type_match = 1.0
         if filters and filters.media_types:
-            type_match = float(candidate.media_type in set(filters.media_types))
+            type_match = float(
+                cls._media_type_matches_filter(
+                    candidate,
+                    set(filters.media_types),
+                    allow_animation_hints=True,
+                )
+            )
         rating = float(candidate.rating or 0.0)
         popularity = float(candidate.popularity or 0.0)
         freshness = float(candidate.year or 0)
@@ -538,8 +604,9 @@ class CandidateCollectionService:
         negative_keywords: Optional[Iterable[str]] = None,
         profile_version: Optional[Mapping[str, Any]] = None,
         disliked_candidate_ids: Optional[Iterable[str]] = None,
+        previous_board_candidate_ids: Optional[Iterable[str]] = None,
     ) -> CandidateCollectionResult:
-        """动态召回、廉价预过滤、分批识别并冻结 10-15 条候选。"""
+        """动态召回并冻结 10-15 条候选；上一榜重复由最终时近权重处理。"""
         playback_samples = list(playback_samples or ())
         target = max(
             DEFAULT_MINIMUM_FROZEN_CANDIDATES,
@@ -568,6 +635,7 @@ class CandidateCollectionService:
             "initial_recall_budget": initial_budget,
             "supplement_recall_count": 0,
             "recognition_batch_count": 0,
+            "previous_board_exclusion_count": 0,
         }
         exclusion_counts = {
             "invalid_or_unrecognized": 0,
@@ -578,6 +646,7 @@ class CandidateCollectionService:
             "subscribed": 0,
             "disliked": 0,
             "archived": 0,
+            "previous_board": 0,
             "negative_keyword": 0,
         }
         filter_errors: Dict[str, str] = {}
@@ -592,6 +661,11 @@ class CandidateCollectionService:
             for candidate_id in disliked_candidate_ids or ()
             if str(candidate_id or "").strip()
         }
+        previous_board_ids = {
+            str(candidate_id or "").strip()
+            for candidate_id in previous_board_candidate_ids or ()
+            if str(candidate_id or "").strip()
+        }
         try:
             subscribed_ids = self._subscribed_candidate_ids()
         except Exception as error:
@@ -604,13 +678,17 @@ class CandidateCollectionService:
         candidates: List[Candidate] = []
         rejected_count = 0
         recall_round = 0
+        no_new_identity_rounds = 0
+        no_new_candidate_rounds = 0
         next_budget = initial_budget
         while (
             not filter_errors
             and len(candidates) < target
             and processing_counts["raw"] < maximum_raw
+            and recall_round < MAX_RECALL_ROUNDS
         ):
             recall_round += 1
+            accepted_before_round = len(candidates)
             budget = min(next_budget, maximum_raw - processing_counts["raw"])
             stage_clock = time.monotonic()
             if hasattr(self._adapter, "fetch_layered") and (
@@ -733,9 +811,25 @@ class CandidateCollectionService:
                     filter_errors["library"] = str(error)
                     candidates = []
                     break
+                filters = (
+                    retrieval_plan.filters
+                    if retrieval_plan is not None
+                    else None
+                )
                 for candidate in valid_batch:
                     candidate_id = candidate.candidate_id
-                    if candidate_id in watched_ids:
+                    candidate.metadata.pop("requested_media_type", None)
+                    if (
+                        filters
+                        and filters.media_types
+                        and not self._media_type_matches_filter(
+                            candidate,
+                            set(filters.media_types),
+                            allow_animation_hints=False,
+                        )
+                    ):
+                        exclusion_counts["cheap_media_type"] += 1
+                    elif candidate_id in watched_ids:
                         exclusion_counts["watched_completed"] += 1
                     elif candidate_id in library_ids:
                         exclusion_counts["library"] += 1
@@ -763,14 +857,32 @@ class CandidateCollectionService:
             )
             if legacy_exhausted:
                 break
-            if new_identity_count == 0:
+            no_new_identity_rounds = (
+                no_new_identity_rounds + 1 if new_identity_count == 0 else 0
+            )
+            no_new_candidate_rounds = (
+                no_new_candidate_rounds + 1
+                if len(candidates) == accepted_before_round
+                else 0
+            )
+            if (
+                no_new_identity_rounds >= MAX_STALLED_RECALL_ROUNDS
+                or no_new_candidate_rounds >= MAX_STALLED_RECALL_ROUNDS
+            ):
                 break
             next_budget = self._supplement_recall_budget(
                 target - len(candidates), survival_rate
             )
 
+        for candidate in candidates:
+            candidate.metadata.pop("requested_media_type", None)
         processing_counts["recall_round_count"] = recall_round
+        processing_counts["no_new_identity_rounds"] = no_new_identity_rounds
+        processing_counts["no_new_candidate_rounds"] = no_new_candidate_rounds
         processing_counts["accepted"] = len(candidates)
+        processing_counts["previous_board_exclusion_count"] = exclusion_counts[
+            "previous_board"
+        ]
         processing_counts["early_stop"] = int(len(candidates) >= target)
         current_survival_rate = (
             len(candidates) / processing_counts["raw"]

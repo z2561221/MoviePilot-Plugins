@@ -1,5 +1,6 @@
 """基于 MoviePilot 插件数据接口的稳定画像身份存储仓库。"""
 
+import copy
 import threading
 import uuid
 from contextlib import contextmanager
@@ -19,11 +20,13 @@ from ..model.conversation import (
     ConversationThread,
 )
 from ..model.feedback import (
+    BoardConsumption,
     FeedbackAppendResult,
     FeedbackEvent,
     FeedbackEventPointer,
     FeedbackEventSegment,
     FeedbackLedgerIndex,
+    ShortTermSignal,
 )
 from ..model.feedback_queue import FeedbackQueueJob
 from ..model.feedback_decision import MemoryProposal, PendingQuestion
@@ -38,7 +41,7 @@ from ..model.profile import UserProfile
 from ..model.profile_preferences import ProfilePreferences
 from ..model.playback import PlaybackSnapshot
 from ..model.policy import PolicySnapshot
-from ..model.run import RecommendationRun
+from ..model.run import AdaptiveFingerprints, LearningHealth, RecommendationRun
 from ..model.telegram_selection import TelegramSelectionSession
 from ..model.telegram_pending import TelegramPendingSession
 
@@ -55,10 +58,15 @@ class AgentRankRepository:
     recovery_log_key = "agentrank_recovery_log"
     telegram_sessions_key = "telegram_selection_sessions"
     telegram_pending_sessions_key = "telegram_pending_sessions"
+    board_history_prefix = "board_history"
     playback_snapshot_prefix = "playback_snapshot"
     candidate_snapshot_index_prefix = "candidate_snapshot_index"
     confirmation_prefix = "full_reset_confirmation"
     learning_profile_prefixes = (
+        "board_consumption",
+        "short_term_signals",
+        "adaptive_fingerprints",
+        "learning_health",
         "feedback_queue",
         "memory_proposals",
         "pending_questions",
@@ -113,6 +121,10 @@ class AgentRankRepository:
     def _candidate_index_key(self, profile_id: str) -> str:
         """生成按 profile 隔离的候选快照索引键。"""
         return self._profile_key(self.candidate_snapshot_index_prefix, profile_id)
+
+    def _board_history_key(self, profile_id: str) -> str:
+        """生成按 profile 隔离的历史榜单快照键。"""
+        return self._profile_key(self.board_history_prefix, profile_id)
 
     def _confirmation_key(self, profile_id: str) -> str:
         """生成彻底重置一次性确认记录键。"""
@@ -608,12 +620,320 @@ class AgentRankRepository:
             profile_id,
         )
 
+    def _load_board_consumptions(self, profile_id: str) -> List[BoardConsumption]:
+        """读取当前 profile 的榜单消费记录并忽略损坏或串 profile 数据。"""
+        key = self._learning_key("board_consumption", profile_id)
+        raw = self._plugin.get_data(key=key)
+        values = list(raw.values()) if isinstance(raw, Mapping) else raw
+        if not isinstance(values, list):
+            if raw is not None:
+                self._record_recovery(
+                    key, "ignored_corrupt_data", "consumption must be a list"
+                )
+            return []
+        result: List[BoardConsumption] = []
+        for value in values:
+            try:
+                current = BoardConsumption.from_dict(value)
+                if current.profile_id != str(profile_id):
+                    raise ValueError("board consumption profile mismatch")
+            except (TypeError, ValueError, KeyError) as error:
+                self._record_recovery(key, "ignored_corrupt_item", str(error))
+                continue
+            result.append(current)
+        return result
+
+    def load_board_consumptions(
+        self, profile_id: str, *, limit: Optional[int] = None
+    ) -> List[BoardConsumption]:
+        """读取当前 profile 最近的榜单消费记录。"""
+        with self._feedback_lock(profile_id):
+            items = self._load_board_consumptions(profile_id)
+        items.sort(
+            key=lambda item: (
+                item.last_interaction_at or item.exposed_at,
+                item.run_id,
+                item.board_revision,
+            ),
+            reverse=True,
+        )
+        return items[: max(0, int(limit))] if limit is not None else items
+
+    def load_board_consumption(
+        self, profile_id: str, run_id: str, board_revision: int
+    ) -> Optional[BoardConsumption]:
+        """按 run_id 与 board revision 读取一条榜单消费记录。"""
+        target_run = str(run_id or "").strip()
+        target_revision = max(1, int(board_revision or 1))
+        for item in self.load_board_consumptions(profile_id):
+            if item.run_id == target_run and item.board_revision == target_revision:
+                return item
+        return None
+
+    def save_board_consumption(self, consumption: BoardConsumption) -> BoardConsumption:
+        """幂等保存榜单消费记录并保留有界历史。"""
+        if not isinstance(consumption, BoardConsumption):
+            raise TypeError("consumption must be BoardConsumption")
+        profile_id = consumption.profile_id
+        key = self._learning_key("board_consumption", profile_id)
+        with self._feedback_lock(profile_id):
+            items = self._load_board_consumptions(profile_id)
+            replaced = False
+            retained: List[BoardConsumption] = []
+            for item in items:
+                if (
+                    item.run_id == consumption.run_id
+                    and item.board_revision == consumption.board_revision
+                ):
+                    if not replaced:
+                        retained.append(consumption)
+                        replaced = True
+                else:
+                    retained.append(item)
+            if not replaced:
+                retained.append(consumption)
+            retained.sort(
+                key=lambda item: (
+                    item.last_interaction_at or item.exposed_at,
+                    item.run_id,
+                    item.board_revision,
+                ),
+                reverse=True,
+            )
+            self._plugin.save_data(
+                key=key,
+                value=[item.to_dict() for item in retained[: self._history_limit]],
+            )
+        return consumption
+
+    def record_board_exposure(
+        self,
+        profile_id: str,
+        run_id: str,
+        board_revision: int,
+        candidate_ids: Iterable[Any],
+        observed_at: str,
+    ) -> BoardConsumption:
+        """记录一次真实页面曝光；同一榜单 revision 重复上报保持幂等。"""
+        target = str(profile_id or "").strip()
+        current = self.load_board_consumption(target, run_id, board_revision)
+        if current is None:
+            current = BoardConsumption(
+                profile_id=target,
+                run_id=str(run_id or "").strip(),
+                board_revision=board_revision,
+            )
+        return self.save_board_consumption(
+            current.with_exposure(candidate_ids, observed_at)
+        )
+
+    def record_board_detail_opened(
+        self,
+        profile_id: str,
+        run_id: str,
+        board_revision: int,
+        candidate_id: str,
+        observed_at: str,
+    ) -> BoardConsumption:
+        """幂等记录当前榜单某个候选的详情打开。"""
+        target = str(profile_id or "").strip()
+        current = self.load_board_consumption(target, run_id, board_revision)
+        if current is None:
+            current = BoardConsumption(
+                profile_id=target,
+                run_id=str(run_id or "").strip(),
+                board_revision=board_revision,
+            )
+        return self.save_board_consumption(
+            current.with_detail_opened(candidate_id, observed_at)
+        )
+
+    def record_board_interaction(
+        self,
+        profile_id: str,
+        run_id: str,
+        board_revision: int,
+        kind: str,
+        observed_at: str,
+    ) -> BoardConsumption:
+        """记录榜单上的结果交互状态，不改变反馈事件语义。"""
+        target = str(profile_id or "").strip()
+        current = self.load_board_consumption(target, run_id, board_revision)
+        if current is None:
+            current = BoardConsumption(
+                profile_id=target,
+                run_id=str(run_id or "").strip(),
+                board_revision=board_revision,
+            )
+        return self.save_board_consumption(
+            current.with_interaction(kind, observed_at)
+        )
+
+    def _load_short_term_signals(self, profile_id: str) -> List[ShortTermSignal]:
+        """读取当前 profile 的短期信号并过滤损坏数据。"""
+        key = self._learning_key("short_term_signals", profile_id)
+        raw = self._plugin.get_data(key=key)
+        if not isinstance(raw, list):
+            if raw is not None:
+                self._record_recovery(
+                    key, "ignored_corrupt_data", "signals must be a list"
+                )
+            return []
+        result: List[ShortTermSignal] = []
+        for value in raw:
+            try:
+                signal = ShortTermSignal.from_dict(value)
+                if signal.profile_id != str(profile_id):
+                    raise ValueError("short-term signal profile mismatch")
+            except (TypeError, ValueError, KeyError) as error:
+                self._record_recovery(key, "ignored_corrupt_item", str(error))
+                continue
+            result.append(signal)
+        return result
+
+    def load_short_term_signals(
+        self, profile_id: str, *, limit: Optional[int] = None
+    ) -> List[ShortTermSignal]:
+        """读取当前 profile 的短期偏好信号。"""
+        with self._feedback_lock(profile_id):
+            items = self._load_short_term_signals(profile_id)
+        if limit is None:
+            return items
+        return items[-max(0, int(limit)) :]
+
+    def append_short_term_signal(
+        self, signal: ShortTermSignal
+    ) -> Tuple[ShortTermSignal, bool]:
+        """按幂等键追加短期信号，重复上报不重复计数。"""
+        if not isinstance(signal, ShortTermSignal):
+            raise TypeError("signal must be ShortTermSignal")
+        profile_id = signal.profile_id
+        key = self._learning_key("short_term_signals", profile_id)
+        with self._feedback_lock(profile_id):
+            items = self._load_short_term_signals(profile_id)
+            for item in items:
+                if item.idempotency_key == signal.idempotency_key:
+                    if item.to_dict() != signal.to_dict():
+                        raise ValueError("short-term signal idempotency conflict")
+                    return item, False
+            items.append(signal)
+            self._plugin.save_data(
+                key=key,
+                value=[
+                    item.to_dict()
+                    for item in items[-max(1, self._history_limit * 10) :]
+                ],
+            )
+        return signal, True
+
+    def load_adaptive_fingerprints(
+        self, profile_id: str
+    ) -> Optional[AdaptiveFingerprints]:
+        """读取当前 profile 最近一次生成门控指纹。"""
+        return self._load_scoped_model(
+            self._learning_key("adaptive_fingerprints", profile_id),
+            AdaptiveFingerprints,
+            profile_id,
+        )
+
+    def save_adaptive_fingerprints(
+        self, fingerprints: AdaptiveFingerprints
+    ) -> AdaptiveFingerprints:
+        """保存来源、偏好和榜单消费三类门控指纹。"""
+        if not isinstance(fingerprints, AdaptiveFingerprints):
+            raise TypeError("fingerprints must be AdaptiveFingerprints")
+        self._plugin.save_data(
+            key=self._learning_key("adaptive_fingerprints", fingerprints.profile_id),
+            value=fingerprints.to_dict(),
+        )
+        return fingerprints
+
+    def load_learning_health(self, profile_id: str) -> Optional[LearningHealth]:
+        """读取最近一次持久化的学习健康度摘要。"""
+        return self._load_scoped_model(
+            self._learning_key("learning_health", profile_id),
+            LearningHealth,
+            profile_id,
+        )
+
+    def build_learning_health(self, profile_id: str) -> LearningHealth:
+        """根据当前事实动态汇总学习健康度，不把数据少误判为故障。"""
+        target = str(profile_id or "").strip()
+        signals = self.load_short_term_signals(target)
+        consumptions = self.load_board_consumptions(target)
+        memory = self.load_preference_memory(target)
+        proposals = self.load_memory_proposals(target)
+        questions = self.load_pending_questions(target)
+        understandings = self.load_feedback_understandings(target)
+        attributions = self.load_outcome_attributions(target)
+        stage_counts: Dict[str, int] = {}
+        for record in attributions:
+            stage = str(record.state or "").strip()
+            if stage:
+                stage_counts[stage] = stage_counts.get(stage, 0) + 1
+        effective = [item for item in signals if item.kind != "rotation"]
+        last_effective = max(
+            (item.observed_at for item in effective if item.observed_at),
+            default="",
+        )
+        pending_count = sum(
+            str(item.status or "") in {"pending", "open", "awaiting_confirmation"}
+            for item in [*proposals, *questions]
+        )
+        attention_required = bool(effective and not understandings)
+        attention_reason = (
+            "近期有效反馈尚未形成可回读的理解记录" if attention_required else ""
+        )
+        if not stage_counts:
+            coverage = "none"
+        elif any(
+            stage_counts.get(stage, 0) == 0
+            for stage in ("subscription_observed", "playback_observed")
+        ):
+            coverage = "partial"
+        else:
+            coverage = "complete"
+        health = LearningHealth(
+            profile_id=target,
+            short_term_signal_count=len(signals),
+            confirmed_memory_count=len(memory.active_items()),
+            pending_count=pending_count,
+            processed_count=len(understandings),
+            exposure_count=sum(item.exposure_count for item in consumptions),
+            effective_feedback_count=len(effective),
+            last_effective_feedback_at=last_effective,
+            attribution_stage_counts=stage_counts,
+            attribution_coverage=coverage,
+            attention_required=attention_required,
+            attention_reason=attention_reason,
+            legacy_baseline=not signals and not consumptions,
+        )
+        self.save_learning_health(health)
+        return health
+
+    def save_learning_health(self, health: LearningHealth) -> LearningHealth:
+        """保存可公开投影的学习健康度摘要。"""
+        if not isinstance(health, LearningHealth):
+            raise TypeError("health must be LearningHealth")
+        self._plugin.save_data(
+            key=self._learning_key("learning_health", health.profile_id),
+            value=health.to_dict(),
+        )
+        return health
+
     def save_board(self, board: RecommendationBoard) -> None:
         """保存当前用户榜单。"""
-        self._plugin.save_data(
-            key=self._profile_key("recommendation_board", board.profile_id),
-            value=board.to_dict(),
-        )
+        board_key = self._profile_key("recommendation_board", board.profile_id)
+        history_key = self._board_history_key(board.profile_id)
+        with self._board_archive_lock, self._feedback_lock(board.profile_id):
+            self._atomic_raw_update(
+                updates={
+                    board_key: board.to_dict(),
+                    history_key: self._board_history_after_save(board),
+                },
+                recovery_key=board_key,
+                action="recommendation_board_write_failed",
+            )
 
     def load_board(self, profile_id: str) -> Optional[RecommendationBoard]:
         """读取当前用户榜单；损坏或不存在时返回空。"""
@@ -622,6 +942,58 @@ class AgentRankRepository:
             RecommendationBoard,
             profile_id,
         )
+
+    def _board_history_after_save(
+        self, board: RecommendationBoard
+    ) -> List[Dict[str, Any]]:
+        """基于当前原始快照生成幂等的历史榜单列表。"""
+        key = self._board_history_key(board.profile_id)
+        raw_history = self._plugin.get_data(key=key)
+        if raw_history is None:
+            history: List[Any] = []
+        elif isinstance(raw_history, list):
+            history = list(raw_history)
+        else:
+            self._record_recovery(
+                key, "ignored_corrupt_data", "board history must be a list"
+            )
+            history = []
+        run_id = str(board.run_id or "").strip()
+        if run_id and board.recommendations:
+            has_snapshot = any(
+                isinstance(item, Mapping)
+                and str(item.get("profile_id") or "").strip() == board.profile_id
+                and str(item.get("run_id") or "").strip() == run_id
+                for item in history
+            )
+            if not has_snapshot:
+                # 深拷贝避免测试替身或宿主缓存继续持有可变 board 引用。
+                history.insert(0, copy.deepcopy(board.to_dict()))
+        return history[: self._history_limit]
+
+    def load_board_history(self, profile_id: str) -> List[RecommendationBoard]:
+        """容错读取当前用户的历史榜单快照。"""
+        target = str(profile_id or "").strip()
+        key = self._board_history_key(target)
+        value = self._plugin.get_data(key=key)
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            self._record_recovery(
+                key, "ignored_corrupt_data", "board history must be a list"
+            )
+            return []
+        result: List[RecommendationBoard] = []
+        for item in value[: self._history_limit]:
+            try:
+                board = RecommendationBoard.from_dict(item)
+                if board.profile_id != target:
+                    raise ValueError("board history profile_id mismatch")
+            except (TypeError, ValueError, KeyError) as error:
+                self._record_recovery(key, "ignored_corrupt_item", str(error))
+                continue
+            result.append(board)
+        return result
 
     def save_archive(self, archive: ArchiveFeedback) -> None:
         """保存当前用户忽略归档。"""
@@ -1780,7 +2152,7 @@ class AgentRankRepository:
         keep_limit = max(len(values), min(max(1, int(limit)), 100000))
         board_key = self._profile_key("recommendation_board", board.profile_id)
         analysis_key = self._learning_key("agent_analysis", board.profile_id)
-        with self._feedback_lock(board.profile_id):
+        with self._board_archive_lock, self._feedback_lock(board.profile_id):
             raw = self._plugin.get_data(key=analysis_key)
             if raw is None:
                 items: List[Any] = []
@@ -1808,6 +2180,9 @@ class AgentRankRepository:
             updates = {
                 board_key: board.to_dict(),
                 analysis_key: retained[-keep_limit:],
+                self._board_history_key(board.profile_id): self._board_history_after_save(
+                    board
+                ),
             }
             if archive is not None:
                 updates[self._profile_key("archive", board.profile_id)] = (
@@ -2578,6 +2953,42 @@ class AgentRankRepository:
             )
             return None
 
+    def load_telegram_pending_sessions(
+        self,
+        profile_id: str,
+        item_type: str,
+        item_id: str,
+        *,
+        status: str = "open",
+    ) -> List[TelegramPendingSession]:
+        """按待办业务身份读取关联的 Telegram 交互会话。"""
+        target = self._scope(profile_id, "profile_id")
+        target_type = str(item_type or "").strip()
+        target_id = str(item_id or "").strip()
+        target_status = str(status or "").strip()
+        raw = self._plugin.get_data(key=self.telegram_pending_sessions_key)
+        if not isinstance(raw, Mapping):
+            return []
+        sessions: List[TelegramPendingSession] = []
+        for token, value in raw.items():
+            try:
+                session = TelegramPendingSession.from_dict(value)
+            except (TypeError, ValueError, KeyError) as error:
+                self._record_recovery(
+                    f"{self.telegram_pending_sessions_key}:{token}",
+                    "ignored_corrupt_item",
+                    str(error),
+                )
+                continue
+            if (
+                session.profile_id == target
+                and session.item_type == target_type
+                and session.item_id == target_id
+                and (not target_status or session.status == target_status)
+            ):
+                sessions.append(session)
+        return sorted(sessions, key=lambda item: (item.created_at, item.token))
+
     def annotate_run(
         self,
         profile_id: str,
@@ -2658,7 +3069,7 @@ class AgentRankRepository:
                 run_id = str(item.get("run_id") or "").strip()
                 if run_id and run_id not in run_ids:
                     run_ids.append(run_id)
-        for prefix in ("run_history", "recommendation_board"):
+        for prefix in ("run_history", "recommendation_board", self.board_history_prefix):
             value = self._plugin.get_data(key=self._profile_key(prefix, profile_id))
             for run_id in self._raw_run_ids(value):
                 if run_id not in run_ids:
@@ -2686,6 +3097,7 @@ class AgentRankRepository:
         fixed_prefixes = (
             "profile_snapshot",
             "recommendation_board",
+            self.board_history_prefix,
             "archive",
             "profile_preferences",
             self.playback_snapshot_prefix,
@@ -2834,15 +3246,17 @@ class AgentRankRepository:
             raise ValueError("board and archive profile_id mismatch")
         board_key = self._profile_key("recommendation_board", board.profile_id)
         archive_key = self._profile_key("archive", archive.profile_id)
-        old_board = self._plugin.get_data(key=board_key)
-        old_archive = self._plugin.get_data(key=archive_key)
-        try:
-            self._plugin.save_data(key=board_key, value=board.to_dict())
-            self._plugin.save_data(key=archive_key, value=archive.to_dict())
-        except Exception:
-            self._restore_raw(board_key, old_board)
-            self._restore_raw(archive_key, old_archive)
-            raise
+        history_key = self._board_history_key(board.profile_id)
+        with self._board_archive_lock, self._feedback_lock(board.profile_id):
+            self._atomic_raw_update(
+                updates={
+                    board_key: board.to_dict(),
+                    archive_key: archive.to_dict(),
+                    history_key: self._board_history_after_save(board),
+                },
+                recovery_key=board_key,
+                action="board_archive_write_failed",
+            )
 
     def capture_board_archive_raw(self, profile_id: str) -> Dict[str, Any]:
         """捕获榜单和归档原始值，供复合反馈失败时逐字段恢复。"""
@@ -2877,6 +3291,7 @@ class AgentRankRepository:
         keys = (
             self._profile_key("recommendation_board", profile_id),
             self._profile_key("archive", profile_id),
+            self._board_history_key(profile_id),
             self._learning_key("agent_analysis", profile_id),
         )
         return {key: self._plugin.get_data(key=key) for key in keys}
@@ -2888,6 +3303,7 @@ class AgentRankRepository:
         expected_keys = {
             self._profile_key("recommendation_board", profile_id),
             self._profile_key("archive", profile_id),
+            self._board_history_key(profile_id),
             self._learning_key("agent_analysis", profile_id),
         }
         if set(values) != expected_keys:
@@ -2909,15 +3325,17 @@ class AgentRankRepository:
             raise ValueError("profile and board profile_id mismatch")
         profile_key = self._profile_key("profile_snapshot", profile.profile_id)
         board_key = self._profile_key("recommendation_board", board.profile_id)
-        old_profile = self._plugin.get_data(key=profile_key)
-        old_board = self._plugin.get_data(key=board_key)
-        try:
-            self._plugin.save_data(key=profile_key, value=profile.to_dict())
-            self._plugin.save_data(key=board_key, value=board.to_dict())
-        except Exception:
-            self._restore_raw(profile_key, old_profile)
-            self._restore_raw(board_key, old_board)
-            raise
+        history_key = self._board_history_key(board.profile_id)
+        with self._board_archive_lock, self._feedback_lock(board.profile_id):
+            self._atomic_raw_update(
+                updates={
+                    profile_key: profile.to_dict(),
+                    board_key: board.to_dict(),
+                    history_key: self._board_history_after_save(board),
+                },
+                recovery_key=board_key,
+                action="profile_board_write_failed",
+            )
 
     def clear_profile_and_board(self, profile_id: str) -> None:
         """原子删除当前用户画像和榜单，失败时恢复原始数据。"""

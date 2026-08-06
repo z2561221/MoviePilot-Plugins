@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Mapping
 
 from ..model.config import configured_identities
 from .run_progress import RunProgressStore
+from .prompt import configured_agent_display_name, effective_persona_prompt
 
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,9 @@ class AgentRankRuntime:
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
         self.config = config
-        self._run_progress = RunProgressStore()
+        self._run_progress = RunProgressStore(
+            configured_agent_display_name(config.get("agent_display_name"))
+        )
         self._manual_tasks: Dict[str, asyncio.Task] = {}
         self.orchestrator = orchestrator or self._build_orchestrator(plugin, config)
         self._trigger_factory = trigger_factory or self._default_trigger_factory
@@ -89,7 +92,10 @@ class AgentRankRuntime:
                 AgentRankAgentAdapter(),
                 analysis_limit=int(config.get("analysis_record_limit") or 500),
                 critic_prompt=str(config.get("critic_prompt") or ""),
-                persona_prompt=str(config.get("persona_prompt") or ""),
+                persona_prompt=effective_persona_prompt(
+                    config.get("persona_preset"), config.get("persona_prompt")
+                ),
+                interaction_mode=str(config.get("interaction_mode") or "auto"),
             )
         if feedback_handler is None and feedback_understanding_service is not None:
             feedback_handler = getattr(
@@ -141,7 +147,12 @@ class AgentRankRuntime:
                 plugin=plugin,
                 message_limit=int(config.get("conversation_message_limit") or 200),
                 critic_prompt=str(config.get("critic_prompt") or ""),
-                persona_prompt=str(config.get("persona_prompt") or ""),
+                persona_prompt=effective_persona_prompt(
+                    config.get("persona_preset"), config.get("persona_prompt")
+                ),
+                agent_name=configured_agent_display_name(
+                    config.get("agent_display_name")
+                ),
                 profile_ids=(
                     identity.profile_id for identity in configured_identities(config)
                 ),
@@ -164,7 +175,12 @@ class AgentRankRuntime:
                 feedback_response=feedback_response_service,
                 memory_projection=memory_projection_service,
                 conversation=conversation_service,
-                persona_prompt=str(config.get("persona_prompt") or ""),
+                persona_prompt=effective_persona_prompt(
+                    config.get("persona_preset"), config.get("persona_prompt")
+                ),
+                agent_name=configured_agent_display_name(
+                    config.get("agent_display_name")
+                ),
             )
         self.pending_center_service = pending_center_service
         plugin._pending_center = pending_center_service
@@ -172,6 +188,31 @@ class AgentRankRuntime:
             set_pending_center = getattr(interaction_service, "set_pending_center", None)
             if callable(set_pending_center):
                 set_pending_center(pending_center_service)
+            set_resolution_handler = getattr(
+                pending_center_service, "set_resolution_handler", None
+            )
+            resolve_pending_item = getattr(
+                interaction_service, "resolve_pending_item", None
+            )
+            if callable(set_resolution_handler) and callable(resolve_pending_item):
+                set_resolution_handler(resolve_pending_item)
+            set_pending_handler = getattr(
+                pending_center_service, "set_pending_handler", None
+            )
+            if callable(set_pending_handler):
+                set_pending_handler(self._notify_pending_notice)
+        if conversation_service is not None:
+            set_pending_handler = getattr(
+                conversation_service, "set_pending_handler", None
+            )
+            if callable(set_pending_handler):
+                set_pending_handler(self._notify_conversation_pending)
+        if feedback_queue is not None:
+            set_completion_handler = getattr(
+                feedback_queue, "set_completion_handler", None
+            )
+            if callable(set_completion_handler):
+                set_completion_handler(self._notify_feedback_completion)
         self._stopped = False
         self._active_tasks: set[asyncio.Task] = set()
 
@@ -407,8 +448,16 @@ class AgentRankRuntime:
     async def _execute_refresh(self, profile_id: str, *, source: str) -> Any:
         """执行一次推荐并确保所有出口都收束实时进度。"""
         self._run_progress.begin(profile_id)
+        repository = getattr(self.plugin, "_repository", None)
+        first_profile_run = bool(
+            repository is not None and repository.load_profile(profile_id) is None
+        )
         try:
-            result = await self.orchestrator.run(profile_id, self.config)
+            result = await self.orchestrator.run(
+                profile_id,
+                self.config,
+                trigger_reason=source,
+            )
         except asyncio.CancelledError:
             self._run_progress.finish(
                 profile_id,
@@ -427,6 +476,8 @@ class AgentRankRuntime:
 
         if str(getattr(result, "status", "") or "") == "running":
             return result
+        if first_profile_run:
+            self._create_playback_calibration(profile_id)
         self._apply_post_action(profile_id, result, source=source)
         self._run_progress.finish(
             profile_id,
@@ -585,15 +636,162 @@ class AgentRankRuntime:
 
     def _notify_feedback_attention(self, job: Any) -> None:
         """在反馈任务达到重试上限后发送不含事件载荷的通知。"""
-        if not self._notifications_enabled() or self.notification_service is None:
-            return
-        self.notification_service.send_failure(
-            username=self._display_name(job.profile_id, self.config),
-            status="feedback_needs_attention",
-            run_id="",
-            message="反馈理解多次失败，请稍后在插件详情页重试",
-            old_board_preserved=True,
+        profile_id = str(getattr(job, "profile_id", "") or "").strip()
+        event_id = str(getattr(job, "event_id", "") or "").strip()
+        append_notice = getattr(
+            self.conversation_service, "append_feedback_notice", None
         )
+        if profile_id and event_id and callable(append_notice):
+            actor_id = ""
+            repository = getattr(self.plugin, "_repository", None)
+            if repository is not None:
+                event = next(
+                    (
+                        item
+                        for item in repository.load_feedback_events(profile_id)
+                        if item.event_id == event_id
+                    ),
+                    None,
+                )
+                actor_id = str(
+                    getattr(event, "created_by_mp_user_id", "") or ""
+                )
+            append_notice(
+                profile_id=profile_id,
+                event_id=f"failed:{event_id}",
+                actor_id=actor_id,
+                content="这条反馈暂时没有理解完成，原始操作已经保留，可以稍后重试。",
+            )
+        if self._notifications_enabled() and self.notification_service is not None:
+            self.notification_service.send_failure(
+                username=self._display_name(profile_id, self.config),
+                status="feedback_needs_attention",
+                run_id="",
+                message="反馈理解失败，原始操作已保留，可稍后重试",
+                old_board_preserved=True,
+            )
+
+    def _notify_conversation_pending(self, command: Any) -> None:
+        """把对话产生的操作确认同时投递到待办中心和 Telegram。"""
+        if self.pending_center_service is None or self.notification_service is None:
+            return
+        notice = self.pending_center_service.notice_for_command(command)
+        self._notify_pending_notice(notice)
+
+    def _notify_pending_notice(self, notice: Any) -> None:
+        """把已生成待办强制投递到 Telegram；通知开关不抑制待办。"""
+        if notice is None or self.notification_service is None:
+            return
+        profile_id = str(getattr(getattr(notice, "item", None), "profile_id", "") or "")
+        if not profile_id:
+            return
+        self.notification_service.send_pending(
+            self._display_name(profile_id, self.config), notice
+        )
+
+    def _notify_feedback_completion(self, job: Any, result: Any) -> None:
+        """把反馈理解结果收束为待办通知或 CinePilot Agent 可见回执。"""
+        profile_id = str(getattr(job, "profile_id", "") or "").strip()
+        event_id = str(getattr(job, "event_id", "") or "").strip()
+        if not profile_id or not event_id:
+            return
+        notice = (
+            self.pending_center_service.notice_for_event(profile_id, event_id)
+            if self.pending_center_service is not None
+            else None
+        )
+        if notice is not None:
+            if self.notification_service is not None:
+                self._notify_pending_notice(notice)
+            return
+        append_notice = getattr(
+            self.conversation_service, "append_feedback_notice", None
+        )
+        if not callable(append_notice):
+            return
+        repository = getattr(self.plugin, "_repository", None)
+        actor_id = ""
+        candidate_id = str(getattr(result, "candidate_id", "") or "")
+        title = "这条推荐"
+        if repository is not None:
+            events = repository.load_feedback_events(profile_id)
+            event = next(
+                (item for item in events if item.event_id == event_id), None
+            )
+            actor_id = str(
+                getattr(event, "created_by_mp_user_id", "") or ""
+            )
+            board = repository.load_board(profile_id)
+            if board is not None:
+                candidate = next(
+                    (
+                        item
+                        for item in board.recommendations
+                        if item.candidate_id == candidate_id
+                    ),
+                    None,
+                )
+                if candidate is not None:
+                    title = str(candidate.title or title)
+        action = str(getattr(result, "action", "") or "")
+        action_label = {
+            "like": "点赞",
+            "dislike": "点踩",
+            "ignore": "忽略",
+            "analysis_comment": "分析意见",
+        }.get(action, "反馈")
+        restatement = str(getattr(result, "restatement", "") or "").strip()
+        detail = f"{restatement}。" if restatement else ""
+        append_notice(
+            profile_id=profile_id,
+            event_id=event_id,
+            actor_id=actor_id,
+            candidate_id=candidate_id,
+            content=(
+                f"已完成对《{title}》的{action_label}理解。"
+                f"{detail}当前不需要进一步确认。"
+            ),
+        )
+
+    def _create_playback_calibration(self, profile_id: str) -> None:
+        """首次画像运行后创建整体偏好校准问题并立即投递。"""
+        repository = getattr(self.plugin, "_repository", None)
+        if repository is None:
+            return
+        snapshot = repository.load_playback_snapshot(profile_id)
+        if snapshot is None:
+            return
+        from .feedback_proposal import FeedbackProposalService
+
+        question, _created = FeedbackProposalService(
+            repository,
+            record_limit=int(self.config.get("analysis_record_limit") or 500),
+            persona_prompt=effective_persona_prompt(
+                self.config.get("persona_preset"), self.config.get("persona_prompt")
+            ),
+            interaction_mode=str(self.config.get("interaction_mode") or "auto"),
+        ).create_playback_calibration(profile_id, snapshot)
+        if (
+            question is None
+            or self.pending_center_service is None
+            or self.notification_service is None
+        ):
+            return
+        notice = self.pending_center_service.notice_for_event(
+            profile_id, question.event_id
+        )
+        if notice is not None:
+            self._notify_pending_notice(notice)
+
+    def notify_pending_event(self, profile_id: str, event_id: str) -> bool:
+        """供手动同步等 API 把已生成问询立即投递到 Telegram。"""
+        if self.pending_center_service is None:
+            return False
+        notice = self.pending_center_service.notice_for_event(profile_id, event_id)
+        if notice is None:
+            return False
+        self._notify_pending_notice(notice)
+        return True
 
     def verify_outcomes(self) -> List[Dict[str, Any]]:
         """复查全部配置画像的订阅、入库和播放归因。"""

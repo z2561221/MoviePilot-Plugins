@@ -23,9 +23,11 @@ from .data_lifecycle import DataLifecycleService
 from .feedback_action import FeedbackActionService
 from .profile_preferences import ProfilePreferenceService
 from .prompt import (
+    AGENT_DISPLAY_NAME_DEFAULT,
     DEFAULT_CRITIC_PROMPT,
     DEFAULT_PERSONA_PROMPT,
     build_conversation_prompt,
+    configured_agent_display_name,
 )
 
 
@@ -277,6 +279,7 @@ class ConversationService:
         pending_handler: Callable[[ConversationCommand], Any] = None,
         critic_prompt: str = DEFAULT_CRITIC_PROMPT,
         persona_prompt: str = DEFAULT_PERSONA_PROMPT,
+        agent_name: str = AGENT_DISPLAY_NAME_DEFAULT,
         profile_ids: Iterable[str] = (),
         max_workers: int = 2,
         total_timeout_seconds: float = 90.0,
@@ -295,6 +298,7 @@ class ConversationService:
         self._pending_handler = pending_handler
         self._critic_prompt = str(critic_prompt or DEFAULT_CRITIC_PROMPT).strip()
         self._persona_prompt = str(persona_prompt or DEFAULT_PERSONA_PROMPT).strip()
+        self._agent_name = configured_agent_display_name(agent_name)
         self._profiles = {
             str(profile_id or "").strip()
             for profile_id in profile_ids or ()
@@ -789,7 +793,7 @@ class ConversationService:
                     preview = f"确认后订阅：{item.title}"
             else:
                 payload = {}
-                title = "重置 CinePilot Agent 学习数据"
+                title = f"重置 {self._agent_name} 学习数据"
                 preview = "清除反馈、记忆、对话与学习策略；保留榜单和人工标签"
             payload_json = json.dumps(
                 payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -868,6 +872,70 @@ class ConversationService:
             return {"thread": None, "messages": [], "commands": []}
         messages, commands = self._repository.load_conversation_records(profile_id)
         return self._snapshot_data(thread, messages, commands)
+
+    def append_feedback_notice(
+        self,
+        *,
+        profile_id: str,
+        event_id: str,
+        content: str,
+        actor_id: str = "",
+        candidate_id: str = "",
+    ) -> bool:
+        """幂等追加一条后台反馈完成回执并触发未读角标。"""
+        target = str(profile_id or "").strip()
+        event = str(event_id or "").strip()
+        text = self._message_text(content)
+        if not target or not event:
+            raise ConversationError(
+                "feedback_notice_invalid", "反馈回执缺少稳定身份", 422
+            )
+        now = self._now()
+        actor = str(actor_id or "").strip() or "system"
+        message_id = self._stable_id("feedback-notice", target, event)
+        with self._repository.feedback_action_guard(target):
+            thread = self._thread(target, actor, now)
+            messages, commands = self._repository.load_conversation_records(
+                target, strict=True
+            )
+            if any(item.message_id == message_id for item in messages):
+                return False
+            if self._repository.load_conversation_read_marker(target, actor) is None:
+                previous_assistant_ids = [
+                    item.message_id for item in messages if item.role == "assistant"
+                ]
+                self._repository.save_conversation_read_marker(
+                    target,
+                    actor,
+                    previous_assistant_ids[-1] if previous_assistant_ids else "",
+                )
+            assistant = ConversationMessage(
+                message_id=message_id,
+                profile_id=target,
+                thread_id=thread.thread_id,
+                role="assistant",
+                content=text,
+                status="completed",
+                created_at=now,
+                reply_to=f"feedback:{event}",
+                related_candidate_ids=(candidate_id,) if candidate_id else (),
+            )
+            messages.append(assistant)
+            thread = replace(
+                thread,
+                updated_at=now,
+                revision=thread.revision + 1,
+                summary=text[:400],
+                last_message_id=message_id,
+            )
+            self._repository.save_conversation_state(
+                thread,
+                messages,
+                commands,
+                limit=self._message_limit,
+                action="feedback_notice_write_failed",
+            )
+        return True
 
     def status(
         self, profile_id: str, *, actor_id: str, mark_read: bool = False
@@ -1060,7 +1128,7 @@ class ConversationService:
             if remaining <= 0:
                 raise ConversationError(
                     "conversation_timeout",
-                    "CinePilot Agent 响应超时，消息已保留，可重试",
+                    f"{self._agent_name} 响应超时，消息已保留，可重试",
                     504,
                 )
             try:
@@ -1071,7 +1139,7 @@ class ConversationService:
             except asyncio.TimeoutError as error:
                 raise ConversationError(
                     "conversation_timeout",
-                    "CinePilot Agent 响应超时，消息已保留，可重试",
+                    f"{self._agent_name} 响应超时，消息已保留，可重试",
                     504,
                 ) from error
             except Exception as error:
@@ -1146,11 +1214,11 @@ class ConversationService:
                             if isinstance(error, ConversationError)
                             else "agent_unavailable"
                         ),
-                        error_message=(
-                            error.message
-                            if isinstance(error, ConversationError)
-                            else "CinePilot Agent 生成失败，消息已保留，可重试"
-                        ),
+                    error_message=(
+                        error.message
+                        if isinstance(error, ConversationError)
+                        else f"{self._agent_name} 生成失败，消息已保留，可重试"
+                    ),
                         provider=str(safe.get("provider") or "")[:80],
                         model=str(safe.get("model") or "")[:120],
                     )
@@ -1169,7 +1237,7 @@ class ConversationService:
                 raise
             raise ConversationError(
                 "conversation_failed",
-                "CinePilot Agent 生成失败，消息已保留，可重试",
+                f"{self._agent_name} 生成失败，消息已保留，可重试",
                 502,
             ) from error
         with self._repository.feedback_action_guard(profile_id):
@@ -1380,7 +1448,7 @@ class ConversationService:
             getattr(self._plugin, "_config", {}) if self._plugin else {},
         )
         result = lifecycle.reset_learning(command.profile_id, True)
-        return "learning_reset", "CinePilot Agent 学习数据已重置", result
+        return "learning_reset", f"{self._agent_name} 学习数据已重置", result
 
     def respond_command(
         self,
@@ -1443,7 +1511,7 @@ class ConversationService:
                     actor_id=actor,
                     resolved_at=now,
                     code="learning_reset",
-                    message="CinePilot Agent 学习数据已重置",
+                    message=f"{self._agent_name} 学习数据已重置",
                 )
                 commands = [
                     prepared if item.command_id == command.command_id else item
@@ -1472,7 +1540,7 @@ class ConversationService:
                     created_at=thread.created_at,
                     updated_at=now,
                     revision=thread.revision + 1,
-                    summary="CinePilot Agent 学习数据已重置。",
+                    summary=f"{self._agent_name} 学习数据已重置。",
                 )
                 self._repository.save_conversation_state(
                     receipt_thread,

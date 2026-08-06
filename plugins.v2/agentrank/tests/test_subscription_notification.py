@@ -89,6 +89,8 @@ pending_model_module = importlib.import_module(
 )
 support_module = importlib.import_module(f"{PACKAGE_NAME}.model.support")
 archive_module = importlib.import_module(f"{PACKAGE_NAME}.model.archive")
+feedback_module = importlib.import_module(f"{PACKAGE_NAME}.model.feedback")
+run_module = importlib.import_module(f"{PACKAGE_NAME}.model.run")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 service_module = importlib.import_module(f"{PACKAGE_NAME}.service.subscription")
 notification_module = importlib.import_module(f"{PACKAGE_NAME}.service.notification")
@@ -106,6 +108,8 @@ SupportContribution = support_module.SupportContribution
 SupportScore = support_module.SupportScore
 ArchiveFeedback = archive_module.ArchiveFeedback
 ArchiveEntry = archive_module.ArchiveEntry
+FeedbackEvent = feedback_module.FeedbackEvent
+RecommendationRun = run_module.RecommendationRun
 AgentRankRepository = repository_module.AgentRankRepository
 SubscriptionService = service_module.SubscriptionService
 NotificationService = notification_module.NotificationService
@@ -275,15 +279,50 @@ def _seed(repository, support_percentage=80, source_ids=None, run_id="run-1"):
     repository.save_candidate_snapshot(
         _legacy_snapshot(
             run_id,
-        [
-            Candidate(
-                candidate_id="tmdb:1",
-                title="One",
-                media_type="movie",
-                year=2025,
-                source_ids=source_ids,
+            [
+                Candidate(
+                    candidate_id="tmdb:1",
+                    title="One",
+                    media_type="movie",
+                    year=2025,
+                    source_ids=source_ids,
+                )
+            ],
+        )
+    )
+
+
+def _notification_board(run_id, candidate_ids):
+    """构造只包含候选身份的通知测试榜单。"""
+    return RecommendationBoard(
+        profile_id=PROFILE_ID,
+        username="Alice",
+        run_id=run_id,
+        status="success",
+        recommendations=[
+            RecommendationItem(
+                candidate_id=candidate_id,
+                rank=index,
+                title=f"Title {candidate_id}",
             )
+            for index, candidate_id in enumerate(candidate_ids, start=1)
         ],
+    )
+
+
+def _append_notification_run(repository, board):
+    """保存通知去重所需的最小运行历史记录。"""
+    repository.append_run(
+        RecommendationRun(
+            profile_id=board.profile_id,
+            run_id=board.run_id,
+            username=board.username,
+            status=board.status,
+            metrics={
+                "recommendation_candidate_ids": [
+                    item.candidate_id for item in board.recommendations
+                ]
+            },
         )
     )
 
@@ -369,6 +408,57 @@ def test_notification_confirmation_prefers_interactive_card_when_available():
 
     assert interaction.calls == [(PROFILE_ID, "Alice", "run-1")]
     assert plugin.messages == []
+
+
+def test_unacted_duplicate_board_is_suppressed_without_negative_feedback():
+    """无操作的同一榜单只抑制通知，不写入任何负向反馈事实。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    plugin._repository = repository
+    first = _notification_board("run-notify-1", ["tmdb:1", "tmdb:2"])
+    second = _notification_board("run-notify-2", ["tmdb:2", "tmdb:1"])
+    _append_notification_run(repository, first)
+    service = NotificationService(plugin)
+
+    assert service.send_confirmation("Alice", first) is True
+    _append_notification_run(repository, second)
+
+    assert service.send_confirmation("Alice", second) is False
+    assert len(plugin.messages) == 1
+    assert repository.load_feedback_events(PROFILE_ID) == []
+    latest = repository.load_run_history(PROFILE_ID)[0]
+    assert latest.metrics["recommendation_notification_status"] == (
+        "suppressed_unacted_duplicate"
+    )
+
+
+def test_explicit_feedback_allows_same_board_to_be_notified_again():
+    """明确反馈后相同候选集合可以再次发送，排序变化不绕过去重指纹。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    plugin._repository = repository
+    first = _notification_board("run-notify-feedback-1", ["tmdb:1", "tmdb:2"])
+    second = _notification_board("run-notify-feedback-2", ["tmdb:2", "tmdb:1"])
+    _append_notification_run(repository, first)
+    service = NotificationService(plugin)
+    assert service.send_confirmation("Alice", first) is True
+
+    repository.append_feedback_event(
+        FeedbackEvent(
+            profile_id=PROFILE_ID,
+            kind="like",
+            candidate_id="tmdb:1",
+            run_id=first.run_id,
+            idempotency_key="notify-feedback-1",
+        )
+    )
+    _append_notification_run(repository, second)
+
+    assert service.send_confirmation("Alice", second) is True
+    assert len(plugin.messages) == 2
+    assert repository.load_run_history(PROFILE_ID)[0].metrics[
+        "recommendation_notification_status"
+    ] == "sent"
 
 
 def test_failure_notification_hides_addresses_credentials_and_emby_identity():

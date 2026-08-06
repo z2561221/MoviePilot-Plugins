@@ -30,6 +30,7 @@ analysis_builder_module = importlib.import_module(f"{PACKAGE_NAME}.service.analy
 
 Candidate = candidate_module.Candidate
 UserProfile = profile_module.UserProfile
+PROFILE_SCHEMA_VERSION = profile_module.PROFILE_SCHEMA_VERSION
 ProfilePreferences = preferences_module.ProfilePreferences
 RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
@@ -136,13 +137,21 @@ class FakeCandidateService:
         negative_keywords=None,
         profile_version=None,
         disliked_candidate_ids=None,
+        previous_board_candidate_ids=None,
     ):
         self.retrieval_plan = retrieval_plan
         self.playback_samples = list(playback_samples or [])
         self.archived_candidate_ids = set(archived_candidate_ids or set())
         self.disliked_candidate_ids = set(disliked_candidate_ids or set())
+        self.previous_board_candidate_ids = set(
+            previous_board_candidate_ids or set()
+        )
         self.negative_keywords = list(negative_keywords or [])
         self.profile_version = dict(profile_version or {})
+        self.collected_candidate_ids = [
+            *getattr(self, "collected_candidate_ids", []),
+            [candidate.candidate_id for candidate in self.candidates[:candidate_limit]],
+        ]
         values = dict(
             profile_id=profile_id,
             run_id=run_id,
@@ -292,7 +301,33 @@ class FakeTournamentAgentAdapter(FakeAgentAdapter):
         candidate_ids = [
             item["candidate_id"] for item in trusted_context.candidates
         ]
-        return _agent_output(list(reversed(candidate_ids))[:5])
+        ordered_ids = list(reversed(candidate_ids))
+        selected_ids = ordered_ids[:5]
+        payload = json.loads(_agent_output(selected_ids))
+        options_by_id = {
+            str(candidate_id): {
+                "positive_evidence_options": [
+                    dict(item)
+                    for item in options.get("positive_evidence_options") or ()
+                ],
+                "counter_evidence_options": [
+                    dict(item)
+                    for item in options.get("counter_evidence_options") or ()
+                ],
+            }
+            for candidate_id, options in trusted_context.submission_constraints[
+                "evidence_options"
+            ].items()
+        }
+        for recommendation in payload["recommendations"]:
+            options = options_by_id[recommendation["candidate_id"]]
+            recommendation["positive_evidence"] = list(
+                options["positive_evidence_options"][:2]
+            )
+            recommendation["counter_evidence"] = list(
+                options["counter_evidence_options"][:1]
+            )
+        return json.dumps(payload, ensure_ascii=False)
 
 
 class ProvenanceText(str):
@@ -451,6 +486,38 @@ def _tournament_orchestrator(
     return orchestrator, repository, candidate_service, tournament_agent
 
 
+def test_exposed_board_without_action_creates_one_rotation_signal():
+    """已曝光但无操作的榜单只产生一条幂等轮换信号。"""
+    orchestrator, repository = _orchestrator(FakePlugin(), [])
+    board = RecommendationBoard(
+        profile_id=PROFILE_ID,
+        username="Alice",
+        run_id="run-exposed",
+        revision=4,
+    )
+    repository.save_board(board)
+    repository.record_board_exposure(
+        PROFILE_ID,
+        board.run_id,
+        board.revision,
+        ["tmdb:1"],
+        "2026-08-05T00:00:00+00:00",
+    )
+
+    metrics = {}
+    orchestrator._record_rotation_signal_if_needed(PROFILE_ID, board, metrics)
+    assert metrics["rotation_signal_created"] is True
+    signals = repository.load_short_term_signals(PROFILE_ID)
+    assert len(signals) == 1
+    assert signals[0].kind == "rotation"
+    assert signals[0].idempotency_key == "rotation:run-exposed:4"
+
+    second_metrics = {}
+    orchestrator._record_rotation_signal_if_needed(PROFILE_ID, board, second_metrics)
+    assert second_metrics["rotation_signal_created"] is False
+    assert len(repository.load_short_term_signals(PROFILE_ID)) == 1
+
+
 def test_success_atomically_saves_profile_board_and_run_history():
     """A complete valid run replaces both current objects and records metrics."""
     plugin = FakePlugin()
@@ -484,7 +551,15 @@ def test_success_atomically_saves_profile_board_and_run_history():
         (item["dimension"], item["value"], item["evidence_count"])
         for item in ranking_weights["evidence_catalog"]
     } >= {("type", "movie", 5), ("theme", "悬疑", 5)}
+    assert orchestrator._candidate_service.retrieval_plan.filters.media_types == ()
     assert orchestrator._candidate_service.retrieval_plan.filters.genre_ids == (80,)
+    assert "电影" in orchestrator._candidate_service.retrieval_plan.ranking_tags
+    assert orchestrator.agent_adapter.ranking_calls[0][1].profile["filters"][
+        "media_types"
+    ] == ()
+    assert repository.load_run_history(PROFILE_ID)[0].metrics[
+        "softened_profile_media_types"
+    ] == ["movie"]
     assert [item.tmdb_id for item in orchestrator._candidate_service.playback_samples] == [
         "1",
         "2",
@@ -503,7 +578,8 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert all(item.memory_revision == 0 for item in analyses)
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     assert repository.load_profile(PROFILE_ID).filters["genre_ids"] == [80]
-    assert repository.load_profile(PROFILE_ID).ranking_tags == ["高质量悬疑"]
+    assert repository.load_profile(PROFILE_ID).filters["media_types"] == []
+    assert repository.load_profile(PROFILE_ID).ranking_tags == ["高质量悬疑", "电影"]
     history = repository.load_run_history(PROFILE_ID)
     assert history[0].status == "success"
     assert history[0].metrics["policy_version"] == ranking_weights["policy_version"]
@@ -770,7 +846,9 @@ def test_ranking_context_prefers_persisted_snapshot_candidates():
         item["candidate_id"] for item in agent.ranking_calls[0][1].candidates
     ]
     assert visible_ids == ["tmdb:movie:99"]
-    assert result.status == "recommendation_incomplete"
+    assert result.status == "recommendation_degraded"
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["candidate_snapshot_hash"] == "snapshot-hash"
 
@@ -796,6 +874,10 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
     )
 
     first = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+    cached_profile = repository.load_profile(PROFILE_ID)
+    cached_profile.filters["media_types"] = ["anime"]
+    cached_profile.ranking_tags = []
+    repository.save_profile(cached_profile)
     candidates.candidates = [
         Candidate(
             candidate_id=f"tmdb:{index}",
@@ -821,6 +903,10 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
     assert latest_metrics.get("profile_agent_calls", 0) == 0
     assert latest_metrics["profile_cache_status"] == "hit"
     assert latest_metrics["profile_cache_miss_reason"] == ""
+    assert latest_metrics["softened_profile_media_types"] == ["anime"]
+    assert candidates.retrieval_plan.filters.media_types == ()
+    assert "动画" in candidates.retrieval_plan.ranking_tags
+    assert agent.ranking_calls[1][1].profile["filters"]["media_types"] == ()
 
 
 def test_dislike_excludes_title_across_refresh_without_mutating_long_term_taste():
@@ -954,7 +1040,7 @@ def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches
 
     assert result.status == "success"
     assert len(orchestrator.agent_adapter.profile_calls) == 1
-    assert repository.load_profile(PROFILE_ID).schema_version == 7
+    assert repository.load_profile(PROFILE_ID).schema_version == PROFILE_SCHEMA_VERSION
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["profile_cache_miss_reason"] == "profile_schema_changed"
 
@@ -972,7 +1058,7 @@ def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches
             summary="old",
             playback_count=len(snapshot.samples),
             playback_fingerprint=snapshot.fingerprint(),
-            schema_version=7,
+            schema_version=PROFILE_SCHEMA_VERSION,
             retrieval_resolution_version=0,
             run_id="old",
         )
@@ -1077,7 +1163,7 @@ def test_controlled_resolution_is_persisted_and_exposed_to_ranking_context():
     assert result.status == "success"
     assert profile.filters["keyword_ids"] == [321]
     assert profile.filters["original_languages"] == ["zh", "en"]
-    assert profile.ranking_tags == []
+    assert profile.ranking_tags == ["电影"]
     assert ranking_profile["filters"]["keyword_ids"] == (321,)
     assert metrics["resolved_keyword_count"] == 1
     assert metrics["resolved_language_count"] == 1
@@ -1430,8 +1516,8 @@ def test_library_items_are_removed_before_agent_context_is_built():
     assert repository.load_run_history(PROFILE_ID)[0].metrics["library_excluded_count"] == 2
 
 
-def test_ranking_failure_uses_frozen_candidates_to_build_five_item_board():
-    """排序异常保留新画像，并从冻结候选池安全补齐五条。"""
+def test_ranking_failure_keeps_previous_board_and_records_fallback_diagnostics():
+    """排序异常保留新画像与旧榜单，补位只记录失败诊断。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, [RuntimeError("llm offline")])
     repository.save_profile(UserProfile(profile_id=PROFILE_ID, username="Alice", summary="old", run_id="old"))
@@ -1443,26 +1529,18 @@ def test_ranking_failure_uses_frozen_candidates_to_build_five_item_board():
     assert result.agent_calls == 2
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     board = repository.load_board(PROFILE_ID)
-    assert board.run_id == "run-1"
-    assert len(board.recommendations) == 5
+    assert result.board.run_id == "old"
+    assert board.run_id == "old"
+    assert board.recommendations == []
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.status == "recommendation_degraded"
     assert history.errors
     assert history.metrics["ranking_fallback_count"] == 5
     assert history.metrics["ranking_fallback_reason"] == "ranking_agent_failed"
-    assert all(item.support is not None for item in board.recommendations)
-    assert all(
-        item.selection_source == "safe_fallback"
-        for item in board.recommendations
-    )
-    assert history.metrics["selection_source_counts"] == {
-        "agent": 0,
-        "safe_fallback": 5,
-    }
+    assert history.metrics["agent_selected_count"] == 0
+    assert history.metrics["safe_fallback_selected_count"] == 5
     analyses = repository.load_recommendation_analyses(PROFILE_ID, "run-1")
-    assert len(analyses) == 5
-    assert all(item.selection_source == "safe_fallback" for item in analyses)
-    assert all(item.uncertainties for item in analyses)
+    assert analyses == []
 
 
 def test_profile_failure_preserves_previous_profile_and_skips_ranking():
@@ -1629,8 +1707,8 @@ def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
     assert "[已脱敏凭据]" in ranking_calls[0]["failure_reason"]
 
 
-def test_retryable_empty_agent_output_falls_back_after_one_retry():
-    """连续两次无文本结果后停止调用，并从冻结候选池补齐五条。"""
+def test_retryable_empty_agent_output_keeps_previous_board_after_one_retry():
+    """连续两次无文本结果后停止调用并保留旧榜单。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(
         plugin,
@@ -1645,8 +1723,8 @@ def test_retryable_empty_agent_output_falls_back_after_one_retry():
     assert result.agent_calls == 3
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
     board = repository.load_board(PROFILE_ID)
-    assert board.run_id == "run-1"
-    assert len(board.recommendations) == 5
+    assert result.board.run_id == "old"
+    assert board.run_id == "old"
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.errors == ["attempt 1: first", "attempt 2: second"]
     assert history.metrics["agent_calls"] == 3
@@ -1706,8 +1784,8 @@ def test_invalid_profile_json_retries_once_with_stricter_prompt():
     assert history.metrics["retry_events"][0]["stage"] == "profile"
 
 
-def test_invalid_json_falls_back_after_one_strict_retry():
-    """连续两次非法 JSON 后停止调用，并从冻结候选池补齐五条。"""
+def test_invalid_json_keeps_previous_board_after_one_strict_retry():
+    """连续两次非法 JSON 后停止调用并保留旧榜单。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(plugin, ["bad-one", "bad-two"])
     repository.save_board(
@@ -1719,8 +1797,8 @@ def test_invalid_json_falls_back_after_one_strict_retry():
     assert result.status == "recommendation_degraded"
     assert result.agent_calls == 3
     board = repository.load_board(PROFILE_ID)
-    assert board.run_id == "run-1"
-    assert len(board.recommendations) == 5
+    assert result.board.run_id == "old"
+    assert board.run_id == "old"
     history = repository.load_run_history(PROFILE_ID)[0]
     assert len(history.errors) == 2
     assert all("Agent output must be one JSON object" in item for item in history.errors)
@@ -1788,8 +1866,8 @@ def test_overlong_copy_gets_one_directed_rewrite_and_preserves_complete_result()
     assert history.metrics["copy_template_fallback_count"] == 0
 
 
-def test_failed_copy_rewrite_uses_complete_template_without_prefix_truncation():
-    """唯一重写仍是残句时改用模板，绝不保存原文前缀。"""
+def test_failed_copy_rewrite_does_not_save_template_fallback():
+    """唯一重写仍是残句时记录模板补位诊断，但不保存新榜单。"""
     overlong = "一名侦探追查多年未解旧案，并在封闭小镇逐步发现家族隐藏已久的秘密。"
     first = _agent_output_with_overrides(
         [f"tmdb:{index}" for index in range(1, 6)],
@@ -1803,16 +1881,11 @@ def test_failed_copy_rewrite_uses_complete_template_without_prefix_truncation():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
+    assert result.status == "recommendation_degraded"
     assert result.agent_calls == 3
     assert len(orchestrator.agent_adapter.ranking_calls) == 2
-    board = repository.load_board(PROFILE_ID)
-    fallback_item = next(
-        item for item in board.recommendations if item.candidate_id == "tmdb:5"
-    )
-    assert fallback_item.selection_source == "safe_fallback"
-    assert fallback_item.summary == "围绕悬疑题材展开的完整故事。"
-    assert fallback_item.summary != overlong[:30]
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["copy_rewrite_candidate_count"] == 1
     assert history.metrics["copy_rewrite_success_count"] == 0
@@ -1888,8 +1961,8 @@ def test_initial_domain_drops_are_explained_to_refill():
     )
 
 
-def test_single_refill_drop_stops_without_starting_a_second_agent_call():
-    """唯一补选被安全门丢弃时由本地补齐五条，不再启动第二轮。"""
+def test_single_refill_drop_stops_without_saving_fallback_board():
+    """唯一补选被安全门丢弃时不再启动第二轮，也不保存补位榜单。"""
     rejected_refill = _agent_output_with_overrides(
         ["tmdb:5"],
         {
@@ -1909,11 +1982,10 @@ def test_single_refill_drop_stops_without_starting_a_second_agent_call():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
+    assert result.status == "recommendation_degraded"
     assert result.agent_calls == 3
-    board = repository.load_board(PROFILE_ID)
-    assert board.run_id == "run-1"
-    assert len(board.recommendations) == 5
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
     assert len(orchestrator.agent_adapter.ranking_calls) == 2
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.errors == []
@@ -1923,8 +1995,8 @@ def test_single_refill_drop_stops_without_starting_a_second_agent_call():
     assert history.metrics["ranking_fallback_reason"] == "refill_insufficient"
 
 
-def test_refill_still_insufficient_uses_one_local_fallback_item():
-    """唯一补选仍不足时从冻结候选池补一条，保持榜单五条。"""
+def test_refill_still_insufficient_does_not_save_local_fallback_item():
+    """唯一补选仍不足时记录一条补位诊断，但不保存新榜单。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
@@ -1936,11 +2008,9 @@ def test_refill_still_insufficient_uses_one_local_fallback_item():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
-    board = repository.load_board(PROFILE_ID)
-    assert board.run_id == "run-1"
-    assert board.status == "success"
-    assert len(board.recommendations) == 5
+    assert result.status == "recommendation_degraded"
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
     assert result.agent_calls == 3
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.errors == []
@@ -1948,8 +2018,31 @@ def test_refill_still_insufficient_uses_one_local_fallback_item():
     assert history.metrics["ranking_fallback_reason"] == "refill_insufficient"
 
 
-def test_refill_invalid_json_stops_after_the_single_bounded_call():
-    """唯一补选返回非 JSON 时本地补齐五条，不再扩大模型往返。"""
+def test_incomplete_agent_board_is_not_saved_when_no_fallback_is_available():
+    """补位也不可用时，四条 Agent 推荐仍不得保存为不完整榜单。"""
+    orchestrator, repository = _orchestrator(
+        FakePlugin(),
+        [
+            _agent_output([f"tmdb:{index}" for index in range(1, 5)]),
+            _agent_output([]),
+        ],
+    )
+    orchestrator._validator.build_fallback_items = lambda *args, **kwargs: []
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "recommendation_incomplete"
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
+    assert repository.load_recommendation_analyses(PROFILE_ID, result.run_id) == []
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["ranking_fallback_count"] == 0
+    assert history.metrics["agent_selected_count"] == 4
+    assert history.metrics["safe_fallback_selected_count"] == 0
+
+
+def test_refill_invalid_json_stops_without_saving_fallback_board():
+    """唯一补选返回非 JSON 时不再扩大模型往返，也不保存补位榜单。"""
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [
@@ -1961,13 +2054,13 @@ def test_refill_invalid_json_stops_after_the_single_bounded_call():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
+    assert result.status == "recommendation_degraded"
     assert result.agent_calls == 3
-    board = repository.load_board(PROFILE_ID)
-    assert board.run_id == "run-1"
-    assert len(board.recommendations) == 5
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
     history = repository.load_run_history(PROFILE_ID)[0]
-    assert history.errors == []
+    assert len(history.errors) == 1
+    assert "Agent output must be one JSON object" in history.errors[0]
     assert history.metrics["ranking_fallback_count"] == 1
     assert history.metrics["ranking_fallback_reason"] == "refill_validation_failed"
     assert len(orchestrator.agent_adapter.ranking_calls) == 2
@@ -2033,8 +2126,8 @@ def test_memory_revision_change_during_ranking_discards_old_policy_board():
     assert history.metrics["policy_memory_revision"] == 0
 
 
-def test_zero_valid_agent_items_builds_five_item_fallback_board():
-    """Agent 没有安全推荐时从冻结候选池构建五条保底榜单。"""
+def test_zero_valid_agent_items_keep_previous_board():
+    """Agent 没有安全推荐时只记录补位诊断并保留旧榜单。"""
     plugin = FakePlugin()
     orchestrator, repository = _orchestrator(
         plugin,
@@ -2047,17 +2140,13 @@ def test_zero_valid_agent_items_builds_five_item_fallback_board():
     assert result.status == "recommendation_degraded"
     assert result.agent_calls == 3
     board = repository.load_board(PROFILE_ID)
-    assert board.run_id == "run-1"
-    assert len(board.recommendations) == 5
+    assert result.board.run_id == "old"
+    assert board.run_id == "old"
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.errors == []
     assert history.metrics["ranking_fallback_count"] == 5
     assert history.metrics["ranking_fallback_reason"] == "refill_insufficient"
-    assert all(item.support is not None for item in board.recommendations)
-    assert all(
-        item.selection_source == "safe_fallback"
-        for item in board.recommendations
-    )
+    assert repository.load_recommendation_analyses(PROFILE_ID, "run-1") == []
 
 
 def test_board_save_failure_keeps_new_profile_and_previous_board():
@@ -2077,8 +2166,8 @@ def test_board_save_failure_keeps_new_profile_and_previous_board():
     assert repository.load_board(PROFILE_ID).run_id == "old"
 
 
-def test_ignore_during_run_is_rechecked_and_refilled_before_board_commit():
-    """运行期间新增的忽略反馈在最终提交时生效并安全补足五条。"""
+def test_ignore_during_run_is_rechecked_without_saving_fallback_board():
+    """运行期间新增忽略在提交时生效，但不以补位覆盖旧榜单。"""
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
     repository.save_board(
@@ -2139,16 +2228,11 @@ def test_ignore_during_run_is_rechecked_and_refilled_before_board_commit():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
+    assert result.status == "recommendation_degraded"
     board = repository.load_board(PROFILE_ID)
-    assert [item.candidate_id for item in board.recommendations] == [
-        "tmdb:movie:1",
-        "tmdb:movie:3",
-        "tmdb:movie:4",
-        "tmdb:movie:5",
-        "tmdb:movie:6",
-    ]
-    assert [item.rank for item in board.recommendations] == [1, 2, 3, 4, 5]
+    assert result.board.run_id == "old"
+    assert board.run_id == "old"
+    assert board.recommendations == []
     assert [entry.candidate_id for entry in repository.load_archive(PROFILE_ID).entries] == [
         "tmdb:movie:2"
     ]
@@ -2158,8 +2242,8 @@ def test_ignore_during_run_is_rechecked_and_refilled_before_board_commit():
     assert history.metrics["ranking_fallback_reason"] == "archive_updated_during_run"
 
 
-def test_dislike_during_run_is_rechecked_and_refilled_before_board_commit():
-    """运行期间新增点踩在提交前生效，且不借用忽略归档语义。"""
+def test_dislike_during_run_is_rechecked_without_saving_fallback_board():
+    """运行期间新增点踩在提交前生效，但不保存补位榜单。"""
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
 
@@ -2211,14 +2295,9 @@ def test_dislike_during_run_is_rechecked_and_refilled_before_board_commit():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "success"
-    assert [item.candidate_id for item in result.board.recommendations] == [
-        "tmdb:movie:1",
-        "tmdb:movie:3",
-        "tmdb:movie:4",
-        "tmdb:movie:5",
-        "tmdb:movie:6",
-    ]
+    assert result.status == "recommendation_degraded"
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
     assert repository.load_archive(PROFILE_ID).entries == []
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["archive_commit_excluded_count"] == 0
@@ -2415,6 +2494,25 @@ def test_fifteen_candidate_tournament_is_parallel_and_preserves_final_order():
     assert agent.preliminary_max_active == 3
     final_context = agent.final_calls[0][1]
     assert len(final_context.candidates) == 6
+    assert {
+        (item["dimension"], item["value"], item["polarity"])
+        for item in final_context.weights["evidence_catalog"]
+    } >= {
+        ("type", "movie", "positive"),
+        ("theme", "悬疑", "positive"),
+    }
+    assert list(
+        final_context.submission_constraints["allowed_candidate_ids"]
+    ) == [item["candidate_id"] for item in final_context.candidates]
+    assert all(
+        len(
+            final_context.submission_constraints["evidence_options"][
+                item["candidate_id"]
+            ]["positive_evidence_options"]
+        )
+        >= 2
+        for item in final_context.candidates
+    )
     expected_order = [
         item["candidate_id"]
         for item in reversed(final_context.candidates)
@@ -2430,7 +2528,7 @@ def test_fifteen_candidate_tournament_is_parallel_and_preserves_final_order():
 
 
 def test_failed_batch_uses_safe_fill_then_only_that_batch_retries_next_run():
-    """无检查点批次安全补位，下一轮只重跑失败批次并复用成功检查点。"""
+    """成功批次继续命中缓存，只有上轮失败的批次在下一轮重试。"""
     plugin = FakePlugin()
     agent = FakeTournamentAgentAdapter(
         preliminary_failures={"batch-2": [RuntimeError("batch offline")]}
@@ -2468,6 +2566,42 @@ def test_failed_batch_uses_safe_fill_then_only_that_batch_retries_next_run():
     ]
 
 
+def test_final_pool_replaces_candidates_without_two_verified_evidence_options():
+    """证据不足的初赛晋级项由合格候选补席，最终排序仍交给 Agent。"""
+    plugin = FakePlugin()
+    orchestrator, repository, _, agent = _tournament_orchestrator(plugin)
+    real_scorer = orchestrator._support_scorer
+
+    class EvidenceGateScorer:
+        """仅覆写指定候选的公开证据选项，其余确定性评分保持真实。"""
+
+        def verified_evidence_options(self, candidate, *args):
+            """让两个初赛晋级候选只暴露一项正向证据。"""
+            options = real_scorer.verified_evidence_options(candidate, *args)
+            if candidate.candidate_id in {"tmdb:1", "tmdb:6"}:
+                options["positive_evidence_options"] = options[
+                    "positive_evidence_options"
+                ][:1]
+            return options
+
+        def score_candidate(self, *args, **kwargs):
+            """委托真实评分器完成后续支持度校验。"""
+            return real_scorer.score_candidate(*args, **kwargs)
+
+    orchestrator._support_scorer = EvidenceGateScorer()
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    final_context = agent.final_calls[0][1]
+    final_ids = [item["candidate_id"] for item in final_context.candidates]
+    assert len(final_ids) == 6
+    assert not {"tmdb:1", "tmdb:6"} & set(final_ids)
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["evidence_ineligible_candidate_count"] == 2
+    assert history.metrics["final_evidence_fill_count"] == 2
+
+
 def test_judgment_checkpoints_never_cross_profile_scope():
     """相同候选和策略在不同画像下仍分别调用初赛 Agent。"""
     other_profile_id = "emby:home:user-2"
@@ -2497,8 +2631,8 @@ def test_judgment_checkpoints_never_cross_profile_scope():
     assert len(agent.preliminary_calls) == 6
 
 
-def test_cached_judgments_rebuild_same_final_input_but_final_runs_again():
-    """全部初赛命中时复建同一决赛输入，但不缓存自由文本决赛输出。"""
+def test_cached_judgments_keep_facts_but_refresh_finalists_against_previous_board():
+    """无操作不改变候选语义，成功初赛判断可继续复用且榜单仍保持新鲜。"""
     plugin = FakePlugin()
     agent = FakeTournamentAgentAdapter()
     run_ids = iter(("run-cache-1", "run-cache-2"))
@@ -2514,25 +2648,114 @@ def test_cached_judgments_rebuild_same_final_input_but_final_runs_again():
     assert [first.status, second.status] == ["success", "success"]
     assert len(agent.preliminary_calls) == 3
     assert len(agent.final_calls) == 2
-    assert agent.final_calls[0][1].candidates == agent.final_calls[1][1].candidates
-    assert (
-        agent.final_calls[0][1].judgment_cards
-        == agent.final_calls[1][1].judgment_cards
-    )
+    first_ids = {item.candidate_id for item in first.board.recommendations}
+    second_ids = {item.candidate_id for item in second.board.recommendations}
+    assert not first_ids & second_ids
+    assert len(second_ids - first_ids) == 5
+    assert agent.final_calls[0][1].candidates != agent.final_calls[1][1].candidates
+    assert agent.final_calls[1][1].submission_constraints["minimum_new_items"] == 5
     histories = repository.load_run_history(PROFILE_ID)
     current_metrics = histories[0].metrics
     previous_metrics = histories[1].metrics
     assert current_metrics["judgment_card_cache_hit_count"] == 3
     assert current_metrics["final_input_source"] == "cached_judgments"
-    assert (
-        current_metrics["final_input_fingerprint"]
-        == previous_metrics["final_input_fingerprint"]
-    )
+    assert current_metrics["final_input_fingerprint"] != previous_metrics["final_input_fingerprint"]
+    assert current_metrics["freshness_status"] == "applied"
+    assert current_metrics["freshness_minimum_new_items"] == 5
+    assert "recommendation_cooldown_status" not in current_metrics
     assert current_metrics["final_agent_calls"] == 1
 
 
+def test_board_recency_weight_decay_skips_the_current_board_history_entry():
+    """榜单新鲜度从上一榜之后的历史轮次开始衰减。"""
+    orchestrator, _, _, _ = _tournament_orchestrator(FakePlugin())
+    history = [
+        SimpleNamespace(
+            metrics={"recommendation_candidate_ids": ["tmdb:current"]}
+        ),
+        SimpleNamespace(
+            metrics={"recommendation_candidate_ids": ["tmdb:two-rounds"]}
+        ),
+        SimpleNamespace(
+            metrics={"recommendation_candidate_ids": ["tmdb:three-rounds"]}
+        ),
+        SimpleNamespace(
+            metrics={"recommendation_candidate_ids": ["tmdb:old"]}
+        ),
+    ]
+    orchestrator._repository.load_run_history = lambda profile_id: history
+
+    weights = orchestrator._board_recency_weights(
+        PROFILE_ID, ["tmdb:current"]
+    )
+
+    assert weights == {
+        "tmdb:current": 0.0,
+        "tmdb:two-rounds": 0.35,
+        "tmdb:three-rounds": 0.7,
+        "tmdb:old": 1.0,
+    }
+
+
+def test_unacted_recommendations_are_not_cooled_before_final_agent_selection():
+    """无操作榜单仍保留在候选池，只有上一榜单新鲜度约束继续生效。"""
+    plugin = FakePlugin()
+    agent = FakeTournamentAgentAdapter()
+    run_ids = iter(("run-no-cooldown-1", "run-no-cooldown-2"))
+    orchestrator, repository, candidate_service, _ = _tournament_orchestrator(
+        plugin,
+        agent=agent,
+        run_id_factory=lambda: next(run_ids),
+    )
+
+    results = [
+        asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+        for _ in range(2)
+    ]
+
+    assert [result.status for result in results] == [
+        "success",
+        "success",
+    ]
+    first_board_ids = {
+        item.candidate_id for item in results[0].board.recommendations
+    }
+    assert first_board_ids <= set(candidate_service.collected_candidate_ids[1])
+    second_context = agent.final_calls[1][1]
+    assert "recent_recommendation_candidate_ids" not in second_context.submission_constraints
+    latest_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    assert "recommendation_cooldown_status" not in latest_metrics
+
+
+def test_final_retry_preserves_submission_error_code_field_and_candidate_map():
+    """外层决赛重试必须反馈真实提交错误，不得统一伪装成校验失败。"""
+    class SubmissionError(RuntimeError):
+        """模拟适配器返回带稳定 code/field 的提交失败。"""
+
+        code = "candidate_out_of_pool"
+        field = "candidate_id"
+
+    agent = FakeTournamentAgentAdapter(
+        final_outputs=[SubmissionError("first"), SubmissionError("second")]
+    )
+    orchestrator, repository, _, _ = _tournament_orchestrator(
+        FakePlugin(),
+        agent=agent,
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "recommendation_degraded"
+    retry_prompt = agent.final_calls[1][0]
+    assert "code=candidate_out_of_pool field=candidate_id" in retry_prompt
+    assert "candidate_ref_map={" in retry_prompt
+    assert "code=final_validation_failed" not in retry_prompt
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert "candidate_out_of_pool (candidate_id)" in history.errors[0]
+
+
 def test_final_rejects_missing_counter_evidence_when_counter_signal_exists():
-    """受信数据存在主要反证时，决赛遗漏反证会被拒绝并安全降级。"""
+    """决赛遗漏反证且所有晋级项均命中反证时保留旧榜。"""
     plugin = FakePlugin()
     ordered_ids = ["tmdb:12", "tmdb:11", "tmdb:7", "tmdb:6", "tmdb:2"]
     missing_counter = _agent_output_with_counter_evidence(
@@ -2555,10 +2778,14 @@ def test_final_rejects_missing_counter_evidence_when_counter_signal_exists():
 
     result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
 
-    assert result.status == "recommendation_degraded"
+    assert result.status == "ranking_validation_failed"
+    assert result.board is None
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["final_status"] == "failed"
-    assert history.metrics["ranking_fallback_reason"] == "final_validation_failed"
+    assert history.metrics["ranking_fallback_count"] == 0
+    assert history.metrics["validation_drops"] == [
+        "missing_counter_evidence"
+    ] * 10
 
 
 def test_final_accepts_verified_counter_evidence_when_counter_signal_exists():
@@ -2590,8 +2817,94 @@ def test_final_accepts_verified_counter_evidence_when_counter_signal_exists():
     assert [item.candidate_id for item in result.board.recommendations] == ordered_ids
 
 
-def test_final_failure_retries_only_final_then_builds_safe_board():
-    """决赛连续失败只重试决赛，不重建画像、候选或初赛。"""
+def test_final_validation_failure_persists_drops_without_saving_fallback():
+    """决赛字段失败反馈到重试并留痕，但不保存补位榜单。"""
+    finalist_ids = ["tmdb:12", "tmdb:11", "tmdb:7", "tmdb:6", "tmdb:2"]
+    overlong = _agent_output_with_overrides(
+        finalist_ids,
+        {
+            candidate_id: {"reason": "过长理由" * 8 + "。"}
+            for candidate_id in finalist_ids
+        },
+    )
+    agent = FakeTournamentAgentAdapter(final_outputs=[overlong, overlong])
+    orchestrator, repository, _, _ = _tournament_orchestrator(
+        FakePlugin(),
+        agent=agent,
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "recommendation_degraded"
+    assert len(agent.final_calls) == 2
+    retry_prompt = agent.final_calls[1][0]
+    assert '"candidate_id":"tmdb:12","reason":"reason_too_long"' in retry_prompt
+    assert "禁止新增、替换或重排" in retry_prompt
+    retry_context = agent.final_calls[1][1]
+    assert list(retry_context.submission_constraints["allowed_candidate_ids"]) == [
+        "tmdb:12",
+        "tmdb:11",
+        "tmdb:7",
+        "tmdb:6",
+        "tmdb:2",
+    ]
+    assert {
+        item["candidate_id"] for item in retry_context.candidates
+    } == {
+        "tmdb:12",
+        "tmdb:11",
+        "tmdb:7",
+        "tmdb:6",
+        "tmdb:2",
+    }
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["validation_drops"] == ["reason_too_long"] * 10
+    assert history.metrics["validation_drop_details"][0] == {
+        "attempt": 1,
+        "candidate_id": "tmdb:12",
+        "reason": "reason_too_long",
+    }
+    assert all("reason_too_long" in error for error in history.errors)
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
+    assert repository.load_recommendation_analyses(PROFILE_ID, result.run_id) == []
+
+
+def test_final_validation_failure_does_not_save_safe_nonfinalists():
+    """晋级候选被反证淘汰后只记录补位诊断，不保存非晋级候选。"""
+    finalist_ids = {"tmdb:1", "tmdb:2", "tmdb:6", "tmdb:7", "tmdb:11", "tmdb:12"}
+    overlong = _agent_output_with_overrides(
+        ["tmdb:12", "tmdb:11", "tmdb:7", "tmdb:6", "tmdb:2"],
+        {
+            candidate_id: {"reason": "过长理由" * 8 + "。"}
+            for candidate_id in finalist_ids
+        },
+    )
+    agent = FakeTournamentAgentAdapter(final_outputs=[overlong, overlong])
+    orchestrator, repository, candidate_service, _ = _tournament_orchestrator(
+        FakePlugin(),
+        agent=agent,
+    )
+    for candidate in candidate_service.candidates:
+        candidate.regions = ["中国" if candidate.candidate_id in finalist_ids else "美国"]
+    repository.save_profile_preferences(
+        ProfilePreferences(
+            profile_id=PROFILE_ID,
+            custom_negative_tags=["中国"],
+        )
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "recommendation_degraded"
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
+    history = repository.load_run_history(PROFILE_ID)[0]
+    assert history.metrics["safe_fallback_selected_count"] == 5
+
+
+def test_final_failure_retries_only_final_and_does_not_save_safe_board():
+    """决赛连续失败只重试决赛，不重建前序阶段或保存补位榜单。"""
     agent = FakeTournamentAgentAdapter(
         final_outputs=[RuntimeError("final offline"), RuntimeError("final offline")]
     )
@@ -2617,7 +2930,8 @@ def test_final_failure_retries_only_final_then_builds_safe_board():
     assert len(agent.profile_calls) == 1
     assert len(agent.preliminary_calls) == 3
     assert len(agent.final_calls) == 2
-    assert len(result.board.recommendations) == 5
+    assert result.board is None
+    assert repository.load_board(PROFILE_ID) is None
     history = repository.load_run_history(PROFILE_ID)[0]
     assert history.metrics["final_retry_count"] == 1
     assert history.metrics["final_status"] == "failed"

@@ -1,8 +1,10 @@
 """Agent 榜单通知确认服务。"""
 
+import hashlib
+import json
 import logging
 import re
-from typing import Any
+from typing import Any, Optional
 
 from app.schemas.types import NotificationType
 
@@ -10,6 +12,7 @@ from ..model.board import RecommendationBoard
 from ..model.constants import RECOMMENDATION_LIMIT
 from ..model.pending_center import PendingNotice
 from .notification_type import resolve_notification_type
+from .prompt import AGENT_DISPLAY_NAME_DEFAULT, configured_agent_display_name
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +51,12 @@ PENDING_TYPE_LABELS = {
     "question": "需要补充",
     "command": "操作确认",
 }
+
+_EXPLICIT_FEEDBACK_KINDS = frozenset(
+    {"like", "dislike", "neutral", "ignore", "analysis_comment", "correction"}
+)
+_NOTIFICATION_SENT = "sent"
+_NOTIFICATION_SUPPRESSED = "suppressed_unacted_duplicate"
 
 
 def _safe_notice_text(value: Any) -> str:
@@ -94,6 +103,19 @@ def _format_ranking_block(board: RecommendationBoard) -> str:
     return "```\n" + "\n".join(lines) + "\n```"
 
 
+def _recommendation_fingerprint(board: RecommendationBoard) -> str:
+    """按候选集合生成忽略排序变化的榜单指纹。"""
+    candidate_ids = sorted(
+        {
+            str(item.candidate_id or "").strip()
+            for item in (board.recommendations or [])[:RECOMMENDATION_LIMIT]
+            if str(item.candidate_id or "").strip()
+        }
+    )
+    payload = json.dumps(candidate_ids, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 class NotificationService:
     """优先发送 Telegram 自选订阅卡片，并保留摘要降级。"""
 
@@ -102,12 +124,117 @@ class NotificationService:
         self._plugin = plugin
         self._interaction_service = interaction_service
 
-    def send_confirmation(self, username: str, board: RecommendationBoard) -> None:
-        """发送海报轮播；用户未绑定 Telegram 时降级为摘要。"""
+    def _agent_name(self) -> str:
+        """读取当前配置的用户可见 Agent 名称。"""
+        return configured_agent_display_name(
+            getattr(self._plugin, "_config", {}).get(
+                "agent_display_name", AGENT_DISPLAY_NAME_DEFAULT
+            )
+        )
+
+    def _repository(self) -> Optional[Any]:
+        """返回可选的 AgentRank 仓库；缺少仓库时跳过历史去重。"""
+        repository = getattr(self._plugin, "_repository", None)
+        if repository is None or not callable(
+            getattr(repository, "load_run_history", None)
+        ):
+            return None
+        return repository
+
+    @staticmethod
+    def _has_explicit_feedback(repository: Any, profile_id: str, run_id: str) -> bool:
+        """判断指定榜单是否已有明确操作，不把无操作当成负向事实。"""
+        load_events = getattr(repository, "load_feedback_events", None)
+        if not callable(load_events):
+            return False
+        try:
+            events = load_events(profile_id)
+        except Exception:
+            logger.exception(
+                "AgentRank 读取榜单反馈失败，按未反馈处理 profile_id=%s run_id=%s",
+                profile_id,
+                run_id,
+            )
+            return False
+        return any(
+            str(getattr(event, "run_id", "") or "") == run_id
+            and str(getattr(event, "status", "") or "") == "recorded"
+            and str(getattr(event, "kind", "") or "") in _EXPLICIT_FEEDBACK_KINDS
+            for event in events or ()
+        )
+
+    def _notification_state(
+        self, board: RecommendationBoard, fingerprint: str
+    ) -> str:
+        """读取当前或上一份相同榜单的通知状态。"""
+        repository = self._repository()
+        if repository is None:
+            return ""
+        try:
+            history = repository.load_run_history(board.profile_id)
+        except Exception:
+            logger.exception(
+                "AgentRank 读取通知历史失败，跳过重复榜单抑制 profile_id=%s",
+                board.profile_id,
+            )
+            return ""
+        for run in history:
+            run_id = str(getattr(run, "run_id", "") or "")
+            metrics = dict(getattr(run, "metrics", {}) or {})
+            if run_id == str(board.run_id or ""):
+                if metrics.get("recommendation_notification_fingerprint") == fingerprint:
+                    return str(metrics.get("recommendation_notification_status") or "")
+                continue
+            if (
+                metrics.get("recommendation_notification_fingerprint") != fingerprint
+                or metrics.get("recommendation_notification_status") != _NOTIFICATION_SENT
+            ):
+                continue
+            if self._has_explicit_feedback(repository, board.profile_id, run_id):
+                return ""
+            return _NOTIFICATION_SUPPRESSED
+        return ""
+
+    def _record_notification_state(
+        self, board: RecommendationBoard, fingerprint: str, status: str
+    ) -> None:
+        """把通知发送或抑制结果写入本轮运行指标。"""
+        repository = self._repository()
+        annotate_run = getattr(repository, "annotate_run", None) if repository else None
+        if not callable(annotate_run) or not board.run_id:
+            return
+        try:
+            annotate_run(
+                profile_id=board.profile_id,
+                run_id=board.run_id,
+                status=str(board.status or "success"),
+                metrics={
+                    "recommendation_notification_fingerprint": fingerprint,
+                    "recommendation_notification_status": status,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "AgentRank 写入通知状态失败 profile_id=%s run_id=%s",
+                board.profile_id,
+                board.run_id,
+            )
+
+    def send_confirmation(self, username: str, board: RecommendationBoard) -> bool:
+        """发送榜单通知；无反馈的同榜单只发送一次。"""
+        fingerprint = _recommendation_fingerprint(board)
+        state = self._notification_state(board, fingerprint)
+        if state in {_NOTIFICATION_SENT, _NOTIFICATION_SUPPRESSED}:
+            if state == _NOTIFICATION_SUPPRESSED:
+                self._record_notification_state(board, fingerprint, state)
+            return state == _NOTIFICATION_SENT
         if self._interaction_service is not None:
             try:
                 if self._interaction_service.start(board.profile_id, username, board):
-                    return
+                    self._record_notification_state(
+                        board, fingerprint, _NOTIFICATION_SENT
+                    )
+                    return True
             except Exception:
                 # Telegram 交互异常不得阻断榜单通知的摘要降级路径。
                 logger.exception(
@@ -115,18 +242,21 @@ class NotificationService:
                 )
         ranking = _format_ranking_block(board)
         count = len(board.recommendations[:RECOMMENDATION_LIMIT])
-        text = f"本轮 Agent 推荐已生成，共 {count} 条：\n\n{ranking}"
-        text += "\n\n请前往 **Agent榜单中心** 手动订阅；此通知不会自动创建订阅。"
+        agent_name = self._agent_name()
+        text = f"本轮 {agent_name} 推荐已生成，共 {count} 条：\n\n{ranking}"
+        text += f"\n\n请前往 **{agent_name}** 手动订阅；此通知不会自动创建订阅。"
         self._plugin.post_message(
             mtype=resolve_notification_type(
                 getattr(self._plugin, "_config", {}), NotificationType
             ),
-            title="Agent榜单中心推荐确认",
+            title=f"{agent_name}推荐确认",
             text=text,
             username=username,
             parse_mode="MarkdownV2",
             disable_web_page_preview=True,
         )
+        self._record_notification_state(board, fingerprint, _NOTIFICATION_SENT)
+        return True
 
     def send_failure(
         self,
@@ -148,7 +278,7 @@ class NotificationService:
             mtype=resolve_notification_type(
                 getattr(self._plugin, "_config", {}), NotificationType
             ),
-            title="Agent榜单中心运行异常",
+            title=f"{self._agent_name()}运行异常",
             text="\n".join(lines),
             username=username,
         )
@@ -195,13 +325,13 @@ class NotificationService:
             f"类型：{label}",
             f"内容：{_compact_text(_safe_notice_text(item.summary), 240)}",
             "状态：尚未生效",
-            "请前往 Agent榜单中心的待处理区域处理。",
+            f"请前往 {self._agent_name()} 的待处理区域处理。",
         ]
         kwargs = {
             "mtype": resolve_notification_type(
                 getattr(self._plugin, "_config", {}), NotificationType
             ),
-            "title": "Agent榜单中心待处理",
+            "title": f"{self._agent_name()}待处理",
             "text": "\n".join(lines),
             "username": username,
         }

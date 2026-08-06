@@ -251,6 +251,39 @@ def test_completion_notification_runs_once_and_failure_never_requeues_job():
     assert stored.last_error == ""
 
 
+def test_terminal_retryable_budget_failure_needs_attention_without_second_attempt():
+    """总预算耗尽后直接进入可重试终态，不再自动开启新的完整预算。"""
+    class BudgetFailure(RuntimeError):
+        terminal_retryable = True
+
+    repository = AgentRankRepository(FakePlugin())
+    event = _stored(repository, "budget-terminal")
+    attention = []
+
+    def handler(_job):
+        raise BudgetFailure("budget exhausted")
+
+    queue = FeedbackQueueService(
+        repository,
+        handler=handler,
+        attention_handler=lambda job: attention.append(job.job_id),
+        profile_ids=[PROFILE_ID],
+        max_attempts=3,
+    )
+    queue.enqueue_event(event)
+    claimed = repository.claim_next_feedback_job(
+        PROFILE_ID,
+        lease_id="budget-lease",
+        now=datetime.now(timezone.utc),
+    )
+    queue._process_job(claimed, handler)
+
+    stored = repository.load_feedback_queue(PROFILE_ID)[0]
+    assert stored.status == "needs_attention"
+    assert stored.attempts == 1
+    assert attention == [stored.job_id]
+
+
 def test_cross_profile_parallelism_is_bounded_by_worker_limit():
     """不同 profile 可以并行，但活跃处理数不超过 max_workers。"""
     profiles = ["emby:home:user-1", "emby:home:user-2", "emby:home:user-3"]

@@ -11,10 +11,13 @@ from ..service.prompt import (
     DEFAULT_PERSONA_PROMPT,
     DEFAULT_PROFILE_PROMPT,
     DEFAULT_RANKING_PROMPT,
+    AGENT_DISPLAY_NAME_DEFAULT,
+    PERSONA_PRESET_NAMES,
     LEGACY_DEFAULT_AGENT_PROMPT,
     LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT,
     LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT,
 )
+from .constants import INTERACTION_MODE_DEFAULT, INTERACTION_MODE_NAMES
 
 
 WEIGHT_DEFAULTS: Dict[str, float] = {
@@ -80,6 +83,9 @@ class AgentRankConfig:
     candidate_pool_size: int = 15
     confidence_threshold: float = 0.6
     action_mode: str = "notify"
+    agent_display_name: str = AGENT_DISPLAY_NAME_DEFAULT
+    persona_preset: str = "default"
+    interaction_mode: str = INTERACTION_MODE_DEFAULT
     notify: bool = True
     notification_type: str = "Plugin"
     auto_subscribe_top_n: int = 0
@@ -331,6 +337,36 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         errors.append("action_mode must be update, notify, or auto_subscribe")
         action_mode = "notify"
 
+    agent_display_name = _bounded_text(
+        raw.get("agent_display_name", AGENT_DISPLAY_NAME_DEFAULT),
+        AGENT_DISPLAY_NAME_DEFAULT,
+        64,
+        "agent_display_name",
+        errors,
+    )
+    raw_persona_prompt = raw.get("persona_prompt", DEFAULT_PERSONA_PROMPT)
+    raw_persona_preset = str(raw.get("persona_preset") or "").strip().casefold()
+    # Older configs only persisted persona_prompt. Preserve a real custom voice
+    # instead of letting the newly added default preset silently override it.
+    if not raw_persona_preset:
+        raw_persona_preset = (
+            "custom"
+            if str(raw_persona_prompt or "").strip()
+            and str(raw_persona_prompt).strip() != DEFAULT_PERSONA_PROMPT
+            else "default"
+        )
+    persona_preset = raw_persona_preset
+    if persona_preset not in PERSONA_PRESET_NAMES:
+        errors.append("persona_preset must be default, concise, warm, or custom")
+        persona_preset = "default"
+
+    interaction_mode = str(
+        raw.get("interaction_mode") or INTERACTION_MODE_DEFAULT
+    ).strip().casefold()
+    if interaction_mode not in INTERACTION_MODE_NAMES:
+        errors.append("interaction_mode must be auto, normal, or quiet")
+        interaction_mode = INTERACTION_MODE_DEFAULT
+
     notification_type = str(raw.get("notification_type") or "Plugin").strip()
     if notification_type not in NOTIFICATION_TYPE_NAMES:
         errors.append(
@@ -377,6 +413,9 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
             errors,
         ),
         action_mode=action_mode,
+        agent_display_name=agent_display_name,
+        persona_preset=persona_preset,
+        interaction_mode=interaction_mode,
         notify=bool(raw.get("notify", True)),
         notification_type=notification_type,
         auto_subscribe_top_n=auto_top_n,
@@ -474,7 +513,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
             errors,
         ),
         persona_prompt=_bounded_text(
-            raw.get("persona_prompt", DEFAULT_PERSONA_PROMPT),
+            raw_persona_prompt,
             DEFAULT_PERSONA_PROMPT,
             4000,
             "persona_prompt",

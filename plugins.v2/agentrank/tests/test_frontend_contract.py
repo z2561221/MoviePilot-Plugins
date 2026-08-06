@@ -10,21 +10,29 @@ def _read(name: str) -> str:
     return (COMPONENT_DIR / name).read_text(encoding="utf-8")
 
 
-def test_advanced_options_exposes_four_character_prompt_subtab():
-    """提示设置用五类紧凑入口和统一弹窗编辑。"""
+def test_advanced_options_and_agent_settings_expose_prompt_subtabs():
+    """提示设置与 Agent 设定分别暴露对应的紧凑编辑入口。"""
     config = _read("Config.vue")
     assert "{ key: 'runtime', title: '运行参数'" in config
     assert "{ key: 'prompt', title: '提示设置'" in config
+    assert "{ key: 'agent', title: 'Agent设定'" in config
     for field_name, title in (
         ("profile_prompt", "画像理解规则"),
         ("ranking_prompt", "榜单推荐策略"),
         ("copy_prompt", "推荐文案风格"),
-        ("persona_prompt", "CinePilot Agent 人设语气"),
         ("critic_prompt", "CinePilot Agent 扩展提示词"),
     ):
         assert field_name in config
         assert title in config
-    assert config.index("CinePilot Agent 人设语气") < config.index("CinePilot Agent 扩展提示词")
+    for field_name, title in (
+        ("agent_display_name", "显示名称"),
+        ("persona_preset", "人设预设"),
+        ("persona_prompt", "自定义语气"),
+        ("interaction_mode", "交互模式"),
+    ):
+        assert field_name in config
+        assert title in config
+    assert config.index("Agent设定") < config.index("提示设置")
     assert 'v-model="form.agent_prompt"' not in config
     assert 'v-model="promptEditor.open"' in config
     assert 'v-model="promptEditor.draft"' in config
@@ -58,8 +66,8 @@ def test_advanced_settings_expose_access_retention_export_and_two_safe_resets():
         "data/reset/learning",
         "data/reset/full/prepare",
         "data/reset/full",
-        "fullResetPhrase.value !== '彻底重置'",
-        "MoviePilot 订阅和媒体库未受影响",
+        "fullResetPhrase.value !== '清空全部数据'",
+        "MoviePilot 订阅和媒体库",
     ):
         assert marker in config
     assert "export async function getHostApi" in api
@@ -76,6 +84,9 @@ def test_runtime_settings_exposes_discovery_page_switch_and_current_defaults():
     assert 'label="开启发现页"' in config
     assert 'schedule_enabled: true' in config
     assert "cron: '5 18 * * *'" in config
+    assert "interaction_mode: 'auto'" in config
+    assert 'v-model="form.interaction_mode"' in config
+    assert "自动模式" in config and "正常模式" in config and "安静模式" in config
     assert 'candidate_pool_size: 15' in config
     assert 'playback_recent_days: 90' in config
 
@@ -153,13 +164,14 @@ def test_discovery_source_options_follow_host_capability_and_include_anilist():
     assert "anilist: { title: 'AniList'" in config
 
 
-def test_profile_runtime_switches_describe_incremental_semantics():
-    """画像缓存和每次重建开关向用户说明真实运行语义。"""
+def test_profile_update_mode_describes_incremental_semantics():
+    """画像更新以智能更新和每轮重建两个对称模式呈现。"""
     config = _read("Config.vue")
-    assert 'v-model="form.profile_cache_enabled"' in config
-    assert 'v-model="form.rebuild_profile_each_run"' in config
-    assert "播放快照未变化时复用当前画像" in config
-    assert "按冻结的 Playback Reporting 快照重新生成" in config
+    assert 'v-model="profileUpdateMode"' in config
+    assert 'value="smart"' in config
+    assert 'value="rebuild"' in config
+    assert "智能更新" in config
+    assert "每轮重建" in config
 
 
 def test_discovery_page_is_a_thin_host_shell_over_the_shared_page():
@@ -296,8 +308,8 @@ def test_ranking_surfaces_cache_overview_by_stable_profile_id():
     assert "if (!initialized.value || !value || value === oldValue) return" in page
 
 
-def test_profile_clear_only_lives_in_profile_policy_settings():
-    """发现页和详情页不暴露清除入口，危险操作集中在画像策略并二次确认。"""
+def test_profile_rebuild_only_lives_in_playback_profile_settings():
+    """发现页和详情页不暴露重建入口，操作集中在播放画像并二次确认。"""
     app_page = _read("AppPage.vue")
     detail_page = _read("Page.vue")
     config = _read("Config.vue")
@@ -305,23 +317,37 @@ def test_profile_clear_only_lives_in_profile_policy_settings():
         assert "清除画像" not in page
         assert "profile/clear" not in page
         assert "mdi-account-remove-outline" not in page
-    assert 'v-model="clearProfileSwitch"' in config
-    assert '@update:model-value="requestClearProfile"' in config
+    assert "重建画像" in config
+    assert '@click="requestClearProfile"' in config
     assert "postPluginApi(props.api, 'profile/clear'" in config
     assert "profile_id: selectedProfileId.value, confirm: true" in config
     assert 'v-model="clearProfileDialog"' in config
-    assert "确认清除" in config
+    assert "确认重建" in config
 
 
 def test_detail_page_focuses_on_four_data_views_without_weights():
-    """详情页只展示榜单、画像、归档和历史，不重复承载权重配置。"""
+    """详情页展示当前榜单、画像、归档、运行历史和历史榜单，不重复承载权重配置。"""
     page = _read("Page.vue")
-    for title in ("推荐榜单", "用户画像", "忽略归档", "运行历史"):
+    for title in ("推荐榜单", "用户画像", "忽略归档", "运行历史", "历史榜单"):
         assert title in page
     assert "权重配置" not in page
     assert "weightLabels" not in page
     assert "ar-page__summary-bar" in page
     assert "ar-page__rank-copy" in page
+
+
+def test_board_history_is_paginated_read_only_and_marks_cross_run_changes():
+    """历史榜单通过独立分页接口读取，并明确新入榜与历史再推荐。"""
+    page = _read("Page.vue")
+    state = _read("useAgentRankState.js")
+    assert "{ key: 'board-history', title: '历史榜单'" in page
+    assert "getPluginApi(api, 'board-history'," in state
+    assert "loadBoardHistory(page, pageSize)" in state
+    assert "本轮新入榜" in page
+    assert "历史再推荐" in page
+    assert "支持：" in page
+    assert "state.archive" not in page[page.index("activeTab === 'board-history'"):]
+    assert "state.subscribe" not in page[page.index("activeTab === 'board-history'"):]
 
 
 def test_detail_page_uses_transparent_root_and_data_surfaces():
@@ -336,10 +362,30 @@ def test_detail_page_uses_transparent_root_and_data_surfaces():
     assert "box-sizing: border-box;" in root_style
     assert "background: transparent;" in root_style
     assert "v-theme-surface" not in root_style
+    assert "flex: 0 0 auto;" in summary_style
     assert "background: transparent;" in summary_style
     assert ".ar-page__toolbar { flex: 0 0 auto; background: transparent; }" in page
     assert ".ar-page :deep(.v-tabs), .ar-page :deep(.v-table)" in page
     assert ".ar-page__content" in page and "background: transparent;" in page
+
+
+def test_detail_mobile_header_and_progress_rows_do_not_overlap():
+    """窄屏进度区不可被压缩，CinePilot 入口与其他操作保持同一顺序。"""
+    page = _read("Page.vue")
+
+    assert ".ar-page__summary-bar { flex: 0 0 auto;" in page
+    assert ".ar-page__critic-badge { order: 2; }" in page
+
+
+def test_cinepilot_dialog_is_viewport_bounded_and_only_messages_scroll():
+    """对话卡片固定在视口内，内容增长只能推动消息区内部滚动。"""
+    dialog = _read("CriticChatDialog.vue")
+
+    assert 'content-class="ar-chat-dialog"' in dialog
+    assert ":global(.ar-chat-dialog)" in dialog
+    assert "max-height: calc(100dvh - 32px)" in dialog
+    assert ".ar-chat { width: 100%; height: 100%; min-height: 0; max-height: 100%;" in dialog
+    assert ".ar-chat__messages { flex: 1 1 0; min-height: 0; overflow-y: auto;" in dialog
 
 
 def test_profile_view_edits_archives_restores_preferences_and_shows_board_matches():
@@ -534,13 +580,14 @@ def test_notification_type_and_low_interruption_state_are_user_visible_without_s
 
 
 def test_cinepilot_chat_is_immediate_bounded_and_retryable():
-    """对话显示排队状态，轮询最多一百秒并把超时消息转为可重试失败。"""
+    """对话立即显示排队状态，持续以服务端状态为准并支持后端失败重试。"""
     chat = _read("CriticChatDialog.vue")
     state = _read("useAgentRankState.js")
     assert "CinePilot Agent" in chat
-    assert "const frontendTimeoutMs = 100000" in chat
     assert "['queued', 'processing'].includes" in chat
-    assert "status: 'retryable_failed'" in chat
+    assert "frontendTimeoutMs" not in chat
+    assert "markFrontendTimeout" not in chat
+    assert "status: 'retryable_failed'" not in chat
     assert "startPolling()" in chat
     assert "conversation/messages/retry" in state
     assert "loadConversation({ markRead = false } = {})" in state
@@ -719,6 +766,15 @@ def test_preview_profile_tag_actions_persist_archive_and_restore_state():
     assert "archived_profile_tags: []" in preview
     assert "profile.archived_profile_tags.push" in preview
     assert "profile.archived_profile_tags = profile.archived_profile_tags.filter" in preview
+
+
+def test_preview_board_history_returns_snapshot_rows_with_change_markers():
+    """预览夹具能覆盖历史榜单分页和跨轮次变化标记。"""
+    preview = (COMPONENT_DIR.parent / "PreviewApp.vue").read_text(encoding="utf-8")
+    assert "path.endsWith('board-history')" in preview
+    assert "history_state: index === 0 || itemIndex === 0 ? 'new' : 'repeat'" in preview
+    assert "new_count: index === 0 ? 5 : 1" in preview
+    assert "overlap_count: index === 0 ? 0 : 4" in preview
 
 
 def test_visible_ranking_copy_avoids_generic_english_ui_terms():

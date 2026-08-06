@@ -330,6 +330,10 @@ class DataLifecycleService:
             repository.load_conversation_records(target)
         )
         outcome_attributions = repository.load_outcome_attributions(target)
+        board_consumptions = repository.load_board_consumptions(target)
+        short_term_signals = repository.load_short_term_signals(target)
+        adaptive_fingerprints = repository.load_adaptive_fingerprints(target)
+        learning_health = repository.build_learning_health(target)
         snapshot_refs = repository.candidate_snapshot_references(target)
 
         profile_data = None
@@ -762,6 +766,58 @@ class DataLifecycleService:
                 }
                 for item in outcome_attributions
             ],
+            "board_consumptions": [
+                {
+                    "run_id": _safe_scalar(item.run_id),
+                    "board_revision": item.board_revision,
+                    "exposed_at": _redact_text(item.exposed_at),
+                    "exposed_candidate_ids": [
+                        _safe_scalar(candidate_id)
+                        for candidate_id in item.exposed_candidate_ids
+                    ],
+                    "detail_opened_candidate_ids": [
+                        _safe_scalar(candidate_id)
+                        for candidate_id in item.detail_opened_candidate_ids
+                    ],
+                    "interaction_kinds": [
+                        _redact_text(kind) for kind in item.interaction_kinds
+                    ],
+                    "exposure_count": item.exposure_count,
+                    "detail_open_count": item.detail_open_count,
+                }
+                for item in board_consumptions
+            ],
+            "short_term_signals": [
+                {
+                    "kind": _redact_text(item.kind),
+                    "candidate_id": _safe_scalar(item.candidate_id),
+                    "run_id": _safe_scalar(item.run_id),
+                    "board_revision": item.board_revision,
+                    "strength": item.strength,
+                    "decay_days": item.decay_days,
+                    "observed_at": _redact_text(item.observed_at),
+                    "source": _redact_text(item.source),
+                    "polarity": _redact_text(item.polarity),
+                }
+                for item in short_term_signals
+            ],
+            "adaptive_fingerprints": (
+                {
+                    "source_fingerprint": _safe_scalar(
+                        adaptive_fingerprints.source_fingerprint
+                    ),
+                    "preference_fingerprint": _safe_scalar(
+                        adaptive_fingerprints.preference_fingerprint
+                    ),
+                    "consumption_fingerprint": _safe_scalar(
+                        adaptive_fingerprints.consumption_fingerprint
+                    ),
+                    "generated_at": _redact_text(adaptive_fingerprints.generated_at),
+                }
+                if adaptive_fingerprints is not None
+                else None
+            ),
+            "learning_health": learning_health.to_dict(),
             "policy_snapshot": (
                 policy_snapshot.to_dict() if policy_snapshot is not None else None
             ),
@@ -771,7 +827,7 @@ class DataLifecycleService:
         """执行仅学习重置；未明确确认时不产生任何写入。"""
         if confirmed is not True:
             raise DataLifecycleError(
-                "confirmation_required", "仅学习重置需要明确确认", 409
+                "confirmation_required", "重置交互学习需要明确确认", 409
             )
         target = str(profile_id or "").strip()
         if not target:
@@ -831,7 +887,7 @@ class DataLifecycleService:
         if not target:
             raise DataLifecycleError("profile_id_required", "必须指定 profile_id", 422)
         if not token:
-            raise DataLifecycleError("confirmation_required", "需要彻底重置确认令牌", 409)
+            raise DataLifecycleError("confirmation_required", "需要清空全部数据确认令牌", 409)
         record = self.repository.load_reset_confirmation(target)
         if record is None:
             raise DataLifecycleError("confirmation_missing", "确认令牌不存在或已失效", 409)

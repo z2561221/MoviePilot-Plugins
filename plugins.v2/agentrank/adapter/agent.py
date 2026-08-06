@@ -17,11 +17,17 @@ from ..agent_tools.context import (
     RANKING_AGENT_ROLE,
     TRUSTED_CONTEXT_KEY,
     AgentRankTrustedContext,
+    to_jsonable,
 )
 from ..agent_tools.session import (
     RESULT_COLLECTOR_KEY,
     TERMINAL_AGENT_ROLES,
     AgentRankSessionResultCollector,
+)
+from ..agent_tools.schemas import (
+    SubmitBatchResultInput,
+    SubmitFinalBoardInput,
+    SubmitProfileResultInput,
 )
 from ..agent_tools.registry import (
     ALL_AGENT_TOOL_NAMES,
@@ -89,6 +95,7 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
     def __init__(self, trusted_context: AgentRankTrustedContext, **kwargs: Any):
         """强制捕获模式、无消息渠道和无消息工具。"""
         self._agentrank_trusted_context = trusted_context
+        self._agentrank_submission_only = bool(kwargs.pop("submission_only", False))
         self._agentrank_result_collector = kwargs.pop(
             "result_collector", None
         ) or AgentRankSessionResultCollector(trusted_context)
@@ -112,6 +119,8 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
         tool_classes = tool_classes_for_role(
             self._agentrank_trusted_context.agent_role
         )
+        if self._agentrank_submission_only and tool_classes:
+            tool_classes = tool_classes[-1:]
         for tool_class in tool_classes:
             tool = tool_class(session_id=self.session_id, user_id=self.user_id)
             tool.set_message_attr(channel=None, source=None, username=None)
@@ -121,11 +130,17 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
         expected_names = tool_names_for_role(
             self._agentrank_trusted_context.agent_role
         )
+        if self._agentrank_submission_only and expected_names:
+            expected_names = expected_names[-1:]
         if not set(expected_names).issubset(set(ALL_AGENT_TOOL_NAMES)):
             raise RuntimeError("AgentRank role whitelist exceeds global whitelist")
         if tuple(tool.name for tool in tools) != tuple(expected_names):
             raise RuntimeError("AgentRank tool registry and role whitelist diverged")
         return tools
+
+    def enable_submission_only(self) -> None:
+        """让 repair 回合只暴露当前角色的终结提交工具。"""
+        self._agentrank_submission_only = True
 
     async def _create_agent(self, streaming: bool = False) -> Any:
         """构建仅保留用量统计中间件的当前角色只读 Agent 图。"""
@@ -136,14 +151,22 @@ class RestrictedAgentRankAgent(MoviePilotAgent):
         model = await self._initialize_llm(streaming=streaming)
         self._sync_model_profile(model)
         self._last_agent_cache_hit = False
+        if self._agentrank_submission_only:
+            system_prompt = (
+                "你正在执行 AgentRank 的修正提交回合。只能调用当前角色的终结提交工具，"
+                "禁止读取上下文、重新检索候选、使用占位符或 repair/pending ID；"
+                "必须只从宿主提示给出的 allowed_candidate_ids/candidate_ref_map 中提交。"
+            )
+        else:
+            system_prompt = AGENTRANK_SYSTEM_PROMPTS.get(
+                self._agentrank_trusted_context.agent_role,
+                AGENTRANK_SYSTEM_PROMPT,
+            )
         return create_agent(
             model=model,
             tools=self._initialize_tools(),
             system_prompt=(
-                AGENTRANK_SYSTEM_PROMPTS.get(
-                    self._agentrank_trusted_context.agent_role,
-                    AGENTRANK_SYSTEM_PROMPT,
-                )
+                system_prompt
                 + " 禁止委派子代理、加载技能或记忆、"
                 "管理任务、调用外部 MCP，以及使用任何未提供的工具。"
             ),
@@ -165,6 +188,11 @@ class AgentRankAgentAdapter:
         "智能助手执行失败",
         "处理消息时发生错误",
     )
+    _terminal_submission_schemas = {
+        PROFILE_AGENT_ROLE: SubmitProfileResultInput,
+        PRELIMINARY_AGENT_ROLE: SubmitBatchResultInput,
+        FINAL_AGENT_ROLE: SubmitFinalBoardInput,
+    }
 
     def __init__(
         self,
@@ -350,6 +378,33 @@ class AgentRankAgentAdapter:
                 collector.reject(code, field)
                 return
 
+    @classmethod
+    def _recover_terminal_submission(
+        cls,
+        collector: AgentRankSessionResultCollector,
+        values: List[Any],
+    ) -> bool:
+        """把 Agent 已返回的严格 JSON 经同一 schema 与 collector 接收。"""
+        schema = cls._terminal_submission_schemas.get(
+            collector.trusted_context.agent_role
+        )
+        if schema is None or collector.submitted:
+            return collector.submitted
+        for value in values:
+            for text in cls._text_candidates(value):
+                normalized = cls._normalize_captured_text(text)
+                if not cls._is_json_object_text(normalized):
+                    continue
+                try:
+                    payload = schema.model_validate_json(normalized).model_dump(
+                        mode="json"
+                    )
+                except Exception:
+                    continue
+                if collector.submit(collector.expected_tool, payload) is None:
+                    return True
+        return False
+
     async def run(self, prompt: str, trusted_context: AgentRankTrustedContext) -> str:
         """执行捕获式 Agent 调用，并在成功或异常后清理全部会话状态。"""
         if not isinstance(trusted_context, AgentRankTrustedContext):
@@ -363,26 +418,42 @@ class AgentRankAgentAdapter:
                 captured_outputs.append(text)
 
         result_collector = AgentRankSessionResultCollector(trusted_context)
-        agent = self._agent_factory(
-            session_id=session_id,
-            user_id=self._user_id,
-            channel=None,
-            source=None,
-            username=trusted_context.username,
-            replay_mode=ReplyMode.CAPTURE_ONLY,
-            allow_message_tools=False,
-            trusted_context=trusted_context,
-            result_collector=result_collector,
-            output_callback=capture_output,
-        )
+        def build_agent(target_session_id: str, *, submission_only: bool = False) -> Any:
+            """按角色构造隔离 Agent 会话，repair 可只暴露提交工具。"""
+            return self._agent_factory(
+                session_id=target_session_id,
+                user_id=self._user_id,
+                channel=None,
+                source=None,
+                username=trusted_context.username,
+                replay_mode=ReplyMode.CAPTURE_ONLY,
+                allow_message_tools=False,
+                trusted_context=trusted_context,
+                result_collector=result_collector,
+                output_callback=capture_output,
+                submission_only=submission_only,
+            )
+
+        agent = build_agent(session_id)
+        active_agent = agent
+        cleanup_agents = [agent]
         provenance: Dict[str, Any] = {}
         repair_count = 0
         try:
             result = await agent.process(str(prompt or ""))
             if trusted_context.agent_role in TERMINAL_AGENT_ROLES:
+                terminal_outputs = [
+                    result,
+                    getattr(agent, "_streamed_output", ""),
+                    *captured_outputs,
+                ]
                 self._capture_submission_issue(
                     result_collector,
-                    [result, getattr(agent, "_streamed_output", ""), *captured_outputs],
+                    terminal_outputs,
+                )
+                self._recover_terminal_submission(
+                    result_collector,
+                    terminal_outputs,
                 )
                 if not result_collector.submitted and result_collector.can_repair:
                     repair_count += 1
@@ -390,19 +461,85 @@ class AgentRankAgentAdapter:
                     code = issue.code if issue is not None else "submission_required"
                     field = issue.field if issue is not None else "submission"
                     captured_outputs.clear()
-                    repair_result = await agent.process(
+                    constraints = to_jsonable(
+                        trusted_context.submission_constraints
+                    ) or {}
+                    candidate_refs = constraints.get("candidate_refs") or {}
+                    reference_map = {
+                        str(reference): str(candidate_id)
+                        for candidate_id, reference in dict(candidate_refs).items()
+                        if str(reference or "").strip()
+                    }
+                    allowed_ids = [
+                        str(item or "").strip()
+                        for item in constraints.get("allowed_candidate_ids") or ()
+                        if str(item or "").strip()
+                    ]
+                    evidence_options = constraints.get("evidence_options") or {}
+                    compact_evidence_options = {
+                        str(candidate_id): {
+                            "positive_evidence_options": list(
+                                (options or {}).get("positive_evidence_options") or ()
+                            )[:4],
+                            "counter_evidence_options": list(
+                                (options or {}).get("counter_evidence_options") or ()
+                            )[:4],
+                        }
+                        for candidate_id, options in dict(evidence_options).items()
+                        if str(candidate_id) in allowed_ids
+                        and isinstance(options, Mapping)
+                    }
+                    repair_details = (
+                        " allowed_candidate_ids="
+                        + json.dumps(allowed_ids, ensure_ascii=False, separators=(",", ":"))
+                        + "。allowed_candidate_refs="
+                        + json.dumps(list(reference_map), ensure_ascii=False, separators=(",", ":"))
+                        + "。candidate_ref_map="
+                        + json.dumps(reference_map, ensure_ascii=False, separators=(",", ":"))
+                        + "。evidence_options="
+                        + json.dumps(
+                            to_jsonable(compact_evidence_options),
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                        + "。禁止提交 placeholder、repair、pending 或其它不在映射中的 ID。"
+                    )
+                    repair_session_id = f"{session_id}_repair"[:96]
+                    if trusted_context.agent_role == FINAL_AGENT_ROLE:
+                        await agent.cleanup()
+                        repair_agent = build_agent(
+                            repair_session_id,
+                            submission_only=True,
+                        )
+                        cleanup_agents.append(repair_agent)
+                        active_agent = repair_agent
+                    else:
+                        enable_submission_only = getattr(
+                            agent, "enable_submission_only", None
+                        )
+                        if callable(enable_submission_only):
+                            enable_submission_only()
+                        await agent.cleanup()
+                        active_agent = agent
+                    repair_result = await active_agent.process(
                         "AGENTRANK_REPAIR "
                         f"code={code} field={field}. "
-                        "不要再次调用读取工具；只修正该字段并调用一次 "
+                        "不要调用读取工具；只修正该字段并调用一次 "
                         f"{result_collector.expected_tool}。"
+                        f"{repair_details}"
                     )
+                    repair_outputs = [repair_result, *captured_outputs]
                     if not result_collector.submitted:
                         self._capture_submission_issue(
                             result_collector,
-                            [repair_result, *captured_outputs],
+                            repair_outputs,
                             allow_existing=True,
                         )
-                provenance = await self._capture_provenance(agent)
+                    self._recover_terminal_submission(
+                        result_collector,
+                        repair_outputs,
+                    )
+                provenance = await self._capture_provenance(active_agent)
                 provenance["repair_count"] = repair_count
                 if result_collector.submitted:
                     return AgentExecutionResult(
@@ -413,7 +550,7 @@ class AgentRankAgentAdapter:
                     issue.code if issue is not None else "submission_required",
                     issue.field if issue is not None else "submission",
                 )
-            provenance = await self._capture_provenance(agent)
+            provenance = await self._capture_provenance(active_agent)
             provenance["repair_count"] = repair_count
             candidates: List[Any] = [result]
             # 新版宿主的 CAPTURE_ONLY 路径可能只把最终文本留在 Agent
@@ -443,7 +580,7 @@ class AgentRankAgentAdapter:
             raise AgentTextUnavailableError("Agent did not produce text output")
         except Exception as error:
             if not provenance:
-                provenance = await self._capture_provenance(agent)
+                provenance = await self._capture_provenance(active_agent)
             provenance["repair_count"] = repair_count
             try:
                 error.agentrank_provenance = dict(provenance)
@@ -451,10 +588,16 @@ class AgentRankAgentAdapter:
                 pass
             raise
         finally:
-            try:
-                await agent.cleanup()
-            finally:
-                await self._clear_memory(session_id)
+            for cleanup_agent in cleanup_agents:
+                try:
+                    await cleanup_agent.cleanup()
+                except Exception:
+                    pass
+            target_session_ids = [session_id]
+            if len(cleanup_agents) > 1:
+                target_session_ids.append(f"{session_id}_repair"[:96])
+            for target_session_id in dict.fromkeys(target_session_ids):
+                await self._clear_memory(target_session_id)
 
     async def run_profile(
         self, prompt: str, trusted_context: AgentRankTrustedContext

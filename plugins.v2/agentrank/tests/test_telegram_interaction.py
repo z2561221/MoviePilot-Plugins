@@ -17,6 +17,7 @@ package.__path__ = [str(PLUGIN_DIR)]
 app_module = sys.modules.setdefault("app", ModuleType("app"))
 schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
 types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
+message_module = sys.modules.setdefault("app.schemas.message", ModuleType("app.schemas.message"))
 
 
 class NotificationType(Enum):
@@ -37,9 +38,22 @@ schemas_module.types = types_module
 types_module.NotificationType = NotificationType
 types_module.MessageChannel = MessageChannel
 
+
+class Notification:
+    """接收宿主 Notification 载荷的测试替身。"""
+
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+message_module.Notification = Notification
+
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 pending_model_module = importlib.import_module(
     f"{PACKAGE_NAME}.model.pending_center"
+)
+telegram_pending_module = importlib.import_module(
+    f"{PACKAGE_NAME}.model.telegram_pending"
 )
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 interaction_module = importlib.import_module(
@@ -53,30 +67,65 @@ TelegramSelectionService = interaction_module.TelegramSelectionService
 TelegramTargetAdapter = interaction_module.TelegramTargetAdapter
 PendingCenterItem = pending_model_module.PendingCenterItem
 PendingNotice = pending_model_module.PendingNotice
+TelegramPendingSession = telegram_pending_module.TelegramPendingSession
 
 
 class FakeMessageChain:
-    """记录删除原消息调用并允许测试编辑回退。"""
+    """记录直发、删除和编辑调用并允许配置结果。"""
 
-    def __init__(self, delete_result=True):
+    def __init__(
+        self,
+        delete_result=True,
+        direct_result=None,
+        edit_result=True,
+        use_run_module=False,
+    ):
         self.delete_result = delete_result
+        self.direct_result = direct_result or SimpleNamespace(success=False)
+        self.edit_result = edit_result
+        self.run_module_calls = []
+        self.direct_calls = []
         self.delete_calls = []
+        self.edit_calls = []
+        self.run_module = self._run_module if use_run_module else None
+
+    def send_direct_message(self, message):
+        """记录需要返回消息身份的直发调用。"""
+        self.direct_calls.append(message)
+        return self.direct_result
 
     def delete_message(self, **kwargs):
         """记录 MoviePilot 消息删除参数。"""
         self.delete_calls.append(kwargs)
         return self.delete_result
 
+    def edit_message(self, **kwargs):
+        """记录删除失败后的原地收束。"""
+        self.edit_calls.append(kwargs)
+        return self.edit_result
+
+    def _run_module(self, method, **kwargs):
+        """记录通过宿主模块分发的编辑调用。"""
+        self.run_module_calls.append((method, kwargs))
+        if method == "edit_message":
+            self.edit_calls.append(kwargs)
+            return self.edit_result
+        return None
+
 
 class FakePlugin:
     """记录插件数据与发送消息的测试替身。"""
 
-    def __init__(self, delete_result=True):
+    def __init__(self, delete_result=True, direct_result=None, use_run_module=False):
         self.data = {}
         self.messages = []
         self._poster_service = None
         self.enabled = True
-        self.chain = FakeMessageChain(delete_result)
+        self.chain = FakeMessageChain(
+            delete_result,
+            direct_result,
+            use_run_module=use_run_module,
+        )
 
     def get_data(self, key=None):
         """读取内存插件数据。"""
@@ -202,9 +251,20 @@ def _oversized_board():
     return board
 
 
-def _service(now=None, target="1001", pending_center=None, delete_result=True):
+def _service(
+    now=None,
+    target="1001",
+    pending_center=None,
+    delete_result=True,
+    direct_result=None,
+    use_run_module=False,
+):
     """创建固定令牌和时钟的交互服务。"""
-    plugin = FakePlugin(delete_result=delete_result)
+    plugin = FakePlugin(
+        delete_result=delete_result,
+        direct_result=direct_result,
+        use_run_module=use_run_module,
+    )
     repository = AgentRankRepository(plugin)
     repository.save_board(_board())
     subscription = FakeSubscriptionService()
@@ -272,6 +332,130 @@ def _callbacks(message):
         for button in row
         if button.get("callback_data")
     ]
+
+
+def _question_notice():
+    """构造可在两个终端处理的问询通知。"""
+    return PendingNotice(
+        item=PendingCenterItem(
+            item_type="question",
+            item_id="question-cross-device",
+            profile_id="alice",
+            title="CinePilot Agent 需要你确认",
+            summary="未来推荐更应该延续熟悉体验，还是主动带来变化？",
+            created_at="2026-07-18T00:00:00+00:00",
+            status="pending",
+            options=(
+                {
+                    "option_id": "continue_patterns",
+                    "label": "延续已看作品的共同点",
+                },
+                {"option_id": "either", "label": "都可以"},
+                {"option_id": "uncertain", "label": "不确定"},
+                {"option_id": "not_me", "label": "不是我看的"},
+            ),
+            allow_custom_answer=True,
+        ),
+        actor_id="mp-user-1",
+    )
+
+
+def test_pending_notification_persists_message_identity_and_preserves_buttons():
+    """待办同步发送后保存消息身份，并补挂完整 Telegram 选项按钮。"""
+    response = SimpleNamespace(
+        success=True,
+        message_id=901,
+        chat_id="1001",
+        source="Telegram",
+    )
+    plugin, repository, _, service, _ = _service(direct_result=response)
+    notice = _question_notice()
+
+    assert service.start_pending(username="alice", notice=notice) is True
+    session = repository.load_telegram_pending_session("token123")
+    assert session.message_id == "901"
+    assert session.chat_id == "1001"
+    assert session.source == "Telegram"
+    assert session.option_ids == [
+        "continue_patterns",
+        "either",
+        "uncertain",
+        "not_me",
+    ]
+    assert len(plugin.chain.direct_calls) == 1
+    assert len(plugin.chain.edit_calls) == 1
+    assert plugin.chain.edit_calls[0]["message_id"] == "901"
+    message = plugin.chain.direct_calls[0].__dict__
+    assert message["targets"] == {"telegram_userid": "1001"}
+    buttons = plugin.chain.edit_calls[0]["buttons"]
+    assert [row[0]["text"] for row in buttons[:4]] == [
+        "延续已看作品的共同点",
+        "都可以",
+        "不确定",
+        "不是我看的",
+    ]
+    assert all(
+        row[0].get("callback_data")
+        for row in buttons[:4]
+    )
+
+
+def test_pending_direct_send_uses_run_module_for_html_edit():
+    """宿主链存在 run_module 时，编辑按钮使用支持 parse_mode 的分发入口。"""
+    response = SimpleNamespace(
+        success=True,
+        message_id=904,
+        chat_id="1001",
+        source="Telegram",
+    )
+    plugin, _, _, service, _ = _service(
+        direct_result=response,
+        use_run_module=True,
+    )
+
+    assert service.start_pending(username="alice", notice=_question_notice()) is True
+    assert plugin.chain.run_module_calls[0][0] == "edit_message"
+    assert plugin.chain.run_module_calls[0][1]["parse_mode"] == "HTML"
+
+
+def test_pending_cross_device_delete_uses_persisted_message_identity():
+    """待办中心处理后按发送时保存的消息身份删除 Telegram 原卡片。"""
+    response = SimpleNamespace(
+        success=True,
+        message_id=903,
+        chat_id="1001",
+        source="Telegram",
+    )
+    plugin, _, _, service, _ = _service(direct_result=response)
+    notice = _question_notice()
+
+    assert service.start_pending(username="alice", notice=notice) is True
+    assert service.resolve_pending_item(notice.item) == 1
+
+    assert plugin.chain.delete_calls[-1] == {
+        "channel": MessageChannel.Telegram,
+        "source": "Telegram",
+        "message_id": "903",
+        "chat_id": "1001",
+    }
+
+
+def test_pending_cross_device_delete_failure_edits_message_without_buttons():
+    """已有消息身份时，渠道删除失败仍原地移除交互按钮。"""
+    plugin, _, _, service, _ = _service(
+        delete_result=False,
+    )
+    notice = _question_notice()
+    service.start_pending(username="alice", notice=notice)
+    session = service._repository.load_telegram_pending_session("token123")
+    session.message_id = "902"
+    session.chat_id = "1001"
+    session.source = "Telegram"
+    service._repository.save_telegram_pending_session(session)
+
+    assert service.resolve_pending_item(notice.item) == 1
+    assert plugin.chain.edit_calls[0]["title"] == "Agent榜单中心 · 已处理"
+    assert plugin.chain.edit_calls[0]["buttons"] is None
 
 
 def test_target_adapter_resolves_direct_moviepilot_user_mapping():

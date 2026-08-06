@@ -433,6 +433,48 @@ def test_unread_agent_replies_are_persisted_per_actor_and_profile():
         service.stop()
 
 
+def test_feedback_notice_marks_only_new_receipt_unread_for_feedback_actor():
+    """后台反馈回执只增加一条未读，不把既有 Agent 历史重新计入角标。"""
+    _plugin, repository = _seed()
+    created_at = "2026-07-29T00:00:00+00:00"
+    thread = ConversationThread(
+        thread_id="thread-feedback-notice",
+        profile_id=PROFILE_ID,
+        created_by_mp_user_id="7",
+        created_at=created_at,
+        updated_at=created_at,
+        last_message_id="assistant-old",
+    )
+    old_reply = ConversationMessage(
+        message_id="assistant-old",
+        profile_id=PROFILE_ID,
+        thread_id=thread.thread_id,
+        role="assistant",
+        content="既有回复",
+        status="completed",
+        created_at=created_at,
+        reply_to="user-old",
+    )
+    repository.save_conversation_state(thread, [old_reply], [])
+    service = ConversationService(repository, FakeConversationAgent(), message_limit=20)
+
+    assert service.append_feedback_notice(
+        profile_id=PROFILE_ID,
+        event_id="event-like-1",
+        actor_id="7",
+        candidate_id=CANDIDATE_ID,
+        content="已完成点赞理解，当前不需要进一步确认。",
+    ) is True
+    assert service.status(PROFILE_ID, actor_id="7")["unread_count"] == 1
+    assert service.status(PROFILE_ID, actor_id="8")["unread_count"] == 0
+    assert service.append_feedback_notice(
+        profile_id=PROFILE_ID,
+        event_id="event-like-1",
+        actor_id="7",
+        content="重复回执",
+    ) is False
+
+
 def test_profile_tag_write_waits_for_confirmation_and_confirm_is_idempotent():
     """标签请求确认前零副作用，确认后复用人工偏好服务且可重放。"""
     plugin, repository = _seed()

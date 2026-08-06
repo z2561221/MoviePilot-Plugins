@@ -192,7 +192,7 @@ def test_preliminary_and_final_prompts_only_name_their_one_read_one_submit_tools
     assert final.count("submit_agentrank_final_board") == 1
     assert "排序要求：相关性优先" in final
     assert "文案要求：文案克制" in final
-    assert "文案要求：文案克制" in final
+    assert "用户偏好短词和一个作品事实短词" in final
     for prompt in (preliminary, final):
         assert "candidate_id\"" not in prompt
         assert "positive_evidence\"" not in prompt
@@ -641,6 +641,44 @@ def test_validator_scores_five_unique_grounded_fallback_items_with_same_policy()
     assert all(len(item.reason) <= 30 for item in fallback)
     assert all(len(item.summary) <= 30 for item in fallback)
     assert all(item.reason.endswith("。") for item in fallback)
+
+
+def test_fallback_blocks_counter_evidence_and_never_projects_profile_tags():
+    """安全补位排除反向命中项，标签只描述候选自身事实。"""
+    candidates = [
+        Candidate(
+            candidate_id="tmdb:reality",
+            title="真人节目",
+            media_type="movie",
+            genres=["悬疑", "真人秀"],
+        ),
+        Candidate(
+            candidate_id="tmdb:safe",
+            title="旧案追踪",
+            media_type="movie",
+            genres=["悬疑", "剧情"],
+        ),
+    ]
+    policy, memory, _, playback = _support_context()
+    preferences = ProfilePreferences(
+        profile_id=playback.profile_id,
+        custom_negative_tags=["真人秀"],
+    )
+
+    fallback = RecommendationValidator().build_fallback_items(
+        candidates,
+        accepted=[],
+        preference_evidence=["国产修仙动画"],
+        limit=2,
+        policy_snapshot=policy,
+        confirmed_memory=memory,
+        profile_preferences=preferences,
+        playback_snapshot=playback,
+    )
+
+    assert [item.candidate_id for item in fallback] == ["tmdb:safe"]
+    assert fallback[0].match_tags == ["悬疑", "剧情"]
+    assert "国产修仙" not in fallback[0].match_tags
 
 
 @pytest.mark.parametrize(

@@ -10,7 +10,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 from ..agent_tools.context import (
     FINAL_AGENT_ROLE,
@@ -22,7 +22,11 @@ from ..agent_tools.context import (
 from ..agent_tools.schemas import SubmitBatchResultInput
 from ..model.candidate import typed_tmdb_candidate_id
 from ..model.config import configured_identities
-from ..model.constants import RANKING_OUTPUT_LIMIT, RECOMMENDATION_LIMIT
+from ..model.feedback import ShortTermSignal
+from ..model.constants import (
+    RANKING_OUTPUT_LIMIT,
+    RECOMMENDATION_LIMIT,
+)
 from ..model.board import RecommendationBoard, RecommendationItem
 from ..model.judgment import JudgmentBatchCheckpoint, PreliminaryJudgment
 from ..model.profile import (
@@ -30,8 +34,8 @@ from ..model.profile import (
     RETRIEVAL_RESOLUTION_VERSION,
     UserProfile,
 )
-from ..model.retrieval import RetrievalPlan
-from ..model.run import RecommendationRun
+from ..model.retrieval import RetrievalFilters, RetrievalPlan
+from ..model.run import AdaptiveFingerprints, RecommendationRun
 from ..model.policy import PolicySnapshot
 from ..storage.repository import AgentRankRepository
 from ..storage.judgment import JudgmentCheckpointStore
@@ -77,6 +81,9 @@ _PROVENANCE_HOST_PORT_PATTERN = re.compile(
     r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}:\d{2,6}"
 )
 
+_BOARD_RECENCY_ROUND_WEIGHTS = (0.0, 0.35, 0.7, 1.0)
+_BOARD_RECENCY_HISTORY_LIMIT = len(_BOARD_RECENCY_ROUND_WEIGHTS) - 1
+
 
 def _safe_agent_failure_reason(value: Any) -> str:
     """把逐调用失败原因收敛为无地址和凭据的短文本。"""
@@ -110,6 +117,8 @@ class TournamentOutcome:
     fallback_reason: str = ""
     errors: List[str] = None
     prompt_fingerprint_source: str = ""
+    validation_drops: List[Dict[str, Any]] = None
+    fallback_candidate_ids: List[str] = None
 
 
 class RecommendationOrchestrator:
@@ -291,6 +300,116 @@ class RecommendationOrchestrator:
             if identity.profile_id == profile_id:
                 return identity.username
         return ""
+
+    @staticmethod
+    def _board_candidate_ids(board: Any) -> List[str]:
+        """提取榜单中的规范候选身份。"""
+        return [
+            str(item.candidate_id or "").strip()
+            for item in (getattr(board, "recommendations", ()) or ())
+            if str(getattr(item, "candidate_id", "") or "").strip()
+        ]
+
+    def _board_recency_weights(
+        self,
+        profile_id: str,
+        previous_board_candidate_ids: Iterable[str],
+    ) -> Dict[str, float]:
+        """按最近成功榜单轮次生成可解释的重复惩罚权重。"""
+        weights: Dict[str, float] = {
+            str(candidate_id or "").strip(): _BOARD_RECENCY_ROUND_WEIGHTS[0]
+            for candidate_id in previous_board_candidate_ids or ()
+            if str(candidate_id or "").strip()
+        }
+        try:
+            history = self._repository.load_run_history(profile_id)
+        except Exception:
+            history = []
+        previous_board_id_set = {
+            str(candidate_id or "").strip()
+            for candidate_id in previous_board_candidate_ids or ()
+            if str(candidate_id or "").strip()
+        }
+        skipped_current_board_history = False
+        observed_rounds = 0
+        for run in history:
+            metrics = dict(getattr(run, "metrics", {}) or {})
+            candidate_ids = [
+                str(candidate_id or "").strip()
+                for candidate_id in metrics.get("recommendation_candidate_ids") or ()
+                if str(candidate_id or "").strip()
+            ]
+            if not candidate_ids:
+                continue
+            if (
+                previous_board_id_set
+                and not skipped_current_board_history
+                and set(candidate_ids) == previous_board_id_set
+            ):
+                skipped_current_board_history = True
+                continue
+            observed_rounds += 1
+            if observed_rounds > _BOARD_RECENCY_HISTORY_LIMIT:
+                break
+            factor = _BOARD_RECENCY_ROUND_WEIGHTS[observed_rounds]
+            for candidate_id in candidate_ids:
+                weights.setdefault(candidate_id, factor)
+        return weights
+
+    @staticmethod
+    def _board_recency_factor(
+        candidate_id: Any, weights: Mapping[str, Any]
+    ) -> float:
+        """读取候选榜单新鲜度权重并限制在零到一。"""
+        try:
+            value = float((weights or {}).get(str(candidate_id or "").strip(), 1.0))
+        except (TypeError, ValueError):
+            value = 1.0
+        return max(0.0, min(1.0, value))
+
+    @classmethod
+    def _order_candidates_by_board_recency(
+        cls, candidates: Iterable[Any], weights: Mapping[str, Any]
+    ) -> List[Any]:
+        """按榜单新鲜度优先排序候选，并保留原始稳定顺序。"""
+        indexed = list(enumerate(candidates or ()))
+        indexed.sort(
+            key=lambda item: (
+                -cls._board_recency_factor(item[1].candidate_id, weights),
+                item[0],
+            )
+        )
+        return [candidate for _, candidate in indexed]
+
+    @staticmethod
+    def _soften_profile_media_types(
+        plan: RetrievalPlan,
+    ) -> Tuple[RetrievalPlan, Tuple[str, ...]]:
+        """将画像推断的媒体类型转为排序标签，避免把偏好误作排他过滤。"""
+        media_types = tuple(plan.filters.media_types)
+        if not media_types:
+            return plan, ()
+        labels = {"movie": "电影", "tv": "电视剧", "anime": "动画"}
+        ranking_tags = list(plan.ranking_tags)
+        for media_type in media_types:
+            tag = labels.get(media_type, media_type)
+            if tag and tag not in ranking_tags:
+                ranking_tags.append(tag)
+        filters = plan.filters
+        return RetrievalPlan(
+            filters=RetrievalFilters(
+                media_types=(),
+                genre_ids=filters.genre_ids,
+                keyword_ids=filters.keyword_ids,
+                original_languages=filters.original_languages,
+                year_min=filters.year_min,
+                year_max=filters.year_max,
+                rating_min=filters.rating_min,
+                vote_count_min=filters.vote_count_min,
+                sort_by=filters.sort_by,
+            ),
+            ranking_tags=tuple(ranking_tags),
+        ), media_types
 
     @staticmethod
     def _trusted_weights(
@@ -856,8 +975,11 @@ class RecommendationOrchestrator:
         subscribed_ids: Set[str],
         config: Mapping[str, Any],
         metrics: Dict[str, Any],
+        previous_board_candidate_ids: Optional[Iterable[str]] = None,
+        board_recency_weights: Optional[Mapping[str, Any]] = None,
     ) -> TournamentOutcome:
         """并行初赛、批次恢复、席位补齐和独立决赛。"""
+        board_recency_weights = dict(board_recency_weights or {})
         profile_fingerprint = str(current_profile.profile_input_fingerprint or "")
         if not profile_fingerprint:
             profile_fingerprint = hashlib.sha256(
@@ -930,6 +1052,13 @@ class RecommendationOrchestrator:
                 indexed.sort(
                     key=lambda item: (
                         not item[1].advance,
+                        -(
+                            float(item[1].fit_score)
+                            * self._board_recency_factor(
+                                item[1].candidate_id,
+                                board_recency_weights,
+                            )
+                        ),
                         -item[1].fit_score,
                         item[0],
                     )
@@ -982,9 +1111,173 @@ class RecommendationOrchestrator:
                             },
                         )
                     )
-        finalist_pairs = finalist_pairs[:6]
+        evidence_options_by_id: Dict[str, Dict[str, List[Dict[str, str]]]] = {}
+        evidence_eligible_ids: Set[str] = set()
+        for candidate in candidates:
+            try:
+                options = self._support_scorer.verified_evidence_options(
+                    candidate,
+                    policy_snapshot,
+                    confirmed_memory,
+                    profile_preferences,
+                    playback_snapshot,
+                )
+            except Exception as error:
+                tournament_errors.append(
+                    f"final evidence {candidate.candidate_id}: "
+                    f"{_safe_agent_failure_reason(error)}"
+                )
+                continue
+            evidence_options_by_id[candidate.candidate_id] = options
+            if len(options.get("positive_evidence_options") or ()) >= 2:
+                evidence_eligible_ids.add(candidate.candidate_id)
+
+        eligible_finalist_pairs = [
+            pair
+            for pair in finalist_pairs
+            if pair[0].candidate_id in evidence_eligible_ids
+        ]
+        selected_finalist_ids = {
+            candidate.candidate_id for candidate, _ in eligible_finalist_pairs
+        }
+        evidence_fill_quota = max(0, len(evidence_eligible_ids) - len(eligible_finalist_pairs))
+        evidence_fill = self._support_fill_candidates(
+            [
+                candidate
+                for candidate in candidates
+                if candidate.candidate_id in evidence_eligible_ids
+                and candidate.candidate_id not in selected_finalist_ids
+            ],
+            evidence_fill_quota,
+            policy_snapshot=policy_snapshot,
+            confirmed_memory=confirmed_memory,
+            profile_preferences=profile_preferences,
+            playback_snapshot=playback_snapshot,
+            errors=tournament_errors,
+        )
+        evidence_fill_pairs = [
+            (
+                candidate,
+                {
+                    "candidate_id": candidate.candidate_id,
+                    "fit_score": percentage,
+                    "positive_evidence": [],
+                    "counter_evidence": None,
+                    "advance": True,
+                    "source": "evidence_fill",
+                },
+            )
+            for candidate, percentage in evidence_fill
+        ]
+        previous_board_candidate_ids = [
+            str(candidate_id or "").strip()
+            for candidate_id in (previous_board_candidate_ids or ())
+            if str(candidate_id or "").strip()
+        ]
+        previous_board_id_set = set(previous_board_candidate_ids)
+        finalist_pool = [*eligible_finalist_pairs, *evidence_fill_pairs]
+        if previous_board_id_set:
+            # 上一榜候选是本轮强重复项，更早榜单只按权重衰减，不写负向记忆。
+            finalist_pool = [
+                *[
+                    pair
+                    for pair in finalist_pool
+                    if pair[0].candidate_id not in previous_board_id_set
+                ],
+                *[
+                    pair
+                    for pair in finalist_pool
+                    if pair[0].candidate_id in previous_board_id_set
+                ],
+            ]
+        indexed_finalist_pool = list(enumerate(finalist_pool))
+        indexed_finalist_pool.sort(
+            key=lambda item: (
+                -self._board_recency_factor(
+                    item[1][0].candidate_id,
+                    board_recency_weights,
+                ),
+                item[0],
+            )
+        )
+        finalist_pool = [pair for _, pair in indexed_finalist_pool]
+        selected_pairs: List[Tuple[Any, Dict[str, Any]]] = []
+        selected_ids: Set[str] = set()
+        for pair in finalist_pool:
+            candidate_id = pair[0].candidate_id
+            if candidate_id in selected_ids:
+                continue
+            selected_pairs.append(pair)
+            selected_ids.add(candidate_id)
+            if len(selected_pairs) >= 6:
+                break
+        if len(selected_pairs) < 6:
+            for pair in finalist_pool:
+                candidate_id = pair[0].candidate_id
+                if candidate_id in selected_ids:
+                    continue
+                selected_pairs.append(pair)
+                selected_ids.add(candidate_id)
+                if len(selected_pairs) >= 6:
+                    break
+        metrics["evidence_eligible_candidate_count"] = len(evidence_eligible_ids)
+        metrics["evidence_ineligible_candidate_count"] = (
+            len(candidates) - len(evidence_eligible_ids)
+        )
+        finalist_pairs = selected_pairs[:6]
         finalists = [candidate for candidate, _ in finalist_pairs]
         judgment_cards = [card for _, card in finalist_pairs]
+        used_preliminary_ids = {
+            candidate.candidate_id for candidate, _ in eligible_finalist_pairs
+        }
+        metrics["final_evidence_fill_count"] = sum(
+            candidate.candidate_id not in used_preliminary_ids
+            for candidate in finalists
+        )
+        finalist_new_count = sum(
+            candidate.candidate_id not in previous_board_id_set
+            for candidate in finalists
+        )
+        available_new_count = sum(
+            candidate.candidate_id not in previous_board_id_set
+            for candidate in candidates
+        )
+        minimum_new_items = (
+            min(RECOMMENDATION_LIMIT, available_new_count)
+            if previous_board_id_set
+            else 0
+        )
+        maximum_previous_items = max(0, RECOMMENDATION_LIMIT - minimum_new_items)
+        freshness_status = (
+            "not_applicable"
+            if not previous_board_id_set
+            else "applied"
+            if minimum_new_items >= RECOMMENDATION_LIMIT
+            else "insufficient_candidates"
+        )
+        metrics["previous_board_candidate_count"] = len(previous_board_id_set)
+        metrics["finalist_previous_candidate_count"] = (
+            len(finalists) - finalist_new_count
+        )
+        metrics["finalist_new_candidate_count"] = finalist_new_count
+        metrics["freshness_minimum_new_items"] = minimum_new_items
+        metrics["freshness_maximum_previous_items"] = maximum_previous_items
+        metrics["freshness_status"] = freshness_status
+        metrics["freshness_shortfall_reason"] = (
+            "eligible_new_candidates_insufficient"
+            if freshness_status == "insufficient_candidates"
+            else ""
+        )
+        expected_count = min(RECOMMENDATION_LIMIT, len(finalists))
+        fallback_candidate_ids = [candidate.candidate_id for candidate in finalists]
+        final_evidence_options = {
+            candidate.candidate_id: evidence_options_by_id[candidate.candidate_id]
+            for candidate in finalists
+        }
+        final_candidate_refs = {
+            candidate.candidate_id: f"c{index}"
+            for index, candidate in enumerate(finalists, start=1)
+        }
         metrics["candidate_preliminary_status"] = processing
         metrics["preliminary_safe_fill_count"] = safe_fill_count
         metrics["finalist_count"] = len(finalists)
@@ -996,12 +1289,15 @@ class RecommendationOrchestrator:
                     "weights_fingerprint": weights_fingerprint,
                     "candidate_ids": [item.candidate_id for item in finalists],
                     "judgment_cards": judgment_cards,
+                    "previous_board_candidate_ids": previous_board_candidate_ids,
+                    "minimum_new_items": minimum_new_items,
                 },
                 ensure_ascii=False,
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
+
         metrics["final_input_source"] = (
             "cached_judgments"
             if results
@@ -1019,25 +1315,94 @@ class RecommendationOrchestrator:
             run_id=f"{run_id}-final",
             candidates=[item.to_dict() for item in finalists],
             archive_feedback={"entries": []},
-            weights={},
+            weights=trusted_weights,
             profile=ranking_profile,
             judgment_cards=judgment_cards,
             agent_role=FINAL_AGENT_ROLE,
-            submission_constraints={"top_n": min(5, len(finalists))},
+            submission_constraints={
+                "top_n": expected_count,
+                "allowed_candidate_ids": fallback_candidate_ids,
+                "candidate_refs": final_candidate_refs,
+                "evidence_options": final_evidence_options,
+                "previous_board_candidate_ids": previous_board_candidate_ids,
+                "minimum_new_items": minimum_new_items,
+                "maximum_previous_items": maximum_previous_items,
+                "freshness_status": freshness_status,
+            },
         )
         base_prompt = build_final_prompt(
             copy_prompt=str(config.get("copy_prompt") or ""),
             ranking_prompt=str(config.get("ranking_prompt") or ""),
         )
-        expected_count = min(RECOMMENDATION_LIMIT, len(finalists))
         last_reason = "final_agent_failed"
+        last_retry_code = "final_agent_failed"
+        last_retry_field = "submission"
+        last_drop_feedback: List[Dict[str, Any]] = []
+        final_validation_drops: List[Dict[str, Any]] = []
+        retry_allowed_candidate_ids = list(fallback_candidate_ids)
         final_stage_clock = time.monotonic()
         for attempt in range(2):
             prompt = base_prompt
+            attempt_context = final_context
             if attempt:
+                feedback = json.dumps(
+                    last_drop_feedback,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                retry_options = {
+                    candidate_id: final_evidence_options.get(candidate_id, {})
+                    for candidate_id in retry_allowed_candidate_ids
+                }
+                allowed_ids_text = json.dumps(
+                    retry_allowed_candidate_ids,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                options_text = json.dumps(
+                    retry_options,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
                 prompt += (
-                    "\nAGENTRANK_FINAL_RETRY code=final_validation_failed. "
-                    "只重做决赛并重新提交完整 Top 5。"
+                    f"\nAGENTRANK_FINAL_RETRY code={last_retry_code} "
+                    f"field={last_retry_field}. "
+                    "只修正上一次提交中列出的字段问题，并重新提交完整 Top 5。"
+                    f"上次校验反馈={feedback}。"
+                    f"allowed_candidate_ids={allowed_ids_text}。"
+                    f"allowed_candidate_refs={json.dumps([final_candidate_refs.get(item, '') for item in retry_allowed_candidate_ids], ensure_ascii=False, separators=(',', ':'))}。"
+                    f"candidate_ref_map={json.dumps({final_candidate_refs.get(item, ''): item for item in retry_allowed_candidate_ids}, ensure_ascii=False, separators=(',', ':'))}。"
+                    "必须原样保留这些候选短引用及其顺序，禁止新增、替换或重排。"
+                    f"合法证据选项={options_text}。"
+                )
+                allowed_id_set = set(retry_allowed_candidate_ids)
+                attempt_context = build_trusted_context(
+                    username=username,
+                    run_id=f"{run_id}-final-retry",
+                    candidates=[
+                        item.to_dict()
+                        for item in finalists
+                        if item.candidate_id in allowed_id_set
+                    ],
+                    archive_feedback={"entries": []},
+                    weights=trusted_weights,
+                    profile=ranking_profile,
+                    judgment_cards=[
+                        card
+                        for card in judgment_cards
+                        if str(card.get("candidate_id") or "") in allowed_id_set
+                    ],
+                    agent_role=FINAL_AGENT_ROLE,
+                    submission_constraints={
+                        "top_n": expected_count,
+                        "allowed_candidate_ids": retry_allowed_candidate_ids,
+                        "candidate_refs": final_candidate_refs,
+                        "evidence_options": retry_options,
+                        "previous_board_candidate_ids": previous_board_candidate_ids,
+                        "minimum_new_items": minimum_new_items,
+                        "maximum_previous_items": maximum_previous_items,
+                        "freshness_status": freshness_status,
+                    },
                 )
                 metrics["final_retry_count"] = int(
                     metrics.get("final_retry_count", 0) or 0
@@ -1050,7 +1415,7 @@ class RecommendationOrchestrator:
             call_entry: Optional[Dict[str, Any]] = None
             try:
                 raw = await self._run_agent_role(
-                    FINAL_AGENT_ROLE, prompt, final_context
+                    FINAL_AGENT_ROLE, prompt, attempt_context
                 )
                 duration_ms = max(
                     0, int((time.monotonic() - stage_clock) * 1000)
@@ -1082,8 +1447,65 @@ class RecommendationOrchestrator:
                     playback_snapshot=playback_snapshot,
                 )
                 if len(validation.accepted) != expected_count:
+                    submitted_candidate_ids = [
+                        item.candidate_id for item in parsed.recommendations
+                    ]
+                    if (
+                        len(submitted_candidate_ids) == expected_count
+                        and len(set(submitted_candidate_ids)) == expected_count
+                        and set(submitted_candidate_ids).issubset(
+                            set(fallback_candidate_ids)
+                        )
+                    ):
+                        retry_allowed_candidate_ids = submitted_candidate_ids
+                    last_drop_feedback = [
+                        {
+                            "candidate_id": drop.candidate_id,
+                            "reason": drop.reason,
+                        }
+                        for drop in validation.dropped
+                    ]
+                    if not last_drop_feedback:
+                        last_drop_feedback = [
+                            {
+                                "candidate_id": "",
+                                "reason": "missing_recommendation",
+                            }
+                        ]
+                    final_validation_drops.extend(
+                        {
+                            "attempt": attempt + 1,
+                            **item,
+                        }
+                        for item in last_drop_feedback
+                    )
+                    feedback_text = ", ".join(
+                        f"{item['candidate_id'] or 'submission'}:{item['reason']}"
+                        for item in last_drop_feedback
+                    )
                     raise AgentOutputError(
-                        "final board must contain the complete validated Top 5"
+                        "final board validation failed: " + feedback_text
+                    )
+                accepted_new_count = sum(
+                    item.candidate_id not in previous_board_id_set
+                    for item in validation.accepted
+                )
+                if accepted_new_count < minimum_new_items:
+                    last_drop_feedback = [
+                        {
+                            "candidate_id": "",
+                            "reason": "previous_board_overlap_exceeded",
+                        }
+                    ]
+                    final_validation_drops.append(
+                        {
+                            "attempt": attempt + 1,
+                            **last_drop_feedback[0],
+                        }
+                    )
+                    raise AgentOutputError(
+                        "final board validation failed: "
+                        "submission:previous_board_overlap_exceeded"
                     )
                 self._finish_agent_provenance(call_entry, "completed")
                 metrics["final_status"] = "success"
@@ -1099,11 +1521,21 @@ class RecommendationOrchestrator:
                     fallback_reason="",
                     errors=tournament_errors,
                     prompt_fingerprint_source=base_prompt,
+                    validation_drops=final_validation_drops,
+                    fallback_candidate_ids=fallback_candidate_ids,
                 )
             except Exception as error:
                 duration_ms = max(
                     0, int((time.monotonic() - stage_clock) * 1000)
                 )
+                error_code = str(getattr(error, "code", "") or "").strip()
+                error_field = str(getattr(error, "field", "") or "").strip()
+                failure_reason = _safe_agent_failure_reason(error)
+                if error_code and error_code not in failure_reason:
+                    failure_reason = (
+                        f"Agent submission failed: {error_code} "
+                        f"({error_field or 'submission'})"
+                    )
                 if call_entry is None:
                     call_entry = self._record_agent_provenance(
                         metrics,
@@ -1116,8 +1548,24 @@ class RecommendationOrchestrator:
                     metrics["agent_ms"] = int(metrics.get("agent_ms", 0) or 0) + duration_ms
                 self._finish_agent_provenance(call_entry, "failed", error)
                 tournament_errors.append(
-                    f"final attempt {attempt + 1}: {_safe_agent_failure_reason(error)}"
+                    f"final attempt {attempt + 1}: {failure_reason}"
                 )
+                if isinstance(error, AgentOutputError):
+                    last_retry_code = "final_validation_failed"
+                    last_retry_field = "recommendations"
+                elif error_code:
+                    last_retry_code = error_code
+                    last_retry_field = error_field or "submission"
+                    if not last_drop_feedback:
+                        last_drop_feedback = [
+                            {
+                                "candidate_id": "",
+                                "reason": f"{last_retry_code} ({last_retry_field})",
+                            }
+                        ]
+                else:
+                    last_retry_code = "final_agent_failed"
+                    last_retry_field = "submission"
                 last_reason = (
                     "final_validation_failed"
                     if isinstance(error, AgentOutputError)
@@ -1133,10 +1581,127 @@ class RecommendationOrchestrator:
             fallback_reason=last_reason,
             errors=tournament_errors,
             prompt_fingerprint_source=base_prompt,
+            validation_drops=final_validation_drops,
+            fallback_candidate_ids=fallback_candidate_ids,
         )
 
+    @staticmethod
+    def _adaptive_fingerprint(value: Any) -> str:
+        """对自适应门控输入计算稳定 SHA-256，不含运行时间和 run_id。"""
+        payload = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    def _adaptive_source_fingerprint(
+        self,
+        current_profile: UserProfile,
+        candidate_result: Any,
+        candidates: Iterable[Any],
+    ) -> str:
+        """根据来源配方、分页层级和候选事实计算来源指纹。"""
+        candidate_payload = [
+            item.to_dict() if hasattr(item, "to_dict") else dict(item)
+            for item in candidates or ()
+        ]
+        payload = {
+            "filters": dict(current_profile.filters or {}),
+            "ranking_tags": list(current_profile.ranking_tags or []),
+            "candidate_ids": [
+                str(item.get("candidate_id") or "") for item in candidate_payload
+            ],
+            "candidate_facts": candidate_payload,
+            "request_recipes": list(
+                getattr(candidate_result, "request_recipes", []) or []
+            ),
+            "source_counts": dict(
+                getattr(candidate_result, "accepted_source_counts", {}) or {}
+            ),
+            "layer_counts": dict(getattr(candidate_result, "layer_counts", {}) or {}),
+        }
+        return self._adaptive_fingerprint(payload)
+
+    def _adaptive_preference_fingerprint(
+        self,
+        profile_id: str,
+        current_profile: UserProfile,
+        profile_preferences: Any,
+        confirmed_memory: Any,
+    ) -> str:
+        """根据画像、确认记忆和近期信号计算偏好指纹。"""
+        signals = self._repository.load_short_term_signals(profile_id)
+        payload = {
+            "profile_input_fingerprint": current_profile.profile_input_fingerprint,
+            "preferences_fingerprint": profile_preferences.fingerprint(),
+            "memory_revision": int(getattr(confirmed_memory, "memory_revision", 0) or 0),
+            "signals": [
+                {
+                    "idempotency_key": item.idempotency_key,
+                    "kind": item.kind,
+                    "candidate_id": item.candidate_id,
+                    "run_id": item.run_id,
+                    "board_revision": item.board_revision,
+                    "strength": item.strength,
+                    "decay_days": item.decay_days,
+                    "observed_at": item.observed_at,
+                }
+                for item in signals
+            ],
+        }
+        return self._adaptive_fingerprint(payload)
+
+    def _adaptive_consumption_fingerprint(self, board: Any) -> str:
+        """根据当前榜单曝光和交互状态计算消费指纹。"""
+        if board is None:
+            return self._adaptive_fingerprint({"consumption": "none"})
+        consumption = self._repository.load_board_consumption(
+            board.profile_id, board.run_id, board.revision
+        )
+        return self._adaptive_fingerprint(
+            consumption.to_dict() if consumption is not None else {"consumption": "none"}
+        )
+
+    def _record_rotation_signal_if_needed(
+        self, profile_id: str, board: Any, metrics: Dict[str, Any]
+    ) -> None:
+        """为已曝光且无交互的榜单写入一次独立轮换信号。"""
+        if board is None:
+            return
+        consumption = self._repository.load_board_consumption(
+            profile_id, board.run_id, board.revision
+        )
+        if consumption is None or not consumption.exposed or consumption.interacted:
+            return
+        key = f"rotation:{board.run_id}:{board.revision}"
+        if any(
+            item.idempotency_key == key
+            for item in self._repository.load_short_term_signals(profile_id)
+        ):
+            metrics["rotation_signal_created"] = False
+            return
+        signal = ShortTermSignal(
+            profile_id=profile_id,
+            kind="rotation",
+            idempotency_key=key,
+            run_id=board.run_id,
+            board_revision=board.revision,
+            strength=1.0,
+            decay_days=7,
+            observed_at=datetime.now(timezone.utc).isoformat(),
+            source="board_exposed_without_action",
+        )
+        self._repository.append_short_term_signal(signal)
+        metrics["rotation_signal_created"] = True
+
     async def run(
-        self, profile_id: str, config: Mapping[str, Any]
+        self,
+        profile_id: str,
+        config: Mapping[str, Any],
+        *,
+        trigger_reason: str = "manual",
     ) -> RecommendationRunResult:
         """为一个画像身份执行完整推荐；同身份并发请求立即返回 running。"""
         target = str(profile_id or "").strip()
@@ -1157,6 +1722,7 @@ class RecommendationOrchestrator:
         metrics: Dict[str, Any] = {
             "_profile_id": target,
             "_run_id": run_id,
+            "trigger_reason": str(trigger_reason or "manual").strip()[:32],
             "agent_calls": 0,
             "refill_attempted": False,
             "copy_rewrite_attempted": False,
@@ -1562,7 +2128,12 @@ class RecommendationOrchestrator:
                         plan=parsed_profile.retrieval_plan
                     )
                 metrics.update(plan_resolution.metrics())
-                resolved_plan = plan_resolution.plan
+                resolved_plan, softened_media_types = self._soften_profile_media_types(
+                    plan_resolution.plan
+                )
+                metrics["softened_profile_media_types"] = list(
+                    softened_media_types
+                )
                 metrics["ranking_tag_count"] = len(resolved_plan.ranking_tags)
                 generated_at = datetime.now(timezone.utc).isoformat()
                 current_profile = UserProfile(
@@ -1609,8 +2180,36 @@ class RecommendationOrchestrator:
             )
 
             self._start_stage(metrics, "candidate")
+            candidate_plan, softened_media_types = self._soften_profile_media_types(
+                RetrievalPlan.from_dict(
+                    {
+                        "filters": current_profile.filters,
+                        "ranking_tags": current_profile.ranking_tags,
+                    }
+                )
+            )
+            current_profile.filters = candidate_plan.filters.to_dict()
+            current_profile.ranking_tags = list(candidate_plan.ranking_tags)
+            if softened_media_types:
+                metrics["softened_profile_media_types"] = list(
+                    softened_media_types
+                )
+            else:
+                metrics.setdefault("softened_profile_media_types", [])
             archive = self._repository.load_archive(target)
             archived_ids = self._archive_candidate_ids(archive)
+            previous_board = self._repository.load_board(target)
+            previous_board_candidate_ids = self._board_candidate_ids(previous_board)
+            board_recency_weights = self._board_recency_weights(
+                target, previous_board_candidate_ids
+            )
+            metrics["previous_board_candidate_count"] = len(
+                previous_board_candidate_ids
+            )
+            metrics["board_recency_candidate_count"] = len(board_recency_weights)
+            metrics["board_recency_penalized_candidate_count"] = sum(
+                value < 1.0 for value in board_recency_weights.values()
+            )
             disliked_ids = FeedbackActionService(
                 self._repository
             ).active_disliked_candidate_ids(target)
@@ -1626,12 +2225,7 @@ class RecommendationOrchestrator:
                     run_id,
                     config.get("discovery_sources") or {},
                     int(config.get("candidate_pool_size") or 15),
-                    RetrievalPlan.from_dict(
-                        {
-                            "filters": current_profile.filters,
-                            "ranking_tags": current_profile.ranking_tags,
-                        }
-                    ),
+                    candidate_plan,
                     playback_samples=playback_snapshot.samples,
                     archived_candidate_ids=archived_ids,
                     negative_keywords=negative_keywords,
@@ -1646,6 +2240,7 @@ class RecommendationOrchestrator:
                         ),
                     },
                     disliked_candidate_ids=disliked_ids,
+                    previous_board_candidate_ids=previous_board_candidate_ids,
                 )
             except Exception as error:
                 errors.append(f"candidate: {error}")
@@ -1811,6 +2406,86 @@ class RecommendationOrchestrator:
                     agent_calls=int(metrics["agent_calls"]),
                 )
 
+            self._record_rotation_signal_if_needed(target, previous_board, metrics)
+            source_fingerprint = self._adaptive_source_fingerprint(
+                current_profile, candidate_result, candidates
+            )
+            preference_fingerprint = self._adaptive_preference_fingerprint(
+                target,
+                current_profile,
+                profile_preferences,
+                confirmed_memory,
+            )
+            consumption_fingerprint = self._adaptive_consumption_fingerprint(
+                previous_board
+            )
+            metrics["source_fingerprint"] = source_fingerprint
+            metrics["preference_fingerprint"] = preference_fingerprint
+            metrics["consumption_fingerprint"] = consumption_fingerprint
+            previous_fingerprints = self._repository.load_adaptive_fingerprints(target)
+            same_adaptive_inputs = bool(
+                previous_fingerprints is not None
+                and previous_fingerprints.complete
+                and previous_fingerprints.source_fingerprint == source_fingerprint
+                and previous_fingerprints.preference_fingerprint == preference_fingerprint
+                and previous_fingerprints.consumption_fingerprint == consumption_fingerprint
+            )
+            current_consumption = (
+                self._repository.load_board_consumption(
+                    target, previous_board.run_id, previous_board.revision
+                )
+                if previous_board is not None
+                else None
+            )
+            allow_no_change_skip = (
+                str(trigger_reason or "manual").strip().casefold() == "scheduled"
+                and previous_board is not None
+                and same_adaptive_inputs
+                and not bool(current_consumption and current_consumption.exposed)
+            )
+            metrics["adaptive_gate"] = (
+                "skipped_no_change" if allow_no_change_skip else "run"
+            )
+            if allow_no_change_skip:
+                metrics["ranking_agent_calls"] = 0
+                metrics["recommendation_candidate_ids"] = self._board_candidate_ids(
+                    previous_board
+                )
+                metrics["final_count"] = len(previous_board.recommendations)
+                metrics["adaptive_gate_reason"] = "source_preference_consumption_unchanged"
+                self._repository.save_adaptive_fingerprints(
+                    AdaptiveFingerprints(
+                        profile_id=target,
+                        source_fingerprint=source_fingerprint,
+                        preference_fingerprint=preference_fingerprint,
+                        consumption_fingerprint=consumption_fingerprint,
+                        generated_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                )
+                self._finish_stage(metrics, "skipped_no_change")
+                message = "来源、偏好和榜单消费均未变化，保留当前榜单且未调用排序 Agent"
+                self._append_run(
+                    target,
+                    username,
+                    run_id,
+                    "skipped_no_change",
+                    started_at,
+                    started_clock,
+                    message,
+                    errors,
+                    metrics,
+                )
+                return RecommendationRunResult(
+                    profile_id=target,
+                    run_id=run_id,
+                    status="skipped_no_change",
+                    username=username,
+                    message=message,
+                    final_count=len(previous_board.recommendations),
+                    agent_calls=int(metrics.get("agent_calls", 0) or 0),
+                    board=previous_board,
+                )
+
             self._finish_stage(metrics, "ready")
 
             self._start_stage(metrics, "ranking")
@@ -1846,6 +2521,8 @@ class RecommendationOrchestrator:
 
             validation = None
             agent_order: Dict[str, int] = {}
+            tournament_validation_drops: List[Dict[str, Any]] = []
+            tournament_fallback_candidate_ids: List[str] = []
             base_ranking_prompt = build_ranking_prompt(
                 max_recommendations=RANKING_OUTPUT_LIMIT,
                 ranking_prompt=str(config.get("ranking_prompt") or ""),
@@ -1877,9 +2554,15 @@ class RecommendationOrchestrator:
                     subscribed_ids=subscribed_ids,
                     config=config,
                     metrics=metrics,
+                    previous_board_candidate_ids=previous_board_candidate_ids,
+                    board_recency_weights=board_recency_weights,
                 )
                 validation = tournament.validation
                 agent_order.update(tournament.agent_order or {})
+                tournament_validation_drops = list(tournament.validation_drops or [])
+                tournament_fallback_candidate_ids = list(
+                    tournament.fallback_candidate_ids or []
+                )
                 ranking_fallback_reason = tournament.fallback_reason
                 ranking_fallback_errors.extend(tournament.errors or ())
                 analysis_prompt_fingerprint = (
@@ -1993,7 +2676,12 @@ class RecommendationOrchestrator:
             if validation is None:
                 metrics["ranking_valid_count"] = 0
                 metrics["ranking_reserve_count"] = 0
-                metrics["validation_drops"] = []
+                metrics["validation_drops"] = [
+                    item["reason"]
+                    for item in tournament_validation_drops
+                    if item.get("reason")
+                ]
+                metrics["validation_drop_details"] = tournament_validation_drops
                 accepted: List[RecommendationItem] = []
             else:
                 metrics["ranking_valid_count"] = len(validation.accepted)
@@ -2009,6 +2697,14 @@ class RecommendationOrchestrator:
                 )
                 metrics["validation_drops"] = [
                     drop.reason for drop in validation.dropped
+                ]
+                metrics["validation_drop_details"] = [
+                    {
+                        "candidate_id": drop.candidate_id,
+                        "reason": drop.reason,
+                        "index": drop.index,
+                    }
+                    for drop in validation.dropped
                 ]
 
             copy_rewrite_candidate_ids = {
@@ -2198,8 +2894,24 @@ class RecommendationOrchestrator:
                     else "ranking_insufficient"
                 )
                 fallback_scoring_errors: List[str] = []
+                fallback_candidates = candidates
+                if tournament_protocol and tournament_fallback_candidate_ids:
+                    finalist_ids = set(tournament_fallback_candidate_ids)
+                    finalist_candidates = [
+                        candidate
+                        for candidate in candidates
+                        if candidate.candidate_id in finalist_ids
+                    ]
+                    fallback_candidates = [
+                        *finalist_candidates,
+                        *[
+                            candidate
+                            for candidate in candidates
+                            if candidate.candidate_id not in finalist_ids
+                        ],
+                    ]
                 fallback_items = self._validator.build_fallback_items(
-                    candidates,
+                    fallback_candidates,
                     accepted,
                     blocked_candidate_ids={
                         *archived_ids,
@@ -2258,6 +2970,50 @@ class RecommendationOrchestrator:
             )
             metrics["archive_commit_excluded_count"] = 0
             metrics["dislike_commit_excluded_count"] = 0
+            selection_source_counts = {
+                source: sum(item.selection_source == source for item in accepted)
+                for source in ("agent", "safe_fallback")
+            }
+            metrics["selection_source_counts"] = selection_source_counts
+            metrics["agent_selected_count"] = selection_source_counts["agent"]
+            metrics["safe_fallback_selected_count"] = selection_source_counts[
+                "safe_fallback"
+            ]
+
+            # 只有完整的 Agent Top 5 才能进入保存阶段。
+            # 补位和不足五条都只能作为失败诊断，不能覆盖上一版成功榜单。
+            if (
+                fallback_count
+                or len(accepted) != RECOMMENDATION_LIMIT
+                or selection_source_counts["agent"] != RECOMMENDATION_LIMIT
+                or selection_source_counts["safe_fallback"] != 0
+            ):
+                failure_status = (
+                    "recommendation_degraded"
+                    if fallback_count or selection_source_counts["safe_fallback"]
+                    else "ranking_validation_failed"
+                    if not accepted
+                    else "recommendation_incomplete"
+                )
+                failure_message = (
+                    "Agent 榜单未通过校验，已保留上一版榜单；本轮未保存安全补位结果"
+                    if fallback_count or selection_source_counts["safe_fallback"]
+                    else "排序 Agent 没有安全可用推荐，已保留当前画像和旧榜单"
+                    if not accepted
+                    else f"Agent 仅生成 {selection_source_counts['agent']} 条有效推荐，已保留上一版榜单"
+                )
+                return self._failure(
+                    target,
+                    username,
+                    run_id,
+                    failure_status,
+                    failure_message,
+                    started_at,
+                    started_clock,
+                    metrics,
+                    [*errors, *ranking_fallback_errors],
+                    agent_calls=int(metrics["agent_calls"]),
+                )
 
             if not accepted:
                 errors.extend(ranking_fallback_errors)
@@ -2399,6 +3155,53 @@ class RecommendationOrchestrator:
                     metrics["ranking_fallback_errors"] = (
                         ranking_fallback_errors if fallback_count else []
                     )
+                    selection_source_counts = {
+                        source: sum(
+                            item.selection_source == source for item in accepted
+                        )
+                        for source in ("agent", "safe_fallback")
+                    }
+                    metrics["selection_source_counts"] = selection_source_counts
+                    metrics["agent_selected_count"] = selection_source_counts[
+                        "agent"
+                    ]
+                    metrics["safe_fallback_selected_count"] = (
+                        selection_source_counts["safe_fallback"]
+                    )
+                    if (
+                        fallback_count
+                        or len(accepted) != RECOMMENDATION_LIMIT
+                        or selection_source_counts["agent"] != RECOMMENDATION_LIMIT
+                        or selection_source_counts["safe_fallback"] != 0
+                    ):
+                        failure_status = (
+                            "recommendation_degraded"
+                            if fallback_count
+                            or selection_source_counts["safe_fallback"]
+                            else "ranking_validation_failed"
+                            if not accepted
+                            else "recommendation_incomplete"
+                        )
+                        failure_message = (
+                            "榜单提交期间反馈发生变化，已保留上一版榜单；本轮未保存安全补位结果"
+                            if fallback_count
+                            or selection_source_counts["safe_fallback"]
+                            else "最新忽略或不喜欢记录生效后没有安全可用推荐，已保留旧榜单"
+                            if not accepted
+                            else f"榜单提交前仅剩 {selection_source_counts['agent']} 条 Agent 推荐，已保留上一版榜单"
+                        )
+                        return self._failure(
+                            target,
+                            username,
+                            run_id,
+                            failure_status,
+                            failure_message,
+                            started_at,
+                            started_clock,
+                            metrics,
+                            [*errors, *ranking_fallback_errors],
+                            agent_calls=int(metrics["agent_calls"]),
+                        )
                     supported_items = [
                         item for item in accepted if item.support is not None
                     ]
@@ -2532,6 +3335,22 @@ class RecommendationOrchestrator:
             )
             self._finish_stage(metrics, "saved")
             metrics["final_count"] = len(accepted)
+            metrics["recommendation_candidate_ids"] = [
+                item.candidate_id for item in accepted[:RECOMMENDATION_LIMIT]
+            ]
+            self._repository.save_adaptive_fingerprints(
+                AdaptiveFingerprints(
+                    profile_id=target,
+                    source_fingerprint=str(metrics.get("source_fingerprint") or ""),
+                    preference_fingerprint=str(
+                        metrics.get("preference_fingerprint") or ""
+                    ),
+                    consumption_fingerprint=str(
+                        metrics.get("consumption_fingerprint") or ""
+                    ),
+                    generated_at=generated_at,
+                )
+            )
             self._append_run(
                 target,
                 username,

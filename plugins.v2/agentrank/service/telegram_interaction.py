@@ -5,7 +5,7 @@ import logging
 import secrets
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from app.schemas.types import MessageChannel, NotificationType
 
@@ -16,6 +16,7 @@ from ..model.pending_center import PendingNotice
 from ..model.telegram_pending import TelegramPendingSession
 from ..model.telegram_selection import TelegramSelectionSession
 from .notification_type import resolve_notification_type
+from .prompt import AGENT_DISPLAY_NAME_DEFAULT, configured_agent_display_name
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,13 @@ class TelegramSelectionService:
         self._token_factory = token_factory or (lambda: secrets.token_urlsafe(7))
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
         self._lock = threading.RLock()
+
+    def _agent_label(self) -> str:
+        """返回 Telegram 用户可见的 Agent 标签；默认保留历史插件标题。"""
+        name = configured_agent_display_name(
+            self._config.get("agent_display_name", AGENT_DISPLAY_NAME_DEFAULT)
+        )
+        return name if name != AGENT_DISPLAY_NAME_DEFAULT else "Agent榜单中心"
 
     def set_pending_center(self, service: Any) -> None:
         """绑定统一待处理中心，供运行时完成依赖组装。"""
@@ -187,6 +195,83 @@ class TelegramSelectionService:
             buttons.append(final_row)
         return buttons
 
+    @staticmethod
+    def _response_value(response: Any, name: str, default: Any = None) -> Any:
+        """读取宿主消息响应，兼容字典和 MessageResponse 对象。"""
+        if isinstance(response, Mapping):
+            return response.get(name, default)
+        return getattr(response, name, default)
+
+    def _send_pending_card(
+        self,
+        session: TelegramPendingSession,
+        message_payload: Dict[str, Any],
+    ) -> bool:
+        """同步发送待办卡片并保存消息身份，宿主不支持时回退消息队列。"""
+        chain = getattr(self._plugin, "chain", None)
+        send_direct_message = getattr(chain, "send_direct_message", None)
+        if callable(send_direct_message):
+            try:
+                from app.schemas.message import Notification
+
+                response = send_direct_message(Notification(**message_payload))
+                if self._response_value(response, "success", False):
+                    message_id = self._response_value(response, "message_id")
+                    if message_id not in (None, ""):
+                        session.message_id = str(message_id)
+                        session.chat_id = str(
+                            self._response_value(
+                                response,
+                                "chat_id",
+                                session.telegram_userid,
+                            )
+                            or session.telegram_userid
+                        )
+                        session.source = str(
+                            self._response_value(response, "source", "Telegram")
+                            or "Telegram"
+                        )
+                        self._repository.save_telegram_pending_session(session)
+                        edit_message = getattr(chain, "edit_message", None)
+                        run_module = getattr(chain, "run_module", None)
+                        if (
+                            (callable(run_module) or callable(edit_message))
+                            and message_payload.get("buttons")
+                        ):
+                            try:
+                                edit_kwargs = {
+                                    "channel": MessageChannel.Telegram,
+                                    "source": session.source,
+                                    "message_id": session.message_id,
+                                    "chat_id": session.chat_id,
+                                    "title": message_payload.get("title"),
+                                    "text": message_payload.get("text"),
+                                    "buttons": message_payload.get("buttons"),
+                                }
+                                if callable(run_module):
+                                    edited = run_module(
+                                        "edit_message",
+                                        **edit_kwargs,
+                                        parse_mode=message_payload.get("parse_mode"),
+                                    )
+                                else:
+                                    edited = edit_message(**edit_kwargs)
+                                if edited is False:
+                                    logger.warning(
+                                        "AgentRank Telegram 待办按钮补挂失败 item_id=%s",
+                                        session.item_id,
+                                    )
+                            except Exception:
+                                logger.exception(
+                                    "AgentRank Telegram 待办按钮补挂异常 item_id=%s",
+                                    session.item_id,
+                                )
+                        return True
+            except Exception:
+                logger.exception("AgentRank Telegram 待办直接发送失败，回退消息队列")
+        self._plugin.post_message(**message_payload)
+        return False
+
     def start_pending(
         self,
         *,
@@ -208,6 +293,13 @@ class TelegramSelectionService:
             return False
         if not telegram_userid:
             return False
+        existing = self._repository.load_telegram_pending_sessions(
+            notice.item.profile_id,
+            notice.item.item_type,
+            notice.item.item_id,
+        )
+        if existing:
+            return True
         now = self._now_factory()
         token = str(self._token_factory() or "").strip()
         if not token or ":" in token:
@@ -220,7 +312,10 @@ class TelegramSelectionService:
             telegram_userid=str(telegram_userid),
             item_type=item.item_type,
             item_id=item.item_id,
-            actor_id=notice.actor_id,
+            actor_id=(
+                str(notice.actor_id or "").strip()
+                or f"telegram:{telegram_userid}"
+            ),
             title=item.title,
             summary=item.summary,
             option_ids=[str(value.get("option_id") or "") for value in item.options],
@@ -241,17 +336,19 @@ class TelegramSelectionService:
             lines.extend(["", "自定义回答请在插件详情页填写。"])
         with self._lock:
             self._repository.save_telegram_pending_session(session)
-        self._plugin.post_message(
+        message_payload = dict(
             channel=MessageChannel.Telegram,
             mtype=resolve_notification_type(self._config, NotificationType),
-            title="Agent榜单中心 · 待处理",
+            title=f"{self._agent_label()} · 待处理",
             text="\n".join(lines),
             username=username,
             targets={"telegram_userid": session.telegram_userid},
             buttons=self._pending_buttons(session, notice),
             parse_mode="HTML",
             disable_web_page_preview=True,
+            save_history=False,
         )
+        self._send_pending_card(session, message_payload)
         return True
 
     @staticmethod
@@ -275,26 +372,73 @@ class TelegramSelectionService:
         event_data: Dict[str, Any],
         text: str,
     ) -> None:
-        """删除待处理卡片并另发结果；失败时原地收束为无按钮状态。"""
+        """删除待处理卡片；失败时原地收束为无按钮状态。"""
         deleted = self._delete_original_message(event_data)
+        if deleted:
+            return
         self._plugin.post_message(
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
             mtype=resolve_notification_type(self._config, NotificationType),
-            title="Agent榜单中心 · 待处理",
+            title=f"{self._agent_label()} · 已处理",
             text=html.escape(_compact_text(text, 300)),
             username=session.username,
             targets={"telegram_userid": session.telegram_userid},
             buttons=None,
-            original_message_id=(
-                None if deleted else event_data.get("original_message_id")
-            ),
-            original_chat_id=(
-                None if deleted else event_data.get("original_chat_id")
-            ),
+            original_message_id=event_data.get("original_message_id"),
+            original_chat_id=event_data.get("original_chat_id"),
             parse_mode="HTML",
             save_history=False,
         )
+
+    def resolve_pending_item(self, item: Any) -> int:
+        """删除一个已处理事项关联的全部 Telegram 原交互消息。"""
+        sessions = self._repository.load_telegram_pending_sessions(
+            getattr(item, "profile_id", ""),
+            getattr(item, "item_type", ""),
+            getattr(item, "item_id", ""),
+        )
+        resolved = 0
+        chain = getattr(self._plugin, "chain", None)
+        delete_message = getattr(chain, "delete_message", None)
+        edit_message = getattr(chain, "edit_message", None)
+        for session in sessions:
+            deleted = False
+            if session.message_id and callable(delete_message):
+                try:
+                    deleted = bool(
+                        delete_message(
+                            channel=MessageChannel.Telegram,
+                            source=session.source or None,
+                            message_id=session.message_id,
+                            chat_id=session.chat_id or None,
+                        )
+                    )
+                except Exception:
+                    logger.exception(
+                        "AgentRank Telegram 跨端删除失败 item_id=%s",
+                        session.item_id,
+                    )
+            if not deleted and session.message_id and session.chat_id and callable(edit_message):
+                try:
+                    edit_message(
+                        channel=MessageChannel.Telegram,
+                        source=session.source or None,
+                        message_id=session.message_id,
+                        chat_id=session.chat_id,
+                        title=f"{self._agent_label()} · 已处理",
+                        text="该事项已在其他终端处理。",
+                        buttons=None,
+                    )
+                except Exception:
+                    logger.exception(
+                        "AgentRank Telegram 跨端编辑回退失败 item_id=%s",
+                        session.item_id,
+                    )
+            session.status = "resolved"
+            self._repository.save_telegram_pending_session(session)
+            resolved += 1
+        return resolved
 
     def _handle_pending_callback(
         self, event_data: Dict[str, Any]
@@ -367,7 +511,7 @@ class TelegramSelectionService:
                         f"telegram-pending:{session.token}:{session.option_ids[option_index]}"
                     ),
                 )
-                message = "回答已提交，CinePilot Agent 会异步重新理解。"
+                message = f"回答已提交，{configured_agent_display_name(self._config.get('agent_display_name'))} 会异步重新理解。"
             elif action == "y" and not session.requires_superuser:
                 kwargs["action"] = "confirm"
                 message = "已确认并完成受控处理。"
@@ -488,7 +632,7 @@ class TelegramSelectionService:
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
             mtype=resolve_notification_type(self._config, NotificationType),
-            title=f"Agent榜单中心 · Top {len(session.candidate_ids):02d}",
+            title=f"{self._agent_label()} · Top {len(session.candidate_ids):02d}",
             text=text,
             image=image,
             username=session.username,
@@ -564,7 +708,7 @@ class TelegramSelectionService:
             channel=MessageChannel.Telegram,
             source=event_data.get("source"),
             mtype=resolve_notification_type(self._config, NotificationType),
-            title="Agent榜单中心",
+            title=self._agent_label(),
             text=html.escape(text),
             targets={"telegram_userid": str(event_data.get("userid") or "")},
             parse_mode="HTML",

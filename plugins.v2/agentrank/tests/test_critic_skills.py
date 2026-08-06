@@ -163,6 +163,37 @@ def test_editable_persona_changes_question_expression_without_changing_semantics
     assert result == "知道啦，已写入长期画像"
 
 
+def test_question_variants_are_seeded_and_persona_styling_is_reapplicable():
+    """问询文案按事件稳定变体，重新投影时不会叠加人设前缀。"""
+    common = {
+        "action": "like",
+        "candidate_title": "候选作品",
+        "uncertainties": ("需要确认具体内容偏好",),
+        "question_history": (),
+        "confirmed_memory": {"items": []},
+    }
+    first = skills_module.ask_clarification(**common, selection_seed="event-a")
+    retry = skills_module.ask_clarification(**common, selection_seed="event-a")
+    variants = {
+        skills_module.ask_clarification(
+            **common, selection_seed=seed
+        )["question"]
+        for seed in ("event-a", "event-b", "event-c", "event-d")
+    }
+
+    assert retry["question"] == first["question"]
+    assert len(variants) >= 2
+    styled = skills_module.style_clarification_question(
+        first["question"], "使用克里斯蒂娜和未来道具研究所的二次元语气"
+    )
+    assert skills_module.style_clarification_question(
+        styled, "使用克里斯蒂娜和未来道具研究所的二次元语气"
+    ) == styled
+    assert skills_module.style_clarification_question(
+        styled, "表达简洁、直接、克制"
+    ) == first["question"]
+
+
 def test_feedback_prompt_locks_persona_tools_schema_and_psychology_boundary():
     """反馈提示固定人设、只读工具、版本和禁止心理推断边界。"""
     prompt = prompt_module.build_feedback_understanding_prompt()

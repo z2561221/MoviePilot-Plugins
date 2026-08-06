@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import json
 import sys
+from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
 from types import ModuleType
@@ -238,6 +239,15 @@ class FakeMissingSubmissionRunner(FakeRunner):
         return "没有提交"
 
 
+class FakeJsonSubmissionRunner(FakeRunner):
+    """模拟模型返回严格 JSON、但宿主没有执行终结工具。"""
+
+    async def process(self, prompt):
+        self.prompt = prompt
+        self.prompts = [*getattr(self, "prompts", []), prompt]
+        return json.dumps(_profile_submission(), ensure_ascii=False)
+
+
 class FakeRepairSubmissionRunner(FakeRunner):
     """首次提交失败，收到短错误后在同一会话修正。"""
 
@@ -253,6 +263,41 @@ class FakeRepairSubmissionRunner(FakeRunner):
                 _profile_submission(),
             )
         return "工具回合结束"
+
+
+class FakeFinalRepairSessionRunner(FakeRunner):
+    """模拟决赛首次提交池外候选、隔离 repair 会话提交合法候选。"""
+
+    async def process(self, prompt):
+        """首次返回池外错误，repair-only 新会话提交当前候选池。"""
+        self.prompt = prompt
+        self.prompts = [*getattr(self, "prompts", []), prompt]
+        collector = self.kwargs["result_collector"]
+        if not self.kwargs.get("submission_only"):
+            collector.reject("candidate_out_of_pool", "candidate_id")
+            return "首次提交失败"
+        candidate_ids = [
+            str(item.get("candidate_id") or "")
+            for item in self.kwargs["trusted_context"].candidates
+            if isinstance(item, Mapping)
+        ][:5]
+        collector.submit(
+            "submit_agentrank_final_board",
+            {
+                "recommendations": [
+                    {
+                        "candidate_id": candidate_id,
+                        "reason": "候选事实与用户证据相符。",
+                        "summary": "候选事实与用户证据相符。",
+                        "match_tags": ["事实"],
+                        "positive_evidence": [],
+                        "counter_evidence": [],
+                    }
+                    for candidate_id in candidate_ids
+                ]
+            },
+        )
+        return "repair 已提交"
 
 
 class FakeSchemaErrorResultRunner(FakeRunner):
@@ -791,6 +836,23 @@ def test_terminal_role_missing_submission_gets_one_short_repair_only():
     assert "read_agentrank" not in runner.prompts[1]
 
 
+def test_terminal_role_recovers_agent_json_through_schema_and_collector():
+    """工具调用未落地时，只接收 Agent 自己返回且通过原校验链的 JSON。"""
+    FakeJsonSubmissionRunner.instances.clear()
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeJsonSubmissionRunner,
+        memory_clearer=lambda *_: None,
+    )
+
+    output = asyncio.run(
+        adapter.run_profile("profile", _trusted_context(agent_role="profile"))
+    )
+
+    assert json.loads(output) == _profile_submission()
+    assert output.provenance["repair_count"] == 0
+    assert len(FakeJsonSubmissionRunner.instances[-1].prompts) == 1
+
+
 def test_terminal_role_repairs_one_named_field_in_same_session():
     """首次结构错误只反馈错误码和字段，第二次提交成功即停止。"""
     FakeRepairSubmissionRunner.instances.clear()
@@ -808,6 +870,39 @@ def test_terminal_role_repairs_one_named_field_in_same_session():
     runner = FakeRepairSubmissionRunner.instances[-1]
     assert len(runner.prompts) == 2
     assert "code=schema_validation_failed field=profile.summary" in runner.prompts[1]
+
+
+def test_final_candidate_error_rebuilds_submission_only_repair_session():
+    """决赛池外候选失败后必须重建只提交工具的新会话。"""
+    FakeFinalRepairSessionRunner.instances.clear()
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeFinalRepairSessionRunner,
+        memory_clearer=lambda *_: None,
+    )
+    trusted = build_trusted_context(
+        "alice",
+        "run-final-repair-session",
+        [{"candidate_id": f"tmdb:movie:{index}"} for index in range(1, 7)],
+        {"entries": []},
+        {},
+        agent_role="final",
+        submission_constraints={
+            "allowed_candidate_ids": [f"tmdb:movie:{index}" for index in range(1, 7)],
+            "candidate_refs": {
+                f"tmdb:movie:{index}": f"c{index}" for index in range(1, 7)
+            },
+        },
+    )
+
+    output = asyncio.run(adapter.run_final("final", trusted))
+
+    assert len(FakeFinalRepairSessionRunner.instances) == 2
+    first, repair = FakeFinalRepairSessionRunner.instances
+    assert first.kwargs["submission_only"] is False
+    assert repair.kwargs["submission_only"] is True
+    assert repair.kwargs["session_id"].endswith("_repair")
+    assert "placeholder" in repair.prompts[0]
+    assert json.loads(output)["recommendations"][0]["candidate_id"] == "tmdb:movie:1"
 
 
 def test_adapter_preserves_field_from_host_schema_validation_error():
@@ -960,6 +1055,25 @@ def test_restricted_profile_agent_instantiates_one_read_and_one_submit_tool():
         "read_agentrank_profile_context",
         "submit_agentrank_profile_result",
     ]
+
+
+def test_restricted_terminal_agent_repair_exposes_submission_tool_only():
+    """repair 回合从工具白名单移除读取工具，只保留终结提交。"""
+    trusted = _trusted_context(agent_role="final")
+    agent = RestrictedAgentRankAgent(
+        session_id="__agentrank_final_run-1_alice__",
+        user_id="system",
+        username="alice",
+        trusted_context=trusted,
+        replay_mode=ReplyMode.CAPTURE_ONLY,
+        allow_message_tools=False,
+    )
+    agent._tool_context.update(asyncio.run(agent._build_tool_context(False)))
+
+    agent.enable_submission_only()
+    tools = agent._initialize_tools()
+
+    assert [tool.name for tool in tools] == ["submit_agentrank_final_board"]
 
 
 def test_restricted_feedback_agent_instantiates_only_feedback_read_tools():

@@ -1187,6 +1187,87 @@ class RecommendationValidator:
         return [tag for tag in (preference, fact) if tag]
 
     @staticmethod
+    def _evidence_claim_key(claim: Any) -> Tuple[str, str, str]:
+        """把证据声明规范为可与宿主冻结选项比较的三元组。"""
+        source = claim if isinstance(claim, Mapping) else None
+        return tuple(
+            str(
+                (
+                    source.get(field_name)
+                    if source is not None
+                    else getattr(claim, field_name, "")
+                )
+                or ""
+            ).strip()
+            for field_name in ("dimension", "user_value", "candidate_value")
+        )
+
+    @classmethod
+    def _verified_evidence_tags(
+        cls,
+        claims: Sequence[Any],
+    ) -> List[str]:
+        """从已验证正向证据投影一枚用户标签和一枚作品标签。"""
+        type_labels = {"movie": "电影", "tv": "剧集", "anime": "动画"}
+        dimension_labels = {
+            "type": ("类型偏好", "类型匹配"),
+            "theme": ("题材偏好", "题材匹配"),
+            "actor": ("演员偏好", "演员契合"),
+            "director": ("导演偏好", "导演契合"),
+            "region": ("地区偏好", "地区匹配"),
+            "year": ("年代偏好", "年代匹配"),
+            "rating": ("评分偏好", "评分匹配"),
+            "heat": ("热度偏好", "热度匹配"),
+            "freshness": ("新片偏好", "新片匹配"),
+            "similarity": ("相似偏好", "相似匹配"),
+        }
+        user_labels: List[str] = []
+        candidate_labels: List[str] = []
+        user_fallbacks: List[str] = []
+        candidate_fallbacks: List[str] = []
+        for claim in claims or ():
+            key = cls._evidence_claim_key(claim)
+            dimension = key[0].removesuffix("_weight").casefold()
+            user_fallback, candidate_fallback = dimension_labels.get(
+                dimension,
+                ("偏好证据", "作品事实"),
+            )
+            if user_fallback not in user_fallbacks:
+                user_fallbacks.append(user_fallback)
+            if candidate_fallback not in candidate_fallbacks:
+                candidate_fallbacks.append(candidate_fallback)
+            for raw_value, target in (
+                (key[1], user_labels),
+                (key[2], candidate_labels),
+            ):
+                localized = type_labels.get(raw_value.casefold(), raw_value)
+                label = cls._evidence_label(localized)
+                if label and label not in target:
+                    target.append(label)
+
+        selected: List[str] = []
+        for label in [*user_labels, *user_fallbacks]:
+            if label not in selected:
+                selected.append(label)
+                break
+        for label in [*candidate_labels, *candidate_fallbacks]:
+            if label not in selected:
+                selected.append(label)
+            if len(selected) >= 2:
+                break
+        for label in [
+            *user_labels,
+            *candidate_labels,
+            *user_fallbacks,
+            *candidate_fallbacks,
+        ]:
+            if label not in selected:
+                selected.append(label)
+            if len(selected) >= 2:
+                break
+        return selected[:2]
+
+    @staticmethod
     def _playback_field(value: Any, name: str) -> Any:
         """兼容播放样本字典与领域对象读取单个安全字段。"""
         if isinstance(value, Mapping):
@@ -1514,17 +1595,9 @@ class RecommendationValidator:
     def _fallback_tags(
         cls,
         candidate: Candidate,
-        preference_evidence: Sequence[str],
+        _preference_evidence: Sequence[str],
     ) -> List[str]:
-        """从画像与候选事实中提取保底条目的可回溯短标签。"""
-        preference = next(
-            (
-                label
-                for item in preference_evidence or ()
-                if (label := cls._evidence_label(item))
-            ),
-            "",
-        )
+        """只从候选结构化事实中提取保底条目的可回溯短标签。"""
         media_type_label = {
             "movie": "电影",
             "tv": "剧集",
@@ -1538,7 +1611,7 @@ class RecommendationValidator:
             media_type_label,
             candidate.title,
         ]
-        return cls._match_tags([preference, *facts])[:2]
+        return cls._match_tags(facts)[:2]
 
     def build_fallback_items(
         self,
@@ -1598,6 +1671,8 @@ class RecommendationValidator:
                 )
             except Exception:
                 errors.append(f"{candidate.candidate_id}:support_scoring_failed")
+                continue
+            if scoring.verified_counter_count > 0:
                 continue
             result.append(
                 RecommendationItem(
@@ -1704,11 +1779,15 @@ class RecommendationValidator:
                     DroppedRecommendation(candidate_id, "reason_too_long", index)
                 )
                 continue
-            match_tags = self._evidence_tags(
-                recommendation.match_tags,
-                reason,
-                candidate,
-                preference_evidence,
+            match_tags = (
+                []
+                if deterministic_support
+                else self._evidence_tags(
+                    recommendation.match_tags,
+                    reason,
+                    candidate,
+                    preference_evidence,
+                )
             )
             unsupported_playback_claim = self._unsupported_playback_claim(
                 reason, playback_samples
@@ -1747,7 +1826,7 @@ class RecommendationValidator:
                     )
                 )
                 continue
-            if len(match_tags) < 2:
+            if not deterministic_support and len(match_tags) < 2:
                 result.dropped.append(
                     DroppedRecommendation(
                         candidate_id, "insufficient_match_evidence", index
@@ -1777,6 +1856,32 @@ class RecommendationValidator:
                             candidate_id,
                             "insufficient_verified_evidence",
                             index,
+                        )
+                    )
+                    continue
+                verified_options = self._support_scorer.verified_evidence_options(
+                    candidate,
+                    policy_snapshot,
+                    confirmed_memory,
+                    profile_preferences,
+                    playback_snapshot,
+                )
+                allowed_positive = {
+                    self._evidence_claim_key(claim)
+                    for claim in verified_options.get("positive_evidence_options") or ()
+                }
+                verified_positive_claims = [
+                    claim
+                    for claim in recommendation.positive_evidence
+                    if self._evidence_claim_key(claim) in allowed_positive
+                ]
+                match_tags = self._verified_evidence_tags(
+                    verified_positive_claims,
+                )
+                if len(match_tags) < 2:
+                    result.dropped.append(
+                        DroppedRecommendation(
+                            candidate_id, "insufficient_match_evidence", index
                         )
                     )
                     continue

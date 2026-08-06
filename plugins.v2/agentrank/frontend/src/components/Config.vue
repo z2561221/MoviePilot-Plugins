@@ -43,6 +43,9 @@ const defaults = {
   candidate_pool_size: 15,
   confidence_threshold: 0.6,
   action_mode: 'notify',
+  agent_display_name: 'CinePilot Agent',
+  persona_preset: 'default',
+  interaction_mode: 'auto',
   notify: true,
   notification_type: 'Plugin',
   auto_subscribe_top_n: 0,
@@ -102,7 +105,6 @@ const accessLoading = ref(false)
 const accessError = ref('')
 const loadError = ref('')
 const runtimeDefaults = ref(structuredClone(defaults))
-const clearProfileSwitch = ref(false)
 const clearProfileDialog = ref(false)
 const clearProfileLoading = ref(false)
 const actionFeedback = reactive({ show: false, message: '', color: 'success' })
@@ -118,6 +120,7 @@ const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
   { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '集中设置服务、计划、入口、动作与通知。' },
   { key: 'profile', title: '画像学习', icon: 'mdi-account-heart-outline', desc: '管理播放画像与画像学习策略。' },
+  { key: 'agent', title: 'Agent设定', icon: 'mdi-account-voice-outline', desc: '设置用户可见名称、人设语气与交互模式。' },
   { key: 'strategy', title: '推荐策略', icon: 'mdi-compass-outline', desc: '选择 MoviePilot 内置发现来源并设置排序权重。' },
   { key: 'advanced', title: '高级选项', icon: 'mdi-shield-check-outline', desc: '管理画像重建、历史上限和安全边界。' },
 ]
@@ -148,9 +151,25 @@ const actionOptions = [
   { title: '通知内选择', value: 'notify' },
   { title: '自动订阅', value: 'auto_subscribe' },
 ]
+const interactionModeOptions = [
+  { title: '自动模式', value: 'auto', icon: 'mdi-auto-fix', hint: '根据画像成熟度、信息增益和偏好冲突动态问询。' },
+  { title: '正常模式', value: 'normal', icon: 'mdi-chat-question-outline', hint: '出现歧义就询问；同一画像仍只保留一个待回答问题。' },
+  { title: '安静模式', value: 'quiet', icon: 'mdi-volume-off', hint: '仅在明显偏好冲突时询问，跳过日常追问和首次校准。' },
+]
+const personaPresetOptions = [
+  { title: '默认人设', value: 'default', hint: '沿用 AgentRank 的默认表达边界。' },
+  { title: '简洁理性', value: 'concise', hint: '结论优先，减少修辞和闲聊。' },
+  { title: '温和耐心', value: 'warm', hint: '更注重复述事实、解释不确定性和尊重纠正。' },
+  { title: '自定义', value: 'custom', hint: '使用下方自定义语气，只影响用户可见表达。' },
+]
+const selectedInteractionMode = computed(() => (
+  interactionModeOptions.find(item => item.value === form.interaction_mode) || interactionModeOptions[0]
+))
+const selectedPersonaPreset = computed(() => (
+  personaPresetOptions.find(item => item.value === form.persona_preset) || personaPresetOptions[0]
+))
 const profileTabs = [
   { key: 'playback', title: '播放画像', icon: 'mdi-play-circle-outline' },
-  { key: 'policy', title: '画像策略', icon: 'mdi-brain' },
 ]
 const strategyTabs = [
   { key: 'sources', title: '发现来源', icon: 'mdi-compass-outline' },
@@ -166,7 +185,6 @@ const promptDefinitions = [
   { key: 'profile_prompt', title: '画像理解规则', icon: 'mdi-account-search-outline', purpose: '控制 Agent 如何从播放事实和人工标签归纳稳定偏好与观看动机。' },
   { key: 'ranking_prompt', title: '榜单推荐策略', icon: 'mdi-sort-variant', purpose: '控制冻结候选池内的相关性、新鲜感、多样性和最终排序。' },
   { key: 'copy_prompt', title: '推荐文案风格', icon: 'mdi-text-box-edit-outline', purpose: '控制推荐理由和作品简介的表达风格，不改变候选和安全校验。' },
-  { key: 'persona_prompt', title: 'CinePilot Agent 人设语气', icon: 'mdi-account-voice', purpose: '控制对话、问询和处理结果的角色语气；不改变事实、安全边界、工具权限或榜单理由。' },
   { key: 'critic_prompt', title: 'CinePilot Agent 扩展提示词', icon: 'mdi-message-text-outline', purpose: '控制反馈理解、逐条评论和对话的表达重点；不能覆盖人设、安全边界和写操作确认。' },
 ]
 const retentionDefinitions = [
@@ -189,6 +207,14 @@ const currentSubTabs = computed(() => (
 const activePromptDefinition = computed(() => promptDefinitions.find(item => item.key === promptEditor.key) || promptDefinitions[0])
 const selectedProfileId = computed(() => form.default_profile_id || form.emby_identities[0]?.profile_id || '')
 const selectedIdentity = computed(() => form.emby_identities.find(identity => identity.profile_id === selectedProfileId.value) || null)
+const profileUpdateMode = computed({
+  get: () => (!form.profile_cache_enabled || form.rebuild_profile_each_run ? 'rebuild' : 'smart'),
+  set: value => {
+    const rebuild = value === 'rebuild'
+    form.profile_cache_enabled = true
+    form.rebuild_profile_each_run = rebuild
+  },
+})
 const profileAccessOptions = computed(() => form.emby_identities.map(identity => ({
   title: `${identity.username} · ${identity.server_name}`,
   value: identity.profile_id,
@@ -289,7 +315,7 @@ function displayValue(value) {
 const stageLabels = {
   ready: '已就绪', generated: '已生成', reused: '已复用', cached: '已缓存', saved: '已保存', success: '已完成', pending: '等待中', running: '运行中', stopped: '已停止', disabled: '已停用',
   playback_unavailable: '播放数据不可用', emby_unavailable: 'Emby 不可用', permission_error: '权限不足', transient_error: '临时错误', unavailable: '不可用', configuration_error: '配置错误',
-  sample_insufficient: '播放样本不足', candidate_insufficient: '候选数量不足', recommendation_incomplete: '推荐榜单不足',
+  sample_insufficient: '播放样本不足', candidate_insufficient: '候选数量不足', recommendation_incomplete: '推荐榜单不足', recommendation_degraded: '推荐榜单已降级',
   profile_agent_failed: '画像 Agent 调用失败', profile_validation_failed: '画像输出校验失败', profile_save_failed: '画像保存失败',
   candidate_failed: '候选采集失败', candidate_filter_failed: '候选过滤失败', candidate_snapshot_failed: '候选快照失败',
   ranking_agent_failed: '排序 Agent 调用失败', ranking_validation_failed: '排序输出校验失败', ranking_save_failed: '榜单保存失败',
@@ -379,6 +405,10 @@ function cloneConfig(value) {
 
 function applyConfig(value) {
   const next = cloneConfig(value)
+  const legacyPersona = String(next.persona_prompt || '').trim()
+  if (!String(next.persona_preset || '').trim() && legacyPersona && legacyPersona !== defaults.persona_prompt) {
+    next.persona_preset = 'custom'
+  }
   const legacyPrompt = String(next.agent_prompt || '').trim()
   if (legacyPrompt && !legacyAgentPromptDefaults.has(legacyPrompt)) {
     if (!next.profile_prompt) next.profile_prompt = legacyPrompt
@@ -540,9 +570,9 @@ async function confirmLearningReset() {
     })
     learningResetDialog.value = false
     await loadOverview(selectedProfileId.value)
-    showActionFeedback('success', '学习数据已重置，播放记录、榜单、归档和人工标签已保留')
+    showActionFeedback('success', '交互学习已重置，播放记录、榜单、归档和人工标签已保留')
   } catch (error) {
-    showActionFeedback('error', error?.message || '学习重置失败')
+    showActionFeedback('error', error?.message || '重置交互学习失败')
   } finally {
     dataActionLoading.value = ''
   }
@@ -572,28 +602,35 @@ async function prepareFullReset() {
     })
     fullResetStage.value = 'confirm'
   } catch (error) {
-    showActionFeedback('error', error?.message || '无法准备彻底重置')
+    showActionFeedback('error', error?.message || '无法准备清空全部数据')
   } finally {
     dataActionLoading.value = ''
   }
 }
 
 async function confirmFullReset() {
-  if (fullResetPhrase.value !== '彻底重置' || !fullResetConfirmation.value?.confirmation_token || dataActionLoading.value) return
+  if (fullResetPhrase.value !== '清空全部数据' || !fullResetConfirmation.value?.confirmation_token || dataActionLoading.value) return
   dataActionLoading.value = 'full-reset'
   try {
     await postPluginApi(props.api, 'data/reset/full', {
       profile_id: selectedProfileId.value,
       confirmation_token: fullResetConfirmation.value.confirmation_token,
     })
+    const snapshot = await postPluginApi(props.api, 'playback/sync', {
+      profile_id: selectedProfileId.value,
+    })
+    status.value = { ...status.value, playback: snapshot }
+    await postPluginApi(props.api, 'refresh', {
+      profile_id: selectedProfileId.value,
+    })
     fullResetDialog.value = false
     fullResetStage.value = 'prepare'
     fullResetPhrase.value = ''
     fullResetConfirmation.value = null
     await loadOverview(selectedProfileId.value)
-    showActionFeedback('success', 'AgentRank 当前画像数据已彻底重置，MoviePilot 订阅和媒体库未受影响')
+    showActionFeedback('success', '全部数据已重置，正在重新同步播放记录并生成画像')
   } catch (error) {
-    showActionFeedback('error', error?.message || '彻底重置失败')
+    showActionFeedback('error', error?.message || '清空全部数据失败')
   } finally {
     dataActionLoading.value = ''
   }
@@ -659,10 +696,8 @@ function applyPromptEditor() {
   cancelPromptEditor()
 }
 
-function requestClearProfile(value) {
-  if (!value) return
+function requestClearProfile() {
   if (!selectedProfileId.value) {
-    clearProfileSwitch.value = false
     actionFeedback.show = true
     actionFeedback.color = 'warning'
     actionFeedback.message = '请先选择默认 Emby 画像身份'
@@ -673,24 +708,23 @@ function requestClearProfile(value) {
 
 function cancelClearProfile() {
   clearProfileDialog.value = false
-  clearProfileSwitch.value = false
 }
 
 async function confirmClearProfile() {
   clearProfileLoading.value = true
   try {
     await postPluginApi(props.api, 'profile/clear', { profile_id: selectedProfileId.value, confirm: true })
+    await postPluginApi(props.api, 'refresh', { profile_id: selectedProfileId.value })
     actionFeedback.color = 'success'
-    actionFeedback.message = `${selectedIdentity.value?.username || selectedProfileId.value} 的画像与榜单已清除`
+    actionFeedback.message = `${selectedIdentity.value?.username || selectedProfileId.value} 的画像正在重新生成`
     await loadOverview(selectedProfileId.value)
   } catch (error) {
     actionFeedback.color = 'error'
-    actionFeedback.message = error?.message || '清除画像失败'
+    actionFeedback.message = error?.message || '重建画像失败'
   } finally {
     actionFeedback.show = true
     clearProfileLoading.value = false
     clearProfileDialog.value = false
-    clearProfileSwitch.value = false
   }
 }
 
@@ -887,7 +921,7 @@ onMounted(loadRuntime)
                     <VCol cols="12" md="4"><VSwitch v-model="form.notify" color="info" label="后台提醒" hide-details inset /></VCol>
                     <VCol cols="12" md="4"><VSelect v-model="form.notification_type" :items="notificationTypeOptions" label="通知类型" density="compact" variant="outlined" hide-details :disabled="!form.notify" /></VCol>
                   </VRow>
-                  <div class="ar-config__hint mt-2">页面内已看见的榜单、待办和操作结果不重复通知；后台新榜单、新问询和需要介入的失败才按此设置提醒。</div>
+                  <div class="ar-config__hint mt-2">待办事项始终同步发送 Telegram 交互通知；在页面或 Telegram 任一端处理后，原问题会从另一端同步收束。榜单和运行提醒仍按此设置发送。</div>
                 </section>
               </div>
             </div>
@@ -912,32 +946,61 @@ onMounted(loadRuntime)
                 <div v-if="currentPlayback?.synced_at" class="text-caption mt-1">最近同步：{{ formatDateTime(currentPlayback.synced_at) }} · 样本 {{ currentPlayback.sample_count || 0 }} · 已映射 {{ currentPlayback.mapped_count || 0 }} · 未映射 {{ currentPlayback.unmapped_count || 0 }}</div>
               </VAlert>
               <VRow>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_recent_days" type="number" min="1" max="3650" label="回溯天数" density="compact" variant="outlined" hide-details /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_abandon_minutes" type="number" min="1" max="240" label="弃看分钟" density="compact" variant="outlined" hide-details /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.playback_cache_days" type="number" min="1" max="30" label="快照天数" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" sm="6" md="3"><VTextField v-model.number="form.playback_recent_days" type="number" min="1" max="3650" label="回溯天数" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" sm="6" md="3"><VTextField v-model.number="form.playback_abandon_minutes" type="number" min="1" max="240" label="弃看分钟" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" sm="6" md="3"><VTextField v-model.number="form.playback_cache_days" type="number" min="1" max="30" label="快照天数" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" sm="6" md="3"><VTextField v-model.number="form.minimum_samples" type="number" min="1" max="100" label="最少样本" density="compact" variant="outlined" hide-details /></VCol>
                 <VCol cols="12">
                   <div class="text-caption mb-1">完播阈值 {{ Math.round(form.playback_completion_threshold * 100) }}%</div>
                   <VSlider v-model="form.playback_completion_threshold" :min="0.5" :max="1" :step="0.05" color="primary" hide-details thumb-label />
                 </VCol>
               </VRow>
               <VAlert type="info" variant="tonal" class="mt-4">播放样本只来自 Playback Reporting；未就绪时插件保持停用，不会切换到其他画像来源。</VAlert>
-            </div>
-
-            <div v-show="activeMain === 'profile' && activeProfile === 'policy'" class="ar-config__pane">
-              <div class="ar-config__section-title">画像策略</div>
-              <VRow>
-                <VCol cols="12" md="4"><VSwitch v-model="form.profile_cache_enabled" color="success" label="画像缓存" hide-details inset /></VCol>
-                <VCol cols="12" md="4"><VSwitch v-model="form.rebuild_profile_each_run" color="warning" label="每次重建" hide-details inset /></VCol>
-                <VCol cols="12" md="4"><VTextField v-model.number="form.minimum_samples" type="number" min="1" max="100" label="最少样本" density="compact" variant="outlined" hide-details /></VCol>
-              </VRow>
-              <VAlert type="info" variant="tonal" class="mt-4">画像缓存开启且关闭每次重建时，会在播放快照未变化时复用当前画像；每次重建开启或缓存关闭时，按冻结的 Playback Reporting 快照重新生成。媒体类型由播放事实、明确反馈和可撤销画像标签学习；偏好标签与避雷标签是用户修正画像的统一入口。</VAlert>
+              <VDivider class="my-5" />
+              <div class="ar-config__section-title">画像更新</div>
+              <VBtnToggle v-model="profileUpdateMode" color="primary" variant="outlined" divided mandatory class="ar-config__mode-toggle">
+                <VBtn value="smart" prepend-icon="mdi-auto-fix">智能更新</VBtn>
+                <VBtn value="rebuild" prepend-icon="mdi-refresh">每轮重建</VBtn>
+              </VBtnToggle>
+              <VAlert type="info" variant="tonal" class="mt-4">智能更新只在播放记录、人工标签或画像规则变化时重建；每轮重建会增加 Agent 调用，仅用于调试或特殊需求。</VAlert>
               <div class="ar-config__danger-row mt-4">
                 <div>
-                  <div class="ar-config__danger-title">清除画像</div>
-                  <div class="ar-config__hint">清除默认画像身份“{{ selectedIdentity?.username || '未选择' }}”的画像与榜单，不影响 MoviePilot 订阅和归档。</div>
+                  <div class="ar-config__danger-title">重建画像</div>
+                  <div class="ar-config__hint">清除“{{ selectedIdentity?.username || '未选择' }}”的画像与当前榜单，并立即按现有播放记录重新生成；确认记忆、人工标签和归档继续保留。</div>
                 </div>
-                <VSwitch v-model="clearProfileSwitch" color="error" label="清除画像" hide-details inset :disabled="clearProfileLoading" @update:model-value="requestClearProfile" />
+                <VBtn color="warning" variant="tonal" prepend-icon="mdi-account-sync-outline" :loading="clearProfileLoading" :disabled="!form.enabled || !selectedProfileId" @click="requestClearProfile">重建画像</VBtn>
               </div>
+            </div>
+
+            <div v-show="activeMain === 'agent'" class="ar-config__pane">
+              <div class="ar-config__section-title">Agent设定</div>
+              <VAlert type="info" variant="tonal" density="compact" class="mb-4">
+                名称和语气只影响页面、通知与回复的用户可见表达，不改变 Agent 的内部角色、权限、事实证据或存储标识。
+              </VAlert>
+              <VRow>
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.agent_display_name" label="显示名称" maxlength="64" counter density="compact" variant="outlined" hide-details="auto" prepend-inner-icon="mdi-account-voice-outline" />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VSelect v-model="form.persona_preset" :items="personaPresetOptions" item-title="title" item-value="value" label="人设预设" density="compact" variant="outlined" hide-details />
+                </VCol>
+              </VRow>
+              <div class="ar-config__hint mt-2">{{ selectedPersonaPreset.hint }}</div>
+              <div v-if="form.persona_preset === 'custom'" class="mt-4">
+                <VTextarea v-model="form.persona_prompt" label="自定义语气" rows="7" maxlength="4000" counter variant="outlined" hide-details="auto" />
+                <div class="ar-config__hint mt-2">只描述说话方式、称呼和表达节奏；不要写入权限、工具、事实或确认规则。</div>
+              </div>
+              <VExpansionPanels variant="accordion" class="mt-5 ar-config__fixed-rules">
+                <VExpansionPanel>
+                  <VExpansionPanelTitle><VIcon icon="mdi-chat-processing-outline" color="primary" size="20" class="me-2" />交互模式</VExpansionPanelTitle>
+                  <VExpansionPanelText>
+                    <VBtnToggle v-model="form.interaction_mode" color="primary" variant="outlined" divided mandatory class="ar-config__mode-toggle">
+                      <VBtn v-for="item in interactionModeOptions" :key="item.value" :value="item.value" :prepend-icon="item.icon">{{ item.title }}</VBtn>
+                    </VBtnToggle>
+                    <div class="ar-config__hint mt-2">{{ selectedInteractionMode.hint }}</div>
+                  </VExpansionPanelText>
+                </VExpansionPanel>
+              </VExpansionPanels>
             </div>
 
             <div v-show="activeMain === 'strategy' && activeStrategy === 'sources'" class="ar-config__pane">
@@ -1055,13 +1118,13 @@ onMounted(loadRuntime)
                   </div>
                   <div class="ar-config__data-row">
                     <VAvatar color="warning" variant="tonal" size="38"><VIcon icon="mdi-brain" size="21" /></VAvatar>
-                    <div><strong>学习重置</strong><small>清除反馈学习、确认记忆、对话与归因</small></div>
+                    <div><strong>重置交互学习</strong><small>清除反馈学习、确认记忆、待办、对话与归因</small></div>
                     <VBtn variant="tonal" color="warning" prepend-icon="mdi-backup-restore" :disabled="!selectedProfileId" @click="learningResetDialog = true">重置</VBtn>
                   </div>
                   <div class="ar-config__data-row ar-config__data-row--danger">
                     <VAvatar color="error" variant="tonal" size="38"><VIcon icon="mdi-delete-alert-outline" size="21" /></VAvatar>
-                    <div><strong>彻底重置</strong><small>删除当前画像下全部 AgentRank 自有数据</small></div>
-                    <VBtn variant="tonal" color="error" prepend-icon="mdi-delete-alert-outline" :disabled="!selectedProfileId" @click="openFullReset">重置</VBtn>
+                    <div><strong>清空全部数据</strong><small>删除当前画像下全部 AgentRank 自有数据并重新初始化</small></div>
+                    <VBtn variant="tonal" color="error" prepend-icon="mdi-delete-alert-outline" :disabled="!selectedProfileId" @click="openFullReset">清空</VBtn>
                   </div>
                 </div>
                 <VAlert type="info" variant="tonal" density="compact" class="mt-4">两类重置都不会删除 MoviePilot 订阅、订阅任务或媒体库文件。</VAlert>
@@ -1151,35 +1214,35 @@ onMounted(loadRuntime)
 
     <VDialog v-model="clearProfileDialog" max-width="480" persistent>
       <VCard>
-        <VCardTitle>清除用户画像？</VCardTitle>
+        <VCardTitle>重建用户画像？</VCardTitle>
         <VCardText>
-          将清除“{{ selectedIdentity?.username || selectedProfileId }}”的画像与当前榜单。MoviePilot 订阅、订阅任务、忽略归档和插件配置不会被删除。
+          将清除“{{ selectedIdentity?.username || selectedProfileId }}”的画像与当前榜单，并立即重新生成。确认记忆、人工标签、忽略归档、MoviePilot 订阅和媒体库不会被删除。
         </VCardText>
         <VCardActions>
           <VSpacer />
           <VBtn variant="text" :disabled="clearProfileLoading" @click="cancelClearProfile">取消</VBtn>
-          <VBtn color="error" variant="flat" :loading="clearProfileLoading" @click="confirmClearProfile">确认清除</VBtn>
+          <VBtn color="warning" variant="flat" :loading="clearProfileLoading" @click="confirmClearProfile">确认重建</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
 
     <VDialog v-model="learningResetDialog" max-width="520" persistent>
       <VCard>
-        <VCardTitle>重置学习数据？</VCardTitle>
+        <VCardTitle>重置交互学习？</VCardTitle>
         <VCardText>
           将清除“{{ selectedIdentity?.username || selectedProfileId }}”的反馈学习、已确认记忆、待处理项、CinePilot Agent 对话和结果归因。当前画像、榜单、忽略归档、人工标签与播放记录会保留。
         </VCardText>
         <VCardActions>
           <VSpacer />
           <VBtn variant="text" :disabled="dataActionLoading === 'learning'" @click="learningResetDialog = false">取消</VBtn>
-          <VBtn color="warning" variant="flat" :loading="dataActionLoading === 'learning'" @click="confirmLearningReset">确认重置</VBtn>
+          <VBtn color="warning" variant="flat" :loading="dataActionLoading === 'learning'" @click="confirmLearningReset">确认重置学习</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
 
     <VDialog v-model="fullResetDialog" max-width="540" persistent>
       <VCard>
-        <VCardTitle>彻底重置 AgentRank 数据</VCardTitle>
+        <VCardTitle>清空 AgentRank 全部数据</VCardTitle>
         <VCardText v-if="fullResetStage === 'prepare'">
           第一步将为当前 MoviePilot 用户签发一次性短时确认令牌。继续后仍需输入确认词，期间不会删除任何数据。
         </VCardText>
@@ -1189,7 +1252,7 @@ onMounted(loadRuntime)
           </VAlert>
           <VTextField
             v-model="fullResetPhrase"
-            label="输入“彻底重置”确认"
+            label="输入“清空全部数据”确认"
             density="compact"
             variant="outlined"
             autocomplete="off"
@@ -1212,9 +1275,9 @@ onMounted(loadRuntime)
             color="error"
             variant="flat"
             :loading="dataActionLoading === 'full-reset'"
-            :disabled="fullResetPhrase !== '彻底重置'"
+            :disabled="fullResetPhrase !== '清空全部数据'"
             @click="confirmFullReset"
-          >确认彻底重置</VBtn>
+          >确认清空</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
@@ -1269,6 +1332,8 @@ onMounted(loadRuntime)
 .ar-config__basic-group { padding: 12px 14px; border-radius: 9px; background: rgba(var(--v-theme-on-surface), .025); }
 .ar-config__basic-group + .ar-config__basic-group { border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
 .ar-config__basic-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+.ar-config__mode-toggle { display: flex; width: 100%; }
+.ar-config__mode-toggle :deep(.v-btn) { flex: 1 1 0; min-width: 0; }
 .ar-config__library-select :deep(.v-field__input) { min-height: 40px; flex-wrap: nowrap; overflow: hidden; }
 .ar-config__library-select :deep(.v-select__selection) { min-width: 0; }
 .ar-config__select-summary-primary { display: block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1334,6 +1399,8 @@ onMounted(loadRuntime)
   .ar-config__retention-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-config__prompt-dialog { max-height: calc(100dvh - 16px); }
   .ar-config__danger-row { align-items: flex-start; flex-direction: column; }
+  .ar-config__mode-toggle { flex-direction: column; }
+  .ar-config__mode-toggle :deep(.v-btn) { flex: 0 0 auto; width: 100%; }
 }
 @media (max-width: 390px) {
   .ar-config { width: 100%; padding: 2px; }

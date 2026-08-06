@@ -1,16 +1,294 @@
 """用户反馈事件与分段账本领域模型。"""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
+from math import exp, log
 from typing import Any, Dict, Iterable, Mapping, Tuple
 
 
 FEEDBACK_EVENT_SCHEMA_VERSION = 1
 FEEDBACK_LEDGER_SCHEMA_VERSION = 2
+BOARD_CONSUMPTION_SCHEMA_VERSION = 1
+SHORT_TERM_SIGNAL_SCHEMA_VERSION = 1
+
+BOARD_CONSUMPTION_INTERACTIONS = frozenset(
+    {
+        "like",
+        "dislike",
+        "ignore",
+        "subscribe",
+        "playback_start",
+        "playback_completed",
+        "playback_abandoned",
+        "detail_opened",
+    }
+)
+SHORT_TERM_SIGNAL_KINDS = frozenset(
+    {
+        "like",
+        "dislike",
+        "subscribe",
+        "playback_start",
+        "playback_completed",
+        "playback_abandoned",
+        "detail_opened",
+        "rotation",
+    }
+)
 
 
 def _text(value: Any) -> str:
     """把可选标量规范为去除首尾空白的文本。"""
     return str(value or "").strip()
+
+
+def _unique_texts(values: Iterable[Any]) -> Tuple[str, ...]:
+    """返回保持顺序的唯一非空文本。"""
+    result = []
+    for value in values or ():
+        text = _text(value)
+        if text and text not in result:
+            result.append(text)
+    return tuple(result)
+
+
+def _time(value: Any, field_name: str, *, optional: bool = False) -> str:
+    """规范可选 ISO 时间，避免不同来源的时间格式破坏指纹。"""
+    text = _text(value)
+    if not text and optional:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field_name} must be an ISO datetime") from error
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+@dataclass(frozen=True)
+class BoardConsumption:
+    """记录一个榜单 revision 的真实曝光、详情打开和交互状态。"""
+
+    profile_id: str
+    run_id: str
+    board_revision: int
+    exposed_at: str = ""
+    exposed_candidate_ids: Tuple[str, ...] = ()
+    detail_opened_candidate_ids: Tuple[str, ...] = ()
+    interaction_kinds: Tuple[str, ...] = ()
+    last_interaction_at: str = ""
+    exposure_count: int = 0
+    detail_open_count: int = 0
+    schema_version: int = BOARD_CONSUMPTION_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        """规范榜单身份并限制交互枚举。"""
+        object.__setattr__(self, "profile_id", _text(self.profile_id))
+        object.__setattr__(self, "run_id", _text(self.run_id))
+        object.__setattr__(self, "board_revision", max(1, int(self.board_revision or 1)))
+        object.__setattr__(self, "exposed_at", _time(self.exposed_at, "exposed_at", optional=True))
+        object.__setattr__(self, "last_interaction_at", _time(self.last_interaction_at, "last_interaction_at", optional=True))
+        object.__setattr__(self, "exposed_candidate_ids", _unique_texts(self.exposed_candidate_ids))
+        object.__setattr__(self, "detail_opened_candidate_ids", _unique_texts(self.detail_opened_candidate_ids))
+        interactions = _unique_texts(self.interaction_kinds)
+        if any(item not in BOARD_CONSUMPTION_INTERACTIONS for item in interactions):
+            raise ValueError("board consumption interaction is invalid")
+        object.__setattr__(self, "interaction_kinds", interactions)
+        object.__setattr__(self, "exposure_count", max(0, int(self.exposure_count or 0)))
+        object.__setattr__(self, "detail_open_count", max(0, int(self.detail_open_count or 0)))
+        object.__setattr__(self, "schema_version", int(self.schema_version or 0))
+        if not self.profile_id or not self.run_id:
+            raise ValueError("board consumption identity is incomplete")
+        if self.schema_version != BOARD_CONSUMPTION_SCHEMA_VERSION:
+            raise ValueError("board consumption schema is unsupported")
+
+    @property
+    def exposed(self) -> bool:
+        """返回榜单是否被页面实际记录为可见。"""
+        return bool(self.exposed_at)
+
+    @property
+    def interacted(self) -> bool:
+        """返回是否存在明确交互或结果事实。"""
+        return bool(self.interaction_kinds)
+
+    def with_exposure(self, candidate_ids: Iterable[Any], observed_at: str) -> "BoardConsumption":
+        """幂等合并一次页面曝光；重复调用不会增加曝光次数。"""
+        ids = _unique_texts(candidate_ids)
+        if self.exposed:
+            return replace(
+                self,
+                exposed_candidate_ids=_unique_texts((*self.exposed_candidate_ids, *ids)),
+            )
+        return replace(
+            self,
+            exposed_at=_time(observed_at, "exposed_at"),
+            exposed_candidate_ids=_unique_texts((*self.exposed_candidate_ids, *ids)),
+            exposure_count=self.exposure_count + 1,
+        )
+
+    def with_detail_opened(self, candidate_id: Any, observed_at: str) -> "BoardConsumption":
+        """幂等记录一条推荐详情打开。"""
+        candidate = _text(candidate_id)
+        if not candidate:
+            raise ValueError("detail opened candidate_id is required")
+        if candidate in self.detail_opened_candidate_ids:
+            return self
+        return replace(
+            self,
+            detail_opened_candidate_ids=(*self.detail_opened_candidate_ids, candidate),
+            detail_open_count=self.detail_open_count + 1,
+            last_interaction_at=_time(observed_at, "last_interaction_at"),
+            interaction_kinds=_unique_texts((*self.interaction_kinds, "detail_opened")),
+        )
+
+    def with_interaction(self, kind: Any, observed_at: str) -> "BoardConsumption":
+        """记录交互种类，但不把无操作转换为负向偏好。"""
+        action = _text(kind).casefold()
+        if action not in BOARD_CONSUMPTION_INTERACTIONS:
+            raise ValueError("board consumption interaction is invalid")
+        return replace(
+            self,
+            last_interaction_at=_time(observed_at, "last_interaction_at"),
+            interaction_kinds=_unique_texts((*self.interaction_kinds, action)),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """返回稳定的页面消费记录。"""
+        return {
+            "profile_id": self.profile_id,
+            "run_id": self.run_id,
+            "board_revision": self.board_revision,
+            "exposed_at": self.exposed_at,
+            "exposed": self.exposed,
+            "exposed_candidate_ids": list(self.exposed_candidate_ids),
+            "detail_opened_candidate_ids": list(self.detail_opened_candidate_ids),
+            "interaction_kinds": list(self.interaction_kinds),
+            "last_interaction_at": self.last_interaction_at,
+            "exposure_count": self.exposure_count,
+            "detail_open_count": self.detail_open_count,
+            "schema_version": self.schema_version,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "BoardConsumption":
+        """从持久化数据恢复榜单消费记录。"""
+        if not isinstance(value, Mapping):
+            raise ValueError("board consumption must be a mapping")
+        return cls(
+            profile_id=value.get("profile_id"),
+            run_id=value.get("run_id"),
+            board_revision=value.get("board_revision") or value.get("revision") or 1,
+            exposed_at=value.get("exposed_at") or "",
+            exposed_candidate_ids=tuple(value.get("exposed_candidate_ids") or ()),
+            detail_opened_candidate_ids=tuple(value.get("detail_opened_candidate_ids") or ()),
+            interaction_kinds=tuple(value.get("interaction_kinds") or ()),
+            last_interaction_at=value.get("last_interaction_at") or "",
+            exposure_count=value.get("exposure_count") or 0,
+            detail_open_count=value.get("detail_open_count") or 0,
+            schema_version=value.get("schema_version") or BOARD_CONSUMPTION_SCHEMA_VERSION,
+        )
+
+
+@dataclass(frozen=True)
+class ShortTermSignal:
+    """保存按时间衰减的近期反馈；它永远不会直接升级为长期记忆。"""
+
+    profile_id: str
+    kind: str
+    idempotency_key: str
+    candidate_id: str = ""
+    run_id: str = ""
+    board_revision: int = 0
+    strength: float = 0.0
+    decay_days: int = 30
+    observed_at: str = ""
+    source: str = ""
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    schema_version: int = SHORT_TERM_SIGNAL_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        """规范信号身份、强度和半衰期。"""
+        for field_name in ("profile_id", "kind", "idempotency_key", "candidate_id", "run_id", "source"):
+            object.__setattr__(self, field_name, _text(getattr(self, field_name)))
+        kind = self.kind.casefold()
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "board_revision", max(0, int(self.board_revision or 0)))
+        object.__setattr__(self, "strength", max(-1.0, min(1.0, float(self.strength or 0.0))))
+        object.__setattr__(self, "decay_days", max(1, min(3650, int(self.decay_days or 30))))
+        object.__setattr__(self, "observed_at", _time(self.observed_at, "observed_at"))
+        object.__setattr__(self, "metadata", dict(self.metadata or {}))
+        object.__setattr__(self, "schema_version", int(self.schema_version or 0))
+        if not self.profile_id or not self.kind or not self.idempotency_key:
+            raise ValueError("short-term signal identity is incomplete")
+        if self.kind not in SHORT_TERM_SIGNAL_KINDS:
+            raise ValueError("short-term signal kind is invalid")
+        if self.kind != "rotation" and not self.candidate_id:
+            raise ValueError("short-term signal candidate_id is required")
+        if self.schema_version != SHORT_TERM_SIGNAL_SCHEMA_VERSION:
+            raise ValueError("short-term signal schema is unsupported")
+
+    @property
+    def polarity(self) -> str:
+        """返回排序可用的信号方向；轮换信号不参与负向口味。"""
+        if self.kind in {"dislike", "playback_abandoned"}:
+            return "negative"
+        if self.kind == "rotation":
+            return "rotation"
+        return "positive"
+
+    def decayed_strength(self, at: Any = None) -> float:
+        """按半衰期计算当前强度，避免近期行为永久占据排序。"""
+        try:
+            current = datetime.now(timezone.utc) if at is None else datetime.fromisoformat(str(at).replace("Z", "+00:00"))
+            if current.tzinfo is None:
+                current = current.replace(tzinfo=timezone.utc)
+            observed = datetime.fromisoformat(self.observed_at.replace("Z", "+00:00"))
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+            age_days = max(0.0, (current - observed).total_seconds() / 86400.0)
+        except (TypeError, ValueError):
+            age_days = 0.0
+        return self.strength * exp(-log(2.0) * age_days / self.decay_days)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """返回不含提示词和敏感凭据的短期信号。"""
+        return {
+            "profile_id": self.profile_id,
+            "kind": self.kind,
+            "idempotency_key": self.idempotency_key,
+            "candidate_id": self.candidate_id,
+            "run_id": self.run_id,
+            "board_revision": self.board_revision,
+            "strength": self.strength,
+            "decay_days": self.decay_days,
+            "observed_at": self.observed_at,
+            "source": self.source,
+            "metadata": dict(self.metadata),
+            "polarity": self.polarity,
+            "schema_version": self.schema_version,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "ShortTermSignal":
+        """从持久化数据恢复短期信号。"""
+        if not isinstance(value, Mapping):
+            raise ValueError("short-term signal must be a mapping")
+        return cls(
+            profile_id=value.get("profile_id"),
+            kind=value.get("kind"),
+            idempotency_key=value.get("idempotency_key"),
+            candidate_id=value.get("candidate_id") or "",
+            run_id=value.get("run_id") or "",
+            board_revision=value.get("board_revision") or 0,
+            strength=value.get("strength") or 0.0,
+            decay_days=value.get("decay_days") or 30,
+            observed_at=value.get("observed_at"),
+            source=value.get("source") or "",
+            metadata=value.get("metadata") or {},
+            schema_version=value.get("schema_version") or SHORT_TERM_SIGNAL_SCHEMA_VERSION,
+        )
 
 
 @dataclass(frozen=True)

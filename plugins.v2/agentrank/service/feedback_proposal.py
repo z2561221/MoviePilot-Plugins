@@ -11,11 +11,13 @@ from ..model.feedback_decision import (
     PendingQuestion,
     PendingQuestionOption,
 )
+from ..model.constants import INTERACTION_MODE_DEFAULT
 from ..model.feedback_understanding import FeedbackSignal, FeedbackUnderstandingRecord
 from ..model.memory import PreferenceMemory, PreferenceMemoryItem
 from ..storage.repository import AgentRankRepository
 from .critic_skills import (
     ask_clarification,
+    ask_playback_calibration,
     propose_memory_change,
     style_clarification_question,
 )
@@ -41,6 +43,7 @@ class FeedbackProposalService:
         expiry_days: int = 30,
         now_factory: Callable[[], datetime] = None,
         persona_prompt: str = "",
+        interaction_mode: str = INTERACTION_MODE_DEFAULT,
     ):
         """绑定仓储、保留上限、过期窗口和可测试时钟。"""
         if not isinstance(repository, AgentRankRepository):
@@ -50,7 +53,7 @@ class FeedbackProposalService:
         self._expiry_days = max(1, min(int(expiry_days), 365))
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
         self._persona_prompt = str(persona_prompt or "").strip()
-        self._questioning_policy = QuestioningPolicy()
+        self._questioning_policy = QuestioningPolicy(interaction_mode)
 
     def questioning_state(
         self, profile_id: str, *, memory: PreferenceMemory = None
@@ -93,6 +96,8 @@ class FeedbackProposalService:
             return existing, False
         if any(item.status == "pending" for item in questions):
             return None, False
+        if not self._questioning_policy.allows_playback_calibration():
+            return None, False
         if str(getattr(snapshot, "status", "") or "") not in {"ready", "cached"}:
             return None, False
         strong_samples = [
@@ -131,6 +136,16 @@ class FeedbackProposalService:
         )
         event = appended.event
         created_at, expires_at = self._time_window()
+        calibration = ask_playback_calibration(
+            selection_seed=f"{target}:{fingerprint or event.event_id}"
+        )
+        calibration_option_ids = (
+            "continue_patterns",
+            "explore_new",
+            "either",
+            "uncertain",
+            "not_me",
+        )
         question = PendingQuestion(
             question_id=self._stable_id("pending-question", event.event_id),
             profile_id=target,
@@ -139,16 +154,15 @@ class FeedbackProposalService:
             candidate_id="profile:playback",
             understanding_record_id=f"playback-calibration:{fingerprint[:24] or event.event_id}",
             question=style_clarification_question(
-                "根据近期有效观看记录，未来推荐更应该延续熟悉体验，还是主动带来变化？",
+                calibration["question"],
                 self._persona_prompt,
             ),
-            options=(
-                PendingQuestionOption(
-                    option_id="continue_patterns", label="延续已看作品的共同点"
-                ),
-                PendingQuestionOption(option_id="either", label="都可以"),
-                PendingQuestionOption(option_id="uncertain", label="不确定"),
-                PendingQuestionOption(option_id="not_me", label="不是我看的"),
+            options=tuple(
+                PendingQuestionOption(option_id=option_id, label=label)
+                for option_id, label in zip(
+                    calibration_option_ids,
+                    calibration["options"],
+                )
             ),
             allow_custom_answer=True,
             uncertainties=("播放记录只能提出偏好假设，不能直接等同于喜欢",),
@@ -310,6 +324,7 @@ class FeedbackProposalService:
             record.uncertainties,
             question_history=history,
             confirmed_memory=memory.to_dict(),
+            selection_seed=record.event_id,
         )
         options = tuple(
             PendingQuestionOption(option_id=f"option_{index}", label=label)

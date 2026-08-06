@@ -41,6 +41,7 @@ normalize_config = config_module.normalize_config
 default_config = config_module.default_config
 UserProfile = profile_module.UserProfile
 RecommendationBoard = board_module.RecommendationBoard
+RecommendationItem = board_module.RecommendationItem
 ArchiveFeedback = archive_module.ArchiveFeedback
 RecommendationRun = run_module.RecommendationRun
 Candidate = candidate_module.Candidate
@@ -109,6 +110,7 @@ def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_fifteen():
     defaults = AgentRankConfig.from_mapping({})
     assert defaults.discovery_page_enabled is True
     assert defaults.notification_type == "Plugin"
+    assert defaults.interaction_mode == "auto"
     assert defaults.candidate_pool_size == 15
     assert set(defaults.discovery_sources) == {
         "douban",
@@ -163,6 +165,7 @@ def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
         "candidate_pool_size": 15,
         "confidence_threshold": 0.6,
         "action_mode": "notify",
+        "interaction_mode": "auto",
         "notify": True,
         "notification_type": "Plugin",
         "auto_subscribe_top_n": 0,
@@ -327,6 +330,7 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
             "candidate_pool_size": -5,
             "confidence_threshold": 9,
             "action_mode": "unsafe",
+            "interaction_mode": "too_loud",
             "auto_subscribe_top_n": 99,
         }
     )
@@ -336,6 +340,8 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
     assert normalized["candidate_pool_size"] >= 10
     assert 0 <= normalized["confidence_threshold"] <= 1
     assert normalized["action_mode"] == "notify"
+    assert normalized["interaction_mode"] == "auto"
+    assert any("interaction_mode" in error for error in normalized["_validation_errors"])
     assert normalized["auto_subscribe_top_n"] <= normalized["auto_subscribe_limit"]
     assert normalized["_validation_errors"]
     for removed in (
@@ -526,3 +532,61 @@ def test_run_history_is_user_scoped_and_bounded():
     assert [item.run_id for item in repository.load_run_history("emby:remote:user-1")] == [
         "remote-run"
     ]
+
+
+def test_board_history_is_immutable_idempotent_and_full_reset_managed():
+    """历史榜单只冻结每个 run_id 的首次内容，并随彻底重置删除。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin, history_limit=3)
+    profile_id = "emby:home:user-1"
+
+    first = RecommendationBoard(
+        profile_id=profile_id,
+        username="Alice",
+        run_id="run-1",
+        status="success",
+        recommendations=[
+            RecommendationItem(candidate_id="tmdb:movie:1", rank=1, title="One")
+        ],
+    )
+    repository.save_board(first)
+    first.recommendations[0].title = "Mutated after save"
+    repository.save_board(
+        RecommendationBoard(
+            profile_id=profile_id,
+            username="Alice",
+            run_id="run-1",
+            status="success",
+            recommendations=[
+                RecommendationItem(
+                    candidate_id="tmdb:movie:1", rank=1, title="Replaced"
+                )
+            ],
+        )
+    )
+    assert repository.load_board_history(profile_id)[0].recommendations[0].title == "One"
+
+    for index in range(2, 5):
+        repository.save_board(
+            RecommendationBoard(
+                profile_id=profile_id,
+                username="Alice",
+                run_id=f"run-{index}",
+                status="success",
+                recommendations=[
+                    RecommendationItem(
+                        candidate_id=f"tmdb:movie:{index}", rank=1, title=f"Title {index}"
+                    )
+                ],
+            )
+        )
+
+    history = repository.load_board_history(profile_id)
+    assert [item.run_id for item in history] == ["run-4", "run-3", "run-2"]
+    assert history[0].recommendations[0].title == "Title 4"
+    assert repository._board_history_key(profile_id) in repository.full_profile_storage_keys(
+        profile_id
+    )
+
+    repository.reset_all_profile_data(profile_id)
+    assert repository.load_board_history(profile_id) == []

@@ -208,6 +208,21 @@ def initialize_plugin(
         if isinstance(runtime_state, dict):
             runtime_state["enabled"] = False
             runtime_state["onlyonce"] = False
+    elif not plugin._config.get("onlyonce"):
+        repository = getattr(plugin, "_repository", None)
+        runtime = getattr(plugin, "_runtime", None)
+        runtime_state = getattr(runtime, "config", None)
+        identities = configured_identities(plugin._config)
+        first_run_required = bool(
+            repository is not None
+            and identities
+            and any(
+                repository.load_profile(identity.profile_id) is None
+                for identity in identities
+            )
+        )
+        if first_run_required and isinstance(runtime_state, dict):
+            runtime_state["onlyonce"] = True
     if plugin._config.get("onlyonce"):
         plugin._config["onlyonce"] = False
         persisted = {

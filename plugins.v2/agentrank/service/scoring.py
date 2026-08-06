@@ -689,6 +689,102 @@ class DeterministicSupportScorer:
         return [catalog[key] for key in sorted(catalog)]
 
     @staticmethod
+    def _public_evidence_option(
+        contribution: SupportContribution,
+    ) -> Optional[Dict[str, str]]:
+        """把已验证贡献投影为提交工具可直接接受的证据三元组。"""
+        dimension = contribution.dimension.removesuffix("_weight")
+        user_value = str(contribution.user_value or "").strip()
+        candidate_value = str(contribution.candidate_value or "").strip()
+        if (
+            dimension not in _DIMENSION_ALIASES
+            or not 1 <= len(user_value) <= 80
+            or not 1 <= len(candidate_value) <= 80
+        ):
+            return None
+        return {
+            "dimension": dimension,
+            "user_value": user_value,
+            "candidate_value": candidate_value,
+        }
+
+    def verified_evidence_options(
+        self,
+        candidate: Any,
+        policy: PolicySnapshot,
+        memory: PreferenceMemory,
+        preferences: ProfilePreferences,
+        playback: PlaybackSnapshot,
+    ) -> Dict[str, List[Dict[str, str]]]:
+        """为候选生成与确定性校验器同源且可直接提交的证据选项。"""
+        if not isinstance(policy, PolicySnapshot):
+            raise TypeError("policy must be PolicySnapshot")
+        if not isinstance(memory, PreferenceMemory):
+            raise TypeError("memory must be PreferenceMemory")
+        if not isinstance(preferences, ProfilePreferences):
+            raise TypeError("preferences must be ProfilePreferences")
+        if not isinstance(playback, PlaybackSnapshot):
+            raise TypeError("playback must be PlaybackSnapshot")
+        profile_ids = {
+            policy.profile_id,
+            memory.profile_id,
+            preferences.profile_id,
+            playback.profile_id,
+        }
+        if len(profile_ids) != 1 or policy.memory_revision != memory.memory_revision:
+            raise RuntimeError("support inputs do not share one current policy revision")
+
+        facts = self._candidate_facts(candidate)
+        signals = [
+            *self._memory_signals(memory),
+            *self._manual_signals(preferences),
+            *self._playback_signals(playback),
+        ]
+        result: Dict[str, List[Dict[str, str]]] = {
+            "positive_evidence_options": [],
+            "counter_evidence_options": [],
+        }
+        for polarity, direction, output_key in (
+            ("positive", "positive", "positive_evidence_options"),
+            ("negative", "counter", "counter_evidence_options"),
+        ):
+            contributions = self._automatic_contributions(
+                signals,
+                facts,
+                policy,
+                polarity=polarity,
+                direction=direction,
+            )
+            contributions.sort(
+                key=lambda item: (
+                    -item.contribution_units,
+                    -item.certainty_units,
+                    item.dimension,
+                    item.user_refs,
+                    item.candidate_ref,
+                    item.user_value.casefold(),
+                    item.candidate_value.casefold(),
+                )
+            )
+            seen = set()
+            for contribution in contributions:
+                option = self._public_evidence_option(contribution)
+                if option is None:
+                    continue
+                identity = (
+                    option["dimension"],
+                    option["user_value"],
+                    option["candidate_value"],
+                )
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                result[output_key].append(option)
+                if len(result[output_key]) >= 8:
+                    break
+        return result
+
+    @staticmethod
     def _claim_field(claim: Any, field_name: str) -> str:
         """从冻结对象或映射读取结构化证据声明字段。"""
         raw = (

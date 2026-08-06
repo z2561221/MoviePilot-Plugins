@@ -1,11 +1,14 @@
 """受限反馈理解 Agent 的上下文组装、校验与持久化服务。"""
 
+import asyncio
 import hashlib
 import json
+import time
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from ..agent_tools.context import FEEDBACK_AGENT_ROLE, build_trusted_context
 from ..model.analysis import RecommendationAnalysis
+from ..model.constants import INTERACTION_MODE_DEFAULT
 from ..model.feedback import FeedbackEvent
 from ..model.feedback_queue import FeedbackQueueJob
 from ..model.feedback_understanding import (
@@ -53,6 +56,12 @@ class FeedbackUnderstandingError(RuntimeError):
     """表示反馈理解无法在安全契约内完成。"""
 
     retryable = True
+
+
+class FeedbackUnderstandingBudgetError(FeedbackUnderstandingError):
+    """表示本次反馈理解已耗尽总预算，可由用户稍后重试。"""
+
+    terminal_retryable = True
 
 
 def _text(value: Any, limit: int = 240) -> str:
@@ -232,6 +241,10 @@ class FeedbackUnderstandingService:
         analysis_comment_service: Any = None,
         critic_prompt: str = DEFAULT_CRITIC_PROMPT,
         persona_prompt: str = DEFAULT_PERSONA_PROMPT,
+        interaction_mode: str = INTERACTION_MODE_DEFAULT,
+        total_timeout_seconds: float = 90.0,
+        retry_base_seconds: float = 1.0,
+        retry_max_seconds: float = 12.0,
     ):
         """绑定仓储、受限 Agent、解析器和确定性提案服务。"""
         if not isinstance(repository, AgentRankRepository):
@@ -243,10 +256,16 @@ class FeedbackUnderstandingService:
         self._analysis_limit = max(1, min(int(analysis_limit), 100000))
         self._critic_prompt = str(critic_prompt or DEFAULT_CRITIC_PROMPT).strip()
         self._persona_prompt = str(persona_prompt or DEFAULT_PERSONA_PROMPT).strip()
+        self._total_timeout_seconds = max(1.0, float(total_timeout_seconds))
+        self._retry_base_seconds = max(0.05, float(retry_base_seconds))
+        self._retry_max_seconds = max(
+            self._retry_base_seconds, float(retry_max_seconds)
+        )
         self._proposal_service = proposal_service or FeedbackProposalService(
             repository,
             record_limit=self._analysis_limit,
             persona_prompt=self._persona_prompt,
+            interaction_mode=interaction_mode,
         )
         self._analysis_comment_service = (
             analysis_comment_service
@@ -254,6 +273,79 @@ class FeedbackUnderstandingService:
                 repository, analysis_limit=self._analysis_limit
             )
         )
+
+    @staticmethod
+    def _rate_limited(error: BaseException) -> bool:
+        """判断异常链是否为供应商 429。"""
+        current: Optional[BaseException] = error
+        seen: set[int] = set()
+        for _ in range(6):
+            if current is None or id(current) in seen:
+                break
+            seen.add(id(current))
+            response = getattr(current, "response", None)
+            status = getattr(current, "status_code", None) or getattr(
+                response, "status_code", None
+            )
+            code = str(getattr(current, "code", "") or "").casefold()
+            text = str(current or "").casefold()
+            if status == 429 or code in {"429", "rate_limit", "rate_limit_exceeded"}:
+                return True
+            if "429" in text or "rate limit" in text or "too many requests" in text:
+                return True
+            current = getattr(current, "__cause__", None) or getattr(
+                current, "__context__", None
+            )
+        return False
+
+    @staticmethod
+    def _retry_after_seconds(error: BaseException) -> float:
+        """读取供应商 Retry-After 秒数。"""
+        response = getattr(error, "response", None)
+        headers = getattr(response, "headers", None) or getattr(error, "headers", None)
+        value = ""
+        if isinstance(headers, Mapping):
+            value = headers.get("retry-after") or headers.get("Retry-After") or ""
+        try:
+            return max(0.0, float(value))
+        except (TypeError, ValueError):
+            return 0.0
+
+    async def _call_agent_with_budget(
+        self, method: Any, prompt: str, context: Any
+    ) -> Any:
+        """在一个总预算内执行反馈 Agent，并仅对 429 退避重试。"""
+        deadline = time.monotonic() + self._total_timeout_seconds
+        attempt = 0
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise FeedbackUnderstandingBudgetError(
+                    "反馈理解超时，已保留原始反馈，可稍后重试"
+                )
+            try:
+                result = method(prompt, context)
+                if hasattr(result, "__await__"):
+                    return await asyncio.wait_for(result, timeout=remaining)
+                return result
+            except asyncio.TimeoutError as error:
+                raise FeedbackUnderstandingBudgetError(
+                    "反馈理解超时，已保留原始反馈，可稍后重试"
+                ) from error
+            except Exception as error:
+                if not self._rate_limited(error):
+                    raise
+                attempt += 1
+                delay = self._retry_after_seconds(error) or min(
+                    self._retry_max_seconds,
+                    self._retry_base_seconds * (2 ** max(0, attempt - 1)),
+                )
+                remaining = deadline - time.monotonic()
+                if remaining <= delay:
+                    raise FeedbackUnderstandingBudgetError(
+                        "反馈理解请求受限且已超过处理时限，已保留反馈，可稍后重试"
+                    ) from error
+                await asyncio.sleep(delay)
 
     def _event_for_job(self, job: FeedbackQueueJob) -> FeedbackEvent:
         """按持久序号读取当前任务引用的不可变反馈事实。"""
@@ -288,6 +380,8 @@ class FeedbackUnderstandingService:
 
     def _candidate_context(self, event: FeedbackEvent) -> Dict[str, Any]:
         """从冻结候选快照读取作品事实白名单。"""
+        if not event.run_id:
+            return {"candidate_id": event.candidate_id}
         candidate = next(
             (
                 item
@@ -544,10 +638,10 @@ class FeedbackUnderstandingService:
             pending_context={},
         )
         method = getattr(self._agent_adapter, "run_feedback", None)
-        raw = (
-            await method(prompt, context)
-            if callable(method)
-            else await self._agent_adapter.run(prompt, context)
+        raw = await self._call_agent_with_budget(
+            method if callable(method) else self._agent_adapter.run,
+            prompt,
+            context,
         )
         if event.kind == ANALYSIS_COMMENT_KIND:
             parsed = self._comment_parser.parse(

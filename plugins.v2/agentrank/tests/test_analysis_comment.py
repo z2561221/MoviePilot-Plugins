@@ -323,10 +323,11 @@ def test_ambiguous_comment_creates_question_without_revising_analysis():
     assert board.revision == 1
     assert len(questions) == 1
     assert questions[0].event_id == submitted.event.event_id
-    assert (
-        questions[0].question
-        == "唔……根据实验数据，平时挑选影视内容时，你通常最先看重什么？"
-    )
+    assert questions[0].question in {
+        "唔……根据实验数据，平时挑选影视内容时，你通常最先看重什么？",
+        "唔……根据实验数据，看到一部还不了解的新作品时，什么最容易让你想点开？",
+        "唔……根据实验数据，如果要给推荐设一个优先级，你通常会先看哪一项？",
+    }
     assert questions[0].preference_dimension == "selection_basis"
     assert questions[0].exploration_level == 0
     assert repository.load_preference_memory(PROFILE_ID) == before_memory

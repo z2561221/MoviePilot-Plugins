@@ -40,6 +40,7 @@ FeedbackQueueJob = queue_model_module.FeedbackQueueJob
 AgentRankRepository = repository_module.AgentRankRepository
 FeedbackQueueService = queue_service_module.FeedbackQueueService
 FeedbackUnderstandingError = service_module.FeedbackUnderstandingError
+FeedbackUnderstandingBudgetError = service_module.FeedbackUnderstandingBudgetError
 FeedbackUnderstandingService = service_module.FeedbackUnderstandingService
 AgentRankRuntime = runtime_module.AgentRankRuntime
 
@@ -165,6 +166,58 @@ def test_pure_ignore_is_deterministic_exclusion_only_without_llm_or_memory_write
     assert record.model_call_count == 0
     assert adapter.calls == []
     assert repository.load_preference_memory(PROFILE_ID) == before
+    assert repository.load_feedback_understanding(PROFILE_ID, event.event_id) == record
+
+
+def test_feedback_agent_timeout_ends_as_terminal_retryable_budget_failure():
+    """反馈 Agent 超过共享总预算后终止，不让队列再开启完整重试周期。"""
+    class SlowAgent:
+        async def run_feedback(self, _prompt, _trusted_context):
+            await asyncio.sleep(2)
+            return "{}"
+
+    repository, event = _repository_with_event(_event(key="timeout-like"))
+    service = FeedbackUnderstandingService(
+        repository,
+        SlowAgent(),
+        total_timeout_seconds=1,
+    )
+
+    with pytest.raises(FeedbackUnderstandingBudgetError) as caught:
+        asyncio.run(service.handle_job(_job(event)))
+    assert caught.value.terminal_retryable is True
+    assert repository.load_feedback_understanding(PROFILE_ID, event.event_id) is None
+
+
+def test_playback_calibration_without_run_id_reaches_feedback_agent():
+    """播放校准回答没有榜单 run_id 时仍可完成理解并持久化记录。"""
+    repository = AgentRankRepository(FakePlugin())
+    event = repository.append_feedback_event(
+        FeedbackEvent(
+            profile_id=PROFILE_ID,
+            kind="playback_calibration",
+            candidate_id="profile:playback",
+            comment="都可以",
+            idempotency_key="playback-calibration-answer",
+        )
+    ).event
+    adapter = FakeAgentAdapter(
+        {
+            "outcome": "ambiguous",
+            "restatement": "熟悉体验和新鲜变化都可以",
+            "signals": [],
+            "uncertainties": ["没有固定探索倾向"],
+        }
+    )
+
+    record = asyncio.run(
+        FeedbackUnderstandingService(repository, adapter).handle_job(_job(event))
+    )
+
+    assert len(adapter.calls) == 1
+    assert record.action == "playback_calibration"
+    assert record.outcome == "ambiguous"
+    assert record.candidate_id == "profile:playback"
     assert repository.load_feedback_understanding(PROFILE_ID, event.event_id) == record
 
 

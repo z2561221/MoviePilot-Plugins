@@ -188,7 +188,13 @@ class FeedbackUnderstandingRecord:
             raise ValueError("feedback understanding identity is incomplete")
         if self.event_sequence <= 0:
             raise ValueError("feedback understanding sequence must be positive")
-        if self.action not in {"like", "dislike", "ignore", "analysis_comment"}:
+        if self.action not in {
+            "like",
+            "dislike",
+            "ignore",
+            "analysis_comment",
+            "playback_calibration",
+        }:
             raise ValueError("feedback understanding action is invalid")
         if self.outcome not in FEEDBACK_UNDERSTANDING_OUTCOMES:
             raise ValueError("feedback understanding outcome is invalid")

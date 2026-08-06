@@ -302,6 +302,8 @@ def test_question_answer_and_close_never_return_raw_event_or_implicitly_learn():
     assert history["items"][1]["answer_text"] == "人物"
     assert history["items"][1]["editable"] is True
 
+    reopened_notices = []
+    center.set_pending_handler(reopened_notices.append)
     reopened = center.respond(
         profile_id=PROFILE_ID,
         item_type="question",
@@ -310,6 +312,9 @@ def test_question_answer_and_close_never_return_raw_event_or_implicitly_learn():
         actor_id="mp-user-1",
     )
     assert reopened["item"]["status"] == "pending"
+    assert len(reopened_notices) == 1
+    assert reopened_notices[0].item.item_id == question.question_id
+    assert reopened_notices[0].actor_id == "mp-user-1"
     assert center.list_items(PROFILE_ID, view="pending")["total"] == 1
 
 
@@ -359,6 +364,19 @@ def test_persona_styles_resolved_proposal_and_command_messages_only():
     assert confirmed_command["item"]["status"] == "confirmed"
     assert confirmed_command["item"]["result_code"] == "profile_tag_updated"
     assert confirmed_command["item"]["result_message"] == "知道啦，明确偏好标签已更新"
+
+
+def test_persona_is_applied_when_an_existing_question_is_projected():
+    """旧待办记录重新投影时也使用当前人设表达，而不会保留裸问题。"""
+    _, repository, _, _, center = _services(
+        "克里斯蒂娜式未来道具研究所语气"
+    )
+    question = _question(repository, _event(repository, "persona-question", "tmdb:8"))
+
+    item = center.item(PROFILE_ID, "question", question.question_id)
+
+    assert item.summary.startswith("唔……根据实验数据，")
+    assert item.summary.endswith(question.question)
 
 
 def test_pending_center_rejects_removed_reminder_action_and_has_no_claim_api():

@@ -292,6 +292,7 @@ class RawDiscoveredItem:
     payload: Any
     mediaid_prefix: str = ""
     layer: str = "exact"
+    requested_media_type: str = ""
 
 
 @dataclass
@@ -806,6 +807,7 @@ class DiscoveryAdapter:
                     payload=row,
                     mediaid_prefix=_trusted_mediaid_prefix(effective.source),
                     layer=effective.layer,
+                    requested_media_type=effective.media_type,
                 )
                 for row in bounded_rows
             )

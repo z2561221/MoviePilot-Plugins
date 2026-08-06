@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
 import AgentAnalysisDialog from './AgentAnalysisDialog.vue'
 import CriticChatDialog from './CriticChatDialog.vue'
@@ -18,8 +18,10 @@ const state = useAgentRankState(props.api)
 const activeTab = ref('board')
 const snackbar = ref({ show: false, message: '', color: 'success' })
 const historyPage = ref(1)
+const boardHistoryPage = ref(1)
 const initialized = ref(false)
 const expandedHistoryKeys = ref(new Set())
+const expandedBoardHistoryKeys = ref(new Set())
 const tagDrafts = reactive({ positive: '', negative: '' })
 const analysisDialog = ref(false)
 const commentDialog = ref(false)
@@ -28,14 +30,19 @@ const pendingDialog = ref(false)
 const selectedAnalysisItem = ref(null)
 const selectedJudgment = ref(null)
 const historyPageSize = 10
+const boardHistoryPageSize = 10
+const recommendationCards = ref([])
 let conversationStatusTimer = null
 let runProgressTimer = null
+let exposureObserver = null
 let pageUnmounted = false
 
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 5) || [])
+const agentName = computed(() => state.agentDisplayName.value || 'CinePilot Agent')
 const criticUnreadCount = computed(() => Number(state.conversationStatus.value?.unread_count || 0))
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || [])
 const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.value.total || 0) / historyPageSize)))
+const boardHistoryPages = computed(() => Math.max(1, Math.ceil((state.boardHistoryMeta.value.total || 0) / boardHistoryPageSize)))
 const positiveTags = computed(() => state.profile.value?.tags || [])
 const negativeTags = computed(() => state.profile.value?.negative_tags || [])
 const archivedProfileTags = computed(() => state.profile.value?.archived_profile_tags || [])
@@ -66,6 +73,35 @@ const detailStats = computed(() => [
   { label: '画像样本', value: state.profile.value?.playback_count || 0, suffix: '条', icon: 'mdi-account-heart-outline' },
   { label: '忽略归档', value: archiveEntries.value.length, suffix: '部', icon: 'mdi-archive-outline' },
 ])
+const supportConfidenceLabels = {
+  high: '高置信',
+  medium: '中置信',
+  exploration: '探索推荐',
+}
+const supportDimensionLabels = {
+  type: '类型', theme: '题材', actor: '演员', director: '导演', region: '地区',
+  year: '年代', rating: '评分', heat: '热度', freshness: '新鲜感', similarity: '相似性',
+}
+
+function supportConfidenceText(item) {
+  return supportConfidenceLabels[item?.support?.confidence_level] || '探索推荐'
+}
+function supportEvidenceText(item) {
+  const support = item?.support || {}
+  const count = Number(support.evidence_count || 0)
+  const dimensions = (support.positive_dimensions || support.evidence_dimensions || [])
+    .map(value => supportDimensionLabels[value] || value)
+    .filter(Boolean)
+  const dimensionText = dimensions.length ? ` · ${dimensions.slice(0, 3).join('、')}` : ''
+  const counter = Number(support.counter_evidence_count || 0)
+  return `${count} 项证据${dimensionText}${counter ? ` · 反证 ${counter}` : ''}`
+}
+function selectionSourceText(item) {
+  return ({ agent: 'Agent主选', safe_fallback: '安全补位', returning: '回归推荐', legacy: '' }[item?.selection_source] || '')
+}
+function healthCoverageText(health) {
+  return ({ none: '尚无归因样本', partial: '部分阶段已覆盖', complete: '链路已覆盖' }[health?.attribution_coverage] || '归因状态未评估')
+}
 
 const statusMetaFor = status => ({
   idle: { text: '待生成', color: 'default' },
@@ -177,12 +213,22 @@ const historyAgentSourceLabels = {
   mixed: '混合来源',
   unknown: '来源未返回',
 }
+const historyTriggerLabels = {
+  manual: '手动刷新',
+  schedule: '周期运行',
+  startup: '启动补偿',
+  feedback: '反馈变化',
+  exposure: '曝光后轮换',
+  unknown: '未记录',
+  legacy_snapshot: '历史兼容快照',
+}
 
 const tabs = [
   { key: 'board', title: '推荐榜单', icon: 'mdi-format-list-numbered' },
   { key: 'profile', title: '用户画像', icon: 'mdi-account-heart-outline' },
   { key: 'archive', title: '忽略归档', icon: 'mdi-archive-outline' },
   { key: 'history', title: '运行历史', icon: 'mdi-history' },
+  { key: 'board-history', title: '历史榜单', icon: 'mdi-history-box-outline' },
 ]
 
 function formatTime(value) {
@@ -203,6 +249,20 @@ function toggleHistory(run) {
   if (next.has(key)) next.delete(key)
   else next.add(key)
   expandedHistoryKeys.value = next
+}
+function boardHistoryKey(item) {
+  const board = item?.board || {}
+  return `${board.run_id || ''}:${board.generated_at || ''}`
+}
+function boardHistoryBoard(item) { return item?.board || {} }
+function boardHistoryRun(item) { return item?.run || {} }
+function isBoardHistoryExpanded(item) { return expandedBoardHistoryKeys.value.has(boardHistoryKey(item)) }
+function toggleBoardHistory(item) {
+  const key = boardHistoryKey(item)
+  const next = new Set(expandedBoardHistoryKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedBoardHistoryKeys.value = next
 }
 function formatDuration(value) {
   const ms = Number(value)
@@ -381,6 +441,10 @@ function historySelectionSourceText(run) {
   const fallback = Number(metrics.safe_fallback_selected_count ?? counts.safe_fallback ?? 0)
   return `Agent 选择 ${agent} 条；安全补位 ${fallback} 条`
 }
+function historyTriggerText(entry) {
+  const value = String(entry?.trigger_reason || '').trim()
+  return historyTriggerLabels[value] || value || '未记录'
+}
 function historyTournamentText(run) {
   const metrics = run?.metrics || {}
   const batches = Number(metrics.preliminary_batch_count || 0)
@@ -481,6 +545,7 @@ async function pollRunProgress() {
     if (wasActive && !progress?.active && state.selectedProfileId.value === profileId) {
       await state.loadProfileData(profileId, { force: true })
       if (activeTab.value === 'history') await state.loadHistory(historyPage.value, historyPageSize)
+      if (activeTab.value === 'board-history') await state.loadBoardHistory(boardHistoryPage.value, boardHistoryPageSize)
       const completed = ['success', 'recommendation_incomplete', 'recommendation_degraded'].includes(progress?.status)
       snackbar.value = {
         show: true,
@@ -523,6 +588,11 @@ async function changeHistoryPage(page) {
   try { await state.loadHistory(page, historyPageSize) } catch (_) { /* 错误已保存 */ }
 }
 
+async function changeBoardHistoryPage(page) {
+  boardHistoryPage.value = page
+  try { await state.loadBoardHistory(page, boardHistoryPageSize) } catch (_) { /* 错误已保存 */ }
+}
+
 async function addProfileTag(kind) {
   const tag = String(tagDrafts[kind] || '').trim()
   if (!tag) return
@@ -548,9 +618,33 @@ async function restoreProfileTag(item) {
 }
 
 function openAnalysis(item) {
+  void state.recordRecommendationDetailOpened(item?.candidate_id)
   selectedAnalysisItem.value = item
   selectedJudgment.value = null
   analysisDialog.value = true
+}
+
+function stopExposureObserver() {
+  if (exposureObserver) exposureObserver.disconnect()
+  exposureObserver = null
+}
+
+async function observeRecommendationExposure() {
+  await nextTick()
+  stopExposureObserver()
+  if (pageUnmounted || activeTab.value !== 'board' || !recommendations.value.length) return
+  const candidateIds = recommendations.value.map(item => item.candidate_id).filter(Boolean)
+  if (!candidateIds.length) return
+  if (typeof window === 'undefined' || typeof window.IntersectionObserver !== 'function') {
+    void state.recordBoardExposure(candidateIds)
+    return
+  }
+  exposureObserver = new window.IntersectionObserver(entries => {
+    if (!entries.some(entry => entry.isIntersecting && entry.intersectionRatio >= 0.25)) return
+    stopExposureObserver()
+    void state.recordBoardExposure(candidateIds)
+  }, { threshold: [0.25] })
+  recommendationCards.value.filter(Boolean).forEach(element => exposureObserver.observe(element))
 }
 
 function openAnalysisComment(judgment) {
@@ -575,13 +669,22 @@ watch(state.selectedProfileId, async (value, oldValue) => {
       state.loadConversationStatus(),
     ])
   } catch (_) { /* 错误已保存 */ }
+  boardHistoryPage.value = 1
+  expandedBoardHistoryKeys.value = new Set()
   scheduleConversationStatusPoll()
   scheduleRunProgressPoll(1000, true)
 })
 
 watch(activeTab, async value => {
   if (value === 'history') await changeHistoryPage(1)
+  if (value === 'board-history') await changeBoardHistoryPage(1)
 })
+
+watch(
+  () => `${activeTab.value}:${state.board.value?.run_id || ''}:${state.board.value?.revision || 0}:${recommendations.value.length}`,
+  () => { void observeRecommendationExposure() },
+  { immediate: true },
+)
 
 onMounted(() => {
   pageUnmounted = false
@@ -591,6 +694,7 @@ onBeforeUnmount(() => {
   pageUnmounted = true
   stopConversationStatusPoll()
   stopRunProgressPoll()
+  stopExposureObserver()
 })
 </script>
 
@@ -635,7 +739,7 @@ onBeforeUnmount(() => {
         <VBtn
           icon="mdi-forum-outline"
           variant="text"
-          :aria-label="criticUnreadCount > 0 ? `打开 CinePilot Agent，${criticUnreadCount} 条未读回复` : '打开 CinePilot Agent'"
+          :aria-label="criticUnreadCount > 0 ? `打开 ${agentName}，${criticUnreadCount} 条未读回复` : `打开 ${agentName}`"
           @click="criticDialog = true"
         />
       </VBadge>
@@ -663,7 +767,7 @@ onBeforeUnmount(() => {
       >
         <VProgressCircular indeterminate color="primary" size="22" width="2" />
         <div class="ar-page__progress-copy">
-          <div class="ar-page__progress-title">CinePilot Agent</div>
+          <div class="ar-page__progress-title">{{ agentName }}</div>
           <div class="ar-page__progress-message">{{ state.runProgress.value?.message || '正在生成榜单' }}</div>
         </div>
       </div>
@@ -719,7 +823,7 @@ onBeforeUnmount(() => {
             text="点击右上角刷新，根据播放画像生成前5名。"
           />
           <div v-else class="ar-page__ranking">
-            <article v-for="item in recommendations" :key="item.candidate_id" class="ar-page__rank-item">
+            <article v-for="item in recommendations" ref="recommendationCards" :key="item.candidate_id" class="ar-page__rank-item">
               <div class="ar-page__rank" :class="{ 'ar-page__rank--top': item.rank <= 3 }">{{ item.rank }}</div>
               <div class="ar-page__poster">
                 <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover>
@@ -746,6 +850,11 @@ onBeforeUnmount(() => {
                 <div v-if="item.match_tags?.length" class="ar-page__match-tags">
                   <VChip v-for="tag in item.match_tags" :key="tag" size="x-small" variant="outlined">{{ tag }}</VChip>
                 </div>
+                <div v-if="item.support" class="ar-page__evidence-summary">
+                  <VChip size="x-small" :color="item.support.confidence_level === 'high' ? 'success' : item.support.confidence_level === 'medium' ? 'primary' : 'info'" variant="tonal">{{ supportConfidenceText(item) }}</VChip>
+                  <span>{{ supportEvidenceText(item) }}</span>
+                  <span v-if="selectionSourceText(item)">{{ selectionSourceText(item) }}</span>
+                </div>
               </div>
               <div class="ar-page__rank-actions">
                 <VTooltip text="查看 Agent 分析">
@@ -761,7 +870,7 @@ onBeforeUnmount(() => {
                     />
                   </template>
                 </VTooltip>
-                <VChip size="x-small" color="primary" variant="tonal" class="ar-page__support">{{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
+                <VChip size="x-small" color="primary" variant="tonal" class="ar-page__support">净支持 {{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
                 <RecommendationActions
                   :item="item"
                   :loading-action="state.loading.action"
@@ -809,6 +918,22 @@ onBeforeUnmount(() => {
                 <div v-for="stat in profileStats" :key="stat.label" class="ar-page__profile-metric">
                   <VIcon :icon="stat.icon" color="primary" size="19" />
                   <div><strong>{{ stat.value }}<span>{{ stat.suffix }}</span></strong><small>{{ stat.label }}</small></div>
+                </div>
+              </div>
+
+              <div class="ar-page__learning-health">
+                <div class="ar-page__profile-label"><VIcon icon="mdi-chart-timeline-variant" size="18" />学习健康度</div>
+                <div class="ar-page__health-grid">
+                  <div><strong>{{ state.learningHealth.value?.short_term_signal_count || 0 }}</strong><small>短期信号</small></div>
+                  <div><strong>{{ state.learningHealth.value?.confirmed_memory_count || 0 }}</strong><small>确认记忆</small></div>
+                  <div><strong>{{ state.learningHealth.value?.pending_count || 0 }}</strong><small>待确认</small></div>
+                  <div><strong>{{ state.learningHealth.value?.processed_count || 0 }}</strong><small>已处理</small></div>
+                  <div><strong>{{ state.learningHealth.value?.exposure_count || 0 }}</strong><small>有效曝光</small></div>
+                </div>
+                <div class="ar-page__health-footer">
+                  <span>{{ healthCoverageText(state.learningHealth.value) }}</span>
+                  <span v-if="state.learningHealth.value?.last_effective_feedback_at">最近有效反馈 {{ formatTime(state.learningHealth.value.last_effective_feedback_at) }}</span>
+                  <VChip v-if="state.learningHealth.value?.attention_required" size="x-small" color="warning" variant="tonal">{{ state.learningHealth.value.attention_reason || '建议检查反馈归因' }}</VChip>
                 </div>
               </div>
 
@@ -976,6 +1101,97 @@ onBeforeUnmount(() => {
           </template>
           <span class="d-none">page_size={{ historyPageSize }}</span>
         </section>
+
+        <section v-show="activeTab === 'board-history'" class="ar-page__pane">
+          <div class="ar-page__section-head">
+            <div>
+              <div class="ar-page__section-title">历史榜单</div>
+              <div class="ar-page__section-desc">只读查看每一轮生成时的完整前5名，保留当时的理由与支持度。</div>
+            </div>
+            <VChip size="small" variant="tonal">{{ state.boardHistoryMeta.value.total || 0 }} 轮</VChip>
+          </div>
+
+          <VAlert v-if="state.boardHistoryMeta.value.notice" type="info" variant="tonal" class="mb-3">
+            {{ state.boardHistoryMeta.value.notice }}
+          </VAlert>
+          <VEmptyState
+            v-if="!state.boardHistory.value.length"
+            icon="mdi-history-box-outline"
+            title="暂无历史榜单"
+            text="榜单生成后，这里会保存每一轮的完整内容。"
+          />
+          <template v-else>
+            <div class="ar-page__board-history-list">
+              <article
+                v-for="entry in state.boardHistory.value"
+                :key="boardHistoryKey(entry)"
+                class="ar-page__board-history-item"
+              >
+                <div class="ar-page__board-history-head">
+                  <div class="ar-page__history-time">
+                    <VIcon icon="mdi-clock-outline" size="17" color="primary" />
+                    <strong>{{ formatTime(boardHistoryRun(entry).finished_at || boardHistoryBoard(entry).generated_at) }}</strong>
+                    <span>新推荐 {{ entry.new_count ?? 0 }} 条</span>
+                    <span>上轮重合 {{ entry.overlap_count ?? 0 }} 条</span>
+                    <span>回归 {{ entry.return_count ?? entry.returning_count ?? 0 }} 条</span>
+                  </div>
+                  <VChip size="small" :color="statusMetaFor(boardHistoryBoard(entry).status || boardHistoryRun(entry).status).color" variant="tonal">
+                    {{ statusMetaFor(boardHistoryBoard(entry).status || boardHistoryRun(entry).status).text }}
+                  </VChip>
+                </div>
+                <div class="ar-page__board-history-summary">
+                  <span>{{ boardHistoryBoard(entry).recommendations?.length || 0 }} 条推荐</span>
+                  <span v-if="boardHistoryBoard(entry).message">{{ boardHistoryBoard(entry).message }}</span>
+                  <VBtn size="x-small" variant="text" :append-icon="isBoardHistoryExpanded(entry) ? 'mdi-chevron-up' : 'mdi-chevron-down'" @click="toggleBoardHistory(entry)">
+                    {{ isBoardHistoryExpanded(entry) ? '收起榜单' : '展开榜单' }}
+                  </VBtn>
+                </div>
+                <div class="ar-page__board-history-metrics">
+                  <span>触发：{{ historyTriggerText(entry) }}</span>
+                  <span>重合率 {{ Math.round(Number(entry.previous_overlap_rate || 0) * 100) }}%</span>
+                  <span>近五轮均值 {{ Math.round(Number(entry.recent_average_overlap_rate || 0) * 100) }}%</span>
+                  <span v-if="entry.exposed">已曝光 {{ entry.exposure_count || 0 }} 次{{ entry.interacted ? ' · 有操作' : ' · 无操作' }}</span>
+                  <span v-else>未确认曝光</span>
+                </div>
+                <div v-if="isBoardHistoryExpanded(entry)" class="ar-page__board-history-detail">
+                  <div
+                    v-for="item in (boardHistoryBoard(entry).recommendations || []).slice(0, 5)"
+                    :key="`${boardHistoryKey(entry)}:${item.candidate_id}`"
+                    class="ar-page__board-history-rank"
+                  >
+                    <div class="ar-page__rank" :class="{ 'ar-page__rank--top': item.rank <= 3 }">{{ item.rank }}</div>
+                    <div class="ar-page__poster ar-page__poster--history">
+                      <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover>
+                        <template #error><div class="ar-page__poster-error"><VIcon icon="mdi-image-off-outline" size="22" /></div></template>
+                      </VImg>
+                      <VIcon v-else icon="mdi-image-off-outline" size="22" />
+                    </div>
+                    <div class="ar-page__board-history-copy">
+                      <div class="ar-page__title-row">
+                        <div class="ar-page__media-title">{{ item.title || '未命名作品' }}</div>
+                        <VChip size="x-small" variant="tonal">{{ mediaTypeLabel(item.media_type) }}</VChip>
+                        <VChip v-if="item.history_state === 'new'" size="x-small" color="success" variant="tonal">本轮新入榜</VChip>
+                        <VChip v-else size="x-small" variant="outlined">历史再推荐</VChip>
+                        <VChip v-if="item.selection_source === 'returning'" size="x-small" color="info" variant="tonal">回归推荐</VChip>
+                      </div>
+                      <div class="ar-page__meta-row"><span>{{ item.year || '年份未知' }}</span></div>
+                      <div class="ar-page__rank-copy">
+                        <span class="ar-page__copy-label">推荐：</span>
+                        <span class="ar-page__copy-text">{{ item.reason || item.summary || '暂无推荐理由' }}</span>
+                      </div>
+                      <div class="ar-page__rank-copy ar-page__rank-copy--muted">
+                        <span class="ar-page__copy-label">支持：</span>
+                        <span class="ar-page__copy-text">{{ item.support ? `${supportConfidenceText(item)} · ${supportEvidenceText(item)} · 净支持 ${item.support.percentage}%` : '历史快照未保存支持度' }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <VPagination v-model="boardHistoryPage" :length="boardHistoryPages" density="compact" total-visible="7" class="mt-3" @update:model-value="changeBoardHistoryPage" />
+          </template>
+          <span class="d-none">page_size={{ boardHistoryPageSize }}</span>
+        </section>
       </template>
     </div>
 
@@ -1005,7 +1221,7 @@ onBeforeUnmount(() => {
 .ar-page__title { font-size: 1.08rem; font-weight: 700; line-height: 1.35; }
 .ar-page__subtitle { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; }
 .ar-page__identity { width: 210px; margin-right: 4px; }
-.ar-page__summary-bar { min-height: 56px; display: grid; grid-template-columns: repeat(3, minmax(120px, .7fr)) minmax(220px, 1.3fr) auto; align-items: center; gap: 8px; padding: 6px 14px; background: transparent; }
+.ar-page__summary-bar { flex: 0 0 auto; min-height: 56px; display: grid; grid-template-columns: repeat(3, minmax(120px, .7fr)) minmax(220px, 1.3fr) auto; align-items: center; gap: 8px; padding: 6px 14px; background: transparent; }
 .ar-page__stat { min-width: 0; display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-right: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .7)); }
 .ar-page__stat-value { font-size: 17px; font-weight: 700; line-height: 1.2; }
 .ar-page__stat-value span { margin-left: 2px; color: rgba(var(--v-theme-on-surface), .48); font-size: 11px; font-weight: 500; }
@@ -1043,6 +1259,8 @@ onBeforeUnmount(() => {
 .ar-page__copy-label { color: rgb(var(--v-theme-primary)); font-size: 11px; font-weight: 600; }
 .ar-page__copy-text { min-width: 0; display: block; overflow: visible; overflow-wrap: anywhere; }
 .ar-page__match-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ar-page__evidence-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; margin-top: 7px; color: rgba(var(--v-theme-on-surface), .58); font-size: 11px; line-height: 1.4; }
+.ar-page__evidence-summary span { overflow-wrap: anywhere; }
 .ar-page__rank-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
 .ar-page__support { flex: 0 0 auto; margin-left: auto; }
 .ar-page__section-card, .ar-page__archive-card, .ar-page__table-card { border-radius: 10px; background: transparent; }
@@ -1060,6 +1278,12 @@ onBeforeUnmount(() => {
 .ar-page__profile-metric strong { display: block; font-size: 17px; line-height: 1.2; }
 .ar-page__profile-metric strong span { margin-left: 2px; color: rgba(var(--v-theme-on-surface), .48); font-size: 10px; font-weight: 500; }
 .ar-page__profile-metric small { display: block; margin-top: 2px; color: rgba(var(--v-theme-on-surface), .55); font-size: 10px; white-space: nowrap; }
+.ar-page__learning-health { grid-column: 1 / -1; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .7)); border-radius: 9px; background: rgba(var(--v-theme-primary), .025); }
+.ar-page__health-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.ar-page__health-grid > div { min-width: 0; display: grid; gap: 2px; }
+.ar-page__health-grid strong { font-size: 16px; }
+.ar-page__health-grid small, .ar-page__health-footer { color: rgba(var(--v-theme-on-surface), .58); font-size: 11px; }
+.ar-page__health-footer { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-top: 8px; }
 .ar-page__profile-groups { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .ar-page__profile-group { min-height: 108px; padding: 11px 12px; }
 .ar-page__profile-group--archived { grid-column: 1 / -1; min-height: 74px; }
@@ -1112,6 +1336,21 @@ onBeforeUnmount(() => {
 .ar-page__history-agent-head span, .ar-page__history-agent-call small { color: rgba(var(--v-theme-on-surface), .58); }
 .ar-page__history-agent-call small { display: block; margin-top: 2px; }
 .ar-page__history-agent-error { color: rgb(var(--v-theme-error)) !important; }
+.ar-page__board-history-list { display: flex; flex-direction: column; gap: 10px; }
+.ar-page__board-history-item { padding: 12px 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; background: transparent; }
+.ar-page__board-history-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ar-page__board-history-summary { display: flex; align-items: center; gap: 10px; margin-top: 7px; color: rgba(var(--v-theme-on-surface), .6); font-size: 11px; }
+.ar-page__board-history-summary > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-page__board-history-summary .v-btn { margin-left: auto; }
+.ar-page__board-history-metrics { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 7px; color: rgba(var(--v-theme-on-surface), .58); font-size: 11px; line-height: 1.45; }
+.ar-page__board-history-metrics span { overflow-wrap: anywhere; }
+.ar-page__board-history-detail { display: grid; gap: 7px; margin-top: 8px; padding-top: 9px; border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .62)); }
+.ar-page__board-history-rank { display: grid; grid-template-columns: 30px 44px minmax(0, 1fr); gap: 9px; align-items: center; min-width: 0; padding: 7px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .68)); border-radius: 8px; background: transparent; }
+.ar-page__poster--history { width: 44px; height: 66px; }
+.ar-page__board-history-copy { min-width: 0; }
+.ar-page__board-history-copy .ar-page__title-row { flex-wrap: wrap; }
+.ar-page__board-history-copy .ar-page__media-title { font-size: 13px; }
+.ar-page__board-history-copy .ar-page__rank-copy { margin-top: 4px; }
 @media (max-width: 900px) {
   .ar-page__summary-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ar-page__progress { grid-column: 1 / 3; }
@@ -1130,6 +1369,7 @@ onBeforeUnmount(() => {
   .ar-page__brand { order: 1; }
   .ar-page__heading { order: 1; flex: 1 1 180px; }
   .ar-page__toolbar :deep(.v-btn--icon) { order: 2; }
+  .ar-page__critic-badge { order: 2; }
   .ar-page__pending-badge { order: 2; }
   .ar-page__identity { order: 3; width: calc(100% - 24px); margin: 6px 12px; }
   .ar-page__summary-bar { min-height: 60px; gap: 4px; padding: 8px 10px; }
@@ -1163,6 +1403,10 @@ onBeforeUnmount(() => {
   .ar-page__history-metrics > div:nth-child(-n + 2) { border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .58)); }
   .ar-page__history-pipeline { grid-template-columns: repeat(7, minmax(105px, 1fr)); }
   .ar-page__history-footer { align-items: flex-start; }
+  .ar-page__board-history-item { padding: 10px; }
+  .ar-page__board-history-head { align-items: flex-start; }
+  .ar-page__board-history-summary { align-items: flex-start; }
+  .ar-page__health-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 390px) {
   .ar-page { width: 100%; height: calc(100dvh - 4px); border-radius: 10px; }

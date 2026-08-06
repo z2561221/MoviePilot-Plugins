@@ -1,6 +1,7 @@
 """Agent榜单中心 bearer API 控制器与稳定响应契约。"""
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping
 
 from fastapi import Depends
@@ -9,6 +10,7 @@ from app import schemas
 from app.core.security import verify_token
 
 from ..model.config import configured_identities, default_config
+from ..model.feedback import ShortTermSignal
 from ..model.identity import EmbyIdentity
 from ..service.archive import ArchiveService
 from ..service.analysis_comment import AnalysisCommentError, AnalysisCommentService
@@ -18,6 +20,7 @@ from ..service.feedback_action import FeedbackActionError, FeedbackActionService
 from ..service.feedback_queue import FeedbackQueueError, FeedbackQueueService
 from ..service.feedback_proposal import FeedbackProposalService
 from ..service.profile_preferences import ProfilePreferenceService
+from ..service.prompt import configured_agent_display_name, effective_persona_prompt
 
 
 class ApiContractError(Exception):
@@ -302,6 +305,67 @@ class AgentRankApiController:
             raise ApiContractError(422, "candidate_id_required", "必须指定 candidate_id")
         return candidate_id
 
+    def _board_context(
+        self, payload: Mapping[str, Any], *, candidate_id: str = ""
+    ) -> tuple[str, Any, int]:
+        """校验事件是否仍绑定当前榜单的 run_id 与 revision。"""
+        target = self._profile_id(payload.get("profile_id"))
+        board = self._repository().load_board(target)
+        if board is None:
+            raise ApiContractError(409, "board_unavailable", "当前没有可记录的推荐榜单")
+        run_id = str(payload.get("run_id") or "").strip()
+        if not run_id:
+            raise ApiContractError(422, "run_id_required", "必须指定榜单 run_id")
+        if run_id != board.run_id:
+            raise ApiContractError(409, "board_run_conflict", "榜单已刷新，请基于最新榜单重试")
+        raw_revision = payload.get("board_revision", payload.get("revision"))
+        try:
+            revision = int(raw_revision)
+        except (TypeError, ValueError) as error:
+            raise ApiContractError(422, "invalid_board_revision", "榜单 revision 必须是整数") from error
+        if revision != board.revision:
+            raise ApiContractError(409, "board_revision_conflict", "榜单状态已变化，请刷新后重试")
+        if candidate_id and not any(
+            item.candidate_id == candidate_id for item in board.recommendations
+        ):
+            raise ApiContractError(409, "candidate_not_on_board", "候选已不在当前榜单中")
+        return target, board, revision
+
+    def _append_short_term_signal(
+        self,
+        *,
+        profile_id: str,
+        kind: str,
+        idempotency_key: str,
+        candidate_id: str = "",
+        run_id: str = "",
+        board_revision: int = 0,
+        source: str,
+        strength: float,
+        decay_days: int,
+    ) -> Dict[str, Any]:
+        """写入一条按行为类型分层衰减的短期信号并刷新健康度。"""
+        observed_at = datetime.now(timezone.utc).isoformat()
+        signal = ShortTermSignal(
+            profile_id=profile_id,
+            kind=kind,
+            idempotency_key=idempotency_key,
+            candidate_id=candidate_id,
+            run_id=run_id,
+            board_revision=board_revision,
+            strength=strength,
+            decay_days=decay_days,
+            observed_at=observed_at,
+            source=source,
+        )
+        stored, created = self._repository().append_short_term_signal(signal)
+        health = self._repository().build_learning_health(profile_id)
+        return {
+            "signal": stored.to_dict(),
+            "created": created,
+            "learning_health": health.to_dict(),
+        }
+
     def _data_lifecycle(self) -> DataLifecycleService:
         """返回绑定当前仓储和规范化配置的数据生命周期服务。"""
         return DataLifecycleService(self._repository(), self.plugin._config)
@@ -340,6 +404,13 @@ class AgentRankApiController:
                 message_limit=int(
                     self.plugin._config.get("conversation_message_limit") or 200
                 ),
+                agent_name=configured_agent_display_name(
+                    self.plugin._config.get("agent_display_name")
+                ),
+                persona_prompt=effective_persona_prompt(
+                    self.plugin._config.get("persona_preset"),
+                    self.plugin._config.get("persona_prompt"),
+                ),
             )
             self.plugin._conversation = service
         return service
@@ -366,11 +437,15 @@ class AgentRankApiController:
         service = PendingCenterService(
             self._repository(),
             feedback_response=feedback_response,
-            memory_projection=memory_projection,
-            conversation=self._conversation_service(),
-            persona_prompt=str(
-                self.plugin._config.get("persona_prompt") or ""
-            ),
+                memory_projection=memory_projection,
+                conversation=self._conversation_service(),
+                persona_prompt=effective_persona_prompt(
+                    self.plugin._config.get("persona_preset"),
+                    self.plugin._config.get("persona_prompt"),
+                ),
+                agent_name=configured_agent_display_name(
+                    self.plugin._config.get("agent_display_name")
+                ),
         )
         self.plugin._pending_center = service
         return service
@@ -406,6 +481,16 @@ class AgentRankApiController:
                 item["outcome_attribution"] = attributions.get(
                     str(item.get("candidate_id") or "")
                 )
+        consumption = self._repository().load_board_consumption(
+            board.profile_id, board.run_id, board.revision
+        )
+        value["consumption"] = consumption.to_dict() if consumption is not None else None
+        service = getattr(self.plugin, "_poster_service", None)
+        return service.enrich_board(value) if service is not None else value
+
+    def _board_snapshot_data(self, board: Any) -> Dict[str, Any]:
+        """返回不绑定当前反馈状态的历史榜单快照。"""
+        value = board.to_dict()
         service = getattr(self.plugin, "_poster_service", None)
         return service.enrich_board(value) if service is not None else value
 
@@ -589,6 +674,10 @@ class AgentRankApiController:
                 "latest_run": history[0].to_dict() if history else None,
                 "history": [item.to_dict() for item in history[:15]],
                 "history_total": len(history),
+                "learning_health": repository.build_learning_health(target).to_dict(),
+                "agent_display_name": configured_agent_display_name(
+                    self.plugin._config.get("agent_display_name")
+                ),
                 "playback": self._playback_data(target),
                 "enablement": self._enablement_data(),
                 "migration": self._migration_data([target]),
@@ -639,6 +728,110 @@ class AgentRankApiController:
                 "total": len(items),
                 "page": current_page,
                 "page_size": current_page_size,
+            }
+        )
+
+    def board_history(
+        self, profile_id: Any, page: int = 1, page_size: int = 10
+    ) -> Dict[str, Any]:
+        """返回只读的历史榜单快照及相邻轮次变化摘要。"""
+        target = self._profile_id(profile_id)
+        repository = self._repository()
+        boards = list(repository.load_board_history(target))
+        legacy_fallback = False
+        notice = ""
+        if not boards:
+            current = repository.load_board(target)
+            if current is not None and current.recommendations:
+                # 历史功能上线前没有快照时，至少让用户看到当前榜单，并明确标记起点。
+                boards = [current]
+                legacy_fallback = True
+                notice = "历史榜单从本次开始记录，当前榜单为上线前的最后一轮。"
+            else:
+                notice = "榜单生成后，这里会记录每一轮的完整榜单。"
+        runs = {
+            run.run_id: run
+            for run in repository.load_run_history(target)
+            if str(run.run_id or "").strip()
+        }
+        board_by_run_id = {
+            board.run_id: board
+            for board in boards
+            if str(board.run_id or "").strip()
+        }
+        def board_ids(value: Any) -> set[str]:
+            return {
+                str(item.candidate_id or "").strip()
+                for item in (value.recommendations if value else ())
+                if str(item.candidate_id or "").strip()
+            }
+
+        def overlap_rate(current_ids: set[str], previous_ids: set[str]) -> float:
+            if not current_ids or not previous_ids:
+                return 0.0
+            return round(len(current_ids & previous_ids) / max(1, len(current_ids)), 4)
+
+        items: List[Dict[str, Any]] = []
+        for index, board in enumerate(boards):
+            current_ids = board_ids(board)
+            previous = board_by_run_id.get(str(board.previous_run_id or "").strip())
+            if previous is None and index + 1 < len(boards):
+                previous = boards[index + 1]
+            previous_ids = board_ids(previous)
+            older_ids = set().union(*(board_ids(value) for value in boards[index + 1 :]))
+            return_count = len((current_ids & older_ids) - previous_ids)
+            recent_rates = []
+            for recent_index in range(index, min(len(boards) - 1, index + 5)):
+                recent_current = board_ids(boards[recent_index])
+                recent_previous = board_ids(boards[recent_index + 1])
+                recent_rates.append(overlap_rate(recent_current, recent_previous))
+            run = runs.get(board.run_id)
+            metrics = dict(run.metrics or {}) if run is not None else {}
+            consumption = repository.load_board_consumption(
+                target, board.run_id, board.revision
+            )
+            board_data = self._board_snapshot_data(board)
+            for item in board_data.get("recommendations") or []:
+                candidate_id = str(item.get("candidate_id") or "").strip()
+                item["history_state"] = (
+                    "repeat" if candidate_id in previous_ids else "new"
+                )
+            items.append(
+                {
+                    "board": board_data,
+                    "run": run.to_dict() if run is not None else None,
+                    "new_count": len(current_ids - previous_ids),
+                    "overlap_count": len(current_ids & previous_ids),
+                    "previous_overlap_rate": overlap_rate(current_ids, previous_ids),
+                    "return_count": return_count,
+                    "returning_count": return_count,
+                    "recent_average_overlap_rate": round(
+                        sum(recent_rates) / len(recent_rates), 4
+                    ) if recent_rates else 0.0,
+                    "trigger_reason": str(
+                        metrics.get("trigger_reason") or (
+                            "legacy_snapshot" if legacy_fallback else "unknown"
+                        )
+                    ),
+                    "exposed": bool(consumption.exposed) if consumption else False,
+                    "exposure_count": int(consumption.exposure_count or 0) if consumption else 0,
+                    "interacted": bool(consumption.interacted) if consumption else False,
+                    "legacy_fallback": legacy_fallback,
+                }
+            )
+        current_page = max(1, int(page or 1))
+        current_page_size = max(1, min(int(page_size or 10), 50))
+        start = (current_page - 1) * current_page_size
+        return self._success(
+            {
+                "profile_id": target,
+                "username": self._display_name(target),
+                "items": items[start : start + current_page_size],
+                "total": len(items),
+                "page": current_page,
+                "page_size": current_page_size,
+                "notice": notice,
+                "legacy_fallback": legacy_fallback,
             }
         )
 
@@ -734,6 +927,44 @@ class AgentRankApiController:
         data = result.to_dict()
         data["queue_status"] = queue_job.status if queue_job is not None else "cancelled"
         data["queue_job"] = queue_job.to_public_dict() if queue_job is not None else None
+        short_term = None
+        try:
+            if result.event.kind in {"like", "dislike"}:
+                revision = int(body.get("board_revision") or 1)
+                self._repository().record_board_interaction(
+                    target,
+                    result.event.run_id,
+                    revision,
+                    result.event.kind,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+                short_term = self._append_short_term_signal(
+                    profile_id=target,
+                    kind=result.event.kind,
+                    idempotency_key=f"feedback:{result.event.idempotency_key}",
+                    candidate_id=result.event.candidate_id,
+                    run_id=result.event.run_id,
+                    board_revision=revision,
+                    source="structured_feedback",
+                    strength=0.95 if result.event.kind == "like" else -1.0,
+                    decay_days=60,
+                )
+            elif result.event.kind == "ignore":
+                self._repository().record_board_interaction(
+                    target,
+                    result.event.run_id,
+                    int(body.get("board_revision") or 1),
+                    "ignore",
+                    datetime.now(timezone.utc).isoformat(),
+                )
+        except Exception as error:
+            # 反馈事实已经成功落账；把学习投影错误留在响应中，避免重复提交写入。
+            short_term = {
+                "created": False,
+                "error": "short_term_signal_failed",
+                "message": str(error)[:160],
+            }
+        data["short_term"] = short_term
         return self._success(data)
 
     def analysis_comment(self, payload: Any, actor_id: str = "") -> Dict[str, Any]:
@@ -1059,7 +1290,7 @@ class AgentRankApiController:
         body = self._payload(payload)
         target = self._profile_id(body.get("profile_id"))
         if body.get("confirm") is not True:
-            raise ApiContractError(409, "confirmation_required", "清除画像需要明确确认")
+            raise ApiContractError(409, "confirmation_required", "重建画像需要明确确认")
         result = ArchiveService(self._repository()).clear_profile(target)
         return self._success(result.__dict__)
 
@@ -1092,7 +1323,7 @@ class AgentRankApiController:
             ) from error
         except Exception as error:
             raise ApiContractError(
-                500, "learning_reset_failed", "学习重置失败，旧数据已保留"
+                500, "learning_reset_failed", "重置交互学习失败，旧数据已保留"
             ) from error
         return self._success(data)
 
@@ -1110,7 +1341,7 @@ class AgentRankApiController:
             ) from error
         except Exception as error:
             raise ApiContractError(
-                500, "full_reset_prepare_failed", "无法生成彻底重置确认"
+                500, "full_reset_prepare_failed", "无法生成清空全部数据确认"
             ) from error
         return self._success(data)
 
@@ -1130,7 +1361,7 @@ class AgentRankApiController:
             ) from error
         except Exception as error:
             raise ApiContractError(
-                500, "full_reset_failed", "彻底重置失败，旧数据已保留"
+                500, "full_reset_failed", "清空全部数据失败，旧数据已保留"
             ) from error
         return self._success(data)
 
@@ -1177,8 +1408,9 @@ class AgentRankApiController:
                 record_limit=int(
                     self.plugin._config.get("analysis_record_limit") or 500
                 ),
-                persona_prompt=str(
-                    self.plugin._config.get("persona_prompt") or ""
+                persona_prompt=effective_persona_prompt(
+                    self.plugin._config.get("persona_preset"),
+                    self.plugin._config.get("persona_prompt"),
                 ),
             ).create_playback_calibration(
                 target,
@@ -1193,6 +1425,11 @@ class AgentRankApiController:
         data["calibration_question_id"] = (
             calibration.question_id if calibration is not None else ""
         )
+        data["learning_health"] = self._repository().build_learning_health(target).to_dict()
+        runtime = getattr(self.plugin, "_runtime", None)
+        notify_pending = getattr(runtime, "notify_pending_event", None)
+        if calibration is not None and callable(notify_pending):
+            notify_pending(target, calibration.event_id)
         return self._success(data)
 
     def subscribe(self, payload: Any) -> Dict[str, Any]:
@@ -1212,7 +1449,43 @@ class AgentRankApiController:
         )
         if not result.success:
             raise ApiContractError(409, result.code, result.message)
-        return self._success(result.__dict__)
+        short_term = None
+        board = self._repository().load_board(target)
+        if board is not None and any(
+            item.candidate_id == candidate_id for item in board.recommendations
+        ):
+            observed_at = datetime.now(timezone.utc).isoformat()
+            try:
+                self._repository().record_board_interaction(
+                    target,
+                    board.run_id,
+                    board.revision,
+                    "subscribe",
+                    observed_at,
+                )
+                short_term = self._append_short_term_signal(
+                    profile_id=target,
+                    kind="subscribe",
+                    idempotency_key=(
+                        str(body.get("idempotency_key") or "").strip()
+                        or f"subscribe:{board.run_id}:{board.revision}:{candidate_id}"
+                    ),
+                    candidate_id=candidate_id,
+                    run_id=board.run_id,
+                    board_revision=board.revision,
+                    source="moviepilot_subscription",
+                    strength=0.8,
+                    decay_days=90,
+                )
+            except Exception as error:
+                short_term = {
+                    "created": False,
+                    "error": "short_term_signal_failed",
+                    "message": str(error)[:160],
+                }
+        data = dict(result.__dict__)
+        data["short_term"] = short_term
+        return self._success(data)
 
     def attribution(self, profile_id: Any) -> Dict[str, Any]:
         """返回指定 profile 的安全结果归因记录。"""
@@ -1265,6 +1538,117 @@ class AgentRankApiController:
                 "结果归因暂时无法复查，已保留上次可信状态",
             ) from error
         return self._success(result.to_dict())
+
+    def learning_health(self, profile_id: Any) -> Dict[str, Any]:
+        """返回当前 profile 的短期学习、确认记忆和归因覆盖摘要。"""
+        target = self._profile_id(profile_id)
+        return self._success(self._repository().build_learning_health(target).to_dict())
+
+    def record_exposure(self, payload: Any) -> Dict[str, Any]:
+        """记录当前榜单实际进入页面可见区的一次曝光。"""
+        body = self._payload(payload)
+        target, board, revision = self._board_context(body)
+        raw_ids = body.get("candidate_ids")
+        if raw_ids is None:
+            candidate_ids = [item.candidate_id for item in board.recommendations]
+        elif isinstance(raw_ids, (list, tuple, set)):
+            candidate_ids = [str(item or "").strip() for item in raw_ids]
+        else:
+            candidate_ids = None
+        if candidate_ids is None or any(not item for item in candidate_ids):
+            raise ApiContractError(422, "candidate_ids_invalid", "candidate_ids 必须是候选标识数组")
+        allowed = {item.candidate_id for item in board.recommendations}
+        if any(item not in allowed for item in candidate_ids):
+            raise ApiContractError(409, "candidate_not_on_board", "曝光候选不属于当前榜单")
+        try:
+            consumption = self._repository().record_board_exposure(
+                target,
+                board.run_id,
+                revision,
+                candidate_ids,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            health = self._repository().build_learning_health(target)
+        except Exception as error:
+            raise ApiContractError(500, "exposure_record_failed", "榜单曝光记录失败") from error
+        return self._success(
+            {
+                "consumption": consumption.to_dict(),
+                "learning_health": health.to_dict(),
+            }
+        )
+
+    def record_detail_opened(self, payload: Any) -> Dict[str, Any]:
+        """记录当前榜单候选详情被用户打开，并生成中等强度短期信号。"""
+        body = self._payload(payload)
+        candidate_id = self._candidate_id(body)
+        target, board, revision = self._board_context(body, candidate_id=candidate_id)
+        observed_at = datetime.now(timezone.utc).isoformat()
+        try:
+            consumption = self._repository().record_board_detail_opened(
+                target,
+                board.run_id,
+                revision,
+                candidate_id,
+                observed_at,
+            )
+            signal = self._append_short_term_signal(
+                profile_id=target,
+                kind="detail_opened",
+                idempotency_key=f"detail:{board.run_id}:{revision}:{candidate_id}",
+                candidate_id=candidate_id,
+                run_id=board.run_id,
+                board_revision=revision,
+                source="agentrank_detail",
+                strength=0.3,
+                decay_days=30,
+            )
+        except Exception as error:
+            raise ApiContractError(500, "detail_record_failed", "详情打开记录失败") from error
+        return self._success(
+            {"consumption": consumption.to_dict(), "short_term": signal}
+        )
+
+    def record_consumption_interaction(self, payload: Any) -> Dict[str, Any]:
+        """记录订阅或播放结果等榜单消费状态，并写入对应短期信号。"""
+        body = self._payload(payload)
+        candidate_id = self._candidate_id(body)
+        kind = str(body.get("kind") or "").strip().casefold()
+        signal_config = {
+            "subscribe": (0.8, 90, "moviepilot_subscription"),
+            "playback_start": (0.45, 30, "playback_reporting"),
+            "playback_completed": (0.95, 90, "playback_reporting"),
+            "playback_abandoned": (-0.35, 30, "playback_reporting"),
+        }
+        if kind not in signal_config:
+            raise ApiContractError(422, "invalid_consumption_kind", "不支持的榜单消费状态")
+        target, board, revision = self._board_context(body, candidate_id=candidate_id)
+        observed_at = datetime.now(timezone.utc).isoformat()
+        strength, decay_days, source = signal_config[kind]
+        idempotency_key = (
+            str(body.get("idempotency_key") or "").strip()
+            or f"consumption:{kind}:{board.run_id}:{revision}:{candidate_id}"
+        )
+        try:
+            consumption = self._repository().record_board_interaction(
+                target, board.run_id, revision, kind, observed_at
+            )
+            signal = self._append_short_term_signal(
+                profile_id=target,
+                kind=kind,
+                idempotency_key=idempotency_key,
+                candidate_id=candidate_id,
+                run_id=board.run_id,
+                board_revision=revision,
+                source=source,
+                strength=strength,
+                decay_days=decay_days,
+            )
+        except Exception as error:
+            raise ApiContractError(500, "consumption_record_failed", "榜单消费状态记录失败") from error
+        return self._success(
+            {"consumption": consumption.to_dict(), "short_term": signal}
+        )
 
     def _endpoint(self, method: Any, *args: Any) -> Any:
         """把纯控制器错误转换为 FastAPI HTTPException。"""
@@ -1330,6 +1714,17 @@ class AgentRankApiController:
         """FastAPI 运行历史入口。"""
         target = self._endpoint(self._authorize_profile, token_payload, profile_id)
         return self._endpoint(self.run_history, target, page, page_size)
+
+    def endpoint_board_history(
+        self,
+        profile_id: str = "",
+        page: int = 1,
+        page_size: int = 10,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 历史榜单入口。"""
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.board_history, target, page, page_size)
 
     def endpoint_run_progress(
         self,
@@ -1600,6 +1995,42 @@ class AgentRankApiController:
         self._endpoint(self._authorize_payload_profile, token_payload, payload)
         return self._endpoint(self.subscribe, payload)
 
+    def endpoint_learning_health(
+        self,
+        profile_id: str = "",
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 学习健康度读取入口。"""
+        target = self._endpoint(self._authorize_profile, token_payload, profile_id)
+        return self._endpoint(self.learning_health, target)
+
+    def endpoint_record_exposure(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 榜单真实曝光记录入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        return self._endpoint(self.record_exposure, payload)
+
+    def endpoint_record_detail_opened(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 榜单详情打开记录入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        return self._endpoint(self.record_detail_opened, payload)
+
+    def endpoint_record_consumption_interaction(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 订阅与播放结果记录入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        return self._endpoint(self.record_consumption_interaction, payload)
+
 
 def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
     """构建全部 bearer 前端 API 路由。"""
@@ -1675,7 +2106,7 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
         ),
         ("/restore", controller.endpoint_restore, ["POST"], "恢复推荐"),
         ("/archive/delete", controller.endpoint_delete_archive, ["POST"], "删除归档"),
-        ("/profile/clear", controller.endpoint_clear_profile, ["POST"], "清除画像"),
+        ("/profile/clear", controller.endpoint_clear_profile, ["POST"], "重建画像"),
         (
             "/profile/tags",
             controller.endpoint_update_profile_tag,
@@ -1683,6 +2114,16 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
             "更新人工画像标签",
         ),
         ("/run-history", controller.endpoint_run_history, ["GET"], "获取运行历史"),
+        ("/board-history", controller.endpoint_board_history, ["GET"], "获取历史榜单"),
+        ("/learning-health", controller.endpoint_learning_health, ["GET"], "获取学习健康度"),
+        ("/consumption/exposure", controller.endpoint_record_exposure, ["POST"], "记录榜单真实曝光"),
+        ("/consumption/detail-opened", controller.endpoint_record_detail_opened, ["POST"], "记录榜单详情打开"),
+        (
+            "/consumption/interaction",
+            controller.endpoint_record_consumption_interaction,
+            ["POST"],
+            "记录订阅与播放结果",
+        ),
         ("/data/export", controller.endpoint_data_export, ["GET"], "导出脱敏数据"),
         (
             "/data/reset/learning",
@@ -1694,13 +2135,13 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
             "/data/reset/full/prepare",
             controller.endpoint_prepare_full_reset,
             ["POST"],
-            "准备彻底重置",
+            "准备清空全部数据",
         ),
         (
             "/data/reset/full",
             controller.endpoint_reset_full,
             ["POST"],
-            "执行彻底重置",
+            "执行清空全部数据",
         ),
         ("/subscribe", controller.endpoint_subscribe, ["POST"], "手动订阅推荐"),
     ]

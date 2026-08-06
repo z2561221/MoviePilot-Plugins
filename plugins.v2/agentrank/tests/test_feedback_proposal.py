@@ -385,7 +385,11 @@ def test_ambiguous_feedback_creates_dynamic_global_question_and_custom_answer():
     )
 
     assert isinstance(question, PendingQuestion)
-    assert question.question == "平时挑选影视内容时，你通常最先看重什么？"
+    assert question.question in {
+        "平时挑选影视内容时，你通常最先看重什么？",
+        "看到一部还不了解的新作品时，什么最容易让你想点开？",
+        "如果要给推荐设一个优先级，你通常会先看哪一项？",
+    }
     assert "候选作品" not in question.question
     assert len(question.options) == 5
     assert [item.option_id for item in question.options] == [
@@ -399,6 +403,102 @@ def test_ambiguous_feedback_creates_dynamic_global_question_and_custom_answer():
     assert question.next_remind_at == ""
     assert repository.load_memory_proposals(PROFILE_ID) == []
     assert repository.load_preference_memory(PROFILE_ID) == before
+
+
+@pytest.mark.parametrize(
+    ("interaction_mode", "expected_question"),
+    [("auto", False), ("normal", True), ("quiet", False)],
+)
+def test_interaction_mode_controls_routine_question_frequency(
+    interaction_mode, expected_question
+):
+    """三档模式控制成熟画像的日常问询频率。"""
+    repository = AgentRankRepository(FakePlugin())
+    memory = _seed_mature_memory(repository)
+    event = _event(repository, key=f"mode-{interaction_mode}", comment="")
+    record = _understanding(
+        event,
+        outcome="ambiguous",
+        uncertainties=("仍可补充细节",),
+        memory_revision=memory.memory_revision,
+    )
+
+    decision = FeedbackProposalService(
+        repository,
+        now_factory=lambda: FIXED_NOW,
+        interaction_mode=interaction_mode,
+    ).materialize(
+        record,
+        event=event,
+        candidate={"candidate_id": event.candidate_id, "title": "候选作品"},
+        memory=memory,
+    )
+
+    assert isinstance(decision, PendingQuestion) is expected_question
+
+
+def test_quiet_mode_still_questions_on_preference_conflict():
+    """安静模式只压制日常问询，明显偏好冲突仍需要确认。"""
+    repository = AgentRankRepository(FakePlugin())
+    memory = _seed_mature_memory(repository)
+    event = _event(repository, key="quiet-conflict", kind="dislike", comment="")
+    record = _understanding(
+        event,
+        outcome="ambiguous",
+        conflicts=(
+            {
+                "memory_item_id": "memory-pacing",
+                "category": "pacing",
+                "value": "紧凑",
+                "reason": "当前反馈与已确认偏好冲突",
+            },
+        ),
+        uncertainties=("需要确认是否口味变化",),
+        memory_revision=memory.memory_revision,
+    )
+
+    decision = FeedbackProposalService(
+        repository,
+        now_factory=lambda: FIXED_NOW,
+        interaction_mode="quiet",
+    ).materialize(
+        record,
+        event=event,
+        candidate={"candidate_id": event.candidate_id, "title": "候选作品"},
+        memory=memory,
+    )
+
+    assert isinstance(decision, PendingQuestion)
+
+
+def test_quiet_mode_skips_first_playback_calibration():
+    """安静模式不自动创建首次播放校准问题。"""
+    repository = AgentRankRepository(FakePlugin())
+    snapshot = PlaybackSnapshot(
+        PROFILE_ID,
+        source="playback_reporting",
+        confidence="high",
+        status="ready",
+        samples=[
+            PlaybackSample(
+                "quiet-strong-1",
+                "已看作品",
+                "movie",
+                genres=["科幻"],
+                completed=True,
+                watch_minutes=100,
+            )
+        ],
+    )
+
+    decision = FeedbackProposalService(
+        repository,
+        now_factory=lambda: FIXED_NOW,
+        interaction_mode="quiet",
+    ).create_playback_calibration(PROFILE_ID, snapshot)
+
+    assert decision == (None, False)
+    assert repository.load_pending_questions(PROFILE_ID) == []
 
 
 def test_only_one_pending_global_question_is_active_per_profile():

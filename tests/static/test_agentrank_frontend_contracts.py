@@ -229,9 +229,9 @@ def test_config_data_governance_and_critic_prompt_are_complete_and_guarded():
         assert path in source
     assert "getHostApi(props.api, 'user/')" in source
     assert "export async function getHostApi" in api
-    assert "fullResetPhrase.value !== '彻底重置'" in source
+    assert "fullResetPhrase.value !== '清空全部数据'" in source
     assert "confirmation_token" in source
-    assert "MoviePilot 订阅和媒体库未受影响" in source
+    assert "MoviePilot 订阅和媒体库" in source
     assert "v-model=\"promptEditor.draft\"" in source
 
 
@@ -315,10 +315,10 @@ def test_app_page_is_a_thin_host_shell_reusing_the_complete_page():
         assert duplicated not in source
 
 
-def test_page_has_four_management_tabs_editable_tags_and_backend_history_paging():
-    """The detail dialog covers ranking, editable profile, archive, and history."""
+def test_page_has_management_tabs_editable_tags_and_backend_history_paging():
+    """The detail dialog covers ranking, profile, archive, run history, and board history."""
     source = PAGE.read_text(encoding="utf-8")
-    for title in ("推荐榜单", "用户画像", "忽略归档", "运行历史"):
+    for title in ("推荐榜单", "用户画像", "忽略归档", "运行历史", "历史榜单"):
         assert title in source
     assert "useAgentRankState" in source
     assert "subscribe" in source
@@ -328,6 +328,10 @@ def test_page_has_four_management_tabs_editable_tags_and_backend_history_paging(
     assert "updateProfileTag" in source
     assert "closable" in source
     assert "historyPage" in source
+    assert "boardHistoryPage" in source
+    assert "board-history" in source
+    assert "本轮新入榜" in source
+    assert "历史再推荐" in source
     assert "page_size" in source
     assert "emit('close')" in source
     assert "emit('switch'," in source
@@ -367,6 +371,8 @@ def test_page_mobile_runtime_and_copy_layout_stay_readable():
     assert "stopRunProgressPoll()" in source
     assert "CinePilot Agent" in source
     assert "state.runProgress.value?.message" in source
+    assert ".ar-page__summary-bar { flex: 0 0 auto;" in source
+    assert ".ar-page__critic-badge { order: 2; }" in source
     assert ".ar-page__rank-copy { grid-template-columns: 34px minmax(0, 1fr); }" in source
     assert ".ar-page__copy-toggle" not in source
     assert "toggleCopy(item, 'reason')" not in source
