@@ -91,6 +91,13 @@ async function refreshBoard() {
   } catch (_) { /* 卡片内显示共享错误 */ }
 }
 
+function fitScoreText(item) {
+  const rawScore = item?.fit_score;
+  if (rawScore === null || rawScore === undefined || rawScore === '') return '—'
+  const score = Number(rawScore);
+  return Number.isFinite(score) && score >= 0 && score <= 100 ? `${Math.round(score)}分` : '—'
+}
+
 function stopRunProgressPoll() {
   if (runProgressTimer) window.clearTimeout(runProgressTimer);
   runProgressTimer = null;
@@ -265,10 +272,10 @@ return (_ctx, _cache) => {
                             size: "x-small",
                             color: "primary",
                             variant: "tonal",
-                            class: "ar-dashboard__support"
+                            class: "ar-dashboard__fit-score"
                           }, {
                             default: _withCtx(() => [
-                              _createTextVNode(_toDisplayString(item.support?.percentage ?? '—') + _toDisplayString(item.support ? '%' : ''), 1)
+                              _createTextVNode("契合度 " + _toDisplayString(fitScoreText(item)), 1)
                             ]),
                             _: 2
                           }, 1024),
@@ -335,6 +342,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-eb26d8b7"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-78f162c4"]]);
 
 export { Dashboard as default };

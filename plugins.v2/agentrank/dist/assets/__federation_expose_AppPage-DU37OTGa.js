@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-sonwSv94.js';
-import Page from './__federation_expose_Page-DPkAqo2N.js';
+import Config from './__federation_expose_Config-qxjDEQNU.js';
+import Page from './__federation_expose_Page-Gj5HH27p.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-CXFsw50i.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock,createVNode:_createVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,createElementBlock:_createElementBlock} = await importShared('vue');
@@ -8,8 +8,9 @@ const {openBlock:_openBlock,createBlock:_createBlock,createVNode:_createVNode,re
 
 const _hoisted_1 = ["data-nav-key", "data-plugin-id"];
 
-const {ref} = await importShared('vue');
+const {onBeforeUnmount,onMounted,ref} = await importShared('vue');
 
+const hostScrollLockClass = 'ar-app-page-host-lock';
 
 const _sfc_main = {
   __name: 'AppPage',
@@ -28,6 +29,35 @@ const savingSettings = ref(false);
 const settingsConfig = ref({});
 const pageKey = ref(0);
 const snackbar = ref({ show: false, message: '', color: 'success' });
+let hostScrollLocked = false;
+
+function lockHostScroll() {
+  if (typeof document === 'undefined' || hostScrollLocked) return
+  const root = document.documentElement;
+  const currentLocks = Number.parseInt(root.dataset.agentRankScrollLocks || '0', 10) || 0;
+  root.dataset.agentRankScrollLocks = String(currentLocks + 1);
+  root.classList.add(hostScrollLockClass);
+  document.body?.classList.add(hostScrollLockClass);
+  hostScrollLocked = true;
+}
+
+function unlockHostScroll() {
+  if (typeof document === 'undefined' || !hostScrollLocked) return
+  const root = document.documentElement;
+  const currentLocks = Number.parseInt(root.dataset.agentRankScrollLocks || '0', 10) || 0;
+  const nextLocks = Math.max(0, currentLocks - 1);
+  if (nextLocks > 0) {
+    root.dataset.agentRankScrollLocks = String(nextLocks);
+  } else {
+    delete root.dataset.agentRankScrollLocks;
+    root.classList.remove(hostScrollLockClass);
+    document.body?.classList.remove(hostScrollLockClass);
+  }
+  hostScrollLocked = false;
+}
+
+onMounted(lockHostScroll);
+onBeforeUnmount(unlockHostScroll);
 
 function openSettings(config = {}) {
   settingsConfig.value = { ...(config || {}) };
@@ -101,6 +131,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1530a73e"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9df712be"]]);
 
 export { AppPage as default };

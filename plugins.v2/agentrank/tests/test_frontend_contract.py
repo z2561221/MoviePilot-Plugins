@@ -345,7 +345,10 @@ def test_board_history_is_paginated_read_only_and_marks_cross_run_changes():
     assert "loadBoardHistory(page, pageSize)" in state
     assert "本轮新入榜" in page
     assert "历史再推荐" in page
-    assert "支持：" in page
+    assert "契合度：" in page
+    assert "mdi-view-list-outline" in page
+    assert "mdi-history-box-outline" not in page
+    assert "历史快照未保存支持度" not in page
     assert "state.archive" not in page[page.index("activeTab === 'board-history'"):]
     assert "state.subscribe" not in page[page.index("activeTab === 'board-history'"):]
 
@@ -506,25 +509,29 @@ def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse()
     for label in ("订阅", "TMDB", "忽略"):
         assert f'<span class="ar-actions__label">{label}</span>' in actions
         assert actions.count(f'<span class="ar-actions__label">{label}</span>') == 1
-    for name, support_class in (
-        ("Dashboard.vue", "ar-dashboard__support"),
-        ("Page.vue", "ar-page__support"),
+    for name, fit_score_class in (
+        ("Dashboard.vue", "ar-dashboard__fit-score"),
+        ("Page.vue", "ar-page__fit-score"),
     ):
         component = _read(name)
         assert ".slice(0, 5)" in component
         assert "置信度" not in component
-        assert "{{ item.support?.percentage ?? '—' }}" in component
-        assert "{{ item.support ? '%' : '' }}" in component
-        assert component.index(support_class) < component.index("<RecommendationActions")
-        support_rule = next(
+        assert "fit_score" in component
+        assert "契合度" in component
+        assert "rawScore === null || rawScore === undefined || rawScore === ''" in component
+        assert "support?.percentage" not in component
+        assert component.index(fit_score_class) < component.index("<RecommendationActions")
+        fit_score_rule = next(
             line for line in component.splitlines()
-            if line.startswith(f".{support_class} {{")
+            if line.startswith(f".{fit_score_class} {{")
         )
-        assert "margin-left: auto" in support_rule
+        assert "margin-left: auto" in fit_score_rule
     app_page = _read("AppPage.vue")
     page = _read("Page.vue")
     assert "<Page" in app_page
-    assert page.index('icon="mdi-text-box-search-outline"') < page.index("ar-page__support") < page.index("<RecommendationActions")
+    assert page.index('icon="mdi-text-box-search-outline"') < page.index("ar-page__fit-score") < page.index("<RecommendationActions")
+    assert "ar-page__evidence-summary" not in page
+    assert "净支持" not in page
     assert actions.index('aria-label="订阅"') < actions.index('aria-label="打开 TMDB"') < actions.index('aria-label="忽略"')
     assert actions.index('aria-label="忽略"') < actions.index("likePressed ? '已点赞' : '点赞'") < actions.index("dislikePressed ? '已点踩' : '点踩'")
 
@@ -564,6 +571,34 @@ def test_config_uses_five_main_sections_and_places_execution_controls_once():
     assert 'v-model="form.media_types"' not in config
     assert 'v-model="form.exclude_keywords"' not in config
     assert "negative_keyword: '避雷命中'" in config
+
+
+def test_mobile_page_and_config_keep_only_one_hidden_scroll_surface():
+    """移动端主页面扣除宿主导航，配置页外层固定且只允许内容窗滚动。"""
+    page = _read("Page.vue")
+    app_page = _read("AppPage.vue")
+    config = _read("Config.vue")
+
+    assert ":class=\"{ 'ar-page--app': !showClose }\"" in page
+    assert "var(--layout-navbar-block-size, 4rem)" in page
+    assert ".ar-page__content::-webkit-scrollbar { display: none; }" in page
+    assert "overflow: hidden;" in app_page
+    assert "onMounted(lockHostScroll)" in app_page
+    assert "onBeforeUnmount(unlockHostScroll)" in app_page
+    assert "agentRankScrollLocks" in app_page
+    assert ":global(html.ar-app-page-host-lock)" in app_page
+    assert ":global(body.ar-app-page-host-lock)" in app_page
+    assert "overflow-y: hidden !important;" in app_page
+    assert ":global(html.ar-app-page-host-lock .layout-footer)" in app_page
+    assert "display: none !important;" in app_page
+    assert "height: min(876px, calc(100dvh - 48px))" in config
+    assert ".ar-config__card { width: 100%; height: 100%; min-height: 0;" in config
+    assert ".ar-config__window::-webkit-scrollbar { display: none; }" in config
+    assert ".ar-config__subtabs::-webkit-scrollbar { display: none; }" in config
+    assert 'class="ar-config__header-brand"' in config
+    assert 'class="ar-config__header-copy"' in config
+    assert 'class="ar-config__enabled"' in config
+    assert '<VCardItem class="ar-config__header">' not in config
 
 
 def test_notification_type_and_low_interruption_state_are_user_visible_without_scores():
@@ -658,7 +693,7 @@ def test_dashboard_assigns_an_explicit_fourth_action_column_and_mobile_row():
     assert ".ar-dashboard__rank, .ar-dashboard__poster { grid-row: 1; }" in dashboard
     assert "grid-column: 1 / -1; grid-row: 2" in dashboard
     assert ".ar-dashboard__controls :deep(.ar-actions) { order: 1; }" in dashboard
-    assert ".ar-dashboard__support { order: 2; margin-left: auto; }" in dashboard
+    assert ".ar-dashboard__fit-score { order: 2; margin-left: auto; }" in dashboard
 
 
 def test_runtime_history_uses_chinese_fallbacks_for_unknown_internal_codes():

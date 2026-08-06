@@ -734,21 +734,21 @@ onMounted(loadRuntime)
 <template>
   <div class="ar-config">
     <VCard flat class="ar-config__card">
-      <VCardItem class="ar-config__header">
-        <template #prepend>
+      <header class="ar-config__header">
+        <div class="ar-config__header-brand">
           <VAvatar color="primary" variant="tonal" size="44" rounded="lg">
             <VIcon icon="mdi-brain" size="24" />
           </VAvatar>
-        </template>
-        <VCardTitle class="text-h6">Agent榜单中心</VCardTitle>
-        <VCardSubtitle>{{ currentMain.desc }}</VCardSubtitle>
-        <template #append>
-          <div class="ar-config__header-state">
-            <VChip :color="runtimeStateColor" variant="tonal" size="small">{{ runtimeStateText }}</VChip>
-            <VSwitch v-model="form.enabled" color="success" hide-details inset label="启用插件" />
+          <div class="ar-config__header-copy">
+            <div class="ar-config__header-title">Agent榜单中心</div>
+            <div class="ar-config__header-desc">{{ currentMain.desc }}</div>
           </div>
-        </template>
-      </VCardItem>
+        </div>
+        <div class="ar-config__header-state">
+          <VChip :color="runtimeStateColor" variant="tonal" size="small">{{ runtimeStateText }}</VChip>
+          <VSwitch v-model="form.enabled" color="success" hide-details inset label="启用插件" class="ar-config__enabled" />
+        </div>
+      </header>
       <VDivider />
 
       <div class="ar-config__body">
@@ -1286,20 +1286,26 @@ onMounted(loadRuntime)
 </template>
 
 <style scoped>
-.ar-config { width: min(1120px, calc(100vw - 48px)); max-width: 100%; padding: 8px; overflow-x: hidden; }
-.ar-config__card { width: 100%; height: clamp(760px, calc(100dvh - 48px), 860px); display: flex; flex-direction: column; overflow: hidden; border-radius: 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
-.ar-config__header { padding: 14px 18px; }
-.ar-config__header :deep(.v-card-subtitle) { max-width: min(560px, 52vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ar-config__header-state { display: flex; align-items: center; gap: 10px; }
+.ar-config { width: min(1120px, calc(100vw - 48px)); max-width: 100%; height: min(876px, calc(100dvh - 48px)); box-sizing: border-box; padding: 8px; overflow: hidden; }
+.ar-config__card { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.ar-config__header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 18px; }
+.ar-config__header-brand { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.ar-config__header-copy { min-width: 0; }
+.ar-config__header-title { font-size: 1.25rem; font-weight: 700; line-height: 1.35; }
+.ar-config__header-desc { max-width: min(620px, 54vw); margin-top: 2px; overflow: hidden; color: rgba(var(--v-theme-on-surface), .62); font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.ar-config__header-state { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; }
+.ar-config__enabled { flex: 0 0 auto; }
 .ar-config__body { flex: 1 1 auto; min-height: 0; display: flex; }
 .ar-config__nav { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), .02); }
 .ar-config__nav-list { width: 100%; }
 .ar-config__nav-item { margin: 2px 8px; }
 .ar-config__content { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.ar-config__subtabs { flex: 0 0 auto; display: flex; padding: 8px 12px; }
+.ar-config__subtabs { flex: 0 0 auto; display: flex; padding: 8px 12px; scrollbar-width: none; overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
+.ar-config__subtabs::-webkit-scrollbar { display: none; }
 .ar-config__subtab { display: inline-flex; align-items: center; padding: 6px 14px; border: 0; border-radius: 8px; background: transparent; color: rgba(var(--v-theme-on-surface), .68); font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .ar-config__subtab--active { background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); }
-.ar-config__window { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.ar-config__window { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.ar-config__window::-webkit-scrollbar { display: none; }
 .ar-config__window--overview { overflow-y: hidden; }
 .ar-config__pane { min-height: 100%; padding: 18px 20px; }
 .ar-config__pane--overview { padding: 12px 16px; }
@@ -1373,16 +1379,14 @@ onMounted(loadRuntime)
 .ar-config__danger-row :deep(.v-switch) { flex: 0 0 auto; }
 .ar-config__actions { flex: 0 0 auto; padding: 10px 18px; }
 @media (max-width: 760px) {
-  .ar-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
-  .ar-config__card { height: min(860px, calc(100dvh - 16px)); }
-  .ar-config__header :deep(.v-card-subtitle) {
-    max-width: 100%;
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-  .ar-config__header-state { gap: 4px; }
+  .ar-config { width: min(100%, calc(100vw - 16px)); height: calc(100dvh - 48px); padding: 4px; }
+  .ar-config__header { align-items: stretch; flex-direction: column; gap: 7px; padding: 10px 12px 8px; }
+  .ar-config__header-brand { gap: 10px; }
+  .ar-config__header-brand :deep(.v-avatar) { width: 38px !important; height: 38px !important; }
+  .ar-config__header-title { font-size: 1rem; }
+  .ar-config__header-desc { max-width: none; display: -webkit-box; overflow: hidden; white-space: normal; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .ar-config__header-state { min-height: 34px; justify-content: space-between; gap: 8px; padding-left: 48px; }
+  .ar-config__enabled { margin: -6px 0; }
   .ar-config__body { flex-direction: column; }
   .ar-config__nav { width: 100%; flex: 0 0 auto; border-right: 0; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .ar-config__nav::-webkit-scrollbar { display: none; }
@@ -1404,8 +1408,9 @@ onMounted(loadRuntime)
 }
 @media (max-width: 390px) {
   .ar-config { width: 100%; padding: 2px; }
-  .ar-config__header { padding-inline: 12px; }
-  .ar-config__header-state .v-chip { display: none; }
+  .ar-config__header { padding-inline: 10px; }
+  .ar-config__header-state { padding-left: 0; }
+  .ar-config__header-state .v-chip { max-width: 150px; }
   .ar-config__nav-item { min-width: 88px; }
   .ar-config__pane { padding: 12px; }
   .ar-config__actions { flex-wrap: wrap; padding-inline: 12px; }

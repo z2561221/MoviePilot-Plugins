@@ -68,6 +68,13 @@ async function refreshBoard() {
   } catch (_) { /* 卡片内显示共享错误 */ }
 }
 
+function fitScoreText(item) {
+  const rawScore = item?.fit_score
+  if (rawScore === null || rawScore === undefined || rawScore === '') return '—'
+  const score = Number(rawScore)
+  return Number.isFinite(score) && score >= 0 && score <= 100 ? `${Math.round(score)}分` : '—'
+}
+
 function stopRunProgressPoll() {
   if (runProgressTimer) window.clearTimeout(runProgressTimer)
   runProgressTimer = null
@@ -142,7 +149,7 @@ onBeforeUnmount(stopRunProgressPoll)
             <div class="ar-dashboard__copy text-caption text-medium-emphasis">简介：{{ item.summary }}</div>
           </div>
           <div class="ar-dashboard__controls">
-            <VChip size="x-small" color="primary" variant="tonal" class="ar-dashboard__support">{{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
+            <VChip size="x-small" color="primary" variant="tonal" class="ar-dashboard__fit-score">契合度 {{ fitScoreText(item) }}</VChip>
             <RecommendationActions
               :item="item"
               :loading-action="state.loading.action"
@@ -180,13 +187,13 @@ onBeforeUnmount(stopRunProgressPoll)
 .ar-dashboard__main { min-width: 0; }
 .ar-dashboard__copy { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
 .ar-dashboard__controls { grid-column: 4; grid-row: 1 / span 2; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
-.ar-dashboard__support { flex: 0 0 auto; margin-left: auto; }
+.ar-dashboard__fit-score { flex: 0 0 auto; margin-left: auto; }
 .ar-dashboard__controls :deep(.ar-actions) { max-width: 100%; }
 @media (max-width: 760px) {
   .ar-dashboard__item { grid-template-columns: 28px 44px minmax(0, 1fr); }
   .ar-dashboard__rank, .ar-dashboard__poster { grid-row: 1; }
   .ar-dashboard__controls { grid-column: 1 / -1; grid-row: 2; justify-content: flex-end; }
   .ar-dashboard__controls :deep(.ar-actions) { order: 1; }
-  .ar-dashboard__support { order: 2; margin-left: auto; }
+  .ar-dashboard__fit-score { order: 2; margin-left: auto; }
 }
 </style>

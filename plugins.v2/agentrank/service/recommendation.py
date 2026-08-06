@@ -1227,6 +1227,16 @@ class RecommendationOrchestrator:
         finalist_pairs = selected_pairs[:6]
         finalists = [candidate for candidate, _ in finalist_pairs]
         judgment_cards = [card for _, card in finalist_pairs]
+        agent_fit_scores = {
+            candidate_id: int(card.get("fit_score"))
+            for card in judgment_cards
+            if (candidate_id := str(card.get("candidate_id") or "").strip())
+            and str(card.get("source") or "").strip() not in {"safe_fill", "evidence_fill"}
+            and not isinstance(card.get("fit_score"), bool)
+            and isinstance(card.get("fit_score"), int)
+            and 0 <= int(card.get("fit_score")) <= 100
+        }
+        metrics["agent_fit_score_count"] = len(agent_fit_scores)
         used_preliminary_ids = {
             candidate.candidate_id for candidate, _ in eligible_finalist_pairs
         }
@@ -1445,6 +1455,7 @@ class RecommendationOrchestrator:
                     confirmed_memory=confirmed_memory,
                     profile_preferences=profile_preferences,
                     playback_snapshot=playback_snapshot,
+                    agent_fit_scores=agent_fit_scores,
                 )
                 if len(validation.accepted) != expected_count:
                     submitted_candidate_ids = [

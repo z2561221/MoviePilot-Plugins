@@ -73,32 +73,6 @@ const detailStats = computed(() => [
   { label: '画像样本', value: state.profile.value?.playback_count || 0, suffix: '条', icon: 'mdi-account-heart-outline' },
   { label: '忽略归档', value: archiveEntries.value.length, suffix: '部', icon: 'mdi-archive-outline' },
 ])
-const supportConfidenceLabels = {
-  high: '高置信',
-  medium: '中置信',
-  exploration: '探索推荐',
-}
-const supportDimensionLabels = {
-  type: '类型', theme: '题材', actor: '演员', director: '导演', region: '地区',
-  year: '年代', rating: '评分', heat: '热度', freshness: '新鲜感', similarity: '相似性',
-}
-
-function supportConfidenceText(item) {
-  return supportConfidenceLabels[item?.support?.confidence_level] || '探索推荐'
-}
-function supportEvidenceText(item) {
-  const support = item?.support || {}
-  const count = Number(support.evidence_count || 0)
-  const dimensions = (support.positive_dimensions || support.evidence_dimensions || [])
-    .map(value => supportDimensionLabels[value] || value)
-    .filter(Boolean)
-  const dimensionText = dimensions.length ? ` · ${dimensions.slice(0, 3).join('、')}` : ''
-  const counter = Number(support.counter_evidence_count || 0)
-  return `${count} 项证据${dimensionText}${counter ? ` · 反证 ${counter}` : ''}`
-}
-function selectionSourceText(item) {
-  return ({ agent: 'Agent主选', safe_fallback: '安全补位', returning: '回归推荐', legacy: '' }[item?.selection_source] || '')
-}
 function healthCoverageText(health) {
   return ({ none: '尚无归因样本', partial: '部分阶段已覆盖', complete: '链路已覆盖' }[health?.attribution_coverage] || '归因状态未评估')
 }
@@ -228,7 +202,7 @@ const tabs = [
   { key: 'profile', title: '用户画像', icon: 'mdi-account-heart-outline' },
   { key: 'archive', title: '忽略归档', icon: 'mdi-archive-outline' },
   { key: 'history', title: '运行历史', icon: 'mdi-history' },
-  { key: 'board-history', title: '历史榜单', icon: 'mdi-history-box-outline' },
+  { key: 'board-history', title: '历史榜单', icon: 'mdi-view-list-outline' },
 ]
 
 function formatTime(value) {
@@ -239,6 +213,26 @@ function formatTime(value) {
 
 function mediaTypeLabel(value) {
   return ({ movie: '电影', tv: '剧集', anime: '动漫' })[value] || '其他类型'
+}
+
+function fitScoreValue(item) {
+  const rawScore = item?.fit_score
+  if (rawScore === null || rawScore === undefined || rawScore === '') return null
+  const score = Number(rawScore)
+  return Number.isFinite(score) && score >= 0 && score <= 100 ? Math.round(score) : null
+}
+
+function fitScoreText(item) {
+  const score = fitScoreValue(item)
+  return score === null ? '—' : `${score}分`
+}
+
+function fitScoreColor(item) {
+  const score = fitScoreValue(item)
+  if (score === null) return 'default'
+  if (score >= 85) return 'success'
+  if (score >= 70) return 'primary'
+  return 'warning'
 }
 
 function historyKey(run) { return `${run?.run_id || ''}:${run?.finished_at || run?.started_at || ''}` }
@@ -699,7 +693,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="ar-page">
+  <div class="ar-page" :class="{ 'ar-page--app': !showClose }">
     <VToolbar density="comfortable" class="ar-page__toolbar">
       <VAvatar color="primary" variant="tonal" size="42" rounded="lg" class="ar-page__brand ms-4 me-3">
         <VIcon icon="mdi-brain" size="24" />
@@ -850,11 +844,6 @@ onBeforeUnmount(() => {
                 <div v-if="item.match_tags?.length" class="ar-page__match-tags">
                   <VChip v-for="tag in item.match_tags" :key="tag" size="x-small" variant="outlined">{{ tag }}</VChip>
                 </div>
-                <div v-if="item.support" class="ar-page__evidence-summary">
-                  <VChip size="x-small" :color="item.support.confidence_level === 'high' ? 'success' : item.support.confidence_level === 'medium' ? 'primary' : 'info'" variant="tonal">{{ supportConfidenceText(item) }}</VChip>
-                  <span>{{ supportEvidenceText(item) }}</span>
-                  <span v-if="selectionSourceText(item)">{{ selectionSourceText(item) }}</span>
-                </div>
               </div>
               <div class="ar-page__rank-actions">
                 <VTooltip text="查看 Agent 分析">
@@ -870,7 +859,7 @@ onBeforeUnmount(() => {
                     />
                   </template>
                 </VTooltip>
-                <VChip size="x-small" color="primary" variant="tonal" class="ar-page__support">净支持 {{ item.support?.percentage ?? '—' }}{{ item.support ? '%' : '' }}</VChip>
+                <VChip size="x-small" :color="fitScoreColor(item)" variant="tonal" class="ar-page__fit-score">契合度 {{ fitScoreText(item) }}</VChip>
                 <RecommendationActions
                   :item="item"
                   :loading-action="state.loading.action"
@@ -1106,7 +1095,7 @@ onBeforeUnmount(() => {
           <div class="ar-page__section-head">
             <div>
               <div class="ar-page__section-title">历史榜单</div>
-              <div class="ar-page__section-desc">只读查看每一轮生成时的完整前5名，保留当时的理由与支持度。</div>
+              <div class="ar-page__section-desc">只读查看每一轮生成时的完整前5名，保留当时的理由与 Agent 契合度。</div>
             </div>
             <VChip size="small" variant="tonal">{{ state.boardHistoryMeta.value.total || 0 }} 轮</VChip>
           </div>
@@ -1116,7 +1105,7 @@ onBeforeUnmount(() => {
           </VAlert>
           <VEmptyState
             v-if="!state.boardHistory.value.length"
-            icon="mdi-history-box-outline"
+            icon="mdi-view-list-outline"
             title="暂无历史榜单"
             text="榜单生成后，这里会保存每一轮的完整内容。"
           />
@@ -1180,8 +1169,8 @@ onBeforeUnmount(() => {
                         <span class="ar-page__copy-text">{{ item.reason || item.summary || '暂无推荐理由' }}</span>
                       </div>
                       <div class="ar-page__rank-copy ar-page__rank-copy--muted">
-                        <span class="ar-page__copy-label">支持：</span>
-                        <span class="ar-page__copy-text">{{ item.support ? `${supportConfidenceText(item)} · ${supportEvidenceText(item)} · 净支持 ${item.support.percentage}%` : '历史快照未保存支持度' }}</span>
+                        <span class="ar-page__copy-label">契合度：</span>
+                        <span class="ar-page__copy-text">{{ fitScoreText(item) }}</span>
                       </div>
                     </div>
                   </div>
@@ -1237,7 +1226,8 @@ onBeforeUnmount(() => {
 .ar-page__tab-list { display: flex; flex-wrap: nowrap; gap: 4px; min-width: max-content; padding: 4px 10px !important; background: transparent; }
 .ar-page__tab { flex: 0 0 auto; min-width: 112px; margin: 0; padding-inline: 12px; font-size: 13px; font-weight: 600; letter-spacing: 0; }
 .ar-page__tab :deep(.v-list-item-title) { white-space: nowrap; }
-.ar-page__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 14px 12px; background: transparent; }
+.ar-page__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 14px 12px; background: transparent; scrollbar-width: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.ar-page__content::-webkit-scrollbar { display: none; }
 .ar-page__pane { min-height: 100%; }
 .ar-page__section-head { min-height: 38px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .ar-page__section-title { font-size: 15px; font-weight: 700; }
@@ -1259,10 +1249,8 @@ onBeforeUnmount(() => {
 .ar-page__copy-label { color: rgb(var(--v-theme-primary)); font-size: 11px; font-weight: 600; }
 .ar-page__copy-text { min-width: 0; display: block; overflow: visible; overflow-wrap: anywhere; }
 .ar-page__match-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.ar-page__evidence-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; margin-top: 7px; color: rgba(var(--v-theme-on-surface), .58); font-size: 11px; line-height: 1.4; }
-.ar-page__evidence-summary span { overflow-wrap: anywhere; }
 .ar-page__rank-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
-.ar-page__support { flex: 0 0 auto; margin-left: auto; }
+.ar-page__fit-score { flex: 0 0 auto; margin-left: auto; }
 .ar-page__section-card, .ar-page__archive-card, .ar-page__table-card { border-radius: 10px; background: transparent; }
 .ar-page__profile-head { padding: 14px 16px; }
 .ar-page__profile-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 12px; padding: 14px; }
@@ -1364,6 +1352,7 @@ onBeforeUnmount(() => {
 }
 @media (max-width: 760px) {
   .ar-page { width: min(100%, calc(100vw - 12px)); height: min(880px, calc(100dvh - 12px)); }
+  .ar-page.ar-page--app { height: calc(100dvh - var(--layout-navbar-block-size, 4rem) - 5rem); }
   .ar-page__toolbar :deep(.v-toolbar__content) { height: auto !important; min-height: 66px; flex-wrap: wrap; overflow: visible; padding-block: 6px; }
   .ar-page__toolbar :deep(.v-spacer) { display: none; }
   .ar-page__brand { order: 1; }

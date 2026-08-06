@@ -1,130 +1,134 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, g as getPluginApi, p as postPluginApi, a as getHostApi } from './_plugin-vue_export-helper-CXFsw50i.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass,createCommentVNode:_createCommentVNode,createBlock:_createBlock,vShow:_vShow,withDirectives:_withDirectives,mergeProps:_mergeProps} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass,createCommentVNode:_createCommentVNode,createBlock:_createBlock,vShow:_vShow,withDirectives:_withDirectives,mergeProps:_mergeProps} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "ar-config" };
-const _hoisted_2 = { class: "ar-config__header-state" };
-const _hoisted_3 = { class: "ar-config__body" };
-const _hoisted_4 = {
+const _hoisted_2 = { class: "ar-config__header" };
+const _hoisted_3 = { class: "ar-config__header-brand" };
+const _hoisted_4 = { class: "ar-config__header-copy" };
+const _hoisted_5 = { class: "ar-config__header-desc" };
+const _hoisted_6 = { class: "ar-config__header-state" };
+const _hoisted_7 = { class: "ar-config__body" };
+const _hoisted_8 = {
   class: "ar-config__nav",
   "aria-label": "Agent榜单配置导航"
 };
-const _hoisted_5 = { class: "ar-config__content" };
-const _hoisted_6 = {
+const _hoisted_9 = { class: "ar-config__content" };
+const _hoisted_10 = {
   key: 0,
   class: "ar-config__subtabs"
 };
-const _hoisted_7 = ["onClick"];
-const _hoisted_8 = { class: "ar-config__pane ar-config__pane--overview" };
-const _hoisted_9 = { class: "ar-config__pipeline" };
-const _hoisted_10 = { class: "ar-config__step-copy" };
-const _hoisted_11 = { class: "ar-config__overview-grid" };
-const _hoisted_12 = { class: "ar-config__overview-panel" };
-const _hoisted_13 = { class: "ar-config__panel-head" };
-const _hoisted_14 = { class: "ar-config__stats" };
-const _hoisted_15 = { class: "ar-config__hint" };
+const _hoisted_11 = ["onClick"];
+const _hoisted_12 = { class: "ar-config__pane ar-config__pane--overview" };
+const _hoisted_13 = { class: "ar-config__pipeline" };
+const _hoisted_14 = { class: "ar-config__step-copy" };
+const _hoisted_15 = { class: "ar-config__overview-grid" };
 const _hoisted_16 = { class: "ar-config__overview-panel" };
 const _hoisted_17 = { class: "ar-config__panel-head" };
-const _hoisted_18 = { class: "ar-config__hint" };
-const _hoisted_19 = { class: "ar-config__tag-row" };
-const _hoisted_20 = {
-  key: 0,
-  class: "ar-config__empty"
-};
-const _hoisted_21 = { class: "ar-config__overview-panel" };
-const _hoisted_22 = { class: "ar-config__panel-head" };
-const _hoisted_23 = { class: "ar-config__metric-list" };
+const _hoisted_18 = { class: "ar-config__stats" };
+const _hoisted_19 = { class: "ar-config__hint" };
+const _hoisted_20 = { class: "ar-config__overview-panel" };
+const _hoisted_21 = { class: "ar-config__panel-head" };
+const _hoisted_22 = { class: "ar-config__hint" };
+const _hoisted_23 = { class: "ar-config__tag-row" };
 const _hoisted_24 = {
   key: 0,
   class: "ar-config__empty"
 };
 const _hoisted_25 = { class: "ar-config__overview-panel" };
 const _hoisted_26 = { class: "ar-config__panel-head" };
-const _hoisted_27 = { class: "ar-config__metric-columns" };
+const _hoisted_27 = { class: "ar-config__metric-list" };
 const _hoisted_28 = {
   key: 0,
   class: "ar-config__empty"
 };
-const _hoisted_29 = {
+const _hoisted_29 = { class: "ar-config__overview-panel" };
+const _hoisted_30 = { class: "ar-config__panel-head" };
+const _hoisted_31 = { class: "ar-config__metric-columns" };
+const _hoisted_32 = {
   key: 0,
   class: "ar-config__empty"
 };
-const _hoisted_30 = {
+const _hoisted_33 = {
+  key: 0,
+  class: "ar-config__empty"
+};
+const _hoisted_34 = {
   key: 0,
   class: "ar-config__source-errors"
 };
-const _hoisted_31 = { class: "ar-config__overview-foot" };
-const _hoisted_32 = { class: "ar-config__pane" };
-const _hoisted_33 = { class: "ar-config__basic-groups" };
-const _hoisted_34 = { class: "ar-config__basic-group" };
-const _hoisted_35 = { class: "ar-config__basic-head" };
-const _hoisted_36 = {
+const _hoisted_35 = { class: "ar-config__overview-foot" };
+const _hoisted_36 = { class: "ar-config__pane" };
+const _hoisted_37 = { class: "ar-config__basic-groups" };
+const _hoisted_38 = { class: "ar-config__basic-group" };
+const _hoisted_39 = { class: "ar-config__basic-head" };
+const _hoisted_40 = {
   key: 0,
   class: "ar-config__select-summary-primary"
 };
-const _hoisted_37 = { class: "ar-config__basic-group" };
-const _hoisted_38 = { class: "ar-config__basic-head" };
-const _hoisted_39 = { class: "ar-config__basic-group" };
-const _hoisted_40 = { class: "ar-config__basic-head" };
 const _hoisted_41 = { class: "ar-config__basic-group" };
 const _hoisted_42 = { class: "ar-config__basic-head" };
-const _hoisted_43 = { class: "text-caption mb-1" };
-const _hoisted_44 = { class: "ar-config__basic-group" };
-const _hoisted_45 = { class: "ar-config__basic-head" };
-const _hoisted_46 = { class: "ar-config__pane" };
-const _hoisted_47 = { class: "d-flex align-center mb-3" };
-const _hoisted_48 = { class: "d-flex align-center flex-wrap ga-2" };
-const _hoisted_49 = { class: "mt-1" };
-const _hoisted_50 = {
+const _hoisted_43 = { class: "ar-config__basic-group" };
+const _hoisted_44 = { class: "ar-config__basic-head" };
+const _hoisted_45 = { class: "ar-config__basic-group" };
+const _hoisted_46 = { class: "ar-config__basic-head" };
+const _hoisted_47 = { class: "text-caption mb-1" };
+const _hoisted_48 = { class: "ar-config__basic-group" };
+const _hoisted_49 = { class: "ar-config__basic-head" };
+const _hoisted_50 = { class: "ar-config__pane" };
+const _hoisted_51 = { class: "d-flex align-center mb-3" };
+const _hoisted_52 = { class: "d-flex align-center flex-wrap ga-2" };
+const _hoisted_53 = { class: "mt-1" };
+const _hoisted_54 = {
   key: 0,
   class: "text-caption mt-1"
 };
-const _hoisted_51 = { class: "text-caption mb-1" };
-const _hoisted_52 = { class: "ar-config__danger-row mt-4" };
-const _hoisted_53 = { class: "ar-config__hint" };
-const _hoisted_54 = { class: "ar-config__pane" };
-const _hoisted_55 = { class: "ar-config__hint mt-2" };
-const _hoisted_56 = {
+const _hoisted_55 = { class: "text-caption mb-1" };
+const _hoisted_56 = { class: "ar-config__danger-row mt-4" };
+const _hoisted_57 = { class: "ar-config__hint" };
+const _hoisted_58 = { class: "ar-config__pane" };
+const _hoisted_59 = { class: "ar-config__hint mt-2" };
+const _hoisted_60 = {
   key: 0,
   class: "mt-4"
 };
-const _hoisted_57 = { class: "ar-config__hint mt-2" };
-const _hoisted_58 = { class: "ar-config__pane" };
-const _hoisted_59 = { class: "ar-config__source-grid" };
-const _hoisted_60 = { class: "ar-config__pane" };
-const _hoisted_61 = { class: "ar-config__weight-grid" };
-const _hoisted_62 = { class: "d-flex align-center mb-1" };
-const _hoisted_63 = { class: "text-body-2 font-weight-medium" };
-const _hoisted_64 = { class: "ar-config__default" };
-const _hoisted_65 = { class: "ar-config__pane" };
-const _hoisted_66 = { class: "ar-config__inline-alert" };
-const _hoisted_67 = {
+const _hoisted_61 = { class: "ar-config__hint mt-2" };
+const _hoisted_62 = { class: "ar-config__pane" };
+const _hoisted_63 = { class: "ar-config__source-grid" };
+const _hoisted_64 = { class: "ar-config__pane" };
+const _hoisted_65 = { class: "ar-config__weight-grid" };
+const _hoisted_66 = { class: "d-flex align-center mb-1" };
+const _hoisted_67 = { class: "text-body-2 font-weight-medium" };
+const _hoisted_68 = { class: "ar-config__default" };
+const _hoisted_69 = { class: "ar-config__pane" };
+const _hoisted_70 = { class: "ar-config__inline-alert" };
+const _hoisted_71 = {
   key: 1,
   class: "ar-config__loading-state"
 };
-const _hoisted_68 = {
+const _hoisted_72 = {
   key: 2,
   class: "ar-config__access-list"
 };
-const _hoisted_69 = { class: "ar-config__access-user" };
-const _hoisted_70 = {
+const _hoisted_73 = { class: "ar-config__access-user" };
+const _hoisted_74 = {
   key: 0,
   class: "ar-config__empty-state"
 };
-const _hoisted_71 = { class: "ar-config__retention-grid" };
-const _hoisted_72 = { class: "ar-config__hint" };
-const _hoisted_73 = { class: "ar-config__data-actions" };
-const _hoisted_74 = { class: "ar-config__data-row" };
-const _hoisted_75 = { class: "ar-config__data-row" };
-const _hoisted_76 = { class: "ar-config__data-row ar-config__data-row--danger" };
-const _hoisted_77 = { class: "ar-config__prompt-list" };
-const _hoisted_78 = { class: "ar-config__prompt-copy" };
-const _hoisted_79 = { class: "ar-config__prompt-title" };
-const _hoisted_80 = { class: "ar-config__prompt-purpose" };
-const _hoisted_81 = { class: "ar-config__prompt-summary" };
-const _hoisted_82 = { class: "ar-config__hint mt-2" };
+const _hoisted_75 = { class: "ar-config__retention-grid" };
+const _hoisted_76 = { class: "ar-config__hint" };
+const _hoisted_77 = { class: "ar-config__data-actions" };
+const _hoisted_78 = { class: "ar-config__data-row" };
+const _hoisted_79 = { class: "ar-config__data-row" };
+const _hoisted_80 = { class: "ar-config__data-row ar-config__data-row--danger" };
+const _hoisted_81 = { class: "ar-config__prompt-list" };
+const _hoisted_82 = { class: "ar-config__prompt-copy" };
+const _hoisted_83 = { class: "ar-config__prompt-title" };
+const _hoisted_84 = { class: "ar-config__prompt-purpose" };
+const _hoisted_85 = { class: "ar-config__prompt-summary" };
+const _hoisted_86 = { class: "ar-config__hint mt-2" };
 
 const {computed,onMounted,reactive,ref,watch} = await importShared('vue');
 
@@ -866,11 +870,8 @@ onMounted(loadRuntime);
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent("VIcon");
   const _component_VAvatar = _resolveComponent("VAvatar");
-  const _component_VCardTitle = _resolveComponent("VCardTitle");
-  const _component_VCardSubtitle = _resolveComponent("VCardSubtitle");
   const _component_VChip = _resolveComponent("VChip");
   const _component_VSwitch = _resolveComponent("VSwitch");
-  const _component_VCardItem = _resolveComponent("VCardItem");
   const _component_VDivider = _resolveComponent("VDivider");
   const _component_VListItemTitle = _resolveComponent("VListItemTitle");
   const _component_VListItem = _resolveComponent("VListItem");
@@ -891,6 +892,9 @@ return (_ctx, _cache) => {
   const _component_VExpansionPanelText = _resolveComponent("VExpansionPanelText");
   const _component_VExpansionPanel = _resolveComponent("VExpansionPanel");
   const _component_VExpansionPanels = _resolveComponent("VExpansionPanels");
+  const _component_VCardTitle = _resolveComponent("VCardTitle");
+  const _component_VCardSubtitle = _resolveComponent("VCardSubtitle");
+  const _component_VCardItem = _resolveComponent("VCardItem");
   const _component_VCard = _resolveComponent("VCard");
   const _component_VProgressCircular = _resolveComponent("VProgressCircular");
   const _component_VCardActions = _resolveComponent("VCardActions");
@@ -904,8 +908,8 @@ return (_ctx, _cache) => {
       class: "ar-config__card"
     }, {
       default: _withCtx(() => [
-        _createVNode(_component_VCardItem, { class: "ar-config__header" }, {
-          prepend: _withCtx(() => [
+        _createElementVNode("header", _hoisted_2, [
+          _createElementVNode("div", _hoisted_3, [
             _createVNode(_component_VAvatar, {
               color: "primary",
               variant: "tonal",
@@ -919,49 +923,37 @@ return (_ctx, _cache) => {
                 })
               ]),
               _: 1
-            })
-          ]),
-          append: _withCtx(() => [
-            _createElementVNode("div", _hoisted_2, [
-              _createVNode(_component_VChip, {
-                color: runtimeStateColor.value,
-                variant: "tonal",
-                size: "small"
-              }, {
-                default: _withCtx(() => [
-                  _createTextVNode(_toDisplayString(runtimeStateText.value), 1)
-                ]),
-                _: 1
-              }, 8, ["color"]),
-              _createVNode(_component_VSwitch, {
-                modelValue: form.enabled,
-                "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((form.enabled) = $event)),
-                color: "success",
-                "hide-details": "",
-                inset: "",
-                label: "启用插件"
-              }, null, 8, ["modelValue"])
+            }),
+            _createElementVNode("div", _hoisted_4, [
+              _cache[35] || (_cache[35] = _createElementVNode("div", { class: "ar-config__header-title" }, "Agent榜单中心", -1)),
+              _createElementVNode("div", _hoisted_5, _toDisplayString(currentMain.value.desc), 1)
             ])
           ]),
-          default: _withCtx(() => [
-            _createVNode(_component_VCardTitle, { class: "text-h6" }, {
-              default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
-                _createTextVNode("Agent榜单中心", -1)
-              ]))]),
-              _: 1
-            }),
-            _createVNode(_component_VCardSubtitle, null, {
+          _createElementVNode("div", _hoisted_6, [
+            _createVNode(_component_VChip, {
+              color: runtimeStateColor.value,
+              variant: "tonal",
+              size: "small"
+            }, {
               default: _withCtx(() => [
-                _createTextVNode(_toDisplayString(currentMain.value.desc), 1)
+                _createTextVNode(_toDisplayString(runtimeStateText.value), 1)
               ]),
               _: 1
-            })
-          ]),
-          _: 1
-        }),
+            }, 8, ["color"]),
+            _createVNode(_component_VSwitch, {
+              modelValue: form.enabled,
+              "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((form.enabled) = $event)),
+              color: "success",
+              "hide-details": "",
+              inset: "",
+              label: "启用插件",
+              class: "ar-config__enabled"
+            }, null, 8, ["modelValue"])
+          ])
+        ]),
         _createVNode(_component_VDivider),
-        _createElementVNode("div", _hoisted_3, [
-          _createElementVNode("nav", _hoisted_4, [
+        _createElementVNode("div", _hoisted_7, [
+          _createElementVNode("nav", _hoisted_8, [
             _createVNode(_component_VList, {
               density: "comfortable",
               nav: "",
@@ -997,9 +989,9 @@ return (_ctx, _cache) => {
               _: 1
             })
           ]),
-          _createElementVNode("section", _hoisted_5, [
+          _createElementVNode("section", _hoisted_9, [
             (currentSubTabs.value.length)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_6, [
+              ? (_openBlock(), _createElementBlock("div", _hoisted_10, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(currentSubTabs.value, (item) => {
                     return (_openBlock(), _createElementBlock("button", {
                       key: item.key,
@@ -1013,7 +1005,7 @@ return (_ctx, _cache) => {
                         class: "mr-1"
                       }, null, 8, ["icon"]),
                       _createTextVNode(_toDisplayString(item.title), 1)
-                    ], 10, _hoisted_7))
+                    ], 10, _hoisted_11))
                   }), 128))
                 ]))
               : _createCommentVNode("", true),
@@ -1021,9 +1013,9 @@ return (_ctx, _cache) => {
             _createElementVNode("div", {
               class: _normalizeClass(["ar-config__window", { 'ar-config__window--overview': activeMain.value === 'overview' }])
             }, [
-              _withDirectives(_createElementVNode("div", _hoisted_8, [
+              _withDirectives(_createElementVNode("div", _hoisted_12, [
                 _cache[48] || (_cache[48] = _createElementVNode("div", { class: "ar-config__section-title" }, "运行链路步骤", -1)),
-                _createElementVNode("div", _hoisted_9, [
+                _createElementVNode("div", _hoisted_13, [
                   (_openBlock(), _createElementBlock(_Fragment, null, _renderList(pipelineSteps, (step, index) => {
                     return _createElementVNode("div", {
                       key: step.key,
@@ -1039,7 +1031,7 @@ return (_ctx, _cache) => {
                         ]),
                         _: 2
                       }, 1024),
-                      _createElementVNode("div", _hoisted_10, [
+                      _createElementVNode("div", _hoisted_14, [
                         _createElementVNode("span", null, _toDisplayString(step.title), 1),
                         _createElementVNode("small", null, [
                           _createTextVNode(_toDisplayString(stageStatus(step)), 1),
@@ -1069,9 +1061,9 @@ return (_ctx, _cache) => {
                       _: 1
                     }))
                   : _createCommentVNode("", true),
-                _createElementVNode("div", _hoisted_11, [
-                  _createElementVNode("div", _hoisted_12, [
-                    _createElementVNode("div", _hoisted_13, [
+                _createElementVNode("div", _hoisted_15, [
+                  _createElementVNode("div", _hoisted_16, [
+                    _createElementVNode("div", _hoisted_17, [
                       _cache[37] || (_cache[37] = _createElementVNode("span", null, "播放样本", -1)),
                       _createVNode(_component_VChip, {
                         color: ['ready', 'cached'].includes(currentPlayback.value?.status) ? 'success' : 'warning',
@@ -1084,7 +1076,7 @@ return (_ctx, _cache) => {
                         _: 1
                       }, 8, ["color"])
                     ]),
-                    _createElementVNode("div", _hoisted_14, [
+                    _createElementVNode("div", _hoisted_18, [
                       _createElementVNode("span", null, [
                         _cache[38] || (_cache[38] = _createTextVNode("样本 ", -1)),
                         _createElementVNode("strong", null, _toDisplayString(currentPlayback.value?.sample_count || 0), 1)
@@ -1102,10 +1094,10 @@ return (_ctx, _cache) => {
                         _createElementVNode("strong", null, _toDisplayString(currentPlayback.value?.unmapped_count || 0), 1)
                       ])
                     ]),
-                    _createElementVNode("div", _hoisted_15, _toDisplayString(selectedIdentity.value?.username || '未选择用户') + " · " + _toDisplayString(formatDateTime(currentPlayback.value?.synced_at)), 1)
+                    _createElementVNode("div", _hoisted_19, _toDisplayString(selectedIdentity.value?.username || '未选择用户') + " · " + _toDisplayString(formatDateTime(currentPlayback.value?.synced_at)), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_16, [
-                    _createElementVNode("div", _hoisted_17, [
+                  _createElementVNode("div", _hoisted_20, [
+                    _createElementVNode("div", _hoisted_21, [
                       _cache[42] || (_cache[42] = _createElementVNode("span", null, "画像版本", -1)),
                       _createVNode(_component_VChip, {
                         size: "x-small",
@@ -1117,8 +1109,8 @@ return (_ctx, _cache) => {
                         _: 1
                       })
                     ]),
-                    _createElementVNode("div", _hoisted_18, "检索解析版本 " + _toDisplayString(overview.value?.profile?.retrieval_resolution_version || '-') + " · 播放证据 " + _toDisplayString(overview.value?.profile?.playback_count || 0) + " 条", 1),
-                    _createElementVNode("div", _hoisted_19, [
+                    _createElementVNode("div", _hoisted_22, "检索解析版本 " + _toDisplayString(overview.value?.profile?.retrieval_resolution_version || '-') + " · 播放证据 " + _toDisplayString(overview.value?.profile?.playback_count || 0) + " 条", 1),
+                    _createElementVNode("div", _hoisted_23, [
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(overview.value?.profile?.ranking_tags || [], (tag) => {
                         return (_openBlock(), _createBlock(_component_VChip, {
                           key: tag,
@@ -1133,16 +1125,16 @@ return (_ctx, _cache) => {
                         }, 1024))
                       }), 128)),
                       (!(overview.value?.profile?.ranking_tags || []).length)
-                        ? (_openBlock(), _createElementBlock("span", _hoisted_20, "暂无排序标签"))
+                        ? (_openBlock(), _createElementBlock("span", _hoisted_24, "暂无排序标签"))
                         : _createCommentVNode("", true)
                     ])
                   ]),
-                  _createElementVNode("div", _hoisted_21, [
-                    _createElementVNode("div", _hoisted_22, [
+                  _createElementVNode("div", _hoisted_25, [
+                    _createElementVNode("div", _hoisted_26, [
                       _cache[43] || (_cache[43] = _createElementVNode("span", null, "检索计划", -1)),
                       _createElementVNode("small", null, _toDisplayString(retrievalFilterEntries.value.length) + " 项过滤", 1)
                     ]),
-                    _createElementVNode("div", _hoisted_23, [
+                    _createElementVNode("div", _hoisted_27, [
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(retrievalFilterEntries.value, ([key, value]) => {
                         return (_openBlock(), _createElementBlock("span", { key: key }, [
                           _createElementVNode("b", null, _toDisplayString(key), 1),
@@ -1150,16 +1142,16 @@ return (_ctx, _cache) => {
                         ]))
                       }), 128)),
                       (!retrievalFilterEntries.value.length)
-                        ? (_openBlock(), _createElementBlock("span", _hoisted_24, "暂无已解析过滤条件"))
+                        ? (_openBlock(), _createElementBlock("span", _hoisted_28, "暂无已解析过滤条件"))
                         : _createCommentVNode("", true)
                     ])
                   ]),
-                  _createElementVNode("div", _hoisted_25, [
-                    _createElementVNode("div", _hoisted_26, [
+                  _createElementVNode("div", _hoisted_29, [
+                    _createElementVNode("div", _hoisted_30, [
                       _cache[44] || (_cache[44] = _createElementVNode("span", null, "冻结候选", -1)),
                       _createElementVNode("small", null, _toDisplayString(latestMetrics.value.candidate_count || 0) + " 项", 1)
                     ]),
-                    _createElementVNode("div", _hoisted_27, [
+                    _createElementVNode("div", _hoisted_31, [
                       _createElementVNode("div", null, [
                         _cache[45] || (_cache[45] = _createElementVNode("small", null, "候选来源", -1)),
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(candidateSourceEntries.value, ([key, value]) => {
@@ -1169,7 +1161,7 @@ return (_ctx, _cache) => {
                           ]))
                         }), 128)),
                         (!candidateSourceEntries.value.length)
-                          ? (_openBlock(), _createElementBlock("span", _hoisted_28, "暂无统计"))
+                          ? (_openBlock(), _createElementBlock("span", _hoisted_32, "暂无统计"))
                           : _createCommentVNode("", true)
                       ]),
                       _createElementVNode("div", null, [
@@ -1181,12 +1173,12 @@ return (_ctx, _cache) => {
                           ]))
                         }), 128)),
                         (!candidateExclusionEntries.value.length)
-                          ? (_openBlock(), _createElementBlock("span", _hoisted_29, "暂无统计"))
+                          ? (_openBlock(), _createElementBlock("span", _hoisted_33, "暂无统计"))
                           : _createCommentVNode("", true)
                       ])
                     ]),
                     (sourceErrorEntries.value.length)
-                      ? (_openBlock(), _createElementBlock("div", _hoisted_30, [
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_34, [
                           _createVNode(_component_VIcon, {
                             icon: "mdi-alert-circle-outline",
                             size: "15",
@@ -1225,7 +1217,7 @@ return (_ctx, _cache) => {
                       _: 1
                     }))
                   : _createCommentVNode("", true),
-                _createElementVNode("div", _hoisted_31, [
+                _createElementVNode("div", _hoisted_35, [
                   _createVNode(_component_VIcon, {
                     icon: "mdi-shield-refresh-outline",
                     size: "17",
@@ -1248,11 +1240,11 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeMain.value === 'overview']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_32, [
+              _withDirectives(_createElementVNode("div", _hoisted_36, [
                 _cache[57] || (_cache[57] = _createElementVNode("div", { class: "ar-config__section-title" }, "基础设置", -1)),
-                _createElementVNode("div", _hoisted_33, [
-                  _createElementVNode("section", _hoisted_34, [
-                    _createElementVNode("div", _hoisted_35, [
+                _createElementVNode("div", _hoisted_37, [
+                  _createElementVNode("section", _hoisted_38, [
+                    _createElementVNode("div", _hoisted_39, [
                       _createVNode(_component_VIcon, {
                         icon: "mdi-account-search-outline",
                         size: "18",
@@ -1318,7 +1310,7 @@ return (_ctx, _cache) => {
                             }, {
                               selection: _withCtx(({ item, index }) => [
                                 (index === 0)
-                                  ? (_openBlock(), _createElementBlock("span", _hoisted_36, _toDisplayString(item.title), 1))
+                                  ? (_openBlock(), _createElementBlock("span", _hoisted_40, _toDisplayString(item.title), 1))
                                   : (index === 1)
                                     ? (_openBlock(), _createBlock(_component_VTooltip, {
                                         key: 1,
@@ -1342,8 +1334,8 @@ return (_ctx, _cache) => {
                     }),
                     _cache[50] || (_cache[50] = _createElementVNode("div", { class: "ar-config__hint mt-2" }, "Emby 画像身份由媒体库与用户组成；只同步所选用户在所选内容库中的 Playback Reporting 记录。", -1))
                   ]),
-                  _createElementVNode("section", _hoisted_37, [
-                    _createElementVNode("div", _hoisted_38, [
+                  _createElementVNode("section", _hoisted_41, [
+                    _createElementVNode("div", _hoisted_42, [
                       _createVNode(_component_VIcon, {
                         icon: "mdi-calendar-clock",
                         size: "18",
@@ -1407,8 +1399,8 @@ return (_ctx, _cache) => {
                       _: 1
                     })
                   ]),
-                  _createElementVNode("section", _hoisted_39, [
-                    _createElementVNode("div", _hoisted_40, [
+                  _createElementVNode("section", _hoisted_43, [
+                    _createElementVNode("div", _hoisted_44, [
                       _createVNode(_component_VIcon, {
                         icon: "mdi-page-layout-sidebar-left",
                         size: "18",
@@ -1435,8 +1427,8 @@ return (_ctx, _cache) => {
                       _: 1
                     })
                   ]),
-                  _createElementVNode("section", _hoisted_41, [
-                    _createElementVNode("div", _hoisted_42, [
+                  _createElementVNode("section", _hoisted_45, [
+                    _createElementVNode("div", _hoisted_46, [
                       _createVNode(_component_VIcon, {
                         icon: "mdi-format-list-checks",
                         size: "18",
@@ -1493,7 +1485,7 @@ return (_ctx, _cache) => {
                               md: "8"
                             }, {
                               default: _withCtx(() => [
-                                _createElementVNode("div", _hoisted_43, "订阅门槛 · 最低支持度 " + _toDisplayString(Math.round(form.confidence_threshold * 100)) + "%", 1),
+                                _createElementVNode("div", _hoisted_47, "订阅门槛 · 最低支持度 " + _toDisplayString(Math.round(form.confidence_threshold * 100)) + "%", 1),
                                 _createVNode(_component_VSlider, {
                                   modelValue: form.confidence_threshold,
                                   "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.confidence_threshold) = $event)),
@@ -1513,8 +1505,8 @@ return (_ctx, _cache) => {
                     }),
                     _cache[54] || (_cache[54] = _createElementVNode("div", { class: "ar-config__hint mt-2" }, "订阅门槛只限制通知确认和自动订阅，不过滤榜单；后端始终保留最多 10 项硬保护。", -1))
                   ]),
-                  _createElementVNode("section", _hoisted_44, [
-                    _createElementVNode("div", _hoisted_45, [
+                  _createElementVNode("section", _hoisted_48, [
+                    _createElementVNode("div", _hoisted_49, [
                       _createVNode(_component_VIcon, {
                         icon: "mdi-bell-outline",
                         size: "18",
@@ -1567,8 +1559,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeMain.value === 'basic']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_46, [
-                _createElementVNode("div", _hoisted_47, [
+              _withDirectives(_createElementVNode("div", _hoisted_50, [
+                _createElementVNode("div", _hoisted_51, [
                   _cache[59] || (_cache[59] = _createElementVNode("div", { class: "ar-config__section-title mb-0" }, "播放画像", -1)),
                   _createVNode(_component_VSpacer),
                   _createVNode(_component_VBtn, {
@@ -1592,7 +1584,7 @@ return (_ctx, _cache) => {
                   class: "mb-4"
                 }, {
                   default: _withCtx(() => [
-                    _createElementVNode("div", _hoisted_48, [
+                    _createElementVNode("div", _hoisted_52, [
                       _createElementVNode("strong", null, _toDisplayString(playbackStatusText(currentPlayback.value)), 1),
                       (currentPlayback.value?.source)
                         ? (_openBlock(), _createBlock(_component_VChip, {
@@ -1619,9 +1611,9 @@ return (_ctx, _cache) => {
                           }))
                         : _createCommentVNode("", true)
                     ]),
-                    _createElementVNode("div", _hoisted_49, _toDisplayString(currentEnablement.value?.message || currentPlayback.value?.message || 'Playback Reporting 是硬依赖；未安装或无权限时插件无法开启。'), 1),
+                    _createElementVNode("div", _hoisted_53, _toDisplayString(currentEnablement.value?.message || currentPlayback.value?.message || 'Playback Reporting 是硬依赖；未安装或无权限时插件无法开启。'), 1),
                     (currentPlayback.value?.synced_at)
-                      ? (_openBlock(), _createElementBlock("div", _hoisted_50, "最近同步：" + _toDisplayString(formatDateTime(currentPlayback.value.synced_at)) + " · 样本 " + _toDisplayString(currentPlayback.value.sample_count || 0) + " · 已映射 " + _toDisplayString(currentPlayback.value.mapped_count || 0) + " · 未映射 " + _toDisplayString(currentPlayback.value.unmapped_count || 0), 1))
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_54, "最近同步：" + _toDisplayString(formatDateTime(currentPlayback.value.synced_at)) + " · 样本 " + _toDisplayString(currentPlayback.value.sample_count || 0) + " · 已映射 " + _toDisplayString(currentPlayback.value.mapped_count || 0) + " · 未映射 " + _toDisplayString(currentPlayback.value.unmapped_count || 0), 1))
                       : _createCommentVNode("", true)
                   ]),
                   _: 1
@@ -1714,7 +1706,7 @@ return (_ctx, _cache) => {
                     }),
                     _createVNode(_component_VCol, { cols: "12" }, {
                       default: _withCtx(() => [
-                        _createElementVNode("div", _hoisted_51, "完播阈值 " + _toDisplayString(Math.round(form.playback_completion_threshold * 100)) + "%", 1),
+                        _createElementVNode("div", _hoisted_55, "完播阈值 " + _toDisplayString(Math.round(form.playback_completion_threshold * 100)) + "%", 1),
                         _createVNode(_component_VSlider, {
                           modelValue: form.playback_completion_threshold,
                           "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((form.playback_completion_threshold) = $event)),
@@ -1784,10 +1776,10 @@ return (_ctx, _cache) => {
                   ]))]),
                   _: 1
                 }),
-                _createElementVNode("div", _hoisted_52, [
+                _createElementVNode("div", _hoisted_56, [
                   _createElementVNode("div", null, [
                     _cache[64] || (_cache[64] = _createElementVNode("div", { class: "ar-config__danger-title" }, "重建画像", -1)),
-                    _createElementVNode("div", _hoisted_53, "清除“" + _toDisplayString(selectedIdentity.value?.username || '未选择') + "”的画像与当前榜单，并立即按现有播放记录重新生成；确认记忆、人工标签和归档继续保留。", 1)
+                    _createElementVNode("div", _hoisted_57, "清除“" + _toDisplayString(selectedIdentity.value?.username || '未选择') + "”的画像与当前榜单，并立即按现有播放记录重新生成；确认记忆、人工标签和归档继续保留。", 1)
                   ]),
                   _createVNode(_component_VBtn, {
                     color: "warning",
@@ -1806,7 +1798,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeMain.value === 'profile' && activeProfile.value === 'playback']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_54, [
+              _withDirectives(_createElementVNode("div", _hoisted_58, [
                 _cache[70] || (_cache[70] = _createElementVNode("div", { class: "ar-config__section-title" }, "Agent设定", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
@@ -1862,9 +1854,9 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                _createElementVNode("div", _hoisted_55, _toDisplayString(selectedPersonaPreset.value.hint), 1),
+                _createElementVNode("div", _hoisted_59, _toDisplayString(selectedPersonaPreset.value.hint), 1),
                 (form.persona_preset === 'custom')
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_56, [
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_60, [
                       _createVNode(_component_VTextarea, {
                         modelValue: form.persona_prompt,
                         "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((form.persona_prompt) = $event)),
@@ -1924,7 +1916,7 @@ return (_ctx, _cache) => {
                               ]),
                               _: 1
                             }, 8, ["modelValue"]),
-                            _createElementVNode("div", _hoisted_57, _toDisplayString(selectedInteractionMode.value.hint), 1)
+                            _createElementVNode("div", _hoisted_61, _toDisplayString(selectedInteractionMode.value.hint), 1)
                           ]),
                           _: 1
                         })
@@ -1937,7 +1929,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeMain.value === 'agent']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_58, [
+              _withDirectives(_createElementVNode("div", _hoisted_62, [
                 _cache[72] || (_cache[72] = _createElementVNode("div", { class: "ar-config__section-title" }, "发现来源", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
@@ -1950,7 +1942,7 @@ return (_ctx, _cache) => {
                   ]))]),
                   _: 1
                 }),
-                _createElementVNode("div", _hoisted_59, [
+                _createElementVNode("div", _hoisted_63, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(sourceDefs.value, (source) => {
                     return (_openBlock(), _createBlock(_component_VCard, {
                       key: source.key,
@@ -2007,7 +1999,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeMain.value === 'strategy' && activeStrategy.value === 'sources']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_60, [
+              _withDirectives(_createElementVNode("div", _hoisted_64, [
                 _cache[74] || (_cache[74] = _createElementVNode("div", { class: "ar-config__section-title" }, "权重设置", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
@@ -2019,20 +2011,20 @@ return (_ctx, _cache) => {
                   ]))]),
                   _: 1
                 }),
-                _createElementVNode("div", _hoisted_61, [
+                _createElementVNode("div", _hoisted_65, [
                   (_openBlock(), _createElementBlock(_Fragment, null, _renderList(weightDefs, (weight) => {
                     return _createElementVNode("div", {
                       key: weight.key,
                       class: "ar-config__weight-item"
                     }, [
-                      _createElementVNode("div", _hoisted_62, [
+                      _createElementVNode("div", _hoisted_66, [
                         _createVNode(_component_VIcon, {
                           icon: weight.icon,
                           size: "18",
                           color: "primary",
                           class: "mr-2"
                         }, null, 8, ["icon"]),
-                        _createElementVNode("span", _hoisted_63, _toDisplayString(weight.title), 1),
+                        _createElementVNode("span", _hoisted_67, _toDisplayString(weight.title), 1),
                         _createVNode(_component_VSpacer),
                         _createVNode(_component_VChip, {
                           size: "x-small",
@@ -2055,14 +2047,14 @@ return (_ctx, _cache) => {
                         "hide-details": "",
                         "thumb-label": ""
                       }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                      _createElementVNode("div", _hoisted_64, "默认 " + _toDisplayString(weightDefaults[weight.key].toFixed(1)), 1)
+                      _createElementVNode("div", _hoisted_68, "默认 " + _toDisplayString(weightDefaults[weight.key].toFixed(1)), 1)
                     ])
                   }), 64))
                 ])
               ], 512), [
                 [_vShow, activeMain.value === 'strategy' && activeStrategy.value === 'weights']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_65, [
+              _withDirectives(_createElementVNode("div", _hoisted_69, [
                 (activeAdvanced.value === 'runtime')
                   ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
                       _cache[76] || (_cache[76] = _createElementVNode("div", { class: "ar-config__section-title" }, "运行参数", -1)),
@@ -2145,7 +2137,7 @@ return (_ctx, _cache) => {
                               class: "mb-4"
                             }, {
                               default: _withCtx(() => [
-                                _createElementVNode("div", _hoisted_66, [
+                                _createElementVNode("div", _hoisted_70, [
                                   _createElementVNode("span", null, _toDisplayString(accessError.value), 1),
                                   _createVNode(_component_VBtn, {
                                     variant: "text",
@@ -2165,7 +2157,7 @@ return (_ctx, _cache) => {
                             }))
                           : _createCommentVNode("", true),
                         (accessLoading.value && !moviePilotUsers.value.length)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_67, [
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_71, [
                               _createVNode(_component_VProgressCircular, {
                                 indeterminate: "",
                                 color: "primary",
@@ -2173,7 +2165,7 @@ return (_ctx, _cache) => {
                               }),
                               _cache[79] || (_cache[79] = _createElementVNode("span", null, "正在读取 MoviePilot 用户", -1))
                             ]))
-                          : (_openBlock(), _createElementBlock("div", _hoisted_68, [
+                          : (_openBlock(), _createElementBlock("div", _hoisted_72, [
                               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(moviePilotUsers.value.filter(item => !item.is_superuser), (user) => {
                                 return (_openBlock(), _createElementBlock("div", {
                                   key: user.id,
@@ -2192,7 +2184,7 @@ return (_ctx, _cache) => {
                                     ]),
                                     _: 1
                                   }),
-                                  _createElementVNode("div", _hoisted_69, [
+                                  _createElementVNode("div", _hoisted_73, [
                                     _createElementVNode("strong", null, _toDisplayString(user.name), 1),
                                     _createElementVNode("small", null, "MoviePilot 用户 " + _toDisplayString(user.id), 1)
                                   ]),
@@ -2212,7 +2204,7 @@ return (_ctx, _cache) => {
                                 ]))
                               }), 128)),
                               (!moviePilotUsers.value.some(item => !item.is_superuser))
-                                ? (_openBlock(), _createElementBlock("div", _hoisted_70, [
+                                ? (_openBlock(), _createElementBlock("div", _hoisted_74, [
                                     _createVNode(_component_VIcon, {
                                       icon: "mdi-account-check-outline",
                                       size: "28",
@@ -2226,7 +2218,7 @@ return (_ctx, _cache) => {
                     : (activeAdvanced.value === 'data')
                       ? (_openBlock(), _createElementBlock(_Fragment, { key: 2 }, [
                           _cache[89] || (_cache[89] = _createElementVNode("div", { class: "ar-config__section-title" }, "数据保留", -1)),
-                          _createElementVNode("div", _hoisted_71, [
+                          _createElementVNode("div", _hoisted_75, [
                             (_openBlock(), _createElementBlock(_Fragment, null, _renderList(retentionDefinitions, (item) => {
                               return _createElementVNode("div", {
                                 key: item.key,
@@ -2244,14 +2236,14 @@ return (_ctx, _cache) => {
                                   variant: "outlined",
                                   "hide-details": ""
                                 }, null, 8, ["modelValue", "onUpdate:modelValue", "label", "max"]),
-                                _createElementVNode("div", _hoisted_72, _toDisplayString(item.hint), 1)
+                                _createElementVNode("div", _hoisted_76, _toDisplayString(item.hint), 1)
                               ])
                             }), 64))
                           ]),
                           _cache[90] || (_cache[90] = _createElementVNode("div", { class: "ar-config__hint mt-2" }, "保留上限随“保存配置”生效，已有数据会在运行时按前缀安全裁剪。", -1)),
                           _cache[91] || (_cache[91] = _createElementVNode("div", { class: "ar-config__section-title mt-5" }, "数据操作", -1)),
-                          _createElementVNode("div", _hoisted_73, [
-                            _createElementVNode("div", _hoisted_74, [
+                          _createElementVNode("div", _hoisted_77, [
+                            _createElementVNode("div", _hoisted_78, [
                               _createVNode(_component_VAvatar, {
                                 color: "info",
                                 variant: "tonal",
@@ -2283,7 +2275,7 @@ return (_ctx, _cache) => {
                                 _: 1
                               }, 8, ["loading", "disabled"])
                             ]),
-                            _createElementVNode("div", _hoisted_75, [
+                            _createElementVNode("div", _hoisted_79, [
                               _createVNode(_component_VAvatar, {
                                 color: "warning",
                                 variant: "tonal",
@@ -2314,7 +2306,7 @@ return (_ctx, _cache) => {
                                 _: 1
                               }, 8, ["disabled"])
                             ]),
-                            _createElementVNode("div", _hoisted_76, [
+                            _createElementVNode("div", _hoisted_80, [
                               _createVNode(_component_VAvatar, {
                                 color: "error",
                                 variant: "tonal",
@@ -2360,7 +2352,7 @@ return (_ctx, _cache) => {
                         ], 64))
                       : (_openBlock(), _createElementBlock(_Fragment, { key: 3 }, [
                           _cache[95] || (_cache[95] = _createElementVNode("div", { class: "ar-config__section-title" }, "提示设置", -1)),
-                          _createElementVNode("div", _hoisted_77, [
+                          _createElementVNode("div", _hoisted_81, [
                             (_openBlock(), _createElementBlock(_Fragment, null, _renderList(promptDefinitions, (definition) => {
                               return _createElementVNode("div", {
                                 key: definition.key,
@@ -2380,10 +2372,10 @@ return (_ctx, _cache) => {
                                   ]),
                                   _: 2
                                 }, 1024),
-                                _createElementVNode("div", _hoisted_78, [
-                                  _createElementVNode("div", _hoisted_79, _toDisplayString(definition.title), 1),
-                                  _createElementVNode("div", _hoisted_80, _toDisplayString(definition.purpose), 1),
-                                  _createElementVNode("div", _hoisted_81, _toDisplayString(promptSummary(definition.key)), 1)
+                                _createElementVNode("div", _hoisted_82, [
+                                  _createElementVNode("div", _hoisted_83, _toDisplayString(definition.title), 1),
+                                  _createElementVNode("div", _hoisted_84, _toDisplayString(definition.purpose), 1),
+                                  _createElementVNode("div", _hoisted_85, _toDisplayString(promptSummary(definition.key)), 1)
                                 ]),
                                 _createVNode(_component_VBtn, {
                                   variant: "tonal",
@@ -2739,7 +2731,7 @@ return (_ctx, _cache) => {
                       autocomplete: "off",
                       "hide-details": ""
                     }, null, 8, ["modelValue"]),
-                    _createElementVNode("div", _hoisted_82, "确认令牌有效至 " + _toDisplayString(formatDateTime(fullResetConfirmation.value?.expires_at)) + "，且仅限当前登录用户使用。", 1)
+                    _createElementVNode("div", _hoisted_86, "确认令牌有效至 " + _toDisplayString(formatDateTime(fullResetConfirmation.value?.expires_at)) + "，且仅限当前登录用户使用。", 1)
                   ]),
                   _: 1
                 })),
@@ -2806,6 +2798,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-874574b5"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4b49f423"]]);
 
 export { Config as default };

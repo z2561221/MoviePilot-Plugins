@@ -2520,6 +2520,13 @@ def test_fifteen_candidate_tournament_is_parallel_and_preserves_final_order():
     board = repository.load_board(PROFILE_ID)
     assert [item.candidate_id for item in board.recommendations] == expected_order
     assert [item.rank for item in board.recommendations] == [1, 2, 3, 4, 5]
+    fit_scores = {
+        item["candidate_id"]: item["fit_score"]
+        for item in final_context.judgment_cards
+    }
+    assert [item.fit_score for item in board.recommendations] == [
+        fit_scores[item.candidate_id] for item in board.recommendations
+    ]
     history = repository.load_run_history(PROFILE_ID)[0]
     assert len(history.metrics["candidate_preliminary_status"]) == 15
     assert history.metrics["preliminary_candidate_count"] == 15
@@ -2542,6 +2549,7 @@ def test_failed_batch_uses_safe_fill_then_only_that_batch_retries_next_run():
 
     first = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
     first_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    first_board = repository.load_board(PROFILE_ID)
     second = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
     second_metrics = repository.load_run_history(PROFILE_ID)[0].metrics
 
@@ -2549,6 +2557,17 @@ def test_failed_batch_uses_safe_fill_then_only_that_batch_retries_next_run():
     assert first_metrics["preliminary_failed_count"] == 1
     assert first_metrics["preliminary_safe_fill_count"] == 2
     assert first_metrics["finalist_count"] == 6
+    safe_fill_ids = {
+        candidate_id
+        for candidate_id, status in first_metrics["candidate_preliminary_status"].items()
+        if status["status"] == "failed" and status["selected"]
+    }
+    assert safe_fill_ids & {item.candidate_id for item in first_board.recommendations}
+    assert all(
+        item.fit_score is None
+        for item in first_board.recommendations
+        if item.candidate_id in safe_fill_ids
+    )
     assert second.status == "success"
     assert [call[0] for call in agent.preliminary_calls] == [
         "batch-1",

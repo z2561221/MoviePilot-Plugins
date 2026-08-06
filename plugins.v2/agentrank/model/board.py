@@ -18,6 +18,7 @@ class RecommendationItem:
     summary: str = ""
     reason: str = ""
     confidence: float = 0.0
+    fit_score: Optional[int] = None
     support: Optional[SupportScore] = None
     selection_source: str = "legacy"
     analysis_id: str = ""
@@ -32,11 +33,20 @@ class RecommendationItem:
     original_title: str = ""
 
     def __post_init__(self) -> None:
-        """规范并校验推荐条目的选择来源。"""
+        """规范并校验推荐条目的选择来源与 Agent 契合度。"""
         self.selection_source = str(self.selection_source or "legacy").strip()
         self.analysis_id = str(self.analysis_id or "").strip()[:128]
         if self.selection_source not in SELECTION_SOURCES:
             raise ValueError("recommendation selection_source is invalid")
+        if self.fit_score is not None:
+            if isinstance(self.fit_score, bool):
+                raise ValueError("recommendation fit_score is invalid")
+            try:
+                self.fit_score = int(self.fit_score)
+            except (TypeError, ValueError) as error:
+                raise ValueError("recommendation fit_score is invalid") from error
+            if not 0 <= self.fit_score <= 100:
+                raise ValueError("recommendation fit_score is out of range")
 
     @property
     def support_percentage(self) -> Optional[int]:
@@ -80,6 +90,11 @@ class RecommendationItem:
             summary=str(value.get("summary") or ""),
             reason=str(value.get("reason") or ""),
             confidence=float(value.get("confidence") or 0.0),
+            fit_score=(
+                int(value.get("fit_score"))
+                if value.get("fit_score") not in (None, "")
+                else None
+            ),
             support=(
                 SupportScore.from_dict(value.get("support"))
                 if isinstance(value.get("support"), Mapping)

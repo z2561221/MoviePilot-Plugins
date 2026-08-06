@@ -188,6 +188,10 @@ def test_preliminary_and_final_prompts_only_name_their_one_read_one_submit_tools
     assert preliminary.count("read_agentrank_batch_context") == 1
     assert preliminary.count("submit_agentrank_batch_result") == 1
     assert "每一条候选" in preliminary
+    assert "0 到 100 的整数" in preliminary
+    assert "影片与当前用户观影偏好的总体契合度" in preliminary
+    assert "不能拿作品质量、热度或大众口碑代替个人契合度" in preliminary
+    assert "禁止无依据地全部给满分" in preliminary
     assert final.count("read_agentrank_final_context") == 1
     assert final.count("submit_agentrank_final_board") == 1
     assert "排序要求：相关性优先" in final

@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import Config from './Config.vue'
 import Page from './Page.vue'
 import { savePluginConfig } from './api'
@@ -16,6 +16,36 @@ const savingSettings = ref(false)
 const settingsConfig = ref({})
 const pageKey = ref(0)
 const snackbar = ref({ show: false, message: '', color: 'success' })
+const hostScrollLockClass = 'ar-app-page-host-lock'
+let hostScrollLocked = false
+
+function lockHostScroll() {
+  if (typeof document === 'undefined' || hostScrollLocked) return
+  const root = document.documentElement
+  const currentLocks = Number.parseInt(root.dataset.agentRankScrollLocks || '0', 10) || 0
+  root.dataset.agentRankScrollLocks = String(currentLocks + 1)
+  root.classList.add(hostScrollLockClass)
+  document.body?.classList.add(hostScrollLockClass)
+  hostScrollLocked = true
+}
+
+function unlockHostScroll() {
+  if (typeof document === 'undefined' || !hostScrollLocked) return
+  const root = document.documentElement
+  const currentLocks = Number.parseInt(root.dataset.agentRankScrollLocks || '0', 10) || 0
+  const nextLocks = Math.max(0, currentLocks - 1)
+  if (nextLocks > 0) {
+    root.dataset.agentRankScrollLocks = String(nextLocks)
+  } else {
+    delete root.dataset.agentRankScrollLocks
+    root.classList.remove(hostScrollLockClass)
+    document.body?.classList.remove(hostScrollLockClass)
+  }
+  hostScrollLocked = false
+}
+
+onMounted(lockHostScroll)
+onBeforeUnmount(unlockHostScroll)
 
 function openSettings(config = {}) {
   settingsConfig.value = { ...(config || {}) }
@@ -71,5 +101,18 @@ async function saveSettings(config) {
 .ar-app-page {
   width: 100%;
   min-width: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 760px) {
+  :global(html.ar-app-page-host-lock),
+  :global(body.ar-app-page-host-lock) {
+    overflow-y: hidden !important;
+    overscroll-behavior-y: none;
+  }
+
+  :global(html.ar-app-page-host-lock .layout-footer) {
+    display: none !important;
+  }
 }
 </style>

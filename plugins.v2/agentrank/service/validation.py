@@ -1710,11 +1710,23 @@ class RecommendationValidator:
         confirmed_memory: Any = None,
         profile_preferences: Any = None,
         playback_snapshot: Any = None,
+        agent_fit_scores: Optional[Mapping[str, int]] = None,
     ) -> RecommendationValidationResult:
-        """按 Agent 原顺序校验并丰富通过项，最终排序由编排器完成。"""
+        """按 Agent 原顺序校验并附加真实初赛契合度，最终排序由编排器完成。"""
         candidate_map: Dict[str, Candidate] = {
             candidate.candidate_id: candidate for candidate in candidates
         }
+        normalized_fit_scores: Dict[str, int] = {}
+        for raw_candidate_id, raw_score in dict(agent_fit_scores or {}).items():
+            if isinstance(raw_score, bool):
+                continue
+            try:
+                score = int(raw_score)
+            except (TypeError, ValueError):
+                continue
+            candidate_id = str(raw_candidate_id or "").strip()
+            if candidate_id and 0 <= score <= 100:
+                normalized_fit_scores[candidate_id] = score
         archived = set(archived_candidate_ids or set())
         subscribed = set(subscribed_candidate_ids or set())
         disliked = set(disliked_candidate_ids or set())
@@ -1835,6 +1847,7 @@ class RecommendationValidator:
                 continue
             support = None
             confidence = int(recommendation.confidence or 0)
+            fit_score = normalized_fit_scores.get(candidate_id)
             if deterministic_support:
                 scoring = self._support_scorer.score_candidate(
                     candidate,
@@ -1899,6 +1912,9 @@ class RecommendationValidator:
                     continue
                 support = scoring.score
                 confidence = support.percentage
+            elif fit_score is None:
+                # 旧排序协议中的 confidence 本身由 Agent 提交，可作为历史兼容契合度。
+                fit_score = confidence
             result.accepted.append(
                 RecommendationItem(
                     candidate_id=candidate_id,
@@ -1906,6 +1922,7 @@ class RecommendationValidator:
                     summary=summary,
                     reason=reason,
                     confidence=confidence,
+                    fit_score=fit_score,
                     support=support,
                     selection_source="agent",
                     title=candidate.title,
