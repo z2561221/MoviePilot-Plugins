@@ -564,7 +564,7 @@ return (_ctx, _cache) => {
           (config.value.dashboard_rank_keys && config.value.dashboard_rank_keys.length)
             ? (_openBlock(), _createElementBlock("div", _hoisted_13, [
                 _createElementVNode("div", _hoisted_14, [
-                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(config.value.dashboard_rank_keys, (rk) => {
+                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(config.value.dashboard_rank_keys.slice(0, 6), (rk) => {
                     return (_openBlock(), _createElementBlock("div", {
                       key: rk,
                       class: "dc-rank-cell"
@@ -733,6 +733,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-80490bcb"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c58e8819"]]);
 
 export { Dashboard as default };

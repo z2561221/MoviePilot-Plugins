@@ -13,7 +13,7 @@ BUILTIN_RANKS: List[Dict[str, Any]] = [
         "name": "即将上映",
         "route": "/douban/tv/coming",
         "coming": True,
-        "filters": ["wish_count", "air_days"],
+        "filters": ["vote", "wish_count"],
     },
     {
         "key": "tv_real_time",

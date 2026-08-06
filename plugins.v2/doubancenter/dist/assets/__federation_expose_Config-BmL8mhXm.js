@@ -70,26 +70,22 @@ const _hoisted_47 = {
   class: "dc-rank-field"
 };
 const _hoisted_48 = {
-  key: 3,
-  class: "dc-rank-field"
-};
-const _hoisted_49 = {
   key: 2,
   class: "dc-rank-route-hint text-caption text-medium-emphasis"
 };
-const _hoisted_50 = {
+const _hoisted_49 = {
   key: 1,
   class: "dc-custom-ranks-empty text-caption text-medium-emphasis"
 };
+const _hoisted_50 = { class: "dc-pane" };
 const _hoisted_51 = { class: "dc-pane" };
-const _hoisted_52 = { class: "dc-pane" };
-const _hoisted_53 = { class: "dc-wish-status mt-3" };
+const _hoisted_52 = { class: "dc-wish-status mt-3" };
+const _hoisted_53 = { class: "dc-kv" };
 const _hoisted_54 = { class: "dc-kv" };
 const _hoisted_55 = { class: "dc-kv" };
 const _hoisted_56 = { class: "dc-kv" };
-const _hoisted_57 = { class: "dc-kv" };
+const _hoisted_57 = { class: "dc-pane" };
 const _hoisted_58 = { class: "dc-pane" };
-const _hoisted_59 = { class: "dc-pane" };
 
 const {computed,nextTick,onMounted,reactive,ref,watch} = await importShared('vue');
 
@@ -121,12 +117,12 @@ const defaults = {
   enabled: false, cron: '0 8 * * *', notify: false, proxy: false, onlyonce: false,
   rsshub_domain: 'https://rsshub.ddsrem.com',
   rank_configs: {
-    coming: { enabled: false, count: 0, wish_count: 5000, air_days: 7, vote: 0, year: 0, regions: [] },
-    tv_real_time: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0, regions: [] },
-    tv_chinese: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0, regions: [] },
-    tv_global: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0, regions: [] },
-    movie_weekly: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0, regions: [] },
-    bangumi: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0, regions: [] },
+    coming: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    tv_real_time: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    tv_chinese: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    tv_global: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    movie_weekly: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    bangumi: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
   },
   region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '', custom_ranks: [],
   folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false, folio_exclude_live_tv: true,
@@ -140,18 +136,12 @@ const defaults = {
 };
 
 const builtinRankDefs = [
-  { key: 'coming', name: '即将上映', route: '/douban/tv/coming', filters: ['wish_count', 'air_days'] },
+  { key: 'coming', name: '即将上映', route: '/douban/tv/coming', filters: ['vote', 'wish_count'] },
   { key: 'tv_real_time', name: '实时热门', route: '/douban/list/tv_real_time_hotest', filters: ['vote', 'year'] },
   { key: 'tv_chinese', name: '华语口碑', route: '/douban/list/tv_chinese_best_weekly', filters: ['vote', 'year'] },
   { key: 'tv_global', name: '全球口碑', route: '/douban/list/tv_global_best_weekly', filters: ['vote', 'year'] },
   { key: 'movie_weekly', name: '电影口碑', route: '/douban/list/movie_weekly_best', filters: ['vote', 'year'] },
   { key: 'bangumi', name: 'BangumiTV', route: '/bangumi.tv/anime/followrank', filters: ['vote', 'year'] },
-];
-
-const regionOptions = [
-  '中国大陆', '中国香港', '中国台湾', '美国', '日本', '韩国', '英国', '泰国', '印度',
-  '法国', '德国', '西班牙', '加拿大', '澳大利亚', '俄罗斯', '瑞典', '丹麦', '爱尔兰',
-  '意大利', '巴西', '新加坡', '马来西亚', '菲律宾', '越南', '墨西哥', '土耳其',
 ];
 
 const rankDefs = computed(() => [
@@ -232,7 +222,7 @@ function addCustomRank() {
   customRankError.value = '';
   const key = customRankKey();
   form.custom_ranks.push({ key, name: '', route: '' });
-  form.rank_configs[key] = { enabled: false, count: 0, vote: 0, year: 0, regions: [] };
+  form.rank_configs[key] = { enabled: false, count: 1, vote: '', year: '', regions: [] };
   expandedRankKeys.value = new Set([...expandedRankKeys.value, key]);
   activeMain.value = 'rank';
   activeSub.value = 'list';
@@ -309,15 +299,24 @@ function normalizeInitialConfig(value) {
   }
   for (const rd of [...builtinRankDefs, ...m.custom_ranks.map(rank => ({ ...rank, filters: ['vote', 'year'] }))]) {
     m.rank_configs[rd.key] = {
-      ...(defaults.rank_configs[rd.key] || { enabled: false, count: 0, vote: 0, year: 0 }),
+      ...(defaults.rank_configs[rd.key] || { enabled: false, count: 1, vote: '', year: '' }),
       ...(isPlainObject(m.rank_configs[rd.key]) ? m.rank_configs[rd.key] : {}),
     };
     m.rank_configs[rd.key].regions = Array.isArray(m.rank_configs[rd.key].regions)
       ? [...new Set(m.rank_configs[rd.key].regions.map(value => String(value || '').trim()).filter(Boolean))]
       : [];
+    const rankConfig = m.rank_configs[rd.key];
+    const rawCount = rankConfig.count;
+    rankConfig.count = rawCount === undefined || rawCount === null || rawCount === ''
+      ? 1
+      : (Number(rawCount) === 0 ? '' : rawCount);
+    for (const field of ['vote', 'year', 'wish_count', 'air_days']) {
+      if (rankConfig[field] === undefined || rankConfig[field] === null || Number(rankConfig[field]) === 0) rankConfig[field] = '';
+    }
     delete m.rank_configs[rd.key].media_type;
   }
   if (!Array.isArray(m.dashboard_rank_keys)) m.dashboard_rank_keys = [];
+  m.dashboard_rank_keys = [...new Set(m.dashboard_rank_keys.map(value => String(value || '').trim()).filter(Boolean))].slice(0, 6);
   if (!Array.isArray(m.observe_rank_keys)) m.observe_rank_keys = [...defaults.observe_rank_keys];
   return m
 }
@@ -350,6 +349,10 @@ function saveConfig() {
     resolution_filters: [],
     custom_rss_addrs: '',
   });
+}
+
+function limitDashboardRanks() {
+  form.dashboard_rank_keys = [...new Set((form.dashboard_rank_keys || []).map(value => String(value || '').trim()).filter(Boolean))].slice(0, 6);
 }
 
 function selectMain(key) {
@@ -705,7 +708,7 @@ return (_ctx, _cache) => {
                   type: "info",
                   variant: "tonal",
                   density: "compact",
-                  text: "订阅用户名统一为「豆瓣中心」。即将上映保留播出窗口、想看人数过滤逻辑。"
+                  text: "订阅用户名统一为「豆瓣中心」。即将上映支持评分、地区、想看筛选；空或 0 表示不限。"
                 })
               ], 512), [
                 [_vShow, activeSub.value === 'basic']
@@ -812,16 +815,16 @@ return (_ctx, _cache) => {
                               : _createCommentVNode("", true)
                           ]),
                           _createElementVNode("div", _hoisted_37, [
-                            _createElementVNode("span", null, "地区：" + _toDisplayString((form.rank_configs[rd.key]?.regions || []).join('、') || '不限'), 1),
-                            _createElementVNode("span", null, "数量 " + _toDisplayString(form.rank_configs[rd.key]?.count || 0), 1),
+                            _createElementVNode("span", null, "数量 " + _toDisplayString(form.rank_configs[rd.key]?.count || '不限'), 1),
                             (rd.filters.includes('vote'))
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_38, "评分 " + _toDisplayString(form.rank_configs[rd.key]?.vote || 0), 1))
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_38, "评分 " + _toDisplayString(form.rank_configs[rd.key]?.vote || '不限'), 1))
                               : _createCommentVNode("", true),
+                            _createElementVNode("span", null, "地区 " + _toDisplayString((form.rank_configs[rd.key]?.regions || []).join('、') || '不限'), 1),
                             (rd.filters.includes('year'))
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_39, "年份 " + _toDisplayString(form.rank_configs[rd.key]?.year || 0), 1))
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_39, "年份 " + _toDisplayString(form.rank_configs[rd.key]?.year || '不限'), 1))
                               : _createCommentVNode("", true),
                             (rd.filters.includes('wish_count'))
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_40, "想看 " + _toDisplayString(form.rank_configs[rd.key]?.wish_count || 0), 1))
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_40, "想看 " + _toDisplayString(form.rank_configs[rd.key]?.wish_count || '不限'), 1))
                               : _createCommentVNode("", true)
                           ])
                         ], 8, _hoisted_35),
@@ -830,7 +833,7 @@ return (_ctx, _cache) => {
                             ? (_openBlock(), _createBlock(_component_VBtn, {
                                 key: 0,
                                 icon: "mdi-delete-outline",
-                                variant: "tonal",
+                                variant: "flat",
                                 color: "error",
                                 class: "dc-delete-rank",
                                 "aria-label": `删除${rd.name || '自定义榜单'}`,
@@ -860,18 +863,19 @@ return (_ctx, _cache) => {
                                   _createVNode(_component_VCheckbox, {
                                     modelValue: form.rank_configs[rd.key].enabled,
                                     "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].enabled) = $event),
-                                    label: "启用自动订阅",
+                                    label: "自动订阅",
                                     color: "primary",
                                     "hide-details": "",
                                     density: "compact",
                                     class: "dc-rank-detail-enable"
                                   }, null, 8, ["modelValue", "onUpdate:modelValue"]),
                                   _createElementVNode("div", _hoisted_44, [
-                                    _cache[42] || (_cache[42] = _createElementVNode("span", { class: "dc-rank-label" }, "数量", -1)),
                                     _createVNode(_component_VTextField, {
                                       modelValue: form.rank_configs[rd.key].count,
                                       "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].count) = $event),
                                       modelModifiers: { number: true },
+                                      label: "数量",
+                                      placeholder: "0 不限",
                                       type: "number",
                                       min: "0",
                                       density: "compact",
@@ -880,44 +884,14 @@ return (_ctx, _cache) => {
                                       class: "dc-rank-input"
                                     }, null, 8, ["modelValue", "onUpdate:modelValue"])
                                   ]),
-                                  (rd.filters.includes('wish_count'))
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_45, [
-                                        _cache[43] || (_cache[43] = _createElementVNode("span", { class: "dc-rank-label" }, "想看", -1)),
-                                        _createVNode(_component_VTextField, {
-                                          modelValue: form.rank_configs[rd.key].wish_count,
-                                          "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].wish_count) = $event),
-                                          modelModifiers: { number: true },
-                                          type: "number",
-                                          density: "compact",
-                                          variant: "outlined",
-                                          "hide-details": "",
-                                          class: "dc-rank-input"
-                                        }, null, 8, ["modelValue", "onUpdate:modelValue"])
-                                      ]))
-                                    : _createCommentVNode("", true),
-                                  (rd.filters.includes('air_days'))
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_46, [
-                                        _cache[44] || (_cache[44] = _createElementVNode("span", { class: "dc-rank-label" }, "窗口", -1)),
-                                        _createVNode(_component_VTextField, {
-                                          modelValue: form.rank_configs[rd.key].air_days,
-                                          "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].air_days) = $event),
-                                          modelModifiers: { number: true },
-                                          type: "number",
-                                          min: "0",
-                                          density: "compact",
-                                          variant: "outlined",
-                                          "hide-details": "",
-                                          class: "dc-rank-input"
-                                        }, null, 8, ["modelValue", "onUpdate:modelValue"])
-                                      ]))
-                                    : _createCommentVNode("", true),
                                   (rd.filters.includes('vote'))
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_47, [
-                                        _cache[45] || (_cache[45] = _createElementVNode("span", { class: "dc-rank-label" }, "评分", -1)),
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_45, [
                                         _createVNode(_component_VTextField, {
                                           modelValue: form.rank_configs[rd.key].vote,
                                           "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].vote) = $event),
                                           modelModifiers: { number: true },
+                                          label: "评分",
+                                          placeholder: "0 不限",
                                           type: "number",
                                           min: "0",
                                           max: "10",
@@ -929,13 +903,29 @@ return (_ctx, _cache) => {
                                         }, null, 8, ["modelValue", "onUpdate:modelValue"])
                                       ]))
                                     : _createCommentVNode("", true),
+                                  _createVNode(_component_VCombobox, {
+                                    modelValue: form.rank_configs[rd.key].regions,
+                                    "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].regions) = $event),
+                                    items: [],
+                                    label: "地区",
+                                    placeholder: "自定义填写",
+                                    multiple: "",
+                                    chips: "",
+                                    "closable-chips": "",
+                                    clearable: "",
+                                    "hide-details": "",
+                                    density: "compact",
+                                    variant: "outlined",
+                                    class: "dc-rank-regions"
+                                  }, null, 8, ["modelValue", "onUpdate:modelValue"]),
                                   (rd.filters.includes('year'))
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_48, [
-                                        _cache[46] || (_cache[46] = _createElementVNode("span", { class: "dc-rank-label" }, "年份", -1)),
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_46, [
                                         _createVNode(_component_VTextField, {
                                           modelValue: form.rank_configs[rd.key].year,
                                           "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].year) = $event),
                                           modelModifiers: { number: true },
+                                          label: "年份",
+                                          placeholder: "0 不限",
                                           type: "number",
                                           min: "0",
                                           density: "compact",
@@ -945,20 +935,23 @@ return (_ctx, _cache) => {
                                         }, null, 8, ["modelValue", "onUpdate:modelValue"])
                                       ]))
                                     : _createCommentVNode("", true),
-                                  _createVNode(_component_VCombobox, {
-                                    modelValue: form.rank_configs[rd.key].regions,
-                                    "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].regions) = $event),
-                                    items: regionOptions,
-                                    label: "地区（可多选）",
-                                    multiple: "",
-                                    chips: "",
-                                    "closable-chips": "",
-                                    clearable: "",
-                                    "hide-details": "",
-                                    density: "compact",
-                                    variant: "outlined",
-                                    class: "dc-rank-regions"
-                                  }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                                  (rd.filters.includes('wish_count'))
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_47, [
+                                        _createVNode(_component_VTextField, {
+                                          modelValue: form.rank_configs[rd.key].wish_count,
+                                          "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].wish_count) = $event),
+                                          modelModifiers: { number: true },
+                                          label: "想看",
+                                          placeholder: "0 不限",
+                                          type: "number",
+                                          min: "0",
+                                          density: "compact",
+                                          variant: "outlined",
+                                          "hide-details": "",
+                                          class: "dc-rank-input"
+                                        }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                                      ]))
+                                    : _createCommentVNode("", true)
                                 ]),
                                 (rd.custom)
                                   ? (_openBlock(), _createBlock(_component_VTextField, {
@@ -1003,7 +996,7 @@ return (_ctx, _cache) => {
                                       ]),
                                       _: 2
                                     }, 1024))
-                                  : (_openBlock(), _createElementBlock("div", _hoisted_49, "数据源：" + _toDisplayString(rd.route), 1))
+                                  : (_openBlock(), _createElementBlock("div", _hoisted_48, "数据源：" + _toDisplayString(rd.route), 1))
                               ]))
                             : _createCommentVNode("", true)
                         ]),
@@ -1013,7 +1006,7 @@ return (_ctx, _cache) => {
                   }), 128))
                 ]),
                 (!form.custom_ranks.length)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_50, "尚未添加自定义榜单"))
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_49, "尚未添加自定义榜单"))
                   : _createCommentVNode("", true),
                 _createVNode(_component_VDialog, {
                   modelValue: deleteDialog.value,
@@ -1024,7 +1017,7 @@ return (_ctx, _cache) => {
                     _createVNode(_component_VCard, null, {
                       default: _withCtx(() => [
                         _createVNode(_component_VCardTitle, { class: "text-body-1" }, {
-                          default: _withCtx(() => [...(_cache[47] || (_cache[47] = [
+                          default: _withCtx(() => [...(_cache[42] || (_cache[42] = [
                             _createTextVNode("删除自定义榜单", -1)
                           ]))]),
                           _: 1
@@ -1042,7 +1035,7 @@ return (_ctx, _cache) => {
                               variant: "text",
                               onClick: _cache[4] || (_cache[4] = $event => (deleteDialog.value = false))
                             }, {
-                              default: _withCtx(() => [...(_cache[48] || (_cache[48] = [
+                              default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
                                 _createTextVNode("取消", -1)
                               ]))]),
                               _: 1
@@ -1052,7 +1045,7 @@ return (_ctx, _cache) => {
                               variant: "tonal",
                               onClick: _cache[5] || (_cache[5] = $event => (removeCustomRank(deleteTarget.value?.key)))
                             }, {
-                              default: _withCtx(() => [...(_cache[49] || (_cache[49] = [
+                              default: _withCtx(() => [...(_cache[44] || (_cache[44] = [
                                 _createTextVNode("删除", -1)
                               ]))]),
                               _: 1
@@ -1069,8 +1062,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'list']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_51, [
-                _cache[50] || (_cache[50] = _createElementVNode("div", { class: "dc-section-title" }, "观察设置", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_50, [
+                _cache[45] || (_cache[45] = _createElementVNode("div", { class: "dc-section-title" }, "观察设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1144,8 +1137,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'filter']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_52, [
-                _cache[55] || (_cache[55] = _createElementVNode("div", { class: "dc-section-title" }, "同步想看", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_51, [
+                _cache[50] || (_cache[50] = _createElementVNode("div", { class: "dc-section-title" }, "同步想看", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1266,29 +1259,29 @@ return (_ctx, _cache) => {
                   density: "compact",
                   text: "通过豆瓣动态 feed 同步，首次只建立最近天数内的基线；后续周期只处理最近天数内新增的想看。"
                 }),
-                _createElementVNode("div", _hoisted_53, [
-                  _createElementVNode("div", _hoisted_54, [
-                    _cache[51] || (_cache[51] = _createElementVNode("span", null, "队列待处理", -1)),
+                _createElementVNode("div", _hoisted_52, [
+                  _createElementVNode("div", _hoisted_53, [
+                    _cache[46] || (_cache[46] = _createElementVNode("span", null, "队列待处理", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.queue || 0), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_55, [
-                    _cache[52] || (_cache[52] = _createElementVNode("span", null, "失败记录", -1)),
+                  _createElementVNode("div", _hoisted_54, [
+                    _cache[47] || (_cache[47] = _createElementVNode("span", null, "失败记录", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.failed || 0), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_56, [
-                    _cache[53] || (_cache[53] = _createElementVNode("span", null, "最近运行", -1)),
+                  _createElementVNode("div", _hoisted_55, [
+                    _cache[48] || (_cache[48] = _createElementVNode("span", null, "最近运行", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.last_run || '尚未运行'), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_57, [
-                    _cache[54] || (_cache[54] = _createElementVNode("span", null, "状态错误", -1)),
+                  _createElementVNode("div", _hoisted_56, [
+                    _cache[49] || (_cache[49] = _createElementVNode("span", null, "状态错误", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.last_error || '无'), 1)
                   ])
                 ])
               ], 512), [
                 [_vShow, activeSub.value === 'wish']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_58, [
-                _cache[56] || (_cache[56] = _createElementVNode("div", { class: "dc-section-title" }, "同步观影", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_57, [
+                _cache[51] || (_cache[51] = _createElementVNode("div", { class: "dc-section-title" }, "同步观影", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -1437,14 +1430,14 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'sync']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_59, [
-                _cache[57] || (_cache[57] = _createElementVNode("div", { class: "dc-section-title" }, "仪表盘选择", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_58, [
+                _cache[52] || (_cache[52] = _createElementVNode("div", { class: "dc-section-title" }, "仪表盘选择", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
                   variant: "tonal",
                   density: "compact",
                   class: "mb-2",
-                  text: "仪表盘最多选择 2 个已启用榜单；开启发现页后，保存并刷新 MP 页面即可从左侧「发现」分组进入豆瓣中心。"
+                  text: "仪表盘最多显示 6 个已启用榜单；开启发现页后，保存并刷新 MP 页面即可从左侧「发现」分组进入豆瓣中心。"
                 }),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -1455,8 +1448,11 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VSelect, {
                           modelValue: form.dashboard_rank_keys,
-                          "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((form.dashboard_rank_keys) = $event)),
-                          label: "选择要显示的榜单",
+                          "onUpdate:modelValue": [
+                            _cache[24] || (_cache[24] = $event => ((form.dashboard_rank_keys) = $event)),
+                            limitDashboardRanks
+                          ],
+                          label: "选择要显示的榜单（最多 6 个）",
                           items: rankDefs.value.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key })),
                           multiple: "",
                           chips: "",
@@ -1502,7 +1498,7 @@ return (_ctx, _cache) => {
               class: "dc-action-btn",
               onClick: _cache[26] || (_cache[26] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[58] || (_cache[58] = [
+              default: _withCtx(() => [...(_cache[53] || (_cache[53] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -1514,7 +1510,7 @@ return (_ctx, _cache) => {
               class: "dc-action-btn dc-action-btn--save",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[59] || (_cache[59] = [
+              default: _withCtx(() => [...(_cache[54] || (_cache[54] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -1530,6 +1526,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d9a7c2bb"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-446d84c6"]]);
 
 export { Config as default };

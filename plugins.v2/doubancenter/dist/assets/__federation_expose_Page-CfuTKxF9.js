@@ -45,7 +45,7 @@ const _hoisted_22 = {
   key: 1,
   class: "dc-section dc-section--rank"
 };
-const _hoisted_23 = { class: "dc-rank-grid" };
+const _hoisted_23 = { class: "dc-rank-grid dc-rank-grid--snapshot" };
 const _hoisted_24 = { class: "dc-rank-head" };
 const _hoisted_25 = ["onClick"];
 const _hoisted_26 = { class: "dc-rank-title" };
@@ -829,16 +829,16 @@ return (_ctx, _cache) => {
                           _createElementVNode("div", _hoisted_20, _toDisplayString(stats.value.month_new || 0), 1),
                           _cache[13] || (_cache[13] = _createElementVNode("div", { class: "dc-stat-label" }, "本月新增", -1))
                         ]),
-                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(stats.value.rank_dist, (count, key) => {
+                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((stats.value.rank_stats || []), (item) => {
                           return (_openBlock(), _createElementBlock("div", {
-                            key: key,
+                            key: item.key,
                             class: "dc-stat-card"
                           }, [
                             _createElementVNode("div", {
                               class: "dc-stat-value",
-                              style: _normalizeStyle({ color: rankColorOf(key) })
-                            }, _toDisplayString(count), 5),
-                            _createElementVNode("div", _hoisted_21, _toDisplayString(rankNameOf(key)), 1)
+                              style: _normalizeStyle({ color: rankColorOf(item.key) })
+                            }, _toDisplayString(item.count), 5),
+                            _createElementVNode("div", _hoisted_21, _toDisplayString(item.name || rankNameOf(item.key)), 1)
                           ]))
                         }), 128))
                       ])
@@ -1338,6 +1338,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f7095c12"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d6a22618"]]);
 
 export { Page as default };

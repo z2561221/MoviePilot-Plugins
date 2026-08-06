@@ -494,16 +494,16 @@ onMounted(loadAll)
               <div class="dc-stat-value">{{ stats.month_new || 0 }}</div>
               <div class="dc-stat-label">本月新增</div>
             </div>
-            <div v-for="(count, key) in stats.rank_dist" :key="key" class="dc-stat-card">
-              <div class="dc-stat-value" :style="{ color: rankColorOf(key) }">{{ count }}</div>
-              <div class="dc-stat-label">{{ rankNameOf(key) }}</div>
+            <div v-for="item in (stats.rank_stats || [])" :key="item.key" class="dc-stat-card">
+              <div class="dc-stat-value" :style="{ color: rankColorOf(item.key) }">{{ item.count }}</div>
+              <div class="dc-stat-label">{{ item.name || rankNameOf(item.key) }}</div>
             </div>
           </div>
         </div>
 
         <div v-if="rankHistory && Object.keys(rankHistory).length" class="dc-section dc-section--rank">
           <div class="dc-section-title mb-2">榜单快照 <span class="text-caption font-weight-regular text-medium-emphasis">（点击条目订阅或打开来源）</span></div>
-          <div class="dc-rank-grid">
+          <div class="dc-rank-grid dc-rank-grid--snapshot">
             <div v-for="[key, items] in Object.entries(rankHistory)" :key="key" class="dc-rank-card">
               <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(key)" class="mr-1" /><span>{{ rankNameOf(key, items?.[0]) }}</span></div>
               <template v-if="items && items.length">
@@ -696,10 +696,17 @@ onMounted(loadAll)
   .dc-toolbar-action { flex: 0 0 36px; min-width: 36px !important; width: 36px; padding-inline: 0 !important; }
   .dc-toolbar-action :deep(.v-btn__content) { display: none; }
   .dc-toolbar-action :deep(.v-btn__prepend) { margin-inline: 0; }
-  .dc-flow { grid-template-columns: 1fr; }
+  .dc-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dc-section { grid-column: 1 / -1; padding: 10px; }
+  .dc-section--blacklist,
+  .dc-section--observe,
+  .dc-section--history,
+  .dc-section--logs { grid-column: span 1; }
   .dc-rank-grid { grid-template-columns: minmax(0, 1fr); overflow-x: visible; padding-bottom: 0; }
   .dc-rank-card { width: 100%; }
+  .dc-rank-grid--snapshot { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; scrollbar-width: none; -ms-overflow-style: none; touch-action: pan-x; overscroll-behavior-x: contain; }
+  .dc-rank-grid--snapshot::-webkit-scrollbar { display: none; }
+  .dc-rank-grid--snapshot .dc-rank-card { flex: 0 0 min(78vw, 280px); width: min(78vw, 280px); }
   .dc-history-row { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 4px; padding: 4px 6px; }
   .dc-archive-row { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
   .dc-status-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
@@ -707,5 +714,12 @@ onMounted(loadAll)
   .dc-history-meta .v-chip { max-width: 120px; }
   .dc-history-row span.text-caption { display: none; }
   .dc-action-dialog { width: min(420px, calc(100vw - 24px)); max-width: calc(100vw - 24px); }
+}
+@media (max-width: 360px) {
+  .dc-flow { grid-template-columns: 1fr; }
+  .dc-section--blacklist,
+  .dc-section--observe,
+  .dc-section--history,
+  .dc-section--logs { grid-column: 1 / -1; }
 }
 </style>

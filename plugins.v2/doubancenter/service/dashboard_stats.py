@@ -7,6 +7,16 @@ from typing import Any, Dict, List, Optional
 EXTRA_SUBSCRIPTION_RANK_NAMES = {
     "douban_wish": "豆瓣想看",
 }
+WISH_RANK_ALIASES = {"douban_wish", "wish", "豆瓣想看"}
+
+
+def _record_rank(record: dict) -> tuple[str, str]:
+    """从订阅记录解析稳定榜单 key 与显示名称。"""
+    raw_key = str(record.get("rank_key") or "").strip()
+    raw_name = str(record.get("rank_name") or "").strip()
+    if raw_key in WISH_RANK_ALIASES or raw_name == "豆瓣想看":
+        return "douban_wish", "豆瓣想看"
+    return raw_key or "unknown", raw_name
 
 
 def build_stats(records: List[dict], builtin_ranks: List[dict], now: Optional[datetime.datetime] = None) -> Dict[str, Any]:
@@ -16,6 +26,10 @@ def build_stats(records: List[dict], builtin_ranks: List[dict], now: Optional[da
     for rank_key, rank_name in EXTRA_SUBSCRIPTION_RANK_NAMES.items():
         if any(record.get("rank_key") == rank_key for record in records):
             rank_names[rank_key] = rank_name
+    for record in records:
+        rank_key, rank_name = _record_rank(record)
+        if rank_key != "unknown" and rank_name:
+            rank_names.setdefault(rank_key, rank_name)
     rank_dist = {rank_key: 0 for rank_key in rank_names}
     unknown_count = 0
     type_dist = {"电影": 0, "电视剧": 0}
@@ -24,7 +38,7 @@ def build_stats(records: List[dict], builtin_ranks: List[dict], now: Optional[da
     month_start = current.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     for record in records:
-        rank_key = record.get("rank_key") or "unknown"
+        rank_key, _ = _record_rank(record)
         if rank_key in rank_dist:
             rank_dist[rank_key] += 1
         else:

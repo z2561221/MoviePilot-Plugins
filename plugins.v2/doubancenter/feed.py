@@ -25,6 +25,7 @@ from .service import subscription as subscription_service
 from .storage import records as storage
 
 RANK_HISTORY_LIMIT = 500
+UNLIMITED_RANK_FETCH_LIMIT = 50
 DEFAULT_OBSERVE_RANK_KEYS = rank_model.DEFAULT_OBSERVE_RANK_KEYS
 BUILTIN_RANKS: List[Dict[str, Any]] = rank_model.BUILTIN_RANKS
 
@@ -493,10 +494,8 @@ def subscribe_to_ranks(self, refresh_when_unsafe: bool = True) -> None:
         if not _ren(self, key):
             continue
         count = _rcount(self, key)
-        if count <= 0:
-            logger.info(f"豆瓣中心：[{rd['name']}] 自动订阅数量为 0，跳过订阅候选")
-            continue
-        url = rss_adapter.build_rsshub_url(rsshub, rd["route"], count)
+        fetch_count = count if count > 0 else UNLIMITED_RANK_FETCH_LIMIT
+        url = rss_adapter.build_rsshub_url(rsshub, rd["route"], fetch_count)
         logger.info(f"豆瓣中心：开始处理 [{rd['name']}] {url}")
         if rd["coming"]:
             _process_coming(self, url, rd)
@@ -513,7 +512,8 @@ def _subscription_limit_by_rank(self) -> Dict[str, int]:
         key = rd["key"]
         if not _ren(self, key):
             continue
-        limits[key] = max(5, _rcount(self, key))
+        count = _rcount(self, key)
+        limits[key] = max(5, count) if count > 0 else UNLIMITED_RANK_FETCH_LIMIT
     return limits
 
 
@@ -603,11 +603,8 @@ def subscribe_to_rank_snapshots(self, rank_snapshots: Dict[str, dict]) -> None:
         if not _ren(self, key):
             continue
         count = _rcount(self, key)
-        if count <= 0:
-            logger.info(f"豆瓣中心：[{rd['name']}] 自动订阅数量为 0，跳过订阅候选")
-            continue
         snapshots = ((rank_snapshots or {}).get(key) or {}).get("items") or []
-        subscribe_items = snapshots[:count]
+        subscribe_items = snapshots if count <= 0 else snapshots[:count]
         description = rank_subscription_service.describe_rank_filter(
             _rc(self, key),
             rd,
@@ -632,8 +629,9 @@ def subscribe_to_rank_snapshots(self, rank_snapshots: Dict[str, dict]) -> None:
 def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_lines: Optional[List[str]] = None) -> None:
     """处理即将上映榜单的已识别订阅候选。"""
     cfg = _rc(self, rd["key"])
-    min_wish = int(cfg.get("wish_count", 5000) or 5000)
-    air_days = int(cfg.get("air_days", 7) or 7)
+    min_wish = int(cfg.get("wish_count", 0) or 0)
+    air_days = int(cfg.get("air_days", 0) or 0)
+    min_vote = float(cfg.get("vote", 0) or 0)
     history: List[dict] = storage.read_rank_history(self, rd["key"])
     history_index = _history_index_by_unique(history)
     current_candidates = set()
@@ -657,7 +655,7 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
         if _check_blacklist(self, title, description=blacklist_description, link=link):
             _log_rank_skip(rd, title, "命中黑名单", result_lines=result_lines)
             continue
-        if wish < min_wish:
+        if min_wish > 0 and wish < min_wish:
             _log_rank_skip(rd, title, f"想看 {wish} < {min_wish}", result_lines=result_lines)
             continue
         mediainfo = snapshot.get("mediainfo")
@@ -665,6 +663,10 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
             _log_rank_skip(rd, title, "TMDB 识别无结果", result_lines=result_lines)
             continue
         if not _check_rank_region(self, rd, item, entry, mediainfo, result_lines=result_lines):
+            continue
+        vote_average = getattr(mediainfo, "vote_average", None)
+        if min_vote > 0 and vote_average and vote_average < min_vote:
+            _log_rank_skip(rd, title, f"评分 {vote_average} < {min_vote}", result_lines=result_lines)
             continue
         meta = _snapshot_meta(item, entry, MediaType.TV)
         if _is_existing_media(mediainfo, meta):
@@ -685,12 +687,13 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
         ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
-        if not ad:
-            _log_rank_skip(rd, title, "未获取到上映日期", result_lines=result_lines)
-            continue
-        if not utils.is_within_days(ad, air_days):
-            _log_rank_skip(rd, title, f"上映日期 {ad} 不在 {air_days} 天内", result_lines=result_lines)
-            continue
+        if air_days > 0:
+            if not ad:
+                _log_rank_skip(rd, title, "未获取到上映日期", result_lines=result_lines)
+                continue
+            if not utils.is_within_days(ad, air_days):
+                _log_rank_skip(rd, title, f"上映日期 {ad} 不在 {air_days} 天内", result_lines=result_lines)
+                continue
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
             _log_rank_skip(rd, title, "观察期规则拦截", result_lines=result_lines)
             continue
@@ -839,8 +842,9 @@ def run_scheduled(self) -> None:
 
 def _process_coming(self, url: str, rd: dict) -> None:
     cfg = _rc(self, rd["key"])
-    min_wish = int(cfg.get("wish_count", 5000) or 5000)
-    air_days = int(cfg.get("air_days", 7) or 7)
+    min_wish = int(cfg.get("wish_count", 0) or 0)
+    air_days = int(cfg.get("air_days", 0) or 0)
+    min_vote = float(cfg.get("vote", 0) or 0)
     items = _fetch_coming_rss(self, url)
     if not items:
         return
@@ -858,7 +862,7 @@ def _process_coming(self, url: str, rd: dict) -> None:
             continue
         if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
             continue
-        if wish < min_wish:
+        if min_wish > 0 and wish < min_wish:
             continue
         meta = MetaInfo(title)
         if year:
@@ -868,6 +872,9 @@ def _process_coming(self, url: str, rd: dict) -> None:
         if not mediainfo:
             continue
         if not _check_rank_region(self, rd, item, {}, mediainfo):
+            continue
+        vote_average = getattr(mediainfo, "vote_average", None)
+        if min_vote > 0 and vote_average and vote_average < min_vote:
             continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
@@ -887,7 +894,7 @@ def _process_coming(self, url: str, rd: dict) -> None:
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
         ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
-        if not ad or not utils.is_within_days(ad, air_days):
+        if air_days > 0 and (not ad or not utils.is_within_days(ad, air_days)):
             continue
         # 观察期：仅对选中的波动榜单延迟订阅。
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):

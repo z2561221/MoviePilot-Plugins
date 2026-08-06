@@ -120,7 +120,7 @@ class DoubanCenter(_PluginBase):
         self._dashboard_rank_keys = [
             str(key) for key in (config.get("dashboard_rank_keys") or [])
             if str(key) in valid_rank_keys
-        ]
+        ][:6]
         self._discovery_page_enabled = bool(config.get("discovery_page_enabled", False))
         self._blacklist_keywords = config.get("blacklist_keywords") or ""
         self._observe_days = int(config.get("observe_days", 0) or 0)

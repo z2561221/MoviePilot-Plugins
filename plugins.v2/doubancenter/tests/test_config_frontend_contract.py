@@ -42,7 +42,6 @@ class ConfigFrontendContractTest(unittest.TestCase):
         for fragment in forbidden_fragments:
             self.assertNotIn(fragment, text)
 
-        self.assertIn("const regionOptions", text)
         self.assertIn("region_filters: []", text)
         self.assertIn("genre_filters: []", text)
         self.assertIn("resolution_filters: []", text)
@@ -52,8 +51,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
         text = CONFIG_VUE.read_text(encoding="utf-8")
 
         self.assertNotIn("count: 10", text)
-        self.assertGreaterEqual(text.count("count: 0"), 6)
-        self.assertIn('v-model.number="form.rank_configs[rd.key].count" type="number" min="0"', text)
+        self.assertGreaterEqual(text.count("count: 1"), 6)
+        self.assertIn('v-model.number="form.rank_configs[rd.key].count" label="数量" placeholder="0 不限" type="number" min="0"', text)
 
     def test_rank_list_uses_compact_grid_style(self):
         text = CONFIG_VUE.read_text(encoding="utf-8")
@@ -103,7 +102,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
             ".dc-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }",
             ".dc-card { height: min(860px, calc(100dvh - 16px)); }",
             ".dc-rank-card-body { grid-template-columns: 1fr; }",
-            ".dc-rank-field { grid-template-columns: 42px minmax(0, 1fr); }",
+            ".dc-rank-field { min-width: 0; }",
             ".dc-rank-input { width: 100%; max-width: none; }",
         ]
         for fragment in required_fragments:
@@ -117,7 +116,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
             ".dc-rank-card-body[data-v-",
             "grid-template-columns:1fr",
             ".dc-rank-field[data-v-",
-            "grid-template-columns:42pxminmax(0,1fr)",
+            "min-width:0",
             ".dc-rank-input[data-v-",
             "width:100%;max-width:none",
         ]
@@ -195,9 +194,10 @@ class ConfigFrontendContractTest(unittest.TestCase):
     def test_rank_rows_share_regions_and_custom_source_contract(self):
         text = CONFIG_VUE.read_text(encoding="utf-8")
 
-        self.assertIn("const regionOptions", text)
         self.assertIn('v-model="form.rank_configs[rd.key].regions"', text)
         self.assertIn("multiple chips", text)
+        self.assertIn(':items="[]"', text)
+        self.assertIn('placeholder="自定义填写"', text)
         self.assertIn('VExpansionPanel title="数据源设置"', text)
         self.assertIn('v-model="rd.model.name"', text)
         self.assertIn('v-model="rd.model.route"', text)

@@ -61,8 +61,11 @@ def describe_rank_filter(
     rank = rank if isinstance(rank, dict) else {}
     parts = [f"候选 {max(int(candidate_count or 0), 0)} 条"]
     if rank.get("coming"):
+        vote = _positive_value_text(config.get("vote"))
         wish = _positive_value_text(config.get("wish_count"))
         air_days = _positive_value_text(config.get("air_days"))
+        if vote:
+            parts.append(f"评分>={vote}")
         if wish:
             parts.append(f"想看>={wish}")
         if air_days:
@@ -103,7 +106,11 @@ def has_rank_filter(config: dict, rank: dict) -> bool:
     if _normalize_regions_for_filter(config.get("regions")):
         return True
     if (rank or {}).get("coming"):
-        return rank_model.positive_number(config.get("wish_count")) or rank_model.positive_number(config.get("air_days"))
+        return (
+            rank_model.positive_number(config.get("vote"))
+            or rank_model.positive_number(config.get("wish_count"))
+            or rank_model.positive_number(config.get("air_days"))
+        )
     return rank_model.positive_number(config.get("vote")) or rank_model.positive_number(config.get("year"))
 
 

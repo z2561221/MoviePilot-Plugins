@@ -962,7 +962,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
-    def test_subscribe_to_ranks_skips_enabled_rank_when_count_is_zero(self):
+    def test_subscribe_to_ranks_fetches_unlimited_candidates_when_count_is_zero(self):
         plugin = _Plugin()
         plugin._rsshub_domain = "https://rsshub.example"
         plugin._rank_configs = {"tv_global": {"enabled": True, "count": 0}}
@@ -974,7 +974,10 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         finally:
             self.feed._fetch_rss = original_fetch
 
-        self.assertEqual(calls, [])
+        self.assertEqual(
+            calls,
+            ["https://rsshub.example/douban/list/tv_global_best_weekly?limit=50"],
+        )
 
     def test_run_once_uses_single_recognized_snapshot_for_subscription_window(self):
         plugin = _Plugin()
@@ -1272,6 +1275,30 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.feed._process_coming(plugin, "https://rsshub.example/douban/tv/coming?limit=1", {"key": "coming", "name": "即将上映", "route": "/douban/tv/coming"})
 
         self.assertEqual(plugin.data["coming_history"], [])
+
+    def test_process_coming_does_not_require_air_date_when_window_is_unlimited(self):
+        """即将上映未配置上映窗口时，不应因 TMDB 缺少日期而跳过。"""
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = False
+        plugin._observe_days = 0
+        plugin._rank_configs = {"coming": {"wish_count": 0, "air_days": 0}}
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
+        )
+        self.feed._fetch_coming_rss = lambda self_obj, url: [
+            {"title": "无日期剧集", "link": "https://example.com/no-date", "year": "2026", "wish_count": 0}
+        ]
+        self.feed.utils.get_tmdb_air_date = lambda *args, **kwargs: None
+        calls = []
+        self.feed._add_sub = lambda *args, **kwargs: calls.append(kwargs) or True
+
+        self.feed._process_coming(
+            plugin,
+            "https://rsshub.example/douban/tv/coming?limit=1",
+            {"key": "coming", "name": "即将上映", "route": "/douban/tv/coming"},
+        )
+
+        self.assertEqual(len(calls), 1)
 
     def test_process_coming_ignores_legacy_region_and_genre_filters(self):
         plugin = _Plugin()
@@ -1962,9 +1989,9 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         css = (remote_entry.parent / match.group(1)).read_text(encoding="utf-8")
 
-        self.assertIn("grid-template-columns: 28px 110px", css)
-        self.assertIn("width: 110px", css)
-        self.assertIn("max-width: 118px", css)
+        self.assertIn("display: block", css)
+        self.assertIn("width: 118px", css)
+        self.assertIn("max-width: 130px", css)
 
     def test_active_frontend_uses_native_subscribe_with_silent_fallback(self):
         for expose_name in ("./Page", "./Dashboard"):

@@ -365,7 +365,7 @@ onMounted(load)
 
       <div v-if="config.dashboard_rank_keys && config.dashboard_rank_keys.length">
         <div class="dc-rank-grid">
-          <div v-for="rk in config.dashboard_rank_keys" :key="rk" class="dc-rank-cell">
+          <div v-for="rk in config.dashboard_rank_keys.slice(0, 6)" :key="rk" class="dc-rank-cell">
             <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(rk)" class="mr-1" /><span>{{ rankNameOf(rk, rankHistory[rk]?.[0]) }}</span></div>
             <div class="dc-rank-body">
               <div v-for="(item, i) in (rankHistory[rk] || []).slice(0, 5)" :key="i" class="dc-rank-row" :title="item.title" @click="showActionDialog(rk, item)">

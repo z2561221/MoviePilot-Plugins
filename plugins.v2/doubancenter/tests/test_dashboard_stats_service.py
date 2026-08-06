@@ -94,6 +94,38 @@ class DashboardStatsServiceTest(unittest.TestCase):
             ],
         )
 
+    def test_build_stats_uses_custom_rank_name_and_wish_alias(self):
+        """自定义榜单统计应读取订阅记录名称，并兼容想看旧别名。"""
+        result = dashboard_stats.build_stats(
+            [
+                {
+                    "rank_key": "custom_thriller",
+                    "rank_name": "深夜惊悚榜",
+                    "media_type": "电视剧",
+                    "time": "2026-07-15 10:00:00",
+                },
+                {
+                    "rank_key": "wish",
+                    "rank_name": "豆瓣想看",
+                    "media_type": "电影",
+                    "time": "2026-07-15 11:00:00",
+                },
+            ],
+            [{"key": "coming", "name": "即将上映"}],
+            now=datetime.datetime(2026, 7, 15, 12, 0, 0),
+        )
+
+        self.assertEqual(result["rank_dist"]["custom_thriller"], 1)
+        self.assertEqual(result["rank_dist"]["douban_wish"], 1)
+        self.assertIn(
+            {"key": "custom_thriller", "name": "深夜惊悚榜", "count": 1},
+            result["rank_stats"],
+        )
+        self.assertIn(
+            {"key": "douban_wish", "name": "豆瓣想看", "count": 1},
+            result["rank_stats"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
