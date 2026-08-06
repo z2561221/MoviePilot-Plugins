@@ -70,22 +70,26 @@ const _hoisted_47 = {
   class: "dc-rank-field"
 };
 const _hoisted_48 = {
-  key: 2,
-  class: "dc-rank-route-hint text-caption text-medium-emphasis"
+  key: 0,
+  class: "dc-custom-rank-route-row"
 };
 const _hoisted_49 = {
   key: 1,
+  class: "dc-rank-route-hint text-caption text-medium-emphasis"
+};
+const _hoisted_50 = {
+  key: 1,
   class: "dc-custom-ranks-empty text-caption text-medium-emphasis"
 };
-const _hoisted_50 = { class: "dc-pane" };
 const _hoisted_51 = { class: "dc-pane" };
-const _hoisted_52 = { class: "dc-wish-status mt-3" };
-const _hoisted_53 = { class: "dc-kv" };
+const _hoisted_52 = { class: "dc-pane" };
+const _hoisted_53 = { class: "dc-wish-status mt-3" };
 const _hoisted_54 = { class: "dc-kv" };
 const _hoisted_55 = { class: "dc-kv" };
 const _hoisted_56 = { class: "dc-kv" };
-const _hoisted_57 = { class: "dc-pane" };
+const _hoisted_57 = { class: "dc-kv" };
 const _hoisted_58 = { class: "dc-pane" };
+const _hoisted_59 = { class: "dc-pane" };
 
 const {computed,nextTick,onMounted,reactive,ref,watch} = await importShared('vue');
 
@@ -396,9 +400,6 @@ return (_ctx, _cache) => {
   const _component_VCheckbox = _resolveComponent("VCheckbox");
   const _component_VChip = _resolveComponent("VChip");
   const _component_VCombobox = _resolveComponent("VCombobox");
-  const _component_VExpansionPanelText = _resolveComponent("VExpansionPanelText");
-  const _component_VExpansionPanel = _resolveComponent("VExpansionPanel");
-  const _component_VExpansionPanels = _resolveComponent("VExpansionPanels");
   const _component_VExpandTransition = _resolveComponent("VExpandTransition");
   const _component_VCardText = _resolveComponent("VCardText");
   const _component_VSpacer = _resolveComponent("VSpacer");
@@ -954,49 +955,30 @@ return (_ctx, _cache) => {
                                     : _createCommentVNode("", true)
                                 ]),
                                 (rd.custom)
-                                  ? (_openBlock(), _createBlock(_component_VTextField, {
-                                      key: 0,
-                                      ref_for: true,
-                                      ref: el => setNameInputRef(rd.key, el),
-                                      modelValue: rd.model.name,
-                                      "onUpdate:modelValue": $event => ((rd.model.name) = $event),
-                                      label: "榜单名称",
-                                      density: "compact",
-                                      variant: "outlined",
-                                      "hide-details": "",
-                                      class: "dc-custom-rank-name"
-                                    }, null, 8, ["modelValue", "onUpdate:modelValue"]))
-                                  : _createCommentVNode("", true),
-                                (rd.custom)
-                                  ? (_openBlock(), _createBlock(_component_VExpansionPanels, {
-                                      key: 1,
-                                      variant: "accordion",
-                                      class: "dc-source-panels"
-                                    }, {
-                                      default: _withCtx(() => [
-                                        _createVNode(_component_VExpansionPanel, { title: "数据源设置" }, {
-                                          default: _withCtx(() => [
-                                            _createVNode(_component_VExpansionPanelText, null, {
-                                              default: _withCtx(() => [
-                                                _createVNode(_component_VTextField, {
-                                                  modelValue: rd.model.route,
-                                                  "onUpdate:modelValue": $event => ((rd.model.route) = $event),
-                                                  label: "RSSHub 路由",
-                                                  placeholder: "/example/rsshub/route?foo=bar",
-                                                  density: "compact",
-                                                  variant: "outlined",
-                                                  "hide-details": ""
-                                                }, null, 8, ["modelValue", "onUpdate:modelValue"])
-                                              ]),
-                                              _: 2
-                                            }, 1024)
-                                          ]),
-                                          _: 2
-                                        }, 1024)
-                                      ]),
-                                      _: 2
-                                    }, 1024))
-                                  : (_openBlock(), _createElementBlock("div", _hoisted_48, "数据源：" + _toDisplayString(rd.route), 1))
+                                  ? (_openBlock(), _createElementBlock("div", _hoisted_48, [
+                                      _createVNode(_component_VTextField, {
+                                        ref_for: true,
+                                        ref: el => setNameInputRef(rd.key, el),
+                                        modelValue: rd.model.name,
+                                        "onUpdate:modelValue": $event => ((rd.model.name) = $event),
+                                        label: "榜单名称",
+                                        density: "compact",
+                                        variant: "outlined",
+                                        "hide-details": "",
+                                        class: "dc-custom-rank-name"
+                                      }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                                      _createVNode(_component_VTextField, {
+                                        modelValue: rd.model.route,
+                                        "onUpdate:modelValue": $event => ((rd.model.route) = $event),
+                                        label: "路由",
+                                        placeholder: "/example/rsshub/route?foo=bar",
+                                        density: "compact",
+                                        variant: "outlined",
+                                        "hide-details": "",
+                                        class: "dc-custom-rank-route"
+                                      }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                                    ]))
+                                  : (_openBlock(), _createElementBlock("div", _hoisted_49, "路由：" + _toDisplayString(rd.route), 1))
                               ]))
                             : _createCommentVNode("", true)
                         ]),
@@ -1006,7 +988,7 @@ return (_ctx, _cache) => {
                   }), 128))
                 ]),
                 (!form.custom_ranks.length)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_49, "尚未添加自定义榜单"))
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_50, "尚未添加自定义榜单"))
                   : _createCommentVNode("", true),
                 _createVNode(_component_VDialog, {
                   modelValue: deleteDialog.value,
@@ -1062,7 +1044,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'list']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_50, [
+              _withDirectives(_createElementVNode("div", _hoisted_51, [
                 _cache[45] || (_cache[45] = _createElementVNode("div", { class: "dc-section-title" }, "观察设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -1137,7 +1119,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'filter']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_51, [
+              _withDirectives(_createElementVNode("div", _hoisted_52, [
                 _cache[50] || (_cache[50] = _createElementVNode("div", { class: "dc-section-title" }, "同步想看", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -1259,20 +1241,20 @@ return (_ctx, _cache) => {
                   density: "compact",
                   text: "通过豆瓣动态 feed 同步，首次只建立最近天数内的基线；后续周期只处理最近天数内新增的想看。"
                 }),
-                _createElementVNode("div", _hoisted_52, [
-                  _createElementVNode("div", _hoisted_53, [
+                _createElementVNode("div", _hoisted_53, [
+                  _createElementVNode("div", _hoisted_54, [
                     _cache[46] || (_cache[46] = _createElementVNode("span", null, "队列待处理", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.queue || 0), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_54, [
+                  _createElementVNode("div", _hoisted_55, [
                     _cache[47] || (_cache[47] = _createElementVNode("span", null, "失败记录", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.failed || 0), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_55, [
+                  _createElementVNode("div", _hoisted_56, [
                     _cache[48] || (_cache[48] = _createElementVNode("span", null, "最近运行", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.last_run || '尚未运行'), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_56, [
+                  _createElementVNode("div", _hoisted_57, [
                     _cache[49] || (_cache[49] = _createElementVNode("span", null, "状态错误", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.last_error || '无'), 1)
                   ])
@@ -1280,7 +1262,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'wish']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_57, [
+              _withDirectives(_createElementVNode("div", _hoisted_58, [
                 _cache[51] || (_cache[51] = _createElementVNode("div", { class: "dc-section-title" }, "同步观影", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -1430,7 +1412,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'sync']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_58, [
+              _withDirectives(_createElementVNode("div", _hoisted_59, [
                 _cache[52] || (_cache[52] = _createElementVNode("div", { class: "dc-section-title" }, "仪表盘选择", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
@@ -1526,6 +1508,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-446d84c6"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5a52ee2a"]]);
 
 export { Config as default };

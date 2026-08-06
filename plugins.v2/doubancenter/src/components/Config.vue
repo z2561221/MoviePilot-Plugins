@@ -421,15 +421,11 @@ onMounted(loadOverview)
                         <div v-if="rd.filters.includes('year')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].year" label="年份" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
                         <div v-if="rd.filters.includes('wish_count')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].wish_count" label="想看" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
                       </div>
-                      <VTextField v-if="rd.custom" :ref="el => setNameInputRef(rd.key, el)" v-model="rd.model.name" label="榜单名称" density="compact" variant="outlined" hide-details class="dc-custom-rank-name" />
-                      <VExpansionPanels v-if="rd.custom" variant="accordion" class="dc-source-panels">
-                        <VExpansionPanel title="数据源设置">
-                          <VExpansionPanelText>
-                            <VTextField v-model="rd.model.route" label="RSSHub 路由" placeholder="/example/rsshub/route?foo=bar" density="compact" variant="outlined" hide-details />
-                          </VExpansionPanelText>
-                        </VExpansionPanel>
-                      </VExpansionPanels>
-                      <div v-else class="dc-rank-route-hint text-caption text-medium-emphasis">数据源：{{ rd.route }}</div>
+                      <div v-if="rd.custom" class="dc-custom-rank-route-row">
+                        <VTextField :ref="el => setNameInputRef(rd.key, el)" v-model="rd.model.name" label="榜单名称" density="compact" variant="outlined" hide-details class="dc-custom-rank-name" />
+                        <VTextField v-model="rd.model.route" label="路由" placeholder="/example/rsshub/route?foo=bar" density="compact" variant="outlined" hide-details class="dc-custom-rank-route" />
+                      </div>
+                      <div v-else class="dc-rank-route-hint text-caption text-medium-emphasis">路由：{{ rd.route }}</div>
                     </div>
                   </VExpandTransition>
                 </div>
@@ -557,9 +553,8 @@ onMounted(loadOverview)
 .dc-rank-card--on { border-color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .04); }
 .dc-rank-card-header { margin-bottom: 0; min-width: 0; }
 .dc-rank-check :deep(.v-label) { font-size: 13px; font-weight: 600; }
-.dc-rank-card-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, auto)); justify-content: start; align-items: center; column-gap: 8px; row-gap: 4px; min-width: 0; }
-.dc-rank-field { display: block; min-width: 118px; }
-.dc-rank-input { width: 118px; max-width: 130px; }
+.dc-rank-field { display: block; min-width: 0; width: 100%; }
+.dc-rank-input { width: 100%; max-width: none; }
 .dc-rank-input :deep(.v-field) { min-height: 28px; max-height: 28px; border-radius: 6px; }
 .dc-rank-input :deep(.v-field__input) { min-height: 24px; padding-top: 1px; padding-bottom: 1px; font-size: 13px; }
 .dc-rank-input :deep(.v-label) { font-size: 12px; }
@@ -624,13 +619,12 @@ onMounted(loadOverview)
 .dc-delete-rank { width: 36px !important; height: 36px !important; min-width: 36px !important; flex: 0 0 36px; border: 1px solid rgb(var(--v-theme-error)); background: rgb(var(--v-theme-error)) !important; color: rgb(var(--v-theme-on-error)) !important; box-shadow: 0 0 0 1px rgba(0, 0, 0, .18); }
 .dc-delete-rank :deep(.v-icon) { color: currentColor !important; opacity: 1 !important; }
 .dc-rank-card-details { display: grid; gap: 10px; padding: 2px 12px 12px 78px; border-top: 1px solid rgba(var(--v-border-color), .45); min-width: 0; }
-.dc-rank-card-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); align-items: end; gap: 8px; min-width: 0; }
-.dc-rank-detail-enable { min-width: 130px; }
-.dc-rank-regions { min-width: 180px; }
+.dc-rank-card-body { display: grid; grid-template-columns: minmax(130px, 1.1fr) minmax(100px, .85fr) minmax(100px, .85fr) minmax(160px, 1.2fr) minmax(100px, .85fr); align-items: end; gap: 8px; min-width: 0; }
+.dc-rank-detail-enable { min-width: 0; width: 100%; }
+.dc-rank-regions { min-width: 0; width: 100%; }
 .dc-custom-rank-name { min-width: 0; }
-.dc-source-panels { min-width: 0; }
-.dc-source-panels :deep(.v-expansion-panel-title) { min-height: 38px; padding: 8px 12px; font-size: 12px; }
-.dc-source-panels :deep(.v-expansion-panel-text__wrapper) { padding: 10px 12px 12px; }
+.dc-custom-rank-route-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.5fr); gap: 8px; align-items: end; min-width: 0; }
+.dc-custom-rank-route { min-width: 0; }
 .dc-rank-route-hint { overflow-wrap: anywhere; }
 
 @media (max-width: 760px) {
@@ -641,6 +635,7 @@ onMounted(loadOverview)
   .dc-rank-detail-enable, .dc-rank-regions { min-width: 0; width: 100%; }
   .dc-rank-field { min-width: 0; }
   .dc-rank-input { width: 100%; max-width: none; }
+  .dc-custom-rank-route-row { grid-template-columns: 1fr; }
   .dc-delete-rank { width: 36px !important; height: 36px !important; }
 }
 </style>

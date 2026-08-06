@@ -1990,8 +1990,12 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         css = (remote_entry.parent / match.group(1)).read_text(encoding="utf-8")
 
         self.assertIn("display: block", css)
-        self.assertIn("width: 118px", css)
-        self.assertIn("max-width: 130px", css)
+        self.assertIn("width: 100%", css)
+        self.assertIn("max-width: none", css)
+        self.assertIn(
+            "grid-template-columns: minmax(130px, 1.1fr) minmax(100px, .85fr) minmax(100px, .85fr) minmax(160px, 1.2fr) minmax(100px, .85fr)",
+            css,
+        )
 
     def test_active_frontend_uses_native_subscribe_with_silent_fallback(self):
         for expose_name in ("./Page", "./Dashboard"):

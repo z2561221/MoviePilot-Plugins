@@ -66,9 +66,11 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("border-radius: 8px; padding: 5px 10px;", text)
         self.assertIn(".dc-rank-card-header { margin-bottom: 0; min-width: 0; }", text)
         self.assertIn(
-            ".dc-rank-card-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, auto));",
+            ".dc-rank-card-body { display: grid; grid-template-columns: minmax(130px, 1.1fr) minmax(100px, .85fr) minmax(100px, .85fr) minmax(160px, 1.2fr) minmax(100px, .85fr);",
             text,
         )
+        self.assertIn(".dc-rank-field { display: block; min-width: 0; width: 100%; }", text)
+        self.assertIn(".dc-rank-input { width: 100%; max-width: none; }", text)
         self.assertIn("@media (max-width: 760px)", text)
         self.assertIn(".dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }", text)
         self.assertIn(".dc-rank-card-body { grid-template-columns: 1fr; }", text)
@@ -77,7 +79,10 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("gap:4px", compact_css)
         self.assertIn("display:grid;grid-template-columns:minmax(150px,220px)minmax(0,1fr)", compact_css)
         self.assertIn("border-radius:8px;padding:5px10px", compact_css)
-        self.assertIn("grid-template-columns:repeat(auto-fit,minmax(142px,auto))", compact_css)
+        self.assertIn(
+            "grid-template-columns:minmax(130px,1.1fr)minmax(100px,.85fr)minmax(100px,.85fr)minmax(160px,1.2fr)minmax(100px,.85fr)",
+            compact_css,
+        )
         self.assertIn("@media(max-width:760px)", compact_css)
         self.assertIn("grid-template-columns:1fr", compact_css)
 
@@ -104,6 +109,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
             ".dc-rank-card-body { grid-template-columns: 1fr; }",
             ".dc-rank-field { min-width: 0; }",
             ".dc-rank-input { width: 100%; max-width: none; }",
+            ".dc-custom-rank-route-row { grid-template-columns: 1fr; }",
         ]
         for fragment in required_fragments:
             self.assertIn(fragment, text)
@@ -119,6 +125,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
             "min-width:0",
             ".dc-rank-input[data-v-",
             "width:100%;max-width:none",
+            ".dc-custom-rank-route-row[data-v-",
+            "grid-template-columns:1fr",
         ]
         for fragment in required_css_fragments:
             self.assertIn(fragment, compact_css)
@@ -191,16 +199,22 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("__federation_expose_AppPage-", app_page_css.group(1))
         self.assertIn("__federation_expose_Page-", app_page_css.group(1))
 
-    def test_rank_rows_share_regions_and_custom_source_contract(self):
+    def test_rank_rows_share_regions_and_custom_route_contract(self):
         text = CONFIG_VUE.read_text(encoding="utf-8")
 
         self.assertIn('v-model="form.rank_configs[rd.key].regions"', text)
         self.assertIn("multiple chips", text)
         self.assertIn(':items="[]"', text)
         self.assertIn('placeholder="自定义填写"', text)
-        self.assertIn('VExpansionPanel title="数据源设置"', text)
         self.assertIn('v-model="rd.model.name"', text)
         self.assertIn('v-model="rd.model.route"', text)
+        self.assertIn('label="路由"', text)
+        self.assertIn('class="dc-custom-rank-route-row"', text)
+        self.assertIn('class="dc-custom-rank-route"', text)
+        self.assertIn('路由：{{ rd.route }}', text)
+        self.assertNotIn('VExpansionPanel title="数据源设置"', text)
+        self.assertNotIn("dc-source-panels", text)
+        self.assertNotIn("数据源", text)
         self.assertIn("function requestRemoveCustomRank", text)
         self.assertIn("class=\"dc-delete-rank\"", text)
         self.assertNotIn("customMediaTypes", text)
