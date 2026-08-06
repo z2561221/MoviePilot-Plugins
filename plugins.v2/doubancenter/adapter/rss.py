@@ -1,9 +1,11 @@
 """RSS adapter for DoubanCenter rank sources."""
 
+import json
 import re
+from collections import Counter
 import xml.dom.minidom
-from typing import List
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from typing import Any, List
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 from app.core.config import settings
 from app.log import logger
@@ -11,6 +13,13 @@ from app.utils.dom import DomUtils
 from app.utils.http import RequestUtils
 
 from .. import utils
+
+
+_DOUBAN_REXXAR_MAX_ITEMS = 50
+_DOUBAN_REXXAR_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+    "Accept": "application/json, text/plain, */*",
+}
 
 
 def _channel_link(root) -> str:
@@ -64,6 +73,115 @@ def _get_response(plugin, addr: str):
         if getattr(plugin, "_proxy", False)
         else RequestUtils().get_res(addr)
     )
+
+
+def _douban_collection_from_addr(addr: str) -> str:
+    """从 RSSHub 地址提取可安全用于 rexxar 的豆瓣榜单集合 slug。"""
+    path = urlsplit(str(addr or "")).path
+    match = re.fullmatch(r"/douban/list/([^/?#]+)", path, flags=re.IGNORECASE)
+    return unquote(match.group(1)) if match else ""
+
+
+def _douban_rexxar_url(collection: str, count: int) -> str:
+    """构造单次、有限数量的豆瓣 rexxar 榜单请求。"""
+    return (
+        "https://m.douban.com/rexxar/api/v2/subject_collection/"
+        f"{quote(collection, safe='')}/items?playable=0&start=0&count={count}"
+    )
+
+
+def _rexxar_items(plugin, collection: str, count: int) -> List[dict]:
+    """读取 rexxar 条目；网络或响应异常时返回空列表。"""
+    headers = {
+        **_DOUBAN_REXXAR_HEADERS,
+        "Referer": f"https://m.douban.com/subject_collection/{quote(collection, safe='')}/",
+    }
+    try:
+        request = (
+            RequestUtils(headers=headers, proxies=settings.PROXY)
+            if getattr(plugin, "_proxy", False)
+            else RequestUtils(headers=headers)
+        )
+        response = request.get_res(_douban_rexxar_url(collection, count))
+        if not response or getattr(response, "status_code", 200) >= 400:
+            return []
+        try:
+            payload = response.json()
+        except (AttributeError, TypeError, ValueError):
+            payload = json.loads(getattr(response, "text", "") or "{}")
+        if not isinstance(payload, dict):
+            return []
+        items = payload.get("subject_collection_items") or payload.get("items")
+        return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+    except Exception as err:
+        warn = getattr(logger, "warning", None) or getattr(logger, "error", None)
+        if warn:
+            warn(f"豆瓣中心：rexxar 榜单补 ID 失败：{err}")
+        return []
+
+
+def _rexxar_item_title(item: Any) -> str:
+    """读取 rexxar 条目标题，不用简介或集合标题猜测。"""
+    if not isinstance(item, dict):
+        return ""
+    return str(item.get("title") or item.get("name") or "").strip()
+
+
+def _rexxar_item_id(item: Any) -> str:
+    """从 rexxar 的 id/uri/url 提取数字 subject id。"""
+    if not isinstance(item, dict):
+        return ""
+    raw_id = str(item.get("id") or "").strip()
+    if re.fullmatch(r"\d+", raw_id):
+        return raw_id
+    for key in ("uri", "url", "sharing_url"):
+        value = str(item.get(key) or "")
+        match = re.search(r"/(?:movie|tv|subject)/(\d+)(?:[/?#]|$)", value, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _strict_title(value: Any) -> str:
+    """仅折叠空白后比较标题，保留标点以避免错绑。"""
+    return re.sub(r"\s+", "", str(value or "")).casefold()
+
+
+def _enrich_douban_ids(plugin, addr: str, items: List[dict]) -> None:
+    """按 RSS 顺序和唯一标题严格补回豆瓣 subject id。"""
+    collection = _douban_collection_from_addr(addr)
+    pending = [item for item in items if isinstance(item, dict) and not item.get("doubanid")]
+    if not collection or not pending:
+        return
+    count = min(max(len(items), 1), _DOUBAN_REXXAR_MAX_ITEMS)
+    remote_items = _rexxar_items(plugin, collection, count)
+    if not remote_items:
+        return
+
+    rss_counts = Counter(_strict_title(item.get("title")) for item in items if item.get("title"))
+    remote_counts = Counter(_strict_title(_rexxar_item_title(item)) for item in remote_items)
+    used_ids = {
+        str(item.get("doubanid"))
+        for item in items
+        if isinstance(item, dict) and item.get("doubanid")
+    }
+    for index, item in enumerate(items[:count]):
+        if not isinstance(item, dict) or item.get("doubanid") or index >= len(remote_items):
+            continue
+        rss_title = _strict_title(item.get("title"))
+        remote_item = remote_items[index]
+        remote_title = _strict_title(_rexxar_item_title(remote_item))
+        if (
+            not rss_title
+            or rss_title != remote_title
+            or rss_counts[rss_title] != 1
+            or remote_counts[remote_title] != 1
+        ):
+            continue
+        subject_id = _rexxar_item_id(remote_item)
+        if subject_id and subject_id not in used_ids:
+            item["doubanid"] = subject_id
+            used_ids.add(subject_id)
 
 
 def fetch_coming(plugin, addr: str) -> List[dict]:
@@ -149,6 +267,7 @@ def fetch_rank(plugin, addr: str) -> List[dict]:
                     "genres": genres,
                 }
             )
+        _enrich_douban_ids(plugin, addr, result)
         return result
     except Exception as err:
         logger.error(f"获取 RSS 失败：{err}")

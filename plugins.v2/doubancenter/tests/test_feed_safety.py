@@ -424,6 +424,161 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(items[0]["link"], "")
         self.assertEqual(items[0]["source_link"], "https://m.douban.com/subject_collection/tv_domestic")
 
+    def test_fetch_rss_enriches_empty_links_from_rexxar_and_writes_distinct_history_ids(self):
+        rss_xml = """<?xml version="1.0"?>
+<rss><channel><link>https://m.douban.com/subject_collection/tv_domestic</link>
+<item><title>条目甲</title><link/><description>2026 / 中国大陆</description></item>
+<item><title>条目乙</title><link/><description>2026 / 中国大陆</description></item>
+</channel></rss>"""
+        rexxar_items = {
+            "subject_collection_items": [
+                {"id": "101", "title": "条目甲", "uri": "douban://douban.com/tv/101"},
+                {"id": "202", "title": "条目乙", "uri": "douban://douban.com/tv/202"},
+            ]
+        }
+
+        class Response:
+            status_code = 200
+
+            def __init__(self, text="", payload=None):
+                self.text = text
+                self.payload = payload
+
+            def json(self):
+                return self.payload
+
+        class RequestUtils:
+            calls = []
+
+            def __init__(self, headers=None, proxies=None):
+                self.headers = headers or {}
+                self.proxies = proxies
+
+            def get_res(self, addr):
+                self.calls.append((addr, self.headers, self.proxies))
+                if "rexxar/api" in addr:
+                    return Response(payload=rexxar_items)
+                return Response(text=rss_xml)
+
+        def tag_value(item, tag, default=""):
+            nodes = item.getElementsByTagName(tag)
+            if not nodes or not nodes[0].firstChild:
+                return default
+            return nodes[0].firstChild.nodeValue
+
+        plugin = _Plugin()
+        plugin._proxy = False
+        self.feed.RequestUtils = RequestUtils
+        self.feed.DomUtils.tag_value = staticmethod(tag_value)
+
+        items = self.feed._fetch_rss(plugin, "https://rsshub.example/douban/list/tv_domestic")
+        self.assertEqual([item["doubanid"] for item in items], ["101", "202"])
+        self.assertEqual(len(RequestUtils.calls), 2)
+        self.assertIn("Referer", RequestUtils.calls[1][1])
+        self.assertIn("count=2", RequestUtils.calls[1][0])
+
+        self.feed._apply_display_recognition = lambda *args, **kwargs: None
+        history = self.feed._merge_rank_items(
+            plugin,
+            "custom_tv",
+            items,
+            {"key": "custom_tv", "name": "自定义榜单", "route": "/douban/list/tv_domestic"},
+        )
+        self.assertEqual([entry["douban_id"] for entry in history], ["101", "202"])
+        self.assertEqual(len({entry["douban_id"] for entry in history}), 2)
+
+    def test_fetch_rss_does_not_bind_rexxar_ids_when_order_or_title_mismatch(self):
+        rss_xml = """<?xml version="1.0"?>
+<rss><channel><link>https://m.douban.com/subject_collection/tv_domestic</link>
+<item><title>条目甲</title><link/><description>2026</description></item>
+<item><title>条目乙</title><link/><description>2026</description></item>
+</channel></rss>"""
+        rexxar_items = {
+            "subject_collection_items": [
+                {"id": "202", "title": "条目乙", "uri": "douban://douban.com/tv/202"},
+                {"id": "101", "title": "条目甲", "uri": "douban://douban.com/tv/101"},
+            ]
+        }
+
+        class Response:
+            status_code = 200
+
+            def __init__(self, text="", payload=None):
+                self.text = text
+                self.payload = payload
+
+            def json(self):
+                return self.payload
+
+        class RequestUtils:
+            def __init__(self, headers=None, proxies=None):
+                pass
+
+            def get_res(self, addr):
+                if "rexxar/api" in addr:
+                    return Response(payload=rexxar_items)
+                return Response(text=rss_xml)
+
+        def tag_value(item, tag, default=""):
+            nodes = item.getElementsByTagName(tag)
+            if not nodes or not nodes[0].firstChild:
+                return default
+            return nodes[0].firstChild.nodeValue
+
+        plugin = _Plugin()
+        plugin._proxy = False
+        self.feed.RequestUtils = RequestUtils
+        self.feed.DomUtils.tag_value = staticmethod(tag_value)
+        items = self.feed._fetch_rss(plugin, "https://rsshub.example/douban/list/tv_domestic")
+
+        self.assertEqual([item.get("doubanid") for item in items], [None, None])
+
+    def test_fetch_rss_does_not_bind_duplicate_rexxar_titles(self):
+        rss_xml = """<?xml version="1.0"?>
+<rss><channel><link>https://m.douban.com/subject_collection/tv_domestic</link>
+<item><title>重复标题</title><link/><description>2026</description></item>
+<item><title>重复标题</title><link/><description>2026</description></item>
+</channel></rss>"""
+        rexxar_items = {
+            "subject_collection_items": [
+                {"id": "101", "title": "重复标题"},
+                {"id": "202", "title": "重复标题"},
+            ]
+        }
+
+        class Response:
+            status_code = 200
+
+            def __init__(self, text="", payload=None):
+                self.text = text
+                self.payload = payload
+
+            def json(self):
+                return self.payload
+
+        class RequestUtils:
+            def __init__(self, headers=None, proxies=None):
+                pass
+
+            def get_res(self, addr):
+                if "rexxar/api" in addr:
+                    return Response(payload=rexxar_items)
+                return Response(text=rss_xml)
+
+        def tag_value(item, tag, default=""):
+            nodes = item.getElementsByTagName(tag)
+            if not nodes or not nodes[0].firstChild:
+                return default
+            return nodes[0].firstChild.nodeValue
+
+        plugin = _Plugin()
+        plugin._proxy = False
+        self.feed.RequestUtils = RequestUtils
+        self.feed.DomUtils.tag_value = staticmethod(tag_value)
+        items = self.feed._fetch_rss(plugin, "https://rsshub.example/douban/list/tv_domestic")
+
+        self.assertEqual([item.get("doubanid") for item in items], [None, None])
+
     def test_record_history_item_replaces_observe_placeholder(self):
         history = [{"unique": "rank:1", "title": "旧标题", "time": "2026-01-01 00:00:00", "observing": True}]
         entry = {"unique": "rank:1", "title": "新标题", "tmdbid": 123}

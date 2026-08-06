@@ -44,51 +44,51 @@ function rankRouteOf(rankKey, item, config) {
   return stringValue(custom?.route || BUILTIN_RANK_ROUTES[rankKey])
 }
 
-function doubanCollectionUrl(route) {
-  const match = routePath(route).match(/^\/douban\/(?:list|tv|subject_collection)\/([^/?#]+)/i)
-  if (!match) return ''
-  let collection = match[1]
-  try {
-    collection = decodeURIComponent(collection)
-  } catch {
-    // Keep the original slug when a user-provided route contains malformed escapes.
-  }
-  return `https://m.douban.com/subject_collection/${encodeURIComponent(collection)}`
+function isCustomRank(rankKey, config) {
+  return stringValue(rankKey).startsWith('custom_') || (config?.custom_ranks || []).some(entry => entry?.key === rankKey)
 }
 
 function doubanSubjectUrl(subjectId) {
-  return `https://www.douban.com/doubanapp/dispatch?uri=/movie/${encodeURIComponent(stringValue(subjectId))}?from=mdouban&open=app`
+  return `https://movie.douban.com/subject/${encodeURIComponent(stringValue(subjectId))}/`
 }
 
 function doubanSearchUrl(item) {
   const title = stringValue(item?.title || item?.name)
-  return title ? `https://m.douban.com/search/?query=${encodeURIComponent(title)}` : ''
+  const year = stringValue(item?.year)
+  const query = [title, year].filter(Boolean).join(' ')
+  return query ? `https://m.douban.com/search/?query=${encodeURIComponent(query)}` : ''
 }
 
-function doubanSourceUrl(item, route) {
+function isDoubanSubjectLink(value) {
+  if (!isDoubanHost(value)) return false
+  try {
+    return /^\/subject\/\d+(?:\/|$)/i.test(new URL(stringValue(value)).pathname)
+  } catch {
+    return false
+  }
+}
+
+function doubanSourceUrl(item) {
   const subjectId = item?.douban_id || item?.doubanid
   if (subjectId) return doubanSubjectUrl(subjectId)
   const link = stringValue(item?.link)
-  if (isDoubanHost(link)) return link
-  const sourceLink = stringValue(item?.source_link)
-  if (isDoubanHost(sourceLink)) return sourceLink
-  const collectionUrl = doubanCollectionUrl(route)
-  if (collectionUrl) return collectionUrl
-  return isDoubanRoute(route) ? doubanSearchUrl(item) : ''
+  if (isDoubanSubjectLink(link)) return link
+  return doubanSearchUrl(item)
 }
 
 export function sourceDescriptor(rankKey, item, config) {
   const link = stringValue(item?.link)
   const sourceLink = stringValue(item?.source_link)
   const route = rankRouteOf(rankKey, item, config)
+  const customRank = isCustomRank(rankKey, config)
   const isBangumi = rankKey === 'bangumi' || isBangumiLink(link) || isBangumiLink(sourceLink) || /(?:^|\/)bangumi(?:\.tv)?(?:\/|$)/i.test(route)
   if (isBangumi) {
     return { label: 'Bgm', icon: 'mdi-link-variant', color: '#F838A0', url: link || sourceLink }
   }
 
   const isDouban = Boolean(item?.douban_id || item?.doubanid) || isDoubanHost(link) || isDoubanHost(sourceLink) || isDoubanRoute(route)
-  if (isDouban) {
-    return { label: '豆瓣', icon: 'mdi-open-in-new', color: '#08B810', url: doubanSourceUrl(item, route) }
+  if (isDouban || customRank) {
+    return { label: '豆瓣', icon: 'mdi-open-in-new', color: '#08B810', url: doubanSourceUrl(item) }
   }
 
   return { label: '详情', icon: 'mdi-link-variant', color: 'primary', url: link || sourceLink }
