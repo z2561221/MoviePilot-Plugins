@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getPluginApi, postPluginApi, toPosterThumbnail } from './api'
+import { sourceDescriptor, doubanDispatchUrl } from './source'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -19,7 +20,7 @@ const loadError = ref('')
 const dialogItem = ref(null)
 const showDialog = ref(false)
 
-const rankDefs = {
+const builtinRankDefs = {
   coming: { name: '即将上映' },
   tv_real_time: { name: '实时热门' },
   tv_chinese: { name: '华语口碑' },
@@ -46,6 +47,12 @@ function rankColorOf(key) {
 
 function rankIconStyle(key) {
   return { color: rankColorOf(key) }
+}
+
+function rankNameOf(key, item = null) {
+  if (item?.rank_name) return item.rank_name
+  const option = (config.value?.rank_options || []).find(entry => entry?.value === key)
+  return option?.title || builtinRankDefs[key]?.name || key
 }
 
 function queryString(params) {
@@ -194,6 +201,9 @@ async function subscribeRankItem(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    rank_key: rk,
+    rank_name: item?.rank_name || rankNameOf(rk, item),
+    source_link: item?.link || '',
   })
   const res = await postPluginApi(props.api, `subscribe?${params}`, {})
   if (!res?.success) throw new Error(res?.message || '订阅失败')
@@ -214,51 +224,50 @@ async function doSubscribe() {
   setTimeout(() => { subscribeResult.value = '' }, 3000)
 }
 
-function doOpenSource() {
-  if (!dialogItem.value) return
-  const { rk, item } = dialogItem.value
-  showDialog.value = false
-  const link = item?.link || ''
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) {
-    if (link) window.open(link, '_blank')
-    return
-  }
-  const subjectId = item?.douban_id || item?.doubanid || ''
-  if (subjectId) {
-    window.open(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${subjectId}?from=mdouban&open=app`, '_blank')
-    return
-  }
-  const match = link.match(/subject\/(\d+)/)
-  if (match && (link.includes('douban.com') || link.includes('doubanapp'))) {
-    window.open(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${match[1]}?from=mdouban&open=app`, '_blank')
-    return
-  }
-  if (link) window.open(link, '_blank')
-}
-
 function sourceButtonColor() {
   if (!dialogItem.value) return 'primary'
   const { rk, item } = dialogItem.value
-  const link = String(item?.link || '')
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return '#F838A0'
-  if (link.includes('douban') || item?.douban_id || item?.doubanid) return '#08B810'
-  return 'primary'
+  return sourceDescriptor(rk, item, config.value).color
 }
 
 function sourceButtonIcon() {
-  const { rk, item } = dialogItem.value || {}
-  const link = String(item?.link || '')
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'mdi-link-variant'
-  if (link.includes('douban')) return 'mdi-open-in-new'
-  return 'mdi-link-variant'
+  if (!dialogItem.value) return 'mdi-link-variant'
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, config.value).icon
 }
 
 function sourceButtonLabel() {
-  const { rk, item } = dialogItem.value || {}
-  const link = String(item?.link || '')
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'Bgm'
-  if (link.includes('douban') || item?.douban_id || item?.doubanid) return '豆瓣'
-  return '详情'
+  if (!dialogItem.value) return '详情'
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, config.value).label
+}
+
+function sourceButtonUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, config.value).url
+}
+
+function sourceButtonAppUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, config.value).appUrl || ''
+}
+
+function sourceButtonHref() {
+  const webUrl = sourceButtonUrl()
+  return sourceButtonAppUrl() || webUrl
+}
+
+function openSource(event) {
+  const appUrl = sourceButtonAppUrl()
+  if (!appUrl) {
+    showDialog.value = false
+    return
+  }
+  event?.preventDefault?.()
+  showDialog.value = false
+  window.open(appUrl, '_blank')
 }
 
 function doOpenTmdb() {
@@ -336,8 +345,9 @@ onMounted(load)
                       <a
                         v-for="item in group.items"
                         :key="item.key"
-                        :href="`https://www.douban.com/doubanapp/dispatch?uri=/movie/${item.subject_id}?from=mdouban&open=app`"
+                        :href="doubanDispatchUrl(item.subject_id, item.type)"
                         target="_blank"
+                        rel="noopener noreferrer"
                         class="dc-poster"
                         :title="item.subject_name"
                       >
@@ -355,8 +365,8 @@ onMounted(load)
 
       <div v-if="config.dashboard_rank_keys && config.dashboard_rank_keys.length">
         <div class="dc-rank-grid">
-          <div v-for="rk in config.dashboard_rank_keys" :key="rk" class="dc-rank-cell">
-            <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(rk)" class="mr-1" /><span>{{ rankDefs[rk]?.name || rk }}</span></div>
+          <div v-for="rk in config.dashboard_rank_keys.slice(0, 6)" :key="rk" class="dc-rank-cell">
+            <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(rk)" class="mr-1" /><span>{{ rankNameOf(rk, rankHistory[rk]?.[0]) }}</span></div>
             <div class="dc-rank-body">
               <div v-for="(item, i) in (rankHistory[rk] || []).slice(0, 5)" :key="i" class="dc-rank-row" :title="item.title" @click="showActionDialog(rk, item)">
                 <VAvatar rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
@@ -383,13 +393,13 @@ onMounted(load)
             </VAvatar>
           </template>
           <VCardTitle class="text-body-1 font-weight-bold pa-0">{{ dialogItem?.item?.title || '' }}</VCardTitle>
-          <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? (rankDefs[dialogItem.rk]?.name || dialogItem.rk) : '' }}</VCardSubtitle>
+          <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? rankNameOf(dialogItem.rk, dialogItem.item) : '' }}</VCardSubtitle>
         </VCardItem>
         <VDivider />
-        <VCardActions class="pa-3 pt-2" style="gap: 8px">
+        <VCardActions class="pa-3 pt-2 dc-dialog-actions">
           <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
           <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
-          <VBtn variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" class="dc-dialog-action text-none" @click="doOpenSource">{{ sourceButtonLabel() }}</VBtn>
+          <VBtn :href="sourceButtonHref() || undefined" target="_blank" rel="noopener noreferrer" variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none" @click="openSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
@@ -420,10 +430,18 @@ onMounted(load)
 .dc-rank-num { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; }
 .dc-rank-wish { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
 .dc-dialog-action { flex: 1 1 0; min-width: 0; height: 36px; }
+.dc-dialog-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .dc-dialog-action--tmdb {
   color: #0288d1 !important;
   color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;
 }
-@media (max-width: 960px) { .dc-rank-grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 600px) { .dc-rank-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 960px) { .dc-rank-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+  .dc-card :deep(.v-card-item) { padding: 10px 12px; }
+  .dc-card :deep(.v-card-subtitle) { display: none; }
+  .dc-rank-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .dc-rank-cell { padding: 6px; }
+  .dc-action-dialog { width: min(420px, calc(100vw - 24px)); max-width: calc(100vw - 24px); }
+}
+@media (max-width: 360px) { .dc-rank-grid { grid-template-columns: minmax(0, 1fr); } }
 </style>

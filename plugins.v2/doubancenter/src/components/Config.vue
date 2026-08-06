@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { getPluginApi } from './api'
 
 const props = defineProps({
@@ -13,19 +13,24 @@ const activeMain = ref('overview')
 const activeSub = ref('overview')
 const overview = ref(null)
 const loadingOverview = ref(false)
+const customRankError = ref('')
+const expandedRankKeys = ref(new Set())
+const deleteTarget = ref(null)
+const deleteDialog = ref(false)
+const nameInputRefs = new Map()
 
 const defaults = {
   enabled: false, cron: '0 8 * * *', notify: false, proxy: false, onlyonce: false,
   rsshub_domain: 'https://rsshub.ddsrem.com',
   rank_configs: {
-    coming: { enabled: false, count: 0, wish_count: 5000, air_days: 7, vote: 0, year: 0 },
-    tv_real_time: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    tv_chinese: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    tv_global: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    movie_weekly: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
-    bangumi: { enabled: false, count: 0, wish_count: 0, air_days: 0, vote: 0, year: 0 },
+    coming: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    tv_real_time: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    tv_chinese: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    tv_global: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    movie_weekly: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    bangumi: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
   },
-  region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '',
+  region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '', custom_ranks: [],
   folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false, folio_exclude_live_tv: true,
   folio_user: '', folio_exclude: '', folio_cookie: '',
   wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_onlyonce: false, wish_max_pages: 1, wish_days: 7,
@@ -36,8 +41,8 @@ const defaults = {
   observe_rank_keys: ['coming', 'tv_real_time'],
 }
 
-const rankDefs = [
-  { key: 'coming', name: '即将上映', route: '/douban/tv/coming', filters: ['wish_count', 'air_days'] },
+const builtinRankDefs = [
+  { key: 'coming', name: '即将上映', route: '/douban/tv/coming', filters: ['vote', 'wish_count'] },
   { key: 'tv_real_time', name: '实时热门', route: '/douban/list/tv_real_time_hotest', filters: ['vote', 'year'] },
   { key: 'tv_chinese', name: '华语口碑', route: '/douban/list/tv_chinese_best_weekly', filters: ['vote', 'year'] },
   { key: 'tv_global', name: '全球口碑', route: '/douban/list/tv_global_best_weekly', filters: ['vote', 'year'] },
@@ -45,9 +50,19 @@ const rankDefs = [
   { key: 'bangumi', name: 'BangumiTV', route: '/bangumi.tv/anime/followrank', filters: ['vote', 'year'] },
 ]
 
+const rankDefs = computed(() => [
+  ...builtinRankDefs,
+  ...(Array.isArray(form.custom_ranks) ? form.custom_ranks : []).map(rank => ({
+    ...rank,
+    model: rank,
+    custom: true,
+    filters: ['vote', 'year'],
+  })),
+])
+
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '运行链路、模块状态和待关注事项。' },
-  { key: 'rank', title: '榜单订阅', icon: 'mdi-trophy-outline', desc: '6 个内置榜单统一订阅到豆瓣中心。' },
+  { key: 'rank', title: '榜单订阅', icon: 'mdi-trophy-outline', desc: '内置与自定义榜单统一订阅到豆瓣中心。' },
   { key: 'folio', title: '豆瓣时间', icon: 'mdi-book-clock-outline', desc: '追剧观影自动同步进度到豆瓣时间线。' },
   { key: 'dashboard', title: '仪表显示', icon: 'mdi-view-dashboard-outline', desc: '时间线 + 榜单排行双面板。' },
 ]
@@ -61,7 +76,8 @@ const subTabs = {
 
 const currentMain = computed(() => mainTabs.find(i => i.key === activeMain.value) || mainTabs[0])
 const currentSubs = computed(() => subTabs[activeMain.value] || [])
-const enabledRankCount = computed(() => rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).length)
+const enabledRankCount = computed(() => rankDefs.value.filter(r => form.rank_configs?.[r.key]?.enabled).length)
+const customRankCount = computed(() => rankDefs.value.filter(r => r.custom).length)
 const overviewCards = computed(() => {
   const cards = overview.value?.cards || {}
   return [
@@ -69,7 +85,7 @@ const overviewCards = computed(() => {
       title: '榜单订阅',
       icon: 'mdi-rss',
       color: cards.rss?.enabled ? 'success' : 'warning',
-      value: `${cards.rss?.enabled || 0}/${cards.rss?.total || rankDefs.length}`,
+      value: `${cards.rss?.enabled || 0}/${cards.rss?.total || rankDefs.value.length}`,
       desc: cards.rss?.last_refresh ? `最近刷新 ${cards.rss.last_refresh}` : '等待 RSS 刷新',
     },
     {
@@ -104,18 +120,109 @@ function isPlainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value)
 }
 
+function customRankKey() {
+  return `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function addCustomRank() {
+  customRankError.value = ''
+  const key = customRankKey()
+  form.custom_ranks.push({ key, name: '', route: '' })
+  form.rank_configs[key] = { enabled: false, count: 1, vote: '', year: '', regions: [] }
+  expandedRankKeys.value = new Set([...expandedRankKeys.value, key])
+  activeMain.value = 'rank'
+  activeSub.value = 'list'
+  nextTick(() => nameInputRefs.get(key)?.focus?.())
+}
+
+function setNameInputRef(key, value) {
+  if (value) nameInputRefs.set(key, value)
+  else nameInputRefs.delete(key)
+}
+
+function toggleRank(key) {
+  const next = new Set(expandedRankKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedRankKeys.value = next
+}
+
+function isExpanded(key) {
+  return expandedRankKeys.value.has(key)
+}
+
+function requestRemoveCustomRank(rank) {
+  deleteTarget.value = rank
+  deleteDialog.value = true
+}
+
+function removeCustomRank(key) {
+  customRankError.value = ''
+  form.custom_ranks = form.custom_ranks.filter(rank => rank.key !== key)
+  delete form.rank_configs[key]
+  form.dashboard_rank_keys = (form.dashboard_rank_keys || []).filter(value => value !== key)
+  form.observe_rank_keys = (form.observe_rank_keys || []).filter(value => value !== key)
+  expandedRankKeys.value = new Set([...expandedRankKeys.value].filter(value => value !== key))
+  deleteTarget.value = null
+  deleteDialog.value = false
+}
+
+function validCustomRoute(route) {
+  const value = String(route || '').trim()
+  return value.startsWith('/') && !value.startsWith('//') && !value.includes('#') && (() => {
+    try {
+      const parsed = new URL(value, 'https://rsshub.local')
+      return parsed.origin === 'https://rsshub.local'
+    } catch {
+      return false
+    }
+  })()
+}
+
+function validateCustomRanks() {
+  const seen = new Set(builtinRankDefs.map(rank => rank.key))
+  for (const rank of form.custom_ranks || []) {
+    const key = String(rank?.key || '').trim()
+    if (!key || seen.has(key)) return '自定义榜单标识重复或无效'
+    if (!String(rank?.name || '').trim()) return '请填写自定义榜单名称'
+    if (!validCustomRoute(rank?.route)) return 'RSSHub 路由必须是以 / 开头的相对路径'
+    seen.add(key)
+  }
+  return ''
+}
+
 function normalizeInitialConfig(value) {
   const m = Object.assign({}, cloneConfig(defaults), cloneConfig(value))
+  m.custom_ranks = Array.isArray(m.custom_ranks)
+    ? m.custom_ranks.filter(rank => isPlainObject(rank)).map(rank => ({
+      key: String(rank.key || ''),
+      name: String(rank.name || ''),
+      route: String(rank.route || ''),
+    }))
+    : []
   if (!(m.rank_configs && typeof m.rank_configs === 'object' && !Array.isArray(m.rank_configs))) {
     m.rank_configs = {}
   }
-  for (const rd of rankDefs) {
+  for (const rd of [...builtinRankDefs, ...m.custom_ranks.map(rank => ({ ...rank, filters: ['vote', 'year'] }))]) {
     m.rank_configs[rd.key] = {
-      ...defaults.rank_configs[rd.key],
+      ...(defaults.rank_configs[rd.key] || { enabled: false, count: 1, vote: '', year: '' }),
       ...(isPlainObject(m.rank_configs[rd.key]) ? m.rank_configs[rd.key] : {}),
     }
+    m.rank_configs[rd.key].regions = Array.isArray(m.rank_configs[rd.key].regions)
+      ? [...new Set(m.rank_configs[rd.key].regions.map(value => String(value || '').trim()).filter(Boolean))]
+      : []
+    const rankConfig = m.rank_configs[rd.key]
+    const rawCount = rankConfig.count
+    rankConfig.count = rawCount === undefined || rawCount === null || rawCount === ''
+      ? 1
+      : (Number(rawCount) === 0 ? '' : rawCount)
+    for (const field of ['vote', 'year', 'wish_count', 'air_days']) {
+      if (rankConfig[field] === undefined || rankConfig[field] === null || Number(rankConfig[field]) === 0) rankConfig[field] = ''
+    }
+    delete m.rank_configs[rd.key].media_type
   }
   if (!Array.isArray(m.dashboard_rank_keys)) m.dashboard_rank_keys = []
+  m.dashboard_rank_keys = [...new Set(m.dashboard_rank_keys.map(value => String(value || '').trim()).filter(Boolean))].slice(0, 6)
   if (!Array.isArray(m.observe_rank_keys)) m.observe_rank_keys = [...defaults.observe_rank_keys]
   return m
 }
@@ -126,13 +233,32 @@ watch(() => props.initialConfig, val => {
 }, { immediate: true, deep: true })
 
 function saveConfig() {
+  customRankError.value = validateCustomRanks()
+  if (customRankError.value) {
+    activeMain.value = 'rank'
+    activeSub.value = 'list'
+    return
+  }
   emit('save', {
     ...form,
+    custom_ranks: (form.custom_ranks || []).map(rank => ({
+      key: String(rank.key || '').trim(),
+      name: String(rank.name || '').trim(),
+      route: String(rank.route || '').trim(),
+    })),
+    rank_configs: Object.fromEntries(Object.entries(form.rank_configs || {}).map(([key, config]) => [key, {
+      ...cloneConfig(config),
+      regions: Array.isArray(config?.regions) ? [...new Set(config.regions.map(value => String(value || '').trim()).filter(Boolean))] : [],
+    }])),
     region_filters: [],
     genre_filters: [],
     resolution_filters: [],
     custom_rss_addrs: '',
   })
+}
+
+function limitDashboardRanks() {
+  form.dashboard_rank_keys = [...new Set((form.dashboard_rank_keys || []).map(value => String(value || '').trim()).filter(Boolean))].slice(0, 6)
 }
 
 function selectMain(key) {
@@ -246,41 +372,73 @@ onMounted(loadOverview)
               <VRow class="mt-2">
                 <VCol cols="12"><VTextField v-model="form.rsshub_domain" label="RSSHub 域名" density="compact" variant="outlined" hide-details hint="默认 https://rsshub.ddsrem.com，所有榜单共用" persistent-hint /></VCol>
               </VRow>
-              <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="订阅用户名统一为「豆瓣中心」。即将上映保留播出窗口、想看人数过滤逻辑。" />
+              <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="订阅用户名统一为「豆瓣中心」。即将上映支持评分、地区、想看筛选；空或 0 表示不限。" />
             </div>
 
             <div v-show="activeSub === 'list'" class="dc-pane">
-              <div class="dc-section-title">榜单列表 <span class="text-caption font-weight-regular text-medium-emphasis">（已启用 {{ enabledRankCount }}/{{ rankDefs.length }}）</span></div>
-              <VAlert type="info" variant="tonal" density="compact" class="mb-3" text="每个榜单独立控制，条件框之间是且的关系。即将上映保留特殊处理。" />
+              <div class="dc-rank-list-heading">
+                <div>
+                  <div class="dc-section-title mb-1">榜单列表</div>
+                  <div class="dc-rank-list-summary text-caption text-medium-emphasis">已启用 {{ enabledRankCount }} 个 · 自定义 {{ customRankCount }} 个</div>
+                </div>
+                <VBtn icon size="small" variant="tonal" color="primary" aria-label="新增自定义榜单" @click="addCustomRank">
+                  <VIcon icon="mdi-plus" size="20" />
+                  <VTooltip activator="parent" location="top">新增自定义榜单</VTooltip>
+                </VBtn>
+              </div>
+              <VAlert type="info" variant="tonal" density="compact" class="mb-3" text="每个榜单独立控制；地区为多选 OR，与评分、年份、数量等条件共同生效。空地区表示不限。" />
+              <VAlert v-if="customRankError" type="error" variant="tonal" density="compact" class="mb-2" :text="customRankError" />
               <div class="dc-rank-list-1col">
-                <div v-for="rd in rankDefs" :key="rd.key" class="dc-rank-card" :class="{ 'dc-rank-card--on': form.rank_configs[rd.key]?.enabled }">
-                  <div class="dc-rank-card-header">
-                    <VCheckbox v-model="form.rank_configs[rd.key].enabled" :label="rd.name" color="primary" hide-details density="compact" class="dc-rank-check" />
-                  </div>
-                  <div class="dc-rank-card-body">
-                    <div class="dc-rank-field">
-                      <span class="dc-rank-label">数量</span>
-                      <VTextField v-model.number="form.rank_configs[rd.key].count" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" />
+                <div v-for="rd in rankDefs" :key="rd.key" class="dc-rank-card" :class="{ 'dc-rank-card--on': form.rank_configs[rd.key]?.enabled, 'dc-rank-card--expanded': isExpanded(rd.key) }">
+                  <div class="dc-rank-card-summary">
+                    <VBtn icon :aria-label="`${isExpanded(rd.key) ? '收起' : '展开'}${rd.name}`" variant="text" size="small" class="dc-rank-expand" @click="toggleRank(rd.key)">
+                      <VIcon :icon="isExpanded(rd.key) ? 'mdi-chevron-down' : 'mdi-chevron-right'" size="20" />
+                    </VBtn>
+                    <VCheckbox v-model="form.rank_configs[rd.key].enabled" color="primary" hide-details density="compact" class="dc-rank-check" :aria-label="`启用${rd.name}`" />
+                    <div class="dc-rank-summary-main" @click="toggleRank(rd.key)">
+                      <div class="dc-rank-summary-title"><span>{{ rd.name }}</span><VChip v-if="rd.custom" size="x-small" color="primary" variant="tonal">自定义</VChip></div>
+                      <div class="dc-rank-summary-meta">
+                        <span>数量 {{ form.rank_configs[rd.key]?.count || '不限' }}</span>
+                        <span v-if="rd.filters.includes('vote')">评分 {{ form.rank_configs[rd.key]?.vote || '不限' }}</span>
+                        <span>地区 {{ (form.rank_configs[rd.key]?.regions || []).join('、') || '不限' }}</span>
+                        <span v-if="rd.filters.includes('year')">年份 {{ form.rank_configs[rd.key]?.year || '不限' }}</span>
+                        <span v-if="rd.filters.includes('wish_count')">想看 {{ form.rank_configs[rd.key]?.wish_count || '不限' }}</span>
+                      </div>
                     </div>
-                    <div v-if="rd.filters.includes('wish_count')" class="dc-rank-field">
-                      <span class="dc-rank-label">想看</span>
-                      <VTextField v-model.number="form.rank_configs[rd.key].wish_count" type="number" density="compact" variant="outlined" hide-details class="dc-rank-input" />
-                    </div>
-                    <div v-if="rd.filters.includes('air_days')" class="dc-rank-field">
-                      <span class="dc-rank-label">窗口</span>
-                      <VTextField v-model.number="form.rank_configs[rd.key].air_days" type="number" density="compact" variant="outlined" hide-details class="dc-rank-input" />
-                    </div>
-                    <div v-if="rd.filters.includes('vote')" class="dc-rank-field">
-                      <span class="dc-rank-label">评分</span>
-                      <VTextField v-model.number="form.rank_configs[rd.key].vote" type="number" min="0" max="10" step="0.1" density="compact" variant="outlined" hide-details class="dc-rank-input" />
-                    </div>
-                    <div v-if="rd.filters.includes('year')" class="dc-rank-field">
-                      <span class="dc-rank-label">年份</span>
-                      <VTextField v-model.number="form.rank_configs[rd.key].year" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" />
+                    <div class="dc-rank-actions">
+                      <VBtn v-if="rd.custom" icon variant="flat" color="error" class="dc-delete-rank" :aria-label="`删除${rd.name || '自定义榜单'}`" @click.stop="requestRemoveCustomRank(rd)">
+                        <VIcon icon="mdi-delete-outline" size="20" />
+                        <VTooltip activator="parent" location="top">删除自定义榜单</VTooltip>
+                      </VBtn>
                     </div>
                   </div>
+                  <Transition name="dc-rank-details">
+                    <div v-if="isExpanded(rd.key)" class="dc-rank-card-details">
+                      <div class="dc-rank-card-body">
+                        <VCheckbox v-model="form.rank_configs[rd.key].enabled" label="自动订阅" color="primary" hide-details density="compact" class="dc-rank-detail-enable" />
+                        <div class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].count" label="数量" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <div v-if="rd.filters.includes('vote')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].vote" label="评分" placeholder="0 不限" type="number" min="0" max="10" step="0.1" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <VCombobox v-model="form.rank_configs[rd.key].regions" :items="[]" label="地区" placeholder="自定义填写" multiple chips closable-chips clearable hide-details density="compact" variant="outlined" class="dc-rank-regions" />
+                        <div v-if="rd.filters.includes('year')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].year" label="年份" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <div v-if="rd.filters.includes('wish_count')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].wish_count" label="想看" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                      </div>
+                      <div v-if="rd.custom" class="dc-custom-rank-route-row">
+                        <VTextField :ref="el => setNameInputRef(rd.key, el)" v-model="rd.model.name" label="榜单名称" density="compact" variant="outlined" hide-details class="dc-custom-rank-name" />
+                        <VTextField v-model="rd.model.route" label="路由" placeholder="/example/rsshub/route?foo=bar" density="compact" variant="outlined" hide-details class="dc-custom-rank-route" />
+                      </div>
+                      <div v-else class="dc-rank-route-hint text-caption text-medium-emphasis">路由：{{ rd.route }}</div>
+                    </div>
+                  </Transition>
                 </div>
               </div>
+              <div v-if="!form.custom_ranks.length" class="dc-custom-ranks-empty text-caption text-medium-emphasis">尚未添加自定义榜单</div>
+              <VDialog v-model="deleteDialog" max-width="420">
+                <VCard>
+                  <VCardTitle class="text-body-1">删除自定义榜单</VCardTitle>
+                  <VCardText>确定删除「{{ deleteTarget?.name || '未命名榜单' }}」吗？相关订阅、历史和运行条目不会被删除。</VCardText>
+                  <VCardActions><VSpacer /><VBtn variant="text" @click="deleteDialog = false">取消</VBtn><VBtn color="error" variant="tonal" @click="removeCustomRank(deleteTarget?.key)">删除</VBtn></VCardActions>
+                </VCard>
+              </VDialog>
             </div>
 
             <div v-show="activeSub === 'filter'" class="dc-pane">
@@ -332,9 +490,9 @@ onMounted(loadOverview)
 
             <div v-show="activeSub === 'view'" class="dc-pane">
               <div class="dc-section-title">仪表盘选择</div>
-              <VAlert type="info" variant="tonal" density="compact" class="mb-2" text="仪表盘最多选择 2 个已启用榜单；开启发现页后，保存并刷新 MP 页面即可从左侧「发现」分组进入豆瓣中心。" />
+              <VAlert type="info" variant="tonal" density="compact" class="mb-2" text="仪表盘最多显示 6 个已启用榜单；开启发现页后，保存并刷新 MP 页面即可从左侧「发现」分组进入豆瓣中心。" />
               <VRow>
-                <VCol cols="12" md="6"><VSelect v-model="form.dashboard_rank_keys" label="选择要显示的榜单" :items="rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key }))" multiple chips clearable density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" md="6"><VSelect v-model="form.dashboard_rank_keys" label="选择要显示的榜单（最多 6 个）" :items="rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key }))" multiple chips clearable density="compact" variant="outlined" hide-details @update:model-value="limitDashboardRanks" /></VCol>
                 <VCol cols="12" md="6"><VSwitch v-model="form.discovery_page_enabled" color="success" inset hide-details label="开启发现页" /></VCol>
               </VRow>
             </div>
@@ -396,12 +554,19 @@ onMounted(loadOverview)
 .dc-rank-card--on { border-color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .04); }
 .dc-rank-card-header { margin-bottom: 0; min-width: 0; }
 .dc-rank-check :deep(.v-label) { font-size: 13px; font-weight: 600; }
-.dc-rank-card-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, auto)); justify-content: start; align-items: center; column-gap: 8px; row-gap: 4px; min-width: 0; }
-.dc-rank-field { display: grid; grid-template-columns: 28px 110px; align-items: center; gap: 4px; }
-.dc-rank-label { font-size: 12px; color: rgba(var(--v-theme-on-surface), .6); white-space: nowrap; min-width: 28px; }
-.dc-rank-input { width: 110px; max-width: 118px; }
+.dc-rank-field { display: block; min-width: 0; width: 100%; }
+.dc-rank-input { width: 100%; max-width: none; }
 .dc-rank-input :deep(.v-field) { min-height: 28px; max-height: 28px; border-radius: 6px; }
 .dc-rank-input :deep(.v-field__input) { min-height: 24px; padding-top: 1px; padding-bottom: 1px; font-size: 13px; }
+.dc-rank-input :deep(.v-label) { font-size: 12px; }
+.dc-custom-ranks-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dc-add-rank-icon { font-size: 24px; font-weight: 500; line-height: 1; }
+.dc-custom-ranks-empty { border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 12px; text-align: center; }
+.dc-custom-rank-card { display: grid; gap: 8px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px; margin-bottom: 6px; background: rgba(var(--v-theme-on-surface), .02); }
+.dc-custom-rank-header, .dc-custom-rank-source { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; min-width: 0; }
+.dc-custom-rank-source { grid-template-columns: minmax(0, 1fr) 150px; }
+.dc-custom-rank-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dc-custom-rank-settings .v-checkbox { min-width: 82px; }
 .dc-actions { padding: 10px 18px; }
 @media (max-width: 760px) {
   .dc-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
@@ -430,13 +595,53 @@ onMounted(loadOverview)
   .dc-kv { padding: 5px 0; font-size: 12px; }
   .dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }
   .dc-rank-card-body { grid-template-columns: 1fr; }
-  .dc-rank-field { grid-template-columns: 42px minmax(0, 1fr); }
   .dc-rank-input { width: 100%; max-width: none; }
+  .dc-custom-rank-source { grid-template-columns: 1fr; }
+  .dc-custom-rank-settings { display: grid; grid-template-columns: 1fr; align-items: stretch; }
   .dc-actions { min-height: 44px; padding: 6px 10px; gap: 6px; }
   .dc-action-btn { min-height: 32px; font-size: 13px; }
   .dc-window--overview { overflow-y: auto; }
 }
 @media (max-height: 760px) {
   .dc-window--overview { overflow-y: auto; }
+}
+
+/* 榜单行在桌面和移动端共享同一套可折叠结构。 */
+.dc-rank-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.dc-rank-list-summary { line-height: 1.35; }
+.dc-rank-card { display: block; min-width: 0; padding: 0; overflow: hidden; }
+.dc-rank-card-summary { display: grid; grid-template-columns: 36px 34px minmax(0, 1fr) 42px; align-items: center; gap: 4px; min-height: 50px; padding: 6px 8px; }
+.dc-rank-expand { width: 36px; height: 36px; }
+.dc-rank-summary-main { min-width: 0; cursor: pointer; }
+.dc-rank-summary-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.25; }
+.dc-rank-summary-title > span { min-width: 0; overflow-wrap: anywhere; }
+.dc-rank-summary-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; color: rgba(var(--v-theme-on-surface), .58); font-size: 11px; line-height: 1.25; }
+.dc-rank-actions { display: flex; align-items: center; justify-content: flex-end; min-width: 36px; }
+.dc-delete-rank { width: 36px !important; height: 36px !important; min-width: 36px !important; flex: 0 0 36px; border: 1px solid rgb(var(--v-theme-error)); background: rgb(var(--v-theme-error)) !important; color: rgb(var(--v-theme-on-error)) !important; box-shadow: 0 0 0 1px rgba(0, 0, 0, .18); }
+.dc-delete-rank :deep(.v-icon) { color: currentColor !important; opacity: 1 !important; }
+.dc-rank-card-details { display: grid; gap: 10px; padding: 2px 12px 12px 78px; border-top: 1px solid rgba(var(--v-border-color), .45); min-width: 0; }
+.dc-rank-card-body { display: grid; grid-template-columns: minmax(130px, 1.1fr) minmax(100px, .85fr) minmax(100px, .85fr) minmax(160px, 1.2fr) minmax(100px, .85fr); align-items: end; gap: 8px; min-width: 0; }
+.dc-rank-detail-enable { min-width: 0; width: 100%; }
+.dc-rank-regions { min-width: 0; width: 100%; }
+.dc-custom-rank-name { min-width: 0; }
+.dc-custom-rank-route-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.5fr); gap: 8px; align-items: end; min-width: 0; }
+.dc-custom-rank-route { min-width: 0; }
+.dc-rank-route-hint { overflow-wrap: anywhere; }
+
+.dc-rank-details-enter-active,
+.dc-rank-details-leave-active { transition: opacity .15s ease, transform .15s ease; will-change: opacity, transform; }
+.dc-rank-details-enter-from,
+.dc-rank-details-leave-to { opacity: 0; transform: translateY(-4px); }
+
+@media (max-width: 760px) {
+  .dc-rank-card-summary { grid-template-columns: 34px 34px minmax(0, 1fr) 40px; padding: 6px 4px; }
+  .dc-rank-summary-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 8px; }
+  .dc-rank-card-details { padding: 8px 10px 12px; }
+  .dc-rank-card-body { grid-template-columns: 1fr; gap: 8px; }
+  .dc-rank-detail-enable, .dc-rank-regions { min-width: 0; width: 100%; }
+  .dc-rank-field { min-width: 0; }
+  .dc-rank-input { width: 100%; max-width: none; }
+  .dc-custom-rank-route-row { grid-template-columns: 1fr; }
+  .dc-delete-rank { width: 36px !important; height: 36px !important; }
 }
 </style>

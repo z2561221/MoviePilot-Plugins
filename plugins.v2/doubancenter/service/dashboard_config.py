@@ -11,6 +11,7 @@ def build_config(
     blacklist_keywords: Any,
     observe_days: Any,
     observe_rank_keys: Any,
+    custom_ranks: List[dict] = None,
     wish_enabled: Any = False,
     wish_cron: Any = "",
     wish_user: Any = "",
@@ -33,9 +34,16 @@ def build_config(
             continue
         rank_options.append({"title": rank.get("name") or key, "value": key})
 
+    selected_rank_keys = []
+    for key in (dashboard_rank_keys if isinstance(dashboard_rank_keys, list) else []):
+        value = str(key or "").strip()
+        if value and value not in selected_rank_keys:
+            selected_rank_keys.append(value)
+
     return {
-        "dashboard_rank_keys": dashboard_rank_keys if isinstance(dashboard_rank_keys, list) else [],
+        "dashboard_rank_keys": selected_rank_keys[:6],
         "rank_options": rank_options,
+        "custom_ranks": custom_ranks if isinstance(custom_ranks, list) else [],
         "blacklist_keywords": blacklist_keywords or "",
         "observe_days": int(observe_days or 0),
         "observe_rank_keys": observe_rank_keys if isinstance(observe_rank_keys, list) else [],

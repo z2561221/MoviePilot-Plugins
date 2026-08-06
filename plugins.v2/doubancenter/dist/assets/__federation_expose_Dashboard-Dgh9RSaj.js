@@ -1,7 +1,8 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-C3eD-LZW.js';
+import { _ as _export_sfc, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-Cd7yiqDA.js';
+import { d as doubanDispatchUrl, s as sourceDescriptor } from './source-Y0YpQdE1.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeStyle:_normalizeStyle,unref:_unref} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,unref:_unref,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dc-load-alert__content" };
@@ -76,7 +77,7 @@ const loadError = ref('');
 const dialogItem = ref(null);
 const showDialog = ref(false);
 
-const rankDefs = {
+const builtinRankDefs = {
   coming: { name: '即将上映' },
   tv_real_time: { name: '实时热门' },
   tv_chinese: { name: '华语口碑' },
@@ -99,6 +100,12 @@ function rankColorOf(key) {
 
 function rankIconStyle(key) {
   return { color: rankColorOf(key) }
+}
+
+function rankNameOf(key, item = null) {
+  if (item?.rank_name) return item.rank_name
+  const option = (config.value?.rank_options || []).find(entry => entry?.value === key);
+  return option?.title || builtinRankDefs[key]?.name || key
 }
 
 function queryString(params) {
@@ -247,6 +254,9 @@ async function subscribeRankItem(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    rank_key: rk,
+    rank_name: item?.rank_name || rankNameOf(rk, item),
+    source_link: item?.link || '',
   });
   const res = await postPluginApi(props.api, `subscribe?${params}`, {});
   if (!res?.success) throw new Error(res?.message || '订阅失败')
@@ -267,51 +277,50 @@ async function doSubscribe() {
   setTimeout(() => { subscribeResult.value = ''; }, 3000);
 }
 
-function doOpenSource() {
-  if (!dialogItem.value) return
-  const { rk, item } = dialogItem.value;
-  showDialog.value = false;
-  const link = item?.link || '';
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) {
-    if (link) window.open(link, '_blank');
-    return
-  }
-  const subjectId = item?.douban_id || item?.doubanid || '';
-  if (subjectId) {
-    window.open(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${subjectId}?from=mdouban&open=app`, '_blank');
-    return
-  }
-  const match = link.match(/subject\/(\d+)/);
-  if (match && (link.includes('douban.com') || link.includes('doubanapp'))) {
-    window.open(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${match[1]}?from=mdouban&open=app`, '_blank');
-    return
-  }
-  if (link) window.open(link, '_blank');
-}
-
 function sourceButtonColor() {
   if (!dialogItem.value) return 'primary'
   const { rk, item } = dialogItem.value;
-  const link = String(item?.link || '');
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return '#F838A0'
-  if (link.includes('douban') || item?.douban_id || item?.doubanid) return '#08B810'
-  return 'primary'
+  return sourceDescriptor(rk, item, config.value).color
 }
 
 function sourceButtonIcon() {
-  const { rk, item } = dialogItem.value || {};
-  const link = String(item?.link || '');
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'mdi-link-variant'
-  if (link.includes('douban')) return 'mdi-open-in-new'
-  return 'mdi-link-variant'
+  if (!dialogItem.value) return 'mdi-link-variant'
+  const { rk, item } = dialogItem.value;
+  return sourceDescriptor(rk, item, config.value).icon
 }
 
 function sourceButtonLabel() {
-  const { rk, item } = dialogItem.value || {};
-  const link = String(item?.link || '');
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'Bgm'
-  if (link.includes('douban') || item?.douban_id || item?.doubanid) return '豆瓣'
-  return '详情'
+  if (!dialogItem.value) return '详情'
+  const { rk, item } = dialogItem.value;
+  return sourceDescriptor(rk, item, config.value).label
+}
+
+function sourceButtonUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value;
+  return sourceDescriptor(rk, item, config.value).url
+}
+
+function sourceButtonAppUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value;
+  return sourceDescriptor(rk, item, config.value).appUrl || ''
+}
+
+function sourceButtonHref() {
+  const webUrl = sourceButtonUrl();
+  return sourceButtonAppUrl() || webUrl
+}
+
+function openSource(event) {
+  const appUrl = sourceButtonAppUrl();
+  if (!appUrl) {
+    showDialog.value = false;
+    return
+  }
+  event?.preventDefault?.();
+  showDialog.value = false;
+  window.open(appUrl, '_blank');
 }
 
 function doOpenTmdb() {
@@ -519,8 +528,9 @@ return (_ctx, _cache) => {
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(group.items, (item) => {
                                   return (_openBlock(), _createElementBlock("a", {
                                     key: item.key,
-                                    href: `https://www.douban.com/doubanapp/dispatch?uri=/movie/${item.subject_id}?from=mdouban&open=app`,
+                                    href: _unref(doubanDispatchUrl)(item.subject_id, item.type),
                                     target: "_blank",
+                                    rel: "noopener noreferrer",
                                     class: "dc-poster",
                                     title: item.subject_name
                                   }, [
@@ -554,7 +564,7 @@ return (_ctx, _cache) => {
           (config.value.dashboard_rank_keys && config.value.dashboard_rank_keys.length)
             ? (_openBlock(), _createElementBlock("div", _hoisted_13, [
                 _createElementVNode("div", _hoisted_14, [
-                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(config.value.dashboard_rank_keys, (rk) => {
+                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(config.value.dashboard_rank_keys.slice(0, 6), (rk) => {
                     return (_openBlock(), _createElementBlock("div", {
                       key: rk,
                       class: "dc-rank-cell"
@@ -566,7 +576,7 @@ return (_ctx, _cache) => {
                           style: _normalizeStyle(rankIconStyle(rk)),
                           class: "mr-1"
                         }, null, 8, ["style"]),
-                        _createElementVNode("span", null, _toDisplayString(rankDefs[rk]?.name || rk), 1)
+                        _createElementVNode("span", null, _toDisplayString(rankNameOf(rk, rankHistory.value[rk]?.[0])), 1)
                       ]),
                       _createElementVNode("div", _hoisted_16, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((rankHistory.value[rk] || []).slice(0, 5), (item, i) => {
@@ -657,7 +667,7 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode(_component_VCardSubtitle, { class: "text-caption pa-0" }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(dialogItem.value?.rk ? (rankDefs[dialogItem.value.rk]?.name || dialogItem.value.rk) : ''), 1)
+                      _createTextVNode(_toDisplayString(dialogItem.value?.rk ? rankNameOf(dialogItem.value.rk, dialogItem.value.item) : ''), 1)
                     ]),
                     _: 1
                   })
@@ -665,10 +675,7 @@ return (_ctx, _cache) => {
                 _: 1
               }),
               _createVNode(_component_VDivider),
-              _createVNode(_component_VCardActions, {
-                class: "pa-3 pt-2",
-                style: {"gap":"8px"}
-              }, {
+              _createVNode(_component_VCardActions, { class: "pa-3 pt-2 dc-dialog-actions" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
@@ -695,17 +702,21 @@ return (_ctx, _cache) => {
                     _: 1
                   }, 8, ["disabled"]),
                   _createVNode(_component_VBtn, {
+                    href: sourceButtonHref() || undefined,
+                    target: "_blank",
+                    rel: "noopener noreferrer",
                     variant: "tonal",
                     color: sourceButtonColor(),
                     "prepend-icon": sourceButtonIcon(),
+                    disabled: !sourceButtonUrl(),
                     class: "dc-dialog-action text-none",
-                    onClick: doOpenSource
+                    onClick: openSource
                   }, {
                     default: _withCtx(() => [
                       _createTextVNode(_toDisplayString(sourceButtonLabel()), 1)
                     ]),
                     _: 1
-                  }, 8, ["color", "prepend-icon"])
+                  }, 8, ["href", "color", "prepend-icon", "disabled"])
                 ]),
                 _: 1
               })
@@ -722,6 +733,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6b2a368c"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c58e8819"]]);
 
 export { Dashboard as default };

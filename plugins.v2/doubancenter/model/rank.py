@@ -1,17 +1,19 @@
-"""Rank definitions for DoubanCenter."""
+"""豆瓣中心榜单定义与自定义榜单规范化。"""
 
 from copy import deepcopy
+import re
 from typing import Any, Dict, List
+from urllib.parse import urlsplit
 
 DEFAULT_OBSERVE_RANK_KEYS = ["coming", "tv_real_time"]
-
+CUSTOM_RANK_KEY_RE = re.compile(r"^custom_[^\s/?#]+$")
 BUILTIN_RANKS: List[Dict[str, Any]] = [
     {
         "key": "coming",
         "name": "即将上映",
         "route": "/douban/tv/coming",
         "coming": True,
-        "filters": ["wish_count", "air_days"],
+        "filters": ["vote", "wish_count"],
     },
     {
         "key": "tv_real_time",
@@ -56,21 +58,84 @@ def builtin_ranks() -> List[Dict[str, Any]]:
     return deepcopy(BUILTIN_RANKS)
 
 
+def normalize_custom_rank(value: Any) -> Dict[str, Any] | None:
+    """规范化单个自定义榜单，非法条目返回 None。"""
+    if not isinstance(value, dict):
+        return None
+    key = str(value.get("key") or "").strip()
+    name = str(value.get("name") or "").strip()
+    route = str(value.get("route") or "").strip()
+    builtin_keys = {str(rank.get("key") or "") for rank in BUILTIN_RANKS}
+    if not key or key in builtin_keys or not CUSTOM_RANK_KEY_RE.fullmatch(key):
+        return None
+    parsed_route = urlsplit(route)
+    if (
+        not name
+        or not route
+        or not route.startswith("/")
+        or "#" in route
+        or parsed_route.scheme
+        or parsed_route.netloc
+        or parsed_route.fragment
+        or not parsed_route.path
+    ):
+        return None
+    return {
+        "key": key,
+        "name": name,
+        "route": route,
+    }
+
+
+def normalize_custom_ranks(values: Any) -> List[Dict[str, Any]]:
+    """规范化自定义榜单列表并按 key 去重。"""
+    if not isinstance(values, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    seen = set()
+    for value in values:
+        rank = normalize_custom_rank(value)
+        if not rank or rank["key"] in seen:
+            continue
+        seen.add(rank["key"])
+        result.append(rank)
+    return result
+
+
+def effective_ranks(custom_ranks: Any = None) -> List[Dict[str, Any]]:
+    """返回内置榜单与合法自定义榜单组成的运行时集合。"""
+    ranks = builtin_ranks()
+    for custom in normalize_custom_ranks(custom_ranks):
+        ranks.append(
+            {
+                **custom,
+                "custom": True,
+                "coming": False,
+                "filters": ["vote", "year"],
+            }
+        )
+    return ranks
+
+
 def default_observe_rank_keys() -> List[str]:
     """返回默认启用观察期的高波动榜单 key。"""
     return list(DEFAULT_OBSERVE_RANK_KEYS)
 
 
 def infer_media_type(rank: dict, item: dict) -> str:
-    """根据榜单定义和条目字段推断媒体类型。"""
-    raw_type = str((item or {}).get("mtype") or "").lower()
-    if raw_type in ("movie", "tv"):
-        return raw_type
+    """根据条目字段和已知路由推断媒体类型，未知时返回 unknown。"""
+    raw_type = str((item or {}).get("mtype") or (item or {}).get("media_type") or "").strip().lower()
+    if raw_type in ("movie", "电影"):
+        return "movie"
+    if raw_type in ("tv", "电视剧", "series", "show"):
+        return "tv"
     key = str((rank or {}).get("key") or "").lower()
     route = str((rank or {}).get("route") or "").lower()
     if "movie" in key or "/movie" in route:
         return "movie"
-    return "tv"
+    if key in {"coming", "tv_real_time", "tv_chinese", "tv_global", "bangumi"} or "/tv/" in route or "/tv_" in route or "bangumi" in route:
+        return "tv"
+    return "unknown"
 
 
 def record_history_item(history: List[dict], entry: dict) -> None:

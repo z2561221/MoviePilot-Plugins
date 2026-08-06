@@ -65,53 +65,110 @@ RESOLUTION_OPTIONS: List[Dict[str, str]] = [
 DEFAULT_RANK_CONFIGS: Dict[str, Dict[str, Any]] = {
     "coming": {
         "enabled": False,
-        "count": 0,
-        "wish_count": 5000,
-        "air_days": 7,
-        "vote": 0,
-        "year": 0,
+        "count": 1,
+        "wish_count": "",
+        "air_days": "",
+        "vote": "",
+        "year": "",
+        "regions": [],
     },
     "tv_real_time": {
         "enabled": False,
-        "count": 0,
-        "wish_count": 0,
-        "air_days": 0,
-        "vote": 0,
-        "year": 0,
+        "count": 1,
+        "wish_count": "",
+        "air_days": "",
+        "vote": "",
+        "year": "",
+        "regions": [],
     },
     "tv_chinese": {
         "enabled": False,
-        "count": 0,
-        "wish_count": 0,
-        "air_days": 0,
-        "vote": 0,
-        "year": 0,
+        "count": 1,
+        "wish_count": "",
+        "air_days": "",
+        "vote": "",
+        "year": "",
+        "regions": [],
     },
     "tv_global": {
         "enabled": False,
-        "count": 0,
-        "wish_count": 0,
-        "air_days": 0,
-        "vote": 0,
-        "year": 0,
+        "count": 1,
+        "wish_count": "",
+        "air_days": "",
+        "vote": "",
+        "year": "",
+        "regions": [],
     },
     "movie_weekly": {
         "enabled": False,
-        "count": 0,
-        "wish_count": 0,
-        "air_days": 0,
-        "vote": 0,
-        "year": 0,
+        "count": 1,
+        "wish_count": "",
+        "air_days": "",
+        "vote": "",
+        "year": "",
+        "regions": [],
     },
     "bangumi": {
         "enabled": False,
-        "count": 0,
-        "wish_count": 0,
-        "air_days": 0,
-        "vote": 0,
-        "year": 0,
+        "count": 1,
+        "wish_count": "",
+        "air_days": "",
+        "vote": "",
+        "year": "",
+        "regions": [],
     },
 }
+
+CUSTOM_RANK_CONFIG: Dict[str, Any] = {
+    "enabled": False,
+    "count": 1,
+    "wish_count": "",
+    "air_days": "",
+    "vote": "",
+    "year": "",
+    "regions": [],
+}
+
+
+def normalize_regions(value: Any) -> List[str]:
+    """规范化榜单地区条件，空列表表示不限地区。"""
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = []
+    result: List[str] = []
+    seen = set()
+    for item in values:
+        text = str(item or "").strip()
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            result.append(text)
+    return result
+
+
+def normalize_rank_configs(values: Any, ranks: List[dict]) -> Dict[str, Dict[str, Any]]:
+    """按有效榜单集合清理并补齐榜单订阅配置。"""
+    source = values if isinstance(values, dict) else {}
+    result: Dict[str, Dict[str, Any]] = {}
+    for rank in ranks or []:
+        if not isinstance(rank, dict):
+            continue
+        key = str(rank.get("key") or "")
+        if not key:
+            continue
+        defaults = DEFAULT_RANK_CONFIGS.get(key, CUSTOM_RANK_CONFIG)
+        current = source.get(key)
+        normalized = {
+            **deepcopy(defaults),
+            **(current if isinstance(current, dict) else {}),
+        }
+        normalized["regions"] = normalize_regions(normalized.get("regions"))
+        if rank.get("custom"):
+            normalized.pop("media_type", None)
+        result[key] = normalized
+    return result
 
 
 def default_config() -> Dict[str, Any]:
@@ -124,6 +181,7 @@ def default_config() -> Dict[str, Any]:
         "onlyonce": False,
         "rsshub_domain": DEFAULT_RSSHUB_DOMAIN,
         "rank_configs": deepcopy(DEFAULT_RANK_CONFIGS),
+        "custom_ranks": [],
         "region_filters": [],
         "genre_filters": [],
         "resolution_filters": [],

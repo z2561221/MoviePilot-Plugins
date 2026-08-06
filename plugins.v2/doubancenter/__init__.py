@@ -1,5 +1,5 @@
 ﻿"""
-DoubanCenter v1.2.18 - MoviePilot 本地插件
+DoubanCenter v1.2.19 - MoviePilot 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
 import threading
@@ -20,7 +20,9 @@ from .model.config import (
     REGION_OPTIONS,
     RESOLUTION_OPTIONS,
     default_config,
+    normalize_rank_configs,
 )
+from .model import rank as rank_model
 from .service import scheduler as scheduler_service
 from .service import webhook as webhook_service
 
@@ -32,7 +34,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "1.2.18"
+    plugin_version = "1.2.19"
     plugin_author = "牧濑红莉栖"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
@@ -46,6 +48,7 @@ class DoubanCenter(_PluginBase):
     _onlyonce = False
     _rsshub_domain = DEFAULT_RSSHUB_DOMAIN
     _rank_configs: Dict[str, Any] = {}
+    _custom_ranks: List[Dict[str, Any]] = []
     _region_filters: List[str] = []
     _genre_filters: List[str] = []
     _resolution_filters: List[str] = []
@@ -91,7 +94,9 @@ class DoubanCenter(_PluginBase):
         self._proxy = config.get("proxy", False)
         self._onlyonce = config.get("onlyonce", False)
         self._rsshub_domain = utils.normalize_rss_domain(config.get("rsshub_domain") or DEFAULT_RSSHUB_DOMAIN)
-        self._rank_configs = config.get("rank_configs") or {}
+        self._custom_ranks = rank_model.normalize_custom_ranks(config.get("custom_ranks"))
+        effective_ranks = rank_model.effective_ranks(self._custom_ranks)
+        self._rank_configs = normalize_rank_configs(config.get("rank_configs"), effective_ranks)
         self._region_filters = []
         self._genre_filters = []
         self._resolution_filters = []
@@ -111,14 +116,23 @@ class DoubanCenter(_PluginBase):
         self._wish_onlyonce = bool(config.get("wish_onlyonce", False))
         self._wish_max_pages = max(1, int(config.get("wish_max_pages", 1) or 1))
         self._wish_days = max(0, int(config.get("wish_days", 7) or 7))
-        self._dashboard_rank_keys = config.get("dashboard_rank_keys") or []
+        valid_rank_keys = {str(rank.get("key") or "") for rank in effective_ranks}
+        self._dashboard_rank_keys = [
+            str(key) for key in (config.get("dashboard_rank_keys") or [])
+            if str(key) in valid_rank_keys
+        ][:6]
         self._discovery_page_enabled = bool(config.get("discovery_page_enabled", False))
         self._blacklist_keywords = config.get("blacklist_keywords") or ""
         self._observe_days = int(config.get("observe_days", 0) or 0)
         self._observe_rank_keys = config.get("observe_rank_keys") if "observe_rank_keys" in config else feed.default_observe_rank_keys()
         if not isinstance(self._observe_rank_keys, list):
             self._observe_rank_keys = []
-        if config and set(config) != set(self.__current_config()):
+        self._observe_rank_keys = [
+            str(key) for key in self._observe_rank_keys
+            if str(key) in valid_rank_keys
+        ]
+        current_config = self.__current_config()
+        if config and (set(config) != set(current_config) or config != current_config):
             self.__update_config()
         migration.normalize_legacy_subscribe_usernames()
         self.stop_service()
@@ -148,6 +162,7 @@ class DoubanCenter(_PluginBase):
             "onlyonce": self._onlyonce,
             "rsshub_domain": self._rsshub_domain,
             "rank_configs": self._rank_configs,
+            "custom_ranks": self._custom_ranks,
             "region_filters": [],
             "genre_filters": [],
             "resolution_filters": [],
@@ -215,9 +230,29 @@ class DoubanCenter(_PluginBase):
         """根据标题、年份和外部 ID 解析媒体信息。"""
         return api_controller.api_resolve_media(self, media_type, title, year, tmdb_id=tmdb_id, bangumi_id=bangumi_id)
 
-    def api_subscribe(self, tmdb_id=None, media_type=None, title="", year="", bangumi_id=None):
+    def api_subscribe(
+        self,
+        tmdb_id=None,
+        media_type=None,
+        title="",
+        year="",
+        bangumi_id=None,
+        rank_key="",
+        rank_name="",
+        source_link="",
+    ):
         """根据前端请求创建媒体订阅。"""
-        return api_controller.api_subscribe(self, tmdb_id, media_type, title, year, bangumi_id=bangumi_id)
+        return api_controller.api_subscribe(
+            self,
+            tmdb_id,
+            media_type,
+            title,
+            year,
+            bangumi_id=bangumi_id,
+            rank_key=rank_key,
+            rank_name=rank_name,
+            source_link=source_link,
+        )
 
     def api_refresh_rss(self):
         """立即刷新 RSS 榜单并执行订阅检查。"""

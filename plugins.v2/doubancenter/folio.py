@@ -15,6 +15,7 @@ from .doubanapi import DoubanApi
 from .storage import records as storage
 
 WISH_NOTIFY_THROTTLE_SECONDS = 6 * 60 * 60
+WISH_RECOGNIZE_MAX_RETRIES = 3
 
 
 def check_cookie_periodically(self) -> None:
@@ -69,6 +70,8 @@ def run_wish_sync(self, api=None, request_get=None) -> None:
 
     seen = storage.read_folio_wish_seen(self)
     queue = storage.read_folio_wish_queue(self)
+    processed = storage.read_folio_wish_processed(self)
+    failed = storage.read_folio_wish_failed(self)
     seen_ids = {str(r.get("subject_id")) for r in seen if r.get("subject_id")}
 
     if not state.get("initialized"):
@@ -85,10 +88,35 @@ def run_wish_sync(self, api=None, request_get=None) -> None:
         return
 
     queue_ids = {str(r.get("subject_id")) for r in queue if r.get("subject_id")}
+    processed_ids = {str(r.get("subject_id")) for r in processed if r.get("subject_id")}
+    retryable_failed = _latest_retryable_wish_failures(failed)
     added = 0
+    recovered = 0
     for item in items:
         subject_id = str(item.get("subject_id") or "")
-        if not subject_id or subject_id in seen_ids:
+        if not subject_id:
+            continue
+        if subject_id in seen_ids:
+            failed_record = retryable_failed.get(subject_id)
+            retry = int((failed_record or {}).get("retry", 0) or 0)
+            recognize_title = _wish_recognize_title(item.get("title"))
+            failed_recognize_title = str((failed_record or {}).get("recognize_title") or "")
+            reset_recognition_retries = (
+                bool(failed_record)
+                and retry >= WISH_RECOGNIZE_MAX_RETRIES
+                and failed_recognize_title != recognize_title
+            )
+            if (
+                failed_record
+                and subject_id not in queue_ids
+                and subject_id not in processed_ids
+                and (retry < WISH_RECOGNIZE_MAX_RETRIES or reset_recognition_retries)
+            ):
+                queue_ids.add(subject_id)
+                if reset_recognition_retries:
+                    failed = _clear_wish_failed(failed, subject_id, reason="recognize_failed")
+                queue.append(_wish_queue_record(item, now, retry=0 if reset_recognition_retries else retry))
+                recovered += 1
             continue
         seen_ids.add(subject_id)
         seen.append(_wish_seen_record(item, now))
@@ -99,22 +127,30 @@ def run_wish_sync(self, api=None, request_get=None) -> None:
     state.update({"last_run": now, "last_error": ""})
     storage.save_folio_wish_seen(self, seen)
     storage.save_folio_wish_queue(self, queue)
+    storage.save_folio_wish_failed(self, failed)
     storage.save_folio_wish_state(self, state)
-    logger.info(f"豆瓣想看同步完成，新增入队 {added} 条")
+    logger.info(f"豆瓣想看同步完成，新增入队 {added} 条，恢复重试 {recovered} 条")
 
 
 WISH_RANK_KEY = "douban_wish"
 WISH_RANK_NAME = "豆瓣想看"
 
 
+def _wish_recognize_title(title):
+    """提取豆瓣 feed 别名串中的首个主标题用于媒体识别。"""
+    value = str(title or "").strip()
+    primary = value.split(" / ", 1)[0].strip()
+    return primary or value
+
+
 def _default_wish_recognize(self):
     """返回默认的想看识别函数。"""
     def recognize(title, year):
         """识别想看条目对应的媒体信息。"""
-        meta = MetaInfo(title)
+        meta = MetaInfo(_wish_recognize_title(title))
         if year:
             meta.year = str(year)
-        return MediaChain().recognize_media(meta=meta, cache=True)
+        return MediaChain().recognize_by_meta(meta)
     return recognize
 
 
@@ -146,8 +182,11 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
             logger.warning(f"豆瓣想看识别失败：{title} {err}")
             mediainfo = None
         if not mediainfo:
-            _record_wish_failed(failed, item, "recognize_failed", now)
+            retry = _record_wish_failed(failed, item, "recognize_failed", now)
+            if retry < WISH_RECOGNIZE_MAX_RETRIES:
+                remaining.append(_wish_queue_record(item, now, retry=retry))
             continue
+        failed = _clear_wish_failed(failed, subject_id, reason="recognize_failed")
         subscribe_failed = False
         subscribe_reason = ""
         before_failed_records = _failed_subscribe_record_count(self, mediainfo)
@@ -175,21 +214,54 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
 
 
 def _record_wish_failed(failed, item, reason, now, message=""):
-    """记录想看同步失败条目并维护重试次数。"""
+    """记录想看同步失败条目并返回累计重试次数。"""
     subject_id = str(item.get("subject_id") or "")
     retry = int(item.get("retry", 0) or 0) + 1
     for record in reversed(failed):
         if str(record.get("subject_id") or "") == subject_id and record.get("reason") == reason:
             retry = int(record.get("retry", 0) or 0) + 1
             break
-    failed.append({
+    record = {
         "subject_id": subject_id,
         "title": item.get("title") or "",
         "reason": reason,
         "message": message or reason,
         "retry": retry,
         "failed_at": now,
-    })
+    }
+    if reason == "recognize_failed":
+        record["recognize_title"] = _wish_recognize_title(item.get("title"))
+    failed.append(record)
+    return retry
+
+
+def _latest_retryable_wish_failures(failed):
+    """按条目返回仍可恢复的最新识别失败记录。"""
+    latest = {}
+    for record in failed or []:
+        if not isinstance(record, dict):
+            continue
+        subject_id = str(record.get("subject_id") or "")
+        if not subject_id:
+            continue
+        latest[subject_id] = record
+    return {
+        subject_id: record for subject_id, record in latest.items()
+        if record.get("reason") == "recognize_failed"
+    }
+
+
+def _clear_wish_failed(failed, subject_id, reason=""):
+    """清理指定条目已经恢复成功的失败记录。"""
+    target_id = str(subject_id or "")
+    return [
+        record for record in (failed or [])
+        if not (
+            isinstance(record, dict)
+            and str(record.get("subject_id") or "") == target_id
+            and (not reason or record.get("reason") == reason)
+        )
+    ]
 
 
 def _subscribe_result_is_failed(result) -> bool:
@@ -225,8 +297,9 @@ def _wish_seen_record(item, now):
     return {"subject_id": str(item.get("subject_id") or ""), "title": item.get("title", ""), "seen_at": now}
 
 
-def _wish_queue_record(item, now):
+def _wish_queue_record(item, now, retry=None):
     """构造待处理想看条目的队列记录。"""
+    retry_count = int(item.get("retry", 0) or 0) if retry is None else int(retry or 0)
     return {
         "subject_id": str(item.get("subject_id") or ""),
         "title": item.get("title", ""),
@@ -235,6 +308,7 @@ def _wish_queue_record(item, now):
         "poster": item.get("poster", ""),
         "wish_time": item.get("wish_time", ""),
         "enqueued_at": now,
+        "retry": retry_count,
     }
 
 

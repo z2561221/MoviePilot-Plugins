@@ -31,7 +31,6 @@ class ConfigFrontendContractTest(unittest.TestCase):
         text = CONFIG_VUE.read_text(encoding="utf-8")
 
         forbidden_fragments = [
-            "const regionOptions",
             "const genreOptions",
             "const resolutionOptions",
             'v-model="form.region_filters"',
@@ -52,8 +51,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
         text = CONFIG_VUE.read_text(encoding="utf-8")
 
         self.assertNotIn("count: 10", text)
-        self.assertGreaterEqual(text.count("count: 0"), 6)
-        self.assertIn('v-model.number="form.rank_configs[rd.key].count" type="number" min="0"', text)
+        self.assertGreaterEqual(text.count("count: 1"), 6)
+        self.assertIn('v-model.number="form.rank_configs[rd.key].count" label="数量" placeholder="0 不限" type="number" min="0"', text)
 
     def test_rank_list_uses_compact_grid_style(self):
         text = CONFIG_VUE.read_text(encoding="utf-8")
@@ -67,9 +66,11 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("border-radius: 8px; padding: 5px 10px;", text)
         self.assertIn(".dc-rank-card-header { margin-bottom: 0; min-width: 0; }", text)
         self.assertIn(
-            ".dc-rank-card-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, auto));",
+            ".dc-rank-card-body { display: grid; grid-template-columns: minmax(130px, 1.1fr) minmax(100px, .85fr) minmax(100px, .85fr) minmax(160px, 1.2fr) minmax(100px, .85fr);",
             text,
         )
+        self.assertIn(".dc-rank-field { display: block; min-width: 0; width: 100%; }", text)
+        self.assertIn(".dc-rank-input { width: 100%; max-width: none; }", text)
         self.assertIn("@media (max-width: 760px)", text)
         self.assertIn(".dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }", text)
         self.assertIn(".dc-rank-card-body { grid-template-columns: 1fr; }", text)
@@ -78,9 +79,33 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("gap:4px", compact_css)
         self.assertIn("display:grid;grid-template-columns:minmax(150px,220px)minmax(0,1fr)", compact_css)
         self.assertIn("border-radius:8px;padding:5px10px", compact_css)
-        self.assertIn("grid-template-columns:repeat(auto-fit,minmax(142px,auto))", compact_css)
+        self.assertIn(
+            "grid-template-columns:minmax(130px,1.1fr)minmax(100px,.85fr)minmax(100px,.85fr)minmax(160px,1.2fr)minmax(100px,.85fr)",
+            compact_css,
+        )
         self.assertIn("@media(max-width:760px)", compact_css)
         self.assertIn("grid-template-columns:1fr", compact_css)
+
+    def test_rank_list_uses_layout_safe_detail_transition(self):
+        """榜单详情展开应避免高度动画引发整列重排。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        self.assertIn('<Transition name="dc-rank-details">', text)
+        self.assertNotIn("<VExpandTransition>", text)
+        self.assertIn(
+            ".dc-rank-details-enter-active,\n.dc-rank-details-leave-active { transition: opacity .15s ease, transform .15s ease;",
+            text,
+        )
+        self.assertIn(
+            ".dc-rank-details-enter-from,\n.dc-rank-details-leave-to { opacity: 0; transform: translateY(-4px); }",
+            text,
+        )
+        self.assertNotIn("transition: height", text)
+
+        compact_css = _compact_css(_active_css_text("./Config"))
+        self.assertIn("transition:opacity.15sease,transform.15sease", compact_css)
+        self.assertIn("transform:translateY(-4px)", compact_css)
+        self.assertNotIn("transition:height", compact_css)
 
     def test_config_normalizes_legacy_null_nested_config(self):
         """旧配置中的空嵌套对象不应导致 Vue 设置页白屏。"""
@@ -103,8 +128,9 @@ class ConfigFrontendContractTest(unittest.TestCase):
             ".dc-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }",
             ".dc-card { height: min(860px, calc(100dvh - 16px)); }",
             ".dc-rank-card-body { grid-template-columns: 1fr; }",
-            ".dc-rank-field { grid-template-columns: 42px minmax(0, 1fr); }",
+            ".dc-rank-field { min-width: 0; }",
             ".dc-rank-input { width: 100%; max-width: none; }",
+            ".dc-custom-rank-route-row { grid-template-columns: 1fr; }",
         ]
         for fragment in required_fragments:
             self.assertIn(fragment, text)
@@ -117,9 +143,11 @@ class ConfigFrontendContractTest(unittest.TestCase):
             ".dc-rank-card-body[data-v-",
             "grid-template-columns:1fr",
             ".dc-rank-field[data-v-",
-            "grid-template-columns:42pxminmax(0,1fr)",
+            "min-width:0",
             ".dc-rank-input[data-v-",
             "width:100%;max-width:none",
+            ".dc-custom-rank-route-row[data-v-",
+            "grid-template-columns:1fr",
         ]
         for fragment in required_css_fragments:
             self.assertIn(fragment, compact_css)
@@ -176,9 +204,13 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("nativeSubscribe: { type: Function, default: null }", app_page_text)
         self.assertIn(':api="props.api"', app_page_text)
         self.assertIn(':native-subscribe="props.nativeSubscribe"', app_page_text)
-        self.assertNotIn("getPluginApi", app_page_text)
+        self.assertIn("getPluginConfig", app_page_text)
+        self.assertIn("savePluginConfig", app_page_text)
+        self.assertIn('@switch="openSettings"', app_page_text)
+        self.assertIn("<VSnackbar", app_page_text)
         self.assertIn("appPage: { type: Boolean, default: false }", page_text)
-        self.assertEqual(page_text.count('v-if="!props.appPage"'), 2)
+        self.assertIn("showSettings: { type: Boolean, default: false }", page_text)
+        self.assertIn('v-if="props.showSettings || !props.appPage"', page_text)
         self.assertIn('"./AppPage"', remote_text)
         app_page_css = re.search(
             r'dynamicLoadingCss\(\[([^\]]+)\], false, \'\./AppPage\'\)',
@@ -187,6 +219,31 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIsNotNone(app_page_css)
         self.assertIn("__federation_expose_AppPage-", app_page_css.group(1))
         self.assertIn("__federation_expose_Page-", app_page_css.group(1))
+
+    def test_rank_rows_share_regions_and_custom_route_contract(self):
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        self.assertIn('v-model="form.rank_configs[rd.key].regions"', text)
+        self.assertIn("multiple chips", text)
+        self.assertIn(':items="[]"', text)
+        self.assertIn('placeholder="自定义填写"', text)
+        self.assertIn('v-model="rd.model.name"', text)
+        self.assertIn('v-model="rd.model.route"', text)
+        self.assertIn('label="路由"', text)
+        self.assertIn('class="dc-custom-rank-route-row"', text)
+        self.assertIn('class="dc-custom-rank-route"', text)
+        self.assertIn('路由：{{ rd.route }}', text)
+        self.assertNotIn('VExpansionPanel title="数据源设置"', text)
+        self.assertNotIn("dc-source-panels", text)
+        self.assertNotIn("数据源", text)
+        self.assertIn("function requestRemoveCustomRank", text)
+        self.assertIn("class=\"dc-delete-rank\"", text)
+        self.assertIn('<VIcon icon="mdi-delete-outline" size="20" />', text)
+        self.assertNotIn('icon="mdi-delete-outline" variant="flat"', text)
+        self.assertNotIn("customMediaTypes", text)
+        self.assertNotIn("v-model=\"rd.media_type\"", text)
+        self.assertIn("delete m.rank_configs[rd.key].media_type", text)
+        self.assertIn("custom_ranks: (form.custom_ranks || []).map", text)
 
     def test_page_labels_douban_wish_subscription_stats(self):
         """详情页订阅统计应将豆瓣想看显示为独立分类。"""
@@ -564,6 +621,58 @@ class ConfigFrontendContractTest(unittest.TestCase):
             self.assertIn('prepend-icon="mdi-plus-circle-outline"', text, path.name)
             self.assertIn('prepend-icon="mdi-movie-open-outline"', text, path.name)
             self.assertIn(".dc-dialog-action {", text, path.name)
+
+    def test_source_action_uses_real_href_and_douban_detail_fallback(self):
+        """豆瓣来源按钮只能指向条目详情或标题搜索，不能冒充榜单集合。"""
+        source_text = (PLUGIN_DIR / "src" / "components" / "source.js").read_text(encoding="utf-8")
+        for path in (PAGE_VUE, DASHBOARD_VUE):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn(':href="sourceButtonHref() || undefined"', text, path.name)
+            self.assertIn('@click="openSource"', text, path.name)
+            self.assertIn('target="_blank"', text, path.name)
+            self.assertIn('rel="noopener noreferrer"', text, path.name)
+            self.assertIn('return sourceButtonAppUrl() || webUrl', text, path.name)
+            self.assertNotIn("doOpenSource", text, path.name)
+
+        for fragment in (
+            "function routePath(value)",
+            "function isDoubanRoute(value)",
+            "function doubanSearchUrl(item)",
+            "function isCustomRank(rankKey, config)",
+            "https://movie.douban.com/subject/",
+            "const year = stringValue(item?.year)",
+            "function isDoubanSubjectLink(value)",
+            "export function doubanDispatchUrl(subjectId, mediaType = 'tv')",
+            "appUrl: doubanAppUrl(rankKey, item, config)",
+        ):
+            self.assertIn(fragment, source_text)
+        self.assertNotIn("function doubanCollectionUrl", source_text)
+        self.assertNotIn("subject_collection/", source_text)
+
+        built_source = next(DIST_ASSETS.glob("source-*.js"), None)
+        self.assertIsNotNone(built_source)
+        built_text = built_source.read_text(encoding="utf-8")
+        self.assertIn("function routePath(value)", built_text)
+        self.assertIn("https://movie.douban.com/subject/", built_text)
+        self.assertNotIn("function doubanCollectionUrl", built_text)
+
+    def test_mobile_layout_uses_single_column_page_and_dispatch_timeline(self):
+        """移动端榜单保持可读单列，时间线继续使用豆瓣 App dispatch。"""
+        page_text = PAGE_VUE.read_text(encoding="utf-8")
+        dashboard_text = DASHBOARD_VUE.read_text(encoding="utf-8")
+        self.assertIn(".dc-rank-grid { grid-template-columns: minmax(0, 1fr);", page_text)
+        self.assertIn(".dc-page-toolbar-actions", page_text)
+        self.assertIn(".dc-toolbar-action", page_text)
+        self.assertIn(".dc-toolbar-label", page_text)
+        self.assertIn('style="display: flex !important; width: 32px; height: 32px; min-width: 32px;"', page_text)
+        self.assertIn(".dc-page-avatar { display: flex !important; flex: 0 0 32px; width: 32px !important; height: 32px !important; min-width: 32px; margin-inline: 4px !important; }", page_text)
+        self.assertIn(".dc-toolbar-label { display: none; }", page_text)
+        self.assertIn(".dc-section--logs { grid-column: 1 / -1; }", page_text)
+        self.assertIn("flex: 0 0 calc((100% - 8px) / 2)", page_text)
+        self.assertIn("flex-basis: 100%; width: 100%;", page_text)
+        self.assertIn(".dc-dialog-actions", page_text)
+        self.assertIn(":href=\"doubanDispatchUrl(item.subject_id, item.type)\"", dashboard_text)
+        self.assertIn(".dc-dialog-actions", dashboard_text)
 
 
 if __name__ == "__main__":

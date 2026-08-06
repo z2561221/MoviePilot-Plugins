@@ -1,11 +1,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getPluginApi, postPluginApi, toPosterThumbnail } from './api'
+import { sourceDescriptor } from './source'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
   appPage: { type: Boolean, default: false },
+  showSettings: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'switch'])
 
@@ -57,6 +59,12 @@ function rankIconStyle(key) {
   return { color: rankColorOf(key) }
 }
 
+function rankNameOf(key, item = null) {
+  if (item?.rank_name) return item.rank_name
+  const option = (configData.value?.rank_options || []).find(entry => entry?.value === key)
+  return option?.title || rankNames[key] || key
+}
+
 function rankChipStyle(key) {
   const color = rankColorOf(key)
   return {
@@ -103,7 +111,7 @@ function archiveRankKey(item) {
 function archiveRankName(item) {
   const key = archiveRankKey(item)
   const record = archiveRecord(item)
-  return item?.rank_name || record.rank_name || rankNames[key] || key
+  return item?.rank_name || record.rank_name || rankNameOf(key, record) || key
 }
 
 function archiveTime(item) {
@@ -336,6 +344,9 @@ async function subscribeRankItem(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    rank_key: rk,
+    rank_name: item?.rank_name || rankNameOf(rk, item),
+    source_link: item?.link || '',
   })
   const res = await postPluginApi(props.api, `subscribe?${params}`, {})
   if (!res?.success) throw new Error(res?.message || '订阅失败')
@@ -359,51 +370,50 @@ async function doSubscribe() {
   }
 }
 
-function doOpenSource() {
-  if (!dialogItem.value) return
-  const { rk, item } = dialogItem.value
-  showDialog.value = false
-  const link = item?.link || ''
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) {
-    if (link) window.open(link, '_blank')
-    return
-  }
-  const subjectId = item?.douban_id || item?.doubanid || ''
-  if (subjectId) {
-    window.open(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${subjectId}?from=mdouban&open=app`, '_blank')
-    return
-  }
-  const match = link.match(/subject\/(\d+)/)
-  if (match && (link.includes('douban.com') || link.includes('doubanapp'))) {
-    window.open(`https://www.douban.com/doubanapp/dispatch?uri=/movie/${match[1]}?from=mdouban&open=app`, '_blank')
-    return
-  }
-  if (link) window.open(link, '_blank')
-}
-
 function sourceButtonColor() {
   if (!dialogItem.value) return 'primary'
   const { rk, item } = dialogItem.value
-  const link = String(item?.link || '')
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return '#F838A0'
-  if (link.includes('douban') || item?.douban_id || item?.doubanid) return '#08B810'
-  return 'primary'
+  return sourceDescriptor(rk, item, configData.value).color
 }
 
 function sourceButtonIcon() {
-  const { rk, item } = dialogItem.value || {}
-  const link = String(item?.link || '')
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'mdi-link-variant'
-  if (link.includes('douban')) return 'mdi-open-in-new'
-  return 'mdi-link-variant'
+  if (!dialogItem.value) return 'mdi-link-variant'
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, configData.value).icon
 }
 
 function sourceButtonLabel() {
-  const { rk, item } = dialogItem.value || {}
-  const link = String(item?.link || '')
-  if (rk === 'bangumi' || link.includes('bgm.tv') || link.includes('bangumi.tv')) return 'Bgm'
-  if (link.includes('douban') || item?.douban_id || item?.doubanid) return '豆瓣'
-  return '详情'
+  if (!dialogItem.value) return '详情'
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, configData.value).label
+}
+
+function sourceButtonUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, configData.value).url
+}
+
+function sourceButtonAppUrl() {
+  if (!dialogItem.value) return ''
+  const { rk, item } = dialogItem.value
+  return sourceDescriptor(rk, item, configData.value).appUrl || ''
+}
+
+function sourceButtonHref() {
+  const webUrl = sourceButtonUrl()
+  return sourceButtonAppUrl() || webUrl
+}
+
+function openSource(event) {
+  const appUrl = sourceButtonAppUrl()
+  if (!appUrl) {
+    showDialog.value = false
+    return
+  }
+  event?.preventDefault?.()
+  showDialog.value = false
+  window.open(appUrl, '_blank')
 }
 
 function doOpenTmdb() {
@@ -423,16 +433,29 @@ onMounted(loadAll)
 <template>
   <VCard flat class="dc-page" :class="{ 'dc-page--app': props.appPage }">
     <VToolbar density="comfortable" class="dc-page-toolbar">
-      <VAvatar color="primary" variant="tonal" rounded="lg" class="ms-3 me-2"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
+      <VAvatar color="primary" variant="tonal" rounded="lg" class="ms-3 me-2 dc-page-avatar" style="display: flex !important; width: 32px; height: 32px; min-width: 32px;"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
       <div class="dc-page-heading">
         <div class="text-h6">{{ archivePage ? '豆瓣中心 · 归档记录' : '豆瓣中心 · 运行详情' }}</div>
         <div class="text-caption text-medium-emphasis">{{ archivePage ? '删除进入归档，支持恢复或彻底删除' : '榜单刷新 -> 黑名筛选 -> 观察队列 -> 订阅记录' }}</div>
       </div>
       <VSpacer />
-      <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-1" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">刷新</VBtn>
-      <VBtn variant="text" size="small" :prepend-icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" class="text-none me-1" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">{{ archivePage ? '返回' : '归档' }}</VBtn>
-      <VBtn v-if="!props.appPage" variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1" @click="emit('switch')">设置</VBtn>
-      <VBtn v-if="!props.appPage" icon="mdi-close" variant="text" size="small" @click="emit('close')" />
+      <div class="dc-page-toolbar-actions">
+        <VBtn variant="text" size="small" class="text-none dc-toolbar-action" title="刷新" aria-label="刷新" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">
+          <VIcon icon="mdi-refresh" size="18" class="dc-toolbar-icon" />
+          <span class="dc-toolbar-label">刷新</span>
+        </VBtn>
+        <VBtn variant="text" size="small" class="text-none dc-toolbar-action" :title="archivePage ? '返回' : '归档'" :aria-label="archivePage ? '返回' : '归档'" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">
+          <VIcon :icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" size="18" class="dc-toolbar-icon" />
+          <span class="dc-toolbar-label">{{ archivePage ? '返回' : '归档' }}</span>
+        </VBtn>
+        <VBtn v-if="props.showSettings || !props.appPage" variant="text" size="small" class="text-none dc-toolbar-action" title="设置" aria-label="设置" @click="emit('switch')">
+          <VIcon icon="mdi-cog-outline" size="18" class="dc-toolbar-icon" />
+          <span class="dc-toolbar-label">设置</span>
+        </VBtn>
+        <VBtn v-if="!props.appPage" icon variant="text" size="small" class="dc-toolbar-action" title="关闭" aria-label="关闭" @click="emit('close')">
+          <VIcon icon="mdi-close" size="18" class="dc-toolbar-icon" />
+        </VBtn>
+      </div>
     </VToolbar>
     <VDivider />
     <VProgressLinear v-if="loading" indeterminate color="primary" height="2" />
@@ -484,18 +507,18 @@ onMounted(loadAll)
               <div class="dc-stat-value">{{ stats.month_new || 0 }}</div>
               <div class="dc-stat-label">本月新增</div>
             </div>
-            <div v-for="(count, key) in stats.rank_dist" :key="key" class="dc-stat-card">
-              <div class="dc-stat-value" :style="{ color: rankColorOf(key) }">{{ count }}</div>
-              <div class="dc-stat-label">{{ rankNames[key] || key }}</div>
+            <div v-for="item in (stats.rank_stats || [])" :key="item.key" class="dc-stat-card">
+              <div class="dc-stat-value" :style="{ color: rankColorOf(item.key) }">{{ item.count }}</div>
+              <div class="dc-stat-label">{{ item.name || rankNameOf(item.key) }}</div>
             </div>
           </div>
         </div>
 
         <div v-if="rankHistory && Object.keys(rankHistory).length" class="dc-section dc-section--rank">
           <div class="dc-section-title mb-2">榜单快照 <span class="text-caption font-weight-regular text-medium-emphasis">（点击条目订阅或打开来源）</span></div>
-          <div class="dc-rank-grid">
+          <div class="dc-rank-grid dc-rank-grid--snapshot">
             <div v-for="[key, items] in Object.entries(rankHistory)" :key="key" class="dc-rank-card">
-              <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(key)" class="mr-1" /><span>{{ rankNames[key] || key }}</span></div>
+              <div class="dc-rank-head"><VIcon icon="mdi-format-list-numbered" size="15" :style="rankIconStyle(key)" class="mr-1" /><span>{{ rankNameOf(key, items?.[0]) }}</span></div>
               <template v-if="items && items.length">
                 <div v-for="(item, i) in items.slice(0, 5)" :key="`${key}-${i}`" class="dc-rank-row" title="订阅 / 打开详情" @click="showActionDialog(key, item)">
                   <VAvatar rounded="sm" class="dc-rank-poster"><VImg v-if="item.poster" :src="toPosterThumbnail(item.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="13" /></VAvatar>
@@ -536,7 +559,7 @@ onMounted(loadAll)
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ item.title }}</div>
                 <div class="dc-history-meta">
-                  <VChip size="x-small" :style="rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name }}</VChip>
+                  <VChip size="x-small" :style="rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name || rankNameOf(item.rank_key, item) }}</VChip>
                   <span class="text-caption text-medium-emphasis">观察 {{ item.elapsed_days || 0 }} / {{ item.observe_days || 0 }} 天</span>
                 </div>
               </div>
@@ -555,7 +578,7 @@ onMounted(loadAll)
               <div class="dc-history-info">
                 <div class="dc-history-title">{{ item.title }}</div>
                 <div class="dc-history-meta">
-                  <VChip size="x-small" :style="rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name }}</VChip>
+                  <VChip size="x-small" :style="rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name || rankNameOf(item.rank_key, item) }}</VChip>
                   <span class="text-caption text-medium-emphasis">{{ item.time ? item.time.split(' ')[0] : '' }}</span>
                 </div>
               </div>
@@ -601,13 +624,13 @@ onMounted(loadAll)
             </VAvatar>
           </template>
           <VCardTitle class="text-body-1 font-weight-bold pa-0">{{ dialogItem?.item?.title || '' }}</VCardTitle>
-          <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? (rankNames[dialogItem.rk] || dialogItem.rk) : '' }}</VCardSubtitle>
+          <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? rankNameOf(dialogItem.rk, dialogItem.item) : '' }}</VCardSubtitle>
         </VCardItem>
         <VDivider />
-        <VCardActions class="pa-3 pt-2" style="gap: 8px">
+        <VCardActions class="pa-3 pt-2 dc-dialog-actions">
           <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
           <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :disabled="!(dialogItem?.item?.tmdbid || dialogItem?.item?.tmdb_id)" @click="doOpenTmdb">TMDB</VBtn>
-          <VBtn variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" class="dc-dialog-action text-none" @click="doOpenSource">{{ sourceButtonLabel() }}</VBtn>
+          <VBtn :href="sourceButtonHref() || undefined" target="_blank" rel="noopener noreferrer" variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none" @click="openSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
@@ -619,6 +642,9 @@ onMounted(loadAll)
 .dc-page--app { width: 100%; min-height: calc(100dvh - 104px); border-radius: 14px; }
 .dc-page-toolbar { background: rgb(var(--v-theme-surface)); padding-right: 8px; }
 .dc-page-heading { min-width: 0; }
+.dc-page-toolbar-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 2px; }
+.dc-toolbar-icon { flex: 0 0 auto; }
+.dc-toolbar-label { white-space: nowrap; }
 .dc-page-heading .text-h6,
 .dc-page-heading .text-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -672,19 +698,41 @@ onMounted(loadAll)
 .dc-row-status { max-width: 160px; }
 .dc-row-action { flex: 0 0 auto; }
 .dc-dialog-action { flex: 1 1 0; min-width: 0; height: 36px; }
+.dc-dialog-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .dc-dialog-action--tmdb {
   color: #0288d1 !important;
   color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;
 }
 @media (max-width: 760px) {
-  .dc-flow { grid-template-columns: 1fr; }
+  .dc-page-toolbar { min-height: 56px; padding-inline: 4px; }
+  .dc-page-avatar { display: flex !important; flex: 0 0 32px; width: 32px !important; height: 32px !important; min-width: 32px; margin-inline: 4px !important; }
+  .dc-page-heading { flex: 1 1 auto; max-width: none; }
+  .dc-page-heading .text-h6 { font-size: 15px !important; }
+  .dc-page-heading .text-caption { display: none; }
+  .dc-page-toolbar-actions { gap: 0; }
+  .dc-toolbar-action { flex: 0 0 34px; min-width: 34px !important; width: 34px; padding-inline: 0 !important; }
+  .dc-toolbar-label { display: none; }
+  .dc-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dc-section { grid-column: 1 / -1; padding: 10px; }
-  .dc-rank-grid { grid-template-columns: repeat(6, 150px); overflow-x: auto; padding-bottom: 2px; }
+  .dc-section--blacklist,
+  .dc-section--observe,
+  .dc-section--history,
+  .dc-section--logs { grid-column: 1 / -1; }
+  .dc-rank-grid { grid-template-columns: minmax(0, 1fr); overflow-x: visible; padding-bottom: 0; }
+  .dc-rank-card { width: 100%; }
+  .dc-rank-grid--snapshot { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; scrollbar-width: none; -ms-overflow-style: none; touch-action: pan-x; overscroll-behavior-x: contain; }
+  .dc-rank-grid--snapshot::-webkit-scrollbar { display: none; }
+  .dc-rank-grid--snapshot .dc-rank-card { flex: 0 0 calc((100% - 8px) / 2); width: calc((100% - 8px) / 2); }
   .dc-history-row { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 4px; padding: 4px 6px; }
   .dc-archive-row { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
   .dc-status-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
   .dc-row-status { max-width: 96px; }
   .dc-history-meta .v-chip { max-width: 120px; }
   .dc-history-row span.text-caption { display: none; }
+  .dc-action-dialog { width: min(420px, calc(100vw - 24px)); max-width: calc(100vw - 24px); }
+}
+@media (max-width: 360px) {
+  .dc-flow { grid-template-columns: 1fr; }
+  .dc-rank-grid--snapshot .dc-rank-card { flex-basis: 100%; width: 100%; }
 }
 </style>

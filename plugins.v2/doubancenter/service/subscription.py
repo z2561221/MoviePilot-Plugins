@@ -61,7 +61,17 @@ def is_existing_media(mediainfo, meta=None, subscribe_chain_cls=SubscribeChain, 
     return False
 
 
-def record_existing_history(history: List[dict], unique: str, title: str = "", year: Any = "", link: str = "", mediainfo=None) -> None:
+def record_existing_history(
+    history: List[dict],
+    unique: str,
+    title: str = "",
+    year: Any = "",
+    link: str = "",
+    mediainfo=None,
+    rank_key: str = "",
+    rank_name: str = "",
+    media_type: str = "",
+) -> None:
     """记录已存在订阅，避免后续再次进入观察队列。"""
     existing_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = {
@@ -79,6 +89,12 @@ def record_existing_history(history: List[dict], unique: str, title: str = "", y
         entry["poster"] = mediainfo.get_poster_image() if mediainfo else ""
     except Exception:
         entry["poster"] = ""
+    if rank_key:
+        entry["rank_key"] = rank_key
+    if rank_name:
+        entry["rank_name"] = rank_name
+    if media_type:
+        entry["media_type"] = media_type
     for index, item in enumerate(history):
         if isinstance(item, dict) and item.get("unique") == unique:
             merged = dict(item)
@@ -88,15 +104,40 @@ def record_existing_history(history: List[dict], unique: str, title: str = "", y
     history.append(entry)
 
 
-def write_subscribe_record(plugin, mediainfo, rank_key: str = "", rank_name: str = "", status: str = "success", reason: str = "", source_link: str = "") -> None:
-    """写入自动订阅历史记录。"""
+def write_subscribe_record(
+    plugin,
+    mediainfo=None,
+    rank_key: str = "",
+    rank_name: str = "",
+    status: str = "success",
+    reason: str = "",
+    source_link: str = "",
+    *,
+    title: str = "",
+    year: Any = "",
+    media_type=None,
+    tmdb_id: Any = None,
+    poster: str = "",
+    bangumi_id: Any = None,
+) -> None:
+    """写入自动或榜单手动订阅历史记录。"""
+    resolved_title = getattr(mediainfo, "title", None) or title
+    resolved_year = getattr(mediainfo, "year", None) or year or ""
+    resolved_tmdb_id = getattr(mediainfo, "tmdb_id", None) if mediainfo else tmdb_id
+    resolved_type = getattr(mediainfo, "type", None) if mediainfo else media_type
+    if not poster and mediainfo:
+        try:
+            poster = mediainfo.get_poster_image() or ""
+        except Exception:
+            poster = ""
+    media_label = "电影" if resolved_type == MediaType.MOVIE or str(resolved_type).lower() == "movie" else "电视剧"
     subs = storage.read_subscribe_records(plugin)
     record = {
-        "title": mediainfo.title,
-        "year": mediainfo.year or "",
-        "tmdbid": mediainfo.tmdb_id,
-        "poster": mediainfo.get_poster_image(),
-        "media_type": "电影" if mediainfo.type == MediaType.MOVIE else "电视剧",
+        "title": resolved_title,
+        "year": resolved_year,
+        "tmdbid": resolved_tmdb_id,
+        "poster": poster or "",
+        "media_type": media_label,
         "rank_key": rank_key,
         "rank_name": rank_name,
         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -104,11 +145,13 @@ def write_subscribe_record(plugin, mediainfo, rank_key: str = "", rank_name: str
         "reason": reason,
         "link": source_link or "",
     }
+    if bangumi_id not in (None, ""):
+        record["bangumiid"] = bangumi_id
     record_key = (
         str(status or ""),
-        str(mediainfo.tmdb_id or ""),
-        str(mediainfo.title or ""),
-        str(mediainfo.year or ""),
+        str(resolved_tmdb_id or ""),
+        str(resolved_title or ""),
+        str(resolved_year or ""),
         str(rank_key or ""),
     )
     kept = []

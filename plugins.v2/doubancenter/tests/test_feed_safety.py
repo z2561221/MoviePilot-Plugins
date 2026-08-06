@@ -281,6 +281,51 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertTrue(first.startswith("rank_history_custom_"))
         self.assertNotIn("-", first)
 
+    def test_effective_rank_definitions_include_configured_custom_rank(self):
+        plugin = _Plugin()
+        plugin._custom_ranks = [{
+            "key": "custom_highscore",
+            "name": "高分动画",
+            "route": "/anime/feed?tag=top",
+            "media_type": "movie",
+        }]
+
+        ranks = self.feed.get_rank_definitions(plugin)
+
+        self.assertEqual(ranks[-1]["key"], "custom_highscore")
+        self.assertEqual(ranks[-1]["name"], "高分动画")
+        self.assertFalse(ranks[-1]["coming"])
+
+    def test_refresh_rank_data_uses_custom_route_and_writes_rank_snapshot(self):
+        plugin = _Plugin()
+        plugin._rsshub_domain = "https://rsshub.example"
+        plugin._custom_ranks = [{
+            "key": "custom_highscore",
+            "name": "高分动画",
+            "route": "/anime/feed?tag=top&limit=1",
+            "media_type": "movie",
+        }]
+        plugin._rank_configs = {"custom_highscore": {"enabled": True, "count": 5, "vote": 8, "year": 2020}}
+        captured = []
+
+        def fetch(_plugin, url):
+            captured.append(url)
+            return [{"title": "测试动画", "link": "https://douban.example/subject/1", "mtype": "", "year": "2026"}]
+
+        self.feed._fetch_rss = fetch
+        self.feed._apply_display_recognition = lambda *args, **kwargs: None
+        self.feed.time.sleep = lambda *_args, **_kwargs: None
+
+        result = self.feed.refresh_rank_data(plugin, rank_keys=["custom_highscore"])
+        history = self.feed.storage.read_rank_history(plugin, "custom_highscore")
+
+        self.assertEqual(captured, ["https://rsshub.example/anime/feed?tag=top&limit=5"])
+        self.assertIn("custom_highscore", result)
+        self.assertEqual(history[0]["rank_key"], "custom_highscore")
+        self.assertEqual(history[0]["rank_name"], "高分动画")
+        self.assertEqual(history[0]["media_type"], "unknown")
+        self.assertTrue(history[0]["rank_refreshed_at"])
+
     def test_migration_normalizes_legacy_subscribe_usernames(self):
         migration = _import_migration()
 
@@ -351,6 +396,188 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertEqual(items[0]["category"], "2026 / 英国 / 剧情 惊悚")
         self.assertEqual(items[0]["regions"], ["英国"])
         self.assertEqual(items[0]["genres"], ["剧情", "惊悚"])
+
+    def test_fetch_rss_keeps_channel_source_link_for_empty_item_link(self):
+        rss = """<?xml version="1.0"?>
+<rss><channel><title>豆瓣榜单</title><link>https://m.douban.com/subject_collection/tv_domestic</link><item><title>天才，女友</title><link/><description>2026 / 中国大陆</description></item></channel></rss>"""
+
+        class RequestUtils:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def get_res(self, addr):
+                return types.SimpleNamespace(text=rss)
+
+        def tag_value(item, tag, default=""):
+            nodes = item.getElementsByTagName(tag)
+            if not nodes or not nodes[0].firstChild:
+                return default
+            return nodes[0].firstChild.nodeValue
+
+        plugin = _Plugin()
+        plugin._proxy = False
+        self.feed.RequestUtils = RequestUtils
+        self.feed.DomUtils.tag_value = staticmethod(tag_value)
+
+        items = self.feed._fetch_rss(plugin, "https://rsshub.example/douban/list/tv_domestic")
+
+        self.assertEqual(items[0]["link"], "")
+        self.assertEqual(items[0]["source_link"], "https://m.douban.com/subject_collection/tv_domestic")
+
+    def test_fetch_rss_enriches_empty_links_from_rexxar_and_writes_distinct_history_ids(self):
+        rss_xml = """<?xml version="1.0"?>
+<rss><channel><link>https://m.douban.com/subject_collection/tv_domestic</link>
+<item><title>条目甲</title><link/><description>2026 / 中国大陆</description></item>
+<item><title>条目乙</title><link/><description>2026 / 中国大陆</description></item>
+</channel></rss>"""
+        rexxar_items = {
+            "subject_collection_items": [
+                {"id": "101", "title": "条目甲", "uri": "douban://douban.com/tv/101"},
+                {"id": "202", "title": "条目乙", "uri": "douban://douban.com/tv/202"},
+            ]
+        }
+
+        class Response:
+            status_code = 200
+
+            def __init__(self, text="", payload=None):
+                self.text = text
+                self.payload = payload
+
+            def json(self):
+                return self.payload
+
+        class RequestUtils:
+            calls = []
+
+            def __init__(self, headers=None, proxies=None):
+                self.headers = headers or {}
+                self.proxies = proxies
+
+            def get_res(self, addr):
+                self.calls.append((addr, self.headers, self.proxies))
+                if "rexxar/api" in addr:
+                    return Response(payload=rexxar_items)
+                return Response(text=rss_xml)
+
+        def tag_value(item, tag, default=""):
+            nodes = item.getElementsByTagName(tag)
+            if not nodes or not nodes[0].firstChild:
+                return default
+            return nodes[0].firstChild.nodeValue
+
+        plugin = _Plugin()
+        plugin._proxy = False
+        self.feed.RequestUtils = RequestUtils
+        self.feed.DomUtils.tag_value = staticmethod(tag_value)
+
+        items = self.feed._fetch_rss(plugin, "https://rsshub.example/douban/list/tv_domestic")
+        self.assertEqual([item["doubanid"] for item in items], ["101", "202"])
+        self.assertEqual(len(RequestUtils.calls), 2)
+        self.assertIn("Referer", RequestUtils.calls[1][1])
+        self.assertIn("count=2", RequestUtils.calls[1][0])
+
+        self.feed._apply_display_recognition = lambda *args, **kwargs: None
+        history = self.feed._merge_rank_items(
+            plugin,
+            "custom_tv",
+            items,
+            {"key": "custom_tv", "name": "自定义榜单", "route": "/douban/list/tv_domestic"},
+        )
+        self.assertEqual([entry["douban_id"] for entry in history], ["101", "202"])
+        self.assertEqual(len({entry["douban_id"] for entry in history}), 2)
+
+    def test_fetch_rss_does_not_bind_rexxar_ids_when_order_or_title_mismatch(self):
+        rss_xml = """<?xml version="1.0"?>
+<rss><channel><link>https://m.douban.com/subject_collection/tv_domestic</link>
+<item><title>条目甲</title><link/><description>2026</description></item>
+<item><title>条目乙</title><link/><description>2026</description></item>
+</channel></rss>"""
+        rexxar_items = {
+            "subject_collection_items": [
+                {"id": "202", "title": "条目乙", "uri": "douban://douban.com/tv/202"},
+                {"id": "101", "title": "条目甲", "uri": "douban://douban.com/tv/101"},
+            ]
+        }
+
+        class Response:
+            status_code = 200
+
+            def __init__(self, text="", payload=None):
+                self.text = text
+                self.payload = payload
+
+            def json(self):
+                return self.payload
+
+        class RequestUtils:
+            def __init__(self, headers=None, proxies=None):
+                pass
+
+            def get_res(self, addr):
+                if "rexxar/api" in addr:
+                    return Response(payload=rexxar_items)
+                return Response(text=rss_xml)
+
+        def tag_value(item, tag, default=""):
+            nodes = item.getElementsByTagName(tag)
+            if not nodes or not nodes[0].firstChild:
+                return default
+            return nodes[0].firstChild.nodeValue
+
+        plugin = _Plugin()
+        plugin._proxy = False
+        self.feed.RequestUtils = RequestUtils
+        self.feed.DomUtils.tag_value = staticmethod(tag_value)
+        items = self.feed._fetch_rss(plugin, "https://rsshub.example/douban/list/tv_domestic")
+
+        self.assertEqual([item.get("doubanid") for item in items], [None, None])
+
+    def test_fetch_rss_does_not_bind_duplicate_rexxar_titles(self):
+        rss_xml = """<?xml version="1.0"?>
+<rss><channel><link>https://m.douban.com/subject_collection/tv_domestic</link>
+<item><title>重复标题</title><link/><description>2026</description></item>
+<item><title>重复标题</title><link/><description>2026</description></item>
+</channel></rss>"""
+        rexxar_items = {
+            "subject_collection_items": [
+                {"id": "101", "title": "重复标题"},
+                {"id": "202", "title": "重复标题"},
+            ]
+        }
+
+        class Response:
+            status_code = 200
+
+            def __init__(self, text="", payload=None):
+                self.text = text
+                self.payload = payload
+
+            def json(self):
+                return self.payload
+
+        class RequestUtils:
+            def __init__(self, headers=None, proxies=None):
+                pass
+
+            def get_res(self, addr):
+                if "rexxar/api" in addr:
+                    return Response(payload=rexxar_items)
+                return Response(text=rss_xml)
+
+        def tag_value(item, tag, default=""):
+            nodes = item.getElementsByTagName(tag)
+            if not nodes or not nodes[0].firstChild:
+                return default
+            return nodes[0].firstChild.nodeValue
+
+        plugin = _Plugin()
+        plugin._proxy = False
+        self.feed.RequestUtils = RequestUtils
+        self.feed.DomUtils.tag_value = staticmethod(tag_value)
+        items = self.feed._fetch_rss(plugin, "https://rsshub.example/douban/list/tv_domestic")
+
+        self.assertEqual([item.get("doubanid") for item in items], [None, None])
 
     def test_record_history_item_replaces_observe_placeholder(self):
         history = [{"unique": "rank:1", "title": "旧标题", "time": "2026-01-01 00:00:00", "observing": True}]
@@ -735,7 +962,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
-    def test_subscribe_to_ranks_skips_enabled_rank_when_count_is_zero(self):
+    def test_subscribe_to_ranks_fetches_unlimited_candidates_when_count_is_zero(self):
         plugin = _Plugin()
         plugin._rsshub_domain = "https://rsshub.example"
         plugin._rank_configs = {"tv_global": {"enabled": True, "count": 0}}
@@ -747,7 +974,10 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         finally:
             self.feed._fetch_rss = original_fetch
 
-        self.assertEqual(calls, [])
+        self.assertEqual(
+            calls,
+            ["https://rsshub.example/douban/list/tv_global_best_weekly?limit=50"],
+        )
 
     def test_run_once_uses_single_recognized_snapshot_for_subscription_window(self):
         plugin = _Plugin()
@@ -1046,6 +1276,30 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertEqual(plugin.data["coming_history"], [])
 
+    def test_process_coming_does_not_require_air_date_when_window_is_unlimited(self):
+        """即将上映未配置上映窗口时，不应因 TMDB 缺少日期而跳过。"""
+        plugin = _Plugin()
+        plugin._anti_cheat_enabled = False
+        plugin._observe_days = 0
+        plugin._rank_configs = {"coming": {"wish_count": 0, "air_days": 0}}
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
+        )
+        self.feed._fetch_coming_rss = lambda self_obj, url: [
+            {"title": "无日期剧集", "link": "https://example.com/no-date", "year": "2026", "wish_count": 0}
+        ]
+        self.feed.utils.get_tmdb_air_date = lambda *args, **kwargs: None
+        calls = []
+        self.feed._add_sub = lambda *args, **kwargs: calls.append(kwargs) or True
+
+        self.feed._process_coming(
+            plugin,
+            "https://rsshub.example/douban/tv/coming?limit=1",
+            {"key": "coming", "name": "即将上映", "route": "/douban/tv/coming"},
+        )
+
+        self.assertEqual(len(calls), 1)
+
     def test_process_coming_ignores_legacy_region_and_genre_filters(self):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = False
@@ -1323,6 +1577,23 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         self.assertEqual(history[0]["media_type"], "movie")
         self.assertEqual(history[0]["year"], "2026")
+
+    def test_merge_rank_items_keeps_source_link_and_route_for_douban_rank(self):
+        plugin = _Plugin()
+        plugin.chain = types.SimpleNamespace(
+            recognize_media=lambda meta, mtype: _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
+        )
+        rank = {"key": "custom_domestic", "name": "近期热门", "route": "/douban/list/tv_domestic"}
+
+        history = self.feed._merge_rank_items(
+            plugin,
+            "custom_domestic",
+            [{"title": "天才，女友", "link": "", "source_link": "https://m.douban.com/subject_collection/tv_domestic", "mtype": "tv", "year": "2026"}],
+            rank,
+        )
+
+        self.assertEqual(history[0]["source_link"], "https://m.douban.com/subject_collection/tv_domestic")
+        self.assertEqual(history[0]["rank_route"], "/douban/list/tv_domestic")
 
     def test_merge_bangumi_rank_items_stores_recognized_chinese_title(self):
         plugin = _Plugin()
@@ -1718,9 +1989,13 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
 
         css = (remote_entry.parent / match.group(1)).read_text(encoding="utf-8")
 
-        self.assertIn("grid-template-columns: 28px 110px", css)
-        self.assertIn("width: 110px", css)
-        self.assertIn("max-width: 118px", css)
+        self.assertIn("display: block", css)
+        self.assertIn("width: 100%", css)
+        self.assertIn("max-width: none", css)
+        self.assertIn(
+            "grid-template-columns: minmax(130px, 1.1fr) minmax(100px, .85fr) minmax(100px, .85fr) minmax(160px, 1.2fr) minmax(100px, .85fr)",
+            css,
+        )
 
     def test_active_frontend_uses_native_subscribe_with_silent_fallback(self):
         for expose_name in ("./Page", "./Dashboard"):
@@ -2110,6 +2385,42 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(plugin.messages, [])
         self.assertNotEqual(captured.get("message"), False)
+
+    def test_dashboard_manual_subscription_records_rank_context(self):
+        dashboard = _import_dashboard()
+        plugin = _Plugin()
+
+        class MediaChain:
+            def recognize_media(self, meta, mtype):
+                return _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=24681)
+
+        class SubscribeChain:
+            def exists(self, mediainfo, meta):
+                return False
+
+            def add(self, **kwargs):
+                return 1, ""
+
+        sys.modules["app.chain.media"].MediaChain = MediaChain
+        sys.modules["app.chain.subscribe"].SubscribeChain = SubscribeChain
+
+        result = dashboard.api_subscribe_from_rank(
+            plugin,
+            None,
+            "movie",
+            "高分动画",
+            "2026",
+            rank_key="custom_highscore",
+            rank_name="高分动画",
+            source_link="https://rsshub.example/anime/1",
+        )
+
+        self.assertTrue(result["success"])
+        record = plugin.data["subscribe_records"][0]
+        self.assertEqual(record["rank_key"], "custom_highscore")
+        self.assertEqual(record["rank_name"], "高分动画")
+        self.assertEqual(record["media_type"], "电影")
+        self.assertEqual(record["link"], "https://rsshub.example/anime/1")
 
     def test_observation_service_records_first_seen(self):
         service = _import_service("observation")

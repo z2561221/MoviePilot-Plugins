@@ -25,8 +25,14 @@ from .service import subscription as subscription_service
 from .storage import records as storage
 
 RANK_HISTORY_LIMIT = 500
+UNLIMITED_RANK_FETCH_LIMIT = 50
 DEFAULT_OBSERVE_RANK_KEYS = rank_model.DEFAULT_OBSERVE_RANK_KEYS
 BUILTIN_RANKS: List[Dict[str, Any]] = rank_model.BUILTIN_RANKS
+
+
+def get_rank_definitions(plugin) -> List[Dict[str, Any]]:
+    """返回当前插件配置下的有效榜单集合。"""
+    return rank_model.effective_ranks(getattr(plugin, "_custom_ranks", []))
 
 
 def _trim_history(history: List[dict], limit: int = RANK_HISTORY_LIMIT) -> List[dict]:
@@ -42,6 +48,39 @@ def _custom_rank_history_key(source: str) -> str:
 def _rank_media_type(rank: dict, item: dict) -> str:
     """根据榜单定义和 RSS 条目推断媒体类型。"""
     return rank_model.infer_media_type(rank, item)
+
+
+def _resolved_media_type_name(rank: dict, item: dict, mediainfo=None) -> str:
+    """综合 RSS 字段、已知路由和媒体识别结果确定类型。"""
+    inferred = _rank_media_type(rank, item)
+    if inferred in ("movie", "tv"):
+        return inferred
+    raw = str(getattr(mediainfo, "type", "") or "").lower()
+    if "movie" in raw or "电影" in raw:
+        return "movie"
+    if "tv" in raw or "电视剧" in raw or "series" in raw:
+        return "tv"
+    return "unknown"
+
+
+def _recognize_rss_item(self, item: dict, rank: dict):
+    """按条目和榜单路由识别 RSS 媒体，未知类型交给识别链自动判断。"""
+    item = item if isinstance(item, dict) else {}
+    rank = rank if isinstance(rank, dict) else {}
+    meta = MetaInfo(str(item.get("title") or ""))
+    if item.get("year"):
+        meta.year = str(item.get("year"))
+    inferred = _rank_media_type(rank, item)
+    if inferred in ("movie", "tv"):
+        meta.type = MediaType.MOVIE if inferred == "movie" else MediaType.TV
+        mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
+    else:
+        try:
+            mediainfo = self.chain.recognize_media(meta=meta)
+        except TypeError:
+            # 兼容旧测试宿主；正式 MP 链路支持省略 mtype 的自动识别。
+            mediainfo = self.chain.recognize_media(meta=meta, mtype=MediaType.TV)
+    return meta, mediainfo, _resolved_media_type_name(rank, item, mediainfo)
 
 
 def _rss_default_media_type(addr: str) -> str:
@@ -87,9 +126,29 @@ def _is_existing_media(mediainfo, meta=None) -> bool:
     return subscription_service.is_existing_media(mediainfo, meta=meta, subscribe_chain_cls=SubscribeChain)
 
 
-def _record_existing_history(history: List[dict], unique: str, title: str = "", year: Any = "", link: str = "", mediainfo=None) -> None:
+def _record_existing_history(
+    history: List[dict],
+    unique: str,
+    title: str = "",
+    year: Any = "",
+    link: str = "",
+    mediainfo=None,
+    rank_key: str = "",
+    rank_name: str = "",
+    media_type: str = "",
+) -> None:
     """记录已存在订阅，避免后续再次进入观察队列。"""
-    subscription_service.record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+    subscription_service.record_existing_history(
+        history,
+        unique,
+        title=title,
+        year=year,
+        link=link,
+        mediainfo=mediainfo,
+        rank_key=rank_key,
+        rank_name=rank_name,
+        media_type=media_type,
+    )
 
 
 def _match_blacklist_line(line: str, haystack: str) -> bool:
@@ -132,6 +191,18 @@ def _blacklist_description(*sources: Any) -> str:
             if text:
                 values.append(text)
     return "\n".join(values)
+
+
+def _normalize_region_values(value: Any) -> List[str]:
+    """统一地区字段并兼容最小测试宿主。"""
+    normalizer = getattr(utils, "normalize_region_values", None)
+    if callable(normalizer):
+        return normalizer(value)
+    if isinstance(value, str):
+        return [part for part in re.split(r"[\s、,，/|；;]+", value) if part]
+    if isinstance(value, (list, tuple, set)):
+        return [str(part).strip() for part in value if str(part).strip()]
+    return []
 
 
 def _check_blacklist(self, title: str, description: str = "", link: str = "") -> bool:
@@ -240,10 +311,17 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
     year = item.get("year")
     if year:
         meta.year = str(year)
-    media_type = MediaType.TV if rank_key == "coming" else (MediaType.MOVIE if _rank_media_type(rd, item) == "movie" else MediaType.TV)
+    inferred_type = "tv" if rank_key == "coming" else _rank_media_type(rd, item)
+    media_type = MediaType.MOVIE if inferred_type == "movie" else MediaType.TV
     meta.type = media_type
     try:
-        mediainfo = self.chain.recognize_media(meta=meta, mtype=media_type)
+        if inferred_type == "unknown":
+            try:
+                mediainfo = self.chain.recognize_media(meta=meta)
+            except TypeError:
+                mediainfo = self.chain.recognize_media(meta=meta, mtype=media_type)
+        else:
+            mediainfo = self.chain.recognize_media(meta=meta, mtype=media_type)
     except Exception as err:
         logger.warning(f"豆瓣中心：刷新榜单条目《{title}》识别失败：{err}")
         return None
@@ -254,7 +332,8 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
         entry["original_title"] = title
     entry["title"] = cn_title
     entry["year"] = getattr(mediainfo, "year", None) or entry.get("year") or ""
-    entry["media_type"] = "movie" if media_type == MediaType.MOVIE else "tv"
+    resolved_type = _resolved_media_type_name(rd, item, mediainfo)
+    entry["media_type"] = "movie" if resolved_type == "movie" else ("tv" if resolved_type == "tv" else "unknown")
     entry["tmdbid"] = getattr(mediainfo, "tmdb_id", None) or entry.get("tmdbid")
     if getattr(mediainfo, "bangumi_id", None):
         entry["bangumi_id"] = getattr(mediainfo, "bangumi_id", None)
@@ -263,6 +342,13 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
         entry["poster"] = mediainfo.get_poster_image() or entry.get("poster")
     except Exception:
         pass
+    if not entry.get("regions"):
+        for key in ("regions", "countries", "origin_country", "production_countries", "country"):
+            values = _normalize_region_values(getattr(mediainfo, key, None))
+            if values:
+                entry["regions"] = values
+                entry["region_source"] = "mediainfo"
+                break
     return mediainfo
 
 
@@ -388,7 +474,7 @@ def _has_subscription_safety_filter(self) -> bool:
     """判断当前配置是否足以安全执行自动订阅。"""
     return rank_subscription_service.has_safety_filter(
         self._rank_configs,
-        BUILTIN_RANKS,
+        get_rank_definitions(self),
         blacklist_keywords=self._blacklist_keywords,
         observe_enabled=_rank_observe_enabled(self),
     )
@@ -403,36 +489,31 @@ def subscribe_to_ranks(self, refresh_when_unsafe: bool = True) -> None:
         return
 
     rsshub = utils.normalize_rss_domain(self._rsshub_domain)
-    for rd in BUILTIN_RANKS:
+    for rd in get_rank_definitions(self):
         key = rd["key"]
         if not _ren(self, key):
             continue
         count = _rcount(self, key)
-        if count <= 0:
-            logger.info(f"豆瓣中心：[{rd['name']}] 自动订阅数量为 0，跳过订阅候选")
-            continue
-        url = f"{rsshub.rstrip('/')}{rd['route']}?limit={count}"
+        fetch_count = count if count > 0 else UNLIMITED_RANK_FETCH_LIMIT
+        url = rss_adapter.build_rsshub_url(rsshub, rd["route"], fetch_count)
         logger.info(f"豆瓣中心：开始处理 [{rd['name']}] {url}")
         if rd["coming"]:
             _process_coming(self, url, rd)
         else:
             _process_general(self, url, rd)
         time.sleep(1)
-    for cu in (getattr(self, "_custom_rss_addrs", []) or []):
-        u = cu.strip()
-        if u:
-            logger.info(f"豆瓣中心：自定义 RSS 已在本轮改造中跳过：{u}")
     logger.info("豆瓣中心：榜单订阅刷新完成")
 
 
 def _subscription_limit_by_rank(self) -> Dict[str, int]:
     """生成运行周期每个启用榜单需要拉取的候选数量。"""
     limits: Dict[str, int] = {}
-    for rd in BUILTIN_RANKS:
+    for rd in get_rank_definitions(self):
         key = rd["key"]
         if not _ren(self, key):
             continue
-        limits[key] = max(5, _rcount(self, key))
+        count = _rcount(self, key)
+        limits[key] = max(5, count) if count > 0 else UNLIMITED_RANK_FETCH_LIMIT
     return limits
 
 
@@ -463,9 +544,32 @@ def _log_rank_skip(rd: dict, title: str, reason: str, result_lines: Optional[Lis
     logger.info(f"豆瓣中心：[{rank_name}] {message}")
 
 
-def _snapshot_media_type(rd: dict, item: dict, entry: dict):
+def _check_rank_region(self, rd: dict, item: dict, entry: dict = None, mediainfo=None, result_lines: Optional[List[str]] = None) -> bool:
+    """执行榜单独立地区条件，未知地区时保守跳过并留下诊断。"""
+    config = _rc(self, rd["key"])
+    matched, reason = rank_subscription_service.region_filter_result(
+        config, item=item, entry=entry, mediainfo=mediainfo
+    )
+    if matched:
+        return True
+    title = str((entry or {}).get("title") or (item or {}).get("title") or "")
+    _log_rank_skip(rd, title, reason, result_lines=result_lines)
+    selected = rank_subscription_service._normalize_regions_for_filter(config.get("regions"))
+    _log_anti_cheat(
+        self,
+        reason,
+        title,
+        detail=f"榜单地区条件：{','.join(selected)}",
+        link=str((entry or {}).get("link") or (item or {}).get("link") or ""),
+    )
+    return False
+
+
+def _snapshot_media_type(rd: dict, item: dict, entry: dict, mediainfo=None):
     """根据快照条目生成 MoviePilot 媒体类型。"""
-    mtype = str((entry or {}).get("media_type") or (item or {}).get("mtype") or _rank_media_type(rd, item)).lower()
+    mtype = _resolved_media_type_name(rd, item, mediainfo)
+    if str((entry or {}).get("media_type") or "").lower() in ("movie", "tv"):
+        mtype = str(entry.get("media_type")).lower()
     return MediaType.MOVIE if mtype == "movie" else MediaType.TV
 
 
@@ -494,16 +598,13 @@ def subscribe_to_rank_snapshots(self, rank_snapshots: Dict[str, dict]) -> None:
         logger.warning("豆瓣中心：未配置有效订阅筛选条件，本轮已刷新榜单展示，跳过自动订阅")
         return
 
-    for rd in BUILTIN_RANKS:
+    for rd in get_rank_definitions(self):
         key = rd["key"]
         if not _ren(self, key):
             continue
         count = _rcount(self, key)
-        if count <= 0:
-            logger.info(f"豆瓣中心：[{rd['name']}] 自动订阅数量为 0，跳过订阅候选")
-            continue
         snapshots = ((rank_snapshots or {}).get(key) or {}).get("items") or []
-        subscribe_items = snapshots[:count]
+        subscribe_items = snapshots if count <= 0 else snapshots[:count]
         description = rank_subscription_service.describe_rank_filter(
             _rc(self, key),
             rd,
@@ -522,18 +623,15 @@ def subscribe_to_rank_snapshots(self, rank_snapshots: Dict[str, dict]) -> None:
             _process_general_snapshots(self, subscribe_items, rd, result_lines=result_lines)
         _emit_rank_subscription_summary(rd, description, result_lines)
         time.sleep(1)
-    for cu in (getattr(self, "_custom_rss_addrs", []) or []):
-        u = cu.strip()
-        if u:
-            logger.info(f"豆瓣中心：自定义 RSS 已在本轮改造中跳过：{u}")
     logger.info("豆瓣中心：榜单订阅刷新完成")
 
 
 def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_lines: Optional[List[str]] = None) -> None:
     """处理即将上映榜单的已识别订阅候选。"""
     cfg = _rc(self, rd["key"])
-    min_wish = int(cfg.get("wish_count", 5000) or 5000)
-    air_days = int(cfg.get("air_days", 7) or 7)
+    min_wish = int(cfg.get("wish_count", 0) or 0)
+    air_days = int(cfg.get("air_days", 0) or 0)
+    min_vote = float(cfg.get("vote", 0) or 0)
     history: List[dict] = storage.read_rank_history(self, rd["key"])
     history_index = _history_index_by_unique(history)
     current_candidates = set()
@@ -557,28 +655,45 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
         if _check_blacklist(self, title, description=blacklist_description, link=link):
             _log_rank_skip(rd, title, "命中黑名单", result_lines=result_lines)
             continue
-        if wish < min_wish:
+        if min_wish > 0 and wish < min_wish:
             _log_rank_skip(rd, title, f"想看 {wish} < {min_wish}", result_lines=result_lines)
             continue
         mediainfo = snapshot.get("mediainfo")
         if not mediainfo:
             _log_rank_skip(rd, title, "TMDB 识别无结果", result_lines=result_lines)
             continue
+        if not _check_rank_region(self, rd, item, entry, mediainfo, result_lines=result_lines):
+            continue
+        vote_average = getattr(mediainfo, "vote_average", None)
+        if min_vote > 0 and vote_average and vote_average < min_vote:
+            _log_rank_skip(rd, title, f"评分 {vote_average} < {min_vote}", result_lines=result_lines)
+            continue
         meta = _snapshot_meta(item, entry, MediaType.TV)
         if _is_existing_media(mediainfo, meta):
             _log_rank_skip(rd, getattr(mediainfo, "title", "") or title, "已存在订阅，跳过观察与订阅", result_lines=result_lines)
-            _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type="tv",
+            )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""), unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
         ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
-        if not ad:
-            _log_rank_skip(rd, title, "未获取到上映日期", result_lines=result_lines)
-            continue
-        if not utils.is_within_days(ad, air_days):
-            _log_rank_skip(rd, title, f"上映日期 {ad} 不在 {air_days} 天内", result_lines=result_lines)
-            continue
+        if air_days > 0:
+            if not ad:
+                _log_rank_skip(rd, title, "未获取到上映日期", result_lines=result_lines)
+                continue
+            if not utils.is_within_days(ad, air_days):
+                _log_rank_skip(rd, title, f"上映日期 {ad} 不在 {air_days} 天内", result_lines=result_lines)
+                continue
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
             _log_rank_skip(rd, title, "观察期规则拦截", result_lines=result_lines)
             continue
@@ -597,6 +712,9 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
                 "unique": unique,
                 "subscribed": True,
                 "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": "tv",
             })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
             if result_lines is not None:
@@ -642,6 +760,8 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         if not mediainfo:
             _log_rank_skip(rd, title, "TMDB 识别无结果", result_lines=result_lines)
             continue
+        if not _check_rank_region(self, rd, item, entry, mediainfo, result_lines=result_lines):
+            continue
         vote_average = getattr(mediainfo, "vote_average", None)
         if min_vote > 0 and vote_average and vote_average < min_vote:
             _log_rank_skip(rd, title, f"评分 {vote_average} < {min_vote}", result_lines=result_lines)
@@ -649,11 +769,22 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         if _year_below_min(getattr(mediainfo, "year", None), min_year):
             _log_rank_skip(rd, title, f"识别年份 {getattr(mediainfo, 'year', '')} < {min_year}", result_lines=result_lines)
             continue
-        media_type = _snapshot_media_type(rd, item, entry)
+        media_type = _snapshot_media_type(rd, item, entry, mediainfo)
+        mtype = _resolved_media_type_name(rd, item, mediainfo)
         meta = _snapshot_meta(item, entry, media_type)
         if _is_existing_media(mediainfo, meta):
             _log_rank_skip(rd, getattr(mediainfo, "title", "") or title, "已存在订阅，跳过观察与订阅", result_lines=result_lines)
-            _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type=mtype,
+            )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""), unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
@@ -675,6 +806,9 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
                 "unique": unique,
                 "subscribed": True,
                 "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": mtype,
             })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
             if result_lines is not None:
@@ -708,8 +842,9 @@ def run_scheduled(self) -> None:
 
 def _process_coming(self, url: str, rd: dict) -> None:
     cfg = _rc(self, rd["key"])
-    min_wish = int(cfg.get("wish_count", 5000) or 5000)
-    air_days = int(cfg.get("air_days", 7) or 7)
+    min_wish = int(cfg.get("wish_count", 0) or 0)
+    air_days = int(cfg.get("air_days", 0) or 0)
+    min_vote = float(cfg.get("vote", 0) or 0)
     items = _fetch_coming_rss(self, url)
     if not items:
         return
@@ -727,7 +862,7 @@ def _process_coming(self, url: str, rd: dict) -> None:
             continue
         if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
             continue
-        if wish < min_wish:
+        if min_wish > 0 and wish < min_wish:
             continue
         meta = MetaInfo(title)
         if year:
@@ -736,15 +871,30 @@ def _process_coming(self, url: str, rd: dict) -> None:
         mediainfo = self.chain.recognize_media(meta=meta, mtype=MediaType.TV)
         if not mediainfo:
             continue
+        if not _check_rank_region(self, rd, item, {}, mediainfo):
+            continue
+        vote_average = getattr(mediainfo, "vote_average", None)
+        if min_vote > 0 and vote_average and vote_average < min_vote:
+            continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
-            _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type="tv",
+            )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
         ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
-        if not ad or not utils.is_within_days(ad, air_days):
+        if air_days > 0 and (not ad or not utils.is_within_days(ad, air_days)):
             continue
         # 观察期：仅对选中的波动榜单延迟订阅。
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
@@ -753,7 +903,22 @@ def _process_coming(self, url: str, rd: dict) -> None:
             # 使用 TMDB 识别后的中文名替换原始标题
             cn_title = mediainfo.title or title
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            _record_history_item(history, {"title": cn_title, "year": year, "wish_count": wish, "air_date": ad, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": subscribed_at, "unique": unique, "subscribed": True, "subscribed_at": subscribed_at})
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": year,
+                "wish_count": wish,
+                "air_date": ad,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": "tv",
+            })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
     _drop_stale_observations(history, current_candidates)
     storage.save_rank_history(self, rd["key"], history)
@@ -782,12 +947,10 @@ def _process_general(self, url: str, rd: dict) -> None:
             continue
         if _year_below_min(year, min_year):
             continue
-        meta = MetaInfo(title)
-        if year:
-            meta.year = str(year)
-        meta.type = MediaType.MOVIE if mtype == "movie" else MediaType.TV
-        mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
+        meta, mediainfo, mtype = _recognize_rss_item(self, item, rd)
         if not mediainfo:
+            continue
+        if not _check_rank_region(self, rd, item, {}, mediainfo):
             continue
         if min_vote > 0 and mediainfo.vote_average and mediainfo.vote_average < min_vote:
             continue
@@ -795,7 +958,17 @@ def _process_general(self, url: str, rd: dict) -> None:
             continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
-            _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type=mtype,
+            )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
@@ -806,14 +979,27 @@ def _process_general(self, url: str, rd: dict) -> None:
         if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
             cn_title = mediainfo.title or title
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            _record_history_item(history, {"title": cn_title, "year": mediainfo.year or year or "", "media_type": mtype, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": subscribed_at, "unique": unique, "subscribed": True, "subscribed_at": subscribed_at})
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": mediainfo.year or year or "",
+                "media_type": mtype,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+            })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
     _drop_stale_observations(history, current_candidates)
     storage.save_rank_history(self, rd["key"], history)
 
 
 def _process_items(self, items: List[dict], source: str) -> None:
-    history: List[dict] = storage.read_custom_rank_history(self, source)
+    history: List[dict] = storage.read_rank_history(self, source)
     history_index = _history_index_by_unique(history)
     for item in items:
         title, link, mtype, year = item.get("title", ""), item.get("link", ""), item.get("mtype", ""), item.get("year")
@@ -824,16 +1010,22 @@ def _process_items(self, items: List[dict], source: str) -> None:
             continue
         if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
             continue
-        meta = MetaInfo(title)
-        if year:
-            meta.year = str(year)
-        meta.type = MediaType.MOVIE if mtype == "movie" else MediaType.TV
-        mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
+        meta, mediainfo, mtype = _recognize_rss_item(self, item, {"key": source})
         if not mediainfo:
             continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
-            _record_existing_history(history, unique, title=title, year=year, link=link, mediainfo=mediainfo)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=source,
+                rank_name=source,
+                media_type=mtype,
+            )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
@@ -844,9 +1036,21 @@ def _process_items(self, items: List[dict], source: str) -> None:
         if _add_sub(self, mediainfo, meta, source_link=link):
             cn_title = mediainfo.title or title
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            _record_history_item(history, {"title": cn_title, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": subscribed_at, "unique": unique, "subscribed": True, "subscribed_at": subscribed_at})
+            _record_history_item(history, {
+                "title": cn_title,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": source,
+                "rank_name": source,
+                "media_type": mtype,
+            })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
-    storage.save_custom_rank_history(self, source, history)
+    storage.save_rank_history(self, source, history)
 
 
 def _write_subscribe_record(self, mediainfo, rank_key: str = "", rank_name: str = "", status: str = "success", reason: str = "", source_link: str = "") -> None:
@@ -880,8 +1084,8 @@ def _fetch_rss(self, addr: str) -> List[dict]:
 
 
 def get_enabled_rank_keys(self) -> List[str]:
-    """返回当前配置中启用的内置榜单 key。"""
-    return [rd["key"] for rd in BUILTIN_RANKS if _ren(self, rd["key"])]
+    """返回当前配置中启用的榜单 key。"""
+    return [rd["key"] for rd in get_rank_definitions(self) if _ren(self, rd["key"])]
 
 
 def get_rank_history_by_key(self, rank_key: str) -> List[dict]:
@@ -910,7 +1114,12 @@ def refresh_rank_data(self, rank_keys=None, limit_by_rank: Optional[Dict[str, in
     snapshots = {}
     try:
         rsshub = utils.normalize_rss_domain(self._rsshub_domain)
-        targets = [rd for rd in BUILTIN_RANKS if (rank_keys is None and _ren(self, rd["key"])) or (rank_keys and rd["key"] in rank_keys)]
+        targets = [
+            rd
+            for rd in get_rank_definitions(self)
+            if (rank_keys is None and _ren(self, rd["key"]))
+            or (rank_keys and rd["key"] in rank_keys)
+        ]
         for rd in targets:
             key = rd["key"]
             # 仪表盘刷新只拉取 5 条；运行周期可按订阅候选数放大拉取窗口。
@@ -920,9 +1129,9 @@ def refresh_rank_data(self, rank_keys=None, limit_by_rank: Optional[Dict[str, in
                     limit = max(5, int(limit_by_rank.get(key) or 0))
                 except (TypeError, ValueError):
                     limit = 5
-            url = f"{rsshub.rstrip('/')}{rd['route']}?limit={limit}"
+            url = rss_adapter.build_rsshub_url(rsshub, rd["route"], limit)
             logger.info(f"豆瓣中心：刷新 RSS [{rd['name']}] {url}")
-            if rd["coming"]:
+            if rd.get("coming"):
                 items = _fetch_coming_rss(self, url)
             else:
                 items = _fetch_rss(self, url)
@@ -971,17 +1180,23 @@ def _merge_rank_items(self, rank_key, items, rd, return_snapshot: bool = False):
                 "year": year or "",
                 "media_type": meta_type,
                 "link": link,
+                "rank_route": rd.get("route", ""),
                 "tmdbid": tmdbid,
                 "poster": poster,
                 "time": refresh_time,
                 "unique": unique,
                 "douban_id": douban_id,
+                "regions": list(item.get("regions") or []),
+                "region_source": item.get("region_source") or "",
                 "rank_index": rank_index,
                 "rank_order": rank_index + 1,
                 "rank_key": rank_key,
                 "rank_name": rd.get("name", ""),
                 "rank_refreshed_at": refresh_time,
             }
+            source_link = item.get("source_link") or ""
+            if source_link:
+                entry["source_link"] = source_link
             mediainfo = None
             if rank_key == "coming":
                 entry.update({"year": year, "wish_count": item.get("wish_count", 0)})
@@ -1050,7 +1265,19 @@ def _refresh_coming(self, url, rd):
             if not mediainfo:
                 continue
             cn_title = mediainfo.title or title
-            _record_history_item(history, {"title": cn_title, "year": year, "wish_count": item.get("wish_count", 0), "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "unique": unique})
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": year,
+                "wish_count": item.get("wish_count", 0),
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "unique": unique,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": "tv",
+            })
             uh.add(unique)
             new_count += 1
         except Exception as e:
@@ -1077,15 +1304,22 @@ def _refresh_general(self, url, rd):
             unique = f"dc2_rank:{link or title}"
             if unique in uh:
                 continue
-            meta = MetaInfo(title)
-            if year:
-                meta.year = str(year)
-            meta.type = MediaType.MOVIE if mtype == "movie" else MediaType.TV
-            mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
+            meta, mediainfo, mtype = _recognize_rss_item(self, item, rd)
             if not mediainfo:
                 continue
             cn_title = mediainfo.title or title
-            _record_history_item(history, {"title": cn_title, "link": link, "tmdbid": mediainfo.tmdb_id, "poster": mediainfo.get_poster_image(), "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "unique": unique})
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": mediainfo.year or year or "",
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "unique": unique,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": mtype,
+            })
             uh.add(unique)
             new_count += 1
         except Exception as e:

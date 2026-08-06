@@ -14,11 +14,15 @@ def _load_service():
     service_package.__path__ = [str(PLUGIN_DIR / "service")]
     model_package = type(sys)("doubancenter.model")
     model_package.__path__ = [str(PLUGIN_DIR / "model")]
+    utils_module = type(sys)("doubancenter.utils")
+    utils_module.normalize_region_values = lambda value: [str(item).strip() for item in (([value] if isinstance(value, str) else value) or []) if str(item).strip()]
+    utils_module.parse_regions_from_description = lambda value: [region for region in ("中国大陆", "日本", "美国", "英国") if region in str(value or "")]
     sys.modules.update(
         {
             "doubancenter": package,
             "doubancenter.service": service_package,
             "doubancenter.model": model_package,
+            "doubancenter.utils": utils_module,
         }
     )
 
@@ -124,6 +128,19 @@ class RankSubscriptionServiceTest(unittest.TestCase):
             )
         )
         self.assertFalse(rank_subscription.has_safety_filter({}, ranks))
+
+    def test_region_filter_is_or_and_unknown_is_conservative(self):
+        config = {"regions": ["日本", "美国"]}
+        self.assertEqual(rank_subscription.region_filter_result(config, {"regions": ["美国"]}), (True, ""))
+        self.assertEqual(rank_subscription.region_filter_result(config, {"regions": ["英国"]}), (False, "地区不匹配：英国"))
+        self.assertEqual(rank_subscription.region_filter_result(config, {"title": "未知"}), (False, "地区未知"))
+
+    def test_region_filter_description_fallback_and_empty_regions(self):
+        self.assertEqual(
+            rank_subscription.region_filter_result({"regions": ["中国大陆"]}, {"description": "2026 / 中国大陆 / 剧情"}),
+            (True, ""),
+        )
+        self.assertEqual(rank_subscription.region_filter_result({"regions": []}, {"title": "任意"}), (True, ""))
 
 
 if __name__ == "__main__":
