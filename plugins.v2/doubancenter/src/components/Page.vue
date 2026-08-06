@@ -433,7 +433,7 @@ onMounted(loadAll)
 <template>
   <VCard flat class="dc-page" :class="{ 'dc-page--app': props.appPage }">
     <VToolbar density="comfortable" class="dc-page-toolbar">
-      <VAvatar color="primary" variant="tonal" rounded="lg" class="ms-3 me-2 dc-page-avatar"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
+      <VAvatar color="primary" variant="tonal" rounded="lg" class="ms-3 me-2 dc-page-avatar" style="display: flex !important; width: 32px; height: 32px; min-width: 32px;"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
       <div class="dc-page-heading">
         <div class="text-h6">{{ archivePage ? '豆瓣中心 · 归档记录' : '豆瓣中心 · 运行详情' }}</div>
         <div class="text-caption text-medium-emphasis">{{ archivePage ? '删除进入归档，支持恢复或彻底删除' : '榜单刷新 -> 黑名筛选 -> 观察队列 -> 订阅记录' }}</div>

@@ -594,7 +594,8 @@ return (_ctx, _cache) => {
             color: "primary",
             variant: "tonal",
             rounded: "lg",
-            class: "ms-3 me-2 dc-page-avatar"
+            class: "ms-3 me-2 dc-page-avatar",
+            style: {"display":"flex !important","width":"32px","height":"32px","min-width":"32px"}
           }, {
             default: _withCtx(() => [
               _createVNode(_component_VIcon, { icon: "mdi-book-open-page-variant-outline" })
@@ -1363,6 +1364,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5e63e9e8"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-adca7c67"]]);
 
 export { Page as default };
