@@ -217,6 +217,8 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertNotIn("数据源", text)
         self.assertIn("function requestRemoveCustomRank", text)
         self.assertIn("class=\"dc-delete-rank\"", text)
+        self.assertIn('<VIcon icon="mdi-delete-outline" size="20" />', text)
+        self.assertNotIn('icon="mdi-delete-outline" variant="flat"', text)
         self.assertNotIn("customMediaTypes", text)
         self.assertNotIn("v-model=\"rd.media_type\"", text)
         self.assertIn("delete m.rank_configs[rd.key].media_type", text)

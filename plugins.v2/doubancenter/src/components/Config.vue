@@ -406,7 +406,8 @@ onMounted(loadOverview)
                       </div>
                     </div>
                     <div class="dc-rank-actions">
-                      <VBtn v-if="rd.custom" icon="mdi-delete-outline" variant="flat" color="error" class="dc-delete-rank" :aria-label="`删除${rd.name || '自定义榜单'}`" @click.stop="requestRemoveCustomRank(rd)">
+                      <VBtn v-if="rd.custom" icon variant="flat" color="error" class="dc-delete-rank" :aria-label="`删除${rd.name || '自定义榜单'}`" @click.stop="requestRemoveCustomRank(rd)">
+                        <VIcon icon="mdi-delete-outline" size="20" />
                         <VTooltip activator="parent" location="top">删除自定义榜单</VTooltip>
                       </VBtn>
                     </div>

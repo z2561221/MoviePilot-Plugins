@@ -833,7 +833,7 @@ return (_ctx, _cache) => {
                           (rd.custom)
                             ? (_openBlock(), _createBlock(_component_VBtn, {
                                 key: 0,
-                                icon: "mdi-delete-outline",
+                                icon: "",
                                 variant: "flat",
                                 color: "error",
                                 class: "dc-delete-rank",
@@ -841,6 +841,10 @@ return (_ctx, _cache) => {
                                 onClick: _withModifiers($event => (requestRemoveCustomRank(rd)), ["stop"])
                               }, {
                                 default: _withCtx(() => [
+                                  _createVNode(_component_VIcon, {
+                                    icon: "mdi-delete-outline",
+                                    size: "20"
+                                  }),
                                   _createVNode(_component_VTooltip, {
                                     activator: "parent",
                                     location: "top"
@@ -1508,6 +1512,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5a52ee2a"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2b3b9352"]]);
 
 export { Config as default };
