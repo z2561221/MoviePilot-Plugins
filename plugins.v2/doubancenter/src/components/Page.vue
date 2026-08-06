@@ -705,7 +705,7 @@ onMounted(loadAll)
 }
 @media (max-width: 760px) {
   .dc-page-toolbar { min-height: 56px; padding-inline: 4px; }
-  .dc-page-avatar { display: none !important; }
+  .dc-page-avatar { display: flex !important; flex: 0 0 32px; width: 32px !important; height: 32px !important; min-width: 32px; margin-inline: 4px !important; }
   .dc-page-heading { flex: 1 1 auto; max-width: none; }
   .dc-page-heading .text-h6 { font-size: 15px !important; }
   .dc-page-heading .text-caption { display: none; }

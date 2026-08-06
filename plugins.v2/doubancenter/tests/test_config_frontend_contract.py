@@ -643,7 +643,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn(".dc-page-toolbar-actions", page_text)
         self.assertIn(".dc-toolbar-action", page_text)
         self.assertIn(".dc-toolbar-label", page_text)
-        self.assertIn(".dc-page-avatar { display: none !important; }", page_text)
+        self.assertIn(".dc-page-avatar { display: flex !important; flex: 0 0 32px; width: 32px !important; height: 32px !important; min-width: 32px; margin-inline: 4px !important; }", page_text)
         self.assertIn(".dc-toolbar-label { display: none; }", page_text)
         self.assertIn(".dc-section--logs { grid-column: 1 / -1; }", page_text)
         self.assertIn("flex: 0 0 calc((100% - 8px) / 2)", page_text)
