@@ -305,6 +305,39 @@ class FolioWishQueueProcessTest(unittest.TestCase):
         ]
         return plugin
 
+    def test_default_recognizer_uses_full_recognition_chain(self):
+        """默认想看识别复用系统完整识别链并保留年份。"""
+        calls = []
+
+        class _MetaInfo:
+            """记录默认识别器构造的媒体元数据。"""
+
+            def __init__(self, title):
+                """保存标题并初始化年份。"""
+                self.title = title
+                self.year = None
+
+        class _MediaChain:
+            """模拟只暴露完整标题识别入口的媒体链。"""
+
+            def recognize_by_meta(self, meta):
+                """记录识别元数据并返回成功结果。"""
+                calls.append(meta)
+                return types.SimpleNamespace(title=meta.title, year=meta.year, tmdb_id=1541125)
+
+        original_meta = folio.MetaInfo
+        original_chain = folio.MediaChain
+        folio.MetaInfo = _MetaInfo
+        folio.MediaChain = _MediaChain
+        try:
+            result = folio._default_wish_recognize(_MemoryPlugin())("年会不能停！2", "2026")
+        finally:
+            folio.MetaInfo = original_meta
+            folio.MediaChain = original_chain
+
+        self.assertEqual(result.tmdb_id, 1541125)
+        self.assertEqual([(meta.title, meta.year) for meta in calls], [("年会不能停！2", "2026")])
+
     def test_process_queue_subscribes_and_writes_rank_key(self):
         """\u5904\u7406\u961f\u5217\u4f1a\u521b\u5efa\u8ba2\u9605\u5e76\u5199\u5165 rank_key=douban_wish\u3002"""
         plugin = self._plugin_with_queue()

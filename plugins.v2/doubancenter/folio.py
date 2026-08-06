@@ -133,7 +133,7 @@ def _default_wish_recognize(self):
         meta = MetaInfo(title)
         if year:
             meta.year = str(year)
-        return MediaChain().recognize_media(meta=meta, cache=True)
+        return MediaChain().recognize_by_meta(meta)
     return recognize
 
 
