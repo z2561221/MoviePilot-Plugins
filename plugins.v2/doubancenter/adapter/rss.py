@@ -41,7 +41,9 @@ def default_media_type(addr: str) -> str:
     text = str(addr or "").lower()
     if "movie_" in text or "/movie" in text:
         return "movie"
-    return "tv"
+    if "/douban/tv" in text or "/tv_" in text or "/tv/" in text or "bangumi" in text:
+        return "tv"
+    return "unknown"
 
 
 def build_rsshub_url(domain: str, route: str, limit: int = 5) -> str:
@@ -202,6 +204,11 @@ def fetch_coming(plugin, addr: str) -> List[dict]:
             if not title and not link:
                 continue
             regions, genres = utils.parse_regions_and_genres(cat)
+            region_source = "category" if regions else ""
+            if not regions:
+                parser = getattr(utils, "parse_regions_from_description", None)
+                regions = parser(desc) if callable(parser) else []
+                region_source = "description" if regions else ""
             result.append(
                 {
                     "title": title,
@@ -212,6 +219,7 @@ def fetch_coming(plugin, addr: str) -> List[dict]:
                     "wish_count": utils.parse_wish_count(desc),
                     "year": utils.parse_year(cat),
                     "regions": regions,
+                    "region_source": region_source,
                     "genres": genres,
                 }
             )
@@ -253,6 +261,11 @@ def fetch_rank(plugin, addr: str) -> List[dict]:
                 if match:
                     year = match.group(0)
             regions, genres = utils.parse_regions_and_genres(cat)
+            region_source = "category" if regions else ""
+            if not regions:
+                parser = getattr(utils, "parse_regions_from_description", None)
+                regions = parser(desc) if callable(parser) else []
+                region_source = "description" if regions else ""
             result.append(
                 {
                     "title": title,
@@ -264,6 +277,7 @@ def fetch_rank(plugin, addr: str) -> List[dict]:
                     "doubanid": doubanid,
                     "year": year,
                     "regions": regions,
+                    "region_source": region_source,
                     "genres": genres,
                 }
             )

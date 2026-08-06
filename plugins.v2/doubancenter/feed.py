@@ -49,6 +49,39 @@ def _rank_media_type(rank: dict, item: dict) -> str:
     return rank_model.infer_media_type(rank, item)
 
 
+def _resolved_media_type_name(rank: dict, item: dict, mediainfo=None) -> str:
+    """综合 RSS 字段、已知路由和媒体识别结果确定类型。"""
+    inferred = _rank_media_type(rank, item)
+    if inferred in ("movie", "tv"):
+        return inferred
+    raw = str(getattr(mediainfo, "type", "") or "").lower()
+    if "movie" in raw or "电影" in raw:
+        return "movie"
+    if "tv" in raw or "电视剧" in raw or "series" in raw:
+        return "tv"
+    return "unknown"
+
+
+def _recognize_rss_item(self, item: dict, rank: dict):
+    """按条目和榜单路由识别 RSS 媒体，未知类型交给识别链自动判断。"""
+    item = item if isinstance(item, dict) else {}
+    rank = rank if isinstance(rank, dict) else {}
+    meta = MetaInfo(str(item.get("title") or ""))
+    if item.get("year"):
+        meta.year = str(item.get("year"))
+    inferred = _rank_media_type(rank, item)
+    if inferred in ("movie", "tv"):
+        meta.type = MediaType.MOVIE if inferred == "movie" else MediaType.TV
+        mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
+    else:
+        try:
+            mediainfo = self.chain.recognize_media(meta=meta)
+        except TypeError:
+            # 兼容旧测试宿主；正式 MP 链路支持省略 mtype 的自动识别。
+            mediainfo = self.chain.recognize_media(meta=meta, mtype=MediaType.TV)
+    return meta, mediainfo, _resolved_media_type_name(rank, item, mediainfo)
+
+
 def _rss_default_media_type(addr: str) -> str:
     """根据 RSS 地址推断默认媒体类型。"""
     return rss_adapter.default_media_type(addr)
@@ -159,6 +192,18 @@ def _blacklist_description(*sources: Any) -> str:
     return "\n".join(values)
 
 
+def _normalize_region_values(value: Any) -> List[str]:
+    """统一地区字段并兼容最小测试宿主。"""
+    normalizer = getattr(utils, "normalize_region_values", None)
+    if callable(normalizer):
+        return normalizer(value)
+    if isinstance(value, str):
+        return [part for part in re.split(r"[\s、,，/|；;]+", value) if part]
+    if isinstance(value, (list, tuple, set)):
+        return [str(part).strip() for part in value if str(part).strip()]
+    return []
+
+
 def _check_blacklist(self, title: str, description: str = "", link: str = "") -> bool:
     """标题或 RSS 文本字段匹配黑名单关键词时返回 True。"""
     kw = (self._blacklist_keywords or "").strip()
@@ -265,10 +310,17 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
     year = item.get("year")
     if year:
         meta.year = str(year)
-    media_type = MediaType.TV if rank_key == "coming" else (MediaType.MOVIE if _rank_media_type(rd, item) == "movie" else MediaType.TV)
+    inferred_type = "tv" if rank_key == "coming" else _rank_media_type(rd, item)
+    media_type = MediaType.MOVIE if inferred_type == "movie" else MediaType.TV
     meta.type = media_type
     try:
-        mediainfo = self.chain.recognize_media(meta=meta, mtype=media_type)
+        if inferred_type == "unknown":
+            try:
+                mediainfo = self.chain.recognize_media(meta=meta)
+            except TypeError:
+                mediainfo = self.chain.recognize_media(meta=meta, mtype=media_type)
+        else:
+            mediainfo = self.chain.recognize_media(meta=meta, mtype=media_type)
     except Exception as err:
         logger.warning(f"豆瓣中心：刷新榜单条目《{title}》识别失败：{err}")
         return None
@@ -279,7 +331,8 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
         entry["original_title"] = title
     entry["title"] = cn_title
     entry["year"] = getattr(mediainfo, "year", None) or entry.get("year") or ""
-    entry["media_type"] = "movie" if media_type == MediaType.MOVIE else "tv"
+    resolved_type = _resolved_media_type_name(rd, item, mediainfo)
+    entry["media_type"] = "movie" if resolved_type == "movie" else ("tv" if resolved_type == "tv" else "unknown")
     entry["tmdbid"] = getattr(mediainfo, "tmdb_id", None) or entry.get("tmdbid")
     if getattr(mediainfo, "bangumi_id", None):
         entry["bangumi_id"] = getattr(mediainfo, "bangumi_id", None)
@@ -288,6 +341,13 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
         entry["poster"] = mediainfo.get_poster_image() or entry.get("poster")
     except Exception:
         pass
+    if not entry.get("regions"):
+        for key in ("regions", "countries", "origin_country", "production_countries", "country"):
+            values = _normalize_region_values(getattr(mediainfo, key, None))
+            if values:
+                entry["regions"] = values
+                entry["region_source"] = "mediainfo"
+                break
     return mediainfo
 
 
@@ -484,9 +544,32 @@ def _log_rank_skip(rd: dict, title: str, reason: str, result_lines: Optional[Lis
     logger.info(f"豆瓣中心：[{rank_name}] {message}")
 
 
-def _snapshot_media_type(rd: dict, item: dict, entry: dict):
+def _check_rank_region(self, rd: dict, item: dict, entry: dict = None, mediainfo=None, result_lines: Optional[List[str]] = None) -> bool:
+    """执行榜单独立地区条件，未知地区时保守跳过并留下诊断。"""
+    config = _rc(self, rd["key"])
+    matched, reason = rank_subscription_service.region_filter_result(
+        config, item=item, entry=entry, mediainfo=mediainfo
+    )
+    if matched:
+        return True
+    title = str((entry or {}).get("title") or (item or {}).get("title") or "")
+    _log_rank_skip(rd, title, reason, result_lines=result_lines)
+    selected = rank_subscription_service._normalize_regions_for_filter(config.get("regions"))
+    _log_anti_cheat(
+        self,
+        reason,
+        title,
+        detail=f"榜单地区条件：{','.join(selected)}",
+        link=str((entry or {}).get("link") or (item or {}).get("link") or ""),
+    )
+    return False
+
+
+def _snapshot_media_type(rd: dict, item: dict, entry: dict, mediainfo=None):
     """根据快照条目生成 MoviePilot 媒体类型。"""
-    mtype = str((entry or {}).get("media_type") or (item or {}).get("mtype") or _rank_media_type(rd, item)).lower()
+    mtype = _resolved_media_type_name(rd, item, mediainfo)
+    if str((entry or {}).get("media_type") or "").lower() in ("movie", "tv"):
+        mtype = str(entry.get("media_type")).lower()
     return MediaType.MOVIE if mtype == "movie" else MediaType.TV
 
 
@@ -581,6 +664,8 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
         if not mediainfo:
             _log_rank_skip(rd, title, "TMDB 识别无结果", result_lines=result_lines)
             continue
+        if not _check_rank_region(self, rd, item, entry, mediainfo, result_lines=result_lines):
+            continue
         meta = _snapshot_meta(item, entry, MediaType.TV)
         if _is_existing_media(mediainfo, meta):
             _log_rank_skip(rd, getattr(mediainfo, "title", "") or title, "已存在订阅，跳过观察与订阅", result_lines=result_lines)
@@ -672,6 +757,8 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         if not mediainfo:
             _log_rank_skip(rd, title, "TMDB 识别无结果", result_lines=result_lines)
             continue
+        if not _check_rank_region(self, rd, item, entry, mediainfo, result_lines=result_lines):
+            continue
         vote_average = getattr(mediainfo, "vote_average", None)
         if min_vote > 0 and vote_average and vote_average < min_vote:
             _log_rank_skip(rd, title, f"评分 {vote_average} < {min_vote}", result_lines=result_lines)
@@ -679,7 +766,8 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         if _year_below_min(getattr(mediainfo, "year", None), min_year):
             _log_rank_skip(rd, title, f"识别年份 {getattr(mediainfo, 'year', '')} < {min_year}", result_lines=result_lines)
             continue
-        media_type = _snapshot_media_type(rd, item, entry)
+        media_type = _snapshot_media_type(rd, item, entry, mediainfo)
+        mtype = _resolved_media_type_name(rd, item, mediainfo)
         meta = _snapshot_meta(item, entry, media_type)
         if _is_existing_media(mediainfo, meta):
             _log_rank_skip(rd, getattr(mediainfo, "title", "") or title, "已存在订阅，跳过观察与订阅", result_lines=result_lines)
@@ -779,6 +867,8 @@ def _process_coming(self, url: str, rd: dict) -> None:
         mediainfo = self.chain.recognize_media(meta=meta, mtype=MediaType.TV)
         if not mediainfo:
             continue
+        if not _check_rank_region(self, rd, item, {}, mediainfo):
+            continue
         if _is_existing_media(mediainfo, meta):
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
             _record_existing_history(
@@ -850,12 +940,10 @@ def _process_general(self, url: str, rd: dict) -> None:
             continue
         if _year_below_min(year, min_year):
             continue
-        meta = MetaInfo(title)
-        if year:
-            meta.year = str(year)
-        meta.type = MediaType.MOVIE if mtype == "movie" else MediaType.TV
-        mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
+        meta, mediainfo, mtype = _recognize_rss_item(self, item, rd)
         if not mediainfo:
+            continue
+        if not _check_rank_region(self, rd, item, {}, mediainfo):
             continue
         if min_vote > 0 and mediainfo.vote_average and mediainfo.vote_average < min_vote:
             continue
@@ -915,11 +1003,7 @@ def _process_items(self, items: List[dict], source: str) -> None:
             continue
         if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
             continue
-        meta = MetaInfo(title)
-        if year:
-            meta.year = str(year)
-        meta.type = MediaType.MOVIE if mtype == "movie" else MediaType.TV
-        mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
+        meta, mediainfo, mtype = _recognize_rss_item(self, item, {"key": source})
         if not mediainfo:
             continue
         if _is_existing_media(mediainfo, meta):
@@ -1095,6 +1179,8 @@ def _merge_rank_items(self, rank_key, items, rd, return_snapshot: bool = False):
                 "time": refresh_time,
                 "unique": unique,
                 "douban_id": douban_id,
+                "regions": list(item.get("regions") or []),
+                "region_source": item.get("region_source") or "",
                 "rank_index": rank_index,
                 "rank_order": rank_index + 1,
                 "rank_key": rank_key,
@@ -1211,11 +1297,7 @@ def _refresh_general(self, url, rd):
             unique = f"dc2_rank:{link or title}"
             if unique in uh:
                 continue
-            meta = MetaInfo(title)
-            if year:
-                meta.year = str(year)
-            meta.type = MediaType.MOVIE if mtype == "movie" else MediaType.TV
-            mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
+            meta, mediainfo, mtype = _recognize_rss_item(self, item, rd)
             if not mediainfo:
                 continue
             cn_title = mediainfo.title or title

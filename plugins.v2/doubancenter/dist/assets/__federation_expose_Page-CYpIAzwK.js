@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, t as toPosterThumbnail, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-ChLM6U1z.js';
-import { s as sourceDescriptor } from './source-BA3qKZgr.js';
+import { _ as _export_sfc, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-Cd7yiqDA.js';
+import { s as sourceDescriptor } from './source-Y0YpQdE1.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,unref:_unref,withModifiers:_withModifiers} = await importShared('vue');
 
@@ -135,6 +135,7 @@ const _sfc_main = {
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
   appPage: { type: Boolean, default: false },
+  showSettings: { type: Boolean, default: false },
 },
   emits: ['close', 'switch'],
   setup(__props, { emit: __emit }) {
@@ -633,7 +634,7 @@ return (_ctx, _cache) => {
             ]),
             _: 1
           }, 8, ["prepend-icon", "title", "aria-label", "color"]),
-          (!props.appPage)
+          (props.showSettings || !props.appPage)
             ? (_openBlock(), _createBlock(_component_VBtn, {
                 key: 0,
                 variant: "text",
@@ -1337,6 +1338,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d9ec8ae0"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f7095c12"]]);
 
 export { Page as default };

@@ -55,3 +55,16 @@ export async function postPluginApi(api, path, payload = {}) {
   if (!api?.post) throw new Error('缺少 MoviePilot 注入的 api.post')
   return unwrapResponse(await api.post(`plugin/DoubanCenter/${path}`, payload))
 }
+
+export async function getPluginConfig(api) {
+  if (!api?.get) throw new Error('缺少 MoviePilot 配置 API')
+  return unwrapResponse(await api.get('plugin/DoubanCenter'))
+}
+
+export async function savePluginConfig(api, payload = {}) {
+  if (!api?.put) throw new Error('缺少 MoviePilot 配置 API')
+  const response = await api.put('plugin/DoubanCenter', payload)
+  const data = response?.data ?? response
+  if (data?.success === false) throw new Error(data?.message || '插件配置保存失败')
+  return data
+}

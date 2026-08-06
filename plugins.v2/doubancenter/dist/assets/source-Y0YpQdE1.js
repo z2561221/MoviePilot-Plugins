@@ -57,8 +57,8 @@ function mediaSubtypeOf(rankKey, item, config) {
   if (rawType === 'movie' || rawType === '电影') return 'movie'
   if (rawType === 'tv' || rawType === '电视剧') return 'tv'
   const custom = (config?.custom_ranks || []).find(entry => entry?.key === rankKey);
-  if (custom?.media_type === 'movie') return 'movie'
-  if (custom?.media_type === 'tv') return 'tv'
+  const route = stringValue(item?.rank_route || item?.route || custom?.route);
+  if (/\/movie(?:[/?#]|_|$)/i.test(route)) return 'movie'
   return rankKey === 'movie_weekly' ? 'movie' : 'tv'
 }
 

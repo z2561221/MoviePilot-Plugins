@@ -323,7 +323,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("custom_highscore", result)
         self.assertEqual(history[0]["rank_key"], "custom_highscore")
         self.assertEqual(history[0]["rank_name"], "高分动画")
-        self.assertEqual(history[0]["media_type"], "movie")
+        self.assertEqual(history[0]["media_type"], "unknown")
         self.assertTrue(history[0]["rank_refreshed_at"])
 
     def test_migration_normalizes_legacy_subscribe_usernames(self):

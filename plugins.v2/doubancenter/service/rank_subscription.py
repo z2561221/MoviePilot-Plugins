@@ -3,6 +3,25 @@
 from typing import Any, Dict, List
 
 from ..model import rank as rank_model
+from .. import utils
+
+
+def _normalize_regions_for_filter(value: Any) -> List[str]:
+    """兼容旧测试宿主并统一榜单地区值。"""
+    normalizer = getattr(utils, "normalize_region_values", None)
+    if callable(normalizer):
+        return normalizer(value)
+    if isinstance(value, str):
+        return [part for part in value.replace("/", " ").split() if part]
+    if isinstance(value, (list, tuple, set)):
+        return [str(part).strip() for part in value if str(part).strip()]
+    return []
+
+
+def _parse_regions_from_description(value: Any) -> List[str]:
+    """兼容旧测试宿主并从描述提取地区。"""
+    parser = getattr(utils, "parse_regions_from_description", None)
+    return parser(value) if callable(parser) else []
 
 
 def rank_config(rank_configs: Dict[str, dict], key: str) -> dict:
@@ -55,6 +74,9 @@ def describe_rank_filter(
             parts.append(f"评分>={vote}")
         if year:
             parts.append(f"年份>={year}")
+    regions = _normalize_regions_for_filter(config.get("regions"))
+    if regions:
+        parts.append(f"地区={'/'.join(regions)}")
     if observe_enabled:
         parts.append("观察期")
     if blacklist_enabled:
@@ -78,9 +100,38 @@ def has_rank_filter(config: dict, rank: dict) -> bool:
     config = config if isinstance(config, dict) else {}
     if int(config.get("count", 0) or 0) > 0:
         return True
+    if _normalize_regions_for_filter(config.get("regions")):
+        return True
     if (rank or {}).get("coming"):
         return rank_model.positive_number(config.get("wish_count")) or rank_model.positive_number(config.get("air_days"))
     return rank_model.positive_number(config.get("vote")) or rank_model.positive_number(config.get("year"))
+
+
+def region_filter_result(config: dict, item: dict = None, entry: dict = None, mediainfo: Any = None) -> tuple[bool, str]:
+    """按榜单地区条件判断条目，未知地区时保守拒绝。"""
+    config = config if isinstance(config, dict) else {}
+    selected = _normalize_regions_for_filter(config.get("regions"))
+    if not selected:
+        return True, ""
+    item = item if isinstance(item, dict) else {}
+    entry = entry if isinstance(entry, dict) else {}
+    values = _normalize_regions_for_filter(item.get("regions"))
+    if not values:
+        values = _normalize_regions_for_filter(entry.get("regions"))
+    if not values:
+        values = _parse_regions_from_description(item.get("description") or entry.get("description"))
+    if not values:
+        for key in ("regions", "countries", "origin_country", "production_countries", "country"):
+            values = _normalize_regions_for_filter(getattr(mediainfo, key, None) if mediainfo is not None else None)
+            if values:
+                break
+    selected_keys = {value.casefold() for value in selected}
+    value_keys = {value.casefold() for value in values}
+    if selected_keys & value_keys:
+        return True, ""
+    if not values:
+        return False, "地区未知"
+    return False, f"地区不匹配：{'/'.join(values)}"
 
 
 def has_safety_filter(

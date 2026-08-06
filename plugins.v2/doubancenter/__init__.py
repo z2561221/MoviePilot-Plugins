@@ -131,7 +131,8 @@ class DoubanCenter(_PluginBase):
             str(key) for key in self._observe_rank_keys
             if str(key) in valid_rank_keys
         ]
-        if config and set(config) != set(self.__current_config()):
+        current_config = self.__current_config()
+        if config and (set(config) != set(current_config) or config != current_config):
             self.__update_config()
         migration.normalize_legacy_subscribe_usernames()
         self.stop_service()

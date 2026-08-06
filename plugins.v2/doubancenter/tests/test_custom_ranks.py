@@ -35,13 +35,19 @@ def _load_rss_adapter():
     utils_package = types.ModuleType("custom_rank_app.utils")
     utils_package.__path__ = []
     dom = types.ModuleType("custom_rank_app.utils.dom")
-    dom.DomUtils = object
+    dom.DomUtils = type("DomUtils", (), {})
     http = types.ModuleType("custom_rank_app.utils.http")
     http.RequestUtils = object
     package = types.ModuleType("doubancenter_custom")
     package.__path__ = [str(PLUGIN_DIR)]
     local_utils = types.ModuleType("doubancenter_custom.utils")
     local_utils.normalize_rss_domain = lambda value: str(value or "").rstrip("/")
+    local_utils.parse_regions_and_genres = lambda category: (
+        [part.strip() for part in str(category or "").split("/")[1:2] if part.strip()], []
+    )
+    local_utils.parse_regions_from_description = lambda description: [
+        region for region in ("中国大陆", "日本", "美国", "英国") if region in str(description or "")
+    ]
     sys.modules.update({
         "custom_rank_app": app,
         "custom_rank_app.core": core,
@@ -68,7 +74,7 @@ def _load_rss_adapter():
     sys.modules["app.utils"] = types.ModuleType("app.utils")
     sys.modules["app.utils"].__path__ = []
     app_dom = types.ModuleType("app.utils.dom")
-    app_dom.DomUtils = object
+    app_dom.DomUtils = type("DomUtils", (), {})
     sys.modules["app.utils.dom"] = app_dom
     app_http = types.ModuleType("app.utils.http")
     app_http.RequestUtils = object
@@ -79,6 +85,8 @@ def _load_rss_adapter():
     adapter_package.__path__ = [str(PLUGIN_DIR / "adapter")]
     real_utils = types.ModuleType("doubancenter.utils")
     real_utils.normalize_rss_domain = lambda value: str(value or "").rstrip("/")
+    real_utils.parse_regions_and_genres = local_utils.parse_regions_and_genres
+    real_utils.parse_regions_from_description = local_utils.parse_regions_from_description
     sys.modules["doubancenter"] = real_package
     sys.modules["doubancenter.adapter"] = adapter_package
     sys.modules["doubancenter.utils"] = real_utils
@@ -99,15 +107,13 @@ class CustomRanksModelTest(unittest.TestCase):
             {"key": "tv_global", "name": "覆盖内置", "route": "/tv"},
             {"key": "custom_absolute", "name": "绝对地址", "route": "https://example.test/rss"},
             {"key": "custom_fragment", "name": "带片段", "route": "/rss#top"},
-            {"key": "custom_media", "name": "错误类型", "route": "/rss", "media_type": "comic"},
+            {"key": "custom_media", "name": "旧媒体字段", "route": "/rss", "media_type": "movie"},
         ])
 
-        self.assertEqual(result, [{
-            "key": "custom_highscore",
-            "name": "高分动画",
-            "route": "/anime/rss?tag=top",
-            "media_type": "movie",
-        }])
+        self.assertEqual(result, [
+            {"key": "custom_highscore", "name": "高分动画", "route": "/anime/rss?tag=top"},
+            {"key": "custom_media", "name": "旧媒体字段", "route": "/rss"},
+        ])
 
     def test_effective_ranks_adds_custom_definition_without_mutating_builtins(self):
         custom = {"key": "custom_tv", "name": "自定义剧集", "route": "/custom/feed", "media_type": "tv"}
@@ -117,13 +123,14 @@ class CustomRanksModelTest(unittest.TestCase):
         self.assertEqual(ranks[-1]["key"], "custom_tv")
         self.assertFalse(ranks[-1]["coming"])
         self.assertEqual(ranks[-1]["filters"], ["vote", "year"])
+        self.assertNotIn("media_type", ranks[-1])
         self.assertEqual(rank.BUILTIN_RANKS[-1]["key"], "bangumi")
 
-    def test_media_type_priority_is_item_then_config_then_route(self):
-        rank_def = {"key": "custom_movie", "route": "/tv/feed", "media_type": "movie"}
+    def test_media_type_priority_is_item_then_known_route_without_legacy_config(self):
+        rank_def = {"key": "custom_auto", "route": "/custom/feed", "media_type": "movie"}
 
         self.assertEqual(rank.infer_media_type(rank_def, {"mtype": "tv"}), "tv")
-        self.assertEqual(rank.infer_media_type(rank_def, {"mtype": "", "media_type": ""}), "movie")
+        self.assertEqual(rank.infer_media_type(rank_def, {"mtype": "", "media_type": ""}), "unknown")
         self.assertEqual(rank.infer_media_type({"key": "custom_auto", "route": "/movie/feed", "media_type": "auto"}, {}), "movie")
 
 
@@ -144,6 +151,45 @@ class RssHubUrlTest(unittest.TestCase):
             with self.subTest(route=route):
                 with self.assertRaises(ValueError):
                     rss.build_rsshub_url("https://rsshub.example", route, 5)
+
+    def test_douban_rss_description_region_fallback(self):
+        xml = """<?xml version="1.0"?><rss><channel><item><title>描述地区条目</title><link/><description>2026 / 日本 / 剧情</description><category/></item></channel></rss>"""
+
+        class Response:
+            status_code = 200
+
+            def __init__(self, text="", payload=None):
+                self.text = text
+                self.payload = payload
+
+            def json(self):
+                return self.payload
+
+        class RequestUtils:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def get_res(self, addr):
+                if "rexxar/api" in addr:
+                    return Response(payload={"subject_collection_items": []})
+                return Response(text=xml)
+
+        def tag_value(item, tag, default=""):
+            nodes = item.getElementsByTagName(tag)
+            if not nodes or not nodes[0].firstChild:
+                return default
+            return nodes[0].firstChild.nodeValue
+
+        rss.RequestUtils = RequestUtils
+        rss.DomUtils.tag_value = staticmethod(tag_value)
+        items = rss.fetch_rank(type("Plugin", (), {"_proxy": False})(), "https://rsshub.example/douban/list/tv_domestic")
+
+        self.assertEqual(items[0]["regions"], ["日本"])
+        self.assertEqual(items[0]["region_source"], "description")
+
+    def test_unknown_rss_route_does_not_default_to_tv(self):
+        self.assertEqual(rss.default_media_type("https://rsshub.example/anime/feed"), "unknown")
+        self.assertEqual(rss.default_media_type("https://rsshub.example/douban/list/tv_domestic"), "tv")
 
 
 if __name__ == "__main__":

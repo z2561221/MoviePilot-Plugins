@@ -64,6 +64,51 @@ def parse_regions_and_genres(category: str) -> Tuple[List[str], List[str]]:
     return regions, genres
 
 
+_REGION_NAMES = (
+    "中国大陆", "中国香港", "中国台湾", "美国", "日本", "韩国", "英国", "泰国", "印度",
+    "法国", "德国", "西班牙", "加拿大", "澳大利亚", "俄罗斯", "瑞典", "丹麦", "爱尔兰",
+    "意大利", "巴西", "新加坡", "马来西亚", "菲律宾", "越南", "墨西哥", "土耳其",
+)
+
+
+def parse_regions_from_description(description: str) -> List[str]:
+    """从 RSS 描述中的地区/产地字段补提地区。"""
+    text = str(description or "").strip()
+    if not text:
+        return []
+    found: List[str] = []
+    labelled = re.findall(r"(?:地区|国家|产地|制片国家/地区)\s*[：:]\s*([^\n|；;]+)", text, flags=re.IGNORECASE)
+    candidates = labelled or re.split(r"\s*/\s*", text)
+    for candidate in candidates:
+        value = str(candidate or "").strip()
+        value = re.sub(r"^(?:19|20)\d{2}\s*", "", value).strip()
+        for region in _REGION_NAMES:
+            if region in value or (not labelled and region in text):
+                if region not in found:
+                    found.append(region)
+    return found
+
+
+def normalize_region_values(value: Any) -> List[str]:
+    """将地区字段统一为去重后的字符串列表。"""
+    if isinstance(value, str):
+        values = re.split(r"[\s、,，/|；;]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = []
+    result: List[str] = []
+    seen = set()
+    for item in values:
+        if isinstance(item, dict):
+            item = item.get("name") or item.get("origin_country") or item.get("iso_3166_1")
+        text = str(item or "").strip()
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            result.append(text)
+    return result
+
+
 def match_any_filter(item_values: List[str], selected_values: List[str]) -> bool:
     """判断条目值是否命中任一已选筛选值。"""
     if not selected_values:

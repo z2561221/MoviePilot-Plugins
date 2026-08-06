@@ -31,7 +31,6 @@ class ConfigFrontendContractTest(unittest.TestCase):
         text = CONFIG_VUE.read_text(encoding="utf-8")
 
         forbidden_fragments = [
-            "const regionOptions",
             "const genreOptions",
             "const resolutionOptions",
             'v-model="form.region_filters"',
@@ -43,6 +42,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
         for fragment in forbidden_fragments:
             self.assertNotIn(fragment, text)
 
+        self.assertIn("const regionOptions", text)
         self.assertIn("region_filters: []", text)
         self.assertIn("genre_filters: []", text)
         self.assertIn("resolution_filters: []", text)
@@ -176,9 +176,13 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("nativeSubscribe: { type: Function, default: null }", app_page_text)
         self.assertIn(':api="props.api"', app_page_text)
         self.assertIn(':native-subscribe="props.nativeSubscribe"', app_page_text)
-        self.assertNotIn("getPluginApi", app_page_text)
+        self.assertIn("getPluginConfig", app_page_text)
+        self.assertIn("savePluginConfig", app_page_text)
+        self.assertIn('@switch="openSettings"', app_page_text)
+        self.assertIn("<VSnackbar", app_page_text)
         self.assertIn("appPage: { type: Boolean, default: false }", page_text)
-        self.assertEqual(page_text.count('v-if="!props.appPage"'), 2)
+        self.assertIn("showSettings: { type: Boolean, default: false }", page_text)
+        self.assertIn('v-if="props.showSettings || !props.appPage"', page_text)
         self.assertIn('"./AppPage"', remote_text)
         app_page_css = re.search(
             r'dynamicLoadingCss\(\[([^\]]+)\], false, \'\./AppPage\'\)',
@@ -187,6 +191,22 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIsNotNone(app_page_css)
         self.assertIn("__federation_expose_AppPage-", app_page_css.group(1))
         self.assertIn("__federation_expose_Page-", app_page_css.group(1))
+
+    def test_rank_rows_share_regions_and_custom_source_contract(self):
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        self.assertIn("const regionOptions", text)
+        self.assertIn('v-model="form.rank_configs[rd.key].regions"', text)
+        self.assertIn("multiple chips", text)
+        self.assertIn('VExpansionPanel title="数据源设置"', text)
+        self.assertIn('v-model="rd.model.name"', text)
+        self.assertIn('v-model="rd.model.route"', text)
+        self.assertIn("function requestRemoveCustomRank", text)
+        self.assertIn("class=\"dc-delete-rank\"", text)
+        self.assertNotIn("customMediaTypes", text)
+        self.assertNotIn("v-model=\"rd.media_type\"", text)
+        self.assertIn("delete m.rank_configs[rd.key].media_type", text)
+        self.assertIn("custom_ranks: (form.custom_ranks || []).map", text)
 
     def test_page_labels_douban_wish_subscription_stats(self):
         """详情页订阅统计应将豆瓣想看显示为独立分类。"""

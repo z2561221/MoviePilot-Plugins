@@ -7,8 +7,6 @@ from urllib.parse import urlsplit
 
 DEFAULT_OBSERVE_RANK_KEYS = ["coming", "tv_real_time"]
 CUSTOM_RANK_KEY_RE = re.compile(r"^custom_[^\s/?#]+$")
-CUSTOM_MEDIA_TYPES = {"auto", "movie", "tv"}
-
 BUILTIN_RANKS: List[Dict[str, Any]] = [
     {
         "key": "coming",
@@ -67,7 +65,6 @@ def normalize_custom_rank(value: Any) -> Dict[str, Any] | None:
     key = str(value.get("key") or "").strip()
     name = str(value.get("name") or "").strip()
     route = str(value.get("route") or "").strip()
-    media_type = str(value.get("media_type") or "auto").strip().lower()
     builtin_keys = {str(rank.get("key") or "") for rank in BUILTIN_RANKS}
     if not key or key in builtin_keys or not CUSTOM_RANK_KEY_RE.fullmatch(key):
         return None
@@ -83,13 +80,10 @@ def normalize_custom_rank(value: Any) -> Dict[str, Any] | None:
         or not parsed_route.path
     ):
         return None
-    if media_type not in CUSTOM_MEDIA_TYPES:
-        return None
     return {
         "key": key,
         "name": name,
         "route": route,
-        "media_type": media_type,
     }
 
 
@@ -129,18 +123,19 @@ def default_observe_rank_keys() -> List[str]:
 
 
 def infer_media_type(rank: dict, item: dict) -> str:
-    """根据榜单定义和条目字段推断媒体类型。"""
-    raw_type = str((item or {}).get("mtype") or (item or {}).get("media_type") or "").lower()
-    if raw_type in ("movie", "tv"):
-        return raw_type
-    configured_type = str((rank or {}).get("media_type") or "").lower()
-    if configured_type in ("movie", "tv"):
-        return configured_type
+    """根据条目字段和已知路由推断媒体类型，未知时返回 unknown。"""
+    raw_type = str((item or {}).get("mtype") or (item or {}).get("media_type") or "").strip().lower()
+    if raw_type in ("movie", "电影"):
+        return "movie"
+    if raw_type in ("tv", "电视剧", "series", "show"):
+        return "tv"
     key = str((rank or {}).get("key") or "").lower()
     route = str((rank or {}).get("route") or "").lower()
     if "movie" in key or "/movie" in route:
         return "movie"
-    return "tv"
+    if key in {"coming", "tv_real_time", "tv_chinese", "tv_global", "bangumi"} or "/tv/" in route or "/tv_" in route or "bangumi" in route:
+        return "tv"
+    return "unknown"
 
 
 def record_history_item(history: List[dict], entry: dict) -> None:

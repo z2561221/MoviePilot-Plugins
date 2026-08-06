@@ -56,6 +56,19 @@ async function postPluginApi(api, path, payload = {}) {
   return unwrapResponse(await api.post(`plugin/DoubanCenter/${path}`, payload))
 }
 
+async function getPluginConfig(api) {
+  if (!api?.get) throw new Error('缺少 MoviePilot 配置 API')
+  return unwrapResponse(await api.get('plugin/DoubanCenter'))
+}
+
+async function savePluginConfig(api, payload = {}) {
+  if (!api?.put) throw new Error('缺少 MoviePilot 配置 API')
+  const response = await api.put('plugin/DoubanCenter', payload);
+  const data = response?.data ?? response;
+  if (data?.success === false) throw new Error(data?.message || '插件配置保存失败')
+  return data
+}
+
 const _export_sfc = (sfc, props) => {
   const target = sfc.__vccOpts || sfc;
   for (const [key, val] of props) {
@@ -64,4 +77,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, getPluginApi as g, postPluginApi as p, toPosterThumbnail as t };
+export { _export_sfc as _, getPluginApi as a, getPluginConfig as g, postPluginApi as p, savePluginConfig as s, toPosterThumbnail as t };

@@ -7,6 +7,7 @@ const props = defineProps({
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
   appPage: { type: Boolean, default: false },
+  showSettings: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'switch'])
 
@@ -440,7 +441,7 @@ onMounted(loadAll)
       <VSpacer />
       <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-1 dc-toolbar-action" title="刷新" aria-label="刷新" :loading="loading" @click="archivePage ? loadArchive() : loadAll()">刷新</VBtn>
       <VBtn variant="text" size="small" :prepend-icon="archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" class="text-none me-1 dc-toolbar-action" :title="archivePage ? '返回' : '归档'" :aria-label="archivePage ? '返回' : '归档'" :color="archivePage ? 'primary' : undefined" @click="archivePage ? closeArchivePage() : openArchivePage()">{{ archivePage ? '返回' : '归档' }}</VBtn>
-      <VBtn v-if="!props.appPage" variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1 dc-toolbar-action" title="设置" aria-label="设置" @click="emit('switch')">设置</VBtn>
+      <VBtn v-if="props.showSettings || !props.appPage" variant="text" size="small" prepend-icon="mdi-cog-outline" class="text-none me-1 dc-toolbar-action" title="设置" aria-label="设置" @click="emit('switch')">设置</VBtn>
       <VBtn v-if="!props.appPage" icon="mdi-close" variant="text" size="small" class="dc-toolbar-action" title="关闭" aria-label="关闭" @click="emit('close')" />
     </VToolbar>
     <VDivider />

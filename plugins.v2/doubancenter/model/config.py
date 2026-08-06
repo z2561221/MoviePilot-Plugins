@@ -70,6 +70,7 @@ DEFAULT_RANK_CONFIGS: Dict[str, Dict[str, Any]] = {
         "air_days": 7,
         "vote": 0,
         "year": 0,
+        "regions": [],
     },
     "tv_real_time": {
         "enabled": False,
@@ -78,6 +79,7 @@ DEFAULT_RANK_CONFIGS: Dict[str, Dict[str, Any]] = {
         "air_days": 0,
         "vote": 0,
         "year": 0,
+        "regions": [],
     },
     "tv_chinese": {
         "enabled": False,
@@ -86,6 +88,7 @@ DEFAULT_RANK_CONFIGS: Dict[str, Dict[str, Any]] = {
         "air_days": 0,
         "vote": 0,
         "year": 0,
+        "regions": [],
     },
     "tv_global": {
         "enabled": False,
@@ -94,6 +97,7 @@ DEFAULT_RANK_CONFIGS: Dict[str, Dict[str, Any]] = {
         "air_days": 0,
         "vote": 0,
         "year": 0,
+        "regions": [],
     },
     "movie_weekly": {
         "enabled": False,
@@ -102,6 +106,7 @@ DEFAULT_RANK_CONFIGS: Dict[str, Dict[str, Any]] = {
         "air_days": 0,
         "vote": 0,
         "year": 0,
+        "regions": [],
     },
     "bangumi": {
         "enabled": False,
@@ -110,6 +115,7 @@ DEFAULT_RANK_CONFIGS: Dict[str, Dict[str, Any]] = {
         "air_days": 0,
         "vote": 0,
         "year": 0,
+        "regions": [],
     },
 }
 
@@ -120,7 +126,26 @@ CUSTOM_RANK_CONFIG: Dict[str, Any] = {
     "air_days": 0,
     "vote": 0,
     "year": 0,
+    "regions": [],
 }
+
+
+def normalize_regions(value: Any) -> List[str]:
+    """规范化榜单地区条件，空列表表示不限地区。"""
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = []
+    result: List[str] = []
+    seen = set()
+    for item in values:
+        text = str(item or "").strip()
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            result.append(text)
+    return result
 
 
 def normalize_rank_configs(values: Any, ranks: List[dict]) -> Dict[str, Dict[str, Any]]:
@@ -135,10 +160,14 @@ def normalize_rank_configs(values: Any, ranks: List[dict]) -> Dict[str, Dict[str
             continue
         defaults = DEFAULT_RANK_CONFIGS.get(key, CUSTOM_RANK_CONFIG)
         current = source.get(key)
-        result[key] = {
+        normalized = {
             **deepcopy(defaults),
             **(current if isinstance(current, dict) else {}),
         }
+        normalized["regions"] = normalize_regions(normalized.get("regions"))
+        if rank.get("custom"):
+            normalized.pop("media_type", None)
+        result[key] = normalized
     return result
 
 
