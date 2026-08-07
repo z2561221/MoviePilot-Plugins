@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-C6u-DhbX.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DybC7i_v.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-CXFsw50i.js';
 
 const {unref:_unref$4,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,createElementVNode:_createElementVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,openBlock:_openBlock$4,createBlock:_createBlock$4,createCommentVNode:_createCommentVNode$4,createElementBlock:_createElementBlock$3,withModifiers:_withModifiers$2,mergeProps:_mergeProps$1,renderList:_renderList$3,Fragment:_Fragment$3} = await importShared('vue');
@@ -441,7 +441,7 @@ const commands = computed$3(() => props.state.conversation.value?.commands || []
 const pendingCommands = computed$3(() => commands.value.filter(item => item.status === 'pending_confirmation'));
 const conversationOperation = computed$3(() => props.state.operationState('conversation'));
 const sendOperation = computed$3(() => props.state.operationState('conversation:send'));
-const agentName = computed$3(() => props.state.agentDisplayName?.value || 'CinePilot Agent');
+const agentName = computed$3(() => props.state.agentDisplayName?.value || '克里斯蒂娜');
 const canSend = computed$3(() => draft.value.trim().length > 0 && !sendOperation.value.loading);
 const hasPendingMessages = computed$3(() => messages.value.some(item => ['queued', 'processing'].includes(item.status)));
 
@@ -787,7 +787,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CriticChatDialog = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-f0640466"]]);
+const CriticChatDialog = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-61fcd313"]]);
 
 const {unref:_unref$2,resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,createElementVNode:_createElementVNode$2,toDisplayString:_toDisplayString$2,withCtx:_withCtx$2,withModifiers:_withModifiers,withKeys:_withKeys$1,createTextVNode:_createTextVNode$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2} = await importShared('vue');
 
@@ -1645,7 +1645,7 @@ let exposureObserver = null;
 let pageUnmounted = false;
 
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 5) || []);
-const agentName = computed(() => state.agentDisplayName.value || 'CinePilot Agent');
+const agentName = computed(() => state.agentDisplayName.value || '克里斯蒂娜');
 const criticUnreadCount = computed(() => Number(state.conversationStatus.value?.unread_count || 0));
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || []);
 const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.value.total || 0) / historyPageSize)));
@@ -3595,6 +3595,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-805aced7"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2c7f829f"]]);
 
 export { Page as default };

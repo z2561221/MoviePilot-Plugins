@@ -43,6 +43,11 @@ def test_advanced_options_and_agent_settings_expose_prompt_subtabs():
     assert "固定安全规则（只读）" in config
     assert "最终榜单固定保存五条" in config
     assert "max-height: min(760px, calc(100dvh - 24px))" in config
+    assert "agent_display_name: '克里斯蒂娜'" in config
+    assert "persona_prompt: ''" in config
+    assert "{ title: '克里斯蒂娜', value: 'default'" in config
+    assert '<VIcon icon="mdi-account-voice-outline" size="19" color="primary" />' in config
+    assert "<span>Agent设定</span>" in config
 
 
 def test_advanced_settings_expose_access_retention_export_and_two_safe_resets():
@@ -463,7 +468,7 @@ def test_mobile_detail_hides_idle_runtime_and_wraps_copy_without_toggles():
     assert 'v-if="state.isRunning.value"' in page
     assert "运行就绪" not in page
     assert 'class="ar-page__progress"' in page
-    assert "CinePilot Agent" in page
+    assert "克里斯蒂娜" in page
     assert "state.runProgress.value?.message" in page
     assert "state.runProgress.value?.stage_index" in page
     assert ".ar-page__progress { grid-column: 1 / -1;" in page
@@ -618,7 +623,7 @@ def test_cinepilot_chat_is_immediate_bounded_and_retryable():
     """对话立即显示排队状态，持续以服务端状态为准并支持后端失败重试。"""
     chat = _read("CriticChatDialog.vue")
     state = _read("useAgentRankState.js")
-    assert "CinePilot Agent" in chat
+    assert "克里斯蒂娜" in chat
     assert "['queued', 'processing'].includes" in chat
     assert "frontendTimeoutMs" not in chat
     assert "markFrontendTimeout" not in chat

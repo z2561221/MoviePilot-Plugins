@@ -107,7 +107,7 @@ class AgentRankConfig:
     profile_prompt: str = DEFAULT_PROFILE_PROMPT
     ranking_prompt: str = DEFAULT_RANKING_PROMPT
     copy_prompt: str = DEFAULT_COPY_PROMPT
-    persona_prompt: str = DEFAULT_PERSONA_PROMPT
+    persona_prompt: str = ""
     critic_prompt: str = DEFAULT_CRITIC_PROMPT
 
     @classmethod
@@ -190,6 +190,20 @@ def _bounded_text(
     if len(value) > maximum:
         errors.append(f"{field_name} must not exceed {maximum} characters")
         return default
+    return value
+
+
+def _bounded_optional_text(
+    raw: Any,
+    maximum: int,
+    field_name: str,
+    errors: List[str],
+) -> str:
+    """读取可为空的限长文本；超长时记录错误并回退为空。"""
+    value = str(raw or "").strip()
+    if len(value) > maximum:
+        errors.append(f"{field_name} must not exceed {maximum} characters")
+        return ""
     return value
 
 
@@ -344,7 +358,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         "agent_display_name",
         errors,
     )
-    raw_persona_prompt = raw.get("persona_prompt", DEFAULT_PERSONA_PROMPT)
+    raw_persona_prompt = raw.get("persona_prompt", "")
     raw_persona_preset = str(raw.get("persona_preset") or "").strip().casefold()
     # Older configs only persisted persona_prompt. Preserve a real custom voice
     # instead of letting the newly added default preset silently override it.
@@ -359,6 +373,12 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
     if persona_preset not in PERSONA_PRESET_NAMES:
         errors.append("persona_preset must be default, concise, warm, or custom")
         persona_preset = "default"
+    normalized_persona_prompt = str(raw_persona_prompt or "").strip()
+    if (
+        persona_preset != "custom"
+        and normalized_persona_prompt == DEFAULT_PERSONA_PROMPT
+    ):
+        normalized_persona_prompt = ""
 
     interaction_mode = str(
         raw.get("interaction_mode") or INTERACTION_MODE_DEFAULT
@@ -512,9 +532,8 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
             "copy_prompt",
             errors,
         ),
-        persona_prompt=_bounded_text(
-            raw_persona_prompt,
-            DEFAULT_PERSONA_PROMPT,
+        persona_prompt=_bounded_optional_text(
+            normalized_persona_prompt,
             4000,
             "persona_prompt",
             errors,

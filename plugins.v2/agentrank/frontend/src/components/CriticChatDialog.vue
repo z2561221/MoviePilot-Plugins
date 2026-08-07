@@ -18,7 +18,7 @@ const commands = computed(() => props.state.conversation.value?.commands || [])
 const pendingCommands = computed(() => commands.value.filter(item => item.status === 'pending_confirmation'))
 const conversationOperation = computed(() => props.state.operationState('conversation'))
 const sendOperation = computed(() => props.state.operationState('conversation:send'))
-const agentName = computed(() => props.state.agentDisplayName?.value || 'CinePilot Agent')
+const agentName = computed(() => props.state.agentDisplayName?.value || '克里斯蒂娜')
 const canSend = computed(() => draft.value.trim().length > 0 && !sendOperation.value.loading)
 const hasPendingMessages = computed(() => messages.value.some(item => ['queued', 'processing'].includes(item.status)))
 

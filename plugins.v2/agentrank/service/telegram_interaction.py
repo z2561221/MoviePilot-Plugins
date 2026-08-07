@@ -60,11 +60,10 @@ class TelegramSelectionService:
         self._lock = threading.RLock()
 
     def _agent_label(self) -> str:
-        """返回 Telegram 用户可见的 Agent 标签；默认保留历史插件标题。"""
-        name = configured_agent_display_name(
+        """返回 Telegram 用户可见的 Agent 标签。"""
+        return configured_agent_display_name(
             self._config.get("agent_display_name", AGENT_DISPLAY_NAME_DEFAULT)
         )
-        return name if name != AGENT_DISPLAY_NAME_DEFAULT else "Agent榜单中心"
 
     def set_pending_center(self, service: Any) -> None:
         """绑定统一待处理中心，供运行时完成依赖组装。"""

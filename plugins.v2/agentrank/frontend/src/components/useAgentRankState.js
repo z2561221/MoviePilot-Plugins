@@ -149,7 +149,7 @@ export function useAgentRankState(api) {
   const agentDisplayName = computed(() => (
     overview.value?.agent_display_name
     || options.value.config?.agent_display_name
-    || 'CinePilot Agent'
+    || '克里斯蒂娜'
   ))
   const isRunning = computed(() => Boolean(runProgress.value?.active) || loading.action === 'refresh')
 

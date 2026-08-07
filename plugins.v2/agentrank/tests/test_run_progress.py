@@ -31,7 +31,7 @@ def test_progress_is_isolated_by_profile_and_tracks_real_stage_order():
     assert first["active"] is True
     assert running["stage_index"] == 6
     assert running["stage_total"] == 7
-    assert running["message"] == "CinePilot Agent 正在分析候选"
+    assert running["message"] == "克里斯蒂娜 正在分析候选"
     assert running["agent_active"] is True
     assert other["status"] == "idle"
     assert other["username"] == "Bob"

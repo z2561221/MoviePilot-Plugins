@@ -21,6 +21,8 @@ const weightDefaults = {
   similarity_weight: 0.9,
 }
 
+const legacyDefaultPersonaPrompt = '以克里斯蒂娜式的天才少女口吻与用户交流：聪明、理性、傲娇又略带嘴硬，像未来道具研究所整理实验记录一样，把结论和证据讲清楚。可以自然使用“唔……”“诶？”“嗦嘎”“真是的”“别误会”“知道啦”“嘛”“哼”等口癖，偶尔使用“机关”“世界线”“实验数据”“未来道具研究所”等轻梗；可以轻微吐槽、撒娇和故作不情愿，但始终保持友善。二次元浓度要明显，但不要连续堆叠口癖，也不能让人设盖过事实。遇到错误、风险、失败和待确认操作时，先清楚说明结论，再自然补充人设语气。'
+
 const defaults = {
   enabled: false,
   discovery_page_enabled: true,
@@ -43,7 +45,7 @@ const defaults = {
   candidate_pool_size: 15,
   confidence_threshold: 0.6,
   action_mode: 'notify',
-  agent_display_name: 'CinePilot Agent',
+  agent_display_name: '克里斯蒂娜',
   persona_preset: 'default',
   interaction_mode: 'auto',
   notify: true,
@@ -67,7 +69,7 @@ const defaults = {
   profile_prompt: '基于用户真实播放记录和明确偏好，归纳稳定的内容偏好与观看动机。除题材、主创、地区、年代和风格外，可观察情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感。稳定结论必须由至少两条相互独立的播放证据支持，或由一项用户明确添加的偏好支持；单一样本不得形成稳定结论，弃看只能作为弱负向信号。',
   ranking_prompt: '以用户画像、真实播放证据和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。兼顾相关性、新鲜感与题材多样性；评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名，相关性明显不足时宁可少推。',
   copy_prompt: '推荐理由要用自然、具体、克制的内容语言说明用户偏好与作品事实之间的匹配，不输出心理诊断或心理学术语，也避免空泛夸赞。作品简介只概括作品本身，不剧透；推荐理由和简介都要总结为语义完整的短句。',
-  persona_prompt: '以克里斯蒂娜式的天才少女口吻与用户交流：聪明、理性、傲娇又略带嘴硬，像未来道具研究所整理实验记录一样，把结论和证据讲清楚。可以自然使用“唔……”“诶？”“嗦嘎”“真是的”“别误会”“知道啦”“嘛”“哼”等口癖，偶尔使用“机关”“世界线”“实验数据”“未来道具研究所”等轻梗；可以轻微吐槽、撒娇和故作不情愿，但始终保持友善。二次元浓度要明显，但不要连续堆叠口癖，也不能让人设盖过事实。遇到错误、风险、失败和待确认操作时，先清楚说明结论，再自然补充人设语气。',
+  persona_prompt: '',
   critic_prompt: '先复述用户可核对的内容偏好，再区分已确认事实、当前推测和仍待确认的信息。发现证据冲突时要明确承认不确定性并优先提出具体澄清问题；回复保持自然、具体、克制，尊重用户纠正，不把单次反馈写成稳定结论。',
 }
 
@@ -157,7 +159,7 @@ const interactionModeOptions = [
   { title: '安静模式', value: 'quiet', icon: 'mdi-volume-off', hint: '仅在明显偏好冲突时询问，跳过日常追问和首次校准。' },
 ]
 const personaPresetOptions = [
-  { title: '默认人设', value: 'default', hint: '沿用 AgentRank 的默认表达边界。' },
+  { title: '克里斯蒂娜', value: 'default', hint: '使用克里斯蒂娜式的天才少女语气。' },
   { title: '简洁理性', value: 'concise', hint: '结论优先，减少修辞和闲聊。' },
   { title: '温和耐心', value: 'warm', hint: '更注重复述事实、解释不确定性和尊重纠正。' },
   { title: '自定义', value: 'custom', hint: '使用下方自定义语气，只影响用户可见表达。' },
@@ -406,8 +408,12 @@ function cloneConfig(value) {
 function applyConfig(value) {
   const next = cloneConfig(value)
   const legacyPersona = String(next.persona_prompt || '').trim()
-  if (!String(next.persona_preset || '').trim() && legacyPersona && legacyPersona !== defaults.persona_prompt) {
-    next.persona_preset = 'custom'
+  const personaPreset = String(next.persona_preset || '').trim()
+  if (!personaPreset) {
+    next.persona_preset = legacyPersona && legacyPersona !== legacyDefaultPersonaPrompt ? 'custom' : 'default'
+  }
+  if (next.persona_preset !== 'custom' && legacyPersona === legacyDefaultPersonaPrompt) {
+    next.persona_prompt = ''
   }
   const legacyPrompt = String(next.agent_prompt || '').trim()
   if (legacyPrompt && !legacyAgentPromptDefaults.has(legacyPrompt)) {
@@ -973,7 +979,10 @@ onMounted(loadRuntime)
             </div>
 
             <div v-show="activeMain === 'agent'" class="ar-config__pane">
-              <div class="ar-config__section-title">Agent设定</div>
+              <div class="ar-config__section-title d-flex align-center ga-2">
+                <VIcon icon="mdi-account-voice-outline" size="19" color="primary" />
+                <span>Agent设定</span>
+              </div>
               <VAlert type="info" variant="tonal" density="compact" class="mb-4">
                 名称和语气只影响页面、通知与回复的用户可见表达，不改变 Agent 的内部角色、权限、事实证据或存储标识。
               </VAlert>

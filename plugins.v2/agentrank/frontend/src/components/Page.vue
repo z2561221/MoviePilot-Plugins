@@ -38,7 +38,7 @@ let exposureObserver = null
 let pageUnmounted = false
 
 const recommendations = computed(() => state.board.value?.recommendations?.slice(0, 5) || [])
-const agentName = computed(() => state.agentDisplayName.value || 'CinePilot Agent')
+const agentName = computed(() => state.agentDisplayName.value || '克里斯蒂娜')
 const criticUnreadCount = computed(() => Number(state.conversationStatus.value?.unread_count || 0))
 const archiveEntries = computed(() => state.overview.value?.archive?.entries || [])
 const historyPages = computed(() => Math.max(1, Math.ceil((state.historyMeta.value.total || 0) / historyPageSize)))

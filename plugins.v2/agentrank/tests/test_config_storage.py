@@ -32,6 +32,7 @@ DEFAULT_RANKING_PROMPT = config_module.DEFAULT_RANKING_PROMPT
 DEFAULT_COPY_PROMPT = config_module.DEFAULT_COPY_PROMPT
 DEFAULT_CRITIC_PROMPT = config_module.DEFAULT_CRITIC_PROMPT
 DEFAULT_PERSONA_PROMPT = config_module.DEFAULT_PERSONA_PROMPT
+AGENT_DISPLAY_NAME_DEFAULT = config_module.AGENT_DISPLAY_NAME_DEFAULT
 LEGACY_DEFAULT_AGENT_PROMPT = config_module.LEGACY_DEFAULT_AGENT_PROMPT
 LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT = config_module.LEGACY_PLAYBACK_DEFAULT_AGENT_PROMPT
 LEGACY_SUBSCRIPTION_DEFAULT_AGENT_PROMPT = (
@@ -360,13 +361,12 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
     assert corrupted["_validation_errors"] == ["config must be a mapping"]
 
 
-def test_five_prompts_are_editable_but_non_empty_and_bounded():
-    """五类提示词独立持久化，空值或超长值安全回退。"""
+def test_rule_prompts_are_editable_non_empty_and_bounded():
+    """四类规则提示词独立持久化，空值或超长值安全回退。"""
     defaults = {
         "profile_prompt": DEFAULT_PROFILE_PROMPT,
         "ranking_prompt": DEFAULT_RANKING_PROMPT,
         "copy_prompt": DEFAULT_COPY_PROMPT,
-        "persona_prompt": DEFAULT_PERSONA_PROMPT,
         "critic_prompt": DEFAULT_CRITIC_PROMPT,
     }
     for field_name, default in defaults.items():
@@ -380,6 +380,34 @@ def test_five_prompts_are_editable_but_non_empty_and_bounded():
         assert any(field_name in error for error in oversized["_validation_errors"])
 
     assert "agent_prompt" not in default_config()
+
+
+def test_agent_persona_defaults_separate_builtin_preset_from_custom_text():
+    """默认显示克里斯蒂娜，内置预设不再占用自定义语气字段。"""
+    defaults = default_config()
+    assert AGENT_DISPLAY_NAME_DEFAULT == "克里斯蒂娜"
+    assert defaults["agent_display_name"] == "克里斯蒂娜"
+    assert defaults["persona_preset"] == "default"
+    assert defaults["persona_prompt"] == ""
+
+    blank = normalize_config({"persona_prompt": "  "})
+    assert blank["persona_preset"] == "default"
+    assert blank["persona_prompt"] == ""
+    assert blank["_validation_errors"] == []
+
+    migrated_default = normalize_config({"persona_prompt": DEFAULT_PERSONA_PROMPT})
+    assert migrated_default["persona_preset"] == "default"
+    assert migrated_default["persona_prompt"] == ""
+
+    custom = normalize_config({"persona_prompt": "用简短的实验记录语气。"})
+    assert custom["persona_preset"] == "custom"
+    assert custom["persona_prompt"] == "用简短的实验记录语气。"
+
+    oversized = normalize_config(
+        {"persona_preset": "custom", "persona_prompt": "字" * 4001}
+    )
+    assert oversized["persona_prompt"] == ""
+    assert any("persona_prompt" in error for error in oversized["_validation_errors"])
 
 
 def test_legacy_default_prompt_migrates_without_overwriting_custom_prompt():

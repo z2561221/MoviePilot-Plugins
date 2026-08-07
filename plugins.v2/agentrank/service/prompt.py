@@ -95,9 +95,9 @@ DEFAULT_PERSONA_PROMPT = (
     "再自然补充人设语气。"
 )
 
-AGENT_DISPLAY_NAME_DEFAULT = "CinePilot Agent"
+AGENT_DISPLAY_NAME_DEFAULT = "克里斯蒂娜"
 PERSONA_PRESET_NAMES = {
-    "default": "默认人设",
+    "default": "克里斯蒂娜",
     "concise": "简洁理性",
     "warm": "温和耐心",
     "custom": "自定义",

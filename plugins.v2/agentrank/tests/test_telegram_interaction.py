@@ -454,7 +454,7 @@ def test_pending_cross_device_delete_failure_edits_message_without_buttons():
     service._repository.save_telegram_pending_session(session)
 
     assert service.resolve_pending_item(notice.item) == 1
-    assert plugin.chain.edit_calls[0]["title"] == "Agent榜单中心 · 已处理"
+    assert plugin.chain.edit_calls[0]["title"] == "克里斯蒂娜 · 已处理"
     assert plugin.chain.edit_calls[0]["buttons"] is None
 
 

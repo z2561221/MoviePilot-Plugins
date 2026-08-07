@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Mapping
 
+from .prompt import AGENT_DISPLAY_NAME_DEFAULT
+
 
 RUN_STAGE_ORDER = (
     "probe",
@@ -21,9 +23,9 @@ RUN_STAGE_MESSAGES = {
     "probe": "正在检查播放数据",
     "playback_snapshot": "正在同步播放记录",
     "policy": "正在整理偏好策略",
-    "profile": "CinePilot Agent 正在更新用户画像",
+    "profile": f"{AGENT_DISPLAY_NAME_DEFAULT} 正在更新用户画像",
     "candidate": "正在收集并筛选候选",
-    "ranking": "CinePilot Agent 正在分析候选",
+    "ranking": f"{AGENT_DISPLAY_NAME_DEFAULT} 正在分析候选",
     "save": "正在校验并保存榜单",
 }
 
@@ -64,15 +66,18 @@ class RunProgressSnapshot:
 class RunProgressStore:
     """按画像隔离保存页面刷新后仍可读取的运行期进度。"""
 
-    def __init__(self, agent_name: str = "CinePilot Agent") -> None:
+    def __init__(self, agent_name: str = AGENT_DISPLAY_NAME_DEFAULT) -> None:
         """创建空进度表并初始化并发保护。"""
         self._values: Dict[str, RunProgressSnapshot] = {}
         self._lock = threading.RLock()
-        self._agent_name = " ".join(str(agent_name or "").split()).strip()[:64] or "CinePilot Agent"
+        self._agent_name = (
+            " ".join(str(agent_name or "").split()).strip()[:64]
+            or AGENT_DISPLAY_NAME_DEFAULT
+        )
 
     def _stage_message(self, stage: str) -> str:
         """返回带用户配置名称的进度文案；默认文案保持兼容。"""
-        if self._agent_name == "CinePilot Agent":
+        if self._agent_name == AGENT_DISPLAY_NAME_DEFAULT:
             return RUN_STAGE_MESSAGES.get(stage, "正在生成榜单")
         if stage == "profile":
             return f"{self._agent_name} 正在更新用户画像"
