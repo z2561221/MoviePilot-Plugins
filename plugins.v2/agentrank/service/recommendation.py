@@ -53,7 +53,11 @@ from .keyword_resolution import (
     RetrievalPlanResolution,
 )
 from .feedback_action import FeedbackActionService
-from .scoring import DeterministicSupportScorer, StableRecommendationRanker
+from .scoring import (
+    DeterministicSupportScorer,
+    ShortTermPreferenceRanker,
+    StableRecommendationRanker,
+)
 from .tournament import (
     PreliminaryBatch,
     PreliminaryBatchResult,
@@ -781,24 +785,49 @@ class RecommendationOrchestrator:
         agent_order: Mapping[str, int],
         *,
         preserve_agent_order: bool,
+        short_term_scores: Mapping[str, Any] = None,
     ) -> List[RecommendationItem]:
-        """保留有效决赛顺序，并只对安全补位项做确定性排序。"""
+        """保留有效决赛顺序，并应用有界短期行为微调。"""
         values = list(items or ())
         trusted_order = {
             str(candidate_id): int(index)
             for candidate_id, index in dict(agent_order or {}).items()
         }
         if not preserve_agent_order or not trusted_order:
-            return self._ranker.rank(values, candidates, agent_order=trusted_order)
+            return self._ranker.rank(
+                values,
+                candidates,
+                agent_order=trusted_order,
+                short_term_scores=short_term_scores,
+            )
         agent_items = [
             item for item in values if item.candidate_id in trusted_order
         ]
-        agent_items.sort(key=lambda item: trusted_order[item.candidate_id])
+        short_term_adjustments = {
+            str(candidate_id): ShortTermPreferenceRanker.adjustment_units(value)
+            for candidate_id, value in dict(short_term_scores or {}).items()
+            if str(candidate_id or "").strip()
+        }
+        if any(
+            short_term_adjustments.get(item.candidate_id, 0) for item in agent_items
+        ):
+            agent_items.sort(
+                key=lambda item: (
+                    -short_term_adjustments.get(item.candidate_id, 0),
+                    trusted_order[item.candidate_id],
+                )
+            )
+        else:
+            agent_items.sort(key=lambda item: trusted_order[item.candidate_id])
         fallback_items = [
             item for item in values if item.candidate_id not in trusted_order
         ]
         if fallback_items:
-            fallback_items = self._ranker.rank(fallback_items, candidates)
+            fallback_items = self._ranker.rank(
+                fallback_items,
+                candidates,
+                short_term_scores=short_term_scores,
+            )
         ranked = [*agent_items, *fallback_items]
         for index, item in enumerate(ranked, start=1):
             item.rank = index
@@ -977,9 +1006,11 @@ class RecommendationOrchestrator:
         metrics: Dict[str, Any],
         previous_board_candidate_ids: Optional[Iterable[str]] = None,
         board_recency_weights: Optional[Mapping[str, Any]] = None,
+        short_term_scores: Optional[Mapping[str, Any]] = None,
     ) -> TournamentOutcome:
         """并行初赛、批次恢复、席位补齐和独立决赛。"""
         board_recency_weights = dict(board_recency_weights or {})
+        short_term_scores = dict(short_term_scores or {})
         profile_fingerprint = str(current_profile.profile_input_fingerprint or "")
         if not profile_fingerprint:
             profile_fingerprint = hashlib.sha256(
@@ -1057,6 +1088,9 @@ class RecommendationOrchestrator:
                             * self._board_recency_factor(
                                 item[1].candidate_id,
                                 board_recency_weights,
+                            )
+                            + ShortTermPreferenceRanker.fit_adjustment(
+                                short_term_scores.get(item[1].candidate_id, 0.0)
                             )
                         ),
                         -item[1].fit_score,
@@ -1193,9 +1227,15 @@ class RecommendationOrchestrator:
         indexed_finalist_pool = list(enumerate(finalist_pool))
         indexed_finalist_pool.sort(
             key=lambda item: (
-                -self._board_recency_factor(
-                    item[1][0].candidate_id,
-                    board_recency_weights,
+                -(
+                    self._board_recency_factor(
+                        item[1][0].candidate_id,
+                        board_recency_weights,
+                    )
+                    + ShortTermPreferenceRanker.fit_adjustment(
+                        short_term_scores.get(item[1][0].candidate_id, 0.0)
+                    )
+                    / 100.0
                 ),
                 item[0],
             )
@@ -1301,6 +1341,11 @@ class RecommendationOrchestrator:
                     "judgment_cards": judgment_cards,
                     "previous_board_candidate_ids": previous_board_candidate_ids,
                     "minimum_new_items": minimum_new_items,
+                    "short_term_scores": {
+                        candidate_id: round(float(short_term_scores[candidate_id]), 6)
+                        for candidate_id in sorted(short_term_scores)
+                        if candidate_id in {item.candidate_id for item in finalists}
+                    },
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -1641,9 +1686,22 @@ class RecommendationOrchestrator:
         current_profile: UserProfile,
         profile_preferences: Any,
         confirmed_memory: Any,
+        feedback_polarities: Optional[Mapping[str, str]] = None,
     ) -> str:
         """根据画像、确认记忆和近期信号计算偏好指纹。"""
         signals = self._repository.load_short_term_signals(profile_id)
+        if feedback_polarities is None:
+            feedback_polarities = FeedbackActionService(
+                self._repository
+            ).latest_candidate_polarities(profile_id)
+        normalized_feedback_polarities = sorted(
+            (
+                str(candidate_id or "").strip(),
+                str(polarity or "").strip(),
+            )
+            for candidate_id, polarity in dict(feedback_polarities or {}).items()
+            if str(candidate_id or "").strip()
+        )
         payload = {
             "profile_input_fingerprint": current_profile.profile_input_fingerprint,
             "preferences_fingerprint": profile_preferences.fingerprint(),
@@ -1660,6 +1718,13 @@ class RecommendationOrchestrator:
                     "observed_at": item.observed_at,
                 }
                 for item in signals
+            ],
+            "feedback_polarities": [
+                {
+                    "candidate_id": candidate_id,
+                    "polarity": polarity,
+                }
+                for candidate_id, polarity in normalized_feedback_polarities
             ],
         }
         return self._adaptive_fingerprint(payload)
@@ -1707,6 +1772,38 @@ class RecommendationOrchestrator:
         self._repository.append_short_term_signal(signal)
         metrics["rotation_signal_created"] = True
 
+    def _short_term_state(
+        self,
+        profile_id: str,
+        candidate_ids: Iterable[str],
+        *,
+        feedback_polarities: Optional[Mapping[str, str]] = None,
+        at: Any = None,
+    ) -> Tuple[List[ShortTermSignal], Dict[str, float], List[Dict[str, Any]]]:
+        """读取同一时刻的短期信号、候选软分和受限摘要。"""
+        if feedback_polarities is None:
+            feedback_polarities = FeedbackActionService(
+                self._repository
+            ).latest_candidate_polarities(profile_id)
+        candidate_scope = (
+            None if candidate_ids is None else tuple(candidate_ids)
+        )
+        signals = self._repository.load_short_term_signals(profile_id)
+        observed_at = at if at is not None else datetime.now(timezone.utc)
+        scores = ShortTermPreferenceRanker.score_map(
+            signals,
+            active_feedback_polarities=feedback_polarities,
+            candidate_ids=candidate_scope,
+            at=observed_at,
+        )
+        summary = ShortTermPreferenceRanker.summarize(
+            signals,
+            active_feedback_polarities=feedback_polarities,
+            candidate_ids=candidate_scope,
+            at=observed_at,
+        )
+        return signals, scores, summary
+
     async def run(
         self,
         profile_id: str,
@@ -1735,6 +1832,7 @@ class RecommendationOrchestrator:
             "_run_id": run_id,
             "trigger_reason": str(trigger_reason or "manual").strip()[:32],
             "agent_calls": 0,
+            "short_term_commit_recomputed": False,
             "refill_attempted": False,
             "copy_rewrite_attempted": False,
             "copy_rewrite_candidate_count": 0,
@@ -2221,9 +2319,11 @@ class RecommendationOrchestrator:
             metrics["board_recency_penalized_candidate_count"] = sum(
                 value < 1.0 for value in board_recency_weights.values()
             )
-            disliked_ids = FeedbackActionService(
-                self._repository
-            ).active_disliked_candidate_ids(target)
+            feedback_actions = FeedbackActionService(self._repository)
+            disliked_ids = feedback_actions.active_disliked_candidate_ids(target)
+            latest_feedback_polarities = feedback_actions.latest_candidate_polarities(
+                target
+            )
             metrics["active_disliked_candidate_count"] = len(disliked_ids)
             negative_keywords = profile_preferences.effective_negative_tags(
                 current_profile.negative_tags
@@ -2418,6 +2518,30 @@ class RecommendationOrchestrator:
                 )
 
             self._record_rotation_signal_if_needed(target, previous_board, metrics)
+            short_term_signals, short_term_scores, short_term_summary = (
+                self._short_term_state(
+                    target,
+                    [candidate.candidate_id for candidate in candidates],
+                    feedback_polarities=latest_feedback_polarities,
+                )
+            )
+            short_term_signal_keys = {
+                item.idempotency_key for item in short_term_signals
+            }
+            metrics["short_term_signal_count"] = len(short_term_signals)
+            metrics["short_term_active_candidate_count"] = len(short_term_scores)
+            metrics["short_term_positive_candidate_count"] = sum(
+                value > 0 for value in short_term_scores.values()
+            )
+            metrics["short_term_negative_candidate_count"] = sum(
+                value < 0 for value in short_term_scores.values()
+            )
+            metrics["short_term_rank_adjusted_count"] = 0
+            metrics["short_term_rank_adjustment_max_units"] = max(
+                (abs(ShortTermPreferenceRanker.adjustment_units(value))
+                 for value in short_term_scores.values()),
+                default=0,
+            )
             source_fingerprint = self._adaptive_source_fingerprint(
                 current_profile, candidate_result, candidates
             )
@@ -2426,6 +2550,7 @@ class RecommendationOrchestrator:
                 current_profile,
                 profile_preferences,
                 confirmed_memory,
+                latest_feedback_polarities,
             )
             consumption_fingerprint = self._adaptive_consumption_fingerprint(
                 previous_board
@@ -2510,6 +2635,7 @@ class RecommendationOrchestrator:
                     current_profile.negative_tags
                 )
             )
+            ranking_profile["short_term_preferences"] = short_term_summary
             trusted_weights = self._trusted_weights(
                 config,
                 policy_snapshot,
@@ -2567,6 +2693,7 @@ class RecommendationOrchestrator:
                     metrics=metrics,
                     previous_board_candidate_ids=previous_board_candidate_ids,
                     board_recency_weights=board_recency_weights,
+                    short_term_scores=short_term_scores,
                 )
                 validation = tournament.validation
                 agent_order.update(tournament.agent_order or {})
@@ -2955,6 +3082,7 @@ class RecommendationOrchestrator:
                     candidates,
                     agent_order=agent_order,
                     preserve_agent_order=tournament_protocol,
+                    short_term_scores=short_term_scores,
                 )[:RECOMMENDATION_LIMIT]
             except Exception as error:
                 errors.append(f"stable ranking: {error}")
@@ -2970,6 +3098,11 @@ class RecommendationOrchestrator:
                     errors,
                     agent_calls=int(metrics["agent_calls"]),
                 )
+            metrics["short_term_rank_adjusted_count"] = sum(
+                abs(float(short_term_scores.get(item.candidate_id, 0.0) or 0.0))
+                > 0.000001
+                for item in accepted
+            )
 
             fallback_count = len(fallback_candidate_ids)
             metrics["ranking_fallback_count"] = fallback_count
@@ -3063,9 +3196,64 @@ class RecommendationOrchestrator:
                         )
                     latest_archive = self._repository.load_archive(target)
                     latest_archived_ids = self._archive_candidate_ids(latest_archive)
-                    latest_disliked_ids = FeedbackActionService(
+                    latest_feedback_actions = FeedbackActionService(
                         self._repository
-                    ).active_disliked_candidate_ids(target)
+                    )
+                    latest_disliked_ids = (
+                        latest_feedback_actions.active_disliked_candidate_ids(target)
+                    )
+                    latest_commit_feedback_polarities = (
+                        latest_feedback_actions.latest_candidate_polarities(target)
+                    )
+                    (
+                        commit_short_term_signals,
+                        commit_short_term_scores,
+                        _commit_short_term_summary,
+                    ) = self._short_term_state(
+                        target,
+                        [candidate.candidate_id for candidate in candidates],
+                        feedback_polarities=latest_commit_feedback_polarities,
+                    )
+                    metrics["short_term_commit_recomputed"] = bool(
+                        latest_commit_feedback_polarities
+                        != latest_feedback_polarities
+                        or {
+                            item.idempotency_key
+                            for item in commit_short_term_signals
+                        }
+                        != short_term_signal_keys
+                    )
+                    short_term_signals = commit_short_term_signals
+                    short_term_scores = commit_short_term_scores
+                    metrics["short_term_signal_count"] = len(short_term_signals)
+                    metrics["short_term_active_candidate_count"] = len(
+                        short_term_scores
+                    )
+                    metrics["short_term_positive_candidate_count"] = sum(
+                        value > 0 for value in short_term_scores.values()
+                    )
+                    metrics["short_term_negative_candidate_count"] = sum(
+                        value < 0 for value in short_term_scores.values()
+                    )
+                    metrics["short_term_rank_adjustment_max_units"] = max(
+                        (
+                            abs(
+                                ShortTermPreferenceRanker.adjustment_units(value)
+                            )
+                            for value in short_term_scores.values()
+                        ),
+                        default=0,
+                    )
+                    if metrics["short_term_commit_recomputed"]:
+                        metrics["preference_fingerprint"] = (
+                            self._adaptive_preference_fingerprint(
+                                target,
+                                current_profile,
+                                profile_preferences,
+                                confirmed_memory,
+                                latest_commit_feedback_polarities,
+                            )
+                        )
                     archive_commit_excluded_ids = {
                         item.candidate_id
                         for item in accepted
@@ -3121,6 +3309,7 @@ class RecommendationOrchestrator:
                             candidates,
                             agent_order=agent_order,
                             preserve_agent_order=tournament_protocol,
+                            short_term_scores=short_term_scores,
                         )[:RECOMMENDATION_LIMIT]
                     except Exception as error:
                         errors.append(f"commit stable ranking: {error}")
@@ -3136,6 +3325,11 @@ class RecommendationOrchestrator:
                             errors,
                             agent_calls=int(metrics["agent_calls"]),
                         )
+                    metrics["short_term_rank_adjusted_count"] = sum(
+                        abs(float(short_term_scores.get(item.candidate_id, 0.0) or 0.0))
+                        > 0.000001
+                        for item in accepted
+                    )
 
                     fallback_count = sum(
                         item.candidate_id in fallback_candidate_ids

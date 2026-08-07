@@ -4,7 +4,7 @@ import copy
 import importlib
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 
@@ -23,6 +23,7 @@ archive_module = importlib.import_module(f"{PACKAGE_NAME}.service.archive")
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 config_module = importlib.import_module(f"{PACKAGE_NAME}.model.config")
+feedback_module = importlib.import_module(f"{PACKAGE_NAME}.model.feedback")
 memory_module = importlib.import_module(f"{PACKAGE_NAME}.model.memory")
 playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 preferences_module = importlib.import_module(
@@ -41,10 +42,12 @@ WEIGHT_DEFAULTS = config_module.WEIGHT_DEFAULTS
 PreferenceMemory = memory_module.PreferenceMemory
 PlaybackSample = playback_module.PlaybackSample
 PlaybackSnapshot = playback_module.PlaybackSnapshot
+ShortTermSignal = feedback_module.ShortTermSignal
 ProfilePreferences = preferences_module.ProfilePreferences
 AgentRankRepository = repository_module.AgentRankRepository
 DeterministicSupportScorer = scoring_module.DeterministicSupportScorer
 PolicyLearningService = scoring_module.PolicyLearningService
+ShortTermPreferenceRanker = scoring_module.ShortTermPreferenceRanker
 StableRecommendationRanker = scoring_module.StableRecommendationRanker
 SupportContribution = support_module.SupportContribution
 SupportScore = support_module.SupportScore
@@ -629,3 +632,136 @@ def test_ignore_changes_archive_only_and_has_zero_support_effect():
     assert preferences_after == preferences_before
     assert policy_after.policy_version == policy_before.policy_version
     assert score_after == score_before
+
+
+def test_short_term_ranker_applies_decay_neutral_cancellation_and_ignores_rotation():
+    """近期信号按半衰期衰减，中立状态取消旧赞踩，轮换不参与口味排序。"""
+    signals = [
+        ShortTermSignal(
+            profile_id=PROFILE_ID,
+            kind="like",
+            idempotency_key="like:a",
+            candidate_id="tmdb:movie:a",
+            strength=1.0,
+            decay_days=10,
+            observed_at=FIXED_NOW.isoformat(),
+        ),
+        ShortTermSignal(
+            profile_id=PROFILE_ID,
+            kind="like",
+            idempotency_key="like:b",
+            candidate_id="tmdb:movie:b",
+            strength=1.0,
+            decay_days=10,
+            observed_at=(FIXED_NOW - timedelta(days=10)).isoformat(),
+        ),
+        ShortTermSignal(
+            profile_id=PROFILE_ID,
+            kind="dislike",
+            idempotency_key="dislike:c",
+            candidate_id="tmdb:movie:c",
+            strength=-1.0,
+            decay_days=10,
+            observed_at=FIXED_NOW.isoformat(),
+        ),
+        ShortTermSignal(
+            profile_id=PROFILE_ID,
+            kind="rotation",
+            idempotency_key="rotation:run:1",
+            candidate_id="tmdb:movie:d",
+            strength=1.0,
+            observed_at=FIXED_NOW.isoformat(),
+        ),
+    ]
+
+    summary = ShortTermPreferenceRanker.summarize(
+        signals,
+        active_feedback_polarities={
+            "tmdb:movie:a": "neutral",
+            "tmdb:movie:c": "dislike",
+        },
+        candidate_ids=[
+            "tmdb:movie:a",
+            "tmdb:movie:b",
+            "tmdb:movie:c",
+            "tmdb:movie:d",
+        ],
+        at=FIXED_NOW,
+    )
+
+    assert {item["candidate_id"] for item in summary} == {
+        "tmdb:movie:b",
+        "tmdb:movie:c",
+    }
+    values = {item["candidate_id"]: item for item in summary}
+    assert values["tmdb:movie:b"]["strength"] == pytest.approx(0.5)
+    assert values["tmdb:movie:c"]["strength"] == pytest.approx(-1.0)
+    assert values["tmdb:movie:c"]["polarity"] == "negative"
+
+
+def test_short_term_positive_signal_reorders_near_candidates_without_mutating_support_score():
+    """近期正向信号可微调近邻顺序，但不得改写确定性支持度。"""
+    ranker = StableRecommendationRanker()
+    candidates = [
+        _candidate("tmdb:movie:a"),
+        _candidate("tmdb:movie:b"),
+    ]
+    items = [
+        _rank_item("tmdb:movie:a", 9_000),
+        _rank_item("tmdb:movie:b", 9_500),
+    ]
+    support_before = {
+        item.candidate_id: item.support.to_dict() for item in items
+    }
+
+    baseline = ranker.rank(items, candidates)
+    adjusted = ranker.rank(
+        items,
+        candidates,
+        short_term_scores={"tmdb:movie:a": 1.0},
+    )
+
+    assert [item.candidate_id for item in baseline] == [
+        "tmdb:movie:b",
+        "tmdb:movie:a",
+    ]
+    assert [item.candidate_id for item in adjusted] == [
+        "tmdb:movie:a",
+        "tmdb:movie:b",
+    ]
+    assert {
+        item.candidate_id: item.support.to_dict() for item in adjusted
+    } == support_before
+
+
+def test_short_term_ranker_clamps_only_after_aggregation_and_honors_empty_scope():
+    """短期信号先求和后限幅，显式空候选范围不会泄露其它作品。"""
+    signals = [
+        ShortTermSignal(
+            profile_id=PROFILE_ID,
+            kind="playback_completed",
+            idempotency_key=f"aggregate:{index}",
+            candidate_id="tmdb:movie:aggregate",
+            strength=strength,
+            observed_at=FIXED_NOW.isoformat(),
+        )
+        for index, strength in enumerate((1.0, 1.0, -1.0), start=1)
+    ]
+
+    forward = ShortTermPreferenceRanker.score_map(
+        signals,
+        candidate_ids=["tmdb:movie:aggregate"],
+        at=FIXED_NOW,
+    )
+    reverse = ShortTermPreferenceRanker.score_map(
+        list(reversed(signals)),
+        candidate_ids=["tmdb:movie:aggregate"],
+        at=FIXED_NOW,
+    )
+
+    assert forward == reverse == {"tmdb:movie:aggregate": 1.0}
+    assert ShortTermPreferenceRanker.score_map(
+        signals,
+        candidate_ids=[],
+        at=FIXED_NOW,
+    ) == {}

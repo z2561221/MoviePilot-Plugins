@@ -143,6 +143,18 @@ class FeedbackActionService:
                     states[event.candidate_id] = event.kind
         return states
 
+    def latest_candidate_polarities(self, profile_id: str) -> Dict[str, str]:
+        """返回跨榜单最新赞踩或中立状态，保留中立取消语义。"""
+        states: Dict[str, str] = {}
+        for event in self._events(profile_id):
+            if (
+                event.kind in {"like", "dislike", "neutral"}
+                and event.candidate_id
+                and event.status == "recorded"
+            ):
+                states[event.candidate_id] = event.kind
+        return states
+
     def active_disliked_candidate_ids(self, profile_id: str) -> set[str]:
         """返回仅用于作品级硬排除的当前不喜欢作品身份。"""
         return {

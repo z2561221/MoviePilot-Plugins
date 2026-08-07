@@ -42,6 +42,7 @@ package.__path__ = [str(PLUGIN_DIR)]
 
 context_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.context")
 registry_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.registry")
+tools_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.tools")
 
 TRUSTED_CONTEXT_KEY = context_module.TRUSTED_CONTEXT_KEY
 build_trusted_context = context_module.build_trusted_context
@@ -52,6 +53,7 @@ FEEDBACK_AGENT_TOOL_CLASSES = registry_module.FEEDBACK_AGENT_TOOL_CLASSES
 PROFILE_AGENT_TOOL_CLASSES = registry_module.PROFILE_AGENT_TOOL_CLASSES
 PRELIMINARY_AGENT_TOOL_CLASSES = registry_module.PRELIMINARY_AGENT_TOOL_CLASSES
 FINAL_AGENT_TOOL_CLASSES = registry_module.FINAL_AGENT_TOOL_CLASSES
+minimal_profile = tools_module._minimal_profile
 session_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.session")
 schemas_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.schemas")
 RESULT_COLLECTOR_KEY = session_module.RESULT_COLLECTOR_KEY
@@ -221,6 +223,50 @@ def test_trusted_context_is_deep_copied_and_all_tools_read_expected_slice():
     }
     assert outputs["read_agentrank_weights"]["weights"] == weights
     assert outputs["read_agentrank_playback"]["playback"] == playback
+
+
+def test_minimal_profile_bounds_short_term_preferences_and_drops_nonfinite_values():
+    """近期候选软分只以有限、有界摘要进入 Agent 上下文。"""
+    result = minimal_profile(
+        {
+            "summary": "偏好悬疑",
+            "short_term_preferences": [
+                {
+                    "candidate_id": "tmdb:movie:1",
+                    "strength": 2.5,
+                    "polarity": "POSITIVE",
+                    "kinds": ["like", "detail_opened"],
+                    "signal_count": 5000,
+                },
+                {
+                    "candidate_id": "tmdb:movie:nan",
+                    "strength": float("nan"),
+                },
+                {
+                    "candidate_id": "tmdb:movie:bad-count",
+                    "strength": 0.4,
+                    "signal_count": "not-a-number",
+                },
+            ],
+        }
+    )
+
+    assert result["short_term_preferences"] == [
+        {
+            "candidate_id": "tmdb:movie:1",
+            "strength": 1.0,
+            "polarity": "positive",
+            "kinds": ["like", "detail_opened"],
+            "signal_count": 1000,
+        },
+        {
+            "candidate_id": "tmdb:movie:bad-count",
+            "strength": 0.4,
+            "polarity": "",
+            "kinds": [],
+            "signal_count": 0,
+        },
+    ]
 
 
 def test_ranking_tools_reject_duplicate_snapshot_reads():

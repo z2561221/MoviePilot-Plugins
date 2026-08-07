@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 
 from ..model.board import RecommendationItem
 from ..model.config import WEIGHT_DEFAULTS
+from ..model.feedback import ShortTermSignal
 from ..model.memory import PreferenceMemory
 from ..model.playback import PlaybackSample, PlaybackSnapshot
 from ..model.profile_preferences import ProfilePreferences
@@ -32,6 +33,11 @@ MEMORY_DELTA_SCALE = 0.10
 PLAYBACK_DELTA_SCALE = 0.04
 ABANDONMENT_DELTA_SCALE = 0.01
 _ROUND_DIGITS = 6
+
+# 短期行为只作为候选级软排序微调，不能压过完整的确定性支持度。
+SHORT_TERM_RANKING_UNIT_SCALE = 1_200
+SHORT_TERM_FIT_ADJUSTMENT_SCALE = 12
+_SHORT_TERM_FEEDBACK_KINDS = frozenset({"like", "dislike"})
 
 _CATEGORY_WEIGHTS = {
     "type": ("type_weight",),
@@ -79,6 +85,137 @@ _TYPE_ALIASES = {
     "动漫": "anime",
     "番剧": "anime",
 }
+
+
+class ShortTermPreferenceRanker:
+    """把近期行为投影为可衰减、有界且可复算的候选级排序信号。"""
+
+    @staticmethod
+    def _clamp(value: Any, minimum: float = -1.0, maximum: float = 1.0) -> float:
+        """将短期强度限制在稳定的闭区间。"""
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return 0.0
+        if not math.isfinite(number):
+            return 0.0
+        return max(minimum, min(maximum, number))
+
+    @staticmethod
+    def _signal_value(signal: Any, at: Any = None) -> float:
+        """读取一条信号在指定时刻的衰减强度，损坏数据按零处理。"""
+        try:
+            if isinstance(signal, ShortTermSignal):
+                return ShortTermPreferenceRanker._clamp(signal.decayed_strength(at))
+            if isinstance(signal, Mapping):
+                restored = ShortTermSignal.from_dict(signal)
+                return ShortTermPreferenceRanker._clamp(restored.decayed_strength(at))
+        except (TypeError, ValueError, OverflowError):
+            return 0.0
+        return 0.0
+
+    @classmethod
+    def summarize(
+        cls,
+        signals: Iterable[Any],
+        *,
+        active_feedback_polarities: Mapping[str, str] = None,
+        candidate_ids: Iterable[str] = None,
+        at: Any = None,
+    ) -> List[Dict[str, Any]]:
+        """聚合近期信号并返回不含原始文本的候选级摘要。"""
+        active = {
+            str(candidate_id or "").strip(): str(polarity or "").strip().casefold()
+            for candidate_id, polarity in dict(active_feedback_polarities or {}).items()
+            if str(candidate_id or "").strip()
+        }
+        has_allowed = candidate_ids is not None
+        allowed = (
+            {
+                str(candidate_id or "").strip()
+                for candidate_id in (candidate_ids or ())
+                if str(candidate_id or "").strip()
+            }
+            if has_allowed
+            else set()
+        )
+        totals: Dict[str, float] = {}
+        kinds: Dict[str, set[str]] = {}
+        counts: Dict[str, int] = {}
+        for raw_signal in signals or ():
+            if isinstance(raw_signal, ShortTermSignal):
+                signal = raw_signal
+            elif isinstance(raw_signal, Mapping):
+                try:
+                    signal = ShortTermSignal.from_dict(raw_signal)
+                except (TypeError, ValueError, KeyError):
+                    continue
+            else:
+                continue
+            candidate_id = str(signal.candidate_id or "").strip()
+            kind = str(signal.kind or "").strip().casefold()
+            if not candidate_id or kind == "rotation":
+                continue
+            # 赞踩是可被中立操作取消或反转的当前状态；旧信号不能继续生效。
+            if kind in _SHORT_TERM_FEEDBACK_KINDS and candidate_id in active:
+                if active[candidate_id] != kind:
+                    continue
+            strength = cls._signal_value(signal, at)
+            if abs(strength) < 0.000001:
+                continue
+            # 先累计原始浮点值，最后一次性 clamp；否则 +1、+1、-1 与
+            # +1、-1、+1 会因中途截断得到不同结果。
+            totals[candidate_id] = totals.get(candidate_id, 0.0) + strength
+            kinds.setdefault(candidate_id, set()).add(kind)
+            counts[candidate_id] = counts.get(candidate_id, 0) + 1
+
+        result: List[Dict[str, Any]] = []
+        for candidate_id in sorted(totals):
+            if has_allowed and candidate_id not in allowed:
+                continue
+            strength = round(cls._clamp(totals[candidate_id]), 6)
+            if abs(strength) < 0.000001:
+                continue
+            result.append(
+                {
+                    "candidate_id": candidate_id,
+                    "strength": strength,
+                    "polarity": "negative" if strength < 0 else "positive",
+                    "kinds": sorted(kinds.get(candidate_id, set())),
+                    "signal_count": counts.get(candidate_id, 0),
+                }
+            )
+        return result
+
+    @classmethod
+    def score_map(
+        cls,
+        signals: Iterable[Any],
+        *,
+        active_feedback_polarities: Mapping[str, str] = None,
+        candidate_ids: Iterable[str] = None,
+        at: Any = None,
+    ) -> Dict[str, float]:
+        """返回候选身份到当前短期软分的稳定映射。"""
+        return {
+            str(item["candidate_id"]): float(item["strength"])
+            for item in cls.summarize(
+                signals,
+                active_feedback_polarities=active_feedback_polarities,
+                candidate_ids=candidate_ids,
+                at=at,
+            )
+        }
+
+    @classmethod
+    def adjustment_units(cls, value: Any) -> int:
+        """把短期软分转换为不超过确定性支持度的小幅整数微调。"""
+        return int(round(cls._clamp(value) * SHORT_TERM_RANKING_UNIT_SCALE))
+
+    @classmethod
+    def fit_adjustment(cls, value: Any) -> int:
+        """把短期软分转换为初赛 0-100 契合度的有界微调。"""
+        return int(round(cls._clamp(value) * SHORT_TERM_FIT_ADJUSTMENT_SCALE))
 
 
 @dataclass(frozen=True)
@@ -1073,8 +1210,10 @@ class StableRecommendationRanker:
         items: Sequence[RecommendationItem],
         candidates: Sequence[Any],
         agent_order: Mapping[str, int] = None,
+        *,
+        short_term_scores: Mapping[str, Any] = None,
     ) -> List[RecommendationItem]:
-        """依次使用净分、Agent 顺序、冻结顺序和身份稳定排序。"""
+        """依次使用净分、短期微调、Agent 顺序和冻结顺序稳定排序。"""
         values = list(items or ())
         if not values:
             return []
@@ -1093,10 +1232,18 @@ class StableRecommendationRanker:
         }
         missing_agent_order = len(trusted_agent_order) + len(values) + 1
         missing_candidate_order = len(candidate_order) + len(values) + 1
+        short_term_adjustments = {
+            str(candidate_id): ShortTermPreferenceRanker.adjustment_units(value)
+            for candidate_id, value in dict(short_term_scores or {}).items()
+            if str(candidate_id or "").strip()
+        }
         ranked = sorted(
             values,
             key=lambda item: (
-                -item.support.net_units,
+                -(
+                    item.support.net_units
+                    + short_term_adjustments.get(item.candidate_id, 0)
+                ),
                 trusted_agent_order.get(item.candidate_id, missing_agent_order),
                 candidate_order.get(item.candidate_id, missing_candidate_order),
                 item.candidate_id,

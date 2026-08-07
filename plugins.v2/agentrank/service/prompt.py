@@ -298,7 +298,7 @@ def build_final_prompt(copy_prompt: str = "", ranking_prompt: str = "") -> str:
         if instructions
         else ""
     )
-    return """先调用一次 read_agentrank_final_context，再调用一次 submit_agentrank_final_board。候选的 candidate_ref（如 c1、c2）是宿主提供的稳定短引用；提交时必须把该引用逐字写入 candidate_id。只使用 allowed_candidate_refs 中的候选并按最终顺序提交完整 Top 5；placeholder、repair、pending 或其它占位 ID 一律非法。若上下文 freshness.minimum_new_items 大于 0，Top 5 必须至少包含该数量不在 previous_board_candidate_refs 中的新候选。无操作不等于负向偏好，不能据此排除候选或生成点踩理由。每条推荐的 positive_evidence 必须提交证据引用 p1、p2 等，不要复制或改写长证据对象；counter_evidence_options 非空时提交 c1、c2 等引用。证据引用只能来自当前候选展示的 *_evidence_refs，至少选择两个正向引用。推荐理由必须直接写出所选正向证据中的至少一个用户偏好短词和一个作品事实短词；画像、检索策略、候选来源和召回过程不能作为推荐理由。""" + suffix
+    return """先调用一次 read_agentrank_final_context，再调用一次 submit_agentrank_final_board。候选的 candidate_ref（如 c1、c2）是宿主提供的稳定短引用；提交时必须把该引用逐字写入 candidate_id。只使用 allowed_candidate_refs 中的候选并按最终顺序提交完整 Top 5；placeholder、repair、pending 或其它占位 ID 一律非法。若上下文 freshness.minimum_new_items 大于 0，Top 5 必须至少包含该数量不在 previous_board_candidate_refs 中的新候选。无操作不等于负向偏好，不能据此排除候选或生成点踩理由。当前画像中的 short_term_preferences 仅是宿主提供的近期候选级软排序提示，不能当作长期口味或证据写入理由。每条推荐的 positive_evidence 必须提交证据引用 p1、p2 等，不要复制或改写长证据对象；counter_evidence_options 非空时提交 c1、c2 等引用。证据引用只能来自当前候选展示的 *_evidence_refs，至少选择两个正向引用。推荐理由必须直接写出所选正向证据中的至少一个用户偏好短词和一个作品事实短词；画像、检索策略、候选来源和召回过程不能作为推荐理由。""" + suffix
 
 
 def build_ranking_prompt(
@@ -326,7 +326,7 @@ def build_ranking_prompt(
 4. 禁止订阅、禁止写入持久化、禁止修改配置、禁止调用消息或文件能力。
 5. 不得暴露推理过程、思维链、工具调用过程或 Markdown。
 
-权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。read_agentrank_weights 中的 evidence_catalog 是确定性校验器实际认可的用户证据目录；confirmed_preferences 只包含已确认记忆。候选中的 media_type、genres、actors、directors、regions、year、rating、popularity、release_date 与 overview 是可用作品证据，但来源名称本身不能证明作品类型或用户偏好。
+权重含义：type/theme/actor/director/region/year/rating/heat/freshness/similarity 均为零到一的重要度；筛选条件是硬约束，不是建议。read_agentrank_weights 中的 evidence_catalog 是确定性校验器实际认可的用户证据目录；confirmed_preferences 只包含已确认记忆。当前画像中的 short_term_preferences 是宿主根据近期点赞、订阅、播放与详情行为生成的候选级软排序提示，strength 会按时间衰减；它不能写入 positive_evidence/counter_evidence，也不能被解释成长期口味。候选中的 media_type、genres、actors、directors、regions、year、rating、popularity、release_date 与 overview 是可用作品证据，但来源名称本身不能证明作品类型或用户偏好。
 
 当前画像规则：先读取 read_agentrank_playback 返回的 current profile、profile_preferences 与 playback。profile 是上游画像 Agent 的只读结果，可用于软排序，但 profile.tags 和 ranking_tags 只有在 evidence_catalog 同时出现时才能写入 positive_evidence。排序 Agent 不得重新解释成新的画像或向输出写入 profile 根键。归档标签不得作为推荐证据或 match_tags。play_count/play_event_count 只表示播放事件数，绝不能写成“看完 X 次”或“整剧重看 X 次”；电视剧应使用 watched_episode_count、completed_episode_count 与 completed 表达“看过多集”“完成若干集”或“整剧已看完”，其中 play_count 不能替代集数。电影若有多个播放事件，也只能说“多次播放”，不能把事件数当作完成次数。abandoned 只能作为弱负向信号，不能把一次早退直接解释成讨厌。
 

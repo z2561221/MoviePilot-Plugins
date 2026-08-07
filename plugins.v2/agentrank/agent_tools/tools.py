@@ -1,6 +1,7 @@
 """读取 AgentRank 受信上下文的 MoviePilotTool 实现。"""
 
 import json
+import math
 from typing import Any, ClassVar, Dict, Iterable, Mapping, Optional, Tuple, Type
 
 from pydantic import BaseModel, ValidationError
@@ -168,7 +169,7 @@ def _minimal_evidence_options(values: Any) -> list[Dict[str, str]]:
 def _minimal_profile(value: Any) -> Dict[str, Any]:
     """只暴露判断所需的稳定画像摘要和标签。"""
     item = value if isinstance(value, Mapping) else {}
-    return {
+    result = {
         "summary": _bounded_text(item.get("summary"), 200),
         "tags": _bounded_strings(
             item.get("tags") or (), maximum_items=20, maximum_chars=20
@@ -180,6 +181,46 @@ def _minimal_profile(value: Any) -> Dict[str, Any]:
             item.get("ranking_tags") or (), maximum_items=20, maximum_chars=40
         ),
     }
+    raw_short_term = item.get("short_term_preferences")
+    if isinstance(raw_short_term, (list, tuple)):
+        short_term = []
+        for raw in raw_short_term:
+            if not isinstance(raw, Mapping):
+                continue
+            candidate_id = _bounded_text(raw.get("candidate_id"), 128)
+            if not candidate_id:
+                continue
+            strength = raw.get("strength")
+            if not isinstance(strength, (int, float)) or isinstance(strength, bool):
+                continue
+            try:
+                numeric_strength = float(strength)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if not math.isfinite(numeric_strength):
+                continue
+            try:
+                signal_count = int(raw.get("signal_count") or 0)
+            except (TypeError, ValueError, OverflowError):
+                signal_count = 0
+            polarity = _bounded_text(raw.get("polarity"), 16).casefold()
+            if polarity not in {"positive", "negative"}:
+                polarity = ""
+            short_term.append(
+                {
+                    "candidate_id": candidate_id,
+                    "strength": max(-1.0, min(1.0, round(numeric_strength, 6))),
+                    "polarity": polarity,
+                    "kinds": _bounded_strings(
+                        raw.get("kinds") or (), maximum_items=8, maximum_chars=24
+                    ),
+                    "signal_count": max(0, min(signal_count, 1000)),
+                }
+            )
+            if len(short_term) >= 50:
+                break
+        result["short_term_preferences"] = short_term
+    return result
 
 
 def _minimal_evidence_claim(value: Any) -> Dict[str, str]:

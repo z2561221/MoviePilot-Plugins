@@ -36,6 +36,7 @@ RecommendationBoard = board_module.RecommendationBoard
 RecommendationItem = board_module.RecommendationItem
 FeedbackEvent = feedback_module.FeedbackEvent
 PreferenceMemoryItem = memory_module.PreferenceMemoryItem
+PreferenceMemory = memory_module.PreferenceMemory
 PlaybackSample = playback_module.PlaybackSample
 PlaybackSnapshot = playback_module.PlaybackSnapshot
 PlaybackCapability = playback_module.PlaybackCapability
@@ -516,6 +517,35 @@ def test_exposed_board_without_action_creates_one_rotation_signal():
     orchestrator._record_rotation_signal_if_needed(PROFILE_ID, board, second_metrics)
     assert second_metrics["rotation_signal_created"] is False
     assert len(repository.load_short_term_signals(PROFILE_ID)) == 1
+
+
+def test_neutral_feedback_changes_adaptive_preference_fingerprint():
+    """中立纠正虽不新增短期信号，也必须使自适应门控看到偏好变化。"""
+    orchestrator, _ = _orchestrator(FakePlugin(), [])
+    profile = UserProfile(
+        profile_id=PROFILE_ID,
+        username="Alice",
+        profile_input_fingerprint="profile-input",
+    )
+    preferences = ProfilePreferences(profile_id=PROFILE_ID)
+    memory = PreferenceMemory.empty(PROFILE_ID)
+
+    liked = orchestrator._adaptive_preference_fingerprint(
+        PROFILE_ID,
+        profile,
+        preferences,
+        memory,
+        {"tmdb:movie:1": "like"},
+    )
+    neutral = orchestrator._adaptive_preference_fingerprint(
+        PROFILE_ID,
+        profile,
+        preferences,
+        memory,
+        {"tmdb:movie:1": "neutral"},
+    )
+
+    assert liked != neutral
 
 
 def test_success_atomically_saves_profile_board_and_run_history():
