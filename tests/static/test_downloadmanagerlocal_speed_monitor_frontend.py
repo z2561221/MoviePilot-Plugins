@@ -42,6 +42,30 @@ def test_speed_monitor_configuration_fields_and_ranges_are_visible():
     assert "当前值" in source
     assert "建议值" in source
     assert "dm-threshold-suggestion" in source
+    assert "采用建议" in source
+    assert "应用全部可用建议" in source
+    assert "applySpeedThresholdSuggestion" in source
+    assert "applyAllSpeedThresholdSuggestions" in source
+
+
+def test_speed_threshold_suggestion_order_matches_threshold_form_order():
+    """样本建议行应与上方阈值表单保持同一字段顺序。"""
+    source = _source()
+    rows = [
+        "label: '活跃扫描间隔'",
+        "label: '启动宽限'",
+        "label: '允许时长倍数'",
+        "label: '连续异常次数'",
+        "label: '可信样本门槛'",
+    ]
+    block = re.search(
+        r"const speedThresholdSuggestionRows = computed\(\(\) => \{(?P<body>.*?)\n\}\)",
+        source,
+        re.S,
+    )
+    assert block
+    body = block.group("body")
+    assert [body.index(row) for row in rows] == sorted(body.index(row) for row in rows)
 
 
 def test_runtime_flow_is_internal_and_external_link_is_explanatory_only():

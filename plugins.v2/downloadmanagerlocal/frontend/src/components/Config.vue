@@ -140,37 +140,61 @@ const speedThresholdSuggestions = computed(() => {
     grace_minutes: grace.length ? Math.max(...grace) : null,
   }
 })
-const speedThresholdSuggestionRows = computed(() => [
-  {
-    label: '允许时长倍数',
-    current: Number(form.speed_monitor_tolerance || 0).toFixed(1) + ' 倍',
-    suggested: speedThresholdSuggestions.value.tolerance == null
-      ? '—'
-      : Number(speedThresholdSuggestions.value.tolerance).toFixed(1) + ' 倍',
-  },
-  {
-    label: '启动宽限',
-    current: Number(form.speed_monitor_grace_minutes || 0) + ' 分钟',
-    suggested: speedThresholdSuggestions.value.grace_minutes == null
-      ? '—'
-      : speedThresholdSuggestions.value.grace_minutes + ' 分钟',
-  },
-  {
-    label: '活跃扫描间隔',
-    current: Number(form.speed_monitor_interval_seconds || 0) + ' 秒',
-    suggested: '30 秒',
-  },
-  {
-    label: '连续异常次数',
-    current: Number(form.speed_monitor_consecutive_abnormal_samples || 0) + ' 次',
-    suggested: '2 次',
-  },
-  {
-    label: '可信样本门槛',
-    current: Number(form.speed_monitor_min_samples || 0) + ' 条',
-    suggested: '5 条',
-  },
-])
+const speedThresholdSuggestionRows = computed(() => {
+  const suggestions = speedThresholdSuggestions.value
+  const rows = [
+    {
+      key: 'speed_monitor_interval_seconds',
+      label: '活跃扫描间隔',
+      currentValue: Number(form.speed_monitor_interval_seconds || 0),
+      suggestedValue: 30,
+      format: value => `${value} 秒`,
+    },
+    {
+      key: 'speed_monitor_grace_minutes',
+      label: '启动宽限',
+      currentValue: Number(form.speed_monitor_grace_minutes || 0),
+      suggestedValue: suggestions.grace_minutes,
+      format: value => `${value} 分钟`,
+    },
+    {
+      key: 'speed_monitor_tolerance',
+      label: '允许时长倍数',
+      currentValue: Number(form.speed_monitor_tolerance || 0),
+      suggestedValue: suggestions.tolerance,
+      format: value => `${Number(value).toFixed(1)} 倍`,
+    },
+    {
+      key: 'speed_monitor_consecutive_abnormal_samples',
+      label: '连续异常次数',
+      currentValue: Number(form.speed_monitor_consecutive_abnormal_samples || 0),
+      suggestedValue: 2,
+      format: value => `${value} 次`,
+    },
+    {
+      key: 'speed_monitor_min_samples',
+      label: '可信样本门槛',
+      currentValue: Number(form.speed_monitor_min_samples || 0),
+      suggestedValue: 5,
+      format: value => `${value} 条`,
+    },
+  ]
+  return rows.map(row => ({
+    ...row,
+    current: row.format(row.currentValue),
+    suggested: row.suggestedValue == null ? '—' : row.format(row.suggestedValue),
+    available: row.suggestedValue != null && row.currentValue !== row.suggestedValue,
+  }))
+})
+function applySpeedThresholdSuggestion(row) {
+  if (!row?.available) return
+  form[row.key] = row.suggestedValue
+}
+function applyAllSpeedThresholdSuggestions() {
+  speedThresholdSuggestionRows.value
+    .filter(row => row.available)
+    .forEach(applySpeedThresholdSuggestion)
+}
 const speedMonitorStatus = computed(() => {
   const status = speedMonitor.value.service_status
   return {
@@ -561,12 +585,20 @@ async function executeCleanupTags() {
               </VRow>
 
               <VAlert type="info" variant="tonal" density="compact" class="mt-3 dm-threshold-suggestion">
-                <div class="dm-threshold-suggestion-title">样本建议</div>
+                <div class="dm-threshold-suggestion-head">
+                  <div class="dm-threshold-suggestion-title">样本建议</div>
+                  <VBtn size="small" variant="tonal" color="primary" prepend-icon="mdi-check-all"
+                    :disabled="!speedThresholdSuggestionRows.some(row => row.available)"
+                    @click="applyAllSpeedThresholdSuggestions">应用全部可用建议</VBtn>
+                </div>
                 <div class="dm-threshold-suggestion-list">
                   <div v-for="row in speedThresholdSuggestionRows" :key="row.label" class="dm-threshold-suggestion-row">
                     <span class="dm-threshold-suggestion-label">{{ row.label }}</span>
-                    <span>当前值 {{ row.current }}</span>
-                    <strong>建议值 {{ row.suggested }}</strong>
+                    <span class="dm-threshold-suggestion-current">当前值 {{ row.current }}</span>
+                    <strong class="dm-threshold-suggestion-suggested">建议值 {{ row.suggested }}</strong>
+                    <VBtn size="x-small" variant="text" color="primary" prepend-icon="mdi-check-circle-outline"
+                      class="dm-threshold-suggestion-action" :disabled="!row.available"
+                      @click="applySpeedThresholdSuggestion(row)">采用建议</VBtn>
                   </div>
                 </div>
               </VAlert>
@@ -1082,11 +1114,16 @@ async function executeCleanupTags() {
 .dm-break-text { overflow-wrap: anywhere; }
 .dm-monitor-speed-list, .dm-monitor-baselines { display: grid; gap: 10px; }
 .dm-threshold-suggestion { border-radius: 8px; }
-.dm-threshold-suggestion-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.dm-threshold-suggestion-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.dm-threshold-suggestion-title { font-size: 13px; font-weight: 600; }
 .dm-threshold-suggestion-list { display: grid; gap: 4px; }
-.dm-threshold-suggestion-row { display: grid; grid-template-columns: minmax(120px, 1fr) repeat(2, minmax(112px, auto)); gap: 10px; align-items: center; min-width: 0; padding: 5px 0; border-top: 1px solid rgba(var(--v-border-color), .35); font-size: 12px; }
+.dm-threshold-suggestion-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(112px, auto) minmax(112px, auto) auto; grid-template-areas: 'label current suggested action'; gap: 10px; align-items: center; min-width: 0; padding: 5px 0; border-top: 1px solid rgba(var(--v-border-color), .35); font-size: 12px; }
 .dm-threshold-suggestion-row > span, .dm-threshold-suggestion-row > strong { min-width: 0; overflow-wrap: anywhere; }
 .dm-threshold-suggestion-label { font-weight: 600; }
+.dm-threshold-suggestion-label { grid-area: label; }
+.dm-threshold-suggestion-current { grid-area: current; }
+.dm-threshold-suggestion-suggested { grid-area: suggested; }
+.dm-threshold-suggestion-action { grid-area: action; justify-self: end; }
 .dm-monitor-speed-row { display: grid; grid-template-columns: minmax(150px, 0.45fr) minmax(240px, 1fr); gap: 14px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
 .dm-monitor-speed-name { display: flex; align-items: center; gap: 8px; min-width: 0; padding-top: 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .dm-monitor-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -1136,7 +1173,10 @@ async function executeCleanupTags() {
   .dm-flow { grid-template-columns: 1fr; }
   .dm-flow-block:first-child { grid-column: auto; }
   .dm-monitor-summary, .dm-monitor-baselines, .dm-monitor-speed-row { grid-template-columns: 1fr; }
-  .dm-threshold-suggestion-row { grid-template-columns: minmax(112px, 1fr) repeat(2, minmax(84px, auto)); gap: 6px; }
+  .dm-threshold-suggestion-head { align-items: stretch; flex-direction: column; }
+  .dm-threshold-suggestion-head :deep(.v-btn) { align-self: flex-start; }
+  .dm-threshold-suggestion-row { grid-template-columns: minmax(112px, 1fr) minmax(84px, auto); grid-template-areas: 'label current' 'suggested action'; gap: 6px; }
+  .dm-threshold-suggestion-action { justify-self: end; }
   .dm-monitor-speed-name { padding-top: 0; }
   .dm-cleanup-toolbar, .dm-cleanup-summary, .dm-cleanup-actions, .dm-tag-group-head { align-items: stretch; flex-direction: column; }
   .dm-cleanup-toolbar :deep(.v-btn), .dm-cleanup-actions :deep(.v-btn) { width: 100%; }
