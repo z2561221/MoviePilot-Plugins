@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import statistics
 from typing import Any
 
@@ -50,6 +51,62 @@ def robust_speed_window(samples: list[dict]) -> dict:
         "lower_speed_bps": max(0.0, center - band),
         "upper_speed_bps": center + band,
     }
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    """按线性插值计算一组数值的分位点。"""
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    position = (len(ordered) - 1) * min(1.0, max(0.0, percentile))
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * weight
+
+
+def suggest_thresholds(
+    samples: list[dict],
+    *,
+    trusted_speed_bps: float,
+    min_samples: int,
+) -> dict:
+    """根据健康样本生成仅供展示的阈值建议，不修改任何配置。"""
+    values = [sample for sample in samples if isinstance(sample, dict)]
+    speeds = [
+        speed
+        for sample in values
+        for speed in [_positive_number(sample.get("average_speed_bps"))]
+        if speed > 0
+    ]
+    durations = [
+        duration
+        for sample in values
+        for duration in [_positive_number(sample.get("effective_seconds"))]
+        if duration > 0
+    ]
+    required = max(1, int(min_samples or 1))
+    recommendation = {
+        "ready": False,
+        "sample_count": len(values),
+        "tolerance": None,
+        "grace_minutes": None,
+        "interval_seconds": 30,
+        "consecutive_abnormal_samples": 2,
+        "min_samples": required,
+    }
+    reference = _positive_number(trusted_speed_bps)
+    if len(speeds) < required or not reference:
+        return recommendation
+
+    ratios = [reference / speed for speed in speeds]
+    tolerance = _percentile(ratios, 0.95)
+    recommendation["tolerance"] = round(min(3.0, max(1.5, tolerance)), 1)
+    if durations:
+        grace_minutes = math.ceil(_percentile(durations, 0.90) / 60.0)
+        recommendation["grace_minutes"] = min(5, max(2, grace_minutes))
+    recommendation["ready"] = True
+    return recommendation
 
 
 def _baseline_state(
@@ -178,4 +235,5 @@ __all__ = (
     "record_health_sample",
     "reset_downloader_baseline",
     "robust_speed_window",
+    "suggest_thresholds",
 )

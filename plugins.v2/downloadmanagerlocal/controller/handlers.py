@@ -7,6 +7,7 @@ from app.log import logger
 from ..adapter.moviepilot import get_downloader_config, list_builtin_sites
 from ..model.state import RENAME_RECORDS_KEY, RENAME_RETRY_STATE_KEY
 from ..service.site_tag import execute_tag_cleanup, scan_and_clean_tags
+from ..service.speed_baseline import suggest_thresholds
 from ..service.speed_decision import resolve_reference_speed
 from ..service.speed_monitor import (
     SESSION_ACTIVE,
@@ -52,6 +53,13 @@ def _speed_monitor_overview(plugin):
             "relative_only": bool(baseline.get("relative_only", not bool(
                 floor_speeds.get(downloader_id)
             ))),
+            "threshold_suggestion": suggest_thresholds(
+                baseline.get("samples") or [],
+                trusted_speed_bps=baseline.get("trusted_speed_bps") or 0,
+                min_samples=baseline.get("min_samples")
+                or getattr(plugin, "_speed_monitor_min_samples", 5)
+                or 5,
+            ),
         })
 
     alert_counts = {"pending": 0, "notified": 0, "confirming": 0}

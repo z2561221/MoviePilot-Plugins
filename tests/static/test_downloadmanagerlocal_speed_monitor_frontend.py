@@ -38,6 +38,10 @@ def test_speed_monitor_configuration_fields_and_ranges_are_visible():
     assert "活跃扫描间隔（秒）" in source
     assert 'min="10" max="300"' in source
     assert "speed_monitor_interval_minutes" not in source
+    assert "样本建议" in source
+    assert "当前值" in source
+    assert "建议值" in source
+    assert "dm-threshold-suggestion" in source
 
 
 def test_runtime_flow_is_internal_and_external_link_is_explanatory_only():

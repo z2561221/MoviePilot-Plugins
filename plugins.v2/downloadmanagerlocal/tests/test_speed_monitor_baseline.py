@@ -91,6 +91,45 @@ def test_auto_baseline_stays_provisional_until_minimum_samples():
     assert (reference, source) == (100.0, "trusted_relative_baseline")
 
 
+def test_threshold_suggestions_use_sample_percentile_and_fixed_safety_values():
+    """样本足够时建议容忍倍数和宽限，其余安全参数保持固定建议。"""
+    baseline_module = _load("service.speed_baseline")
+    samples = [
+        {"average_speed_bps": speed, "effective_seconds": duration}
+        for speed, duration in [
+            (10_760_061.85, 133.1),
+            (4_578_128.82, 320.9),
+            (8_439_449.67, 150.2),
+            (20_097_503.15, 60.1),
+            (26_982_894.64, 300.4),
+            (12_399_564.26, 90.1),
+            (5_734_183.36, 210.2),
+        ]
+    ]
+
+    suggestion = baseline_module.suggest_thresholds(
+        samples,
+        trusted_speed_bps=10_760_061.85,
+        min_samples=5,
+    )
+
+    assert suggestion["ready"] is True
+    assert suggestion["sample_count"] == 7
+    assert suggestion["tolerance"] == 2.2
+    assert suggestion["grace_minutes"] == 5
+    assert suggestion["interval_seconds"] == 30
+    assert suggestion["consecutive_abnormal_samples"] == 2
+
+    pending = baseline_module.suggest_thresholds(
+        samples[:4],
+        trusted_speed_bps=10_760_061.85,
+        min_samples=5,
+    )
+    assert pending["ready"] is False
+    assert pending["tolerance"] is None
+    assert pending["grace_minutes"] is None
+
+
 def test_floor_filters_slow_calibration_samples_and_isolates_downloaders():
     """保护下限应排除低速样本且各下载器基准互不影响。"""
     baseline_module = _load("service.speed_baseline")

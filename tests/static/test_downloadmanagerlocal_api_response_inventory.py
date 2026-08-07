@@ -39,6 +39,7 @@ def test_downloadmanagerlocal_overview_response_inventory():
         '"reference_speed_bps"',
         '"relative_only"',
         '"last_disposition"',
+        '"threshold_suggestion"',
     ]:
         assert key in source
 
