@@ -45,6 +45,41 @@ def _clean_meta_for_rename(meta: MetaBase) -> None:
         _set_meta_attr(meta, attr, "")
 
 
+def _build_rename_meta(torrent_name: str, downloadhis=None) -> MetaInfo:
+    """优先用当前种子原始名构造元数据，缺少季集时再补用下载历史。"""
+    current_name = clean_torrent_original_name(torrent_name).strip()
+    history_name = ""
+    if downloadhis:
+        history_torrent_name = getattr(downloadhis, "torrent_name", "")
+        history_name = clean_torrent_original_name(history_torrent_name).strip()
+
+    source_name = current_name or history_name or str(torrent_name or "").strip()
+    meta = MetaInfo(title=source_name, subtitle="")
+    if not downloadhis or getattr(downloadhis, "type", "") != MediaType.TV.value:
+        return meta
+
+    history_season = str(getattr(downloadhis, "seasons", "") or "").strip()
+    history_episode = str(getattr(downloadhis, "episodes", "") or "").strip()
+    if not history_season and not history_episode:
+        return meta
+
+    # 用历史字段构造一个仅含季集的补充元数据，避免改写当前种子的标题。
+    history_meta = MetaInfo(title=f"{history_season}{history_episode}", subtitle="")
+    for attr in (
+        "begin_season",
+        "end_season",
+        "total_season",
+        "begin_episode",
+        "end_episode",
+        "total_episode",
+    ):
+        if getattr(meta, attr, None) is None:
+            value = getattr(history_meta, attr, None)
+            if value is not None:
+                setattr(meta, attr, value)
+    return meta
+
+
 def format_torrent_name(template_string: str, meta: MetaBase, mediainfo) -> Optional[str]:
     """根据 Jinja2 模板格式化种子名称"""
     _clean_meta_for_rename(meta)
@@ -375,12 +410,14 @@ def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: st
                     save_rename_record(plugin, torrent_hash, torrent_name, torrent_name, False, "命中排除目录")
                     return
 
-        # 优先从下载历史获取识别信息（含完整季集号）
+        # 历史只提供媒体身份，季集优先从当前种子原始名解析
         downloadhis = get_download_history_by_hash(torrent_hash)
         if downloadhis:
-            history_name = clean_torrent_original_name(downloadhis.torrent_name).strip()
-            logger.info(f"转移后重命名：找到下载历史记录，使用历史名称识别: {history_name or downloadhis.torrent_name}")
-            meta = MetaInfo(title=history_name or downloadhis.torrent_name, subtitle="")
+            logger.info(
+                f"转移后重命名：找到下载历史记录，使用当前种子名保留季集: "
+                f"{clean_torrent_original_name(torrent_name).strip() or torrent_name}"
+            )
+            meta = _build_rename_meta(torrent_name, downloadhis)
             media_info = plugin.chain.recognize_media(
                 meta=meta, mtype=MediaType(downloadhis.type), tmdbid=downloadhis.tmdbid
             )
