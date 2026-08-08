@@ -6,6 +6,7 @@ from .controller.handlers import (
     api_diagnostics,
     api_downloaders,
     api_overview,
+    api_reset_speed_monitor_baseline,
     api_recovery_torrent,
     api_rename_archive,
     api_rename_history,

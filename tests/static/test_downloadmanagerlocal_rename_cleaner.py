@@ -38,6 +38,49 @@ class RenameCleanerTest(unittest.TestCase):
             "Beyond Time s Gaze S01E17 2025 2160p WEB-DL H265 AAC-ADWeb",
         )
 
+    def test_removes_variety_episode_subtitle_with_chinese_season_and_period(self) -> None:
+        cleaner = _load_module(PLUGIN_DIR / "utils" / "name_cleaner.py", "name_cleaner")
+
+        samples = (
+            (
+                "Love Actually S05E27 2026 2160p WEB-DL H265 AAC-ADWeb"
+                "[半熟恋人 第五季 正片 第10期上：在我面前做小孩～译路有你浪漫牵手 *云视听极光*]"
+            ),
+            (
+                "Love Actually S05E28 2026 2160p WEB-DL H265 AAC-ADWeb"
+                "[半熟恋人 第五季 正片 第10期下：倾付真心与偏爱！柳周爆泪告白 *云视听极光*]"
+            ),
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                self.assertEqual(
+                    cleaner.clean_torrent_original_name(sample),
+                    sample.split("[", 1)[0],
+                )
+                self.assertTrue(cleaner.is_polluted_original_name(sample))
+
+    def test_discards_all_metadata_after_release_group(self) -> None:
+        cleaner = _load_module(PLUGIN_DIR / "utils" / "name_cleaner.py", "name_cleaner")
+        release_name = "Love Actually S05E27 2026 2160p WEB-DL H265 AAC-ADWeb"
+
+        for suffix in (
+            "[粤语]",
+            "[半熟恋人 第五季 正片 第10期上：在我面前做小孩]",
+            "　 [免费] 剩余时间：12时41分",
+        ):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(
+                    cleaner.clean_torrent_original_name(f"{release_name}{suffix}"),
+                    release_name,
+                )
+
+    def test_keeps_release_metadata_before_release_group(self) -> None:
+        cleaner = _load_module(PLUGIN_DIR / "utils" / "name_cleaner.py", "name_cleaner")
+        release_name = "Love Actually S05E27 2026 2160p WEB-DL H265 AAC [粤语]-ADWeb"
+
+        self.assertEqual(cleaner.clean_torrent_original_name(release_name), release_name)
+
     def test_cleans_already_renamed_dirty_qbittorrent_names_without_stacking_dashes(self) -> None:
         cleaner = _load_module(PLUGIN_DIR / "utils" / "name_cleaner.py", "name_cleaner")
 

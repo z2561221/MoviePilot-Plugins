@@ -22,6 +22,14 @@ const cleanupExecuting = ref(false)
 const cleanupDialog = ref(false)
 const cleanupMessage = ref('')
 const cleanupStatus = ref('info')
+const monitorResetting = ref('')
+const monitorMessage = ref('')
+const monitorMessageStatus = ref('info')
+
+async function refreshOverview() {
+  const response = await getPluginApi(props.api, 'overview')
+  if (response?.code === 0 || response?.cards) overview.value = response
+}
 
 onMounted(async () => {
   try {
@@ -36,9 +44,7 @@ onMounted(async () => {
     if (siteResp) {
       siteItems.value = siteResp
     }
-    if (overviewResp?.code === 0 || overviewResp?.cards) {
-      overview.value = overviewResp
-    }
+    if (overviewResp?.code === 0 || overviewResp?.cards) overview.value = overviewResp
   } catch (e) {
     console.error('获取列表失败:', e)
   }
@@ -65,10 +71,17 @@ const defaults = {
   iyuu_clearcache: false,
   seed_autostart: true, seed_skipverify: false,
   seed_check_interval: 60, seed_max_wait_minutes: 120,
+  speed_monitor_enabled: false, speed_monitor_downloaders: [], speed_monitor_mode: 'auto',
+  speed_monitor_tolerance: 1.5, speed_monitor_min_samples: 5,
+  speed_monitor_interval_seconds: 30, speed_monitor_grace_minutes: 10,
+  speed_monitor_consecutive_abnormal_samples: 2,
+  speed_monitor_manual_speed_bps: {}, speed_monitor_floor_speed_bps: {},
+  speed_monitor_notification_type: 'Plugin',
 }
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '总览下载中心运行链路、模块状态和待关注事项。' },
+  { key: 'monitor', title: '速度监控', icon: 'mdi-speedometer', desc: '按下载器建立稳健基准，识别未在预计时间内完成的下载任务。' },
   { key: 'transfer', title: '转移做种', icon: 'mdi-transfer', desc: '监听下载完成事件，延迟后自动转移做种到目标下载器。' },
   { key: 'iyuu', title: 'IYUU辅种', icon: 'mdi-seed-plus', desc: '基于 IYUU API 自动辅种，铺种后自动打站点标签。' },
   { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
@@ -78,6 +91,11 @@ const mainTabs = [
 
 const subTabs = {
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
+  monitor: [
+    { key: 'monitor_basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'monitor_threshold', title: '阈值策略', icon: 'mdi-chart-bell-curve-cumulative' },
+    { key: 'monitor_status', title: '运行状态', icon: 'mdi-pulse' },
+  ],
   transfer: [
     { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' },
     { key: 'filter', title: '筛选条件', icon: 'mdi-filter-variant' },
@@ -103,6 +121,104 @@ const selectedToDownloaderType = computed(() => {
   return selected?.type || ''
 })
 const qbDownloaderItems = computed(() => downloaderItems.value.filter(item => item.type === 'qbittorrent'))
+const monitorDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
+const speedMonitor = computed(() => overview.value?.speed_monitor || {})
+const speedBaselines = computed(() => speedMonitor.value.baselines || [])
+const speedThresholdSuggestions = computed(() => {
+  const configured = new Set(form.speed_monitor_downloaders || [])
+  const selected = speedBaselines.value.filter(
+    item => configured.has(item.downloader_id) && item.threshold_suggestion?.ready,
+  )
+  const tolerance = selected
+    .map(item => Number(item.threshold_suggestion.tolerance || 0))
+    .filter(value => value > 0)
+  const grace = selected
+    .map(item => Number(item.threshold_suggestion.grace_minutes || 0))
+    .filter(value => value > 0)
+  return {
+    tolerance: tolerance.length ? Math.max(...tolerance) : null,
+    grace_minutes: grace.length ? Math.max(...grace) : null,
+  }
+})
+const speedThresholdSuggestionRows = computed(() => {
+  const suggestions = speedThresholdSuggestions.value
+  const rows = [
+    {
+      key: 'speed_monitor_interval_seconds',
+      label: '活跃扫描间隔',
+      currentValue: Number(form.speed_monitor_interval_seconds || 0),
+      suggestedValue: 30,
+      format: value => `${value} 秒`,
+    },
+    {
+      key: 'speed_monitor_grace_minutes',
+      label: '启动宽限',
+      currentValue: Number(form.speed_monitor_grace_minutes || 0),
+      suggestedValue: suggestions.grace_minutes,
+      format: value => `${value} 分钟`,
+    },
+    {
+      key: 'speed_monitor_tolerance',
+      label: '允许时长倍数',
+      currentValue: Number(form.speed_monitor_tolerance || 0),
+      suggestedValue: suggestions.tolerance,
+      format: value => `${Number(value).toFixed(1)} 倍`,
+    },
+    {
+      key: 'speed_monitor_consecutive_abnormal_samples',
+      label: '连续异常次数',
+      currentValue: Number(form.speed_monitor_consecutive_abnormal_samples || 0),
+      suggestedValue: 2,
+      format: value => `${value} 次`,
+    },
+    {
+      key: 'speed_monitor_min_samples',
+      label: '可信样本门槛',
+      currentValue: Number(form.speed_monitor_min_samples || 0),
+      suggestedValue: 5,
+      format: value => `${value} 条`,
+    },
+  ]
+  return rows.map(row => ({
+    ...row,
+    current: row.format(row.currentValue),
+    suggested: row.suggestedValue == null ? '—' : row.format(row.suggestedValue),
+    available: row.suggestedValue != null && row.currentValue !== row.suggestedValue,
+  }))
+})
+function applySpeedThresholdSuggestion(row) {
+  if (!row?.available) return
+  form[row.key] = row.suggestedValue
+}
+function applyAllSpeedThresholdSuggestions() {
+  speedThresholdSuggestionRows.value
+    .filter(row => row.available)
+    .forEach(applySpeedThresholdSuggestion)
+}
+const speedMonitorStatus = computed(() => {
+  const status = speedMonitor.value.service_status
+  return {
+    disabled: { label: '未启用', color: 'default' },
+    idle: { label: '空闲', color: 'primary' },
+    running: { label: '监控中', color: 'success' },
+    error: { label: '状态异常', color: 'error' },
+  }[status] || { label: '空闲', color: 'primary' }
+})
+const notificationTypeItems = [
+  { title: '插件', value: 'Plugin' },
+  { title: '资源下载', value: 'Download' },
+  { title: '整理入库', value: 'Organize' },
+  { title: '订阅', value: 'Subscribe' },
+  { title: '站点', value: 'SiteMessage' },
+  { title: '媒体服务器', value: 'MediaServer' },
+  { title: '手动处理', value: 'Manual' },
+  { title: '智能体', value: 'Agent' },
+  { title: '其它', value: 'Other' },
+]
+const monitorModeItems = [
+  { title: '自动稳健基准', value: 'auto' },
+  { title: '手动最低速度', value: 'manual' },
+]
 const cleanupGroups = computed(() => cleanupScan.value?.downloaders || [])
 const cleanupAutoRemovedCount = computed(() => cleanupScan.value?.auto_removed?.length || 0)
 const cleanupRemovals = computed(() => {
@@ -121,6 +237,13 @@ const overviewCards = computed(() => {
   const cards = overview.value?.cards || {}
   const archive = overview.value?.archive || {}
   return [
+    {
+      title: '速度监控',
+      icon: 'mdi-speedometer',
+      color: speedMonitorStatus.value.color,
+      value: speedMonitorStatus.value.label,
+      desc: `会话 ${speedMonitor.value.active_sessions || 0} · 待处理 ${speedMonitor.value.pending_alerts || 0}`,
+    },
     {
       title: '转移做种',
       icon: 'mdi-transfer',
@@ -153,6 +276,10 @@ const overviewCards = computed(() => {
 })
 const runtimeFlows = [
   {
+    label: '速度监控',
+    steps: ['下载任务', '监控会话', '有效采样', '基准/手动阈值', 'TG通知', '关闭 / 删除并清理'],
+  },
+  {
     label: '转移做种',
     steps: ['下载完成', '延迟等待', '目标转移', '公共链路'],
   },
@@ -173,6 +300,9 @@ const runtimeFlows = [
 watch(() => props.initialConfig, v => {
   Object.keys(form).forEach(k => delete form[k])
   Object.assign(form, defaults, v || {})
+  form.speed_monitor_downloaders = [...(v?.speed_monitor_downloaders || [])]
+  form.speed_monitor_manual_speed_bps = { ...(v?.speed_monitor_manual_speed_bps || {}) }
+  form.speed_monitor_floor_speed_bps = { ...(v?.speed_monitor_floor_speed_bps || {}) }
 }, { immediate: true, deep: true })
 
 function saveConfig() { emit('save', { ...form }) }
@@ -180,6 +310,53 @@ function selectMain(key) {
   if (activeMain.value === key) return
   activeMain.value = key
   activeSub.value = subTabs[key]?.[0]?.key || ''
+}
+
+function formatSpeed(value) {
+  const speed = Number(value || 0)
+  if (!speed) return '未建立'
+  if (speed >= 1024 * 1024) return `${(speed / 1024 / 1024).toFixed(2)} MiB/s`
+  return `${(speed / 1024).toFixed(1)} KiB/s`
+}
+
+function speedMiB(mapping, downloaderId) {
+  const speed = Number(mapping?.[downloaderId] || 0)
+  return speed > 0 ? Number((speed / 1024 / 1024).toFixed(3)) : null
+}
+
+function setSpeedMiB(field, downloaderId, value) {
+  const mapping = { ...(form[field] || {}) }
+  const speed = Number(value)
+  if (Number.isFinite(speed) && speed > 0 && speed <= 102400) {
+    mapping[downloaderId] = speed * 1024 * 1024
+  } else {
+    delete mapping[downloaderId]
+  }
+  form[field] = mapping
+}
+
+function dispositionLabel(action) {
+  return {
+    close: '关闭告警', request_delete: '等待删除确认', cancel_delete: '取消删除',
+    confirm_delete: '删除成功', delete_failed: '删除失败', recovered: '速度恢复',
+    completed: '任务完成', deleted: '任务删除',
+  }[action] || action || '暂无处置'
+}
+
+async function resetMonitorBaseline(downloaderId) {
+  monitorResetting.value = downloaderId
+  monitorMessage.value = ''
+  try {
+    const response = await postPluginJsonApi(props.api, 'reset_speed_monitor_baseline', { downloader_id: downloaderId })
+    monitorMessageStatus.value = response?.code === 0 ? 'success' : 'error'
+    monitorMessage.value = response?.msg || (response?.code === 0 ? '速度基准已重置' : '重置失败')
+    if (response?.code === 0) await refreshOverview()
+  } catch (error) {
+    monitorMessageStatus.value = 'error'
+    monitorMessage.value = error?.message || '重置失败'
+  } finally {
+    monitorResetting.value = ''
+  }
 }
 
 function tagSelectionKey(downloader, tag) {
@@ -331,7 +508,173 @@ async function executeCleanupTags() {
                   <div class="dm-section-title">待办关注</div>
                   <div class="text-caption text-medium-emphasis">连续失败 {{ overview?.archive?.active_failed || 0 }} · 接近归档 {{ overview?.archive?.near_archive || 0 }} · 已归档 {{ overview?.archive?.archived || 0 }}</div>
                 </div>
+                <div class="dm-overview-section">
+                  <div class="dm-section-title">速度基准</div>
+                  <div v-if="speedBaselines.length" class="dm-baseline-compact">
+                    <div v-for="item in speedBaselines.slice(0, 3)" :key="item.downloader_id" class="dm-baseline-line">
+                      <span>{{ item.downloader_id }} · {{ item.sample_count }}/{{ item.min_samples }} 样本</span>
+                      <strong>{{ formatSpeed(item.reference_speed_bps) }}</strong>
+                    </div>
+                    <div v-if="speedBaselines.length > 3" class="text-caption text-medium-emphasis">另有 {{ speedBaselines.length - 3 }} 个下载器</div>
+                  </div>
+                  <div v-else class="text-caption text-medium-emphasis">尚未选择监控下载器</div>
+                </div>
+                <div class="dm-overview-section">
+                  <div class="dm-section-title">最近处置</div>
+                  <div v-if="speedMonitor.last_disposition" class="text-caption dm-break-text">
+                    {{ dispositionLabel(speedMonitor.last_disposition.action) }} · {{ speedMonitor.last_disposition.downloader_id }} · {{ speedMonitor.last_disposition.name || speedMonitor.last_disposition.torrent_hash }}
+                  </div>
+                  <div v-else class="text-caption text-medium-emphasis">暂无告警处置记录</div>
+                </div>
               </div>
+            </div>
+
+            <!-- ═══ 速度监控 · 基础设置 ═══ -->
+            <div v-show="activeSub === 'monitor_basic'" class="dm-pane">
+              <div class="dm-section-title">速度监控设置</div>
+              <VRow>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.speed_monitor_enabled" color="success" inset hide-details label="启用速度异常监控" />
+                </VCol>
+                <VCol cols="12" md="8">
+                  <VSelect v-model="form.speed_monitor_downloaders" label="监控下载器" density="compact" variant="outlined"
+                    :items="monitorDownloaderItems" multiple chips closable-chips clearable hint="支持 qBittorrent 和 Transmission" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="6">
+                  <VSelect v-model="form.speed_monitor_mode" label="基准模式" density="compact" variant="outlined" hide-details
+                    :items="monitorModeItems" />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VSelect v-model="form.speed_monitor_notification_type" label="通知分类" density="compact" variant="outlined" hide-details
+                    :items="notificationTypeItems" />
+                </VCol>
+              </VRow>
+              <VAlert type="info" variant="tonal" density="compact" class="mt-4">
+                速度监控独立于转移做种和 IYUU；插件总开关、监控开关和至少一个下载器同时启用后才运行。
+              </VAlert>
+            </div>
+
+            <!-- ═══ 速度监控 · 阈值策略 ═══ -->
+            <div v-show="activeSub === 'monitor_threshold'" class="dm-pane">
+              <div class="dm-section-title">采样与判定</div>
+              <VRow>
+                <VCol cols="12" sm="6" md="3">
+                  <VTextField v-model.number="form.speed_monitor_interval_seconds" label="活跃扫描间隔（秒）" type="number" min="10" max="300"
+                    density="compact" variant="outlined" hint="范围 10–300，默认 30" persistent-hint />
+                </VCol>
+                <VCol cols="12" sm="6" md="3">
+                  <VTextField v-model.number="form.speed_monitor_grace_minutes" label="启动宽限（分钟）" type="number" min="0" max="1440"
+                    density="compact" variant="outlined" hint="范围 0–1440" persistent-hint />
+                </VCol>
+                <VCol cols="12" sm="6" md="3">
+                  <VTextField v-model.number="form.speed_monitor_tolerance" label="允许时长倍数" type="number" min="1.01" step="0.1"
+                    density="compact" variant="outlined" hint="必须大于 1" persistent-hint />
+                </VCol>
+                <VCol cols="12" sm="6" md="3">
+                  <VTextField v-model.number="form.speed_monitor_consecutive_abnormal_samples" label="连续异常次数" type="number" min="1" max="10"
+                    density="compact" variant="outlined" hint="范围 1–10" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-1">
+                <VCol cols="12" sm="6" md="3">
+                  <VTextField v-model.number="form.speed_monitor_min_samples" label="可信样本门槛" type="number" min="1" max="100"
+                    density="compact" variant="outlined" hint="范围 1–100，默认 5" persistent-hint />
+                </VCol>
+              </VRow>
+
+              <VAlert type="info" variant="tonal" density="compact" class="mt-3 dm-threshold-suggestion">
+                <div class="dm-threshold-suggestion-head">
+                  <div class="dm-threshold-suggestion-title">样本建议</div>
+                  <VBtn size="small" variant="tonal" color="primary" prepend-icon="mdi-check-all"
+                    :disabled="!speedThresholdSuggestionRows.some(row => row.available)"
+                    @click="applyAllSpeedThresholdSuggestions">应用全部可用建议</VBtn>
+                </div>
+                <div class="dm-threshold-suggestion-list">
+                  <div v-for="row in speedThresholdSuggestionRows" :key="row.label" class="dm-threshold-suggestion-row">
+                    <span class="dm-threshold-suggestion-label">{{ row.label }}</span>
+                    <span class="dm-threshold-suggestion-current">当前值 {{ row.current }}</span>
+                    <strong class="dm-threshold-suggestion-suggested">建议值 {{ row.suggested }}</strong>
+                    <VBtn size="x-small" variant="text" color="primary" prepend-icon="mdi-check-circle-outline"
+                      class="dm-threshold-suggestion-action" :disabled="!row.available"
+                      @click="applySpeedThresholdSuggestion(row)">采用建议</VBtn>
+                  </div>
+                </div>
+              </VAlert>
+
+              <div class="dm-section-title mt-4">每下载器速度</div>
+              <VAlert v-if="!form.speed_monitor_downloaders?.length" type="warning" variant="tonal" density="compact">
+                请先在基础设置中选择监控下载器。
+              </VAlert>
+              <div v-else class="dm-monitor-speed-list">
+                <div v-for="downloaderId in form.speed_monitor_downloaders" :key="downloaderId" class="dm-monitor-speed-row">
+                  <div class="dm-monitor-speed-name"><VIcon icon="mdi-download-network-outline" size="18" />{{ downloaderId }}</div>
+                  <VTextField v-if="form.speed_monitor_mode === 'manual'"
+                    :model-value="speedMiB(form.speed_monitor_manual_speed_bps, downloaderId)"
+                    @update:model-value="setSpeedMiB('speed_monitor_manual_speed_bps', downloaderId, $event)"
+                    label="最低期望速度（MiB/s）" type="number" min="0.01" max="102400" step="0.1"
+                    density="compact" variant="outlined" hint="手动模式必填，范围 0.01–102400 MiB/s" persistent-hint />
+                  <VTextField v-else
+                    :model-value="speedMiB(form.speed_monitor_floor_speed_bps, downloaderId)"
+                    @update:model-value="setSpeedMiB('speed_monitor_floor_speed_bps', downloaderId, $event)"
+                    label="保护下限（MiB/s）" type="number" min="0.01" max="102400" step="0.1" clearable
+                    density="compact" variant="outlined" hint="可留空；填写后与自动基准取较大值" persistent-hint />
+                </div>
+              </div>
+              <VAlert v-if="form.speed_monitor_mode === 'auto'" type="info" variant="tonal" density="compact" class="mt-3">
+                未设置保护下限时，自动模式只能相对历史健康样本判断，无法识别首批样本整体偏慢。
+              </VAlert>
+            </div>
+
+            <!-- ═══ 速度监控 · 运行状态 ═══ -->
+            <div v-show="activeSub === 'monitor_status'" class="dm-pane">
+              <div class="dm-section-title">运行状态</div>
+              <VAlert v-if="monitorMessage" :type="monitorMessageStatus" variant="tonal" density="compact" closable class="mb-3"
+                @click:close="monitorMessage = ''">{{ monitorMessage }}</VAlert>
+              <div class="dm-monitor-summary">
+                <div class="dm-monitor-metric"><span>服务</span><strong>{{ speedMonitorStatus.label }}</strong></div>
+                <div class="dm-monitor-metric"><span>选中下载器</span><strong>{{ speedMonitor.selected_downloaders?.length || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>活跃会话</span><strong>{{ speedMonitor.active_sessions || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>待处理告警</span><strong>{{ speedMonitor.pending_alerts || 0 }}</strong></div>
+              </div>
+              <VAlert v-if="speedMonitor.state_error" type="error" variant="tonal" density="compact" class="mt-3">{{ speedMonitor.state_error }}</VAlert>
+
+              <div class="dm-section-title mt-4">下载器基准</div>
+              <div v-if="speedBaselines.length" class="dm-monitor-baselines">
+                <div v-for="item in speedBaselines" :key="item.downloader_id" class="dm-monitor-baseline">
+                  <div class="dm-monitor-baseline-head">
+                    <div class="min-w-0">
+                      <strong class="text-body-2">{{ item.downloader_id }}</strong>
+                      <div class="text-caption text-medium-emphasis">{{ item.status === 'trusted' ? '可信基准' : '校准中' }} · {{ item.sample_count }}/{{ item.min_samples }} 样本</div>
+                    </div>
+                    <VBtn v-if="speedMonitor.mode === 'auto'" size="small" variant="tonal" color="warning" icon="mdi-restart"
+                      :loading="monitorResetting === item.downloader_id" title="重置自动基准" @click="resetMonitorBaseline(item.downloader_id)" />
+                  </div>
+                  <div class="dm-baseline-values">
+                    <span>当前参考 <strong>{{ formatSpeed(item.reference_speed_bps) }}</strong></span>
+                    <span>可信 <strong>{{ formatSpeed(item.trusted_speed_bps) }}</strong></span>
+                    <span>临时 <strong>{{ formatSpeed(item.provisional_speed_bps) }}</strong></span>
+                  </div>
+                  <div v-if="item.relative_only" class="dm-relative-note">相对基准：未配置绝对保护下限</div>
+                </div>
+              </div>
+              <div v-else class="dm-monitor-empty">尚无下载器基准数据</div>
+
+              <div class="dm-section-title mt-4">最近处置</div>
+              <div v-if="speedMonitor.last_disposition" class="dm-disposition">
+                <strong>{{ dispositionLabel(speedMonitor.last_disposition.action) }}</strong>
+                <span>{{ speedMonitor.last_disposition.downloader_id }} · {{ speedMonitor.last_disposition.name || speedMonitor.last_disposition.torrent_hash }}</span>
+                <span v-if="speedMonitor.last_disposition.error" class="text-error dm-break-text">{{ speedMonitor.last_disposition.error }}</span>
+              </div>
+              <div v-else class="dm-monitor-empty">暂无告警处置记录</div>
+
+              <VAlert type="error" variant="tonal" density="compact" class="mt-4">
+                Telegram 二次确认后会删除种子及全部数据，且不可恢复；关闭告警不会删除任务。
+              </VAlert>
+              <VAlert type="info" variant="tonal" density="compact" class="mt-2">
+                如有换种需求，可配合订阅助手增强版（SubscribeAssistantEnhanced）使用，由其负责监听 MoviePilot 删除事件。
+              </VAlert>
             </div>
 
             <!-- ═══ 转移做种 · 基础设置 ═══ -->
@@ -752,16 +1095,49 @@ async function executeCleanupTags() {
 .dm-pane--overview { min-height: auto; padding: 12px 16px; }
 .dm-section-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: rgb(var(--v-theme-primary)); }
 .dm-hint { font-size: 12px; line-height: 1.5; color: rgba(var(--v-theme-on-surface), 0.6); margin-top: 2px; }
-.dm-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.dm-stat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 .dm-stat { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.dm-stat > div { min-width: 0; overflow-wrap: anywhere; }
 .dm-overview-section { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px 12px; min-width: 0; }
 .dm-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.dm-flow { display: grid; gap: 10px; }
+.dm-flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .dm-flow-block { min-width: 0; }
+.dm-flow-block:first-child { grid-column: 1 / -1; }
 .dm-flow-label { font-size: 12px; font-weight: 600; color: rgb(var(--v-theme-primary)); margin-bottom: 5px; }
 .dm-flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.78); }
 .dm-flow-step { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), 0.02); white-space: nowrap; }
 .dm-flow-arrow { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), 0.44); }
+.dm-baseline-compact { display: grid; gap: 3px; }
+.dm-baseline-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; font-size: 12px; }
+.dm-baseline-line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-baseline-line strong { flex: 0 0 auto; }
+.dm-break-text { overflow-wrap: anywhere; }
+.dm-monitor-speed-list, .dm-monitor-baselines { display: grid; gap: 10px; }
+.dm-threshold-suggestion { border-radius: 8px; }
+.dm-threshold-suggestion-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.dm-threshold-suggestion-title { font-size: 13px; font-weight: 600; }
+.dm-threshold-suggestion-list { display: grid; gap: 4px; }
+.dm-threshold-suggestion-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(112px, auto) minmax(112px, auto) auto; grid-template-areas: 'label current suggested action'; gap: 10px; align-items: center; min-width: 0; padding: 5px 0; border-top: 1px solid rgba(var(--v-border-color), .35); font-size: 12px; }
+.dm-threshold-suggestion-row > span, .dm-threshold-suggestion-row > strong { min-width: 0; overflow-wrap: anywhere; }
+.dm-threshold-suggestion-label { font-weight: 600; }
+.dm-threshold-suggestion-label { grid-area: label; }
+.dm-threshold-suggestion-current { grid-area: current; }
+.dm-threshold-suggestion-suggested { grid-area: suggested; }
+.dm-threshold-suggestion-action { grid-area: action; justify-self: end; }
+.dm-monitor-speed-row { display: grid; grid-template-columns: minmax(150px, 0.45fr) minmax(240px, 1fr); gap: 14px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-monitor-speed-name { display: flex; align-items: center; gap: 8px; min-width: 0; padding-top: 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.dm-monitor-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dm-monitor-metric { min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-monitor-metric span { display: block; color: rgba(var(--v-theme-on-surface), 0.62); font-size: 12px; }
+.dm-monitor-metric strong { display: block; margin-top: 3px; overflow-wrap: anywhere; font-size: 15px; }
+.dm-monitor-baselines { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dm-monitor-baseline { min-width: 0; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-monitor-baseline-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.dm-baseline-values { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 9px; font-size: 12px; }
+.dm-relative-note { margin-top: 7px; color: rgb(var(--v-theme-warning)); font-size: 12px; }
+.dm-disposition { display: grid; gap: 3px; min-width: 0; padding: 10px 12px; border-left: 3px solid rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), 0.06); font-size: 12px; }
+.dm-disposition span { min-width: 0; overflow-wrap: anywhere; }
+.dm-monitor-empty { display: flex; min-height: 64px; align-items: center; justify-content: center; border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; color: rgba(var(--v-theme-on-surface), 0.6); font-size: 13px; }
 .dm-cleanup-toolbar { display: flex; align-items: center; gap: 10px; }
 .dm-cleanup-select { flex: 1 1 auto; min-width: 0; }
 .dm-cleanup-results { display: grid; gap: 10px; }
@@ -794,10 +1170,25 @@ async function executeCleanupTags() {
   .dm-subtabs::-webkit-scrollbar { display: none; }
   .dm-subtab { flex: 0 0 auto; padding: 6px 12px; }
   .dm-stat-grid, .dm-overview-grid { grid-template-columns: 1fr; }
+  .dm-flow { grid-template-columns: 1fr; }
+  .dm-flow-block:first-child { grid-column: auto; }
+  .dm-monitor-summary, .dm-monitor-baselines, .dm-monitor-speed-row { grid-template-columns: 1fr; }
+  .dm-threshold-suggestion-head { align-items: stretch; flex-direction: column; }
+  .dm-threshold-suggestion-head :deep(.v-btn) { align-self: flex-start; }
+  .dm-threshold-suggestion-row { grid-template-columns: minmax(112px, 1fr) minmax(84px, auto); grid-template-areas: 'label current' 'suggested action'; gap: 6px; }
+  .dm-threshold-suggestion-action { justify-self: end; }
+  .dm-monitor-speed-name { padding-top: 0; }
   .dm-cleanup-toolbar, .dm-cleanup-summary, .dm-cleanup-actions, .dm-tag-group-head { align-items: stretch; flex-direction: column; }
   .dm-cleanup-toolbar :deep(.v-btn), .dm-cleanup-actions :deep(.v-btn) { width: 100%; }
   .dm-tag-line { flex-wrap: wrap; }
   .dm-tag-name { width: 100%; }
+  .dm-window--overview { overflow-y: auto; }
+}
+@media (min-width: 761px) and (max-width: 960px) {
+  .dm-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dm-monitor-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dm-flow { grid-template-columns: 1fr; }
+  .dm-flow-block:first-child { grid-column: auto; }
   .dm-window--overview { overflow-y: auto; }
 }
 @media (max-height: 760px) {

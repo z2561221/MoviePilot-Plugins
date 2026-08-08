@@ -1,0 +1,254 @@
+{
+  "plan": "docs/plans/2026-08-04-download-speed-monitor-phased-plan.md",
+  "status": {
+    "phase": "phase-5",
+    "task": "completed",
+    "next_allowed_action": "无；本地开发与 MP 本地运行闭环已完成，后续 push、merge、版本整理或 release 必须由用户另行明确授权",
+    "residual_risk": "受保护的 remoteEntry HTTP 请求需要登录资源 Cookie，Codex 浏览器控制层初始化失败，因此仅证明 remotes 声明、MP 本地服务器文件可读及 Win/MP SHA256 一致，未声称已登录 HTTP 200；监控当前按默认配置关闭，未执行真实异常通知或真实种子删除；首次校准在未配置保护下限时仍只能提供相对基准；订阅助手增强版联动取决于外部插件自行监听，本插件不保证换种"
+  },
+  "execution_rules": {
+    "branch": "worldlinefix/downloadmanagerlocal",
+    "worktree": "D:/AIGC/MoviePilot/.worktrees/downloadmanagerlocal-release",
+    "baseline_commit": "be446255",
+    "smoke_check": "python -m compileall plugins.v2/downloadmanagerlocal; pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_*.py",
+    "baseline_smoke_frequency": "每个 Phase 首个任务；触及共享边界或窄验证失败时补跑",
+    "task_verification_scope": "当前任务窄测试",
+    "manual_audit_between_tasks": false,
+    "full_audit_phase": "phase-5.task-5.3",
+    "commit_each_verified_task": true,
+    "no_commit_on_failed_verification": true,
+    "never_push_merge_or_amend": true,
+    "never_modify_subscribe_assistant": true,
+    "never_delete_real_torrents_in_automation": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "only_flip_status_fields": true
+  },
+  "decision_log": [
+    {
+      "decision": "运行总览只展示 DownloadManagerLocal 内部链路，订阅助手只在删除行为说明中出现",
+      "source": "用户确认",
+      "recorded_at": "2026-08-04"
+    },
+    {
+      "decision": "Telegram 确认删除固定传 delete_file=True，删除该种子全部数据，关闭不删除",
+      "source": "用户确认",
+      "recorded_at": "2026-08-04"
+    },
+    {
+      "decision": "保护下限按下载器实例可选配置，默认不填写；填写后与自动稳健基准取较大值",
+      "source": "用户确认",
+      "recorded_at": "2026-08-04"
+    },
+    {
+      "decision": "速度监控启停独立于转移/IYUU；get_state、生命周期、调度器和 get_form 必须在转种关闭时仍支持监控",
+      "source": "计划实现约束",
+      "recorded_at": "2026-08-04"
+    },
+    {
+      "decision": "自动基准使用最近 20 条健康样本的中位数 + MAD 过滤，保留 trusted 基准并通过显式重置恢复校准；未设置保护下限时不宣称能识别首批样本整体偏慢",
+      "source": "计划实现约束",
+      "recorded_at": "2026-08-04"
+    },
+    {
+      "decision": "部分下载任务按首次观察时的剩余体积预算；下载器 API 错误期间暂停有效时长和超时钟，恢复后继续",
+      "source": "计划实现约束",
+      "recorded_at": "2026-08-04"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "goal": "固定配置、状态、qB/TR 字段和 Telegram 回调边界",
+      "acceptance": [
+        "配置/状态/适配器/回调契约测试通过",
+        "delete_file=True 语义和订阅助手外部边界有可执行测试",
+        "成功空列表与下载器 API 错误的三态轮询契约有可执行测试",
+        "Telegram 权限复用 MP 主程序目标用户字段，不新增插件自有 ACL",
+        "没有修改 SubscribeAssistantEnhanced"
+      ],
+      "tasks": [
+        { "id": "1.1", "title": "新增配置状态契约与静态红门禁", "status": "completed", "verification": ["baseline bundled Python compileall passed", "baseline bundled Python pytest unavailable: No module named pytest", "fallback Python 3.12 pytest baseline: 80 passed", "red gate: 4 failed before production contract", "pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_speed_monitor_contract.py: 4 passed", "git diff --check passed"], "commit": "2e6827ac" },
+        { "id": "1.2", "title": "建立 qBittorrent/Transmission 统一字段和删除边界", "status": "completed", "verification": ["planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "static adapter and existing helper tests: 6 passed", "isolated plan-named qB/TR fake behavior tests: 12 passed", "python -m compileall plugins.v2/downloadmanagerlocal passed", "git diff --check passed", "no real downloader deletion executed"], "commit": "722f4cfe" },
+        { "id": "1.3", "title": "核验 MoviePilot Telegram MessageAction 回调契约", "status": "completed", "verification": ["AgentRank source contract verified: plugin_id/channel/userid/text/source/original_message_id/original_chat_id", "planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated fake MessageAction tests: 10 passed", "entry and shared contract regressions: 13 passed", "Phase 1 static summary: 19 passed", "Phase 1 isolated qB/TR and Telegram summary: 22 passed", "callback_data <= 64 bytes and no plugin-owned ACL", "no SubscribeAssistantEnhanced changes"], "commit": "159ff6b9" }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "goal": "实现多下载器监控会话、持久化与完成统计",
+      "acceptance": [
+        "多下载器会话、重载恢复、完成/删除终止和有效时长测试通过",
+        "转种/IYUU 全关闭时 get_state、生命周期、调度器和 get_form 仍支持监控",
+        "成功空列表才终止缺失任务，API 错误保留 session",
+        "部分下载任务使用观察期间新增字节和剩余体积预算",
+        "API 错误暂停有效时长/超时钟并可恢复",
+        "状态迁移、终态 TTL/数量上限和健康样本窗口有测试",
+        "没有发送通知或删除真实任务"
+      ],
+      "tasks": [
+        { "id": "2.1", "title": "接入可选下载器监控服务", "status": "completed", "verification": ["Phase 2 bundled Python compileall passed", "Phase 2 bundled Python pytest unavailable: No module named pytest", "fallback baseline initially exposed Phase 1 docstring and entry-size regressions: 84 passed, 3 failed", "baseline regressions repaired: 87 passed", "planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated lifecycle and multi-downloader fake tests: 4 passed", "related static lifecycle/entry regressions: 25 passed", "entrypoint remains within slim gate: 519 lines", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "0262075a" },
+        { "id": "2.2", "title": "持久化采样快照并处理重载/缺失任务", "status": "completed", "verification": ["planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated persistence/reload/error/empty-list/migration/retention tests: 6 passed", "state key and standard completion regressions: 16 passed", "schema migration failure disables monitor without overwriting source data", "terminal retention: 30 days and 1000 items; health window: 20 samples", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "cba9e7da" },
+        { "id": "2.3", "title": "结束会话并生成原始统计", "status": "completed", "verification": ["planned plugin test path collection blocked without MoviePilot app package: ModuleNotFoundError", "isolated completion statistics and health-sample tests: 5 passed", "Phase 2 lifecycle/state/completion summary: 15 passed", "Phase 2 DownloadManagerLocal static summary: 87 passed", "partial downloads use observed byte delta and active effective time", "paused/queued/error/disconnected/missing/zero-value sessions do not pollute health samples", "duplicate completed snapshots write one sample", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "57a5a7da" }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "goal": "实现自动/手动异常判断与基准污染保护",
+      "acceptance": [
+        "自动/手动模式、公式边界、样本门槛和污染保护测试通过",
+        "按下载器保护下限为空/已填写的分支均有明确结果",
+        "首次校准、MAD 过滤、trusted 保留和显式重置规则固定",
+        "首批整体偏慢且未设置保护下限时只标记相对基准，不伪造绝对异常结论",
+        "关闭后的异常去重按 anomaly epoch，恢复后允许再次通知",
+        "异常判断只产生通知状态，不自动删除任务"
+      ],
+      "tasks": [
+        { "id": "3.1", "title": "实现有效时长、预计时限和连续异常判定", "status": "completed", "verification": ["Phase 3 bundled Python compileall passed", "Phase 3 bundled Python pytest unavailable: No module named pytest", "fallback Phase 3 baseline: 87 passed, 5 subtests passed", "isolated speed decision tests: 4 passed", "expected_seconds=start_remaining_bytes/reference_speed and allowed_seconds=expected_seconds*tolerance", "tolerance 1.0 rejected and 1.5 accepted", "startup grace, zero speed, consecutive samples, completion transition and disconnect freeze covered", "automatic floor absent/high and manual reference branches covered", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "19c2cf13" },
+        { "id": "3.2", "title": "实现自动健康基准与手动模式", "status": "completed", "verification": ["isolated robust baseline tests: 6 passed", "baseline/completion/decision related summary: 15 passed", "speed monitor config contract regressions: 4 passed", "minimum sample gate, provisional relative-only state and trusted promotion covered", "median plus MAD filter with 25 percent minimum band covered", "floor filtering, calibration outlier, trusted outlier and downloader isolation covered", "trusted baseline persists until explicit reset", "manual mode ignores history and requires positive speed for every selected downloader", "versioned baseline state round-trip covered", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "3776066d" },
+        { "id": "3.3", "title": "加入基准污染保护和告警去重", "status": "completed", "verification": ["isolated contamination and dedup tests: 7 passed", "Phase 3 decision/baseline/contamination/dedup/completion summary: 22 passed", "first slow calibration remains relative without floor and is excluded with floor", "trusted baseline rejects repeated slow and extreme fast samples while accepting normal completion", "downloader floors and explicit reset remain isolated", "same anomaly epoch creates one pending alert across repeated scans and reload", "recovery closes current epoch and later anomaly creates the next epoch", "completion closes pending alert and anomalous task does not enter health baseline", "pending/notified/confirming alert states survive retention until handled", "python -m compileall and git diff --check passed", "no notification or deletion executed"], "commit": "c7e1ceaf" }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "goal": "实现 MP 分类通知、Telegram 交互和准确的配置页总览",
+      "acceptance": [
+        "MP 分类通知、Telegram 两步删除、关闭幂等和配置页警告通过",
+        "完成/删除并发至多一个终态动作和一条异常通知",
+        "同一异常周期不重复提醒，恢复后可进入新异常周期",
+        "运行总览链路不含订阅助手，外部联动说明完整",
+        "前端三视口和 federation 构建验收通过"
+      ],
+      "tasks": [
+        { "id": "4.1", "title": "发送可配置分类的异常通知卡片", "status": "completed", "verification": ["Phase 4 bundled Python compileall passed", "Phase 4 bundled Python pytest unavailable: No module named pytest", "fallback Phase 4 baseline: 87 passed, 5 subtests passed", "isolated speed notification tests: 15 passed", "notification/dedup/telegram related summary: 29 passed", "all current MoviePilot NotificationType enum names and values resolve; invalid values fall back to Plugin", "message body includes downloader, name/hash, size, progress, current/reference speed, effective/allowed time and irreversible delete warning", "MoviePilot telegram_userid target is resolved through host adapter without plugin ACL", "configured Telegram gets short close/delete callbacks; missing Telegram still sends plain MP notification", "notification failure keeps alert pending for retry and notified alert is not duplicated", "python -m compileall and git diff --check passed", "fake post_message only; no real notification or deletion executed"], "commit": "6a038bd2" },
+        { "id": "4.2", "title": "实现关闭、二次确认和删除全量数据交互", "status": "completed", "verification": ["isolated fake delete tests: 6 passed", "planned telegram and delete summary: 16 passed", "notification/telegram/delete related summary: 31 passed", "close keeps downloader task unchanged and suppresses the current anomaly cycle", "delete request only enters confirming state; cancel never calls downloader", "qBittorrent and Transmission confirmation both call ids=[hash], delete_file=True", "unauthorized, expired, terminal and repeated callbacks never delete again", "delete success/failure results are persisted and failures remain retryable", "completion and deletion share the session lock; concurrent test permits one terminal winner", "close/delete/confirm/cancel callback payloads remain within 64 bytes", "python -m compileall and git diff --check passed", "fake downloaders only; no real torrent or data deletion executed"], "commit": "e5a8edcc" },
+        { "id": "4.3", "title": "扩展总览 API 和配置页", "status": "completed", "verification": ["planned speed monitor frontend and API inventory: 11 passed", "related bearer route and frontend build contract: 9 passed", "federation build: 58 modules transformed, exit code 0", "remoteEntry references generated Config asset with speed-monitor flow", "390x844, 768x1024 and 1440x900 browser checks have exact viewport width, no horizontal overflow and no console errors", "desktop overview clientHeight equals scrollHeight at 1440x900; mobile and tablet use vertical scrolling", "runtime flow contains only DownloadManagerLocal nodes; SubscribeAssistantEnhanced appears only in external-link explanation", "Phase 4 fake notification/telegram/delete summary: 31 passed", "bundled Python compileall and git diff --check passed", "no SubscribeAssistantEnhanced changes, real notification or real deletion"], "commit": "92d4bcf3" }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "goal": "完成模拟矩阵、MP 本地运行闭环和发布前审计",
+      "acceptance": [
+        "全量窄测试和 qB/TR 模拟矩阵退出码为 0",
+        "MP 本地 reload、history、overview 和前端资产回读成功",
+        "未发生真实删除、push、merge 或 release，残余风险已记录"
+      ],
+      "tasks": [
+        { "id": "5.1", "title": "执行全量窄测试和模拟任务矩阵", "status": "completed", "verification": ["Phase 5 bundled Python compileall passed", "PowerShell-expanded DownloadManagerLocal static baseline: 93 passed", "planned plugin-directory pytest collected 75 items but package import of test_safety was blocked without MoviePilot app", "isolated speed monitor suite: 81 passed", "original-path safety unittest after minimal adapter stub: 4 tests OK", "qBittorrent and Transmission both cover pause, queue, checking, completion, slow anomaly, API error, recovery, reload, close and confirm-delete paths", "multi-downloader baseline isolation and repeated slow-sample contamination protection remain covered", "all successful equivalent verification commands exited 0", "git diff --check passed", "fake downloaders only; no real notification, torrent deletion or data deletion"], "commit": "f7d1780e" },
+        { "id": "5.2", "title": "同步 MP 本地源并回读运行态", "status": "completed", "verification": ["scripts/sync_to_mp_local.py --plugin DownloadManagerLocal --dry-run exited 0", "targeted sync to Z:\\moviepilot-v2\\config\\local plugins exited 0", "all 78 source/runtime files have identical SHA256 and package structure; plugin version remains 3.2.7", "POST /api/v1/plugin/reload/DownloadManagerLocal returned success=true", "GET /api/v1/plugin/history/DownloadManagerLocal confirms installed=true, state=true, is_local=true and version 3.2.7", "overview returned code=0 with speed_monitor service, downloader, session, alert, baseline and recent-action fields", "runtime config readback contains all speed_monitor_* defaults with monitoring disabled and no selected downloader", "GET /api/v1/plugin/remotes?token=moviepilot advertises /plugin/file/downloadmanagerlocal/dist/assets/remoteEntry.js", "MP local remoteEntry.js is readable and SHA256 A0B1315FE11E7345E37D9D31CE896AF049A5BA0149010D5B8D2231B529858032 matches Win source; it references current Config-BZupU09T.js and Config-DsGbeXfH.css assets", "direct unauthenticated remoteEntry HTTP request is correctly rejected with resource token not found; Codex browser control could not initialize, so an authenticated HTTP 200 was not claimed", "latest 55-line DownloadManagerLocal reload log window contains zero error-like lines and no import failure", "no GitHub version was installed and no real torrent or data deletion was executed"], "commit": "32d1be66" },
+        { "id": "5.3", "title": "完成发布前审计与残余风险记录", "status": "completed", "verification": ["bundled Python 3.12 compileall exited 0", "complete DownloadManagerLocal static suite: 93 passed", "isolated speed monitor fake matrix: 81 passed", "original-path safety unittest: 4 tests OK", "Vue federation build: 58 modules transformed and built in 944ms", "origin/main...HEAD contains 42 changed files and all match the DownloadManagerLocal, named static-test or current-plan allowlist", "origin/main..HEAD contains 17 DownloadManagerLocal branch commits, zero merge commits and zero SubscribeAssistantEnhanced source diff", "SubscribeAssistantEnhanced or 订阅助手 appears only in two plan files, Config.vue explanation and three DownloadManagerLocal static tests", "current package, origin/main package and plugin source versions all remain 3.2.7", "all 11 speed_monitor configuration keys and 11 overview response fields are present; runtime flow node order, irreversible warning and external-listener explanation match the plan", "delete_file=True and unauthorized, expired, repeated and cancel callback risks are covered by source and fake tests", "secret-pattern scan found zero candidate credentials", "Win and MP local remoteEntry SHA256 both equal A0B1315FE11E7345E37D9D31CE896AF049A5BA0149010D5B8D2231B529858032 and reference current Config assets", "git diff --check passed and the tracked worktree was clean before final ledger update", "no real notification, real torrent deletion, online install, push, merge, amend or release was executed"], "commit": "d26c6ad5" }
+      ]
+    }
+  ],
+  "turn_log": [
+    {
+      "task": "1.1",
+      "status": "completed",
+      "summary": "固定速度监控默认配置、范围清洗、状态键、Plugin 通知默认和删除全部数据警告契约；保留生产实现前 4 项红测证据。"
+    },
+    {
+      "task": "1.2",
+      "status": "completed",
+      "summary": "新增 qB/TR 统一快照、状态分类、成功空列表与错误三态轮询，并以 fake 下载器验证显式 delete_file=True 才允许删除全部数据。"
+    },
+    {
+      "task": "1.3",
+      "status": "completed",
+      "summary": "按 AgentRank 当前契约固定 dmsm 短回调、MP 目标用户身份、过期拒绝、64 字节限制和原消息字段，并注册 MessageAction 入口骨架。"
+    },
+    {
+      "phase": "phase-1",
+      "status": "completed",
+      "summary": "配置/状态、qB/TR 三态、显式删除全部数据和 Telegram 回调契约汇总验收通过；未修改订阅助手增强版。"
+    },
+    {
+      "task": "2.1",
+      "status": "completed",
+      "summary": "速度监控独立于转移/IYUU 启停，按下载器与会话加锁扫描 qB/TR，并从插件首次观察时创建会话和注册 interval 服务。"
+    },
+    {
+      "task": "2.2",
+      "status": "completed",
+      "summary": "版本化持久化 sessions/baselines/alerts，重载恢复首见预算与有效时长，成功空列表单次终止，API 错误冻结计时，终态按 TTL/上限清理。"
+    },
+    {
+      "task": "2.3",
+      "status": "completed",
+      "summary": "完成会话按首次观察后的新增字节与有效下载时长生成原始统计，仅将无错误、无异常、非零数据的完成任务写入下载器健康样本。"
+    },
+    {
+      "phase": "phase-2",
+      "status": "completed",
+      "summary": "多下载器会话、重载恢复、三态缺失处理、有效时长、完成统计和健康样本隔离汇总验收通过；未发送通知或删除真实任务。"
+    },
+    {
+      "task": "3.1",
+      "status": "completed",
+      "summary": "按首次观察剩余体积、参考速度和容忍倍数计算允许时限，宽限后以连续采样提升异常状态；断连冻结且完成切换不产生异常。"
+    },
+    {
+      "task": "3.2",
+      "status": "completed",
+      "summary": "按下载器保存最近 20 条已接受健康样本，以中位数和 MAD 过滤污染；样本门槛后提升 trusted，无保护下限时明确标记相对基准，手动模式独立读取正数配置。"
+    },
+    {
+      "task": "3.3",
+      "status": "completed",
+      "summary": "连续慢速和极快样本不得拖动 trusted；同一下载器/hash/epoch 只创建一个 pending 告警，重载保持去重，恢复或完成后收束周期，显式重置立即持久化。"
+    },
+    {
+      "phase": "phase-3",
+      "status": "completed",
+      "summary": "自动/手动模式、剩余预算公式、样本门槛、MAD 污染保护、相对基准限制、显式重置和异常 epoch 去重汇总验收通过；未发送通知或删除任务。"
+    },
+    {
+      "task": "4.1",
+      "status": "completed",
+      "summary": "pending 告警按合法 NotificationType 发送一次完整依据卡片；Telegram 目标来自 MP 用户设置并使用短 token，未配置 Telegram 时回退普通 MP 通知。"
+    },
+    {
+      "task": "4.2",
+      "status": "completed",
+      "summary": "关闭只收束当前告警；删除先进入二次确认，取消不调用下载器，确认后 qB/TR 固定 delete_file=True；身份、过期、终态、重复点击和完成/删除并发均受门禁。"
+    },
+    {
+      "task": "4.3",
+      "status": "completed",
+      "summary": "总览 API 返回服务、会话、告警、按下载器基准和最近处置；配置页提供完整阈值、显式重置、不可恢复警告和纯说明性的外部联动，三视口与 federation 构建通过。"
+    },
+    {
+      "phase": "phase-4",
+      "status": "completed",
+      "summary": "MP 分类通知、Telegram 两步删除、关闭幂等、准确运行链路、配置警告和前端三视口汇总验收通过；未修改订阅助手增强版。"
+    },
+    {
+      "task": "5.1",
+      "status": "completed",
+      "summary": "全量静态 baseline 与隔离 speed monitor/safety 测试通过；补齐 qB/TR 暂停、排队、校验、慢速、错误恢复、重载、关闭和确认删除的双实现矩阵。"
+    },
+    {
+      "task": "5.2",
+      "status": "completed",
+      "summary": "仅同步 DownloadManagerLocal 到 MP 本地源并完成 78/78 hash、reload、history、overview、remotes、remoteEntry 服务器文件和日志回读；受资源 Cookie 保护的 HTTP 入口未伪报 200，未安装在线版本或执行真实删除。"
+    },
+    {
+      "task": "5.3",
+      "status": "completed",
+      "summary": "唯一一次完整发布前审计通过：93 项静态、81 项速度监控、4 项 safety 和 federation 构建均成功，42 个变更文件全部在白名单，版本保持 3.2.7，残余风险已显式记录。"
+    },
+    {
+      "phase": "phase-5",
+      "status": "completed",
+      "summary": "模拟矩阵、MP 本地运行闭环和发布前审计全部完成；未修改订阅助手增强版，未真实删除、push、merge、amend 或 release。"
+    },
+    {
+      "phase": "phase-5",
+      "status": "completed",
+      "summary": "回归修复：DownloadAdded 事件立即建立目标任务监控会话，短任务不再等待五分钟轮询；82 项速度监控隔离矩阵、5 项生命周期窄测和 11 项静态相关测试通过，未重复完整审计。"
+    },
+    {
+      "phase": "phase-5",
+      "status": "completed",
+      "summary": "动态生命周期收束：移除常驻速度调度器，DownloadAdded/重载按活跃会话启动单 worker，30 秒扫描且最后会话结束即停；91 项速度矩阵、18 项相关静态、9 项后端契约、compileall 和 federation 构建通过，未重复 Phase 5.3 审计。"
+    }
+  ]
+}

@@ -15,17 +15,9 @@ _RELEASE_MARKER_RE = re.compile(
     r"(?:S\d{1,2}E\d{1,3}|2160p|1080p|720p|WEB[-_. ]?DL|BluRay|H\.?26[45]|HEVC|AVC|AAC)",
     re.IGNORECASE,
 )
-_GROUP_THEN_CHINESE_RE = re.compile(
-    r"^(.+?-[A-Za-z][A-Za-z0-9._-]{1,32})(?=[\u4e00-\u9fff])([\s\S]+)$"
-)
-_GROUP_SITE_BRACKET_CHINESE_RE = re.compile(
-    r"^(.+?-[A-Za-z][A-Za-z0-9._-]{1,32}(?:@[A-Za-z][A-Za-z0-9._-]{1,32})?)\s*\[([^\]]*[\u4e00-\u9fff][^\]]*)\]\s*$"
-)
-_GROUP_SITE_SUBTITLE_BLOCK_RE = re.compile(
-    r"^(.+?-[A-Za-z][A-Za-z0-9._-]{1,32}(?:@[A-Za-z][A-Za-z0-9._-]{1,32})?)\s*\[([\s\S]*)$"
-)
-_CHINESE_SUBTITLE_HINT_RE = re.compile(
-    r"[\u4e00-\u9fff].*(?:第\s*\d+\s*[集季]|类型[:：]|主演[:：]|别名[:：]|酷喵TV|字幕|双语|中字|Season\s*\d+|/)"
+_RELEASE_GROUP_TRAILING_METADATA_RE = re.compile(
+    r"^(.+?-[A-Za-z][A-Za-z0-9._-]{1,32}(?:@[A-Za-z][A-Za-z0-9._-]{1,32})?)"
+    r"(?=[\s\u00a0\u3000]*[\[\u4e00-\u9fff])[\s\S]+$"
 )
 _POLLUTION_HINT_RE = re.compile(
     r"(?:\s+\|\s+|类型[:：]|主演[:：]|别名[:：]|酷喵TV|第\s*\d+\s*集)"
@@ -47,14 +39,8 @@ def extract_release_name(value: str) -> str:
     cleaned = _TORRENT_SUFFIX_RE.sub("", cleaned).strip(" .")
 
     if _RELEASE_MARKER_RE.search(cleaned):
-        match = _GROUP_SITE_SUBTITLE_BLOCK_RE.match(cleaned)
-        if match and _CHINESE_SUBTITLE_HINT_RE.search(match.group(2)):
-            return match.group(1).strip()
-        match = _GROUP_SITE_BRACKET_CHINESE_RE.match(cleaned)
-        if match and _CHINESE_SUBTITLE_HINT_RE.search(match.group(2)):
-            cleaned = match.group(1).strip()
-        match = _GROUP_THEN_CHINESE_RE.match(cleaned)
-        if match and _CHINESE_SUBTITLE_HINT_RE.search(match.group(2)):
+        match = _RELEASE_GROUP_TRAILING_METADATA_RE.match(cleaned)
+        if match:
             cleaned = match.group(1).strip()
 
     cleaned = _SUBTITLE_SEPARATOR_RE.split(cleaned, 1)[0].strip()
