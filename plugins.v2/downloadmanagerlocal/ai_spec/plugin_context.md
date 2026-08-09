@@ -106,6 +106,8 @@
 - 事件下载器不匹配 `_fromdownloader` 时直接返回。
 - 根据 `_delay_minutes` 创建 `delayed_transfer_<fromdownloader>` date job。
 - 通过 `_delayed_transfer()` 委托转移实现。
+- 事件驱动和兜底扫描进入共享转移循环后，会按 qB `completion_on` 再次校验完成年龄；不足 `_delay_minutes` 的任务跳过，达到阈值后再转移。
+- 手动“立即运行一次”不受自动入口延迟门禁影响；缺少 `completion_on` 时保持原有候选行为。
 
 ## 后端模块边界
 
