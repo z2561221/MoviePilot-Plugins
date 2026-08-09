@@ -1,5 +1,7 @@
 """配置清洗工具"""
 
+from copy import deepcopy
+
 
 SPEED_MONITOR_CONFIG_DEFAULTS = {
     "speed_monitor_enabled": False,
@@ -15,9 +17,65 @@ SPEED_MONITOR_CONFIG_DEFAULTS = {
     "speed_monitor_notification_type": "Plugin",
 }
 
+PLUGIN_CONFIG_DEFAULTS = {
+    "enabled": False,
+    "transfer_enabled": True,
+    "notify": False,
+    "onlyonce": False,
+    "delay_minutes": 25,
+    "transfer_fallback_enabled": True,
+    "transfer_fallback_interval_minutes": 60,
+    "nolabels": "",
+    "includelabels": "",
+    "includecategory": "",
+    "frompath": "",
+    "topath": "",
+    "fromdownloader": "",
+    "todownloader": "",
+    "deletesource": False,
+    "deleteduplicate": False,
+    "fromtorrentpath": "",
+    "nopaths": "",
+    "transferemptylabel": False,
+    "add_torrent_tags": "⏩转种",
+    "remainoldcat": False,
+    "remainoldtag": False,
+    "rename_enabled": True,
+    "rename_movie_format": "[ {{ title }}{% if year %} ({{ year }}){% endif %} ] - {{original_name}}",
+    "rename_tv_format": "[ {{ title }}{% if year %} ({{ year }}){% endif %}{% if season_episode %} - {{season_episode}}{% endif %} ] - {{original_name}}",
+    "rename_exclude_dirs": "",
+    "tag_enabled": True,
+    "tag_siteprefix": "🏠",
+    "tag_tracker_mappings_str": "",
+    "iyuu_enabled": False,
+    "iyuu_cron": "",
+    "iyuu_onlyonce": False,
+    "iyuu_token": "",
+    "iyuu_downloaders": [],
+    "iyuu_auto_downloader": "",
+    "iyuu_sites": [],
+    "iyuu_nolabels": "",
+    "iyuu_nopaths": "",
+    "iyuu_size": 0,
+    "iyuu_auto_category": False,
+    "iyuu_labelsafterseed": "已整理,辅种",
+    "iyuu_categoryafterseed": "",
+    "seed_autostart": True,
+    "seed_skipverify": False,
+    "seed_check_interval": 60,
+    "seed_max_wait_minutes": 120,
+    "iyuu_clearcache": False,
+    **SPEED_MONITOR_CONFIG_DEFAULTS,
+}
+
 SPEED_MONITOR_DELETE_FILE = True
 SPEED_MONITOR_DELETE_WARNING = "删除种子及全部数据后不可恢复。"
 SPEED_MONITOR_EXTERNAL_LINK_WARNING = "换种需要订阅助手增强版监听 MoviePilot 删除事件。"
+
+
+def build_plugin_config_defaults() -> dict:
+    """返回插件配置页使用的独立默认配置副本。"""
+    return deepcopy(PLUGIN_CONFIG_DEFAULTS)
 
 
 def safe_int(value, default, min_value=None, max_value=None):

@@ -22,6 +22,37 @@ from .rename import _get_torrent_content_name, resolve_retry_original_name
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
 
 
+_AUTOMATIC_DELAY_TRIGGER_SOURCES = frozenset({"兜底扫描", "事件驱动"})
+
+
+def _transfer_delay_status(
+    plugin,
+    torrent,
+    dl_type: str,
+    trigger_source: str,
+    now_timestamp: Optional[float] = None,
+) -> tuple[bool, Optional[float], int]:
+    """判断自动转移是否仍需等待完成延迟，并返回年龄与延迟分钟数。"""
+    try:
+        delay_minutes = max(1, int(getattr(plugin, "_delay_minutes", 25) or 25))
+    except (TypeError, ValueError):
+        delay_minutes = 25
+
+    if trigger_source not in _AUTOMATIC_DELAY_TRIGGER_SOURCES or dl_type != "qbittorrent":
+        return False, None, delay_minutes
+
+    try:
+        completion_on = float(torrent.get("completion_on") or 0)
+    except (AttributeError, TypeError, ValueError):
+        return False, None, delay_minutes
+    if completion_on <= 0:
+        return False, None, delay_minutes
+
+    current_timestamp = time.time() if now_timestamp is None else float(now_timestamp)
+    age_minutes = (current_timestamp - completion_on) / 60
+    return age_minutes < delay_minutes, age_minutes, delay_minutes
+
+
 def validate_config(plugin) -> bool:
     """校验转移配置"""
     if plugin._fromtorrentpath and not Path(plugin._fromtorrentpath).exists():
@@ -164,6 +195,19 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
 
         hash_str = plugin.get_hash(torrent, from_service.type)
         save_path = plugin.get_save_path(torrent, from_service.type)
+
+        should_wait, age_minutes, delay_minutes = _transfer_delay_status(
+            plugin,
+            torrent,
+            from_service.type,
+            trigger_source,
+        )
+        if should_wait:
+            logger.info(
+                f"种子 {hash_str} 完成仅 {age_minutes:.1f} 分钟，"
+                f"不足延迟 {delay_minutes} 分钟，跳过"
+            )
+            continue
 
         if plugin._nopaths and save_path:
             nopath_skip = False

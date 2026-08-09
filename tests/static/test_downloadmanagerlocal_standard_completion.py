@@ -7,11 +7,9 @@ REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
 ENTRYPOINT = PLUGIN_DIR / "__init__.py"
 
-ENTRYPOINT_BUSINESS_METHODS = {
-    "check_recheck",
-    "_sweep_paused_seed_tasks",
-    "__can_seeding",
-    "on_transfer_complete",
+ENTRYPOINT_ALLOWED_LOCAL_LOGIC_METHODS = {
+    "service_info",
+    "__add_recheck_torrents",
 }
 
 RECHECK_ENTRYPOINT_METHODS = {
@@ -80,10 +78,15 @@ def _heavy_entrypoint_methods() -> list[str]:
     """列出仍在入口层承载明显业务逻辑的方法。"""
     module = _parse(ENTRYPOINT)
     heavy: list[str] = []
-    for node in ast.walk(module):
+    plugin_class = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.ClassDef) and node.name == "DownloadManagerLocal"
+    )
+    for node in plugin_class.body:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        if node.name not in ENTRYPOINT_BUSINESS_METHODS:
+        if node.name in ENTRYPOINT_ALLOWED_LOCAL_LOGIC_METHODS:
             continue
         if _executable_statement_count(node) > 3:
             heavy.append(f"{ENTRYPOINT.relative_to(REPO).as_posix()}:{node.lineno}:{node.name}")
@@ -114,6 +117,37 @@ def _thin_delegate_gaps(method_names: set[str]) -> list[str]:
         if not isinstance(call, ast.Call):
             gaps.append(f"{ENTRYPOINT.relative_to(REPO).as_posix()}:{node.lineno}:{node.name}")
     return sorted(gaps)
+
+
+def _form_default_delegate_gaps() -> list[str]:
+    """列出没有委托配置默认值工厂的入口表单方法。"""
+    module = _parse(ENTRYPOINT)
+    plugin_class = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.ClassDef) and node.name == "DownloadManagerLocal"
+    )
+    get_form = next(
+        node
+        for node in plugin_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "get_form"
+    )
+    body = list(get_form.body)
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]
+    if len(body) != 1 or not isinstance(body[0], ast.Return):
+        return [f"{ENTRYPOINT.relative_to(REPO).as_posix()}:{get_form.lineno}:get_form"]
+    value = body[0].value
+    if not isinstance(value, ast.Tuple) or len(value.elts) != 2:
+        return [f"{ENTRYPOINT.relative_to(REPO).as_posix()}:{get_form.lineno}:get_form"]
+    defaults = value.elts[1]
+    if (
+        not isinstance(defaults, ast.Call)
+        or not isinstance(defaults.func, ast.Name)
+        or defaults.func.id != "build_plugin_config_defaults"
+    ):
+        return [f"{ENTRYPOINT.relative_to(REPO).as_posix()}:{get_form.lineno}:get_form"]
+    return []
 
 
 def _module_business_files() -> list[str]:
@@ -160,10 +194,15 @@ def test_downloadmanagerlocal_transfer_complete_entrypoint_is_thin():
     assert _thin_delegate_gaps(EVENT_ENTRYPOINT_METHODS) == []
 
 
-def test_downloadmanagerlocal_entrypoint_size_and_imports_are_slim():
-    """入口层必须保持插件契约定位，不直接持有生命周期调度依赖。"""
+def test_downloadmanagerlocal_form_entrypoint_is_thin():
+    """配置页默认模型必须由配置模块构建，入口层只做契约转发。"""
+    assert _form_default_delegate_gaps() == []
+
+
+def test_downloadmanagerlocal_entrypoint_structure_and_imports_are_slim():
+    """入口层只保留插件契约和明确的适配逻辑。"""
     source = ENTRYPOINT.read_text(encoding="utf-8")
-    assert len(source.splitlines()) <= 520
+    assert _heavy_entrypoint_methods() == []
     forbidden_imports = [
         snippet
         for snippet in ENTRYPOINT_FORBIDDEN_IMPORT_SNIPPETS

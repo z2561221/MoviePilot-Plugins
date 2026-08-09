@@ -32,8 +32,8 @@ def _load_module(name: str, relative_path: str):
     return module
 
 
-def _get_form_defaults() -> dict:
-    """从插件入口 AST 提取 Vue 表单默认配置。"""
+def _get_form_default_factory_name() -> str:
+    """从插件入口 AST 提取 Vue 表单默认配置工厂名。"""
     source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
     module = ast.parse(source)
     plugin_class = next(
@@ -49,24 +49,22 @@ def _get_form_defaults() -> dict:
     return_node = next(node for node in ast.walk(get_form) if isinstance(node, ast.Return))
     assert isinstance(return_node.value, ast.Tuple)
     defaults_node = return_node.value.elts[1]
-    assert isinstance(defaults_node, ast.Dict)
-    defaults = {}
-    for key_node, value_node in zip(defaults_node.keys, defaults_node.values):
-        if key_node is None:
-            assert isinstance(value_node, ast.Name)
-            assert value_node.id == "SPEED_MONITOR_CONFIG_DEFAULTS"
-            defaults.update(EXPECTED_DEFAULTS)
-            continue
-        defaults[ast.literal_eval(key_node)] = ast.literal_eval(value_node)
-    return defaults
+    assert isinstance(defaults_node, ast.Call)
+    assert isinstance(defaults_node.func, ast.Name)
+    return defaults_node.func.id
 
 
 def test_speed_monitor_defaults_are_complete_and_exposed_by_form():
     config = _load_module("downloadmanagerlocal_utils_config", "utils/config.py")
 
     assert config.SPEED_MONITOR_CONFIG_DEFAULTS == EXPECTED_DEFAULTS
-    form_defaults = _get_form_defaults()
+    assert _get_form_default_factory_name() == "build_plugin_config_defaults"
+    form_defaults = config.build_plugin_config_defaults()
+    assert form_defaults == config.PLUGIN_CONFIG_DEFAULTS
     assert {key: form_defaults[key] for key in EXPECTED_DEFAULTS} == EXPECTED_DEFAULTS
+
+    form_defaults["iyuu_downloaders"].append("mutated")
+    assert config.PLUGIN_CONFIG_DEFAULTS["iyuu_downloaders"] == []
 
 
 def test_speed_monitor_config_normalizes_ranges_modes_and_per_downloader_speeds():

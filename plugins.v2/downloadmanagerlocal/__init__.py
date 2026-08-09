@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.2.7 - MoviePilot 本地插件
+DownloadManagerLocal v3.2.9 - MoviePilot 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 from threading import Event as ThreadEvent
@@ -15,7 +15,7 @@ from app.schemas.types import EventType
 
 from .adapter.moviepilot import get_downloader_service
 from .model.state import SEED_RECHECK_QUEUE_KEY
-from .utils.config import SPEED_MONITOR_CONFIG_DEFAULTS, is_plugin_active, is_transfer_active
+from .utils.config import build_plugin_config_defaults, is_plugin_active, is_transfer_active
 from .utils.path import convert_save_path
 from .utils.torrent_adapter import get_hash, get_label, get_category, get_save_path, get_torrent_size
 from .api import api_downloaders as _api_downloaders, api_sites as _api_sites, api_rename_history as _api_rename_history, api_delete_rename_history as _api_delete_rename_history, api_recovery_torrent as _api_recovery_torrent, api_retry_renames as _api_retry_renames, api_retry_rename as _api_retry_rename, api_diagnostics as _api_diagnostics, api_overview as _api_overview, api_rename_archive as _api_rename_archive, api_restore_rename_archive as _api_restore_rename_archive, api_delete_rename_archive as _api_delete_rename_archive
@@ -46,7 +46,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.2.8"
+    plugin_version = "3.2.9"
     # 插件作者
     plugin_author = "牧濑红莉栖"
     # 作者主页
@@ -268,32 +268,8 @@ class DownloadManagerLocal(_PluginBase):
         return "vue", "dist/assets"
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
-        """Vue 模式下表单由前端组件渲染"""
-        return None, {
-            "enabled": False, "transfer_enabled": True, "notify": False, "onlyonce": False, "delay_minutes": 25,
-            "transfer_fallback_enabled": True, "transfer_fallback_interval_minutes": 60,
-            "nolabels": "", "includelabels": "", "includecategory": "",
-            "frompath": "", "topath": "", "fromdownloader": "", "todownloader": "",
-            "deletesource": False, "deleteduplicate": False, "fromtorrentpath": "",
-            "nopaths": "",
-            "transferemptylabel": False, "add_torrent_tags": "⏩转种",
-            "remainoldcat": False, "remainoldtag": False,
-            "rename_enabled": True,
-            "rename_movie_format": "[ {{ title }}{% if year %} ({{ year }}){% endif %} ] - {{original_name}}",
-            "rename_tv_format": "[ {{ title }}{% if year %} ({{ year }}){% endif %}{% if season_episode %} - {{season_episode}}{% endif %} ] - {{original_name}}",
-            "rename_exclude_dirs": "",
-            "tag_enabled": True, "tag_siteprefix": "🏠", "tag_tracker_mappings_str": "",
-            # IYUU 辅种
-            "iyuu_enabled": False, "iyuu_cron": "", "iyuu_onlyonce": False,
-            "iyuu_token": "", "iyuu_downloaders": [], "iyuu_auto_downloader": "",
-            "iyuu_sites": [], "iyuu_nolabels": "", "iyuu_nopaths": "",
-            "iyuu_size": 0, "iyuu_auto_category": False,
-            "iyuu_labelsafterseed": "已整理,辅种", "iyuu_categoryafterseed": "",
-            "seed_autostart": True, "seed_skipverify": False,
-            "seed_check_interval": 60, "seed_max_wait_minutes": 120,
-            "iyuu_clearcache": False,
-            **SPEED_MONITOR_CONFIG_DEFAULTS,
-        }
+        """Vue 模式下返回前端配置组件使用的默认配置。"""
+        return None, build_plugin_config_defaults()
 
     def get_page(self) -> Optional[List[dict]]:
         """Vue 模式下无详情页"""
