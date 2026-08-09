@@ -31,12 +31,12 @@
 
 2026-07-04 标准化收口后，`DownloadManagerLocal` 已按 MoviePilot 插件维护规范完成后端分层与运行态闭环验收，UI 源码和可见行为保持不变。
 
-- 入口层：`__init__.py` 保持 520 行，只维护 `_PluginBase` 契约、插件身份、配置生命周期、事件注册、扩展点声明和薄委托。
+- 入口层：`__init__.py` 只维护 `_PluginBase` 契约、插件身份、配置生命周期、事件注册、扩展点声明和薄委托；配置页默认模型由 `utils/config.py` 统一构建。
 - Controller 层：`controller/api.py` 维护 API route metadata，`controller/handlers.py` 维护 handler 调度和响应 shape。
 - Service 层：`service/lifecycle.py`、`events.py`、`transfer.py`、`iyuu.py`、`rename.py`、`archive.py`、`site_tag.py`、`diagnostics.py`、`recheck.py` 等模块承载业务编排。
 - Adapter 层：`adapter/moviepilot.py` 集中访问 MoviePilot 下载器、站点、系统配置、HTTP、TorrentHelper、下载历史和外部链接能力。
 - Model 层：`model/state.py` 集中维护持久化 key、IYUU 动态 key helper 和 dict 数据读写 helper，保持旧 key 后向兼容。
-- Utils 层：只保留无业务状态的解析、脱敏、路径、tracker、种子字段适配等小工具。
+- Utils 层：只保留无业务状态的解析、脱敏、路径、tracker、种子字段适配和配置默认值工厂等小工具。
 - `modules/`：保留为兼容 shim；AST 扫描显示 `modules/*.py` 顶层 class/function 定义数均为 0，不再承载业务决策。
 - 文档质量：public class/function/method 中文 docstring 缺口为 0；本轮新增或改动的 private helper 中文 docstring 缺口为 0。
 
@@ -123,7 +123,7 @@
 - `service/site_tag.py`：tracker 域名解析、站点标签写入、临时标签回收和人工标签清理。
 - `service/diagnostics.py`：诊断数据构建。
 - `modules/*.py`：兼容 shim，只重导出 service 实现；不得新增业务判断。
-- `utils/config.py`：启用状态、安全整数、转移/IYUU 活跃判定。
+- `utils/config.py`：配置默认值工厂、启用状态、安全整数、转移/IYUU 活跃判定。
 - `utils/torrent_adapter.py`：qBittorrent 和 Transmission 的 hash、标签、分类、保存路径和大小适配。
 - `utils/tag_cleanup.py`：临时标签归属判定和标签类型分类。
 - `utils/name_cleaner.py`：发布名清洗、污染名检测和补刀 hash 收集。

@@ -9,7 +9,7 @@ from ..model.state import (
     IYUU_PERMANENT_ERROR_CACHES_KEY,
     IYUU_SUCCESS_CACHES_KEY,
 )
-from ..utils.config import normalize_speed_monitor_config, safe_int
+from ..utils.config import PLUGIN_CONFIG_DEFAULTS, normalize_speed_monitor_config, safe_int
 from ..utils.tracker import parse_tracker_mappings
 
 
@@ -33,75 +33,79 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
         return config
 
     config.update(monitor_config)
+    defaults = PLUGIN_CONFIG_DEFAULTS
 
-    plugin._enabled = config.get("enabled")
-    plugin._transfer_enabled = config.get("transfer_enabled", True)
-    plugin._onlyonce = config.get("onlyonce")
-    plugin._delay_minutes = config.get("delay_minutes", 25)
-    plugin._transfer_fallback_enabled = config.get("transfer_fallback_enabled", True)
+    plugin._enabled = config.get("enabled", defaults["enabled"])
+    plugin._transfer_enabled = config.get("transfer_enabled", defaults["transfer_enabled"])
+    plugin._onlyonce = config.get("onlyonce", defaults["onlyonce"])
+    plugin._delay_minutes = config.get("delay_minutes", defaults["delay_minutes"])
+    plugin._transfer_fallback_enabled = config.get(
+        "transfer_fallback_enabled", defaults["transfer_fallback_enabled"]
+    )
     try:
-        plugin._transfer_fallback_interval_minutes = max(
-            1, int(config.get("transfer_fallback_interval_minutes") or 60)
-        )
+        plugin._transfer_fallback_interval_minutes = max(1, int(
+            config.get("transfer_fallback_interval_minutes")
+            or defaults["transfer_fallback_interval_minutes"]
+        ))
     except (TypeError, ValueError):
-        plugin._transfer_fallback_interval_minutes = 60
-    plugin._notify = config.get("notify")
-    plugin._nolabels = config.get("nolabels")
-    plugin._includelabels = config.get("includelabels")
-    plugin._includecategory = config.get("includecategory")
-    plugin._frompath = config.get("frompath")
-    plugin._topath = config.get("topath")
-    plugin._fromdownloader = config.get("fromdownloader")
-    plugin._todownloader = config.get("todownloader")
-    plugin._deletesource = config.get("deletesource")
-    plugin._deleteduplicate = config.get("deleteduplicate")
-    plugin._fromtorrentpath = config.get("fromtorrentpath")
-    plugin._nopaths = config.get("nopaths")
-    plugin._transferemptylabel = config.get("transferemptylabel")
+        plugin._transfer_fallback_interval_minutes = defaults["transfer_fallback_interval_minutes"]
+    plugin._notify = config.get("notify", defaults["notify"])
+    plugin._nolabels = config.get("nolabels", defaults["nolabels"])
+    plugin._includelabels = config.get("includelabels", defaults["includelabels"])
+    plugin._includecategory = config.get("includecategory", defaults["includecategory"])
+    plugin._frompath = config.get("frompath", defaults["frompath"])
+    plugin._topath = config.get("topath", defaults["topath"])
+    plugin._fromdownloader = config.get("fromdownloader", defaults["fromdownloader"])
+    plugin._todownloader = config.get("todownloader", defaults["todownloader"])
+    plugin._deletesource = config.get("deletesource", defaults["deletesource"])
+    plugin._deleteduplicate = config.get("deleteduplicate", defaults["deleteduplicate"])
+    plugin._fromtorrentpath = config.get("fromtorrentpath", defaults["fromtorrentpath"])
+    plugin._nopaths = config.get("nopaths", defaults["nopaths"])
+    plugin._transferemptylabel = config.get("transferemptylabel", defaults["transferemptylabel"])
     plugin._add_torrent_tags = config.get("add_torrent_tags") or ""
     plugin._torrent_tags = (
         plugin._add_torrent_tags.strip().split(",")
         if plugin._add_torrent_tags
         else []
     )
-    plugin._remainoldcat = config.get("remainoldcat")
-    plugin._remainoldtag = config.get("remainoldtag")
-    plugin._seed_autostart = config.get("seed_autostart", True)
-    plugin._seed_skipverify = config.get("seed_skipverify", False)
+    plugin._remainoldcat = config.get("remainoldcat", defaults["remainoldcat"])
+    plugin._remainoldtag = config.get("remainoldtag", defaults["remainoldtag"])
+    plugin._seed_autostart = config.get("seed_autostart", defaults["seed_autostart"])
+    plugin._seed_skipverify = config.get("seed_skipverify", defaults["seed_skipverify"])
     plugin._seed_check_interval = safe_int(config.get("seed_check_interval"), 60, 10, 3600)
     plugin._seed_max_wait_minutes = safe_int(config.get("seed_max_wait_minutes"), 120, 10, 1440)
 
-    plugin._rename_enabled = config.get("rename_enabled", True)
+    plugin._rename_enabled = config.get("rename_enabled", defaults["rename_enabled"])
     plugin._rename_movie_format = config.get(
         "rename_movie_format",
-        "[ {{ title }}{% if year %} ({{ year }}){% endif %} ] - {{original_name}}",
+        defaults["rename_movie_format"],
     )
     plugin._rename_tv_format = config.get(
         "rename_tv_format",
-        "[ {{ title }}{% if year %} ({{ year }}){% endif %}{% if season_episode %} - {{season_episode}}{% endif %} ] - {{original_name}}",
+        defaults["rename_tv_format"],
     )
-    plugin._rename_exclude_dirs = config.get("rename_exclude_dirs", "")
+    plugin._rename_exclude_dirs = config.get("rename_exclude_dirs", defaults["rename_exclude_dirs"])
 
-    plugin._tag_enabled = config.get("tag_enabled", True)
-    plugin._tag_siteprefix = config.get("tag_siteprefix", "🏠")
-    plugin._tag_tracker_mappings_str = config.get("tag_tracker_mappings_str", "")
+    plugin._tag_enabled = config.get("tag_enabled", defaults["tag_enabled"])
+    plugin._tag_siteprefix = config.get("tag_siteprefix", defaults["tag_siteprefix"])
+    plugin._tag_tracker_mappings_str = config.get("tag_tracker_mappings_str", defaults["tag_tracker_mappings_str"])
     if plugin._tag_tracker_mappings_str:
         plugin._tracker_mappings.update(parse_tracker_mappings(plugin._tag_tracker_mappings_str))
 
-    plugin._iyuu_enabled = config.get("iyuu_enabled", False)
-    plugin._iyuu_cron = config.get("iyuu_cron", "")
-    plugin._iyuu_onlyonce = config.get("iyuu_onlyonce", False)
-    plugin._iyuu_token = config.get("iyuu_token", "")
-    plugin._iyuu_downloaders = config.get("iyuu_downloaders") or []
-    plugin._iyuu_auto_downloader = config.get("iyuu_auto_downloader", "")
-    plugin._iyuu_sites = config.get("iyuu_sites") or []
-    plugin._iyuu_nolabels = config.get("iyuu_nolabels", "")
-    plugin._iyuu_nopaths = config.get("iyuu_nopaths", "")
-    plugin._iyuu_size = float(config.get("iyuu_size")) if config.get("iyuu_size") else 0
-    plugin._iyuu_auto_category = config.get("iyuu_auto_category", False)
-    plugin._iyuu_labelsafterseed = config.get("iyuu_labelsafterseed") or "已整理,辅种"
-    plugin._iyuu_categoryafterseed = config.get("iyuu_categoryafterseed", "")
-    plugin._iyuu_clearcache = config.get(IYUU_CLEAR_CACHE_KEY, False)
+    plugin._iyuu_enabled = config.get("iyuu_enabled", defaults["iyuu_enabled"])
+    plugin._iyuu_cron = config.get("iyuu_cron", defaults["iyuu_cron"])
+    plugin._iyuu_onlyonce = config.get("iyuu_onlyonce", defaults["iyuu_onlyonce"])
+    plugin._iyuu_token = config.get("iyuu_token", defaults["iyuu_token"])
+    plugin._iyuu_downloaders = config.get("iyuu_downloaders") or defaults["iyuu_downloaders"]
+    plugin._iyuu_auto_downloader = config.get("iyuu_auto_downloader", defaults["iyuu_auto_downloader"])
+    plugin._iyuu_sites = config.get("iyuu_sites") or defaults["iyuu_sites"]
+    plugin._iyuu_nolabels = config.get("iyuu_nolabels", defaults["iyuu_nolabels"])
+    plugin._iyuu_nopaths = config.get("iyuu_nopaths", defaults["iyuu_nopaths"])
+    plugin._iyuu_size = float(config.get("iyuu_size", defaults["iyuu_size"])) if config.get("iyuu_size") else 0
+    plugin._iyuu_auto_category = config.get("iyuu_auto_category", defaults["iyuu_auto_category"])
+    plugin._iyuu_labelsafterseed = config.get("iyuu_labelsafterseed") or defaults["iyuu_labelsafterseed"]
+    plugin._iyuu_categoryafterseed = config.get("iyuu_categoryafterseed", defaults["iyuu_categoryafterseed"])
+    plugin._iyuu_clearcache = config.get(IYUU_CLEAR_CACHE_KEY, defaults["iyuu_clearcache"])
     plugin._iyuu_permanent_error_caches = (
         [] if plugin._iyuu_clearcache else list(config.get(IYUU_PERMANENT_ERROR_CACHES_KEY) or [])
     )
