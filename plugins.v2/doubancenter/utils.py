@@ -162,12 +162,50 @@ def get_tmdb_air_date(chain, tmdb_id: Optional[int], season: Optional[int] = Non
         return None
 
 
+def _normalize_iso_date(value: Any) -> Optional[str]:
+    """从日期或日期时间值中提取 ISO 日期。"""
+    match = re.search(r"\d{4}-\d{2}-\d{2}", str(value or "").strip())
+    return match.group(0) if match else None
+
+
+def get_media_release_date(mediainfo: Any, season: Optional[int] = None) -> Optional[str]:
+    """优先返回指定季首播日期，否则返回媒体上映日期。"""
+    if season:
+        for season_info in getattr(mediainfo, "season_info", None) or []:
+            if not isinstance(season_info, dict):
+                continue
+            try:
+                season_number = int(season_info.get("season_number"))
+            except (TypeError, ValueError):
+                continue
+            if season_number == int(season):
+                if air_date := _normalize_iso_date(season_info.get("air_date")):
+                    return air_date
+    for value in (
+        getattr(mediainfo, "release_date", None),
+        getattr(mediainfo, "first_air_date", None),
+    ):
+        if release_date := _normalize_iso_date(value):
+            return release_date
+    return None
+
+
 def is_within_days(date_str: str, days: int) -> bool:
     """判断日期是否位于未来指定天数内。"""
     try:
-        target = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        target = datetime.datetime.strptime(_normalize_iso_date(date_str) or "", "%Y-%m-%d").date()
         today = datetime.datetime.now(pytz.timezone(settings.TZ)).date()
         return 0 <= (target - today).days <= days
+    except Exception:
+        return False
+
+
+def is_within_recent_days(date_str: str, days: int) -> bool:
+    """判断日期是否位于最近指定天数内。"""
+    try:
+        target = datetime.datetime.strptime(_normalize_iso_date(date_str) or "", "%Y-%m-%d").date()
+        today = datetime.datetime.now(pytz.timezone(settings.TZ)).date()
+        return 0 <= (today - target).days <= days
     except Exception:
         return False
 

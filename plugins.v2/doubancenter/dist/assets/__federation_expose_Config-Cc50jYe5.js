@@ -50,46 +50,52 @@ const _hoisted_37 = { class: "dc-rank-summary-meta" };
 const _hoisted_38 = { key: 0 };
 const _hoisted_39 = { key: 1 };
 const _hoisted_40 = { key: 2 };
-const _hoisted_41 = { class: "dc-rank-actions" };
-const _hoisted_42 = {
+const _hoisted_41 = { key: 3 };
+const _hoisted_42 = { class: "dc-rank-actions" };
+const _hoisted_43 = {
   key: 0,
   class: "dc-rank-card-details"
 };
-const _hoisted_43 = { class: "dc-rank-card-body" };
-const _hoisted_44 = { class: "dc-rank-field" };
+const _hoisted_44 = { class: "dc-rank-detail-toolbar" };
 const _hoisted_45 = {
   key: 0,
-  class: "dc-rank-field"
+  class: "dc-rank-route-hint text-caption text-medium-emphasis"
 };
 const _hoisted_46 = {
-  key: 1,
-  class: "dc-rank-field"
-};
-const _hoisted_47 = {
-  key: 2,
-  class: "dc-rank-field"
-};
-const _hoisted_48 = {
   key: 0,
   class: "dc-custom-rank-route-row"
 };
+const _hoisted_47 = { class: "dc-rank-card-body" };
+const _hoisted_48 = { class: "dc-rank-field dc-rank-field--count" };
 const _hoisted_49 = {
-  key: 1,
-  class: "dc-rank-route-hint text-caption text-medium-emphasis"
+  key: 0,
+  class: "dc-rank-field dc-rank-field--vote"
 };
 const _hoisted_50 = {
   key: 1,
+  class: "dc-rank-field dc-rank-field--threshold"
+};
+const _hoisted_51 = {
+  key: 2,
+  class: "dc-rank-field dc-rank-field--threshold"
+};
+const _hoisted_52 = {
+  key: 3,
+  class: "dc-rank-field dc-rank-field--days"
+};
+const _hoisted_53 = {
+  key: 1,
   class: "dc-custom-ranks-empty text-caption text-medium-emphasis"
 };
-const _hoisted_51 = { class: "dc-pane" };
-const _hoisted_52 = { class: "dc-pane" };
-const _hoisted_53 = { class: "dc-wish-status mt-3" };
-const _hoisted_54 = { class: "dc-kv" };
-const _hoisted_55 = { class: "dc-kv" };
-const _hoisted_56 = { class: "dc-kv" };
+const _hoisted_54 = { class: "dc-pane" };
+const _hoisted_55 = { class: "dc-pane" };
+const _hoisted_56 = { class: "dc-wish-status mt-3" };
 const _hoisted_57 = { class: "dc-kv" };
-const _hoisted_58 = { class: "dc-pane" };
-const _hoisted_59 = { class: "dc-pane" };
+const _hoisted_58 = { class: "dc-kv" };
+const _hoisted_59 = { class: "dc-kv" };
+const _hoisted_60 = { class: "dc-kv" };
+const _hoisted_61 = { class: "dc-pane" };
+const _hoisted_62 = { class: "dc-pane" };
 
 const {computed,nextTick,onMounted,reactive,ref,watch} = await importShared('vue');
 
@@ -139,13 +145,18 @@ const defaults = {
   observe_rank_keys: ['coming', 'tv_real_time'],
 };
 
+const dateModeOptions = [
+  { title: '提前订阅', value: 'future' },
+  { title: '近期上映', value: 'recent' },
+];
+
 const builtinRankDefs = [
-  { key: 'coming', name: '即将上映', route: '/douban/tv/coming', filters: ['vote', 'wish_count'] },
-  { key: 'tv_real_time', name: '实时热门', route: '/douban/list/tv_real_time_hotest', filters: ['vote', 'year'] },
-  { key: 'tv_chinese', name: '华语口碑', route: '/douban/list/tv_chinese_best_weekly', filters: ['vote', 'year'] },
-  { key: 'tv_global', name: '全球口碑', route: '/douban/list/tv_global_best_weekly', filters: ['vote', 'year'] },
-  { key: 'movie_weekly', name: '电影口碑', route: '/douban/list/movie_weekly_best', filters: ['vote', 'year'] },
-  { key: 'bangumi', name: 'BangumiTV', route: '/bangumi.tv/anime/followrank', filters: ['vote', 'year'] },
+  { key: 'coming', name: '即将上映', route: '/douban/tv/coming', date_mode: 'future', filters: ['vote', 'wish_count', 'air_days'] },
+  { key: 'tv_real_time', name: '实时热门', route: '/douban/list/tv_real_time_hotest', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'tv_chinese', name: '华语口碑', route: '/douban/list/tv_chinese_best_weekly', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'tv_global', name: '全球口碑', route: '/douban/list/tv_global_best_weekly', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'movie_weekly', name: '电影口碑', route: '/douban/list/movie_weekly_best', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'bangumi', name: 'BangumiTV', route: '/bangumi.tv/anime/followrank', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
 ];
 
 const rankDefs = computed(() => [
@@ -154,7 +165,7 @@ const rankDefs = computed(() => [
     ...rank,
     model: rank,
     custom: true,
-    filters: ['vote', 'year'],
+    filters: ['vote', 'year', 'air_days'],
   })),
 ]);
 
@@ -222,11 +233,25 @@ function customRankKey() {
   return `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+function normalizeDateMode(value) {
+  return value === 'future' ? 'future' : 'recent'
+}
+
+function rankDateLabel(rank) {
+  return normalizeDateMode(rank?.date_mode) === 'future' ? '提前天数' : '最近天数'
+}
+
+function rankDateSummary(rank) {
+  const days = form.rank_configs?.[rank.key]?.air_days;
+  const prefix = normalizeDateMode(rank?.date_mode) === 'future' ? '提前' : '最近';
+  return `${prefix} ${Number(days) > 0 ? `${days} 天` : '不限'}`
+}
+
 function addCustomRank() {
   customRankError.value = '';
   const key = customRankKey();
-  form.custom_ranks.push({ key, name: '', route: '' });
-  form.rank_configs[key] = { enabled: false, count: 1, vote: '', year: '', regions: [] };
+  form.custom_ranks.push({ key, name: '', route: '', date_mode: 'recent' });
+  form.rank_configs[key] = { enabled: false, count: 1, vote: '', year: '', air_days: '', regions: [] };
   expandedRankKeys.value = new Set([...expandedRankKeys.value, key]);
   activeMain.value = 'rank';
   activeSub.value = 'list';
@@ -284,6 +309,7 @@ function validateCustomRanks() {
     if (!key || seen.has(key)) return '自定义榜单标识重复或无效'
     if (!String(rank?.name || '').trim()) return '请填写自定义榜单名称'
     if (!validCustomRoute(rank?.route)) return 'RSSHub 路由必须是以 / 开头的相对路径'
+    if (!dateModeOptions.some(item => item.value === rank?.date_mode)) return '请选择自定义榜单的日期方向'
     seen.add(key);
   }
   return ''
@@ -296,12 +322,13 @@ function normalizeInitialConfig(value) {
       key: String(rank.key || ''),
       name: String(rank.name || ''),
       route: String(rank.route || ''),
+      date_mode: normalizeDateMode(rank.date_mode),
     }))
     : [];
   if (!(m.rank_configs && typeof m.rank_configs === 'object' && !Array.isArray(m.rank_configs))) {
     m.rank_configs = {};
   }
-  for (const rd of [...builtinRankDefs, ...m.custom_ranks.map(rank => ({ ...rank, filters: ['vote', 'year'] }))]) {
+  for (const rd of [...builtinRankDefs, ...m.custom_ranks.map(rank => ({ ...rank, filters: ['vote', 'year', 'air_days'] }))]) {
     m.rank_configs[rd.key] = {
       ...(defaults.rank_configs[rd.key] || { enabled: false, count: 1, vote: '', year: '' }),
       ...(isPlainObject(m.rank_configs[rd.key]) ? m.rank_configs[rd.key] : {}),
@@ -343,6 +370,7 @@ function saveConfig() {
       key: String(rank.key || '').trim(),
       name: String(rank.name || '').trim(),
       route: String(rank.route || '').trim(),
+      date_mode: normalizeDateMode(rank.date_mode),
     })),
     rank_configs: Object.fromEntries(Object.entries(form.rank_configs || {}).map(([key, config]) => [key, {
       ...cloneConfig(config),
@@ -399,13 +427,13 @@ return (_ctx, _cache) => {
   const _component_VBtn = _resolveComponent("VBtn");
   const _component_VCheckbox = _resolveComponent("VCheckbox");
   const _component_VChip = _resolveComponent("VChip");
+  const _component_VSelect = _resolveComponent("VSelect");
   const _component_VCombobox = _resolveComponent("VCombobox");
   const _component_VCardText = _resolveComponent("VCardText");
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VCardActions = _resolveComponent("VCardActions");
   const _component_VCard = _resolveComponent("VCard");
   const _component_VDialog = _resolveComponent("VDialog");
-  const _component_VSelect = _resolveComponent("VSelect");
   const _component_VTextarea = _resolveComponent("VTextarea");
 
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
@@ -750,7 +778,7 @@ return (_ctx, _cache) => {
                   variant: "tonal",
                   density: "compact",
                   class: "mb-3",
-                  text: "每个榜单独立控制；地区为多选 OR，与评分、年份、数量等条件共同生效。空地区表示不限。"
+                  text: "每个榜单独立控制；即将上映按提前天数筛选，其他榜单按最近天数筛选，自定义榜单可选择日期方向。空或 0 表示不限。"
                 }),
                 (customRankError.value)
                   ? (_openBlock(), _createBlock(_component_VAlert, {
@@ -825,10 +853,13 @@ return (_ctx, _cache) => {
                               : _createCommentVNode("", true),
                             (rd.filters.includes('wish_count'))
                               ? (_openBlock(), _createElementBlock("span", _hoisted_40, "想看 " + _toDisplayString(form.rank_configs[rd.key]?.wish_count || '不限'), 1))
+                              : _createCommentVNode("", true),
+                            (rd.filters.includes('air_days'))
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_41, _toDisplayString(rankDateSummary(rd)), 1))
                               : _createCommentVNode("", true)
                           ])
                         ], 8, _hoisted_35),
-                        _createElementVNode("div", _hoisted_41, [
+                        _createElementVNode("div", _hoisted_42, [
                           (rd.custom)
                             ? (_openBlock(), _createBlock(_component_VBtn, {
                                 key: 0,
@@ -862,8 +893,8 @@ return (_ctx, _cache) => {
                       _createVNode(_Transition, { name: "dc-rank-details" }, {
                         default: _withCtx(() => [
                           (isExpanded(rd.key))
-                            ? (_openBlock(), _createElementBlock("div", _hoisted_42, [
-                                _createElementVNode("div", _hoisted_43, [
+                            ? (_openBlock(), _createElementBlock("div", _hoisted_43, [
+                                _createElementVNode("div", _hoisted_44, [
                                   _createVNode(_component_VCheckbox, {
                                     modelValue: form.rank_configs[rd.key].enabled,
                                     "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].enabled) = $event),
@@ -873,7 +904,47 @@ return (_ctx, _cache) => {
                                     density: "compact",
                                     class: "dc-rank-detail-enable"
                                   }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                                  _createElementVNode("div", _hoisted_44, [
+                                  (!rd.custom)
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_45, "路由：" + _toDisplayString(rd.route), 1))
+                                    : _createCommentVNode("", true)
+                                ]),
+                                (rd.custom)
+                                  ? (_openBlock(), _createElementBlock("div", _hoisted_46, [
+                                      _createVNode(_component_VTextField, {
+                                        ref_for: true,
+                                        ref: el => setNameInputRef(rd.key, el),
+                                        modelValue: rd.model.name,
+                                        "onUpdate:modelValue": $event => ((rd.model.name) = $event),
+                                        label: "榜单名称",
+                                        density: "compact",
+                                        variant: "outlined",
+                                        "hide-details": "",
+                                        class: "dc-custom-rank-name"
+                                      }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                                      _createVNode(_component_VTextField, {
+                                        modelValue: rd.model.route,
+                                        "onUpdate:modelValue": $event => ((rd.model.route) = $event),
+                                        label: "路由",
+                                        placeholder: "/example/rsshub/route?foo=bar",
+                                        density: "compact",
+                                        variant: "outlined",
+                                        "hide-details": "",
+                                        class: "dc-custom-rank-route"
+                                      }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                                      _createVNode(_component_VSelect, {
+                                        modelValue: rd.model.date_mode,
+                                        "onUpdate:modelValue": $event => ((rd.model.date_mode) = $event),
+                                        items: dateModeOptions,
+                                        label: "日期方向",
+                                        density: "compact",
+                                        variant: "outlined",
+                                        "hide-details": "",
+                                        class: "dc-custom-rank-date-mode"
+                                      }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                                    ]))
+                                  : _createCommentVNode("", true),
+                                _createElementVNode("div", _hoisted_47, [
+                                  _createElementVNode("div", _hoisted_48, [
                                     _createVNode(_component_VTextField, {
                                       modelValue: form.rank_configs[rd.key].count,
                                       "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].count) = $event),
@@ -889,7 +960,7 @@ return (_ctx, _cache) => {
                                     }, null, 8, ["modelValue", "onUpdate:modelValue"])
                                   ]),
                                   (rd.filters.includes('vote'))
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_45, [
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_49, [
                                         _createVNode(_component_VTextField, {
                                           modelValue: form.rank_configs[rd.key].vote,
                                           "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].vote) = $event),
@@ -923,7 +994,7 @@ return (_ctx, _cache) => {
                                     class: "dc-rank-regions"
                                   }, null, 8, ["modelValue", "onUpdate:modelValue"]),
                                   (rd.filters.includes('year'))
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_46, [
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_50, [
                                         _createVNode(_component_VTextField, {
                                           modelValue: form.rank_configs[rd.key].year,
                                           "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].year) = $event),
@@ -940,7 +1011,7 @@ return (_ctx, _cache) => {
                                       ]))
                                     : _createCommentVNode("", true),
                                   (rd.filters.includes('wish_count'))
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_47, [
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_51, [
                                         _createVNode(_component_VTextField, {
                                           modelValue: form.rank_configs[rd.key].wish_count,
                                           "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].wish_count) = $event),
@@ -955,33 +1026,25 @@ return (_ctx, _cache) => {
                                           class: "dc-rank-input"
                                         }, null, 8, ["modelValue", "onUpdate:modelValue"])
                                       ]))
+                                    : _createCommentVNode("", true),
+                                  (rd.filters.includes('air_days'))
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_52, [
+                                        _createVNode(_component_VTextField, {
+                                          modelValue: form.rank_configs[rd.key].air_days,
+                                          "onUpdate:modelValue": $event => ((form.rank_configs[rd.key].air_days) = $event),
+                                          modelModifiers: { number: true },
+                                          label: rankDateLabel(rd),
+                                          placeholder: "0 不限",
+                                          type: "number",
+                                          min: "0",
+                                          density: "compact",
+                                          variant: "outlined",
+                                          "hide-details": "",
+                                          class: "dc-rank-input"
+                                        }, null, 8, ["modelValue", "onUpdate:modelValue", "label"])
+                                      ]))
                                     : _createCommentVNode("", true)
-                                ]),
-                                (rd.custom)
-                                  ? (_openBlock(), _createElementBlock("div", _hoisted_48, [
-                                      _createVNode(_component_VTextField, {
-                                        ref_for: true,
-                                        ref: el => setNameInputRef(rd.key, el),
-                                        modelValue: rd.model.name,
-                                        "onUpdate:modelValue": $event => ((rd.model.name) = $event),
-                                        label: "榜单名称",
-                                        density: "compact",
-                                        variant: "outlined",
-                                        "hide-details": "",
-                                        class: "dc-custom-rank-name"
-                                      }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                                      _createVNode(_component_VTextField, {
-                                        modelValue: rd.model.route,
-                                        "onUpdate:modelValue": $event => ((rd.model.route) = $event),
-                                        label: "路由",
-                                        placeholder: "/example/rsshub/route?foo=bar",
-                                        density: "compact",
-                                        variant: "outlined",
-                                        "hide-details": "",
-                                        class: "dc-custom-rank-route"
-                                      }, null, 8, ["modelValue", "onUpdate:modelValue"])
-                                    ]))
-                                  : (_openBlock(), _createElementBlock("div", _hoisted_49, "路由：" + _toDisplayString(rd.route), 1))
+                                ])
                               ]))
                             : _createCommentVNode("", true)
                         ]),
@@ -991,7 +1054,7 @@ return (_ctx, _cache) => {
                   }), 128))
                 ]),
                 (!form.custom_ranks.length)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_50, "尚未添加自定义榜单"))
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_53, "尚未添加自定义榜单"))
                   : _createCommentVNode("", true),
                 _createVNode(_component_VDialog, {
                   modelValue: deleteDialog.value,
@@ -1047,7 +1110,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'list']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_51, [
+              _withDirectives(_createElementVNode("div", _hoisted_54, [
                 _cache[45] || (_cache[45] = _createElementVNode("div", { class: "dc-section-title" }, "观察设置", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -1122,7 +1185,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'filter']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_52, [
+              _withDirectives(_createElementVNode("div", _hoisted_55, [
                 _cache[50] || (_cache[50] = _createElementVNode("div", { class: "dc-section-title" }, "同步想看", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -1244,20 +1307,20 @@ return (_ctx, _cache) => {
                   density: "compact",
                   text: "通过豆瓣动态 feed 同步，首次只建立最近天数内的基线；后续周期只处理最近天数内新增的想看。"
                 }),
-                _createElementVNode("div", _hoisted_53, [
-                  _createElementVNode("div", _hoisted_54, [
+                _createElementVNode("div", _hoisted_56, [
+                  _createElementVNode("div", _hoisted_57, [
                     _cache[46] || (_cache[46] = _createElementVNode("span", null, "队列待处理", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.queue || 0), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_55, [
+                  _createElementVNode("div", _hoisted_58, [
                     _cache[47] || (_cache[47] = _createElementVNode("span", null, "失败记录", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.failed || 0), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_56, [
+                  _createElementVNode("div", _hoisted_59, [
                     _cache[48] || (_cache[48] = _createElementVNode("span", null, "最近运行", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.last_run || '尚未运行'), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_57, [
+                  _createElementVNode("div", _hoisted_60, [
                     _cache[49] || (_cache[49] = _createElementVNode("span", null, "状态错误", -1)),
                     _createElementVNode("strong", null, _toDisplayString(overview.value?.cards?.folio?.wish?.last_error || '无'), 1)
                   ])
@@ -1265,7 +1328,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'wish']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_58, [
+              _withDirectives(_createElementVNode("div", _hoisted_61, [
                 _cache[51] || (_cache[51] = _createElementVNode("div", { class: "dc-section-title" }, "同步观影", -1)),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -1415,7 +1478,7 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'sync']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_59, [
+              _withDirectives(_createElementVNode("div", _hoisted_62, [
                 _cache[52] || (_cache[52] = _createElementVNode("div", { class: "dc-section-title" }, "仪表盘选择", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
@@ -1511,6 +1574,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4b8b4579"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1ccb3bd8"]]);
 
 export { Config as default };

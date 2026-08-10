@@ -7,48 +7,57 @@ from urllib.parse import urlsplit
 
 DEFAULT_OBSERVE_RANK_KEYS = ["coming", "tv_real_time"]
 CUSTOM_RANK_KEY_RE = re.compile(r"^custom_[^\s/?#]+$")
+DATE_MODE_FUTURE = "future"
+DATE_MODE_RECENT = "recent"
+VALID_DATE_MODES = {DATE_MODE_FUTURE, DATE_MODE_RECENT}
 BUILTIN_RANKS: List[Dict[str, Any]] = [
     {
         "key": "coming",
         "name": "即将上映",
         "route": "/douban/tv/coming",
         "coming": True,
-        "filters": ["vote", "wish_count"],
+        "date_mode": DATE_MODE_FUTURE,
+        "filters": ["vote", "wish_count", "air_days"],
     },
     {
         "key": "tv_real_time",
         "name": "实时热门",
         "route": "/douban/list/tv_real_time_hotest",
         "coming": False,
-        "filters": ["vote", "year"],
+        "date_mode": DATE_MODE_RECENT,
+        "filters": ["vote", "year", "air_days"],
     },
     {
         "key": "tv_chinese",
         "name": "华语口碑",
         "route": "/douban/list/tv_chinese_best_weekly",
         "coming": False,
-        "filters": ["vote", "year"],
+        "date_mode": DATE_MODE_RECENT,
+        "filters": ["vote", "year", "air_days"],
     },
     {
         "key": "tv_global",
         "name": "全球口碑",
         "route": "/douban/list/tv_global_best_weekly",
         "coming": False,
-        "filters": ["vote", "year"],
+        "date_mode": DATE_MODE_RECENT,
+        "filters": ["vote", "year", "air_days"],
     },
     {
         "key": "movie_weekly",
         "name": "电影口碑",
         "route": "/douban/list/movie_weekly_best",
         "coming": False,
-        "filters": ["vote", "year"],
+        "date_mode": DATE_MODE_RECENT,
+        "filters": ["vote", "year", "air_days"],
     },
     {
         "key": "bangumi",
         "name": "BangumiTV",
         "route": "/bangumi.tv/anime/followrank",
         "coming": False,
-        "filters": ["vote", "year"],
+        "date_mode": DATE_MODE_RECENT,
+        "filters": ["vote", "year", "air_days"],
     },
 ]
 
@@ -56,6 +65,20 @@ BUILTIN_RANKS: List[Dict[str, Any]] = [
 def builtin_ranks() -> List[Dict[str, Any]]:
     """返回内置榜单定义副本。"""
     return deepcopy(BUILTIN_RANKS)
+
+
+def normalize_date_mode(value: Any, default: str = DATE_MODE_RECENT) -> str:
+    """规范化上映日期方向，非法值回退到指定默认方向。"""
+    fallback = default if default in VALID_DATE_MODES else DATE_MODE_RECENT
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in VALID_DATE_MODES else fallback
+
+
+def rank_date_mode(rank: Any) -> str:
+    """返回榜单日期方向，并兼容缺少 date_mode 的旧榜单定义。"""
+    value = rank if isinstance(rank, dict) else {}
+    default = DATE_MODE_FUTURE if value.get("coming") else DATE_MODE_RECENT
+    return normalize_date_mode(value.get("date_mode"), default=default)
 
 
 def normalize_custom_rank(value: Any) -> Dict[str, Any] | None:
@@ -84,6 +107,7 @@ def normalize_custom_rank(value: Any) -> Dict[str, Any] | None:
         "key": key,
         "name": name,
         "route": route,
+        "date_mode": normalize_date_mode(value.get("date_mode")),
     }
 
 
@@ -111,7 +135,7 @@ def effective_ranks(custom_ranks: Any = None) -> List[Dict[str, Any]]:
                 **custom,
                 "custom": True,
                 "coming": False,
-                "filters": ["vote", "year"],
+                "filters": ["vote", "year", "air_days"],
             }
         )
     return ranks

@@ -66,9 +66,10 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("border-radius: 8px; padding: 5px 10px;", text)
         self.assertIn(".dc-rank-card-header { margin-bottom: 0; min-width: 0; }", text)
         self.assertIn(
-            ".dc-rank-card-body { display: grid; grid-template-columns: minmax(130px, 1.1fr) minmax(100px, .85fr) minmax(100px, .85fr) minmax(160px, 1.2fr) minmax(100px, .85fr);",
+            ".dc-rank-card-body { display: grid; grid-template-columns: 80px 80px minmax(150px, 1fr) 92px 108px;",
             text,
         )
+        self.assertIn(".dc-rank-detail-toolbar { min-height: 30px; display: flex;", text)
         self.assertIn(".dc-rank-field { display: block; min-width: 0; width: 100%; }", text)
         self.assertIn(".dc-rank-input { width: 100%; max-width: none; }", text)
         self.assertIn("@media (max-width: 760px)", text)
@@ -80,9 +81,10 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn("display:grid;grid-template-columns:minmax(150px,220px)minmax(0,1fr)", compact_css)
         self.assertIn("border-radius:8px;padding:5px10px", compact_css)
         self.assertIn(
-            "grid-template-columns:minmax(130px,1.1fr)minmax(100px,.85fr)minmax(100px,.85fr)minmax(160px,1.2fr)minmax(100px,.85fr)",
+            "grid-template-columns:80px80pxminmax(150px,1fr)92px108px",
             compact_css,
         )
+        self.assertIn("min-height:30px;display:flex", compact_css)
         self.assertIn("@media(max-width:760px)", compact_css)
         self.assertIn("grid-template-columns:1fr", compact_css)
 
@@ -131,6 +133,7 @@ class ConfigFrontendContractTest(unittest.TestCase):
             ".dc-rank-field { min-width: 0; }",
             ".dc-rank-input { width: 100%; max-width: none; }",
             ".dc-custom-rank-route-row { grid-template-columns: 1fr; }",
+            ".dc-custom-rank-date-mode { min-width: 0; }",
         ]
         for fragment in required_fragments:
             self.assertIn(fragment, text)
@@ -232,7 +235,12 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertIn('label="路由"', text)
         self.assertIn('class="dc-custom-rank-route-row"', text)
         self.assertIn('class="dc-custom-rank-route"', text)
+        self.assertIn('class="dc-rank-detail-toolbar"', text)
         self.assertIn('路由：{{ rd.route }}', text)
+        self.assertLess(
+            text.index('<div v-if="rd.custom" class="dc-custom-rank-route-row">'),
+            text.index('<div class="dc-rank-card-body">'),
+        )
         self.assertNotIn('VExpansionPanel title="数据源设置"', text)
         self.assertNotIn("dc-source-panels", text)
         self.assertNotIn("数据源", text)
@@ -244,6 +252,31 @@ class ConfigFrontendContractTest(unittest.TestCase):
         self.assertNotIn("v-model=\"rd.media_type\"", text)
         self.assertIn("delete m.rank_configs[rd.key].media_type", text)
         self.assertIn("custom_ranks: (form.custom_ranks || []).map", text)
+
+    def test_rank_rows_share_date_window_position_and_custom_direction(self):
+        """所有榜单都保留第五个筛选槽位的天数框，自定义榜单额外保存日期方向。"""
+        text = CONFIG_VUE.read_text(encoding="utf-8")
+
+        self.assertGreaterEqual(text.count("filters: ['vote', 'year', 'air_days']"), 7)
+        self.assertIn("filters: ['vote', 'wish_count', 'air_days']", text)
+        self.assertIn('v-model.number="form.rank_configs[rd.key].air_days"', text)
+        self.assertIn(':label="rankDateLabel(rd)"', text)
+        self.assertIn("function rankDateSummary(rank)", text)
+        self.assertIn('v-model="rd.model.date_mode"', text)
+        self.assertIn('label="日期方向"', text)
+        self.assertIn("{ title: '提前订阅', value: 'future' }", text)
+        self.assertIn("{ title: '近期上映', value: 'recent' }", text)
+        self.assertIn("date_mode: normalizeDateMode(rank.date_mode)", text)
+        self.assertIn(
+            ".dc-rank-card-body { display: grid; grid-template-columns: 80px 80px minmax(150px, 1fr) 92px 108px;",
+            text,
+        )
+        self.assertIn('class="dc-rank-field dc-rank-field--days"', text)
+        self.assertIn(".dc-rank-field--days { grid-column: 5; }", text)
+        self.assertLess(
+            text.index('v-model.number="form.rank_configs[rd.key].wish_count"'),
+            text.index('v-model.number="form.rank_configs[rd.key].air_days"'),
+        )
 
     def test_page_labels_douban_wish_subscription_stats(self):
         """详情页订阅统计应将豆瓣想看显示为独立分类。"""
