@@ -2074,7 +2074,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIsNotNone(match)
         return (remote_entry.parent / match.group(1)).read_text(encoding="utf-8")
 
-    def test_active_config_rank_inputs_fit_five_digits(self):
+    def test_active_config_rank_inputs_use_compact_five_slot_grid(self):
         remote_entry = PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js"
         remote_text = remote_entry.read_text(encoding="utf-8")
         match = re.search(r'dynamicLoadingCss\(\["([^"]+)"\], false, \'./Config\'\)', remote_text)
@@ -2086,7 +2086,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("width: 100%", css)
         self.assertIn("max-width: none", css)
         self.assertIn(
-            "grid-template-columns: 110px 80px 80px 160px 92px 108px",
+            "grid-template-columns: 80px 80px minmax(150px, 1fr) 92px 108px",
             css,
         )
 

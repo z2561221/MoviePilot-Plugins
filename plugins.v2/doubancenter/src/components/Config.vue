@@ -437,21 +437,23 @@ onMounted(loadOverview)
                   </div>
                   <Transition name="dc-rank-details">
                     <div v-if="isExpanded(rd.key)" class="dc-rank-card-details">
-                      <div class="dc-rank-card-body">
+                      <div class="dc-rank-detail-toolbar">
                         <VCheckbox v-model="form.rank_configs[rd.key].enabled" label="自动订阅" color="primary" hide-details density="compact" class="dc-rank-detail-enable" />
-                        <div class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].count" label="数量" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
-                        <div v-if="rd.filters.includes('vote')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].vote" label="评分" placeholder="0 不限" type="number" min="0" max="10" step="0.1" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
-                        <VCombobox v-model="form.rank_configs[rd.key].regions" :items="[]" label="地区" placeholder="自定义填写" multiple chips closable-chips clearable hide-details density="compact" variant="outlined" class="dc-rank-regions" />
-                        <div v-if="rd.filters.includes('year')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].year" label="年份" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
-                        <div v-if="rd.filters.includes('wish_count')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].wish_count" label="想看" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
-                        <div v-if="rd.filters.includes('air_days')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].air_days" :label="rankDateLabel(rd)" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <div v-if="!rd.custom" class="dc-rank-route-hint text-caption text-medium-emphasis">路由：{{ rd.route }}</div>
                       </div>
                       <div v-if="rd.custom" class="dc-custom-rank-route-row">
                         <VTextField :ref="el => setNameInputRef(rd.key, el)" v-model="rd.model.name" label="榜单名称" density="compact" variant="outlined" hide-details class="dc-custom-rank-name" />
                         <VTextField v-model="rd.model.route" label="路由" placeholder="/example/rsshub/route?foo=bar" density="compact" variant="outlined" hide-details class="dc-custom-rank-route" />
                         <VSelect v-model="rd.model.date_mode" :items="dateModeOptions" label="日期方向" density="compact" variant="outlined" hide-details class="dc-custom-rank-date-mode" />
                       </div>
-                      <div v-else class="dc-rank-route-hint text-caption text-medium-emphasis">路由：{{ rd.route }}</div>
+                      <div class="dc-rank-card-body">
+                        <div class="dc-rank-field dc-rank-field--count"><VTextField v-model.number="form.rank_configs[rd.key].count" label="数量" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <div v-if="rd.filters.includes('vote')" class="dc-rank-field dc-rank-field--vote"><VTextField v-model.number="form.rank_configs[rd.key].vote" label="评分" placeholder="0 不限" type="number" min="0" max="10" step="0.1" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <VCombobox v-model="form.rank_configs[rd.key].regions" :items="[]" label="地区" placeholder="自定义填写" multiple chips closable-chips clearable hide-details density="compact" variant="outlined" class="dc-rank-regions" />
+                        <div v-if="rd.filters.includes('year')" class="dc-rank-field dc-rank-field--threshold"><VTextField v-model.number="form.rank_configs[rd.key].year" label="年份" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <div v-if="rd.filters.includes('wish_count')" class="dc-rank-field dc-rank-field--threshold"><VTextField v-model.number="form.rank_configs[rd.key].wish_count" label="想看" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <div v-if="rd.filters.includes('air_days')" class="dc-rank-field dc-rank-field--days"><VTextField v-model.number="form.rank_configs[rd.key].air_days" :label="rankDateLabel(rd)" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                      </div>
                     </div>
                   </Transition>
                 </div>
@@ -644,10 +646,16 @@ onMounted(loadOverview)
 .dc-rank-actions { display: flex; align-items: center; justify-content: flex-end; min-width: 36px; }
 .dc-delete-rank { width: 36px !important; height: 36px !important; min-width: 36px !important; flex: 0 0 36px; border: 1px solid rgb(var(--v-theme-error)); background: rgb(var(--v-theme-error)) !important; color: rgb(var(--v-theme-on-error)) !important; box-shadow: 0 0 0 1px rgba(0, 0, 0, .18); }
 .dc-delete-rank :deep(.v-icon) { color: currentColor !important; opacity: 1 !important; }
-.dc-rank-card-details { display: grid; gap: 10px; padding: 2px 12px 12px; border-top: 1px solid rgba(var(--v-border-color), .45); min-width: 0; }
-.dc-rank-card-body { display: grid; grid-template-columns: 110px 80px 80px 160px 92px 108px; align-items: end; gap: 8px; min-width: 0; }
-.dc-rank-detail-enable { min-width: 0; width: 100%; min-height: 40px; display: flex; align-items: center; }
-.dc-rank-regions { min-width: 0; width: 100%; }
+.dc-rank-card-details { display: grid; gap: 10px; padding: 9px 12px 12px; border-top: 1px solid rgba(var(--v-border-color), .45); min-width: 0; }
+.dc-rank-detail-toolbar { min-height: 30px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dc-rank-card-body { display: grid; grid-template-columns: 80px 80px minmax(150px, 1fr) 92px 108px; align-items: start; gap: 8px; min-width: 0; }
+.dc-rank-detail-enable { flex: 0 0 auto; min-width: 0; min-height: 30px; margin-left: -8px; }
+.dc-rank-field { min-width: 0; }
+.dc-rank-field--count { grid-column: 1; }
+.dc-rank-field--vote { grid-column: 2; }
+.dc-rank-regions { grid-column: 3; min-width: 0; width: 100%; }
+.dc-rank-field--threshold { grid-column: 4; }
+.dc-rank-field--days { grid-column: 5; }
 .dc-custom-rank-name { min-width: 0; }
 .dc-custom-rank-route-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.5fr) minmax(120px, .55fr); gap: 8px; align-items: end; min-width: 0; }
 .dc-custom-rank-route { min-width: 0; }
@@ -662,10 +670,11 @@ onMounted(loadOverview)
 @media (max-width: 760px) {
   .dc-rank-card-summary { grid-template-columns: 34px 34px minmax(0, 1fr) 40px; padding: 6px 4px; }
   .dc-rank-summary-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 8px; }
-  .dc-rank-card-details { padding: 8px 10px 12px; }
+  .dc-rank-card-details { padding: 9px 10px 12px; }
+  .dc-rank-detail-toolbar { align-items: flex-start; flex-direction: column; gap: 2px; }
   .dc-rank-card-body { grid-template-columns: 1fr; gap: 8px; }
   .dc-rank-detail-enable, .dc-rank-regions { min-width: 0; width: 100%; }
-  .dc-rank-field { min-width: 0; }
+  .dc-rank-field, .dc-rank-field--count, .dc-rank-field--vote, .dc-rank-regions, .dc-rank-field--threshold, .dc-rank-field--days { grid-column: 1; }
   .dc-rank-input { width: 100%; max-width: none; }
   .dc-custom-rank-route-row { grid-template-columns: 1fr; }
   .dc-delete-rank { width: 36px !important; height: 36px !important; }
