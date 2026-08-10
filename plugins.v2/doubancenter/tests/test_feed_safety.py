@@ -97,7 +97,9 @@ def _install_stubs():
     local_utils = types.ModuleType("doubancenter.utils")
     local_utils.match_any_filter = lambda values, filters: True
     local_utils.get_tmdb_air_date = lambda *args, **kwargs: None
+    local_utils.get_media_release_date = lambda mediainfo, season=None: getattr(mediainfo, "release_date", None)
     local_utils.is_within_days = lambda *args, **kwargs: True
+    local_utils.is_within_recent_days = lambda *args, **kwargs: True
     local_utils.normalize_rss_domain = lambda value: value
     local_utils.build_resolution_rule = lambda filters: None
     local_utils.parse_regions_and_genres = parse_regions_and_genres
@@ -1113,6 +1115,97 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("筛选条件：候选 1 条；评分>=9.0；年份>=2024", summaries[0])
         self.assertIn("- 跳过《low score》：评分 7.0 < 9.0", summaries[0])
 
+    def test_general_snapshot_recent_window_skips_missing_release_date(self):
+        plugin = _Plugin()
+        plugin._rank_configs = {"tv_global": {"air_days": 30}}
+        media = _MediaInfo(title="无日期条目", year="2026", mtype=_MediaType.TV, tmdb_id=67890)
+        result_lines = []
+        subscribe_calls = []
+        self.feed._is_existing_media = lambda *args, **kwargs: False
+        self.feed._add_sub = lambda *args, **kwargs: subscribe_calls.append(True) or True
+        self.feed.utils.get_media_release_date = lambda *args, **kwargs: None
+
+        self.feed._process_general_snapshots(
+            plugin,
+            [{
+                "raw": {"title": "无日期条目", "link": "https://example.com/no-date", "mtype": "tv", "year": "2026"},
+                "entry": {
+                    "title": "无日期条目",
+                    "link": "https://example.com/no-date",
+                    "media_type": "tv",
+                    "year": "2026",
+                    "unique": "dc2_rank:https://example.com/no-date",
+                },
+                "mediainfo": media,
+            }],
+            {"key": "tv_global", "name": "全球口碑", "coming": False, "date_mode": "recent"},
+            result_lines=result_lines,
+        )
+
+        self.assertEqual(subscribe_calls, [])
+        self.assertIn("- 跳过《无日期条目》：未获取到上映日期", result_lines)
+
+    def test_custom_future_snapshot_uses_future_window_and_records_air_date(self):
+        plugin = _Plugin()
+        plugin._rank_configs = {"custom_future": {"air_days": 14}}
+        media = _MediaInfo(title="未来条目", year="2026", mtype=_MediaType.MOVIE, tmdb_id=67890)
+        subscribe_calls = []
+        recent_calls = []
+        self.feed._is_existing_media = lambda *args, **kwargs: False
+        self.feed._check_observe = lambda *args, **kwargs: False
+        self.feed._add_sub = lambda *args, **kwargs: subscribe_calls.append(kwargs.get("rank_key")) or True
+        self.feed.utils.get_media_release_date = lambda *args, **kwargs: "2026-08-20"
+        self.feed.utils.is_within_days = lambda date, days: (date, days) == ("2026-08-20", 14)
+        self.feed.utils.is_within_recent_days = lambda *args, **kwargs: recent_calls.append(True) or False
+
+        self.feed._process_general_snapshots(
+            plugin,
+            [{
+                "raw": {"title": "未来条目", "link": "https://example.com/future", "mtype": "movie", "year": "2026"},
+                "entry": {
+                    "title": "未来条目",
+                    "link": "https://example.com/future",
+                    "media_type": "movie",
+                    "year": "2026",
+                    "unique": "dc2_rank:https://example.com/future",
+                },
+                "mediainfo": media,
+            }],
+            {"key": "custom_future", "name": "未来榜单", "coming": False, "date_mode": "future"},
+        )
+
+        self.assertEqual(subscribe_calls, ["custom_future"])
+        self.assertEqual(recent_calls, [])
+        self.assertEqual(plugin.data["rank_history_custom_future"][0]["air_date"], "2026-08-20")
+
+    def test_process_general_recent_window_uses_release_date_before_subscribe(self):
+        plugin = _Plugin()
+        plugin._observe_days = 0
+        plugin._rank_configs = {"tv_global": {"air_days": 30}}
+
+        def recognize_media(meta, mtype):
+            media = _MediaInfo(title=meta.title, year=meta.year, mtype=mtype, tmdb_id=67890)
+            media.release_date = "2026-08-01"
+            return media
+
+        plugin.chain = types.SimpleNamespace(recognize_media=recognize_media)
+        self.feed._fetch_rss = lambda *args, **kwargs: [
+            {"title": "近期条目", "link": "https://example.com/recent", "mtype": "tv", "year": "2026"}
+        ]
+        self.feed._is_existing_media = lambda *args, **kwargs: False
+        self.feed.utils.is_within_recent_days = lambda date, days: (date, days) == ("2026-08-01", 30)
+        subscribe_calls = []
+        self.feed._add_sub = lambda *args, **kwargs: subscribe_calls.append(kwargs.get("rank_key")) or True
+
+        self.feed._process_general(
+            plugin,
+            "https://rsshub.example/douban/list/tv_global_best_weekly?limit=1",
+            {"key": "tv_global", "name": "全球口碑", "coming": False, "date_mode": "recent"},
+        )
+
+        self.assertEqual(subscribe_calls, ["tv_global"])
+        self.assertEqual(plugin.data["rank_history_tv_global"][0]["air_date"], "2026-08-01")
+
     def test_process_general_subscribes_after_dashboard_refresh_history_exists(self):
         plugin = _Plugin()
         plugin._anti_cheat_enabled = False
@@ -1993,7 +2086,7 @@ class DoubanCenterFeedSafetyTest(unittest.TestCase):
         self.assertIn("width: 100%", css)
         self.assertIn("max-width: none", css)
         self.assertIn(
-            "grid-template-columns: minmax(130px, 1.1fr) minmax(100px, .85fr) minmax(100px, .85fr) minmax(160px, 1.2fr) minmax(100px, .85fr)",
+            "grid-template-columns: 110px 80px 80px 160px 92px 108px",
             css,
         )
 

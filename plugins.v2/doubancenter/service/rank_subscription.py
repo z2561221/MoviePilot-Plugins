@@ -60,6 +60,7 @@ def describe_rank_filter(
     config = config if isinstance(config, dict) else {}
     rank = rank if isinstance(rank, dict) else {}
     parts = [f"候选 {max(int(candidate_count or 0), 0)} 条"]
+    date_mode = rank_model.rank_date_mode(rank)
     if rank.get("coming"):
         vote = _positive_value_text(config.get("vote"))
         wish = _positive_value_text(config.get("wish_count"))
@@ -69,14 +70,19 @@ def describe_rank_filter(
         if wish:
             parts.append(f"想看>={wish}")
         if air_days:
-            parts.append(f"上映<={air_days}天")
+            prefix = "未来上映" if date_mode == rank_model.DATE_MODE_FUTURE else "最近上映"
+            parts.append(f"{prefix}<={air_days}天")
     else:
         vote = _positive_value_text(config.get("vote"))
         year = _positive_value_text(config.get("year"))
+        air_days = _positive_value_text(config.get("air_days"))
         if vote:
             parts.append(f"评分>={vote}")
         if year:
             parts.append(f"年份>={year}")
+        if air_days:
+            prefix = "未来上映" if date_mode == rank_model.DATE_MODE_FUTURE else "最近上映"
+            parts.append(f"{prefix}<={air_days}天")
     regions = _normalize_regions_for_filter(config.get("regions"))
     if regions:
         parts.append(f"地区={'/'.join(regions)}")
@@ -111,7 +117,11 @@ def has_rank_filter(config: dict, rank: dict) -> bool:
             or rank_model.positive_number(config.get("wish_count"))
             or rank_model.positive_number(config.get("air_days"))
         )
-    return rank_model.positive_number(config.get("vote")) or rank_model.positive_number(config.get("year"))
+    return (
+        rank_model.positive_number(config.get("vote"))
+        or rank_model.positive_number(config.get("year"))
+        or rank_model.positive_number(config.get("air_days"))
+    )
 
 
 def region_filter_result(config: dict, item: dict = None, entry: dict = None, mediainfo: Any = None) -> tuple[bool, str]:

@@ -692,7 +692,7 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
                 _log_rank_skip(rd, title, "未获取到上映日期", result_lines=result_lines)
                 continue
             if not utils.is_within_days(ad, air_days):
-                _log_rank_skip(rd, title, f"上映日期 {ad} 不在 {air_days} 天内", result_lines=result_lines)
+                _log_rank_skip(rd, title, f"上映日期 {ad} 不在未来 {air_days} 天内", result_lines=result_lines)
                 continue
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
             _log_rank_skip(rd, title, "观察期规则拦截", result_lines=result_lines)
@@ -730,6 +730,8 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
     cfg = _rc(self, rd["key"])
     min_vote = float(cfg.get("vote", 0) or 0)
     min_year = int(cfg.get("year", 0) or 0)
+    air_days = int(cfg.get("air_days", 0) or 0)
+    date_mode = rank_model.rank_date_mode(rd)
     history: List[dict] = storage.read_rank_history(self, rd["key"])
     history_index = _history_index_by_unique(history)
     current_candidates = set()
@@ -789,6 +791,21 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
             _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""), unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
+        air_date = None
+        if air_days > 0:
+            air_date = utils.get_media_release_date(mediainfo, season=meta.begin_season)
+            if not air_date:
+                _log_rank_skip(rd, title, "未获取到上映日期", result_lines=result_lines)
+                continue
+            within_window = (
+                utils.is_within_days(air_date, air_days)
+                if date_mode == rank_model.DATE_MODE_FUTURE
+                else utils.is_within_recent_days(air_date, air_days)
+            )
+            if not within_window:
+                window_label = "未来" if date_mode == rank_model.DATE_MODE_FUTURE else "最近"
+                _log_rank_skip(rd, title, f"上映日期 {air_date} 不在{window_label} {air_days} 天内", result_lines=result_lines)
+                continue
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
             _log_rank_skip(rd, title, "观察期规则拦截", result_lines=result_lines)
             continue
@@ -798,6 +815,7 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
             _record_history_item(history, {
                 "title": cn_title,
                 "year": mediainfo.year or year or "",
+                "air_date": air_date,
                 "media_type": mtype,
                 "link": link,
                 "tmdbid": mediainfo.tmdb_id,
@@ -894,8 +912,13 @@ def _process_coming(self, url: str, rd: dict) -> None:
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
         ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
-        if air_days > 0 and (not ad or not utils.is_within_days(ad, air_days)):
-            continue
+        if air_days > 0:
+            if not ad:
+                _log_rank_skip(rd, title, "未获取到上映日期")
+                continue
+            if not utils.is_within_days(ad, air_days):
+                _log_rank_skip(rd, title, f"上映日期 {ad} 不在未来 {air_days} 天内")
+                continue
         # 观察期：仅对选中的波动榜单延迟订阅。
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
             continue
@@ -928,6 +951,8 @@ def _process_general(self, url: str, rd: dict) -> None:
     cfg = _rc(self, rd["key"])
     min_vote = float(cfg.get("vote", 0) or 0)
     min_year = int(cfg.get("year", 0) or 0)
+    air_days = int(cfg.get("air_days", 0) or 0)
+    date_mode = rank_model.rank_date_mode(rd)
     items = _fetch_rss(self, url)
     if not items:
         return
@@ -973,6 +998,21 @@ def _process_general(self, url: str, rd: dict) -> None:
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
+        air_date = None
+        if air_days > 0:
+            air_date = utils.get_media_release_date(mediainfo, season=meta.begin_season)
+            if not air_date:
+                _log_rank_skip(rd, title, "未获取到上映日期")
+                continue
+            within_window = (
+                utils.is_within_days(air_date, air_days)
+                if date_mode == rank_model.DATE_MODE_FUTURE
+                else utils.is_within_recent_days(air_date, air_days)
+            )
+            if not within_window:
+                window_label = "未来" if date_mode == rank_model.DATE_MODE_FUTURE else "最近"
+                _log_rank_skip(rd, title, f"上映日期 {air_date} 不在{window_label} {air_days} 天内")
+                continue
         # 观察期：仅对选中的波动榜单延迟订阅。
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
             continue
@@ -982,6 +1022,7 @@ def _process_general(self, url: str, rd: dict) -> None:
             _record_history_item(history, {
                 "title": cn_title,
                 "year": mediainfo.year or year or "",
+                "air_date": air_date,
                 "media_type": mtype,
                 "link": link,
                 "tmdbid": mediainfo.tmdb_id,

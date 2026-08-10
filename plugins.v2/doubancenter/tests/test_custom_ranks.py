@@ -102,7 +102,7 @@ class CustomRanksModelTest(unittest.TestCase):
 
     def test_normalize_custom_ranks_rejects_invalid_and_duplicate_entries(self):
         result = rank.normalize_custom_ranks([
-            {"key": "custom_highscore", "name": "高分动画", "route": "/anime/rss?tag=top", "media_type": "movie"},
+            {"key": "custom_highscore", "name": "高分动画", "route": "/anime/rss?tag=top", "date_mode": "future", "media_type": "movie"},
             {"key": "custom_highscore", "name": "重复", "route": "/duplicate"},
             {"key": "tv_global", "name": "覆盖内置", "route": "/tv"},
             {"key": "custom_absolute", "name": "绝对地址", "route": "https://example.test/rss"},
@@ -111,8 +111,8 @@ class CustomRanksModelTest(unittest.TestCase):
         ])
 
         self.assertEqual(result, [
-            {"key": "custom_highscore", "name": "高分动画", "route": "/anime/rss?tag=top"},
-            {"key": "custom_media", "name": "旧媒体字段", "route": "/rss"},
+            {"key": "custom_highscore", "name": "高分动画", "route": "/anime/rss?tag=top", "date_mode": "future"},
+            {"key": "custom_media", "name": "旧媒体字段", "route": "/rss", "date_mode": "recent"},
         ])
 
     def test_effective_ranks_adds_custom_definition_without_mutating_builtins(self):
@@ -122,9 +122,25 @@ class CustomRanksModelTest(unittest.TestCase):
         self.assertEqual(len(ranks), 7)
         self.assertEqual(ranks[-1]["key"], "custom_tv")
         self.assertFalse(ranks[-1]["coming"])
-        self.assertEqual(ranks[-1]["filters"], ["vote", "year"])
+        self.assertEqual(ranks[-1]["date_mode"], "recent")
+        self.assertEqual(ranks[-1]["filters"], ["vote", "year", "air_days"])
         self.assertNotIn("media_type", ranks[-1])
         self.assertEqual(rank.BUILTIN_RANKS[-1]["key"], "bangumi")
+
+    def test_rank_date_mode_preserves_custom_future_and_migrates_legacy_to_recent(self):
+        self.assertEqual(rank.normalize_custom_rank({
+            "key": "custom_future",
+            "name": "未来榜单",
+            "route": "/future/feed",
+            "date_mode": "future",
+        })["date_mode"], "future")
+        self.assertEqual(rank.normalize_custom_rank({
+            "key": "custom_legacy",
+            "name": "旧榜单",
+            "route": "/legacy/feed",
+        })["date_mode"], "recent")
+        self.assertEqual(rank.rank_date_mode({"coming": True}), "future")
+        self.assertEqual(rank.rank_date_mode({"coming": False}), "recent")
 
     def test_media_type_priority_is_item_then_known_route_without_legacy_config(self):
         rank_def = {"key": "custom_auto", "route": "/custom/feed", "media_type": "movie"}

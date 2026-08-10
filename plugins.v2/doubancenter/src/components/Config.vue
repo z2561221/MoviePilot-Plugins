@@ -41,13 +41,18 @@ const defaults = {
   observe_rank_keys: ['coming', 'tv_real_time'],
 }
 
+const dateModeOptions = [
+  { title: '提前订阅', value: 'future' },
+  { title: '近期上映', value: 'recent' },
+]
+
 const builtinRankDefs = [
-  { key: 'coming', name: '即将上映', route: '/douban/tv/coming', filters: ['vote', 'wish_count'] },
-  { key: 'tv_real_time', name: '实时热门', route: '/douban/list/tv_real_time_hotest', filters: ['vote', 'year'] },
-  { key: 'tv_chinese', name: '华语口碑', route: '/douban/list/tv_chinese_best_weekly', filters: ['vote', 'year'] },
-  { key: 'tv_global', name: '全球口碑', route: '/douban/list/tv_global_best_weekly', filters: ['vote', 'year'] },
-  { key: 'movie_weekly', name: '电影口碑', route: '/douban/list/movie_weekly_best', filters: ['vote', 'year'] },
-  { key: 'bangumi', name: 'BangumiTV', route: '/bangumi.tv/anime/followrank', filters: ['vote', 'year'] },
+  { key: 'coming', name: '即将上映', route: '/douban/tv/coming', date_mode: 'future', filters: ['vote', 'wish_count', 'air_days'] },
+  { key: 'tv_real_time', name: '实时热门', route: '/douban/list/tv_real_time_hotest', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'tv_chinese', name: '华语口碑', route: '/douban/list/tv_chinese_best_weekly', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'tv_global', name: '全球口碑', route: '/douban/list/tv_global_best_weekly', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'movie_weekly', name: '电影口碑', route: '/douban/list/movie_weekly_best', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'bangumi', name: 'BangumiTV', route: '/bangumi.tv/anime/followrank', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
 ]
 
 const rankDefs = computed(() => [
@@ -56,7 +61,7 @@ const rankDefs = computed(() => [
     ...rank,
     model: rank,
     custom: true,
-    filters: ['vote', 'year'],
+    filters: ['vote', 'year', 'air_days'],
   })),
 ])
 
@@ -124,11 +129,25 @@ function customRankKey() {
   return `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+function normalizeDateMode(value) {
+  return value === 'future' ? 'future' : 'recent'
+}
+
+function rankDateLabel(rank) {
+  return normalizeDateMode(rank?.date_mode) === 'future' ? '提前天数' : '最近天数'
+}
+
+function rankDateSummary(rank) {
+  const days = form.rank_configs?.[rank.key]?.air_days
+  const prefix = normalizeDateMode(rank?.date_mode) === 'future' ? '提前' : '最近'
+  return `${prefix} ${Number(days) > 0 ? `${days} 天` : '不限'}`
+}
+
 function addCustomRank() {
   customRankError.value = ''
   const key = customRankKey()
-  form.custom_ranks.push({ key, name: '', route: '' })
-  form.rank_configs[key] = { enabled: false, count: 1, vote: '', year: '', regions: [] }
+  form.custom_ranks.push({ key, name: '', route: '', date_mode: 'recent' })
+  form.rank_configs[key] = { enabled: false, count: 1, vote: '', year: '', air_days: '', regions: [] }
   expandedRankKeys.value = new Set([...expandedRankKeys.value, key])
   activeMain.value = 'rank'
   activeSub.value = 'list'
@@ -186,6 +205,7 @@ function validateCustomRanks() {
     if (!key || seen.has(key)) return '自定义榜单标识重复或无效'
     if (!String(rank?.name || '').trim()) return '请填写自定义榜单名称'
     if (!validCustomRoute(rank?.route)) return 'RSSHub 路由必须是以 / 开头的相对路径'
+    if (!dateModeOptions.some(item => item.value === rank?.date_mode)) return '请选择自定义榜单的日期方向'
     seen.add(key)
   }
   return ''
@@ -198,12 +218,13 @@ function normalizeInitialConfig(value) {
       key: String(rank.key || ''),
       name: String(rank.name || ''),
       route: String(rank.route || ''),
+      date_mode: normalizeDateMode(rank.date_mode),
     }))
     : []
   if (!(m.rank_configs && typeof m.rank_configs === 'object' && !Array.isArray(m.rank_configs))) {
     m.rank_configs = {}
   }
-  for (const rd of [...builtinRankDefs, ...m.custom_ranks.map(rank => ({ ...rank, filters: ['vote', 'year'] }))]) {
+  for (const rd of [...builtinRankDefs, ...m.custom_ranks.map(rank => ({ ...rank, filters: ['vote', 'year', 'air_days'] }))]) {
     m.rank_configs[rd.key] = {
       ...(defaults.rank_configs[rd.key] || { enabled: false, count: 1, vote: '', year: '' }),
       ...(isPlainObject(m.rank_configs[rd.key]) ? m.rank_configs[rd.key] : {}),
@@ -245,6 +266,7 @@ function saveConfig() {
       key: String(rank.key || '').trim(),
       name: String(rank.name || '').trim(),
       route: String(rank.route || '').trim(),
+      date_mode: normalizeDateMode(rank.date_mode),
     })),
     rank_configs: Object.fromEntries(Object.entries(form.rank_configs || {}).map(([key, config]) => [key, {
       ...cloneConfig(config),
@@ -386,7 +408,7 @@ onMounted(loadOverview)
                   <VTooltip activator="parent" location="top">新增自定义榜单</VTooltip>
                 </VBtn>
               </div>
-              <VAlert type="info" variant="tonal" density="compact" class="mb-3" text="每个榜单独立控制；地区为多选 OR，与评分、年份、数量等条件共同生效。空地区表示不限。" />
+              <VAlert type="info" variant="tonal" density="compact" class="mb-3" text="每个榜单独立控制；即将上映按提前天数筛选，其他榜单按最近天数筛选，自定义榜单可选择日期方向。空或 0 表示不限。" />
               <VAlert v-if="customRankError" type="error" variant="tonal" density="compact" class="mb-2" :text="customRankError" />
               <div class="dc-rank-list-1col">
                 <div v-for="rd in rankDefs" :key="rd.key" class="dc-rank-card" :class="{ 'dc-rank-card--on': form.rank_configs[rd.key]?.enabled, 'dc-rank-card--expanded': isExpanded(rd.key) }">
@@ -403,6 +425,7 @@ onMounted(loadOverview)
                         <span>地区 {{ (form.rank_configs[rd.key]?.regions || []).join('、') || '不限' }}</span>
                         <span v-if="rd.filters.includes('year')">年份 {{ form.rank_configs[rd.key]?.year || '不限' }}</span>
                         <span v-if="rd.filters.includes('wish_count')">想看 {{ form.rank_configs[rd.key]?.wish_count || '不限' }}</span>
+                        <span v-if="rd.filters.includes('air_days')">{{ rankDateSummary(rd) }}</span>
                       </div>
                     </div>
                     <div class="dc-rank-actions">
@@ -421,10 +444,12 @@ onMounted(loadOverview)
                         <VCombobox v-model="form.rank_configs[rd.key].regions" :items="[]" label="地区" placeholder="自定义填写" multiple chips closable-chips clearable hide-details density="compact" variant="outlined" class="dc-rank-regions" />
                         <div v-if="rd.filters.includes('year')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].year" label="年份" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
                         <div v-if="rd.filters.includes('wish_count')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].wish_count" label="想看" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <div v-if="rd.filters.includes('air_days')" class="dc-rank-field"><VTextField v-model.number="form.rank_configs[rd.key].air_days" :label="rankDateLabel(rd)" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
                       </div>
                       <div v-if="rd.custom" class="dc-custom-rank-route-row">
                         <VTextField :ref="el => setNameInputRef(rd.key, el)" v-model="rd.model.name" label="榜单名称" density="compact" variant="outlined" hide-details class="dc-custom-rank-name" />
                         <VTextField v-model="rd.model.route" label="路由" placeholder="/example/rsshub/route?foo=bar" density="compact" variant="outlined" hide-details class="dc-custom-rank-route" />
+                        <VSelect v-model="rd.model.date_mode" :items="dateModeOptions" label="日期方向" density="compact" variant="outlined" hide-details class="dc-custom-rank-date-mode" />
                       </div>
                       <div v-else class="dc-rank-route-hint text-caption text-medium-emphasis">路由：{{ rd.route }}</div>
                     </div>
@@ -556,9 +581,9 @@ onMounted(loadOverview)
 .dc-rank-check :deep(.v-label) { font-size: 13px; font-weight: 600; }
 .dc-rank-field { display: block; min-width: 0; width: 100%; }
 .dc-rank-input { width: 100%; max-width: none; }
-.dc-rank-input :deep(.v-field) { min-height: 28px; max-height: 28px; border-radius: 6px; }
-.dc-rank-input :deep(.v-field__input) { min-height: 24px; padding-top: 1px; padding-bottom: 1px; font-size: 13px; }
-.dc-rank-input :deep(.v-label) { font-size: 12px; }
+.dc-rank-input :deep(.v-field), .dc-rank-regions :deep(.v-field) { min-height: 40px; border-radius: 6px; }
+.dc-rank-input :deep(.v-field__input), .dc-rank-regions :deep(.v-field__input) { min-height: 38px; padding-top: 3px; padding-bottom: 3px; font-size: 13px; }
+.dc-rank-input :deep(.v-label), .dc-rank-regions :deep(.v-label) { font-size: 12px; }
 .dc-custom-ranks-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dc-add-rank-icon { font-size: 24px; font-weight: 500; line-height: 1; }
 .dc-custom-ranks-empty { border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 12px; text-align: center; }
@@ -619,13 +644,14 @@ onMounted(loadOverview)
 .dc-rank-actions { display: flex; align-items: center; justify-content: flex-end; min-width: 36px; }
 .dc-delete-rank { width: 36px !important; height: 36px !important; min-width: 36px !important; flex: 0 0 36px; border: 1px solid rgb(var(--v-theme-error)); background: rgb(var(--v-theme-error)) !important; color: rgb(var(--v-theme-on-error)) !important; box-shadow: 0 0 0 1px rgba(0, 0, 0, .18); }
 .dc-delete-rank :deep(.v-icon) { color: currentColor !important; opacity: 1 !important; }
-.dc-rank-card-details { display: grid; gap: 10px; padding: 2px 12px 12px 78px; border-top: 1px solid rgba(var(--v-border-color), .45); min-width: 0; }
-.dc-rank-card-body { display: grid; grid-template-columns: minmax(130px, 1.1fr) minmax(100px, .85fr) minmax(100px, .85fr) minmax(160px, 1.2fr) minmax(100px, .85fr); align-items: end; gap: 8px; min-width: 0; }
-.dc-rank-detail-enable { min-width: 0; width: 100%; }
+.dc-rank-card-details { display: grid; gap: 10px; padding: 2px 12px 12px; border-top: 1px solid rgba(var(--v-border-color), .45); min-width: 0; }
+.dc-rank-card-body { display: grid; grid-template-columns: 110px 80px 80px 160px 92px 108px; align-items: end; gap: 8px; min-width: 0; }
+.dc-rank-detail-enable { min-width: 0; width: 100%; min-height: 40px; display: flex; align-items: center; }
 .dc-rank-regions { min-width: 0; width: 100%; }
 .dc-custom-rank-name { min-width: 0; }
-.dc-custom-rank-route-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.5fr); gap: 8px; align-items: end; min-width: 0; }
+.dc-custom-rank-route-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.5fr) minmax(120px, .55fr); gap: 8px; align-items: end; min-width: 0; }
 .dc-custom-rank-route { min-width: 0; }
+.dc-custom-rank-date-mode { min-width: 0; }
 .dc-rank-route-hint { overflow-wrap: anywhere; }
 
 .dc-rank-details-enter-active,

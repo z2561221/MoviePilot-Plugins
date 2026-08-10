@@ -71,6 +71,7 @@ class RankSubscriptionServiceTest(unittest.TestCase):
         self.assertTrue(rank_subscription.has_rank_filter({"air_days": "7"}, coming))
         self.assertTrue(rank_subscription.has_rank_filter({"vote": "8.0"}, general))
         self.assertTrue(rank_subscription.has_rank_filter({"year": "2024"}, general))
+        self.assertTrue(rank_subscription.has_rank_filter({"air_days": "30"}, general))
         self.assertFalse(rank_subscription.has_rank_filter({}, general))
 
     def test_describe_rank_filter_makes_coming_conditions_readable(self):
@@ -91,10 +92,10 @@ class RankSubscriptionServiceTest(unittest.TestCase):
         self.assertIn("黑名单", description)
 
     def test_describe_rank_filter_makes_general_conditions_readable(self):
-        general = {"key": "movie_weekly", "name": "电影口碑", "coming": False}
+        general = {"key": "movie_weekly", "name": "电影口碑", "coming": False, "date_mode": "recent"}
 
         description = rank_subscription.describe_rank_filter(
-            {"count": 5, "vote": "8.0", "year": "2024"},
+            {"count": 5, "vote": "8.0", "year": "2024", "air_days": 30},
             general,
             candidate_count=5,
             blacklist_enabled=False,
@@ -104,8 +105,21 @@ class RankSubscriptionServiceTest(unittest.TestCase):
         self.assertIn("候选 5 条", description)
         self.assertIn("评分>=8.0", description)
         self.assertIn("年份>=2024", description)
+        self.assertIn("最近上映<=30天", description)
         self.assertIn("观察期", description)
         self.assertNotIn("黑名单", description)
+
+    def test_describe_custom_future_rank_uses_future_window(self):
+        custom = {"key": "custom_future", "name": "未来榜单", "coming": False, "date_mode": "future"}
+
+        description = rank_subscription.describe_rank_filter(
+            {"air_days": 14},
+            custom,
+            candidate_count=2,
+        )
+
+        self.assertIn("未来上映<=14天", description)
+        self.assertNotIn("最近上映", description)
 
     def test_safety_filter_requires_global_or_enabled_rank_filter(self):
         ranks = [
