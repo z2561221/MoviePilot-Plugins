@@ -1090,7 +1090,7 @@ async function executeCleanupTags() {
 .dm-subtab:hover { background: rgba(var(--v-theme-primary), 0.08); color: rgb(var(--v-theme-primary)); }
 .dm-subtab--active { background: rgba(var(--v-theme-primary), 0.14); color: rgb(var(--v-theme-primary)); font-weight: 600; }
 .dm-window { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.dm-window--overview { overflow-y: hidden; }
+.dm-window--overview { overflow-y: auto; }
 .dm-pane { min-height: 100%; padding: 18px 20px; }
 .dm-pane--overview { min-height: auto; padding: 12px 16px; }
 .dm-section-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: rgb(var(--v-theme-primary)); }
