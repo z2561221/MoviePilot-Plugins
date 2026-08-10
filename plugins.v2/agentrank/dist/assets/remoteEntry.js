@@ -51,7 +51,7 @@ const currentImports = {};
          } else {
            href = cssPath;
          }
-         
+
           if (dontAppendStylesToHead) {
             const key = 'css__AgentRank__' + exposeItemName;
             window[key] = window[key] || [];
