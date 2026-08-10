@@ -104,5 +104,21 @@
       "2.0.0": "基于官方 v1.10.3 本地化，新增转移后自动重命名种子名称 + 打站点标签功能，配置页 UI 优化为卡片分区模式。",
       "1.10.3": "官方自动转移做种原始版本。"
     }
+  },
+  "AgentRank": {
+    "name": "Agent榜单中心",
+    "description": "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。",
+    "labels": "智能推荐,发现",
+    "version": "1.0.0",
+    "icon": "agentresourceofficer.png",
+    "color": "#7C4DFF",
+    "author": "牧濑红莉栖",
+    "author_url": "https://github.com/z2561221",
+    "level": 1,
+    "v2": true,
+    "release": true,
+    "history": {
+      "v1.0.0": "[1]完成自适应推荐闭环;[2]支持自由检索与动态问询;[3]完善反馈学习与订阅;[4]优化榜单与移动端"
+    }
   }
 }
