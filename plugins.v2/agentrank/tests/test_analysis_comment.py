@@ -295,8 +295,8 @@ def test_understood_comment_supersedes_analysis_without_changing_support_or_memo
         assert forbidden not in serialized
 
 
-def test_ambiguous_comment_creates_question_without_revising_analysis():
-    """含义不明的评论进入整体偏好问询，不静默修改分析或长期画像。"""
+def test_ambiguous_comment_does_not_create_template_question_or_revision():
+    """含义不明的评论不回退固定问询，也不静默修改分析或长期画像。"""
     _plugin, repository, original = _seed()
     submitted = _submit(repository, comment="这里不对")
     before_memory = repository.load_preference_memory(PROFILE_ID)
@@ -321,15 +321,7 @@ def test_ambiguous_comment_creates_question_without_revising_analysis():
     assert record.analysis_revision_id == ""
     assert board.recommendations[0].analysis_id == original.analysis_id
     assert board.revision == 1
-    assert len(questions) == 1
-    assert questions[0].event_id == submitted.event.event_id
-    assert questions[0].question in {
-        "唔……根据实验数据，平时挑选影视内容时，你通常最先看重什么？",
-        "唔……根据实验数据，看到一部还不了解的新作品时，什么最容易让你想点开？",
-        "唔……根据实验数据，如果要给推荐设一个优先级，你通常会先看哪一项？",
-    }
-    assert questions[0].preference_dimension == "selection_basis"
-    assert questions[0].exploration_level == 0
+    assert questions == []
     assert repository.load_preference_memory(PROFILE_ID) == before_memory
 
 

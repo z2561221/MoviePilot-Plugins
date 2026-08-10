@@ -46,7 +46,7 @@ class FakeOrchestrator:
         self.failures = set(failures or [])
         self.calls = []
 
-    async def run(self, profile_id, config):
+    async def run(self, profile_id, config, *, trigger_reason=""):
         self.calls.append(profile_id)
         if profile_id in self.failures:
             raise RuntimeError(f"{profile_id} failed")
@@ -131,7 +131,13 @@ def test_runtime_wires_configured_critic_and_persona_prompts_into_agent_services
     source = (PLUGIN_DIR / "service" / "runtime.py").read_text(encoding="utf-8")
 
     assert source.count('critic_prompt=str(config.get("critic_prompt") or "")') == 2
-    assert source.count('persona_prompt=str(config.get("persona_prompt") or "")') == 3
+    assert source.count("persona_prompt=effective_persona_prompt(") == 4
+    assert source.count(
+        'config.get("persona_preset"), config.get("persona_prompt")'
+    ) == 3
+    assert source.count(
+        'self.config.get("persona_preset"), self.config.get("persona_prompt")'
+    ) == 1
 
 
 def test_runtime_wires_pending_items_to_telegram_notifications():
@@ -474,7 +480,7 @@ def test_manual_refresh_runs_in_background_and_duplicate_click_reuses_task():
         release = asyncio.Event()
 
         class BlockingOrchestrator(FakeOrchestrator):
-            async def run(self, profile_id, config):
+            async def run(self, profile_id, config, *, trigger_reason=""):
                 self.calls.append(profile_id)
                 entered.set()
                 await release.wait()
@@ -519,7 +525,7 @@ def test_stop_is_idempotent_cancels_active_task_and_blocks_refresh():
     entered = asyncio.Event()
 
     class BlockingOrchestrator(FakeOrchestrator):
-        async def run(self, profile_id, config):
+        async def run(self, profile_id, config, *, trigger_reason=""):
             self.calls.append(profile_id)
             entered.set()
             await asyncio.Event().wait()

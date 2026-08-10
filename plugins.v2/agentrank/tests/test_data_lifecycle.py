@@ -120,7 +120,6 @@ def _seed_profile(repository, plugin):
             username="Alice",
             summary="喜欢悬疑",
             tags=["悬疑"],
-            ranking_tags=["推理"],
             run_id="run-1",
         )
     )

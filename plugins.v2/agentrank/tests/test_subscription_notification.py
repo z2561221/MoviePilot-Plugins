@@ -352,10 +352,10 @@ def test_notification_confirmation_sends_summary_without_subscription_dependency
     assert plugin.messages[0]["mtype"] is NotificationType.Plugin
     assert plugin.messages[0]["parse_mode"] == "MarkdownV2"
     assert plugin.messages[0]["disable_web_page_preview"] is True
-    assert plugin.messages[0]["text"].startswith("本轮 Agent 推荐已生成，共 1 条：\n\n```")
+    assert plugin.messages[0]["text"].startswith("本轮 克里斯蒂娜 推荐已生成，共 1 条：\n\n```")
     assert "01 │ One\n   │ 推荐：悬疑迷局层层牵出尘封往事与真相" in plugin.messages[0]["text"]
     assert "   │ 简介：悬疑迷局层层牵出尘封往事与真相" in plugin.messages[0]["text"]
-    assert "请前往 **Agent榜单中心** 手动订阅" in plugin.messages[0]["text"]
+    assert "请前往 **克里斯蒂娜** 手动订阅" in plugin.messages[0]["text"]
     assert "One" in plugin.messages[0]["text"]
 
 
@@ -691,7 +691,7 @@ def test_runtime_notify_mode_sends_board_for_manual_and_background_runs():
     board = RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="run-1", status="success")
 
     class Orchestrator:
-        async def run(self, profile_id, config):
+        async def run(self, profile_id, config, *, trigger_reason=""):
             return SimpleNamespace(status="success", board=board)
 
     runtime = AgentRankRuntime(
@@ -715,7 +715,7 @@ def test_runtime_failure_only_notifies_for_background_run_with_old_board_state()
     board = RecommendationBoard(profile_id=PROFILE_ID, username="Alice", run_id="old", status="success")
 
     class Orchestrator:
-        async def run(self, profile_id, config):
+        async def run(self, profile_id, config, *, trigger_reason=""):
             return SimpleNamespace(
                 status="agent_failed",
                 run_id="run-failed",
@@ -737,7 +737,7 @@ def test_runtime_failure_only_notifies_for_background_run_with_old_board_state()
 
     assert len(plugin.messages) == 1
     assert plugin.messages[0]["mtype"] == NotificationType.Plugin
-    assert plugin.messages[0]["title"] == "Agent榜单中心运行异常"
+    assert plugin.messages[0]["title"] == "克里斯蒂娜运行异常"
     assert "run-failed" in plugin.messages[0]["text"]
     assert "状态：Agent 调用失败" in plugin.messages[0]["text"]
     assert "agent_failed" not in plugin.messages[0]["text"]
@@ -795,7 +795,7 @@ def test_pending_fallback_notification_is_safe_and_keeps_detail_entry():
     assert interactive is False
     assert len(plugin.messages) == 1
     rendered = str(plugin.messages[0])
-    assert plugin.messages[0]["title"] == "Agent榜单中心待处理"
+    assert plugin.messages[0]["title"] == "克里斯蒂娜待处理"
     assert "尚未生效" in rendered and "待处理区域" in rendered
     assert "192.0.2.13" not in rendered
     assert "secret-value" not in rendered

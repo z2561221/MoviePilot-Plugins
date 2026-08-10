@@ -266,7 +266,7 @@ def test_runtime_marks_board_and_latest_history_on_partial_auto_failure():
     board = repository.load_board(PROFILE_ID)
 
     class Orchestrator:
-        async def run(self, profile_id, config):
+        async def run(self, profile_id, config, *, trigger_reason=""):
             return SimpleNamespace(
                 status="success",
                 board=board,
@@ -300,6 +300,7 @@ def test_runtime_marks_board_and_latest_history_on_partial_auto_failure():
         feedback_understanding_service=SimpleNamespace(
             handle_job=lambda job: None
         ),
+        conversation_service=SimpleNamespace(),
     )
 
     result = asyncio.run(runtime.refresh(PROFILE_ID))
