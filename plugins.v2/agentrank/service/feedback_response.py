@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Union
 
 from ..model.feedback import FeedbackEvent
 from ..model.feedback_decision import MemoryProposal, PendingQuestion

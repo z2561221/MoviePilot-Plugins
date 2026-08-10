@@ -764,6 +764,7 @@ class AgentRankApiController:
             if str(board.run_id or "").strip()
         }
         def board_ids(value: Any) -> set[str]:
+            """提取一轮榜单中非空且去重的候选标识。"""
             return {
                 str(item.candidate_id or "").strip()
                 for item in (value.recommendations if value else ())
@@ -771,6 +772,7 @@ class AgentRankApiController:
             }
 
         def overlap_rate(current_ids: set[str], previous_ids: set[str]) -> float:
+            """计算当前榜单与参照榜单的候选重合率。"""
             if not current_ids or not previous_ids:
                 return 0.0
             return round(len(current_ids & previous_ids) / max(1, len(current_ids)), 4)

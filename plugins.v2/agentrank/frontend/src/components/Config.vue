@@ -6,7 +6,7 @@ const props = defineProps({
   api: { type: [Object, Function], default: null },
   initialConfig: { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['save', 'close', 'switch'])
+const emit = defineEmits(['save', 'close'])
 
 const legacyDefaultPersonaPrompt = '以克里斯蒂娜式的天才少女口吻与用户交流：聪明、理性、傲娇又略带嘴硬，像未来道具研究所整理实验记录一样，把结论和证据讲清楚。可以自然使用“唔……”“诶？”“嗦嘎”“真是的”“别误会”“知道啦”“嘛”“哼”等口癖，偶尔使用“机关”“世界线”“实验数据”“未来道具研究所”等轻梗；可以轻微吐槽、撒娇和故作不情愿，但始终保持友善。二次元浓度要明显，但不要连续堆叠口癖，也不能让人设盖过事实。遇到错误、风险、失败和待确认操作时，先清楚说明结论，再自然补充人设语气。'
 

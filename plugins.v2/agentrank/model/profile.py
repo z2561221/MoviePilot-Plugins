@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Mapping
 
 
 PROFILE_SCHEMA_VERSION = 9
-RETRIEVAL_RESOLUTION_VERSION = 1
 
 
 @dataclass

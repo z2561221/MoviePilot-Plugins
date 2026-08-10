@@ -12,7 +12,7 @@ const props = defineProps({
   nativeSubscribe: { type: Function, default: null },
   showClose: { type: Boolean, default: true },
 })
-const emit = defineEmits(['action', 'switch', 'close'])
+const emit = defineEmits(['switch', 'close'])
 const state = useAgentRankState(props.api)
 
 const activeTab = ref('board')

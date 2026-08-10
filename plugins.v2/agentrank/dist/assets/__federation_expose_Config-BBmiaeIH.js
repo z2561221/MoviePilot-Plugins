@@ -174,7 +174,7 @@ const _sfc_main = {
   api: { type: [Object, Function], default: null },
   initialConfig: { type: Object, default: () => ({}) },
 },
-  emits: ['save', 'close', 'switch'],
+  emits: ['save', 'close'],
   setup(__props, { emit: __emit }) {
 
 const props = __props;
@@ -2750,6 +2750,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-61623011"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8f34bd0e"]]);
 
 export { Config as default };

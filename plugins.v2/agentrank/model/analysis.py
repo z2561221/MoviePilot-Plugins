@@ -1,6 +1,6 @@
 """用户可读且不包含原始思维链的推荐分析模型。"""
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, List, Mapping
 
 from .support import SupportContribution

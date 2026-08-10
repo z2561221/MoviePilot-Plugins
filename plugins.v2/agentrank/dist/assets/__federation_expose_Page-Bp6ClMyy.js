@@ -1638,7 +1638,7 @@ const _sfc_main = {
   nativeSubscribe: { type: Function, default: null },
   showClose: { type: Boolean, default: true },
 },
-  emits: ['action', 'switch', 'close'],
+  emits: ['switch', 'close'],
   setup(__props, { emit: __emit }) {
 
 const props = __props;
@@ -3675,6 +3675,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d856ee68"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-37e31758"]]);
 
 export { Page as default };

@@ -2980,6 +2980,7 @@ class AgentRankRepository:
                 entries.append((self.telegram_pending_sessions_key, legacy))
 
         def retain(candidate: TelegramPendingSession, *, dedicated: bool) -> None:
+            """按完整度与独立存储优先级保留同令牌的最佳会话。"""
             current = sessions.get(candidate.token)
             current_dedicated = candidate.token in dedicated_tokens
             selected = current is None or (

@@ -15,7 +15,6 @@ from ..model.retrieval import (
     SORT_OPTIONS,
     TMDB_GENRE_IDS,
     RetrievalFilters,
-    RetrievalPlan,
 )
 from .scoring import DeterministicSupportScorer, StableRecommendationRanker
 

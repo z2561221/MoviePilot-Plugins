@@ -3,7 +3,7 @@
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..model.candidate import Candidate, typed_tmdb_candidate_id
 from ..model.outcome import OutcomeAttribution, OUTCOME_STATE_RANK

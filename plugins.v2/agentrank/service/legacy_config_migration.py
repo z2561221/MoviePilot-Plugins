@@ -1,6 +1,6 @@
 """旧版筛选配置向可撤销画像证据迁移。"""
 
-from typing import Any, Dict, Iterable, List, Mapping, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
 
 from ..model.config import WEIGHT_DEFAULTS, configured_identities
 

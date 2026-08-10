@@ -7,7 +7,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, Iterable, Optional, Set
+from typing import Any, Callable, Iterable, Optional, Set
 
 from ..model.feedback import FeedbackEvent
 from ..model.feedback_queue import FeedbackQueueJob

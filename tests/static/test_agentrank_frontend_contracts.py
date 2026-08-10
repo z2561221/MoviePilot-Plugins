@@ -114,19 +114,18 @@ def test_shared_state_tracks_every_async_operation_with_visible_retry():
         assert state_name in source
 
 
-def test_config_is_the_authoritative_complete_weight_write_surface():
-    """Config exposes all specified controls and emits the complete form."""
+def test_config_is_the_authoritative_agent_driven_settings_surface():
+    """Config exposes current controls without restoring retired manual retrieval settings."""
     source = CONFIG.read_text(encoding="utf-8")
     for tab in (
         "运行总览",
         "基础设置",
         "画像学习",
-        "推荐策略",
-        "发现来源",
-        "权重设置",
+        "Agent设定",
         "高级选项",
     ):
         assert tab in source
+    assert "本轮检索由 Agent 临时策划" in source
     for weight in (
         "type_weight",
         "theme_weight",
@@ -139,14 +138,14 @@ def test_config_is_the_authoritative_complete_weight_write_surface():
         "freshness_weight",
         "similarity_weight",
     ):
-        assert weight in source
+        assert f'v-model="form.{weight}"' not in source
     for discovery_source in (
         "douban",
         "tmdb_movies",
         "tmdb_tv",
         "bangumi",
     ):
-        assert discovery_source in source
+        assert f'v-model="form.{discovery_source}"' not in source
     assert "扩展来源" not in source
     assert "extensions: true" not in source
     assert "VCronField" in source
@@ -182,8 +181,10 @@ def test_config_runtime_overview_exposes_identity_gate_and_frozen_pool_evidence(
         "unmapped_count",
         "映射率",
         "schema_version",
-        "retrieval_resolution_version",
-        "ranking_tags",
+        "retrieval_trace",
+        "hard_constraints",
+        "soft_signals",
+        "candidate_processing_counts",
         "candidate_source_counts",
         "candidate_exclusion_counts",
         "source_errors",
@@ -278,7 +279,7 @@ def test_preview_fixture_persists_profile_tag_archives_for_browser_acceptance():
 def test_config_has_stable_desktop_and_dedicated_mobile_layout():
     """Config follows the shared stable-window and mobile navigation pattern."""
     source = CONFIG.read_text(encoding="utf-8")
-    assert "height: clamp(760px" in source
+    assert "height: min(876px, calc(100dvh - 48px))" in source
     assert "width: 160px" in source
     assert "@media (max-width: 760px)" in source
     assert "overflow-x: auto" in source
@@ -369,7 +370,8 @@ def test_page_mobile_runtime_and_copy_layout_stay_readable():
     assert "state.loadRunProgress()" in source
     assert "scheduleRunProgressPoll" in source
     assert "stopRunProgressPoll()" in source
-    assert "CinePilot Agent" in source
+    assert "const agentName = computed(" in source
+    assert "{{ agentName }}" in source
     assert "state.runProgress.value?.message" in source
     assert ".ar-page__summary-bar { flex: 0 0 auto;" in source
     assert ".ar-page__critic-badge { order: 2; }" in source
@@ -407,7 +409,7 @@ def test_analysis_comment_chat_and_pending_ui_are_reachable_and_safe():
         assert name in page
         assert name not in app_page
     assert "openAnalysis(item)" in page
-    assert "打开 CinePilot Agent" in page
+    assert "`打开 ${agentName}`" in page
     assert "打开待处理中心" in page
     assert "state.loadPendingCenter()" in page
     assert '<Page' in app_page
@@ -485,12 +487,14 @@ def test_dashboard_is_a_lightweight_vertical_top_five():
     assert "item.reason" in source
 
 
-def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
-    """榜单共享同尺寸文字赞踩，并把电视剧订阅交给宿主原生抽屉。"""
+def test_all_ranking_surfaces_use_fit_score_feedback_and_native_subscribe():
+    """榜单共享契合度和文字赞踩，并把电视剧订阅交给宿主原生抽屉。"""
     actions = ACTIONS.read_text(encoding="utf-8")
-    for label in ("订阅", "TMDB", "忽略", "点赞", "点踩"):
+    for label in ("TMDB", "忽略", "点赞", "点踩"):
         assert f'<span class="ar-actions__label">{label}</span>' in actions
         assert actions.count(f'<span class="ar-actions__label">{label}</span>') == 1
+    assert "{{ alreadySubscribed ? '已订阅' : '订阅' }}" in actions
+    assert ':disabled="alreadySubscribed ||' in actions
     for forbidden in ("豆瓣", "Bgm", "搜索豆瓣", "doubanSearchText", "sourceLabel"):
         assert forbidden not in actions
     assert "nativeSubscribe" in actions
@@ -513,21 +517,14 @@ def test_all_ranking_surfaces_use_feedback_icons_and_host_native_subscribe():
         assert "@like=" in source
         assert "@dislike=" in source
         assert "置信度" not in source
-        assert "{{ item.support?.percentage ?? '—' }}" in source
-        assert "{{ item.support ? '%' : '' }}" in source
+        assert "item?.fit_score" in source
+        assert "fitScoreText(item)" in source
     assert '<Page' in APP_PAGE.read_text(encoding="utf-8")
-    for component_path, support_class in (
-        (DASHBOARD, "ar-dashboard__support"),
-        (PAGE, "ar-page__support"),
-    ):
-        support_rule = next(
-            line for line in component_path.read_text(encoding="utf-8").splitlines()
-            if line.startswith(f".{support_class} {{")
-        )
-        assert "margin-left: auto" in support_rule
+    assert "ar-dashboard__fit-score" in DASHBOARD.read_text(encoding="utf-8")
+    assert "ar-page__fit-score" in PAGE.read_text(encoding="utf-8")
     dashboard = DASHBOARD.read_text(encoding="utf-8")
     assert ".ar-dashboard__controls :deep(.ar-actions) { order: 1; }" in dashboard
-    assert ".ar-dashboard__support { order: 2; margin-left: auto; }" in dashboard
+    assert ".ar-dashboard__fit-score { order: 2; margin-left: auto; }" in dashboard
 
 
 def test_primary_surface_exposes_the_complete_semantic_state_matrix():
@@ -568,7 +565,10 @@ def test_responsive_surfaces_have_390px_and_page_overflow_guards():
     for component in (CONFIG, PAGE):
         source = component.read_text(encoding="utf-8")
         assert "@media (max-width: 390px)" in source, component.name
-        assert "overflow-x: hidden" in source, component.name
+    config = CONFIG.read_text(encoding="utf-8")
+    page = PAGE.read_text(encoding="utf-8")
+    assert ".ar-config {" in config and "overflow: hidden" in config
+    assert "overflow-x: hidden" in page
     app_page = APP_PAGE.read_text(encoding="utf-8")
     assert "width: 100%" in app_page and "min-width: 0" in app_page
     assert '<Page' in app_page
