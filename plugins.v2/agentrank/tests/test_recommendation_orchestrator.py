@@ -42,6 +42,8 @@ PlaybackSnapshot = playback_module.PlaybackSnapshot
 PlaybackCapability = playback_module.PlaybackCapability
 AgentRankRepository = repository_module.AgentRankRepository
 RecommendationOrchestrator = orchestrator_module.RecommendationOrchestrator
+ensure_default_persona_visibility = orchestrator_module._ensure_default_persona_visibility
+DEFAULT_PERSONA_PROMPT = orchestrator_module.DEFAULT_PERSONA_PROMPT
 ArchiveService = archive_service_module.ArchiveService
 ControlledRetrievalPlanResolver = keyword_module.ControlledRetrievalPlanResolver
 RecommendationAnalysisBuilder = analysis_builder_module.RecommendationAnalysisBuilder
@@ -59,6 +61,41 @@ IDENTITY_CONFIG = {
     ],
     "default_profile_id": PROFILE_ID,
 }
+
+
+def test_default_persona_visibility_fallback_changes_only_two_short_reasons():
+    """默认人设缺席时只给两条短理由补语气，不触碰事实字段或自定义人设。"""
+    items = [
+        RecommendationItem(
+            candidate_id=f"tmdb:{index}",
+            rank=index,
+            reason=f"悬疑动画与复杂人物关系都很贴合{index}",
+            summary=f"客观简介{index}",
+            selection_source="agent",
+        )
+        for index in range(1, 6)
+    ]
+
+    visible, applied = ensure_default_persona_visibility(
+        items, DEFAULT_PERSONA_PROMPT
+    )
+
+    assert (visible, applied) == (2, 2)
+    assert items[0].reason.startswith("唔，")
+    assert items[1].reason.startswith("嘛，")
+    assert [item.summary for item in items] == [
+        f"客观简介{index}" for index in range(1, 6)
+    ]
+    custom_items = [
+        RecommendationItem(
+            candidate_id="tmdb:custom",
+            rank=1,
+            reason="保持用户自己的表达",
+            selection_source="agent",
+        )
+    ]
+    assert ensure_default_persona_visibility(custom_items, "自定义语气") == (0, 0)
+    assert custom_items[0].reason == "保持用户自己的表达"
 
 
 class FakePlugin:
@@ -139,6 +176,7 @@ class FakeCandidateService:
         profile_version=None,
         disliked_candidate_ids=None,
         previous_board_candidate_ids=None,
+        exclude_library_candidates=True,
     ):
         self.retrieval_plan = retrieval_plan
         self.playback_samples = list(playback_samples or [])
@@ -147,6 +185,7 @@ class FakeCandidateService:
         self.previous_board_candidate_ids = set(
             previous_board_candidate_ids or set()
         )
+        self.exclude_library_candidates = bool(exclude_library_candidates)
         self.negative_keywords = list(negative_keywords or [])
         self.profile_version = dict(profile_version or {})
         self.collected_candidate_ids = [
@@ -176,14 +215,20 @@ class FakeCandidateService:
 class FakeAgentAdapter:
     """分别返回画像与排序角色的排队输出或异常。"""
 
-    def __init__(self, outputs, profile_outputs=None):
+    def __init__(self, outputs, profile_outputs=None, retrieval_outputs=None):
         self.ranking_outputs = list(outputs)
         self.profile_outputs = (
             None if profile_outputs is None else list(profile_outputs)
         )
+        self.retrieval_outputs = (
+            None if retrieval_outputs is None else list(retrieval_outputs)
+        )
+        if retrieval_outputs is None:
+            self.run_retrieval = None
         self.calls = []
         self.profile_calls = []
         self.ranking_calls = []
+        self.retrieval_calls = []
 
     @staticmethod
     def _result(output):
@@ -213,6 +258,12 @@ class FakeAgentAdapter:
         self.calls.append(("ranking", prompt, trusted_context))
         self.ranking_calls.append((prompt, trusted_context))
         return self._result(self.ranking_outputs.pop(0))
+
+    async def run_retrieval(self, prompt, trusted_context):
+        """执行检索策划角色测试调用。"""
+        self.calls.append(("retrieval", prompt, trusted_context))
+        self.retrieval_calls.append((prompt, trusted_context))
+        return self._result(self.retrieval_outputs.pop(0))
 
     async def run(self, prompt, trusted_context):
         """按受信上下文角色兼容分发测试调用。"""
@@ -356,8 +407,19 @@ def _profile_output(playback_count=5, filters=None, ranking_tags=None):
                 "negative_tags": [],
                 "playback_count": playback_count,
             },
-            "filters": filters or {
-                "media_types": ["movie"],
+        },
+        ensure_ascii=False,
+    )
+
+
+def _retrieval_output(*, tool="tmdb_movies", ranking_tags=None, media_types=None):
+    """构造独立于稳定画像的单轮检索计划。"""
+    return json.dumps(
+        {
+            "goal": "寻找新的悬疑候选",
+            "actions": [{"tool": tool, "purpose": "related"}],
+            "filters": {
+                "media_types": media_types or ["movie"],
                 "genre_ids": [80],
                 "keyword_ids": [],
                 "original_languages": ["zh"],
@@ -368,6 +430,9 @@ def _profile_output(playback_count=5, filters=None, ranking_tags=None):
                 "sort_by": "popularity.desc",
             },
             "ranking_tags": ranking_tags or ["高质量悬疑"],
+            "hard_constraints": ["排除已观看媒体"],
+            "soft_signals": ["悬疑"],
+            "relaxation_order": ["热度"],
         },
         ensure_ascii=False,
     )
@@ -379,6 +444,7 @@ def _agent_output(candidate_ids):
             "recommendations": [
                 {
                     "candidate_id": candidate_id,
+                    "fit_score": 80,
                     "reason": "偏爱悬疑电影，这部中国密室追凶更贴合。",
                     "summary": "悬疑迷局层层牵出尘封往事与真相",
                     "match_tags": ["悬疑", "中国"],
@@ -436,13 +502,18 @@ def _orchestrator(
     profile_outputs=None,
     retrieval_plan_resolver=None,
     progress_callback=None,
+    retrieval_outputs=None,
 ):
     repository = AgentRankRepository(plugin)
     return (
         RecommendationOrchestrator(
             repository=repository,
             candidate_service=FakeCandidateService(candidate_count),
-            agent_adapter=FakeAgentAdapter(outputs, profile_outputs=profile_outputs),
+            agent_adapter=FakeAgentAdapter(
+                outputs,
+                profile_outputs=profile_outputs,
+                retrieval_outputs=retrieval_outputs,
+            ),
             run_id_factory=lambda: "run-1",
             playback_service=FakePlaybackService(),
             retrieval_plan_resolver=retrieval_plan_resolver,
@@ -576,20 +647,18 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert "confidence_threshold" not in ranking_weights
     assert "media_types" not in ranking_weights
     assert "exclude_keywords" not in ranking_weights
-    assert ranking_weights["base_weights"]["rating_weight"] == 0.7
+    assert ranking_weights["base_weights"]["rating_weight"] == 0.9
     assert {
         (item["dimension"], item["value"], item["evidence_count"])
         for item in ranking_weights["evidence_catalog"]
     } >= {("type", "movie", 5), ("theme", "悬疑", 5)}
     assert orchestrator._candidate_service.retrieval_plan.filters.media_types == ()
-    assert orchestrator._candidate_service.retrieval_plan.filters.genre_ids == (80,)
-    assert "电影" in orchestrator._candidate_service.retrieval_plan.ranking_tags
-    assert orchestrator.agent_adapter.ranking_calls[0][1].profile["filters"][
-        "media_types"
-    ] == ()
+    assert orchestrator._candidate_service.retrieval_plan.filters.genre_ids == (9648,)
+    assert "悬疑" in orchestrator._candidate_service.retrieval_plan.soft_signals
+    assert "retrieval_plan" in orchestrator.agent_adapter.ranking_calls[0][1].profile
     assert repository.load_run_history(PROFILE_ID)[0].metrics[
         "softened_profile_media_types"
-    ] == ["movie"]
+    ] == []
     assert [item.tmdb_id for item in orchestrator._candidate_service.playback_samples] == [
         "1",
         "2",
@@ -607,9 +676,9 @@ def test_success_atomically_saves_profile_board_and_run_history():
     assert all(item.policy_version == ranking_weights["policy_version"] for item in analyses)
     assert all(item.memory_revision == 0 for item in analyses)
     assert repository.load_profile(PROFILE_ID).run_id == "run-1"
-    assert repository.load_profile(PROFILE_ID).filters["genre_ids"] == [80]
-    assert repository.load_profile(PROFILE_ID).filters["media_types"] == []
-    assert repository.load_profile(PROFILE_ID).ranking_tags == ["高质量悬疑", "电影"]
+    saved_profile = repository.load_profile(PROFILE_ID)
+    assert not hasattr(saved_profile, "filters")
+    assert not hasattr(saved_profile, "ranking_tags")
     history = repository.load_run_history(PROFILE_ID)
     assert history[0].status == "success"
     assert history[0].metrics["policy_version"] == ranking_weights["policy_version"]
@@ -634,9 +703,10 @@ def test_success_atomically_saves_profile_board_and_run_history():
     expected_stages = [
         "probe",
         "playback_snapshot",
-        "policy",
-        "profile",
-        "candidate",
+            "policy",
+            "profile",
+            "retrieval",
+            "candidate",
         "ranking",
         "save",
     ]
@@ -836,6 +906,7 @@ def test_candidate_stage_exception_preserves_previous_board_and_records_failure(
         "playback_snapshot",
         "policy",
         "profile",
+        "retrieval",
         "candidate",
     ]
     assert history.metrics["stage_status"]["candidate"] == "candidate_failed"
@@ -892,7 +963,11 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
         [
             _agent_output([f"tmdb:{index}" for index in range(1, 6)]),
             _agent_output([f"tmdb:{index}" for index in range(20, 25)]),
-        ]
+        ],
+        retrieval_outputs=[
+            _retrieval_output(media_types=["movie"]),
+            _retrieval_output(media_types=["anime"]),
+        ],
     )
     run_ids = iter(["run-profile", "run-ranking-only"])
     orchestrator = RecommendationOrchestrator(
@@ -904,10 +979,6 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
     )
 
     first = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
-    cached_profile = repository.load_profile(PROFILE_ID)
-    cached_profile.filters["media_types"] = ["anime"]
-    cached_profile.ranking_tags = []
-    repository.save_profile(cached_profile)
     candidates.candidates = [
         Candidate(
             candidate_id=f"tmdb:{index}",
@@ -924,6 +995,7 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
     assert first.status == "success"
     assert second.status == "success"
     assert len(agent.profile_calls) == 1
+    assert len(agent.retrieval_calls) == 2
     assert len(agent.ranking_calls) == 2
     assert profile.run_id == "run-profile"
     assert profile.playback_fingerprint
@@ -936,7 +1008,9 @@ def test_same_playback_fingerprint_reuses_profile_when_candidates_change():
     assert latest_metrics["softened_profile_media_types"] == ["anime"]
     assert candidates.retrieval_plan.filters.media_types == ()
     assert "动画" in candidates.retrieval_plan.ranking_tags
-    assert agent.ranking_calls[1][1].profile["filters"]["media_types"] == ()
+    assert agent.ranking_calls[1][1].profile["retrieval_plan"]["filters"][
+        "media_types"
+    ] == ()
 
 
 def test_dislike_excludes_title_across_refresh_without_mutating_long_term_taste():
@@ -1075,8 +1149,8 @@ def test_legacy_profile_schema_is_rebuilt_even_when_playback_fingerprint_matches
     assert history.metrics["profile_cache_miss_reason"] == "profile_schema_changed"
 
 
-def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches():
-    """3.2 画像尚未经过受控解析时必须重建，不能直接复用。"""
+def test_legacy_retrieval_profile_is_rebuilt_even_when_playback_matches():
+    """旧版画像 schema 必须重建，检索字段不再进入稳定画像。"""
     plugin = FakePlugin()
     playback = FakePlaybackService()
     snapshot = playback.collect(PROFILE_ID, _config())
@@ -1088,8 +1162,7 @@ def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches
             summary="old",
             playback_count=len(snapshot.samples),
             playback_fingerprint=snapshot.fingerprint(),
-            schema_version=PROFILE_SCHEMA_VERSION,
-            retrieval_resolution_version=0,
+            schema_version=PROFILE_SCHEMA_VERSION - 1,
             run_id="old",
         )
     )
@@ -1102,11 +1175,11 @@ def test_preresolution_profile_is_rebuilt_even_when_playback_fingerprint_matches
 
     assert result.status == "success"
     assert len(orchestrator.agent_adapter.profile_calls) == 1
-    assert repository.load_profile(PROFILE_ID).retrieval_resolution_version == 1
+    profile = repository.load_profile(PROFILE_ID)
+    assert not hasattr(profile, "filters")
+    assert not hasattr(profile, "ranking_tags")
     history = repository.load_run_history(PROFILE_ID)[0]
-    assert history.metrics["profile_cache_miss_reason"] == (
-        "retrieval_resolution_changed"
-    )
+    assert history.metrics["profile_cache_miss_reason"] == "profile_schema_changed"
 
 
 def test_changed_playback_fact_triggers_one_incremental_profile_update():
@@ -1172,16 +1245,17 @@ def test_changed_playback_fact_triggers_one_incremental_profile_update():
     assert third_metrics["profile_cache_status"] == "hit"
 
 
-def test_controlled_resolution_is_persisted_and_exposed_to_ranking_context():
-    """唯一关键词 ID 写入画像，排序上下文只看到解析后的计划。"""
+def test_controlled_resolution_is_transient_and_exposed_to_ranking_context():
+    """唯一关键词 ID 只进入本轮检索计划，不再写入稳定画像。"""
     resolver = ControlledRetrievalPlanResolver(
         keyword_searcher=lambda term: [{"id": 321, "name": "cyberpunk"}]
     )
-    profile_output = _profile_output(ranking_tags=["赛博朋克", "英文"])
     orchestrator, repository = _orchestrator(
         FakePlugin(),
         [_agent_output([f"tmdb:{index}" for index in range(1, 6)])],
-        profile_outputs=[profile_output],
+        retrieval_outputs=[
+            _retrieval_output(ranking_tags=["赛博朋克", "英文"])
+        ],
         retrieval_plan_resolver=resolver,
     )
 
@@ -1191,10 +1265,12 @@ def test_controlled_resolution_is_persisted_and_exposed_to_ranking_context():
     ranking_profile = orchestrator.agent_adapter.ranking_calls[0][1].profile
     metrics = repository.load_run_history(PROFILE_ID)[0].metrics
     assert result.status == "success"
-    assert profile.filters["keyword_ids"] == [321]
-    assert profile.filters["original_languages"] == ["zh", "en"]
-    assert profile.ranking_tags == ["电影"]
-    assert ranking_profile["filters"]["keyword_ids"] == (321,)
+    assert not hasattr(profile, "filters")
+    assert not hasattr(profile, "ranking_tags")
+    assert ranking_profile["retrieval_plan"]["filters"]["keyword_ids"] == (321,)
+    assert ranking_profile["retrieval_plan"]["filters"][
+        "original_languages"
+    ] == ("zh", "en")
     assert metrics["resolved_keyword_count"] == 1
     assert metrics["resolved_language_count"] == 1
 
@@ -1308,45 +1384,10 @@ def test_preference_change_rebuilds_profile_and_scrubs_archived_agent_tags():
     assert latest.metrics["archived_preference_count"] == 1
     assert profile.tags == []
     assert profile.preferences_fingerprint == preferences.fingerprint()
-    assert "悬疑" not in profile.ranking_tags
+    assert not hasattr(profile, "ranking_tags")
+    assert "悬疑" not in str(ranking_context.profile["retrieval_plan"])
     assert ranking_context.profile["tags"] == ("科幻",)
     assert ranking_context.profile_preferences["archived_tags"] == ("悬疑",)
-
-
-def test_incremental_profile_accepts_only_previously_resolved_keyword_ids():
-    """增量画像可沿用插件已解析的关键词 ID，不把任意 ID 加入白名单。"""
-    plugin = FakePlugin()
-    keyword_filters = {
-        "media_types": ["movie"],
-        "genre_ids": [80],
-        "keyword_ids": [304070],
-        "original_languages": ["zh"],
-        "year_min": None,
-        "year_max": None,
-        "rating_min": 7.0,
-        "vote_count_min": 100,
-        "sort_by": "popularity.desc",
-    }
-    orchestrator, repository = _orchestrator(
-        plugin,
-        [_agent_output([f"tmdb:{index}" for index in range(1, 6)])],
-        profile_outputs=[_profile_output(filters=keyword_filters)],
-    )
-    repository.save_profile(
-        UserProfile(
-            profile_id=PROFILE_ID,
-            username="Alice",
-            summary="old",
-            tags=["悬疑"],
-            filters=keyword_filters,
-            run_id="old",
-        )
-    )
-
-    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
-
-    assert result.status == "success"
-    assert repository.load_profile(PROFILE_ID).filters["keyword_ids"] == [304070]
 
 
 def test_playback_evidence_is_collected_and_passed_to_restricted_context():
@@ -1513,8 +1554,8 @@ def test_rebuild_or_disabled_cache_does_not_read_previous_profile():
         assert result.status == "success"
 
 
-def test_library_items_are_removed_before_agent_context_is_built():
-    """已入库 TMDB 候选不会进入 Agent 可见候选快照。"""
+def test_library_items_remain_available_and_are_marked_for_agent_context():
+    """已入库候选不再被硬排除，宿主改为传递状态标记。"""
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
 
@@ -1541,9 +1582,10 @@ def test_library_items_are_removed_before_agent_context_is_built():
         item["candidate_id"]
         for item in agent.ranking_calls[0][1].candidates
     }
-    assert "tmdb:1" not in candidate_ids
-    assert "tmdb:2" not in candidate_ids
-    assert repository.load_run_history(PROFILE_ID)[0].metrics["library_excluded_count"] == 2
+    assert "tmdb:1" in candidate_ids
+    assert "tmdb:2" in candidate_ids
+    assert orchestrator._candidate_service.exclude_library_candidates is False
+    assert repository.load_run_history(PROFILE_ID)[0].metrics["library_excluded_count"] == 0
 
 
 def test_ranking_failure_keeps_previous_board_and_records_fallback_diagnostics():
@@ -1705,6 +1747,45 @@ def test_non_ready_probe_stops_before_collection_and_preserves_old_data():
     assert metrics["stage_order"] == ["probe"]
     assert metrics["stage_status"] == {"probe": "playback_unavailable"}
     assert metrics["playback_probe_status"] == "permission_error"
+
+
+def test_transient_probe_degrades_and_uses_snapshot_fallback():
+    """探测瞬时失败时继续采集快照，不应误阻断本轮推荐。"""
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+
+    class TransientProbePlaybackService(FakePlaybackService):
+        def __init__(self):
+            """初始化快照采集计数。"""
+            self.collect_calls = 0
+
+        def probe(self, profile_id, config):
+            """模拟一次可恢复的探测异常。"""
+            raise TimeoutError("Playback Reporting probe timeout")
+
+        def collect(self, profile_id, config):
+            """记录并继续返回可用的播放快照。"""
+            self.collect_calls += 1
+            return super().collect(profile_id, config)
+
+    playback_service = TransientProbePlaybackService()
+    orchestrator = RecommendationOrchestrator(
+        repository=repository,
+        candidate_service=FakeCandidateService(),
+        agent_adapter=FakeAgentAdapter(
+            [_agent_output([f"tmdb:{index}" for index in range(1, 6)])]
+        ),
+        run_id_factory=lambda: "run-transient-probe",
+        playback_service=playback_service,
+    )
+
+    result = asyncio.run(orchestrator.run(PROFILE_ID, _config()))
+
+    assert result.status == "success"
+    assert playback_service.collect_calls == 1
+    metrics = repository.load_run_history(PROFILE_ID)[0].metrics
+    assert metrics["playback_probe_status"] == "transient_error"
+    assert metrics["stage_status"]["probe"] == "degraded"
 
 
 def test_retryable_empty_agent_output_retries_once_and_records_both_calls():
@@ -2550,18 +2631,46 @@ def test_fifteen_candidate_tournament_is_parallel_and_preserves_final_order():
     board = repository.load_board(PROFILE_ID)
     assert [item.candidate_id for item in board.recommendations] == expected_order
     assert [item.rank for item in board.recommendations] == [1, 2, 3, 4, 5]
-    fit_scores = {
-        item["candidate_id"]: item["fit_score"]
-        for item in final_context.judgment_cards
-    }
-    assert [item.fit_score for item in board.recommendations] == [
-        fit_scores[item.candidate_id] for item in board.recommendations
-    ]
+    assert [item.fit_score for item in board.recommendations] == [80] * 5
     history = repository.load_run_history(PROFILE_ID)[0]
     assert len(history.metrics["candidate_preliminary_status"]) == 15
     assert history.metrics["preliminary_candidate_count"] == 15
     assert history.metrics["finalist_count"] == 6
+    assert history.metrics["final_fit_score_count"] == 5
     assert history.metrics["final_status"] == "success"
+
+
+def test_final_ranking_uses_fit_score_and_keeps_agent_order_for_ties():
+    """最终榜单按匹配分降序，同分保留 Agent 顺序且不再二次微调。"""
+    orchestrator, _ = _orchestrator(
+        FakePlugin(),
+        [_agent_output([f"tmdb:{index}" for index in range(1, 6)])],
+    )
+    items = [
+        RecommendationItem(
+            candidate_id=f"tmdb:{index}",
+            rank=index,
+            fit_score=fit_score,
+            selection_source="agent",
+        )
+        for index, fit_score in enumerate((92, 84, 88, 84), start=1)
+    ]
+
+    ranked = orchestrator._rank_final_items(
+        items,
+        [],
+        {item.candidate_id: index for index, item in enumerate(items)},
+        preserve_agent_order=True,
+        short_term_scores={"tmdb:2": 1.0, "tmdb:4": 1.0},
+    )
+
+    assert [item.candidate_id for item in ranked] == [
+        "tmdb:1",
+        "tmdb:3",
+        "tmdb:2",
+        "tmdb:4",
+    ]
+    assert [item.rank for item in ranked] == [1, 2, 3, 4]
 
 
 def test_failed_batch_uses_safe_fill_then_only_that_batch_retries_next_run():
@@ -2594,10 +2703,11 @@ def test_failed_batch_uses_safe_fill_then_only_that_batch_retries_next_run():
     }
     assert safe_fill_ids & {item.candidate_id for item in first_board.recommendations}
     assert all(
-        item.fit_score is None
+        item.fit_score == 80
         for item in first_board.recommendations
         if item.candidate_id in safe_fill_ids
     )
+    assert first_metrics["final_fit_score_count"] == 5
     assert second.status == "success"
     assert [call[0] for call in agent.preliminary_calls] == [
         "batch-1",

@@ -201,6 +201,17 @@ class AgentRankRuntime:
             )
             if callable(set_pending_handler):
                 set_pending_handler(self._notify_pending_notice)
+            reconcile_pending_sessions = getattr(
+                interaction_service, "reconcile_pending_sessions", None
+            )
+            if callable(reconcile_pending_sessions):
+                try:
+                    reconcile_pending_sessions()
+                except Exception:
+                    logger.warning(
+                        "AgentRank Telegram 历史待办消息对账失败",
+                        exc_info=True,
+                    )
         if conversation_service is not None:
             set_pending_handler = getattr(
                 conversation_service, "set_pending_handler", None
@@ -763,7 +774,7 @@ class AgentRankRuntime:
             return
         from .feedback_proposal import FeedbackProposalService
 
-        question, _created = FeedbackProposalService(
+        event, created = FeedbackProposalService(
             repository,
             record_limit=int(self.config.get("analysis_record_limit") or 500),
             persona_prompt=effective_persona_prompt(
@@ -771,17 +782,9 @@ class AgentRankRuntime:
             ),
             interaction_mode=str(self.config.get("interaction_mode") or "auto"),
         ).create_playback_calibration(profile_id, snapshot)
-        if (
-            question is None
-            or self.pending_center_service is None
-            or self.notification_service is None
-        ):
+        if event is None or not created or self.feedback_queue is None:
             return
-        notice = self.pending_center_service.notice_for_event(
-            profile_id, question.event_id
-        )
-        if notice is not None:
-            self._notify_pending_notice(notice)
+        self.feedback_queue.enqueue_event(event)
 
     def notify_pending_event(self, profile_id: str, event_id: str) -> bool:
         """供手动同步等 API 把已生成问询立即投递到 Telegram。"""

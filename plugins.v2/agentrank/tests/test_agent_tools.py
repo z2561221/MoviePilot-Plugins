@@ -53,7 +53,9 @@ FEEDBACK_AGENT_TOOL_CLASSES = registry_module.FEEDBACK_AGENT_TOOL_CLASSES
 PROFILE_AGENT_TOOL_CLASSES = registry_module.PROFILE_AGENT_TOOL_CLASSES
 PRELIMINARY_AGENT_TOOL_CLASSES = registry_module.PRELIMINARY_AGENT_TOOL_CLASSES
 FINAL_AGENT_TOOL_CLASSES = registry_module.FINAL_AGENT_TOOL_CLASSES
+RETRIEVAL_AGENT_TOOL_CLASSES = registry_module.RETRIEVAL_AGENT_TOOL_CLASSES
 minimal_profile = tools_module._minimal_profile
+minimal_candidate = tools_module._minimal_candidate
 session_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.session")
 schemas_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.schemas")
 RESULT_COLLECTOR_KEY = session_module.RESULT_COLLECTOR_KEY
@@ -93,6 +95,14 @@ def _profile_submission(playback_count=1):
             "negative_tags": [],
             "playback_count": playback_count,
         },
+    }
+
+
+def _retrieval_submission():
+    """构造一份由检索策划 Agent 提交的完整计划。"""
+    return {
+        "goal": "寻找带有悬疑气质的新候选",
+        "actions": [{"tool": "tmdb_movies", "purpose": "related"}],
         "filters": {
             "media_types": ["movie"],
             "genre_ids": [9648],
@@ -105,6 +115,9 @@ def _profile_submission(playback_count=1):
             "sort_by": "popularity.desc",
         },
         "ranking_tags": ["高质量悬疑"],
+        "hard_constraints": ["排除已观看媒体"],
+        "soft_signals": ["悬疑"],
+        "relaxation_order": ["热度"],
     }
 
 
@@ -129,6 +142,7 @@ def _judgment(candidate_id, *, advance=True):
 def _recommendation(candidate_id):
     return {
         "candidate_id": candidate_id,
+        "fit_score": 82,
         "reason": "悬疑题材与已确认偏好相符。",
         "summary": "密室旧案牵出尘封真相。",
         "match_tags": ["悬疑", "电影"],
@@ -505,6 +519,29 @@ def test_preliminary_and_final_contexts_are_bounded_and_role_specific():
     assert "must-not-leak" not in final_output
 
 
+def test_minimal_candidate_exposes_only_safe_library_and_watch_state():
+    """Agent 可读取继续观看所需状态，但不能读取候选私有元数据。"""
+    candidate = minimal_candidate(
+        {
+            "candidate_id": "tmdb:tv:1",
+            "title": "待续播剧集",
+            "media_type": "tv",
+            "metadata": {
+                "in_library": True,
+                "subscribed": False,
+                "watch_status": "partial",
+                "private_marker": "must-not-leak",
+            },
+        }
+    )
+
+    assert candidate["in_library"] is True
+    assert candidate["subscribed"] is False
+    assert candidate["watch_status"] == "partial"
+    assert "metadata" not in candidate
+    assert "must-not-leak" not in str(candidate)
+
+
 def test_profile_submission_schema_reports_field_and_allows_one_repair():
     """缺字段返回稳定字段错误，同一 collector 只允许一次修正提交。"""
     context = build_trusted_context(
@@ -520,12 +557,7 @@ def test_profile_submission_schema_reports_field_and_allows_one_repair():
     submit = tools[1]
 
     rejected = json.loads(
-        asyncio.run(
-            submit.run(
-                filters=_profile_submission()["filters"],
-                ranking_tags=[],
-            )
-        )
+        asyncio.run(submit.run())
     )
     assert rejected == {
         "status": "rejected",
@@ -537,6 +569,29 @@ def test_profile_submission_schema_reports_field_and_allows_one_repair():
     }
     assert collector.attempts == 2
     assert json.loads(collector.result_json())["profile"]["playback_count"] == 1
+
+
+def test_retrieval_submission_is_separate_from_stable_profile_submission():
+    """检索角色只能提交单轮计划，画像角色不能携带检索字段。"""
+    context = build_trusted_context(
+        "alice",
+        "run-retrieval-submit",
+        [],
+        {"entries": []},
+        {},
+        agent_role="retrieval",
+        retrieval_context={"available_tools": ["tmdb_movies"]},
+    )
+    tools, collector = _role_tools(context, RETRIEVAL_AGENT_TOOL_CLASSES)
+    assert json.loads(asyncio.run(tools[0].run()))["available_tools"] == [
+        "tmdb_movies"
+    ]
+    assert json.loads(asyncio.run(tools[1].run(**_retrieval_submission()))) == {
+        "status": "accepted"
+    }
+    payload = json.loads(collector.result_json())
+    assert payload["actions"][0]["tool"] == "tmdb_movies"
+    assert payload["hard_constraints"] == ["排除已观看媒体"]
 
 
 def test_profile_submission_uses_frozen_playback_count_instead_of_agent_count():
@@ -619,6 +674,19 @@ def test_submission_schemas_enforce_extra_enum_count_and_length_boundaries():
                 ]
             }
         )
+    missing_fit_score = _recommendation("tmdb:movie:1")
+    missing_fit_score.pop("fit_score")
+    with pytest.raises(ValidationError):
+        schemas_module.SubmitFinalBoardInput.model_validate(
+            {"recommendations": [missing_fit_score]}
+        )
+    for invalid_fit_score in (-1, 101, True):
+        invalid_score = _recommendation("tmdb:movie:1")
+        invalid_score["fit_score"] = invalid_fit_score
+        with pytest.raises(ValidationError):
+            schemas_module.SubmitFinalBoardInput.model_validate(
+                {"recommendations": [invalid_score]}
+            )
     invalid_dimension = _recommendation("tmdb:movie:1")
     invalid_dimension["positive_evidence"][0]["dimension"] = "unsupported"
     with pytest.raises(ValidationError):
@@ -647,12 +715,9 @@ def test_submission_schemas_enforce_extra_enum_count_and_length_boundaries():
     assert len(validated.recommendations[0].positive_evidence) == 1
 
     try:
-        schemas_module.SubmitProfileResultInput.model_validate(
-            {
-                "filters": _profile_submission()["filters"],
-                "ranking_tags": [],
-            }
-        )
+            schemas_module.SubmitProfileResultInput.model_validate(
+                {}
+            )
     except ValidationError as error:
         formatted = json.loads(
             PROFILE_AGENT_TOOL_CLASSES[1].handle_validation_error(error)

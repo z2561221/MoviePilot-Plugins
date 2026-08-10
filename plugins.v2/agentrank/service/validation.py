@@ -377,20 +377,9 @@ class ParsedProfile:
 
 @dataclass(frozen=True)
 class ParsedProfilePlan:
-    """表示通过结构、枚举和 ID 安全门的画像与检索计划。"""
+    """表示通过结构和资源安全门的稳定画像。"""
 
     profile: ParsedProfile
-    retrieval_plan: RetrievalPlan
-
-    @property
-    def filters(self) -> RetrievalFilters:
-        """返回已校验的结构化过滤条件。"""
-        return self.retrieval_plan.filters
-
-    @property
-    def ranking_tags(self) -> List[str]:
-        """返回自由排序标签的独立列表。"""
-        return list(self.retrieval_plan.ranking_tags)
 
 
 # 兼容调用方对“画像输出”名称的语义引用，同时保持新 schema 名称明确。
@@ -415,6 +404,7 @@ class ParsedRecommendation:
     reason: str
     match_tags: List[str]
     confidence: Optional[int]
+    fit_score: Optional[int]
     positive_evidence: List[ParsedEvidenceClaim] = field(default_factory=list)
     counter_evidence: List[ParsedEvidenceClaim] = field(default_factory=list)
 
@@ -510,7 +500,7 @@ class _StrictOutputParser:
 
 
 class ProfileOutputParser(_StrictOutputParser):
-    """只接受画像 Agent 的 profile、filters、ranking_tags 根对象。"""
+    """只接受画像 Agent 的稳定 profile 根对象。"""
 
     def __init__(
         self,
@@ -741,15 +731,11 @@ class ProfileOutputParser(_StrictOutputParser):
         )
 
     def parse(self, output: str) -> ParsedProfilePlan:
-        """解析画像与检索计划并拒绝额外根字段。"""
+        """解析稳定画像并拒绝检索策略或额外根字段。"""
         value = self._object(output)
-        self._exact_keys(value, {"profile", "filters", "ranking_tags"}, "root")
+        self._exact_keys(value, {"profile"}, "root")
         return ParsedProfilePlan(
             profile=self._profile(value["profile"]),
-            retrieval_plan=RetrievalPlan(
-                filters=self._filters(value["filters"]),
-                ranking_tags=tuple(self._ranking_tags(value["ranking_tags"])),
-            ),
         )
 
 
@@ -765,6 +751,7 @@ class RankingOutputParser(_StrictOutputParser):
     }
     _RECOMMENDATION_KEYS = {
         "candidate_id",
+        "fit_score",
         "reason",
         "summary",
         "match_tags",
@@ -882,6 +869,19 @@ class RankingOutputParser(_StrictOutputParser):
             raise AgentOutputError(
                 f"recommendations[{index}].confidence must be an integer"
             )
+        fit_score = (
+            confidence
+            if schema_keys == self._LEGACY_RECOMMENDATION_KEYS
+            else normalized.get("fit_score")
+        )
+        if schema_keys == self._RECOMMENDATION_KEYS and (
+            isinstance(fit_score, bool)
+            or not isinstance(fit_score, int)
+            or not 0 <= fit_score <= 100
+        ):
+            raise AgentOutputError(
+                f"recommendations[{index}].fit_score must be an integer between 0 and 100"
+            )
         return ParsedRecommendation(
             candidate_id=self._string(
                 normalized["candidate_id"],
@@ -900,6 +900,7 @@ class RankingOutputParser(_StrictOutputParser):
                 10,
             ),
             confidence=confidence,
+            fit_score=fit_score,
             positive_evidence=(
                 self._evidence_claims(
                     normalized["positive_evidence"],
@@ -1692,6 +1693,11 @@ class RecommendationValidator:
                     poster_path=candidate.poster_path,
                     backdrop_path=candidate.backdrop_path,
                     match_tags=tags,
+                    in_library=bool(candidate.metadata.get("in_library")),
+                    subscribed=bool(candidate.metadata.get("subscribed")),
+                    watch_status=str(
+                        candidate.metadata.get("watch_status") or "unwatched"
+                    ),
                 )
             )
         ranked = self._ranker.rank(result, candidates, agent_order={})
@@ -1712,7 +1718,7 @@ class RecommendationValidator:
         playback_snapshot: Any = None,
         agent_fit_scores: Optional[Mapping[str, int]] = None,
     ) -> RecommendationValidationResult:
-        """按 Agent 原顺序校验并附加真实初赛契合度，最终排序由编排器完成。"""
+        """按 Agent 原顺序校验并保留决赛最终评分，最终排序由编排器完成。"""
         candidate_map: Dict[str, Candidate] = {
             candidate.candidate_id: candidate for candidate in candidates
         }
@@ -1728,6 +1734,7 @@ class RecommendationValidator:
             if candidate_id and 0 <= score <= 100:
                 normalized_fit_scores[candidate_id] = score
         archived = set(archived_candidate_ids or set())
+        # 已订阅但未观看的候选仍可推荐；订阅服务在动作执行时做幂等复核。
         subscribed = set(subscribed_candidate_ids or set())
         disliked = set(disliked_candidate_ids or set())
         seen: Set[str] = set()
@@ -1754,11 +1761,6 @@ class RecommendationValidator:
             if candidate_id in archived:
                 result.dropped.append(
                     DroppedRecommendation(candidate_id, "archived_candidate", index)
-                )
-                continue
-            if candidate_id in subscribed:
-                result.dropped.append(
-                    DroppedRecommendation(candidate_id, "subscribed_candidate", index)
                 )
                 continue
             deterministic_support = policy_snapshot is not None
@@ -1847,7 +1849,18 @@ class RecommendationValidator:
                 continue
             support = None
             confidence = int(recommendation.confidence or 0)
-            fit_score = normalized_fit_scores.get(candidate_id)
+            fit_score = recommendation.fit_score
+            if fit_score is None:
+                fit_score = normalized_fit_scores.get(candidate_id)
+            if (
+                isinstance(fit_score, bool)
+                or not isinstance(fit_score, int)
+                or not 0 <= fit_score <= 100
+            ):
+                result.dropped.append(
+                    DroppedRecommendation(candidate_id, "invalid_fit_score", index)
+                )
+                continue
             if deterministic_support:
                 scoring = self._support_scorer.score_candidate(
                     candidate,
@@ -1912,9 +1925,6 @@ class RecommendationValidator:
                     continue
                 support = scoring.score
                 confidence = support.percentage
-            elif fit_score is None:
-                # 旧排序协议中的 confidence 本身由 Agent 提交，可作为历史兼容契合度。
-                fit_score = confidence
             result.accepted.append(
                 RecommendationItem(
                     candidate_id=candidate_id,
@@ -1934,6 +1944,11 @@ class RecommendationValidator:
                     poster_path=candidate.poster_path,
                     backdrop_path=candidate.backdrop_path,
                     match_tags=match_tags,
+                    in_library=bool(candidate.metadata.get("in_library")),
+                    subscribed=bool(candidate.metadata.get("subscribed")),
+                    watch_status=str(
+                        candidate.metadata.get("watch_status") or "unwatched"
+                    ),
                 )
             )
         return result

@@ -306,6 +306,8 @@ def test_lifecycle_migrates_legacy_filters_to_reversible_profile_evidence_once()
         "default_profile_id": PROFILE_ID,
         "media_types": ["movie"],
         "exclude_keywords": ["真人秀", "真人秀", "过度煽情"],
+        "discovery_sources": {"douban": False},
+        "weights": {"theme_weight": 0.1},
     }
 
     initialize_plugin(plugin, legacy_config, runtime_factory=runtime_factory)
@@ -320,10 +322,15 @@ def test_lifecycle_migrates_legacy_filters_to_reversible_profile_evidence_once()
         {"kind": "negative", "tag": "真人秀", "source": "legacy_config"},
         {"kind": "negative", "tag": "过度煽情", "source": "legacy_config"},
     ]
-    assert "media_types" not in plugin._config
-    assert "exclude_keywords" not in plugin._config
-    assert "media_types" not in plugin.saved_config
-    assert "exclude_keywords" not in plugin.saved_config
+    for removed_key in (
+        "media_types",
+        "exclude_keywords",
+        "discovery_sources",
+        "weights",
+    ):
+        assert removed_key not in plugin._config
+        assert removed_key not in plugin.saved_config
+    assert plugin.saved_config["strategy_version"] == 2
 
     removed = ProfilePreferenceService(plugin._repository).update(
         PROFILE_ID, "negative", "remove", "剧集"

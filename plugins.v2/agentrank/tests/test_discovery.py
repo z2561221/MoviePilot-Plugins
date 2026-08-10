@@ -127,8 +127,58 @@ def test_recent_recommendations_remain_eligible_and_are_not_negative_excluded():
     assert "recent_recommendation_fallback_count" not in result.processing_counts
 
 
-def test_previous_board_exclusion_keeps_recalling_until_candidate_target_is_met():
-    """上一榜被排除后继续翻页补召回，不把短缺静默降级成旧榜回填。"""
+def test_library_and_subscription_states_are_marked_without_hard_exclusion():
+    """已入库、已订阅和部分观看候选继续进入冻结池并带状态标记。"""
+    class LibraryAdapter:
+        def candidate_ids(self, candidates):
+            return {item.candidate_id for item in candidates if item.candidate_id.endswith(":1")}
+
+    class SubscriptionAdapter:
+        def candidate_ids(self):
+            return {"tmdb:movie:2"}
+
+    adapter = DiscoveryAdapter(
+        source_fetchers={
+            "tmdb_movies": lambda count: [
+                {"title": f"State {index}", "media_type": "movie", "tmdb_id": index}
+                for index in range(1, 4)
+            ]
+        }
+    )
+    service = CandidateCollectionService(
+        adapter,
+        AgentRankRepository(FakePlugin()),
+        library_adapter=LibraryAdapter(),
+        subscription_adapter=SubscriptionAdapter(),
+    )
+    result = service.collect_and_freeze(
+        "alice",
+        "run-state-markers",
+        {"tmdb_movies": True},
+        10,
+        playback_samples=[
+            {
+                "stable_id": "tmdb:movie:3",
+                "completed": False,
+                "play_count": 1,
+            }
+        ],
+        exclude_library_candidates=False,
+    )
+
+    assert [item.candidate_id for item in result.candidates] == [
+        "tmdb:movie:1",
+        "tmdb:movie:2",
+        "tmdb:movie:3",
+    ]
+    states = {item.candidate_id: item.metadata for item in result.candidates}
+    assert states["tmdb:movie:1"]["in_library"] is True
+    assert states["tmdb:movie:2"]["subscribed"] is True
+    assert states["tmdb:movie:3"]["watch_status"] == "partial"
+
+
+def test_previous_board_candidates_remain_eligible_for_agent_freshness_ranking():
+    """上一榜候选不在采集层硬排除，交给后续时近策略处理。"""
     class PagedDiscoveryAdapter(DiscoveryAdapter):
         """按页返回不同候选的分层来源适配器。"""
 
@@ -195,12 +245,12 @@ def test_previous_board_exclusion_keeps_recalling_until_candidate_target_is_met(
 
     assert result.status == "ready"
     assert [candidate.candidate_id for candidate in result.candidates] == [
-        f"tmdb:movie:{index}" for index in range(6, 16)
+        f"tmdb:movie:{index}" for index in range(1, 11)
     ]
-    assert adapter.pages == [1, 2]
-    assert result.exclusion_counts["previous_board"] == 5
-    assert result.processing_counts["previous_board_exclusion_count"] == 5
-    assert result.processing_counts["supplement_recall_count"] == 10
+    assert adapter.pages == [1]
+    assert result.exclusion_counts["previous_board"] == 0
+    assert result.processing_counts["previous_board_exclusion_count"] == 0
+    assert result.processing_counts["supplement_recall_count"] == 0
 
 
 def test_builtin_source_prefix_is_trusted_when_payload_uses_media_id():
@@ -854,7 +904,11 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
         negative_keywords=["真人秀"],
     )
 
-    assert [item.candidate_id for item in result.candidates] == ["tmdb:movie:7"]
+    assert [item.candidate_id for item in result.candidates] == [
+        "tmdb:movie:3",
+        "tmdb:movie:7",
+    ]
+    assert result.candidates[0].metadata["subscribed"] is True
     assert result.snapshot is not None
     assert result.snapshot.content_hash
     assert result.snapshot.to_dict() == plugin.data[
@@ -870,7 +924,7 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
         "previous_board": 0,
         "watched_completed": 1,
         "library": 1,
-        "subscribed": 1,
+            "subscribed": 0,
         "disliked": 1,
         "archived": 1,
         "negative_keyword": 1,
@@ -878,7 +932,7 @@ def test_hard_filters_run_after_deduplication_and_before_snapshot():
     assert library_adapter.batch_sizes == [6]
     assert [item.candidate_id for item in repository.load_candidate_snapshot(
         "run-hard-filter", "alice"
-    )] == ["tmdb:movie:7"]
+    )] == ["tmdb:movie:3", "tmdb:movie:7"]
 
 
 def test_dynamic_recall_freezes_fifteen_and_stops_recognition_by_batch():
@@ -1235,8 +1289,8 @@ def test_legacy_sources_execute_concurrently_and_isolate_failures():
     assert result.source_errors == {"douban": "network down"}
 
 
-def test_subscription_filter_failure_stops_before_snapshot():
-    """全局订阅无法读取时必须闭锁候选池，不能带风险继续排序。"""
+def test_subscription_state_failure_does_not_block_candidate_snapshot():
+    """全局订阅读取失败时保留候选，只记录状态读取错误。"""
     adapter = DiscoveryAdapter(
         source_fetchers={
             "tmdb_movies": lambda count: [
@@ -1259,7 +1313,8 @@ def test_subscription_filter_failure_stops_before_snapshot():
         "alice", "run-filter-failed", {"tmdb_movies": True}, 10
     )
 
-    assert result.status == "candidate_filter_failed"
-    assert result.candidates == []
-    assert result.filter_errors == {"subscriptions": "database unavailable"}
-    assert repository.load_candidate_snapshot("run-filter-failed", "alice") == []
+    assert result.status == "candidate_insufficient"
+    assert result.candidates
+    assert result.filter_errors == {}
+    assert result.source_errors["subscriptions"] == "database unavailable"
+    assert repository.load_candidate_snapshot("run-filter-failed", "alice")

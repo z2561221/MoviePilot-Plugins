@@ -29,6 +29,7 @@ from .prompt import (
     DEFAULT_PERSONA_PROMPT,
     build_analysis_comment_prompt,
     build_feedback_understanding_prompt,
+    build_pending_interview_prompt,
 )
 from .feedback_proposal import FeedbackProposalService
 from .validation import is_complete_recommendation_copy
@@ -39,6 +40,16 @@ _OUTPUT_KEYS = frozenset(
 )
 _SIGNAL_KEYS = frozenset(
     {"category", "value", "polarity", "certainty", "evidence_refs"}
+)
+_CLARIFICATION_KEYS = frozenset(
+    {
+        "question",
+        "options",
+        "allow_custom_answer",
+        "preference_dimension",
+        "exploration_level",
+        "confidence_gap",
+    }
 )
 _SENSITIVE_PSYCHOLOGY_TERMS = (
     "人格",
@@ -102,13 +113,50 @@ class FeedbackUnderstandingParser:
             value = json.loads(str(raw or ""))
         except (TypeError, ValueError, json.JSONDecodeError) as error:
             raise FeedbackUnderstandingError("反馈理解输出不是合法 JSON") from error
-        if not isinstance(value, Mapping) or set(value) != set(_OUTPUT_KEYS):
+        if not isinstance(value, Mapping) or not (
+            _OUTPUT_KEYS.issubset(set(value))
+            and set(value).issubset(_OUTPUT_KEYS | {"clarification"})
+        ):
             raise FeedbackUnderstandingError("反馈理解输出根结构不符合协议")
         outcome = _text(value.get("outcome"), 32).casefold()
         if outcome not in {"understood", "ambiguous"}:
             raise FeedbackUnderstandingError("反馈理解 outcome 不符合协议")
         restatement = _text(value.get("restatement"), 240)
         uncertainties = _safe_list(value.get("uncertainties") or (), 8)
+        clarification = value.get("clarification")
+        parsed_clarification = None
+        if clarification is not None:
+            if not isinstance(clarification, Mapping) or set(clarification) != set(
+                _CLARIFICATION_KEYS
+            ):
+                raise FeedbackUnderstandingError("反馈问询草稿结构不符合协议")
+            question = _text(clarification.get("question"), 220)
+            options = _safe_list(clarification.get("options") or (), 5)
+            if not question or not 2 <= len(options) <= 5:
+                raise FeedbackUnderstandingError("反馈问询草稿选项数量不符合协议")
+            if clarification.get("allow_custom_answer") is not True:
+                raise FeedbackUnderstandingError("反馈问询草稿必须允许自定义回答")
+            dimension = _text(clarification.get("preference_dimension"), 48)
+            if not dimension:
+                raise FeedbackUnderstandingError("反馈问询草稿缺少目的维度")
+            try:
+                exploration_level = max(
+                    0, min(3, int(clarification.get("exploration_level") or 0))
+                )
+                confidence_gap = max(
+                    0.0,
+                    min(1.0, float(clarification.get("confidence_gap") or 0.0)),
+                )
+            except (TypeError, ValueError) as error:
+                raise FeedbackUnderstandingError("反馈问询草稿数值不符合协议") from error
+            parsed_clarification = {
+                "question": question,
+                "options": options,
+                "allow_custom_answer": True,
+                "preference_dimension": dimension,
+                "exploration_level": exploration_level,
+                "confidence_gap": confidence_gap,
+            }
         raw_signals = value.get("signals") or []
         if not isinstance(raw_signals, list) or len(raw_signals) > 8:
             raise FeedbackUnderstandingError("反馈理解 signals 不符合协议")
@@ -143,8 +191,22 @@ class FeedbackUnderstandingParser:
                 "restatement": "当前反馈不足以形成安全的长期口味判断",
                 "signals": [],
                 "uncertainties": ["需要用户用内容偏好语言补充具体原因"],
+                "clarification": None,
+            }
+        if event.kind == "playback_calibration" and not event.supersedes:
+            if parsed_clarification is None:
+                raise FeedbackUnderstandingError("播放校准缺少 Agent 动态问询")
+            return {
+                "outcome": "ambiguous",
+                "restatement": restatement
+                or "近期观看记录只能用于提出待确认的偏好问题",
+                "signals": [],
+                "uncertainties": uncertainties,
+                "clarification": parsed_clarification,
             }
         if not event.comment:
+            if parsed_clarification is None:
+                raise FeedbackUnderstandingError("无评论反馈缺少 Agent 动态问询")
             return {
                 "outcome": "ambiguous",
                 "restatement": (
@@ -154,14 +216,20 @@ class FeedbackUnderstandingParser:
                 ),
                 "signals": [],
                 "uncertainties": ["需要确认是题材、节奏、主创还是其他原因"],
+                "clarification": parsed_clarification,
             }
         if outcome == "understood" and not signals:
             outcome = "ambiguous"
+        if outcome == "ambiguous" and parsed_clarification is None:
+            raise FeedbackUnderstandingError("歧义反馈缺少 Agent 动态问询")
         return {
             "outcome": outcome,
             "restatement": restatement,
             "signals": signals if outcome == "understood" else [],
             "uncertainties": uncertainties,
+            "clarification": (
+                parsed_clarification if outcome == "ambiguous" else None
+            ),
         }
 
 
@@ -312,10 +380,17 @@ class FeedbackUnderstandingService:
             return 0.0
 
     async def _call_agent_with_budget(
-        self, method: Any, prompt: str, context: Any
+        self,
+        method: Any,
+        prompt: str,
+        context: Any,
+        *,
+        deadline: float = 0.0,
     ) -> Any:
         """在一个总预算内执行反馈 Agent，并仅对 429 退避重试。"""
-        deadline = time.monotonic() + self._total_timeout_seconds
+        deadline = float(deadline or 0.0) or (
+            time.monotonic() + self._total_timeout_seconds
+        )
         attempt = 0
         while True:
             remaining = deadline - time.monotonic()
@@ -473,6 +548,18 @@ class FeedbackUnderstandingService:
             "model_call_count": calls,
         }
 
+    @classmethod
+    def _combined_provenance(cls, values: Sequence[Any]) -> Dict[str, Any]:
+        """合并一次原始调用与一次协议修复调用的公开来源统计。"""
+        provenances = [cls._safe_provenance(value) for value in values]
+        if not provenances:
+            return {}
+        result = dict(provenances[-1])
+        result["model_call_count"] = sum(
+            int(item.get("model_call_count") or 0) for item in provenances
+        )
+        return result
+
     @staticmethod
     def _allowed_evidence_refs(
         event: FeedbackEvent,
@@ -496,6 +583,36 @@ class FeedbackUnderstandingService:
                 refs.append(f"memory:{item_id}")
         return refs
 
+    @staticmethod
+    def _validate_pending_interview(
+        parsed: Mapping[str, Any], interview: Mapping[str, Any]
+    ) -> Dict[str, Any]:
+        """强制验收轮次只产生一个不重复的 Agent 动态问题。"""
+        clarification = parsed.get("clarification")
+        if parsed.get("outcome") != "ambiguous" or not isinstance(
+            clarification, Mapping
+        ):
+            raise FeedbackUnderstandingError("待办问询必须返回动态澄清问题")
+        current = int(interview.get("round") or 0)
+        total = int(interview.get("total") or 0)
+        question = str(clarification.get("question") or "").strip()
+        compact = "".join(question.split())
+        if f"第{current}/{total}题" not in compact:
+            raise FeedbackUnderstandingError("待办问询缺少当前题号")
+        normalized = compact.casefold()
+        for item in interview.get("history") or ():
+            previous = "".join(str(item.get("question") or "").split()).casefold()
+            if previous and previous == normalized:
+                raise FeedbackUnderstandingError("待办问询重复了历史问题")
+        result = dict(parsed)
+        result["outcome"] = "ambiguous"
+        result["signals"] = []
+        result["clarification"] = {
+            **dict(clarification),
+            "preference_dimension": str(interview.get("dimension") or ""),
+        }
+        return result
+
     def _record(
         self,
         *,
@@ -511,6 +628,7 @@ class FeedbackUnderstandingService:
         analysis_revision_id: str = "",
         analysis_revision_reason: str = "",
         analysis_revision_note: str = "",
+        clarification: Optional[Mapping[str, Any]] = None,
     ) -> FeedbackUnderstandingRecord:
         """构造并幂等保存不含原始 Agent 输出的理解记录。"""
         record = FeedbackUnderstandingRecord(
@@ -536,6 +654,20 @@ class FeedbackUnderstandingService:
             analysis_revision_id=analysis_revision_id,
             analysis_revision_reason=analysis_revision_reason,
             analysis_revision_note=analysis_revision_note,
+            clarification_question=str((clarification or {}).get("question") or ""),
+            clarification_options=tuple((clarification or {}).get("options") or ()),
+            clarification_allow_custom_answer=(
+                (clarification or {}).get("allow_custom_answer") is True
+            ),
+            clarification_dimension=str(
+                (clarification or {}).get("preference_dimension") or ""
+            ),
+            clarification_exploration_level=int(
+                (clarification or {}).get("exploration_level") or 0
+            ),
+            clarification_confidence_gap=float(
+                (clarification or {}).get("confidence_gap") or 0.0
+            ),
         )
         return self._repository.append_feedback_understanding(
             record,
@@ -548,6 +680,7 @@ class FeedbackUnderstandingService:
         if not isinstance(job, FeedbackQueueJob):
             raise TypeError("job must be FeedbackQueueJob")
         event = self._event_for_job(job)
+        interview = self._proposal_service.pending_interview_state(event)
         if event.kind in {"like", "dislike"}:
             from .feedback_action import FeedbackActionService
 
@@ -595,7 +728,41 @@ class FeedbackUnderstandingService:
                 self._critic_prompt, self._persona_prompt
             )
         )
+        if interview is not None and int(interview["round"]) <= int(
+            interview["total"]
+        ):
+            prompt = build_pending_interview_prompt(
+                prompt,
+                round_number=int(interview["round"]),
+                total=int(interview["total"]),
+            )
         fingerprint = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        if interview is not None and int(interview["round"]) > int(
+            interview["total"]
+        ):
+            record = self._record(
+                event=event,
+                outcome="exclusion_only",
+                restatement=(
+                    f"待办中心动态问询验收已完成，共 {interview['total']} 题"
+                ),
+                uncertainties=(),
+                prompt_fingerprint=fingerprint,
+                memory_revision=int(memory.get("memory_revision") or 0),
+                provenance={
+                    "provider": "",
+                    "model": "",
+                    "model_source": "deterministic",
+                    "model_call_count": 0,
+                },
+            )
+            self._proposal_service.materialize(
+                record,
+                event=event,
+                candidate=candidate,
+                memory=memory_model,
+            )
+            return record
         if guard["required_outcome"] == "exclusion_only":
             record = self._record(
                 event=event,
@@ -635,13 +802,17 @@ class FeedbackUnderstandingService:
             feedback_candidate=candidate,
             confirmed_memory=memory,
             analysis=analysis,
-            pending_context={},
+            pending_context=(
+                {"pending_interview": interview} if interview is not None else {}
+            ),
         )
         method = getattr(self._agent_adapter, "run_feedback", None)
+        deadline = time.monotonic() + self._total_timeout_seconds
         raw = await self._call_agent_with_budget(
             method if callable(method) else self._agent_adapter.run,
             prompt,
             context,
+            deadline=deadline,
         )
         if event.kind == ANALYSIS_COMMENT_KIND:
             parsed = self._comment_parser.parse(
@@ -681,13 +852,48 @@ class FeedbackUnderstandingService:
                 )
             return record
 
-        parsed = self._parser.parse(
-            raw,
-            event=event,
-            allowed_evidence_refs=self._allowed_evidence_refs(
-                event, candidate, memory
-            ),
+        allowed_evidence_refs = self._allowed_evidence_refs(
+            event, candidate, memory
         )
+        raw_attempts = [raw]
+        try:
+            parsed = self._parser.parse(
+                raw,
+                event=event,
+                allowed_evidence_refs=allowed_evidence_refs,
+            )
+            if interview is not None:
+                parsed = self._validate_pending_interview(parsed, interview)
+        except FeedbackUnderstandingError as first_error:
+            repair_prompt = (
+                prompt
+                + "\n\nAGENTRANK_CLARIFICATION_REPAIR：上一次 JSON 未通过协议校验（"
+                + _text(first_error, 160)
+                + "）。请重新读取四个只读工具并返回完整 JSON。"
+                "若 outcome=ambiguous，clarification 必须存在；问题必须明确指出当前作品、"
+                "反馈动作或具体播放样本，选项必须是针对这个问题的二至五个不同答案。"
+                "不得使用通用偏好题库，不得只改写固定句式，也不得靠统一口癖冒充人设。"
+            )
+            repaired_raw = await self._call_agent_with_budget(
+                method if callable(method) else self._agent_adapter.run,
+                repair_prompt,
+                context,
+                deadline=deadline,
+            )
+            raw_attempts.append(repaired_raw)
+            try:
+                parsed = self._parser.parse(
+                    repaired_raw,
+                    event=event,
+                    allowed_evidence_refs=allowed_evidence_refs,
+                )
+                if interview is not None:
+                    parsed = self._validate_pending_interview(parsed, interview)
+            except FeedbackUnderstandingError as repair_error:
+                raise FeedbackUnderstandingError(
+                    "Agent 动态问询在一次修复后仍不符合协议"
+                ) from repair_error
+            raw = repaired_raw
         signals = tuple(parsed["signals"])
         conflicts = compare_conflicts(
             [signal.to_dict() for signal in signals],
@@ -702,12 +908,14 @@ class FeedbackUnderstandingService:
             uncertainties=tuple(parsed["uncertainties"]),
             prompt_fingerprint=fingerprint,
             memory_revision=int(memory.get("memory_revision") or 0),
-            provenance=self._safe_provenance(raw),
+            provenance=self._combined_provenance(raw_attempts),
+            clarification=parsed.get("clarification"),
         )
         self._proposal_service.materialize(
             record,
             event=event,
             candidate=candidate,
             memory=memory_model,
+            question_draft=parsed.get("clarification"),
         )
         return record

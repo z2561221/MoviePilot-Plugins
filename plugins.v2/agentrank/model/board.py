@@ -31,6 +31,9 @@ class RecommendationItem:
     backdrop_path: str = ""
     match_tags: List[str] = field(default_factory=list)
     original_title: str = ""
+    in_library: bool = False
+    subscribed: bool = False
+    watch_status: str = "unwatched"
 
     def __post_init__(self) -> None:
         """规范并校验推荐条目的选择来源与 Agent 契合度。"""
@@ -115,6 +118,9 @@ class RecommendationItem:
             poster_path=str(value.get("poster_path") or ""),
             backdrop_path=str(value.get("backdrop_path") or ""),
             match_tags=[str(item) for item in value.get("match_tags") or []],
+            in_library=bool(value.get("in_library", False)),
+            subscribed=bool(value.get("subscribed", False)),
+            watch_status=str(value.get("watch_status") or "unwatched"),
         )
 
 

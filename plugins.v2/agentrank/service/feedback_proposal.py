@@ -16,20 +16,33 @@ from ..model.feedback_understanding import FeedbackSignal, FeedbackUnderstanding
 from ..model.memory import PreferenceMemory, PreferenceMemoryItem
 from ..storage.repository import AgentRankRepository
 from .critic_skills import (
-    ask_clarification,
-    ask_playback_calibration,
     propose_memory_change,
-    style_clarification_question,
 )
 from .questioning_policy import QuestioningPolicy
 
 
 FeedbackDecision = Optional[Union[MemoryProposal, PendingQuestion]]
+PENDING_INTERVIEW_PREFIX = "pending-interview"
 
 
 def _text(value: Any, limit: int = 240) -> str:
     """把不可信标量规范为有界文本。"""
     return str(value or "").strip()[: max(1, int(limit))]
+
+
+def parse_pending_interview_id(value: Any) -> Optional[tuple[str, int]]:
+    """解析宿主签发的待办问询会话标识。"""
+    parts = str(value or "").strip().split(":")
+    if len(parts) != 3 or parts[0] != PENDING_INTERVIEW_PREFIX:
+        return None
+    session_id = parts[1]
+    try:
+        total = int(parts[2])
+    except (TypeError, ValueError):
+        return None
+    if not session_id or not 1 <= total <= 10:
+        return None
+    return session_id, total
 
 
 class FeedbackProposalService:
@@ -78,8 +91,8 @@ class FeedbackProposalService:
         snapshot: Any,
         *,
         actor_id: str = "",
-    ) -> tuple[Optional[PendingQuestion], bool]:
-        """首次有效播放同步后创建一个不直接写画像的整体偏好校准问题。"""
+    ) -> tuple[Optional[FeedbackEvent], bool]:
+        """首次有效播放同步后创建一条交给 Agent 理解的校准事件。"""
         target = str(profile_id or "").strip()
         if not target or snapshot is None:
             return None, False
@@ -93,7 +106,7 @@ class FeedbackProposalService:
             None,
         )
         if existing is not None:
-            return existing, False
+            return None, False
         if any(item.status == "pending" for item in questions):
             return None, False
         if not self._questioning_policy.allows_playback_calibration():
@@ -110,7 +123,6 @@ class FeedbackProposalService:
         ]
         if not strong_samples:
             return None, False
-        fingerprint = str(getattr(snapshot, "fingerprint", lambda: "")() or "")
         genres = []
         for sample in strong_samples:
             for genre in getattr(sample, "genres", ()) or ():
@@ -121,9 +133,19 @@ class FeedbackProposalService:
                     break
             if len(genres) >= 3:
                 break
-        summary = f"有效观看样本 {len(strong_samples)} 项"
+        sample_titles = []
+        for sample in strong_samples:
+            title = _text(getattr(sample, "title", ""), 48)
+            if title and title not in sample_titles:
+                sample_titles.append(title)
+            if len(sample_titles) >= 4:
+                break
+        summary = f"近期有 {len(strong_samples)} 项有效观看样本"
+        if sample_titles:
+            summary += "，包括《" + "》《".join(sample_titles) + "》"
         if genres:
-            summary += "；常见类型 " + "、".join(genres)
+            summary += "；其中常见类型为" + "、".join(genres)
+        summary += "。这些记录只能用于提出问题，不能直接等同于喜欢。"
         appended = self._repository.append_feedback_event(
             FeedbackEvent(
                 profile_id=target,
@@ -134,57 +156,124 @@ class FeedbackProposalService:
                 idempotency_key=f"playback-calibration:{target}",
             )
         )
-        event = appended.event
-        created_at, expires_at = self._time_window()
-        calibration = ask_playback_calibration(
-            selection_seed=f"{target}:{fingerprint or event.event_id}"
+        return appended.event, appended.created
+
+    def create_pending_interview(
+        self,
+        profile_id: str,
+        snapshot: Any,
+        board: Any,
+        *,
+        actor_id: str,
+        idempotency_key: str,
+        total: int = 10,
+    ) -> tuple[Optional[FeedbackEvent], bool]:
+        """创建一条只用于待办中心逐轮验收的 Agent 问询事件。"""
+        target = str(profile_id or "").strip()
+        actor = str(actor_id or "").strip()[:128]
+        request_key = str(idempotency_key or "").strip()
+        count = max(1, min(int(total or 10), 10))
+        if not target or not actor or not request_key or snapshot is None:
+            return None, False
+        existing_event = self._repository.load_feedback_event(target, request_key)
+        if existing_event is not None:
+            return existing_event, False
+        if any(
+            item.status == "pending"
+            for item in self._repository.load_pending_questions(target)
+        ):
+            return None, False
+
+        samples = list(getattr(snapshot, "samples", ()) or ())
+        sample_titles = []
+        genres = []
+        for sample in samples:
+            title = _text(getattr(sample, "title", ""), 48)
+            if title and title not in sample_titles:
+                sample_titles.append(title)
+            for genre in getattr(sample, "genres", ()) or ():
+                label = _text(genre, 20)
+                if label and label not in genres:
+                    genres.append(label)
+            if len(sample_titles) >= 6 and len(genres) >= 5:
+                break
+        board_titles = []
+        for item in getattr(board, "recommendations", ()) or ():
+            title = _text(getattr(item, "title", ""), 48)
+            if title and title not in board_titles:
+                board_titles.append(title)
+            if len(board_titles) >= 5:
+                break
+
+        summary = "用户明确启动了待办中心动态问询验收"
+        if sample_titles:
+            summary += "。近期播放事实包括《" + "》《".join(sample_titles) + "》"
+        if genres:
+            summary += "，可见类型有" + "、".join(genres[:5])
+        if board_titles:
+            summary += "。当前榜单包括《" + "》《".join(board_titles) + "》"
+        summary += "。这些事实只用于生成具体问题，不能直接等同于喜欢；本轮回答不写入长期偏好。"
+        digest = hashlib.sha256(
+            f"{target}:{request_key}".encode("utf-8")
+        ).hexdigest()[:24]
+        appended = self._repository.append_feedback_event(
+            FeedbackEvent(
+                profile_id=target,
+                kind="playback_calibration",
+                candidate_id="profile:playback",
+                analysis_id=f"{PENDING_INTERVIEW_PREFIX}:{digest}:{count}",
+                comment=summary,
+                created_by_mp_user_id=actor,
+                idempotency_key=request_key,
+            )
         )
-        calibration_option_ids = (
-            "continue_patterns",
-            "explore_new",
-            "either",
-            "uncertain",
-            "not_me",
+        return appended.event, appended.created
+
+    def pending_interview_state(
+        self, event: FeedbackEvent
+    ) -> Optional[Dict[str, Any]]:
+        """返回当前验收会话的轮次、历史问答与显示维度。"""
+        parsed = parse_pending_interview_id(event.analysis_id)
+        if parsed is None:
+            return None
+        session_id, total = parsed
+        events = {
+            item.event_id: item
+            for item in self._repository.load_feedback_events(event.profile_id)
+            if item.analysis_id == event.analysis_id
+        }
+        questions = [
+            item
+            for item in self._repository.load_pending_questions(event.profile_id)
+            if (
+                item.event_id in events
+                and events[item.event_id].analysis_id == event.analysis_id
+            )
+        ]
+        questions.sort(key=lambda item: (item.event_sequence, item.question_id))
+        history = [
+            {
+                "round": index,
+                "question": item.question,
+                "answer": item.answer_text,
+                "status": item.status,
+            }
+            for index, item in enumerate(questions, 1)
+        ]
+        source_event = min(
+            events.values(), key=lambda item: (item.sequence, item.event_id)
         )
-        question = PendingQuestion(
-            question_id=self._stable_id("pending-question", event.event_id),
-            profile_id=target,
-            event_id=event.event_id,
-            event_sequence=event.sequence,
-            candidate_id="profile:playback",
-            understanding_record_id=f"playback-calibration:{fingerprint[:24] or event.event_id}",
-            question=style_clarification_question(
-                calibration["question"],
-                self._persona_prompt,
+        round_number = len(questions) + 1
+        return {
+            "session_id": session_id,
+            "total": total,
+            "round": round_number,
+            "history": history[-10:],
+            "source_context": source_event.comment,
+            "dimension": (
+                f"pending_interview:{session_id}:{round_number}:{total}"
             ),
-            options=tuple(
-                PendingQuestionOption(option_id=option_id, label=label)
-                for option_id, label in zip(
-                    calibration_option_ids,
-                    calibration["options"],
-                )
-            ),
-            allow_custom_answer=True,
-            uncertainties=("播放记录只能提出偏好假设，不能直接等同于喜欢",),
-            evidence_refs=(
-                f"event:{event.event_id}",
-                f"playback:{fingerprint[:24]}",
-            ),
-            expected_memory_revision=self._repository.load_preference_memory(
-                target
-            ).memory_revision,
-            created_at=created_at,
-            expires_at=expires_at,
-            preference_dimension="playback_calibration",
-            exploration_level=0,
-            confidence_gap=1.0,
-        )
-        return (
-            self._repository.append_pending_question(
-                question, limit=self._record_limit
-            ),
-            True,
-        )
+        }
 
     @staticmethod
     def _stable_id(prefix: str, event_id: str, suffix: str = "") -> str:
@@ -312,28 +401,61 @@ class FeedbackProposalService:
         event: FeedbackEvent,
         candidate: Mapping[str, Any],
         memory: PreferenceMemory,
-    ) -> PendingQuestion:
-        """从歧义理解和既有偏好缺口构造动态整体偏好问题。"""
-        history = [
-            item.to_dict()
-            for item in self._repository.load_pending_questions(record.profile_id)
-        ]
-        draft = ask_clarification(
-            record.action,
-            self._candidate_title(candidate),
-            record.uncertainties,
-            question_history=history,
-            confirmed_memory=memory.to_dict(),
-            selection_seed=record.event_id,
-        )
+        question_draft: Mapping[str, Any] = None,
+    ) -> Optional[PendingQuestion]:
+        """仅从 Agent 已校验草稿构造问题，缺失时不做模板兜底。"""
+        draft = dict(question_draft or {})
+        if not draft and record.clarification_question:
+            draft = {
+                "question": record.clarification_question,
+                "options": list(record.clarification_options),
+                "allow_custom_answer": record.clarification_allow_custom_answer,
+                "preference_dimension": record.clarification_dimension,
+                "exploration_level": record.clarification_exploration_level,
+                "confidence_gap": record.clarification_confidence_gap,
+            }
+        interview = self.pending_interview_state(event)
+        if interview is not None:
+            draft["preference_dimension"] = interview["dimension"]
+        question_text = _text(draft.get("question"), 220)
+        option_labels = []
+        for value in draft.get("options") or ():
+            label = _text(value, 120)
+            if label and label not in option_labels:
+                option_labels.append(label)
+        if (
+            not question_text
+            or not 2 <= len(option_labels) <= 5
+            or draft.get("allow_custom_answer") is not True
+        ):
+            return None
         options = tuple(
             PendingQuestionOption(option_id=f"option_{index}", label=label)
-            for index, label in enumerate(draft.get("options") or (), 1)
+            for index, label in enumerate(option_labels, 1)
         )
         created_at, expires_at = self._time_window()
         evidence_refs = [f"event:{event.event_id}"]
         if event.candidate_id:
             evidence_refs.append(f"candidate:{event.candidate_id}")
+        candidate_title = self._candidate_title(candidate)
+        action_label = {
+            "like": "点了赞",
+            "dislike": "点了踩",
+            "playback_calibration": "产生了一组有效观看记录",
+        }.get(record.action, "留下了反馈")
+        if interview is not None:
+            context_line = (
+                f"提问背景：这是待办中心动态问询验收的第 "
+                f"{interview['round']}/{interview['total']} 题；回答仅推进本次验收，"
+                "不会直接写入长期偏好。"
+            )
+        elif record.action == "playback_calibration":
+            context_line = "提问背景：近期观看记录只能提供线索，不能直接代表你的喜好。"
+        else:
+            context_line = (
+                f"提问背景：你刚刚对《{candidate_title}》{action_label}，"
+                "但 Agent 还缺少一个会影响后续推荐的关键信息。"
+            )
         return PendingQuestion(
             question_id=self._stable_id("pending-question", event.event_id),
             profile_id=record.profile_id,
@@ -341,12 +463,10 @@ class FeedbackProposalService:
             event_sequence=record.event_sequence,
             candidate_id=record.candidate_id,
             understanding_record_id=record.record_id,
-            question=style_clarification_question(
-                draft.get("question"), self._persona_prompt
-            ),
+            question=question_text,
             options=options,
             allow_custom_answer=draft.get("allow_custom_answer") is True,
-            uncertainties=tuple(draft.get("uncertainties") or ()),
+            uncertainties=(context_line,),
             evidence_refs=tuple(evidence_refs),
             expected_memory_revision=record.memory_revision,
             created_at=created_at,
@@ -363,6 +483,7 @@ class FeedbackProposalService:
         event: FeedbackEvent,
         candidate: Mapping[str, Any],
         memory: PreferenceMemory,
+        question_draft: Mapping[str, Any] = None,
     ) -> FeedbackDecision:
         """幂等生成提案或问询；纯排除不产生额外打扰。"""
         if not isinstance(record, FeedbackUnderstandingRecord):
@@ -405,8 +526,17 @@ class FeedbackProposalService:
             conflict_count=len(record.conflicts),
             uncertainty_count=len(record.uncertainties),
         )
-        if not questioning.allow_question:
+        if self.pending_interview_state(event) is None and not questioning.allow_question:
+            return None
+        question = self._question(
+            record,
+            event,
+            candidate,
+            memory,
+            question_draft=question_draft,
+        )
+        if question is None:
             return None
         return self._repository.append_pending_question(
-            self._question(record, event, candidate, memory), limit=self._record_limit
+            question, limit=self._record_limit
         )

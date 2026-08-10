@@ -104,6 +104,7 @@ RecommendationRun = run_module.RecommendationRun
 ArchiveFeedback = archive_module.ArchiveFeedback
 ArchiveEntry = archive_module.ArchiveEntry
 PlaybackSnapshot = playback_module.PlaybackSnapshot
+PlaybackSample = playback_module.PlaybackSample
 EmbyIdentity = identity_module.EmbyIdentity
 AgentRankRepository = repository_module.AgentRankRepository
 AgentRankApiController = controller_module.AgentRankApiController
@@ -219,6 +220,14 @@ class FakeFeedbackAgent:
                 "restatement": "已记录喜欢，但具体原因仍需确认",
                 "signals": [],
                 "uncertainties": ["需要确认具体喜欢的内容特征"],
+                "clarification": {
+                    "question": "你给《测试作品》点赞时，最认可它的哪项具体表现？",
+                    "options": ["案件推进", "人物对手戏", "冷峻画面"],
+                    "allow_custom_answer": True,
+                    "preference_dimension": "candidate_like_reason",
+                    "exploration_level": 1,
+                    "confidence_gap": 0.8,
+                },
             },
             ensure_ascii=False,
         )
@@ -281,6 +290,7 @@ def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
         "/conversation/commands/respond",
         "/pending",
         "/pending/respond",
+        "/pending/interview/start",
         "/restore",
         "/archive/delete",
         "/profile/clear",
@@ -614,6 +624,48 @@ def test_pending_endpoints_reuse_profile_access_and_hide_actor_from_response():
     assert caught.value.detail["error"]["code"] == "profile_forbidden"
 
 
+def test_start_pending_interview_persists_event_and_enqueues_agent_job():
+    """启动接口只创建验收事件并入队，首题仍由反馈 Agent 异步生成。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    plugin._repository.save_playback_snapshot(
+        PlaybackSnapshot(
+            HOME_PROFILE,
+            source="playback_reporting",
+            status="ready",
+            samples=[
+                PlaybackSample(
+                    "sample-1",
+                    "命运石之门",
+                    "tv",
+                    genres=["科幻"],
+                    completed_episode_count=24,
+                )
+            ],
+        )
+    )
+    controller = AgentRankApiController(plugin)
+    owner = TokenPayload(sub=7, username="Alice", super_user=False)
+
+    result = controller.endpoint_start_pending_interview(
+        {
+            "profile_id": HOME_PROFILE,
+            "idempotency_key": "pending-interview-api-start",
+            "total": 10,
+        },
+        owner,
+    )
+    events = plugin._repository.load_feedback_events(HOME_PROFILE)
+
+    assert result["data"]["created"] is True
+    assert result["data"]["total"] == 10
+    assert result["data"]["queue_status"] == "queued"
+    assert result["data"]["memory_delta"] == {}
+    assert events[-1].analysis_id.startswith("pending-interview:")
+    assert events[-1].analysis_id.endswith(":10")
+    assert plugin._repository.load_pending_questions(HOME_PROFILE) == []
+
+
 def test_lazy_pending_center_receives_configured_persona_prompt():
     """API 懒创建待办中心时保留独立人设配置。"""
     plugin = FakePlugin()
@@ -624,6 +676,24 @@ def test_lazy_pending_center_receives_configured_persona_prompt():
     service = controller._pending_center_service()
 
     assert service._persona_prompt == plugin._config["persona_prompt"]
+
+
+def test_pending_center_rebinds_telegram_resolution_handler():
+    """API 重新取得待办中心时补绑定跨端 Telegram 收束回调。"""
+    plugin = FakePlugin()
+    plugin._conversation = object()
+
+    def resolver(item):
+        return item
+
+    plugin._runtime.interaction_service = SimpleNamespace(
+        resolve_pending_item=resolver
+    )
+    controller = AgentRankApiController(plugin)
+
+    service = controller._pending_center_service()
+
+    assert service._resolution_handler is resolver
 
 
 def test_data_export_and_reset_endpoints_reuse_profile_authorization_and_bound_token():

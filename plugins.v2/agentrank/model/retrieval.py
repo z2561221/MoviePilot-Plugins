@@ -5,6 +5,12 @@ from typing import Any, Dict, Mapping, Optional, Tuple
 
 
 MEDIA_TYPES = frozenset({"movie", "tv", "anime"})
+RETRIEVAL_TOOL_NAMES = frozenset(
+    {"douban", "tmdb_movies", "tmdb_tv", "bangumi", "anilist"}
+)
+RETRIEVAL_PURPOSES = frozenset(
+    {"related", "trend", "new_release", "adjacent", "directed_search"}
+)
 SORT_OPTIONS = frozenset(
     {
         "popularity.desc",
@@ -88,25 +94,79 @@ class RetrievalFilters:
 
 
 @dataclass(frozen=True)
+class RetrievalAction:
+    """表示 Agent 选择的一项受控媒体检索能力。"""
+
+    tool: str
+    purpose: str
+
+    def __post_init__(self) -> None:
+        """拒绝未批准的工具与检索目的。"""
+        if self.tool not in RETRIEVAL_TOOL_NAMES:
+            raise ValueError("retrieval action tool is invalid")
+        if self.purpose not in RETRIEVAL_PURPOSES:
+            raise ValueError("retrieval action purpose is invalid")
+
+    def to_dict(self) -> Dict[str, str]:
+        """返回运行轨迹使用的动作字典。"""
+        return {"tool": self.tool, "purpose": self.purpose}
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "RetrievalAction":
+        """从严格动作字典恢复受控检索动作。"""
+        if not isinstance(value, Mapping) or set(value) != {"tool", "purpose"}:
+            raise ValueError("retrieval action keys are invalid")
+        return cls(
+            tool=str(value.get("tool") or ""),
+            purpose=str(value.get("purpose") or ""),
+        )
+
+
+@dataclass(frozen=True)
 class RetrievalPlan:
-    """表示画像 Agent 生成并通过安全门的完整检索计划。"""
+    """表示检索 Agent 生成并通过安全门的单轮临时计划。"""
 
     filters: RetrievalFilters = field(default_factory=RetrievalFilters)
     ranking_tags: Tuple[str, ...] = ()
+    goal: str = ""
+    actions: Tuple[RetrievalAction, ...] = ()
+    hard_constraints: Tuple[str, ...] = ()
+    soft_signals: Tuple[str, ...] = ()
+    relaxation_order: Tuple[str, ...] = ()
 
     def to_dict(self) -> Dict[str, Any]:
-        """返回只包含结构化过滤条件和自由排序标签的字典。"""
+        """返回可写入运行轨迹的完整单轮计划。"""
         return {
             "filters": self.filters.to_dict(),
             "ranking_tags": list(self.ranking_tags),
+            "goal": self.goal,
+            "actions": [item.to_dict() for item in self.actions],
+            "hard_constraints": list(self.hard_constraints),
+            "soft_signals": list(self.soft_signals),
+            "relaxation_order": list(self.relaxation_order),
         }
+
+    def enabled_sources(self) -> Dict[str, bool]:
+        """将 Agent 工具动作投影为宿主发现适配器的来源开关。"""
+        selected = {item.tool for item in self.actions}
+        return {name: name in selected for name in RETRIEVAL_TOOL_NAMES}
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RetrievalPlan":
         """从已通过安全门的持久化字典恢复检索计划。"""
         if not isinstance(value, Mapping):
             raise ValueError("retrieval plan must be a mapping")
-        if set(value) != {"filters", "ranking_tags"}:
+        legacy_keys = {"filters", "ranking_tags"}
+        current_keys = {
+            *legacy_keys,
+            "goal",
+            "actions",
+            "hard_constraints",
+            "soft_signals",
+            "relaxation_order",
+        }
+        keys = frozenset(value)
+        if keys not in {frozenset(legacy_keys), frozenset(current_keys)}:
             raise ValueError("retrieval plan keys are invalid")
         filters = value.get("filters")
         ranking_tags = value.get("ranking_tags")
@@ -140,4 +200,18 @@ class RetrievalPlan:
                 sort_by=str(filters["sort_by"]),
             ),
             ranking_tags=tuple(str(item) for item in ranking_tags),
+            goal=str(value.get("goal") or ""),
+            actions=tuple(
+                RetrievalAction.from_dict(item)
+                for item in value.get("actions") or ()
+            ),
+            hard_constraints=tuple(
+                str(item) for item in value.get("hard_constraints") or ()
+            ),
+            soft_signals=tuple(
+                str(item) for item in value.get("soft_signals") or ()
+            ),
+            relaxation_order=tuple(
+                str(item) for item in value.get("relaxation_order") or ()
+            ),
         )

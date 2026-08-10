@@ -106,6 +106,7 @@ const historyStageLabels = {
   playback_snapshot: '冻结播放',
   policy: '确定策略',
   profile: '生成画像',
+  retrieval: 'Agent策划检索',
   candidate: '冻结候选',
   ranking: 'Agent排序',
   save: '保存榜单',
@@ -172,6 +173,7 @@ const historyValidationDropLabels = {
 }
 const historyAgentStageLabels = {
   profile: '画像',
+  retrieval: '检索策划',
   ranking: '排序',
   refill: '补选',
 }
@@ -832,6 +834,10 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="ar-page__meta-row">
                   <span>{{ item.year || '年份未知' }}</span>
+                  <VChip v-if="item.in_library" size="x-small" variant="tonal" color="info" prepend-icon="mdi-library-shelves">已入库</VChip>
+                  <VChip v-if="item.subscribed" size="x-small" variant="tonal" color="warning" prepend-icon="mdi-bookmark-check-outline">已订阅</VChip>
+                  <VChip v-if="item.in_library && item.watch_status === 'unwatched'" size="x-small" variant="tonal" color="secondary" prepend-icon="mdi-play-circle-outline">未观看</VChip>
+                  <VChip v-if="item.watch_status === 'partial'" size="x-small" variant="tonal" color="secondary" prepend-icon="mdi-play-circle-outline">部分观看</VChip>
                 </div>
                 <div class="ar-page__rank-copy">
                   <span class="ar-page__copy-label">推荐：</span>
@@ -846,20 +852,22 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <div class="ar-page__rank-actions">
-                <VTooltip text="查看 Agent 分析">
-                  <template #activator="{ props: tooltipProps }">
-                    <VBtn
-                      v-bind="tooltipProps"
-                      icon="mdi-text-box-search-outline"
-                      variant="text"
-                      size="small"
-                      :aria-label="`查看 ${item.title} 的 Agent 分析`"
-                      :disabled="!item.analysis_id"
-                      @click="openAnalysis(item)"
-                    />
-                  </template>
-                </VTooltip>
-                <VChip size="x-small" :color="fitScoreColor(item)" variant="tonal" class="ar-page__fit-score">契合度 {{ fitScoreText(item) }}</VChip>
+                <div class="ar-page__analysis-score">
+                  <VTooltip text="查看 Agent 分析">
+                    <template #activator="{ props: tooltipProps }">
+                      <VBtn
+                        v-bind="tooltipProps"
+                        icon="mdi-text-box-search-outline"
+                        variant="text"
+                        size="small"
+                        :aria-label="`查看 ${item.title} 的 Agent 分析`"
+                        :disabled="!item.analysis_id"
+                        @click="openAnalysis(item)"
+                      />
+                    </template>
+                  </VTooltip>
+                  <VChip size="x-small" :color="fitScoreColor(item)" variant="tonal" class="ar-page__fit-score">{{ fitScoreText(item) }}</VChip>
+                </div>
                 <RecommendationActions
                   :item="item"
                   :loading-action="state.loading.action"
@@ -1095,7 +1103,7 @@ onBeforeUnmount(() => {
           <div class="ar-page__section-head">
             <div>
               <div class="ar-page__section-title">历史榜单</div>
-              <div class="ar-page__section-desc">只读查看每一轮生成时的完整前5名，保留当时的理由与 Agent 契合度。</div>
+              <div class="ar-page__section-desc">只读查看每一轮生成时的完整前5名，保留当时的理由与评分。</div>
             </div>
             <VChip size="small" variant="tonal">{{ state.boardHistoryMeta.value.total || 0 }} 轮</VChip>
           </div>
@@ -1169,7 +1177,6 @@ onBeforeUnmount(() => {
                         <span class="ar-page__copy-text">{{ item.reason || item.summary || '暂无推荐理由' }}</span>
                       </div>
                       <div class="ar-page__rank-copy ar-page__rank-copy--muted">
-                        <span class="ar-page__copy-label">契合度：</span>
                         <span class="ar-page__copy-text">{{ fitScoreText(item) }}</span>
                       </div>
                     </div>
@@ -1250,7 +1257,8 @@ onBeforeUnmount(() => {
 .ar-page__copy-text { min-width: 0; display: block; overflow: visible; overflow-wrap: anywhere; }
 .ar-page__match-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .ar-page__rank-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; padding-bottom: 2px; }
-.ar-page__fit-score { flex: 0 0 auto; margin-left: auto; }
+.ar-page__analysis-score { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; margin-left: auto; }
+.ar-page__fit-score { flex: 0 0 auto; }
 .ar-page__section-card, .ar-page__archive-card, .ar-page__table-card { border-radius: 10px; background: transparent; }
 .ar-page__profile-head { padding: 14px 16px; }
 .ar-page__profile-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 12px; padding: 14px; }
@@ -1375,6 +1383,8 @@ onBeforeUnmount(() => {
   .ar-page__poster { width: 54px; height: 81px; }
   .ar-page__rank { width: 28px; height: 28px; }
   .ar-page__rank-actions { grid-column: 1 / -1; justify-content: flex-end; padding-top: 2px; border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
+  .ar-page__analysis-score { order: 1; }
+  .ar-page__rank-actions :deep(.ar-actions) { order: 2; flex: 1 0 100%; justify-content: flex-end; }
   .ar-page__rank-copy { grid-template-columns: 34px minmax(0, 1fr); }
   .ar-page__copy-text,
   .ar-page__copy-text--reason,

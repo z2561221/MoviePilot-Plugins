@@ -57,7 +57,6 @@ class FakePlugin:
         self.fail_key_once = ""
         self._config = {
             "enabled": False,
-            "weights": {"theme_weight": 0.8},
             "conversation_message_limit": 20,
             "analysis_record_limit": 50,
             "confidence_threshold": 0.0,
@@ -530,88 +529,39 @@ def test_profile_tag_write_waits_for_confirmation_and_confirm_is_idempotent():
         service.stop()
 
 
-def test_weight_command_requires_superuser_and_newer_command_supersedes_old():
-    """全局权重仅管理员可确认，同目标新命令替代旧待确认项。"""
+def test_weight_command_is_rejected_after_manual_weights_are_retired():
+    """Agent 即使返回旧权重命令，也不会建立待确认项或改写配置。"""
     plugin, repository = _seed()
     agent = FakeConversationAgent(
         _agent_output(
             intent="write_request",
-            reply="可以调整题材权重，需管理员确认。",
+            reply="可以调整题材权重。",
             commands=[
                 {
                     "kind": "weight",
                     "payload": {"weight_name": "theme_weight", "value": 0.7},
                 }
             ],
-        ),
-        _agent_output(
-            intent="write_request",
-            reply="已更新为新的待确认值。",
-            commands=[
-                {
-                    "kind": "weight",
-                    "payload": {"weight_name": "theme_weight", "value": 0.9},
-                }
-            ],
-        ),
+        )
     )
     service = ConversationService(repository, agent, plugin=plugin)
     try:
-        first = asyncio.run(
+        sent = asyncio.run(
             service.send(
                 profile_id=PROFILE_ID,
                 content="把题材权重调到0.7",
-                idempotency_key="weight-1",
+                idempotency_key="retired-weight",
                 actor_id="7",
             )
         )
-        first_completed = _wait_snapshot(
-            service, lambda value: len(value["commands"]) == 1
+        assert _user_message(sent)["status"] == "queued"
+        failed = _wait_snapshot(
+            service,
+            lambda value: _user_message(value)["status"] == "retryable_failed",
         )
-        first_id = first_completed["commands"][0]["command_id"]
-        assert _user_message(first)["status"] == "queued"
-        second = asyncio.run(
-            service.send(
-                profile_id=PROFILE_ID,
-                content="改成0.9",
-                idempotency_key="weight-2",
-                actor_id="7",
-            )
-        )
-        assert _user_message(second, second["messages"][-1]["message_id"])["status"] == "queued"
-        second_completed = _wait_snapshot(
-            service, lambda value: len(value["commands"]) == 2
-        )
-        commands = {
-            item["command_id"]: item for item in second_completed["commands"]
-        }
-        second_id = next(
-            item["command_id"]
-            for item in second_completed["commands"]
-            if item["status"] == "pending_confirmation"
-        )
-        assert commands[first_id]["status"] == "superseded"
-        assert commands[second_id]["supersedes"] == first_id
-        with pytest.raises(ConversationError) as caught:
-            service.respond_command(
-                profile_id=PROFILE_ID,
-                command_id=second_id,
-                action="confirm",
-                actor_id="7",
-                is_superuser=False,
-            )
-        assert caught.value.code == "superuser_required"
-        assert plugin._config["weights"]["theme_weight"] == 0.8
-
-        result = service.respond_command(
-            profile_id=PROFILE_ID,
-            command_id=second_id,
-            action="confirm",
-            actor_id="admin",
-            is_superuser=True,
-        )
-        assert result["command"]["status"] == "confirmed"
-        assert plugin._config["weights"]["theme_weight"] == 0.9
+        assert _user_message(failed)["error_code"] == "invalid_agent_command"
+        assert failed["commands"] == []
+        assert "weights" not in plugin._config
     finally:
         service.stop()
 

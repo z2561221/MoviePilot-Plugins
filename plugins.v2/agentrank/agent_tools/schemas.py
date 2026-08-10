@@ -22,6 +22,10 @@ EvidenceDimension = Literal[
     "freshness",
     "similarity",
 ]
+RetrievalTool = Literal["douban", "tmdb_movies", "tmdb_tv", "bangumi", "anilist"]
+RetrievalPurpose = Literal[
+    "related", "trend", "new_release", "adjacent", "directed_search"
+]
 
 
 class _StrictSubmissionModel(BaseModel):
@@ -111,16 +115,43 @@ class SubmitProfileResultInput(_StrictSubmissionModel):
     """画像角色唯一允许提交的结果。"""
 
     profile: ProfileBody
+
+
+class RetrievalActionInput(_StrictSubmissionModel):
+    """一项由宿主执行的受控媒体检索动作。"""
+
+    tool: RetrievalTool
+    purpose: RetrievalPurpose
+
+
+class SubmitRetrievalPlanInput(_StrictSubmissionModel):
+    """检索策划角色唯一允许提交的单轮计划。"""
+
+    goal: str = Field(min_length=1, max_length=200)
+    actions: List[RetrievalActionInput] = Field(min_length=1, max_length=5)
     filters: ProfileFilters
     ranking_tags: List[str] = Field(default_factory=list, max_length=20)
+    hard_constraints: List[str] = Field(default_factory=list, max_length=10)
+    soft_signals: List[str] = Field(default_factory=list, max_length=20)
+    relaxation_order: List[str] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="after")
-    def validate_ranking_tags(self):
-        """自由语义标签同样必须短小且唯一。"""
-        if any(not 1 <= len(item.strip()) <= 40 for item in self.ranking_tags):
-            raise ValueError("ranking_tags items must contain 1 to 40 characters")
-        if len(self.ranking_tags) != len(set(self.ranking_tags)):
-            raise ValueError("ranking_tags contains duplicate items")
+    def validate_plan_text(self):
+        """计划文本必须短小唯一，工具动作也不得重复。"""
+        for field_name, item_limit in (
+            ("ranking_tags", 40),
+            ("hard_constraints", 80),
+            ("soft_signals", 80),
+            ("relaxation_order", 80),
+        ):
+            values = getattr(self, field_name)
+            if any(not 1 <= len(item.strip()) <= item_limit for item in values):
+                raise ValueError(f"{field_name} items are invalid")
+            if len(values) != len(set(values)):
+                raise ValueError(f"{field_name} contains duplicate items")
+        action_keys = [(item.tool, item.purpose) for item in self.actions]
+        if len(action_keys) != len(set(action_keys)):
+            raise ValueError("actions contains duplicate items")
         return self
 
 
@@ -169,6 +200,7 @@ class FinalRecommendation(_StrictSubmissionModel):
     candidate_id: CandidateId = Field(
         min_length=1, max_length=128, pattern=r"^[A-Za-z0-9:_-]+$"
     )
+    fit_score: int = Field(ge=0, le=100)
     reason: str = Field(min_length=1, max_length=30)
     summary: str = Field(min_length=1, max_length=30)
     match_tags: List[str] = Field(min_length=1, max_length=10)

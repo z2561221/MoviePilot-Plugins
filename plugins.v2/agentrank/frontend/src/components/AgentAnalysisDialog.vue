@@ -74,9 +74,24 @@ watch(
           <div class="ar-analysis__subtitle">{{ item?.title || '当前推荐' }}</div>
         </div>
         <VSpacer />
-        <VChip v-if="analysis" size="small" color="primary" variant="tonal" class="me-1">
-          {{ analysis.support_percentage }}%
-        </VChip>
+        <VTooltip
+          v-if="analysis"
+          location="bottom"
+          text="正向贡献减去反向贡献后，占当前可用证据贡献的比例；不是绝对匹配概率。"
+        >
+          <template #activator="{ props: tooltipProps }">
+            <VChip
+              v-bind="tooltipProps"
+              size="small"
+              color="primary"
+              variant="tonal"
+              class="ar-analysis__support-chip me-1"
+              :aria-label="`净支持比例 ${analysis.support_percentage}%`"
+            >
+              净支持比例 {{ analysis.support_percentage }}%
+            </VChip>
+          </template>
+        </VTooltip>
         <VBtn icon="mdi-close" variant="text" aria-label="关闭 Agent 分析" @click="close" />
       </VToolbar>
       <VDivider />
@@ -98,6 +113,10 @@ watch(
             <div><strong>{{ analysis.evidence_dimension_count || 0 }}</strong><span>证据维度</span></div>
             <div><strong>{{ analysis.counter_evidence_count || 0 }}</strong><span>反证数量</span></div>
             <div><strong>{{ confidenceLabels[analysis.confidence_level] || '探索推荐' }}</strong><span>置信等级</span></div>
+          </div>
+          <div class="ar-analysis__support-note" role="note">
+            <VIcon icon="mdi-information-outline" size="16" />
+            <span>净支持比例是正向贡献减去反向贡献后，占当前可用证据贡献的比例；不是绝对匹配概率。</span>
           </div>
           <section class="ar-analysis__summary" @click="requestComment('推荐判断', analysis.reason || analysis.summary)">
             <div class="ar-analysis__section-head">
@@ -187,6 +206,9 @@ watch(
 .ar-analysis__body { min-height: 340px; padding: 16px; }
 .ar-analysis__state { min-height: 300px; display: grid; place-items: center; }
 .ar-analysis__sections { display: grid; gap: 16px; }
+.ar-analysis__support-chip { flex: 0 0 auto; }
+.ar-analysis__support-note { display: flex; align-items: flex-start; gap: 6px; color: rgba(var(--v-theme-on-surface), .58); font-size: 11px; line-height: 1.45; }
+.ar-analysis__support-note .v-icon { flex: 0 0 auto; margin-top: 1px; }
 .ar-analysis__evidence-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .ar-analysis__evidence-overview > div { min-width: 0; display: grid; gap: 2px; padding: 9px 10px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-primary), .025); }
 .ar-analysis__evidence-overview strong { overflow-wrap: anywhere; color: rgb(var(--v-theme-primary)); font-size: 14px; }
@@ -208,6 +230,7 @@ watch(
   .ar-analysis { width: 100%; height: 100dvh; max-height: none; border-radius: 0; }
   .ar-analysis__body { padding: 12px; }
   .ar-analysis__subtitle { max-width: min(54vw, 320px); }
+  .ar-analysis__support-chip { max-width: 44vw; }
   .ar-analysis__evidence-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>

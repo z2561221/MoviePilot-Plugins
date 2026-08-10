@@ -53,11 +53,13 @@ class AgentRankRepository:
     """统一封装 AgentRank 的 profile_id 隔离键与容错读取。"""
 
     _board_archive_lock = threading.RLock()
+    _telegram_pending_lock = threading.RLock()
     _feedback_locks_guard = threading.Lock()
     _feedback_locks: Dict[str, threading.RLock] = {}
     recovery_log_key = "agentrank_recovery_log"
     telegram_sessions_key = "telegram_selection_sessions"
     telegram_pending_sessions_key = "telegram_pending_sessions"
+    telegram_pending_session_prefix = "telegram_pending_session"
     board_history_prefix = "board_history"
     playback_snapshot_prefix = "playback_snapshot"
     candidate_snapshot_index_prefix = "candidate_snapshot_index"
@@ -2912,46 +2914,152 @@ class AgentRankRepository:
             )
             return None
 
+    @classmethod
+    def _telegram_pending_session_key(cls, token: str) -> str:
+        """返回单条 Telegram 待办会话的独立插件数据键。"""
+        target = str(token or "").strip()
+        if not target:
+            raise ValueError("telegram pending token is required")
+        return f"{cls.telegram_pending_session_prefix}:{quote(target, safe='')}"
+
+    def _plugin_data_entries(self) -> List[Tuple[str, Any]]:
+        """读取宿主全部插件数据行，兼容模型对象和测试字典。"""
+        try:
+            raw = self._plugin.get_data()
+        except (TypeError, AttributeError):
+            return []
+        if isinstance(raw, Mapping):
+            return [(str(key), value) for key, value in raw.items()]
+        entries: List[Tuple[str, Any]] = []
+        for record in raw or ():
+            if isinstance(record, Mapping):
+                key = record.get("key")
+                value = record.get("value")
+            else:
+                key = getattr(record, "key", None)
+                value = getattr(record, "value", None)
+            if key not in (None, ""):
+                entries.append((str(key), value))
+        return entries
+
+    def _pending_session_from_value(
+        self, value: Any, recovery_key: str
+    ) -> Optional[TelegramPendingSession]:
+        """恢复单条 Telegram 待办会话，损坏数据记入恢复日志。"""
+        try:
+            return TelegramPendingSession.from_dict(value)
+        except (TypeError, ValueError, KeyError) as error:
+            self._record_recovery(
+                recovery_key,
+                "ignored_corrupt_item",
+                str(error),
+            )
+            return None
+
+    @staticmethod
+    def _pending_session_score(session: TelegramPendingSession) -> Tuple[int, ...]:
+        """为重复会话选择消息身份更完整且仍可重试的记录。"""
+        return (
+            int(bool(session.message_id)),
+            int(bool(session.chat_id)),
+            int(bool(session.source)),
+            int(session.status == "open"),
+        )
+
+    def _load_telegram_pending_session_map(
+        self, *, migrate_legacy: bool = True
+    ) -> Dict[str, TelegramPendingSession]:
+        """合并独立会话和全部旧共享记录，并按需完成原地迁移。"""
+        sessions: Dict[str, TelegramPendingSession] = {}
+        dedicated_tokens = set()
+        legacy_found = False
+        entries = self._plugin_data_entries()
+        if not any(key == self.telegram_pending_sessions_key for key, _ in entries):
+            legacy = self._plugin.get_data(key=self.telegram_pending_sessions_key)
+            if isinstance(legacy, Mapping):
+                entries.append((self.telegram_pending_sessions_key, legacy))
+
+        def retain(candidate: TelegramPendingSession, *, dedicated: bool) -> None:
+            current = sessions.get(candidate.token)
+            current_dedicated = candidate.token in dedicated_tokens
+            selected = current is None or (
+                self._pending_session_score(candidate), int(dedicated)
+            ) > (
+                self._pending_session_score(current), int(current_dedicated)
+            )
+            if selected:
+                sessions[candidate.token] = candidate
+                if dedicated:
+                    dedicated_tokens.add(candidate.token)
+                else:
+                    dedicated_tokens.discard(candidate.token)
+
+        dedicated_prefix = f"{self.telegram_pending_session_prefix}:"
+        for key, value in entries:
+            if key == self.telegram_pending_sessions_key:
+                if not isinstance(value, Mapping):
+                    continue
+                legacy_found = True
+                for token, raw_session in value.items():
+                    session = self._pending_session_from_value(
+                        raw_session,
+                        f"{self.telegram_pending_sessions_key}:{token}",
+                    )
+                    if session is not None:
+                        retain(session, dedicated=False)
+            elif key.startswith(dedicated_prefix):
+                session = self._pending_session_from_value(value, key)
+                if session is not None:
+                    retain(session, dedicated=True)
+
+        if migrate_legacy and legacy_found:
+            for session in sessions.values():
+                self._plugin.save_data(
+                    key=self._telegram_pending_session_key(session.token),
+                    value=session.to_dict(),
+                )
+            self._plugin.del_data(key=self.telegram_pending_sessions_key)
+        return sessions
+
     def save_telegram_pending_session(
         self, session: TelegramPendingSession
     ) -> None:
-        """保存一个 Telegram 待确认会话并裁剪过期终态。"""
+        """以独立数据键保存 Telegram 待确认会话并裁剪过期记录。"""
         if not isinstance(session, TelegramPendingSession):
             raise TypeError("session must be TelegramPendingSession")
-        raw = self._plugin.get_data(key=self.telegram_pending_sessions_key)
-        sessions = dict(raw) if isinstance(raw, Mapping) else {}
-        retained: Dict[str, Any] = {}
-        for token, value in sessions.items():
-            try:
-                current = TelegramPendingSession.from_dict(value)
-            except (TypeError, ValueError, KeyError):
-                continue
-            if not current.is_expired() and current.status == "open":
-                retained[str(token)] = current.to_dict()
-        retained[session.token] = session.to_dict()
-        self._plugin.save_data(
-            key=self.telegram_pending_sessions_key, value=retained
-        )
+        with self._telegram_pending_lock:
+            sessions = self._load_telegram_pending_session_map()
+            for current in sessions.values():
+                if current.token != session.token and current.is_expired():
+                    self._plugin.del_data(
+                        key=self._telegram_pending_session_key(current.token)
+                    )
+            self._plugin.save_data(
+                key=self._telegram_pending_session_key(session.token),
+                value=session.to_dict(),
+            )
 
     def load_telegram_pending_session(
         self, token: str
     ) -> Optional[TelegramPendingSession]:
         """按不可猜令牌读取 Telegram 待确认会话。"""
-        raw = self._plugin.get_data(key=self.telegram_pending_sessions_key)
-        if not isinstance(raw, Mapping):
+        target = str(token or "").strip()
+        if not target:
             return None
-        value = raw.get(str(token or "").strip())
-        if value is None:
-            return None
-        try:
-            return TelegramPendingSession.from_dict(value)
-        except (TypeError, ValueError, KeyError) as error:
-            self._record_recovery(
-                f"{self.telegram_pending_sessions_key}:{token}",
-                "ignored_corrupt_data",
-                str(error),
-            )
-            return None
+        with self._telegram_pending_lock:
+            return self._load_telegram_pending_session_map().get(target)
+
+    def delete_telegram_pending_session(self, token: str) -> bool:
+        """删除一个未建立可靠消息身份的 Telegram 待办会话。"""
+        target = str(token or "").strip()
+        if not target:
+            return False
+        with self._telegram_pending_lock:
+            sessions = self._load_telegram_pending_session_map()
+            if target not in sessions:
+                return False
+            self._plugin.del_data(key=self._telegram_pending_session_key(target))
+            return True
 
     def load_telegram_pending_sessions(
         self,
@@ -2962,31 +3070,31 @@ class AgentRankRepository:
         status: str = "open",
     ) -> List[TelegramPendingSession]:
         """按待办业务身份读取关联的 Telegram 交互会话。"""
-        target = self._scope(profile_id, "profile_id")
+        target = str(profile_id or "").strip()
+        if not target:
+            raise ValueError("profile_id is required")
         target_type = str(item_type or "").strip()
         target_id = str(item_id or "").strip()
+        return [
+            session
+            for session in self.load_all_telegram_pending_sessions(status=status)
+            if session.profile_id == target
+            and session.item_type == target_type
+            and session.item_id == target_id
+        ]
+
+    def load_all_telegram_pending_sessions(
+        self, *, status: str = ""
+    ) -> List[TelegramPendingSession]:
+        """读取全部 Telegram 待办会话，供启动时跨端状态对账。"""
         target_status = str(status or "").strip()
-        raw = self._plugin.get_data(key=self.telegram_pending_sessions_key)
-        if not isinstance(raw, Mapping):
-            return []
-        sessions: List[TelegramPendingSession] = []
-        for token, value in raw.items():
-            try:
-                session = TelegramPendingSession.from_dict(value)
-            except (TypeError, ValueError, KeyError) as error:
-                self._record_recovery(
-                    f"{self.telegram_pending_sessions_key}:{token}",
-                    "ignored_corrupt_item",
-                    str(error),
-                )
-                continue
-            if (
-                session.profile_id == target
-                and session.item_type == target_type
-                and session.item_id == target_id
-                and (not target_status or session.status == target_status)
-            ):
-                sessions.append(session)
+        with self._telegram_pending_lock:
+            values = self._load_telegram_pending_session_map().values()
+            sessions = [
+                session
+                for session in values
+                if not target_status or session.status == target_status
+            ]
         return sorted(sessions, key=lambda item: (item.created_at, item.token))
 
     def annotate_run(
@@ -3131,21 +3239,14 @@ class AgentRankRepository:
                 index_key: FeedbackLedgerIndex.empty(profile_id).to_dict(),
                 memory_key: PreferenceMemory.empty(profile_id).to_dict(),
             }
-            raw_pending_sessions = self._plugin.get_data(
-                key=self.telegram_pending_sessions_key
-            )
-            if isinstance(raw_pending_sessions, Mapping):
-                retained_pending_sessions = {
-                    str(token): value
-                    for token, value in raw_pending_sessions.items()
-                    if not isinstance(value, Mapping)
-                    or str(value.get("profile_id") or "") != str(profile_id)
-                }
-                if retained_pending_sessions != dict(raw_pending_sessions):
-                    updates[self.telegram_pending_sessions_key] = (
-                        retained_pending_sessions
-                    )
-            delete_keys = [key for key in keys if key not in updates]
+            pending_keys = [
+                self._telegram_pending_session_key(session.token)
+                for session in self.load_all_telegram_pending_sessions(status="")
+                if session.profile_id == str(profile_id)
+            ]
+            delete_keys = [
+                key for key in [*keys, *pending_keys] if key not in updates
+            ]
             self._atomic_raw_update(
                 updates=updates,
                 delete_keys=delete_keys,
@@ -3169,20 +3270,12 @@ class AgentRankRepository:
                 }
                 if retained_sessions != dict(raw_sessions):
                     updates[self.telegram_sessions_key] = retained_sessions
-            raw_pending_sessions = self._plugin.get_data(
-                key=self.telegram_pending_sessions_key
-            )
-            if isinstance(raw_pending_sessions, Mapping):
-                retained_pending_sessions = {
-                    str(token): value
-                    for token, value in raw_pending_sessions.items()
-                    if not isinstance(value, Mapping)
-                    or str(value.get("profile_id") or "") != str(profile_id)
-                }
-                if retained_pending_sessions != dict(raw_pending_sessions):
-                    updates[self.telegram_pending_sessions_key] = (
-                        retained_pending_sessions
-                    )
+            pending_keys = [
+                self._telegram_pending_session_key(session.token)
+                for session in self.load_all_telegram_pending_sessions(status="")
+                if session.profile_id == str(profile_id)
+            ]
+            keys = list(dict.fromkeys([*keys, *pending_keys]))
             self._atomic_raw_update(
                 updates=updates,
                 delete_keys=keys,

@@ -46,6 +46,7 @@ is_complete_recommendation_copy = validation_module.is_complete_recommendation_c
 build_ranking_prompt = prompt_module.build_ranking_prompt
 build_profile_prompt = prompt_module.build_profile_prompt
 build_preliminary_prompt = prompt_module.build_preliminary_prompt
+build_retrieval_prompt = prompt_module.build_retrieval_prompt
 build_final_prompt = prompt_module.build_final_prompt
 build_refill_prompt = prompt_module.build_refill_prompt
 build_feedback_understanding_prompt = prompt_module.build_feedback_understanding_prompt
@@ -95,19 +96,6 @@ def _profile_output(profile=None, filters=None, ranking_tags=None):
                 "negative_tags": ["低分长剧"],
                 "playback_count": 12,
             },
-            "filters": filters
-            or {
-                "media_types": ["movie"],
-                "genre_ids": [80],
-                "keyword_ids": [],
-                "original_languages": ["zh"],
-                "year_min": 2000,
-                "year_max": 2026,
-                "rating_min": 7.0,
-                "vote_count_min": 100,
-                "sort_by": "popularity.desc",
-            },
-            "ranking_tags": ranking_tags or ["高质量悬疑"],
         },
         ensure_ascii=False,
     )
@@ -194,12 +182,54 @@ def test_preliminary_and_final_prompts_only_name_their_one_read_one_submit_tools
     assert "禁止无依据地全部给满分" in preliminary
     assert final.count("read_agentrank_final_context") == 1
     assert final.count("submit_agentrank_final_board") == 1
+    assert "每条推荐都必须提交零到一百的整数 fit_score" in final
+    assert "补位候选也必须" in final
+    assert "不能直接照抄确定性支持度" in final
+    assert "提交顺序必须按 fit_score 从高到低" in final
+    assert "同分候选按你的最终优先级排列" in final
     assert "排序要求：相关性优先" in final
     assert "文案要求：文案克制" in final
     assert "用户偏好短词和一个作品事实短词" in final
     for prompt in (preliminary, final):
         assert "candidate_id\"" not in prompt
         assert "positive_evidence\"" not in prompt
+
+
+def test_final_evidence_parser_requires_bounded_fit_score():
+    """决赛证据协议必须为每条推荐提交合法的最终评分。"""
+    recommendation = {
+        "candidate_id": "tmdb:1",
+        "fit_score": 88,
+        "reason": "悬疑偏好与密室追凶题材相符。",
+        "summary": "密室旧案牵出尘封真相。",
+        "match_tags": ["悬疑", "电影"],
+        "positive_evidence": [
+            {
+                "dimension": "theme",
+                "user_value": "悬疑",
+                "candidate_value": "悬疑",
+            },
+            {
+                "dimension": "type",
+                "user_value": "movie",
+                "candidate_value": "movie",
+            },
+        ],
+        "counter_evidence": [],
+    }
+
+    parsed = AgentOutputParser().parse(_output([recommendation]))
+
+    assert parsed.recommendations[0].fit_score == 88
+    for invalid_fit_score in (None, -1, 101, True):
+        invalid = dict(recommendation)
+        invalid["fit_score"] = invalid_fit_score
+        with pytest.raises(AgentOutputError, match="fit_score"):
+            AgentOutputParser().parse(_output([invalid]))
+    missing = dict(recommendation)
+    missing.pop("fit_score")
+    with pytest.raises(AgentOutputError):
+        AgentOutputParser().parse(_output([missing]))
 
 
 def test_psychological_motivation_is_evidence_bounded_and_never_diagnostic():
@@ -267,6 +297,47 @@ def test_refill_reuses_ranking_and_copy_prompts():
     assert "补选文案保持克制" in prompt
 
 
+def test_persona_reaches_final_ranking_and_refill_without_overriding_contract():
+    """自定义人设进入三条用户文案链路，同时保留工具、证据与 schema 边界。"""
+    persona = "像严谨的实验室助手一样轻微吐槽，但先说清推荐依据。"
+    prompts = (
+        build_final_prompt(persona_prompt=persona),
+        build_ranking_prompt(persona_prompt=persona),
+        build_refill_prompt(["tmdb:1"], 1, persona_prompt=persona),
+    )
+
+    for prompt in prompts:
+        assert persona in prompt
+        assert "人设只影响推荐理由 reason" in prompt
+        assert "summary 必须保持客观中立" in prompt
+        assert "不能改变候选选择、排序、事实、证据引用" in prompt
+
+    assert prompts[0].count("read_agentrank_final_context") == 1
+    assert "只能通过 read_agentrank_playback" in prompts[1]
+    assert "这是唯一一轮补选" in prompts[2]
+    default_prompt = build_ranking_prompt()
+    assert "默认克里斯蒂娜人设必须在本轮 Top 5 的至少两条 reason" in default_prompt
+
+
+def test_continuation_guidance_is_dynamic_and_follows_effective_persona():
+    """继续观看建议依赖安全状态与当前人设，不能退化为固定模板。"""
+    persona = "像冷静的档案管理员一样给出简洁建议。"
+    prompts = (
+        build_final_prompt(persona_prompt=persona),
+        build_ranking_prompt(persona_prompt=persona),
+        build_refill_prompt(["tmdb:1"], 1, persona_prompt=persona),
+    )
+
+    for prompt in prompts:
+        assert "in_library=true 且 watch_status=partial" in prompt
+        assert "按照当前有效人设" in prompt
+        assert "不要固定复用“值得坚持看完”" in prompt
+        assert "同一 Top 5 中的继续观看提示应随作品事实变化" in prompt
+        assert "不得猜测用户停看的原因" in prompt
+        assert persona in prompt
+        assert "包括开始、继续或重拾观看建议" in prompt
+
+
 def test_custom_critic_prompt_extends_all_critic_roles_without_overriding_safety():
     """CinePilot Agent 扩展指令进入三种角色，同时保留工具、记忆和写操作边界。"""
     custom = "发现证据冲突时先向用户确认，不要自行归因。"
@@ -286,6 +357,8 @@ def test_custom_critic_prompt_extends_all_critic_roles_without_overriding_safety
     assert "只能调用 read_agentrank_feedback_event" in prompts[0]
     assert "不得改变确定性证据" in prompts[1]
     assert "你没有任何写工具" in prompts[2]
+    assert "不得生成 weight 或来源修改命令" in prompts[2]
+    assert '"kind": "weight"' not in prompts[2]
 
 
 def test_persona_prompt_is_separate_and_cannot_override_agent_safety():
@@ -485,29 +558,11 @@ def test_profile_and_ranking_parsers_reject_each_others_schema():
         RankingOutputParser().parse(_profile_output())
 
 
-def test_profile_parser_accepts_only_trusted_keyword_ids_and_typed_ranges():
-    """结构化过滤允许可信 ID，但不接受 Agent 自造关键词。"""
-    parsed = ProfileOutputParser(allowed_keyword_ids={123}).parse(
-        _profile_output(
-            filters={
-                "media_types": ["movie", "tv"],
-                "genre_ids": [18, 9648],
-                "keyword_ids": [123],
-                "original_languages": ["en", "zh"],
-                "year_min": 1990,
-                "year_max": 2026,
-                "rating_min": 7.5,
-                "vote_count_min": 50,
-                "sort_by": "vote_average.desc",
-            },
-            ranking_tags=["冷峻悬疑"],
-        )
-    )
-
+def test_profile_parser_accepts_only_stable_profile_fields():
+    """画像 parser 不再接受检索筛选或自由排序字段。"""
+    parsed = ProfileOutputParser().parse(_profile_output())
     assert parsed.profile.playback_count == 12
-    assert parsed.filters.keyword_ids == (123,)
-    assert parsed.filters.sort_by == "vote_average.desc"
-    assert parsed.ranking_tags == ["冷峻悬疑"]
+    assert not hasattr(parsed, "retrieval_plan")
 
 
 def test_profile_parser_trims_overlong_summary_without_rejecting_profile():
@@ -526,37 +581,12 @@ def test_profile_parser_trims_overlong_summary_without_rejecting_profile():
     assert 0 < len(parsed.profile.summary) <= 200
 
 
-@pytest.mark.parametrize(
-    "filters",
-    [
-        {"media_types": ["documentary"]},
-        {"genre_ids": [999999]},
-        {"keyword_ids": [123]},
-        {"original_languages": ["xx"]},
-        {"year_min": 1869},
-        {"year_min": 2027, "year_max": 2026},
-        {"rating_min": 10.1},
-        {"vote_count_min": -1},
-        {"sort_by": "unknown.desc"},
-        {"free_text": "悬疑"},
-    ],
-)
-def test_profile_parser_rejects_unknown_enums_ids_ranges_and_extra_filter_fields(filters):
-    """越界、未知枚举、未知 ID 和自由语义不得进入 filters。"""
-    base = {
-        "media_types": [],
-        "genre_ids": [],
-        "keyword_ids": [],
-        "original_languages": [],
-        "year_min": None,
-        "year_max": None,
-        "rating_min": None,
-        "vote_count_min": None,
-        "sort_by": "popularity.desc",
-    }
-    base.update(filters)
+def test_profile_parser_rejects_retrieval_fields():
+    """画像输出携带检索字段时必须被拒绝，检索计划由独立角色提交。"""
+    payload = json.loads(_profile_output())
+    payload["filters"] = {}
     with pytest.raises(AgentOutputError):
-        ProfileOutputParser().parse(_profile_output(filters=base))
+        ProfileOutputParser().parse(json.dumps(payload, ensure_ascii=False))
 
 
 def test_profile_parser_rejects_extra_root_fields_and_duplicate_free_tags():
@@ -566,10 +596,9 @@ def test_profile_parser_rejects_extra_root_fields_and_duplicate_free_tags():
     with pytest.raises(AgentOutputError):
         ProfileOutputParser().parse(json.dumps(payload, ensure_ascii=False))
 
+    payload["ranking_tags"] = ["悬疑"]
     with pytest.raises(AgentOutputError):
-        ProfileOutputParser().parse(
-            _profile_output(ranking_tags=["悬疑", "悬疑"])
-        )
+        ProfileOutputParser().parse(json.dumps(payload, ensure_ascii=False))
 
 
 def test_validator_rejects_every_unsafe_item_with_specific_reason():
@@ -1450,14 +1479,14 @@ def test_validator_requires_named_candidate_personnel_in_frozen_evidence():
     assert rejected.dropped[0].reason == "invalid_reason"
 
 
-def test_subscribed_candidate_is_rejected_even_when_other_fields_are_valid():
-    """Current subscription membership is a hard validation gate."""
+def test_subscribed_candidate_remains_eligible_when_other_fields_are_valid():
+    """已订阅但未观看候选不再作为排序硬排除项。"""
     parsed = AgentOutputParser().parse(_output())
     result = RecommendationValidator().validate(
         parsed, _candidates(), set(), {"tmdb:1"}
     )
-    assert result.accepted == []
-    assert result.dropped[0].reason == "subscribed_candidate"
+    assert [item.candidate_id for item in result.accepted] == ["tmdb:1"]
+    assert result.dropped == []
 
 
 def test_fallback_summary_is_deterministic_readable_and_complete():

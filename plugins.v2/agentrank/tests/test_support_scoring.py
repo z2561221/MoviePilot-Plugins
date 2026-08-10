@@ -291,9 +291,10 @@ def test_two_verified_positive_claims_are_required():
         json.dumps(
             {
                 "recommendations": [
-                    {
-                        "candidate_id": "tmdb:movie:99",
-                        "reason": "偏爱悬疑电影，这部中国追凶故事更贴合。",
+                        {
+                            "candidate_id": "tmdb:movie:99",
+                            "fit_score": 80,
+                            "reason": "偏爱悬疑电影，这部中国追凶故事更贴合。",
                         "summary": "密室谜案牵出多年前的隐秘真相。",
                         "match_tags": ["悬疑", "中国"],
                         "positive_evidence": _claims()[:1],
@@ -330,9 +331,10 @@ def test_verified_claims_drive_match_tags_instead_of_unrelated_profile_tags():
         json.dumps(
             {
                 "recommendations": [
-                    {
-                        "candidate_id": "tmdb:movie:99",
-                        "reason": "偏爱悬疑电影，这部悬疑电影围绕追凶展开。",
+                        {
+                            "candidate_id": "tmdb:movie:99",
+                            "fit_score": 80,
+                            "reason": "偏爱悬疑电影，这部悬疑电影围绕追凶展开。",
                         "summary": "密室谜案牵出多年前的隐秘真相。",
                         "match_tags": ["无关旧标签"],
                         "positive_evidence": _claims(),
@@ -370,9 +372,10 @@ def test_verified_claims_survive_semantic_copy_without_literal_labels():
         json.dumps(
             {
                 "recommendations": [
-                    {
-                        "candidate_id": "tmdb:movie:99",
-                        "reason": "偏爱推理故事，这部作品围绕追凶展开。",
+                        {
+                            "candidate_id": "tmdb:movie:99",
+                            "fit_score": 80,
+                            "reason": "偏爱推理故事，这部作品围绕追凶展开。",
                         "summary": "密室谜案牵出多年前的隐秘真相。",
                         "match_tags": ["推理", "追凶"],
                         "positive_evidence": _claims(),

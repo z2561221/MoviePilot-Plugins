@@ -145,11 +145,16 @@ onBeforeUnmount(stopRunProgressPoll)
           </div>
           <div class="ar-dashboard__main">
             <div class="font-weight-medium text-truncate">{{ item.title }}</div>
+            <div class="d-flex flex-wrap ga-1 mt-1">
+              <VChip v-if="item.in_library" size="x-small" variant="tonal" color="info">已入库</VChip>
+              <VChip v-if="item.subscribed" size="x-small" variant="tonal" color="warning">已订阅</VChip>
+              <VChip v-if="item.watch_status === 'partial'" size="x-small" variant="tonal" color="secondary">部分观看</VChip>
+            </div>
             <div class="ar-dashboard__copy text-caption">推荐：{{ item.reason || item.summary }}</div>
             <div class="ar-dashboard__copy text-caption text-medium-emphasis">简介：{{ item.summary }}</div>
           </div>
           <div class="ar-dashboard__controls">
-            <VChip size="x-small" color="primary" variant="tonal" class="ar-dashboard__fit-score">契合度 {{ fitScoreText(item) }}</VChip>
+            <VChip size="x-small" color="primary" variant="tonal" class="ar-dashboard__fit-score">{{ fitScoreText(item) }}</VChip>
             <RecommendationActions
               :item="item"
               :loading-action="state.loading.action"

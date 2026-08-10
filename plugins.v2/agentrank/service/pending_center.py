@@ -8,7 +8,7 @@ from ..model.conversation import ConversationCommand
 from ..model.feedback_decision import MemoryProposal, PendingQuestion
 from ..model.pending_center import PendingCenterItem, PendingNotice
 from ..storage.repository import AgentRankRepository
-from .critic_skills import style_agent_message, style_clarification_question
+from .critic_skills import style_agent_message
 from .prompt import AGENT_DISPLAY_NAME_DEFAULT, configured_agent_display_name
 
 
@@ -109,17 +109,53 @@ class PendingCenterService:
             ),
         )
 
+    def _question_title(self, record: PendingQuestion) -> str:
+        """根据问题绑定事件恢复用户可识别的作品或观看上下文标题。"""
+        dimension = str(record.preference_dimension or "").strip().split(":")
+        if len(dimension) == 4 and dimension[0] == "pending_interview":
+            try:
+                round_number = int(dimension[2])
+                total = int(dimension[3])
+            except (TypeError, ValueError):
+                round_number = 0
+                total = 0
+            if 1 <= round_number <= total <= 10:
+                return f"{self._agent_name} · 第 {round_number}/{total} 题"
+        if record.candidate_id == "profile:playback":
+            return "关于近期观看的一次确认"
+        events = self._repository.load_feedback_events(
+            record.profile_id,
+            after_sequence=max(0, int(record.event_sequence or 1) - 1),
+            limit=1,
+        )
+        event = next(
+            (item for item in events if item.event_id == record.event_id),
+            None,
+        )
+        if event is not None and event.run_id:
+            candidate = next(
+                (
+                    item
+                    for item in self._repository.load_candidate_snapshot(
+                        event.run_id, record.profile_id
+                    )
+                    if item.candidate_id == record.candidate_id
+                ),
+                None,
+            )
+            title = str(getattr(candidate, "title", "") or "").strip()
+            if title:
+                return f"关于《{title}》的一次确认"
+        return f"{self._agent_name} 想确认一件事"
+
     def _question_item(self, record: PendingQuestion) -> PendingCenterItem:
         """把歧义问询投影为安全选项与自定义回答能力。"""
         return PendingCenterItem(
             item_type="question",
             item_id=record.question_id,
             profile_id=record.profile_id,
-            title=f"{self._agent_name} 需要你的回答",
-            summary=style_clarification_question(
-                record.question,
-                self._persona_prompt,
-            ),
+            title=self._question_title(record),
+            summary=record.question,
             candidate_id=record.candidate_id,
             detail_lines=record.uncertainties,
             options=tuple(item.to_dict() for item in record.options),

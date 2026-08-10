@@ -579,6 +579,38 @@ class CandidateCollectionService:
                 result.append(None)
         return result
 
+    @classmethod
+    def _playback_candidate_statuses(cls, samples: Iterable[Any]) -> Dict[str, str]:
+        """把非完成播放事实压缩为候选可展示的观看状态。"""
+        result: Dict[str, str] = {}
+        for sample in samples or ():
+            stable_id = cls._field(sample, "stable_id")
+            candidate_id = ""
+            try:
+                candidate_id = typed_tmdb_candidate_id(stable_id)
+            except ValueError:
+                try:
+                    candidate_id = typed_tmdb_candidate_id(
+                        cls._field(sample, "tmdb_id"),
+                        cls._field(sample, "media_type"),
+                    )
+                except ValueError:
+                    continue
+            if bool(cls._field(sample, "completed")):
+                result[candidate_id] = "completed"
+                continue
+            watched_events = max(
+                int(cls._field(sample, "play_count") or 0),
+                int(cls._field(sample, "watched_episode_count") or 0),
+                int(cls._field(sample, "completed_episode_count") or 0),
+                int(cls._field(sample, "watch_minutes") or 0),
+            )
+            if watched_events > 0:
+                result[candidate_id] = "partial"
+            else:
+                result.setdefault(candidate_id, "unknown")
+        return result
+
     def enrich_recommendation_sources(self, recommendations: Iterable[Any]) -> None:
         """仅为最终榜单条目按需补齐跨来源按钮所需的媒体 ID。"""
         enrich = getattr(self._media_adapter, "enrich_cross_source_ids", None)
@@ -605,6 +637,7 @@ class CandidateCollectionService:
         profile_version: Optional[Mapping[str, Any]] = None,
         disliked_candidate_ids: Optional[Iterable[str]] = None,
         previous_board_candidate_ids: Optional[Iterable[str]] = None,
+        exclude_library_candidates: bool = True,
     ) -> CandidateCollectionResult:
         """动态召回并冻结 10-15 条候选；上一榜重复由最终时近权重处理。"""
         playback_samples = list(playback_samples or ())
@@ -650,7 +683,9 @@ class CandidateCollectionService:
             "negative_keyword": 0,
         }
         filter_errors: Dict[str, str] = {}
+        status_errors: Dict[str, str] = {}
         watched_ids = self._completed_candidate_ids(playback_samples)
+        playback_statuses = self._playback_candidate_statuses(playback_samples)
         archived_ids = {
             str(candidate_id or "").strip()
             for candidate_id in archived_candidate_ids or ()
@@ -669,7 +704,7 @@ class CandidateCollectionService:
         try:
             subscribed_ids = self._subscribed_candidate_ids()
         except Exception as error:
-            filter_errors["subscriptions"] = str(error)
+            status_errors["subscriptions"] = str(error)
             subscribed_ids = set()
 
         fetched = DiscoveryFetchResult(raw_limit=maximum_raw)
@@ -806,7 +841,12 @@ class CandidateCollectionService:
 
                 stage_clock = time.monotonic()
                 try:
-                    library_ids = self._library_candidate_ids(valid_batch)
+                    try:
+                        library_ids = self._library_candidate_ids(valid_batch)
+                    except Exception as error:
+                        # 状态标记失败不能阻断候选召回；硬观看过滤仍可独立执行。
+                        status_errors["library"] = str(error)
+                        library_ids = set()
                 except Exception as error:
                     filter_errors["library"] = str(error)
                     candidates = []
@@ -819,6 +859,11 @@ class CandidateCollectionService:
                 for candidate in valid_batch:
                     candidate_id = candidate.candidate_id
                     candidate.metadata.pop("requested_media_type", None)
+                    candidate.metadata["in_library"] = candidate_id in library_ids
+                    candidate.metadata["subscribed"] = candidate_id in subscribed_ids
+                    candidate.metadata["watch_status"] = playback_statuses.get(
+                        candidate_id, "unwatched"
+                    )
                     if (
                         filters
                         and filters.media_types
@@ -831,10 +876,8 @@ class CandidateCollectionService:
                         exclusion_counts["cheap_media_type"] += 1
                     elif candidate_id in watched_ids:
                         exclusion_counts["watched_completed"] += 1
-                    elif candidate_id in library_ids:
+                    elif exclude_library_candidates and candidate_id in library_ids:
                         exclusion_counts["library"] += 1
-                    elif candidate_id in subscribed_ids:
-                        exclusion_counts["subscribed"] += 1
                     elif candidate_id in disliked_ids:
                         exclusion_counts["disliked"] += 1
                     elif candidate_id in archived_ids:
@@ -890,6 +933,8 @@ class CandidateCollectionService:
             else 0.0
         )
 
+        if status_errors:
+            fetched.source_errors.update(status_errors)
         if filter_errors:
             status = "candidate_filter_failed"
         else:

@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..agent_tools.context import CONVERSATION_AGENT_ROLE, build_trusted_context
-from ..model.config import WEIGHT_DEFAULTS, normalize_config
 from ..model.conversation import (
     ConversationCommand,
     ConversationMessage,
@@ -157,7 +156,7 @@ class ConversationReplyParser:
                 )
             kind = cls._text(raw_command.get("kind"), 32)
             payload = raw_command.get("payload")
-            if kind not in {"profile_tag", "weight", "ignore", "subscribe", "reset_learning"}:
+            if kind not in {"profile_tag", "ignore", "subscribe", "reset_learning"}:
                 raise ConversationError(
                     "invalid_agent_command", "Agent 提出了不允许的写操作", 502
                 )
@@ -190,32 +189,6 @@ class ConversationReplyParser:
                     raise ConversationError(
                         "invalid_agent_command", "Agent 标签命令参数无效", 502
                     )
-            elif kind == "weight":
-                if set(normalized) != {"weight_name", "value"}:
-                    raise ConversationError(
-                        "invalid_agent_command", "Agent 权重命令字段无效", 502
-                    )
-                raw_weight_name = normalized.get("weight_name")
-                weight_name = (
-                    " ".join(raw_weight_name.split()).strip()
-                    if isinstance(raw_weight_name, str)
-                    else ""
-                )
-                if len(weight_name) > 32:
-                    raise ConversationError(
-                        "invalid_agent_command", "Agent 权重名称过长", 502
-                    )
-                try:
-                    weight_value = float(normalized.get("value"))
-                except (TypeError, ValueError) as error:
-                    raise ConversationError(
-                        "invalid_agent_command", "Agent 权重值无效", 502
-                    ) from error
-                if weight_name not in WEIGHT_DEFAULTS or not 0.0 <= weight_value <= 1.0:
-                    raise ConversationError(
-                        "invalid_agent_command", "Agent 权重命令参数无效", 502
-                    )
-                normalized = {"weight_name": weight_name, "value": weight_value}
             elif kind in {"ignore", "subscribe"}:
                 if set(normalized) != {"candidate_id"}:
                     raise ConversationError(
@@ -729,8 +702,6 @@ class ConversationService:
         payload = dict(command.payload)
         if command.kind == "profile_tag":
             return f"profile_tag:{payload.get('kind')}:{payload.get('tag')}"
-        if command.kind == "weight":
-            return f"weight:{payload.get('weight_name')}"
         if command.kind in {"ignore", "subscribe"}:
             return f"{command.kind}:{payload.get('candidate_id')}"
         return command.kind
@@ -761,16 +732,6 @@ class ConversationService:
                 )
                 direction = "喜欢" if payload.get("kind") == "positive" else "不喜欢"
                 preview = f"{action_text}{direction}标签：{str(payload.get('tag') or '')[:20]}"
-            elif draft.kind == "weight":
-                if str(payload.get("weight_name") or "") not in WEIGHT_DEFAULTS:
-                    raise ConversationError(
-                        "invalid_agent_command", "Agent 提出了未知权重", 502
-                    )
-                title = "调整全局基准权重"
-                preview = (
-                    f"将 {payload.get('weight_name')} 调整为 "
-                    f"{float(payload.get('value')):.2f}；仅管理员可确认"
-                )
             elif draft.kind in {"ignore", "subscribe"}:
                 candidate_id = str(payload.get("candidate_id") or "").strip()
                 item = board_items.get(candidate_id)
@@ -816,7 +777,7 @@ class ConversationService:
                 payload=payload,
                 requested_by_mp_user_id=source_message.created_by_mp_user_id,
                 created_at=now,
-                requires_superuser=draft.kind == "weight",
+                requires_superuser=False,
             )
             conflict_key = self._command_conflict_key(command)
             for position, current in enumerate(updated_existing):
@@ -1369,31 +1330,6 @@ class ConversationService:
                 "明确偏好标签已更新" if result.changed else "明确偏好标签无需变更",
                 {"changed": result.changed},
             )
-        if command.kind == "weight":
-            if self._plugin is None or not hasattr(self._plugin, "update_config"):
-                raise ConversationError("config_unavailable", "插件配置服务不可用", 503)
-            weight_name = str(payload.get("weight_name") or "")
-            old_config = dict(getattr(self._plugin, "_config", {}) or {})
-            updated = dict(old_config)
-            updated_weights = dict(updated.get("weights") or {})
-            updated_weights[weight_name] = float(payload.get("value"))
-            updated["weights"] = updated_weights
-            normalized = normalize_config(updated)
-            persisted = {
-                key: value for key, value in normalized.items() if key != "_validation_errors"
-            }
-            try:
-                self._plugin.update_config(config=persisted)
-                self._plugin._config = dict(normalized)
-                runtime = getattr(self._plugin, "_runtime", None)
-                if runtime is not None and isinstance(getattr(runtime, "config", None), dict):
-                    runtime.config["weights"] = dict(normalized.get("weights") or {})
-            except Exception as error:
-                self._plugin._config = old_config
-                raise ConversationError(
-                    "weight_update_failed", "权重保存失败，原配置已保留", 500
-                ) from error
-            return "weight_updated", "全局基准权重已更新", {"changed": True}
         if command.kind == "ignore":
             result = FeedbackActionService(
                 self._repository,

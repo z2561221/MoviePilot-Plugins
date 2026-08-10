@@ -168,6 +168,43 @@ def test_runtime_wires_pending_items_to_telegram_notifications():
     assert callable(queue.completion_handler)
 
 
+def test_runtime_reconciles_historical_telegram_pending_sessions_once():
+    """运行时完成待办绑定后立即追补一次历史 Telegram 会话。"""
+    class Interaction:
+        def __init__(self):
+            self.reconcile_calls = 0
+
+        def set_pending_center(self, service):
+            self.pending_center = service
+
+        def resolve_pending_item(self, item):
+            return item
+
+        def reconcile_pending_sessions(self):
+            self.reconcile_calls += 1
+            return 0
+
+    class PendingCenter:
+        def set_resolution_handler(self, handler):
+            self.resolution_handler = handler
+
+        def set_pending_handler(self, handler):
+            self.pending_handler = handler
+
+    interaction = Interaction()
+    AgentRankRuntime(
+        FakePlugin(),
+        _config(notify=True),
+        FakeOrchestrator(),
+        lambda cron: cron,
+        notification_service=SimpleNamespace(),
+        interaction_service=interaction,
+        pending_center_service=PendingCenter(),
+    )
+
+    assert interaction.reconcile_calls == 1
+
+
 def test_disabled_or_schedule_off_runtime_registers_no_service():
     """Neither a disabled plugin nor a disabled schedule exposes a Cron job."""
     trigger_factory = lambda cron: f"trigger:{cron}"

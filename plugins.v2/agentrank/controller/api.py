@@ -418,25 +418,24 @@ class AgentRankApiController:
     def _pending_center_service(self) -> Any:
         """返回统一待确认中心或用现有受控服务创建门面。"""
         service = getattr(self.plugin, "_pending_center", None)
-        if service is not None:
-            return service
-        from ..service.feedback_response import FeedbackResponseService
-        from ..service.memory_projection import MemoryProjectionService
-        from ..service.pending_center import PendingCenterService
+        if service is None:
+            from ..service.feedback_response import FeedbackResponseService
+            from ..service.memory_projection import MemoryProjectionService
+            from ..service.pending_center import PendingCenterService
 
-        feedback_response = getattr(self.plugin, "_feedback_response", None)
-        if feedback_response is None:
-            feedback_response = FeedbackResponseService(
-                self._repository(), feedback_queue=self._feedback_queue()
-            )
-            self.plugin._feedback_response = feedback_response
-        memory_projection = getattr(self.plugin, "_memory_projection", None)
-        if memory_projection is None:
-            memory_projection = MemoryProjectionService(self._repository())
-            self.plugin._memory_projection = memory_projection
-        service = PendingCenterService(
-            self._repository(),
-            feedback_response=feedback_response,
+            feedback_response = getattr(self.plugin, "_feedback_response", None)
+            if feedback_response is None:
+                feedback_response = FeedbackResponseService(
+                    self._repository(), feedback_queue=self._feedback_queue()
+                )
+                self.plugin._feedback_response = feedback_response
+            memory_projection = getattr(self.plugin, "_memory_projection", None)
+            if memory_projection is None:
+                memory_projection = MemoryProjectionService(self._repository())
+                self.plugin._memory_projection = memory_projection
+            service = PendingCenterService(
+                self._repository(),
+                feedback_response=feedback_response,
                 memory_projection=memory_projection,
                 conversation=self._conversation_service(),
                 persona_prompt=effective_persona_prompt(
@@ -446,8 +445,15 @@ class AgentRankApiController:
                 agent_name=configured_agent_display_name(
                     self.plugin._config.get("agent_display_name")
                 ),
-        )
-        self.plugin._pending_center = service
+            )
+            self.plugin._pending_center = service
+
+        runtime = getattr(self.plugin, "_runtime", None)
+        interaction = getattr(runtime, "interaction_service", None)
+        resolver = getattr(interaction, "resolve_pending_item", None)
+        setter = getattr(service, "set_resolution_handler", None)
+        if callable(resolver) and callable(setter):
+            setter(resolver)
         return service
 
     def _attribution_service(self) -> Any:
@@ -610,7 +616,6 @@ class AgentRankApiController:
 
     def config_options(self) -> Dict[str, Any]:
         """返回 Config 与 Emby 身份切换器需要的安全选项。"""
-        from ..adapter.discovery import DiscoveryAdapter
         from ..service.notification_type import notification_type_options
 
         selected_identities = [
@@ -645,7 +650,6 @@ class AgentRankApiController:
                 ),
                 "config": dict(self.plugin._config),
                 "defaults": default_config(),
-                "source_options": DiscoveryAdapter.source_options(),
                 "notification_type_options": notification_type_options(),
                 "enablement": self._enablement_data(),
                 "playback_status": {
@@ -929,12 +933,25 @@ class AgentRankApiController:
         data["queue_job"] = queue_job.to_public_dict() if queue_job is not None else None
         short_term = None
         try:
+            # FeedbackActionResult 已在同一事务中返回动作后的真实榜单上下文；
+            # 不要再使用客户端可能携带的旧 revision，避免把学习投影写入错误版本。
+            result_board_run_id = str(
+                getattr(result, "board_run_id", "")
+                or result.event.run_id
+                or ""
+            )
+            result_board_revision = max(
+                1,
+                int(
+                    getattr(result, "board_revision", 0)
+                    or 1
+                ),
+            )
             if result.event.kind in {"like", "dislike"}:
-                revision = int(body.get("board_revision") or 1)
                 self._repository().record_board_interaction(
                     target,
-                    result.event.run_id,
-                    revision,
+                    result_board_run_id,
+                    result_board_revision,
                     result.event.kind,
                     datetime.now(timezone.utc).isoformat(),
                 )
@@ -943,8 +960,8 @@ class AgentRankApiController:
                     kind=result.event.kind,
                     idempotency_key=f"feedback:{result.event.idempotency_key}",
                     candidate_id=result.event.candidate_id,
-                    run_id=result.event.run_id,
-                    board_revision=revision,
+                    run_id=result_board_run_id,
+                    board_revision=result_board_revision,
                     source="structured_feedback",
                     strength=0.95 if result.event.kind == "like" else -1.0,
                     decay_days=60,
@@ -952,8 +969,8 @@ class AgentRankApiController:
             elif result.event.kind == "ignore":
                 self._repository().record_board_interaction(
                     target,
-                    result.event.run_id,
-                    int(body.get("board_revision") or 1),
+                    result_board_run_id,
+                    result_board_revision,
                     "ignore",
                     datetime.now(timezone.utc).isoformat(),
                 )
@@ -1400,10 +1417,10 @@ class AgentRankApiController:
             snapshot = await asyncio.to_thread(service.collect, target, self.plugin._config)
         except Exception as error:
             raise ApiContractError(502, "playback_sync_failed", "播放画像同步失败") from error
-        calibration = None
+        calibration_event = None
         calibration_created = False
         try:
-            calibration, calibration_created = FeedbackProposalService(
+            calibration_event, calibration_created = FeedbackProposalService(
                 self._repository(),
                 record_limit=int(
                     self.plugin._config.get("analysis_record_limit") or 500
@@ -1412,25 +1429,101 @@ class AgentRankApiController:
                     self.plugin._config.get("persona_preset"),
                     self.plugin._config.get("persona_prompt"),
                 ),
+                interaction_mode=str(
+                    self.plugin._config.get("interaction_mode") or "auto"
+                ),
             ).create_playback_calibration(
                 target,
                 snapshot,
                 actor_id=actor_id,
             )
         except Exception:
-            calibration = None
+            calibration_event = None
             calibration_created = False
+        if calibration_event is not None and calibration_created:
+            try:
+                self._feedback_queue().enqueue_event(calibration_event)
+            except Exception:
+                calibration_created = False
         data = snapshot.to_dict()
         data["calibration_created"] = calibration_created
-        data["calibration_question_id"] = (
-            calibration.question_id if calibration is not None else ""
+        data["calibration_event_id"] = (
+            calibration_event.event_id if calibration_event is not None else ""
         )
+        data["calibration_question_id"] = ""
         data["learning_health"] = self._repository().build_learning_health(target).to_dict()
-        runtime = getattr(self.plugin, "_runtime", None)
-        notify_pending = getattr(runtime, "notify_pending_event", None)
-        if calibration is not None and callable(notify_pending):
-            notify_pending(target, calibration.event_id)
         return self._success(data)
+
+    def start_pending_interview(
+        self, payload: Any, actor_id: str = ""
+    ) -> Dict[str, Any]:
+        """启动由反馈 Agent 逐题生成的待办中心问询验收。"""
+        body = self._payload(payload)
+        target = self._profile_id(body.get("profile_id"))
+        request_key = str(body.get("idempotency_key") or "").strip()
+        if not request_key or len(request_key) > 256:
+            raise ApiContractError(
+                422, "idempotency_key_invalid", "问询验收缺少有效幂等标识"
+            )
+        try:
+            total = int(body.get("total") or 10)
+        except (TypeError, ValueError) as error:
+            raise ApiContractError(
+                422, "interview_total_invalid", "问询题数必须是整数"
+            ) from error
+        if not 1 <= total <= 10:
+            raise ApiContractError(
+                422, "interview_total_invalid", "问询题数必须介于 1 到 10"
+            )
+        snapshot = self._repository().load_playback_snapshot(target)
+        if snapshot is None:
+            raise ApiContractError(
+                409, "playback_unavailable", "当前没有可用于动态问询的播放画像"
+            )
+        event, created = FeedbackProposalService(
+            self._repository(),
+            record_limit=int(
+                self.plugin._config.get("analysis_record_limit") or 500
+            ),
+            persona_prompt=effective_persona_prompt(
+                self.plugin._config.get("persona_preset"),
+                self.plugin._config.get("persona_prompt"),
+            ),
+            interaction_mode=str(
+                self.plugin._config.get("interaction_mode") or "auto"
+            ),
+        ).create_pending_interview(
+            target,
+            snapshot,
+            self._repository().load_board(target),
+            actor_id=actor_id,
+            idempotency_key=request_key,
+            total=total,
+        )
+        if event is None:
+            raise ApiContractError(
+                409,
+                "pending_question_exists",
+                "请先回答或关闭当前待办问题，再启动问询验收",
+            )
+        try:
+            job = self._feedback_queue().enqueue_event(event)
+        except FeedbackQueueError as error:
+            raise ApiContractError(
+                503,
+                "feedback_queue_failed",
+                "问询事件已保存，但 Agent 任务入队失败；可使用原请求重试",
+            ) from error
+        return self._success(
+            {
+                "profile_id": target,
+                "event_id": event.event_id,
+                "created": created,
+                "total": total,
+                "queue_status": job.status,
+                "memory_delta": {},
+            }
+        )
 
     def subscribe(self, payload: Any) -> Dict[str, Any]:
         """通过运行时安全链创建单项手动订阅。"""
@@ -1908,6 +2001,16 @@ class AgentRankApiController:
             self._is_superuser(token_payload),
         )
 
+    def endpoint_start_pending_interview(
+        self,
+        payload: dict,
+        token_payload: schemas.TokenPayload = Depends(verify_token),
+    ) -> Dict[str, Any]:
+        """FastAPI 待办中心动态问询验收启动入口。"""
+        self._endpoint(self._authorize_payload_profile, token_payload, payload)
+        actor_id = self._endpoint(self._feedback_actor_id, token_payload)
+        return self._endpoint(self.start_pending_interview, payload, actor_id)
+
     def endpoint_respond_pending(
         self,
         payload: dict,
@@ -2097,6 +2200,12 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
             controller.endpoint_pending_center,
             ["GET"],
             "获取统一待处理中心",
+        ),
+        (
+            "/pending/interview/start",
+            controller.endpoint_start_pending_interview,
+            ["POST"],
+            "启动待办中心动态问询验收",
         ),
         (
             "/pending/respond",

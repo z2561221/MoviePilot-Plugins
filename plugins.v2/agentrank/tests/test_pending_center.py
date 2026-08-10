@@ -4,9 +4,10 @@ import copy
 import importlib
 import sys
 import threading
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -251,6 +252,25 @@ def test_center_aggregates_three_types_without_actor_or_evidence_leak():
     assert center.list_pending(PROFILE_ID, actor_id="other")["counts"]["command"] == 0
 
 
+def test_interview_question_title_exposes_current_round_in_pending_center():
+    """动态问询在统一待办中心显示明确轮次而不是固定分类标题。"""
+    _, repository, _, _, center = _services(
+        persona_prompt="克里斯蒂娜式未来道具研究所语气"
+    )
+    question = _question(repository, _event(repository, "q-round", "profile:playback"))
+    repository.replace_pending_question(
+        replace(
+            question,
+            preference_dimension="pending_interview:session123:3:10",
+        ),
+        expected_status="pending",
+    )
+
+    item = center.list_pending(PROFILE_ID, actor_id="mp-user-1")["items"][0]
+
+    assert item["title"] == "克里斯蒂娜 · 第 3/10 题"
+
+
 def test_question_answer_and_close_never_return_raw_event_or_implicitly_learn():
     """提交回答与关闭问询只改变待处理事实，不隐式写入长期记忆。"""
     _, repository, _, queue, center = _services()
@@ -318,6 +338,27 @@ def test_question_answer_and_close_never_return_raw_event_or_implicitly_learn():
     assert center.list_items(PROFILE_ID, view="pending")["total"] == 1
 
 
+def test_question_answer_invokes_cross_device_resolution_handler():
+    """待办中心回答完成后必须触发跨端消息收束。"""
+    _, repository, _, _, center = _services()
+    question = _question(repository, _event(repository, "q-resolve", "tmdb:2"))
+    resolved = []
+    center.set_resolution_handler(resolved.append)
+
+    center.respond(
+        profile_id=PROFILE_ID,
+        item_type="question",
+        item_id=question.question_id,
+        action="answer",
+        option_id="character",
+        idempotency_key="answer-question-resolve",
+        actor_id="mp-user-1",
+    )
+
+    assert len(resolved) == 1
+    assert resolved[0].item_id == question.question_id
+
+
 def test_proposal_confirmation_is_explicit_and_rejection_writes_no_memory():
     """只有确认提案才投影记忆，拒绝另一提案不产生学习。"""
     _, repository, _, _, center = _services()
@@ -366,17 +407,20 @@ def test_persona_styles_resolved_proposal_and_command_messages_only():
     assert confirmed_command["item"]["result_message"] == "知道啦，明确偏好标签已更新"
 
 
-def test_persona_is_applied_when_an_existing_question_is_projected():
-    """旧待办记录重新投影时也使用当前人设表达，而不会保留裸问题。"""
+def test_agent_question_is_not_rewritten_and_card_restores_candidate_title():
+    """Agent 问句逐字展示，卡片标题明确指出绑定作品。"""
     _, repository, _, _, center = _services(
         "克里斯蒂娜式未来道具研究所语气"
     )
     question = _question(repository, _event(repository, "persona-question", "tmdb:8"))
+    repository.load_candidate_snapshot = lambda _run_id, _profile_id: [
+        SimpleNamespace(candidate_id="tmdb:8", title="候选作品八")
+    ]
 
     item = center.item(PROFILE_ID, "question", question.question_id)
 
-    assert item.summary.startswith("唔……根据实验数据，")
-    assert item.summary.endswith(question.question)
+    assert item.title == "关于《候选作品八》的一次确认"
+    assert item.summary == question.question
 
 
 def test_pending_center_rejects_removed_reminder_action_and_has_no_claim_api():

@@ -46,7 +46,7 @@ def test_advanced_options_and_agent_settings_expose_prompt_subtabs():
     assert "agent_display_name: '克里斯蒂娜'" in config
     assert "persona_prompt: ''" in config
     assert "{ title: '克里斯蒂娜', value: 'default'" in config
-    assert '<VIcon icon="mdi-account-voice-outline" size="19" color="primary" />' in config
+    assert '<VIcon icon="mdi-account-voice" size="19" color="primary" />' in config
     assert "<span>Agent设定</span>" in config
 
 
@@ -158,15 +158,24 @@ def test_playback_settings_enforce_reporting_and_sync_by_profile_id():
     assert "Emby 原生" not in config
 
 
-def test_discovery_source_options_follow_host_capability_and_include_anilist():
-    """配置页按宿主能力动态展示来源，并兼容 AniList 内置来源。"""
+def test_discovery_sources_and_weights_are_agent_owned():
+    """配置页不再暴露发现来源或人工权重写入口。"""
     config = _read("Config.vue")
-    assert "扩展来源" not in config
-    assert "extensions: true" not in config
-    assert "选择 MoviePilot 内置发现来源" in config
-    assert "const sourceOptions = ref([])" in config
-    assert "sourceOptions.value.filter(item => item && item.available !== false)" in config
-    assert "anilist: { title: 'AniList'" in config
+    assert "sourceOptions" not in config
+    assert "选择 MoviePilot 内置发现来源" not in config
+    assert "发现来源" not in config
+    assert "权重设置" not in config
+    assert "weightDefs" not in config
+    assert "retrieval_trace" in config
+    assert "本轮检索轨迹" in config
+    assert "明确限制" in config
+    assert "受控放宽顺序" in config
+    assert "candidate_layer_counts" in config
+    assert "candidate_processing_counts" in config
+    assert "本轮判断依据" in config
+    assert "主要证据维度" in config
+    assert "候选事实来源" in config
+    assert "Agent策划检索" in config
 
 
 def test_profile_update_mode_describes_incremental_semantics():
@@ -350,7 +359,8 @@ def test_board_history_is_paginated_read_only_and_marks_cross_run_changes():
     assert "loadBoardHistory(page, pageSize)" in state
     assert "本轮新入榜" in page
     assert "历史再推荐" in page
-    assert "契合度：" in page
+    assert "评分。" in page
+    assert "契合度" not in page
     assert "mdi-view-list-outline" in page
     assert "mdi-history-box-outline" not in page
     assert "历史快照未保存支持度" not in page
@@ -497,7 +507,7 @@ def test_desktop_detail_fits_five_compact_rows_and_dashboard_copy_wraps():
 def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse():
     """三项动作始终保留文字，并通过换行适配狭窄容器。"""
     actions = _read("RecommendationActions.vue")
-    assert 'prepend-icon="mdi-bookmark-plus-outline"' in actions
+    assert "mdi-bookmark-plus-outline" in actions
     assert 'prepend-icon="mdi-eye-off-outline"' in actions
     assert '<VTooltip text="打开 TMDB"' in actions
     assert 'prepend-icon="mdi-movie-open-outline"' in actions
@@ -512,8 +522,11 @@ def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse()
     assert "@container actions" not in actions
     assert "flex-wrap: wrap" in actions
     for label in ("订阅", "TMDB", "忽略"):
-        assert f'<span class="ar-actions__label">{label}</span>' in actions
-        assert actions.count(f'<span class="ar-actions__label">{label}</span>') == 1
+        if label == "订阅":
+            assert "alreadySubscribed ? '已订阅' : '订阅'" in actions
+        else:
+            assert f'<span class="ar-actions__label">{label}</span>' in actions
+            assert actions.count(f'<span class="ar-actions__label">{label}</span>') == 1
     for name, fit_score_class in (
         ("Dashboard.vue", "ar-dashboard__fit-score"),
         ("Page.vue", "ar-page__fit-score"),
@@ -522,7 +535,7 @@ def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse()
         assert ".slice(0, 5)" in component
         assert "置信度" not in component
         assert "fit_score" in component
-        assert "契合度" in component
+        assert "契合度" not in component
         assert "rawScore === null || rawScore === undefined || rawScore === ''" in component
         assert "support?.percentage" not in component
         assert component.index(fit_score_class) < component.index("<RecommendationActions")
@@ -530,25 +543,33 @@ def test_ranking_actions_keep_three_labels_and_wrap_without_container_collapse()
             line for line in component.splitlines()
             if line.startswith(f".{fit_score_class} {{")
         )
-        assert "margin-left: auto" in fit_score_rule
+        if name == "Dashboard.vue":
+            assert "margin-left: auto" in fit_score_rule
+        else:
+            assert "margin-left: auto" not in fit_score_rule
     app_page = _read("AppPage.vue")
     page = _read("Page.vue")
     assert "<Page" in app_page
     assert page.index('icon="mdi-text-box-search-outline"') < page.index("ar-page__fit-score") < page.index("<RecommendationActions")
+    assert "item.in_library && item.watch_status === 'unwatched'" in page
+    assert ">未观看</VChip>" in page
+    assert ".ar-page__analysis-score { display: flex;" in page
+    assert ".ar-page__analysis-score { order: 1; }" in page
+    assert ".ar-page__rank-actions :deep(.ar-actions) { order: 2; flex: 1 0 100%; justify-content: flex-end; }" in page
     assert "ar-page__evidence-summary" not in page
     assert "净支持" not in page
-    assert actions.index('aria-label="订阅"') < actions.index('aria-label="打开 TMDB"') < actions.index('aria-label="忽略"')
+    assert actions.index(":aria-label=\"alreadySubscribed ? '已订阅' : '订阅'\"") < actions.index('aria-label="打开 TMDB"') < actions.index('aria-label="忽略"')
     assert actions.index('aria-label="忽略"') < actions.index("likePressed ? '已点赞' : '点赞'") < actions.index("dislikePressed ? '已点踩' : '点踩'")
 
 
-def test_config_uses_five_main_sections_and_places_execution_controls_once():
-    """配置页固定五个四字一级区，基础设置集中，运行参数只保留技术容量。"""
+def test_config_uses_four_main_sections_and_places_execution_controls_once():
+    """配置页保留四个主区，策略由 Agent 接管，基础设置集中。"""
     config = _read("Config.vue")
     for key, title in (
         ("overview", "运行总览"),
         ("basic", "基础设置"),
         ("profile", "画像学习"),
-        ("strategy", "推荐策略"),
+        ("agent", "Agent设定"),
         ("advanced", "高级选项"),
     ):
         assert f"{{ key: '{key}', title: '{title}'" in config
@@ -557,7 +578,7 @@ def test_config_uses_five_main_sections_and_places_execution_controls_once():
     for group in ("画像来源", "运行计划", "页面入口", "榜单行为", "后台提醒"):
         assert f"<span>{group}</span>" in config
     assert "activeProfile" in config
-    assert "activeStrategy" in config
+    assert "activeStrategy" not in config
     assert "activeMain.value === 'basic' ? []" in config
     assert config.count('v-model.number="form.candidate_pool_size"') == 1
     assert "最低支持度" in config
@@ -604,6 +625,10 @@ def test_mobile_page_and_config_keep_only_one_hidden_scroll_surface():
     assert 'class="ar-config__header-copy"' in config
     assert 'class="ar-config__enabled"' in config
     assert '<VCardItem class="ar-config__header">' not in config
+    assert "{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard'" in config
+    assert "{ key: 'agent', title: 'Agent设定', icon: 'mdi-account-voice'" in config
+    assert ".ar-config__mode-toggle { flex-direction: row; }" in config
+    assert ".ar-config__mode-toggle { flex-direction: column; }" not in config
 
 
 def test_notification_type_and_low_interruption_state_are_user_visible_without_scores():
@@ -708,7 +733,7 @@ def test_runtime_history_uses_chinese_fallbacks_for_unknown_internal_codes():
     notification = (COMPONENT_DIR.parents[2] / "service" / "notification.py").read_text(encoding="utf-8")
     for label in ("其他阶段", "其他来源", "其他排除原因", "状态未知", "运行异常"):
         assert label in page
-    for label in ("播放记录服务", "其他排序", "其他条件", "运行异常"):
+    for label in ("播放记录服务", "其他来源", "其他排除原因", "运行异常"):
         assert label in config
     assert "})[value] || '未评估'" in config
     assert "STATUS_LABELS.get(str(status or ''), '运行异常')" in notification
@@ -918,15 +943,14 @@ def test_config_uses_frozen_candidate_target_and_tournament_pipeline():
     assert "title: '池内排序'" not in config
 
 
-def test_profile_filter_aliases_remain_readable_for_legacy_agent_payloads():
-    """配置页兼容旧版画像过滤键并把语言值转换为中文。"""
+def test_profile_filter_aliases_are_removed_from_user_configuration():
+    """长期画像不再在配置页展示固定检索过滤别名。"""
     config = _read("Config.vue")
-    for key, label in (
-        ("genres", "题材"),
-        ("languages", "语言"),
-        ("release_year_min", "最早年份"),
-        ("release_year_max", "最晚年份"),
+    for marker in (
+        "genres: '题材'",
+        "languages: '语言'",
+        "release_year_min: '最早年份'",
+        "release_year_max: '最晚年份'",
     ):
-        assert f"{key}: '{label}'" in config
-    assert "key === 'original_languages' || key === 'languages'" in config
-    assert "languageLabels[item] || item" in config
+        assert marker not in config
+    assert "retrieval_trace" in config

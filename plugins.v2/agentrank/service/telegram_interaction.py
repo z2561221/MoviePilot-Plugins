@@ -36,6 +36,7 @@ class TelegramSelectionService:
     pending_callback_prefix = "arp"
     session_ttl_hours = 24
     caption_limit = 3500
+    pending_message_retry_attempts = 2
 
     def __init__(
         self,
@@ -68,6 +69,58 @@ class TelegramSelectionService:
     def set_pending_center(self, service: Any) -> None:
         """绑定统一待处理中心，供运行时完成依赖组装。"""
         self._pending_center = service
+
+    @staticmethod
+    def _notification_sources(notification_type: NotificationType) -> List[str]:
+        """返回所有允许当前通知类型的启用 Telegram 配置名。"""
+        try:
+            from app.helper.service import ServiceConfigHelper
+
+            configs = ServiceConfigHelper.get_notification_configs() or []
+        except Exception:
+            logger.debug("AgentRank Telegram 通知来源读取失败", exc_info=True)
+            return []
+        expected_value = getattr(notification_type, "value", str(notification_type))
+        expected_name = getattr(notification_type, "name", "")
+        sources: List[str] = []
+        for config in configs:
+            if str(getattr(config, "type", "") or "").strip().lower() != "telegram":
+                continue
+            if not bool(getattr(config, "enabled", False)):
+                continue
+            switchs = {
+                str(value or "").strip()
+                for value in (getattr(config, "switchs", None) or [])
+            }
+            if expected_value not in switchs and expected_name not in switchs:
+                continue
+            source = str(getattr(config, "name", "") or "").strip()
+            if source and source not in sources:
+                sources.append(source)
+        return sources
+
+    @classmethod
+    def _notification_source(
+        cls, notification_type: NotificationType
+    ) -> Optional[str]:
+        """返回允许当前通知类型的首个启用 Telegram 配置名。"""
+        sources = cls._notification_sources(notification_type)
+        return sources[0] if sources else None
+
+    def _pending_message_sources(
+        self, session: TelegramPendingSession
+    ) -> List[str]:
+        """返回原消息来源及当前可用插件来源，供删除和编辑回退。"""
+        notification_type = resolve_notification_type(self._config, NotificationType)
+        sources: List[str] = []
+        for source in (
+            session.source,
+            *self._notification_sources(notification_type),
+        ):
+            target = str(source or "").strip()
+            if target and target not in sources:
+                sources.append(target)
+        return sources
 
     @staticmethod
     def _ranked_items(board: RecommendationBoard) -> List[RecommendationItem]:
@@ -206,7 +259,7 @@ class TelegramSelectionService:
         session: TelegramPendingSession,
         message_payload: Dict[str, Any],
     ) -> bool:
-        """同步发送待办卡片并保存消息身份，宿主不支持时回退消息队列。"""
+        """同步发送待办卡片，仅在持久化消息身份后报告成功。"""
         chain = getattr(self._plugin, "chain", None)
         send_direct_message = getattr(chain, "send_direct_message", None)
         if callable(send_direct_message):
@@ -266,9 +319,13 @@ class TelegramSelectionService:
                                     session.item_id,
                                 )
                         return True
+                    logger.warning(
+                        "AgentRank Telegram 待办直发成功但缺少消息身份，"
+                        "不建立交互会话 item_id=%s",
+                        session.item_id,
+                    )
             except Exception:
-                logger.exception("AgentRank Telegram 待办直接发送失败，回退消息队列")
-        self._plugin.post_message(**message_payload)
+                logger.exception("AgentRank Telegram 待办直接发送失败，回退普通通知")
         return False
 
     def start_pending(
@@ -292,10 +349,17 @@ class TelegramSelectionService:
             return False
         if not telegram_userid:
             return False
+        try:
+            self.reconcile_pending_sessions()
+        except Exception:
+            logger.warning("AgentRank Telegram 新题投递前对账失败", exc_info=True)
+        notification_type = resolve_notification_type(self._config, NotificationType)
+        notification_source = self._notification_source(notification_type)
         existing = self._repository.load_telegram_pending_sessions(
             notice.item.profile_id,
             notice.item.item_type,
             notice.item.item_id,
+            status="",
         )
         if existing:
             return True
@@ -337,18 +401,34 @@ class TelegramSelectionService:
             self._repository.save_telegram_pending_session(session)
         message_payload = dict(
             channel=MessageChannel.Telegram,
-            mtype=resolve_notification_type(self._config, NotificationType),
+            source=notification_source,
+            mtype=notification_type,
             title=f"{self._agent_label()} · 待处理",
             text="\n".join(lines),
             username=username,
+            userid=session.telegram_userid,
             targets={"telegram_userid": session.telegram_userid},
             buttons=self._pending_buttons(session, notice),
             parse_mode="HTML",
             disable_web_page_preview=True,
             save_history=False,
         )
-        self._send_pending_card(session, message_payload)
-        return True
+        delivered = (
+            self._send_pending_card(session, message_payload)
+            if notification_source
+            else False
+        )
+        if not notification_source:
+            logger.warning(
+                "AgentRank Telegram 未找到允许 %s 的启用配置，回退普通通知 item_id=%s",
+                notification_type.value,
+                session.item_id,
+            )
+        if delivered:
+            return True
+        with self._lock:
+            self._repository.delete_telegram_pending_session(session.token)
+        return False
 
     @staticmethod
     def _parse_pending_callback(
@@ -370,15 +450,20 @@ class TelegramSelectionService:
         session: TelegramPendingSession,
         event_data: Dict[str, Any],
         text: str,
-    ) -> None:
+    ) -> bool:
         """删除待处理卡片；失败时原地收束为无按钮状态。"""
-        deleted = self._delete_original_message(event_data)
+        deleted = self._delete_session_message(session)
+        if not deleted:
+            deleted = self._delete_original_message(event_data)
         if deleted:
-            return
-        self._plugin.post_message(
+            return True
+        if self._edit_session_terminal(session, text):
+            return True
+        notification_type = resolve_notification_type(self._config, NotificationType)
+        notification_source = self._notification_source(notification_type)
+        payload = dict(
             channel=MessageChannel.Telegram,
-            source=event_data.get("source"),
-            mtype=resolve_notification_type(self._config, NotificationType),
+            mtype=notification_type,
             title=f"{self._agent_label()} · 已处理",
             text=html.escape(_compact_text(text, 300)),
             username=session.username,
@@ -389,6 +474,12 @@ class TelegramSelectionService:
             parse_mode="HTML",
             save_history=False,
         )
+        if notification_source:
+            payload["source"] = notification_source
+        self._plugin.post_message(
+            **payload,
+        )
+        return False
 
     def resolve_pending_item(self, item: Any) -> int:
         """删除一个已处理事项关联的全部 Telegram 原交互消息。"""
@@ -396,48 +487,161 @@ class TelegramSelectionService:
             getattr(item, "profile_id", ""),
             getattr(item, "item_type", ""),
             getattr(item, "item_id", ""),
+            status="",
         )
         resolved = 0
+        if not sessions:
+            logger.info(
+                "AgentRank Telegram 待办无关联消息身份 type=%s item_id=%s",
+                getattr(item, "item_type", ""),
+                getattr(item, "item_id", ""),
+            )
+        for session in sessions:
+            deleted = self._delete_session_message(session)
+            terminalized = deleted
+            if not deleted:
+                terminalized = self._edit_session_terminal(
+                    session, "该事项已在其他终端处理。"
+                )
+            if terminalized:
+                session.status = "resolved"
+                session.message_id = ""
+                session.chat_id = ""
+                self._repository.save_telegram_pending_session(session)
+                resolved += 1
+                logger.info(
+                    "AgentRank Telegram 待办消息已收束 item_id=%s mode=%s source=%s",
+                    session.item_id,
+                    "delete" if deleted else "edit",
+                    session.source,
+                )
+            else:
+                session.status = "open"
+                self._repository.save_telegram_pending_session(session)
+                logger.warning(
+                    "AgentRank Telegram 待办消息收束失败，保留重试 item_id=%s sources=%s",
+                    session.item_id,
+                    ",".join(self._pending_message_sources(session)) or "none",
+                )
+        return resolved
+
+    def reconcile_pending_sessions(self) -> int:
+        """启动时清理已在其他终端完成但仍开放的 Telegram 卡片。"""
+        item_loader = getattr(self._pending_center, "item", None)
+        loader = getattr(
+            self._repository, "load_all_telegram_pending_sessions", None
+        )
+        if not callable(item_loader) or not callable(loader):
+            return 0
+        pending_statuses = {
+            "proposal": "pending_confirmation",
+            "question": "pending",
+            "command": "pending_confirmation",
+        }
+        reconciled = 0
+        visited = set()
+        sessions = loader(status="")
+        logger.info(
+            "AgentRank Telegram 待办会话对账扫描 count=%s",
+            len(sessions),
+        )
+        for session in sessions:
+            if not session.message_id:
+                if session.status != "resolved" or session.chat_id:
+                    session.status = "resolved"
+                    session.chat_id = ""
+                    self._repository.save_telegram_pending_session(session)
+                continue
+            identity = (
+                session.profile_id,
+                session.item_type,
+                session.item_id,
+            )
+            if identity in visited:
+                continue
+            visited.add(identity)
+            try:
+                item = item_loader(*identity)
+            except Exception:
+                continue
+            if getattr(item, "status", "") == pending_statuses.get(
+                session.item_type
+            ):
+                continue
+            reconciled += self.resolve_pending_item(item)
+        if reconciled:
+            logger.info(
+                "AgentRank Telegram 已追补收束历史待办消息 count=%s",
+                reconciled,
+            )
+        return reconciled
+
+    def _delete_session_message(self, session: TelegramPendingSession) -> bool:
+        """按持久化消息身份有界重试删除原卡片。"""
+        if not session.message_id:
+            return False
         chain = getattr(self._plugin, "chain", None)
         delete_message = getattr(chain, "delete_message", None)
-        edit_message = getattr(chain, "edit_message", None)
-        for session in sessions:
-            deleted = False
-            if session.message_id and callable(delete_message):
+        if not callable(delete_message):
+            return False
+        sources = self._pending_message_sources(session)
+        for attempt in range(self.pending_message_retry_attempts):
+            for source in sources:
                 try:
-                    deleted = bool(
-                        delete_message(
-                            channel=MessageChannel.Telegram,
-                            source=session.source or None,
-                            message_id=session.message_id,
-                            chat_id=session.chat_id or None,
-                        )
-                    )
-                except Exception:
-                    logger.exception(
-                        "AgentRank Telegram 跨端删除失败 item_id=%s",
-                        session.item_id,
-                    )
-            if not deleted and session.message_id and session.chat_id and callable(edit_message):
-                try:
-                    edit_message(
+                    result = delete_message(
                         channel=MessageChannel.Telegram,
-                        source=session.source or None,
+                        source=source,
+                        message_id=session.message_id,
+                        chat_id=session.chat_id or None,
+                    )
+                    if result is True:
+                        session.source = source
+                        return True
+                except Exception:
+                    logger.warning(
+                        "AgentRank Telegram 删除待办消息异常 item_id=%s source=%s attempt=%s",
+                        session.item_id,
+                        source,
+                        attempt + 1,
+                        exc_info=True,
+                    )
+        return False
+
+    def _edit_session_terminal(
+        self, session: TelegramPendingSession, text: str
+    ) -> bool:
+        """删除失败时有界重试原地编辑并移除按钮。"""
+        if not session.message_id or not session.chat_id:
+            return False
+        chain = getattr(self._plugin, "chain", None)
+        edit_message = getattr(chain, "edit_message", None)
+        if not callable(edit_message):
+            return False
+        sources = self._pending_message_sources(session)
+        for attempt in range(self.pending_message_retry_attempts):
+            for source in sources:
+                try:
+                    result = edit_message(
+                        channel=MessageChannel.Telegram,
+                        source=source,
                         message_id=session.message_id,
                         chat_id=session.chat_id,
                         title=f"{self._agent_label()} · 已处理",
-                        text="该事项已在其他终端处理。",
+                        text=_compact_text(text, 300),
                         buttons=None,
                     )
+                    if result is True:
+                        session.source = source
+                        return True
                 except Exception:
-                    logger.exception(
-                        "AgentRank Telegram 跨端编辑回退失败 item_id=%s",
+                    logger.warning(
+                        "AgentRank Telegram 编辑待办消息异常 item_id=%s source=%s attempt=%s",
                         session.item_id,
+                        source,
+                        attempt + 1,
+                        exc_info=True,
                     )
-            session.status = "resolved"
-            self._repository.save_telegram_pending_session(session)
-            resolved += 1
-        return resolved
+        return False
 
     def _handle_pending_callback(
         self, event_data: Dict[str, Any]
@@ -536,9 +740,12 @@ class TelegramSelectionService:
                 safe = getattr(error, "message", "待处理失败，请前往详情页重试")
                 self._post_pending_terminal(session, event_data, str(safe))
                 return True
-            session.status = "resolved"
+            terminalized = self._post_pending_terminal(session, event_data, message)
+            session.status = "resolved" if terminalized else "open"
+            if terminalized:
+                session.message_id = ""
+                session.chat_id = ""
             self._repository.save_telegram_pending_session(session)
-            self._post_pending_terminal(session, event_data, message)
             return True
 
     def _single_page_payload(

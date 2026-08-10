@@ -15,6 +15,7 @@ from ..agent_tools.context import (
     PRELIMINARY_AGENT_ROLE,
     PROFILE_AGENT_ROLE,
     RANKING_AGENT_ROLE,
+    RETRIEVAL_AGENT_ROLE,
     TRUSTED_CONTEXT_KEY,
     AgentRankTrustedContext,
     to_jsonable,
@@ -28,6 +29,7 @@ from ..agent_tools.schemas import (
     SubmitBatchResultInput,
     SubmitFinalBoardInput,
     SubmitProfileResultInput,
+    SubmitRetrievalPlanInput,
 )
 from ..agent_tools.registry import (
     ALL_AGENT_TOOL_NAMES,
@@ -40,6 +42,10 @@ AGENTRANK_SYSTEM_PROMPTS = {
     PROFILE_AGENT_ROLE: (
         "你是 Agent榜单中心的受限用户画像执行器。先调用一次画像上下文工具，"
         "再调用一次画像提交工具；提交工具是唯一输出通道。"
+    ),
+    RETRIEVAL_AGENT_ROLE: (
+        "你是 Agent榜单中心的受限检索策划执行器。先调用一次检索上下文工具，"
+        "再调用一次检索计划提交工具；提交工具是唯一输出通道。"
     ),
     PRELIMINARY_AGENT_ROLE: (
         "你是 Agent榜单中心的受限初赛执行器。先调用一次批次上下文工具，"
@@ -190,6 +196,7 @@ class AgentRankAgentAdapter:
     )
     _terminal_submission_schemas = {
         PROFILE_AGENT_ROLE: SubmitProfileResultInput,
+        RETRIEVAL_AGENT_ROLE: SubmitRetrievalPlanInput,
         PRELIMINARY_AGENT_ROLE: SubmitBatchResultInput,
         FINAL_AGENT_ROLE: SubmitFinalBoardInput,
     }
@@ -613,6 +620,14 @@ class AgentRankAgentAdapter:
         """执行只允许排序冻结候选的排序 Agent。"""
         if trusted_context.agent_role != RANKING_AGENT_ROLE:
             raise ValueError("ranking Agent requires ranking trusted context")
+        return await self.run(prompt, trusted_context)
+
+    async def run_retrieval(
+        self, prompt: str, trusted_context: AgentRankTrustedContext
+    ) -> str:
+        """执行一读一提交的检索策划 Agent。"""
+        if trusted_context.agent_role != RETRIEVAL_AGENT_ROLE:
+            raise ValueError("retrieval Agent requires retrieval trusted context")
         return await self.run(prompt, trusted_context)
 
     async def run_preliminary(

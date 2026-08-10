@@ -17,11 +17,16 @@ from ..agent_tools.context import (
     PRELIMINARY_AGENT_ROLE,
     PROFILE_AGENT_ROLE,
     RANKING_AGENT_ROLE,
+    RETRIEVAL_AGENT_ROLE,
     build_trusted_context,
 )
-from ..agent_tools.schemas import SubmitBatchResultInput
+from ..agent_tools.schemas import SubmitBatchResultInput, SubmitRetrievalPlanInput
 from ..model.candidate import typed_tmdb_candidate_id
-from ..model.config import configured_identities
+from ..model.config import (
+    DISCOVERY_SOURCE_DEFAULTS,
+    WEIGHT_DEFAULTS,
+    configured_identities,
+)
 from ..model.feedback import ShortTermSignal
 from ..model.constants import (
     RANKING_OUTPUT_LIMIT,
@@ -31,21 +36,23 @@ from ..model.board import RecommendationBoard, RecommendationItem
 from ..model.judgment import JudgmentBatchCheckpoint, PreliminaryJudgment
 from ..model.profile import (
     PROFILE_SCHEMA_VERSION,
-    RETRIEVAL_RESOLUTION_VERSION,
     UserProfile,
 )
-from ..model.retrieval import RetrievalFilters, RetrievalPlan
+from ..model.retrieval import RetrievalAction, RetrievalFilters, RetrievalPlan
 from ..model.run import AdaptiveFingerprints, RecommendationRun
 from ..model.policy import PolicySnapshot
 from ..storage.repository import AgentRankRepository
 from ..storage.judgment import JudgmentCheckpointStore
 from .prompt import (
+    DEFAULT_PERSONA_PROMPT,
     DEFAULT_PROFILE_PROMPT,
     build_profile_prompt,
+    build_retrieval_prompt,
     build_preliminary_prompt,
     build_final_prompt,
     build_ranking_prompt,
     build_refill_prompt,
+    effective_persona_prompt,
 )
 from .analysis import RecommendationAnalysisBuilder
 from .keyword_resolution import (
@@ -87,6 +94,22 @@ _PROVENANCE_HOST_PORT_PATTERN = re.compile(
 
 _BOARD_RECENCY_ROUND_WEIGHTS = (0.0, 0.35, 0.7, 1.0)
 _BOARD_RECENCY_HISTORY_LIMIT = len(_BOARD_RECENCY_ROUND_WEIGHTS) - 1
+_DEFAULT_PERSONA_REASON_CUES = (
+    "唔",
+    "诶",
+    "嗦嘎",
+    "真是的",
+    "别误会",
+    "知道啦",
+    "嘛",
+    "哼",
+    "机关",
+    "世界线",
+    "实验数据",
+    "未来道具研究所",
+)
+_DEFAULT_PERSONA_REASON_PREFIXES = ("唔，", "嘛，")
+_RECOMMENDATION_COPY_LIMIT = 30
 
 
 def _safe_agent_failure_reason(value: Any) -> str:
@@ -96,6 +119,38 @@ def _safe_agent_failure_reason(value: Any) -> str:
     text = _PROVENANCE_HOST_PORT_PATTERN.sub("[已脱敏地址]", text)
     text = _PROVENANCE_BEARER_PATTERN.sub("[已脱敏凭据]", text)
     return _PROVENANCE_SECRET_PATTERN.sub("[已脱敏凭据]", text)[:240]
+
+
+def _ensure_default_persona_visibility(
+    recommendations: List[RecommendationItem], persona_prompt: str
+) -> Tuple[int, int]:
+    """让默认人设至少覆盖两条理由，且不改候选、证据或事实文本。"""
+    if str(persona_prompt or "").strip() != DEFAULT_PERSONA_PROMPT:
+        return 0, 0
+    eligible = [
+        item
+        for item in recommendations
+        if item.selection_source == "agent" and str(item.reason or "").strip()
+    ]
+    target = min(2, len(eligible))
+    visible = sum(
+        any(cue in str(item.reason or "") for cue in _DEFAULT_PERSONA_REASON_CUES)
+        for item in eligible
+    )
+    applied = 0
+    for item in eligible:
+        if visible >= target:
+            break
+        reason = str(item.reason or "").strip()
+        if any(cue in reason for cue in _DEFAULT_PERSONA_REASON_CUES):
+            continue
+        prefix = _DEFAULT_PERSONA_REASON_PREFIXES[applied % len(_DEFAULT_PERSONA_REASON_PREFIXES)]
+        if len(prefix) + len(reason) > _RECOMMENDATION_COPY_LIMIT:
+            continue
+        item.reason = prefix + reason
+        visible += 1
+        applied += 1
+    return visible, applied
 
 
 @dataclass
@@ -202,6 +257,7 @@ class RecommendationOrchestrator:
             raise ValueError("AgentRank role and trusted context do not match")
         method_name = {
             PROFILE_AGENT_ROLE: "run_profile",
+            RETRIEVAL_AGENT_ROLE: "run_retrieval",
             RANKING_AGENT_ROLE: "run_ranking",
             PRELIMINARY_AGENT_ROLE: "run_preliminary",
             FINAL_AGENT_ROLE: "run_final",
@@ -413,6 +469,11 @@ class RecommendationOrchestrator:
                 sort_by=filters.sort_by,
             ),
             ranking_tags=tuple(ranking_tags),
+            goal=plan.goal,
+            actions=plan.actions,
+            hard_constraints=plan.hard_constraints,
+            soft_signals=plan.soft_signals,
+            relaxation_order=plan.relaxation_order,
         ), media_types
 
     @staticmethod
@@ -428,7 +489,7 @@ class RecommendationOrchestrator:
             "weights": (
                 dict(policy.effective_weights)
                 if policy is not None
-                else dict(config.get("weights") or {})
+                else dict(WEIGHT_DEFAULTS)
             ),
             "candidate_pool_size": int(config.get("candidate_pool_size") or 15),
         }
@@ -489,11 +550,6 @@ class RecommendationOrchestrator:
             return "missing"
         if previous_profile.schema_version < PROFILE_SCHEMA_VERSION:
             return "profile_schema_changed"
-        if (
-            previous_profile.retrieval_resolution_version
-            < RETRIEVAL_RESOLUTION_VERSION
-        ):
-            return "retrieval_resolution_changed"
         if previous_profile.playback_fingerprint != playback_fingerprint:
             return "playback_changed"
         if previous_profile.preferences_fingerprint != preferences_fingerprint:
@@ -787,48 +843,44 @@ class RecommendationOrchestrator:
         preserve_agent_order: bool,
         short_term_scores: Mapping[str, Any] = None,
     ) -> List[RecommendationItem]:
-        """保留有效决赛顺序，并应用有界短期行为微调。"""
+        """按最终匹配分降序排列；同分保留 Agent 的决赛顺序。"""
         values = list(items or ())
         trusted_order = {
             str(candidate_id): int(index)
             for candidate_id, index in dict(agent_order or {}).items()
         }
         if not preserve_agent_order or not trusted_order:
-            return self._ranker.rank(
+            ranked = self._ranker.rank(
                 values,
                 candidates,
                 agent_order=trusted_order,
-                short_term_scores=short_term_scores,
-            )
-        agent_items = [
-            item for item in values if item.candidate_id in trusted_order
-        ]
-        short_term_adjustments = {
-            str(candidate_id): ShortTermPreferenceRanker.adjustment_units(value)
-            for candidate_id, value in dict(short_term_scores or {}).items()
-            if str(candidate_id or "").strip()
-        }
-        if any(
-            short_term_adjustments.get(item.candidate_id, 0) for item in agent_items
-        ):
-            agent_items.sort(
-                key=lambda item: (
-                    -short_term_adjustments.get(item.candidate_id, 0),
-                    trusted_order[item.candidate_id],
-                )
+                short_term_scores=None,
             )
         else:
+            agent_items = [
+                item for item in values if item.candidate_id in trusted_order
+            ]
             agent_items.sort(key=lambda item: trusted_order[item.candidate_id])
-        fallback_items = [
-            item for item in values if item.candidate_id not in trusted_order
-        ]
-        if fallback_items:
-            fallback_items = self._ranker.rank(
-                fallback_items,
-                candidates,
-                short_term_scores=short_term_scores,
+            fallback_items = [
+                item for item in values if item.candidate_id not in trusted_order
+            ]
+            if fallback_items:
+                fallback_items = self._ranker.rank(
+                    fallback_items,
+                    candidates,
+                    short_term_scores=None,
+                )
+            ranked = [*agent_items, *fallback_items]
+
+        stable_order = {
+            id(item): index for index, item in enumerate(ranked)
+        }
+        ranked.sort(
+            key=lambda item: (
+                -(item.fit_score if item.fit_score is not None else -1),
+                stable_order[id(item)],
             )
-        ranked = [*agent_items, *fallback_items]
+        )
         for index, item in enumerate(ranked, start=1):
             item.rank = index
         return ranked
@@ -993,6 +1045,7 @@ class RecommendationOrchestrator:
         username: str,
         candidates: List[Any],
         current_profile: UserProfile,
+        retrieval_plan: RetrievalPlan,
         ranking_profile: Mapping[str, Any],
         trusted_weights: Mapping[str, Any],
         policy_snapshot: PolicySnapshot,
@@ -1021,7 +1074,7 @@ class RecommendationOrchestrator:
                     separators=(",", ":"),
                 ).encode("utf-8")
             ).hexdigest()
-        retrieval_plan_fingerprint = retrieval_fingerprint(current_profile)
+        retrieval_plan_fingerprint = retrieval_fingerprint(retrieval_plan)
         weights_fingerprint = judgment_weights_fingerprint(trusted_weights)
         batches = partition_preliminary_batches(
             candidates,
@@ -1088,9 +1141,6 @@ class RecommendationOrchestrator:
                             * self._board_recency_factor(
                                 item[1].candidate_id,
                                 board_recency_weights,
-                            )
-                            + ShortTermPreferenceRanker.fit_adjustment(
-                                short_term_scores.get(item[1].candidate_id, 0.0)
                             )
                         ),
                         -item[1].fit_score,
@@ -1227,15 +1277,9 @@ class RecommendationOrchestrator:
         indexed_finalist_pool = list(enumerate(finalist_pool))
         indexed_finalist_pool.sort(
             key=lambda item: (
-                -(
-                    self._board_recency_factor(
-                        item[1][0].candidate_id,
-                        board_recency_weights,
-                    )
-                    + ShortTermPreferenceRanker.fit_adjustment(
-                        short_term_scores.get(item[1][0].candidate_id, 0.0)
-                    )
-                    / 100.0
+                -self._board_recency_factor(
+                    item[1][0].candidate_id,
+                    board_recency_weights,
                 ),
                 item[0],
             )
@@ -1388,6 +1432,10 @@ class RecommendationOrchestrator:
         base_prompt = build_final_prompt(
             copy_prompt=str(config.get("copy_prompt") or ""),
             ranking_prompt=str(config.get("ranking_prompt") or ""),
+            persona_prompt=effective_persona_prompt(
+                config.get("persona_preset"),
+                config.get("persona_prompt"),
+            ),
         )
         last_reason = "final_agent_failed"
         last_retry_code = "final_agent_failed"
@@ -1492,7 +1540,7 @@ class RecommendationOrchestrator:
                     subscribed_ids,
                     preference_evidence=[
                         *current_profile.tags,
-                        *current_profile.ranking_tags,
+                        *retrieval_plan.ranking_tags,
                     ],
                     playback_samples=playback_snapshot.samples,
                     disliked_candidate_ids=disliked_ids,
@@ -1501,6 +1549,9 @@ class RecommendationOrchestrator:
                     profile_preferences=profile_preferences,
                     playback_snapshot=playback_snapshot,
                     agent_fit_scores=agent_fit_scores,
+                )
+                metrics["final_fit_score_count"] = sum(
+                    item.fit_score is not None for item in validation.accepted
                 )
                 if len(validation.accepted) != expected_count:
                     submitted_candidate_ids = [
@@ -1654,7 +1705,7 @@ class RecommendationOrchestrator:
 
     def _adaptive_source_fingerprint(
         self,
-        current_profile: UserProfile,
+        retrieval_plan: RetrievalPlan,
         candidate_result: Any,
         candidates: Iterable[Any],
     ) -> str:
@@ -1664,8 +1715,7 @@ class RecommendationOrchestrator:
             for item in candidates or ()
         ]
         payload = {
-            "filters": dict(current_profile.filters or {}),
-            "ranking_tags": list(current_profile.ranking_tags or []),
+            "retrieval_plan": retrieval_plan.to_dict(),
             "candidate_ids": [
                 str(item.get("candidate_id") or "") for item in candidate_payload
             ],
@@ -1849,6 +1899,7 @@ class RecommendationOrchestrator:
             self._start_stage(metrics, "probe")
             probe = getattr(self._playback_service, "probe", None)
             if callable(probe):
+                capability = None
                 try:
                     capability = await asyncio.to_thread(probe, target, config)
                     metrics["playback_probe_status"] = str(capability.status)
@@ -1857,18 +1908,14 @@ class RecommendationOrchestrator:
                     errors.append(f"playback probe: {error}")
                     metrics["playback_probe_status"] = "transient_error"
                     metrics["playback_probe_message"] = "Playback Reporting 探测失败"
-                    return self._failure(
-                        target,
-                        username,
-                        run_id,
-                        "playback_unavailable",
-                        "Playback Reporting 探测失败，未调用 Agent",
-                        started_at,
-                        started_clock,
-                        metrics,
-                        errors,
-                    )
-                if not bool(getattr(capability, "ready", False)):
+                probe_status = str(
+                    metrics.get("playback_probe_status") or ""
+                ).strip().casefold()
+                if probe_status in {
+                    "not_installed",
+                    "permission_error",
+                    "emby_unavailable",
+                }:
                     return self._failure(
                         target,
                         username,
@@ -1883,7 +1930,26 @@ class RecommendationOrchestrator:
                         metrics,
                         errors,
                     )
-                self._finish_stage(metrics, "ready")
+                if probe_status == "transient_error":
+                    # 探测本身是轻量预检；瞬时失败不能截断 collect() 的快照回退。
+                    self._finish_stage(metrics, "degraded")
+                elif bool(getattr(capability, "ready", False)):
+                    self._finish_stage(metrics, "ready")
+                else:
+                    return self._failure(
+                        target,
+                        username,
+                        run_id,
+                        "playback_unavailable",
+                        str(
+                            getattr(capability, "message", "")
+                            or "Playback Reporting 不可用，未调用 Agent"
+                        ),
+                        started_at,
+                        started_clock,
+                        metrics,
+                        errors,
+                    )
             else:
                 metrics["playback_probe_status"] = "unavailable"
                 metrics["playback_probe_message"] = "Playback Reporting 探测服务不可用"
@@ -1960,7 +2026,7 @@ class RecommendationOrchestrator:
                 policy_snapshot = await asyncio.to_thread(
                     self._policy_service.refresh,
                     target,
-                    config.get("weights") or {},
+                    WEIGHT_DEFAULTS,
                     playback_snapshot,
                 )
                 confirmed_memory = self._repository.load_preference_memory(target)
@@ -1968,7 +2034,7 @@ class RecommendationOrchestrator:
                     policy_snapshot = await asyncio.to_thread(
                         self._policy_service.refresh,
                         target,
-                        config.get("weights") or {},
+                        WEIGHT_DEFAULTS,
                         playback_snapshot,
                     )
                     confirmed_memory = self._repository.load_preference_memory(
@@ -2056,15 +2122,6 @@ class RecommendationOrchestrator:
             metrics["profile_agent_reused"] = current_profile is not None
             if current_profile is None:
                 profile_parser = self._profile_parser
-                if (
-                    previous_profile is not None
-                    and previous_profile.retrieval_resolution_version
-                    >= RETRIEVAL_RESOLUTION_VERSION
-                    and isinstance(profile_parser, ProfileOutputParser)
-                ):
-                    profile_parser = profile_parser.with_allowed_keyword_ids(
-                        previous_profile.filters.get("keyword_ids") or []
-                    )
                 profile_playback, playback_evidence_fingerprints = (
                     self._incremental_playback_context(
                         playback_snapshot, previous_profile
@@ -2218,32 +2275,6 @@ class RecommendationOrchestrator:
                         )
                 if parsed_profile is None:
                     raise RuntimeError("profile Agent ended without a validated profile")
-                try:
-                    effective_plan = RetrievalPlan(
-                        filters=parsed_profile.retrieval_plan.filters,
-                        ranking_tags=tuple(
-                            profile_preferences.effective_ranking_tags(
-                                parsed_profile.retrieval_plan.ranking_tags
-                            )
-                        ),
-                    )
-                    plan_resolution = await asyncio.to_thread(
-                        self._retrieval_plan_resolver.resolve,
-                        effective_plan,
-                    )
-                except Exception as error:
-                    errors.append(f"retrieval resolution fallback: {error}")
-                    plan_resolution = RetrievalPlanResolution(
-                        plan=parsed_profile.retrieval_plan
-                    )
-                metrics.update(plan_resolution.metrics())
-                resolved_plan, softened_media_types = self._soften_profile_media_types(
-                    plan_resolution.plan
-                )
-                metrics["softened_profile_media_types"] = list(
-                    softened_media_types
-                )
-                metrics["ranking_tag_count"] = len(resolved_plan.ranking_tags)
                 generated_at = datetime.now(timezone.utc).isoformat()
                 current_profile = UserProfile(
                     profile_id=target,
@@ -2261,8 +2292,6 @@ class RecommendationOrchestrator:
                     profile_prompt_fingerprint=profile_prompt_fingerprint,
                     profile_input_fingerprint=profile_input_fingerprint,
                     playback_evidence_fingerprints=playback_evidence_fingerprints,
-                    filters=resolved_plan.filters.to_dict(),
-                    ranking_tags=list(resolved_plan.ranking_tags),
                     run_id=run_id,
                     generated_at=generated_at,
                 )
@@ -2288,23 +2317,6 @@ class RecommendationOrchestrator:
                 "reused" if metrics["profile_agent_reused"] else "generated",
             )
 
-            self._start_stage(metrics, "candidate")
-            candidate_plan, softened_media_types = self._soften_profile_media_types(
-                RetrievalPlan.from_dict(
-                    {
-                        "filters": current_profile.filters,
-                        "ranking_tags": current_profile.ranking_tags,
-                    }
-                )
-            )
-            current_profile.filters = candidate_plan.filters.to_dict()
-            current_profile.ranking_tags = list(candidate_plan.ranking_tags)
-            if softened_media_types:
-                metrics["softened_profile_media_types"] = list(
-                    softened_media_types
-                )
-            else:
-                metrics.setdefault("softened_profile_media_types", [])
             archive = self._repository.load_archive(target)
             archived_ids = self._archive_candidate_ids(archive)
             previous_board = self._repository.load_board(target)
@@ -2319,39 +2331,208 @@ class RecommendationOrchestrator:
             metrics["board_recency_penalized_candidate_count"] = sum(
                 value < 1.0 for value in board_recency_weights.values()
             )
+
+            self._start_stage(metrics, "retrieval")
+            tool_names = tuple(DISCOVERY_SOURCE_DEFAULTS)
+            confirmed_preferences = [
+                item.to_dict() for item in confirmed_memory.active_items()
+            ]
+            fallback_plan = RetrievalPlan(
+                goal="结合稳定偏好与当前新鲜度要求生成本轮候选池",
+                actions=tuple(
+                    RetrievalAction(tool=name, purpose="trend")
+                    for name in tool_names
+                ),
+                ranking_tags=tuple(
+                    profile_preferences.effective_ranking_tags(
+                        current_profile.tags
+                    )
+                ),
+                hard_constraints=("排除已观看媒体",),
+                soft_signals=tuple(
+                    profile_preferences.effective_tags(current_profile.tags)
+                ),
+                relaxation_order=("评分与热度", "年代与语言", "题材相似度"),
+            )
+            candidate_plan = fallback_plan
+            metrics["retrieval_plan_status"] = "fallback"
+            retrieval_method = getattr(self.agent_adapter, "run_retrieval", None)
+            if callable(retrieval_method):
+                retrieval_context = build_trusted_context(
+                    username=username,
+                    run_id=run_id,
+                    candidates=[],
+                    archive_feedback={"entries": []},
+                    weights={},
+                    previous_profile=None,
+                    profile_preferences=None,
+                    playback=None,
+                    profile=None,
+                    agent_role=RETRIEVAL_AGENT_ROLE,
+                    retrieval_context={
+                        "goal": {
+                            "candidate_pool_size": int(
+                                config.get("candidate_pool_size") or 15
+                            ),
+                            "minimum_new_items": RECOMMENDATION_LIMIT,
+                            "exclude_watched": True,
+                            "library_presence_is_not_an_exclusion": True,
+                        },
+                        "available_tools": list(tool_names),
+                        "stable_profile": {
+                            "summary": current_profile.summary,
+                            "tags": profile_preferences.effective_tags(
+                                current_profile.tags
+                            ),
+                            "negative_tags": (
+                                profile_preferences.effective_negative_tags(
+                                    current_profile.negative_tags
+                                )
+                            ),
+                        },
+                        "confirmed_preferences": confirmed_preferences[:30],
+                        "recent_playback": [
+                            sample.to_dict()
+                            for sample in playback_snapshot.samples[-20:]
+                        ],
+                        "previous_board_candidate_ids": list(
+                            previous_board_candidate_ids
+                        )[:20],
+                        "host_hard_constraints": ["排除已观看媒体"],
+                    },
+                )
+                retrieval_errors: List[str] = []
+                for attempt in range(2):
+                    stage_clock = time.monotonic()
+                    call_entry: Optional[Dict[str, Any]] = None
+                    try:
+                        metrics["agent_calls"] += 1
+                        metrics["retrieval_agent_calls"] = int(
+                            metrics.get("retrieval_agent_calls", 0) or 0
+                        ) + 1
+                        raw_plan = await self._run_agent_role(
+                            RETRIEVAL_AGENT_ROLE,
+                            build_retrieval_prompt()
+                            + (
+                                "\n\n上一次提交未通过严格校验。请重新读取上下文，"
+                                "并只通过提交工具交付完整计划。"
+                                if attempt
+                                else ""
+                            ),
+                            retrieval_context,
+                        )
+                        duration_ms = max(
+                            0, int((time.monotonic() - stage_clock) * 1000)
+                        )
+                        call_entry = self._record_agent_provenance(
+                            metrics,
+                            RETRIEVAL_AGENT_ROLE,
+                            raw_plan,
+                            stage="retrieval",
+                            attempt=attempt + 1,
+                            duration_ms=duration_ms,
+                        )
+                        parsed_plan = SubmitRetrievalPlanInput.model_validate_json(
+                            str(raw_plan)
+                        )
+                        candidate_plan = RetrievalPlan.from_dict(
+                            parsed_plan.model_dump(mode="json")
+                        )
+                        self._finish_agent_provenance(call_entry, "completed")
+                        metrics["retrieval_plan_status"] = "agent"
+                        break
+                    except Exception as error:
+                        if call_entry is None:
+                            call_entry = self._record_agent_provenance(
+                                metrics,
+                                RETRIEVAL_AGENT_ROLE,
+                                error,
+                                stage="retrieval",
+                                attempt=attempt + 1,
+                                duration_ms=max(
+                                    0,
+                                    int((time.monotonic() - stage_clock) * 1000),
+                                ),
+                            )
+                        self._finish_agent_provenance(
+                            call_entry, "validation_failed", error
+                        )
+                        retrieval_errors.append(
+                            f"retrieval attempt {attempt + 1}: "
+                            f"{_safe_agent_failure_reason(error)}"
+                        )
+                        if attempt == 0:
+                            self._record_retry(
+                                metrics, "retrieval", attempt + 1, error
+                            )
+                            continue
+                if metrics["retrieval_plan_status"] != "agent":
+                    errors.extend(retrieval_errors)
+            else:
+                metrics["retrieval_plan_fallback_reason"] = (
+                    "agent_adapter_without_retrieval_role"
+                )
+
+            effective_plan = RetrievalPlan(
+                filters=candidate_plan.filters,
+                ranking_tags=tuple(
+                    profile_preferences.effective_ranking_tags(
+                        [*current_profile.tags, *candidate_plan.ranking_tags]
+                    )
+                ),
+                goal=candidate_plan.goal,
+                actions=candidate_plan.actions,
+                hard_constraints=candidate_plan.hard_constraints,
+                soft_signals=candidate_plan.soft_signals,
+                relaxation_order=candidate_plan.relaxation_order,
+            )
+            try:
+                plan_resolution = await asyncio.to_thread(
+                    self._retrieval_plan_resolver.resolve,
+                    effective_plan,
+                )
+            except Exception as error:
+                errors.append(f"retrieval resolution fallback: {error}")
+                plan_resolution = RetrievalPlanResolution(plan=effective_plan)
+            metrics.update(plan_resolution.metrics())
+            candidate_plan, softened_media_types = self._soften_profile_media_types(
+                plan_resolution.plan
+            )
+            metrics["softened_profile_media_types"] = list(softened_media_types)
+            metrics["ranking_tag_count"] = len(candidate_plan.ranking_tags)
+            metrics["retrieval_trace"] = candidate_plan.to_dict()
+            metrics["retrieval_action_count"] = len(candidate_plan.actions)
+            self._finish_stage(metrics, metrics["retrieval_plan_status"])
+
+            self._start_stage(metrics, "candidate")
             feedback_actions = FeedbackActionService(self._repository)
             disliked_ids = feedback_actions.active_disliked_candidate_ids(target)
             latest_feedback_polarities = feedback_actions.latest_candidate_polarities(
                 target
             )
             metrics["active_disliked_candidate_count"] = len(disliked_ids)
-            negative_keywords = profile_preferences.effective_negative_tags(
-                current_profile.negative_tags
-            )
             stage_clock = time.monotonic()
             try:
                 candidate_result = await asyncio.to_thread(
                     self._candidate_service.collect_and_freeze,
                     target,
                     run_id,
-                    config.get("discovery_sources") or {},
+                    candidate_plan.enabled_sources(),
                     int(config.get("candidate_pool_size") or 15),
                     candidate_plan,
                     playback_samples=playback_snapshot.samples,
                     archived_candidate_ids=archived_ids,
-                    negative_keywords=negative_keywords,
+                    negative_keywords=[],
                     profile_version={
                         "run_id": current_profile.run_id,
                         "schema_version": current_profile.schema_version,
-                        "retrieval_resolution_version": (
-                            current_profile.retrieval_resolution_version
-                        ),
                         "profile_input_fingerprint": (
                             current_profile.profile_input_fingerprint
                         ),
                     },
                     disliked_candidate_ids=disliked_ids,
                     previous_board_candidate_ids=previous_board_candidate_ids,
+                    exclude_library_candidates=False,
                 )
             except Exception as error:
                 errors.append(f"candidate: {error}")
@@ -2377,12 +2558,7 @@ class RecommendationOrchestrator:
                 else list(candidate_result.candidates)
             )
             stage_clock = time.monotonic()
-            if candidate_snapshot is None:
-                candidates, library_excluded = await asyncio.to_thread(
-                    self._exclude_library_candidates, candidates
-                )
-            else:
-                library_excluded = []
+            library_excluded = []
             metrics["library_check_ms"] = max(
                 0, int((time.monotonic() - stage_clock) * 1000)
             )
@@ -2537,13 +2713,9 @@ class RecommendationOrchestrator:
                 value < 0 for value in short_term_scores.values()
             )
             metrics["short_term_rank_adjusted_count"] = 0
-            metrics["short_term_rank_adjustment_max_units"] = max(
-                (abs(ShortTermPreferenceRanker.adjustment_units(value))
-                 for value in short_term_scores.values()),
-                default=0,
-            )
+            metrics["short_term_rank_adjustment_max_units"] = 0
             source_fingerprint = self._adaptive_source_fingerprint(
-                current_profile, candidate_result, candidates
+                candidate_plan, candidate_result, candidates
             )
             preference_fingerprint = self._adaptive_preference_fingerprint(
                 target,
@@ -2636,6 +2808,7 @@ class RecommendationOrchestrator:
                 )
             )
             ranking_profile["short_term_preferences"] = short_term_summary
+            ranking_profile["retrieval_plan"] = candidate_plan.to_dict()
             trusted_weights = self._trusted_weights(
                 config,
                 policy_snapshot,
@@ -2664,6 +2837,10 @@ class RecommendationOrchestrator:
                 max_recommendations=RANKING_OUTPUT_LIMIT,
                 ranking_prompt=str(config.get("ranking_prompt") or ""),
                 copy_prompt=str(config.get("copy_prompt") or ""),
+                persona_prompt=effective_persona_prompt(
+                    config.get("persona_preset"),
+                    config.get("persona_prompt"),
+                ),
             )
             analysis_prompt_fingerprint = self._analysis_builder.prompt_fingerprint(
                 base_ranking_prompt,
@@ -2680,6 +2857,7 @@ class RecommendationOrchestrator:
                     username=username,
                     candidates=candidates,
                     current_profile=current_profile,
+                    retrieval_plan=candidate_plan,
                     ranking_profile=ranking_profile,
                     trusted_weights=trusted_weights,
                     policy_snapshot=policy_snapshot,
@@ -2780,7 +2958,7 @@ class RecommendationOrchestrator:
                         subscribed_ids,
                         preference_evidence=[
                             *current_profile.tags,
-                            *current_profile.ranking_tags,
+                            *candidate_plan.ranking_tags,
                         ],
                         playback_samples=playback_snapshot.samples,
                         disliked_candidate_ids=disliked_ids,
@@ -2891,6 +3069,10 @@ class RecommendationOrchestrator:
                         ranking_prompt=str(config.get("ranking_prompt") or ""),
                         copy_prompt=str(config.get("copy_prompt") or ""),
                         rejected_candidates=refill_feedback,
+                        persona_prompt=effective_persona_prompt(
+                            config.get("persona_preset"),
+                            config.get("persona_prompt"),
+                        ),
                     )
                     analysis_prompt_fingerprint = (
                         self._analysis_builder.prompt_fingerprint(
@@ -2936,7 +3118,7 @@ class RecommendationOrchestrator:
                             subscribed_ids,
                             preference_evidence=[
                                 *current_profile.tags,
-                                *current_profile.ranking_tags,
+                                *candidate_plan.ranking_tags,
                             ],
                             playback_samples=playback_snapshot.samples,
                             disliked_candidate_ids=disliked_ids,
@@ -3058,7 +3240,7 @@ class RecommendationOrchestrator:
                     },
                     preference_evidence=[
                         *current_profile.tags,
-                        *current_profile.ranking_tags,
+                        *candidate_plan.ranking_tags,
                     ],
                     limit=RECOMMENDATION_LIMIT,
                     policy_snapshot=policy_snapshot,
@@ -3098,11 +3280,7 @@ class RecommendationOrchestrator:
                     errors,
                     agent_calls=int(metrics["agent_calls"]),
                 )
-            metrics["short_term_rank_adjusted_count"] = sum(
-                abs(float(short_term_scores.get(item.candidate_id, 0.0) or 0.0))
-                > 0.000001
-                for item in accepted
-            )
+            metrics["short_term_rank_adjusted_count"] = 0
 
             fallback_count = len(fallback_candidate_ids)
             metrics["ranking_fallback_count"] = fallback_count
@@ -3235,15 +3413,7 @@ class RecommendationOrchestrator:
                     metrics["short_term_negative_candidate_count"] = sum(
                         value < 0 for value in short_term_scores.values()
                     )
-                    metrics["short_term_rank_adjustment_max_units"] = max(
-                        (
-                            abs(
-                                ShortTermPreferenceRanker.adjustment_units(value)
-                            )
-                            for value in short_term_scores.values()
-                        ),
-                        default=0,
-                    )
+                    metrics["short_term_rank_adjustment_max_units"] = 0
                     if metrics["short_term_commit_recomputed"]:
                         metrics["preference_fingerprint"] = (
                             self._adaptive_preference_fingerprint(
@@ -3286,7 +3456,7 @@ class RecommendationOrchestrator:
                             },
                             preference_evidence=[
                                 *current_profile.tags,
-                                *current_profile.ranking_tags,
+                                *candidate_plan.ranking_tags,
                             ],
                             limit=RECOMMENDATION_LIMIT,
                             policy_snapshot=policy_snapshot,
@@ -3325,10 +3495,17 @@ class RecommendationOrchestrator:
                             errors,
                             agent_calls=int(metrics["agent_calls"]),
                         )
-                    metrics["short_term_rank_adjusted_count"] = sum(
-                        abs(float(short_term_scores.get(item.candidate_id, 0.0) or 0.0))
-                        > 0.000001
-                        for item in accepted
+                    metrics["short_term_rank_adjusted_count"] = 0
+                    persona_visibility_prompt = effective_persona_prompt(
+                        config.get("persona_preset"),
+                        config.get("persona_prompt"),
+                    )
+                    (
+                        metrics["persona_visible_reason_count"],
+                        metrics["persona_fallback_applied_count"],
+                    ) = _ensure_default_persona_visibility(
+                        accepted,
+                        persona_visibility_prompt,
                     )
 
                     fallback_count = sum(

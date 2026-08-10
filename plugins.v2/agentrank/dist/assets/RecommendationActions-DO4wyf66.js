@@ -1138,10 +1138,11 @@ function useAgentRankState(api) {
   }
 }
 
-const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+const {toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = ["aria-label"];
+const _hoisted_2 = { class: "ar-actions__label" };
 
 const {computed,inject,ref} = await importShared('vue');
 
@@ -1202,6 +1203,7 @@ const bangumiId = computed(() => firstId(sourceIds.value.bangumi));
 const anilistId = computed(() => firstId(sourceIds.value.anilist));
 const nativeSubscribe = computed(() => props.nativeSubscribe || injectedNativeSubscribe);
 const nativeMediaType = computed(() => props.item?.media_type === 'movie' ? '电影' : '电视剧');
+const alreadySubscribed = computed(() => props.item?.subscribed === true);
 const likePressed = computed(() => props.item?.feedback_kind === 'like');
 const dislikePressed = computed(() => props.item?.feedback_kind === 'dislike');
 const likeLoading = computed(() => props.loadingAction === `feedback:like:${props.item?.candidate_id}`);
@@ -1305,17 +1307,17 @@ return (_ctx, _cache) => {
           variant: "tonal",
           color: "primary",
           class: "ar-actions__button text-none",
-          "prepend-icon": "mdi-bookmark-plus-outline",
+          "prepend-icon": alreadySubscribed.value ? 'mdi-bookmark-check-outline' : 'mdi-bookmark-plus-outline',
           loading: __props.loadingAction === 'subscribe' || nativeSubscribePending.value,
-          disabled: actionBusy.value && __props.loadingAction !== 'subscribe',
-          "aria-label": "订阅",
+          disabled: alreadySubscribed.value || (actionBusy.value && __props.loadingAction !== 'subscribe'),
+          "aria-label": alreadySubscribed.value ? '已订阅' : '订阅',
           onClick: handleSubscribe
         }), {
-          default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
-            _createElementVNode("span", { class: "ar-actions__label" }, "订阅", -1)
-          ]))]),
+          default: _withCtx(() => [
+            _createElementVNode("span", _hoisted_2, _toDisplayString(alreadySubscribed.value ? '已订阅' : '订阅'), 1)
+          ]),
           _: 1
-        }, 16, ["size", "loading", "disabled"])
+        }, 16, ["size", "prepend-icon", "loading", "disabled", "aria-label"])
       ]),
       _: 1
     }),
@@ -1333,7 +1335,7 @@ return (_ctx, _cache) => {
           "aria-label": "打开 TMDB",
           onClick: openTmdb
         }), {
-          default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+          default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "TMDB", -1)
           ]))]),
           _: 1
@@ -1357,7 +1359,7 @@ return (_ctx, _cache) => {
           "aria-label": "忽略",
           onClick: _cache[0] || (_cache[0] = $event => (emit('archive', __props.item.candidate_id)))
         }), {
-          default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
+          default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "忽略", -1)
           ]))]),
           _: 1
@@ -1382,7 +1384,7 @@ return (_ctx, _cache) => {
           "aria-pressed": likePressed.value ? 'true' : 'false',
           onClick: _cache[1] || (_cache[1] = $event => (emit('like', __props.item.candidate_id)))
         }), {
-          default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
+          default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "点赞", -1)
           ]))]),
           _: 1
@@ -1407,7 +1409,7 @@ return (_ctx, _cache) => {
           "aria-pressed": dislikePressed.value ? 'true' : 'false',
           onClick: _cache[2] || (_cache[2] = $event => (emit('dislike', __props.item.candidate_id)))
         }), {
-          default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
+          default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
             _createElementVNode("span", { class: "ar-actions__label" }, "点踩", -1)
           ]))]),
           _: 1
@@ -1420,6 +1422,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c1d009f5"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2f7f731a"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };

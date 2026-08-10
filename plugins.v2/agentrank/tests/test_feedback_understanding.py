@@ -27,6 +27,9 @@ repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository"
 queue_service_module = importlib.import_module(
     f"{PACKAGE_NAME}.service.feedback_queue"
 )
+response_service_module = importlib.import_module(
+    f"{PACKAGE_NAME}.service.feedback_response"
+)
 service_module = importlib.import_module(
     f"{PACKAGE_NAME}.service.feedback_understanding"
 )
@@ -39,6 +42,7 @@ PreferenceMemoryItem = memory_module.PreferenceMemoryItem
 FeedbackQueueJob = queue_model_module.FeedbackQueueJob
 AgentRankRepository = repository_module.AgentRankRepository
 FeedbackQueueService = queue_service_module.FeedbackQueueService
+FeedbackResponseService = response_service_module.FeedbackResponseService
 FeedbackUnderstandingError = service_module.FeedbackUnderstandingError
 FeedbackUnderstandingBudgetError = service_module.FeedbackUnderstandingBudgetError
 FeedbackUnderstandingService = service_module.FeedbackUnderstandingService
@@ -84,8 +88,13 @@ class FakeAgentAdapter:
     async def run_feedback(self, prompt, trusted_context):
         """记录最小提示上下文并返回预设结果。"""
         self.calls.append((prompt, trusted_context))
+        output = (
+            self.output[min(len(self.calls) - 1, len(self.output) - 1)]
+            if isinstance(self.output, list)
+            else self.output
+        )
         return FakeResult(
-            json.dumps(self.output, ensure_ascii=False),
+            json.dumps(output, ensure_ascii=False),
             {
                 "provider": "家庭配额",
                 "model": "gpt-feedback",
@@ -199,6 +208,7 @@ def test_playback_calibration_without_run_id_reaches_feedback_agent():
             candidate_id="profile:playback",
             comment="都可以",
             idempotency_key="playback-calibration-answer",
+            supersedes="initial-calibration-event",
         )
     ).event
     adapter = FakeAgentAdapter(
@@ -207,6 +217,14 @@ def test_playback_calibration_without_run_id_reaches_feedback_agent():
             "restatement": "熟悉体验和新鲜变化都可以",
             "signals": [],
             "uncertainties": ["没有固定探索倾向"],
+            "clarification": {
+                "question": "看过《候选甲》和《候选乙》后，你更希望下一轮推荐优先保留哪种体验？",
+                "options": ["悬疑感更强", "人物关系更细", "换一种完全不同的类型"],
+                "allow_custom_answer": True,
+                "preference_dimension": "playback_next_direction",
+                "exploration_level": 1,
+                "confidence_gap": 0.8,
+            },
         }
     )
 
@@ -219,6 +237,103 @@ def test_playback_calibration_without_run_id_reaches_feedback_agent():
     assert record.outcome == "ambiguous"
     assert record.candidate_id == "profile:playback"
     assert repository.load_feedback_understanding(PROFILE_ID, event.event_id) == record
+
+
+def test_pending_interview_advances_one_agent_question_at_a_time_and_stops():
+    """待办问询按回答逐轮推进，完成后不再调用 Agent 或写入记忆。"""
+    repository = AgentRankRepository(FakePlugin())
+    event = repository.append_feedback_event(
+        FeedbackEvent(
+            profile_id=PROFILE_ID,
+            kind="playback_calibration",
+            candidate_id="profile:playback",
+            analysis_id="pending-interview:session123:2",
+            comment=(
+                "用户明确启动待办问询；近期播放有《命运石之门》和"
+                "《来自新世界》，回答只用于本轮测试。"
+            ),
+            created_by_mp_user_id="7",
+            idempotency_key="pending-interview-start",
+        )
+    ).event
+    adapter = FakeAgentAdapter(
+        [
+            {
+                "outcome": "ambiguous",
+                "restatement": "先确认下一轮更想延续的体验",
+                "signals": [],
+                "uncertainties": ["两部作品的吸引点不同"],
+                "clarification": {
+                    "question": "第1/2题：这两部作品里，你更想延续哪种体验？",
+                    "options": ["时间谜题", "陌生世界", "两者都不要"],
+                    "allow_custom_answer": True,
+                    "preference_dimension": "agent-draft-one",
+                    "exploration_level": 1,
+                    "confidence_gap": 0.7,
+                },
+            },
+            {
+                "outcome": "ambiguous",
+                "restatement": "第一题选择了时间谜题，再确认叙事节奏",
+                "signals": [],
+                "uncertainties": ["尚不清楚慢热铺垫的接受度"],
+                "clarification": {
+                    "question": "第2/2题：时间谜题类作品，你能接受多长的慢热铺垫？",
+                    "options": ["尽快入题", "几集铺垫可以", "节奏不重要"],
+                    "allow_custom_answer": True,
+                    "preference_dimension": "agent-draft-two",
+                    "exploration_level": 2,
+                    "confidence_gap": 0.6,
+                },
+            },
+        ]
+    )
+    service = FeedbackUnderstandingService(repository, adapter)
+    response = FeedbackResponseService(repository)
+    before = repository.load_preference_memory(PROFILE_ID)
+
+    first_record = asyncio.run(service.handle_job(_job(event)))
+    first = repository.load_pending_questions(PROFILE_ID)[0]
+    assert first_record.signals == ()
+    assert first.question.startswith("第1/2题")
+    assert first.preference_dimension == "pending_interview:session123:1:2"
+
+    first_answer = response.answer_question(
+        PROFILE_ID,
+        first.question_id,
+        idempotency_key="pending-interview-answer-1",
+        actor_id="7",
+        option_id=first.options[0].option_id,
+    )
+    asyncio.run(service.handle_job(_job(first_answer.event)))
+    pending = [
+        item
+        for item in repository.load_pending_questions(PROFILE_ID)
+        if item.status == "pending"
+    ]
+    assert len(pending) == 1
+    second = pending[0]
+    assert second.question.startswith("第2/2题")
+    assert second.preference_dimension == "pending_interview:session123:2:2"
+
+    second_answer = response.answer_question(
+        PROFILE_ID,
+        second.question_id,
+        idempotency_key="pending-interview-answer-2",
+        actor_id="7",
+        option_id=second.options[1].option_id,
+    )
+    final_record = asyncio.run(service.handle_job(_job(second_answer.event)))
+
+    assert final_record.outcome == "exclusion_only"
+    assert final_record.model_source == "deterministic"
+    assert "共 2 题" in final_record.restatement
+    assert len(adapter.calls) == 2
+    assert not any(
+        item.status == "pending"
+        for item in repository.load_pending_questions(PROFILE_ID)
+    )
+    assert repository.load_preference_memory(PROFILE_ID) == before
 
 
 def test_uncommented_like_calls_agent_but_forces_ambiguous_without_stable_signal():
@@ -241,6 +356,14 @@ def test_uncommented_like_calls_agent_but_forces_ambiguous_without_stable_signal
                 }
             ],
             "uncertainties": [],
+            "clarification": {
+                "question": "你给《候选作品》点赞时，最想让我记住哪一点？",
+                "options": ["悬疑推进", "演员表现", "画面氛围"],
+                "allow_custom_answer": True,
+                "preference_dimension": "candidate_like_reason",
+                "exploration_level": 1,
+                "confidence_gap": 0.8,
+            },
         }
     )
 
@@ -252,6 +375,104 @@ def test_uncommented_like_calls_agent_but_forces_ambiguous_without_stable_signal
     assert record.outcome == "ambiguous"
     assert record.signals == ()
     assert record.uncertainties
+
+
+def test_missing_clarification_gets_one_agent_repair_without_template_fallback():
+    """Agent 漏交问询时只修复一次，并逐字采用修复后的动态问题。"""
+    repository, event = _repository_with_event(_event(key="repair-question"))
+    adapter = FakeAgentAdapter(
+        [
+            {
+                "outcome": "ambiguous",
+                "restatement": "点赞原因仍不明确",
+                "signals": [],
+                "uncertainties": ["需要确认具体原因"],
+            },
+            {
+                "outcome": "ambiguous",
+                "restatement": "点赞原因仍不明确",
+                "signals": [],
+                "uncertainties": ["需要确认具体原因"],
+                "clarification": {
+                    "question": "《候选作品》的悬疑设定里，哪一点促使你点赞？",
+                    "options": ["线索埋得巧", "反转有说服力", "氛围压迫感强"],
+                    "allow_custom_answer": True,
+                    "preference_dimension": "candidate_mystery_reason",
+                    "exploration_level": 2,
+                    "confidence_gap": 0.7,
+                },
+            },
+        ]
+    )
+
+    record = asyncio.run(
+        FeedbackUnderstandingService(repository, adapter).handle_job(_job(event))
+    )
+    question = repository.load_pending_questions(PROFILE_ID)[0]
+
+    assert len(adapter.calls) == 2
+    assert "AGENTRANK_CLARIFICATION_REPAIR" in adapter.calls[1][0]
+    assert record.model_call_count == 2
+    assert question.question == "《候选作品》的悬疑设定里，哪一点促使你点赞？"
+
+
+def test_invalid_clarification_after_repair_creates_no_fixed_fallback_question():
+    """连续两次缺少动态问询时终止处理，不得落回宿主固定题库。"""
+    repository, event = _repository_with_event(_event(key="repair-still-invalid"))
+    invalid = {
+        "outcome": "ambiguous",
+        "restatement": "点赞原因仍不明确",
+        "signals": [],
+        "uncertainties": ["需要确认具体原因"],
+    }
+    adapter = FakeAgentAdapter([invalid, invalid])
+
+    with pytest.raises(FeedbackUnderstandingError, match="一次修复后仍不符合协议"):
+        asyncio.run(
+            FeedbackUnderstandingService(repository, adapter).handle_job(_job(event))
+        )
+
+    assert len(adapter.calls) == 2
+    assert repository.load_feedback_understanding(PROFILE_ID, event.event_id) is None
+    assert repository.load_pending_questions(PROFILE_ID) == []
+
+
+def test_agent_generated_clarification_is_persisted_instead_of_fixed_question_template():
+    """歧义反馈的问句和选项来自 Agent 草稿并保持幂等。"""
+    repository, event = _repository_with_event(_event(key="agent-question"))
+    adapter = FakeAgentAdapter(
+        {
+            "outcome": "ambiguous",
+            "restatement": "喜欢这部作品，但还不能确定最关键的偏好点",
+            "signals": [],
+            "uncertainties": ["需要区分节奏与人物关系"],
+            "clarification": {
+                "question": "这部作品让你继续看下去时，最关键的是哪一点？",
+                "options": ["双线悬念", "人物关系", "两者都重要"],
+                "allow_custom_answer": True,
+                "preference_dimension": "candidate_reason",
+                "exploration_level": 1,
+                "confidence_gap": 0.7,
+            },
+        }
+    )
+
+    record = asyncio.run(
+        FeedbackUnderstandingService(repository, adapter).handle_job(
+            _job(event)
+        )
+    )
+    questions = repository.load_pending_questions(PROFILE_ID)
+
+    assert record.clarification_question.startswith("这部作品让你")
+    assert record.clarification_options == ("双线悬念", "人物关系", "两者都重要")
+    assert len(questions) == 1
+    assert questions[0].question.endswith("最关键的是哪一点？")
+    assert [item.label for item in questions[0].options] == [
+        "双线悬念",
+        "人物关系",
+        "两者都重要",
+    ]
 
 
 def test_explicit_comment_produces_pending_signal_and_deterministic_conflict():

@@ -43,7 +43,9 @@ def _fingerprint(value: Any) -> str:
 
 
 def retrieval_fingerprint(profile: Any) -> str:
-    """对冻结画像中的检索策略计算稳定指纹。"""
+    """对本轮冻结检索计划计算稳定指纹。"""
+    if hasattr(profile, "to_dict"):
+        return _fingerprint(profile.to_dict())
     return _fingerprint(
         {
             "filters": dict(getattr(profile, "filters", {}) or {}),

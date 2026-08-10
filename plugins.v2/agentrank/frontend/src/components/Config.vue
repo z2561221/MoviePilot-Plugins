@@ -8,19 +8,6 @@ const props = defineProps({
 })
 const emit = defineEmits(['save', 'close', 'switch'])
 
-const weightDefaults = {
-  type_weight: 0.8,
-  theme_weight: 0.8,
-  actor_weight: 0.5,
-  director_weight: 0.4,
-  region_weight: 0.4,
-  year_weight: 0.9,
-  rating_weight: 0.9,
-  heat_weight: 0.9,
-  freshness_weight: 0.9,
-  similarity_weight: 0.9,
-}
-
 const legacyDefaultPersonaPrompt = '以克里斯蒂娜式的天才少女口吻与用户交流：聪明、理性、傲娇又略带嘴硬，像未来道具研究所整理实验记录一样，把结论和证据讲清楚。可以自然使用“唔……”“诶？”“嗦嘎”“真是的”“别误会”“知道啦”“嘛”“哼”等口癖，偶尔使用“机关”“世界线”“实验数据”“未来道具研究所”等轻梗；可以轻微吐槽、撒娇和故作不情愿，但始终保持友善。二次元浓度要明显，但不要连续堆叠口癖，也不能让人设盖过事实。遇到错误、风险、失败和待确认操作时，先清楚说明结论，再自然补充人设语气。'
 
 const defaults = {
@@ -33,14 +20,6 @@ const defaults = {
   default_profile_id: '',
   profile_access_map: {},
   emby_library_ids: null,
-  discovery_sources: {
-    douban: true,
-    tmdb_movies: true,
-    tmdb_tv: true,
-    bangumi: true,
-    anilist: true,
-  },
-  weights: { ...weightDefaults },
   minimum_samples: 5,
   candidate_pool_size: 15,
   confidence_threshold: 0.6,
@@ -74,7 +53,7 @@ const defaults = {
 }
 
 const legacyAgentPromptDefaults = new Set([
-  '请综合用户订阅画像、榜单权重与候选特征排序，优先推荐真正贴合用户口味、同时兼顾质量、新鲜感与题材多样性的作品。推荐理由和作品简介要轻松诙谐、机灵自然，避免套话、低俗表达与剧透。',
+  '请综合用户稳定偏好、近期播放证据与候选事实排序，优先推荐真正贴合用户口味、同时兼顾质量、新鲜感与题材多样性的作品。推荐理由和作品简介要轻松诙谐、机灵自然，避免套话、低俗表达与剧透。',
   '以用户真实订阅记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名；相关性明显不足时宁可少推。推荐理由要点明用户偏好与作品题材、主创、地区、年代或风格之间的具体联系，避免空泛夸赞。',
   '以用户真实播放记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名；相关性明显不足时宁可少推。推荐理由要点明用户偏好与作品题材、主创、地区、年代或风格之间的具体联系，避免空泛夸赞。',
   '以用户真实播放记录和明确偏好为首要依据，优先选择能找到多项具体匹配证据、且能补充用户片单的新作品。除题材、主创、地区、年代和风格外，可从情绪体验、认知满足、叙事投入、熟悉与新奇的平衡、节奏与完成感五类观看动机辅助排序。稳定动机必须由至少两条相互独立的播放证据支持，或由一项用户明确添加的偏好支持；单一样本不得形成稳定结论，弃看只能作为弱负向信号。不得推断人格、焦虑、孤独、疾病、创伤等敏感心理状态。观看动机只能作为软排序信号，不得生成硬过滤条件。评分、热度和经典地位只能作为辅助信号，不能单独支撑高排名；相关性明显不足时宁可少推。推荐理由要用自然的内容语言说明具体匹配，不输出心理诊断或心理学术语，也避免空泛夸赞。',
@@ -83,14 +62,12 @@ const legacyAgentPromptDefaults = new Set([
 const form = reactive(structuredClone(defaults))
 const activeMain = ref('overview')
 const activeProfile = ref('playback')
-const activeStrategy = ref('sources')
 const activeAdvanced = ref('runtime')
 const loading = ref(false)
 const status = ref({ state: 'stopped', validation_errors: [], playback: null, enablement: null })
 const overview = ref(null)
 const availableIdentities = ref([])
 const availableLibraries = ref({})
-const sourceOptions = ref([])
 const notificationTypeOptions = ref([
   { title: '资源下载', value: 'Download' },
   { title: '整理入库', value: 'Organize' },
@@ -119,34 +96,12 @@ const fullResetPhrase = ref('')
 const fullResetConfirmation = ref(null)
 
 const mainTabs = [
-  { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看推荐链路、运行状态和失败兜底。' },
+  { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard', desc: '查看推荐链路、运行状态和失败兜底。' },
   { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant', desc: '集中设置服务、计划、入口、动作与通知。' },
   { key: 'profile', title: '画像学习', icon: 'mdi-account-heart-outline', desc: '管理播放画像与画像学习策略。' },
-  { key: 'agent', title: 'Agent设定', icon: 'mdi-account-voice-outline', desc: '设置用户可见名称、人设语气与交互模式。' },
-  { key: 'strategy', title: '推荐策略', icon: 'mdi-compass-outline', desc: '选择 MoviePilot 内置发现来源并设置排序权重。' },
+  { key: 'agent', title: 'Agent设定', icon: 'mdi-account-voice', desc: '设置用户可见名称、人设语气与交互模式。' },
   { key: 'advanced', title: '高级选项', icon: 'mdi-shield-check-outline', desc: '管理画像重建、历史上限和安全边界。' },
 ]
-
-const weightDefs = [
-  { key: 'type_weight', title: '媒体类型', icon: 'mdi-movie-open-outline' },
-  { key: 'theme_weight', title: '题材主题', icon: 'mdi-tag-multiple-outline' },
-  { key: 'actor_weight', title: '演员偏好', icon: 'mdi-account-star-outline' },
-  { key: 'director_weight', title: '导演偏好', icon: 'mdi-chair-rolling' },
-  { key: 'region_weight', title: '地区偏好', icon: 'mdi-earth' },
-  { key: 'year_weight', title: '年代偏好', icon: 'mdi-calendar-range' },
-  { key: 'rating_weight', title: '口碑评分', icon: 'mdi-star-outline' },
-  { key: 'heat_weight', title: '当前热度', icon: 'mdi-fire' },
-  { key: 'freshness_weight', title: '新鲜程度', icon: 'mdi-sprout-outline' },
-  { key: 'similarity_weight', title: '画像相似', icon: 'mdi-vector-link' },
-]
-
-const sourceMeta = {
-  douban: { title: '豆瓣发现', subtitle: '热门电影、剧集与动画', icon: 'mdi-alpha-d-circle-outline' },
-  tmdb_movies: { title: 'TMDB电影', subtitle: '高热度电影候选', icon: 'mdi-movie-open-star-outline' },
-  tmdb_tv: { title: 'TMDB剧集', subtitle: '高热度剧集候选', icon: 'mdi-television-classic' },
-  bangumi: { title: 'Bangumi', subtitle: '动画与番剧候选', icon: 'mdi-animation-outline' },
-  anilist: { title: 'AniList', subtitle: '趋势动画与本季热门', icon: 'mdi-alpha-a-circle-outline' },
-}
 
 const actionOptions = [
   { title: '仅更新榜单', value: 'update' },
@@ -173,10 +128,6 @@ const selectedPersonaPreset = computed(() => (
 const profileTabs = [
   { key: 'playback', title: '播放画像', icon: 'mdi-play-circle-outline' },
 ]
-const strategyTabs = [
-  { key: 'sources', title: '发现来源', icon: 'mdi-compass-outline' },
-  { key: 'weights', title: '权重设置', icon: 'mdi-tune-vertical' },
-]
 const advancedTabs = [
   { key: 'runtime', title: '运行参数', icon: 'mdi-cog-outline' },
   { key: 'access', title: '访问控制', icon: 'mdi-account-lock-outline' },
@@ -202,8 +153,7 @@ const currentMain = computed(() => mainTabs.find(item => item.key === activeMain
 const currentSubTabs = computed(() => (
   activeMain.value === 'basic' ? []
     : activeMain.value === 'profile' ? profileTabs
-      : activeMain.value === 'strategy' ? strategyTabs
-        : activeMain.value === 'advanced' ? advancedTabs
+      : activeMain.value === 'advanced' ? advancedTabs
           : []
 ))
 const activePromptDefinition = computed(() => promptDefinitions.find(item => item.key === promptEditor.key) || promptDefinitions[0])
@@ -282,37 +232,40 @@ const candidateSourceEntries = computed(() => Object.entries(latestMetrics.value
 const candidateExclusionEntries = computed(() => Object.entries(latestMetrics.value.candidate_exclusion_counts || {}).map(([key, value]) => [exclusionLabel(key), value]))
 const sourceErrorEntries = computed(() => Object.entries(latestMetrics.value.source_errors || {}))
 const sourceErrorsText = computed(() => sourceErrorEntries.value.map(([key, value]) => `${sourceLabel(key)}：${value}`).join('；'))
-const retrievalFilterEntries = computed(() => Object.entries(overview.value?.profile?.filters || {}).map(([key, value]) => [filterLabel(key), formatFilterValue(key, value)]))
+const retrievalPlan = computed(() => latestMetrics.value.retrieval_trace || {})
+const retrievalActionEntries = computed(() => (retrievalPlan.value.actions || []).map(action => (
+  `${sourceLabel(action.tool)} · ${retrievalPurposeLabel(action.purpose)}`
+)))
+const retrievalConstraintEntries = computed(() => retrievalPlan.value.hard_constraints || [])
+const retrievalSignalEntries = computed(() => (retrievalPlan.value.soft_signals || []).slice(0, 8))
+const retrievalRelaxationEntries = computed(() => retrievalPlan.value.relaxation_order || [])
+const retrievalLayerEntries = computed(() => Object.entries(latestMetrics.value.candidate_layer_counts || {})
+  .filter(([, value]) => Number(value) > 0)
+  .map(([key, value]) => [retrievalLayerLabel(key), value]))
+const retrievalProcessingEntries = computed(() => {
+  const counts = latestMetrics.value.candidate_processing_counts || {}
+  return [
+    ['原始召回', counts.raw],
+    ['识别成功', counts.recognized],
+    ['冻结候选', counts.accepted],
+  ].filter(([, value]) => Number.isFinite(Number(value)))
+})
+const boardRecommendations = computed(() => overview.value?.board?.recommendations || [])
+const judgmentDimensionEntries = computed(() => countedBoardValues(item => (
+  item.support?.positive_dimensions || []
+), evidenceDimensionLabel))
+const judgmentSourceEntries = computed(() => countedBoardValues(item => item.sources || [], sourceLabel))
+const judgmentTagEntries = computed(() => countedBoardValues(item => item.match_tags || [], value => value).slice(0, 8))
 const pipelineSteps = [
   { key: 'probe', title: '探测依赖' },
   { key: 'playback_snapshot', title: '冻结播放' },
   { key: 'profile', title: '生成画像' },
+  { key: 'retrieval', title: 'Agent策划检索' },
   { key: 'candidate', title: '冻结候选' },
   { key: 'preliminary', title: '初赛判断', statusKey: 'ranking', durationMetric: 'preliminary_ms' },
   { key: 'final', title: '决赛榜单', statusMetric: 'final_status', durationMetric: 'final_ms' },
   { key: 'save', title: '校验保存' },
 ]
-
-const sourceDefs = computed(() => {
-  const runtimeOptions = sourceOptions.value.filter(item => item && item.available !== false)
-  const keys = runtimeOptions.length
-    ? runtimeOptions.map(item => item.key)
-    : Object.keys(defaults.discovery_sources)
-  return keys.map(key => ({
-    key,
-    ...(sourceMeta[key] || {
-      title: '其他来源',
-      subtitle: 'MoviePilot 内置来源',
-      icon: 'mdi-database-outline',
-    }),
-  }))
-})
-
-function displayValue(value) {
-  if (Array.isArray(value)) return value.join('、') || '无'
-  if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${filterLabel(key)}：${item}`).join('、') || '无'
-  return String(value ?? '') || '无'
-}
 
 const stageLabels = {
   ready: '已就绪', generated: '已生成', reused: '已复用', cached: '已缓存', saved: '已保存', success: '已完成', pending: '等待中', running: '运行中', stopped: '已停止', disabled: '已停用',
@@ -323,37 +276,23 @@ const stageLabels = {
   ranking_agent_failed: '排序 Agent 调用失败', ranking_validation_failed: '排序输出校验失败', ranking_save_failed: '榜单保存失败',
   subscription_partial_failed: '部分订阅失败', validation_failed: '输出校验失败', agent_failed: 'Agent 调用失败', runtime_exception: '运行异常', failed: '失败', blocked: '已阻断',
 }
-const filterLabels = {
-  media_types: '媒体类型',
-  genre_ids: '题材',
-  genres: '题材',
-  keyword_ids: '关键词',
-  original_languages: '语言',
-  languages: '语言',
-  year_min: '最早年份',
-  year_max: '最晚年份',
-  release_year_min: '最早年份',
-  release_year_max: '最晚年份',
-  rating_min: '最低评分',
-  vote_count_min: '最低票数',
-  sort_by: '排序方式',
-}
 const sourceLabels = { douban: '豆瓣发现', tmdb: 'TMDB', tmdb_recommend: 'TMDB 推荐', tmdb_movies: 'TMDB 电影', tmdb_tv: 'TMDB 剧集', bangumi: 'Bangumi', anilist: 'AniList' }
 const exclusionLabels = { invalid_or_unrecognized: '无效或未识别', watched: '已观看', watched_completed: '已看完', library: '已入库', subscribed: '已订阅', disliked: '已点踩', archived: '已忽略', negative_keyword: '避雷命中', ambiguous_playback_count: '播放次数误写为看完次数', unsupported_playback_claim: '观看经历无法回溯' }
-const mediaTypeLabels = { movie: '电影', tv: '剧集', anime: '动漫' }
-const languageLabels = { zh: '中文', ja: '日语', ko: '韩语', en: '英语', fr: '法语', de: '德语', es: '西班牙语', it: '意大利语', ru: '俄语', th: '泰语' }
-const sortLabels = { 'popularity.desc': '热度降序', 'vote_average.desc': '评分降序', 'primary_release_date.desc': '上映日期降序', 'first_air_date.desc': '首播日期降序' }
+const retrievalPurposeLabels = { trend: '趋势探索', adjacent: '相邻兴趣', directed_search: '定向搜索', new_release: '新作探索', related: '相关推荐', discovery: '发现探索' }
+const retrievalLayerLabels = { exact: '精确条件', relaxed: '已放宽', adjacent: '相邻兴趣', public_recommend: '相关推荐' }
+const evidenceDimensionLabels = { type_weight: '媒体类型', theme_weight: '题材主题', actor_weight: '演员偏好', director_weight: '导演偏好', region_weight: '地区偏好', year_weight: '年代偏好', rating_weight: '口碑评分', heat_weight: '当前热度', freshness_weight: '新鲜程度', similarity_weight: '内容相似' }
 function sourceLabel(value) { return sourceLabels[value] || '其他来源' }
 function exclusionLabel(value) { return exclusionLabels[value] || '其他排除原因' }
-function filterLabel(value) { return filterLabels[value] || '其他条件' }
-function formatFilterValue(key, value) {
-  if (key === 'media_types' && Array.isArray(value)) return value.map(item => mediaTypeLabels[item] || '其他类型')
-  if ((key === 'original_languages' || key === 'languages') && Array.isArray(value)) return value.map(item => {
-    const legacyLabel = languageLabels[item] || item
-    return languageLabels[item] ? legacyLabel : '其他语言'
+function retrievalPurposeLabel(value) { return retrievalPurposeLabels[value] || '定向检索' }
+function retrievalLayerLabel(value) { return retrievalLayerLabels[value] || value }
+function evidenceDimensionLabel(value) { return evidenceDimensionLabels[value] || String(value || '').replace(/_weight$/, '') || '其他证据' }
+function countedBoardValues(readValues, labelValue) {
+  const counts = new Map()
+  boardRecommendations.value.forEach(item => {
+    const values = new Set((readValues(item) || []).filter(Boolean))
+    values.forEach(value => counts.set(labelValue(value), (counts.get(labelValue(value)) || 0) + 1))
   })
-  if (key === 'sort_by') return sortLabels[value] || '其他排序'
-  return value
+  return [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'zh-CN'))
 }
 function formatDateTime(value) {
   if (!value) return '尚未同步'
@@ -363,13 +302,11 @@ function formatDateTime(value) {
 
 function subTabActive(key) {
   if (activeMain.value === 'profile') return activeProfile.value === key
-  if (activeMain.value === 'strategy') return activeStrategy.value === key
   return activeAdvanced.value === key
 }
 
 function selectSubTab(key) {
   if (activeMain.value === 'profile') activeProfile.value = key
-  else if (activeMain.value === 'strategy') activeStrategy.value = key
   else activeAdvanced.value = key
 }
 
@@ -423,18 +360,6 @@ function applyConfig(value) {
   delete next.agent_prompt
   Object.assign(form, cloneConfig(defaults), next)
   form.playback_enabled = true
-  form.weights = { ...weightDefaults, ...(next.weights || {}) }
-  const sourceKeys = new Set([
-    ...Object.keys(defaults.discovery_sources),
-    ...Object.keys(next.discovery_sources || {}),
-    ...sourceOptions.value.map(item => item.key),
-  ])
-  form.discovery_sources = Object.fromEntries(
-    [...sourceKeys].map(key => [
-      key,
-      Boolean(next.discovery_sources?.[key] ?? defaults.discovery_sources[key] ?? false),
-    ]),
-  )
   form.emby_identities = Array.isArray(next.emby_identities)
     ? next.emby_identities.filter(identity => identity?.profile_id)
     : []
@@ -450,6 +375,8 @@ function applyConfig(value) {
     : {}
   delete form.media_types
   delete form.exclude_keywords
+  delete form.discovery_sources
+  delete form.weights
 }
 
 watch(() => props.initialConfig, applyConfig, { immediate: true, deep: true })
@@ -494,7 +421,6 @@ async function loadRuntime() {
     status.value = statusData || status.value
     availableIdentities.value = Array.isArray(optionsData?.emby_identities) ? optionsData.emby_identities : []
     availableLibraries.value = optionsData?.emby_libraries && typeof optionsData.emby_libraries === 'object' ? optionsData.emby_libraries : {}
-    sourceOptions.value = Array.isArray(optionsData?.source_options) ? optionsData.source_options : []
     if (Array.isArray(optionsData?.notification_type_options) && optionsData.notification_type_options.length) {
       notificationTypeOptions.value = optionsData.notification_type_options
     }
@@ -828,17 +754,41 @@ onMounted(loadRuntime)
                 </div>
                 <div class="ar-config__overview-panel">
                   <div class="ar-config__panel-head"><span>画像版本</span><VChip size="x-small" variant="outlined">结构 {{ overview?.profile?.schema_version || '-' }}</VChip></div>
-                  <div class="ar-config__hint">检索解析版本 {{ overview?.profile?.retrieval_resolution_version || '-' }} · 播放证据 {{ overview?.profile?.playback_count || 0 }} 条</div>
+                  <div class="ar-config__hint">播放证据 {{ overview?.profile?.playback_count || 0 }} 条 · 本轮检索由 Agent 临时策划</div>
                   <div class="ar-config__tag-row">
-                    <VChip v-for="tag in overview?.profile?.ranking_tags || []" :key="tag" size="x-small" variant="tonal" color="primary">{{ tag }}</VChip>
-                    <span v-if="!(overview?.profile?.ranking_tags || []).length" class="ar-config__empty">暂无排序标签</span>
+                    <VChip v-for="tag in overview?.profile?.tags || []" :key="tag" size="x-small" variant="tonal" color="primary">{{ tag }}</VChip>
+                    <span v-if="!(overview?.profile?.tags || []).length" class="ar-config__empty">暂无稳定偏好标签</span>
                   </div>
                 </div>
-                <div class="ar-config__overview-panel">
-                  <div class="ar-config__panel-head"><span>检索计划</span><small>{{ retrievalFilterEntries.length }} 项过滤</small></div>
+                <div class="ar-config__overview-panel ar-config__overview-panel--wide">
+                  <div class="ar-config__panel-head"><span>本轮检索轨迹</span><small>{{ retrievalActionEntries.length }} 项动作</small></div>
                   <div class="ar-config__metric-list">
-                    <span v-for="([key, value]) in retrievalFilterEntries" :key="key"><b>{{ key }}</b>{{ displayValue(value) }}</span>
-                    <span v-if="!retrievalFilterEntries.length" class="ar-config__empty">暂无已解析过滤条件</span>
+                    <span v-if="retrievalPlan.goal" class="ar-config__metric-wide"><b>目标</b>{{ retrievalPlan.goal }}</span>
+                    <span v-if="!retrievalActionEntries.length" class="ar-config__empty">等待下一轮 Agent 策划</span>
+                  </div>
+                  <div v-if="retrievalActionEntries.length" class="ar-config__trace-grid">
+                    <div>
+                      <small>实际调用</small>
+                      <span v-for="action in retrievalActionEntries" :key="action">{{ action }}</span>
+                    </div>
+                    <div>
+                      <small>明确限制</small>
+                      <span v-for="constraint in retrievalConstraintEntries" :key="constraint">{{ constraint }}</span>
+                      <span v-if="!retrievalConstraintEntries.length" class="ar-config__empty">本轮无额外硬限制</span>
+                    </div>
+                    <div>
+                      <small>放宽轨迹</small>
+                      <span v-for="([key, value]) in retrievalLayerEntries" :key="key">{{ key }} <b>{{ value }}</b></span>
+                      <span v-if="!retrievalLayerEntries.length" class="ar-config__empty">本轮未记录放宽层次</span>
+                    </div>
+                    <div>
+                      <small>候选处理</small>
+                      <span v-for="([key, value]) in retrievalProcessingEntries" :key="key">{{ key }} <b>{{ value }}</b></span>
+                    </div>
+                  </div>
+                  <div v-if="retrievalRelaxationEntries.length" class="ar-config__trace-sequence">
+                    <small>受控放宽顺序</small>
+                    <span v-for="(item, index) in retrievalRelaxationEntries" :key="item">{{ index + 1 }}. {{ item }}</span>
                   </div>
                 </div>
                 <div class="ar-config__overview-panel">
@@ -858,6 +808,28 @@ onMounted(loadRuntime)
                   <div v-if="sourceErrorEntries.length" class="ar-config__source-errors">
                     <VIcon icon="mdi-alert-circle-outline" size="15" color="warning" />
                     <span>{{ sourceErrorsText }}</span>
+                  </div>
+                </div>
+                <div class="ar-config__overview-panel">
+                  <div class="ar-config__panel-head"><span>本轮判断依据</span><small>{{ boardRecommendations.length }} 项推荐</small></div>
+                  <div class="ar-config__metric-columns">
+                    <div>
+                      <small>主要证据维度</small>
+                      <span v-for="([key, value]) in judgmentDimensionEntries" :key="key">{{ key }} <b>{{ value }}</b></span>
+                      <span v-if="!judgmentDimensionEntries.length" class="ar-config__empty">暂无已核验证据</span>
+                    </div>
+                    <div>
+                      <small>候选事实来源</small>
+                      <span v-for="([key, value]) in judgmentSourceEntries" :key="key">{{ key }} <b>{{ value }}</b></span>
+                      <span v-if="!judgmentSourceEntries.length" class="ar-config__empty">暂无来源记录</span>
+                    </div>
+                  </div>
+                  <div v-if="judgmentTagEntries.length" class="ar-config__judgment-tags">
+                    <VChip v-for="([key, value]) in judgmentTagEntries" :key="key" size="x-small" variant="tonal" color="info">{{ key }} · {{ value }}</VChip>
+                  </div>
+                  <div v-if="retrievalSignalEntries.length" class="ar-config__trace-sequence ar-config__trace-sequence--signals">
+                    <small>Agent 本轮软信号</small>
+                    <span v-for="item in retrievalSignalEntries" :key="item">{{ item }}</span>
                   </div>
                 </div>
               </div>
@@ -980,7 +952,7 @@ onMounted(loadRuntime)
 
             <div v-show="activeMain === 'agent'" class="ar-config__pane">
               <div class="ar-config__section-title d-flex align-center ga-2">
-                <VIcon icon="mdi-account-voice-outline" size="19" color="primary" />
+                <VIcon icon="mdi-account-voice" size="19" color="primary" />
                 <span>Agent设定</span>
               </div>
               <VAlert type="info" variant="tonal" density="compact" class="mb-4">
@@ -988,7 +960,7 @@ onMounted(loadRuntime)
               </VAlert>
               <VRow>
                 <VCol cols="12" md="6">
-                  <VTextField v-model="form.agent_display_name" label="显示名称" maxlength="64" counter density="compact" variant="outlined" hide-details="auto" prepend-inner-icon="mdi-account-voice-outline" />
+                  <VTextField v-model="form.agent_display_name" label="显示名称" maxlength="64" counter density="compact" variant="outlined" hide-details="auto" prepend-inner-icon="mdi-account-voice" />
                 </VCol>
                 <VCol cols="12" md="6">
                   <VSelect v-model="form.persona_preset" :items="personaPresetOptions" item-title="title" item-value="value" label="人设预设" density="compact" variant="outlined" hide-details />
@@ -1010,38 +982,6 @@ onMounted(loadRuntime)
                   </VExpansionPanelText>
                 </VExpansionPanel>
               </VExpansionPanels>
-            </div>
-
-            <div v-show="activeMain === 'strategy' && activeStrategy === 'sources'" class="ar-config__pane">
-              <div class="ar-config__section-title">发现来源</div>
-              <VAlert type="info" variant="tonal" density="compact" class="mb-4">来源列表会探测已适配的 MoviePilot 能力（包括 AniList）；宿主未来新增但未声明统一契约的来源不会被自动执行，需完成安全适配后才会显示。</VAlert>
-              <div class="ar-config__source-grid">
-                <VCard v-for="source in sourceDefs" :key="source.key" variant="outlined" class="ar-config__source-card">
-                  <VCardItem>
-                    <template #prepend><VAvatar color="primary" variant="tonal" size="36"><VIcon :icon="source.icon" /></VAvatar></template>
-                    <VCardTitle class="text-subtitle-2">{{ source.title }}</VCardTitle>
-                    <VCardSubtitle>{{ source.subtitle }}</VCardSubtitle>
-                    <template #append><VSwitch v-model="form.discovery_sources[source.key]" color="success" hide-details inset :aria-label="`启用${source.title}`" /></template>
-                  </VCardItem>
-                </VCard>
-              </div>
-            </div>
-
-            <div v-show="activeMain === 'strategy' && activeStrategy === 'weights'" class="ar-config__pane">
-              <div class="ar-config__section-title">权重设置</div>
-              <VAlert type="info" variant="tonal" class="mb-4">Config 是权重唯一写入口；数值越高，Agent 排序时越重视该维度。</VAlert>
-              <div class="ar-config__weight-grid">
-                <div v-for="weight in weightDefs" :key="weight.key" class="ar-config__weight-item">
-                  <div class="d-flex align-center mb-1">
-                    <VIcon :icon="weight.icon" size="18" color="primary" class="mr-2" />
-                    <span class="text-body-2 font-weight-medium">{{ weight.title }}</span>
-                    <VSpacer />
-                    <VChip size="x-small" variant="tonal" color="primary">{{ Number(form.weights[weight.key]).toFixed(1) }}</VChip>
-                  </div>
-                  <VSlider v-model="form.weights[weight.key]" :min="0" :max="1" :step="0.1" color="primary" hide-details thumb-label />
-                  <div class="ar-config__default">默认 {{ weightDefaults[weight.key].toFixed(1) }}</div>
-                </div>
-              </div>
             </div>
 
             <div v-show="activeMain === 'advanced'" class="ar-config__pane">
@@ -1326,6 +1266,7 @@ onMounted(loadRuntime)
 .ar-config__step-copy small { color: rgba(var(--v-theme-on-surface), .55); font-size: 10px; font-weight: 400; }
 .ar-config__overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .ar-config__overview-panel { min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .015); }
+.ar-config__overview-panel--wide { grid-column: 1 / -1; }
 .ar-config__panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
 .ar-config__panel-head small { color: rgba(var(--v-theme-on-surface), .55); font-size: 11px; font-weight: 400; }
 .ar-config__stats { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 4px; font-size: 12px; }
@@ -1338,11 +1279,19 @@ onMounted(loadRuntime)
 .ar-config__metric-columns > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 11px; }
 .ar-config__metric-columns small { color: rgba(var(--v-theme-on-surface), .55); margin-bottom: 2px; }
 .ar-config__metric-columns span { display: flex; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
+.ar-config__trace-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.ar-config__trace-grid > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+.ar-config__trace-grid small, .ar-config__trace-sequence small { color: rgba(var(--v-theme-on-surface), .55); }
+.ar-config__trace-grid span { display: flex; justify-content: space-between; gap: 6px; overflow-wrap: anywhere; }
+.ar-config__trace-sequence { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; font-size: 10px; line-height: 1.4; }
+.ar-config__trace-sequence small { flex: 0 0 100%; }
+.ar-config__trace-sequence span { overflow-wrap: anywhere; }
+.ar-config__trace-sequence--signals span { color: rgba(var(--v-theme-on-surface), .72); }
+.ar-config__judgment-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .ar-config__empty { color: rgba(var(--v-theme-on-surface), .48); font-size: 11px; }
 .ar-config__source-errors { display: flex; align-items: flex-start; gap: 5px; margin-top: 6px; color: rgb(var(--v-theme-warning)); font-size: 10px; line-height: 1.35; }
 .ar-config__overview-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; color: rgba(var(--v-theme-on-surface), .62); font-size: 11px; }
 .ar-config__overview-foot .v-chip { margin-left: auto; }
-.ar-config__source-card { border-radius: 8px; }
 .ar-config__basic-groups { display: grid; gap: 12px; }
 .ar-config__basic-group { padding: 12px 14px; border-radius: 9px; background: rgba(var(--v-theme-on-surface), .025); }
 .ar-config__basic-group + .ar-config__basic-group { border-top: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .55)); }
@@ -1353,11 +1302,7 @@ onMounted(loadRuntime)
 .ar-config__library-select :deep(.v-select__selection) { min-width: 0; }
 .ar-config__select-summary-primary { display: block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ar-config__select-summary-count { flex: 0 0 auto; margin-left: 6px; color: rgba(var(--v-theme-on-surface), .58); white-space: nowrap; }
-.ar-config__hint, .ar-config__default { color: rgba(var(--v-theme-on-surface), .62); font-size: 12px; line-height: 1.5; }
-.ar-config__source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.ar-config__weight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
-.ar-config__weight-item { padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; }
-.ar-config__default { margin-top: -2px; text-align: right; }
+.ar-config__hint { color: rgba(var(--v-theme-on-surface), .62); font-size: 12px; line-height: 1.5; }
 .ar-config__prompt-list { display: flex; flex-direction: column; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden; }
 .ar-config__prompt-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; }
 .ar-config__prompt-row + .ar-config__prompt-row { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
@@ -1404,7 +1349,8 @@ onMounted(loadRuntime)
   .ar-config__subtabs { overflow-x: auto; }
   .ar-config__window--overview { overflow-y: auto; }
   .ar-config__pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ar-config__overview-grid, .ar-config__source-grid, .ar-config__weight-grid { grid-template-columns: 1fr; }
+  .ar-config__overview-grid { grid-template-columns: 1fr; }
+  .ar-config__trace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-config__prompt-row { grid-template-columns: auto minmax(0, 1fr); }
   .ar-config__prompt-row > .v-btn { grid-column: 2; justify-self: end; }
   .ar-config__access-row { grid-template-columns: auto minmax(0, 1fr); }
@@ -1412,8 +1358,8 @@ onMounted(loadRuntime)
   .ar-config__retention-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-config__prompt-dialog { max-height: calc(100dvh - 16px); }
   .ar-config__danger-row { align-items: flex-start; flex-direction: column; }
-  .ar-config__mode-toggle { flex-direction: column; }
-  .ar-config__mode-toggle :deep(.v-btn) { flex: 0 0 auto; width: 100%; }
+  .ar-config__mode-toggle { flex-direction: row; }
+  .ar-config__mode-toggle :deep(.v-btn) { flex: 1 1 0; width: auto; }
 }
 @media (max-width: 390px) {
   .ar-config { width: 100%; padding: 2px; }
@@ -1424,6 +1370,7 @@ onMounted(loadRuntime)
   .ar-config__pane { padding: 12px; }
   .ar-config__actions { flex-wrap: wrap; padding-inline: 12px; }
   .ar-config__retention-grid { grid-template-columns: 1fr; }
+  .ar-config__metric-columns, .ar-config__trace-grid { grid-template-columns: 1fr; }
   .ar-config__data-row { grid-template-columns: auto minmax(0, 1fr); }
   .ar-config__data-row > .v-btn { grid-column: 2; justify-self: end; }
 }

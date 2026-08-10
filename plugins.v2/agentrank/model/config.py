@@ -41,6 +41,8 @@ DISCOVERY_SOURCE_DEFAULTS: Dict[str, bool] = {
     "anilist": True,
 }
 
+AGENT_STRATEGY_VERSION = 2
+
 NOTIFICATION_TYPE_NAMES = {
     "Download",
     "Organize",
@@ -68,6 +70,7 @@ class AgentRankConfig:
 
     enabled: bool = False
     discovery_page_enabled: bool = True
+    strategy_version: int = AGENT_STRATEGY_VERSION
     onlyonce: bool = False
     schedule_enabled: bool = True
     cron: str = "5 18 * * *"
@@ -75,10 +78,6 @@ class AgentRankConfig:
     default_profile_id: str = ""
     profile_access_map: Dict[str, List[str]] = field(default_factory=dict)
     emby_library_ids: Optional[Dict[str, List[str]]] = None
-    discovery_sources: Dict[str, bool] = field(
-        default_factory=lambda: dict(DISCOVERY_SOURCE_DEFAULTS)
-    )
-    weights: Dict[str, float] = field(default_factory=lambda: dict(WEIGHT_DEFAULTS))
     minimum_samples: int = 5
     candidate_pool_size: int = 15
     confidence_threshold: float = 0.6
@@ -333,19 +332,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
     if enabled and identities and not default_profile_id:
         errors.append("default_profile_id is required when enabled")
 
-    raw_weights = raw.get("weights") if isinstance(raw.get("weights"), Mapping) else {}
-    weights: Dict[str, float] = {}
-    for name, default in WEIGHT_DEFAULTS.items():
-        candidate = raw_weights.get(name, raw.get(name, default))
-        weights[name] = _bounded_number(candidate, default, 0.0, 1.0, name, errors)
-
-    raw_sources = raw.get("discovery_sources")
-    source_values = raw_sources if isinstance(raw_sources, Mapping) else {}
-    discovery_sources = {
-        name: bool(source_values.get(name, default))
-        for name, default in DISCOVERY_SOURCE_DEFAULTS.items()
-    }
-
     action_mode = str(raw.get("action_mode") or "notify")
     if action_mode not in {"update", "notify", "auto_subscribe"}:
         errors.append("action_mode must be update, notify, or auto_subscribe")
@@ -404,6 +390,7 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
     config = AgentRankConfig(
         enabled=enabled,
         discovery_page_enabled=bool(raw.get("discovery_page_enabled", True)),
+        strategy_version=AGENT_STRATEGY_VERSION,
         onlyonce=bool(raw.get("onlyonce", False)),
         schedule_enabled=bool(raw.get("schedule_enabled", True)),
         cron=str(raw.get("cron") or "5 18 * * *").strip(),
@@ -411,8 +398,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         default_profile_id=default_profile_id,
         profile_access_map=profile_access_map,
         emby_library_ids=emby_library_ids,
-        discovery_sources=discovery_sources,
-        weights=weights,
         minimum_samples=_bounded_integer(
             raw.get("minimum_samples", 5), 5, 1, 100, "minimum_samples", errors
         ),

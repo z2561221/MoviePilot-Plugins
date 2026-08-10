@@ -510,7 +510,7 @@ def _trusted_context(run_id="run-1", username="alice", agent_role="ranking"):
 
 
 def _profile_submission():
-    """构造适配器 collector 可直接返回给既有 parser 的画像结果。"""
+    """构造适配器 collector 可直接返回的稳定画像结果。"""
     return {
         "profile": {
             "summary": "偏好悬疑电影",
@@ -518,18 +518,6 @@ def _profile_submission():
             "negative_tags": [],
             "playback_count": 0,
         },
-        "filters": {
-            "media_types": ["movie"],
-            "genre_ids": [9648],
-            "keyword_ids": [],
-            "original_languages": ["zh"],
-            "year_min": None,
-            "year_max": None,
-            "rating_min": 7.0,
-            "vote_count_min": 100,
-            "sort_by": "popularity.desc",
-        },
-        "ranking_tags": ["高质量悬疑"],
     }
 
 

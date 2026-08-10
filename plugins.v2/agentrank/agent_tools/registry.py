@@ -11,11 +11,13 @@ from .tools import (
     ReadAgentRankFinalContextTool,
     ReadAgentRankPendingContextTool,
     ReadAgentRankProfileContextTool,
+    ReadAgentRankRetrievalContextTool,
     ReadAgentRankWeightsTool,
     ReadAgentRankPlaybackTool,
     SubmitAgentRankBatchResultTool,
     SubmitAgentRankFinalBoardTool,
     SubmitAgentRankProfileResultTool,
+    SubmitAgentRankRetrievalPlanTool,
 )
 
 
@@ -29,6 +31,10 @@ ALLOWED_AGENT_TOOL_NAMES = (
 PROFILE_AGENT_TOOL_NAMES = (
     "read_agentrank_profile_context",
     "submit_agentrank_profile_result",
+)
+RETRIEVAL_AGENT_TOOL_NAMES = (
+    "read_agentrank_retrieval_context",
+    "submit_agentrank_retrieval_plan",
 )
 PRELIMINARY_AGENT_TOOL_NAMES = (
     "read_agentrank_batch_context",
@@ -63,6 +69,7 @@ ALL_AGENT_TOOL_NAMES = tuple(
         (
             *ALLOWED_AGENT_TOOL_NAMES,
             *PROFILE_AGENT_TOOL_NAMES,
+            *RETRIEVAL_AGENT_TOOL_NAMES,
             *PRELIMINARY_AGENT_TOOL_NAMES,
             *FINAL_AGENT_TOOL_NAMES,
             *FEEDBACK_AGENT_TOOL_NAMES,
@@ -81,6 +88,10 @@ AGENT_TOOL_CLASSES = (
 PROFILE_AGENT_TOOL_CLASSES = (
     ReadAgentRankProfileContextTool,
     SubmitAgentRankProfileResultTool,
+)
+RETRIEVAL_AGENT_TOOL_CLASSES = (
+    ReadAgentRankRetrievalContextTool,
+    SubmitAgentRankRetrievalPlanTool,
 )
 PRELIMINARY_AGENT_TOOL_CLASSES = (
     ReadAgentRankBatchContextTool,
@@ -115,6 +126,7 @@ ALL_AGENT_TOOL_CLASSES = tuple(
         (
             *AGENT_TOOL_CLASSES,
             *PROFILE_AGENT_TOOL_CLASSES,
+            *RETRIEVAL_AGENT_TOOL_CLASSES,
             *PRELIMINARY_AGENT_TOOL_CLASSES,
             *FINAL_AGENT_TOOL_CLASSES,
             *FEEDBACK_AGENT_TOOL_CLASSES,
@@ -128,6 +140,8 @@ def tool_classes_for_role(role: str):
     """返回指定 Agent 角色允许实例化的只读工具类。"""
     if str(role or "").strip() == "profile":
         return PROFILE_AGENT_TOOL_CLASSES
+    if str(role or "").strip() == "retrieval":
+        return RETRIEVAL_AGENT_TOOL_CLASSES
     if str(role or "").strip() == "ranking":
         return RANKING_AGENT_TOOL_CLASSES
     if str(role or "").strip() == "preliminary":
@@ -145,6 +159,8 @@ def tool_names_for_role(role: str):
     """返回指定 Agent 角色允许使用的工具名称。"""
     if str(role or "").strip() == "profile":
         return PROFILE_AGENT_TOOL_NAMES
+    if str(role or "").strip() == "retrieval":
+        return RETRIEVAL_AGENT_TOOL_NAMES
     if str(role or "").strip() == "ranking":
         return RANKING_AGENT_TOOL_NAMES
     if str(role or "").strip() == "preliminary":

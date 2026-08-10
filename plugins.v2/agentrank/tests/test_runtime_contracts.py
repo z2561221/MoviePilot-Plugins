@@ -165,7 +165,9 @@ def test_feedback_decisions_require_confirmation_and_cannot_project_memory():
     assert "FeedbackProposalService" in understanding_source
     assert ".materialize(" in understanding_source
     assert "propose_memory_change" in proposal_source
-    assert "ask_clarification" in proposal_source
+    assert "question_draft" in proposal_source
+    assert "ask_clarification" not in proposal_source
+    assert "Agent 动态问询在一次修复后仍不符合协议" in understanding_source
     for forbidden_write in (
         "project_preference_memory",
         "save_preference_memory",

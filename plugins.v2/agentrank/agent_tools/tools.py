@@ -13,6 +13,7 @@ from .schemas import (
     SubmitBatchResultInput,
     SubmitFinalBoardInput,
     SubmitProfileResultInput,
+    SubmitRetrievalPlanInput,
 )
 from .session import resolve_result_collector
 
@@ -36,11 +37,17 @@ class _ReadAgentRankTool(MoviePilotTool):
             )
         if trusted_context.agent_role in {
             "profile",
+            "retrieval",
             "ranking",
             "preliminary",
             "final",
         }:
-            if trusted_context.agent_role in {"profile", "preliminary", "final"}:
+            if trusted_context.agent_role in {
+                "profile",
+                "retrieval",
+                "preliminary",
+                "final",
+            }:
                 collector = resolve_result_collector(self._agent_context)
                 if not collector.mark_context_read():
                     raise RuntimeError(
@@ -120,6 +127,14 @@ def _bounded_strings(
 def _minimal_candidate(value: Any) -> Dict[str, Any]:
     """投影初赛和决赛所需的候选事实，删除长来源载荷。"""
     item = value if isinstance(value, Mapping) else {}
+    metadata = item.get("metadata")
+    metadata = metadata if isinstance(metadata, Mapping) else {}
+    watch_status = _bounded_text(
+        item.get("watch_status") or metadata.get("watch_status") or "unwatched",
+        16,
+    ).casefold()
+    if watch_status not in {"unwatched", "partial", "unknown", "completed"}:
+        watch_status = "unknown"
     return {
         "candidate_id": _bounded_text(item.get("candidate_id"), 128),
         "title": _bounded_text(item.get("title"), 120),
@@ -145,6 +160,13 @@ def _minimal_candidate(value: Any) -> Dict[str, Any]:
         if isinstance(item.get("popularity"), (int, float))
         else None,
         "release_date": _bounded_text(item.get("release_date"), 20),
+        "in_library": (
+            item.get("in_library") is True or metadata.get("in_library") is True
+        ),
+        "subscribed": (
+            item.get("subscribed") is True or metadata.get("subscribed") is True
+        ),
+        "watch_status": watch_status,
     }
 
 
@@ -237,11 +259,17 @@ def _minimal_judgment_card(value: Any) -> Dict[str, Any]:
     """投影决赛所需的初赛判断卡。"""
     item = value if isinstance(value, Mapping) else {}
     counter = item.get("counter_evidence")
+    score_source = (
+        "deterministic_fill"
+        if str(item.get("source") or "").strip() in {"safe_fill", "evidence_fill"}
+        else "agent_preliminary"
+    )
     return {
         "candidate_id": _bounded_text(item.get("candidate_id"), 128),
         "fit_score": item.get("fit_score")
         if isinstance(item.get("fit_score"), int)
         else 0,
+        "score_source": score_source,
         "positive_evidence": [
             _minimal_evidence_claim(claim)
             for claim in item.get("positive_evidence") or ()
@@ -358,6 +386,26 @@ class ReadAgentRankProfileContextTool(_ReadAgentRankTool):
         trusted_context = self._trusted_context()
         return json.dumps(
             _minimal_profile_update_context(trusted_context),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+
+class ReadAgentRankRetrievalContextTool(_ReadAgentRankTool):
+    """检索策划角色一次性读取本轮最小目标与偏好上下文。"""
+
+    name: str = "read_agentrank_retrieval_context"
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("retrieval",)
+    description: str = (
+        "Read the bounded user preference evidence, current run goal and approved "
+        "retrieval capabilities. Call once, then submit one retrieval plan."
+    )
+
+    async def run(self, **kwargs: Any) -> str:
+        """返回宿主预先裁剪并冻结的检索策划上下文。"""
+        trusted_context = self._trusted_context()
+        return json.dumps(
+            to_jsonable(trusted_context.retrieval_context) or {},
             ensure_ascii=False,
             separators=(",", ":"),
         )
@@ -563,6 +611,15 @@ class SubmitAgentRankProfileResultTool(_SubmitAgentRankTool):
     description: str = "Submit the complete profile result and end this Agent turn."
     args_schema: Type[BaseModel] = SubmitProfileResultInput
     allowed_roles: ClassVar[Tuple[str, ...]] = ("profile",)
+
+
+class SubmitAgentRankRetrievalPlanTool(_SubmitAgentRankTool):
+    """终结检索策划会话并提交单轮受控计划。"""
+
+    name: str = "submit_agentrank_retrieval_plan"
+    description: str = "Submit one bounded retrieval plan and end this Agent turn."
+    args_schema: Type[BaseModel] = SubmitRetrievalPlanInput
+    allowed_roles: ClassVar[Tuple[str, ...]] = ("retrieval",)
 
 
 class SubmitAgentRankBatchResultTool(_SubmitAgentRankTool):

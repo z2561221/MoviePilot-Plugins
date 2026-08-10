@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
-from ..model.config import configured_identities
+from ..model.config import WEIGHT_DEFAULTS, configured_identities
 
 
 MEDIA_TYPE_LABELS: Tuple[Tuple[str, str], ...] = (
@@ -78,7 +78,15 @@ def migrate_legacy_profile_config(
 ) -> Dict[str, Any]:
     """原子迁移旧筛选语义；配置持久化失败时恢复全部画像原值。"""
     legacy_keys = {
-        key for key in ("media_types", "exclude_keywords") if key in raw_config
+        key
+        for key in (
+            "media_types",
+            "exclude_keywords",
+            "discovery_sources",
+            "weights",
+            *WEIGHT_DEFAULTS,
+        )
+        if key in raw_config
     }
     if not legacy_keys:
         return {"status": "not_needed", "profile_count": 0, "evidence_count": 0}

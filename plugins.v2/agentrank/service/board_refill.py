@@ -165,7 +165,6 @@ class BoardRefillService:
         preference_evidence: List[str] = []
         if profile is not None:
             preference_evidence.extend(profile.tags)
-            preference_evidence.extend(profile.ranking_tags)
 
         persisted_ids = {
             item.candidate_id

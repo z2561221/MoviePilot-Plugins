@@ -342,7 +342,6 @@ class DataLifecycleService:
                 "summary": _redact_text(profile.summary),
                 "tags": [_redact_text(item) for item in profile.tags],
                 "negative_tags": [_redact_text(item) for item in profile.negative_tags],
-                "ranking_tags": [_redact_text(item) for item in profile.ranking_tags],
                 "playback_count": profile.playback_count,
                 "generated_at": _redact_text(profile.generated_at),
                 "schema_version": profile.schema_version,

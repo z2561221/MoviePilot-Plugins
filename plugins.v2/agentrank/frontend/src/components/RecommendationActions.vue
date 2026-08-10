@@ -50,6 +50,7 @@ const bangumiId = computed(() => firstId(sourceIds.value.bangumi))
 const anilistId = computed(() => firstId(sourceIds.value.anilist))
 const nativeSubscribe = computed(() => props.nativeSubscribe || injectedNativeSubscribe)
 const nativeMediaType = computed(() => props.item?.media_type === 'movie' ? '电影' : '电视剧')
+const alreadySubscribed = computed(() => props.item?.subscribed === true)
 const likePressed = computed(() => props.item?.feedback_kind === 'like')
 const dislikePressed = computed(() => props.item?.feedback_kind === 'dislike')
 const likeLoading = computed(() => props.loadingAction === `feedback:like:${props.item?.candidate_id}`)
@@ -139,7 +140,7 @@ async function handleSubscribe() {
   <div class="ar-actions" role="group" :aria-label="`${item.title} 操作`">
     <VTooltip text="订阅" location="top">
       <template #activator="{ props: tooltipProps }">
-        <VBtn v-bind="tooltipProps" :size="size" variant="tonal" color="primary" class="ar-actions__button text-none" prepend-icon="mdi-bookmark-plus-outline" :loading="loadingAction === 'subscribe' || nativeSubscribePending" :disabled="actionBusy && loadingAction !== 'subscribe'" aria-label="订阅" @click="handleSubscribe"><span class="ar-actions__label">订阅</span></VBtn>
+        <VBtn v-bind="tooltipProps" :size="size" variant="tonal" color="primary" class="ar-actions__button text-none" :prepend-icon="alreadySubscribed ? 'mdi-bookmark-check-outline' : 'mdi-bookmark-plus-outline'" :loading="loadingAction === 'subscribe' || nativeSubscribePending" :disabled="alreadySubscribed || (actionBusy && loadingAction !== 'subscribe')" :aria-label="alreadySubscribed ? '已订阅' : '订阅'" @click="handleSubscribe"><span class="ar-actions__label">{{ alreadySubscribed ? '已订阅' : '订阅' }}</span></VBtn>
       </template>
     </VTooltip>
     <VTooltip text="打开 TMDB" location="top">

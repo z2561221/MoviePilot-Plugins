@@ -99,8 +99,8 @@ def test_skills_do_not_mutate_inputs_and_keep_ignore_as_exclusion_only():
         assert forbidden not in serialized
 
 
-def test_conflict_preview_and_clarification_are_deterministic_and_non_writing():
-    """冲突比较与问询只返回预览，不改变已确认记忆。"""
+def test_conflict_preview_is_deterministic_and_non_writing():
+    """冲突比较只返回预览，不改变已确认记忆。"""
     memory = {
         "items": [
             {
@@ -123,10 +123,6 @@ def test_conflict_preview_and_clarification_are_deterministic_and_non_writing():
         ],
         memory,
     )
-    question = skills_module.ask_clarification(
-        "dislike", "候选作品", ["具体原因不明确"]
-    )
-
     assert conflicts == [
         {
             "memory_item_id": "memory-1",
@@ -135,63 +131,28 @@ def test_conflict_preview_and_clarification_are_deterministic_and_non_writing():
             "reason": "与已确认偏好方向相反",
         }
     ]
-    assert len(question["options"]) == 5
-    assert question["preference_dimension"] == "selection_basis"
-    assert question["exploration_level"] == 0
-    assert question["allow_custom_answer"] is True
-    assert question["writes_applied"] is False
 
 
-def test_editable_persona_changes_question_expression_without_changing_semantics():
-    """人设只修饰问询表达，不修改问题核心与选项契约。"""
-    original = "你更希望推荐保持熟悉感，还是主动尝试新方向？"
-
-    styled = skills_module.style_clarification_question(
-        original, "使用克里斯蒂娜和未来道具研究所的二次元语气"
-    )
-    direct = skills_module.style_clarification_question(
-        original, "表达简洁、直接、克制"
-    )
-
-    assert styled.startswith("唔……根据实验数据，")
-    assert styled.endswith(original)
-    assert direct == original
-
+def test_editable_persona_changes_agent_receipt_expression():
+    """处理回执继续遵循可编辑人设，问询正文则完全由 Agent 生成。"""
     result = skills_module.style_agent_message(
         "已写入长期画像", "使用克里斯蒂娜和未来道具研究所的语气"
     )
     assert result == "知道啦，已写入长期画像"
 
 
-def test_question_variants_are_seeded_and_persona_styling_is_reapplicable():
-    """问询文案按事件稳定变体，重新投影时不会叠加人设前缀。"""
-    common = {
-        "action": "like",
-        "candidate_title": "候选作品",
-        "uncertainties": ("需要确认具体内容偏好",),
-        "question_history": (),
-        "confirmed_memory": {"items": []},
-    }
-    first = skills_module.ask_clarification(**common, selection_seed="event-a")
-    retry = skills_module.ask_clarification(**common, selection_seed="event-a")
-    variants = {
-        skills_module.ask_clarification(
-            **common, selection_seed=seed
-        )["question"]
-        for seed in ("event-a", "event-b", "event-c", "event-d")
-    }
+def test_production_skill_contains_no_fixed_question_catalog_or_variants():
+    """生产问询不得保留固定题库、固定选项或播放校准模板。"""
+    source = Path(skills_module.__file__).read_text(encoding="utf-8")
 
-    assert retry["question"] == first["question"]
-    assert len(variants) >= 2
-    styled = skills_module.style_clarification_question(
-        first["question"], "使用克里斯蒂娜和未来道具研究所的二次元语气"
-    )
-    assert skills_module.style_clarification_question(
-        styled, "使用克里斯蒂娜和未来道具研究所的二次元语气"
-    ) == styled
-    assert skills_module.style_clarification_question(
-        styled, "表达简洁、直接、克制"
-    ) == first["question"]
+    for forbidden in (
+        "_PREFERENCE_QUESTION_CATALOG",
+        "_QUESTION_VARIANTS",
+        "_PLAYBACK_CALIBRATION_VARIANTS",
+        "def ask_playback_calibration",
+        "def ask_clarification",
+    ):
+        assert forbidden not in source
 
 
 def test_feedback_prompt_locks_persona_tools_schema_and_psychology_boundary():
@@ -209,9 +170,34 @@ def test_feedback_prompt_locks_persona_tools_schema_and_psychology_boundary():
         "read_agentrank_pending_context",
         "单个赞踩动作没有评论时，只能返回 ambiguous",
         "ignore 本身只表示排除作品",
+        "question 必须让用户一眼看懂为什么现在问",
+        "options 必须是针对当前问题现场生成的二至五个互不重复答案",
+        "不得调用通用偏好题库",
+        "不要只加统一前缀或口癖来冒充人设",
+        "播放记录直接断言为喜欢",
         "不得推断人格、焦虑、孤独、疾病、创伤",
         "不得写画像、标签、权重、配置、订阅、忽略、通知、文件或外部系统",
         "不得调用通用工具、外部 MCP、子代理或动态技能",
         "不得有代码块",
+    ):
+        assert required in prompt
+
+
+def test_pending_interview_prompt_requires_dynamic_numbered_test_only_question():
+    """待办验收提示要求 Agent 基于真实上下文逐题生成且禁止学习。"""
+    prompt = prompt_module.build_pending_interview_prompt(
+        prompt_module.build_feedback_understanding_prompt(),
+        round_number=3,
+        total=10,
+    )
+
+    for required in (
+        "第3/10题",
+        "outcome=ambiguous",
+        "signals=[]",
+        "不能重复历史问题",
+        "二至五个",
+        "不生成记忆提案",
+        "不得只追加统一口癖或前缀",
     ):
         assert required in prompt

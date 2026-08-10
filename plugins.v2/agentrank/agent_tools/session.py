@@ -9,6 +9,7 @@ from .context import (
     FINAL_AGENT_ROLE,
     PRELIMINARY_AGENT_ROLE,
     PROFILE_AGENT_ROLE,
+    RETRIEVAL_AGENT_ROLE,
     AgentRankTrustedContext,
     to_jsonable,
 )
@@ -16,10 +17,16 @@ from .context import (
 
 RESULT_COLLECTOR_KEY = "agentrank_result_collector"
 TERMINAL_AGENT_ROLES = frozenset(
-    {PROFILE_AGENT_ROLE, PRELIMINARY_AGENT_ROLE, FINAL_AGENT_ROLE}
+    {
+        PROFILE_AGENT_ROLE,
+        RETRIEVAL_AGENT_ROLE,
+        PRELIMINARY_AGENT_ROLE,
+        FINAL_AGENT_ROLE,
+    }
 )
 _EXPECTED_SUBMISSION_TOOLS = {
     PROFILE_AGENT_ROLE: "submit_agentrank_profile_result",
+    RETRIEVAL_AGENT_ROLE: "submit_agentrank_retrieval_plan",
     PRELIMINARY_AGENT_ROLE: "submit_agentrank_batch_result",
     FINAL_AGENT_ROLE: "submit_agentrank_final_board",
 }

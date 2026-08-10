@@ -8,7 +8,7 @@ import sys
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -84,8 +84,8 @@ class ExplodingAdapter:
         raise AssertionError("existing understanding must not call Agent again")
 
 
-def test_first_playback_calibration_uses_only_strong_watched_evidence_once():
-    """首次有效播放同步只创建一个整体偏好问题，弱样本不会直接形成假设。"""
+def test_first_playback_calibration_creates_one_agent_event_from_strong_evidence():
+    """首次有效播放同步只创建一条交给 Agent 提问的受信事件。"""
     repository = AgentRankRepository(FakePlugin())
     service = FeedbackProposalService(repository, now_factory=lambda: FIXED_NOW)
     weak = PlaybackSnapshot(
@@ -121,7 +121,7 @@ def test_first_playback_calibration_uses_only_strong_watched_evidence_once():
     )
 
     assert service.create_playback_calibration(PROFILE_ID, weak) == (None, False)
-    question, created = service.create_playback_calibration(
+    event, created = service.create_playback_calibration(
         PROFILE_ID, strong, actor_id="mp-user-1"
     )
     duplicate, duplicate_created = service.create_playback_calibration(
@@ -129,16 +129,89 @@ def test_first_playback_calibration_uses_only_strong_watched_evidence_once():
     )
 
     assert created is True
-    assert question.preference_dimension == "playback_calibration"
-    assert [item.label for item in question.options][-3:] == [
-        "都可以",
-        "不确定",
-        "不是我看的",
-    ]
-    assert question.allow_custom_answer is True
-    assert duplicate.question_id == question.question_id
+    assert event.kind == "playback_calibration"
+    assert event.candidate_id == "profile:playback"
+    assert "《已看作品甲》《重复观看乙》" in event.comment
+    assert "科幻、悬疑、剧情" in event.comment
+    assert duplicate.event_id == event.event_id
     assert duplicate_created is False
-    assert len(repository.load_pending_questions(PROFILE_ID)) == 1
+    assert repository.load_pending_questions(PROFILE_ID) == []
+
+
+def test_explicit_pending_interview_uses_real_context_and_bypasses_quiet_mode():
+    """显式验收可在安静模式创建动态问题，但仍不写长期偏好。"""
+    repository = AgentRankRepository(FakePlugin())
+    service = FeedbackProposalService(
+        repository,
+        now_factory=lambda: FIXED_NOW,
+        interaction_mode="quiet",
+    )
+    snapshot = PlaybackSnapshot(
+        PROFILE_ID,
+        source="playback_reporting",
+        status="ready",
+        samples=[
+            PlaybackSample(
+                "sample-1",
+                "命运石之门",
+                "tv",
+                genres=["科幻", "悬疑"],
+                completed_episode_count=24,
+            )
+        ],
+    )
+    board = SimpleNamespace(
+        recommendations=[SimpleNamespace(title="来自新世界")]
+    )
+
+    event, created = service.create_pending_interview(
+        PROFILE_ID,
+        snapshot,
+        board,
+        actor_id="mp-user-1",
+        idempotency_key="pending-interview-start",
+        total=2,
+    )
+
+    assert created is True
+    assert event.analysis_id.startswith("pending-interview:")
+    assert event.analysis_id.endswith(":2")
+    assert "《命运石之门》" in event.comment
+    assert "《来自新世界》" in event.comment
+    assert "不写入长期偏好" in event.comment
+
+    record = FeedbackUnderstandingRecord(
+        record_id=f"understanding:{event.event_id}",
+        profile_id=PROFILE_ID,
+        event_id=event.event_id,
+        event_sequence=event.sequence,
+        candidate_id=event.candidate_id,
+        action=event.kind,
+        outcome="ambiguous",
+        restatement="需要确认下一次推荐方向",
+        clarification_question="第1/2题：这两部作品中，你更想延续哪种体验？",
+        clarification_options=("时间谜题", "世界观探索", "换种类型"),
+        clarification_allow_custom_answer=True,
+        clarification_dimension="ignored-by-host",
+        created_at=FIXED_NOW.isoformat(),
+    )
+    question = service.materialize(
+        record,
+        event=event,
+        candidate={"candidate_id": "profile:playback"},
+        memory=repository.load_preference_memory(PROFILE_ID),
+        question_draft={
+            "question": record.clarification_question,
+            "options": list(record.clarification_options),
+            "allow_custom_answer": True,
+            "preference_dimension": "ignored-by-host",
+        },
+    )
+
+    assert isinstance(question, PendingQuestion)
+    assert question.preference_dimension.startswith("pending_interview:")
+    assert any("第 1/2 题" in item for item in question.uncertainties)
+    assert repository.load_preference_memory(PROFILE_ID).items == ()
 
 
 def _event(
@@ -185,6 +258,9 @@ def _understanding(
     conflicts=(),
     uncertainties=(),
     memory_revision=0,
+    clarification_question="关于《候选作品》，你这次点赞主要认可哪一点？",
+    clarification_options=("悬念铺陈", "人物关系", "视觉表达"),
+    clarification_dimension="candidate_like_reason",
 ):
     """构造一条已完成且不含模型原文的反馈理解。"""
     return FeedbackUnderstandingRecord(
@@ -204,6 +280,18 @@ def _understanding(
         model_source="agent_tokens",
         model="gpt-feedback",
         model_call_count=1,
+        clarification_question=(
+            clarification_question if outcome == "ambiguous" else ""
+        ),
+        clarification_options=(
+            tuple(clarification_options) if outcome == "ambiguous" else ()
+        ),
+        clarification_allow_custom_answer=outcome == "ambiguous",
+        clarification_dimension=(
+            clarification_dimension if outcome == "ambiguous" else ""
+        ),
+        clarification_exploration_level=1 if outcome == "ambiguous" else 0,
+        clarification_confidence_gap=0.7 if outcome == "ambiguous" else 0.0,
     )
 
 
@@ -366,8 +454,8 @@ def test_proposal_previews_conflict_or_archived_restore_explicitly(
     assert repository.load_preference_memory(PROFILE_ID) == memory
 
 
-def test_ambiguous_feedback_creates_dynamic_global_question_and_custom_answer():
-    """歧义反馈生成整体偏好动态问询，不绑定单部作品或生成记忆提案。"""
+def test_ambiguous_feedback_uses_agent_question_and_clear_candidate_context():
+    """歧义反馈逐字采用 Agent 草稿，并明确展示当前作品与触发原因。"""
     repository = AgentRankRepository(FakePlugin())
     event = _event(repository, comment="")
     before = repository.load_preference_memory(PROFILE_ID)
@@ -385,24 +473,50 @@ def test_ambiguous_feedback_creates_dynamic_global_question_and_custom_answer():
     )
 
     assert isinstance(question, PendingQuestion)
-    assert question.question in {
-        "平时挑选影视内容时，你通常最先看重什么？",
-        "看到一部还不了解的新作品时，什么最容易让你想点开？",
-        "如果要给推荐设一个优先级，你通常会先看哪一项？",
-    }
-    assert "候选作品" not in question.question
-    assert len(question.options) == 5
+    assert question.question == "关于《候选作品》，你这次点赞主要认可哪一点？"
+    assert question.uncertainties == (
+        "提问背景：你刚刚对《候选作品》点了赞，但 Agent 还缺少一个会影响后续推荐的关键信息。",
+    )
+    assert len(question.options) == 3
     assert [item.option_id for item in question.options] == [
-        "option_1", "option_2", "option_3", "option_4", "option_5"
+        "option_1", "option_2", "option_3"
     ]
-    assert question.preference_dimension == "selection_basis"
-    assert question.exploration_level == 0
+    assert [item.label for item in question.options] == [
+        "悬念铺陈", "人物关系", "视觉表达"
+    ]
+    assert question.preference_dimension == "candidate_like_reason"
+    assert question.exploration_level == 1
     assert 0.0 < question.confidence_gap <= 1.0
     assert question.allow_custom_answer is True
     assert question.reminder_policy == "unselected"
     assert question.next_remind_at == ""
     assert repository.load_memory_proposals(PROFILE_ID) == []
     assert repository.load_preference_memory(PROFILE_ID) == before
+
+
+def test_ambiguous_feedback_without_agent_question_has_no_template_fallback():
+    """理解记录没有合格 Agent 草稿时，不创建任何宿主固定问询。"""
+    repository = AgentRankRepository(FakePlugin())
+    event = _event(repository, comment="")
+    record = replace(
+        _understanding(
+            event,
+            outcome="ambiguous",
+            uncertainties=("需要确认具体喜欢的内容特征",),
+        ),
+        clarification_question="",
+        clarification_options=(),
+    )
+
+    decision = _service(repository).materialize(
+        record,
+        event=event,
+        candidate={"candidate_id": event.candidate_id, "title": "候选作品"},
+        memory=repository.load_preference_memory(PROFILE_ID),
+    )
+
+    assert decision is None
+    assert repository.load_pending_questions(PROFILE_ID) == []
 
 
 @pytest.mark.parametrize(

@@ -340,6 +340,11 @@ class ControlledRetrievalPlanResolver:
             plan=RetrievalPlan(
                 filters=resolved_filters,
                 ranking_tags=tuple(ranking_tags),
+                goal=plan.goal,
+                actions=plan.actions,
+                hard_constraints=plan.hard_constraints,
+                soft_signals=plan.soft_signals,
+                relaxation_order=plan.relaxation_order,
             ),
             outcomes=tuple(outcomes),
         )

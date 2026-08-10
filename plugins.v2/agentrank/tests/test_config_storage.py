@@ -85,8 +85,8 @@ def _candidate_snapshot(run_id, profile_id, candidates):
     )
 
 
-def test_config_has_exact_ten_weight_defaults_and_valid_bounds():
-    """The strict config model exposes all ten specified 0-1 weights."""
+def test_internal_weight_defaults_are_not_user_config():
+    """十项证据维度保留为内部基准，但旧权重不会进入规范化用户配置。"""
     assert WEIGHT_DEFAULTS == {
         "type_weight": 0.8,
         "theme_weight": 0.8,
@@ -99,30 +99,26 @@ def test_config_has_exact_ten_weight_defaults_and_valid_bounds():
         "freshness_weight": 0.9,
         "similarity_weight": 0.9,
     }
-    config = AgentRankConfig.from_mapping({"weights": WEIGHT_DEFAULTS})
-    assert config.weights == WEIGHT_DEFAULTS
-
-    with pytest.raises(ConfigValidationError, match="type_weight"):
-        AgentRankConfig.from_mapping({"weights": {"type_weight": 1.1}})
+    normalized = normalize_config(
+        {"weights": {"type_weight": 1.1}, "theme_weight": 0.0}
+    )
+    assert "weights" not in normalized
+    assert "theme_weight" not in normalized
+    assert normalized["_validation_errors"] == []
 
 
 def test_discovery_page_defaults_on_and_candidate_pool_defaults_to_fifteen():
-    """发现页入口保持兼容开启，冻结候选目标默认使用十五。"""
+    """发现页入口保持开启，来源选择退出用户配置且策略版本升级。"""
     defaults = AgentRankConfig.from_mapping({})
     assert defaults.discovery_page_enabled is True
     assert defaults.notification_type == "Plugin"
     assert defaults.interaction_mode == "auto"
     assert defaults.candidate_pool_size == 15
-    assert set(defaults.discovery_sources) == {
-        "douban",
-        "tmdb_movies",
-        "tmdb_tv",
-        "bangumi",
-        "anilist",
-    }
-    assert "extensions" not in normalize_config(
+    assert defaults.strategy_version == 2
+    migrated = normalize_config(
         {"discovery_sources": {"douban": False, "extensions": True}}
-    )["discovery_sources"]
+    )
+    assert "discovery_sources" not in migrated
     assert AgentRankConfig.from_mapping(
         {"discovery_page_enabled": False}
     ).discovery_page_enabled is False
@@ -140,28 +136,10 @@ def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
 
     expected_non_privacy = {
         "discovery_page_enabled": True,
+        "strategy_version": 2,
         "onlyonce": False,
         "schedule_enabled": True,
         "cron": "5 18 * * *",
-        "discovery_sources": {
-            "douban": True,
-            "tmdb_movies": True,
-            "tmdb_tv": True,
-            "bangumi": True,
-            "anilist": True,
-        },
-        "weights": {
-            "type_weight": 0.8,
-            "theme_weight": 0.8,
-            "actor_weight": 0.5,
-            "director_weight": 0.4,
-            "region_weight": 0.4,
-            "year_weight": 0.9,
-            "rating_weight": 0.9,
-            "heat_weight": 0.9,
-            "freshness_weight": 0.9,
-            "similarity_weight": 0.9,
-        },
         "minimum_samples": 5,
         "candidate_pool_size": 15,
         "confidence_threshold": 0.6,
@@ -337,7 +315,7 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
     )
 
     assert normalized["emby_identities"] == [HOME_IDENTITY]
-    assert normalized["weights"]["rating_weight"] == WEIGHT_DEFAULTS["rating_weight"]
+    assert "weights" not in normalized
     assert normalized["candidate_pool_size"] >= 10
     assert 0 <= normalized["confidence_threshold"] <= 1
     assert normalized["action_mode"] == "notify"
@@ -357,7 +335,7 @@ def test_config_normalization_recovers_invalid_values_without_load_failure():
         assert removed not in default_config()
 
     corrupted = normalize_config("broken")
-    assert corrupted["weights"] == WEIGHT_DEFAULTS
+    assert "weights" not in corrupted
     assert corrupted["_validation_errors"] == ["config must be a mapping"]
 
 

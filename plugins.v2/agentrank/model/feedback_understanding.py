@@ -150,6 +150,12 @@ class FeedbackUnderstandingRecord:
     analysis_revision_id: str = ""
     analysis_revision_reason: str = ""
     analysis_revision_note: str = ""
+    clarification_question: str = ""
+    clarification_options: Tuple[str, ...] = ()
+    clarification_allow_custom_answer: bool = False
+    clarification_dimension: str = ""
+    clarification_exploration_level: int = 0
+    clarification_confidence_gap: float = 0.0
     created_at: str = ""
     status: str = "analyzed"
     schema_version: int = FEEDBACK_UNDERSTANDING_SCHEMA_VERSION
@@ -173,6 +179,8 @@ class FeedbackUnderstandingRecord:
             "analysis_revision_id",
             "analysis_revision_reason",
             "analysis_revision_note",
+            "clarification_question",
+            "clarification_dimension",
             "created_at",
             "status",
         ):
@@ -183,6 +191,30 @@ class FeedbackUnderstandingRecord:
         object.__setattr__(self, "signals", tuple(self.signals or ()))
         object.__setattr__(self, "conflicts", _conflict_entries(self.conflicts))
         object.__setattr__(self, "uncertainties", _unique_texts(self.uncertainties))
+        object.__setattr__(
+            self,
+            "clarification_options",
+            _unique_texts(self.clarification_options, limit=5),
+        )
+        object.__setattr__(
+            self,
+            "clarification_allow_custom_answer",
+            bool(self.clarification_allow_custom_answer),
+        )
+        object.__setattr__(
+            self,
+            "clarification_exploration_level",
+            max(0, int(self.clarification_exploration_level)),
+        )
+        try:
+            clarification_gap = float(self.clarification_confidence_gap)
+        except (TypeError, ValueError):
+            clarification_gap = 0.0
+        object.__setattr__(
+            self,
+            "clarification_confidence_gap",
+            min(1.0, max(0.0, clarification_gap)),
+        )
         object.__setattr__(self, "schema_version", int(self.schema_version))
         if not self.record_id or not self.profile_id or not self.event_id:
             raise ValueError("feedback understanding identity is incomplete")
@@ -202,6 +234,13 @@ class FeedbackUnderstandingRecord:
             raise ValueError("feedback understanding contains invalid signals")
         if self.outcome == "exclusion_only" and self.signals:
             raise ValueError("exclusion_only understanding cannot contain signals")
+        if self.clarification_question:
+            if not 2 <= len(self.clarification_options) <= 5:
+                raise ValueError("clarification question requires two to five options")
+            if not self.clarification_allow_custom_answer:
+                raise ValueError("clarification question must allow custom answer")
+        elif self.clarification_options:
+            raise ValueError("clarification options require a question")
         revision_fields = (
             self.analysis_revision_id,
             self.analysis_revision_reason,
@@ -249,6 +288,12 @@ class FeedbackUnderstandingRecord:
             "analysis_revision_id": self.analysis_revision_id,
             "analysis_revision_reason": self.analysis_revision_reason,
             "analysis_revision_note": self.analysis_revision_note,
+            "clarification_question": self.clarification_question,
+            "clarification_options": list(self.clarification_options),
+            "clarification_allow_custom_answer": self.clarification_allow_custom_answer,
+            "clarification_dimension": self.clarification_dimension,
+            "clarification_exploration_level": self.clarification_exploration_level,
+            "clarification_confidence_gap": self.clarification_confidence_gap,
             "created_at": self.created_at,
             "status": self.status,
             "schema_version": self.schema_version,
@@ -287,6 +332,17 @@ class FeedbackUnderstandingRecord:
             analysis_revision_id=value.get("analysis_revision_id"),
             analysis_revision_reason=value.get("analysis_revision_reason"),
             analysis_revision_note=value.get("analysis_revision_note"),
+            clarification_question=value.get("clarification_question"),
+            clarification_options=tuple(value.get("clarification_options") or ()),
+            clarification_allow_custom_answer=value.get(
+                "clarification_allow_custom_answer"
+            )
+            is True,
+            clarification_dimension=value.get("clarification_dimension"),
+            clarification_exploration_level=value.get("clarification_exploration_level")
+            or 0,
+            clarification_confidence_gap=value.get("clarification_confidence_gap")
+            or 0.0,
             created_at=value.get("created_at"),
             status=value.get("status") or "analyzed",
             schema_version=value.get("schema_version") or 0,
