@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-BBmiaeIH.js';
+import Config from './__federation_expose_Config-BdTji75a.js';
 import Page from './__federation_expose_Page-Bp6ClMyy.js';
 import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-CXFsw50i.js';
 

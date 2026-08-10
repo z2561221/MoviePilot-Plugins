@@ -1255,7 +1255,10 @@ onMounted(loadRuntime)
 .ar-config__subtab--active { background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); }
 .ar-config__window { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .ar-config__window::-webkit-scrollbar { display: none; }
-.ar-config__window--overview { overflow-y: hidden; }
+.ar-config__window--overview { overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(var(--v-theme-on-surface), .28) transparent; }
+.ar-config__window--overview::-webkit-scrollbar { display: block; width: 8px; }
+.ar-config__window--overview::-webkit-scrollbar-track { background: transparent; }
+.ar-config__window--overview::-webkit-scrollbar-thumb { border-radius: 4px; background: rgba(var(--v-theme-on-surface), .28); }
 .ar-config__pane { min-height: 100%; padding: 18px 20px; }
 .ar-config__pane--overview { padding: 12px 16px; }
 .ar-config__section-title { color: rgb(var(--v-theme-primary)); font-size: 14px; font-weight: 600; margin-bottom: 12px; }
@@ -1347,7 +1350,8 @@ onMounted(loadRuntime)
   .ar-config__nav-list { display: flex; flex-wrap: nowrap; gap: 6px; min-width: max-content; padding: 8px 12px !important; }
   .ar-config__nav-item { flex: 0 0 auto; min-width: 96px; margin: 0; padding-inline: 10px; }
   .ar-config__subtabs { overflow-x: auto; }
-  .ar-config__window--overview { overflow-y: auto; }
+  .ar-config__window--overview { overflow-y: auto; scrollbar-width: none; }
+  .ar-config__window--overview::-webkit-scrollbar { display: none; }
   .ar-config__pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-config__overview-grid { grid-template-columns: 1fr; }
   .ar-config__trace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
