@@ -13,13 +13,35 @@ function unwrapResponse(response) {
 }
 
 /**
+ * 提取 FastAPI 字符串、对象或字段校验数组中的可读错误。
+ */
+function extractFastApiDetail(detail) {
+  const item = Array.isArray(detail)
+    ? detail.find(value => value && typeof value === 'object')
+    : detail;
+  if (typeof item === 'string') return { message: item, code: '' }
+  if (!item || typeof item !== 'object') return { message: '', code: '' }
+  const message = String(item.message || item.msg || '').trim();
+  const location = Array.isArray(item.loc)
+    ? item.loc.map(value => String(value)).filter(Boolean).join('.')
+    : '';
+  return {
+    message: location && message ? `${location}: ${message}` : message,
+    code: String(item.code || item.type || '').trim(),
+  }
+}
+
+/**
  * 统一提取 Axios/FastAPI/普通异常中的可读错误。
  */
 function normalizeApiError(error, fallback = 'Agent榜单请求失败') {
   const detail = error?.response?.data?.detail;
   const contract = detail?.error || error?.response?.data?.error;
-  const normalized = new Error(contract?.message || error?.message || fallback);
-  normalized.code = contract?.code || error?.code || 'request_failed';
+  const fastApiDetail = extractFastApiDetail(detail);
+  const normalized = new Error(
+    contract?.message || fastApiDetail.message || error?.message || fallback,
+  );
+  normalized.code = contract?.code || fastApiDetail.code || error?.code || 'request_failed';
   return normalized
 }
 

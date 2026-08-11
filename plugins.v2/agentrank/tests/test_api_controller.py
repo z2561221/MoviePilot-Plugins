@@ -967,8 +967,8 @@ def test_analysis_comment_api_is_bearer_scoped_idempotent_and_nonblocking():
     assert caught.value.detail["error"]["code"] == "profile_forbidden"
 
 
-def test_regular_user_status_is_filtered_and_config_options_are_forbidden():
-    """普通用户状态只显示授权画像，完整配置接口仅对管理员开放。"""
+def test_regular_user_status_is_filtered_and_config_options_are_available():
+    """普通用户状态仍按授权过滤，但已登录后可读取配置选项。"""
     plugin = FakePlugin()
     plugin._migration_status["status"] = "partial_failed"
     plugin._migration_status["failure_count"] = 1
@@ -996,10 +996,12 @@ def test_regular_user_status_is_filtered_and_config_options_are_forbidden():
     assert hidden_status["migration"]["profiles"] == []
     assert hidden_status["migration"]["status"] == "ready"
 
-    with pytest.raises(fastapi_module.HTTPException) as caught:
-        controller.endpoint_config_options(allowed)
-    assert caught.value.status_code == 403
-    assert caught.value.detail["error"]["code"] == "superuser_required"
+    options = controller.endpoint_config_options(allowed)["data"]
+    assert options["default_profile_id"] == HOME_PROFILE
+    assert [
+        item["profile_id"] for item in options["emby_identities"]
+    ] == [HOME_PROFILE, REMOTE_PROFILE]
+    assert options["config"]["profile_access_map"] == {"7": [HOME_PROFILE]}
 
 
 @pytest.mark.parametrize("profile_id", ["", None])

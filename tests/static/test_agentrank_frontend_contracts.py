@@ -34,6 +34,20 @@ def test_frontend_api_uses_injected_bearer_client_without_token_or_fetch():
     assert "token=" not in source
 
 
+def test_frontend_api_surfaces_fastapi_validation_detail():
+    """FastAPI 原生字段错误必须优先于 Axios 状态码展示。"""
+    source = API.read_text(encoding="utf-8")
+    for marker in (
+        "export function extractFastApiDetail(detail)",
+        "Array.isArray(detail)",
+        "item.message || item.msg",
+        "item.loc.map",
+        "fastApiDetail.message",
+        "fastApiDetail.code",
+    ):
+        assert marker in source
+
+
 def test_shared_state_owns_profile_id_selection_reads_and_actions():
     """One composable owns Emby identity selection, data loading, and actions."""
     assert STATE.exists()

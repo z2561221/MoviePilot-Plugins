@@ -140,11 +140,6 @@ class AgentRankApiController:
                 raise ApiContractError(403, "profile_forbidden", "无权访问该画像身份")
         return self._profile_id(profile_id)
 
-    def _require_superuser(self, token_payload: schemas.TokenPayload) -> None:
-        """限制包含完整插件配置和全部身份的接口只对超级用户开放。"""
-        if not self._is_superuser(token_payload):
-            raise ApiContractError(403, "superuser_required", "仅管理员可访问插件配置")
-
     def _authorize_payload_profile(
         self, token_payload: schemas.TokenPayload, payload: Any
     ) -> None:
@@ -1768,8 +1763,7 @@ class AgentRankApiController:
     def endpoint_config_options(
         self, token_payload: schemas.TokenPayload = Depends(verify_token)
     ) -> Dict[str, Any]:
-        """FastAPI 配置选项入口。"""
-        self._endpoint(self._require_superuser, token_payload)
+        """返回已登录用户可读取的完整配置选项。"""
         return self._endpoint(self.config_options)
 
     def endpoint_overview(

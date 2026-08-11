@@ -307,6 +307,20 @@ def test_discovery_settings_open_embedded_config_and_use_core_save_api():
     assert "api.put('plugin/AgentRank', payload)" in api
 
 
+def test_api_error_normalizer_reads_fastapi_validation_details():
+    """FastAPI 字段校验数组应显示真实位置和消息，而不是只显示状态码。"""
+    api = _read("api.js")
+    for marker in (
+        "export function extractFastApiDetail(detail)",
+        "Array.isArray(detail)",
+        "item.message || item.msg",
+        "item.loc.map",
+        "fastApiDetail.message",
+        "fastApiDetail.code",
+    ):
+        assert marker in api
+
+
 def test_ranking_surfaces_cache_overview_by_stable_profile_id():
     """榜单首屏按稳定 profile_id 聚合缓存，过期刷新失败可见且可重试。"""
     state = _read("useAgentRankState.js")
