@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { getHostApi, getPluginApi, postPluginApi } from './api'
+import { getPluginApi, postPluginApi } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -18,7 +18,6 @@ const defaults = {
   cron: '5 18 * * *',
   emby_identities: [],
   default_profile_id: '',
-  profile_access_map: {},
   emby_library_ids: null,
   minimum_samples: 5,
   candidate_pool_size: 15,
@@ -79,9 +78,6 @@ const notificationTypeOptions = ref([
   { title: '智能体', value: 'Agent' },
   { title: '其它', value: 'Other' },
 ])
-const moviePilotUsers = ref([])
-const accessLoading = ref(false)
-const accessError = ref('')
 const loadError = ref('')
 const runtimeDefaults = ref(structuredClone(defaults))
 const clearProfileDialog = ref(false)
@@ -130,7 +126,6 @@ const profileTabs = [
 ]
 const advancedTabs = [
   { key: 'runtime', title: '运行参数', icon: 'mdi-cog-outline' },
-  { key: 'access', title: '访问控制', icon: 'mdi-account-lock-outline' },
   { key: 'data', title: '数据管理', icon: 'mdi-database-cog-outline' },
   { key: 'prompt', title: '提示设置', icon: 'mdi-text-box-edit-outline' },
 ]
@@ -167,10 +162,6 @@ const profileUpdateMode = computed({
     form.rebuild_profile_each_run = rebuild
   },
 })
-const profileAccessOptions = computed(() => form.emby_identities.map(identity => ({
-  title: `${identity.username} · ${identity.server_name}`,
-  value: identity.profile_id,
-})))
 const serverOptions = computed(() => {
   const names = [...new Set(availableIdentities.value.map(identity => identity.server_name).filter(Boolean))]
   return names.map(name => ({ title: name, value: name }))
@@ -344,6 +335,7 @@ function cloneConfig(value) {
 
 function applyConfig(value) {
   const next = cloneConfig(value)
+  delete next.profile_access_map
   const legacyPersona = String(next.persona_prompt || '').trim()
   const personaPreset = String(next.persona_preset || '').trim()
   if (!personaPreset) {
@@ -367,12 +359,6 @@ function applyConfig(value) {
   form.emby_library_ids = next.emby_library_ids && typeof next.emby_library_ids === 'object'
     ? cloneConfig(next.emby_library_ids)
     : {}
-  form.profile_access_map = next.profile_access_map && typeof next.profile_access_map === 'object'
-    ? Object.fromEntries(Object.entries(next.profile_access_map).map(([userId, profileIds]) => [
-      String(userId),
-      Array.isArray(profileIds) ? [...profileIds] : [],
-    ]))
-    : {}
   delete form.media_types
   delete form.exclude_keywords
   delete form.discovery_sources
@@ -386,27 +372,6 @@ async function loadOverview(profileId = selectedProfileId.value) {
     return
   }
   overview.value = await getPluginApi(props.api, 'overview', { profile_id: profileId })
-}
-
-async function loadMoviePilotUsers() {
-  if (!props.api?.get) return
-  accessLoading.value = true
-  accessError.value = ''
-  try {
-    const users = await getHostApi(props.api, 'user/')
-    moviePilotUsers.value = (Array.isArray(users) ? users : [])
-      .filter(user => user?.id != null && user?.is_active !== false)
-      .map(user => ({
-        id: String(user.id),
-        name: String(user.name || `用户 ${user.id}`),
-        is_superuser: user.is_superuser === true,
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
-  } catch (error) {
-    accessError.value = error?.message || 'MoviePilot 用户列表加载失败'
-  } finally {
-    accessLoading.value = false
-  }
 }
 
 async function loadRuntime() {
@@ -426,10 +391,7 @@ async function loadRuntime() {
     }
     runtimeDefaults.value = { ...structuredClone(defaults), ...(optionsData?.defaults || {}) }
     applyConfig(optionsData?.config || props.initialConfig)
-    await Promise.all([
-      loadOverview(optionsData?.default_profile_id || selectedProfileId.value),
-      loadMoviePilotUsers(),
-    ])
+    await loadOverview(optionsData?.default_profile_id || selectedProfileId.value)
   } catch (error) {
     loadError.value = error?.message || '运行信息加载失败'
   } finally {
@@ -439,27 +401,9 @@ async function loadRuntime() {
 
 function saveConfig() {
   const payload = cloneConfig(form)
-  const configuredProfiles = new Set(payload.emby_identities.map(identity => identity.profile_id))
-  payload.profile_access_map = Object.fromEntries(
-    Object.entries(payload.profile_access_map || {})
-      .map(([userId, profileIds]) => [
-        String(userId),
-        [...new Set((profileIds || []).filter(profileId => configuredProfiles.has(profileId)))],
-      ])
-      .filter(([, profileIds]) => profileIds.length),
-  )
+  delete payload.profile_access_map
   delete payload._validation_errors
   emit('save', payload)
-}
-
-function setProfileAccess(userId, profileIds) {
-  const key = String(userId)
-  const allowed = new Set(form.emby_identities.map(identity => identity.profile_id))
-  const selected = [...new Set((profileIds || []).filter(profileId => allowed.has(profileId)))]
-  const next = { ...(form.profile_access_map || {}) }
-  if (selected.length) next[key] = selected
-  else delete next[key]
-  form.profile_access_map = next
 }
 
 function showActionFeedback(color, message) {
@@ -993,52 +937,6 @@ onMounted(loadRuntime)
                 </VRow>
                 <VAlert type="info" variant="tonal" class="mt-4">冻结候选目标可设为 10-15 条；达到目标即停止识别，来源耗尽后至少 10 条才进入 Agent 初赛。</VAlert>
               </template>
-              <template v-else-if="activeAdvanced === 'access'">
-                <div class="ar-config__section-title">访问控制</div>
-                <VAlert type="info" variant="tonal" density="compact" class="mb-4">
-                  超级用户始终可访问全部已配置画像；普通用户只有在此明确授权后才能读取或操作对应画像。
-                </VAlert>
-                <VAlert v-if="accessError" type="error" variant="tonal" density="compact" class="mb-4">
-                  <div class="ar-config__inline-alert">
-                    <span>{{ accessError }}</span>
-                    <VBtn variant="text" size="small" prepend-icon="mdi-refresh" :loading="accessLoading" @click="loadMoviePilotUsers">重试</VBtn>
-                  </div>
-                </VAlert>
-                <div v-if="accessLoading && !moviePilotUsers.length" class="ar-config__loading-state">
-                  <VProgressCircular indeterminate color="primary" size="28" />
-                  <span>正在读取 MoviePilot 用户</span>
-                </div>
-                <div v-else class="ar-config__access-list">
-                  <div
-                    v-for="user in moviePilotUsers.filter(item => !item.is_superuser)"
-                    :key="user.id"
-                    class="ar-config__access-row"
-                  >
-                    <VAvatar color="info" variant="tonal" size="36"><VIcon icon="mdi-account-outline" size="20" /></VAvatar>
-                    <div class="ar-config__access-user">
-                      <strong>{{ user.name }}</strong>
-                      <small>MoviePilot 用户 {{ user.id }}</small>
-                    </div>
-                    <VSelect
-                      :model-value="form.profile_access_map[user.id] || []"
-                      :items="profileAccessOptions"
-                      label="允许访问的画像"
-                      multiple
-                      chips
-                      closable-chips
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      :disabled="!profileAccessOptions.length"
-                      @update:model-value="setProfileAccess(user.id, $event)"
-                    />
-                  </div>
-                  <div v-if="!moviePilotUsers.some(item => !item.is_superuser)" class="ar-config__empty-state">
-                    <VIcon icon="mdi-account-check-outline" size="28" color="primary" />
-                    <span>当前没有需要单独授权的普通用户</span>
-                  </div>
-                </div>
-              </template>
               <template v-else-if="activeAdvanced === 'data'">
                 <div class="ar-config__section-title">数据保留</div>
                 <div class="ar-config__retention-grid">
@@ -1319,14 +1217,11 @@ onMounted(loadRuntime)
 .ar-config__prompt-dialog-subtitle { white-space: normal; overflow-wrap: anywhere; }
 .ar-config__prompt-dialog-body { overflow-y: auto; }
 .ar-config__prompt-dialog-hint { margin-top: 8px; color: rgba(var(--v-theme-on-surface), .6); font-size: 12px; line-height: 1.5; }
-.ar-config__inline-alert { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.ar-config__loading-state, .ar-config__empty-state { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 10px; color: rgba(var(--v-theme-on-surface), .62); font-size: 13px; }
-.ar-config__access-list, .ar-config__data-actions { display: flex; flex-direction: column; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden; }
-.ar-config__access-row { display: grid; grid-template-columns: auto minmax(120px, .7fr) minmax(240px, 1.3fr); align-items: center; gap: 12px; padding: 12px 14px; }
-.ar-config__access-row + .ar-config__access-row, .ar-config__data-row + .ar-config__data-row { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
-.ar-config__access-user, .ar-config__data-row > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.ar-config__access-user strong, .ar-config__data-row strong { font-size: 13px; }
-.ar-config__access-user small, .ar-config__data-row small { color: rgba(var(--v-theme-on-surface), .6); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.ar-config__data-actions { display: flex; flex-direction: column; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden; }
+.ar-config__data-row + .ar-config__data-row { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.ar-config__data-row > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ar-config__data-row strong { font-size: 13px; }
+.ar-config__data-row small { color: rgba(var(--v-theme-on-surface), .6); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
 .ar-config__retention-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .ar-config__retention-item { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .ar-config__data-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; }
@@ -1357,8 +1252,6 @@ onMounted(loadRuntime)
   .ar-config__trace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-config__prompt-row { grid-template-columns: auto minmax(0, 1fr); }
   .ar-config__prompt-row > .v-btn { grid-column: 2; justify-self: end; }
-  .ar-config__access-row { grid-template-columns: auto minmax(0, 1fr); }
-  .ar-config__access-row > .v-select { grid-column: 1 / -1; }
   .ar-config__retention-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ar-config__prompt-dialog { max-height: calc(100dvh - 16px); }
   .ar-config__danger-row { align-items: flex-start; flex-direction: column; }

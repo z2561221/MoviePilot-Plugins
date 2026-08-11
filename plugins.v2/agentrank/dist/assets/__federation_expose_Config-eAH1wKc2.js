@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi, p as postPluginApi, a as getHostApi } from './_plugin-vue_export-helper-C_i1RKAH.js';
+import { _ as _export_sfc, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BVzMm9gH.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass,createCommentVNode:_createCommentVNode,createBlock:_createBlock,vShow:_vShow,withDirectives:_withDirectives,mergeProps:_mergeProps} = await importShared('vue');
 
@@ -136,32 +136,18 @@ const _hoisted_73 = {
 };
 const _hoisted_74 = { class: "ar-config__hint mt-2" };
 const _hoisted_75 = { class: "ar-config__pane" };
-const _hoisted_76 = { class: "ar-config__inline-alert" };
-const _hoisted_77 = {
-  key: 1,
-  class: "ar-config__loading-state"
-};
-const _hoisted_78 = {
-  key: 2,
-  class: "ar-config__access-list"
-};
-const _hoisted_79 = { class: "ar-config__access-user" };
-const _hoisted_80 = {
-  key: 0,
-  class: "ar-config__empty-state"
-};
-const _hoisted_81 = { class: "ar-config__retention-grid" };
-const _hoisted_82 = { class: "ar-config__hint" };
-const _hoisted_83 = { class: "ar-config__data-actions" };
-const _hoisted_84 = { class: "ar-config__data-row" };
-const _hoisted_85 = { class: "ar-config__data-row" };
-const _hoisted_86 = { class: "ar-config__data-row ar-config__data-row--danger" };
-const _hoisted_87 = { class: "ar-config__prompt-list" };
-const _hoisted_88 = { class: "ar-config__prompt-copy" };
-const _hoisted_89 = { class: "ar-config__prompt-title" };
-const _hoisted_90 = { class: "ar-config__prompt-purpose" };
-const _hoisted_91 = { class: "ar-config__prompt-summary" };
-const _hoisted_92 = { class: "ar-config__hint mt-2" };
+const _hoisted_76 = { class: "ar-config__retention-grid" };
+const _hoisted_77 = { class: "ar-config__hint" };
+const _hoisted_78 = { class: "ar-config__data-actions" };
+const _hoisted_79 = { class: "ar-config__data-row" };
+const _hoisted_80 = { class: "ar-config__data-row" };
+const _hoisted_81 = { class: "ar-config__data-row ar-config__data-row--danger" };
+const _hoisted_82 = { class: "ar-config__prompt-list" };
+const _hoisted_83 = { class: "ar-config__prompt-copy" };
+const _hoisted_84 = { class: "ar-config__prompt-title" };
+const _hoisted_85 = { class: "ar-config__prompt-purpose" };
+const _hoisted_86 = { class: "ar-config__prompt-summary" };
+const _hoisted_87 = { class: "ar-config__hint mt-2" };
 
 const {computed,onMounted,reactive,ref,watch} = await importShared('vue');
 
@@ -188,7 +174,6 @@ const defaults = {
   cron: '5 18 * * *',
   emby_identities: [],
   default_profile_id: '',
-  profile_access_map: {},
   emby_library_ids: null,
   minimum_samples: 5,
   candidate_pool_size: 15,
@@ -249,9 +234,6 @@ const notificationTypeOptions = ref([
   { title: '智能体', value: 'Agent' },
   { title: '其它', value: 'Other' },
 ]);
-const moviePilotUsers = ref([]);
-const accessLoading = ref(false);
-const accessError = ref('');
 const loadError = ref('');
 const runtimeDefaults = ref(structuredClone(defaults));
 const clearProfileDialog = ref(false);
@@ -300,7 +282,6 @@ const profileTabs = [
 ];
 const advancedTabs = [
   { key: 'runtime', title: '运行参数', icon: 'mdi-cog-outline' },
-  { key: 'access', title: '访问控制', icon: 'mdi-account-lock-outline' },
   { key: 'data', title: '数据管理', icon: 'mdi-database-cog-outline' },
   { key: 'prompt', title: '提示设置', icon: 'mdi-text-box-edit-outline' },
 ];
@@ -337,10 +318,6 @@ const profileUpdateMode = computed({
     form.rebuild_profile_each_run = rebuild;
   },
 });
-const profileAccessOptions = computed(() => form.emby_identities.map(identity => ({
-  title: `${identity.username} · ${identity.server_name}`,
-  value: identity.profile_id,
-})));
 const serverOptions = computed(() => {
   const names = [...new Set(availableIdentities.value.map(identity => identity.server_name).filter(Boolean))];
   return names.map(name => ({ title: name, value: name }))
@@ -514,6 +491,7 @@ function cloneConfig(value) {
 
 function applyConfig(value) {
   const next = cloneConfig(value);
+  delete next.profile_access_map;
   const legacyPersona = String(next.persona_prompt || '').trim();
   const personaPreset = String(next.persona_preset || '').trim();
   if (!personaPreset) {
@@ -537,12 +515,6 @@ function applyConfig(value) {
   form.emby_library_ids = next.emby_library_ids && typeof next.emby_library_ids === 'object'
     ? cloneConfig(next.emby_library_ids)
     : {};
-  form.profile_access_map = next.profile_access_map && typeof next.profile_access_map === 'object'
-    ? Object.fromEntries(Object.entries(next.profile_access_map).map(([userId, profileIds]) => [
-      String(userId),
-      Array.isArray(profileIds) ? [...profileIds] : [],
-    ]))
-    : {};
   delete form.media_types;
   delete form.exclude_keywords;
   delete form.discovery_sources;
@@ -556,27 +528,6 @@ async function loadOverview(profileId = selectedProfileId.value) {
     return
   }
   overview.value = await getPluginApi(props.api, 'overview', { profile_id: profileId });
-}
-
-async function loadMoviePilotUsers() {
-  if (!props.api?.get) return
-  accessLoading.value = true;
-  accessError.value = '';
-  try {
-    const users = await getHostApi(props.api, 'user/');
-    moviePilotUsers.value = (Array.isArray(users) ? users : [])
-      .filter(user => user?.id != null && user?.is_active !== false)
-      .map(user => ({
-        id: String(user.id),
-        name: String(user.name || `用户 ${user.id}`),
-        is_superuser: user.is_superuser === true,
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
-  } catch (error) {
-    accessError.value = error?.message || 'MoviePilot 用户列表加载失败';
-  } finally {
-    accessLoading.value = false;
-  }
 }
 
 async function loadRuntime() {
@@ -596,10 +547,7 @@ async function loadRuntime() {
     }
     runtimeDefaults.value = { ...structuredClone(defaults), ...(optionsData?.defaults || {}) };
     applyConfig(optionsData?.config || props.initialConfig);
-    await Promise.all([
-      loadOverview(optionsData?.default_profile_id || selectedProfileId.value),
-      loadMoviePilotUsers(),
-    ]);
+    await loadOverview(optionsData?.default_profile_id || selectedProfileId.value);
   } catch (error) {
     loadError.value = error?.message || '运行信息加载失败';
   } finally {
@@ -609,27 +557,9 @@ async function loadRuntime() {
 
 function saveConfig() {
   const payload = cloneConfig(form);
-  const configuredProfiles = new Set(payload.emby_identities.map(identity => identity.profile_id));
-  payload.profile_access_map = Object.fromEntries(
-    Object.entries(payload.profile_access_map || {})
-      .map(([userId, profileIds]) => [
-        String(userId),
-        [...new Set((profileIds || []).filter(profileId => configuredProfiles.has(profileId)))],
-      ])
-      .filter(([, profileIds]) => profileIds.length),
-  );
+  delete payload.profile_access_map;
   delete payload._validation_errors;
   emit('save', payload);
-}
-
-function setProfileAccess(userId, profileIds) {
-  const key = String(userId);
-  const allowed = new Set(form.emby_identities.map(identity => identity.profile_id));
-  const selected = [...new Set((profileIds || []).filter(profileId => allowed.has(profileId)))];
-  const next = { ...(form.profile_access_map || {}) };
-  if (selected.length) next[key] = selected;
-  else delete next[key];
-  form.profile_access_map = next;
 }
 
 function showActionFeedback(color, message) {
@@ -2066,323 +1996,222 @@ return (_ctx, _cache) => {
                         _: 1
                       })
                     ], 64))
-                  : (activeAdvanced.value === 'access')
+                  : (activeAdvanced.value === 'data')
                     ? (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
-                        _cache[87] || (_cache[87] = _createElementVNode("div", { class: "ar-config__section-title" }, "访问控制", -1)),
+                        _cache[90] || (_cache[90] = _createElementVNode("div", { class: "ar-config__section-title" }, "数据保留", -1)),
+                        _createElementVNode("div", _hoisted_76, [
+                          (_openBlock(), _createElementBlock(_Fragment, null, _renderList(retentionDefinitions, (item) => {
+                            return _createElementVNode("div", {
+                              key: item.key,
+                              class: "ar-config__retention-item"
+                            }, [
+                              _createVNode(_component_VTextField, {
+                                modelValue: form[item.key],
+                                "onUpdate:modelValue": $event => ((form[item.key]) = $event),
+                                modelModifiers: { number: true },
+                                label: item.title,
+                                type: "number",
+                                min: "1",
+                                max: item.max,
+                                density: "compact",
+                                variant: "outlined",
+                                "hide-details": ""
+                              }, null, 8, ["modelValue", "onUpdate:modelValue", "label", "max"]),
+                              _createElementVNode("div", _hoisted_77, _toDisplayString(item.hint), 1)
+                            ])
+                          }), 64))
+                        ]),
+                        _cache[91] || (_cache[91] = _createElementVNode("div", { class: "ar-config__hint mt-2" }, "保留上限随“保存配置”生效，已有数据会在运行时按前缀安全裁剪。", -1)),
+                        _cache[92] || (_cache[92] = _createElementVNode("div", { class: "ar-config__section-title mt-5" }, "数据操作", -1)),
+                        _createElementVNode("div", _hoisted_78, [
+                          _createElementVNode("div", _hoisted_79, [
+                            _createVNode(_component_VAvatar, {
+                              color: "info",
+                              variant: "tonal",
+                              size: "38"
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VIcon, {
+                                  icon: "mdi-download-outline",
+                                  size: "21"
+                                })
+                              ]),
+                              _: 1
+                            }),
+                            _cache[84] || (_cache[84] = _createElementVNode("div", null, [
+                              _createElementVNode("strong", null, "导出脱敏数据"),
+                              _createElementVNode("small", null, "画像、反馈、记忆、分析、对话和归因")
+                            ], -1)),
+                            _createVNode(_component_VBtn, {
+                              variant: "tonal",
+                              color: "info",
+                              "prepend-icon": "mdi-download-outline",
+                              loading: dataActionLoading.value === 'export',
+                              disabled: !selectedProfileId.value,
+                              onClick: exportProfileData
+                            }, {
+                              default: _withCtx(() => [...(_cache[83] || (_cache[83] = [
+                                _createTextVNode("导出", -1)
+                              ]))]),
+                              _: 1
+                            }, 8, ["loading", "disabled"])
+                          ]),
+                          _createElementVNode("div", _hoisted_80, [
+                            _createVNode(_component_VAvatar, {
+                              color: "warning",
+                              variant: "tonal",
+                              size: "38"
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VIcon, {
+                                  icon: "mdi-brain",
+                                  size: "21"
+                                })
+                              ]),
+                              _: 1
+                            }),
+                            _cache[86] || (_cache[86] = _createElementVNode("div", null, [
+                              _createElementVNode("strong", null, "重置交互学习"),
+                              _createElementVNode("small", null, "清除反馈学习、确认记忆、待办、对话与归因")
+                            ], -1)),
+                            _createVNode(_component_VBtn, {
+                              variant: "tonal",
+                              color: "warning",
+                              "prepend-icon": "mdi-backup-restore",
+                              disabled: !selectedProfileId.value,
+                              onClick: _cache[25] || (_cache[25] = $event => (learningResetDialog.value = true))
+                            }, {
+                              default: _withCtx(() => [...(_cache[85] || (_cache[85] = [
+                                _createTextVNode("重置", -1)
+                              ]))]),
+                              _: 1
+                            }, 8, ["disabled"])
+                          ]),
+                          _createElementVNode("div", _hoisted_81, [
+                            _createVNode(_component_VAvatar, {
+                              color: "error",
+                              variant: "tonal",
+                              size: "38"
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VIcon, {
+                                  icon: "mdi-delete-alert-outline",
+                                  size: "21"
+                                })
+                              ]),
+                              _: 1
+                            }),
+                            _cache[88] || (_cache[88] = _createElementVNode("div", null, [
+                              _createElementVNode("strong", null, "清空全部数据"),
+                              _createElementVNode("small", null, "删除当前画像下全部 AgentRank 自有数据并重新初始化")
+                            ], -1)),
+                            _createVNode(_component_VBtn, {
+                              variant: "tonal",
+                              color: "error",
+                              "prepend-icon": "mdi-delete-alert-outline",
+                              disabled: !selectedProfileId.value,
+                              onClick: openFullReset
+                            }, {
+                              default: _withCtx(() => [...(_cache[87] || (_cache[87] = [
+                                _createTextVNode("清空", -1)
+                              ]))]),
+                              _: 1
+                            }, 8, ["disabled"])
+                          ])
+                        ]),
                         _createVNode(_component_VAlert, {
                           type: "info",
                           variant: "tonal",
                           density: "compact",
-                          class: "mb-4"
+                          class: "mt-4"
                         }, {
-                          default: _withCtx(() => [...(_cache[83] || (_cache[83] = [
-                            _createTextVNode(" 超级用户始终可访问全部已配置画像；普通用户只有在此明确授权后才能读取或操作对应画像。 ", -1)
+                          default: _withCtx(() => [...(_cache[89] || (_cache[89] = [
+                            _createTextVNode("两类重置都不会删除 MoviePilot 订阅、订阅任务或媒体库文件。", -1)
                           ]))]),
                           _: 1
-                        }),
-                        (accessError.value)
-                          ? (_openBlock(), _createBlock(_component_VAlert, {
-                              key: 0,
-                              type: "error",
-                              variant: "tonal",
-                              density: "compact",
-                              class: "mb-4"
-                            }, {
-                              default: _withCtx(() => [
-                                _createElementVNode("div", _hoisted_76, [
-                                  _createElementVNode("span", null, _toDisplayString(accessError.value), 1),
-                                  _createVNode(_component_VBtn, {
-                                    variant: "text",
-                                    size: "small",
-                                    "prepend-icon": "mdi-refresh",
-                                    loading: accessLoading.value,
-                                    onClick: loadMoviePilotUsers
-                                  }, {
-                                    default: _withCtx(() => [...(_cache[84] || (_cache[84] = [
-                                      _createTextVNode("重试", -1)
-                                    ]))]),
-                                    _: 1
-                                  }, 8, ["loading"])
-                                ])
-                              ]),
-                              _: 1
-                            }))
-                          : _createCommentVNode("", true),
-                        (accessLoading.value && !moviePilotUsers.value.length)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_77, [
-                              _createVNode(_component_VProgressCircular, {
-                                indeterminate: "",
-                                color: "primary",
-                                size: "28"
-                              }),
-                              _cache[85] || (_cache[85] = _createElementVNode("span", null, "正在读取 MoviePilot 用户", -1))
-                            ]))
-                          : (_openBlock(), _createElementBlock("div", _hoisted_78, [
-                              (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(moviePilotUsers.value.filter(item => !item.is_superuser), (user) => {
-                                return (_openBlock(), _createElementBlock("div", {
-                                  key: user.id,
-                                  class: "ar-config__access-row"
-                                }, [
-                                  _createVNode(_component_VAvatar, {
-                                    color: "info",
-                                    variant: "tonal",
-                                    size: "36"
-                                  }, {
-                                    default: _withCtx(() => [
-                                      _createVNode(_component_VIcon, {
-                                        icon: "mdi-account-outline",
-                                        size: "20"
-                                      })
-                                    ]),
-                                    _: 1
-                                  }),
-                                  _createElementVNode("div", _hoisted_79, [
-                                    _createElementVNode("strong", null, _toDisplayString(user.name), 1),
-                                    _createElementVNode("small", null, "MoviePilot 用户 " + _toDisplayString(user.id), 1)
-                                  ]),
-                                  _createVNode(_component_VSelect, {
-                                    "model-value": form.profile_access_map[user.id] || [],
-                                    items: profileAccessOptions.value,
-                                    label: "允许访问的画像",
-                                    multiple: "",
-                                    chips: "",
-                                    "closable-chips": "",
-                                    density: "compact",
-                                    variant: "outlined",
-                                    "hide-details": "",
-                                    disabled: !profileAccessOptions.value.length,
-                                    "onUpdate:modelValue": $event => (setProfileAccess(user.id, $event))
-                                  }, null, 8, ["model-value", "items", "disabled", "onUpdate:modelValue"])
-                                ]))
-                              }), 128)),
-                              (!moviePilotUsers.value.some(item => !item.is_superuser))
-                                ? (_openBlock(), _createElementBlock("div", _hoisted_80, [
-                                    _createVNode(_component_VIcon, {
-                                      icon: "mdi-account-check-outline",
-                                      size: "28",
-                                      color: "primary"
-                                    }),
-                                    _cache[86] || (_cache[86] = _createElementVNode("span", null, "当前没有需要单独授权的普通用户", -1))
-                                  ]))
-                                : _createCommentVNode("", true)
-                            ]))
+                        })
                       ], 64))
-                    : (activeAdvanced.value === 'data')
-                      ? (_openBlock(), _createElementBlock(_Fragment, { key: 2 }, [
-                          _cache[95] || (_cache[95] = _createElementVNode("div", { class: "ar-config__section-title" }, "数据保留", -1)),
-                          _createElementVNode("div", _hoisted_81, [
-                            (_openBlock(), _createElementBlock(_Fragment, null, _renderList(retentionDefinitions, (item) => {
-                              return _createElementVNode("div", {
-                                key: item.key,
-                                class: "ar-config__retention-item"
-                              }, [
-                                _createVNode(_component_VTextField, {
-                                  modelValue: form[item.key],
-                                  "onUpdate:modelValue": $event => ((form[item.key]) = $event),
-                                  modelModifiers: { number: true },
-                                  label: item.title,
-                                  type: "number",
-                                  min: "1",
-                                  max: item.max,
-                                  density: "compact",
-                                  variant: "outlined",
-                                  "hide-details": ""
-                                }, null, 8, ["modelValue", "onUpdate:modelValue", "label", "max"]),
-                                _createElementVNode("div", _hoisted_82, _toDisplayString(item.hint), 1)
-                              ])
-                            }), 64))
-                          ]),
-                          _cache[96] || (_cache[96] = _createElementVNode("div", { class: "ar-config__hint mt-2" }, "保留上限随“保存配置”生效，已有数据会在运行时按前缀安全裁剪。", -1)),
-                          _cache[97] || (_cache[97] = _createElementVNode("div", { class: "ar-config__section-title mt-5" }, "数据操作", -1)),
-                          _createElementVNode("div", _hoisted_83, [
-                            _createElementVNode("div", _hoisted_84, [
+                    : (_openBlock(), _createElementBlock(_Fragment, { key: 2 }, [
+                        _cache[96] || (_cache[96] = _createElementVNode("div", { class: "ar-config__section-title" }, "提示设置", -1)),
+                        _createElementVNode("div", _hoisted_82, [
+                          (_openBlock(), _createElementBlock(_Fragment, null, _renderList(promptDefinitions, (definition) => {
+                            return _createElementVNode("div", {
+                              key: definition.key,
+                              class: "ar-config__prompt-row"
+                            }, [
                               _createVNode(_component_VAvatar, {
-                                color: "info",
+                                color: "primary",
                                 variant: "tonal",
-                                size: "38"
+                                size: "38",
+                                rounded: "lg"
                               }, {
                                 default: _withCtx(() => [
                                   _createVNode(_component_VIcon, {
-                                    icon: "mdi-download-outline",
-                                    size: "21"
-                                  })
+                                    icon: definition.icon,
+                                    size: "20"
+                                  }, null, 8, ["icon"])
                                 ]),
-                                _: 1
-                              }),
-                              _cache[89] || (_cache[89] = _createElementVNode("div", null, [
-                                _createElementVNode("strong", null, "导出脱敏数据"),
-                                _createElementVNode("small", null, "画像、反馈、记忆、分析、对话和归因")
-                              ], -1)),
+                                _: 2
+                              }, 1024),
+                              _createElementVNode("div", _hoisted_83, [
+                                _createElementVNode("div", _hoisted_84, _toDisplayString(definition.title), 1),
+                                _createElementVNode("div", _hoisted_85, _toDisplayString(definition.purpose), 1),
+                                _createElementVNode("div", _hoisted_86, _toDisplayString(promptSummary(definition.key)), 1)
+                              ]),
                               _createVNode(_component_VBtn, {
                                 variant: "tonal",
-                                color: "info",
-                                "prepend-icon": "mdi-download-outline",
-                                loading: dataActionLoading.value === 'export',
-                                disabled: !selectedProfileId.value,
-                                onClick: exportProfileData
+                                color: "primary",
+                                size: "small",
+                                "prepend-icon": "mdi-pencil-outline",
+                                onClick: $event => (openPromptEditor(definition))
                               }, {
-                                default: _withCtx(() => [...(_cache[88] || (_cache[88] = [
-                                  _createTextVNode("导出", -1)
+                                default: _withCtx(() => [...(_cache[93] || (_cache[93] = [
+                                  _createTextVNode("编辑", -1)
                                 ]))]),
                                 _: 1
-                              }, 8, ["loading", "disabled"])
-                            ]),
-                            _createElementVNode("div", _hoisted_85, [
-                              _createVNode(_component_VAvatar, {
-                                color: "warning",
-                                variant: "tonal",
-                                size: "38"
-                              }, {
-                                default: _withCtx(() => [
-                                  _createVNode(_component_VIcon, {
-                                    icon: "mdi-brain",
-                                    size: "21"
-                                  })
-                                ]),
-                                _: 1
-                              }),
-                              _cache[91] || (_cache[91] = _createElementVNode("div", null, [
-                                _createElementVNode("strong", null, "重置交互学习"),
-                                _createElementVNode("small", null, "清除反馈学习、确认记忆、待办、对话与归因")
-                              ], -1)),
-                              _createVNode(_component_VBtn, {
-                                variant: "tonal",
-                                color: "warning",
-                                "prepend-icon": "mdi-backup-restore",
-                                disabled: !selectedProfileId.value,
-                                onClick: _cache[25] || (_cache[25] = $event => (learningResetDialog.value = true))
-                              }, {
-                                default: _withCtx(() => [...(_cache[90] || (_cache[90] = [
-                                  _createTextVNode("重置", -1)
-                                ]))]),
-                                _: 1
-                              }, 8, ["disabled"])
-                            ]),
-                            _createElementVNode("div", _hoisted_86, [
-                              _createVNode(_component_VAvatar, {
-                                color: "error",
-                                variant: "tonal",
-                                size: "38"
-                              }, {
-                                default: _withCtx(() => [
-                                  _createVNode(_component_VIcon, {
-                                    icon: "mdi-delete-alert-outline",
-                                    size: "21"
-                                  })
-                                ]),
-                                _: 1
-                              }),
-                              _cache[93] || (_cache[93] = _createElementVNode("div", null, [
-                                _createElementVNode("strong", null, "清空全部数据"),
-                                _createElementVNode("small", null, "删除当前画像下全部 AgentRank 自有数据并重新初始化")
-                              ], -1)),
-                              _createVNode(_component_VBtn, {
-                                variant: "tonal",
-                                color: "error",
-                                "prepend-icon": "mdi-delete-alert-outline",
-                                disabled: !selectedProfileId.value,
-                                onClick: openFullReset
-                              }, {
-                                default: _withCtx(() => [...(_cache[92] || (_cache[92] = [
-                                  _createTextVNode("清空", -1)
-                                ]))]),
-                                _: 1
-                              }, 8, ["disabled"])
+                              }, 8, ["onClick"])
                             ])
-                          ]),
-                          _createVNode(_component_VAlert, {
-                            type: "info",
-                            variant: "tonal",
-                            density: "compact",
-                            class: "mt-4"
-                          }, {
-                            default: _withCtx(() => [...(_cache[94] || (_cache[94] = [
-                              _createTextVNode("两类重置都不会删除 MoviePilot 订阅、订阅任务或媒体库文件。", -1)
-                            ]))]),
-                            _: 1
-                          })
-                        ], 64))
-                      : (_openBlock(), _createElementBlock(_Fragment, { key: 3 }, [
-                          _cache[101] || (_cache[101] = _createElementVNode("div", { class: "ar-config__section-title" }, "提示设置", -1)),
-                          _createElementVNode("div", _hoisted_87, [
-                            (_openBlock(), _createElementBlock(_Fragment, null, _renderList(promptDefinitions, (definition) => {
-                              return _createElementVNode("div", {
-                                key: definition.key,
-                                class: "ar-config__prompt-row"
-                              }, [
-                                _createVNode(_component_VAvatar, {
-                                  color: "primary",
-                                  variant: "tonal",
-                                  size: "38",
-                                  rounded: "lg"
-                                }, {
+                          }), 64))
+                        ]),
+                        _createVNode(_component_VExpansionPanels, {
+                          variant: "accordion",
+                          class: "mt-4 ar-config__fixed-rules"
+                        }, {
+                          default: _withCtx(() => [
+                            _createVNode(_component_VExpansionPanel, null, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VExpansionPanelTitle, null, {
                                   default: _withCtx(() => [
                                     _createVNode(_component_VIcon, {
-                                      icon: definition.icon,
-                                      size: "20"
-                                    }, null, 8, ["icon"])
+                                      icon: "mdi-shield-lock-outline",
+                                      color: "primary",
+                                      size: "20",
+                                      class: "me-2"
+                                    }),
+                                    _cache[94] || (_cache[94] = _createTextVNode(" 固定安全规则（只读） ", -1))
                                   ]),
-                                  _: 2
-                                }, 1024),
-                                _createElementVNode("div", _hoisted_88, [
-                                  _createElementVNode("div", _hoisted_89, _toDisplayString(definition.title), 1),
-                                  _createElementVNode("div", _hoisted_90, _toDisplayString(definition.purpose), 1),
-                                  _createElementVNode("div", _hoisted_91, _toDisplayString(promptSummary(definition.key)), 1)
-                                ]),
-                                _createVNode(_component_VBtn, {
-                                  variant: "tonal",
-                                  color: "primary",
-                                  size: "small",
-                                  "prepend-icon": "mdi-pencil-outline",
-                                  onClick: $event => (openPromptEditor(definition))
-                                }, {
-                                  default: _withCtx(() => [...(_cache[98] || (_cache[98] = [
-                                    _createTextVNode("编辑", -1)
+                                  _: 1
+                                }),
+                                _createVNode(_component_VExpansionPanelText, null, {
+                                  default: _withCtx(() => [...(_cache[95] || (_cache[95] = [
+                                    _createElementVNode("ul", { class: "ar-config__rule-list" }, [
+                                      _createElementVNode("li", null, "Agent 只能读取本轮受限工具数据，不能订阅、写数据、改配置或调用消息与文件能力。"),
+                                      _createElementVNode("li", null, "已删除标签进入归档，画像和排序不得恢复、引用或换用近义标签规避。"),
+                                      _createElementVNode("li", null, "观看动机只能作为软排序信号；不得推断人格、焦虑、孤独、疾病或创伤，也不得输出心理诊断。"),
+                                      _createElementVNode("li", null, "画像与榜单必须返回插件规定的 JSON Schema，额外字段和非法候选会被拒绝。"),
+                                      _createElementVNode("li", null, "推荐理由和简介必须各自总结为三十字内的完整短句，禁止按字符截断。"),
+                                      _createElementVNode("li", null, "成功生成的最终榜单固定保存五条；排序校验未满时只从冻结候选池安全补位。")
+                                    ], -1)
                                   ]))]),
                                   _: 1
-                                }, 8, ["onClick"])
-                              ])
-                            }), 64))
+                                })
+                              ]),
+                              _: 1
+                            })
                           ]),
-                          _createVNode(_component_VExpansionPanels, {
-                            variant: "accordion",
-                            class: "mt-4 ar-config__fixed-rules"
-                          }, {
-                            default: _withCtx(() => [
-                              _createVNode(_component_VExpansionPanel, null, {
-                                default: _withCtx(() => [
-                                  _createVNode(_component_VExpansionPanelTitle, null, {
-                                    default: _withCtx(() => [
-                                      _createVNode(_component_VIcon, {
-                                        icon: "mdi-shield-lock-outline",
-                                        color: "primary",
-                                        size: "20",
-                                        class: "me-2"
-                                      }),
-                                      _cache[99] || (_cache[99] = _createTextVNode(" 固定安全规则（只读） ", -1))
-                                    ]),
-                                    _: 1
-                                  }),
-                                  _createVNode(_component_VExpansionPanelText, null, {
-                                    default: _withCtx(() => [...(_cache[100] || (_cache[100] = [
-                                      _createElementVNode("ul", { class: "ar-config__rule-list" }, [
-                                        _createElementVNode("li", null, "Agent 只能读取本轮受限工具数据，不能订阅、写数据、改配置或调用消息与文件能力。"),
-                                        _createElementVNode("li", null, "已删除标签进入归档，画像和排序不得恢复、引用或换用近义标签规避。"),
-                                        _createElementVNode("li", null, "观看动机只能作为软排序信号；不得推断人格、焦虑、孤独、疾病或创伤，也不得输出心理诊断。"),
-                                        _createElementVNode("li", null, "画像与榜单必须返回插件规定的 JSON Schema，额外字段和非法候选会被拒绝。"),
-                                        _createElementVNode("li", null, "推荐理由和简介必须各自总结为三十字内的完整短句，禁止按字符截断。"),
-                                        _createElementVNode("li", null, "成功生成的最终榜单固定保存五条；排序校验未满时只从冻结候选池安全补位。")
-                                      ], -1)
-                                    ]))]),
-                                    _: 1
-                                  })
-                                ]),
-                                _: 1
-                              })
-                            ]),
-                            _: 1
-                          })
-                        ], 64))
+                          _: 1
+                        })
+                      ], 64))
               ], 512), [
                 [_vShow, activeMain.value === 'advanced']
               ])
@@ -2406,7 +2235,7 @@ return (_ctx, _cache) => {
               variant: "text",
               onClick: _cache[26] || (_cache[26] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[102] || (_cache[102] = [
+              default: _withCtx(() => [...(_cache[97] || (_cache[97] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -2417,7 +2246,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-content-save-outline",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[103] || (_cache[103] = [
+              default: _withCtx(() => [...(_cache[98] || (_cache[98] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -2484,7 +2313,7 @@ return (_ctx, _cache) => {
                   "auto-grow": "",
                   "hide-details": "auto"
                 }, null, 8, ["modelValue"]),
-                _cache[104] || (_cache[104] = _createElementVNode("div", { class: "ar-config__prompt-dialog-hint" }, "应用后只更新当前表单，点击配置页“保存配置”后才会持久化。", -1))
+                _cache[99] || (_cache[99] = _createElementVNode("div", { class: "ar-config__prompt-dialog-hint" }, "应用后只更新当前表单，点击配置页“保存配置”后才会持久化。", -1))
               ]),
               _: 1
             }),
@@ -2496,7 +2325,7 @@ return (_ctx, _cache) => {
                   "prepend-icon": "mdi-restore",
                   onClick: restorePromptEditor
                 }, {
-                  default: _withCtx(() => [...(_cache[105] || (_cache[105] = [
+                  default: _withCtx(() => [...(_cache[100] || (_cache[100] = [
                     _createTextVNode("恢复默认", -1)
                   ]))]),
                   _: 1
@@ -2506,7 +2335,7 @@ return (_ctx, _cache) => {
                   variant: "text",
                   onClick: cancelPromptEditor
                 }, {
-                  default: _withCtx(() => [...(_cache[106] || (_cache[106] = [
+                  default: _withCtx(() => [...(_cache[101] || (_cache[101] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -2517,7 +2346,7 @@ return (_ctx, _cache) => {
                   disabled: !promptEditor.draft.trim() || promptEditor.draft.length > 4000,
                   onClick: applyPromptEditor
                 }, {
-                  default: _withCtx(() => [...(_cache[107] || (_cache[107] = [
+                  default: _withCtx(() => [...(_cache[102] || (_cache[102] = [
                     _createTextVNode("应用", -1)
                   ]))]),
                   _: 1
@@ -2541,7 +2370,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCard, null, {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, null, {
-              default: _withCtx(() => [...(_cache[108] || (_cache[108] = [
+              default: _withCtx(() => [...(_cache[103] || (_cache[103] = [
                 _createTextVNode("重建用户画像？", -1)
               ]))]),
               _: 1
@@ -2560,7 +2389,7 @@ return (_ctx, _cache) => {
                   disabled: clearProfileLoading.value,
                   onClick: cancelClearProfile
                 }, {
-                  default: _withCtx(() => [...(_cache[109] || (_cache[109] = [
+                  default: _withCtx(() => [...(_cache[104] || (_cache[104] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -2571,7 +2400,7 @@ return (_ctx, _cache) => {
                   loading: clearProfileLoading.value,
                   onClick: confirmClearProfile
                 }, {
-                  default: _withCtx(() => [...(_cache[110] || (_cache[110] = [
+                  default: _withCtx(() => [...(_cache[105] || (_cache[105] = [
                     _createTextVNode("确认重建", -1)
                   ]))]),
                   _: 1
@@ -2595,7 +2424,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCard, null, {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, null, {
-              default: _withCtx(() => [...(_cache[111] || (_cache[111] = [
+              default: _withCtx(() => [...(_cache[106] || (_cache[106] = [
                 _createTextVNode("重置交互学习？", -1)
               ]))]),
               _: 1
@@ -2614,7 +2443,7 @@ return (_ctx, _cache) => {
                   disabled: dataActionLoading.value === 'learning',
                   onClick: _cache[30] || (_cache[30] = $event => (learningResetDialog.value = false))
                 }, {
-                  default: _withCtx(() => [...(_cache[112] || (_cache[112] = [
+                  default: _withCtx(() => [...(_cache[107] || (_cache[107] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -2625,7 +2454,7 @@ return (_ctx, _cache) => {
                   loading: dataActionLoading.value === 'learning',
                   onClick: confirmLearningReset
                 }, {
-                  default: _withCtx(() => [...(_cache[113] || (_cache[113] = [
+                  default: _withCtx(() => [...(_cache[108] || (_cache[108] = [
                     _createTextVNode("确认重置学习", -1)
                   ]))]),
                   _: 1
@@ -2649,14 +2478,14 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCard, null, {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, null, {
-              default: _withCtx(() => [...(_cache[114] || (_cache[114] = [
+              default: _withCtx(() => [...(_cache[109] || (_cache[109] = [
                 _createTextVNode("清空 AgentRank 全部数据", -1)
               ]))]),
               _: 1
             }),
             (fullResetStage.value === 'prepare')
               ? (_openBlock(), _createBlock(_component_VCardText, { key: 0 }, {
-                  default: _withCtx(() => [...(_cache[115] || (_cache[115] = [
+                  default: _withCtx(() => [...(_cache[110] || (_cache[110] = [
                     _createTextVNode(" 第一步将为当前 MoviePilot 用户签发一次性短时确认令牌。继续后仍需输入确认词，期间不会删除任何数据。 ", -1)
                   ]))]),
                   _: 1
@@ -2683,7 +2512,7 @@ return (_ctx, _cache) => {
                       autocomplete: "off",
                       "hide-details": ""
                     }, null, 8, ["modelValue"]),
-                    _createElementVNode("div", _hoisted_92, "确认令牌有效至 " + _toDisplayString(formatDateTime(fullResetConfirmation.value?.expires_at)) + "，且仅限当前登录用户使用。", 1)
+                    _createElementVNode("div", _hoisted_87, "确认令牌有效至 " + _toDisplayString(formatDateTime(fullResetConfirmation.value?.expires_at)) + "，且仅限当前登录用户使用。", 1)
                   ]),
                   _: 1
                 })),
@@ -2694,7 +2523,7 @@ return (_ctx, _cache) => {
                   disabled: Boolean(dataActionLoading.value),
                   onClick: closeFullReset
                 }, {
-                  default: _withCtx(() => [...(_cache[116] || (_cache[116] = [
+                  default: _withCtx(() => [...(_cache[111] || (_cache[111] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -2708,7 +2537,7 @@ return (_ctx, _cache) => {
                       loading: dataActionLoading.value === 'full-prepare',
                       onClick: prepareFullReset
                     }, {
-                      default: _withCtx(() => [...(_cache[117] || (_cache[117] = [
+                      default: _withCtx(() => [...(_cache[112] || (_cache[112] = [
                         _createTextVNode("继续", -1)
                       ]))]),
                       _: 1
@@ -2721,7 +2550,7 @@ return (_ctx, _cache) => {
                       disabled: fullResetPhrase.value !== '清空全部数据',
                       onClick: confirmFullReset
                     }, {
-                      default: _withCtx(() => [...(_cache[118] || (_cache[118] = [
+                      default: _withCtx(() => [...(_cache[113] || (_cache[113] = [
                         _createTextVNode("确认清空", -1)
                       ]))]),
                       _: 1
@@ -2750,6 +2579,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-05ab8622"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d72c0294"]]);
 
 export { Config as default };

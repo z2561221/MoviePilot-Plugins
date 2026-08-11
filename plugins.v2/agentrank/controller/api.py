@@ -110,35 +110,11 @@ class AgentRankApiController:
             return str(getattr(token_payload, "username", "") or "admin").strip()
         return ""
 
-    def _allowed_profile_ids(
-        self, token_payload: schemas.TokenPayload
-    ) -> List[str]:
-        """返回当前 MP 用户显式允许访问的已配置画像身份。"""
-        configured = list(self._identity_map())
-        if self._is_superuser(token_payload):
-            return configured
-        user_id = self._token_user_id(token_payload)
-        if not user_id:
-            return []
-        access_map = self.plugin._config.get("profile_access_map")
-        raw_allowed = access_map.get(user_id) if isinstance(access_map, Mapping) else []
-        return [
-            profile_id
-            for profile_id in raw_allowed or []
-            if profile_id in configured
-        ]
-
     def _authorize_profile(
-        self, token_payload: schemas.TokenPayload, value: Any
+        self, _token_payload: schemas.TokenPayload, value: Any
     ) -> str:
-        """校验当前 MP 用户对显式 profile_id 的访问权限。"""
-        profile_id = str(value or "").strip()
-        if not profile_id:
-            raise ApiContractError(422, "profile_id_required", "必须指定 profile_id")
-        if not self._is_superuser(token_payload):
-            if profile_id not in self._allowed_profile_ids(token_payload):
-                raise ApiContractError(403, "profile_forbidden", "无权访问该画像身份")
-        return self._profile_id(profile_id)
+        """允许任一已登录 MP 用户访问显式配置的画像身份。"""
+        return self._profile_id(value)
 
     def _authorize_payload_profile(
         self, token_payload: schemas.TokenPayload, payload: Any
@@ -587,26 +563,22 @@ class AgentRankApiController:
         )
 
     def status_for_token(
-        self, token_payload: schemas.TokenPayload
+        self, _token_payload: schemas.TokenPayload
     ) -> Dict[str, Any]:
-        """按当前 MP 用户授权范围过滤状态中的画像身份信息。"""
+        """向任一已登录 MP 用户返回完整插件状态。"""
         response = self.status()
         data = response["data"]
-        allowed_ids = self._allowed_profile_ids(token_payload)
         identities = self._identity_map()
+        profile_ids = list(identities)
         data["profiles"] = [
             {
                 "profile_id": profile_id,
                 "username": identities[profile_id].username,
             }
-            for profile_id in allowed_ids
+            for profile_id in profile_ids
         ]
-        default_profile_id = str(data.get("default_profile_id") or "")
-        if default_profile_id not in allowed_ids:
-            data["default_profile_id"] = ""
-            data["playback"] = None
-        data["migration"] = self._migration_data(allowed_ids)
-        data["data_lifecycle"] = self._data_lifecycle_data(allowed_ids)
+        data["migration"] = self._migration_data(profile_ids)
+        data["data_lifecycle"] = self._data_lifecycle_data(profile_ids)
         return response
 
     def config_options(self) -> Dict[str, Any]:

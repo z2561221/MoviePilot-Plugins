@@ -50,17 +50,13 @@ def test_advanced_options_and_agent_settings_expose_prompt_subtabs():
     assert "<span>Agent设定</span>" in config
 
 
-def test_advanced_settings_expose_access_retention_export_and_two_safe_resets():
-    """访问控制和数据管理复用宿主用户与既有安全生命周期 API。"""
+def test_advanced_settings_expose_retention_export_and_two_safe_resets():
+    """高级设置保留数据治理能力，并完全移除画像访问映射。"""
     config = _read("Config.vue")
     api = _read("api.js")
     preview = (COMPONENT_DIR.parent / "PreviewApp.vue").read_text(encoding="utf-8")
     for marker in (
-        "访问控制",
         "数据管理",
-        "profile_access_map",
-        "getHostApi(props.api, 'user/')",
-        "超级用户始终可访问全部已配置画像",
         "candidate_snapshot_limit",
         "feedback_event_limit",
         "feedback_queue_limit",
@@ -75,9 +71,16 @@ def test_advanced_settings_expose_access_retention_export_and_two_safe_resets():
         "MoviePilot 订阅和媒体库",
     ):
         assert marker in config
-    assert "export async function getHostApi" in api
-    assert "api.get(path, { params })" in api
-    assert "moviePilotUsers" in preview
+    for removed in (
+        "访问控制",
+        "profile_access_map: {}",
+        "form.profile_access_map",
+        "getHostApi(props.api, 'user/')",
+        "超级用户始终可访问全部已配置画像",
+    ):
+        assert removed not in config
+    assert "export async function getHostApi" not in api
+    assert "moviePilotUsers" not in preview
     assert "confirmation_token: `preview-${Date.now()}`" in preview
 
 

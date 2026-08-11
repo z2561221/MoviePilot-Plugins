@@ -219,13 +219,12 @@ def test_config_runtime_overview_exposes_identity_gate_and_frozen_pool_evidence(
 
 
 def test_config_data_governance_and_critic_prompt_are_complete_and_guarded():
-    """配置页完整接入访问、保留、导出、双重置和影评师扩展提示词。"""
+    """配置页保留数据治理能力，并完全移除画像访问映射。"""
     source = CONFIG.read_text(encoding="utf-8")
     api = API.read_text(encoding="utf-8")
-    for tab in ("运行参数", "访问控制", "数据管理", "提示设置"):
+    for tab in ("运行参数", "数据管理", "提示设置"):
         assert tab in source
     for field in (
-        "profile_access_map",
         "candidate_snapshot_limit",
         "feedback_event_limit",
         "feedback_queue_limit",
@@ -242,8 +241,11 @@ def test_config_data_governance_and_critic_prompt_are_complete_and_guarded():
         "data/reset/full",
     ):
         assert path in source
-    assert "getHostApi(props.api, 'user/')" in source
-    assert "export async function getHostApi" in api
+    assert "访问控制" not in source
+    assert "profile_access_map: {}" not in source
+    assert "form.profile_access_map" not in source
+    assert "getHostApi(props.api, 'user/')" not in source
+    assert "export async function getHostApi" not in api
     assert "fullResetPhrase.value !== '清空全部数据'" in source
     assert "confirmation_token" in source
     assert "MoviePilot 订阅和媒体库" in source
