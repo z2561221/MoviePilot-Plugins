@@ -169,7 +169,7 @@ def test_non_privacy_defaults_follow_current_runtime_without_private_identity():
     assert defaults["enabled"] is False
     assert defaults["emby_identities"] == []
     assert defaults["default_profile_id"] == ""
-    assert defaults["profile_access_map"] == {}
+    assert "profile_access_map" not in defaults
     assert defaults["emby_library_ids"] is None
     assert "media_types" not in defaults
     assert "exclude_keywords" not in defaults
@@ -203,8 +203,8 @@ def test_run_once_switch_defaults_off_and_accepts_explicit_request():
     assert AgentRankConfig.from_mapping({"onlyonce": True}).onlyonce is True
 
 
-def test_emby_identity_config_uses_explicit_mp_user_profile_access_map():
-    """配置只接受 MP 用户 ID 到已选 Emby 画像身份的显式访问授权。"""
+def test_emby_identity_config_ignores_legacy_profile_access_map():
+    """旧访问映射可留在历史输入中，但不再进入运行时配置。"""
     config = AgentRankConfig.from_mapping(
         {
             "enabled": True,
@@ -218,8 +218,8 @@ def test_emby_identity_config_uses_explicit_mp_user_profile_access_map():
     )
     assert config.emby_identities == [HOME_IDENTITY]
     assert config.default_profile_id == "emby:home:user-1"
-    assert config.profile_access_map == {"7": ["emby:home:user-1"]}
     assert config.playback_completion_threshold == 0.9
+    assert "profile_access_map" not in config.to_dict()
     assert "playback_source_mode" not in config.to_dict()
     assert "users" not in config.to_dict()
     assert "default_user" not in config.to_dict()
@@ -227,8 +227,8 @@ def test_emby_identity_config_uses_explicit_mp_user_profile_access_map():
     assert "playback_source_mode" not in default_config()
 
 
-def test_profile_access_map_rejects_unknown_profiles_and_invalid_user_ids():
-    """访问授权不得保留未知画像或无法对应 TokenPayload.sub 的用户键。"""
+def test_legacy_profile_access_map_does_not_add_validation_errors():
+    """废弃访问映射中的旧值不再阻止配置加载。"""
     normalized = normalize_config(
         {
             "emby_identities": [HOME_IDENTITY],
@@ -239,9 +239,8 @@ def test_profile_access_map_rejects_unknown_profiles_and_invalid_user_ids():
         }
     )
 
-    assert normalized["profile_access_map"] == {}
-    assert any("positive MoviePilot user ids" in error for error in normalized["_validation_errors"])
-    assert any("unknown profile ids" in error for error in normalized["_validation_errors"])
+    assert "profile_access_map" not in normalized
+    assert not any("profile_access_map" in error for error in normalized["_validation_errors"])
 
 
 def test_playback_snapshot_is_scoped_and_does_not_store_sensitive_fields():

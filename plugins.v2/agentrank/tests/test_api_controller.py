@@ -145,7 +145,6 @@ class FakePlugin:
             "enabled": True,
             "emby_identities": [HOME_IDENTITY, REMOTE_IDENTITY],
             "default_profile_id": HOME_PROFILE,
-            "profile_access_map": {"7": [HOME_PROFILE]},
             "weights": {"rating_weight": 0.7},
             "_validation_errors": [],
         }
@@ -369,30 +368,21 @@ def test_current_analysis_read_is_profile_authorized_and_revision_bound():
     assert stale.value.status_code == 409
     assert stale.value.detail["error"]["code"] == "analysis_revision_conflict"
 
-    with pytest.raises(fastapi_module.HTTPException) as forbidden:
-        controller.endpoint_analysis(
-            REMOTE_PROFILE, "tmdb:1", "analysis-1", owner
-        )
-    assert forbidden.value.status_code == 403
-
-
-def test_superuser_can_access_every_configured_profile_and_full_options():
-    """超级用户可读取全部已配置画像身份与完整配置选项。"""
+def test_logged_in_user_can_access_every_configured_profile_and_full_options():
+    """任一已登录用户均可读取全部已配置画像身份与完整配置选项。"""
     plugin = FakePlugin()
     _seed(plugin)
     controller = AgentRankApiController(plugin)
-    token = TokenPayload(sub=1, username="admin", super_user=True)
+    token = TokenPayload(sub=8, username="Alice", super_user=False)
 
     assert controller.endpoint_overview(HOME_PROFILE, token)["success"] is True
     assert controller.endpoint_board(REMOTE_PROFILE, token)["success"] is True
     options = controller.endpoint_config_options(token)
-    assert options["data"]["config"]["profile_access_map"] == {
-        "7": [HOME_PROFILE]
-    }
+    assert "profile_access_map" not in options["data"]["config"]
 
 
-def test_regular_user_is_limited_to_explicit_profile_mapping_for_reads_and_writes():
-    """普通用户只能读写显式授权画像，用户名相同也不能猜测授权。"""
+def test_regular_user_can_read_and_write_every_configured_profile():
+    """普通用户无需映射即可读写任一已配置画像。"""
     plugin = FakePlugin()
     _seed(plugin)
     controller = AgentRankApiController(plugin)
@@ -405,26 +395,22 @@ def test_regular_user_is_limited_to_explicit_profile_mapping_for_reads_and_write
     )
     assert archived["data"]["changed"] is True
 
-    for token, profile_id in (
-        (allowed, REMOTE_PROFILE),
-        (unmapped_same_name, HOME_PROFILE),
-        (allowed, "emby:unknown:user-9"),
-    ):
-        with pytest.raises(fastapi_module.HTTPException) as caught:
-            controller.endpoint_profile(profile_id, token)
-        assert caught.value.status_code == 403
-        assert caught.value.detail["error"]["code"] == "profile_forbidden"
+    assert controller.endpoint_profile(REMOTE_PROFILE, allowed)["success"] is True
+    assert controller.endpoint_profile(HOME_PROFILE, unmapped_same_name)["success"] is True
+    second_user_archive = controller.endpoint_archive(
+        {"profile_id": HOME_PROFILE, "candidate_id": "tmdb:1"},
+        unmapped_same_name,
+    )
+    assert second_user_archive["success"] is True
 
     with pytest.raises(fastapi_module.HTTPException) as caught:
-        controller.endpoint_archive(
-            {"profile_id": REMOTE_PROFILE, "candidate_id": "tmdb:2"}, allowed
-        )
-    assert caught.value.status_code == 403
-    assert caught.value.detail["error"]["code"] == "profile_forbidden"
+        controller.endpoint_profile("emby:unknown:user-9", allowed)
+    assert caught.value.status_code == 404
+    assert caught.value.detail["error"]["code"] == "unknown_profile"
 
 
-def test_attribution_routes_enforce_profile_access_before_read_or_mutation():
-    """归因读取、抽屉记录和主动复查都先执行显式 profile 授权。"""
+def test_attribution_routes_accept_any_logged_in_user_for_configured_profile():
+    """归因读取、抽屉记录和主动复查允许任一已登录用户操作配置画像。"""
     plugin = FakePlugin()
 
     class AttributionService:
@@ -461,7 +447,7 @@ def test_attribution_routes_enforce_profile_access_before_read_or_mutation():
     plugin._attribution_service = attribution
     controller = AgentRankApiController(plugin)
     allowed = TokenPayload(sub=7, username="Alice", super_user=False)
-    forbidden = TokenPayload(sub=8, username="Alice", super_user=False)
+    another_user = TokenPayload(sub=8, username="Alice", super_user=False)
 
     assert controller.endpoint_attribution(HOME_PROFILE, allowed)["success"] is True
     opened = controller.endpoint_native_drawer_opened(
@@ -473,21 +459,20 @@ def test_attribution_routes_enforce_profile_access_before_read_or_mutation():
         {"profile_id": HOME_PROFILE}, allowed
     )["success"] is True
 
-    with pytest.raises(fastapi_module.HTTPException) as caught:
-        controller.endpoint_native_drawer_opened(
-            {"profile_id": HOME_PROFILE, "candidate_id": "tmdb:movie:1"},
-            forbidden,
-        )
-    assert caught.value.status_code == 403
+    controller.endpoint_native_drawer_opened(
+        {"profile_id": HOME_PROFILE, "candidate_id": "tmdb:movie:1"},
+        another_user,
+    )
     assert attribution.calls == [
         ("list", HOME_PROFILE),
         ("opened", HOME_PROFILE, "tmdb:movie:1"),
         ("verify", HOME_PROFILE),
+        ("opened", HOME_PROFILE, "tmdb:movie:1"),
     ]
 
 
-def test_conversation_endpoints_reuse_profile_access_and_pass_actor_privilege():
-    """对话读写沿用 profile 鉴权，并把真实操作者与管理员标志传给服务。"""
+def test_conversation_endpoints_allow_profiles_and_pass_actor_privilege():
+    """对话读写允许配置画像，并把真实操作者与管理员标志传给服务。"""
 
     class FakeConversationService:
         """记录控制器传入的对话参数。"""
@@ -525,7 +510,7 @@ def test_conversation_endpoints_reuse_profile_access_and_pass_actor_privilege():
     plugin._conversation = service
     controller = AgentRankApiController(plugin)
     allowed = TokenPayload(sub=7, username="Alice", super_user=False)
-    forbidden = TokenPayload(sub=8, username="Alice", super_user=False)
+    another_user = TokenPayload(sub=8, username="Alice", super_user=False)
     admin = TokenPayload(sub=1, username="admin", super_user=True)
 
     assert controller.endpoint_conversation(HOME_PROFILE, allowed, True)["success"] is True
@@ -565,14 +550,11 @@ def test_conversation_endpoints_reuse_profile_access_and_pass_actor_privilege():
     assert respond_calls[0][1]["is_superuser"] is False
     assert respond_calls[1][1]["is_superuser"] is True
 
-    with pytest.raises(fastapi_module.HTTPException) as caught:
-        controller.endpoint_conversation(HOME_PROFILE, forbidden)
-    assert caught.value.status_code == 403
-    assert caught.value.detail["error"]["code"] == "profile_forbidden"
+    assert controller.endpoint_conversation(HOME_PROFILE, another_user)["success"] is True
 
 
-def test_pending_endpoints_reuse_profile_access_and_hide_actor_from_response():
-    """待确认读写沿用 profile 鉴权并只向服务传递审计身份。"""
+def test_pending_endpoints_allow_profiles_and_hide_actor_from_response():
+    """待确认读写允许配置画像并只向服务传递审计身份。"""
 
     class FakePendingCenter:
         """记录统一待确认服务调用。"""
@@ -599,7 +581,7 @@ def test_pending_endpoints_reuse_profile_access_and_hide_actor_from_response():
     plugin._pending_center = service
     controller = AgentRankApiController(plugin)
     owner = TokenPayload(sub=7, username="Alice", super_user=False)
-    forbidden = TokenPayload(sub=8, username="Alice", super_user=False)
+    another_user = TokenPayload(sub=8, username="Alice", super_user=False)
 
     listed = controller.endpoint_pending_center(HOME_PROFILE, owner)
     responded = controller.endpoint_respond_pending(
@@ -618,10 +600,7 @@ def test_pending_endpoints_reuse_profile_access_and_hide_actor_from_response():
     assert service.calls[1][1]["actor_id"] == "7"
     assert "actor_id" not in str(responded)
 
-    with pytest.raises(fastapi_module.HTTPException) as caught:
-        controller.endpoint_pending_center(HOME_PROFILE, forbidden)
-    assert caught.value.status_code == 403
-    assert caught.value.detail["error"]["code"] == "profile_forbidden"
+    assert controller.endpoint_pending_center(HOME_PROFILE, another_user)["success"] is True
 
 
 def test_start_pending_interview_persists_event_and_enqueues_agent_job():
@@ -696,24 +675,20 @@ def test_pending_center_rebinds_telegram_resolution_handler():
     assert service._resolution_handler is resolver
 
 
-def test_data_export_and_reset_endpoints_reuse_profile_authorization_and_bound_token():
-    """数据接口沿用 profile 鉴权，彻底重置令牌还绑定签发时的 MP 用户。"""
+def test_data_export_allows_logged_in_users_and_reset_token_stays_actor_bound():
+    """数据读取允许已登录用户，彻底重置令牌仍绑定签发时的 MP 用户。"""
     plugin = FakePlugin()
     _seed(plugin)
-    plugin._config["profile_access_map"]["8"] = [HOME_PROFILE]
     controller = AgentRankApiController(plugin)
     owner = TokenPayload(sub=7, username="Alice", super_user=False)
     other = TokenPayload(sub=8, username="Bob", super_user=False)
-    forbidden = TokenPayload(sub=9, username="Mallory", super_user=False)
+    another_user = TokenPayload(sub=9, username="Mallory", super_user=False)
 
     exported = controller.endpoint_data_export(HOME_PROFILE, owner)
     assert exported["data"]["profile"]["summary"] == "画像"
     assert "retention_policy" in exported["data"]
 
-    with pytest.raises(fastapi_module.HTTPException) as caught:
-        controller.endpoint_data_export(HOME_PROFILE, forbidden)
-    assert caught.value.status_code == 403
-    assert caught.value.detail["error"]["code"] == "profile_forbidden"
+    assert controller.endpoint_data_export(HOME_PROFILE, another_user)["success"] is True
 
     with pytest.raises(fastapi_module.HTTPException) as caught:
         controller.endpoint_reset_learning(
@@ -942,7 +917,7 @@ def test_analysis_comment_api_is_bearer_scoped_idempotent_and_nonblocking():
     )
     controller = AgentRankApiController(plugin)
     allowed = TokenPayload(sub=7, username="Alice", super_user=False)
-    forbidden = TokenPayload(sub=8, username="Mallory", super_user=False)
+    another_user = TokenPayload(sub=8, username="Mallory", super_user=False)
     payload = {
         "profile_id": HOME_PROFILE,
         "candidate_id": "tmdb:1",
@@ -961,45 +936,40 @@ def test_analysis_comment_api_is_bearer_scoped_idempotent_and_nonblocking():
     assert "comment" not in created["data"]["event"]
     assert duplicate["data"]["event_status"] == "duplicate"
     assert duplicate["data"]["event"]["event_id"] == created["data"]["event"]["event_id"]
-    with pytest.raises(fastapi_module.HTTPException) as caught:
-        controller.endpoint_analysis_comment(payload, forbidden)
-    assert caught.value.status_code == 403
-    assert caught.value.detail["error"]["code"] == "profile_forbidden"
+    other_created = controller.endpoint_analysis_comment(
+        {**payload, "idempotency_key": "analysis-comment-api-2"}, another_user
+    )
+    assert other_created["success"] is True
 
 
-def test_regular_user_status_is_filtered_and_config_options_are_forbidden():
-    """普通用户状态只显示授权画像，完整配置接口仅对管理员开放。"""
+def test_regular_user_status_and_config_options_include_all_profiles():
+    """普通用户可读取全部已配置画像的状态与配置选项。"""
     plugin = FakePlugin()
     plugin._migration_status["status"] = "partial_failed"
     plugin._migration_status["failure_count"] = 1
     plugin._migration_status["profiles"][1]["status"] = "failed"
     plugin._migration_status["profiles"][1]["error"] = "ValueError"
     controller = AgentRankApiController(plugin)
-    allowed = TokenPayload(sub=7, username="Alice", super_user=False)
-    unmapped = TokenPayload(sub=8, username="Alice", super_user=False)
+    regular_user = TokenPayload(sub=8, username="Alice", super_user=False)
 
-    allowed_status = controller.endpoint_status(allowed)["data"]
-    assert allowed_status["profiles"] == [
-        {"profile_id": HOME_PROFILE, "username": "Alice"}
+    status = controller.endpoint_status(regular_user)["data"]
+    assert status["profiles"] == [
+        {"profile_id": HOME_PROFILE, "username": "Alice"},
+        {"profile_id": REMOTE_PROFILE, "username": "Alice"},
     ]
-    assert allowed_status["default_profile_id"] == HOME_PROFILE
+    assert status["default_profile_id"] == HOME_PROFILE
     assert [
-        item["profile_id"] for item in allowed_status["migration"]["profiles"]
-    ] == [HOME_PROFILE]
-    assert allowed_status["migration"]["status"] == "ready"
-    assert allowed_status["migration"]["failure_count"] == 0
+        item["profile_id"] for item in status["migration"]["profiles"]
+    ] == [HOME_PROFILE, REMOTE_PROFILE]
+    assert status["migration"]["status"] == "partial_failed"
+    assert status["migration"]["failure_count"] == 1
 
-    hidden_status = controller.endpoint_status(unmapped)["data"]
-    assert hidden_status["profiles"] == []
-    assert hidden_status["default_profile_id"] == ""
-    assert hidden_status["playback"] is None
-    assert hidden_status["migration"]["profiles"] == []
-    assert hidden_status["migration"]["status"] == "ready"
-
-    with pytest.raises(fastapi_module.HTTPException) as caught:
-        controller.endpoint_config_options(allowed)
-    assert caught.value.status_code == 403
-    assert caught.value.detail["error"]["code"] == "superuser_required"
+    options = controller.endpoint_config_options(regular_user)["data"]
+    assert options["default_profile_id"] == HOME_PROFILE
+    assert [
+        item["profile_id"] for item in options["emby_identities"]
+    ] == [HOME_PROFILE, REMOTE_PROFILE]
+    assert "profile_access_map" not in options["config"]
 
 
 @pytest.mark.parametrize("profile_id", ["", None])

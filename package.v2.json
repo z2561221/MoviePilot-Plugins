@@ -109,7 +109,7 @@
     "name": "Agent榜单中心",
     "description": "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。",
     "labels": "智能推荐,发现",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "agentresourceofficer.png",
     "color": "#7C4DFF",
     "author": "牧濑红莉栖",
@@ -118,6 +118,7 @@
     "v2": true,
     "release": true,
     "history": {
+      "v1.0.1": "[1]移除画像访问控制;[2]显示接口真实错误",
       "v1.0.0": "[1]完成自适应推荐闭环;[2]支持自由检索与动态问询;[3]完善反馈学习与订阅;[4]优化榜单与移动端"
     }
   }

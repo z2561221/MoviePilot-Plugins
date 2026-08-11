@@ -76,7 +76,6 @@ class AgentRankConfig:
     cron: str = "5 18 * * *"
     emby_identities: List[Dict[str, Any]] = field(default_factory=list)
     default_profile_id: str = ""
-    profile_access_map: Dict[str, List[str]] = field(default_factory=dict)
     emby_library_ids: Optional[Dict[str, List[str]]] = None
     minimum_samples: int = 5
     candidate_pool_size: int = 15
@@ -252,41 +251,6 @@ def _emby_library_ids(
     return result
 
 
-def _profile_access_map(
-    value: Any, profile_ids: set, errors: List[str]
-) -> Dict[str, List[str]]:
-    """清洗 MP 用户 ID 到已配置 Emby 画像身份的显式授权映射。"""
-    if value in (None, {}):
-        return {}
-    if not isinstance(value, Mapping):
-        errors.append("profile_access_map must be a mapping")
-        return {}
-    result: Dict[str, List[str]] = {}
-    for raw_user_id, raw_profile_ids in value.items():
-        try:
-            user_id = str(int(str(raw_user_id).strip()))
-        except (TypeError, ValueError):
-            errors.append("profile_access_map keys must be positive MoviePilot user ids")
-            continue
-        if int(user_id) <= 0:
-            errors.append("profile_access_map keys must be positive MoviePilot user ids")
-            continue
-        if not isinstance(raw_profile_ids, (list, tuple, set)):
-            errors.append(f"profile_access_map[{user_id}] must be a list")
-            continue
-        requested = _unique_strings(raw_profile_ids)
-        unknown = [profile_id for profile_id in requested if profile_id not in profile_ids]
-        if unknown:
-            errors.append(
-                f"profile_access_map[{user_id}] contains unknown profile ids: "
-                + ", ".join(unknown)
-            )
-        allowed = [profile_id for profile_id in requested if profile_id in profile_ids]
-        if allowed:
-            result[user_id] = allowed
-    return result
-
-
 def configured_identities(config: Mapping[str, Any]) -> List[EmbyIdentity]:
     """从规范化配置返回有效 Emby identity 列表。"""
     errors: List[str] = []
@@ -319,9 +283,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         raw.get("emby_library_ids") if "emby_library_ids" in raw else None,
         profile_ids,
         errors,
-    )
-    profile_access_map = _profile_access_map(
-        raw.get("profile_access_map"), profile_ids, errors
     )
     default_profile_id = str(raw.get("default_profile_id") or "").strip()
     if default_profile_id and default_profile_id not in profile_ids:
@@ -396,7 +357,6 @@ def _coerce_config(value: Mapping[str, Any] = None) -> Tuple[AgentRankConfig, Li
         cron=str(raw.get("cron") or "5 18 * * *").strip(),
         emby_identities=identities,
         default_profile_id=default_profile_id,
-        profile_access_map=profile_access_map,
         emby_library_ids=emby_library_ids,
         minimum_samples=_bounded_integer(
             raw.get("minimum_samples", 5), 5, 1, 100, "minimum_samples", errors

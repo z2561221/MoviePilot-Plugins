@@ -46,10 +46,6 @@ const identities = [
   { server_name: 'home', user_id: 'user-alice', username: 'Alice', profile_id: 'emby:home:user-alice', schema_version: 1 },
   { server_name: 'remote', user_id: 'user-bob', username: 'Bob', profile_id: 'emby:remote:user-bob', schema_version: 1 },
 ]
-const moviePilotUsers = [
-  { id: 1, name: 'admin', is_active: true, is_superuser: true },
-  { id: 7, name: 'preview_user', is_active: true, is_superuser: false },
-]
 
 const config = {
   enabled: true,
@@ -58,7 +54,6 @@ const config = {
   cron: '5 18 * * *',
   emby_identities: identities,
   default_profile_id: identities[0].profile_id,
-  profile_access_map: { 7: [identities[0].profile_id] },
   discovery_sources: { douban: true, tmdb_movies: true, tmdb_tv: true, bangumi: true, anilist: true },
   weights,
   minimum_samples: 5,
@@ -240,7 +235,6 @@ function dataFor(path, params = {}) {
   const identity = identities.find(item => item.profile_id === params.profile_id) || identities[0]
   const playback = { profile_id: identity.profile_id, username: identity.username, source: 'playback_reporting', confidence: 'high', status: 'ready', sample_count: 36, mapped_count: 36, unmapped_count: 4, synced_at: '2026-07-12T10:18:00+08:00', message: 'Playback Reporting 已同步' }
   const enablement = { requested: true, allowed: true, status: 'ready', message: 'Playback Reporting 已就绪', capabilities: {} }
-  if (path === 'user/' || path.endsWith('/user/')) return moviePilotUsers
   if (path.endsWith('config/options')) return { emby_identities: identities, default_profile_id: identities[0].profile_id, config, defaults: config, notification_type_options: [{ title: '插件', value: 'Plugin' }, { title: '智能体', value: 'Agent' }], enablement, playback_status: { [identities[0].profile_id]: playback } }
   if (path.endsWith('status')) return { state: 'ready', validation_errors: [], default_profile_id: identities[0].profile_id, playback, enablement }
   if (path.endsWith('run-progress')) {

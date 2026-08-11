@@ -34,6 +34,20 @@ def test_frontend_api_uses_injected_bearer_client_without_token_or_fetch():
     assert "token=" not in source
 
 
+def test_frontend_api_surfaces_fastapi_validation_detail():
+    """FastAPI 原生字段错误必须优先于 Axios 状态码展示。"""
+    source = API.read_text(encoding="utf-8")
+    for marker in (
+        "export function extractFastApiDetail(detail)",
+        "Array.isArray(detail)",
+        "item.message || item.msg",
+        "item.loc.map",
+        "fastApiDetail.message",
+        "fastApiDetail.code",
+    ):
+        assert marker in source
+
+
 def test_shared_state_owns_profile_id_selection_reads_and_actions():
     """One composable owns Emby identity selection, data loading, and actions."""
     assert STATE.exists()
@@ -205,13 +219,12 @@ def test_config_runtime_overview_exposes_identity_gate_and_frozen_pool_evidence(
 
 
 def test_config_data_governance_and_critic_prompt_are_complete_and_guarded():
-    """配置页完整接入访问、保留、导出、双重置和影评师扩展提示词。"""
+    """配置页保留数据治理能力，并完全移除画像访问映射。"""
     source = CONFIG.read_text(encoding="utf-8")
     api = API.read_text(encoding="utf-8")
-    for tab in ("运行参数", "访问控制", "数据管理", "提示设置"):
+    for tab in ("运行参数", "数据管理", "提示设置"):
         assert tab in source
     for field in (
-        "profile_access_map",
         "candidate_snapshot_limit",
         "feedback_event_limit",
         "feedback_queue_limit",
@@ -228,8 +241,11 @@ def test_config_data_governance_and_critic_prompt_are_complete_and_guarded():
         "data/reset/full",
     ):
         assert path in source
-    assert "getHostApi(props.api, 'user/')" in source
-    assert "export async function getHostApi" in api
+    assert "访问控制" not in source
+    assert "profile_access_map: {}" not in source
+    assert "form.profile_access_map" not in source
+    assert "getHostApi(props.api, 'user/')" not in source
+    assert "export async function getHostApi" not in api
     assert "fullResetPhrase.value !== '清空全部数据'" in source
     assert "confirmation_token" in source
     assert "MoviePilot 订阅和媒体库" in source

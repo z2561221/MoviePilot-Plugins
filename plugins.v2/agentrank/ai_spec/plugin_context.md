@@ -57,7 +57,7 @@
 - 归因与消费：`/attribution*`、`/consumption/*`、`/subscribe`。
 - 数据治理：`/data/export`、`/data/reset/learning`、`/data/reset/full/prepare`、`/data/reset/full`。
 
-状态变更 API 必须校验显式 `profile_id`；普通 MoviePilot 用户只能访问 `profile_access_map` 授权的画像，完整配置和危险数据操作只允许超级用户。
+状态变更 API 必须校验显式 `profile_id`；任一已登录 MoviePilot 用户都可访问全部已配置画像。危险操作仍按操作者身份执行确认和审计。
 
 ## 持久化边界
 
