@@ -56,6 +56,7 @@ class UploadTorrentSnapshot:
     added_at: float
     completed_at: float
     upload_rate_bps: int
+    upload_demand_peers: int
     upload_settings: TorrentUploadSettings
 
     @property

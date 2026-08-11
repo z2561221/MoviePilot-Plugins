@@ -15,14 +15,18 @@ _EPSILON = 1e-9
 def estimate_task_demand_kib(
     upload_rate_bps: int,
     previous_limit_kib: Optional[int],
+    upload_demand_peers: int = 0,
 ) -> Optional[int]:
-    """根据上一轮限额与实时上传估算任务需求，None 表示仍可继续借额。"""
+    """根据 Peer、上一轮限额与实时上传估算需求，None 表示仍可借额。"""
+    current_bps = max(0, int(upload_rate_bps or 0))
+    peer_count = max(0, int(upload_demand_peers or 0))
+    if current_bps <= 0 and peer_count <= 0:
+        return 0
     if previous_limit_kib is None:
         return None
     previous = max(0, int(previous_limit_kib))
-    current_bps = max(0, int(upload_rate_bps or 0))
     if previous <= 0:
-        return 1
+        return None
     if current_bps >= previous * 1024 * 0.8:
         return None
     return max(1, int(math.ceil(current_bps / 1024 * 1.25)))
@@ -148,7 +152,7 @@ def allocate_task_limits(
     *,
     cycle: int = 0,
 ) -> dict[str, int]:
-    """在同一站点池内等权分配单种额度，并轮换不足一 KiB/s 的探测槽。"""
+    """在同一站点池内等权分配有需求任务，并轮换不足一 KiB/s 的活跃槽。"""
     keys = sorted(str(key) for key in demands_kib)
     if not keys:
         return {}

@@ -90,13 +90,13 @@ const defaults = {
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '总览下载中心运行链路、模块状态和待关注事项。' },
-  { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '按下载器总上限和站点优先级动态分配长期做种上传额度。' },
   { key: 'monitor', title: '速度监控', icon: 'mdi-speedometer', desc: '按下载器建立稳健基准，识别未在预计时间内完成的下载任务。' },
   { key: 'transfer', title: '转移做种', icon: 'mdi-transfer', desc: '监听下载完成事件，延迟后自动转移做种到目标下载器。' },
   { key: 'iyuu', title: 'IYUU辅种', icon: 'mdi-seed-plus', desc: '基于 IYUU API 自动辅种，铺种后自动打站点标签。' },
   { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
   { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
   { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
+  { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '按下载器总上限和站点优先级动态分配长期做种上传额度。' },
 ]
 
 const subTabs = {
@@ -845,10 +845,11 @@ async function executeCleanupTags() {
 
               <div class="dm-monitor-summary mt-4">
                 <div class="dm-monitor-metric"><span>服务</span><strong>{{ uploadLimitStatus.label }}</strong></div>
-                <div class="dm-monitor-metric"><span>实时上传</span><strong>{{ formatUploadRate(uploadLimit.upload_rate_bps) }}</strong></div>
+                <div class="dm-monitor-metric"><span>当前速率</span><strong>{{ formatUploadRate(uploadLimit.upload_rate_bps) }}</strong></div>
                 <div class="dm-monitor-metric"><span>受管种子</span><strong>{{ uploadLimit.managed_torrents || 0 }}</strong></div>
                 <div class="dm-monitor-metric"><span>宽限种子</span><strong>{{ uploadLimit.grace_torrents || 0 }}</strong></div>
               </div>
+              <div class="dm-hint mt-2">当前速率为实际上传流量，不代表分配额度。</div>
 
               <div class="dm-section-title mt-4">下载器分配</div>
               <div v-if="uploadLimitDownloaderRows.length" class="dm-upload-status-grid">

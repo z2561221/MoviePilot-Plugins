@@ -156,6 +156,7 @@ def qb_torrent(
     completed=120,
     rate=0,
     limit_kib=0,
+    peers=1,
 ):
     """构造已完成 qB 任务。"""
     return {
@@ -169,11 +170,12 @@ def qb_torrent(
         "added_on": added,
         "completion_on": completed,
         "upspeed": rate,
+        "num_leechs": peers,
         "up_limit": limit_kib * 1024,
     }
 
 
-def tr_torrent(torrent_hash, site, *, rate=0, limit_kib=0):
+def tr_torrent(torrent_hash, site, *, rate=0, limit_kib=0, peers=1):
     """构造已完成 Transmission 任务。"""
     return SimpleNamespace(
         hashString=torrent_hash,
@@ -186,6 +188,8 @@ def tr_torrent(torrent_hash, site, *, rate=0, limit_kib=0):
         addedDate=100,
         doneDate=120,
         rateUpload=rate,
+        peersConnected=peers,
+        peersGettingFromUs=peers,
         uploadLimit=limit_kib,
         uploadLimited=limit_kib > 0,
     )
@@ -340,3 +344,62 @@ def test_invalid_or_multiple_site_labels_enter_default_group():
     assert [item["key"] for item in result["sites"]] == ["__default__"]
     assert result["sites"][0]["allocated_kib"] == 90
     assert result["sites"][0]["priority"] == "medium"
+
+
+def test_downloader_only_mode_avoids_per_torrent_limits_for_large_fleet():
+    """无站点策略时只写下载器总上限，不得把额度摊薄到全部种子。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [
+        qb_torrent(f"seed-{index:04d}", "", peers=0)
+        for index in range(3874)
+    ]
+    instance = FakeQbInstance(torrents)
+    instance.qbc.transfer.upload_limit = 100 * 1024
+    instance.qbc.preferences["alt_up_limit"] = 100 * 1024
+    plugin = FakePlugin(
+        {"QB2": SimpleNamespace(type="qbittorrent", instance=instance)},
+        ["QB2"],
+        {"QB2": 120},
+        {},
+    )
+
+    result = limiter.run_upload_limit_cycle(plugin, now=1000)
+
+    assert result["mode"] == "downloader_only"
+    assert result["managed_torrents"] == 3874
+    assert result["allocated_kib"] == 120
+    assert instance.qbc.transfer.upload_limit == 120 * 1024
+    assert instance.qbc.preferences["alt_up_limit"] == 120 * 1024
+    assert instance.qbc.torrent_calls == []
+    assert all(item["up_limit"] == 0 for item in torrents)
+
+    plugin._upload_limit_enabled = False
+    restored = limiter.restore_upload_limits(plugin)
+
+    assert restored["code"] == 0
+    assert instance.qbc.transfer.upload_limit == 100 * 1024
+    assert instance.qbc.preferences["alt_up_limit"] == 100 * 1024
+    assert instance.qbc.torrent_calls == []
+
+
+def test_clearing_site_rules_releases_per_torrent_limits_but_keeps_global_cap():
+    """运行中清空站点规则时应恢复单种设置，并继续保持下载器总上限。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [qb_torrent("seed", "A", limit_kib=5, peers=1)]
+    instance = FakeQbInstance(torrents)
+    plugin = FakePlugin(
+        {"QB2": SimpleNamespace(type="qbittorrent", instance=instance)},
+        ["QB2"],
+        {"QB2": 120},
+        {"A": {"priority": "medium", "limit_kib": 0}},
+    )
+    limiter.run_upload_limit_cycle(plugin, now=1000)
+    assert torrents[0]["up_limit"] == 120 * 1024
+
+    plugin._upload_limit_site_rules = {}
+    result = limiter.run_upload_limit_cycle(plugin, now=1030)
+
+    assert result["mode"] == "downloader_only"
+    assert instance.qbc.transfer.upload_limit == 120 * 1024
+    assert torrents[0]["up_limit"] == 5 * 1024
+    assert plugin.data["upload_limit_state"]["torrents"] == {}

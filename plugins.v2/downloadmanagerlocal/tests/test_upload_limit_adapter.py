@@ -162,7 +162,7 @@ def test_transmission_zero_task_allocation_keeps_upload_limited_true():
 
 
 def test_transmission_extra_fields_are_requested_and_normalized():
-    """Transmission 应补读 uploadLimit/uploadLimited 并归一完成时间与实时上传。"""
+    """Transmission 应补读限速与 Peer 字段并归一上传需求。"""
     adapter = _load("adapter.upload_limit")
     client = FakeTransmissionClient()
     client.torrents = [SimpleNamespace(
@@ -176,6 +176,8 @@ def test_transmission_extra_fields_are_requested_and_normalized():
         addedDate=100,
         doneDate=120,
         rateUpload=4096,
+        peersConnected=3,
+        peersGettingFromUs=2,
         uploadLimit=8,
         uploadLimited=True,
     )]
@@ -186,6 +188,8 @@ def test_transmission_extra_fields_are_requested_and_normalized():
     assert error == ""
     assert "uploadLimit" in client.arguments
     assert "uploadLimited" in client.arguments
+    assert "peersConnected" in client.arguments
+    assert "peersGettingFromUs" in client.arguments
     assert len(items) == 1
     item = items[0]
     assert item.torrent_hash == "tr-hash"
@@ -194,8 +198,31 @@ def test_transmission_extra_fields_are_requested_and_normalized():
     assert item.added_at == 100
     assert item.completed_at == 120
     assert item.upload_rate_bps == 4096
+    assert item.upload_demand_peers == 3
     assert item.upload_settings.limit_bps == 8 * 1024
     assert item.upload_settings.enabled is True
+
+
+def test_qb_connected_leechers_are_normalized_as_upload_demand():
+    """qB 已连接下载者应成为单种额度分配的真实需求信号。"""
+    adapter = _load("adapter.upload_limit")
+
+    item = adapter.normalize_upload_torrent({
+        "hash": "QB-HASH",
+        "name": "QB Seed",
+        "tags": "🏠M-Team",
+        "state": "uploading",
+        "progress": 1,
+        "total_size": 4096,
+        "amount_left": 0,
+        "added_on": 100,
+        "completion_on": 120,
+        "upspeed": 0,
+        "num_leechs": 2,
+        "up_limit": 0,
+    }, "QB2", "qbittorrent")
+
+    assert item.upload_demand_peers == 2
 
 
 def test_restore_transmission_torrent_preserves_original_enable_state():

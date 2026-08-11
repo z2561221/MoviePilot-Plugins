@@ -10,7 +10,7 @@
 - 站点标签：根据 tracker 域名映射站点名并写入下载器标签。
 - 做种校验：转移或辅种后登记队列，后台线程轮询任务状态并按配置自动开始做种。
 - 速度监控：按下载器建立稳健速度基准，跟踪活跃下载会话并提供异常处置入口。
-- 上传限速：支持 qBittorrent 与 Transmission 下载器总上传上限、跨下载器站点共享硬上限、高/中/低 4/2/1 加权分配、30 分钟新种宽限和停用恢复。
+- 上传限速：支持 qBittorrent 与 Transmission 下载器总上传上限；配置站点策略后再启用跨下载器站点共享硬上限、高/中/低 4/2/1 加权、按 Peer 需求分配、30 分钟新种宽限和停用恢复。
 - 诊断与总览：为 Vue 详情页提供只读诊断、运行总览、重命名历史和归档记录。
 
 Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产物位于 `dist/assets/`。前端通过注入的 `api` prop 调用 `bear` 认证插件 API。
@@ -31,6 +31,8 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - 配置、生命周期、`DownloadAdded` 事件、总览 API 与 Vue 配置页已接入。
 - qBittorrent 与 Transmission 均使用 fake client 做读写契约测试，不连接真实下载器。
 - Vue 配置页包含基础设置、站点策略和运行状态，并已构建到 `dist/assets/`。
+- 一级导航按运行链路将上传限速放在做种校验之后；运行状态中的“当前速率”表示实际上传流量，不是分配额度。
+- 无站点策略时只接管下载器总上限，不写单种限速；站点策略模式只让有 Peer 或实际上传的任务参与弹性分配，避免大量空闲种子稀释额度。
 - 当前周期只做本地 commit 与 MP 本地仓库默认关闭验收，不修改版本或发布元数据。
 
 ## 历史基线（2026-07-04）
@@ -100,12 +102,14 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 ### 上传限速协调 worker
 
 - `service/upload_limit_worker.py` 启用后立即执行一轮，此后每 30 秒协调一次；`DownloadAdded` 事件可提前唤醒。
-- `service/upload_limiter.py` 每轮先写下载器总上限，再扫描已完成任务、识别新种宽限、聚合站点池、按硬约束与 4/2/1 权重分配，并持久化最新状态。
+- `service/upload_limiter.py` 每轮先写下载器总上限；无站点策略时不接管单种限速，有站点策略时再扫描已完成任务、识别新种宽限、聚合站点池、按硬约束与 4/2/1 权重分配，并持久化最新状态。
 - 首次启用和首次扫描的存量任务立即纳入管理，不进入宽限；后续新发现的已完成任务按 `max(completed_at, added_at)` 计算宽限。
 - 宽限期间不写站点/单种额度，但仍受下载器总上传上限。
+- 站点策略中的单种需求以 qBittorrent 下载者数量、Transmission Peer 状态和实际上传速率综合判断；没有 Peer 且没有上传的空闲任务分配为 0，不参与额度竞争。
 - 站点规则只接受唯一有效的 `{tag_siteprefix}站点名` 标签（默认前缀为 `🏠`）；无标签、多个站点标签或未配置站点进入默认组。
 - 站点硬上限跨所有受管下载器共享，下载器总上限分别独立生效。
 - qBittorrent 同步普通与备用上传上限；Transmission 写 Session 上传上限。
+- 运行中清空全部站点规则时，按 compare-and-set 恢复此前由插件写入的单种设置，同时继续保持下载器总上传上限。
 - MP 或插件离线时下载器保留最后写入值；重新上线后从持久化状态继续协调。
 - 运行期间插件分配覆盖单种手工值；若检测到用户后来手工修改，会更新恢复基线，明确停用时保留该新值。
 
@@ -278,8 +282,8 @@ IYUU：
 - `upload_limit_enabled`：默认 `false`。
 - `upload_limit_downloaders`：用户自定义选择的 qBittorrent / Transmission 实例；未选择的下载器不展示额度也不接管。
 - `upload_limit_downloader_limits_kib`：每个受管下载器的正整数总上限，单位 KiB/s。
-- `upload_limit_site_rules`：站点名到 `{priority, limit_kib}`；优先级为 `high/medium/low`，`limit_kib=0` 表示无独立站点硬上限。
-- `upload_limit_grace_minutes`：新种宽限，默认 30 分钟，0 表示完成后立即纳入单种分配。
+- `upload_limit_site_rules`：站点名到 `{priority, limit_kib}`；空字典表示仅启用下载器总上限、不接管单种限速；存在规则时优先级为 `high/medium/low`，`limit_kib=0` 表示无独立站点硬上限。
+- `upload_limit_grace_minutes`：站点策略模式的新种宽限，默认 30 分钟，0 表示完成后立即纳入单种分配。
 
 ## 验证命令
 

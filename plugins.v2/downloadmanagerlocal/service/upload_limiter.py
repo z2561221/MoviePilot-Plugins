@@ -89,6 +89,7 @@ def run_upload_limit_cycle(
         selected = _selected_downloaders(plugin)
         caps = _downloader_caps(plugin, selected)
         site_rules = _site_rules(plugin)
+        site_policy_enabled = bool(site_rules)
         tag_prefix = str(getattr(plugin, "_tag_siteprefix", "🏠") or "🏠")
         first_activation = not bool(state.get("management_active"))
         if first_activation:
@@ -152,6 +153,11 @@ def run_upload_limit_cycle(
                 )
                 if poll_error:
                     raise RuntimeError(poll_error)
+                all_snapshots = {
+                    snapshot.key: snapshot
+                    for snapshot in snapshots
+                    if snapshot.torrent_hash
+                }
                 completed = {
                     snapshot.key: snapshot
                     for snapshot in snapshots
@@ -163,6 +169,19 @@ def run_upload_limit_cycle(
                     "snapshots": completed,
                     "initial_scan_pending": initial_scan_pending,
                 }
+                if not site_policy_enabled:
+                    release_result = _release_downloader_torrent_limits(
+                        state=state,
+                        downloader_id=downloader_id,
+                        instance=service.instance,
+                        downloader_type=downloader_type,
+                        snapshots=all_snapshots,
+                    )
+                    if release_result["errors"]:
+                        errors[downloader_id].extend(release_result["errors"])
+                    entry["initial_scan_complete"] = True
+                    entry["per_torrent_management_active"] = False
+                    continue
                 _drop_missing_torrent_state(torrent_state, downloader_id, set(completed))
                 stock_scan = bool(first_activation or initial_scan_pending)
                 for task_key, snapshot in completed.items():
@@ -211,6 +230,7 @@ def run_upload_limit_cycle(
                         "site_key": site_key,
                         "priority": priority,
                         "upload_rate_bps": snapshot.upload_rate_bps,
+                        "upload_demand_peers": snapshot.upload_demand_peers,
                         "last_seen_at": timestamp,
                     })
                     if float(record.get("grace_until") or 0) > timestamp:
@@ -218,9 +238,30 @@ def run_upload_limit_cycle(
                     else:
                         regular_tasks[task_key] = snapshot
                 entry["initial_scan_complete"] = True
+                entry["per_torrent_management_active"] = True
             except Exception as error:
                 errors[downloader_id].append(str(error))
                 logger.exception("上传限速扫描下载器 %s 失败", downloader_id)
+
+        if not site_policy_enabled:
+            for downloader_id in selected:
+                if errors.get(downloader_id):
+                    _record_downloader_failure(
+                        plugin, state, downloader_id, "; ".join(errors[downloader_id])
+                    )
+                else:
+                    _clear_downloader_failure(state, downloader_id)
+            summary = _build_downloader_only_summary(
+                state=state,
+                selected=selected,
+                caps=caps,
+                contexts=contexts,
+                errors=errors,
+                reason=reason,
+            )
+            state["last_summary"] = summary
+            save_upload_limit_state(plugin, state)
+            return summary
 
         pools, task_demands = _build_pools(
             regular_tasks, torrent_state, site_rules
@@ -440,6 +481,7 @@ def _build_pools(
         demands[task_key] = estimate_task_demand_kib(
             snapshot.upload_rate_bps,
             None if previous is None else int(previous or 0),
+            snapshot.upload_demand_peers,
         )
     pools = []
     for (downloader_id, site_key), task_keys in sorted(grouped.items()):
@@ -457,6 +499,90 @@ def _build_pools(
             demand_kib=aggregate_pool_demand_kib(demands[key] for key in task_keys),
         ))
     return pools, demands
+
+
+def _build_downloader_only_summary(
+    *,
+    state: dict,
+    selected: list[str],
+    caps: dict[str, int],
+    contexts: dict[str, dict],
+    errors: dict[str, list[str]],
+    reason: str,
+) -> dict:
+    """构造仅由下载器总上限接管时的运行摘要。"""
+    downloader_items = []
+    total_rate_bps = 0
+    total_torrents = 0
+    allocated_kib = 0
+    default_downloaders = []
+    for downloader_id in selected:
+        context = contexts.get(downloader_id) or {}
+        snapshots = list((context.get("snapshots") or {}).values())
+        upload_rate_bps = sum(
+            int(snapshot.upload_rate_bps or 0) for snapshot in snapshots
+        )
+        has_context = bool(context)
+        item_allocated_kib = int(caps.get(downloader_id, 0) or 0) if has_context else 0
+        if has_context:
+            default_downloaders.append(downloader_id)
+        total_rate_bps += upload_rate_bps
+        total_torrents += len(snapshots)
+        allocated_kib += item_allocated_kib
+        downloader_items.append({
+            "id": downloader_id,
+            "type": str(context.get("type") or (
+                (state.get("downloaders") or {}).get(downloader_id, {}).get("downloader_type")
+                or ""
+            )),
+            "total_limit_kib": int(caps.get(downloader_id, 0) or 0),
+            "upload_rate_bps": upload_rate_bps,
+            "managed_torrents": len(snapshots),
+            "grace_torrents": 0,
+            "allocated_kib": item_allocated_kib,
+            "error": "; ".join(errors.get(downloader_id) or []),
+        })
+
+    flat_errors = [
+        f"{downloader_id}: {message}"
+        for downloader_id, messages in errors.items()
+        for message in messages
+    ]
+    if flat_errors and len(contexts) < len(selected):
+        service_status = "error" if not contexts else "degraded"
+    elif flat_errors:
+        service_status = "degraded"
+    else:
+        service_status = "running"
+    sites = []
+    if total_torrents:
+        sites.append({
+            "key": DEFAULT_SITE_KEY,
+            "name": DEFAULT_SITE_NAME,
+            "priority": PRIORITY_MEDIUM,
+            "hard_limit_kib": 0,
+            "allocated_kib": allocated_kib,
+            "upload_rate_bps": total_rate_bps,
+            "torrent_count": total_torrents,
+            "downloaders": sorted(default_downloaders),
+        })
+    return {
+        "enabled": True,
+        "active": True,
+        "mode": "downloader_only",
+        "service_status": service_status,
+        "reason": str(reason or "scheduled"),
+        "selected_downloaders": list(selected),
+        "downloaders": downloader_items,
+        "sites": sites,
+        "managed_torrents": total_torrents,
+        "grace_torrents": 0,
+        "upload_rate_bps": total_rate_bps,
+        "allocated_kib": allocated_kib,
+        "errors": flat_errors,
+        "last_run_at": float(state.get("last_run_at") or 0),
+        "cycle": int(state.get("cycle") or 0),
+    }
 
 
 def _build_summary(
@@ -549,6 +675,7 @@ def _build_summary(
     return {
         "enabled": True,
         "active": True,
+        "mode": "site_policy",
         "service_status": service_status,
         "reason": str(reason or "scheduled"),
         "selected_downloaders": list(selected),
@@ -565,6 +692,52 @@ def _build_summary(
         "last_run_at": float(state.get("last_run_at") or 0),
         "cycle": int(state.get("cycle") or 0),
     }
+
+
+def _release_downloader_torrent_limits(
+    *,
+    state: dict,
+    downloader_id: str,
+    instance: Any,
+    downloader_type: str,
+    snapshots: dict[str, Any],
+) -> dict:
+    """退出站点策略模式时按 compare-and-set 释放该下载器单种限速。"""
+    report = {"restored": 0, "preserved_manual": 0, "errors": []}
+    task_records = {
+        key: value for key, value in (state.get("torrents") or {}).items()
+        if isinstance(value, dict) and value.get("downloader_id") == downloader_id
+    }
+    for task_key, record in task_records.items():
+        snapshot = snapshots.get(task_key)
+        if not snapshot:
+            state.get("torrents", {}).pop(task_key, None)
+            continue
+        last_written = record.get("last_written_settings")
+        original = record.get("original_settings")
+        try:
+            if last_written and original and torrent_settings_equal(
+                snapshot.upload_settings,
+                settings_from_dict(last_written),
+            ):
+                restore_torrent_upload_settings(
+                    instance,
+                    downloader_type,
+                    snapshot.torrent_hash,
+                    settings_from_dict(original),
+                )
+                report["restored"] += 1
+            else:
+                report["preserved_manual"] += 1
+            state.get("torrents", {}).pop(task_key, None)
+        except Exception as error:
+            report["errors"].append(f"{snapshot.torrent_hash}: {error}")
+            logger.exception(
+                "释放上传限速任务 %s/%s 失败",
+                downloader_id,
+                snapshot.torrent_hash,
+            )
+    return report
 
 
 def _restore_one_downloader(plugin: Any, state: dict, downloader_id: str) -> dict:

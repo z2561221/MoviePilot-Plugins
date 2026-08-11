@@ -101,13 +101,30 @@ def test_task_probe_slots_rotate_when_budget_is_smaller_than_task_count():
 
 
 def test_task_demand_uses_previous_limit_to_detect_idle_and_saturated_tasks():
-    """实时上传接近限额时应保持弹性需求，空闲任务只保留探测额度。"""
+    """Peer 需求应区分真正活跃任务与没有上传请求的空闲任务。"""
     allocator = _load("service.upload_allocator")
 
-    assert allocator.estimate_task_demand_kib(0, None) is None
-    assert allocator.estimate_task_demand_kib(0, 20) == 1
-    assert allocator.estimate_task_demand_kib(18 * 1024, 20) is None
-    assert allocator.estimate_task_demand_kib(4 * 1024, 20) == 5
+    assert allocator.estimate_task_demand_kib(0, None, 0) == 0
+    assert allocator.estimate_task_demand_kib(0, None, 1) is None
+    assert allocator.estimate_task_demand_kib(0, 20, 0) == 0
+    assert allocator.estimate_task_demand_kib(0, 20, 1) == 1
+    assert allocator.estimate_task_demand_kib(18 * 1024, 20, 1) is None
+    assert allocator.estimate_task_demand_kib(4 * 1024, 20, 1) == 5
+
+
+def test_large_idle_fleet_does_not_dilute_one_active_task():
+    """大规模空闲种子不应稀释真正有 Peer 需求的任务额度。"""
+    allocator = _load("service.upload_allocator")
+    demands = {f"idle-{index:04d}": 0 for index in range(3873)}
+    demands["active"] = None
+
+    result = allocator.allocate_task_limits(120, demands, cycle=21)
+
+    assert result["active"] == 120
+    assert sum(result.values()) == 120
+    assert all(
+        value == 0 for key, value in result.items() if key != "active"
+    )
 
 
 def test_upload_limit_config_defaults_and_normalization_are_stable():

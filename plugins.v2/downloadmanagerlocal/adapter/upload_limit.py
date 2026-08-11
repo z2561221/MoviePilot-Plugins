@@ -25,6 +25,8 @@ TRANSMISSION_UPLOAD_ARGUMENTS = [
     "addedDate",
     "doneDate",
     "rateUpload",
+    "peersConnected",
+    "peersGettingFromUs",
     "uploadLimit",
     "uploadLimited",
 ]
@@ -199,6 +201,10 @@ def normalize_upload_torrent(
             default=0,
         ))
         upload_rate_bps = _nonnegative_int(_read(torrent, "upspeed", default=0))
+        upload_demand_peers = max(
+            _nonnegative_int(_read(torrent, "num_leechs", default=0)),
+            1 if upload_rate_bps > 0 else 0,
+        )
         limit_bps = _nonnegative_int(_read(torrent, "up_limit", default=0))
         upload_settings = TorrentUploadSettings(
             limit_bps=limit_bps,
@@ -219,6 +225,21 @@ def normalize_upload_torrent(
         upload_rate_bps = _nonnegative_int(_read(
             torrent, "rateUpload", "rate_upload", default=0
         ))
+        upload_demand_peers = max(
+            _nonnegative_int(_read(
+                torrent,
+                "peersGettingFromUs",
+                "peers_getting_from_us",
+                default=0,
+            )),
+            _nonnegative_int(_read(
+                torrent,
+                "peersConnected",
+                "peers_connected",
+                default=0,
+            )),
+            1 if upload_rate_bps > 0 else 0,
+        )
         limit_kib = _nonnegative_int(_read(
             torrent, "uploadLimit", "upload_limit", default=0
         ))
@@ -243,6 +264,7 @@ def normalize_upload_torrent(
         added_at=added_at,
         completed_at=completed_at,
         upload_rate_bps=upload_rate_bps,
+        upload_demand_peers=upload_demand_peers,
         upload_settings=upload_settings,
     )
 

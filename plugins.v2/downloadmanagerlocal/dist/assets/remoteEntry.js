@@ -2,8 +2,8 @@ const currentImports = {};
       const exportSet = new Set(['Module', '__esModule', 'default', '_export_sfc']);
       let moduleMap = {
 "./Config":()=>{
-      dynamicLoadingCss(["__federation_expose_Config-BL4mujRL.css"], false, './Config');
-      return __federation_import('./__federation_expose_Config-ByG8tNR3.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Config-c_cUcP7C.css"], false, './Config');
+      return __federation_import('./__federation_expose_Config-DB8HmZTP.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Page":()=>{
       dynamicLoadingCss(["__federation_expose_Page-DyADD4h9.css"], false, './Page');
       return __federation_import('./__federation_expose_Page-pgNw8KF-.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};

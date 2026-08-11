@@ -87,6 +87,17 @@ def test_upload_limit_status_actions_use_saved_backend_state_and_restore_notice(
     assert "若你后来手工修改过，则保留手工值" in source
 
 
+def test_upload_limit_navigation_follows_runtime_order_and_rate_wording_is_clear():
+    """上传限速应位于做种校验后，当前速率不得被误解为分配额度。"""
+    source = _source()
+
+    seed_position = source.index("{ key: 'seed', title: '做种校验'")
+    upload_position = source.index("{ key: 'upload', title: '上传限速'")
+    assert seed_position < upload_position
+    assert "当前速率" in source
+    assert "实际上传流量，不代表分配额度" in source
+
+
 def test_upload_limit_layout_has_desktop_tablet_and_mobile_guards():
     """上传限速配置和状态布局应在桌面、平板与移动端稳定降级。"""
     source = _source()
