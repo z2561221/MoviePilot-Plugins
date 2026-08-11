@@ -40,6 +40,10 @@ EXPECTED_ROUTES = {
     "/rename_history": {"auth": "bear", "methods": ("GET",), "summary": "获取重命名历史"},
     "/overview": {"auth": "bear", "methods": ("GET",), "summary": "获取下载中心总览"},
     "/reset_speed_monitor_baseline": {"auth": "bear", "methods": ("POST",), "summary": "重置下载速度基准"},
+    "/upload_limit_status": {"auth": "bear", "methods": ("GET",), "summary": "获取上传限速状态"},
+    "/upload_limit_reallocate": {"auth": "bear", "methods": ("POST",), "summary": "立即重新分配上传额度"},
+    "/upload_limit_site_tags": {"auth": "bear", "methods": ("POST",), "summary": "扫描上传限速站点标签"},
+    "/upload_limit_disable_restore": {"auth": "bear", "methods": ("POST",), "summary": "停用上传限速并恢复原值"},
     "/diagnostics": {"auth": "bear", "methods": ("GET",), "summary": "获取诊断信息"},
     "/retry_renames": {"auth": "bear", "methods": ("POST",), "summary": "一键补刀重命名"},
     "/retry_rename": {"auth": "bear", "methods": ("POST",), "summary": "单条补刀重命名"},
@@ -151,6 +155,10 @@ def test_downloadmanagerlocal_api_handlers_keep_compatibility_shim():
     assert "def api_tag_cleanup_scan(plugin, payload: dict = None):" in handler_source
     assert "def api_tag_cleanup_execute(plugin, payload: dict = None):" in handler_source
     assert "def api_reset_speed_monitor_baseline(plugin, payload: dict = None):" in handler_source
+    assert "def api_upload_limit_status(plugin):" in handler_source
+    assert "def api_upload_limit_reallocate(plugin, payload: dict = None):" in handler_source
+    assert "def api_upload_limit_site_tags(plugin, payload: dict = None):" in handler_source
+    assert "def api_upload_limit_disable_restore(plugin, payload: dict = None):" in handler_source
 
 
 def test_downloadmanagerlocal_init_plugin_delegates_lifecycle_initialization():

@@ -10,6 +10,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.core.config import settings
 from app.log import logger
 
+from .speed_monitor import handle_download_added_event as create_speed_monitor_session
+from .speed_worker import start_speed_monitor_worker
+from .upload_limit_worker import wake_upload_limit_worker
+
 
 def handle_transfer_complete_event(plugin, event) -> None:
     """处理 TransferComplete 事件并登记延迟转移做种任务。"""
@@ -36,6 +40,15 @@ def handle_transfer_complete_event(plugin, event) -> None:
     )
 
 
+def handle_download_added_event(plugin, event) -> dict:
+    """处理 DownloadAdded 事件并唤醒速度监控与上传限速 worker。"""
+    result = create_speed_monitor_session(plugin, event)
+    if isinstance(result, dict) and int(result.get("active_sessions") or 0) > 0:
+        start_speed_monitor_worker(plugin)
+    wake_upload_limit_worker(plugin)
+    return result
+
+
 def _coerce_delay_minutes(value) -> int:
     """按旧逻辑把延迟配置收敛为至少一分钟。"""
     return max(1, int(value or 25))
@@ -49,4 +62,7 @@ def _ensure_scheduler(plugin) -> None:
     plugin._scheduler.start()
 
 
-__all__ = ("handle_transfer_complete_event",)
+__all__ = (
+    "handle_download_added_event",
+    "handle_transfer_complete_event",
+)

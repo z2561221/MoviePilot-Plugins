@@ -25,6 +25,12 @@ const cleanupStatus = ref('info')
 const monitorResetting = ref('')
 const monitorMessage = ref('')
 const monitorMessageStatus = ref('info')
+const uploadSiteItems = ref([])
+const uploadScanningSites = ref(false)
+const uploadActionRunning = ref('')
+const uploadMessage = ref('')
+const uploadMessageStatus = ref('info')
+const uploadRestoreDialog = ref(false)
 
 async function refreshOverview() {
   const response = await getPluginApi(props.api, 'overview')
@@ -77,10 +83,14 @@ const defaults = {
   speed_monitor_consecutive_abnormal_samples: 2,
   speed_monitor_manual_speed_bps: {}, speed_monitor_floor_speed_bps: {},
   speed_monitor_notification_type: 'Plugin',
+  upload_limit_enabled: false, upload_limit_downloaders: [],
+  upload_limit_downloader_limits_kib: {}, upload_limit_site_rules: {},
+  upload_limit_grace_minutes: 30,
 }
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '总览下载中心运行链路、模块状态和待关注事项。' },
+  { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '按下载器总上限和站点优先级动态分配长期做种上传额度。' },
   { key: 'monitor', title: '速度监控', icon: 'mdi-speedometer', desc: '按下载器建立稳健基准，识别未在预计时间内完成的下载任务。' },
   { key: 'transfer', title: '转移做种', icon: 'mdi-transfer', desc: '监听下载完成事件，延迟后自动转移做种到目标下载器。' },
   { key: 'iyuu', title: 'IYUU辅种', icon: 'mdi-seed-plus', desc: '基于 IYUU API 自动辅种，铺种后自动打站点标签。' },
@@ -91,6 +101,11 @@ const mainTabs = [
 
 const subTabs = {
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
+  upload: [
+    { key: 'upload_basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'upload_sites', title: '站点策略', icon: 'mdi-home-speedometer' },
+    { key: 'upload_status', title: '运行状态', icon: 'mdi-pulse' },
+  ],
   monitor: [
     { key: 'monitor_basic', title: '基础设置', icon: 'mdi-tune-variant' },
     { key: 'monitor_threshold', title: '阈值策略', icon: 'mdi-chart-bell-curve-cumulative' },
@@ -122,6 +137,20 @@ const selectedToDownloaderType = computed(() => {
 })
 const qbDownloaderItems = computed(() => downloaderItems.value.filter(item => item.type === 'qbittorrent'))
 const monitorDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
+const uploadDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
+const uploadSelectedDownloaders = computed(() => {
+  const selected = new Set(form.upload_limit_downloaders || [])
+  return uploadDownloaderItems.value.filter(item => selected.has(item.value))
+})
+const uploadMissingLimits = computed(() => uploadSelectedDownloaders.value.filter(
+  item => !uploadDownloaderLimit(item.value),
+))
+const uploadLimit = computed(() => overview.value?.upload_limit || {})
+const uploadLimitDownloaderRows = computed(() => uploadLimit.value.downloaders || [])
+const uploadLimitSiteRows = computed(() => uploadLimit.value.sites || [])
+const uploadSiteRuleRows = computed(() => Object.entries(form.upload_limit_site_rules || {})
+  .map(([name, rule]) => ({ name, priority: rule?.priority || 'medium', limit_kib: Number(rule?.limit_kib || 0) }))
+  .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN')))
 const speedMonitor = computed(() => overview.value?.speed_monitor || {})
 const speedBaselines = computed(() => speedMonitor.value.baselines || [])
 const speedThresholdSuggestions = computed(() => {
@@ -219,6 +248,21 @@ const monitorModeItems = [
   { title: '自动稳健基准', value: 'auto' },
   { title: '手动最低速度', value: 'manual' },
 ]
+const uploadPriorityItems = [
+  { title: '高', value: 'high' },
+  { title: '中', value: 'medium' },
+  { title: '低', value: 'low' },
+]
+const uploadLimitStatus = computed(() => {
+  const status = uploadLimit.value.service_status
+  return {
+    disabled: { label: '未启用', color: 'default' },
+    starting: { label: '启动中', color: 'info' },
+    running: { label: '分配中', color: 'success' },
+    degraded: { label: '部分异常', color: 'warning' },
+    error: { label: '状态异常', color: 'error' },
+  }[status] || { label: '未启用', color: 'default' }
+})
 const cleanupGroups = computed(() => cleanupScan.value?.downloaders || [])
 const cleanupAutoRemovedCount = computed(() => cleanupScan.value?.auto_removed?.length || 0)
 const cleanupRemovals = computed(() => {
@@ -237,6 +281,13 @@ const overviewCards = computed(() => {
   const cards = overview.value?.cards || {}
   const archive = overview.value?.archive || {}
   return [
+    {
+      title: '上传限速',
+      icon: 'mdi-upload-network-outline',
+      color: uploadLimitStatus.value.color,
+      value: uploadLimitStatus.value.label,
+      desc: `受管 ${uploadLimit.value.managed_torrents || 0} · 宽限 ${uploadLimit.value.grace_torrents || 0}`,
+    },
     {
       title: '速度监控',
       icon: 'mdi-speedometer',
@@ -276,6 +327,10 @@ const overviewCards = computed(() => {
 })
 const runtimeFlows = [
   {
+    label: '上传限速',
+    steps: ['下载器总上限', '新种宽限', '站点识别', '高/中/低分配', '30秒动态调整', '停用恢复'],
+  },
+  {
     label: '速度监控',
     steps: ['下载任务', '监控会话', '有效采样', '基准/手动阈值', 'TG通知', '关闭 / 删除并清理'],
   },
@@ -303,9 +358,22 @@ watch(() => props.initialConfig, v => {
   form.speed_monitor_downloaders = [...(v?.speed_monitor_downloaders || [])]
   form.speed_monitor_manual_speed_bps = { ...(v?.speed_monitor_manual_speed_bps || {}) }
   form.speed_monitor_floor_speed_bps = { ...(v?.speed_monitor_floor_speed_bps || {}) }
+  form.upload_limit_downloaders = [...(v?.upload_limit_downloaders || [])]
+  form.upload_limit_downloader_limits_kib = { ...(v?.upload_limit_downloader_limits_kib || {}) }
+  form.upload_limit_site_rules = Object.fromEntries(Object.entries(v?.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
 }, { immediate: true, deep: true })
 
-function saveConfig() { emit('save', { ...form }) }
+function saveConfig() {
+  emit('save', {
+    ...form,
+    speed_monitor_downloaders: [...(form.speed_monitor_downloaders || [])],
+    speed_monitor_manual_speed_bps: { ...(form.speed_monitor_manual_speed_bps || {}) },
+    speed_monitor_floor_speed_bps: { ...(form.speed_monitor_floor_speed_bps || {}) },
+    upload_limit_downloaders: [...(form.upload_limit_downloaders || [])],
+    upload_limit_downloader_limits_kib: { ...(form.upload_limit_downloader_limits_kib || {}) },
+    upload_limit_site_rules: Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }])),
+  })
+}
 function selectMain(key) {
   if (activeMain.value === key) return
   activeMain.value = key
@@ -333,6 +401,126 @@ function setSpeedMiB(field, downloaderId, value) {
     delete mapping[downloaderId]
   }
   form[field] = mapping
+}
+
+function uploadDownloaderLimit(downloaderId) {
+  const value = Number(form.upload_limit_downloader_limits_kib?.[downloaderId] || 0)
+  return value > 0 ? value : null
+}
+
+function setUploadDownloaderLimit(downloaderId, value) {
+  const mapping = { ...(form.upload_limit_downloader_limits_kib || {}) }
+  const normalized = Number(value)
+  if (Number.isFinite(normalized) && normalized > 0) mapping[downloaderId] = Math.floor(normalized)
+  else delete mapping[downloaderId]
+  form.upload_limit_downloader_limits_kib = mapping
+}
+
+function priorityLabel(value) {
+  return { high: '高', medium: '中', low: '低' }[value] || '中'
+}
+
+function formatUploadRate(value) {
+  const speed = Number(value || 0)
+  if (speed >= 1024 * 1024) return `${(speed / 1024 / 1024).toFixed(2)} MiB/s`
+  return `${(speed / 1024).toFixed(1)} KiB/s`
+}
+
+function setUploadSiteRule(siteName, field, value) {
+  const rules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
+  const current = rules[siteName] || { priority: 'medium', limit_kib: 0 }
+  if (field === 'priority') current.priority = ['high', 'medium', 'low'].includes(value) ? value : 'medium'
+  if (field === 'limit_kib') {
+    const limit = Number(value)
+    current.limit_kib = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 0
+  }
+  rules[siteName] = current
+  form.upload_limit_site_rules = rules
+}
+
+function removeUploadSiteRule(siteName) {
+  const rules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
+  delete rules[siteName]
+  form.upload_limit_site_rules = rules
+}
+
+function applyUploadStatus(response) {
+  if (!response || (response.code !== 0 && !response.service_status)) return
+  overview.value = { ...(overview.value || {}), upload_limit: response }
+}
+
+async function refreshUploadLimitStatus() {
+  uploadActionRunning.value = 'refresh'
+  uploadMessage.value = ''
+  try {
+    const response = await getPluginApi(props.api, 'upload_limit_status')
+    applyUploadStatus(response)
+  } catch (error) {
+    uploadMessageStatus.value = 'error'
+    uploadMessage.value = error?.message || '状态刷新失败'
+  } finally {
+    uploadActionRunning.value = ''
+  }
+}
+
+async function scanUploadSites() {
+  uploadMessage.value = ''
+  if (!form.upload_limit_downloaders?.length) {
+    uploadMessageStatus.value = 'warning'
+    uploadMessage.value = '请先选择限速下载器'
+    return
+  }
+  uploadScanningSites.value = true
+  try {
+    const response = await postPluginJsonApi(props.api, 'upload_limit_site_tags', { downloaders: form.upload_limit_downloaders })
+    uploadSiteItems.value = response?.items || []
+    const rules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
+    for (const item of uploadSiteItems.value) {
+      if (!rules[item.name]) rules[item.name] = { priority: 'medium', limit_kib: 0 }
+    }
+    form.upload_limit_site_rules = rules
+    uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
+    uploadMessage.value = response?.msg || `扫描到 ${uploadSiteItems.value.length} 个站点标签`
+  } catch (error) {
+    uploadMessageStatus.value = 'error'
+    uploadMessage.value = error?.message || '站点扫描失败'
+  } finally {
+    uploadScanningSites.value = false
+  }
+}
+
+async function reallocateUploadLimits() {
+  uploadActionRunning.value = 'reallocate'
+  uploadMessage.value = ''
+  try {
+    const response = await postPluginJsonApi(props.api, 'upload_limit_reallocate', {})
+    applyUploadStatus(response)
+    uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
+    uploadMessage.value = response?.msg || '上传额度已重新分配'
+  } catch (error) {
+    uploadMessageStatus.value = 'error'
+    uploadMessage.value = error?.message || '重新分配失败'
+  } finally {
+    uploadActionRunning.value = ''
+  }
+}
+
+async function disableAndRestoreUploadLimits() {
+  uploadActionRunning.value = 'restore'
+  uploadMessage.value = ''
+  try {
+    const response = await postPluginJsonApi(props.api, 'upload_limit_disable_restore', {})
+    form.upload_limit_enabled = false
+    uploadRestoreDialog.value = false
+    await refreshUploadLimitStatus()
+    uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
+    uploadMessage.value = response?.msg || '上传限速已停用并恢复'
+  } catch (error) {
+    uploadMessageStatus.value = 'error'
+    uploadMessage.value = error?.message || '停用恢复失败'
+  } finally {
+    uploadActionRunning.value = ''
+  }
 }
 
 function dispositionLabel(action) {
@@ -527,6 +715,176 @@ async function executeCleanupTags() {
                   <div v-else class="text-caption text-medium-emphasis">暂无告警处置记录</div>
                 </div>
               </div>
+            </div>
+
+            <!-- ═══ 上传限速 · 基础设置 ═══ -->
+            <div v-show="activeSub === 'upload_basic'" class="dm-pane">
+              <div class="dm-section-title">上传限速设置</div>
+              <VRow>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.upload_limit_enabled" color="success" inset hide-details label="启用上传限速" />
+                </VCol>
+                <VCol cols="12" md="8">
+                  <VSelect v-model="form.upload_limit_downloaders" label="限速下载器" density="compact" variant="outlined"
+                    :items="uploadDownloaderItems" multiple chips closable-chips clearable
+                    hint="只扫描和修改这里选中的 qBittorrent / Transmission 实例" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" sm="6" md="4">
+                  <VTextField v-model.number="form.upload_limit_grace_minutes" label="新种宽限（分钟）" type="number" min="0" max="1440"
+                    density="compact" variant="outlined" hint="默认 30；填 0 表示完成后立即纳入分配" persistent-hint />
+                </VCol>
+              </VRow>
+
+              <div class="dm-section-title mt-4">下载器总上限</div>
+              <div v-if="uploadSelectedDownloaders.length" class="dm-upload-downloader-list">
+                <div v-for="item in uploadSelectedDownloaders" :key="item.value" class="dm-upload-config-row">
+                  <div class="dm-upload-config-name">
+                    <VIcon :icon="item.type === 'transmission' ? 'mdi-transmission-tower' : 'mdi-download-network-outline'" size="19" color="primary" />
+                    <div class="min-w-0">
+                      <strong>{{ item.title }}</strong>
+                      <div class="text-caption text-medium-emphasis">
+                        {{ item.type === 'transmission' ? 'Transmission Session 上传上限' : 'qB 普通与备用上传上限' }}
+                      </div>
+                    </div>
+                  </div>
+                  <VTextField :model-value="uploadDownloaderLimit(item.value)"
+                    @update:model-value="setUploadDownloaderLimit(item.value, $event)"
+                    label="总上限（KiB/s）" type="number" min="1" step="1" density="compact" variant="outlined"
+                    hint="必须大于 0；以插件配置为准" persistent-hint />
+                </div>
+              </div>
+              <div v-else class="dm-monitor-empty">尚未选择限速下载器</div>
+
+              <VAlert v-if="form.upload_limit_enabled && !uploadSelectedDownloaders.length" type="warning" variant="tonal" density="compact" class="mt-4">
+                请至少选择一个 qBittorrent 或 Transmission 下载器，并设置正整数总上限。
+              </VAlert>
+              <VAlert v-else-if="form.upload_limit_enabled && uploadMissingLimits.length" type="warning" variant="tonal" density="compact" class="mt-4">
+                {{ uploadMissingLimits.map(item => item.title).join('、') }} 尚未设置正整数总上限，保存后上传限速不会启动。
+              </VAlert>
+
+              <VAlert type="info" variant="tonal" density="compact" class="mt-4">
+                单位与 qB 一致使用 KiB/s，1024 KiB/s = 1 MiB/s。宽限期间不做站点和单种分配，但仍受对应下载器总上传上限。
+              </VAlert>
+            </div>
+
+            <!-- ═══ 上传限速 · 站点策略 ═══ -->
+            <div v-show="activeSub === 'upload_sites'" class="dm-pane">
+              <div class="dm-upload-toolbar">
+                <div>
+                  <div class="dm-section-title mb-1">站点优先级</div>
+                  <div class="text-caption text-medium-emphasis">仅识别唯一有效的「{{ form.tag_siteprefix || '🏠' }}站点名」标签；未配置、无标签或多个站点标签进入默认组。</div>
+                </div>
+                <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="uploadScanningSites"
+                  @click="scanUploadSites">扫描站点</VBtn>
+              </div>
+
+              <VAlert v-if="uploadMessage" :type="uploadMessageStatus" variant="tonal" density="compact" closable class="mt-3"
+                @click:close="uploadMessage = ''">{{ uploadMessage }}</VAlert>
+
+              <div class="dm-upload-default mt-4">
+                <div class="d-flex align-center ga-2">
+                  <VAvatar color="primary" variant="tonal" size="34" rounded="lg"><VIcon icon="mdi-home-group" size="20" /></VAvatar>
+                  <div>
+                    <strong class="text-body-2">默认组</strong>
+                    <div class="text-caption text-medium-emphasis">优先级中 · 不设置独立站点上限 · 仅受下载器总上限控制</div>
+                  </div>
+                </div>
+                <VChip size="small" color="primary" variant="tonal">中</VChip>
+              </div>
+
+              <div v-if="uploadSiteRuleRows.length" class="dm-upload-site-list mt-3">
+                <div v-for="row in uploadSiteRuleRows" :key="row.name" class="dm-upload-site-row">
+                  <div class="dm-upload-site-name">
+                    <VIcon icon="mdi-home-outline" size="19" color="primary" />
+                    <div class="min-w-0">
+                      <strong class="text-body-2">{{ row.name }}</strong>
+                      <div class="text-caption text-medium-emphasis">{{ form.tag_siteprefix || '🏠' }}{{ row.name }}</div>
+                    </div>
+                  </div>
+                  <VSelect :model-value="row.priority" @update:model-value="setUploadSiteRule(row.name, 'priority', $event)"
+                    label="优先级" :items="uploadPriorityItems" density="compact" variant="outlined" hide-details />
+                  <VTextField :model-value="row.limit_kib || null" @update:model-value="setUploadSiteRule(row.name, 'limit_kib', $event)"
+                    label="站点上限（KiB/s）" type="number" min="0" step="1" clearable density="compact" variant="outlined"
+                    hint="留空表示不设独立上限；填写后为跨下载器共享硬上限" persistent-hint />
+                  <VBtn icon="mdi-delete-outline" size="small" color="error" variant="text" title="移入默认组"
+                    @click="removeUploadSiteRule(row.name)" />
+                </div>
+              </div>
+              <div v-else class="dm-monitor-empty mt-3">尚未配置站点规则，可扫描所选下载器自动加入</div>
+
+              <VAlert type="info" variant="tonal" density="compact" class="mt-4">
+                高 / 中 / 低使用 4 / 2 / 1 相对权重，并非固定分成 10 份；三档同时满负载时约为 57.1% / 28.6% / 14.3%，空闲额度每 30 秒动态转给仍有上传需求的任务。
+              </VAlert>
+            </div>
+
+            <!-- ═══ 上传限速 · 运行状态 ═══ -->
+            <div v-show="activeSub === 'upload_status'" class="dm-pane">
+              <div class="dm-upload-toolbar">
+                <div>
+                  <div class="dm-section-title mb-1">运行状态</div>
+                  <div class="text-caption text-medium-emphasis">MP 或插件离线时，下载器继续保留最后一次已写入的限速。</div>
+                </div>
+                <div class="d-flex ga-2 flex-wrap justify-end">
+                  <VBtn size="small" variant="text" prepend-icon="mdi-refresh" :loading="uploadActionRunning === 'refresh'"
+                    @click="refreshUploadLimitStatus">刷新</VBtn>
+                  <VBtn size="small" color="primary" variant="tonal" prepend-icon="mdi-call-split"
+                    :loading="uploadActionRunning === 'reallocate'" :disabled="!uploadLimit.enabled"
+                    @click="reallocateUploadLimits">立即分配</VBtn>
+                  <VBtn size="small" color="warning" variant="tonal" prepend-icon="mdi-backup-restore"
+                    :disabled="!uploadLimit.active && !uploadLimit.enabled" @click="uploadRestoreDialog = true">停用并恢复</VBtn>
+                </div>
+              </div>
+
+              <VAlert v-if="uploadMessage" :type="uploadMessageStatus" variant="tonal" density="compact" closable class="mt-3"
+                @click:close="uploadMessage = ''">{{ uploadMessage }}</VAlert>
+              <VAlert v-for="error in uploadLimit.errors || []" :key="error" type="warning" variant="tonal" density="compact" class="mt-2">
+                {{ error }}
+              </VAlert>
+
+              <div class="dm-monitor-summary mt-4">
+                <div class="dm-monitor-metric"><span>服务</span><strong>{{ uploadLimitStatus.label }}</strong></div>
+                <div class="dm-monitor-metric"><span>实时上传</span><strong>{{ formatUploadRate(uploadLimit.upload_rate_bps) }}</strong></div>
+                <div class="dm-monitor-metric"><span>受管种子</span><strong>{{ uploadLimit.managed_torrents || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>宽限种子</span><strong>{{ uploadLimit.grace_torrents || 0 }}</strong></div>
+              </div>
+
+              <div class="dm-section-title mt-4">下载器分配</div>
+              <div v-if="uploadLimitDownloaderRows.length" class="dm-upload-status-grid">
+                <div v-for="item in uploadLimitDownloaderRows" :key="item.id" class="dm-upload-status-card">
+                  <div class="dm-upload-status-head">
+                    <div class="min-w-0">
+                      <strong class="text-body-2">{{ item.id }}</strong>
+                      <div class="text-caption text-medium-emphasis">{{ item.type === 'transmission' ? 'Transmission' : 'qBittorrent' }}</div>
+                    </div>
+                    <VChip size="x-small" :color="item.error ? 'warning' : 'success'" variant="tonal">{{ item.error ? '异常' : '正常' }}</VChip>
+                  </div>
+                  <div class="dm-upload-values">
+                    <span>实时 <strong>{{ formatUploadRate(item.upload_rate_bps) }}</strong></span>
+                    <span>总上限 <strong>{{ item.total_limit_kib }} KiB/s</strong></span>
+                    <span>已分配 <strong>{{ item.allocated_kib }} KiB/s</strong></span>
+                    <span>种子 <strong>{{ item.managed_torrents }} + {{ item.grace_torrents }}</strong></span>
+                  </div>
+                  <div v-if="item.error" class="text-caption text-warning mt-2 dm-break-text">{{ item.error }}</div>
+                </div>
+              </div>
+              <div v-else class="dm-monitor-empty">当前没有启用的限速下载器</div>
+
+              <div class="dm-section-title mt-4">站点分配</div>
+              <div v-if="uploadLimitSiteRows.length" class="dm-upload-site-status">
+                <div v-for="item in uploadLimitSiteRows" :key="item.key" class="dm-upload-site-status-row">
+                  <div class="min-w-0">
+                    <strong class="text-body-2">{{ item.name }}</strong>
+                    <div class="text-caption text-medium-emphasis">{{ item.torrent_count }} 个任务 · {{ item.downloaders?.join('、') }}</div>
+                  </div>
+                  <VChip size="x-small" color="primary" variant="tonal">{{ priorityLabel(item.priority) }}</VChip>
+                  <span class="text-caption">实时 <strong>{{ formatUploadRate(item.upload_rate_bps) }}</strong></span>
+                  <span class="text-caption">分配 <strong>{{ item.allocated_kib }} KiB/s</strong></span>
+                  <span class="text-caption">硬上限 <strong>{{ item.hard_limit_kib ? `${item.hard_limit_kib} KiB/s` : '无' }}</strong></span>
+                </div>
+              </div>
+              <div v-else class="dm-monitor-empty">尚无常规做种池分配数据</div>
             </div>
 
             <!-- ═══ 速度监控 · 基础设置 ═══ -->
@@ -1056,6 +1414,29 @@ async function executeCleanupTags() {
         </VCardActions>
       </VCard>
     </VDialog>
+
+    <VDialog v-model="uploadRestoreDialog" max-width="560">
+      <VCard>
+        <VCardItem>
+          <template #prepend>
+            <VAvatar color="warning" variant="tonal" size="40" rounded="lg"><VIcon icon="mdi-backup-restore" /></VAvatar>
+          </template>
+          <VCardTitle class="text-subtitle-1">停用并恢复上传限速</VCardTitle>
+          <VCardSubtitle>恢复插件接管前的下载器与单种上传设置</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="text-body-2">
+          当前值仍等于插件最后写入值时才会恢复；若你后来手工修改过，则保留手工值，不会覆盖。
+        </VCardText>
+        <VDivider />
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" :disabled="uploadActionRunning === 'restore'" @click="uploadRestoreDialog = false">取消</VBtn>
+          <VBtn color="warning" variant="flat" prepend-icon="mdi-backup-restore" :loading="uploadActionRunning === 'restore'"
+            @click="disableAndRestoreUploadLimits">确认恢复</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
   </div>
 </template>
 <style scoped>
@@ -1095,7 +1476,7 @@ async function executeCleanupTags() {
 .dm-pane--overview { min-height: auto; padding: 12px 16px; }
 .dm-section-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: rgb(var(--v-theme-primary)); }
 .dm-hint { font-size: 12px; line-height: 1.5; color: rgba(var(--v-theme-on-surface), 0.6); margin-top: 2px; }
-.dm-stat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.dm-stat-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .dm-stat { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 8px 10px; min-width: 0; }
 .dm-stat > div { min-width: 0; overflow-wrap: anywhere; }
 .dm-overview-section { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px 12px; min-width: 0; }
@@ -1138,6 +1519,20 @@ async function executeCleanupTags() {
 .dm-disposition { display: grid; gap: 3px; min-width: 0; padding: 10px 12px; border-left: 3px solid rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), 0.06); font-size: 12px; }
 .dm-disposition span { min-width: 0; overflow-wrap: anywhere; }
 .dm-monitor-empty { display: flex; min-height: 64px; align-items: center; justify-content: center; border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; color: rgba(var(--v-theme-on-surface), 0.6); font-size: 13px; }
+.dm-upload-downloader-list, .dm-upload-site-list, .dm-upload-site-status { display: grid; gap: 10px; }
+.dm-upload-config-row { display: grid; grid-template-columns: minmax(220px, .72fr) minmax(260px, 1fr); gap: 16px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-config-name, .dm-upload-site-name { display: flex; align-items: flex-start; gap: 9px; min-width: 0; padding-top: 8px; overflow-wrap: anywhere; }
+.dm-upload-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.dm-upload-default { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-primary), .035); }
+.dm-upload-site-row { display: grid; grid-template-columns: minmax(180px, .72fr) minmax(118px, .32fr) minmax(250px, 1fr) auto; gap: 12px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-site-row :deep(.v-btn) { margin-top: 4px; }
+.dm-upload-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dm-upload-status-card { min-width: 0; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-status-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+.dm-upload-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 12px; margin-top: 10px; font-size: 12px; }
+.dm-upload-values span { min-width: 0; overflow-wrap: anywhere; }
+.dm-upload-site-status-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(102px, auto) minmax(112px, auto) minmax(124px, auto); gap: 10px; align-items: center; min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-site-status-row > span { min-width: 0; overflow-wrap: anywhere; }
 .dm-cleanup-toolbar { display: flex; align-items: center; gap: 10px; }
 .dm-cleanup-select { flex: 1 1 auto; min-width: 0; }
 .dm-cleanup-results { display: grid; gap: 10px; }
@@ -1173,6 +1568,13 @@ async function executeCleanupTags() {
   .dm-flow { grid-template-columns: 1fr; }
   .dm-flow-block:first-child { grid-column: auto; }
   .dm-monitor-summary, .dm-monitor-baselines, .dm-monitor-speed-row { grid-template-columns: 1fr; }
+  .dm-upload-config-row, .dm-upload-site-row, .dm-upload-status-grid, .dm-upload-site-status-row { grid-template-columns: 1fr; }
+  .dm-upload-config-name, .dm-upload-site-name { padding-top: 0; }
+  .dm-upload-toolbar, .dm-upload-default { align-items: stretch; flex-direction: column; }
+  .dm-upload-toolbar :deep(.v-btn) { width: 100%; }
+  .dm-upload-default :deep(.v-chip) { align-self: flex-start; }
+  .dm-upload-site-row :deep(.v-btn) { justify-self: end; margin-top: 0; }
+  .dm-upload-site-status-row :deep(.v-chip) { justify-self: start; }
   .dm-threshold-suggestion-head { align-items: stretch; flex-direction: column; }
   .dm-threshold-suggestion-head :deep(.v-btn) { align-self: flex-start; }
   .dm-threshold-suggestion-row { grid-template-columns: minmax(112px, 1fr) minmax(84px, auto); grid-template-areas: 'label current' 'suggested action'; gap: 6px; }
@@ -1187,6 +1589,9 @@ async function executeCleanupTags() {
 @media (min-width: 761px) and (max-width: 960px) {
   .dm-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dm-monitor-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dm-upload-site-row { grid-template-columns: minmax(180px, .7fr) minmax(118px, .35fr) minmax(220px, 1fr) auto; }
+  .dm-upload-status-grid { grid-template-columns: 1fr; }
+  .dm-upload-site-status-row { grid-template-columns: minmax(170px, 1fr) auto repeat(3, minmax(96px, auto)); }
   .dm-flow { grid-template-columns: 1fr; }
   .dm-flow-block:first-child { grid-column: auto; }
   .dm-window--overview { overflow-y: auto; }

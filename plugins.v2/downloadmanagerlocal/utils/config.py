@@ -17,6 +17,14 @@ SPEED_MONITOR_CONFIG_DEFAULTS = {
     "speed_monitor_notification_type": "Plugin",
 }
 
+UPLOAD_LIMIT_CONFIG_DEFAULTS = {
+    "upload_limit_enabled": False,
+    "upload_limit_downloaders": [],
+    "upload_limit_downloader_limits_kib": {},
+    "upload_limit_site_rules": {},
+    "upload_limit_grace_minutes": 30,
+}
+
 PLUGIN_CONFIG_DEFAULTS = {
     "enabled": False,
     "transfer_enabled": True,
@@ -66,6 +74,7 @@ PLUGIN_CONFIG_DEFAULTS = {
     "seed_max_wait_minutes": 120,
     "iyuu_clearcache": False,
     **SPEED_MONITOR_CONFIG_DEFAULTS,
+    **UPLOAD_LIMIT_CONFIG_DEFAULTS,
 }
 
 SPEED_MONITOR_DELETE_FILE = True
@@ -119,6 +128,46 @@ def _positive_speed_mapping(value) -> dict[str, float]:
     return result
 
 
+def _positive_integer_mapping(value) -> dict[str, int]:
+    """清洗按下载器保存的正整数 KiB/s 映射。"""
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for downloader, speed in value.items():
+        if not isinstance(downloader, str) or not downloader.strip():
+            continue
+        try:
+            normalized_speed = int(float(speed))
+        except (TypeError, ValueError):
+            continue
+        if normalized_speed > 0:
+            result[downloader.strip()] = normalized_speed
+    return result
+
+
+def _normalize_upload_site_rules(value) -> dict[str, dict]:
+    """清洗站点优先级与可选共享硬上限。"""
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for site_name, raw_rule in value.items():
+        clean_name = str(site_name or "").strip()
+        if not clean_name or not isinstance(raw_rule, dict):
+            continue
+        priority = str(raw_rule.get("priority") or "medium").strip().lower()
+        if priority not in {"high", "medium", "low"}:
+            priority = "medium"
+        try:
+            limit_kib = int(float(raw_rule.get("limit_kib") or 0))
+        except (TypeError, ValueError):
+            limit_kib = 0
+        result[clean_name] = {
+            "priority": priority,
+            "limit_kib": max(0, limit_kib),
+        }
+    return result
+
+
 def normalize_speed_monitor_config(config: dict | None) -> dict:
     """按速度监控契约清洗配置并补齐默认值。"""
     source = config if isinstance(config, dict) else {}
@@ -168,6 +217,32 @@ def normalize_speed_monitor_config(config: dict | None) -> dict:
     }
 
 
+def normalize_upload_limit_config(config: dict | None) -> dict:
+    """按上传限速契约清洗配置并补齐默认值。"""
+    source = config if isinstance(config, dict) else {}
+    downloaders = []
+    for downloader in source.get("upload_limit_downloaders") or []:
+        if (
+            isinstance(downloader, str)
+            and downloader.strip()
+            and downloader.strip() not in downloaders
+        ):
+            downloaders.append(downloader.strip())
+    return {
+        "upload_limit_enabled": bool(source.get("upload_limit_enabled", False)),
+        "upload_limit_downloaders": downloaders,
+        "upload_limit_downloader_limits_kib": _positive_integer_mapping(
+            source.get("upload_limit_downloader_limits_kib")
+        ),
+        "upload_limit_site_rules": _normalize_upload_site_rules(
+            source.get("upload_limit_site_rules")
+        ),
+        "upload_limit_grace_minutes": safe_int(
+            source.get("upload_limit_grace_minutes"), 30, 0, 1440
+        ),
+    }
+
+
 def is_transfer_active(plugin) -> bool:
     """判断转移做种能力是否处于可运行状态。"""
     return bool(
@@ -211,10 +286,30 @@ def is_speed_monitor_active(plugin) -> bool:
     )
 
 
+def is_upload_limit_active(plugin) -> bool:
+    """判断上传限速是否具备运行所需的完整下载器额度。"""
+    selected = getattr(plugin, "_upload_limit_downloaders", [])
+    selected_names = [
+        name.strip()
+        for name in selected
+        if isinstance(name, str) and name.strip()
+    ] if isinstance(selected, (list, tuple, set)) else []
+    limits = getattr(plugin, "_upload_limit_downloader_limits_kib", {})
+    if not isinstance(limits, dict):
+        return False
+    return bool(
+        getattr(plugin, "_enabled", False)
+        and getattr(plugin, "_upload_limit_enabled", False)
+        and selected_names
+        and all(safe_int(limits.get(name), 0, 0) > 0 for name in selected_names)
+    )
+
+
 def is_plugin_active(plugin) -> bool:
     """判断插件是否至少有一个主要能力处于可运行状态。"""
     return (
         is_transfer_active(plugin)
         or is_iyuu_active(plugin)
         or is_speed_monitor_active(plugin)
+        or is_upload_limit_active(plugin)
     )

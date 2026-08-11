@@ -9,7 +9,12 @@ from ..model.state import (
     IYUU_PERMANENT_ERROR_CACHES_KEY,
     IYUU_SUCCESS_CACHES_KEY,
 )
-from ..utils.config import PLUGIN_CONFIG_DEFAULTS, normalize_speed_monitor_config, safe_int
+from ..utils.config import (
+    PLUGIN_CONFIG_DEFAULTS,
+    normalize_speed_monitor_config,
+    normalize_upload_limit_config,
+    safe_int,
+)
 from ..utils.tracker import parse_tracker_mappings
 
 
@@ -29,10 +34,15 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
     for key, value in monitor_config.items():
         setattr(plugin, f"_{key}", value)
 
+    upload_limit_config = normalize_upload_limit_config(config)
+    for key, value in upload_limit_config.items():
+        setattr(plugin, f"_{key}", value)
+
     if not config:
         return config
 
     config.update(monitor_config)
+    config.update(upload_limit_config)
     defaults = PLUGIN_CONFIG_DEFAULTS
 
     plugin._enabled = config.get("enabled", defaults["enabled"])

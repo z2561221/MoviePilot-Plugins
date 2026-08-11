@@ -27,13 +27,13 @@ from .service.recheck import load_seed_recheck_queue as _load_seed_recheck_queue
 from .service.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl, retry_pending_renames as _retry_pending_renames_impl
 from .service.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
 from .controller.api import build_api_routes as _build_api_routes_impl
-from .service.events import handle_transfer_complete_event as _handle_transfer_complete_event_impl
+from .service.events import handle_download_added_event as _handle_download_added_event_impl, handle_transfer_complete_event as _handle_transfer_complete_event_impl
 from .service.lifecycle import initialize_plugin as _initialize_plugin_impl, stop_plugin_service as _stop_plugin_service_impl
 from .service.scheduler import build_plugin_services as _build_plugin_services_impl
 from .service.cleanup import handle_sync_delete_by_hash_event as _handle_sync_delete_by_hash_event_impl, handle_webhook_message_event as _handle_webhook_message_event_impl, handle_plugin_action_event as _handle_plugin_action_event_impl
 from .service.speed_notification import handle_speed_message_action_event as _handle_speed_message_action_event_impl
-from .service.speed_monitor import handle_download_added_event as _handle_download_added_event_impl, scan_speed_monitor as _scan_speed_monitor_impl
-from .service.speed_worker import start_speed_monitor_worker
+from .service.speed_monitor import scan_speed_monitor as _scan_speed_monitor_impl
+from .service.upload_limiter import run_upload_limit_cycle as _run_upload_limit_cycle_impl
 
 class DownloadManagerLocal(_PluginBase):
     """下载中心插件入口，负责声明 MoviePilot 契约并委托 service 层执行。"""
@@ -63,6 +63,13 @@ class DownloadManagerLocal(_PluginBase):
     _speed_monitor_thread = None
     _speed_monitor_stop_event = None
     _speed_monitor_worker_lock = None
+    _upload_limit_thread = None
+    _upload_limit_stop_event = None
+    _upload_limit_wake_event = None
+    _upload_limit_worker_lock = None
+    _upload_limit_cycle_lock = None
+    _upload_limit_state = None
+    _upload_limit_state_error = ""
 
     # ── 转移做种配置 ──
     _enabled = False
@@ -102,6 +109,13 @@ class DownloadManagerLocal(_PluginBase):
     _tag_enabled: bool = True
     _tag_siteprefix: str = "🏠"
     _tag_tracker_mappings_str: str = ""
+
+    # ── 上传限速配置 ──
+    _upload_limit_enabled: bool = False
+    _upload_limit_downloaders: list = []
+    _upload_limit_downloader_limits_kib: dict = {}
+    _upload_limit_site_rules: dict = {}
+    _upload_limit_grace_minutes: int = 30
 
     # ── IYUU 辅种配置 ──
     _iyuu_enabled: bool = False
@@ -385,11 +399,7 @@ class DownloadManagerLocal(_PluginBase):
         """监听 TransferComplete 事件，延迟 N 分钟后自动转移做种。"""; return _handle_transfer_complete_event_impl(self, event)
     @eventmanager.register(EventType.DownloadAdded)
     def on_download_added(self, event: Event):
-        """监听下载新增事件，立即建立会话并启动按需监控。"""
-        result = _handle_download_added_event_impl(self, event)
-        if isinstance(result, dict) and int(result.get("active_sessions") or 0) > 0:
-            start_speed_monitor_worker(self)
-        return result
+        """监听下载新增事件，唤醒速度监控与上传限速协调。"""; return _handle_download_added_event_impl(self, event)
     @eventmanager.register([EventType.DownloadFileDeleted, EventType.DownloadDeleted])
     def on_download_sync_delete(self, event: Event):
         """监听下载删除事件，同步删除转种和辅种任务。"""; return _handle_sync_delete_by_hash_event_impl(self, event, trigger=getattr(getattr(event, "event_type", None), "value", "DownloadDeleted"))
@@ -407,6 +417,9 @@ class DownloadManagerLocal(_PluginBase):
 
     def _scan_download_speed(self):
         """执行一轮多下载器速度监控扫描。"""; return _scan_speed_monitor_impl(self)
+
+    def _coordinate_upload_limits(self):
+        """执行一轮上传限速扫描与动态额度分配。"""; return _run_upload_limit_cycle_impl(self)
 
     def _delayed_transfer(self):
         """执行 TransferComplete 延迟触发后的转移任务。"""; return _delayed_transfer_impl(self)

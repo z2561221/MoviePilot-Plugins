@@ -7,6 +7,10 @@ from .handlers import (
     api_reset_speed_monitor_baseline,
     api_tag_cleanup_execute,
     api_tag_cleanup_scan,
+    api_upload_limit_disable_restore,
+    api_upload_limit_reallocate,
+    api_upload_limit_site_tags,
+    api_upload_limit_status,
 )
 
 
@@ -40,6 +44,34 @@ def build_api_routes(plugin) -> List[Dict[str, Any]]:
             "auth": "bear",
             "methods": ["POST"],
             "summary": "重置下载速度基准",
+        },
+        {
+            "path": "/upload_limit_status",
+            "endpoint": partial(api_upload_limit_status, plugin),
+            "auth": "bear",
+            "methods": ["GET"],
+            "summary": "获取上传限速状态",
+        },
+        {
+            "path": "/upload_limit_reallocate",
+            "endpoint": partial(api_upload_limit_reallocate, plugin),
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "立即重新分配上传额度",
+        },
+        {
+            "path": "/upload_limit_site_tags",
+            "endpoint": partial(api_upload_limit_site_tags, plugin),
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "扫描上传限速站点标签",
+        },
+        {
+            "path": "/upload_limit_disable_restore",
+            "endpoint": partial(api_upload_limit_disable_restore, plugin),
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "停用上传限速并恢复原值",
         },
         {
             "path": "/diagnostics",

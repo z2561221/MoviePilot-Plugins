@@ -173,6 +173,7 @@ def test_scheduler_and_lifecycle_use_on_demand_monitor_worker():
     """宿主调度器不得常驻轮询，生命周期只恢复活跃会话 worker。"""
     scheduler_source = (PLUGIN_DIR / "service" / "scheduler.py").read_text(encoding="utf-8")
     lifecycle_source = (PLUGIN_DIR / "service" / "lifecycle.py").read_text(encoding="utf-8")
+    events_source = (PLUGIN_DIR / "service" / "events.py").read_text(encoding="utf-8")
     entry_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
 
     assert '"id": "DownloadSpeedMonitor"' not in scheduler_source
@@ -187,7 +188,8 @@ def test_scheduler_and_lifecycle_use_on_demand_monitor_worker():
     assert "def _scan_download_speed(self):" in entry_source
     assert "EventType.DownloadAdded" in entry_source
     assert "def on_download_added(self, event: Event):" in entry_source
-    assert "start_speed_monitor_worker(self)" in entry_source
+    assert "return _handle_download_added_event_impl(self, event)" in entry_source
+    assert "start_speed_monitor_worker(plugin)" in events_source
 
 
 def test_worker_starts_once_and_plugin_stop_signals_and_joins_it():

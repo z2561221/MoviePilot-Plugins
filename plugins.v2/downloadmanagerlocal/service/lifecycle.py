@@ -17,8 +17,13 @@ from .speed_worker import (
     start_speed_monitor_worker_if_needed,
     stop_speed_monitor_worker,
 )
+from .upload_limiter import load_upload_limit_state, restore_upload_limits
+from .upload_limit_worker import (
+    start_upload_limit_worker,
+    stop_upload_limit_worker,
+)
 from .transfer import validate_config
-from ..utils.config import is_speed_monitor_active
+from ..utils.config import is_speed_monitor_active, is_upload_limit_active
 
 
 def initialize_plugin(plugin, config: dict = None) -> None:
@@ -29,6 +34,12 @@ def initialize_plugin(plugin, config: dict = None) -> None:
     if is_speed_monitor_active(plugin):
         runtime = ensure_speed_monitor_runtime(plugin)
         start_speed_monitor_worker_if_needed(plugin, runtime)
+
+    upload_state = load_upload_limit_state(plugin)
+    if is_upload_limit_active(plugin):
+        start_upload_limit_worker(plugin)
+    elif upload_state.get("management_active") or upload_state.get("downloaders"):
+        restore_upload_limits(plugin)
 
     if plugin._transfer_active or plugin._onlyonce:
         if not validate_config(plugin):
@@ -111,6 +122,7 @@ def stop_plugin_service(plugin) -> None:
     except Exception as error:
         logger.error(f"停止服务失败: {error}")
     finally:
+        stop_upload_limit_worker(plugin)
         stop_speed_monitor_worker(plugin)
         stop_speed_monitor_runtime(plugin)
 
