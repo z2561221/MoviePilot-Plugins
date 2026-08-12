@@ -995,6 +995,7 @@ async function executeCleanupTags() {
                     <span>实时 <strong>{{ formatUploadRate(item.upload_rate_bps) }}</strong></span>
                     <span>总上限 <strong>{{ item.total_limit_kib }} KiB/s</strong></span>
                     <span>已分配 <strong>{{ item.allocated_kib }} KiB/s</strong></span>
+                    <span>自动探测：当前 <strong>{{ item.auto_probe_count || 0 }}</strong> 个</span>
                     <span>种子 <strong>{{ item.managed_torrents }} + {{ item.grace_torrents }}</strong></span>
                   </div>
                   <div v-if="item.error" class="text-caption text-warning mt-2 dm-break-text">{{ item.error }}</div>

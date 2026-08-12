@@ -92,27 +92,79 @@ def test_pool_demand_uses_explicit_probe_elasticity():
     """探测池默认只预留目标额度，仅在下载器无真实上传时保持弹性。"""
     allocator = _load("service.upload_allocator")
 
-    assert allocator.aggregate_pool_demand_kib([5, 0], probe_candidates=3) == 21
-    assert allocator.aggregate_pool_demand_kib([0], probe_candidates=3) == 16
+    assert allocator.aggregate_pool_demand_kib([5, 0], probe_candidates=3) == 29
+    assert allocator.aggregate_pool_demand_kib([0], probe_candidates=3) == 24
     assert allocator.aggregate_pool_demand_kib(
         [0], probe_candidates=3, elastic_probes=True
     ) is None
     assert allocator.aggregate_pool_demand_kib([None], probe_candidates=3) is None
 
 
-def test_task_probe_slots_are_limited_stable_and_rotate_by_batch():
-    """待探测任务每批最多两个，保持两轮后再换批。"""
+def test_initial_auto_probe_count_reserves_fifteen_percent_of_cap():
+    """自动探测初值应约占总额度 15%，并对半数执行向上取整。"""
     allocator = _load("service.upload_allocator")
-    demands = {"a": None, "b": None, "c": None, "d": None, "idle": 0}
-    probes = {"a", "b", "c", "d"}
 
-    first = allocator.allocate_task_limits(120, demands, cycle=1, probe_keys=probes)
-    second = allocator.allocate_task_limits(120, demands, cycle=2, probe_keys=probes)
-    third = allocator.allocate_task_limits(120, demands, cycle=3, probe_keys=probes)
+    assert allocator.initial_auto_probe_count(122, 20) == 2
+    assert allocator.initial_auto_probe_count(80, 20) == 2
+    assert allocator.initial_auto_probe_count(32, 20) == 1
+    assert allocator.initial_auto_probe_count(10_000, 100) == 32
+    assert allocator.initial_auto_probe_count(122, 0) == 0
 
-    assert first == {"a": 60, "b": 60, "c": 0, "d": 0, "idle": 0}
-    assert second == first
-    assert third == {"a": 0, "b": 0, "c": 60, "d": 60, "idle": 0}
+
+def test_auto_probe_count_changes_one_slot_only_at_batch_boundary():
+    """探测数只在两轮批次边界变化，每次最多增减一个。"""
+    allocator = _load("service.upload_allocator")
+
+    assert allocator.adjust_auto_probe_count(
+        2,
+        total_limit_kib=122,
+        candidate_count=20,
+        upload_rate_bps=40 * 1024,
+        previous_probes_had_upload=False,
+        low_utilization_cycles=0,
+        batch_boundary=False,
+    ) == (2, 1)
+    assert allocator.adjust_auto_probe_count(
+        2,
+        total_limit_kib=122,
+        candidate_count=20,
+        upload_rate_bps=40 * 1024,
+        previous_probes_had_upload=False,
+        low_utilization_cycles=1,
+        batch_boundary=True,
+    ) == (3, 0)
+    assert allocator.adjust_auto_probe_count(
+        3,
+        total_limit_kib=122,
+        candidate_count=20,
+        upload_rate_bps=40 * 1024,
+        previous_probes_had_upload=True,
+        low_utilization_cycles=0,
+        batch_boundary=True,
+    ) == (2, 0)
+    assert allocator.adjust_auto_probe_count(
+        3,
+        total_limit_kib=122,
+        candidate_count=20,
+        upload_rate_bps=110 * 1024,
+        previous_probes_had_upload=False,
+        low_utilization_cycles=0,
+        batch_boundary=True,
+    ) == (2, 0)
+
+
+def test_task_allocation_uses_globally_selected_probes_without_second_limit():
+    """池内分配不得把全局已选的动态探测任务再次截断。"""
+    allocator = _load("service.upload_allocator")
+    demands = {"a": None, "b": None, "c": None, "d": 0, "idle": 0}
+    result = allocator.allocate_task_limits(
+        120,
+        demands,
+        cycle=3,
+        probe_keys={"a", "b", "c"},
+    )
+
+    assert result == {"a": 40, "b": 40, "c": 40, "d": 0, "idle": 0}
 
 
 def test_downloader_probe_slots_follow_weighted_site_rotation_and_hold_two_cycles():
@@ -154,10 +206,18 @@ def test_downloader_probe_slots_follow_weighted_site_rotation_and_hold_two_cycle
         for task_key in pool.task_keys
     }
 
-    first = allocator.select_weighted_probe_keys(pools, candidates, cycle=1)
-    second = allocator.select_weighted_probe_keys(pools, candidates, cycle=2)
-    third = allocator.select_weighted_probe_keys(pools, candidates, cycle=3)
-    fifth = allocator.select_weighted_probe_keys(pools, candidates, cycle=5)
+    first = allocator.select_weighted_probe_keys(
+        pools, candidates, target_counts={"qb": 2}, cycle=1
+    )
+    second = allocator.select_weighted_probe_keys(
+        pools, candidates, target_counts={"qb": 2}, cycle=2
+    )
+    third = allocator.select_weighted_probe_keys(
+        pools, candidates, target_counts={"qb": 2}, cycle=3
+    )
+    fifth = allocator.select_weighted_probe_keys(
+        pools, candidates, target_counts={"qb": 2}, cycle=5
+    )
 
     assert first == {"high-a", "medium-a"}
     assert second == first
@@ -166,16 +226,50 @@ def test_downloader_probe_slots_follow_weighted_site_rotation_and_hold_two_cycle
     assert all(len(selected) <= 2 for selected in (first, second, third, fifth))
 
 
+def test_weighted_probe_rotation_accepts_dynamic_downloader_target():
+    """动态探测数量应继续遵守 4/2/1 站点轮换和两轮保持。"""
+    model = _load("model.upload_limit")
+    allocator = importlib.import_module("downloadmanagerlocal.service.upload_allocator")
+    pools = [
+        model.UploadPool(
+            key=priority,
+            downloader_id="qb",
+            site_key=priority,
+            priority=priority,
+            task_keys=tuple(f"{priority}-{index}" for index in range(8)),
+            current_rate_bps=0,
+            demand_kib=None,
+        )
+        for priority in ("high", "medium", "low")
+    ]
+    candidates = {key for pool in pools for key in pool.task_keys}
+
+    first = allocator.select_weighted_probe_keys(
+        pools, candidates, cycle=1, target_counts={"qb": 3}
+    )
+    second = allocator.select_weighted_probe_keys(
+        pools, candidates, cycle=2, target_counts={"qb": 3}
+    )
+    third = allocator.select_weighted_probe_keys(
+        pools, candidates, cycle=3, target_counts={"qb": 3}
+    )
+
+    assert first == second
+    assert len(first) == len(third) == 3
+    assert first != third
+    assert sum(key.startswith("high-") for key in first | third) >= 3
+
+
 def test_active_task_keeps_capacity_while_small_probe_budget_explores_candidates():
     """已有上传任务应保留大部分额度，候选只使用受控探测预算。"""
     allocator = _load("service.upload_allocator")
-    demands = {"active": None, "probe-a": None, "probe-b": None, "probe-c": None}
+    demands = {"active": None, "probe-a": None, "probe-b": None, "probe-c": 0}
 
     result = allocator.allocate_task_limits(
         120,
         demands,
         cycle=1,
-        probe_keys={"probe-a", "probe-b", "probe-c"},
+        probe_keys={"probe-a", "probe-b"},
     )
 
     assert result == {
@@ -192,9 +286,9 @@ def test_finite_active_demand_and_probe_budget_use_the_whole_pool_allocation():
 
     result = allocator.allocate_task_limits(
         53,
-        {"active": 5, "probe-a": None, "probe-b": None, "probe-c": None},
+        {"active": 5, "probe-a": None, "probe-b": None, "probe-c": 0},
         cycle=1,
-        probe_keys={"probe-a", "probe-b", "probe-c"},
+        probe_keys={"probe-a", "probe-b"},
     )
 
     assert result == {

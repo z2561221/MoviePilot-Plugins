@@ -132,6 +132,15 @@ def test_upload_limit_status_auto_refresh_only_runs_on_visible_status_page():
     assert "onBeforeUnmount(stopUploadStatusAutoRefresh)" in source
 
 
+def test_upload_limit_status_shows_automatic_probe_count_without_a_setting():
+    """运行状态应展示自动探测数，但配置模型不得新增手工探测字段。"""
+    source = _source()
+
+    assert "自动探测：当前" in source
+    assert "item.auto_probe_count" in source
+    assert "upload_limit_probe_count" not in source
+
+
 def test_upload_limit_navigation_follows_runtime_order_and_rate_wording_is_clear():
     """上传限速应位于做种校验后，当前速率不得被误解为分配额度。"""
     source = _source()

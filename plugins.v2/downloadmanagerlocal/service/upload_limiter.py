@@ -37,10 +37,12 @@ from ..model.upload_limit import (
 )
 from ..utils.config import is_upload_limit_active, normalize_upload_limit_config
 from .upload_allocator import (
+    adjust_auto_probe_count,
     aggregate_pool_demand_kib,
     allocate_task_limits,
     allocate_weighted_pools,
     estimate_task_demand_kib,
+    initial_auto_probe_count,
     is_task_probe_candidate,
     select_weighted_probe_keys,
 )
@@ -265,8 +267,22 @@ def run_upload_limit_cycle(
             save_upload_limit_state(plugin, state)
             return summary
 
+        upload_rates_bps = {
+            downloader_id: sum(
+                int(snapshot.upload_rate_bps or 0)
+                for snapshot in list(regular_tasks.values()) + list(grace_tasks.values())
+                if snapshot.downloader_id == downloader_id
+            )
+            for downloader_id in selected
+        }
         pools, task_demands, probe_keys = _build_pools(
-            regular_tasks, torrent_state, site_rules, cycle=cycle
+            regular_tasks,
+            torrent_state,
+            site_rules,
+            downloader_state=downloader_state,
+            downloader_caps_kib=caps,
+            upload_rates_bps=upload_rates_bps,
+            cycle=cycle,
         )
         site_caps = {
             site_name: int(rule.get("limit_kib") or 0)
@@ -491,9 +507,12 @@ def _build_pools(
     torrent_state: dict,
     site_rules: dict[str, dict],
     *,
+    downloader_state: dict[str, dict],
+    downloader_caps_kib: dict[str, int],
+    upload_rates_bps: dict[str, int],
     cycle: int,
 ) -> tuple[list[UploadPool], dict[str, int | None], set[str]]:
-    """聚合站点池，并在下载器范围选择受控探测任务。"""
+    """聚合站点池，并按下载器自适应目标选择受控探测任务。"""
     grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
     demands: dict[str, int | None] = {}
     probe_candidates: set[str] = set()
@@ -528,11 +547,70 @@ def _build_pools(
             ),
             demand_kib=0,
         ))
+    candidate_counts: dict[str, int] = defaultdict(int)
+    for task_key in probe_candidates:
+        candidate_counts[regular_tasks[task_key].downloader_id] += 1
+    target_counts = {}
+    batch_boundary = cycle > 1 and (cycle - 1) % 2 == 0
+    for downloader_id in sorted(downloader_caps_kib):
+        entry = downloader_state.setdefault(downloader_id, {})
+        candidates = int(candidate_counts.get(downloader_id, 0))
+        current = int(entry.get("auto_probe_count") or 0)
+        if current <= 0 and candidates > 0:
+            current = initial_auto_probe_count(
+                downloader_caps_kib.get(downloader_id, 0), candidates
+            )
+            low_cycles = 0
+            reduction_pending = False
+        else:
+            previous_keys = {
+                str(key) for key in (entry.get("last_probe_keys") or [])
+            }
+            previous_had_upload = any(
+                key in regular_tasks
+                and int(regular_tasks[key].upload_rate_bps or 0) > 0
+                for key in previous_keys
+            )
+            total_limit_kib = int(downloader_caps_kib.get(downloader_id, 0) or 0)
+            current_rate_bps = int(upload_rates_bps.get(downloader_id, 0) or 0)
+            near_cap = (
+                total_limit_kib > 0
+                and current_rate_bps * 100 >= total_limit_kib * 1024 * 90
+            )
+            reduction_pending = bool(
+                entry.get("probe_reduction_pending")
+                or previous_had_upload
+                or near_cap
+            )
+            current, low_cycles = adjust_auto_probe_count(
+                current,
+                total_limit_kib=total_limit_kib,
+                candidate_count=candidates,
+                upload_rate_bps=current_rate_bps,
+                previous_probes_had_upload=previous_had_upload,
+                low_utilization_cycles=int(
+                    entry.get("probe_low_utilization_cycles") or 0
+                ),
+                batch_boundary=batch_boundary,
+                reduction_pending=reduction_pending,
+            )
+            if batch_boundary and reduction_pending:
+                reduction_pending = False
+        entry["auto_probe_count"] = current
+        entry["probe_low_utilization_cycles"] = low_cycles
+        entry["probe_reduction_pending"] = reduction_pending
+        target_counts[downloader_id] = current
     probe_keys = select_weighted_probe_keys(
         pools,
         probe_candidates,
         cycle=cycle,
+        target_counts=target_counts,
     )
+    for downloader_id in downloader_caps_kib:
+        downloader_state.setdefault(downloader_id, {})["last_probe_keys"] = sorted(
+            key for key in probe_keys
+            if regular_tasks[key].downloader_id == downloader_id
+        )
     for task_key in probe_candidates - probe_keys:
         demands[task_key] = 0
     elastic_real_by_downloader = {
@@ -608,6 +686,7 @@ def _build_downloader_only_summary(
                 if int(snapshot.upload_rate_bps or 0) > 0
             ),
             "probing_torrents": 0,
+            "auto_probe_count": 0,
             "protected_torrents": 0,
             "allocated_kib": item_allocated_kib,
             "error": "; ".join(errors.get(downloader_id) or []),
@@ -709,6 +788,11 @@ def _build_summary(
             "probing_torrents": sum(
                 1 for task_key in probing_task_keys
                 if regular_tasks[task_key].downloader_id == downloader_id
+            ),
+            "auto_probe_count": int(
+                ((state.get("downloaders") or {}).get(downloader_id) or {}).get(
+                    "auto_probe_count"
+                ) or 0
             ),
             "protected_torrents": sum(
                 1 for task_key, snapshot in regular_tasks.items()

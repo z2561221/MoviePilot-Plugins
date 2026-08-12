@@ -10,9 +10,70 @@ from ..model.upload_limit import UploadPool
 
 
 _EPSILON = 1e-9
-_MAX_PROBES_PER_DOWNLOADER = 2
 _PROBE_TARGET_KIB = 8
 _PROBE_HOLD_CYCLES = 2
+_PROBE_INITIAL_PERCENT = 15
+_PROBE_LOW_UTILIZATION_PERCENT = 80
+_PROBE_NEAR_CAP_PERCENT = 90
+_MAX_AUTO_PROBES_PER_DOWNLOADER = 32
+
+
+def initial_auto_probe_count(total_limit_kib: int, candidate_count: int) -> int:
+    """按下载器总额度约 15% 计算初始自动探测数量。"""
+    candidates = max(0, int(candidate_count or 0))
+    if candidates <= 0:
+        return 0
+    total = max(0, int(total_limit_kib or 0))
+    rounded = (
+        total * _PROBE_INITIAL_PERCENT
+        + 50 * _PROBE_TARGET_KIB
+    ) // (100 * _PROBE_TARGET_KIB)
+    return min(
+        max(1, int(rounded)),
+        _max_auto_probe_count(total, candidates),
+    )
+
+
+def adjust_auto_probe_count(
+    current_count: int,
+    *,
+    total_limit_kib: int,
+    candidate_count: int,
+    upload_rate_bps: int,
+    previous_probes_had_upload: bool,
+    low_utilization_cycles: int,
+    batch_boundary: bool,
+    reduction_pending: bool = False,
+) -> tuple[int, int]:
+    """根据利用率与探测结果平滑调整探测数量，并返回连续低利用轮数。"""
+    candidates = max(0, int(candidate_count or 0))
+    if candidates <= 0:
+        return 0, 0
+    total = max(0, int(total_limit_kib or 0))
+    maximum = _max_auto_probe_count(total, candidates)
+    current = min(max(1, int(current_count or 0)), maximum)
+    current_rate = max(0, int(upload_rate_bps or 0))
+    capacity_bps = total * 1024
+    low_utilization = (
+        capacity_bps > 0
+        and current_rate * 100 < capacity_bps * _PROBE_LOW_UTILIZATION_PERCENT
+    )
+    near_cap = (
+        capacity_bps > 0
+        and current_rate * 100 >= capacity_bps * _PROBE_NEAR_CAP_PERCENT
+    )
+    low_cycles = (
+        max(0, int(low_utilization_cycles or 0)) + 1
+        if low_utilization and not previous_probes_had_upload
+        else 0
+    )
+    if not batch_boundary:
+        return current, low_cycles
+    if previous_probes_had_upload or near_cap or reduction_pending:
+        return max(1, current - 1), 0
+    if low_cycles >= _PROBE_HOLD_CYCLES and current < maximum:
+        return current + 1, 0
+    return current, low_cycles
 
 
 def is_task_probe_candidate(
@@ -64,16 +125,17 @@ def aggregate_pool_demand_kib(
     probe_count = max(0, int(probe_candidates or 0))
     if probe_count and elastic_probes:
         return None
-    return demand + min(_MAX_PROBES_PER_DOWNLOADER, probe_count) * _PROBE_TARGET_KIB
+    return demand + probe_count * _PROBE_TARGET_KIB
 
 
 def select_weighted_probe_keys(
     pools: Iterable[UploadPool],
     probe_keys: set[str],
     *,
+    target_counts: dict[str, int],
     cycle: int = 0,
 ) -> set[str]:
-    """按站点权重为每个下载器选择至多两个轮换探测任务。"""
+    """按站点权重和下载器目标数选择轮换探测任务。"""
     candidates = {str(key) for key in probe_keys}
     if not candidates:
         return set()
@@ -96,8 +158,9 @@ def select_weighted_probe_keys(
             for pool in downloader_pools
         }
         total_candidates = sum(len(values) for values in pool_candidates.values())
-        target_count = min(_MAX_PROBES_PER_DOWNLOADER, total_candidates)
-        slot = batch_index * _MAX_PROBES_PER_DOWNLOADER
+        configured_target = int(target_counts.get(downloader_id, 0) or 0)
+        target_count = min(max(0, configured_target), total_candidates)
+        slot = batch_index * max(1, target_count)
         attempts = max(len(schedule), total_candidates * len(schedule))
         downloader_selected: set[str] = set()
         for absolute_slot in range(slot, slot + attempts):
@@ -230,7 +293,7 @@ def allocate_task_limits(
     cycle: int = 0,
     probe_keys: set[str] | None = None,
 ) -> dict[str, int]:
-    """在站点池内优先分配上传任务，并限量轮换待探测任务。"""
+    """在站点池内优先分配上传任务，并接收已全局选定的探测任务。"""
     keys = sorted(str(key) for key in demands_kib)
     if not keys:
         return {}
@@ -239,7 +302,7 @@ def allocate_task_limits(
         return {key: 0 for key in keys}
     probes = set(keys).intersection(str(key) for key in (probe_keys or set()))
     if probes:
-        selected_probes = _select_probe_batch(sorted(probes), cycle)
+        selected_probes = sorted(probes)
         normal_demands = {
             key: value for key, value in demands_kib.items()
             if key not in probes and (value is None or int(value or 0) > 0)
@@ -370,15 +433,14 @@ def _allocate_task_limits_core(
     return result
 
 
-def _select_probe_batch(probe_keys: list[str], cycle: int) -> list[str]:
-    """每批选择至多两个探测任务，并稳定保持两个协调周期。"""
-    if not probe_keys:
-        return []
-    batch_size = min(_MAX_PROBES_PER_DOWNLOADER, len(probe_keys))
-    batch_index = max(0, int(cycle or 0) - 1) // _PROBE_HOLD_CYCLES
-    offset = (batch_index * batch_size) % len(probe_keys)
-    rotated = probe_keys[offset:] + probe_keys[:offset]
-    return rotated[:batch_size]
+def _max_auto_probe_count(total_limit_kib: int, candidate_count: int) -> int:
+    """返回受额度、候选数量和防扩散上限共同约束的最大探测数。"""
+    total = max(0, int(total_limit_kib or 0))
+    candidates = max(0, int(candidate_count or 0))
+    if candidates <= 0:
+        return 0
+    budget_slots = max(1, total // _PROBE_TARGET_KIB)
+    return min(_MAX_AUTO_PROBES_PER_DOWNLOADER, candidates, budget_slots)
 
 
 def _smooth_weighted_pool_schedule(pools: list[UploadPool]) -> list[UploadPool]:
@@ -467,10 +529,12 @@ def _rotate(values: list[str], cycle: int) -> list[str]:
 
 
 __all__ = (
+    "adjust_auto_probe_count",
     "aggregate_pool_demand_kib",
     "allocate_task_limits",
     "allocate_weighted_pools",
     "estimate_task_demand_kib",
+    "initial_auto_probe_count",
     "is_task_probe_candidate",
     "select_weighted_probe_keys",
 )

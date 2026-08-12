@@ -403,6 +403,115 @@ def test_probe_slots_are_global_per_downloader_across_sites():
     assert result["allocated_kib"] == 122
 
 
+def test_auto_probe_count_grows_after_two_low_utilization_cycles_and_persists():
+    """连续两轮低利用且上一批无流量后，自动探测数应加一并持久化。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [
+        qb_torrent("high-a", "High", peers=1),
+        qb_torrent("high-b", "High", peers=1),
+        qb_torrent("medium-a", "Medium", peers=1),
+        qb_torrent("medium-b", "Medium", peers=1),
+        qb_torrent("low-a", "Low", peers=1),
+    ]
+    instance = FakeQbInstance(torrents)
+    plugin = FakePlugin(
+        {"QB2": SimpleNamespace(type="qbittorrent", instance=instance)},
+        ["QB2"],
+        {"QB2": 122},
+        {
+            "High": {"priority": "high", "limit_kib": 0},
+            "Medium": {"priority": "medium", "limit_kib": 0},
+            "Low": {"priority": "low", "limit_kib": 0},
+        },
+    )
+
+    first = limiter.run_upload_limit_cycle(plugin, now=1000)
+    second = limiter.run_upload_limit_cycle(plugin, now=1030)
+    third = limiter.run_upload_limit_cycle(plugin, now=1060)
+
+    assert first["downloaders"][0]["auto_probe_count"] == 2
+    assert second["downloaders"][0]["auto_probe_count"] == 2
+    assert third["downloaders"][0]["auto_probe_count"] == 3
+    assert third["probing_torrents"] == 3
+    persisted = plugin.data["upload_limit_state"]["downloaders"]["QB2"]
+    assert persisted["auto_probe_count"] == 3
+    assert len(persisted["last_probe_keys"]) == 3
+
+    plugin._upload_limit_state = None
+    restored = limiter.get_upload_limit_status(plugin)
+    assert restored["downloaders"][0]["auto_probe_count"] == 3
+    after_reload = limiter.run_upload_limit_cycle(plugin, now=1090)
+    assert after_reload["downloaders"][0]["auto_probe_count"] == 3
+    assert after_reload["probing_torrents"] == 3
+
+
+def test_auto_probe_count_shrinks_when_previous_probe_uploads():
+    """上一批探测产生实际上传时，下一批边界只减少一个探测槽。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [
+        qb_torrent("probe-a", "A", peers=1),
+        qb_torrent("probe-b", "A", peers=1),
+        qb_torrent("probe-c", "A", peers=1),
+        qb_torrent("probe-d", "A", peers=1),
+    ]
+    instance = FakeQbInstance(torrents)
+    plugin = FakePlugin(
+        {"QB2": SimpleNamespace(type="qbittorrent", instance=instance)},
+        ["QB2"],
+        {"QB2": 122},
+        {"A": {"priority": "medium", "limit_kib": 0}},
+        data={
+            "upload_limit_state": {
+                "schema_version": 1,
+                "management_active": True,
+                "cycle": 2,
+                "downloaders": {
+                    "QB2": {
+                        "downloader_type": "qbittorrent",
+                        "initial_scan_complete": True,
+                        "auto_probe_count": 3,
+                        "last_probe_keys": [
+                            "QB2:probe-a", "QB2:probe-b", "QB2:probe-c"
+                        ],
+                    },
+                },
+                "torrents": {},
+                "failures": {},
+                "last_summary": {},
+            },
+        },
+    )
+    torrents[0]["upspeed"] = 4 * 1024
+    plugin._upload_limit_grace_minutes = 0
+
+    result = limiter.run_upload_limit_cycle(plugin, now=1060)
+
+    assert result["downloaders"][0]["auto_probe_count"] == 2
+    assert result["probing_torrents"] == 2
+
+
+def test_auto_probe_counts_are_independent_per_downloader():
+    """多个下载器应按各自总额度维护独立的自动探测数量。"""
+    limiter = _load("service.upload_limiter")
+    qb1_torrents = [qb_torrent(f"qb1-{index}", "A", peers=1) for index in range(5)]
+    qb2_torrents = [qb_torrent(f"qb2-{index}", "A", peers=1) for index in range(5)]
+    plugin = FakePlugin(
+        {
+            "QB1": SimpleNamespace(type="qbittorrent", instance=FakeQbInstance(qb1_torrents)),
+            "QB2": SimpleNamespace(type="qbittorrent", instance=FakeQbInstance(qb2_torrents)),
+        },
+        ["QB1", "QB2"],
+        {"QB1": 32, "QB2": 122},
+        {"A": {"priority": "medium", "limit_kib": 0}},
+    )
+
+    result = limiter.run_upload_limit_cycle(plugin, now=1000)
+    counts = {item["id"]: item["auto_probe_count"] for item in result["downloaders"]}
+
+    assert counts == {"QB1": 1, "QB2": 2}
+    assert result["probing_torrents"] == 3
+
+
 def test_two_global_probes_share_full_cap_without_real_upload():
     """没有真实上传时，当前两个全局探测任务应共享下载器全部额度。"""
     limiter = _load("service.upload_limiter")
@@ -464,6 +573,57 @@ def test_global_probe_selection_keeps_site_hard_limit_absolute():
     assert sites["High"]["allocated_kib"] <= 5
     assert result["probing_torrents"] <= 2
     assert result["allocated_kib"] == 122
+
+
+def test_three_auto_probes_keep_site_and_downloader_hard_limits():
+    """自动探测升至三个后仍不得突破站点或下载器硬上限。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [
+        qb_torrent("site-a", "Capped", peers=1),
+        qb_torrent("site-b", "Capped", peers=1),
+        qb_torrent("site-c", "Capped", peers=1),
+        qb_torrent("other-a", "Other", peers=1),
+        qb_torrent("other-b", "Other", peers=1),
+    ]
+    plugin = FakePlugin(
+        {
+            "QB2": SimpleNamespace(
+                type="qbittorrent", instance=FakeQbInstance(torrents)
+            ),
+        },
+        ["QB2"],
+        {"QB2": 122},
+        {
+            "Capped": {"priority": "high", "limit_kib": 10},
+            "Other": {"priority": "medium", "limit_kib": 0},
+        },
+        data={
+            "upload_limit_state": {
+                "schema_version": 1,
+                "management_active": True,
+                "cycle": 3,
+                "downloaders": {
+                    "QB2": {
+                        "downloader_type": "qbittorrent",
+                        "initial_scan_complete": True,
+                        "auto_probe_count": 3,
+                    },
+                },
+                "torrents": {},
+                "failures": {},
+                "last_summary": {},
+            },
+        },
+    )
+    plugin._upload_limit_grace_minutes = 0
+
+    result = limiter.run_upload_limit_cycle(plugin, now=1090)
+    sites = {item["key"]: item for item in result["sites"]}
+
+    assert result["downloaders"][0]["auto_probe_count"] == 3
+    assert result["probing_torrents"] == 3
+    assert sites["Capped"]["allocated_kib"] <= 10
+    assert result["allocated_kib"] <= 122
 
 
 def test_invalid_or_multiple_site_labels_enter_default_group():
