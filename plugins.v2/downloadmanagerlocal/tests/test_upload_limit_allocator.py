@@ -88,12 +88,15 @@ def test_idle_pool_demand_releases_capacity_to_saturated_pool():
     assert result == {"idle-high": 10, "busy-medium": 90}
 
 
-def test_mixed_pool_demand_includes_only_limited_probe_budget():
-    """混合池只为两个候选预留探测额度，纯探测池仍可使用完整池额度。"""
+def test_pool_demand_uses_explicit_probe_elasticity():
+    """探测池默认只预留目标额度，仅在下载器无真实上传时保持弹性。"""
     allocator = _load("service.upload_allocator")
 
     assert allocator.aggregate_pool_demand_kib([5, 0], probe_candidates=3) == 21
-    assert allocator.aggregate_pool_demand_kib([0], probe_candidates=3) is None
+    assert allocator.aggregate_pool_demand_kib([0], probe_candidates=3) == 16
+    assert allocator.aggregate_pool_demand_kib(
+        [0], probe_candidates=3, elastic_probes=True
+    ) is None
     assert allocator.aggregate_pool_demand_kib([None], probe_candidates=3) is None
 
 
@@ -110,6 +113,57 @@ def test_task_probe_slots_are_limited_stable_and_rotate_by_batch():
     assert first == {"a": 60, "b": 60, "c": 0, "d": 0, "idle": 0}
     assert second == first
     assert third == {"a": 0, "b": 0, "c": 60, "d": 60, "idle": 0}
+
+
+def test_downloader_probe_slots_follow_weighted_site_rotation_and_hold_two_cycles():
+    """下载器全局探测槽应按站点 4/2/1 轮换，并稳定保持两个周期。"""
+    model = _load("model.upload_limit")
+    allocator = importlib.import_module("downloadmanagerlocal.service.upload_allocator")
+    pools = [
+        model.UploadPool(
+            key="high",
+            downloader_id="qb",
+            site_key="high",
+            priority="high",
+            task_keys=("high-a", "high-b", "high-c", "high-d"),
+            current_rate_bps=0,
+            demand_kib=None,
+        ),
+        model.UploadPool(
+            key="medium",
+            downloader_id="qb",
+            site_key="medium",
+            priority="medium",
+            task_keys=("medium-a", "medium-b"),
+            current_rate_bps=0,
+            demand_kib=None,
+        ),
+        model.UploadPool(
+            key="low",
+            downloader_id="qb",
+            site_key="low",
+            priority="low",
+            task_keys=("low-a", "low-b"),
+            current_rate_bps=0,
+            demand_kib=None,
+        ),
+    ]
+    candidates = {
+        task_key
+        for pool in pools
+        for task_key in pool.task_keys
+    }
+
+    first = allocator.select_weighted_probe_keys(pools, candidates, cycle=1)
+    second = allocator.select_weighted_probe_keys(pools, candidates, cycle=2)
+    third = allocator.select_weighted_probe_keys(pools, candidates, cycle=3)
+    fifth = allocator.select_weighted_probe_keys(pools, candidates, cycle=5)
+
+    assert first == {"high-a", "medium-a"}
+    assert second == first
+    assert third == {"high-b", "low-a"}
+    assert fifth == {"high-c", "medium-b"}
+    assert all(len(selected) <= 2 for selected in (first, second, third, fifth))
 
 
 def test_active_task_keeps_capacity_while_small_probe_budget_explores_candidates():
@@ -137,7 +191,7 @@ def test_finite_active_demand_and_probe_budget_use_the_whole_pool_allocation():
     allocator = _load("service.upload_allocator")
 
     result = allocator.allocate_task_limits(
-        21,
+        53,
         {"active": 5, "probe-a": None, "probe-b": None, "probe-c": None},
         cycle=1,
         probe_keys={"probe-a", "probe-b", "probe-c"},
@@ -145,11 +199,11 @@ def test_finite_active_demand_and_probe_budget_use_the_whole_pool_allocation():
 
     assert result == {
         "active": 5,
-        "probe-a": 8,
-        "probe-b": 8,
+        "probe-a": 24,
+        "probe-b": 24,
         "probe-c": 0,
     }
-    assert sum(result.values()) == 21
+    assert sum(result.values()) == 53
 
 
 def test_task_demand_uses_previous_limit_to_detect_idle_and_saturated_tasks():

@@ -10,7 +10,7 @@ from ..model.upload_limit import UploadPool
 
 
 _EPSILON = 1e-9
-_MAX_PROBES_PER_POOL = 2
+_MAX_PROBES_PER_DOWNLOADER = 2
 _PROBE_TARGET_KIB = 8
 _PROBE_HOLD_CYCLES = 2
 
@@ -54,16 +54,67 @@ def aggregate_pool_demand_kib(
     values: Iterable[Optional[int]],
     *,
     probe_candidates: int = 0,
+    elastic_probes: bool = False,
 ) -> Optional[int]:
-    """聚合真实任务与有限探测预算，纯探测池保持弹性需求。"""
+    """聚合真实任务与已选探测预算，必要时允许探测任务借用余量。"""
     normalized = list(values)
     if any(value is None for value in normalized):
         return None
     demand = sum(max(0, int(value or 0)) for value in normalized)
     probe_count = max(0, int(probe_candidates or 0))
-    if probe_count and demand <= 0:
+    if probe_count and elastic_probes:
         return None
-    return demand + min(_MAX_PROBES_PER_POOL, probe_count) * _PROBE_TARGET_KIB
+    return demand + min(_MAX_PROBES_PER_DOWNLOADER, probe_count) * _PROBE_TARGET_KIB
+
+
+def select_weighted_probe_keys(
+    pools: Iterable[UploadPool],
+    probe_keys: set[str],
+    *,
+    cycle: int = 0,
+) -> set[str]:
+    """按站点权重为每个下载器选择至多两个轮换探测任务。"""
+    candidates = {str(key) for key in probe_keys}
+    if not candidates:
+        return set()
+    by_downloader: dict[str, list[UploadPool]] = defaultdict(list)
+    for pool in pools:
+        if candidates.intersection(pool.task_keys):
+            by_downloader[pool.downloader_id].append(pool)
+    selected: set[str] = set()
+    batch_index = max(0, int(cycle or 0) - 1) // _PROBE_HOLD_CYCLES
+    for downloader_id in sorted(by_downloader):
+        downloader_pools = sorted(
+            by_downloader[downloader_id],
+            key=lambda pool: pool.key,
+        )
+        schedule = _smooth_weighted_pool_schedule(downloader_pools)
+        if not schedule:
+            continue
+        pool_candidates = {
+            pool.key: sorted(candidates.intersection(pool.task_keys))
+            for pool in downloader_pools
+        }
+        total_candidates = sum(len(values) for values in pool_candidates.values())
+        target_count = min(_MAX_PROBES_PER_DOWNLOADER, total_candidates)
+        slot = batch_index * _MAX_PROBES_PER_DOWNLOADER
+        attempts = max(len(schedule), total_candidates * len(schedule))
+        downloader_selected: set[str] = set()
+        for absolute_slot in range(slot, slot + attempts):
+            pool = schedule[absolute_slot % len(schedule)]
+            values = pool_candidates.get(pool.key) or []
+            if not values:
+                continue
+            occurrence = _schedule_occurrence_before(
+                schedule,
+                pool.key,
+                absolute_slot,
+            )
+            downloader_selected.add(values[occurrence % len(values)])
+            if len(downloader_selected) >= target_count:
+                break
+        selected.update(downloader_selected)
+    return selected
 
 
 def allocate_weighted_pools(
@@ -216,10 +267,20 @@ def allocate_task_limits(
                 total // 2,
             )
         else:
-            probe_budget = min(
-                _PROBE_TARGET_KIB * len(selected_probes),
-                max(0, total - finite_normal_demand),
+            normal_limits = _allocate_task_limits_core(
+                min(total, finite_normal_demand),
+                normal_demands,
+                cycle=cycle,
             )
+            probe_limits = _allocate_task_limits_core(
+                total - sum(normal_limits.values()),
+                {key: None for key in selected_probes},
+                cycle=cycle,
+            )
+            return {
+                key: int(probe_limits.get(key, normal_limits.get(key, 0)))
+                for key in keys
+            }
         probe_limits = _allocate_task_limits_core(
             probe_budget,
             {
@@ -313,11 +374,42 @@ def _select_probe_batch(probe_keys: list[str], cycle: int) -> list[str]:
     """每批选择至多两个探测任务，并稳定保持两个协调周期。"""
     if not probe_keys:
         return []
-    batch_size = min(_MAX_PROBES_PER_POOL, len(probe_keys))
+    batch_size = min(_MAX_PROBES_PER_DOWNLOADER, len(probe_keys))
     batch_index = max(0, int(cycle or 0) - 1) // _PROBE_HOLD_CYCLES
     offset = (batch_index * batch_size) % len(probe_keys)
     rotated = probe_keys[offset:] + probe_keys[:offset]
     return rotated[:batch_size]
+
+
+def _smooth_weighted_pool_schedule(pools: list[UploadPool]) -> list[UploadPool]:
+    """构造一个完整的平滑加权站点轮换周期。"""
+    if not pools:
+        return []
+    total_weight = sum(max(1, pool.weight) for pool in pools)
+    current = {pool.key: 0 for pool in pools}
+    schedule = []
+    for _ in range(total_weight):
+        for pool in pools:
+            current[pool.key] += max(1, pool.weight)
+        chosen = max(
+            pools,
+            key=lambda pool: (current[pool.key], pool.weight, pool.key),
+        )
+        schedule.append(chosen)
+        current[chosen.key] -= total_weight
+    return schedule
+
+
+def _schedule_occurrence_before(
+    schedule: list[UploadPool],
+    pool_key: str,
+    absolute_slot: int,
+) -> int:
+    """计算指定绝对槽位前同一站点池已出现的次数。"""
+    cycle_count, offset = divmod(max(0, absolute_slot), len(schedule))
+    per_cycle = sum(pool.key == pool_key for pool in schedule)
+    prefix = sum(pool.key == pool_key for pool in schedule[:offset])
+    return cycle_count * per_cycle + prefix
 
 
 def _integerize_pool_allocations(
@@ -380,4 +472,5 @@ __all__ = (
     "allocate_weighted_pools",
     "estimate_task_demand_kib",
     "is_task_probe_candidate",
+    "select_weighted_probe_keys",
 )

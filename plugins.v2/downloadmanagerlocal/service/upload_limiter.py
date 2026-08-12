@@ -42,6 +42,7 @@ from .upload_allocator import (
     allocate_weighted_pools,
     estimate_task_demand_kib,
     is_task_probe_candidate,
+    select_weighted_probe_keys,
 )
 
 
@@ -265,7 +266,7 @@ def run_upload_limit_cycle(
             return summary
 
         pools, task_demands, probe_keys = _build_pools(
-            regular_tasks, torrent_state, site_rules
+            regular_tasks, torrent_state, site_rules, cycle=cycle
         )
         site_caps = {
             site_name: int(rule.get("limit_kib") or 0)
@@ -489,11 +490,13 @@ def _build_pools(
     regular_tasks: dict[str, Any],
     torrent_state: dict,
     site_rules: dict[str, dict],
+    *,
+    cycle: int,
 ) -> tuple[list[UploadPool], dict[str, int | None], set[str]]:
-    """把常规做种任务聚合为下载器/站点池并计算弹性需求。"""
+    """聚合站点池，并在下载器范围选择受控探测任务。"""
     grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
     demands: dict[str, int | None] = {}
-    probe_keys: set[str] = set()
+    probe_candidates: set[str] = set()
     for task_key, snapshot in regular_tasks.items():
         record = torrent_state[task_key]
         site_key = str(record.get("site_key") or DEFAULT_SITE_KEY)
@@ -509,7 +512,7 @@ def _build_pools(
             None if previous is None else int(previous or 0),
             snapshot.upload_demand_peers,
         ):
-            probe_keys.add(task_key)
+            probe_candidates.add(task_key)
     pools = []
     for (downloader_id, site_key), task_keys in sorted(grouped.items()):
         rule = site_rules.get(site_key) or {}
@@ -523,12 +526,43 @@ def _build_pools(
             current_rate_bps=sum(
                 int(regular_tasks[key].upload_rate_bps or 0) for key in task_keys
             ),
+            demand_kib=0,
+        ))
+    probe_keys = select_weighted_probe_keys(
+        pools,
+        probe_candidates,
+        cycle=cycle,
+    )
+    for task_key in probe_candidates - probe_keys:
+        demands[task_key] = 0
+    elastic_real_by_downloader = {
+        downloader_id: any(
+            task_key not in probe_candidates and demands[task_key] is None
+            for task_key, snapshot in regular_tasks.items()
+            if snapshot.downloader_id == downloader_id
+        )
+        for downloader_id in {snapshot.downloader_id for snapshot in regular_tasks.values()}
+    }
+    resolved_pools = []
+    for pool in pools:
+        selected_count = sum(key in probe_keys for key in pool.task_keys)
+        resolved_pools.append(UploadPool(
+            key=pool.key,
+            downloader_id=pool.downloader_id,
+            site_key=pool.site_key,
+            priority=pool.priority,
+            task_keys=pool.task_keys,
+            current_rate_bps=pool.current_rate_bps,
             demand_kib=aggregate_pool_demand_kib(
-                (demands[key] for key in task_keys if key not in probe_keys),
-                probe_candidates=sum(key in probe_keys for key in task_keys),
+                (demands[key] for key in pool.task_keys if key not in probe_keys),
+                probe_candidates=selected_count,
+                elastic_probes=(
+                    selected_count > 0
+                    and not elastic_real_by_downloader.get(pool.downloader_id, False)
+                ),
             ),
         ))
-    return pools, demands, probe_keys
+    return resolved_pools, demands, probe_keys
 
 
 def _build_downloader_only_summary(

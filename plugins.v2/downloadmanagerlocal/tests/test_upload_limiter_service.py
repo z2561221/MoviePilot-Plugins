@@ -339,7 +339,7 @@ def test_manual_changes_become_restore_baseline_but_plugin_reasserts_while_enabl
 
 
 def test_active_upload_keeps_capacity_and_only_two_idle_peer_tasks_probe():
-    """活跃任务保留主额度，同站点每轮最多放行两个待探测任务。"""
+    """活跃任务保留主额度，每个下载器每轮最多放行两个待探测任务。"""
     limiter = _load("service.upload_limiter")
     torrents = [
         qb_torrent("active", "A", rate=80 * 1024, peers=1),
@@ -364,6 +364,106 @@ def test_active_upload_keeps_capacity_and_only_two_idle_peer_tasks_probe():
     assert result["uploading_torrents"] == 1
     assert result["probing_torrents"] == 2
     assert result["protected_torrents"] == 1
+
+
+def test_probe_slots_are_global_per_downloader_across_sites():
+    """多个站点候选也只能共享下载器的两个探测槽。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [
+        qb_torrent("active", "Active", rate=80 * 1024, peers=1),
+        qb_torrent("high-a", "HighA", peers=1),
+        qb_torrent("high-b", "HighB", peers=1),
+        qb_torrent("medium", "Medium", peers=1),
+        qb_torrent("low", "Low", peers=1),
+    ]
+    instance = FakeQbInstance(torrents)
+    plugin = FakePlugin(
+        {"QB2": SimpleNamespace(type="qbittorrent", instance=instance)},
+        ["QB2"],
+        {"QB2": 122},
+        {
+            "Active": {"priority": "medium", "limit_kib": 0},
+            "HighA": {"priority": "high", "limit_kib": 0},
+            "HighB": {"priority": "high", "limit_kib": 0},
+            "Medium": {"priority": "medium", "limit_kib": 0},
+            "Low": {"priority": "low", "limit_kib": 0},
+        },
+    )
+
+    result = limiter.run_upload_limit_cycle(plugin, now=1000)
+    probe_limits = [
+        torrent["up_limit"] // 1024
+        for torrent in torrents[1:]
+        if torrent["up_limit"] > 1
+    ]
+
+    assert torrents[0]["up_limit"] == 106 * 1024
+    assert probe_limits == [8, 8]
+    assert result["probing_torrents"] == 2
+    assert result["allocated_kib"] == 122
+
+
+def test_two_global_probes_share_full_cap_without_real_upload():
+    """没有真实上传时，当前两个全局探测任务应共享下载器全部额度。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [
+        qb_torrent("high", "High", peers=1),
+        qb_torrent("medium", "Medium", peers=1),
+        qb_torrent("low", "Low", peers=1),
+        qb_torrent("other", "Other", peers=1),
+    ]
+    instance = FakeQbInstance(torrents)
+    plugin = FakePlugin(
+        {"QB2": SimpleNamespace(type="qbittorrent", instance=instance)},
+        ["QB2"],
+        {"QB2": 122},
+        {
+            "High": {"priority": "high", "limit_kib": 0},
+            "Medium": {"priority": "medium", "limit_kib": 0},
+            "Low": {"priority": "low", "limit_kib": 0},
+            "Other": {"priority": "medium", "limit_kib": 0},
+        },
+    )
+
+    result = limiter.run_upload_limit_cycle(plugin, now=1000)
+    positive_limits = [
+        torrent["up_limit"] // 1024
+        for torrent in torrents
+        if torrent["up_limit"] > 1
+    ]
+
+    assert len(positive_limits) == 2
+    assert sum(positive_limits) == 122
+    assert result["probing_torrents"] == 2
+    assert result["allocated_kib"] == 122
+
+
+def test_global_probe_selection_keeps_site_hard_limit_absolute():
+    """全局探测轮换不得突破站点共享硬上限。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [
+        qb_torrent("high", "High", peers=1),
+        qb_torrent("medium", "Medium", peers=1),
+        qb_torrent("low", "Low", peers=1),
+    ]
+    instance = FakeQbInstance(torrents)
+    plugin = FakePlugin(
+        {"QB2": SimpleNamespace(type="qbittorrent", instance=instance)},
+        ["QB2"],
+        {"QB2": 122},
+        {
+            "High": {"priority": "high", "limit_kib": 5},
+            "Medium": {"priority": "medium", "limit_kib": 0},
+            "Low": {"priority": "low", "limit_kib": 0},
+        },
+    )
+
+    result = limiter.run_upload_limit_cycle(plugin, now=1000)
+    sites = {item["key"]: item for item in result["sites"]}
+
+    assert sites["High"]["allocated_kib"] <= 5
+    assert result["probing_torrents"] <= 2
+    assert result["allocated_kib"] == 122
 
 
 def test_invalid_or_multiple_site_labels_enter_default_group():
