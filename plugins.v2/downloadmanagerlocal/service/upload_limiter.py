@@ -35,7 +35,7 @@ from ..model.upload_limit import (
     normalize_priority,
     pool_state_key,
 )
-from ..utils.config import is_upload_limit_active
+from ..utils.config import is_upload_limit_active, normalize_upload_limit_config
 from .upload_allocator import (
     aggregate_pool_demand_kib,
     allocate_task_limits,
@@ -430,6 +430,19 @@ def scan_upload_limit_site_tags(
         "items": items,
         "errors": errors,
     }
+
+
+def persist_upload_limit_site_rules(plugin: Any, site_rules: Any) -> dict[str, dict]:
+    """立即持久化站点策略并同步当前运行态。"""
+    config = dict(plugin.get_config() or {})
+    config["upload_limit_site_rules"] = site_rules if isinstance(site_rules, dict) else {}
+    normalized = normalize_upload_limit_config(config)
+    clean_rules = normalized["upload_limit_site_rules"]
+    config["upload_limit_site_rules"] = clean_rules
+    if plugin.update_config(config=config) is False:
+        raise RuntimeError("站点策略保存失败")
+    plugin._upload_limit_site_rules = clean_rules
+    return clean_rules
 
 
 def get_upload_limit_status(plugin: Any, *, state: dict | None = None) -> dict:

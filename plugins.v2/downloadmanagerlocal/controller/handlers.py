@@ -16,6 +16,7 @@ from ..service.speed_monitor import (
 )
 from ..service.upload_limiter import (
     get_upload_limit_status,
+    persist_upload_limit_site_rules,
     restore_upload_limits,
     run_upload_limit_cycle,
     scan_upload_limit_site_tags,
@@ -248,12 +249,40 @@ def api_upload_limit_site_tags(plugin, payload: dict = None):
     """扫描指定下载器中的站点前缀标签。"""
     try:
         request = payload if isinstance(payload, dict) else {}
-        return scan_upload_limit_site_tags(
+        result = scan_upload_limit_site_tags(
             plugin, request.get("downloaders")
         )
+        request_rules = request.get("rules")
+        rules = dict(
+            request_rules
+            if isinstance(request_rules, dict)
+            else (getattr(plugin, "_upload_limit_site_rules", {}) or {})
+        )
+        for item in result.get("items") or []:
+            name = str(item.get("name") or "").strip()
+            if name:
+                rules.setdefault(name, {"priority": "medium", "limit_kib": 0})
+        result["rules"] = persist_upload_limit_site_rules(plugin, rules)
+        result["msg"] = "站点标签扫描完成，策略已立即生效" if result.get("code") == 0 else result.get("msg")
+        return result
     except Exception as e:
         logger.error(f"上传限速站点标签扫描失败: {e}")
         return {"code": 1, "msg": f"扫描失败: {e}", "items": [], "errors": []}
+
+
+def api_upload_limit_site_rules_update(plugin, payload: dict = None):
+    """立即保存上传限速站点策略，不触发重新分配。"""
+    try:
+        request = payload if isinstance(payload, dict) else {}
+        rules = persist_upload_limit_site_rules(plugin, request.get("rules"))
+        return {
+            "code": 0,
+            "msg": "站点策略已清空并立即生效" if not rules else "站点策略已立即生效",
+            "rules": rules,
+        }
+    except Exception as e:
+        logger.error(f"上传限速站点策略保存失败: {e}")
+        return {"code": 1, "msg": f"站点策略保存失败: {e}", "rules": {}}
 
 
 def api_upload_limit_disable_restore(plugin, payload: dict = None):

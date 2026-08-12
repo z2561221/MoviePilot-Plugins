@@ -5,6 +5,7 @@ import os
 import sys
 import types
 from pathlib import Path
+from types import SimpleNamespace
 
 
 PLUGIN_DIR = Path(
@@ -206,3 +207,61 @@ def test_overview_drops_active_session_completed_by_another_worker():
     assert overview["service_status"] == "idle"
     assert viewer._speed_monitor_runtime is viewer_runtime
     assert viewer_runtime.sessions["qb-main:abc"].status == "active"
+
+
+def test_site_scan_persists_current_draft_rules_and_new_sites(monkeypatch):
+    """扫描站点应保留页面草稿并把新增站点立即持久化。"""
+    _prepare_imports()
+    handlers = importlib.import_module("downloadmanagerlocal.controller.handlers")
+    persisted = []
+    plugin = SimpleNamespace(_upload_limit_site_rules={})
+    monkeypatch.setattr(
+        handlers,
+        "scan_upload_limit_site_tags",
+        lambda *_args, **_kwargs: {
+            "code": 0,
+            "msg": "站点标签扫描完成",
+            "items": [{"name": "B"}],
+            "errors": [],
+        },
+    )
+    monkeypatch.setattr(
+        handlers,
+        "persist_upload_limit_site_rules",
+        lambda _plugin, rules: persisted.append(dict(rules)) or dict(rules),
+    )
+
+    result = handlers.api_upload_limit_site_tags(plugin, {
+        "downloaders": ["QB2"],
+        "rules": {"A": {"priority": "high", "limit_kib": 20}},
+    })
+
+    assert persisted == [{
+        "A": {"priority": "high", "limit_kib": 20},
+        "B": {"priority": "medium", "limit_kib": 0},
+    }]
+    assert result["rules"] == persisted[0]
+    assert "立即生效" in result["msg"]
+
+
+def test_clear_site_rules_persists_without_reallocation(monkeypatch):
+    """清空站点策略应立即持久化，但不得顺带执行额度分配。"""
+    _prepare_imports()
+    handlers = importlib.import_module("downloadmanagerlocal.controller.handlers")
+    calls = []
+    plugin = SimpleNamespace()
+    monkeypatch.setattr(
+        handlers,
+        "persist_upload_limit_site_rules",
+        lambda _plugin, rules: calls.append(("persist", rules)) or {},
+    )
+    monkeypatch.setattr(
+        handlers,
+        "run_upload_limit_cycle",
+        lambda *_args, **_kwargs: calls.append(("reallocate", None)) or {},
+    )
+
+    result = handlers.api_upload_limit_site_rules_update(plugin, {"rules": {}})
+
+    assert result["code"] == 0
+    assert calls == [("persist", {})]

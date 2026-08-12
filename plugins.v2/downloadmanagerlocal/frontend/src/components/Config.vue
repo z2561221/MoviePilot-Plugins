@@ -447,10 +447,24 @@ function removeUploadSiteRule(siteName) {
   form.upload_limit_site_rules = rules
 }
 
-function clearUploadSiteRules() {
+async function clearUploadSiteRules() {
+  uploadActionRunning.value = 'site-rules'
+  uploadMessage.value = ''
+  const previousRules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
   form.upload_limit_site_rules = {}
-  uploadMessageStatus.value = 'success'
-  uploadMessage.value = '站点策略已清空，保存配置后生效'
+  try {
+    const response = await postPluginJsonApi(props.api, 'upload_limit_site_rules_update', { rules: {} })
+    if (response?.code !== 0) throw new Error(response?.msg || '站点策略清空失败')
+    form.upload_limit_site_rules = {}
+    uploadMessageStatus.value = 'success'
+    uploadMessage.value = '站点策略已清空并立即生效；点击“立即分配”可马上恢复默认组分配'
+  } catch (error) {
+    form.upload_limit_site_rules = previousRules
+    uploadMessageStatus.value = 'error'
+    uploadMessage.value = error?.message || '站点策略清空失败'
+  } finally {
+    uploadActionRunning.value = ''
+  }
 }
 
 function applyUploadStatus(response) {
@@ -527,15 +541,14 @@ async function scanUploadSites() {
   }
   uploadScanningSites.value = true
   try {
-    const response = await postPluginJsonApi(props.api, 'upload_limit_site_tags', { downloaders: form.upload_limit_downloaders })
+    const response = await postPluginJsonApi(props.api, 'upload_limit_site_tags', {
+      downloaders: form.upload_limit_downloaders,
+      rules: Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }])),
+    })
     uploadSiteItems.value = response?.items || []
-    const rules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
-    for (const item of uploadSiteItems.value) {
-      if (!rules[item.name]) rules[item.name] = { priority: 'medium', limit_kib: 0 }
-    }
-    form.upload_limit_site_rules = rules
+    form.upload_limit_site_rules = response?.rules || form.upload_limit_site_rules || {}
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
-    uploadMessage.value = response?.msg || `扫描到 ${uploadSiteItems.value.length} 个站点标签`
+    uploadMessage.value = response?.msg || `扫描到 ${uploadSiteItems.value.length} 个站点标签，策略已立即生效`
   } catch (error) {
     uploadMessageStatus.value = 'error'
     uploadMessage.value = error?.message || '站点扫描失败'
@@ -835,6 +848,7 @@ async function executeCleanupTags() {
                   <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="uploadScanningSites"
                     @click="scanUploadSites">扫描站点</VBtn>
                   <VBtn color="error" variant="text" prepend-icon="mdi-delete-sweep-outline" :disabled="!uploadSiteRuleRows.length"
+                    :loading="uploadActionRunning === 'site-rules'"
                     @click="clearUploadSiteRules">清空策略</VBtn>
                 </div>
               </div>

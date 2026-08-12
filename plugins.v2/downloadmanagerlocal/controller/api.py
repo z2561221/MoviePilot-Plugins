@@ -10,6 +10,7 @@ from .handlers import (
     api_upload_limit_disable_restore,
     api_upload_limit_reallocate,
     api_upload_limit_site_tags,
+    api_upload_limit_site_rules_update,
     api_upload_limit_status,
 )
 
@@ -65,6 +66,13 @@ def build_api_routes(plugin) -> List[Dict[str, Any]]:
             "auth": "bear",
             "methods": ["POST"],
             "summary": "扫描上传限速站点标签",
+        },
+        {
+            "path": "/upload_limit_site_rules_update",
+            "endpoint": partial(api_upload_limit_site_rules_update, plugin),
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "立即保存上传限速站点策略",
         },
         {
             "path": "/upload_limit_disable_restore",

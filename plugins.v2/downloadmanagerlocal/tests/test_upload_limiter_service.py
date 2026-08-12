@@ -130,6 +130,13 @@ class FakePlugin:
         self._upload_limit_state_error = ""
         self._upload_limit_cycle_lock = None
         self.messages = []
+        self.config = {
+            "upload_limit_enabled": True,
+            "upload_limit_downloaders": list(selected),
+            "upload_limit_downloader_limits_kib": dict(limits),
+            "upload_limit_site_rules": dict(rules or {}),
+            "upload_limit_grace_minutes": 30,
+        }
 
     def service_info(self, name):
         """按名称返回 fake 下载器服务。"""
@@ -146,6 +153,15 @@ class FakePlugin:
     def post_message(self, **kwargs):
         """记录异常通知。"""
         self.messages.append(kwargs)
+
+    def get_config(self):
+        """返回 fake 插件配置。"""
+        return dict(self.config)
+
+    def update_config(self, config, plugin_id=None):
+        """保存 fake 插件配置。"""
+        self.config = dict(config)
+        return True
 
 
 def qb_torrent(
@@ -403,3 +419,15 @@ def test_clearing_site_rules_releases_per_torrent_limits_but_keeps_global_cap():
     assert instance.qbc.transfer.upload_limit == 120 * 1024
     assert torrents[0]["up_limit"] == 5 * 1024
     assert plugin.data["upload_limit_state"]["torrents"] == {}
+
+
+def test_persist_site_rules_updates_config_and_runtime_immediately():
+    """站点策略操作应同时更新持久化配置和运行态字段。"""
+    limiter = _load("service.upload_limiter")
+    plugin = FakePlugin({}, [], {}, {"A": {"priority": "high", "limit_kib": 20}})
+
+    rules = limiter.persist_upload_limit_site_rules(plugin, {})
+
+    assert rules == {}
+    assert plugin.config["upload_limit_site_rules"] == {}
+    assert plugin._upload_limit_site_rules == {}
