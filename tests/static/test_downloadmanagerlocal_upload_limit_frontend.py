@@ -75,14 +75,25 @@ def test_upload_limit_site_scan_is_opt_in_and_rule_operations_persist_immediatel
 
     assert "仅在需要按站点设置优先级或独立上限时扫描；仅使用下载器总上限时无需扫描。" in source
     assert "async function clearUploadSiteRules()" in source
-    assert "postPluginJsonApi(props.api, 'upload_limit_site_rules_update', { rules: {} })" in source
+    assert "const response = await queueUploadSiteRulesSave({})" in source
     assert "form.upload_limit_site_rules = {}" in source
     assert "站点策略已清空并立即生效；点击“立即分配”可马上恢复默认组分配" in source
     assert "rules: Object.fromEntries(Object.entries(form.upload_limit_site_rules || {})" in source
     assert "form.upload_limit_site_rules = response?.rules" in source
     assert "策略已立即生效" in source
+    assert "queueUploadSiteRulesSave(rules)" in source
+    assert "await flushUploadSiteRulesSave()" in source
+    assert "await uploadSiteScanTail" in source
+    assert source.index("await flushUploadSiteRulesSave()", source.index("async function reallocateUploadLimits")) < source.index(
+        "postPluginJsonApi(props.api, 'upload_limit_reallocate'", source.index("async function reallocateUploadLimits")
+    )
+    assert "uploadLimit.uploading_torrents || 0" in source
+    assert "uploadLimit.probing_torrents || 0" in source
+    assert "uploadLimit.protected_torrents || 0" in source
+    assert "qBittorrent 的逻辑零额度会显示为 1 B/s" in source
     assert 'prepend-icon="mdi-delete-sweep-outline"' in source
-    assert ':disabled="!uploadSiteRuleRows.length"' in source
+    assert ':disabled="!uploadSiteRuleRows.length || uploadScanningSites || uploadActionRunning === \'reallocate\'"' in source
+    assert ':disabled="uploadScanningSites || uploadActionRunning === \'site-rules\' || uploadActionRunning === \'reallocate\'"' in source
     assert "mdi-home-speedometer" not in source
     assert "{ key: 'upload_sites', title: '站点策略', icon: 'mdi-home-outline' }" in source
 
@@ -99,7 +110,7 @@ def test_upload_limit_status_actions_use_saved_backend_state_and_restore_notice(
         "upload_limit_disable_restore",
     ]:
         assert endpoint in source
-    assert ':disabled="!uploadLimit.enabled"' in source
+    assert ':disabled="!uploadLimit.enabled || uploadScanningSites || uploadActionRunning === \'site-rules\'"' in source
     assert ':disabled="!uploadLimit.active && !uploadLimit.enabled"' in source
     assert "MP 或插件离线时，下载器继续保留最后一次已写入的限速" in source
     assert "当前值仍等于插件最后写入值时才会恢复" in source

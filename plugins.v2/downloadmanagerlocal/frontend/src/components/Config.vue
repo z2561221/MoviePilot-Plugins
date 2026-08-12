@@ -34,6 +34,9 @@ const uploadRestoreDialog = ref(false)
 const UPLOAD_STATUS_REFRESH_INTERVAL_MS = 30_000
 let uploadStatusRefreshTimer = null
 let uploadStatusRefreshPending = false
+let uploadSiteRulesSaveTail = Promise.resolve()
+let uploadSiteRulesRevision = 0
+let uploadSiteScanTail = Promise.resolve()
 
 async function refreshOverview() {
   const response = await getPluginApi(props.api, 'overview')
@@ -429,6 +432,37 @@ function formatUploadRate(value) {
   return `${(speed / 1024).toFixed(1)} KiB/s`
 }
 
+function cloneUploadSiteRules(rules = form.upload_limit_site_rules) {
+  return Object.fromEntries(Object.entries(rules || {}).map(([name, rule]) => [name, { ...rule }]))
+}
+
+function queueUploadSiteRulesSave(rules) {
+  const snapshot = cloneUploadSiteRules(rules)
+  const revision = ++uploadSiteRulesRevision
+  uploadSiteRulesSaveTail = uploadSiteRulesSaveTail.catch(() => undefined).then(async () => {
+    const response = await postPluginJsonApi(props.api, 'upload_limit_site_rules_update', { rules: snapshot })
+    if (response?.code !== 0) throw new Error(response?.msg || '站点策略保存失败')
+    if (revision === uploadSiteRulesRevision) {
+      form.upload_limit_site_rules = cloneUploadSiteRules(response?.rules || snapshot)
+      uploadMessageStatus.value = 'success'
+      uploadMessage.value = response?.msg || '站点策略已立即生效'
+    }
+    return response
+  }).catch(error => {
+    if (revision === uploadSiteRulesRevision) {
+      uploadMessageStatus.value = 'error'
+      uploadMessage.value = error?.message || '站点策略保存失败'
+    }
+    throw error
+  })
+  void uploadSiteRulesSaveTail.catch(() => undefined)
+  return uploadSiteRulesSaveTail
+}
+
+async function flushUploadSiteRulesSave() {
+  await uploadSiteRulesSaveTail
+}
+
 function setUploadSiteRule(siteName, field, value) {
   const rules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
   const current = rules[siteName] || { priority: 'medium', limit_kib: 0 }
@@ -439,12 +473,14 @@ function setUploadSiteRule(siteName, field, value) {
   }
   rules[siteName] = current
   form.upload_limit_site_rules = rules
+  queueUploadSiteRulesSave(rules)
 }
 
 function removeUploadSiteRule(siteName) {
   const rules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
   delete rules[siteName]
   form.upload_limit_site_rules = rules
+  queueUploadSiteRulesSave(rules)
 }
 
 async function clearUploadSiteRules() {
@@ -453,8 +489,7 @@ async function clearUploadSiteRules() {
   const previousRules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
   form.upload_limit_site_rules = {}
   try {
-    const response = await postPluginJsonApi(props.api, 'upload_limit_site_rules_update', { rules: {} })
-    if (response?.code !== 0) throw new Error(response?.msg || '站点策略清空失败')
+    const response = await queueUploadSiteRulesSave({})
     form.upload_limit_site_rules = {}
     uploadMessageStatus.value = 'success'
     uploadMessage.value = '站点策略已清空并立即生效；点击“立即分配”可马上恢复默认组分配'
@@ -540,11 +575,16 @@ async function scanUploadSites() {
     return
   }
   uploadScanningSites.value = true
-  try {
-    const response = await postPluginJsonApi(props.api, 'upload_limit_site_tags', {
+  const scanOperation = (async () => {
+    await flushUploadSiteRulesSave()
+    return postPluginJsonApi(props.api, 'upload_limit_site_tags', {
       downloaders: form.upload_limit_downloaders,
-      rules: Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }])),
+      rules: cloneUploadSiteRules(),
     })
+  })()
+  uploadSiteScanTail = scanOperation
+  try {
+    const response = await scanOperation
     uploadSiteItems.value = response?.items || []
     form.upload_limit_site_rules = response?.rules || form.upload_limit_site_rules || {}
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
@@ -553,6 +593,7 @@ async function scanUploadSites() {
     uploadMessageStatus.value = 'error'
     uploadMessage.value = error?.message || '站点扫描失败'
   } finally {
+    if (uploadSiteScanTail === scanOperation) uploadSiteScanTail = Promise.resolve()
     uploadScanningSites.value = false
   }
 }
@@ -561,6 +602,8 @@ async function reallocateUploadLimits() {
   uploadActionRunning.value = 'reallocate'
   uploadMessage.value = ''
   try {
+    await uploadSiteScanTail
+    await flushUploadSiteRulesSave()
     const response = await postPluginJsonApi(props.api, 'upload_limit_reallocate', {})
     applyUploadStatus(response)
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
@@ -846,8 +889,10 @@ async function executeCleanupTags() {
                 </div>
                 <div class="d-flex align-center ga-2">
                   <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="uploadScanningSites"
+                    :disabled="uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
                     @click="scanUploadSites">扫描站点</VBtn>
-                  <VBtn color="error" variant="text" prepend-icon="mdi-delete-sweep-outline" :disabled="!uploadSiteRuleRows.length"
+                  <VBtn color="error" variant="text" prepend-icon="mdi-delete-sweep-outline"
+                    :disabled="!uploadSiteRuleRows.length || uploadScanningSites || uploadActionRunning === 'reallocate'"
                     :loading="uploadActionRunning === 'site-rules'"
                     @click="clearUploadSiteRules">清空策略</VBtn>
                 </div>
@@ -881,11 +926,15 @@ async function executeCleanupTags() {
                     </div>
                   </div>
                   <VSelect :model-value="row.priority" @update:model-value="setUploadSiteRule(row.name, 'priority', $event)"
-                    label="优先级" :items="uploadPriorityItems" density="compact" variant="outlined" hide-details />
+                    label="优先级" :items="uploadPriorityItems"
+                    :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
+                    density="compact" variant="outlined" hide-details />
                   <VTextField :model-value="row.limit_kib || null" @update:model-value="setUploadSiteRule(row.name, 'limit_kib', $event)"
                     label="站点上限（KiB/s）" type="number" min="0" step="1" clearable density="compact" variant="outlined"
+                    :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
                     hint="留空表示不设独立上限；填写后为跨下载器共享硬上限" persistent-hint />
                   <VBtn icon="mdi-delete-outline" size="small" color="error" variant="text" title="移入默认组"
+                    :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
                     @click="removeUploadSiteRule(row.name)" />
                 </div>
               </div>
@@ -907,7 +956,8 @@ async function executeCleanupTags() {
                   <VBtn size="small" variant="text" prepend-icon="mdi-refresh" :loading="uploadActionRunning === 'refresh'"
                     @click="refreshUploadLimitStatus">刷新</VBtn>
                   <VBtn size="small" color="primary" variant="tonal" prepend-icon="mdi-call-split"
-                    :loading="uploadActionRunning === 'reallocate'" :disabled="!uploadLimit.enabled"
+                    :loading="uploadActionRunning === 'reallocate'"
+                    :disabled="!uploadLimit.enabled || uploadScanningSites || uploadActionRunning === 'site-rules'"
                     @click="reallocateUploadLimits">立即分配</VBtn>
                   <VBtn size="small" color="warning" variant="tonal" prepend-icon="mdi-backup-restore"
                     :disabled="!uploadLimit.active && !uploadLimit.enabled" @click="uploadRestoreDialog = true">停用并恢复</VBtn>
@@ -925,8 +975,11 @@ async function executeCleanupTags() {
                 <div class="dm-monitor-metric"><span>当前速率</span><strong>{{ formatUploadRate(uploadLimit.upload_rate_bps) }}</strong></div>
                 <div class="dm-monitor-metric"><span>受管种子</span><strong>{{ uploadLimit.managed_torrents || 0 }}</strong></div>
                 <div class="dm-monitor-metric"><span>宽限种子</span><strong>{{ uploadLimit.grace_torrents || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>上传中</span><strong>{{ uploadLimit.uploading_torrents || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>探测中</span><strong>{{ uploadLimit.probing_torrents || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>已保护</span><strong>{{ uploadLimit.protected_torrents || 0 }}</strong></div>
               </div>
-              <div class="dm-hint mt-2">当前速率为实际上传流量，不代表分配额度。</div>
+              <div class="dm-hint mt-2">当前速率为实际上传流量，不代表分配额度；qBittorrent 的逻辑零额度会显示为 1 B/s，以避免 0 代表不限速。</div>
 
               <div class="dm-section-title mt-4">下载器分配</div>
               <div v-if="uploadLimitDownloaderRows.length" class="dm-upload-status-grid">
