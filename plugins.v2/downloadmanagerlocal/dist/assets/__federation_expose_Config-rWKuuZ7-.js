@@ -204,8 +204,9 @@ const _hoisted_125 = { class: "dm-cleanup-actions" };
 const _hoisted_126 = { class: "text-caption text-medium-emphasis" };
 const _hoisted_127 = { class: "dm-pane" };
 
-const {reactive,ref,computed,watch,onMounted} = await importShared('vue');
+const {reactive,ref,computed,watch,onMounted,onBeforeUnmount} = await importShared('vue');
 
+const UPLOAD_STATUS_REFRESH_INTERVAL_MS = 30_000;
 
 const _sfc_main = {
   __name: 'Config',
@@ -242,6 +243,8 @@ const uploadActionRunning = ref('');
 const uploadMessage = ref('');
 const uploadMessageStatus = ref('info');
 const uploadRestoreDialog = ref(false);
+let uploadStatusRefreshTimer = null;
+let uploadStatusRefreshPending = false;
 
 async function refreshOverview() {
   const response = await getPluginApi(props.api, 'overview');
@@ -666,19 +669,65 @@ function applyUploadStatus(response) {
   overview.value = { ...(overview.value || {}), upload_limit: response };
 }
 
-async function refreshUploadLimitStatus() {
-  uploadActionRunning.value = 'refresh';
-  uploadMessage.value = '';
+async function refreshUploadLimitStatus({ silent = false } = {}) {
+  if (!silent) {
+    uploadActionRunning.value = 'refresh';
+    uploadMessage.value = '';
+  }
   try {
     const response = await getPluginApi(props.api, 'upload_limit_status');
     applyUploadStatus(response);
   } catch (error) {
-    uploadMessageStatus.value = 'error';
-    uploadMessage.value = error?.message || '状态刷新失败';
+    if (silent) console.error('上传限速状态自动刷新失败:', error);
+    else {
+      uploadMessageStatus.value = 'error';
+      uploadMessage.value = error?.message || '状态刷新失败';
+    }
   } finally {
-    uploadActionRunning.value = '';
+    if (!silent) uploadActionRunning.value = '';
   }
 }
+
+function isUploadStatusVisible() {
+  return activeMain.value === 'upload'
+    && activeSub.value === 'upload_status'
+    && document.visibilityState === 'visible'
+}
+
+async function refreshVisibleUploadLimitStatus() {
+  if (!isUploadStatusVisible() || uploadStatusRefreshPending || uploadActionRunning.value) return
+  uploadStatusRefreshPending = true;
+  try {
+    await refreshUploadLimitStatus({ silent: true });
+  } finally {
+    uploadStatusRefreshPending = false;
+  }
+}
+
+function stopUploadStatusAutoRefresh() {
+  if (!uploadStatusRefreshTimer) return
+  window.clearInterval(uploadStatusRefreshTimer);
+  uploadStatusRefreshTimer = null;
+}
+
+function syncUploadStatusAutoRefresh() {
+  stopUploadStatusAutoRefresh();
+  if (!isUploadStatusVisible()) return
+  void refreshVisibleUploadLimitStatus();
+  uploadStatusRefreshTimer = window.setInterval(refreshVisibleUploadLimitStatus, UPLOAD_STATUS_REFRESH_INTERVAL_MS);
+}
+
+watch([activeMain, activeSub], syncUploadStatusAutoRefresh, { flush: 'post' });
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', syncUploadStatusAutoRefresh);
+  syncUploadStatusAutoRefresh();
+});
+
+onBeforeUnmount(stopUploadStatusAutoRefresh);
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', syncUploadStatusAutoRefresh);
+});
 
 async function scanUploadSites() {
   uploadMessage.value = '';
@@ -1217,7 +1266,7 @@ return (_ctx, _cache) => {
                   class: "mt-4"
                 }, {
                   default: _withCtx(() => [...(_cache[79] || (_cache[79] = [
-                    _createTextVNode(" 单位为 KiB/s；1024 KiB/s 约为 8.39 Mbps（约 1 MiB/s），不等于运营商所说的 1 Mbps。宽限期间不做站点和单种分配，但仍受对应下载器总上传上限。 ", -1)
+                    _createTextVNode(" 单位为 KiB/s（1 Mbps ≈ 122 KiB/s）。宽限期间不做站点和单种分配，但仍受对应下载器总上传上限。 ", -1)
                   ]))]),
                   _: 1
                 })
@@ -3448,6 +3497,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-63eab6ac"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3455f0e4"]]);
 
 export { Config as default };

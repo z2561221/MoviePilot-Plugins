@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref, computed, watch, onMounted } from 'vue'
+import { reactive, ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { getPluginApi, postPluginJsonApi } from './api'
 
 const props = defineProps({
@@ -31,6 +31,9 @@ const uploadActionRunning = ref('')
 const uploadMessage = ref('')
 const uploadMessageStatus = ref('info')
 const uploadRestoreDialog = ref(false)
+const UPLOAD_STATUS_REFRESH_INTERVAL_MS = 30_000
+let uploadStatusRefreshTimer = null
+let uploadStatusRefreshPending = false
 
 async function refreshOverview() {
   const response = await getPluginApi(props.api, 'overview')
@@ -455,19 +458,65 @@ function applyUploadStatus(response) {
   overview.value = { ...(overview.value || {}), upload_limit: response }
 }
 
-async function refreshUploadLimitStatus() {
-  uploadActionRunning.value = 'refresh'
-  uploadMessage.value = ''
+async function refreshUploadLimitStatus({ silent = false } = {}) {
+  if (!silent) {
+    uploadActionRunning.value = 'refresh'
+    uploadMessage.value = ''
+  }
   try {
     const response = await getPluginApi(props.api, 'upload_limit_status')
     applyUploadStatus(response)
   } catch (error) {
-    uploadMessageStatus.value = 'error'
-    uploadMessage.value = error?.message || '状态刷新失败'
+    if (silent) console.error('上传限速状态自动刷新失败:', error)
+    else {
+      uploadMessageStatus.value = 'error'
+      uploadMessage.value = error?.message || '状态刷新失败'
+    }
   } finally {
-    uploadActionRunning.value = ''
+    if (!silent) uploadActionRunning.value = ''
   }
 }
+
+function isUploadStatusVisible() {
+  return activeMain.value === 'upload'
+    && activeSub.value === 'upload_status'
+    && document.visibilityState === 'visible'
+}
+
+async function refreshVisibleUploadLimitStatus() {
+  if (!isUploadStatusVisible() || uploadStatusRefreshPending || uploadActionRunning.value) return
+  uploadStatusRefreshPending = true
+  try {
+    await refreshUploadLimitStatus({ silent: true })
+  } finally {
+    uploadStatusRefreshPending = false
+  }
+}
+
+function stopUploadStatusAutoRefresh() {
+  if (!uploadStatusRefreshTimer) return
+  window.clearInterval(uploadStatusRefreshTimer)
+  uploadStatusRefreshTimer = null
+}
+
+function syncUploadStatusAutoRefresh() {
+  stopUploadStatusAutoRefresh()
+  if (!isUploadStatusVisible()) return
+  void refreshVisibleUploadLimitStatus()
+  uploadStatusRefreshTimer = window.setInterval(refreshVisibleUploadLimitStatus, UPLOAD_STATUS_REFRESH_INTERVAL_MS)
+}
+
+watch([activeMain, activeSub], syncUploadStatusAutoRefresh, { flush: 'post' })
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', syncUploadStatusAutoRefresh)
+  syncUploadStatusAutoRefresh()
+})
+
+onBeforeUnmount(stopUploadStatusAutoRefresh)
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', syncUploadStatusAutoRefresh)
+})
 
 async function scanUploadSites() {
   uploadMessage.value = ''
@@ -771,7 +820,7 @@ async function executeCleanupTags() {
               </VAlert>
 
               <VAlert type="info" variant="tonal" density="compact" class="mt-4">
-                单位为 KiB/s；1024 KiB/s 约为 8.39 Mbps（约 1 MiB/s），不等于运营商所说的 1 Mbps。宽限期间不做站点和单种分配，但仍受对应下载器总上传上限。
+                单位为 KiB/s（1 Mbps ≈ 122 KiB/s）。宽限期间不做站点和单种分配，但仍受对应下载器总上传上限。
               </VAlert>
             </div>
 

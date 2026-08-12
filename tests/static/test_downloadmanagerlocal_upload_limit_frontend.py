@@ -31,7 +31,7 @@ def test_upload_limit_configuration_exposes_confirmed_fields_and_units():
     assert "qBittorrent / Transmission" in source
     assert "新种宽限（分钟）" in source
     assert "默认 30" in source
-    assert "1024 KiB/s 约为 8.39 Mbps（约 1 MiB/s）" in source
+    assert "单位为 KiB/s（1 Mbps ≈ 122 KiB/s）" in source
     assert "仍受对应下载器总上传上限" in source
 
 
@@ -99,6 +99,21 @@ def test_upload_limit_status_actions_use_saved_backend_state_and_restore_notice(
     assert "MP 或插件离线时，下载器继续保留最后一次已写入的限速" in source
     assert "当前值仍等于插件最后写入值时才会恢复" in source
     assert "若你后来手工修改过，则保留手工值" in source
+
+
+def test_upload_limit_status_auto_refresh_only_runs_on_visible_status_page():
+    """运行状态仅在对应配置页可见时自动刷新，并在离开时清理。"""
+    source = _source()
+
+    assert "UPLOAD_STATUS_REFRESH_INTERVAL_MS = 30_000" in source
+    assert "activeMain.value === 'upload'" in source
+    assert "activeSub.value === 'upload_status'" in source
+    assert "document.visibilityState === 'visible'" in source
+    assert "refreshUploadLimitStatus({ silent: true })" in source
+    assert "window.setInterval(refreshVisibleUploadLimitStatus, UPLOAD_STATUS_REFRESH_INTERVAL_MS)" in source
+    assert "document.addEventListener('visibilitychange', syncUploadStatusAutoRefresh)" in source
+    assert "document.removeEventListener('visibilitychange', syncUploadStatusAutoRefresh)" in source
+    assert "onBeforeUnmount(stopUploadStatusAutoRefresh)" in source
 
 
 def test_upload_limit_navigation_follows_runtime_order_and_rate_wording_is_clear():
