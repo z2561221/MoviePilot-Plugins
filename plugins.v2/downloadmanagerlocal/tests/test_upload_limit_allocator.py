@@ -88,16 +88,68 @@ def test_idle_pool_demand_releases_capacity_to_saturated_pool():
     assert result == {"idle-high": 10, "busy-medium": 90}
 
 
-def test_task_probe_slots_rotate_when_budget_is_smaller_than_task_count():
-    """额度不足以给全部任务 1 KiB/s 时应轮换探测槽，避免固定饿死。"""
+def test_mixed_pool_demand_includes_only_limited_probe_budget():
+    """混合池只为两个候选预留探测额度，纯探测池仍可使用完整池额度。"""
     allocator = _load("service.upload_allocator")
-    demands = {"a": None, "b": None, "c": None, "d": None}
 
-    first = allocator.allocate_task_limits(2, demands, cycle=0)
-    second = allocator.allocate_task_limits(2, demands, cycle=1)
+    assert allocator.aggregate_pool_demand_kib([5, 0], probe_candidates=3) == 21
+    assert allocator.aggregate_pool_demand_kib([0], probe_candidates=3) is None
+    assert allocator.aggregate_pool_demand_kib([None], probe_candidates=3) is None
 
-    assert first == {"a": 1, "b": 1, "c": 0, "d": 0}
-    assert second == {"a": 0, "b": 1, "c": 1, "d": 0}
+
+def test_task_probe_slots_are_limited_stable_and_rotate_by_batch():
+    """待探测任务每批最多两个，保持两轮后再换批。"""
+    allocator = _load("service.upload_allocator")
+    demands = {"a": None, "b": None, "c": None, "d": None, "idle": 0}
+    probes = {"a", "b", "c", "d"}
+
+    first = allocator.allocate_task_limits(120, demands, cycle=1, probe_keys=probes)
+    second = allocator.allocate_task_limits(120, demands, cycle=2, probe_keys=probes)
+    third = allocator.allocate_task_limits(120, demands, cycle=3, probe_keys=probes)
+
+    assert first == {"a": 60, "b": 60, "c": 0, "d": 0, "idle": 0}
+    assert second == first
+    assert third == {"a": 0, "b": 0, "c": 60, "d": 60, "idle": 0}
+
+
+def test_active_task_keeps_capacity_while_small_probe_budget_explores_candidates():
+    """已有上传任务应保留大部分额度，候选只使用受控探测预算。"""
+    allocator = _load("service.upload_allocator")
+    demands = {"active": None, "probe-a": None, "probe-b": None, "probe-c": None}
+
+    result = allocator.allocate_task_limits(
+        120,
+        demands,
+        cycle=1,
+        probe_keys={"probe-a", "probe-b", "probe-c"},
+    )
+
+    assert result == {
+        "active": 104,
+        "probe-a": 8,
+        "probe-b": 8,
+        "probe-c": 0,
+    }
+
+
+def test_finite_active_demand_and_probe_budget_use_the_whole_pool_allocation():
+    """有限真实需求满足后，剩余额度应完整交给受控探测任务。"""
+    allocator = _load("service.upload_allocator")
+
+    result = allocator.allocate_task_limits(
+        21,
+        {"active": 5, "probe-a": None, "probe-b": None, "probe-c": None},
+        cycle=1,
+        probe_keys={"probe-a", "probe-b", "probe-c"},
+    )
+
+    assert result == {
+        "active": 5,
+        "probe-a": 8,
+        "probe-b": 8,
+        "probe-c": 0,
+    }
+    assert sum(result.values()) == 21
 
 
 def test_task_demand_uses_previous_limit_to_detect_idle_and_saturated_tasks():
@@ -107,9 +159,11 @@ def test_task_demand_uses_previous_limit_to_detect_idle_and_saturated_tasks():
     assert allocator.estimate_task_demand_kib(0, None, 0) == 0
     assert allocator.estimate_task_demand_kib(0, None, 1) is None
     assert allocator.estimate_task_demand_kib(0, 20, 0) == 0
-    assert allocator.estimate_task_demand_kib(0, 20, 1) == 1
+    assert allocator.estimate_task_demand_kib(0, 20, 1) is None
+    assert allocator.is_task_probe_candidate(0, 20, 1) is True
     assert allocator.estimate_task_demand_kib(18 * 1024, 20, 1) is None
     assert allocator.estimate_task_demand_kib(4 * 1024, 20, 1) == 5
+    assert allocator.is_task_probe_candidate(4 * 1024, 20, 1) is False
 
 
 def test_large_idle_fleet_does_not_dilute_one_active_task():

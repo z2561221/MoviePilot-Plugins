@@ -10,6 +10,22 @@ from ..model.upload_limit import UploadPool
 
 
 _EPSILON = 1e-9
+_MAX_PROBES_PER_POOL = 2
+_PROBE_TARGET_KIB = 8
+_PROBE_HOLD_CYCLES = 2
+
+
+def is_task_probe_candidate(
+    upload_rate_bps: int,
+    previous_limit_kib: Optional[int],
+    upload_demand_peers: int = 0,
+) -> bool:
+    """判断任务是否有 Peer 需求但尚未产生实际上传。"""
+    del previous_limit_kib
+    return (
+        max(0, int(upload_rate_bps or 0)) <= 0
+        and max(0, int(upload_demand_peers or 0)) > 0
+    )
 
 
 def estimate_task_demand_kib(
@@ -27,17 +43,27 @@ def estimate_task_demand_kib(
     previous = max(0, int(previous_limit_kib))
     if previous <= 0:
         return None
+    if current_bps <= 0:
+        return None
     if current_bps >= previous * 1024 * 0.8:
         return None
     return max(1, int(math.ceil(current_bps / 1024 * 1.25)))
 
 
-def aggregate_pool_demand_kib(values: Iterable[Optional[int]]) -> Optional[int]:
-    """聚合任务需求；任一任务仍饱和时整个站点池保持弹性需求。"""
+def aggregate_pool_demand_kib(
+    values: Iterable[Optional[int]],
+    *,
+    probe_candidates: int = 0,
+) -> Optional[int]:
+    """聚合真实任务与有限探测预算，纯探测池保持弹性需求。"""
     normalized = list(values)
     if any(value is None for value in normalized):
         return None
-    return sum(max(0, int(value or 0)) for value in normalized)
+    demand = sum(max(0, int(value or 0)) for value in normalized)
+    probe_count = max(0, int(probe_candidates or 0))
+    if probe_count and demand <= 0:
+        return None
+    return demand + min(_MAX_PROBES_PER_POOL, probe_count) * _PROBE_TARGET_KIB
 
 
 def allocate_weighted_pools(
@@ -151,8 +177,76 @@ def allocate_task_limits(
     demands_kib: dict[str, Optional[int]],
     *,
     cycle: int = 0,
+    probe_keys: set[str] | None = None,
 ) -> dict[str, int]:
-    """在同一站点池内等权分配有需求任务，并轮换不足一 KiB/s 的活跃槽。"""
+    """在站点池内优先分配上传任务，并限量轮换待探测任务。"""
+    keys = sorted(str(key) for key in demands_kib)
+    if not keys:
+        return {}
+    total = max(0, int(total_kib or 0))
+    if total <= 0:
+        return {key: 0 for key in keys}
+    probes = set(keys).intersection(str(key) for key in (probe_keys or set()))
+    if probes:
+        selected_probes = _select_probe_batch(sorted(probes), cycle)
+        normal_demands = {
+            key: value for key, value in demands_kib.items()
+            if key not in probes and (value is None or int(value or 0) > 0)
+        }
+        if not normal_demands:
+            selected_limits = _allocate_task_limits_core(
+                total,
+                {key: demands_kib[key] for key in selected_probes},
+                cycle=cycle,
+            )
+            return {
+                key: int(selected_limits.get(key, 0))
+                for key in keys
+            }
+
+        has_elastic_normal = any(value is None for value in normal_demands.values())
+        finite_normal_demand = sum(
+            max(0, int(value or 0))
+            for value in normal_demands.values()
+            if value is not None
+        )
+        if has_elastic_normal:
+            probe_budget = min(
+                _PROBE_TARGET_KIB * len(selected_probes),
+                total // 2,
+            )
+        else:
+            probe_budget = min(
+                _PROBE_TARGET_KIB * len(selected_probes),
+                max(0, total - finite_normal_demand),
+            )
+        probe_limits = _allocate_task_limits_core(
+            probe_budget,
+            {
+                key: _PROBE_TARGET_KIB
+                for key in selected_probes
+            },
+            cycle=cycle,
+        )
+        normal_limits = _allocate_task_limits_core(
+            total - sum(probe_limits.values()),
+            normal_demands,
+            cycle=cycle,
+        )
+        return {
+            key: int(probe_limits.get(key, normal_limits.get(key, 0)))
+            for key in keys
+        }
+    return _allocate_task_limits_core(total, demands_kib, cycle=cycle)
+
+
+def _allocate_task_limits_core(
+    total_kib: int,
+    demands_kib: dict[str, Optional[int]],
+    *,
+    cycle: int,
+) -> dict[str, int]:
+    """按等权水位法分配一组任务额度。"""
     keys = sorted(str(key) for key in demands_kib)
     if not keys:
         return {}
@@ -215,6 +309,17 @@ def allocate_task_limits(
     return result
 
 
+def _select_probe_batch(probe_keys: list[str], cycle: int) -> list[str]:
+    """每批选择至多两个探测任务，并稳定保持两个协调周期。"""
+    if not probe_keys:
+        return []
+    batch_size = min(_MAX_PROBES_PER_POOL, len(probe_keys))
+    batch_index = max(0, int(cycle or 0) - 1) // _PROBE_HOLD_CYCLES
+    offset = (batch_index * batch_size) % len(probe_keys)
+    rotated = probe_keys[offset:] + probe_keys[:offset]
+    return rotated[:batch_size]
+
+
 def _integerize_pool_allocations(
     pools: dict[str, UploadPool],
     allocations: dict[str, float],
@@ -274,4 +379,5 @@ __all__ = (
     "allocate_task_limits",
     "allocate_weighted_pools",
     "estimate_task_demand_kib",
+    "is_task_probe_candidate",
 )

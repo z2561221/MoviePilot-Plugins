@@ -41,6 +41,7 @@ from .upload_allocator import (
     allocate_task_limits,
     allocate_weighted_pools,
     estimate_task_demand_kib,
+    is_task_probe_candidate,
 )
 
 
@@ -263,7 +264,7 @@ def run_upload_limit_cycle(
             save_upload_limit_state(plugin, state)
             return summary
 
-        pools, task_demands = _build_pools(
+        pools, task_demands, probe_keys = _build_pools(
             regular_tasks, torrent_state, site_rules
         )
         site_caps = {
@@ -282,7 +283,12 @@ def run_upload_limit_cycle(
                 pool_allocations.get(pool.key, 0),
                 demands,
                 cycle=cycle,
+                probe_keys=set(pool.task_keys).intersection(probe_keys),
             ))
+        probing_task_keys = {
+            task_key for task_key in probe_keys
+            if int(desired_task_limits.get(task_key, 0) or 0) > 0
+        }
 
         for task_key, snapshot in regular_tasks.items():
             context = contexts.get(snapshot.downloader_id)
@@ -333,6 +339,7 @@ def run_upload_limit_cycle(
             grace_tasks=grace_tasks,
             pool_allocations=pool_allocations,
             site_rules=site_rules,
+            probing_task_keys=probing_task_keys,
             errors=errors,
             reason=reason,
         )
@@ -482,10 +489,11 @@ def _build_pools(
     regular_tasks: dict[str, Any],
     torrent_state: dict,
     site_rules: dict[str, dict],
-) -> tuple[list[UploadPool], dict[str, int | None]]:
+) -> tuple[list[UploadPool], dict[str, int | None], set[str]]:
     """把常规做种任务聚合为下载器/站点池并计算弹性需求。"""
     grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
     demands: dict[str, int | None] = {}
+    probe_keys: set[str] = set()
     for task_key, snapshot in regular_tasks.items():
         record = torrent_state[task_key]
         site_key = str(record.get("site_key") or DEFAULT_SITE_KEY)
@@ -496,6 +504,12 @@ def _build_pools(
             None if previous is None else int(previous or 0),
             snapshot.upload_demand_peers,
         )
+        if is_task_probe_candidate(
+            snapshot.upload_rate_bps,
+            None if previous is None else int(previous or 0),
+            snapshot.upload_demand_peers,
+        ):
+            probe_keys.add(task_key)
     pools = []
     for (downloader_id, site_key), task_keys in sorted(grouped.items()):
         rule = site_rules.get(site_key) or {}
@@ -509,9 +523,12 @@ def _build_pools(
             current_rate_bps=sum(
                 int(regular_tasks[key].upload_rate_bps or 0) for key in task_keys
             ),
-            demand_kib=aggregate_pool_demand_kib(demands[key] for key in task_keys),
+            demand_kib=aggregate_pool_demand_kib(
+                (demands[key] for key in task_keys if key not in probe_keys),
+                probe_candidates=sum(key in probe_keys for key in task_keys),
+            ),
         ))
-    return pools, demands
+    return pools, demands, probe_keys
 
 
 def _build_downloader_only_summary(
@@ -552,6 +569,12 @@ def _build_downloader_only_summary(
             "upload_rate_bps": upload_rate_bps,
             "managed_torrents": len(snapshots),
             "grace_torrents": 0,
+            "uploading_torrents": sum(
+                1 for snapshot in snapshots
+                if int(snapshot.upload_rate_bps or 0) > 0
+            ),
+            "probing_torrents": 0,
+            "protected_torrents": 0,
             "allocated_kib": item_allocated_kib,
             "error": "; ".join(errors.get(downloader_id) or []),
         })
@@ -590,6 +613,12 @@ def _build_downloader_only_summary(
         "sites": sites,
         "managed_torrents": total_torrents,
         "grace_torrents": 0,
+        "uploading_torrents": sum(
+            int(item.get("uploading_torrents") or 0)
+            for item in downloader_items
+        ),
+        "probing_torrents": 0,
+        "protected_torrents": 0,
         "upload_rate_bps": total_rate_bps,
         "allocated_kib": allocated_kib,
         "errors": flat_errors,
@@ -609,6 +638,7 @@ def _build_summary(
     grace_tasks: dict[str, Any],
     pool_allocations: dict[str, int],
     site_rules: dict[str, dict],
+    probing_task_keys: set[str],
     errors: dict[str, list[str]],
     reason: str,
 ) -> dict:
@@ -638,6 +668,19 @@ def _build_summary(
             ),
             "managed_torrents": len(downloader_regular),
             "grace_torrents": len(downloader_grace),
+            "uploading_torrents": sum(
+                1 for snapshot in downloader_regular + downloader_grace
+                if int(snapshot.upload_rate_bps or 0) > 0
+            ),
+            "probing_torrents": sum(
+                1 for task_key in probing_task_keys
+                if regular_tasks[task_key].downloader_id == downloader_id
+            ),
+            "protected_torrents": sum(
+                1 for task_key, snapshot in regular_tasks.items()
+                if snapshot.downloader_id == downloader_id
+                and int((torrent_state.get(task_key) or {}).get("last_allocation_kib") or 0) == 0
+            ),
             "allocated_kib": sum(
                 int(record.get("last_allocation_kib") or 0)
                 for record in torrent_state.values()
@@ -661,11 +704,17 @@ def _build_summary(
             "allocated_kib": 0,
             "upload_rate_bps": 0,
             "torrent_count": 0,
+            "uploading_torrents": 0,
+            "probing_torrents": 0,
+            "protected_torrents": 0,
             "downloaders": set(),
         })
         item["allocated_kib"] += int(record.get("last_allocation_kib") or 0)
         item["upload_rate_bps"] += int(snapshot.upload_rate_bps or 0)
         item["torrent_count"] += 1
+        item["uploading_torrents"] += int(snapshot.upload_rate_bps or 0) > 0
+        item["probing_torrents"] += task_key in probing_task_keys
+        item["protected_torrents"] += int(record.get("last_allocation_kib") or 0) == 0
         item["downloaders"].add(snapshot.downloader_id)
     sites = []
     for item in sorted(
@@ -696,6 +745,15 @@ def _build_summary(
         "sites": sites,
         "managed_torrents": len(regular_tasks),
         "grace_torrents": len(grace_tasks),
+        "uploading_torrents": sum(
+            1 for snapshot in list(regular_tasks.values()) + list(grace_tasks.values())
+            if int(snapshot.upload_rate_bps or 0) > 0
+        ),
+        "probing_torrents": len(probing_task_keys),
+        "protected_torrents": sum(
+            1 for task_key in regular_tasks
+            if int((torrent_state.get(task_key) or {}).get("last_allocation_kib") or 0) == 0
+        ),
         "upload_rate_bps": sum(
             int(snapshot.upload_rate_bps or 0)
             for snapshot in list(regular_tasks.values()) + list(grace_tasks.values())

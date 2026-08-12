@@ -326,7 +326,7 @@ def test_manual_changes_become_restore_baseline_but_plugin_reasserts_while_enabl
     limiter.run_upload_limit_cycle(plugin, now=1030)
 
     assert instance.qbc.transfer.upload_limit == 100 * 1024
-    assert torrents[0]["up_limit"] == 1 * 1024
+    assert torrents[0]["up_limit"] == 100 * 1024
 
     plugin._upload_limit_enabled = False
     restored = limiter.restore_upload_limits(plugin)
@@ -336,6 +336,34 @@ def test_manual_changes_become_restore_baseline_but_plugin_reasserts_while_enabl
     assert instance.qbc.preferences["alt_up_limit"] == 8 * 1024
     assert torrents[0]["up_limit"] == 5 * 1024
     assert plugin.data["upload_limit_state"]["management_active"] is False
+
+
+def test_active_upload_keeps_capacity_and_only_two_idle_peer_tasks_probe():
+    """活跃任务保留主额度，同站点每轮最多放行两个待探测任务。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [
+        qb_torrent("active", "A", rate=80 * 1024, peers=1),
+        qb_torrent("probe-a", "A", peers=1),
+        qb_torrent("probe-b", "A", peers=1),
+        qb_torrent("probe-c", "A", peers=1),
+    ]
+    instance = FakeQbInstance(torrents)
+    plugin = FakePlugin(
+        {"QB2": SimpleNamespace(type="qbittorrent", instance=instance)},
+        ["QB2"],
+        {"QB2": 120},
+        {"A": {"priority": "medium", "limit_kib": 0}},
+    )
+
+    result = limiter.run_upload_limit_cycle(plugin, now=1000)
+
+    assert torrents[0]["up_limit"] == 104 * 1024
+    assert torrents[1]["up_limit"] == 8 * 1024
+    assert torrents[2]["up_limit"] == 8 * 1024
+    assert torrents[3]["up_limit"] == 1
+    assert result["uploading_torrents"] == 1
+    assert result["probing_torrents"] == 2
+    assert result["protected_torrents"] == 1
 
 
 def test_invalid_or_multiple_site_labels_enter_default_group():
@@ -366,7 +394,12 @@ def test_downloader_only_mode_avoids_per_torrent_limits_for_large_fleet():
     """无站点策略时只写下载器总上限，不得把额度摊薄到全部种子。"""
     limiter = _load("service.upload_limiter")
     torrents = [
-        qb_torrent(f"seed-{index:04d}", "", peers=0)
+        qb_torrent(
+            f"seed-{index:04d}",
+            "",
+            rate=10 * 1024 if index == 0 else 0,
+            peers=0,
+        )
         for index in range(3874)
     ]
     instance = FakeQbInstance(torrents)
@@ -383,6 +416,9 @@ def test_downloader_only_mode_avoids_per_torrent_limits_for_large_fleet():
 
     assert result["mode"] == "downloader_only"
     assert result["managed_torrents"] == 3874
+    assert result["uploading_torrents"] == 1
+    assert result["probing_torrents"] == 0
+    assert result["protected_torrents"] == 0
     assert result["allocated_kib"] == 120
     assert instance.qbc.transfer.upload_limit == 120 * 1024
     assert instance.qbc.preferences["alt_up_limit"] == 120 * 1024
