@@ -142,7 +142,7 @@ def test_upload_limit_status_shows_automatic_probe_count_without_a_setting():
 
 
 def test_upload_limit_navigation_follows_runtime_order_and_rate_wording_is_clear():
-    """上传限速应位于做种校验后，当前速率不得被误解为分配额度。"""
+    """上传限速在导航、链路和总览卡片中均应位于做种校验后。"""
     source = _source()
 
     seed_position = source.index("{ key: 'seed', title: '做种校验'")
@@ -151,6 +151,20 @@ def test_upload_limit_navigation_follows_runtime_order_and_rate_wording_is_clear
     public_flow_position = source.index("label: '公共链路'")
     upload_flow_position = source.index("label: '上传限速'")
     assert public_flow_position < upload_flow_position
+    overview_cards = source[
+        source.index("const overviewCards = computed"):
+        source.index("const runtimeFlows")
+    ]
+    card_titles = [
+        "速度监控",
+        "转移做种",
+        "IYUU铺种",
+        "命名补刀",
+        "做种校验",
+        "上传限速",
+    ]
+    card_positions = [overview_cards.index(f"title: '{title}'") for title in card_titles]
+    assert card_positions == sorted(card_positions)
     assert "当前速率" in source
     assert "实际上传流量，不代表分配额度" in source
 

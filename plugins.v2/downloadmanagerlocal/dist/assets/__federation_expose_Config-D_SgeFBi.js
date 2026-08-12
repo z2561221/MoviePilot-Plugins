@@ -502,13 +502,6 @@ const overviewCards = computed(() => {
   const archive = overview.value?.archive || {};
   return [
     {
-      title: '上传限速',
-      icon: 'mdi-upload-network-outline',
-      color: uploadLimitStatus.value.color,
-      value: uploadLimitStatus.value.label,
-      desc: `受管 ${uploadLimit.value.managed_torrents || 0} · 宽限 ${uploadLimit.value.grace_torrents || 0}`,
-    },
-    {
       title: '速度监控',
       icon: 'mdi-speedometer',
       color: speedMonitorStatus.value.color,
@@ -542,6 +535,13 @@ const overviewCards = computed(() => {
       color: cards.seed?.autostart ? 'success' : 'default',
       value: cards.seed?.autostart ? '自动开始' : '仅校验',
       desc: cards.seed?.skipverify ? '跳过校验' : '按需校验',
+    },
+    {
+      title: '上传限速',
+      icon: 'mdi-upload-network-outline',
+      color: uploadLimitStatus.value.color,
+      value: uploadLimitStatus.value.label,
+      desc: `受管 ${uploadLimit.value.managed_torrents || 0} · 宽限 ${uploadLimit.value.grace_torrents || 0}`,
     },
   ]
 });
@@ -3578,6 +3578,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-71a03c79"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6af0fe77"]]);
 
 export { Config as default };
