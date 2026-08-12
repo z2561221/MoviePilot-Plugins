@@ -43,6 +43,7 @@ EXPECTED_ROUTES = {
     "/upload_limit_status": {"auth": "bear", "methods": ("GET",), "summary": "获取上传限速状态"},
     "/upload_limit_reallocate": {"auth": "bear", "methods": ("POST",), "summary": "立即重新分配上传额度"},
     "/upload_limit_site_tags": {"auth": "bear", "methods": ("POST",), "summary": "扫描上传限速站点标签"},
+    "/upload_limit_site_rules_update": {"auth": "bear", "methods": ("POST",), "summary": "立即保存上传限速站点策略"},
     "/upload_limit_disable_restore": {"auth": "bear", "methods": ("POST",), "summary": "停用上传限速并恢复原值"},
     "/diagnostics": {"auth": "bear", "methods": ("GET",), "summary": "获取诊断信息"},
     "/retry_renames": {"auth": "bear", "methods": ("POST",), "summary": "一键补刀重命名"},
@@ -158,6 +159,7 @@ def test_downloadmanagerlocal_api_handlers_keep_compatibility_shim():
     assert "def api_upload_limit_status(plugin):" in handler_source
     assert "def api_upload_limit_reallocate(plugin, payload: dict = None):" in handler_source
     assert "def api_upload_limit_site_tags(plugin, payload: dict = None):" in handler_source
+    assert "def api_upload_limit_site_rules_update(plugin, payload: dict = None):" in handler_source
     assert "def api_upload_limit_disable_restore(plugin, payload: dict = None):" in handler_source
 
 

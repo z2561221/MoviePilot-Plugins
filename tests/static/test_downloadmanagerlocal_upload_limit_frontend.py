@@ -69,14 +69,18 @@ def test_upload_limit_site_priority_and_default_group_wording_is_explicit():
     assert "每 30 秒动态转给仍有上传需求的任务" in source
 
 
-def test_upload_limit_site_scan_is_opt_in_and_rules_can_be_cleared_before_save():
-    """站点扫描仅服务于策略需求，清空只修改当前配置表单。"""
+def test_upload_limit_site_scan_is_opt_in_and_rule_operations_persist_immediately():
+    """站点扫描仅服务于策略需求，扫描和清空都应立即保存。"""
     source = _source()
 
     assert "仅在需要按站点设置优先级或独立上限时扫描；仅使用下载器总上限时无需扫描。" in source
-    assert "function clearUploadSiteRules()" in source
+    assert "async function clearUploadSiteRules()" in source
+    assert "postPluginJsonApi(props.api, 'upload_limit_site_rules_update', { rules: {} })" in source
     assert "form.upload_limit_site_rules = {}" in source
-    assert "站点策略已清空，保存配置后生效" in source
+    assert "站点策略已清空并立即生效；点击“立即分配”可马上恢复默认组分配" in source
+    assert "rules: Object.fromEntries(Object.entries(form.upload_limit_site_rules || {})" in source
+    assert "form.upload_limit_site_rules = response?.rules" in source
+    assert "策略已立即生效" in source
     assert 'prepend-icon="mdi-delete-sweep-outline"' in source
     assert ':disabled="!uploadSiteRuleRows.length"' in source
     assert "mdi-home-speedometer" not in source
@@ -91,6 +95,7 @@ def test_upload_limit_status_actions_use_saved_backend_state_and_restore_notice(
         "upload_limit_status",
         "upload_limit_reallocate",
         "upload_limit_site_tags",
+        "upload_limit_site_rules_update",
         "upload_limit_disable_restore",
     ]:
         assert endpoint in source
@@ -165,6 +170,7 @@ def test_upload_limit_routes_are_bearer_protected():
         "/upload_limit_status": "GET",
         "/upload_limit_reallocate": "POST",
         "/upload_limit_site_tags": "POST",
+        "/upload_limit_site_rules_update": "POST",
         "/upload_limit_disable_restore": "POST",
     }
 

@@ -118,6 +118,10 @@ def test_downloadmanagerlocal_upload_limit_response_inventory():
     assert 'reason="manual"' in source
     assert "def api_upload_limit_site_tags(plugin, payload: dict = None):" in source
     assert 'request.get("downloaders")' in source
+    assert 'request.get("rules")' in source
+    assert "persist_upload_limit_site_rules(plugin, rules)" in source
+    assert "def api_upload_limit_site_rules_update(plugin, payload: dict = None):" in source
+    assert "persist_upload_limit_site_rules(plugin, request.get(\"rules\"))" in source
     assert "def api_upload_limit_disable_restore(plugin, payload: dict = None):" in source
     assert 'config["upload_limit_enabled"] = False' in source
     assert "restore_upload_limits(plugin)" in source

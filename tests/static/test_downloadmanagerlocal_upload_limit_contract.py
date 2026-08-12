@@ -94,6 +94,27 @@ def test_upload_limit_lifecycle_starts_coordinates_and_explicitly_restores():
     )
 
 
+def test_upload_limit_site_rule_operations_persist_without_immediate_allocation():
+    """扫描和清空应立即保存策略，但重新分配仍保持为独立操作。"""
+    handlers = (PLUGIN_DIR / "controller" / "handlers.py").read_text(encoding="utf-8")
+    service = (PLUGIN_DIR / "service" / "upload_limiter.py").read_text(encoding="utf-8")
+
+    scan_block = handlers.split("def api_upload_limit_site_tags", 1)[1].split(
+        "def api_upload_limit_site_rules_update", 1
+    )[0]
+    update_block = handlers.split("def api_upload_limit_site_rules_update", 1)[1].split(
+        "def api_upload_limit_disable_restore", 1
+    )[0]
+    assert 'request.get("rules")' in scan_block
+    assert "persist_upload_limit_site_rules(plugin, rules)" in scan_block
+    assert "persist_upload_limit_site_rules(plugin, request.get(\"rules\"))" in update_block
+    assert "run_upload_limit_cycle" not in scan_block
+    assert "run_upload_limit_cycle" not in update_block
+    assert "plugin.update_config(config=config)" in service.split(
+        "def persist_upload_limit_site_rules", 1
+    )[1]
+
+
 def test_download_added_wakes_upload_limit_worker_without_real_writes():
     """新增下载事件只负责唤醒协调 worker，实际写入仍由受控周期执行。"""
     entry_source = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
