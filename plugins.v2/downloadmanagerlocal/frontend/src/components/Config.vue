@@ -103,7 +103,7 @@ const subTabs = {
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   upload: [
     { key: 'upload_basic', title: '基础设置', icon: 'mdi-tune-variant' },
-    { key: 'upload_sites', title: '站点策略', icon: 'mdi-home-speedometer' },
+    { key: 'upload_sites', title: '站点策略', icon: 'mdi-home-outline' },
     { key: 'upload_status', title: '运行状态', icon: 'mdi-pulse' },
   ],
   monitor: [
@@ -327,10 +327,6 @@ const overviewCards = computed(() => {
 })
 const runtimeFlows = [
   {
-    label: '上传限速',
-    steps: ['下载器总上限', '新种宽限', '站点识别', '高/中/低分配', '30秒动态调整', '停用恢复'],
-  },
-  {
     label: '速度监控',
     steps: ['下载任务', '监控会话', '有效采样', '基准/手动阈值', 'TG通知', '关闭 / 删除并清理'],
   },
@@ -345,6 +341,10 @@ const runtimeFlows = [
   {
     label: '公共链路',
     steps: ['命名处理', '站点标签', '做种校验'],
+  },
+  {
+    label: '上传限速',
+    steps: ['下载器总上限', '新种宽限', '站点识别', '高/中/低分配', '30秒动态调整', '停用恢复'],
   },
   {
     label: '兜底补刀',
@@ -442,6 +442,12 @@ function removeUploadSiteRule(siteName) {
   const rules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
   delete rules[siteName]
   form.upload_limit_site_rules = rules
+}
+
+function clearUploadSiteRules() {
+  form.upload_limit_site_rules = {}
+  uploadMessageStatus.value = 'success'
+  uploadMessage.value = '站点策略已清空，保存配置后生效'
 }
 
 function applyUploadStatus(response) {
@@ -765,7 +771,7 @@ async function executeCleanupTags() {
               </VAlert>
 
               <VAlert type="info" variant="tonal" density="compact" class="mt-4">
-                单位与 qB 一致使用 KiB/s，1024 KiB/s = 1 MiB/s。宽限期间不做站点和单种分配，但仍受对应下载器总上传上限。
+                单位为 KiB/s；1024 KiB/s 约为 8.39 Mbps（约 1 MiB/s），不等于运营商所说的 1 Mbps。宽限期间不做站点和单种分配，但仍受对应下载器总上传上限。
               </VAlert>
             </div>
 
@@ -776,9 +782,17 @@ async function executeCleanupTags() {
                   <div class="dm-section-title mb-1">站点优先级</div>
                   <div class="text-caption text-medium-emphasis">仅识别唯一有效的「{{ form.tag_siteprefix || '🏠' }}站点名」标签；未配置、无标签或多个站点标签进入默认组。</div>
                 </div>
-                <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="uploadScanningSites"
-                  @click="scanUploadSites">扫描站点</VBtn>
+                <div class="d-flex align-center ga-2">
+                  <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="uploadScanningSites"
+                    @click="scanUploadSites">扫描站点</VBtn>
+                  <VBtn color="error" variant="text" prepend-icon="mdi-delete-sweep-outline" :disabled="!uploadSiteRuleRows.length"
+                    @click="clearUploadSiteRules">清空策略</VBtn>
+                </div>
               </div>
+
+              <VAlert type="info" variant="tonal" density="compact" class="mt-3">
+                仅在需要按站点设置优先级或独立上限时扫描；仅使用下载器总上限时无需扫描。
+              </VAlert>
 
               <VAlert v-if="uploadMessage" :type="uploadMessageStatus" variant="tonal" density="compact" closable class="mt-3"
                 @click:close="uploadMessage = ''">{{ uploadMessage }}</VAlert>

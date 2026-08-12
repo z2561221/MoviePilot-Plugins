@@ -31,7 +31,7 @@ def test_upload_limit_configuration_exposes_confirmed_fields_and_units():
     assert "qBittorrent / Transmission" in source
     assert "新种宽限（分钟）" in source
     assert "默认 30" in source
-    assert "1024 KiB/s = 1 MiB/s" in source
+    assert "1024 KiB/s 约为 8.39 Mbps（约 1 MiB/s）" in source
     assert "仍受对应下载器总上传上限" in source
 
 
@@ -69,6 +69,20 @@ def test_upload_limit_site_priority_and_default_group_wording_is_explicit():
     assert "每 30 秒动态转给仍有上传需求的任务" in source
 
 
+def test_upload_limit_site_scan_is_opt_in_and_rules_can_be_cleared_before_save():
+    """站点扫描仅服务于策略需求，清空只修改当前配置表单。"""
+    source = _source()
+
+    assert "仅在需要按站点设置优先级或独立上限时扫描；仅使用下载器总上限时无需扫描。" in source
+    assert "function clearUploadSiteRules()" in source
+    assert "form.upload_limit_site_rules = {}" in source
+    assert "站点策略已清空，保存配置后生效" in source
+    assert 'prepend-icon="mdi-delete-sweep-outline"' in source
+    assert ':disabled="!uploadSiteRuleRows.length"' in source
+    assert "mdi-home-speedometer" not in source
+    assert "{ key: 'upload_sites', title: '站点策略', icon: 'mdi-home-outline' }" in source
+
+
 def test_upload_limit_status_actions_use_saved_backend_state_and_restore_notice():
     """立即分配和停用恢复应以已保存运行态为准，并说明离线保持行为。"""
     source = _source()
@@ -94,6 +108,9 @@ def test_upload_limit_navigation_follows_runtime_order_and_rate_wording_is_clear
     seed_position = source.index("{ key: 'seed', title: '做种校验'")
     upload_position = source.index("{ key: 'upload', title: '上传限速'")
     assert seed_position < upload_position
+    public_flow_position = source.index("label: '公共链路'")
+    upload_flow_position = source.index("label: '上传限速'")
+    assert public_flow_position < upload_flow_position
     assert "当前速率" in source
     assert "实际上传流量，不代表分配额度" in source
 
