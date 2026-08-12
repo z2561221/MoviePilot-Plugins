@@ -80,6 +80,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 | `/upload_limit_status` | GET | 获取上传限速状态 | `api_upload_limit_status` |
 | `/upload_limit_reallocate` | POST | 立即重新分配上传额度 | `api_upload_limit_reallocate` |
 | `/upload_limit_site_tags` | POST | 扫描上传限速站点标签 | `api_upload_limit_site_tags` |
+| `/upload_limit_site_rules_update` | POST | 立即保存上传限速站点策略 | `api_upload_limit_site_rules_update` |
 | `/upload_limit_disable_restore` | POST | 停用上传限速并恢复原值 | `api_upload_limit_disable_restore` |
 | `/diagnostics` | GET | 获取诊断信息 | `api_diagnostics` |
 | `/retry_renames` | POST | 一键补刀重命名 | `api_retry_renames` |
@@ -284,6 +285,7 @@ IYUU：
 - `upload_limit_downloader_limits_kib`：每个受管下载器的正整数总上限，单位 KiB/s。
 - `upload_limit_site_rules`：站点名到 `{priority, limit_kib}`；空字典表示仅启用下载器总上限、不接管单种限速；存在规则时优先级为 `high/medium/low`，`limit_kib=0` 表示无独立站点硬上限。
 - `upload_limit_grace_minutes`：站点策略模式的新种宽限，默认 30 分钟，0 表示完成后立即纳入单种分配。
+- 扫描站点和清空策略会立即持久化 `upload_limit_site_rules`，不依赖插件配置页的整体保存；两者都不直接触发额度重分配，用户点击“立即分配”时才立刻执行，后台 worker 仍按 30 秒周期读取最新策略。
 
 ## 验证命令
 
