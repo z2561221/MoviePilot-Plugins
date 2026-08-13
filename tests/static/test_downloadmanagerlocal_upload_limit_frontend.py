@@ -7,6 +7,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
 CONFIG = PLUGIN_DIR / "frontend" / "src" / "components" / "Config.vue"
+PAGE = PLUGIN_DIR / "frontend" / "src" / "components" / "Page.vue"
 ROUTES = PLUGIN_DIR / "controller" / "api.py"
 
 
@@ -142,8 +143,9 @@ def test_upload_limit_status_shows_automatic_probe_count_without_a_setting():
 
 
 def test_upload_limit_navigation_follows_runtime_order_and_rate_wording_is_clear():
-    """上传限速在导航、链路和总览卡片中均应位于做种校验后。"""
+    """上传限速在导航、链路和详情页总览卡片中均应位于做种校验后。"""
     source = _source()
+    page_source = PAGE.read_text(encoding="utf-8")
 
     seed_position = source.index("{ key: 'seed', title: '做种校验'")
     upload_position = source.index("{ key: 'upload', title: '上传限速'")
@@ -151,9 +153,9 @@ def test_upload_limit_navigation_follows_runtime_order_and_rate_wording_is_clear
     public_flow_position = source.index("label: '公共链路'")
     upload_flow_position = source.index("label: '上传限速'")
     assert public_flow_position < upload_flow_position
-    overview_cards = source[
-        source.index("const overviewCards = computed"):
-        source.index("const runtimeFlows")
+    overview_cards = page_source[
+        page_source.index("const overviewCards = computed"):
+        page_source.index("async function loadOverview")
     ]
     card_titles = [
         "速度监控",
@@ -173,11 +175,6 @@ def test_upload_limit_layout_has_desktop_tablet_and_mobile_guards():
     """上传限速配置和状态布局应在桌面、平板与移动端稳定降级。"""
     source = _source()
 
-    assert re.search(
-        r"\.dm-stat-grid\s*\{[^}]*repeat\(6,\s*minmax\(0,\s*1fr\)\)",
-        source,
-        re.S,
-    )
     for css_class in [
         "dm-upload-config-row",
         "dm-upload-site-row",
@@ -195,6 +192,33 @@ def test_upload_limit_layout_has_desktop_tablet_and_mobile_guards():
         source,
         re.S,
     )
+
+
+def test_runtime_overview_details_move_to_page_while_config_keeps_flow_only():
+    """配置页总览只保留运行链路，详情页默认展示完整运行状态。"""
+    config_source = _source()
+    page_source = PAGE.read_text(encoding="utf-8")
+    config_overview = config_source[
+        config_source.index('v-show="activeSub === \'overview\'"'):
+        config_source.index('<!-- ═══ 上传限速 · 基础设置 ═══ -->')
+    ]
+
+    assert "运行链路" in config_overview
+    for title in ["命名概况", "待办关注", "速度基准", "最近处置"]:
+        assert title not in config_overview
+        assert title in page_source
+    assert 'const activeTab = ref(\'overview\')' in page_source
+    assert "getPluginApi(props.api, 'overview')" in page_source
+    assert "getPluginApi(props.api, 'upload_limit_status')" in page_source
+    assert "保留总览快照" in page_source
+    assert ": overviewResp?.upload_limit" in page_source
+    assert "OVERVIEW_REFRESH_INTERVAL_MS = 30_000" in page_source
+    assert "activeTab.value === 'overview'" in page_source
+    assert "document.visibilityState === 'visible'" in page_source
+    assert "window.setInterval(refreshVisibleOverview, OVERVIEW_REFRESH_INTERVAL_MS)" in page_source
+    assert "document.addEventListener('visibilitychange', handleVisibilityChange)" in page_source
+    assert "document.removeEventListener('visibilitychange', handleVisibilityChange)" in page_source
+    assert "onBeforeUnmount" in page_source
 
 
 def test_upload_limit_routes_are_bearer_protected():

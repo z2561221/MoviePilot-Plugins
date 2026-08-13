@@ -39,7 +39,8 @@ class DownloadManagerLocalDiagnosticsTest(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("const activeTab = ref('history')", page_source)
+        self.assertIn("const activeTab = ref('overview')", page_source)
+        self.assertIn("{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }", page_source)
         self.assertIn("const diagnostics = ref(null)", page_source)
         self.assertIn("const tabs = [", page_source)
         self.assertIn("{ key: 'diagnostics', title: '运行诊断', icon: 'mdi-stethoscope' }", page_source)
