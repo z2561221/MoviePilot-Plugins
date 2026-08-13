@@ -1512,7 +1512,7 @@ async function executeCleanupTags() {
 .dm-threshold-suggestion-action { grid-area: action; justify-self: end; }
 .dm-monitor-speed-row { display: grid; grid-template-columns: minmax(150px, 0.45fr) minmax(240px, 1fr); gap: 14px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
 .dm-monitor-speed-name { display: flex; align-items: center; gap: 8px; min-width: 0; padding-top: 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-.dm-monitor-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dm-monitor-summary, .dm-upload-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .dm-monitor-metric { min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
 .dm-monitor-metric span { display: block; color: rgba(var(--v-theme-on-surface), 0.62); font-size: 12px; }
 .dm-monitor-metric strong { display: block; margin-top: 3px; overflow-wrap: anywhere; font-size: 15px; }
@@ -1570,7 +1570,7 @@ async function executeCleanupTags() {
   .dm-subtab { flex: 0 0 auto; padding: 6px 12px; }
   .dm-flow { grid-template-columns: 1fr; }
   .dm-flow-block:first-child { grid-column: auto; }
-  .dm-monitor-summary, .dm-monitor-baselines, .dm-monitor-speed-row { grid-template-columns: 1fr; }
+  .dm-monitor-summary, .dm-upload-summary, .dm-monitor-baselines, .dm-monitor-speed-row { grid-template-columns: 1fr; }
   .dm-upload-config-row, .dm-upload-site-row, .dm-upload-status-grid, .dm-upload-site-status-row { grid-template-columns: 1fr; }
   .dm-upload-config-name, .dm-upload-site-name { padding-top: 0; }
   .dm-upload-toolbar { align-items: stretch; flex-direction: column; }
@@ -1588,7 +1588,7 @@ async function executeCleanupTags() {
   .dm-window--overview { overflow-y: auto; }
 }
 @media (min-width: 761px) and (max-width: 960px) {
-  .dm-monitor-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dm-monitor-summary, .dm-upload-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dm-upload-site-row { grid-template-columns: minmax(180px, .7fr) minmax(220px, 1fr) auto; }
   .dm-upload-status-grid { grid-template-columns: 1fr; }
   .dm-upload-site-status-row { grid-template-columns: minmax(170px, 1fr) repeat(3, minmax(96px, auto)); }
