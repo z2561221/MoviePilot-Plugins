@@ -457,7 +457,7 @@ const cleanupRemovalAssociations = computed(() => cleanupRemovals.value.reduce((
 const runtimeFlows = [
   {
     label: '速度监控',
-    steps: ['下载任务', '监控会话', '有效采样', '基准/手动阈值', 'TG通知', '关闭 / 删除并清理'],
+    steps: ['下载任务', '监控会话', '有效采样', '阈值判定', '告警通知', '异常处置'],
   },
   {
     label: '转移做种',
@@ -473,7 +473,7 @@ const runtimeFlows = [
   },
   {
     label: '上传限速',
-    steps: ['QB 全局上限', '站点识别', '按需填写上限', '站点合计限速', '30秒动态调整', '停用恢复'],
+    steps: ['全局限速', '站点识别', '按需设限', '合计限速', '动态调速', '停用恢复'],
   },
   {
     label: '兜底补刀',
@@ -3348,6 +3348,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-083e4364"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9d1f3931"]]);
 
 export { Config as default };
