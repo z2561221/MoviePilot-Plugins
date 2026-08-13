@@ -720,10 +720,102 @@ def test_clearing_site_rules_releases_per_torrent_limits_but_keeps_global_cap():
 def test_persist_site_rules_updates_config_and_runtime_immediately():
     """站点策略操作应同时更新持久化配置和运行态字段。"""
     limiter = _load("service.upload_limiter")
-    plugin = FakePlugin({}, [], {}, {"A": {"priority": "high", "limit_kib": 20}})
+    plugin = FakePlugin(
+        {},
+        [],
+        {},
+        {"A": {"priority": "high", "limit_kib": 20}},
+        data={
+            "upload_limit_state": {
+                "schema_version": 1,
+                "management_active": True,
+                "cycle": 8,
+                "downloaders": {
+                    "QB2": {
+                        "initial_scan_complete": True,
+                        "per_torrent_management_active": True,
+                        "auto_probe_count": 12,
+                        "probe_low_utilization_cycles": 4,
+                        "probe_reduction_pending": True,
+                        "last_probe_keys": ["QB2:old"],
+                    },
+                },
+                "torrents": {
+                    "QB2:old": {
+                        "downloader_id": "QB2",
+                        "torrent_hash": "old",
+                    },
+                },
+                "failures": {},
+                "last_summary": {},
+            },
+        },
+    )
 
     rules = limiter.persist_upload_limit_site_rules(plugin, {})
 
     assert rules == {}
     assert plugin.config["upload_limit_site_rules"] == {}
     assert plugin._upload_limit_site_rules == {}
+    state = plugin.data["upload_limit_state"]
+    entry = state["downloaders"]["QB2"]
+    assert entry["initial_scan_complete"] is False
+    assert entry["per_torrent_management_active"] is False
+    for key in [
+        "auto_probe_count",
+        "probe_low_utilization_cycles",
+        "probe_reduction_pending",
+        "last_probe_keys",
+    ]:
+        assert key not in entry
+    assert "QB2:old" in state["torrents"]
+
+
+def test_reenabling_site_rules_rescans_stock_without_grace_or_stale_probe_count():
+    """清空后重新启用站点策略时，当前任务应按存量纳管并重算探测数。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [
+        qb_torrent(f"old-{index}", "A", completed=120, peers=1)
+        for index in range(20)
+    ]
+    instance = FakeQbInstance(torrents)
+    plugin = FakePlugin(
+        {"QB2": SimpleNamespace(type="qbittorrent", instance=instance)},
+        ["QB2"],
+        {"QB2": 122},
+        {"A": {"priority": "medium", "limit_kib": 0}},
+        data={
+            "upload_limit_state": {
+                "schema_version": 1,
+                "management_active": True,
+                "cycle": 8,
+                "downloaders": {
+                    "QB2": {
+                        "downloader_type": "qbittorrent",
+                        "initial_scan_complete": True,
+                        "auto_probe_count": 12,
+                        "probe_low_utilization_cycles": 4,
+                        "last_probe_keys": ["QB2:old-0"],
+                    },
+                },
+                "torrents": {},
+                "failures": {},
+                "last_summary": {},
+            },
+        },
+    )
+
+    limiter.persist_upload_limit_site_rules(plugin, {})
+    limiter.run_upload_limit_cycle(plugin, now=1000)
+    torrents.append(qb_torrent("added-while-clear", "A", added=1010, completed=1020))
+    limiter.run_upload_limit_cycle(plugin, now=1030)
+
+    limiter.persist_upload_limit_site_rules(
+        plugin, {"A": {"priority": "medium", "limit_kib": 0}}
+    )
+    result = limiter.run_upload_limit_cycle(plugin, now=1060)
+
+    assert result["mode"] == "site_policy"
+    assert result["managed_torrents"] == 21
+    assert result["grace_torrents"] == 0
+    assert result["downloaders"][0]["auto_probe_count"] == 2

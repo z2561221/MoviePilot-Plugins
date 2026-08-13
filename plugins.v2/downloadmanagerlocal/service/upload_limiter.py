@@ -183,7 +183,8 @@ def run_upload_limit_cycle(
                     )
                     if release_result["errors"]:
                         errors[downloader_id].extend(release_result["errors"])
-                    entry["initial_scan_complete"] = True
+                    # 保留“待重新启用时全量扫描”的标志，避免清空策略期间新增任务获得宽限。
+                    entry["initial_scan_complete"] = False
                     entry["per_torrent_management_active"] = False
                     continue
                 _drop_missing_torrent_state(torrent_state, downloader_id, set(completed))
@@ -466,6 +467,21 @@ def persist_upload_limit_site_rules(plugin: Any, site_rules: Any) -> dict[str, d
     if plugin.update_config(config=config) is False:
         raise RuntimeError("站点策略保存失败")
     plugin._upload_limit_site_rules = clean_rules
+    if not clean_rules:
+        state = load_upload_limit_state(plugin)
+        for entry in (state.get("downloaders") or {}).values():
+            if not isinstance(entry, dict):
+                continue
+            entry["initial_scan_complete"] = False
+            entry["per_torrent_management_active"] = False
+            for key in (
+                "auto_probe_count",
+                "probe_low_utilization_cycles",
+                "probe_reduction_pending",
+                "last_probe_keys",
+            ):
+                entry.pop(key, None)
+        save_upload_limit_state(plugin, state)
     return clean_rules
 
 
