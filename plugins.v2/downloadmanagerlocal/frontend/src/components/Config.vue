@@ -102,7 +102,7 @@ const mainTabs = [
   { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
   { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
   { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
-  { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '按下载器总上限和站点优先级动态分配长期做种上传额度。' },
+  { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '设置下载器全局上传上限，并按需限制指定站点的合计上传速度。' },
 ]
 
 const subTabs = {
@@ -155,7 +155,7 @@ const uploadLimit = computed(() => overview.value?.upload_limit || {})
 const uploadLimitDownloaderRows = computed(() => uploadLimit.value.downloaders || [])
 const uploadLimitSiteRows = computed(() => uploadLimit.value.sites || [])
 const uploadSiteRuleRows = computed(() => Object.entries(form.upload_limit_site_rules || {})
-  .map(([name, rule]) => ({ name, priority: rule?.priority || 'medium', limit_kib: Number(rule?.limit_kib || 0) }))
+  .map(([name, rule]) => ({ name, limit_kib: Number(rule?.limit_kib || 0) || null }))
   .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN')))
 const speedMonitor = computed(() => overview.value?.speed_monitor || {})
 const speedBaselines = computed(() => speedMonitor.value.baselines || [])
@@ -254,11 +254,6 @@ const monitorModeItems = [
   { title: '自动稳健基准', value: 'auto' },
   { title: '手动最低速度', value: 'manual' },
 ]
-const uploadPriorityItems = [
-  { title: '高', value: 'high' },
-  { title: '中', value: 'medium' },
-  { title: '低', value: 'low' },
-]
 const uploadLimitStatus = computed(() => {
   const status = uploadLimit.value.service_status
   return {
@@ -302,7 +297,7 @@ const runtimeFlows = [
   },
   {
     label: '上传限速',
-    steps: ['下载器总上限', '新种宽限', '站点识别', '高/中/低分配', '30秒动态调整', '停用恢复'],
+    steps: ['QB 全局上限', '站点识别', '按需填写上限', '站点合计限速', '30秒动态调整', '停用恢复'],
   },
   {
     label: '兜底补刀',
@@ -374,10 +369,6 @@ function setUploadDownloaderLimit(downloaderId, value) {
   form.upload_limit_downloader_limits_kib = mapping
 }
 
-function priorityLabel(value) {
-  return { high: '高', medium: '中', low: '低' }[value] || '中'
-}
-
 function formatUploadRate(value) {
   const speed = Number(value || 0)
   if (speed >= 1024 * 1024) return `${(speed / 1024 / 1024).toFixed(2)} MiB/s`
@@ -415,14 +406,11 @@ async function flushUploadSiteRulesSave() {
   await uploadSiteRulesSaveTail
 }
 
-function setUploadSiteRule(siteName, field, value) {
+function setUploadSiteRule(siteName, value) {
   const rules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
-  const current = rules[siteName] || { priority: 'medium', limit_kib: 0 }
-  if (field === 'priority') current.priority = ['high', 'medium', 'low'].includes(value) ? value : 'medium'
-  if (field === 'limit_kib') {
-    const limit = Number(value)
-    current.limit_kib = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 0
-  }
+  const current = rules[siteName] || { limit_kib: 0 }
+  const limit = Number(value)
+  current.limit_kib = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 0
   rules[siteName] = current
   form.upload_limit_site_rules = rules
   queueUploadSiteRulesSave(rules)
@@ -444,7 +432,7 @@ async function clearUploadSiteRules() {
     const response = await queueUploadSiteRulesSave({})
     form.upload_limit_site_rules = {}
     uploadMessageStatus.value = 'success'
-    uploadMessage.value = '站点策略已清空并立即生效；点击“立即分配”可马上恢复默认组分配'
+    uploadMessage.value = '站点策略已清空并立即生效；所有任务仅受下载器全局上限约束'
   } catch (error) {
     form.upload_limit_site_rules = previousRules
     uploadMessageStatus.value = 'error'
@@ -797,8 +785,8 @@ async function executeCleanupTags() {
             <div v-show="activeSub === 'upload_sites'" class="dm-pane">
               <div class="dm-upload-toolbar">
                 <div>
-                  <div class="dm-section-title mb-1">站点优先级</div>
-                  <div class="text-caption text-medium-emphasis">仅识别唯一有效的「{{ form.tag_siteprefix || '🏠' }}站点名」标签；未配置、无标签或多个站点标签进入默认组。</div>
+                  <div class="dm-section-title mb-1">站点限速</div>
+                  <div class="text-caption text-medium-emphasis">扫描只添加站点名称，不预填上限；只有填写正数的站点才会限制合计上传速度。</div>
                 </div>
                 <div class="d-flex align-center ga-2">
                   <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="uploadScanningSites"
@@ -812,24 +800,13 @@ async function executeCleanupTags() {
               </div>
 
               <VAlert type="info" variant="tonal" density="compact" class="mt-3">
-                仅在需要按站点设置优先级或独立上限时扫描；仅使用下载器总上限时无需扫描。
+                仅识别唯一有效的「{{ form.tag_siteprefix || '🏠' }}站点名」标签。上限留空或填 0 时不写单种限速，该站点仍受下载器全局上限约束。
               </VAlert>
 
               <VAlert v-if="uploadMessage" :type="uploadMessageStatus" variant="tonal" density="compact" closable class="mt-3"
                 @click:close="uploadMessage = ''">{{ uploadMessage }}</VAlert>
 
-              <div class="dm-upload-default mt-4">
-                <div class="d-flex align-center ga-2">
-                  <VAvatar color="primary" variant="tonal" size="34" rounded="lg"><VIcon icon="mdi-home-group" size="20" /></VAvatar>
-                  <div>
-                    <strong class="text-body-2">默认组</strong>
-                    <div class="text-caption text-medium-emphasis">优先级中 · 不设置独立站点上限 · 仅受下载器总上限控制</div>
-                  </div>
-                </div>
-                <VChip size="small" color="primary" variant="tonal">中</VChip>
-              </div>
-
-              <div v-if="uploadSiteRuleRows.length" class="dm-upload-site-list mt-3">
+              <div v-if="uploadSiteRuleRows.length" class="dm-upload-site-list mt-4">
                 <div v-for="row in uploadSiteRuleRows" :key="row.name" class="dm-upload-site-row">
                   <div class="dm-upload-site-name">
                     <VIcon icon="mdi-home-outline" size="19" color="primary" />
@@ -838,23 +815,19 @@ async function executeCleanupTags() {
                       <div class="text-caption text-medium-emphasis">{{ form.tag_siteprefix || '🏠' }}{{ row.name }}</div>
                     </div>
                   </div>
-                  <VSelect :model-value="row.priority" @update:model-value="setUploadSiteRule(row.name, 'priority', $event)"
-                    label="优先级" :items="uploadPriorityItems"
+                  <VTextField :model-value="row.limit_kib" @update:model-value="setUploadSiteRule(row.name, $event)"
+                    label="合计上限（KiB/s）" type="number" min="0" step="1" clearable density="compact" variant="outlined"
                     :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
-                    density="compact" variant="outlined" hide-details />
-                  <VTextField :model-value="row.limit_kib || null" @update:model-value="setUploadSiteRule(row.name, 'limit_kib', $event)"
-                    label="站点上限（KiB/s）" type="number" min="0" step="1" clearable density="compact" variant="outlined"
-                    :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
-                    hint="留空表示不设独立上限；填写后为跨下载器共享硬上限" persistent-hint />
-                  <VBtn icon="mdi-delete-outline" size="small" color="error" variant="text" title="移入默认组"
+                    hint="留空或 0 表示该站点不限速；正数为跨下载器共享的站点合计上限" persistent-hint />
+                  <VBtn icon="mdi-delete-outline" size="small" color="error" variant="text" title="删除站点"
                     :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
                     @click="removeUploadSiteRule(row.name)" />
                 </div>
               </div>
-              <div v-else class="dm-monitor-empty mt-3">尚未配置站点规则，可扫描所选下载器自动加入</div>
+              <div v-else class="dm-monitor-empty mt-3">尚未扫描站点；没有站点上限时只应用下载器全局上限</div>
 
               <VAlert type="info" variant="tonal" density="compact" class="mt-4">
-                高 / 中 / 低使用 4 / 2 / 1 相对权重，并非固定分成 10 份；三档同时满负载时约为 57.1% / 28.6% / 14.3%，空闲额度每 30 秒动态转给仍有上传需求的任务。
+                正数上限限制该站点全部任务的合计上传速度；多个受限站点在下载器全局额度内按实际需求共享可用带宽。
               </VAlert>
             </div>
 
@@ -883,18 +856,15 @@ async function executeCleanupTags() {
                 {{ error }}
               </VAlert>
 
-              <div class="dm-monitor-summary mt-4">
+              <div class="dm-upload-summary mt-4">
                 <div class="dm-monitor-metric"><span>服务</span><strong>{{ uploadLimitStatus.label }}</strong></div>
-                <div class="dm-monitor-metric"><span>当前速率</span><strong>{{ formatUploadRate(uploadLimit.upload_rate_bps) }}</strong></div>
-                <div class="dm-monitor-metric"><span>受管种子</span><strong>{{ uploadLimit.managed_torrents || 0 }}</strong></div>
-                <div class="dm-monitor-metric"><span>宽限种子</span><strong>{{ uploadLimit.grace_torrents || 0 }}</strong></div>
-                <div class="dm-monitor-metric"><span>上传中</span><strong>{{ uploadLimit.uploading_torrents || 0 }}</strong></div>
-                <div class="dm-monitor-metric"><span>探测中</span><strong>{{ uploadLimit.probing_torrents || 0 }}</strong></div>
-                <div class="dm-monitor-metric"><span>已保护</span><strong>{{ uploadLimit.protected_torrents || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>实时速率</span><strong>{{ formatUploadRate(uploadLimit.upload_rate_bps) }}</strong></div>
+                <div class="dm-monitor-metric"><span>受限任务</span><strong>{{ uploadLimit.managed_torrents || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>宽限任务</span><strong>{{ uploadLimit.grace_torrents || 0 }}</strong></div>
               </div>
-              <div class="dm-hint mt-2">当前速率为实际上传流量，不代表分配额度；qBittorrent 的逻辑零额度会显示为 1 B/s，以避免 0 代表不限速。</div>
+              <div class="dm-hint mt-2">实时速率是下载器当前实际上传流量；站点额度是插件写入单种限速的合计值，两者不是同一指标。</div>
 
-              <div class="dm-section-title mt-4">下载器分配</div>
+              <div class="dm-section-title mt-4">下载器状态</div>
               <div v-if="uploadLimitDownloaderRows.length" class="dm-upload-status-grid">
                 <div v-for="item in uploadLimitDownloaderRows" :key="item.id" class="dm-upload-status-card">
                   <div class="dm-upload-status-head">
@@ -906,30 +876,28 @@ async function executeCleanupTags() {
                   </div>
                   <div class="dm-upload-values">
                     <span>实时 <strong>{{ formatUploadRate(item.upload_rate_bps) }}</strong></span>
-                    <span>总上限 <strong>{{ item.total_limit_kib }} KiB/s</strong></span>
-                    <span>已分配 <strong>{{ item.allocated_kib }} KiB/s</strong></span>
-                    <span>自动探测：当前 <strong>{{ item.auto_probe_count || 0 }}</strong> 个</span>
-                    <span>种子 <strong>{{ item.managed_torrents }} + {{ item.grace_torrents }}</strong></span>
+                    <span>{{ item.type === 'transmission' ? 'Session 全局上限' : 'QB 全局上限' }} <strong>{{ item.total_limit_kib }} KiB/s</strong></span>
+                    <span>受限任务 <strong>{{ item.managed_torrents || 0 }}</strong></span>
+                    <span>宽限任务 <strong>{{ item.grace_torrents || 0 }}</strong></span>
                   </div>
                   <div v-if="item.error" class="text-caption text-warning mt-2 dm-break-text">{{ item.error }}</div>
                 </div>
               </div>
               <div v-else class="dm-monitor-empty">当前没有启用的限速下载器</div>
 
-              <div class="dm-section-title mt-4">站点分配</div>
+              <div class="dm-section-title mt-4">受限站点</div>
               <div v-if="uploadLimitSiteRows.length" class="dm-upload-site-status">
                 <div v-for="item in uploadLimitSiteRows" :key="item.key" class="dm-upload-site-status-row">
                   <div class="min-w-0">
                     <strong class="text-body-2">{{ item.name }}</strong>
                     <div class="text-caption text-medium-emphasis">{{ item.torrent_count }} 个任务 · {{ item.downloaders?.join('、') }}</div>
                   </div>
-                  <VChip size="x-small" color="primary" variant="tonal">{{ priorityLabel(item.priority) }}</VChip>
                   <span class="text-caption">实时 <strong>{{ formatUploadRate(item.upload_rate_bps) }}</strong></span>
-                  <span class="text-caption">分配 <strong>{{ item.allocated_kib }} KiB/s</strong></span>
-                  <span class="text-caption">硬上限 <strong>{{ item.hard_limit_kib ? `${item.hard_limit_kib} KiB/s` : '无' }}</strong></span>
+                  <span class="text-caption">站点额度 <strong>{{ item.allocated_kib }} KiB/s</strong></span>
+                  <span class="text-caption">站点上限 <strong>{{ item.limit_kib }} KiB/s</strong></span>
                 </div>
               </div>
-              <div v-else class="dm-monitor-empty">尚无常规做种池分配数据</div>
+              <div v-else class="dm-monitor-empty">当前没有填写正数上限的受限站点</div>
             </div>
 
             <!-- ═══ 速度监控 · 基础设置 ═══ -->
@@ -1560,15 +1528,14 @@ async function executeCleanupTags() {
 .dm-upload-config-row { display: grid; grid-template-columns: minmax(220px, .72fr) minmax(260px, 1fr); gap: 16px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
 .dm-upload-config-name, .dm-upload-site-name { display: flex; align-items: flex-start; gap: 9px; min-width: 0; padding-top: 8px; overflow-wrap: anywhere; }
 .dm-upload-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-.dm-upload-default { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-primary), .035); }
-.dm-upload-site-row { display: grid; grid-template-columns: minmax(180px, .72fr) minmax(118px, .32fr) minmax(250px, 1fr) auto; gap: 12px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-site-row { display: grid; grid-template-columns: minmax(180px, .72fr) minmax(250px, 1fr) auto; gap: 12px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
 .dm-upload-site-row :deep(.v-btn) { margin-top: 4px; }
 .dm-upload-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .dm-upload-status-card { min-width: 0; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
 .dm-upload-status-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
 .dm-upload-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 12px; margin-top: 10px; font-size: 12px; }
 .dm-upload-values span { min-width: 0; overflow-wrap: anywhere; }
-.dm-upload-site-status-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(102px, auto) minmax(112px, auto) minmax(124px, auto); gap: 10px; align-items: center; min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-site-status-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(102px, auto) minmax(112px, auto) minmax(124px, auto); gap: 10px; align-items: center; min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
 .dm-upload-site-status-row > span { min-width: 0; overflow-wrap: anywhere; }
 .dm-cleanup-toolbar { display: flex; align-items: center; gap: 10px; }
 .dm-cleanup-select { flex: 1 1 auto; min-width: 0; }
@@ -1606,11 +1573,9 @@ async function executeCleanupTags() {
   .dm-monitor-summary, .dm-monitor-baselines, .dm-monitor-speed-row { grid-template-columns: 1fr; }
   .dm-upload-config-row, .dm-upload-site-row, .dm-upload-status-grid, .dm-upload-site-status-row { grid-template-columns: 1fr; }
   .dm-upload-config-name, .dm-upload-site-name { padding-top: 0; }
-  .dm-upload-toolbar, .dm-upload-default { align-items: stretch; flex-direction: column; }
+  .dm-upload-toolbar { align-items: stretch; flex-direction: column; }
   .dm-upload-toolbar :deep(.v-btn) { width: 100%; }
-  .dm-upload-default :deep(.v-chip) { align-self: flex-start; }
   .dm-upload-site-row :deep(.v-btn) { justify-self: end; margin-top: 0; }
-  .dm-upload-site-status-row :deep(.v-chip) { justify-self: start; }
   .dm-threshold-suggestion-head { align-items: stretch; flex-direction: column; }
   .dm-threshold-suggestion-head :deep(.v-btn) { align-self: flex-start; }
   .dm-threshold-suggestion-row { grid-template-columns: minmax(112px, 1fr) minmax(84px, auto); grid-template-areas: 'label current' 'suggested action'; gap: 6px; }
@@ -1624,9 +1589,9 @@ async function executeCleanupTags() {
 }
 @media (min-width: 761px) and (max-width: 960px) {
   .dm-monitor-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .dm-upload-site-row { grid-template-columns: minmax(180px, .7fr) minmax(118px, .35fr) minmax(220px, 1fr) auto; }
+  .dm-upload-site-row { grid-template-columns: minmax(180px, .7fr) minmax(220px, 1fr) auto; }
   .dm-upload-status-grid { grid-template-columns: 1fr; }
-  .dm-upload-site-status-row { grid-template-columns: minmax(170px, 1fr) auto repeat(3, minmax(96px, auto)); }
+  .dm-upload-site-status-row { grid-template-columns: minmax(170px, 1fr) repeat(3, minmax(96px, auto)); }
   .dm-flow { grid-template-columns: 1fr; }
   .dm-flow-block:first-child { grid-column: auto; }
   .dm-window--overview { overflow-y: auto; }

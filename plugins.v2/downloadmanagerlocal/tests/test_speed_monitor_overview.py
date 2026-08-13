@@ -233,12 +233,12 @@ def test_site_scan_persists_current_draft_rules_and_new_sites(monkeypatch):
 
     result = handlers.api_upload_limit_site_tags(plugin, {
         "downloaders": ["QB2"],
-        "rules": {"A": {"priority": "high", "limit_kib": 20}},
+        "rules": {"A": {"limit_kib": 20}},
     })
 
     assert persisted == [{
-        "A": {"priority": "high", "limit_kib": 20},
-        "B": {"priority": "medium", "limit_kib": 0},
+        "A": {"limit_kib": 20},
+        "B": {"limit_kib": 0},
     }]
     assert result["rules"] == persisted[0]
     assert "立即生效" in result["msg"]

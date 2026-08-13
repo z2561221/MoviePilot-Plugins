@@ -146,7 +146,7 @@ def _positive_integer_mapping(value) -> dict[str, int]:
 
 
 def _normalize_upload_site_rules(value) -> dict[str, dict]:
-    """清洗站点优先级与可选共享硬上限。"""
+    """清洗站点合计上传上限，零值表示不设置站点限速。"""
     if not isinstance(value, dict):
         return {}
     result = {}
@@ -154,15 +154,11 @@ def _normalize_upload_site_rules(value) -> dict[str, dict]:
         clean_name = str(site_name or "").strip()
         if not clean_name or not isinstance(raw_rule, dict):
             continue
-        priority = str(raw_rule.get("priority") or "medium").strip().lower()
-        if priority not in {"high", "medium", "low"}:
-            priority = "medium"
         try:
             limit_kib = int(float(raw_rule.get("limit_kib") or 0))
         except (TypeError, ValueError):
             limit_kib = 0
         result[clean_name] = {
-            "priority": priority,
             "limit_kib": max(0, limit_kib),
         }
     return result

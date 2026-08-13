@@ -261,7 +261,7 @@ def api_upload_limit_site_tags(plugin, payload: dict = None):
         for item in result.get("items") or []:
             name = str(item.get("name") or "").strip()
             if name:
-                rules.setdefault(name, {"priority": "medium", "limit_kib": 0})
+                rules.setdefault(name, {"limit_kib": 0})
         result["rules"] = persist_upload_limit_site_rules(plugin, rules)
         result["msg"] = "站点标签扫描完成，策略已立即生效" if result.get("code") == 0 else result.get("msg")
         return result

@@ -128,14 +128,14 @@ def aggregate_pool_demand_kib(
     return demand + probe_count * _PROBE_TARGET_KIB
 
 
-def select_weighted_probe_keys(
+def select_probe_keys(
     pools: Iterable[UploadPool],
     probe_keys: set[str],
     *,
     target_counts: dict[str, int],
     cycle: int = 0,
 ) -> set[str]:
-    """按站点权重和下载器目标数选择轮换探测任务。"""
+    """按受限站点和下载器目标数等权选择轮换探测任务。"""
     candidates = {str(key) for key in probe_keys}
     if not candidates:
         return set()
@@ -150,7 +150,7 @@ def select_weighted_probe_keys(
             by_downloader[downloader_id],
             key=lambda pool: pool.key,
         )
-        schedule = _smooth_weighted_pool_schedule(downloader_pools)
+        schedule = downloader_pools
         if not schedule:
             continue
         pool_candidates = {
@@ -180,12 +180,12 @@ def select_weighted_probe_keys(
     return selected
 
 
-def allocate_weighted_pools(
+def allocate_site_pools(
     pools: Iterable[UploadPool],
     downloader_caps_kib: dict[str, int],
     site_caps_kib: dict[str, int],
 ) -> dict[str, int]:
-    """按下载器总额度、站点共享硬上限与 4/2/1 权重分配站点池。"""
+    """按下载器总额度、站点共享上限与实际需求等权分配站点池。"""
     pool_map = {pool.key: pool for pool in pools}
     if not pool_map:
         return {}
@@ -221,11 +221,8 @@ def allocate_weighted_pools(
             capacity = remaining_downloader.get(downloader_id, 0.0)
             if capacity <= _EPSILON:
                 continue
-            total_weight = sum(pool_map[key].weight for key in keys)
-            if total_weight <= 0:
-                continue
             for key in keys:
-                proposals[key] = capacity * pool_map[key].weight / total_weight
+                proposals[key] = capacity / len(keys)
         if not proposals or max(proposals.values()) <= _EPSILON:
             break
 
@@ -443,25 +440,6 @@ def _max_auto_probe_count(total_limit_kib: int, candidate_count: int) -> int:
     return min(_MAX_AUTO_PROBES_PER_DOWNLOADER, candidates, budget_slots)
 
 
-def _smooth_weighted_pool_schedule(pools: list[UploadPool]) -> list[UploadPool]:
-    """构造一个完整的平滑加权站点轮换周期。"""
-    if not pools:
-        return []
-    total_weight = sum(max(1, pool.weight) for pool in pools)
-    current = {pool.key: 0 for pool in pools}
-    schedule = []
-    for _ in range(total_weight):
-        for pool in pools:
-            current[pool.key] += max(1, pool.weight)
-        chosen = max(
-            pools,
-            key=lambda pool: (current[pool.key], pool.weight, pool.key),
-        )
-        schedule.append(chosen)
-        current[chosen.key] -= total_weight
-    return schedule
-
-
 def _schedule_occurrence_before(
     schedule: list[UploadPool],
     pool_key: str,
@@ -495,7 +473,6 @@ def _integerize_pool_allocations(
         pools,
         key=lambda key: (
             -(allocations[key] - math.floor(allocations[key])),
-            -pools[key].weight,
             key,
         ),
     )
@@ -531,10 +508,10 @@ def _rotate(values: list[str], cycle: int) -> list[str]:
 __all__ = (
     "adjust_auto_probe_count",
     "aggregate_pool_demand_kib",
+    "allocate_site_pools",
     "allocate_task_limits",
-    "allocate_weighted_pools",
     "estimate_task_demand_kib",
     "initial_auto_probe_count",
     "is_task_probe_candidate",
-    "select_weighted_probe_keys",
+    "select_probe_keys",
 )

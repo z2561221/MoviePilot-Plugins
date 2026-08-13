@@ -10,19 +10,6 @@ UPLOAD_LIMIT_SCHEMA_VERSION = 1
 UPLOAD_LIMIT_INTERVAL_SECONDS = 30
 UPLOAD_LIMIT_FAILURE_NOTIFY_THRESHOLD = 3
 
-DEFAULT_SITE_KEY = "__default__"
-DEFAULT_SITE_NAME = "默认组"
-
-PRIORITY_HIGH = "high"
-PRIORITY_MEDIUM = "medium"
-PRIORITY_LOW = "low"
-PRIORITY_WEIGHTS = {
-    PRIORITY_HIGH: 4,
-    PRIORITY_MEDIUM: 2,
-    PRIORITY_LOW: 1,
-}
-
-
 @dataclass(frozen=True)
 class GlobalUploadSettings:
     """下载器全局上传限速快照，数值单位为 B/s。"""
@@ -67,26 +54,14 @@ class UploadTorrentSnapshot:
 
 @dataclass(frozen=True)
 class UploadPool:
-    """同一下载器内按站点聚合的待分配做种池。"""
+    """同一下载器内按受限站点聚合的待分配做种池。"""
 
     key: str
     downloader_id: str
     site_key: str
-    priority: str
     task_keys: tuple[str, ...]
     current_rate_bps: int
     demand_kib: Optional[int]
-
-    @property
-    def weight(self) -> int:
-        """返回优先级对应的稳定整数权重。"""
-        return PRIORITY_WEIGHTS[normalize_priority(self.priority)]
-
-
-def normalize_priority(value: Any) -> str:
-    """把任意优先级值收敛为 high、medium 或 low。"""
-    normalized = str(value or "").strip().lower()
-    return normalized if normalized in PRIORITY_WEIGHTS else PRIORITY_MEDIUM
 
 
 def torrent_state_key(downloader_id: str, torrent_hash: str) -> str:
@@ -96,7 +71,7 @@ def torrent_state_key(downloader_id: str, torrent_hash: str) -> str:
 
 def pool_state_key(downloader_id: str, site_key: str) -> str:
     """构造下载器与站点组合的分配池键。"""
-    return f"{str(downloader_id or '').strip()}\0{str(site_key or DEFAULT_SITE_KEY).strip()}"
+    return f"{str(downloader_id or '').strip()}\0{str(site_key or '').strip()}"
 
 
 def empty_upload_limit_state() -> dict:
@@ -159,13 +134,7 @@ def _integer(value: Any) -> int:
 
 
 __all__ = (
-    "DEFAULT_SITE_KEY",
-    "DEFAULT_SITE_NAME",
     "GlobalUploadSettings",
-    "PRIORITY_HIGH",
-    "PRIORITY_LOW",
-    "PRIORITY_MEDIUM",
-    "PRIORITY_WEIGHTS",
     "TorrentUploadSettings",
     "UPLOAD_LIMIT_FAILURE_NOTIFY_THRESHOLD",
     "UPLOAD_LIMIT_INTERVAL_SECONDS",
@@ -174,7 +143,6 @@ __all__ = (
     "UploadTorrentSnapshot",
     "empty_upload_limit_state",
     "migrate_upload_limit_state",
-    "normalize_priority",
     "pool_state_key",
     "torrent_state_key",
 )

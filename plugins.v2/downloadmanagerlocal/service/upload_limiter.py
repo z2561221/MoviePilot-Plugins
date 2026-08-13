@@ -26,25 +26,21 @@ from ..adapter.upload_limit import (
 )
 from ..model.state import UPLOAD_LIMIT_STATE_KEY
 from ..model.upload_limit import (
-    DEFAULT_SITE_KEY,
-    DEFAULT_SITE_NAME,
-    PRIORITY_MEDIUM,
     UPLOAD_LIMIT_FAILURE_NOTIFY_THRESHOLD,
     UploadPool,
     migrate_upload_limit_state,
-    normalize_priority,
     pool_state_key,
 )
 from ..utils.config import is_upload_limit_active, normalize_upload_limit_config
 from .upload_allocator import (
     adjust_auto_probe_count,
     aggregate_pool_demand_kib,
+    allocate_site_pools,
     allocate_task_limits,
-    allocate_weighted_pools,
     estimate_task_demand_kib,
     initial_auto_probe_count,
     is_task_probe_candidate,
-    select_weighted_probe_keys,
+    select_probe_keys,
 )
 
 
@@ -93,7 +89,12 @@ def run_upload_limit_cycle(
         selected = _selected_downloaders(plugin)
         caps = _downloader_caps(plugin, selected)
         site_rules = _site_rules(plugin)
-        site_policy_enabled = bool(site_rules)
+        limited_site_rules = {
+            site_name: rule
+            for site_name, rule in site_rules.items()
+            if int(rule.get("limit_kib") or 0) > 0
+        }
+        site_policy_enabled = bool(limited_site_rules)
         tag_prefix = str(getattr(plugin, "_tag_siteprefix", "🏠") or "🏠")
         first_activation = not bool(state.get("management_active"))
         if first_activation:
@@ -223,9 +224,22 @@ def run_upload_limit_cycle(
                             record["original_settings"] = settings_to_dict(
                                 snapshot.upload_settings
                             )
-                    site_key, priority = _resolve_site_group(
-                        snapshot.labels, site_rules, tag_prefix
+                    site_key = _resolve_limited_site(
+                        snapshot.labels, limited_site_rules, tag_prefix
                     )
+                    if not site_key:
+                        if record:
+                            release_error = _release_torrent_record(
+                                state=state,
+                                task_key=task_key,
+                                record=record,
+                                snapshot=snapshot,
+                                instance=service.instance,
+                                downloader_type=downloader_type,
+                            )
+                            if release_error:
+                                errors[downloader_id].append(release_error)
+                        continue
                     record.update({
                         "downloader_id": downloader_id,
                         "downloader_type": downloader_type,
@@ -233,7 +247,6 @@ def run_upload_limit_cycle(
                         "name": snapshot.name,
                         "labels": list(snapshot.labels),
                         "site_key": site_key,
-                        "priority": priority,
                         "upload_rate_bps": snapshot.upload_rate_bps,
                         "upload_demand_peers": snapshot.upload_demand_peers,
                         "last_seen_at": timestamp,
@@ -279,7 +292,7 @@ def run_upload_limit_cycle(
         pools, task_demands, probe_keys = _build_pools(
             regular_tasks,
             torrent_state,
-            site_rules,
+            limited_site_rules,
             downloader_state=downloader_state,
             downloader_caps_kib=caps,
             upload_rates_bps=upload_rates_bps,
@@ -287,10 +300,9 @@ def run_upload_limit_cycle(
         )
         site_caps = {
             site_name: int(rule.get("limit_kib") or 0)
-            for site_name, rule in site_rules.items()
-            if int(rule.get("limit_kib") or 0) > 0
+            for site_name, rule in limited_site_rules.items()
         }
-        pool_allocations = allocate_weighted_pools(pools, caps, site_caps)
+        pool_allocations = allocate_site_pools(pools, caps, site_caps)
         desired_task_limits: dict[str, int] = {}
         for pool in pools:
             demands = {
@@ -356,7 +368,7 @@ def run_upload_limit_cycle(
             regular_tasks=regular_tasks,
             grace_tasks=grace_tasks,
             pool_allocations=pool_allocations,
-            site_rules=site_rules,
+            site_rules=limited_site_rules,
             probing_task_keys=probing_task_keys,
             errors=errors,
             reason=reason,
@@ -467,7 +479,7 @@ def persist_upload_limit_site_rules(plugin: Any, site_rules: Any) -> dict[str, d
     if plugin.update_config(config=config) is False:
         raise RuntimeError("站点策略保存失败")
     plugin._upload_limit_site_rules = clean_rules
-    if not clean_rules:
+    if not any(int(rule.get("limit_kib") or 0) > 0 for rule in clean_rules.values()):
         state = load_upload_limit_state(plugin)
         for entry in (state.get("downloaders") or {}).values():
             if not isinstance(entry, dict):
@@ -493,15 +505,22 @@ def get_upload_limit_status(plugin: Any, *, state: dict | None = None) -> dict:
     configured = is_upload_limit_active(plugin)
     enabled = bool(getattr(plugin, "_upload_limit_enabled", False))
     selected = _selected_downloaders(plugin) if enabled else []
+    empty_metrics = {
+        "downloaders": [],
+        "sites": [],
+        "errors": [],
+        "managed_torrents": 0,
+        "grace_torrents": 0,
+        "uploading_torrents": 0,
+        "probing_torrents": 0,
+        "protected_torrents": 0,
+        "upload_rate_bps": 0,
+        "allocated_kib": 0,
+    }
     if not summary:
         summary = {
+            **empty_metrics,
             "service_status": "starting" if configured else "disabled",
-            "downloaders": [],
-            "sites": [],
-            "errors": [],
-            "managed_torrents": 0,
-            "grace_torrents": 0,
-            "upload_rate_bps": 0,
         }
     summary.update({
         "enabled": enabled,
@@ -512,9 +531,8 @@ def get_upload_limit_status(plugin: Any, *, state: dict | None = None) -> dict:
         "state_error": str(getattr(plugin, "_upload_limit_state_error", "") or ""),
     })
     if not configured:
+        summary.update(empty_metrics)
         summary["service_status"] = "disabled"
-        summary["downloaders"] = []
-        summary["sites"] = []
     return summary
 
 
@@ -528,13 +546,13 @@ def _build_pools(
     upload_rates_bps: dict[str, int],
     cycle: int,
 ) -> tuple[list[UploadPool], dict[str, int | None], set[str]]:
-    """聚合站点池，并按下载器自适应目标选择受控探测任务。"""
+    """聚合填写了正数上限的站点池，并选择受控探测任务。"""
     grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
     demands: dict[str, int | None] = {}
     probe_candidates: set[str] = set()
     for task_key, snapshot in regular_tasks.items():
         record = torrent_state[task_key]
-        site_key = str(record.get("site_key") or DEFAULT_SITE_KEY)
+        site_key = str(record.get("site_key") or "")
         grouped[(snapshot.downloader_id, site_key)].append(task_key)
         previous = record.get("last_allocation_kib")
         demands[task_key] = estimate_task_demand_kib(
@@ -550,13 +568,10 @@ def _build_pools(
             probe_candidates.add(task_key)
     pools = []
     for (downloader_id, site_key), task_keys in sorted(grouped.items()):
-        rule = site_rules.get(site_key) or {}
-        priority = normalize_priority(rule.get("priority") or PRIORITY_MEDIUM)
         pools.append(UploadPool(
             key=pool_state_key(downloader_id, site_key),
             downloader_id=downloader_id,
             site_key=site_key,
-            priority=priority,
             task_keys=tuple(sorted(task_keys)),
             current_rate_bps=sum(
                 int(regular_tasks[key].upload_rate_bps or 0) for key in task_keys
@@ -606,7 +621,7 @@ def _build_pools(
         entry["probe_low_utilization_cycles"] = low_cycles
         entry["probe_reduction_pending"] = reduction_pending
         target_counts[downloader_id] = current
-    probe_keys = select_weighted_probe_keys(
+    probe_keys = select_probe_keys(
         pools,
         probe_candidates,
         cycle=cycle,
@@ -634,7 +649,6 @@ def _build_pools(
             key=pool.key,
             downloader_id=pool.downloader_id,
             site_key=pool.site_key,
-            priority=pool.priority,
             task_keys=pool.task_keys,
             current_rate_bps=pool.current_rate_bps,
             demand_kib=aggregate_pool_demand_kib(
@@ -663,7 +677,6 @@ def _build_downloader_only_summary(
     total_rate_bps = 0
     total_torrents = 0
     allocated_kib = 0
-    default_downloaders = []
     for downloader_id in selected:
         context = contexts.get(downloader_id) or {}
         snapshots = list((context.get("snapshots") or {}).values())
@@ -672,8 +685,6 @@ def _build_downloader_only_summary(
         )
         has_context = bool(context)
         item_allocated_kib = int(caps.get(downloader_id, 0) or 0) if has_context else 0
-        if has_context:
-            default_downloaders.append(downloader_id)
         total_rate_bps += upload_rate_bps
         total_torrents += len(snapshots)
         allocated_kib += item_allocated_kib
@@ -709,18 +720,6 @@ def _build_downloader_only_summary(
         service_status = "degraded"
     else:
         service_status = "running"
-    sites = []
-    if total_torrents:
-        sites.append({
-            "key": DEFAULT_SITE_KEY,
-            "name": DEFAULT_SITE_NAME,
-            "priority": PRIORITY_MEDIUM,
-            "hard_limit_kib": 0,
-            "allocated_kib": allocated_kib,
-            "upload_rate_bps": total_rate_bps,
-            "torrent_count": total_torrents,
-            "downloaders": sorted(default_downloaders),
-        })
     return {
         "enabled": True,
         "active": True,
@@ -729,7 +728,7 @@ def _build_downloader_only_summary(
         "reason": str(reason or "scheduled"),
         "selected_downloaders": list(selected),
         "downloaders": downloader_items,
-        "sites": sites,
+        "sites": [],
         "managed_torrents": total_torrents,
         "grace_torrents": 0,
         "uploading_torrents": sum(
@@ -766,6 +765,7 @@ def _build_summary(
     downloader_items = []
     for downloader_id in selected:
         context = contexts.get(downloader_id) or {}
+        downloader_snapshots = list((context.get("snapshots") or {}).values())
         downloader_regular = [
             snapshot for snapshot in regular_tasks.values()
             if snapshot.downloader_id == downloader_id
@@ -783,12 +783,12 @@ def _build_summary(
             "total_limit_kib": int(caps.get(downloader_id, 0) or 0),
             "upload_rate_bps": sum(
                 int(snapshot.upload_rate_bps or 0)
-                for snapshot in downloader_regular + downloader_grace
+                for snapshot in downloader_snapshots
             ),
             "managed_torrents": len(downloader_regular),
             "grace_torrents": len(downloader_grace),
             "uploading_torrents": sum(
-                1 for snapshot in downloader_regular + downloader_grace
+                1 for snapshot in downloader_snapshots
                 if int(snapshot.upload_rate_bps or 0) > 0
             ),
             "probing_torrents": sum(
@@ -818,13 +818,12 @@ def _build_summary(
     site_items: dict[str, dict] = {}
     for task_key, snapshot in regular_tasks.items():
         record = torrent_state.get(task_key) or {}
-        site_key = str(record.get("site_key") or DEFAULT_SITE_KEY)
+        site_key = str(record.get("site_key") or "")
         rule = site_rules.get(site_key) or {}
         item = site_items.setdefault(site_key, {
             "key": site_key,
-            "name": DEFAULT_SITE_NAME if site_key == DEFAULT_SITE_KEY else site_key,
-            "priority": normalize_priority(rule.get("priority") or PRIORITY_MEDIUM),
-            "hard_limit_kib": int(rule.get("limit_kib") or 0),
+            "name": site_key,
+            "limit_kib": int(rule.get("limit_kib") or 0),
             "allocated_kib": 0,
             "upload_rate_bps": 0,
             "torrent_count": 0,
@@ -843,7 +842,7 @@ def _build_summary(
     sites = []
     for item in sorted(
         site_items.values(),
-        key=lambda value: (value["key"] == DEFAULT_SITE_KEY, value["name"].lower()),
+        key=lambda value: value["name"].lower(),
     ):
         sites.append({**item, "downloaders": sorted(item["downloaders"])})
 
@@ -880,7 +879,8 @@ def _build_summary(
         ),
         "upload_rate_bps": sum(
             int(snapshot.upload_rate_bps or 0)
-            for snapshot in list(regular_tasks.values()) + list(grace_tasks.values())
+            for context in contexts.values()
+            for snapshot in (context.get("snapshots") or {}).values()
         ),
         "allocated_kib": sum(int(value or 0) for value in pool_allocations.values()),
         "errors": flat_errors,
@@ -933,6 +933,40 @@ def _release_downloader_torrent_limits(
                 snapshot.torrent_hash,
             )
     return report
+
+
+def _release_torrent_record(
+    *,
+    state: dict,
+    task_key: str,
+    record: dict,
+    snapshot: Any,
+    instance: Any,
+    downloader_type: str,
+) -> str:
+    """任务退出受限站点时按 compare-and-set 恢复其原始单种设置。"""
+    last_written = record.get("last_written_settings")
+    original = record.get("original_settings")
+    try:
+        if last_written and original and torrent_settings_equal(
+            snapshot.upload_settings,
+            settings_from_dict(last_written),
+        ):
+            restore_torrent_upload_settings(
+                instance,
+                downloader_type,
+                snapshot.torrent_hash,
+                settings_from_dict(original),
+            )
+        state.get("torrents", {}).pop(task_key, None)
+        return ""
+    except Exception as error:
+        logger.exception(
+            "释放上传限速任务 %s/%s 失败",
+            snapshot.downloader_id,
+            snapshot.torrent_hash,
+        )
+        return f"{snapshot.torrent_hash}: {error}"
 
 
 def _restore_one_downloader(plugin: Any, state: dict, downloader_id: str) -> dict:
@@ -1046,21 +1080,20 @@ def _clear_downloader_failure(state: dict, downloader_id: str) -> None:
     state.setdefault("failures", {}).pop(downloader_id, None)
 
 
-def _resolve_site_group(
+def _resolve_limited_site(
     labels: Iterable[str],
     site_rules: dict[str, dict],
     prefix: str,
-) -> tuple[str, str]:
-    """仅在恰好一个有效站点标签命中规则时返回该站点，否则进入默认组。"""
+) -> str:
+    """仅在恰好一个标签命中正数站点上限时返回站点名。"""
     site_names = [
         site_name for site_name in (
             _site_name_from_label(label, prefix) for label in labels
         ) if site_name
     ]
     if len(site_names) != 1 or site_names[0] not in site_rules:
-        return DEFAULT_SITE_KEY, PRIORITY_MEDIUM
-    site_name = site_names[0]
-    return site_name, normalize_priority(site_rules[site_name].get("priority"))
+        return ""
+    return site_names[0]
 
 
 def _site_name_from_label(label: Any, prefix: str) -> str:

@@ -10,7 +10,7 @@
 - 站点标签：根据 tracker 域名映射站点名并写入下载器标签。
 - 做种校验：转移或辅种后登记队列，后台线程轮询任务状态并按配置自动开始做种。
 - 速度监控：按下载器建立稳健速度基准，跟踪活跃下载会话并提供异常处置入口。
-- 上传限速：支持 qBittorrent 与 Transmission 下载器总上传上限；配置站点策略后再启用跨下载器站点共享硬上限、高/中/低 4/2/1 加权、按 Peer 需求分配、30 分钟新种宽限和停用恢复。
+- 上传限速：支持 qBittorrent 与 Transmission 下载器全局上传上限；用户可按需填写站点合计上限，正数站点跨下载器共享该额度，空值或 `0` 不写单种限速，并支持新种宽限和停用恢复。
 - 诊断与总览：为 Vue 详情页提供只读诊断、运行总览、重命名历史和归档记录。
 
 Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产物位于 `dist/assets/`。前端通过注入的 `api` prop 调用 `bear` 认证插件 API。
@@ -32,7 +32,8 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - qBittorrent 与 Transmission 均使用 fake client 做读写契约测试，不连接真实下载器。
 - Vue 配置页包含基础设置、站点策略和运行状态，并已构建到 `dist/assets/`。
 - 一级导航按运行链路将上传限速放在做种校验之后；运行状态中的“当前速率”表示实际上传流量，不是分配额度。
-- 无站点策略时只接管下载器总上限，不写单种限速；站点策略模式优先给实际上传任务分配额度。每个下载器的探测数按总额度约 15% 自动初始化，每个探测目标 8 KiB/s，并发上限按每 4 KiB/s 一个槽位计算且绝对不超过 32；候选按站点 4/2/1 权重轮换并保持两轮。连续两轮低于 80% 时增加一个，达到 90% 时减少一个，每批最多变化一个。没有弹性真实上传时，当前探测任务可共享剩余下载器额度，避免大量候选把额度稀释到 1 KiB/s。
+- 扫描站点只追加 `{limit_kib: 0}`，Vue 输入框默认显示为空；空值或 `0` 的站点、未知标签、无标签和多站点标签都不写单种限速，只受下载器全局上限约束。填写正数的站点进入受限池，多个受限站点等权并按实际上传需求共享下载器全局额度。
+- 运行状态严格区分实时上传速率、下载器全局上限、站点合计上限和插件写入的站点额度；`allocated_kib` 不是实际吞吐或 Peer 能力证明。停用时状态 API 会清零上一周期的速率、额度和任务摘要。
 - 当前周期只做本地 commit 与 MP 本地仓库默认关闭验收，不修改版本或发布元数据。
 
 ## 历史基线（2026-07-04）
@@ -45,7 +46,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - Adapter 层：`adapter/moviepilot.py` 集中访问 MoviePilot 下载器、站点、系统配置、HTTP、TorrentHelper、下载历史和外部链接能力。
 - 上传限速 Adapter：`adapter/upload_limit.py` 归一化 qBittorrent / Transmission 全局与单种上传设置，并负责读写和恢复。
 - Model 层：`model/state.py` 集中维护持久化 key、IYUU 动态 key helper 和 dict 数据读写 helper，保持旧 key 后向兼容。
-- 上传限速 Model：`model/upload_limit.py` 固定 schema、30 秒协调周期、默认组和 4/2/1 权重。
+- 上传限速 Model：`model/upload_limit.py` 固定 schema、30 秒协调周期、下载器和站点状态 DTO。
 - Utils 层：只保留无业务状态的解析、脱敏、路径、tracker、种子字段适配和配置默认值工厂等小工具。
 - `modules/`：保留为兼容 shim；AST 扫描显示 `modules/*.py` 顶层 class/function 定义数均为 0，不再承载业务决策。
 - 文档质量：public class/function/method 中文 docstring 缺口为 0；本轮新增或改动的 private helper 中文 docstring 缺口为 0。
@@ -103,11 +104,11 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 ### 上传限速协调 worker
 
 - `service/upload_limit_worker.py` 启用后立即执行一轮，此后每 30 秒协调一次；`DownloadAdded` 事件可提前唤醒。
-- `service/upload_limiter.py` 每轮先写下载器总上限；无站点策略时不接管单种限速，有站点策略时再扫描已完成任务、识别新种宽限、聚合站点池、按硬约束与 4/2/1 权重分配，并持久化最新状态。
+- `service/upload_limiter.py` 每轮先写下载器全局上限；没有正数站点上限时不接管单种限速，有正数站点上限时再扫描已完成任务、识别新种宽限、聚合站点池、按站点合计上限和实际需求分配，并持久化最新状态。
 - 首次启用和首次扫描的存量任务立即纳入管理，不进入宽限；后续新发现的已完成任务按 `max(completed_at, added_at)` 计算宽限。
 - 宽限期间不写站点/单种额度，但仍受下载器总上传上限。
-- 站点策略中的单种需求以 qBittorrent 下载者数量、Transmission Peer 状态和实际上传速率综合判断；没有 Peer 且没有上传的空闲任务分配为 0，不参与额度竞争。探测名额在每个下载器范围全局自适应选择，初值约占下载器总额度 15%，单个目标 8 KiB/s，并发上限按每 4 KiB/s 一个槽位计算且绝对不超过 32，并受候选数约束；站点优先级按 4/2/1 加权轮换并保持两轮。连续两轮低于 80% 时增加一个，接近总上限 90% 时减少一个，每次最多变化一个。真实任务需求有限或完全没有真实上传时，当前探测任务可在下载器总上限与站点硬上限内接走剩余额度，发现实际上传后优先保留主额度。
-- 站点规则只接受唯一有效的 `{tag_siteprefix}站点名` 标签（默认前缀为 `🏠`）；无标签、多个站点标签或未配置站点进入默认组。
+- 正数受限站点内部按实时上传和 Peer 信号估算各任务需求，并用轮换探测避免空闲任务长期占用额度；该探测只是单种额度分配的内部实现，不是用户可见的站点优先级，也不能作为真实吞吐能力的证明。
+- 站点规则只接受唯一有效的 `{tag_siteprefix}站点名` 标签（默认前缀为 `🏠`）；空值或 `0` 规则、无标签、多个站点标签和未配置站点均不进入受限池，只受下载器全局上限约束。
 - 站点硬上限跨所有受管下载器共享，下载器总上限分别独立生效。
 - qBittorrent 同步普通与备用上传上限；Transmission 写 Session 上传上限。
 - 运行中清空全部站点规则时，按 compare-and-set 恢复此前由插件写入的单种设置，同时继续保持下载器总上传上限。
@@ -163,7 +164,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - `modules/*.py`：兼容 shim，只重导出 service 实现；不得新增业务判断。
 - `utils/config.py`：配置默认值工厂、启用状态、安全整数、转移/IYUU 活跃判定。
 - `adapter/upload_limit.py`：qBittorrent / Transmission 全局与单种上传设置适配，不承载额度业务判断。
-- `model/upload_limit.py`：上传限速 DTO、schema、站点默认组与优先级权重。
+- `model/upload_limit.py`：上传限速 DTO、schema 和站点规则归一化。
 - `utils/torrent_adapter.py`：qBittorrent 和 Transmission 的 hash、标签、分类、保存路径和大小适配。
 - `utils/tag_cleanup.py`：临时标签归属判定和标签类型分类。
 - `utils/name_cleaner.py`：发布名清洗、污染名检测和补刀 hash 收集。
@@ -193,7 +194,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
   - 辅种 hash 到母种 hash 的反向映射。
 
 - `upload_limit_state`
-  - schema v1 的上传限速运行态，保存管理状态、下载器原始/最后写入设置、每下载器自动探测数/连续低利用轮数/上一批探测任务、单种原始/最后写入设置、宽限截止时间、失败计数和最近状态摘要。
+  - schema v1 的上传限速运行态，保存管理状态、下载器原始/最后写入设置、内部探测状态、单种原始/最后写入设置、宽限截止时间、失败计数和最近状态摘要；这些字段保持向后兼容，但不构成站点策略配置。
 
 插件配置中还持久化 IYUU 缓存字段：
 
@@ -283,9 +284,9 @@ IYUU：
 - `upload_limit_enabled`：默认 `false`。
 - `upload_limit_downloaders`：用户自定义选择的 qBittorrent / Transmission 实例；未选择的下载器不展示额度也不接管。
 - `upload_limit_downloader_limits_kib`：每个受管下载器的正整数总上限，单位 KiB/s。
-- `upload_limit_site_rules`：站点名到 `{priority, limit_kib}`；空字典表示仅启用下载器总上限、不接管单种限速；存在规则时优先级为 `high/medium/low`，`limit_kib=0` 表示无独立站点硬上限。
+- `upload_limit_site_rules`：站点名到 `{limit_kib}`；正数表示该站点所有任务共享的合计上限，空值或 `0` 表示该站点不写单种限速，只受下载器全局上限约束。
 - `upload_limit_grace_minutes`：站点策略模式的新种宽限，默认 30 分钟，0 表示完成后立即纳入单种分配。
-- 扫描站点、清空策略以及高/中/低和站点上限编辑会立即串行持久化 `upload_limit_site_rules`，不依赖插件配置页的整体保存；这些操作都不直接触发额度重分配，用户点击“立即分配”时会先等待扫描和策略保存完成再执行，后台 worker 仍按 30 秒周期读取最新策略。
+- 扫描站点、清空策略和站点上限编辑会立即串行持久化 `upload_limit_site_rules`，不依赖插件配置页的整体保存；扫描新增站点默认保存为 `0`，前端显示为空。上述操作不直接触发额度重分配，用户点击“立即分配”时会先等待扫描和策略保存完成再执行，后台 worker 仍按 30 秒周期读取最新策略。
 
 ## 验证命令
 
