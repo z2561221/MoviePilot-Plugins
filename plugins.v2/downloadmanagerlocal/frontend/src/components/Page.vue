@@ -53,6 +53,8 @@ const diagnosticsAttentionCount = computed(() => diagnosticsCards.value.length -
 const speedMonitor = computed(() => overview.value?.speed_monitor || {})
 const speedBaselines = computed(() => speedMonitor.value.baselines || [])
 const uploadLimit = computed(() => overview.value?.upload_limit || {})
+const uploadLimitDownloaderRows = computed(() => uploadLimit.value.downloaders || [])
+const uploadLimitSiteRows = computed(() => uploadLimit.value.sites || [])
 const speedMonitorStatus = computed(() => {
   const status = speedMonitor.value.service_status
   return {
@@ -213,6 +215,16 @@ function formatSpeed(value) {
   if (!speed) return '未建立'
   if (speed >= 1024 * 1024) return `${(speed / 1024 / 1024).toFixed(2)} MiB/s`
   return `${(speed / 1024).toFixed(1)} KiB/s`
+}
+
+function formatUploadRate(value) {
+  const rate = Number(value || 0)
+  if (rate >= 1024 * 1024) return `${(rate / 1024 / 1024).toFixed(2)} MiB/s`
+  return `${(rate / 1024).toFixed(1)} KiB/s`
+}
+
+function priorityLabel(value) {
+  return { high: '高', medium: '中', low: '低' }[value] || '中'
 }
 
 function dispositionLabel(action) {
@@ -439,6 +451,113 @@ onBeforeUnmount(() => {
               <div v-else class="text-caption text-medium-emphasis">暂无告警处置记录</div>
             </div>
           </div>
+
+          <section class="dm-runtime-section mt-4" data-runtime-section="speed-monitor">
+            <div class="dm-runtime-heading">
+              <div>
+                <div class="dm-runtime-title">速度监控运行状态</div>
+                <div class="text-caption text-medium-emphasis">按下载器基准观测活跃任务，并汇总最近一次告警处置。</div>
+              </div>
+              <VChip size="small" :color="speedMonitorStatus.color" variant="tonal">{{ speedMonitorStatus.label }}</VChip>
+            </div>
+
+            <div class="dm-monitor-summary mt-3">
+              <div class="dm-monitor-metric"><span>服务</span><strong>{{ speedMonitorStatus.label }}</strong></div>
+              <div class="dm-monitor-metric"><span>选中下载器</span><strong>{{ speedMonitor.selected_downloaders?.length || 0 }}</strong></div>
+              <div class="dm-monitor-metric"><span>活跃会话</span><strong>{{ speedMonitor.active_sessions || 0 }}</strong></div>
+              <div class="dm-monitor-metric"><span>待处理告警</span><strong>{{ speedMonitor.pending_alerts || 0 }}</strong></div>
+            </div>
+            <VAlert v-if="speedMonitor.state_error" type="error" variant="tonal" density="compact" class="mt-3">{{ speedMonitor.state_error }}</VAlert>
+
+            <div class="dm-runtime-subtitle mt-4">下载器基准</div>
+            <div v-if="speedBaselines.length" class="dm-monitor-baselines">
+              <div v-for="item in speedBaselines" :key="item.downloader_id" class="dm-monitor-baseline">
+                <div class="dm-monitor-baseline-head">
+                  <div class="min-w-0">
+                    <strong class="text-body-2">{{ item.downloader_id }}</strong>
+                    <div class="text-caption text-medium-emphasis">{{ item.status === 'trusted' ? '可信基准' : '校准中' }} · {{ item.sample_count }}/{{ item.min_samples }} 样本</div>
+                  </div>
+                  <VChip size="x-small" :color="item.status === 'trusted' ? 'success' : 'warning'" variant="tonal">{{ item.status === 'trusted' ? '可信' : '校准中' }}</VChip>
+                </div>
+                <div class="dm-baseline-values">
+                  <span>当前参考 <strong>{{ formatSpeed(item.reference_speed_bps) }}</strong></span>
+                  <span>可信 <strong>{{ formatSpeed(item.trusted_speed_bps) }}</strong></span>
+                  <span>临时 <strong>{{ formatSpeed(item.provisional_speed_bps) }}</strong></span>
+                </div>
+                <div v-if="item.relative_only" class="dm-relative-note">相对基准：未配置绝对保护下限</div>
+              </div>
+            </div>
+            <div v-else class="dm-monitor-empty">尚无下载器基准数据</div>
+
+            <div class="dm-runtime-subtitle mt-4">最近处置</div>
+            <div v-if="speedMonitor.last_disposition" class="dm-disposition">
+              <strong>{{ dispositionLabel(speedMonitor.last_disposition.action) }}</strong>
+              <span>{{ speedMonitor.last_disposition.downloader_id }} · {{ speedMonitor.last_disposition.name || speedMonitor.last_disposition.torrent_hash }}</span>
+              <span v-if="speedMonitor.last_disposition.error" class="text-error dm-break-text">{{ speedMonitor.last_disposition.error }}</span>
+            </div>
+            <div v-else class="dm-monitor-empty">暂无告警处置记录</div>
+          </section>
+
+          <section class="dm-runtime-section mt-4" data-runtime-section="upload-limit">
+            <div class="dm-runtime-heading">
+              <div>
+                <div class="dm-runtime-title">上传限速运行状态</div>
+                <div class="text-caption text-medium-emphasis">MP 或插件离线时，下载器继续保留最后一次已写入的限速。</div>
+              </div>
+              <VChip size="small" :color="uploadLimitStatus.color" variant="tonal">{{ uploadLimitStatus.label }}</VChip>
+            </div>
+
+            <VAlert v-for="runtimeError in uploadLimit.errors || []" :key="runtimeError" type="warning" variant="tonal" density="compact" class="mt-3">
+              {{ runtimeError }}
+            </VAlert>
+            <div class="dm-upload-summary mt-3">
+              <div class="dm-monitor-metric"><span>服务</span><strong>{{ uploadLimitStatus.label }}</strong></div>
+              <div class="dm-monitor-metric"><span>当前速率</span><strong>{{ formatUploadRate(uploadLimit.upload_rate_bps) }}</strong></div>
+              <div class="dm-monitor-metric"><span>受管种子</span><strong>{{ uploadLimit.managed_torrents || 0 }}</strong></div>
+              <div class="dm-monitor-metric"><span>宽限种子</span><strong>{{ uploadLimit.grace_torrents || 0 }}</strong></div>
+              <div class="dm-monitor-metric"><span>上传中</span><strong>{{ uploadLimit.uploading_torrents || 0 }}</strong></div>
+              <div class="dm-monitor-metric"><span>探测中</span><strong>{{ uploadLimit.probing_torrents || 0 }}</strong></div>
+              <div class="dm-monitor-metric"><span>已保护</span><strong>{{ uploadLimit.protected_torrents || 0 }}</strong></div>
+            </div>
+            <div class="text-caption text-medium-emphasis mt-2">当前速率为实际上传流量，不代表分配额度；qBittorrent 的逻辑零额度会显示为 1 B/s，以避免 0 代表不限速。</div>
+
+            <div class="dm-runtime-subtitle mt-4">下载器分配</div>
+            <div v-if="uploadLimitDownloaderRows.length" class="dm-upload-status-grid">
+              <div v-for="item in uploadLimitDownloaderRows" :key="item.id" class="dm-upload-status-card">
+                <div class="dm-upload-status-head">
+                  <div class="min-w-0">
+                    <strong class="text-body-2">{{ item.id }}</strong>
+                    <div class="text-caption text-medium-emphasis">{{ item.type === 'transmission' ? 'Transmission' : 'qBittorrent' }}</div>
+                  </div>
+                  <VChip size="x-small" :color="item.error ? 'warning' : 'success'" variant="tonal">{{ item.error ? '异常' : '正常' }}</VChip>
+                </div>
+                <div class="dm-upload-values">
+                  <span>实时 <strong>{{ formatUploadRate(item.upload_rate_bps) }}</strong></span>
+                  <span>总上限 <strong>{{ item.total_limit_kib }} KiB/s</strong></span>
+                  <span>已分配 <strong>{{ item.allocated_kib }} KiB/s</strong></span>
+                  <span>自动探测：当前 <strong>{{ item.auto_probe_count || 0 }}</strong> 个</span>
+                  <span>种子 <strong>{{ item.managed_torrents }} + {{ item.grace_torrents }}</strong></span>
+                </div>
+                <div v-if="item.error" class="text-caption text-warning mt-2 dm-break-text">{{ item.error }}</div>
+              </div>
+            </div>
+            <div v-else class="dm-monitor-empty">当前没有启用的限速下载器</div>
+
+            <div class="dm-runtime-subtitle mt-4">站点分配</div>
+            <div v-if="uploadLimitSiteRows.length" class="dm-upload-site-status">
+              <div v-for="item in uploadLimitSiteRows" :key="item.key" class="dm-upload-site-status-row">
+                <div class="min-w-0">
+                  <strong class="text-body-2">{{ item.name }}</strong>
+                  <div class="text-caption text-medium-emphasis">{{ item.torrent_count }} 个任务 · {{ item.downloaders?.join('、') }}</div>
+                </div>
+                <VChip size="x-small" color="primary" variant="tonal">{{ priorityLabel(item.priority) }}</VChip>
+                <span class="text-caption">实时 <strong>{{ formatUploadRate(item.upload_rate_bps) }}</strong></span>
+                <span class="text-caption">分配 <strong>{{ item.allocated_kib }} KiB/s</strong></span>
+                <span class="text-caption">硬上限 <strong>{{ item.hard_limit_kib ? `${item.hard_limit_kib} KiB/s` : '无' }}</strong></span>
+              </div>
+            </div>
+            <div v-else class="dm-monitor-empty">尚无常规做种池分配数据</div>
+          </section>
         </section>
 
         <section v-else-if="activeTab === 'history'" class="dm-pane">
@@ -704,6 +823,37 @@ onBeforeUnmount(() => {
 .dm-baseline-line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dm-baseline-line strong { flex: 0 0 auto; }
 .dm-break-text { overflow-wrap: anywhere; }
+.dm-runtime-section {
+  padding-top: 16px;
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+.dm-runtime-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dm-runtime-title { color: rgb(var(--v-theme-primary)); font-size: 15px; font-weight: 700; }
+.dm-runtime-subtitle { margin-bottom: 8px; color: rgba(var(--v-theme-on-surface), 0.78); font-size: 13px; font-weight: 700; }
+.dm-monitor-summary, .dm-upload-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dm-upload-summary { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.dm-monitor-metric { min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-monitor-metric span { display: block; color: rgba(var(--v-theme-on-surface), 0.62); font-size: 12px; }
+.dm-monitor-metric strong { display: block; margin-top: 3px; overflow-wrap: anywhere; font-size: 15px; }
+.dm-monitor-baselines, .dm-upload-site-status { display: grid; gap: 10px; }
+.dm-monitor-baselines { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dm-monitor-baseline, .dm-upload-status-card { min-width: 0; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-monitor-baseline-head, .dm-upload-status-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+.dm-baseline-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 10px; margin-top: 10px; font-size: 12px; }
+.dm-baseline-values span { min-width: 0; overflow-wrap: anywhere; }
+.dm-relative-note { margin-top: 8px; color: rgb(var(--v-theme-warning)); font-size: 12px; }
+.dm-disposition { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; font-size: 12px; }
+.dm-monitor-empty { display: flex; min-height: 64px; align-items: center; justify-content: center; border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; color: rgba(var(--v-theme-on-surface), 0.6); font-size: 13px; }
+.dm-upload-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dm-upload-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 12px; margin-top: 10px; font-size: 12px; }
+.dm-upload-values span { min-width: 0; overflow-wrap: anywhere; }
+.dm-upload-site-status-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(102px, auto) minmax(112px, auto) minmax(124px, auto); gap: 10px; align-items: center; min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-site-status-row > span { min-width: 0; overflow-wrap: anywhere; }
 .dm-record-card {
   min-width: 0;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
@@ -904,6 +1054,7 @@ onBeforeUnmount(() => {
 }
 @media (max-width: 1100px) {
   .dm-overview-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dm-upload-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .dm-diagnostics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
@@ -947,6 +1098,11 @@ onBeforeUnmount(() => {
     max-width: 128px;
   }
   .dm-overview-stat-grid, .dm-overview-grid { grid-template-columns: 1fr; }
+  .dm-runtime-heading { align-items: stretch; flex-direction: column; }
+  .dm-runtime-heading :deep(.v-chip) { align-self: flex-start; }
+  .dm-monitor-summary, .dm-upload-summary, .dm-monitor-baselines, .dm-upload-status-grid, .dm-upload-site-status-row { grid-template-columns: 1fr; }
+  .dm-baseline-values, .dm-upload-values { grid-template-columns: 1fr; }
+  .dm-upload-site-status-row :deep(.v-chip) { justify-self: start; }
   .dm-stat-grid { grid-template-columns: 1fr; }
   .dm-diagnostics-head {
     align-items: flex-start;

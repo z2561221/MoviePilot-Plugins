@@ -221,6 +221,30 @@ def test_runtime_overview_details_move_to_page_while_config_keeps_flow_only():
     assert "onBeforeUnmount" in page_source
 
 
+def test_upload_runtime_status_is_complete_on_page_and_retained_in_config():
+    """详情页应展示完整上传限速状态，配置页原运行状态入口继续保留。"""
+    config_source = _source()
+    page_source = PAGE.read_text(encoding="utf-8")
+
+    assert "{ key: 'upload_status', title: '运行状态', icon: 'mdi-pulse' }" in config_source
+    assert 'v-show="activeSub === \'upload_status\'"' in config_source
+    assert 'data-runtime-section="upload-limit"' in page_source
+    for field in [
+        "upload_rate_bps",
+        "managed_torrents",
+        "grace_torrents",
+        "uploading_torrents",
+        "probing_torrents",
+        "protected_torrents",
+        "auto_probe_count",
+        "allocated_kib",
+        "hard_limit_kib",
+    ]:
+        assert field in page_source
+    for title in ["上传限速运行状态", "下载器分配", "站点分配"]:
+        assert title in page_source
+
+
 def test_upload_limit_routes_are_bearer_protected():
     """上传限速 Vue API 必须保持 bear 认证和预期方法。"""
     source = ROUTES.read_text(encoding="utf-8")
