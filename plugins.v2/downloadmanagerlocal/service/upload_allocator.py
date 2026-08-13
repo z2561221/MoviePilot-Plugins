@@ -11,6 +11,7 @@ from ..model.upload_limit import UploadPool
 
 _EPSILON = 1e-9
 _PROBE_TARGET_KIB = 8
+_PROBE_CONCURRENCY_SLOT_KIB = 4
 _PROBE_HOLD_CYCLES = 2
 _PROBE_INITIAL_PERCENT = 15
 _PROBE_LOW_UTILIZATION_PERCENT = 80
@@ -40,7 +41,6 @@ def adjust_auto_probe_count(
     total_limit_kib: int,
     candidate_count: int,
     upload_rate_bps: int,
-    previous_probes_had_upload: bool,
     low_utilization_cycles: int,
     batch_boundary: bool,
     reduction_pending: bool = False,
@@ -64,12 +64,12 @@ def adjust_auto_probe_count(
     )
     low_cycles = (
         max(0, int(low_utilization_cycles or 0)) + 1
-        if low_utilization and not previous_probes_had_upload
+        if low_utilization
         else 0
     )
     if not batch_boundary:
         return current, low_cycles
-    if previous_probes_had_upload or near_cap or reduction_pending:
+    if near_cap or reduction_pending:
         return max(1, current - 1), 0
     if low_cycles >= _PROBE_HOLD_CYCLES and current < maximum:
         return current + 1, 0
@@ -439,7 +439,7 @@ def _max_auto_probe_count(total_limit_kib: int, candidate_count: int) -> int:
     candidates = max(0, int(candidate_count or 0))
     if candidates <= 0:
         return 0
-    budget_slots = max(1, total // _PROBE_TARGET_KIB)
+    budget_slots = max(1, total // _PROBE_CONCURRENCY_SLOT_KIB)
     return min(_MAX_AUTO_PROBES_PER_DOWNLOADER, candidates, budget_slots)
 
 

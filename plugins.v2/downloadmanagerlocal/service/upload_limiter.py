@@ -579,14 +579,6 @@ def _build_pools(
             low_cycles = 0
             reduction_pending = False
         else:
-            previous_keys = {
-                str(key) for key in (entry.get("last_probe_keys") or [])
-            }
-            previous_had_upload = any(
-                key in regular_tasks
-                and int(regular_tasks[key].upload_rate_bps or 0) > 0
-                for key in previous_keys
-            )
             total_limit_kib = int(downloader_caps_kib.get(downloader_id, 0) or 0)
             current_rate_bps = int(upload_rates_bps.get(downloader_id, 0) or 0)
             near_cap = (
@@ -595,7 +587,6 @@ def _build_pools(
             )
             reduction_pending = bool(
                 entry.get("probe_reduction_pending")
-                or previous_had_upload
                 or near_cap
             )
             current, low_cycles = adjust_auto_probe_count(
@@ -603,7 +594,6 @@ def _build_pools(
                 total_limit_kib=total_limit_kib,
                 candidate_count=candidates,
                 upload_rate_bps=current_rate_bps,
-                previous_probes_had_upload=previous_had_upload,
                 low_utilization_cycles=int(
                     entry.get("probe_low_utilization_cycles") or 0
                 ),

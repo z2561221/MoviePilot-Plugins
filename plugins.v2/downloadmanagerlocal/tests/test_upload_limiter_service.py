@@ -404,7 +404,7 @@ def test_probe_slots_are_global_per_downloader_across_sites():
 
 
 def test_auto_probe_count_grows_after_two_low_utilization_cycles_and_persists():
-    """连续两轮低利用且上一批无流量后，自动探测数应加一并持久化。"""
+    """连续两轮低利用后，自动探测数应加一并持久化。"""
     limiter = _load("service.upload_limiter")
     torrents = [
         qb_torrent("high-a", "High", peers=1),
@@ -445,14 +445,15 @@ def test_auto_probe_count_grows_after_two_low_utilization_cycles_and_persists():
     assert after_reload["probing_torrents"] == 3
 
 
-def test_auto_probe_count_shrinks_when_previous_probe_uploads():
-    """上一批探测产生实际上传时，下一批边界只减少一个探测槽。"""
+def test_auto_probe_count_grows_when_previous_probe_uploads_below_capacity():
+    """上一批探测命中但总利用率仍低时，应继续增加探测并发。"""
     limiter = _load("service.upload_limiter")
     torrents = [
         qb_torrent("probe-a", "A", peers=1),
         qb_torrent("probe-b", "A", peers=1),
         qb_torrent("probe-c", "A", peers=1),
         qb_torrent("probe-d", "A", peers=1),
+        qb_torrent("probe-e", "A", peers=1),
     ]
     instance = FakeQbInstance(torrents)
     plugin = FakePlugin(
@@ -470,6 +471,7 @@ def test_auto_probe_count_shrinks_when_previous_probe_uploads():
                         "downloader_type": "qbittorrent",
                         "initial_scan_complete": True,
                         "auto_probe_count": 3,
+                        "probe_low_utilization_cycles": 1,
                         "last_probe_keys": [
                             "QB2:probe-a", "QB2:probe-b", "QB2:probe-c"
                         ],
@@ -486,8 +488,8 @@ def test_auto_probe_count_shrinks_when_previous_probe_uploads():
 
     result = limiter.run_upload_limit_cycle(plugin, now=1060)
 
-    assert result["downloaders"][0]["auto_probe_count"] == 2
-    assert result["probing_torrents"] == 2
+    assert result["downloaders"][0]["auto_probe_count"] == 4
+    assert result["probing_torrents"] == 4
 
 
 def test_auto_probe_counts_are_independent_per_downloader():

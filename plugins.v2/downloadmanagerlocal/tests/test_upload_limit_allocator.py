@@ -112,7 +112,7 @@ def test_initial_auto_probe_count_reserves_fifteen_percent_of_cap():
 
 
 def test_auto_probe_count_changes_one_slot_only_at_batch_boundary():
-    """探测数只在两轮批次边界变化，每次最多增减一个。"""
+    """探测数只在两轮批次边界变化，低利用命中时保留并发槽。"""
     allocator = _load("service.upload_allocator")
 
     assert allocator.adjust_auto_probe_count(
@@ -120,7 +120,6 @@ def test_auto_probe_count_changes_one_slot_only_at_batch_boundary():
         total_limit_kib=122,
         candidate_count=20,
         upload_rate_bps=40 * 1024,
-        previous_probes_had_upload=False,
         low_utilization_cycles=0,
         batch_boundary=False,
     ) == (2, 1)
@@ -129,7 +128,6 @@ def test_auto_probe_count_changes_one_slot_only_at_batch_boundary():
         total_limit_kib=122,
         candidate_count=20,
         upload_rate_bps=40 * 1024,
-        previous_probes_had_upload=False,
         low_utilization_cycles=1,
         batch_boundary=True,
     ) == (3, 0)
@@ -138,19 +136,26 @@ def test_auto_probe_count_changes_one_slot_only_at_batch_boundary():
         total_limit_kib=122,
         candidate_count=20,
         upload_rate_bps=40 * 1024,
-        previous_probes_had_upload=True,
         low_utilization_cycles=0,
         batch_boundary=True,
-    ) == (2, 0)
+    ) == (3, 1)
     assert allocator.adjust_auto_probe_count(
         3,
         total_limit_kib=122,
         candidate_count=20,
         upload_rate_bps=110 * 1024,
-        previous_probes_had_upload=False,
         low_utilization_cycles=0,
         batch_boundary=True,
     ) == (2, 0)
+
+
+def test_auto_probe_max_uses_four_kib_concurrency_slots():
+    """低利用率并发上限应按每 4 KiB/s 一个槽位计算并保留绝对上限。"""
+    allocator = _load("service.upload_allocator")
+
+    assert allocator._max_auto_probe_count(122, 100) == 30
+    assert allocator._max_auto_probe_count(32, 100) == 8
+    assert allocator._max_auto_probe_count(10_000, 100) == 32
 
 
 def test_task_allocation_uses_globally_selected_probes_without_second_limit():
