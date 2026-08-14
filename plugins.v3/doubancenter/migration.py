@@ -5,7 +5,7 @@ from importlib import import_module
 from typing import Any, Iterable, Optional
 
 try:
-    from app.log import logger
+    from app.sdk.logging import logger
 except Exception:
     logger = None
 

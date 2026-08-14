@@ -6,8 +6,8 @@ import threading
 from typing import Dict, Optional
 
 from app.chain.media import MediaChain
-from app.core.metainfo import MetaInfo
-from app.log import logger
+from app.sdk.logging import logger
+from app.sdk.media import MetaInfo
 from app.schemas.types import MediaType, NotificationType
 
 from . import utils

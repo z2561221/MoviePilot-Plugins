@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Tuple
 
+from app.domain.media import normalize_media_source, resolve_media_identity
 from app.schemas.types import MediaSource
-from app.utils.media import normalize_media_source, resolve_media_identity
 
 
 LEGACY_ID_FIELDS = {

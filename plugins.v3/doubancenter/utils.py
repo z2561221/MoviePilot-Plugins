@@ -8,9 +8,9 @@ from urllib.parse import urlparse
 
 import pytz
 
-from app.core.config import settings
-from app.core.metainfo import MetaInfo
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.logging import logger
+from app.sdk.media import MetaInfo
 from app.schemas.types import MediaType
 
 

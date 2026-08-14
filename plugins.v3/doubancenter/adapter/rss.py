@@ -7,10 +7,10 @@ import xml.dom.minidom
 from typing import Any, List
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
-from app.core.config import settings
-from app.log import logger
-from app.utils.dom import DomUtils
-from app.utils.http import RequestUtils
+from app.sdk.config import settings
+from app.sdk.logging import logger
+from app.sdk.network import RequestUtils
+from app.sdk.utilities import DomUtils
 
 from .. import utils
 

@@ -5,8 +5,8 @@ DoubanCenter v3.0.0 - MoviePilot V3 本地插件
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.core.event import eventmanager, Event
 from app.plugins import _PluginBase
+from app.sdk.events import Event, eventmanager
 from app.schemas.types import EventType
 
 from . import dashboard as dash, feed, folio, migration

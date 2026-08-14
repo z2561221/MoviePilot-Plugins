@@ -14,7 +14,7 @@ def _default_media_chain_cls():
 
 def _default_meta_cls():
     """按调用时环境读取 MoviePilot 媒体元信息类。"""
-    from app.core.metainfo import MetaInfo
+    from app.sdk.media import MetaInfo
 
     return MetaInfo
 

@@ -4,7 +4,7 @@ import datetime
 from typing import Any, Dict, List
 
 from app.chain.subscribe import SubscribeChain
-from app.log import logger
+from app.sdk.logging import logger
 from app.schemas.types import MediaType
 
 from ..model.identity import identity_from_media, identity_payload, legacy_identity

@@ -1,5 +1,6 @@
-"""插件仓 V3 代际同步与发布映射测试。"""
+"""插件仓 V3 代际同步、导入与发布映射测试。"""
 
+import ast
 import json
 import sys
 from pathlib import Path
@@ -10,6 +11,53 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.sync_to_mp_local import sync_to_target  # noqa: E402
+
+
+V3_PLUGIN_ROOT = REPO_ROOT / "plugins.v3" / "doubancenter"
+LEGACY_IMPORT_ROOTS = ("app.core", "app.helper", "app.utils", "app.log")
+
+
+def _is_legacy_import(module_name: str) -> bool:
+    """判断模块名是否指向 MoviePilot V3 兼容导入层。"""
+    return any(
+        module_name == root or module_name.startswith(f"{root}.")
+        for root in LEGACY_IMPORT_ROOTS
+    )
+
+
+def test_v3_plugin_does_not_use_legacy_import_paths():
+    """V3 源码只能使用正式 SDK、领域或集成路径。"""
+    violations = []
+    for path in sorted(V3_PLUGIN_ROOT.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules = []
+            if isinstance(node, ast.Import):
+                modules.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                modules.append(node.module)
+            elif isinstance(node, ast.Call) and node.args:
+                function_name = ""
+                if isinstance(node.func, ast.Name):
+                    function_name = node.func.id
+                elif (
+                    isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                ):
+                    function_name = f"{node.func.value.id}.{node.func.attr}"
+                argument = node.args[0]
+                if (
+                    function_name in {"__import__", "importlib.import_module"}
+                    and isinstance(argument, ast.Constant)
+                    and isinstance(argument.value, str)
+                ):
+                    modules.append(argument.value)
+            for module_name in modules:
+                if _is_legacy_import(module_name):
+                    violations.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno} {module_name}")
+    assert violations == []
 
 
 def test_sync_to_target_writes_only_v3_layout(tmp_path):

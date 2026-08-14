@@ -7,12 +7,12 @@ import time
 from typing import Any, Dict, List, Optional
 
 from app.chain.subscribe import SubscribeChain
-from app.core.config import settings
-from app.core.metainfo import MetaInfo
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.logging import logger
+from app.sdk.media import MetaInfo
+from app.sdk.network import RequestUtils
+from app.sdk.utilities import DomUtils
 from app.schemas.types import MediaType
-from app.utils.dom import DomUtils
-from app.utils.http import RequestUtils
 
 from . import utils
 from .adapter import bangumi as bangumi_adapter

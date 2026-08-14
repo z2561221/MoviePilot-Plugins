@@ -3,9 +3,9 @@
 import re
 from typing import Any, Optional
 
-from app.core.config import settings
-from app.log import logger
-from app.utils.http import RequestUtils
+from app.sdk.config import settings
+from app.sdk.logging import logger
+from app.sdk.network import RequestUtils
 
 
 def fetch_subject(plugin, bangumiid: Any, request_utils_cls=None, settings_obj=None) -> Optional[dict]:

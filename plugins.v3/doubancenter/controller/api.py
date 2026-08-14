@@ -7,8 +7,8 @@ from typing import Any, Callable, Dict, List
 from fastapi import HTTPException
 
 from app import schemas
-from app.log import logger
-from app.utils.media import resolve_media_identity
+from app.domain.media import resolve_media_identity
+from app.sdk.logging import logger
 
 from .. import dashboard as dash
 from .. import feed

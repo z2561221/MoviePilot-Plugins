@@ -12,11 +12,11 @@ from xml.etree import ElementTree
 import requests
 from bs4 import BeautifulSoup
 from http.cookies import SimpleCookie
-from app.core.config import settings
-from app.core.meta import MetaBase
-from app.helper.cookiecloud import CookieCloudHelper
-from app.log import logger
-from app.utils.http import RequestUtils
+from app.integrations.cookiecloud import CookieCloudHelper
+from app.sdk.config import settings
+from app.sdk.logging import logger
+from app.sdk.media import MetaBase
+from app.sdk.network import RequestUtils
 
 
 class DoubanCookieError(RuntimeError):

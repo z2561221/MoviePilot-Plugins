@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from apscheduler.triggers.cron import CronTrigger
 
-from app.log import logger
+from app.sdk.logging import logger
 
 
 def get_services(plugin, run_all: Callable[[], None], run_wish: Optional[Callable[[], None]] = None) -> List[Dict[str, Any]]:

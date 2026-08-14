@@ -4,7 +4,7 @@ DoubanCenter - 仪表盘模块
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.chain.media import MediaChain
-from app.core.metainfo import MetaInfo
+from app.sdk.media import MetaInfo
 from app.schemas.types import MediaType
 
 from .service import archive as archive_service

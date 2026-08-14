@@ -3,7 +3,7 @@
 import datetime
 from typing import Callable, List, Optional, Set
 
-from app.log import logger
+from app.sdk.logging import logger
 
 from . import archive as archive_service
 from ..model import rank as rank_model
@@ -153,7 +153,7 @@ def observed_item_subscription_exists(
         if media_type_enum is None:
             from app.schemas.types import MediaType as media_type_enum
         if meta_factory is None:
-            from app.core.metainfo import MetaInfo as meta_factory
+            from app.sdk.media import MetaInfo as meta_factory
         if media_chain_factory is None:
             from app.chain.media import MediaChain
             media_chain_factory = MediaChain
