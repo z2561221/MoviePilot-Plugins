@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app.core.config import settings
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.logging import logger
 from ..iyuu_helper import IyuuHelper
 from .config import initialize_runtime_config
 from .speed_monitor import ensure_speed_monitor_runtime, stop_speed_monitor_runtime

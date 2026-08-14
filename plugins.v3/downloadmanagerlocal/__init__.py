@@ -6,12 +6,12 @@ from threading import Event as ThreadEvent
 import threading
 from typing import Any, List, Dict, Tuple, Optional
 
-from app.core.event import eventmanager, Event
-from app.core.meta.metabase import MetaBase
-from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import ServiceInfo
 from app.schemas.types import EventType
+from app.sdk.events import eventmanager, Event
+from app.sdk.logging import logger
+from app.sdk.media import MetaBase
 
 from .adapter.moviepilot import get_downloader_service
 from .model.state import SEED_RECHECK_QUEUE_KEY

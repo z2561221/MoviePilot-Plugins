@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any
 
-from app.log import logger
+from app.sdk.logging import logger
 
 from ..adapter.moviepilot import get_downloader_service
 from ..model.state import SEED_RECHECK_QUEUE_KEY

@@ -3,7 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from app.log import logger
+from app.sdk.logging import logger
 
 from ..model.state import RENAME_RECORDS_KEY
 from ..utils.name_cleaner import is_dirty_renamed_torrent_name

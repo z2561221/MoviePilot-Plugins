@@ -2,7 +2,7 @@
 
 from typing import Dict, Iterable, List, Optional
 
-from app.log import logger
+from app.sdk.logging import logger
 
 from ..adapter.moviepilot import generate_random_tag, get_site_indexer, get_url_domain, list_site_dicts
 from ..utils.tag_cleanup import (

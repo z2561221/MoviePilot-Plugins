@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 from app import schemas
-from app.log import logger
+from app.sdk.logging import logger
 
 from ..adapter.moviepilot import get_downloader_config, list_builtin_sites
 from ..model.api import (

@@ -9,8 +9,8 @@ from urllib.parse import urljoin
 from bencode import bdecode
 from lxml import etree
 
-from app.core.config import settings
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.logging import logger
 from app.schemas import NotificationType, ServiceInfo
 
 from ..adapter.moviepilot import (

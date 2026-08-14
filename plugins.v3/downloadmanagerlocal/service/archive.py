@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.log import logger
+from app.sdk.logging import logger
 
 from ..model.state import RENAME_RETRY_STATE_KEY
 

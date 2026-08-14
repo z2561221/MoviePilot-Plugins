@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app.core.config import settings
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.logging import logger
 
 from .speed_monitor import handle_download_added_event as create_speed_monitor_session
 from .speed_worker import start_speed_monitor_worker

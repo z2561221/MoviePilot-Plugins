@@ -1,6 +1,6 @@
 """下载中心配置初始化服务。"""
 
-from app.log import logger
+from app.sdk.logging import logger
 
 from ..adapter.moviepilot import create_downloader_helper, list_builtin_sites
 from ..model.state import (

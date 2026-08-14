@@ -234,3 +234,17 @@ def test_v3_source_removes_legacy_host_contracts() -> None:
     assert "SystemConfigKey.UserSite" not in sources
     assert "tmdbid=" not in sources
     assert "app.plugins.downloadmanagerlocal" not in sources
+    for legacy_module in (
+        "app.core.event",
+        "app.core.meta.metabase",
+        "app.core.metainfo",
+        "app.core.config",
+        "app.helper.downloader",
+        "app.helper.sites",
+        "app.helper.torrent",
+        "app.log",
+        "app.utils.http",
+        "app.utils.media",
+        "app.utils.string",
+    ):
+        assert f"from {legacy_module}" not in sources

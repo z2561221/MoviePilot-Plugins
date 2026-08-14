@@ -7,13 +7,21 @@ from typing import Any
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.site_oper import SiteOper
 from app.db.systemconfig_oper import SystemConfigOper
-from app.helper.downloader import DownloaderHelper
-from app.helper.sites import SitesHelper
-from app.helper.torrent import TorrentHelper
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
-from app.utils.http import RequestUtils
-from app.utils.string import StringUtils
+from app.sdk.network import RequestUtils
+from app.sdk.services import DownloaderHelper
+from app.sdk.utilities import StringUtils
+
+try:
+    from app.sdk.network import SitesHelper
+except ImportError:
+    from app.infrastructure.sites import SitesHelper
+
+try:
+    from app.application.torrent import TorrentHelper
+except ImportError:
+    from app.services.torrent import TorrentHelper
 
 
 DownloaderInstance = Qbittorrent | Transmission

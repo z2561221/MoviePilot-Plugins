@@ -24,9 +24,16 @@ def _prepare_imports() -> None:
     sys.modules["downloadmanagerlocal"] = package
 
     app = types.ModuleType("app")
-    app_log = types.ModuleType("app.log")
-    app_log.logger = types.SimpleNamespace(error=lambda *_args, **_kwargs: None)
-    sys.modules.update({"app": app, "app.log": app_log})
+    app_sdk = types.ModuleType("app.sdk")
+    app_sdk_logging = types.ModuleType("app.sdk.logging")
+    app_sdk_logging.logger = types.SimpleNamespace(error=lambda *_args, **_kwargs: None)
+    sys.modules.update(
+        {
+            "app": app,
+            "app.sdk": app_sdk,
+            "app.sdk.logging": app_sdk_logging,
+        }
+    )
 
     adapter = types.ModuleType("downloadmanagerlocal.adapter.moviepilot")
     adapter.get_downloader_config = lambda *_args, **_kwargs: None

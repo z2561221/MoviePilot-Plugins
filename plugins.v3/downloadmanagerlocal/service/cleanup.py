@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Iterable, List, Optional
 
-from app.log import logger
+from app.sdk.logging import logger
 
 from ..adapter.moviepilot import get_download_hash_by_fullpath
 from ..model.state import iyuu_history_key

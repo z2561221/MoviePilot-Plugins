@@ -10,9 +10,9 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from bencode import bdecode, bencode
 
-from app.core.config import settings
-from app.core.event import eventmanager, Event
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.events import eventmanager, Event
+from app.sdk.logging import logger
 from app.schemas import NotificationType, ServiceInfo
 from app.schemas.types import EventType
 

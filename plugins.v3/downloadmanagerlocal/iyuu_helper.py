@@ -3,7 +3,7 @@ import json
 import time
 from typing import Tuple, Optional
 
-from app.log import logger
+from app.sdk.logging import logger
 
 from .adapter.moviepilot import request_get_res, request_post_res
 
