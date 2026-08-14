@@ -75,6 +75,14 @@ def test_localtoolkit_v3_api_and_federation_contracts_are_present() -> None:
     assert (V3_DIR / "dist" / "assets" / "remoteEntry.js").is_file()
 
 
+def test_localtoolkit_v3_uses_public_media_server_sdk() -> None:
+    """确认 V3 媒体服务器适配器使用公开 SDK。"""
+    adapter = (V3_DIR / "adapter" / "media_server.py").read_text(encoding="utf-8")
+
+    assert "from app.sdk.services import MediaServerHelper" in adapter
+    assert "app.helper.mediaserver" not in adapter
+
+
 def test_localtoolkit_v3_public_docstrings_are_complete() -> None:
     """确认 V3 公有类、函数和方法都具备中文文档字符串。"""
     assert _public_docstring_gaps() == []
