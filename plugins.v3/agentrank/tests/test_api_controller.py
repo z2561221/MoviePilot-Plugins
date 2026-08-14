@@ -54,9 +54,14 @@ fastapi_params_module.Depends = DependsParam
 app_module = sys.modules.setdefault("app", ModuleType("app"))
 schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
 types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-core_module = sys.modules.setdefault("app.core", ModuleType("app.core"))
+application_module = sys.modules.setdefault(
+    "app.application", ModuleType("app.application")
+)
 security_module = sys.modules.setdefault(
-    "app.core.security", ModuleType("app.core.security")
+    "app.application.security", ModuleType("app.application.security")
+)
+access_module = sys.modules.setdefault(
+    "app.application.security.access", ModuleType("app.application.security.access")
 )
 
 
@@ -88,12 +93,13 @@ def verify_token():
 
 
 app_module.schemas = schemas_module
-app_module.core = core_module
-core_module.security = security_module
+app_module.application = application_module
+application_module.security = security_module
+security_module.access = access_module
 schemas_module.types = types_module
 schemas_module.TokenPayload = TokenPayload
 types_module.MediaSource = MediaSource
-security_module.verify_token = verify_token
+access_module.verify_token = verify_token
 
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 analysis_module = importlib.import_module(f"{PACKAGE_NAME}.model.analysis")

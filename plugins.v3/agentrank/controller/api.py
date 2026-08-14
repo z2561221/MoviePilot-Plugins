@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Mapping
 from fastapi import Depends
 
 from app import schemas
-from app.core.security import verify_token
+from app.application.security.access import verify_token
 
 from .schemas import API_RESPONSE_MODELS
 from ..model.config import configured_identities, default_config

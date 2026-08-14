@@ -142,8 +142,15 @@ usage_module.UsageMiddleware = UsageMiddleware
 middleware_package.usage = usage_module
 agent_module.middleware = middleware_package
 
-identity_module = sys.modules.setdefault("app.utils.identity", ModuleType("app.utils.identity"))
+foundation_module = sys.modules.setdefault(
+    "app.foundation", ModuleType("app.foundation")
+)
+identity_module = sys.modules.setdefault(
+    "app.foundation.identity", ModuleType("app.foundation.identity")
+)
 identity_module.SYSTEM_INTERNAL_USER_ID = "system"
+app_module.foundation = foundation_module
+foundation_module.identity = identity_module
 
 created_agent_calls = []
 

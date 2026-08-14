@@ -74,7 +74,7 @@ class TelegramSelectionService:
     def _notification_sources(notification_type: NotificationType) -> List[str]:
         """返回所有允许当前通知类型的启用 Telegram 配置名。"""
         try:
-            from app.helper.service import ServiceConfigHelper
+            from app.sdk.services import ServiceConfigHelper
 
             configs = ServiceConfigHelper.get_notification_configs() or []
         except Exception:

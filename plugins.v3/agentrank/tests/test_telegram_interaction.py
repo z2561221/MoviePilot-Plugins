@@ -38,9 +38,9 @@ schemas_module.types = types_module
 types_module.NotificationType = NotificationType
 types_module.MessageChannel = MessageChannel
 
-helper_module = sys.modules.setdefault("app.helper", ModuleType("app.helper"))
-service_helper_module = sys.modules.setdefault(
-    "app.helper.service", ModuleType("app.helper.service")
+sdk_module = sys.modules.setdefault("app.sdk", ModuleType("app.sdk"))
+services_module = sys.modules.setdefault(
+    "app.sdk.services", ModuleType("app.sdk.services")
 )
 NOTIFICATION_CONFIGS = [
     SimpleNamespace(
@@ -61,8 +61,9 @@ class ServiceConfigHelper:
         return list(NOTIFICATION_CONFIGS)
 
 
-helper_module.service = service_helper_module
-service_helper_module.ServiceConfigHelper = ServiceConfigHelper
+app_module.sdk = sdk_module
+sdk_module.services = services_module
+services_module.ServiceConfigHelper = ServiceConfigHelper
 
 
 class Notification:

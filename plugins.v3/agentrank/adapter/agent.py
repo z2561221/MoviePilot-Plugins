@@ -6,7 +6,7 @@ import re
 from typing import Any, Callable, Dict, List, Mapping, Type
 
 from app.agent import MoviePilotAgent, ReplyMode
-from app.utils.identity import SYSTEM_INTERNAL_USER_ID
+from app.foundation.identity import SYSTEM_INTERNAL_USER_ID
 
 from ..agent_tools.context import (
     CONVERSATION_AGENT_ROLE,
