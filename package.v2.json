@@ -133,6 +133,7 @@
     "author_url": "https://github.com/z2561221",
     "level": 1,
     "v2": true,
+    "v3": false,
     "system_version": ">=3.0.0",
     "history": {
       "v0.0.1": "[1]支持可选加密;[2]新增自动备份;[3]支持MP与插件手动包"

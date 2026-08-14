@@ -60,6 +60,11 @@ def prepare_backend() -> None:
     _bootstrap.prepare_backend()
 
 
+def prepare_v3_backend() -> None:
+    """V3 插件单测引导：后端 + 本仓 ``plugins.v3/``。"""
+    _bootstrap.prepare_v3_backend(_PLUGINS_REPO)
+
+
 def prepare_v2_backend() -> None:
     """v2 插件单测引导：后端 + 本仓 ``plugins.v2/``（委托主程序共享实现）。"""
     _bootstrap.prepare_v2_backend(_PLUGINS_REPO)

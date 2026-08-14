@@ -7,10 +7,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PLUGIN_DIR = ROOT / "plugins.v2" / "backupcenter"
+PLUGIN_DIR = ROOT / "plugins.v3" / "backupcenter"
 ENTRYPOINT = PLUGIN_DIR / "__init__.py"
 PLUGIN_JSON = PLUGIN_DIR / "plugin.json"
-PACKAGE_JSON = ROOT / "package.v2.json"
+PACKAGE_JSON = ROOT / "package.v3.json"
+PACKAGE_V2_JSON = ROOT / "package.v2.json"
 API_CONTROLLER = PLUGIN_DIR / "controller" / "api.py"
 FRONTEND_API = PLUGIN_DIR / "frontend" / "src" / "components" / "api.js"
 VITE_CONFIG = PLUGIN_DIR / "frontend" / "vite.config.js"
@@ -55,6 +56,7 @@ def _class_string(class_node: ast.ClassDef, name: str) -> str:
 def test_backupcenter_metadata_is_consistent_and_v3_scoped():
     """包索引、插件 manifest 与入口类共享同一身份和 V3 宿主边界。"""
     package = _json(PACKAGE_JSON)["BackupCenter"]
+    package_v2 = _json(PACKAGE_V2_JSON)["BackupCenter"]
     manifest = _json(PLUGIN_JSON)
     plugin_class = _entrypoint_class()
 
@@ -69,13 +71,15 @@ def test_backupcenter_metadata_is_consistent_and_v3_scoped():
     ):
         assert package[metadata_key] == manifest[metadata_key]
         assert package[metadata_key] == _class_string(plugin_class, class_key)
-    assert package["v2"] is manifest["v2"] is True
+    assert package["version"] == manifest["version"] == "3.0.0"
+    assert "v2" not in package and "v2" not in manifest
+    assert package_v2["v3"] is False
     assert package["system_version"] == manifest["system_version"] == ">=3.0.0"
     assert package["author_url"] == "https://github.com/z2561221"
 
 
 def test_backupcenter_federation_contract_is_complete():
-    """V2 插件格式暴露配置页、详情页和负责入口切换的全页组件。"""
+    """V3 插件格式暴露配置页、详情页和负责入口切换的全页组件。"""
     vite_source = VITE_CONFIG.read_text(encoding="utf-8")
     entrypoint_source = ENTRYPOINT.read_text(encoding="utf-8")
     remote_source = REMOTE_ENTRY.read_text(encoding="utf-8")
@@ -104,6 +108,11 @@ def test_backupcenter_api_is_bearer_only_and_exports_offline_package():
     assert "BackgroundTask" in controller
     assert "api.get(" in frontend and "api.post(" in frontend
     assert "responseType: 'blob'" in frontend
+    assert "readEnvelopeData" in frontend
+    assert "unwrapResponse" not in frontend
+    assert "response instanceof Blob" in frontend
+    assert '"response_model": response_model' in controller
+    assert "def _success" not in controller
     assert "fetch(" not in frontend
     assert "API_TOKEN" not in frontend
 
@@ -392,7 +401,8 @@ def test_backupcenter_context_records_non_negotiable_restore_boundaries():
     """稳定上下文记录格式、事务、教程和生产恢复边界。"""
     source = AGENT_CONTEXT.read_text(encoding="utf-8")
     for marker in (
-        "V2 插件兼容层",
+        "plugins.v3/backupcenter",
+        "v3:false",
         "不修改 MoviePilot 主程序",
         "ScopedSession",
         "SystemConfigOper.set()",

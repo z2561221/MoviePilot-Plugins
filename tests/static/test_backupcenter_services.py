@@ -11,7 +11,7 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 
-PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins.v2" / "backupcenter"
+PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins.v3" / "backupcenter"
 PACKAGE_NAME = "backupcenter_under_test"
 
 
@@ -392,6 +392,32 @@ def test_backup_display_name_removes_filename_control_characters(tmp_path):
     )
 
     assert manifest["display_name"] == "升级前 配置 测试"
+
+
+def test_legacy_public_manifest_without_display_name_is_normalized(tmp_path):
+    """旧公开清单缺少展示名时只在读取结果中补齐兼容值。"""
+    plugin = _Plugin(tmp_path)
+    service = backup_module.BackupService(plugin, _service_settings(tmp_path))
+    backup_path = service.get_backup_root() / "backup-legacy-emergency"
+    backup_path.mkdir()
+    manifest_path = backup_path / "manifest.public.json"
+    manifest_module.ManifestService.write_json(
+        manifest_path,
+        {
+            "backup_id": "backup-legacy-emergency",
+            "backup_kind": "emergency",
+            "created_at": "2026-08-13T14:11:28+00:00",
+            "scope": {"plugin_data": True},
+            "selected_plugin_ids": ["P115StrmHelper"],
+        },
+    )
+
+    backups = service.list_backups()
+
+    assert backups[0]["display_name"].startswith("恢复前应急备份-")
+    assert "display_name" not in manifest_module.ManifestService.read_json(
+        manifest_path
+    )
 
 
 def test_manual_backup_selection_defaults_empty_and_maps_both_targets():
