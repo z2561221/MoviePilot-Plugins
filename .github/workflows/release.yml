@@ -6,6 +6,7 @@ name: Plugin Release
     paths:
       - 'package.json'
       - 'package.v2.json'
+      - 'package.v3.json'
   workflow_dispatch:
 
 permissions:
@@ -36,6 +37,7 @@ jobs:
 
           process_package() {
             local pkg_file="$1"
+            local plugin_root="$2"
             [ -f "$pkg_file" ] || return 0
 
             echo "Processing $pkg_file"
@@ -53,14 +55,10 @@ jobs:
               plugin_version="${entry##*|}"
               plugin_id_lc="$(echo "$plugin_id" | tr '[:upper:]' '[:lower:]')"
 
-              dir1="plugins/${plugin_id_lc}"
-              dir2="plugins.v2/${plugin_id_lc}"
-              plugin_dir=""
-              if [ -d "$dir1" ]; then plugin_dir="$dir1"; fi
-              if [ -d "$dir2" ]; then plugin_dir="$dir2"; fi
+              plugin_dir="${plugin_root}/${plugin_id_lc}"
 
-              if [ -z "$plugin_dir" ]; then
-                echo "WARN: directory for $plugin_id not found under plugins/ or plugins.v2/, skip."
+              if [ ! -d "$plugin_dir" ]; then
+                echo "WARN: directory for $plugin_id not found under $plugin_root, skip."
                 continue
               fi
 
@@ -119,7 +117,8 @@ jobs:
             done
           }
 
-          process_package "package.json"
-          process_package "package.v2.json"
+          process_package "package.json" "plugins"
+          process_package "package.v2.json" "plugins.v2"
+          process_package "package.v3.json" "plugins.v3"
 
 
