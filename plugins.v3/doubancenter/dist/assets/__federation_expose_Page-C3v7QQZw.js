@@ -624,7 +624,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock(), _createBlock(_component_VCard, {
     flat: "",
-    class: _normalizeClass(["dc-page", { 'dc-page--app': props.appPage }])
+    class: _normalizeClass(["dc-page", { 'dc-page--app': props.appPage, 'dc-page--archive': archivePage.value }])
   }, {
     default: _withCtx(() => [
       _createVNode(_component_VToolbar, {
@@ -1429,6 +1429,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c72c1a03"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-202491b7"]]);
 
 export { Page as default };

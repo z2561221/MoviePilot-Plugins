@@ -468,7 +468,7 @@ onMounted(loadAll)
 </script>
 
 <template>
-  <VCard flat class="dc-page" :class="{ 'dc-page--app': props.appPage }">
+  <VCard flat class="dc-page" :class="{ 'dc-page--app': props.appPage, 'dc-page--archive': archivePage }">
     <VToolbar density="comfortable" class="dc-page-toolbar">
       <VAvatar color="primary" variant="tonal" rounded="lg" class="ms-3 me-2 dc-page-avatar" style="display: flex !important; width: 32px; height: 32px; min-width: 32px;"><VIcon icon="mdi-book-open-page-variant-outline" /></VAvatar>
       <div class="dc-page-heading">
@@ -680,8 +680,10 @@ onMounted(loadAll)
 </template>
 
 <style scoped>
-.dc-page { width: 100%; height: clamp(640px, calc(100dvh - 48px), 860px); max-height: calc(100dvh - 16px); display: flex; flex-direction: column; border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
-.dc-page--app { height: calc(100dvh - 104px); max-height: none; min-height: 0; border-radius: 14px; }
+.dc-page { width: 100%; border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
+.dc-page--app { min-height: calc(100dvh - 104px); border-radius: 14px; }
+.dc-page--archive { height: clamp(640px, calc(100dvh - 48px), 860px); max-height: calc(100dvh - 16px); display: flex; flex-direction: column; }
+.dc-page--app.dc-page--archive { height: calc(100dvh - 104px); max-height: none; min-height: 0; }
 .dc-page-toolbar { background: rgb(var(--v-theme-surface)); padding-right: 8px; }
 .dc-page-heading { min-width: 0; }
 .dc-page-toolbar-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 2px; }
@@ -689,7 +691,8 @@ onMounted(loadAll)
 .dc-toolbar-label { white-space: nowrap; }
 .dc-page-heading .text-h6,
 .dc-page-heading .text-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-flow { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dc-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dc-page--archive .dc-flow { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; }
 .dc-section { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .72)); border-radius: 8px; padding: 12px; margin-bottom: 0; background: rgba(var(--v-theme-on-surface), .012); min-width: 0; }
 .dc-section--archive { order: 0; grid-column: 1 / -1; }
 .dc-section--rank { order: 1; grid-column: 1 / -1; }

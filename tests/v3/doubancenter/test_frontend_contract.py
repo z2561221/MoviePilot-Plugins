@@ -29,10 +29,12 @@ def test_page_and_dashboard_forward_media_identity_pair():
     assert "media_id: item?.media_id" in page
 
 
-def test_archive_view_is_paginated_and_bounded_in_detail_and_discovery_pages():
-    """详情弹窗和发现页共用分页归档，并由内容区承载滚动。"""
+def test_archive_view_is_paginated_without_forcing_home_page_scroll():
+    """详情首页自然伸展，仅详情与发现页的归档状态承载内部滚动。"""
     page = (COMPONENTS / "Page.vue").read_text(encoding="utf-8")
     app_page = (COMPONENTS / "AppPage.vue").read_text(encoding="utf-8")
+    base_page_rule = next(line for line in page.splitlines() if line.startswith(".dc-page {"))
+    base_flow_rule = next(line for line in page.splitlines() if line.startswith(".dc-flow {"))
 
     assert "page_size: 10" in page
     assert "function goArchivePage" in page
@@ -40,8 +42,11 @@ def test_archive_view_is_paginated_and_bounded_in_detail_and_discovery_pages():
     assert "goArchivePage(archiveData.page - 1)" in page
     assert "goArchivePage(archiveData.page + 1)" in page
     assert "if (archivePage.value) await loadArchive()" in page
-    assert "height: clamp(640px, calc(100dvh - 48px), 860px)" in page
-    assert ".dc-page--app { height: calc(100dvh - 104px)" in page
-    assert "min-height: 0; overflow-y: auto; align-content: start" in page
+    assert "'dc-page--archive': archivePage" in page
+    assert ".dc-page--archive { height: clamp(640px, calc(100dvh - 48px), 860px)" in page
+    assert ".dc-page--app.dc-page--archive { height: calc(100dvh - 104px)" in page
+    assert ".dc-page--archive .dc-flow { flex: 1 1 auto; min-height: 0; overflow-y: auto" in page
+    assert "height:" not in base_page_rule
+    assert "overflow-y:" not in base_flow_rule
     assert "import Page from './Page.vue'" in app_page
     assert "app-page" in app_page
