@@ -33,7 +33,12 @@ from ..model.api import (
     UploadLimitSiteTagsResult,
     UploadLimitStatusResult,
 )
-from ..model.state import RENAME_RECORDS_KEY, RENAME_RETRY_STATE_KEY
+from ..model.state import (
+    RENAME_RECORDS_KEY,
+    RENAME_RETRY_STATE_KEY,
+    count_unique_cache_items,
+    load_transfer_stats,
+)
 from ..service.site_tag import execute_tag_cleanup, scan_and_clean_tags
 from ..service.speed_baseline import suggest_thresholds
 from ..service.speed_decision import resolve_reference_speed
@@ -228,6 +233,14 @@ def api_overview(plugin):
         diagnostics = plugin._diagnostics()
         archive = plugin.rename_archive_stats()
         upload_limit = get_upload_limit_status(plugin)
+        transfer_stats = load_transfer_stats(plugin)
+        iyuu_success_total = count_unique_cache_items(
+            getattr(plugin, "_iyuu_success_caches", []),
+        )
+        iyuu_fail_total = count_unique_cache_items(
+            getattr(plugin, "_iyuu_error_caches", []),
+            getattr(plugin, "_iyuu_permanent_error_caches", []),
+        )
         rename_history = diagnostics.get("rename_history", {}) if isinstance(diagnostics, dict) else {}
         return OverviewResult.model_validate({
             "code": 0,
@@ -249,12 +262,16 @@ def api_overview(plugin):
                     "enabled": bool(getattr(plugin, "_transfer_enabled", False)),
                     "active": bool(getattr(plugin, "_transfer_active", False)),
                     "fallback_enabled": bool(getattr(plugin, "_transfer_fallback_enabled", False)),
+                    "success_total": int(transfer_stats["success_total"]),
+                    "fallback_success": int(transfer_stats["fallback_success"]),
                 },
                 "iyuu": {
                     "enabled": bool(getattr(plugin, "_iyuu_enabled", False)),
                     "success": int(getattr(plugin, "_iyuu_success", 0) or 0),
                     "fail": int(getattr(plugin, "_iyuu_fail", 0) or 0),
                     "cached": int(getattr(plugin, "_iyuu_cached", 0) or 0),
+                    "success_total": iyuu_success_total,
+                    "fail_total": iyuu_fail_total,
                 },
                 "rename": {
                     "enabled": bool(getattr(plugin, "_rename_enabled", False)),

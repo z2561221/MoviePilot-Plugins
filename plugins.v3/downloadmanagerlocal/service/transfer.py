@@ -17,6 +17,7 @@ from app.schemas import NotificationType, ServiceInfo
 from app.schemas.types import EventType
 
 from ..adapter.moviepilot import is_downloader_type
+from ..model.state import record_transfer_success
 from ..utils.name_cleaner import is_dirty_renamed_torrent_name
 from .rename import _get_torrent_content_name, resolve_retry_original_name
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
@@ -371,6 +372,12 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                                      "delete_source": plugin._deletesource,
                                      "delete_duplicate": plugin._deleteduplicate,
                                  })
+
+        record_transfer_success(
+            plugin,
+            success,
+            fallback=trigger_source == "兜底扫描",
+        )
 
         if plugin._notify:
             plugin.post_message(

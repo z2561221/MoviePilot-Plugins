@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from threading import RLock
 from typing import Any, Iterable
 
 
 RENAME_RECORDS_KEY = "rename_records"
 RENAME_RETRY_STATE_KEY = "rename_retry_state"
 SEED_RECHECK_QUEUE_KEY = "seed_recheck_queue"
+TRANSFER_STATS_KEY = "transfer_stats"
+TRANSFER_STATS_SCHEMA_VERSION = 1
+_TRANSFER_STATS_LOCK = RLock()
 
 SPEED_MONITOR_SCHEMA_VERSION = 1
 SPEED_MONITOR_SESSIONS_KEY = "speed_monitor_sessions"
@@ -35,6 +39,7 @@ PERSISTED_STATE_KEYS = {
     "rename_history": RENAME_RECORDS_KEY,
     "rename_retry_state": RENAME_RETRY_STATE_KEY,
     "seed_recheck_queue": SEED_RECHECK_QUEUE_KEY,
+    "transfer_stats": TRANSFER_STATS_KEY,
     "speed_monitor_sessions": SPEED_MONITOR_SESSIONS_KEY,
     "speed_monitor_baselines": SPEED_MONITOR_BASELINES_KEY,
     "speed_monitor_alerts": SPEED_MONITOR_ALERTS_KEY,
@@ -64,6 +69,59 @@ def load_dict_data(plugin: Any, key: str) -> dict:
 def save_dict_data(plugin: Any, key: str, value: dict | None) -> None:
     """保存 dict 类型持久化数据，空值按旧逻辑持久化为空字典。"""
     plugin.save_data(key, value or {})
+
+
+def load_transfer_stats(plugin: Any) -> dict[str, int]:
+    """读取并规范化累计转种成功统计。"""
+    raw_value = plugin.get_data(TRANSFER_STATS_KEY)
+    payload = raw_value if isinstance(raw_value, dict) else {}
+
+    def _non_negative_int(value: Any) -> int:
+        """把不可信计数规范为非负整数。"""
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    success_total = _non_negative_int(payload.get("success_total"))
+    fallback_success = min(
+        success_total,
+        _non_negative_int(payload.get("fallback_success")),
+    )
+    return {
+        "schema_version": TRANSFER_STATS_SCHEMA_VERSION,
+        "success_total": success_total,
+        "fallback_success": fallback_success,
+    }
+
+
+def record_transfer_success(plugin: Any, count: int, *, fallback: bool) -> dict[str, int]:
+    """累计一次转种成功批次，并返回最新持久化统计。"""
+    try:
+        increment = max(0, int(count or 0))
+    except (TypeError, ValueError):
+        increment = 0
+    with _TRANSFER_STATS_LOCK:
+        stats = load_transfer_stats(plugin)
+        if increment:
+            stats["success_total"] += increment
+            if fallback:
+                stats["fallback_success"] += increment
+            plugin.save_data(TRANSFER_STATS_KEY, stats)
+        return stats
+
+
+def count_unique_cache_items(*cache_values: Any) -> int:
+    """统计一个或多个 IYUU 缓存中的非空唯一项目数。"""
+    unique_items = set()
+    for cache_value in cache_values:
+        if not isinstance(cache_value, (list, tuple, set)):
+            continue
+        for item in cache_value:
+            normalized = str(item or "").strip().lower()
+            if normalized:
+                unique_items.add(normalized)
+    return len(unique_items)
 
 
 class SpeedMonitorStateMigrationError(ValueError):
