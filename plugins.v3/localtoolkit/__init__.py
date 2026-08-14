@@ -1,0 +1,94 @@
+from typing import Any, Dict, List, Optional, Tuple
+
+from app import schemas
+from app.plugins import _PluginBase
+
+from .controller.api import (
+    build_api_routes,
+    history_response,
+    invalidate_cache_response,
+    options_response,
+    run_module,
+    status_response,
+)
+from .model.api import (
+    ToolkitHistoryData,
+    ToolkitOptionsData,
+    ToolkitRunData,
+    ToolkitStatusData,
+)
+from .service.lifecycle import build_services, initialize_plugin, stop_plugin_service
+
+class LocalToolkit(_PluginBase):
+    """工具中心插件入口，负责声明 MoviePilot 契约并委托服务层执行。"""
+
+    plugin_name = "工具中心"
+    plugin_display_name = "工具中心"
+    plugin_desc = "整合清理库存、扫描缺集、清理TMDB的本地维护工具中心。"
+    plugin_icon = "Ittools_A.png"
+    plugin_color = "#26A69A"
+    plugin_version = "3.0.0"
+    plugin_author = "牧濑红莉栖"
+    author_url = "https://github.com/z2561221"
+    plugin_config_prefix = "localtoolkit_"
+    plugin_order = 52
+    auth_level = 1
+
+    _enabled = False
+    _config: Dict[str, Any] = {}
+
+    def init_plugin(self, config: dict = None):
+        """初始化插件配置与运行状态。"""
+        initialize_plugin(self, config)
+
+    def get_state(self) -> bool:
+        """返回工具中心启用状态。"""
+        return self._enabled
+
+    def get_render_mode(self) -> Tuple[str, str]:
+        """声明工具中心使用 Vue 联邦组件渲染。"""
+        return 'vue', 'dist/assets'
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """返回工具中心后台服务列表。"""
+        return build_services(self)
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        """返回工具中心 API 路由声明。"""
+        return build_api_routes(self)
+
+    def api_status(self) -> ToolkitStatusData:
+        """返回工具中心状态。"""
+        return status_response(self)
+
+    def api_run(self, module: str) -> schemas.Response[ToolkitRunData]:
+        """运行指定工具模块。"""
+        return run_module(self, module)
+
+    def api_history(self, page: Any = 1, page_size: Any = 15) -> ToolkitHistoryData:
+        """返回工具中心历史记录。"""
+        return history_response(self, page, page_size)
+
+    def api_options(
+        self,
+        selected_server: Optional[str] = None,
+        selected_user: Optional[str] = None,
+    ) -> ToolkitOptionsData:
+        """返回工具中心配置选项。"""
+        return options_response(self, selected_server, selected_user)
+
+    def api_invalidate_cache(self) -> schemas.Response[None]:
+        """清除选项缓存。"""
+        return invalidate_cache_response(self)
+
+    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """返回 Vue 模式下的空配置 schema 与当前配置模型。"""
+        return [], self._config
+
+    def get_page(self) -> List[dict]:
+        """返回 Vue 模式下的详情页占位 schema。"""
+        return []
+
+    def stop_service(self) -> None:
+        """停止工具中心后台服务。"""
+        stop_plugin_service(self)

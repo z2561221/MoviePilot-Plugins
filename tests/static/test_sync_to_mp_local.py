@@ -140,6 +140,44 @@ class SyncToMpLocalTest(unittest.TestCase):
             self.assertEqual(merged["LocalToolkit"]["version"], "1.2.13")
             self.assertIn("package:LocalToolkit", actions)
 
+    def test_syncs_local_only_v3_plugin_into_v3_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            target = root / "target"
+            source_plugin = source / "plugins.v3" / "localtoolkit"
+            target_plugin = target / "plugins.v3" / "localtoolkit"
+            source_plugin.mkdir(parents=True)
+            (target / "plugins.v3").mkdir(parents=True)
+            (source / "package.local.v3.json").write_text(
+                json.dumps(
+                    {
+                        "LocalToolkit": {
+                            "name": "工具中心",
+                            "version": "3.0.0",
+                            "system_version": ">=3.0.0",
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (source_plugin / "__init__.py").write_text(
+                "plugin_version = '3.0.0'\n",
+                encoding="utf-8",
+            )
+
+            actions = sync_to_target(source, target, ["LocalToolkit"], generation="v3")
+
+            merged = json.loads((target / "package.v3.json").read_text(encoding="utf-8"))
+            self.assertEqual(merged["LocalToolkit"]["version"], "3.0.0")
+            self.assertEqual(
+                (target_plugin / "__init__.py").read_text(encoding="utf-8"),
+                "plugin_version = '3.0.0'\n",
+            )
+            self.assertIn("plugin:LocalToolkit", actions)
+            self.assertIn("package:LocalToolkit", actions)
+
 
 if __name__ == "__main__":
     unittest.main()
