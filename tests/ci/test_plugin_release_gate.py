@@ -154,4 +154,3 @@ def test_workflows_and_runner_include_v3_gate() -> None:
     assert checker_command in release_workflow
     assert "package.v3.json" in release_workflow
     assert 'for generation in ("ci", "v3", "v2", "v1"):' in runner
-
