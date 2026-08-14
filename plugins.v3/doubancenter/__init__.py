@@ -6,7 +6,7 @@ import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.plugins import _PluginBase
-from app.core.event import Event, eventmanager
+from app.sdk.events import Event, eventmanager
 from app.schemas.types import EventType
 
 from . import dashboard as dash, feed, folio, migration

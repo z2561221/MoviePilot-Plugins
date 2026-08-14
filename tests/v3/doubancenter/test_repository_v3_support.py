@@ -14,7 +14,7 @@ from scripts.sync_to_mp_local import sync_to_target  # noqa: E402
 
 
 V3_PLUGIN_ROOT = REPO_ROOT / "plugins.v3" / "doubancenter"
-LEGACY_IMPORT_ROOTS = ("app.helper", "app.utils", "app.log")
+LEGACY_IMPORT_ROOTS = ("app.helper", "app.utils", "app.log", "app.core.event")
 
 
 def _is_legacy_import(module_name: str) -> bool:
@@ -60,13 +60,13 @@ def test_v3_plugin_does_not_use_legacy_import_paths():
     assert violations == []
 
 
-def test_v3_event_manager_keeps_host_event_contract():
-    """事件管理仍使用宿主实际提供的 app.core.event 合同。"""
+def test_v3_event_manager_uses_public_sdk_contract():
+    """事件管理使用 V3 正式 SDK，避免触发兼容导入告警。"""
     source = (V3_PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8-sig")
     webhook = (V3_PLUGIN_ROOT / "service" / "webhook.py").read_text(encoding="utf-8-sig")
-    assert "from app.core.event import Event, eventmanager" in source
-    assert "from app.core.event import Event" in webhook
-    assert "app.sdk.events" not in source + webhook
+    assert "from app.sdk.events import Event, eventmanager" in source
+    assert "from app.sdk.events import Event" in webhook
+    assert "app.core.event" not in source + webhook
 
 
 def test_v3_cookiecloud_uses_runtime_supported_adapter():
