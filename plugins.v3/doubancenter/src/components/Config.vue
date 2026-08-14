@@ -1,0 +1,684 @@
+<script setup>
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { getPluginApi } from './api'
+
+const props = defineProps({
+  api: { type: [Object, Function], default: null },
+  initialConfig: { type: Object, default: () => ({}) },
+})
+const emit = defineEmits(['save', 'close', 'switch'])
+
+const form = reactive({})
+const activeMain = ref('overview')
+const activeSub = ref('overview')
+const overview = ref(null)
+const loadingOverview = ref(false)
+const customRankError = ref('')
+const expandedRankKeys = ref(new Set())
+const deleteTarget = ref(null)
+const deleteDialog = ref(false)
+const nameInputRefs = new Map()
+
+const defaults = {
+  enabled: false, cron: '0 8 * * *', notify: false, proxy: false, onlyonce: false,
+  rsshub_domain: 'https://rsshub.ddsrem.com',
+  rank_configs: {
+    coming: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    tv_real_time: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    tv_chinese: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    tv_global: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    movie_weekly: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+    bangumi: { enabled: false, count: 1, wish_count: '', air_days: '', vote: '', year: '', regions: [] },
+  },
+  region_filters: [], genre_filters: [], resolution_filters: [], custom_rss_addrs: '', custom_ranks: [],
+  folio_enabled: true, folio_private: true, folio_first: true, folio_notify: false, folio_exclude_live_tv: true,
+  folio_user: '', folio_exclude: '', folio_cookie: '',
+  wish_enabled: false, wish_cron: '*/30 * * * *', wish_user: '', wish_notify: false, wish_onlyonce: false, wish_max_pages: 1, wish_days: 7,
+  dashboard_rank_keys: [],
+  discovery_page_enabled: false,
+  blacklist_keywords: '',
+  observe_days: 0,
+  observe_rank_keys: ['coming', 'tv_real_time'],
+}
+
+const dateModeOptions = [
+  { title: '提前订阅', value: 'future' },
+  { title: '近期上映', value: 'recent' },
+]
+
+const builtinRankDefs = [
+  { key: 'coming', name: '即将上映', route: '/douban/tv/coming', date_mode: 'future', filters: ['vote', 'wish_count', 'air_days'] },
+  { key: 'tv_real_time', name: '实时热门', route: '/douban/list/tv_real_time_hotest', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'tv_chinese', name: '华语口碑', route: '/douban/list/tv_chinese_best_weekly', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'tv_global', name: '全球口碑', route: '/douban/list/tv_global_best_weekly', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'movie_weekly', name: '电影口碑', route: '/douban/list/movie_weekly_best', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+  { key: 'bangumi', name: 'BangumiTV', route: '/bangumi.tv/anime/followrank', date_mode: 'recent', filters: ['vote', 'year', 'air_days'] },
+]
+
+const rankDefs = computed(() => [
+  ...builtinRankDefs,
+  ...(Array.isArray(form.custom_ranks) ? form.custom_ranks : []).map(rank => ({
+    ...rank,
+    model: rank,
+    custom: true,
+    filters: ['vote', 'year', 'air_days'],
+  })),
+])
+
+const mainTabs = [
+  { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '运行链路、模块状态和待关注事项。' },
+  { key: 'rank', title: '榜单订阅', icon: 'mdi-trophy-outline', desc: '内置与自定义榜单统一订阅到豆瓣中心。' },
+  { key: 'folio', title: '豆瓣时间', icon: 'mdi-book-clock-outline', desc: '追剧观影自动同步进度到豆瓣时间线。' },
+  { key: 'dashboard', title: '仪表显示', icon: 'mdi-view-dashboard-outline', desc: '时间线 + 榜单排行双面板。' },
+]
+
+const subTabs = {
+  overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
+  rank: [{ key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' }, { key: 'list', title: '榜单列表', icon: 'mdi-format-list-bulleted' }, { key: 'filter', title: '订阅观察', icon: 'mdi-shield-search' }],
+  folio: [{ key: 'wish', title: '同步想看', icon: 'mdi-heart-plus-outline' }, { key: 'sync', title: '同步观影', icon: 'mdi-sync' }],
+  dashboard: [{ key: 'view', title: '仪表盘选择', icon: 'mdi-view-dashboard-outline' }],
+}
+
+const currentMain = computed(() => mainTabs.find(i => i.key === activeMain.value) || mainTabs[0])
+const currentSubs = computed(() => subTabs[activeMain.value] || [])
+const enabledRankCount = computed(() => rankDefs.value.filter(r => form.rank_configs?.[r.key]?.enabled).length)
+const customRankCount = computed(() => rankDefs.value.filter(r => r.custom).length)
+const overviewCards = computed(() => {
+  const cards = overview.value?.cards || {}
+  return [
+    {
+      title: '榜单订阅',
+      icon: 'mdi-rss',
+      color: cards.rss?.enabled ? 'success' : 'warning',
+      value: `${cards.rss?.enabled || 0}/${cards.rss?.total || rankDefs.value.length}`,
+      desc: cards.rss?.last_refresh ? `最近刷新 ${cards.rss.last_refresh}` : '等待 RSS 刷新',
+    },
+    {
+      title: '订阅记录',
+      icon: 'mdi-playlist-check',
+      color: cards.subscribe?.enabled ? 'primary' : 'default',
+      value: `${cards.subscribe?.total || 0} 条`,
+      desc: `本月新增 ${cards.subscribe?.month_new || 0} 条`,
+    },
+    {
+      title: '归档治理',
+      icon: 'mdi-shield-check-outline',
+      color: cards.observe?.pending ? 'warning' : 'success',
+      value: `${cards.observe?.pending || 0} 待观察`,
+      desc: `观察期 ${cards.observe?.days || 0} 天，已忽略 ${cards.observe?.ignored || 0}`,
+    },
+    {
+      title: '豆瓣时间',
+      icon: 'mdi-book-clock-outline',
+      color: cards.folio?.enabled ? 'success' : 'default',
+      value: `${cards.folio?.items || 0} 条`,
+      desc: cards.folio?.user ? `用户 ${cards.folio.user}` : '未配置用户',
+    },
+  ]
+})
+
+function cloneConfig(value) {
+  return JSON.parse(JSON.stringify(value ?? {}))
+}
+
+function isPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function customRankKey() {
+  return `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeDateMode(value) {
+  return value === 'future' ? 'future' : 'recent'
+}
+
+function rankDateLabel(rank) {
+  return normalizeDateMode(rank?.date_mode) === 'future' ? '提前天数' : '最近天数'
+}
+
+function rankDateSummary(rank) {
+  const days = form.rank_configs?.[rank.key]?.air_days
+  const prefix = normalizeDateMode(rank?.date_mode) === 'future' ? '提前' : '最近'
+  return `${prefix} ${Number(days) > 0 ? `${days} 天` : '不限'}`
+}
+
+function addCustomRank() {
+  customRankError.value = ''
+  const key = customRankKey()
+  form.custom_ranks.push({ key, name: '', route: '', date_mode: 'recent' })
+  form.rank_configs[key] = { enabled: false, count: 1, vote: '', year: '', air_days: '', regions: [] }
+  expandedRankKeys.value = new Set([...expandedRankKeys.value, key])
+  activeMain.value = 'rank'
+  activeSub.value = 'list'
+  nextTick(() => nameInputRefs.get(key)?.focus?.())
+}
+
+function setNameInputRef(key, value) {
+  if (value) nameInputRefs.set(key, value)
+  else nameInputRefs.delete(key)
+}
+
+function toggleRank(key) {
+  const next = new Set(expandedRankKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedRankKeys.value = next
+}
+
+function isExpanded(key) {
+  return expandedRankKeys.value.has(key)
+}
+
+function requestRemoveCustomRank(rank) {
+  deleteTarget.value = rank
+  deleteDialog.value = true
+}
+
+function removeCustomRank(key) {
+  customRankError.value = ''
+  form.custom_ranks = form.custom_ranks.filter(rank => rank.key !== key)
+  delete form.rank_configs[key]
+  form.dashboard_rank_keys = (form.dashboard_rank_keys || []).filter(value => value !== key)
+  form.observe_rank_keys = (form.observe_rank_keys || []).filter(value => value !== key)
+  expandedRankKeys.value = new Set([...expandedRankKeys.value].filter(value => value !== key))
+  deleteTarget.value = null
+  deleteDialog.value = false
+}
+
+function validCustomRoute(route) {
+  const value = String(route || '').trim()
+  return value.startsWith('/') && !value.startsWith('//') && !value.includes('#') && (() => {
+    try {
+      const parsed = new URL(value, 'https://rsshub.local')
+      return parsed.origin === 'https://rsshub.local'
+    } catch {
+      return false
+    }
+  })()
+}
+
+function validateCustomRanks() {
+  const seen = new Set(builtinRankDefs.map(rank => rank.key))
+  for (const rank of form.custom_ranks || []) {
+    const key = String(rank?.key || '').trim()
+    if (!key || seen.has(key)) return '自定义榜单标识重复或无效'
+    if (!String(rank?.name || '').trim()) return '请填写自定义榜单名称'
+    if (!validCustomRoute(rank?.route)) return 'RSSHub 路由必须是以 / 开头的相对路径'
+    if (!dateModeOptions.some(item => item.value === rank?.date_mode)) return '请选择自定义榜单的日期方向'
+    seen.add(key)
+  }
+  return ''
+}
+
+function normalizeInitialConfig(value) {
+  const m = Object.assign({}, cloneConfig(defaults), cloneConfig(value))
+  m.custom_ranks = Array.isArray(m.custom_ranks)
+    ? m.custom_ranks.filter(rank => isPlainObject(rank)).map(rank => ({
+      key: String(rank.key || ''),
+      name: String(rank.name || ''),
+      route: String(rank.route || ''),
+      date_mode: normalizeDateMode(rank.date_mode),
+    }))
+    : []
+  if (!(m.rank_configs && typeof m.rank_configs === 'object' && !Array.isArray(m.rank_configs))) {
+    m.rank_configs = {}
+  }
+  for (const rd of [...builtinRankDefs, ...m.custom_ranks.map(rank => ({ ...rank, filters: ['vote', 'year', 'air_days'] }))]) {
+    m.rank_configs[rd.key] = {
+      ...(defaults.rank_configs[rd.key] || { enabled: false, count: 1, vote: '', year: '' }),
+      ...(isPlainObject(m.rank_configs[rd.key]) ? m.rank_configs[rd.key] : {}),
+    }
+    m.rank_configs[rd.key].regions = Array.isArray(m.rank_configs[rd.key].regions)
+      ? [...new Set(m.rank_configs[rd.key].regions.map(value => String(value || '').trim()).filter(Boolean))]
+      : []
+    const rankConfig = m.rank_configs[rd.key]
+    const rawCount = rankConfig.count
+    rankConfig.count = rawCount === undefined || rawCount === null || rawCount === ''
+      ? 1
+      : (Number(rawCount) === 0 ? '' : rawCount)
+    for (const field of ['vote', 'year', 'wish_count', 'air_days']) {
+      if (rankConfig[field] === undefined || rankConfig[field] === null || Number(rankConfig[field]) === 0) rankConfig[field] = ''
+    }
+    delete m.rank_configs[rd.key].media_type
+  }
+  if (!Array.isArray(m.dashboard_rank_keys)) m.dashboard_rank_keys = []
+  m.dashboard_rank_keys = [...new Set(m.dashboard_rank_keys.map(value => String(value || '').trim()).filter(Boolean))].slice(0, 6)
+  if (!Array.isArray(m.observe_rank_keys)) m.observe_rank_keys = [...defaults.observe_rank_keys]
+  return m
+}
+
+watch(() => props.initialConfig, val => {
+  Object.keys(form).forEach(k => delete form[k])
+  Object.assign(form, normalizeInitialConfig(val))
+}, { immediate: true, deep: true })
+
+function saveConfig() {
+  customRankError.value = validateCustomRanks()
+  if (customRankError.value) {
+    activeMain.value = 'rank'
+    activeSub.value = 'list'
+    return
+  }
+  emit('save', {
+    ...form,
+    custom_ranks: (form.custom_ranks || []).map(rank => ({
+      key: String(rank.key || '').trim(),
+      name: String(rank.name || '').trim(),
+      route: String(rank.route || '').trim(),
+      date_mode: normalizeDateMode(rank.date_mode),
+    })),
+    rank_configs: Object.fromEntries(Object.entries(form.rank_configs || {}).map(([key, config]) => [key, {
+      ...cloneConfig(config),
+      regions: Array.isArray(config?.regions) ? [...new Set(config.regions.map(value => String(value || '').trim()).filter(Boolean))] : [],
+    }])),
+    region_filters: [],
+    genre_filters: [],
+    resolution_filters: [],
+    custom_rss_addrs: '',
+  })
+}
+
+function limitDashboardRanks() {
+  form.dashboard_rank_keys = [...new Set((form.dashboard_rank_keys || []).map(value => String(value || '').trim()).filter(Boolean))].slice(0, 6)
+}
+
+function selectMain(key) {
+  if (activeMain.value === key) return
+  activeMain.value = key
+  activeSub.value = subTabs[key]?.[0]?.key || ''
+}
+
+async function loadOverview() {
+  loadingOverview.value = true
+  try {
+    const resp = await getPluginApi(props.api, 'overview')
+    if (resp?.success === false) throw new Error(resp.message || '总览加载失败')
+    const data = resp?.data ?? resp
+    if (data?.code === 0 || data?.cards) overview.value = data
+  } catch (error) {
+    console.error('加载豆瓣中心总览失败:', error)
+  } finally {
+    loadingOverview.value = false
+  }
+}
+
+onMounted(loadOverview)
+</script>
+
+<template>
+  <div class="dc-config">
+    <VCard flat class="dc-card">
+      <VCardItem class="dc-header">
+        <template #prepend><VAvatar color="primary" variant="tonal" size="44" rounded="lg" class="dc-header-avatar"><VIcon icon="mdi-book-open-page-variant-outline" size="24" /></VAvatar></template>
+        <VCardTitle class="text-h6 dc-header-title">豆瓣中心</VCardTitle>
+        <VCardSubtitle class="text-caption dc-header-subtitle">{{ currentMain.desc }}</VCardSubtitle>
+        <template #append><VSwitch v-model="form.enabled" color="success" hide-details inset class="dc-enable-switch" :label="form.enabled ? '已启用' : '已停用'" /></template>
+      </VCardItem>
+      <VDivider />
+      <div class="dc-body">
+        <nav class="dc-nav">
+          <VList density="comfortable" nav class="py-2 dc-nav-list">
+            <VListItem v-for="item in mainTabs" :key="item.key" :active="activeMain === item.key" color="primary" rounded="lg" class="dc-nav-item" @click="selectMain(item.key)">
+              <template #prepend><VIcon :icon="item.icon" class="dc-nav-icon" /></template>
+              <VListItemTitle class="dc-nav-title">{{ item.title }}</VListItemTitle>
+            </VListItem>
+          </VList>
+        </nav>
+        <section class="dc-content">
+          <div class="dc-subtabs">
+            <button v-for="sub in currentSubs" :key="sub.key" type="button" class="dc-subtab" :class="{ 'dc-subtab--active': activeSub === sub.key }" @click="activeSub = sub.key"><VIcon :icon="sub.icon" size="18" class="mr-1" />{{ sub.title }}</button>
+          </div>
+          <VDivider />
+          <div class="dc-window" :class="{ 'dc-window--overview': activeMain === 'overview' }">
+            <div v-show="activeSub === 'overview'" class="dc-pane dc-pane--overview">
+              <div class="dc-overview-section mb-3">
+                <div class="dc-section-title d-flex align-center">
+                  <span>运行链路</span>
+                </div>
+                <div class="dc-flow">
+                  <div v-for="flow in (overview?.flows || [])" :key="flow.label" class="dc-flow-block">
+                    <div class="dc-flow-label">{{ flow.label }}</div>
+                    <div v-if="flow.steps?.length" class="dc-flow-row">
+                      <template v-for="(step, idx) in flow.steps" :key="`${flow.label}-${step}`">
+                        <span>{{ step }}</span>
+                        <VIcon v-if="idx < flow.steps.length - 1" icon="mdi-arrow-right" size="15" />
+                      </template>
+                    </div>
+                    <div v-else-if="flow.flows?.length" class="dc-flow-sub">
+                      <div v-for="subFlow in flow.flows" :key="`${flow.label}-${subFlow.label}`" class="dc-flow-sub-block">
+                        <div class="dc-flow-sub-label">{{ subFlow.label }}</div>
+                        <div class="dc-flow-row dc-flow-row--sub">
+                          <template v-for="(step, idx) in subFlow.steps" :key="`${subFlow.label}-${step}`">
+                            <span>{{ step }}</span>
+                            <VIcon v-if="idx < subFlow.steps.length - 1" icon="mdi-arrow-right" size="15" />
+                          </template>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="dc-stat-grid mb-3">
+                <div v-for="card in overviewCards" :key="card.title" class="dc-stat">
+                  <div class="d-flex align-center ga-2 mb-1">
+                    <VAvatar :color="card.color" variant="tonal" size="28" rounded="lg"><VIcon :icon="card.icon" size="17" /></VAvatar>
+                    <div class="text-caption text-medium-emphasis">{{ card.title }}</div>
+                  </div>
+                  <div class="text-subtitle-1 font-weight-bold">{{ card.value }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ card.desc }}</div>
+                </div>
+              </div>
+
+              <div class="dc-overview-grid">
+                <div class="dc-overview-section">
+                  <div class="dc-section-title">待关注</div>
+                  <div class="dc-kv"><span>观察队列</span><strong>{{ overview?.attention?.pending_observations || 0 }}</strong></div>
+                  <div class="dc-kv"><span>防刷日志</span><strong>{{ overview?.attention?.anti_cheat_logs || 0 }}</strong></div>
+                  <div class="dc-kv"><span>黑名命中</span><strong>{{ overview?.attention?.blacklist_hits || 0 }}</strong></div>
+                </div>
+                <div class="dc-overview-section">
+                  <div class="dc-section-title">治理概况</div>
+                  <div class="dc-kv"><span>忽略条目</span><strong>{{ overview?.governance?.ignored_observations || 0 }}</strong></div>
+                  <div class="dc-kv"><span>订阅记录</span><strong>{{ overview?.governance?.subscribe_records || 0 }}</strong></div>
+                  <div class="dc-kv"><span>防刷日志</span><strong>{{ overview?.governance?.anti_cheat_logs || 0 }}</strong></div>
+                </div>
+              </div>
+            </div>
+
+            <div v-show="activeSub === 'basic'" class="dc-pane">
+              <div class="dc-section-title">基础设置</div>
+              <VRow>
+                <VCol cols="12" md="4"><VSwitch v-model="form.onlyonce" color="warning" inset hide-details label="立即运行一次" /></VCol>
+                <VCol cols="12" md="4"><VCronField v-model="form.cron" label="运行周期" density="compact" variant="outlined" hide-details /></VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12"><VTextField v-model="form.rsshub_domain" label="RSSHub 域名" density="compact" variant="outlined" hide-details hint="默认 https://rsshub.ddsrem.com，所有榜单共用" persistent-hint /></VCol>
+              </VRow>
+              <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="订阅用户名统一为「豆瓣中心」。即将上映支持评分、地区、想看筛选；空或 0 表示不限。" />
+            </div>
+
+            <div v-show="activeSub === 'list'" class="dc-pane">
+              <div class="dc-rank-list-heading">
+                <div>
+                  <div class="dc-section-title mb-1">榜单列表</div>
+                  <div class="dc-rank-list-summary text-caption text-medium-emphasis">已启用 {{ enabledRankCount }} 个 · 自定义 {{ customRankCount }} 个</div>
+                </div>
+                <VBtn icon size="small" variant="tonal" color="primary" aria-label="新增自定义榜单" @click="addCustomRank">
+                  <VIcon icon="mdi-plus" size="20" />
+                  <VTooltip activator="parent" location="top">新增自定义榜单</VTooltip>
+                </VBtn>
+              </div>
+              <VAlert type="info" variant="tonal" density="compact" class="mb-3" text="每个榜单独立控制；即将上映按提前天数筛选，其他榜单按最近天数筛选，自定义榜单可选择日期方向。空或 0 表示不限。" />
+              <VAlert v-if="customRankError" type="error" variant="tonal" density="compact" class="mb-2" :text="customRankError" />
+              <div class="dc-rank-list-1col">
+                <div v-for="rd in rankDefs" :key="rd.key" class="dc-rank-card" :class="{ 'dc-rank-card--on': form.rank_configs[rd.key]?.enabled, 'dc-rank-card--expanded': isExpanded(rd.key) }">
+                  <div class="dc-rank-card-summary">
+                    <VBtn icon :aria-label="`${isExpanded(rd.key) ? '收起' : '展开'}${rd.name}`" variant="text" size="small" class="dc-rank-expand" @click="toggleRank(rd.key)">
+                      <VIcon :icon="isExpanded(rd.key) ? 'mdi-chevron-down' : 'mdi-chevron-right'" size="20" />
+                    </VBtn>
+                    <VCheckbox v-model="form.rank_configs[rd.key].enabled" color="primary" hide-details density="compact" class="dc-rank-check" :aria-label="`启用${rd.name}`" />
+                    <div class="dc-rank-summary-main" @click="toggleRank(rd.key)">
+                      <div class="dc-rank-summary-title"><span>{{ rd.name }}</span><VChip v-if="rd.custom" size="x-small" color="primary" variant="tonal">自定义</VChip></div>
+                      <div class="dc-rank-summary-meta">
+                        <span>数量 {{ form.rank_configs[rd.key]?.count || '不限' }}</span>
+                        <span v-if="rd.filters.includes('vote')">评分 {{ form.rank_configs[rd.key]?.vote || '不限' }}</span>
+                        <span>地区 {{ (form.rank_configs[rd.key]?.regions || []).join('、') || '不限' }}</span>
+                        <span v-if="rd.filters.includes('year')">年份 {{ form.rank_configs[rd.key]?.year || '不限' }}</span>
+                        <span v-if="rd.filters.includes('wish_count')">想看 {{ form.rank_configs[rd.key]?.wish_count || '不限' }}</span>
+                        <span v-if="rd.filters.includes('air_days')">{{ rankDateSummary(rd) }}</span>
+                      </div>
+                    </div>
+                    <div class="dc-rank-actions">
+                      <VBtn v-if="rd.custom" icon variant="flat" color="error" class="dc-delete-rank" :aria-label="`删除${rd.name || '自定义榜单'}`" @click.stop="requestRemoveCustomRank(rd)">
+                        <VIcon icon="mdi-delete-outline" size="20" />
+                        <VTooltip activator="parent" location="top">删除自定义榜单</VTooltip>
+                      </VBtn>
+                    </div>
+                  </div>
+                  <Transition name="dc-rank-details">
+                    <div v-if="isExpanded(rd.key)" class="dc-rank-card-details">
+                      <div class="dc-rank-detail-toolbar">
+                        <VCheckbox v-model="form.rank_configs[rd.key].enabled" label="自动订阅" color="primary" hide-details density="compact" class="dc-rank-detail-enable" />
+                        <div v-if="!rd.custom" class="dc-rank-route-hint text-caption text-medium-emphasis">路由：{{ rd.route }}</div>
+                      </div>
+                      <div v-if="rd.custom" class="dc-custom-rank-route-row">
+                        <VTextField :ref="el => setNameInputRef(rd.key, el)" v-model="rd.model.name" label="榜单名称" density="compact" variant="outlined" hide-details class="dc-custom-rank-name" />
+                        <VTextField v-model="rd.model.route" label="路由" placeholder="/example/rsshub/route?foo=bar" density="compact" variant="outlined" hide-details class="dc-custom-rank-route" />
+                        <VSelect v-model="rd.model.date_mode" :items="dateModeOptions" label="日期方向" density="compact" variant="outlined" hide-details class="dc-custom-rank-date-mode" />
+                      </div>
+                      <div class="dc-rank-card-body">
+                        <div class="dc-rank-field dc-rank-field--count"><VTextField v-model.number="form.rank_configs[rd.key].count" label="数量" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <div v-if="rd.filters.includes('vote')" class="dc-rank-field dc-rank-field--vote"><VTextField v-model.number="form.rank_configs[rd.key].vote" label="评分" placeholder="0 不限" type="number" min="0" max="10" step="0.1" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <VCombobox v-model="form.rank_configs[rd.key].regions" :items="[]" label="地区" placeholder="自定义填写" multiple chips closable-chips clearable hide-details density="compact" variant="outlined" class="dc-rank-regions" />
+                        <div v-if="rd.filters.includes('year')" class="dc-rank-field dc-rank-field--threshold"><VTextField v-model.number="form.rank_configs[rd.key].year" label="年份" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <div v-if="rd.filters.includes('wish_count')" class="dc-rank-field dc-rank-field--threshold"><VTextField v-model.number="form.rank_configs[rd.key].wish_count" label="想看" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                        <div v-if="rd.filters.includes('air_days')" class="dc-rank-field dc-rank-field--days"><VTextField v-model.number="form.rank_configs[rd.key].air_days" :label="rankDateLabel(rd)" placeholder="0 不限" type="number" min="0" density="compact" variant="outlined" hide-details class="dc-rank-input" /></div>
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
+              </div>
+              <div v-if="!form.custom_ranks.length" class="dc-custom-ranks-empty text-caption text-medium-emphasis">尚未添加自定义榜单</div>
+              <VDialog v-model="deleteDialog" max-width="420">
+                <VCard>
+                  <VCardTitle class="text-body-1">删除自定义榜单</VCardTitle>
+                  <VCardText>确定删除「{{ deleteTarget?.name || '未命名榜单' }}」吗？相关订阅、历史和运行条目不会被删除。</VCardText>
+                  <VCardActions><VSpacer /><VBtn variant="text" @click="deleteDialog = false">取消</VBtn><VBtn color="error" variant="tonal" @click="removeCustomRank(deleteTarget?.key)">删除</VBtn></VCardActions>
+                </VCard>
+              </VDialog>
+            </div>
+
+            <div v-show="activeSub === 'filter'" class="dc-pane">
+              <div class="dc-section-title">观察设置</div>
+              <VRow>
+                <VCol cols="12" md="8"><VSelect v-model="form.observe_rank_keys" :items="rankDefs.map(r => ({ title: r.name, value: r.key }))" label="观察榜单" multiple chips clearable density="compact" variant="outlined" hide-details hint="被选中的榜单会先进入观察队列，达到观察期后再订阅" persistent-hint /></VCol>
+                <VCol cols="12" md="4"><VTextField v-model.number="form.observe_days" label="观察期（天）" type="number" min="0" density="compact" variant="outlined" hide-details hint="新条目在榜 N 天后才订阅，0 为不启用" persistent-hint /></VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12"><VTextarea v-model="form.blacklist_keywords" label="黑名单关键词（一行一个）" rows="3" auto-grow density="compact" variant="outlined" hide-details hint="标题包含任一关键词则跳过订阅。支持片段匹配，如输入「综艺」会匹配所有含「综艺」的剧名" persistent-hint /></VCol>
+              </VRow>
+            </div>
+
+            <div v-show="activeSub === 'wish'" class="dc-pane">
+              <div class="dc-section-title">同步想看</div>
+              <VRow>
+                <VCol cols="12" md="3"><VSwitch v-model="form.wish_enabled" color="success" inset hide-details label="启用想看同步" /></VCol>
+                <VCol cols="12" md="3"><VSwitch v-model="form.wish_onlyonce" color="warning" inset hide-details label="立即运行一次" /></VCol>
+                <VCol cols="12" md="3"><VCronField v-model="form.wish_cron" label="独立同步周期" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" md="3"><VTextField v-model.number="form.wish_days" label="最近天数" type="number" min="0" density="compact" variant="outlined" hide-details hint="默认 7 天" persistent-hint /></VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="8"><VTextField v-model="form.wish_user" label="豆瓣用户 ID" density="compact" variant="outlined" hide-details hint="读取该用户的动态 feed，仅处理「想看」条目" persistent-hint /></VCol>
+                <VCol cols="12" md="4"><VSwitch v-model="form.wish_notify" color="info" inset hide-details label="发送通知" /></VCol>
+              </VRow>
+              <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="通过豆瓣动态 feed 同步，首次只建立最近天数内的基线；后续周期只处理最近天数内新增的想看。" />
+              <div class="dc-wish-status mt-3">
+                <div class="dc-kv"><span>队列待处理</span><strong>{{ overview?.cards?.folio?.wish?.queue || 0 }}</strong></div>
+                <div class="dc-kv"><span>失败记录</span><strong>{{ overview?.cards?.folio?.wish?.failed || 0 }}</strong></div>
+                <div class="dc-kv"><span>最近运行</span><strong>{{ overview?.cards?.folio?.wish?.last_run || '尚未运行' }}</strong></div>
+                <div class="dc-kv"><span>状态错误</span><strong>{{ overview?.cards?.folio?.wish?.last_error || '无' }}</strong></div>
+              </div>
+            </div>
+
+            <div v-show="activeSub === 'sync'" class="dc-pane">
+              <div class="dc-section-title">同步观影</div>
+              <VRow>
+                <VCol cols="12" md="4"><VSwitch v-model="form.folio_enabled" color="success" inset hide-details label="启用豆瓣时间" /></VCol>
+                <VCol cols="12" md="4"><VSwitch v-model="form.folio_private" color="info" inset hide-details label="仅自己可见" /></VCol>
+                <VCol cols="12" md="4"><VSwitch v-model="form.folio_first" color="info" inset hide-details label="不标记第一集" /></VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="4"><VSwitch v-model="form.folio_notify" color="info" inset hide-details label="发送通知" /></VCol>
+                <VCol cols="12" md="4"><VSwitch v-model="form.folio_exclude_live_tv" color="info" inset hide-details label="排除电视直播源" /></VCol>
+              </VRow>
+              <VRow class="mt-2"><VCol cols="12" md="6"><VTextField v-model="form.folio_user" label="媒体库用户名（多个以 , 分隔）" density="compact" variant="outlined" hide-details /></VCol><VCol cols="12" md="6"><VTextField v-model="form.folio_exclude" label="路径排除关键词（多个以 , 分隔）" density="compact" variant="outlined" hide-details /></VCol></VRow>
+              <VRow class="mt-2"><VCol cols="12"><VTextField v-model="form.folio_cookie" label="豆瓣 Cookie（留空从 CookieCloud 获取）" density="compact" variant="outlined" hide-details /></VCol></VRow>
+            </div>
+
+            <div v-show="activeSub === 'view'" class="dc-pane">
+              <div class="dc-section-title">仪表盘选择</div>
+              <VAlert type="info" variant="tonal" density="compact" class="mb-2" text="仪表盘最多显示 6 个已启用榜单；开启发现页后，保存并刷新 MP 页面即可从左侧「发现」分组进入豆瓣中心。" />
+              <VRow>
+                <VCol cols="12" md="6"><VSelect v-model="form.dashboard_rank_keys" label="选择要显示的榜单（最多 6 个）" :items="rankDefs.filter(r => form.rank_configs?.[r.key]?.enabled).map(r => ({ title: r.name, value: r.key }))" multiple chips clearable density="compact" variant="outlined" hide-details @update:model-value="limitDashboardRanks" /></VCol>
+                <VCol cols="12" md="6"><VSwitch v-model="form.discovery_page_enabled" color="success" inset hide-details label="开启发现页" /></VCol>
+              </VRow>
+            </div>
+          </div>
+        </section>
+      </div>
+      <VDivider />
+      <VCardActions class="dc-actions"><VSpacer /><VBtn variant="text" class="dc-action-btn" @click="emit('close')">取消</VBtn><VBtn color="primary" variant="flat" prepend-icon="mdi-content-save-outline" class="dc-action-btn dc-action-btn--save" @click="saveConfig">保存配置</VBtn></VCardActions>
+    </VCard>
+  </div>
+</template>
+
+<style scoped>
+.dc-config { width: min(1120px, calc(100vw - 48px)); max-width: 100%; padding: 8px; }
+.dc-card { width: 100%; height: clamp(760px, calc(100dvh - 48px), 860px); display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.dc-header { padding: 14px 18px; }
+.dc-header-subtitle { max-width: min(560px, 52vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.dc-nav { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), .02); }
+.dc-nav-item { margin: 2px 8px; }
+.dc-content { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.dc-subtabs { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; }
+.dc-subtab { display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; color: rgba(var(--v-theme-on-surface), .7); background: transparent; border: none; cursor: pointer; transition: background .15s, color .15s; white-space: nowrap; }
+.dc-subtab:hover { background: rgba(var(--v-theme-primary), .08); color: rgb(var(--v-theme-primary)); }
+.dc-subtab--active { background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); font-weight: 600; }
+.dc-window { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.dc-window--overview { overflow-y: hidden; }
+.dc-pane { min-height: 100%; padding: 18px 20px; }
+.dc-pane--overview { min-height: auto; padding: 12px 16px; }
+.dc-section-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: rgb(var(--v-theme-primary)); }
+.dc-hint { font-size: 12px; line-height: 1.5; color: rgba(var(--v-theme-on-surface), .6); margin-top: 2px; }
+.dc-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dc-stat, .dc-overview-section { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px; min-width: 0; }
+.dc-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dc-flow { display: grid; gap: 10px; }
+.dc-flow-block { min-width: 0; }
+.dc-flow-label { font-size: 12px; font-weight: 600; color: rgb(var(--v-theme-primary)); margin-bottom: 5px; }
+.dc-flow-sub { display: grid; gap: 6px; }
+.dc-flow-sub-block { min-width: 0; padding-left: 8px; border-left: 2px solid rgba(var(--v-theme-primary), .25); }
+.dc-flow-sub-label { font-size: 12px; font-weight: 600; color: rgba(var(--v-theme-on-surface), .7); margin-bottom: 4px; }
+.dc-flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: rgba(var(--v-theme-on-surface), .78); }
+.dc-flow-row--sub { color: rgba(var(--v-theme-on-surface), .72); }
+.dc-flow-row span { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), .02); }
+.dc-kv { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.dc-kv:last-child { border-bottom: none; }
+.dc-wish-status { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 6px 10px; background: rgba(var(--v-theme-on-surface), .02); }
+.dc-wish-status strong { max-width: 70%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.dc-rank-row { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .02); font-size: 13px; }
+.dc-rank-row .v-text-field { max-height: 30px; }
+.dc-rank-row .v-text-field :deep(.v-field) { min-height: 28px; max-height: 28px; border-radius: 6px; }
+.dc-rank-row .v-text-field :deep(.v-field__input) { min-height: 24px; padding-top: 1px; padding-bottom: 1px; font-size: 13px; }
+.dc-rank-row .v-text-field :deep(.v-label) { font-size: 13px; }
+.dc-rank-row .v-switch :deep(.v-label) { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dc-rank-switch { white-space: nowrap; }
+.dc-rank-row .v-row { margin-top: 0; margin-bottom: 0; }
+.dc-rank-row .v-col { padding-top: 1px; padding-bottom: 1px; }
+.dc-rank-list-1col { display: flex; flex-direction: column; gap: 4px; }
+.dc-rank-card { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); align-items: center; column-gap: 12px; min-height: 42px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 5px 10px; background: rgba(var(--v-theme-on-surface), .02); transition: border-color .2s, background .2s; }
+.dc-rank-card--on { border-color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .04); }
+.dc-rank-card-header { margin-bottom: 0; min-width: 0; }
+.dc-rank-check :deep(.v-label) { font-size: 13px; font-weight: 600; }
+.dc-rank-field { display: block; min-width: 0; width: 100%; }
+.dc-rank-input { width: 100%; max-width: none; }
+.dc-rank-input :deep(.v-field), .dc-rank-regions :deep(.v-field) { min-height: 40px; border-radius: 6px; }
+.dc-rank-input :deep(.v-field__input), .dc-rank-regions :deep(.v-field__input) { min-height: 38px; padding-top: 3px; padding-bottom: 3px; font-size: 13px; }
+.dc-rank-input :deep(.v-label), .dc-rank-regions :deep(.v-label) { font-size: 12px; }
+.dc-custom-ranks-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dc-add-rank-icon { font-size: 24px; font-weight: 500; line-height: 1; }
+.dc-custom-ranks-empty { border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 12px; text-align: center; }
+.dc-custom-rank-card { display: grid; gap: 8px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px; margin-bottom: 6px; background: rgba(var(--v-theme-on-surface), .02); }
+.dc-custom-rank-header, .dc-custom-rank-source { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; min-width: 0; }
+.dc-custom-rank-source { grid-template-columns: minmax(0, 1fr) 150px; }
+.dc-custom-rank-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dc-custom-rank-settings .v-checkbox { min-width: 82px; }
+.dc-actions { padding: 10px 18px; }
+@media (max-width: 760px) {
+  .dc-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
+  .dc-card { height: min(860px, calc(100dvh - 16px)); }
+  .dc-header-subtitle { max-width: 100%; }
+  .dc-body { flex-direction: column; }
+  .dc-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .dc-nav::-webkit-scrollbar { display: none; }
+  .dc-nav-list { display: flex; flex-wrap: nowrap; gap: 6px; min-width: max-content; padding: 8px 12px !important; }
+  .dc-nav-item { flex: 0 0 auto; min-width: 96px; margin: 0; padding-inline: 10px; }
+  .dc-nav-item :deep(.v-list-item-title) { white-space: nowrap; }
+  .dc-subtabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 6px 12px; }
+  .dc-subtabs::-webkit-scrollbar { display: none; }
+  .dc-subtab { flex: 0 0 auto; padding: 6px 12px; }
+  .dc-pane { padding: 12px 12px; }
+  .dc-pane--overview { padding: 8px 10px; }
+  .dc-section-title { margin-bottom: 6px; }
+  .dc-stat-grid, .dc-overview-grid { grid-template-columns: 1fr; }
+  .dc-stat-grid, .dc-overview-grid, .dc-flow { gap: 6px; }
+  .dc-stat, .dc-overview-section { padding: 8px; }
+  .dc-flow-label { margin-bottom: 4px; }
+  .dc-flow-sub { gap: 5px; }
+  .dc-flow-sub-block { padding-left: 6px; }
+  .dc-flow-row { gap: 4px; font-size: 12px; }
+  .dc-flow-row span { padding: 4px 7px; }
+  .dc-kv { padding: 5px 0; font-size: 12px; }
+  .dc-rank-card { grid-template-columns: 1fr; row-gap: 4px; }
+  .dc-rank-card-body { grid-template-columns: 1fr; }
+  .dc-rank-input { width: 100%; max-width: none; }
+  .dc-custom-rank-source { grid-template-columns: 1fr; }
+  .dc-custom-rank-settings { display: grid; grid-template-columns: 1fr; align-items: stretch; }
+  .dc-actions { min-height: 44px; padding: 6px 10px; gap: 6px; }
+  .dc-action-btn { min-height: 32px; font-size: 13px; }
+  .dc-window--overview { overflow-y: auto; }
+}
+@media (max-height: 760px) {
+  .dc-window--overview { overflow-y: auto; }
+}
+
+/* 榜单行在桌面和移动端共享同一套可折叠结构。 */
+.dc-rank-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.dc-rank-list-summary { line-height: 1.35; }
+.dc-rank-card { display: block; min-width: 0; padding: 0; overflow: hidden; }
+.dc-rank-card-summary { display: grid; grid-template-columns: 36px 34px minmax(0, 1fr) 42px; align-items: center; gap: 4px; min-height: 50px; padding: 6px 8px; }
+.dc-rank-expand { width: 36px; height: 36px; }
+.dc-rank-summary-main { min-width: 0; cursor: pointer; }
+.dc-rank-summary-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.25; }
+.dc-rank-summary-title > span { min-width: 0; overflow-wrap: anywhere; }
+.dc-rank-summary-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; color: rgba(var(--v-theme-on-surface), .58); font-size: 11px; line-height: 1.25; }
+.dc-rank-actions { display: flex; align-items: center; justify-content: flex-end; min-width: 36px; }
+.dc-delete-rank { width: 36px !important; height: 36px !important; min-width: 36px !important; flex: 0 0 36px; border: 1px solid rgb(var(--v-theme-error)); background: rgb(var(--v-theme-error)) !important; color: rgb(var(--v-theme-on-error)) !important; box-shadow: 0 0 0 1px rgba(0, 0, 0, .18); }
+.dc-delete-rank :deep(.v-icon) { color: currentColor !important; opacity: 1 !important; }
+.dc-rank-card-details { display: grid; gap: 10px; padding: 9px 12px 12px; border-top: 1px solid rgba(var(--v-border-color), .45); min-width: 0; }
+.dc-rank-detail-toolbar { min-height: 30px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dc-rank-card-body { display: grid; grid-template-columns: 80px 80px minmax(150px, 1fr) 92px 108px; align-items: start; gap: 8px; min-width: 0; }
+.dc-rank-detail-enable { flex: 0 0 auto; min-width: 0; min-height: 30px; margin-left: -8px; }
+.dc-rank-field { min-width: 0; }
+.dc-rank-field--count { grid-column: 1; }
+.dc-rank-field--vote { grid-column: 2; }
+.dc-rank-regions { grid-column: 3; min-width: 0; width: 100%; }
+.dc-rank-field--threshold { grid-column: 4; }
+.dc-rank-field--days { grid-column: 5; }
+.dc-custom-rank-name { min-width: 0; }
+.dc-custom-rank-route-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.5fr) minmax(120px, .55fr); gap: 8px; align-items: end; min-width: 0; }
+.dc-custom-rank-route { min-width: 0; }
+.dc-custom-rank-date-mode { min-width: 0; }
+.dc-rank-route-hint { overflow-wrap: anywhere; }
+
+.dc-rank-details-enter-active,
+.dc-rank-details-leave-active { transition: opacity .15s ease, transform .15s ease; will-change: opacity, transform; }
+.dc-rank-details-enter-from,
+.dc-rank-details-leave-to { opacity: 0; transform: translateY(-4px); }
+
+@media (max-width: 760px) {
+  .dc-rank-card-summary { grid-template-columns: 34px 34px minmax(0, 1fr) 40px; padding: 6px 4px; }
+  .dc-rank-summary-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 8px; }
+  .dc-rank-card-details { padding: 9px 10px 12px; }
+  .dc-rank-detail-toolbar { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .dc-rank-card-body { grid-template-columns: 1fr; gap: 8px; }
+  .dc-rank-detail-enable, .dc-rank-regions { min-width: 0; width: 100%; }
+  .dc-rank-field, .dc-rank-field--count, .dc-rank-field--vote, .dc-rank-regions, .dc-rank-field--threshold, .dc-rank-field--days { grid-column: 1; }
+  .dc-rank-input { width: 100%; max-width: none; }
+  .dc-custom-rank-route-row { grid-template-columns: 1fr; }
+  .dc-delete-rank { width: 36px !important; height: 36px !important; }
+}
+</style>

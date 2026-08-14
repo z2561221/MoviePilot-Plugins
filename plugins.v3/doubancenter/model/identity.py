@@ -1,0 +1,151 @@
+"""DoubanCenter V3 媒体身份规范化与通用链调用适配。"""
+
+from __future__ import annotations
+
+from typing import Any, Mapping, Optional, Tuple
+
+from app.schemas.types import MediaSource
+from app.utils.media import normalize_media_source, resolve_media_identity
+
+
+LEGACY_ID_FIELDS = {
+    MediaSource.TMDB: ("tmdb_id", "tmdbid"),
+    MediaSource.Douban: ("douban_id", "doubanid"),
+    MediaSource.Bangumi: ("bangumi_id", "bangumiid"),
+}
+
+
+def _source_value(source: Any) -> str:
+    """返回来源的稳定传输值。"""
+    return str(getattr(source, "value", source) or "").strip()
+
+
+def legacy_identity(
+    *,
+    media_source: Any = None,
+    media_id: Any = None,
+    tmdb_id: Any = None,
+    douban_id: Any = None,
+    bangumi_id: Any = None,
+) -> Tuple[Optional[MediaSource], Optional[str]]:
+    """把统一身份或旧来源字段规范化为 V3 身份对。"""
+    if media_source is not None or media_id is not None:
+        return resolve_media_identity(media_source=media_source, media_id=media_id)
+
+    for source, value in (
+        (MediaSource.TMDB, tmdb_id),
+        (MediaSource.Douban, douban_id),
+        (MediaSource.Bangumi, bangumi_id),
+    ):
+        if value not in (None, ""):
+            normalized_source = normalize_media_source(source)
+            normalized_id = str(value).strip()
+            if normalized_source and normalized_id and normalized_id != "0":
+                return normalized_source, normalized_id
+    return None, None
+
+
+def identity_from_media(media: Any) -> Tuple[Optional[MediaSource], Optional[str]]:
+    """从媒体对象或记录读取主身份，并兼容旧来源字段。"""
+    source, media_id = resolve_media_identity(media=media)
+    if source and media_id:
+        return source, media_id
+
+    if isinstance(media, Mapping):
+        return legacy_identity(
+            media_source=media.get("media_source"),
+            media_id=media.get("media_id"),
+            tmdb_id=media.get("tmdb_id", media.get("tmdbid")),
+            douban_id=media.get("douban_id", media.get("doubanid")),
+            bangumi_id=media.get("bangumi_id", media.get("bangumiid")),
+        )
+    return legacy_identity(
+        media_source=getattr(media, "media_source", None),
+        media_id=getattr(media, "media_id", None),
+        tmdb_id=getattr(media, "tmdb_id", None),
+        douban_id=getattr(media, "douban_id", None),
+        bangumi_id=getattr(media, "bangumi_id", None),
+    )
+
+
+def identity_payload(
+    value: Any,
+    *,
+    media_source: Any = None,
+    media_id: Any = None,
+    tmdb_id: Any = None,
+    douban_id: Any = None,
+    bangumi_id: Any = None,
+) -> dict:
+    """返回包含规范化身份对的记录副本。"""
+    if isinstance(value, Mapping):
+        payload = dict(value)
+    else:
+        payload = {}
+    source, resolved_id = legacy_identity(media_source=media_source, media_id=media_id)
+    if not source or not resolved_id:
+        source, resolved_id = identity_from_media(value)
+    if not source or not resolved_id:
+        source, resolved_id = legacy_identity(
+            tmdb_id=tmdb_id,
+            douban_id=douban_id,
+            bangumi_id=bangumi_id,
+        )
+    if source and resolved_id:
+        payload["media_source"] = _source_value(source)
+        payload["media_id"] = str(resolved_id)
+    return payload
+
+
+def normalize_record(record: Mapping[str, Any]) -> tuple[dict, bool, bool]:
+    """迁移单条历史记录，返回记录、副本是否变化及是否无法回填。"""
+    original = dict(record)
+    migrated = identity_payload(original)
+    source, media_id = resolve_media_identity(
+        media_source=migrated.get("media_source"),
+        media_id=migrated.get("media_id"),
+    )
+    if source and media_id:
+        for field in LEGACY_ID_FIELDS.get(source, ()):
+            if str(migrated.get(field) or "").strip() == str(media_id):
+                migrated.pop(field, None)
+    changed = migrated != original
+    unresolved = not (source and media_id)
+    return migrated, changed, unresolved
+
+
+def recognize_media(
+    chain: Any,
+    *,
+    meta: Any = None,
+    mtype: Any = None,
+    media_source: Any = None,
+    media_id: Any = None,
+    tmdb_id: Any = None,
+    douban_id: Any = None,
+    bangumi_id: Any = None,
+    cache: bool = True,
+) -> Any:
+    """通过 V3 通用媒体链执行规范化身份识别。"""
+    source, resolved_id = legacy_identity(
+        media_source=media_source,
+        media_id=media_id,
+        tmdb_id=tmdb_id,
+        douban_id=douban_id,
+        bangumi_id=bangumi_id,
+    )
+    kwargs = {"meta": meta, "cache": cache}
+    if mtype is not None:
+        kwargs["mtype"] = mtype
+    if source and resolved_id:
+        kwargs["media_source"] = source
+        kwargs["media_id"] = resolved_id
+    return chain.recognize_media(**kwargs)
+
+
+def media_chain_kwargs(media: Any) -> dict:
+    """构造 V3 订阅链所需的身份参数。"""
+    source, media_id = identity_from_media(media)
+    if not source or not media_id:
+        return {}
+    return {"media_source": source, "media_id": media_id}

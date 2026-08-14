@@ -1,0 +1,246 @@
+"""
+DoubanCenter - 工具函数模块
+"""
+import datetime
+import re
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
+
+import pytz
+
+from app.core.config import settings
+from app.core.metainfo import MetaInfo
+from app.log import logger
+from app.schemas.types import MediaType
+
+
+LIVE_TV_MEDIA_TYPES = {
+    "livetv",
+    "livetvchannel",
+    "livetvprogram",
+    "program",
+    "tvchannel",
+}
+
+
+def is_live_tv_media_type(media_type: Any) -> bool:
+    """判断媒体服务器事件是否为明确的电视直播类型。"""
+    normalized = re.sub(r"[\s_-]", "", str(media_type or "")).casefold()
+    return normalized in LIVE_TV_MEDIA_TYPES
+
+
+def parse_wish_count(description: str) -> int:
+    """从描述文本中解析想看人数。"""
+    if not description:
+        return 0
+    match = re.search(r"想看人数[：:]\s*([0-9,]+)", description)
+    if not match:
+        return 0
+    try:
+        return int(match.group(1).replace(",", ""))
+    except ValueError:
+        return 0
+
+
+def parse_year(string: str) -> str:
+    """从文本中提取四位年份。"""
+    if not string:
+        return ""
+    match = re.search(r"\b(19|20)\d{2}\b", string)
+    if not match:
+        return ""
+    return match.group(0)
+
+
+def parse_regions_and_genres(category: str) -> Tuple[List[str], List[str]]:
+    """从 RSS 分类文本中解析地区与类型。"""
+    if not category:
+        return [], []
+    parts = [p.strip() for p in category.split("/") if p.strip()]
+    region_text = parts[1] if len(parts) > 1 else ""
+    genre_text = parts[2] if len(parts) > 2 else ""
+    regions = [x.strip() for x in re.split(r"[\s、,，]+", region_text) if x.strip()]
+    genres = [x.strip() for x in re.split(r"[\s、,，]+", genre_text) if x.strip()]
+    return regions, genres
+
+
+_REGION_NAMES = (
+    "中国大陆", "中国香港", "中国台湾", "美国", "日本", "韩国", "英国", "泰国", "印度",
+    "法国", "德国", "西班牙", "加拿大", "澳大利亚", "俄罗斯", "瑞典", "丹麦", "爱尔兰",
+    "意大利", "巴西", "新加坡", "马来西亚", "菲律宾", "越南", "墨西哥", "土耳其",
+)
+
+
+def parse_regions_from_description(description: str) -> List[str]:
+    """从 RSS 描述中的地区/产地字段补提地区。"""
+    text = str(description or "").strip()
+    if not text:
+        return []
+    found: List[str] = []
+    labelled = re.findall(r"(?:地区|国家|产地|制片国家/地区)\s*[：:]\s*([^\n|；;]+)", text, flags=re.IGNORECASE)
+    candidates = labelled or re.split(r"\s*/\s*", text)
+    for candidate in candidates:
+        value = str(candidate or "").strip()
+        value = re.sub(r"^(?:19|20)\d{2}\s*", "", value).strip()
+        for region in _REGION_NAMES:
+            if region in value or (not labelled and region in text):
+                if region not in found:
+                    found.append(region)
+    return found
+
+
+def normalize_region_values(value: Any) -> List[str]:
+    """将地区字段统一为去重后的字符串列表。"""
+    if isinstance(value, str):
+        values = re.split(r"[\s、,，/|；;]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = []
+    result: List[str] = []
+    seen = set()
+    for item in values:
+        if isinstance(item, dict):
+            item = item.get("name") or item.get("origin_country") or item.get("iso_3166_1")
+        text = str(item or "").strip()
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            result.append(text)
+    return result
+
+
+def match_any_filter(item_values: List[str], selected_values: List[str]) -> bool:
+    """判断条目值是否命中任一已选筛选值。"""
+    if not selected_values:
+        return True
+    return bool(set(item_values) & set(selected_values))
+
+
+def normalize_rss_domain(raw_domain: str) -> str:
+    """规范化 RSSHub 域名配置。"""
+    domain = (raw_domain or "").strip()
+    if not domain:
+        return "https://rsshub.app"
+    if "://" not in domain:
+        domain = f"https://{domain}"
+    parsed = urlparse(domain)
+    netloc = parsed.netloc or parsed.path
+    scheme = parsed.scheme or "https"
+    return f"{scheme}://{netloc}".rstrip("/")
+
+
+def build_resolution_rule(resolution_filters: List[str]) -> Optional[str]:
+    """根据分辨率筛选项生成匹配规则。"""
+    if not resolution_filters:
+        return None
+    if len(resolution_filters) == 1:
+        return resolution_filters[0]
+    return "|".join([f"(?:{item})" for item in resolution_filters if item])
+
+
+def get_tmdb_air_date(chain, tmdb_id: Optional[int], season: Optional[int] = None) -> Optional[str]:
+    """查询 TMDB 剧集或媒体播出日期。"""
+    if not tmdb_id:
+        return None
+    try:
+        if season:
+            season_info = chain.tmdb_info(tmdbid=tmdb_id, mtype=MediaType.TV, season=season)
+            if season_info:
+                date = season_info.get("air_date") or season_info.get("first_air_date")
+                if date:
+                    return date
+        tmdb_info = chain.tmdb_info(tmdbid=tmdb_id, mtype=MediaType.TV)
+        if not tmdb_info:
+            return None
+        if season:
+            for s in (tmdb_info.get("seasons") or []):
+                if s.get("season_number") == season and s.get("air_date"):
+                    return s.get("air_date")
+        return tmdb_info.get("first_air_date") or tmdb_info.get("release_date")
+    except Exception as err:
+        logger.error(f"获取TMDB播出日期失败：{err}")
+        return None
+
+
+def _normalize_iso_date(value: Any) -> Optional[str]:
+    """从日期或日期时间值中提取 ISO 日期。"""
+    match = re.search(r"\d{4}-\d{2}-\d{2}", str(value or "").strip())
+    return match.group(0) if match else None
+
+
+def get_media_release_date(mediainfo: Any, season: Optional[int] = None) -> Optional[str]:
+    """优先返回指定季首播日期，否则返回媒体上映日期。"""
+    if season:
+        for season_info in getattr(mediainfo, "season_info", None) or []:
+            if not isinstance(season_info, dict):
+                continue
+            try:
+                season_number = int(season_info.get("season_number"))
+            except (TypeError, ValueError):
+                continue
+            if season_number == int(season):
+                if air_date := _normalize_iso_date(season_info.get("air_date")):
+                    return air_date
+    for value in (
+        getattr(mediainfo, "release_date", None),
+        getattr(mediainfo, "first_air_date", None),
+    ):
+        if release_date := _normalize_iso_date(value):
+            return release_date
+    return None
+
+
+def is_within_days(date_str: str, days: int) -> bool:
+    """判断日期是否位于未来指定天数内。"""
+    try:
+        target = datetime.datetime.strptime(_normalize_iso_date(date_str) or "", "%Y-%m-%d").date()
+        today = datetime.datetime.now(pytz.timezone(settings.TZ)).date()
+        return 0 <= (target - today).days <= days
+    except Exception:
+        return False
+
+
+def is_within_recent_days(date_str: str, days: int) -> bool:
+    """判断日期是否位于最近指定天数内。"""
+    try:
+        target = datetime.datetime.strptime(_normalize_iso_date(date_str) or "", "%Y-%m-%d").date()
+        today = datetime.datetime.now(pytz.timezone(settings.TZ)).date()
+        return 0 <= (today - target).days <= days
+    except Exception:
+        return False
+
+
+def build_douban_dispatch_link(link: str) -> str:
+    """将豆瓣网页链接转换为豆瓣 App dispatch 链接。"""
+    if not link:
+        return ""
+    match = re.search(r"/subject/(\d+)/?", link)
+    if not match:
+        return link
+    return f"https://www.douban.com/doubanapp/dispatch?uri=/movie/{match.group(1)}?from=mdouban&open=app"
+
+
+def exclude_keyword(path: str, keywords: str) -> Dict[str, Any]:
+    """按路径排除关键词判断媒体是否允许同步。"""
+    if not keywords:
+        return {"ret": True, "message": "空关键词"}
+    if not path:
+        logger.warning('媒体路径为空,不执行过滤操作')
+        return {"ret": True, "message": "媒体路径为空,不执行过滤操作"}
+    for k in re.split(r'[，,]', keywords):
+        if k in path:
+            return {"ret": False, "message": f"路径 {path} 包含 {keywords}"}
+    return {"ret": True, "message": f"路径 {path} 不包含 {keywords}"}
+
+
+def format_title(title: str, season_id: int) -> str:
+    """按季号格式化剧集标题。"""
+    return f"{title} 第{season_id}季" if season_id > 1 else title
+
+
+def is_mobile(user_agent):
+    """根据 User-Agent 判断是否为移动端访问。"""
+    for kw in ['Mobile', 'Android', 'Silk/', 'Kindle', 'BlackBerry', 'Opera Mini', 'Opera Mobi', 'iPhone', 'iPad']:
+        if re.search(kw, user_agent, re.IGNORECASE):
+            return True
+    return False
