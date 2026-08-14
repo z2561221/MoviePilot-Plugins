@@ -13,6 +13,7 @@ from ._bootstrap import (
     block_real_network,  # noqa: F401  导入即注册主程序共享 autouse 网络守卫
     prepare_v1_backend,
     prepare_v2_backend,
+    prepare_v3_backend,
 )
 
 
@@ -24,6 +25,8 @@ def _selected_generation(config) -> str:
         path = Path(file_part).resolve().as_posix().replace("\\", "/")
         if "tests/v2" in path:
             generations.add("v2")
+        elif "tests/v3" in path:
+            generations.add("v3")
         elif "tests/v1" in path:
             generations.add("v1")
     if len(generations) == 1:
@@ -33,7 +36,10 @@ def _selected_generation(config) -> str:
 
 def pytest_configure(config) -> None:
     """收集用例前隔离 CONFIG_DIR、建表并注入对应代际插件目录。"""
-    if _selected_generation(config) == "v2":
+    generation = _selected_generation(config)
+    if generation == "v3":
+        prepare_v3_backend()
+    elif generation == "v2":
         prepare_v2_backend()
     else:
         prepare_v1_backend()

@@ -65,6 +65,14 @@ def prepare_v2_backend() -> None:
     _bootstrap.prepare_v2_backend(_PLUGINS_REPO)
 
 
+def prepare_v3_backend() -> None:
+    """V3 聚焦单测仅隔离配置并注入插件路径，不启动完整数据库。"""
+    _bootstrap.isolate_config_dir()
+    plugin_path = _PLUGINS_REPO / "plugins.v3"
+    if str(plugin_path) not in sys.path:
+        sys.path.insert(0, str(plugin_path))
+
+
 def prepare_v1_backend() -> None:
     """v1 插件单测引导：后端 + 本仓 ``plugins/``（委托主程序共享实现，与 v2 互斥）。"""
     _bootstrap.prepare_v1_backend(_PLUGINS_REPO)
