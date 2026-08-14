@@ -1,16 +1,20 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
-import { rmSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 
-function removeUnreachableSharedAssets() {
+function cleanFederationArtifacts() {
   return {
-    name: 'remove-unreachable-shared-assets',
+    name: 'clean-federation-artifacts',
     closeBundle() {
+      rmSync(new URL('./dist/index.html', import.meta.url), { force: true })
       rmSync(new URL('./dist/assets/__federation_shared_vuetify', import.meta.url), {
         recursive: true,
         force: true,
       })
+      const remoteEntryUrl = new URL('./dist/assets/remoteEntry.js', import.meta.url)
+      const remoteEntry = readFileSync(remoteEntryUrl, 'utf8').replace(/[ \t]+(?=\r?$)/gm, '')
+      writeFileSync(remoteEntryUrl, remoteEntry, 'utf8')
     },
   }
 }
@@ -34,7 +38,7 @@ export default defineConfig({
       },
       format: 'esm',
     }),
-    removeUnreachableSharedAssets(),
+    cleanFederationArtifacts(),
   ],
   build: {
     target: 'esnext',
