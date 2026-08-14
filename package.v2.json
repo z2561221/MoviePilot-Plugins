@@ -55,6 +55,7 @@
     "color": "#4CAF50",
     "level": 2,
     "v2": true,
+    "v3": false,
     "release": true,
     "author_url": "https://github.com/z2561221",
     "history": {

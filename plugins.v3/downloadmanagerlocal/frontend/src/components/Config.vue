@@ -1,0 +1,1606 @@
+<script setup>
+import { reactive, ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { getPluginApi, postPluginJsonApi } from './api'
+
+const props = defineProps({
+  api: { type: [Object, Function], default: null },
+  initialConfig: { type: Object, default: () => ({}) },
+})
+const emit = defineEmits(['save', 'close', 'switch'])
+
+const form = reactive({})
+const activeMain = ref('overview')
+const activeSub = ref('overview')
+const downloaderItems = ref([])
+const siteItems = ref([])
+const overview = ref(null)
+const cleanupDownloaders = ref([])
+const cleanupScan = ref(null)
+const cleanupKeep = reactive({})
+const cleanupScanning = ref(false)
+const cleanupExecuting = ref(false)
+const cleanupDialog = ref(false)
+const cleanupMessage = ref('')
+const cleanupStatus = ref('info')
+const monitorResetting = ref('')
+const monitorMessage = ref('')
+const monitorMessageStatus = ref('info')
+const uploadSiteItems = ref([])
+const uploadScanningSites = ref(false)
+const uploadActionRunning = ref('')
+const uploadMessage = ref('')
+const uploadMessageStatus = ref('info')
+const uploadRestoreDialog = ref(false)
+const UPLOAD_STATUS_REFRESH_INTERVAL_MS = 30_000
+let uploadStatusRefreshTimer = null
+let uploadStatusRefreshPending = false
+let uploadSiteRulesSaveTail = Promise.resolve()
+let uploadSiteRulesRevision = 0
+let uploadSiteScanTail = Promise.resolve()
+
+async function refreshOverview() {
+  const response = await getPluginApi(props.api, 'overview')
+  if (response?.code === 0 || response?.cards) overview.value = response
+}
+
+onMounted(async () => {
+  try {
+    const [dlResp, siteResp, overviewResp] = await Promise.all([
+      getPluginApi(props.api, 'downloaders', { feedback: 'silent' }),
+      getPluginApi(props.api, 'sites', { feedback: 'silent' }),
+      getPluginApi(props.api, 'overview', { feedback: 'silent' }),
+    ])
+    if (dlResp) {
+      downloaderItems.value = dlResp
+    }
+    if (siteResp) {
+      siteItems.value = siteResp
+    }
+    if (overviewResp?.code === 0 || overviewResp?.cards) overview.value = overviewResp
+  } catch (e) {
+    console.error('获取列表失败:', e)
+  }
+})
+
+const defaults = {
+  enabled: false, transfer_enabled: true, delay_minutes: 25, onlyonce: false, notify: false,
+  transfer_fallback_enabled: true, transfer_fallback_interval_minutes: 60,
+  fromdownloader: '', todownloader: '', frompath: '', topath: '',
+  fromtorrentpath: '', nopaths: '', nolabels: '', includelabels: '', includecategory: '',
+  transferemptylabel: false, add_torrent_tags: '⏩转种',
+  deletesource: false, deleteduplicate: false,
+  remainoldcat: false, remainoldtag: false,
+  rename_enabled: true,
+  rename_movie_format: '[ {{ title }}{% if year %} ({{ year }}){% endif %} ] - {{original_name}}',
+  rename_tv_format: '[ {{ title }}{% if year %} ({{ year }}){% endif %}{% if season_episode %} - {{season_episode}}{% endif %} ] - {{original_name}}',
+  rename_exclude_dirs: '',
+  tag_enabled: true, tag_siteprefix: '🏠', tag_tracker_mappings_str: '',
+  iyuu_enabled: false, iyuu_cron: '', iyuu_onlyonce: false,
+  iyuu_token: '', iyuu_downloaders: [], iyuu_auto_downloader: '',
+  iyuu_sites: [], iyuu_nolabels: '', iyuu_nopaths: '',
+  iyuu_size: 0, iyuu_auto_category: false,
+  iyuu_labelsafterseed: '已整理,辅种', iyuu_categoryafterseed: '',
+  iyuu_clearcache: false,
+  seed_autostart: true, seed_skipverify: false,
+  seed_check_interval: 60, seed_max_wait_minutes: 120,
+  speed_monitor_enabled: false, speed_monitor_downloaders: [], speed_monitor_mode: 'auto',
+  speed_monitor_tolerance: 1.5, speed_monitor_min_samples: 5,
+  speed_monitor_interval_seconds: 30, speed_monitor_grace_minutes: 10,
+  speed_monitor_consecutive_abnormal_samples: 2,
+  speed_monitor_manual_speed_bps: {}, speed_monitor_floor_speed_bps: {},
+  speed_monitor_notification_type: 'Plugin',
+  upload_limit_enabled: false, upload_limit_downloaders: [],
+  upload_limit_downloader_limits_kib: {}, upload_limit_site_rules: {},
+  upload_limit_grace_minutes: 30,
+}
+
+const mainTabs = [
+  { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看下载中心各模块的完整运行链路。' },
+  { key: 'monitor', title: '速度监控', icon: 'mdi-speedometer', desc: '按下载器建立稳健基准，识别未在预计时间内完成的下载任务。' },
+  { key: 'transfer', title: '转移做种', icon: 'mdi-transfer', desc: '监听下载完成事件，延迟后自动转移做种到目标下载器。' },
+  { key: 'iyuu', title: 'IYUU辅种', icon: 'mdi-seed-plus', desc: '基于 IYUU API 自动辅种，铺种后自动打站点标签。' },
+  { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
+  { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
+  { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
+  { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '设置下载器全局上传上限，并按需限制指定站点的合计上传速度。' },
+]
+
+const subTabs = {
+  overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
+  upload: [
+    { key: 'upload_basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'upload_sites', title: '站点策略', icon: 'mdi-home-outline' },
+    { key: 'upload_status', title: '运行状态', icon: 'mdi-pulse' },
+  ],
+  monitor: [
+    { key: 'monitor_basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'monitor_threshold', title: '阈值策略', icon: 'mdi-chart-bell-curve-cumulative' },
+    { key: 'monitor_status', title: '运行状态', icon: 'mdi-pulse' },
+  ],
+  transfer: [
+    { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'filter', title: '筛选条件', icon: 'mdi-filter-variant' },
+    { key: 'advanced', title: '高级选项', icon: 'mdi-tune' },
+  ],
+  iyuu: [
+    { key: 'iyuu_basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'iyuu_filter', title: '筛选条件', icon: 'mdi-filter-variant' },
+    { key: 'iyuu_advanced', title: '高级选项', icon: 'mdi-tune' },
+  ],
+  rename: [{ key: 'format', title: '命名格式', icon: 'mdi-format-text' }],
+  tag: [
+    { key: 'mapping', title: 'Tracker 映射', icon: 'mdi-link-variant' },
+    { key: 'tag_cleanup', title: '标签清理', icon: 'mdi-tag-remove-outline' },
+  ],
+  seed: [{ key: 'seed_basic', title: '基础设置', icon: 'mdi-tune-variant' }],
+}
+
+const currentMain = computed(() => mainTabs.find(i => i.key === activeMain.value) || mainTabs[0])
+const currentSubs = computed(() => subTabs[activeMain.value] || [])
+const selectedToDownloaderType = computed(() => {
+  const selected = downloaderItems.value.find(item => item.value === form.todownloader)
+  return selected?.type || ''
+})
+const qbDownloaderItems = computed(() => downloaderItems.value.filter(item => item.type === 'qbittorrent'))
+const monitorDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
+const uploadDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
+const uploadSelectedDownloaders = computed(() => {
+  const selected = new Set(form.upload_limit_downloaders || [])
+  return uploadDownloaderItems.value.filter(item => selected.has(item.value))
+})
+const uploadMissingLimits = computed(() => uploadSelectedDownloaders.value.filter(
+  item => !uploadDownloaderLimit(item.value),
+))
+const uploadLimit = computed(() => overview.value?.upload_limit || {})
+const uploadLimitDownloaderRows = computed(() => uploadLimit.value.downloaders || [])
+const uploadLimitSiteRows = computed(() => uploadLimit.value.sites || [])
+const uploadSiteRuleRows = computed(() => Object.entries(form.upload_limit_site_rules || {})
+  .map(([name, rule]) => ({ name, limit_kib: Number(rule?.limit_kib || 0) || null }))
+  .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN')))
+const speedMonitor = computed(() => overview.value?.speed_monitor || {})
+const speedBaselines = computed(() => speedMonitor.value.baselines || [])
+const speedThresholdSuggestions = computed(() => {
+  const configured = new Set(form.speed_monitor_downloaders || [])
+  const selected = speedBaselines.value.filter(
+    item => configured.has(item.downloader_id) && item.threshold_suggestion?.ready,
+  )
+  const tolerance = selected
+    .map(item => Number(item.threshold_suggestion.tolerance || 0))
+    .filter(value => value > 0)
+  const grace = selected
+    .map(item => Number(item.threshold_suggestion.grace_minutes || 0))
+    .filter(value => value > 0)
+  return {
+    tolerance: tolerance.length ? Math.max(...tolerance) : null,
+    grace_minutes: grace.length ? Math.max(...grace) : null,
+  }
+})
+const speedThresholdSuggestionRows = computed(() => {
+  const suggestions = speedThresholdSuggestions.value
+  const rows = [
+    {
+      key: 'speed_monitor_interval_seconds',
+      label: '活跃扫描间隔',
+      currentValue: Number(form.speed_monitor_interval_seconds || 0),
+      suggestedValue: 30,
+      format: value => `${value} 秒`,
+    },
+    {
+      key: 'speed_monitor_grace_minutes',
+      label: '启动宽限',
+      currentValue: Number(form.speed_monitor_grace_minutes || 0),
+      suggestedValue: suggestions.grace_minutes,
+      format: value => `${value} 分钟`,
+    },
+    {
+      key: 'speed_monitor_tolerance',
+      label: '允许时长倍数',
+      currentValue: Number(form.speed_monitor_tolerance || 0),
+      suggestedValue: suggestions.tolerance,
+      format: value => `${Number(value).toFixed(1)} 倍`,
+    },
+    {
+      key: 'speed_monitor_consecutive_abnormal_samples',
+      label: '连续异常次数',
+      currentValue: Number(form.speed_monitor_consecutive_abnormal_samples || 0),
+      suggestedValue: 2,
+      format: value => `${value} 次`,
+    },
+    {
+      key: 'speed_monitor_min_samples',
+      label: '可信样本门槛',
+      currentValue: Number(form.speed_monitor_min_samples || 0),
+      suggestedValue: 5,
+      format: value => `${value} 条`,
+    },
+  ]
+  return rows.map(row => ({
+    ...row,
+    current: row.format(row.currentValue),
+    suggested: row.suggestedValue == null ? '—' : row.format(row.suggestedValue),
+    available: row.suggestedValue != null && row.currentValue !== row.suggestedValue,
+  }))
+})
+function applySpeedThresholdSuggestion(row) {
+  if (!row?.available) return
+  form[row.key] = row.suggestedValue
+}
+function applyAllSpeedThresholdSuggestions() {
+  speedThresholdSuggestionRows.value
+    .filter(row => row.available)
+    .forEach(applySpeedThresholdSuggestion)
+}
+const speedMonitorStatus = computed(() => {
+  const status = speedMonitor.value.service_status
+  return {
+    disabled: { label: '未启用', color: 'default' },
+    idle: { label: '空闲', color: 'primary' },
+    running: { label: '监控中', color: 'success' },
+    error: { label: '状态异常', color: 'error' },
+  }[status] || { label: '空闲', color: 'primary' }
+})
+const notificationTypeItems = [
+  { title: '插件', value: 'Plugin' },
+  { title: '资源下载', value: 'Download' },
+  { title: '整理入库', value: 'Organize' },
+  { title: '订阅', value: 'Subscribe' },
+  { title: '站点', value: 'SiteMessage' },
+  { title: '媒体服务器', value: 'MediaServer' },
+  { title: '手动处理', value: 'Manual' },
+  { title: '智能体', value: 'Agent' },
+  { title: '其它', value: 'Other' },
+]
+const monitorModeItems = [
+  { title: '自动稳健基准', value: 'auto' },
+  { title: '手动最低速度', value: 'manual' },
+]
+const uploadLimitStatus = computed(() => {
+  const status = uploadLimit.value.service_status
+  return {
+    disabled: { label: '未启用', color: 'default' },
+    starting: { label: '启动中', color: 'info' },
+    running: { label: '分配中', color: 'success' },
+    degraded: { label: '部分异常', color: 'warning' },
+    error: { label: '状态异常', color: 'error' },
+  }[status] || { label: '未启用', color: 'default' }
+})
+const cleanupGroups = computed(() => cleanupScan.value?.downloaders || [])
+const cleanupAutoRemovedCount = computed(() => cleanupScan.value?.auto_removed?.length || 0)
+const cleanupRemovals = computed(() => {
+  const removals = []
+  for (const group of cleanupGroups.value) {
+    for (const item of group.tags || []) {
+      if (!cleanupKeep[tagSelectionKey(group.name, item.tag)]) {
+        removals.push({ downloader: group.name, tag: item.tag, hashes: [...(item.hashes || [])] })
+      }
+    }
+  }
+  return removals
+})
+const cleanupRemovalAssociations = computed(() => cleanupRemovals.value.reduce((total, item) => total + item.hashes.length, 0))
+const runtimeFlows = [
+  {
+    label: '速度监控',
+    steps: ['下载任务', '监控会话', '有效采样', '阈值判定', '告警通知', '异常处置'],
+  },
+  {
+    label: '转移做种',
+    steps: ['下载完成', '延迟等待', '目标转移', '公共链路'],
+  },
+  {
+    label: 'IYUU铺种',
+    steps: ['任务触发', '资源查询', '辅种下载', '公共链路'],
+  },
+  {
+    label: '公共链路',
+    steps: ['命名处理', '站点标签', '做种校验'],
+  },
+  {
+    label: '上传限速',
+    steps: ['全局限速', '站点识别', '按需设限', '合计限速', '动态调速', '停用恢复'],
+  },
+  {
+    label: '兜底补刀',
+    steps: ['异常命名', '兜底补刀', '失败计数', '归档恢复'],
+  },
+]
+
+watch(() => props.initialConfig, v => {
+  Object.keys(form).forEach(k => delete form[k])
+  Object.assign(form, defaults, v || {})
+  form.speed_monitor_downloaders = [...(v?.speed_monitor_downloaders || [])]
+  form.speed_monitor_manual_speed_bps = { ...(v?.speed_monitor_manual_speed_bps || {}) }
+  form.speed_monitor_floor_speed_bps = { ...(v?.speed_monitor_floor_speed_bps || {}) }
+  form.upload_limit_downloaders = [...(v?.upload_limit_downloaders || [])]
+  form.upload_limit_downloader_limits_kib = { ...(v?.upload_limit_downloader_limits_kib || {}) }
+  form.upload_limit_site_rules = Object.fromEntries(Object.entries(v?.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
+}, { immediate: true, deep: true })
+
+function saveConfig() {
+  emit('save', {
+    ...form,
+    speed_monitor_downloaders: [...(form.speed_monitor_downloaders || [])],
+    speed_monitor_manual_speed_bps: { ...(form.speed_monitor_manual_speed_bps || {}) },
+    speed_monitor_floor_speed_bps: { ...(form.speed_monitor_floor_speed_bps || {}) },
+    upload_limit_downloaders: [...(form.upload_limit_downloaders || [])],
+    upload_limit_downloader_limits_kib: { ...(form.upload_limit_downloader_limits_kib || {}) },
+    upload_limit_site_rules: Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }])),
+  })
+}
+function selectMain(key) {
+  if (activeMain.value === key) return
+  activeMain.value = key
+  activeSub.value = subTabs[key]?.[0]?.key || ''
+}
+
+function formatSpeed(value) {
+  const speed = Number(value || 0)
+  if (!speed) return '未建立'
+  if (speed >= 1024 * 1024) return `${(speed / 1024 / 1024).toFixed(2)} MiB/s`
+  return `${(speed / 1024).toFixed(1)} KiB/s`
+}
+
+function speedMiB(mapping, downloaderId) {
+  const speed = Number(mapping?.[downloaderId] || 0)
+  return speed > 0 ? Number((speed / 1024 / 1024).toFixed(3)) : null
+}
+
+function setSpeedMiB(field, downloaderId, value) {
+  const mapping = { ...(form[field] || {}) }
+  const speed = Number(value)
+  if (Number.isFinite(speed) && speed > 0 && speed <= 102400) {
+    mapping[downloaderId] = speed * 1024 * 1024
+  } else {
+    delete mapping[downloaderId]
+  }
+  form[field] = mapping
+}
+
+function uploadDownloaderLimit(downloaderId) {
+  const value = Number(form.upload_limit_downloader_limits_kib?.[downloaderId] || 0)
+  return value > 0 ? value : null
+}
+
+function setUploadDownloaderLimit(downloaderId, value) {
+  const mapping = { ...(form.upload_limit_downloader_limits_kib || {}) }
+  const normalized = Number(value)
+  if (Number.isFinite(normalized) && normalized > 0) mapping[downloaderId] = Math.floor(normalized)
+  else delete mapping[downloaderId]
+  form.upload_limit_downloader_limits_kib = mapping
+}
+
+function formatUploadRate(value) {
+  const speed = Number(value || 0)
+  if (speed >= 1024 * 1024) return `${(speed / 1024 / 1024).toFixed(2)} MiB/s`
+  return `${(speed / 1024).toFixed(1)} KiB/s`
+}
+
+function cloneUploadSiteRules(rules = form.upload_limit_site_rules) {
+  return Object.fromEntries(Object.entries(rules || {}).map(([name, rule]) => [name, { ...rule }]))
+}
+
+function queueUploadSiteRulesSave(rules) {
+  const snapshot = cloneUploadSiteRules(rules)
+  const revision = ++uploadSiteRulesRevision
+  uploadSiteRulesSaveTail = uploadSiteRulesSaveTail.catch(() => undefined).then(async () => {
+    const response = await postPluginJsonApi(props.api, 'upload_limit_site_rules_update', { rules: snapshot })
+    if (response?.code !== 0) throw new Error(response?.msg || '站点策略保存失败')
+    if (revision === uploadSiteRulesRevision) {
+      form.upload_limit_site_rules = cloneUploadSiteRules(response?.rules || snapshot)
+      uploadMessageStatus.value = 'success'
+      uploadMessage.value = response?.msg || '站点策略已立即生效'
+    }
+    return response
+  }).catch(error => {
+    if (revision === uploadSiteRulesRevision) {
+      uploadMessageStatus.value = 'error'
+      uploadMessage.value = error?.message || '站点策略保存失败'
+    }
+    throw error
+  })
+  void uploadSiteRulesSaveTail.catch(() => undefined)
+  return uploadSiteRulesSaveTail
+}
+
+async function flushUploadSiteRulesSave() {
+  await uploadSiteRulesSaveTail
+}
+
+function setUploadSiteRule(siteName, value) {
+  const rules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
+  const current = rules[siteName] || { limit_kib: 0 }
+  const limit = Number(value)
+  current.limit_kib = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 0
+  rules[siteName] = current
+  form.upload_limit_site_rules = rules
+  queueUploadSiteRulesSave(rules)
+}
+
+function removeUploadSiteRule(siteName) {
+  const rules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
+  delete rules[siteName]
+  form.upload_limit_site_rules = rules
+  queueUploadSiteRulesSave(rules)
+}
+
+async function clearUploadSiteRules() {
+  uploadActionRunning.value = 'site-rules'
+  uploadMessage.value = ''
+  const previousRules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
+  form.upload_limit_site_rules = {}
+  try {
+    const response = await queueUploadSiteRulesSave({})
+    form.upload_limit_site_rules = {}
+    uploadMessageStatus.value = 'success'
+    uploadMessage.value = '站点策略已清空并立即生效；所有任务仅受下载器全局上限约束'
+  } catch (error) {
+    form.upload_limit_site_rules = previousRules
+    uploadMessageStatus.value = 'error'
+    uploadMessage.value = error?.message || '站点策略清空失败'
+  } finally {
+    uploadActionRunning.value = ''
+  }
+}
+
+function applyUploadStatus(response) {
+  if (!response || (response.code !== 0 && !response.service_status)) return
+  overview.value = { ...(overview.value || {}), upload_limit: response }
+}
+
+async function refreshUploadLimitStatus({ silent = false } = {}) {
+  if (!silent) {
+    uploadActionRunning.value = 'refresh'
+    uploadMessage.value = ''
+  }
+  try {
+    const response = await getPluginApi(
+      props.api,
+      'upload_limit_status',
+      silent ? { feedback: 'silent' } : {},
+    )
+    applyUploadStatus(response)
+  } catch (error) {
+    if (silent) console.error('上传限速状态自动刷新失败:', error)
+    else {
+      uploadMessageStatus.value = 'error'
+      uploadMessage.value = error?.message || '状态刷新失败'
+    }
+  } finally {
+    if (!silent) uploadActionRunning.value = ''
+  }
+}
+
+function isUploadStatusVisible() {
+  return activeMain.value === 'upload'
+    && activeSub.value === 'upload_status'
+    && document.visibilityState === 'visible'
+}
+
+async function refreshVisibleUploadLimitStatus() {
+  if (!isUploadStatusVisible() || uploadStatusRefreshPending || uploadActionRunning.value) return
+  uploadStatusRefreshPending = true
+  try {
+    await refreshUploadLimitStatus({ silent: true })
+  } finally {
+    uploadStatusRefreshPending = false
+  }
+}
+
+function stopUploadStatusAutoRefresh() {
+  if (!uploadStatusRefreshTimer) return
+  window.clearInterval(uploadStatusRefreshTimer)
+  uploadStatusRefreshTimer = null
+}
+
+function syncUploadStatusAutoRefresh() {
+  stopUploadStatusAutoRefresh()
+  if (!isUploadStatusVisible()) return
+  void refreshVisibleUploadLimitStatus()
+  uploadStatusRefreshTimer = window.setInterval(refreshVisibleUploadLimitStatus, UPLOAD_STATUS_REFRESH_INTERVAL_MS)
+}
+
+watch([activeMain, activeSub], syncUploadStatusAutoRefresh, { flush: 'post' })
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', syncUploadStatusAutoRefresh)
+  syncUploadStatusAutoRefresh()
+})
+
+onBeforeUnmount(stopUploadStatusAutoRefresh)
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', syncUploadStatusAutoRefresh)
+})
+
+async function scanUploadSites() {
+  uploadMessage.value = ''
+  if (!form.upload_limit_downloaders?.length) {
+    uploadMessageStatus.value = 'warning'
+    uploadMessage.value = '请先选择限速下载器'
+    return
+  }
+  uploadScanningSites.value = true
+  const scanOperation = (async () => {
+    await flushUploadSiteRulesSave()
+    return postPluginJsonApi(props.api, 'upload_limit_site_tags', {
+      downloaders: form.upload_limit_downloaders,
+      rules: cloneUploadSiteRules(),
+    })
+  })()
+  uploadSiteScanTail = scanOperation
+  try {
+    const response = await scanOperation
+    uploadSiteItems.value = response?.items || []
+    form.upload_limit_site_rules = response?.rules || form.upload_limit_site_rules || {}
+    uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
+    uploadMessage.value = response?.msg || `扫描到 ${uploadSiteItems.value.length} 个站点标签，策略已立即生效`
+  } catch (error) {
+    uploadMessageStatus.value = 'error'
+    uploadMessage.value = error?.message || '站点扫描失败'
+  } finally {
+    if (uploadSiteScanTail === scanOperation) uploadSiteScanTail = Promise.resolve()
+    uploadScanningSites.value = false
+  }
+}
+
+async function reallocateUploadLimits() {
+  uploadActionRunning.value = 'reallocate'
+  uploadMessage.value = ''
+  try {
+    await uploadSiteScanTail
+    await flushUploadSiteRulesSave()
+    const response = await postPluginJsonApi(props.api, 'upload_limit_reallocate', {})
+    applyUploadStatus(response)
+    uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
+    uploadMessage.value = response?.msg || '上传额度已重新分配'
+  } catch (error) {
+    uploadMessageStatus.value = 'error'
+    uploadMessage.value = error?.message || '重新分配失败'
+  } finally {
+    uploadActionRunning.value = ''
+  }
+}
+
+async function disableAndRestoreUploadLimits() {
+  uploadActionRunning.value = 'restore'
+  uploadMessage.value = ''
+  try {
+    const response = await postPluginJsonApi(props.api, 'upload_limit_disable_restore', {})
+    form.upload_limit_enabled = false
+    uploadRestoreDialog.value = false
+    await refreshUploadLimitStatus()
+    uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
+    uploadMessage.value = response?.msg || '上传限速已停用并恢复'
+  } catch (error) {
+    uploadMessageStatus.value = 'error'
+    uploadMessage.value = error?.message || '停用恢复失败'
+  } finally {
+    uploadActionRunning.value = ''
+  }
+}
+
+function dispositionLabel(action) {
+  return {
+    close: '关闭告警', request_delete: '等待删除确认', cancel_delete: '取消删除',
+    confirm_delete: '删除成功', delete_failed: '删除失败', recovered: '速度恢复',
+    completed: '任务完成', deleted: '任务删除',
+  }[action] || action || '暂无处置'
+}
+
+async function resetMonitorBaseline(downloaderId) {
+  monitorResetting.value = downloaderId
+  monitorMessage.value = ''
+  try {
+    const response = await postPluginJsonApi(props.api, 'reset_speed_monitor_baseline', { downloader_id: downloaderId })
+    monitorMessageStatus.value = response?.code === 0 ? 'success' : 'error'
+    monitorMessage.value = response?.msg || (response?.code === 0 ? '速度基准已重置' : '重置失败')
+    if (response?.code === 0) await refreshOverview()
+  } catch (error) {
+    monitorMessageStatus.value = 'error'
+    monitorMessage.value = error?.message || '重置失败'
+  } finally {
+    monitorResetting.value = ''
+  }
+}
+
+function tagSelectionKey(downloader, tag) {
+  return `${downloader}\u0000${tag}`
+}
+
+function resetCleanupKeep(groups) {
+  Object.keys(cleanupKeep).forEach(key => delete cleanupKeep[key])
+  for (const group of groups || []) {
+    for (const item of group.tags || []) cleanupKeep[tagSelectionKey(group.name, item.tag)] = true
+  }
+}
+
+function setAllCleanupTags(keep) {
+  for (const group of cleanupGroups.value) {
+    for (const item of group.tags || []) cleanupKeep[tagSelectionKey(group.name, item.tag)] = keep
+  }
+}
+
+function cleanupKindMeta(kind) {
+  return {
+    site: { label: '站点', color: 'primary' },
+    managed: { label: '业务', color: 'success' },
+    temporary: { label: '临时', color: 'warning' },
+    legacy_temporary: { label: '旧临时', color: 'warning' },
+    active_temporary: { label: '使用中', color: 'info' },
+    other: { label: '其他', color: 'default' },
+  }[kind] || { label: '其他', color: 'default' }
+}
+
+async function scanCleanupTags() {
+  cleanupMessage.value = ''
+  if (!cleanupDownloaders.value.length) {
+    cleanupStatus.value = 'warning'
+    cleanupMessage.value = '请先选择下载器'
+    return
+  }
+  cleanupScanning.value = true
+  try {
+    const response = await postPluginJsonApi(props.api, 'tag_cleanup_scan', { downloaders: cleanupDownloaders.value })
+    cleanupScan.value = response || null
+    resetCleanupKeep(response?.downloaders || [])
+    const errorCount = response?.errors?.length || 0
+    cleanupStatus.value = response?.code === 0 ? (errorCount ? 'warning' : 'success') : 'error'
+    cleanupMessage.value = response?.code === 0
+      ? `扫描完成 · 自动清理 ${response?.auto_removed?.length || 0} 个临时标签`
+      : (response?.msg || '扫描失败')
+  } catch (error) {
+    cleanupStatus.value = 'error'
+    cleanupMessage.value = error?.message || '扫描失败'
+  } finally {
+    cleanupScanning.value = false
+  }
+}
+
+function previewCleanupTags() {
+  if (!cleanupRemovals.value.length) {
+    cleanupStatus.value = 'warning'
+    cleanupMessage.value = '没有需要清理的标签'
+    return
+  }
+  cleanupDialog.value = true
+}
+
+async function executeCleanupTags() {
+  cleanupExecuting.value = true
+  try {
+    const response = await postPluginJsonApi(props.api, 'tag_cleanup_execute', { removals: cleanupRemovals.value })
+    cleanupDialog.value = false
+    await scanCleanupTags()
+    cleanupStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
+    cleanupMessage.value = response?.msg || '清理完成'
+  } catch (error) {
+    cleanupStatus.value = 'error'
+    cleanupMessage.value = error?.message || '清理失败'
+  } finally {
+    cleanupExecuting.value = false
+  }
+}
+</script>
+<template>
+  <div class="dm-config">
+    <VCard flat class="dm-card">
+      <VCardItem class="dm-header">
+        <template #prepend>
+          <VAvatar color="success" variant="tonal" size="44" rounded="lg">
+            <VIcon icon="mdi-download" size="24" />
+          </VAvatar>
+        </template>
+        <VCardTitle class="text-h6">下载中心</VCardTitle>
+        <VCardSubtitle class="text-caption">{{ currentMain.desc }}</VCardSubtitle>
+        <template #append>
+          <VSwitch v-model="form.enabled" color="success" hide-details inset :label="form.enabled ? '已启用' : '已停用'" />
+        </template>
+      </VCardItem>
+      <VDivider />
+      <div class="dm-body">
+        <nav class="dm-nav">
+          <VList density="comfortable" nav class="dm-nav-list py-2">
+            <VListItem v-for="item in mainTabs" :key="item.key" :active="activeMain === item.key"
+              color="primary" rounded="lg" class="dm-nav-item" @click="selectMain(item.key)">
+              <template #prepend><VIcon :icon="item.icon" /></template>
+              <VListItemTitle>{{ item.title }}</VListItemTitle>
+            </VListItem>
+          </VList>
+        </nav>
+        <section class="dm-content">
+          <div class="dm-subtabs">
+            <button v-for="sub in currentSubs" :key="sub.key" type="button"
+              class="dm-subtab" :class="{ 'dm-subtab--active': activeSub === sub.key }" @click="activeSub = sub.key">
+              <VIcon :icon="sub.icon" size="18" class="mr-1" />{{ sub.title }}
+            </button>
+          </div>
+          <VDivider />
+          <div class="dm-window" :class="{ 'dm-window--overview': activeMain === 'overview' }">
+            <div v-show="activeSub === 'overview'" class="dm-pane dm-pane--overview">
+              <div class="dm-overview-section mb-3">
+                <div class="dm-section-title">运行链路</div>
+                <div class="dm-flow">
+                  <div v-for="flow in runtimeFlows" :key="flow.label" class="dm-flow-block">
+                    <div class="dm-flow-label">{{ flow.label }}</div>
+                    <div class="dm-flow-row">
+                      <template v-for="(step, index) in flow.steps" :key="`${flow.label}-${step}`">
+                        <span class="dm-flow-step">{{ step }}</span>
+                        <VIcon v-if="index < flow.steps.length - 1" class="dm-flow-arrow" icon="mdi-arrow-right" size="14" />
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- ═══ 上传限速 · 基础设置 ═══ -->
+            <div v-show="activeSub === 'upload_basic'" class="dm-pane">
+              <div class="dm-section-title">上传限速设置</div>
+              <VRow>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.upload_limit_enabled" color="success" inset hide-details label="启用上传限速" />
+                </VCol>
+                <VCol cols="12" md="8">
+                  <VSelect v-model="form.upload_limit_downloaders" label="限速下载器" density="compact" variant="outlined"
+                    :items="uploadDownloaderItems" multiple chips closable-chips clearable
+                    hint="只扫描和修改这里选中的 qBittorrent / Transmission 实例" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" sm="6" md="4">
+                  <VTextField v-model.number="form.upload_limit_grace_minutes" label="新种宽限（分钟）" type="number" min="0" max="1440"
+                    density="compact" variant="outlined" hint="默认 30；填 0 表示完成后立即纳入分配" persistent-hint />
+                </VCol>
+              </VRow>
+
+              <div class="dm-section-title mt-4">下载器总上限</div>
+              <div v-if="uploadSelectedDownloaders.length" class="dm-upload-downloader-list">
+                <div v-for="item in uploadSelectedDownloaders" :key="item.value" class="dm-upload-config-row">
+                  <div class="dm-upload-config-name">
+                    <VIcon :icon="item.type === 'transmission' ? 'mdi-transmission-tower' : 'mdi-download-network-outline'" size="19" color="primary" />
+                    <div class="min-w-0">
+                      <strong>{{ item.title }}</strong>
+                      <div class="text-caption text-medium-emphasis">
+                        {{ item.type === 'transmission' ? 'Transmission Session 上传上限' : 'qB 普通与备用上传上限' }}
+                      </div>
+                    </div>
+                  </div>
+                  <VTextField :model-value="uploadDownloaderLimit(item.value)"
+                    @update:model-value="setUploadDownloaderLimit(item.value, $event)"
+                    label="总上限（KiB/s）" type="number" min="1" step="1" density="compact" variant="outlined"
+                    hint="必须大于 0；以插件配置为准" persistent-hint />
+                </div>
+              </div>
+              <div v-else class="dm-monitor-empty">尚未选择限速下载器</div>
+
+              <VAlert v-if="form.upload_limit_enabled && !uploadSelectedDownloaders.length" type="warning" variant="tonal" density="compact" class="mt-4">
+                请至少选择一个 qBittorrent 或 Transmission 下载器，并设置正整数总上限。
+              </VAlert>
+              <VAlert v-else-if="form.upload_limit_enabled && uploadMissingLimits.length" type="warning" variant="tonal" density="compact" class="mt-4">
+                {{ uploadMissingLimits.map(item => item.title).join('、') }} 尚未设置正整数总上限，保存后上传限速不会启动。
+              </VAlert>
+
+              <VAlert type="info" variant="tonal" density="compact" class="mt-4">
+                单位为 KiB/s（1 Mbps ≈ 122 KiB/s）。宽限期间不做站点和单种分配，但仍受对应下载器总上传上限。
+              </VAlert>
+            </div>
+
+            <!-- ═══ 上传限速 · 站点策略 ═══ -->
+            <div v-show="activeSub === 'upload_sites'" class="dm-pane">
+              <div class="dm-upload-toolbar">
+                <div>
+                  <div class="dm-section-title mb-1">站点限速</div>
+                  <div class="text-caption text-medium-emphasis">扫描只添加站点名称，不预填上限；只有填写正数的站点才会限制合计上传速度。</div>
+                </div>
+                <div class="d-flex align-center ga-2">
+                  <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="uploadScanningSites"
+                    :disabled="uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
+                    @click="scanUploadSites">扫描站点</VBtn>
+                  <VBtn color="error" variant="text" prepend-icon="mdi-delete-sweep-outline"
+                    :disabled="!uploadSiteRuleRows.length || uploadScanningSites || uploadActionRunning === 'reallocate'"
+                    :loading="uploadActionRunning === 'site-rules'"
+                    @click="clearUploadSiteRules">清空策略</VBtn>
+                </div>
+              </div>
+
+              <VAlert type="info" variant="tonal" density="compact" class="mt-3">
+                仅识别唯一有效的「{{ form.tag_siteprefix || '🏠' }}站点名」标签。上限留空或填 0 时不写单种限速，该站点仍受下载器全局上限约束。
+              </VAlert>
+
+              <VAlert v-if="uploadMessage" :type="uploadMessageStatus" variant="tonal" density="compact" closable class="mt-3"
+                @click:close="uploadMessage = ''">{{ uploadMessage }}</VAlert>
+
+              <div v-if="uploadSiteRuleRows.length" class="dm-upload-site-list mt-4">
+                <div v-for="row in uploadSiteRuleRows" :key="row.name" class="dm-upload-site-row">
+                  <div class="dm-upload-site-name">
+                    <VIcon icon="mdi-home-outline" size="19" color="primary" />
+                    <div class="min-w-0">
+                      <strong class="text-body-2">{{ row.name }}</strong>
+                      <div class="text-caption text-medium-emphasis">{{ form.tag_siteprefix || '🏠' }}{{ row.name }}</div>
+                    </div>
+                  </div>
+                  <VTextField :model-value="row.limit_kib" @update:model-value="setUploadSiteRule(row.name, $event)"
+                    label="合计上限（KiB/s）" type="number" min="0" step="1" clearable density="compact" variant="outlined"
+                    :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
+                    hint="留空或 0 表示该站点不限速；正数为跨下载器共享的站点合计上限" persistent-hint />
+                  <VBtn icon="mdi-delete-outline" size="small" color="error" variant="text" title="删除站点"
+                    :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
+                    @click="removeUploadSiteRule(row.name)" />
+                </div>
+              </div>
+              <div v-else class="dm-monitor-empty mt-3">尚未扫描站点；没有站点上限时只应用下载器全局上限</div>
+
+              <VAlert type="info" variant="tonal" density="compact" class="mt-4">
+                正数上限限制该站点全部任务的合计上传速度；多个受限站点在下载器全局额度内按实际需求共享可用带宽。
+              </VAlert>
+            </div>
+
+            <!-- ═══ 上传限速 · 运行状态 ═══ -->
+            <div v-show="activeSub === 'upload_status'" class="dm-pane">
+              <div class="dm-upload-toolbar">
+                <div>
+                  <div class="dm-section-title mb-1">运行状态</div>
+                  <div class="text-caption text-medium-emphasis">MP 或插件离线时，下载器继续保留最后一次已写入的限速。</div>
+                </div>
+                <div class="d-flex ga-2 flex-wrap justify-end">
+                  <VBtn size="small" variant="text" prepend-icon="mdi-refresh" :loading="uploadActionRunning === 'refresh'"
+                    @click="refreshUploadLimitStatus">刷新</VBtn>
+                  <VBtn size="small" color="primary" variant="tonal" prepend-icon="mdi-call-split"
+                    :loading="uploadActionRunning === 'reallocate'"
+                    :disabled="!uploadLimit.enabled || uploadScanningSites || uploadActionRunning === 'site-rules'"
+                    @click="reallocateUploadLimits">立即分配</VBtn>
+                  <VBtn size="small" color="warning" variant="tonal" prepend-icon="mdi-backup-restore"
+                    :disabled="!uploadLimit.active && !uploadLimit.enabled" @click="uploadRestoreDialog = true">停用并恢复</VBtn>
+                </div>
+              </div>
+
+              <VAlert v-if="uploadMessage" :type="uploadMessageStatus" variant="tonal" density="compact" closable class="mt-3"
+                @click:close="uploadMessage = ''">{{ uploadMessage }}</VAlert>
+              <VAlert v-for="error in uploadLimit.errors || []" :key="error" type="warning" variant="tonal" density="compact" class="mt-2">
+                {{ error }}
+              </VAlert>
+
+              <div class="dm-upload-summary mt-4">
+                <div class="dm-monitor-metric"><span>服务</span><strong>{{ uploadLimitStatus.label }}</strong></div>
+                <div class="dm-monitor-metric"><span>实时速率</span><strong>{{ formatUploadRate(uploadLimit.upload_rate_bps) }}</strong></div>
+                <div class="dm-monitor-metric"><span>受限任务</span><strong>{{ uploadLimit.managed_torrents || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>宽限任务</span><strong>{{ uploadLimit.grace_torrents || 0 }}</strong></div>
+              </div>
+              <div class="dm-hint mt-2">实时速率是下载器当前实际上传流量；站点额度是插件写入单种限速的合计值，两者不是同一指标。</div>
+
+              <div class="dm-section-title mt-4">下载器状态</div>
+              <div v-if="uploadLimitDownloaderRows.length" class="dm-upload-status-grid">
+                <div v-for="item in uploadLimitDownloaderRows" :key="item.id" class="dm-upload-status-card">
+                  <div class="dm-upload-status-head">
+                    <div class="min-w-0">
+                      <strong class="text-body-2">{{ item.id }}</strong>
+                      <div class="text-caption text-medium-emphasis">{{ item.type === 'transmission' ? 'Transmission' : 'qBittorrent' }}</div>
+                    </div>
+                    <VChip size="x-small" :color="item.error ? 'warning' : 'success'" variant="tonal">{{ item.error ? '异常' : '正常' }}</VChip>
+                  </div>
+                  <div class="dm-upload-values">
+                    <span>实时 <strong>{{ formatUploadRate(item.upload_rate_bps) }}</strong></span>
+                    <span>{{ item.type === 'transmission' ? 'Session 全局上限' : 'QB 全局上限' }} <strong>{{ item.total_limit_kib }} KiB/s</strong></span>
+                    <span>受限任务 <strong>{{ item.managed_torrents || 0 }}</strong></span>
+                    <span>宽限任务 <strong>{{ item.grace_torrents || 0 }}</strong></span>
+                  </div>
+                  <div v-if="item.error" class="text-caption text-warning mt-2 dm-break-text">{{ item.error }}</div>
+                </div>
+              </div>
+              <div v-else class="dm-monitor-empty">当前没有启用的限速下载器</div>
+
+              <div class="dm-section-title mt-4">受限站点</div>
+              <div v-if="uploadLimitSiteRows.length" class="dm-upload-site-status">
+                <div v-for="item in uploadLimitSiteRows" :key="item.key" class="dm-upload-site-status-row">
+                  <div class="min-w-0">
+                    <strong class="text-body-2">{{ item.name }}</strong>
+                    <div class="text-caption text-medium-emphasis">{{ item.torrent_count }} 个任务 · {{ item.downloaders?.join('、') }}</div>
+                  </div>
+                  <span class="text-caption">实时 <strong>{{ formatUploadRate(item.upload_rate_bps) }}</strong></span>
+                  <span class="text-caption">站点额度 <strong>{{ item.allocated_kib }} KiB/s</strong></span>
+                  <span class="text-caption">站点上限 <strong>{{ item.limit_kib }} KiB/s</strong></span>
+                </div>
+              </div>
+              <div v-else class="dm-monitor-empty">当前没有填写正数上限的受限站点</div>
+            </div>
+
+            <!-- ═══ 速度监控 · 基础设置 ═══ -->
+            <div v-show="activeSub === 'monitor_basic'" class="dm-pane">
+              <div class="dm-section-title">速度监控设置</div>
+              <VRow>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.speed_monitor_enabled" color="success" inset hide-details label="启用速度异常监控" />
+                </VCol>
+                <VCol cols="12" md="8">
+                  <VSelect v-model="form.speed_monitor_downloaders" label="监控下载器" density="compact" variant="outlined"
+                    :items="monitorDownloaderItems" multiple chips closable-chips clearable hint="支持 qBittorrent 和 Transmission" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="6">
+                  <VSelect v-model="form.speed_monitor_mode" label="基准模式" density="compact" variant="outlined" hide-details
+                    :items="monitorModeItems" />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VSelect v-model="form.speed_monitor_notification_type" label="通知分类" density="compact" variant="outlined" hide-details
+                    :items="notificationTypeItems" />
+                </VCol>
+              </VRow>
+              <VAlert type="info" variant="tonal" density="compact" class="mt-4">
+                速度监控独立于转移做种和 IYUU；插件总开关、监控开关和至少一个下载器同时启用后才运行。
+              </VAlert>
+            </div>
+
+            <!-- ═══ 速度监控 · 阈值策略 ═══ -->
+            <div v-show="activeSub === 'monitor_threshold'" class="dm-pane">
+              <div class="dm-section-title">采样与判定</div>
+              <VRow>
+                <VCol cols="12" sm="6" md="3">
+                  <VTextField v-model.number="form.speed_monitor_interval_seconds" label="活跃扫描间隔（秒）" type="number" min="10" max="300"
+                    density="compact" variant="outlined" hint="范围 10–300，默认 30" persistent-hint />
+                </VCol>
+                <VCol cols="12" sm="6" md="3">
+                  <VTextField v-model.number="form.speed_monitor_grace_minutes" label="启动宽限（分钟）" type="number" min="0" max="1440"
+                    density="compact" variant="outlined" hint="范围 0–1440" persistent-hint />
+                </VCol>
+                <VCol cols="12" sm="6" md="3">
+                  <VTextField v-model.number="form.speed_monitor_tolerance" label="允许时长倍数" type="number" min="1.01" step="0.1"
+                    density="compact" variant="outlined" hint="必须大于 1" persistent-hint />
+                </VCol>
+                <VCol cols="12" sm="6" md="3">
+                  <VTextField v-model.number="form.speed_monitor_consecutive_abnormal_samples" label="连续异常次数" type="number" min="1" max="10"
+                    density="compact" variant="outlined" hint="范围 1–10" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-1">
+                <VCol cols="12" sm="6" md="3">
+                  <VTextField v-model.number="form.speed_monitor_min_samples" label="可信样本门槛" type="number" min="1" max="100"
+                    density="compact" variant="outlined" hint="范围 1–100，默认 5" persistent-hint />
+                </VCol>
+              </VRow>
+
+              <VAlert type="info" variant="tonal" density="compact" class="mt-3 dm-threshold-suggestion">
+                <div class="dm-threshold-suggestion-head">
+                  <div class="dm-threshold-suggestion-title">样本建议</div>
+                  <VBtn size="small" variant="tonal" color="primary" prepend-icon="mdi-check-all"
+                    :disabled="!speedThresholdSuggestionRows.some(row => row.available)"
+                    @click="applyAllSpeedThresholdSuggestions">应用全部可用建议</VBtn>
+                </div>
+                <div class="dm-threshold-suggestion-list">
+                  <div v-for="row in speedThresholdSuggestionRows" :key="row.label" class="dm-threshold-suggestion-row">
+                    <span class="dm-threshold-suggestion-label">{{ row.label }}</span>
+                    <span class="dm-threshold-suggestion-current">当前值 {{ row.current }}</span>
+                    <strong class="dm-threshold-suggestion-suggested">建议值 {{ row.suggested }}</strong>
+                    <VBtn size="x-small" variant="text" color="primary" prepend-icon="mdi-check-circle-outline"
+                      class="dm-threshold-suggestion-action" :disabled="!row.available"
+                      @click="applySpeedThresholdSuggestion(row)">采用建议</VBtn>
+                  </div>
+                </div>
+              </VAlert>
+
+              <div class="dm-section-title mt-4">每下载器速度</div>
+              <VAlert v-if="!form.speed_monitor_downloaders?.length" type="warning" variant="tonal" density="compact">
+                请先在基础设置中选择监控下载器。
+              </VAlert>
+              <div v-else class="dm-monitor-speed-list">
+                <div v-for="downloaderId in form.speed_monitor_downloaders" :key="downloaderId" class="dm-monitor-speed-row">
+                  <div class="dm-monitor-speed-name"><VIcon icon="mdi-download-network-outline" size="18" />{{ downloaderId }}</div>
+                  <VTextField v-if="form.speed_monitor_mode === 'manual'"
+                    :model-value="speedMiB(form.speed_monitor_manual_speed_bps, downloaderId)"
+                    @update:model-value="setSpeedMiB('speed_monitor_manual_speed_bps', downloaderId, $event)"
+                    label="最低期望速度（MiB/s）" type="number" min="0.01" max="102400" step="0.1"
+                    density="compact" variant="outlined" hint="手动模式必填，范围 0.01–102400 MiB/s" persistent-hint />
+                  <VTextField v-else
+                    :model-value="speedMiB(form.speed_monitor_floor_speed_bps, downloaderId)"
+                    @update:model-value="setSpeedMiB('speed_monitor_floor_speed_bps', downloaderId, $event)"
+                    label="保护下限（MiB/s）" type="number" min="0.01" max="102400" step="0.1" clearable
+                    density="compact" variant="outlined" hint="可留空；填写后与自动基准取较大值" persistent-hint />
+                </div>
+              </div>
+              <VAlert v-if="form.speed_monitor_mode === 'auto'" type="info" variant="tonal" density="compact" class="mt-3">
+                未设置保护下限时，自动模式只能相对历史健康样本判断，无法识别首批样本整体偏慢。
+              </VAlert>
+            </div>
+
+            <!-- ═══ 速度监控 · 运行状态 ═══ -->
+            <div v-show="activeSub === 'monitor_status'" class="dm-pane">
+              <div class="dm-section-title">运行状态</div>
+              <VAlert v-if="monitorMessage" :type="monitorMessageStatus" variant="tonal" density="compact" closable class="mb-3"
+                @click:close="monitorMessage = ''">{{ monitorMessage }}</VAlert>
+              <div class="dm-monitor-summary">
+                <div class="dm-monitor-metric"><span>服务</span><strong>{{ speedMonitorStatus.label }}</strong></div>
+                <div class="dm-monitor-metric"><span>选中下载器</span><strong>{{ speedMonitor.selected_downloaders?.length || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>活跃会话</span><strong>{{ speedMonitor.active_sessions || 0 }}</strong></div>
+                <div class="dm-monitor-metric"><span>待处理告警</span><strong>{{ speedMonitor.pending_alerts || 0 }}</strong></div>
+              </div>
+              <VAlert v-if="speedMonitor.state_error" type="error" variant="tonal" density="compact" class="mt-3">{{ speedMonitor.state_error }}</VAlert>
+
+              <div class="dm-section-title mt-4">下载器基准</div>
+              <div v-if="speedBaselines.length" class="dm-monitor-baselines">
+                <div v-for="item in speedBaselines" :key="item.downloader_id" class="dm-monitor-baseline">
+                  <div class="dm-monitor-baseline-head">
+                    <div class="min-w-0">
+                      <strong class="text-body-2">{{ item.downloader_id }}</strong>
+                      <div class="text-caption text-medium-emphasis">{{ item.status === 'trusted' ? '可信基准' : '校准中' }} · {{ item.sample_count }}/{{ item.min_samples }} 样本</div>
+                    </div>
+                    <VBtn v-if="speedMonitor.mode === 'auto'" size="small" variant="tonal" color="warning" icon="mdi-restart"
+                      :loading="monitorResetting === item.downloader_id" title="重置自动基准" @click="resetMonitorBaseline(item.downloader_id)" />
+                  </div>
+                  <div class="dm-baseline-values">
+                    <span>当前参考 <strong>{{ formatSpeed(item.reference_speed_bps) }}</strong></span>
+                    <span>可信 <strong>{{ formatSpeed(item.trusted_speed_bps) }}</strong></span>
+                    <span>临时 <strong>{{ formatSpeed(item.provisional_speed_bps) }}</strong></span>
+                  </div>
+                  <div v-if="item.relative_only" class="dm-relative-note">相对基准：未配置绝对保护下限</div>
+                </div>
+              </div>
+              <div v-else class="dm-monitor-empty">尚无下载器基准数据</div>
+
+              <div class="dm-section-title mt-4">最近处置</div>
+              <div v-if="speedMonitor.last_disposition" class="dm-disposition">
+                <strong>{{ dispositionLabel(speedMonitor.last_disposition.action) }}</strong>
+                <span>{{ speedMonitor.last_disposition.downloader_id }} · {{ speedMonitor.last_disposition.name || speedMonitor.last_disposition.torrent_hash }}</span>
+                <span v-if="speedMonitor.last_disposition.error" class="text-error dm-break-text">{{ speedMonitor.last_disposition.error }}</span>
+              </div>
+              <div v-else class="dm-monitor-empty">暂无告警处置记录</div>
+
+              <VAlert type="error" variant="tonal" density="compact" class="mt-4">
+                Telegram 二次确认后会删除种子及全部数据，且不可恢复；关闭告警不会删除任务。
+              </VAlert>
+              <VAlert type="info" variant="tonal" density="compact" class="mt-2">
+                如有换种需求，可配合订阅助手增强版（SubscribeAssistantEnhanced）使用，由其负责监听 MoviePilot 删除事件。
+              </VAlert>
+            </div>
+
+            <!-- ═══ 转移做种 · 基础设置 ═══ -->
+            <div v-show="activeSub === 'basic'" class="dm-pane">
+              <div class="dm-section-title">基础设置</div>
+              <VRow>
+                <VCol cols="12" md="6">
+                  <VSelect v-model="form.fromdownloader" label="源下载器" density="compact" variant="outlined" hide-details
+                    :items="downloaderItems" hint="选择源下载器" persistent-hint />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VSelect v-model="form.todownloader" label="目的下载器" density="compact" variant="outlined" hide-details
+                    :items="downloaderItems" hint="选择目的下载器" persistent-hint />
+                </VCol>
+              </VRow>
+              <VAlert
+                v-if="form.todownloader && selectedToDownloaderType === 'transmission'"
+                type="warning"
+                variant="tonal"
+                density="compact"
+                class="mt-2"
+              >
+                Transmission 当前不支持种子重命名，命名补刀与恢复原名不会生效；转移做种、IYUU 辅种和做种校验不受影响。
+              </VAlert>
+              <VRow class="mt-2">
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.frompath" label="源数据文件根路径" density="compact" variant="outlined" hide-details
+                    hint="源下载器中数据的根路径" persistent-hint />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.topath" label="目的数据文件根路径" density="compact" variant="outlined" hide-details
+                    hint="目标下载器中数据的根路径" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.fromtorrentpath" label="源种子文件路径" density="compact" variant="outlined" hide-details
+                    hint="如 BT_backup，留空自动获取" persistent-hint />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.add_torrent_tags" label="添加种子标签" density="compact" variant="outlined" hide-details
+                    hint="多个以逗号分隔" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="3">
+                  <VSwitch v-model="form.transfer_enabled" color="success" inset hide-details label="启用转移做种" />
+                </VCol>
+                <VCol cols="12" md="3">
+                  <VSwitch v-model="form.notify" color="info" inset hide-details label="发送通知" />
+                </VCol>
+                <VCol cols="12" md="3">
+                  <VSwitch v-model="form.onlyonce" color="warning" inset hide-details label="立即运行一次" />
+                </VCol>
+                <VCol cols="12" md="3">
+                  <VTextField v-model.number="form.delay_minutes" label="延迟时间（分钟）" type="number" density="compact" variant="outlined" hide-details
+                    hint="下载完成后延迟 N 分钟再转移" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.transfer_fallback_enabled" color="success" inset hide-details label="转移做种兜底服务" />
+                </VCol>
+                <VCol cols="12" md="4">
+                  <VTextField v-model.number="form.transfer_fallback_interval_minutes" label="兜底间隔（分钟）" type="number" min="1" density="compact" variant="outlined" hide-details
+                    :disabled="!form.transfer_fallback_enabled" hint="事件漏触发时按此间隔扫描，默认60分钟" persistent-hint />
+                </VCol>
+              </VRow>
+            </div>
+
+            <!-- ═══ 转移做种 · 筛选条件 ═══ -->
+            <div v-show="activeSub === 'filter'" class="dm-pane">
+              <div class="dm-section-title">筛选条件</div>
+              <VRow>
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.includelabels" label="转移种子标签（逗号分隔）" density="compact" variant="outlined" hide-details
+                    hint="仅转移包含这些标签的种子" persistent-hint />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.nolabels" label="不转移种子标签（逗号分隔）" density="compact" variant="outlined" hide-details
+                    hint="跳过包含这些标签的种子" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.includecategory" label="转移种子分类（逗号分隔）" density="compact" variant="outlined" hide-details
+                    hint="仅转移这些分类的种子" persistent-hint />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VSwitch v-model="form.transferemptylabel" color="info" inset hide-details label="转移无标签种子" />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12">
+                  <VTextarea v-model="form.nopaths" label="不转移数据文件目录（每行一个）" density="compact" variant="outlined" hide-details rows="3" />
+                </VCol>
+              </VRow>
+            </div>
+
+            <!-- ═══ 转移做种 · 高级选项 ═══ -->
+            <div v-show="activeSub === 'advanced'" class="dm-pane">
+              <div class="dm-section-title">高级选项</div>
+              <VRow>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.deletesource" color="warning" inset hide-details label="删除源种子" />
+                </VCol>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.deleteduplicate" color="warning" inset hide-details label="删除重复种子" />
+                </VCol>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.remainoldcat" color="info" inset hide-details label="保留原分类" />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.remainoldtag" color="info" inset hide-details label="保留原标签" />
+                </VCol>
+              </VRow>
+            </div>
+
+            <!-- ═══ IYUU辅种 · 基础设置 ═══ -->
+            <div v-show="activeSub === 'iyuu_basic'" class="dm-pane">
+              <div class="dm-section-title">IYUU 辅种设置</div>
+              <VRow>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.iyuu_enabled" color="success" inset hide-details label="启用辅种" />
+                </VCol>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.iyuu_onlyonce" color="warning" inset hide-details label="立即运行一次" />
+                </VCol>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.iyuu_clearcache" color="error" inset hide-details label="清除缓存后运行" />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.iyuu_token" label="IYUU Token" density="compact" variant="outlined" hide-details
+                    hint="在 https://iyuu.cn 获取" persistent-hint />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VCronField v-model="form.iyuu_cron" label="执行周期" density="compact" variant="outlined" hide-details />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="6">
+                  <VSelect v-model="form.iyuu_downloaders" label="辅种下载器" density="compact" variant="outlined" hide-details
+                    :items="downloaderItems" multiple chips clearable hint="选择辅种目标下载器" persistent-hint />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VSelect v-model="form.iyuu_auto_downloader" label="主辅分离" density="compact" variant="outlined" hide-details
+                    :items="downloaderItems" clearable hint="辅种专用下载器（可选）" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12">
+                  <VSelect v-model="form.iyuu_sites" label="辅种站点" density="compact" variant="outlined" hide-details
+                    :items="siteItems" multiple chips clearable hint="选择允许辅种的站点，留空表示全部站点" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="6">
+                  <VTextField v-model.number="form.iyuu_size" label="辅种体积大于(GB)" type="number" density="compact" variant="outlined" hide-details
+                    hint="只有大于该值的才辅种" persistent-hint />
+                </VCol>
+              </VRow>
+            </div>
+
+            <!-- ═══ IYUU辅种 · 筛选条件 ═══ -->
+            <div v-show="activeSub === 'iyuu_filter'" class="dm-pane">
+              <div class="dm-section-title">辅种筛选</div>
+              <VRow>
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.iyuu_nolabels" label="不辅种标签（逗号分隔）" density="compact" variant="outlined" hide-details
+                    hint="跳过包含这些标签的种子" persistent-hint />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.iyuu_labelsafterseed" label="辅种后增加标签" density="compact" variant="outlined" hide-details
+                    hint="逗号分隔，默认：已整理,辅种" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="6">
+                  <VTextField v-model="form.iyuu_categoryafterseed" label="辅种后增加分类" density="compact" variant="outlined" hide-details
+                    hint="设置辅种种子的分类" persistent-hint />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12">
+                  <VTextarea v-model="form.iyuu_nopaths" label="不辅种数据文件目录（每行一个）" density="compact" variant="outlined" hide-details rows="3" />
+                </VCol>
+              </VRow>
+            </div>
+
+            <!-- ═══ IYUU辅种 · 高级选项 ═══ -->
+            <div v-show="activeSub === 'iyuu_advanced'" class="dm-pane">
+              <div class="dm-section-title">辅种高级选项</div>
+              <VRow>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.iyuu_auto_category" color="info" inset hide-details label="分类复用(QB有效)" />
+                </VCol>
+              </VRow>
+            </div>
+
+            <!-- ═══ 种子重命名 · 命名格式 ═══ -->
+            <div v-show="activeSub === 'format'" class="dm-pane">
+              <div class="dm-section-title">重命名设置</div>
+              <VRow>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.rename_enabled" color="success" inset hide-details label="启用重命名" />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12">
+                  <VTextarea v-model="form.rename_movie_format" label="电影命名格式 (Jinja2)" density="compact" variant="outlined" hide-details rows="2" />
+                  <div class="dm-hint">可用变量: {{ title }}, {{ year }}, {{ original_name }}</div>
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12">
+                  <VTextarea v-model="form.rename_tv_format" label="电视剧命名格式 (Jinja2)" density="compact" variant="outlined" hide-details rows="2" />
+                  <div class="dm-hint">可用变量: {{ title }}, {{ year }}, {{ season_episode }}, {{ original_name }}</div>
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12">
+                  <VTextarea v-model="form.rename_exclude_dirs" label="排除目录（每行一个）" density="compact" variant="outlined" hide-details rows="2" />
+                </VCol>
+              </VRow>
+            </div>
+
+            <!-- ═══ 站点标签 · Tracker 映射 ═══ -->
+            <div v-show="activeSub === 'mapping'" class="dm-pane">
+              <div class="dm-section-title">站点标签设置</div>
+              <VRow>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.tag_enabled" color="success" inset hide-details label="启用站点标签" />
+                </VCol>
+                <VCol cols="12" md="4">
+                  <VTextField v-model="form.tag_siteprefix" label="站点标签前缀" density="compact" variant="outlined" hide-details />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12">
+                  <VTextarea v-model="form.tag_tracker_mappings_str" label="Tracker 映射（每行: 域名 -> 映射域名）" density="compact" variant="outlined" hide-details rows="4" />
+                  <div class="dm-hint">例: tracker.example.com -> example</div>
+                </VCol>
+              </VRow>
+            </div>
+
+            <!-- ═══ 站点标签 · 标签清理 ═══ -->
+            <div v-show="activeSub === 'tag_cleanup'" class="dm-pane">
+              <div class="dm-section-title">标签清理</div>
+              <div class="dm-cleanup-toolbar">
+                <VSelect v-model="cleanupDownloaders" label="下载器" density="compact" variant="outlined" hide-details
+                  :items="qbDownloaderItems" multiple chips closable-chips class="dm-cleanup-select" />
+                <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="cleanupScanning"
+                  :disabled="!cleanupDownloaders.length" @click="scanCleanupTags">扫描标签</VBtn>
+              </div>
+
+              <VAlert v-if="cleanupMessage" :type="cleanupStatus" variant="tonal" density="compact" closable class="mt-3"
+                @click:close="cleanupMessage = ''">{{ cleanupMessage }}</VAlert>
+
+              <div v-if="cleanupScan" class="dm-cleanup-results mt-4">
+                <div class="dm-cleanup-summary">
+                  <div>
+                    <div class="text-subtitle-2">扫描结果</div>
+                    <div class="text-caption text-medium-emphasis">
+                      {{ cleanupGroups.length }} 个下载器 · 自动清理 {{ cleanupAutoRemovedCount }} 个临时标签
+                    </div>
+                  </div>
+                  <div class="d-flex ga-1 flex-wrap justify-end">
+                    <VBtn size="small" variant="text" prepend-icon="mdi-check-all" @click="setAllCleanupTags(true)">全部保留</VBtn>
+                    <VBtn size="small" variant="text" color="warning" prepend-icon="mdi-checkbox-blank-outline"
+                      @click="setAllCleanupTags(false)">取消全选</VBtn>
+                  </div>
+                </div>
+
+                <VAlert v-for="item in cleanupScan.errors || []" :key="`${item.downloader}-${item.message}`"
+                  type="warning" variant="tonal" density="compact" class="mb-2">
+                  {{ item.downloader }} · {{ item.message }}
+                </VAlert>
+
+                <div v-for="group in cleanupGroups" :key="group.name" class="dm-tag-group">
+                  <div class="dm-tag-group-head">
+                    <div class="d-flex align-center ga-2 min-w-0">
+                      <VIcon icon="mdi-download-network-outline" size="19" color="primary" />
+                      <strong class="text-body-2">{{ group.name }}</strong>
+                    </div>
+                    <span class="text-caption text-medium-emphasis">{{ group.task_count }} 个任务 · {{ group.tags.length }} 个标签</span>
+                  </div>
+
+                  <div v-if="!group.tags.length" class="dm-cleanup-empty">
+                    <VIcon icon="mdi-tag-check-outline" size="28" color="success" />
+                    <span>没有待选择标签</span>
+                  </div>
+                  <div v-else class="dm-tag-list">
+                    <label v-for="item in group.tags" :key="`${group.name}-${item.tag}`" class="dm-tag-row">
+                      <VCheckboxBtn v-model="cleanupKeep[tagSelectionKey(group.name, item.tag)]" color="success" />
+                      <div class="dm-tag-content">
+                        <div class="dm-tag-line">
+                          <span class="dm-tag-name" :title="item.tag">{{ item.tag }}</span>
+                          <VChip size="x-small" variant="tonal" :color="cleanupKindMeta(item.kind).color">
+                            {{ cleanupKindMeta(item.kind).label }}
+                          </VChip>
+                          <span class="text-caption text-medium-emphasis">{{ item.count }} 个任务</span>
+                        </div>
+                        <div class="dm-tag-samples" :title="(item.samples || []).join(' · ')">{{ (item.samples || []).join(' · ') }}</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="dm-cleanup-actions">
+                  <div class="text-caption text-medium-emphasis">
+                    待清理 {{ cleanupRemovals.length }} 个标签 · {{ cleanupRemovalAssociations }} 条任务关联
+                  </div>
+                  <VBtn color="warning" variant="tonal" prepend-icon="mdi-eye-outline"
+                    :disabled="!cleanupRemovals.length" @click="previewCleanupTags">预览清理</VBtn>
+                </div>
+              </div>
+            </div>
+
+            <!-- ═══ 做种校验 v3.0.15 · 基础设置 ═══ -->
+            <div v-show="activeSub === 'seed_basic'" class="dm-pane">
+              <div class="dm-section-title">做种校验设置</div>
+              <VAlert type="info" variant="tonal" density="compact" class="mb-4">做种校验采用按需触发：仅在转移做种、IYUU铺种或手动补刀添加种子后启动。队列为空后自动停止。</VAlert>
+              <VRow>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.seed_autostart" color="success" inset hide-details label="启用自动开始做种" />
+                </VCol>
+                <VCol cols="12" md="4">
+                  <VSwitch v-model="form.seed_skipverify" color="info" inset hide-details label="跳过校验(QB有效)" />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="6">
+                  <VTextField v-model.number="form.seed_check_interval" label="校验检查间隔（秒）" type="number" density="compact" variant="outlined" hide-details hint="建议 60 秒" persistent-hint />
+                </VCol>
+                <VCol cols="12" md="6">
+                  <VTextField v-model.number="form.seed_max_wait_minutes" label="最大等待时间（分钟）" type="number" density="compact" variant="outlined" hide-details hint="超时后移出队列" persistent-hint />
+                </VCol>
+              </VRow>
+            </div>
+
+          </div>
+        </section>
+      </div>
+      <VDivider />
+      <VCardActions class="dm-actions">
+        <VSpacer />
+        <VBtn variant="text" @click="emit('close')">取消</VBtn>
+        <VBtn color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="saveConfig">保存配置</VBtn>
+      </VCardActions>
+    </VCard>
+
+    <VDialog v-model="cleanupDialog" max-width="620">
+      <VCard>
+        <VCardItem>
+          <template #prepend>
+            <VAvatar color="warning" variant="tonal" size="40" rounded="lg"><VIcon icon="mdi-tag-remove-outline" /></VAvatar>
+          </template>
+          <VCardTitle class="text-subtitle-1">确认标签清理</VCardTitle>
+          <VCardSubtitle>{{ cleanupRemovals.length }} 个标签 · {{ cleanupRemovalAssociations }} 条任务关联</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VList density="compact" class="dm-cleanup-preview-list">
+          <VListItem v-for="item in cleanupRemovals" :key="`${item.downloader}-${item.tag}`">
+            <template #prepend><VIcon icon="mdi-tag-outline" size="18" /></template>
+            <VListItemTitle>{{ item.tag }}</VListItemTitle>
+            <VListItemSubtitle>{{ item.downloader }} · {{ item.hashes.length }} 个任务</VListItemSubtitle>
+          </VListItem>
+        </VList>
+        <VDivider />
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" :disabled="cleanupExecuting" @click="cleanupDialog = false">取消</VBtn>
+          <VBtn color="error" variant="flat" prepend-icon="mdi-tag-remove-outline" :loading="cleanupExecuting"
+            @click="executeCleanupTags">确认清理</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
+
+    <VDialog v-model="uploadRestoreDialog" max-width="560">
+      <VCard>
+        <VCardItem>
+          <template #prepend>
+            <VAvatar color="warning" variant="tonal" size="40" rounded="lg"><VIcon icon="mdi-backup-restore" /></VAvatar>
+          </template>
+          <VCardTitle class="text-subtitle-1">停用并恢复上传限速</VCardTitle>
+          <VCardSubtitle>恢复插件接管前的下载器与单种上传设置</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="text-body-2">
+          当前值仍等于插件最后写入值时才会恢复；若你后来手工修改过，则保留手工值，不会覆盖。
+        </VCardText>
+        <VDivider />
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" :disabled="uploadActionRunning === 'restore'" @click="uploadRestoreDialog = false">取消</VBtn>
+          <VBtn color="warning" variant="flat" prepend-icon="mdi-backup-restore" :loading="uploadActionRunning === 'restore'"
+            @click="disableAndRestoreUploadLimits">确认恢复</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
+  </div>
+</template>
+<style scoped>
+.dm-config {
+  width: min(1120px, calc(100vw - 48px));
+  max-width: 100%;
+  padding: 8px;
+}
+.dm-card {
+  width: 100%;
+  height: clamp(760px, calc(100dvh - 48px), 860px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+.dm-header { padding: 14px 18px; }
+.dm-header :deep(.v-card-subtitle) {
+  max-width: min(560px, 52vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dm-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.dm-nav { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), 0.02); }
+.dm-nav-list { width: 100%; }
+.dm-nav-item { margin: 2px 8px; }
+.dm-content { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.dm-subtabs { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; }
+.dm-subtab { display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; color: rgba(var(--v-theme-on-surface), 0.7); background: transparent; border: none; cursor: pointer; transition: background 0.15s, color 0.15s; white-space: nowrap; }
+.dm-subtab:hover { background: rgba(var(--v-theme-primary), 0.08); color: rgb(var(--v-theme-primary)); }
+.dm-subtab--active { background: rgba(var(--v-theme-primary), 0.14); color: rgb(var(--v-theme-primary)); font-weight: 600; }
+.dm-window { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.dm-window--overview { overflow-y: hidden; }
+.dm-pane { min-height: 100%; padding: 18px 20px; }
+.dm-pane--overview { min-height: auto; padding: 12px 16px; }
+.dm-section-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: rgb(var(--v-theme-primary)); }
+.dm-hint { font-size: 12px; line-height: 1.5; color: rgba(var(--v-theme-on-surface), 0.6); margin-top: 2px; }
+.dm-overview-section { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.dm-flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.dm-flow-block { min-width: 0; }
+.dm-flow-block:first-child { grid-column: 1 / -1; }
+.dm-flow-label { font-size: 12px; font-weight: 600; color: rgb(var(--v-theme-primary)); margin-bottom: 5px; }
+.dm-flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.78); }
+.dm-flow-step { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), 0.02); white-space: nowrap; }
+.dm-flow-arrow { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), 0.44); }
+.dm-break-text { overflow-wrap: anywhere; }
+.dm-monitor-speed-list, .dm-monitor-baselines { display: grid; gap: 10px; }
+.dm-threshold-suggestion { border-radius: 8px; }
+.dm-threshold-suggestion-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.dm-threshold-suggestion-title { font-size: 13px; font-weight: 600; }
+.dm-threshold-suggestion-list { display: grid; gap: 4px; }
+.dm-threshold-suggestion-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(112px, auto) minmax(112px, auto) auto; grid-template-areas: 'label current suggested action'; gap: 10px; align-items: center; min-width: 0; padding: 5px 0; border-top: 1px solid rgba(var(--v-border-color), .35); font-size: 12px; }
+.dm-threshold-suggestion-row > span, .dm-threshold-suggestion-row > strong { min-width: 0; overflow-wrap: anywhere; }
+.dm-threshold-suggestion-label { font-weight: 600; }
+.dm-threshold-suggestion-label { grid-area: label; }
+.dm-threshold-suggestion-current { grid-area: current; }
+.dm-threshold-suggestion-suggested { grid-area: suggested; }
+.dm-threshold-suggestion-action { grid-area: action; justify-self: end; }
+.dm-monitor-speed-row { display: grid; grid-template-columns: minmax(150px, 0.45fr) minmax(240px, 1fr); gap: 14px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-monitor-speed-name { display: flex; align-items: center; gap: 8px; min-width: 0; padding-top: 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.dm-monitor-summary, .dm-upload-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dm-monitor-metric { min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-monitor-metric span { display: block; color: rgba(var(--v-theme-on-surface), 0.62); font-size: 12px; }
+.dm-monitor-metric strong { display: block; margin-top: 3px; overflow-wrap: anywhere; font-size: 15px; }
+.dm-monitor-baselines { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dm-monitor-baseline { min-width: 0; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-monitor-baseline-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.dm-baseline-values { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 9px; font-size: 12px; }
+.dm-relative-note { margin-top: 7px; color: rgb(var(--v-theme-warning)); font-size: 12px; }
+.dm-disposition { display: grid; gap: 3px; min-width: 0; padding: 10px 12px; border-left: 3px solid rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), 0.06); font-size: 12px; }
+.dm-disposition span { min-width: 0; overflow-wrap: anywhere; }
+.dm-monitor-empty { display: flex; min-height: 64px; align-items: center; justify-content: center; border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; color: rgba(var(--v-theme-on-surface), 0.6); font-size: 13px; }
+.dm-upload-downloader-list, .dm-upload-site-list, .dm-upload-site-status { display: grid; gap: 10px; }
+.dm-upload-config-row { display: grid; grid-template-columns: minmax(220px, .72fr) minmax(260px, 1fr); gap: 16px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-config-name, .dm-upload-site-name { display: flex; align-items: flex-start; gap: 9px; min-width: 0; padding-top: 8px; overflow-wrap: anywhere; }
+.dm-upload-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.dm-upload-site-row { display: grid; grid-template-columns: minmax(180px, .72fr) minmax(250px, 1fr) auto; gap: 12px; align-items: start; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-site-row :deep(.v-btn) { margin-top: 4px; }
+.dm-upload-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dm-upload-status-card { min-width: 0; padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-status-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+.dm-upload-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 12px; margin-top: 10px; font-size: 12px; }
+.dm-upload-values span { min-width: 0; overflow-wrap: anywhere; }
+.dm-upload-site-status-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(102px, auto) minmax(112px, auto) minmax(124px, auto); gap: 10px; align-items: center; min-width: 0; padding: 10px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-upload-site-status-row > span { min-width: 0; overflow-wrap: anywhere; }
+.dm-cleanup-toolbar { display: flex; align-items: center; gap: 10px; }
+.dm-cleanup-select { flex: 1 1 auto; min-width: 0; }
+.dm-cleanup-results { display: grid; gap: 10px; }
+.dm-cleanup-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dm-tag-group { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden; }
+.dm-tag-group-head { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), 0.02); }
+.dm-tag-list { max-height: 280px; overflow-y: auto; }
+.dm-tag-row { min-height: 54px; display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * 0.7)); cursor: pointer; }
+.dm-tag-row:last-child { border-bottom: none; }
+.dm-tag-row:hover { background: rgba(var(--v-theme-primary), 0.05); }
+.dm-tag-content { flex: 1 1 auto; min-width: 0; }
+.dm-tag-line { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.dm-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.dm-tag-samples { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(var(--v-theme-on-surface), 0.55); font-size: 11px; }
+.dm-cleanup-empty { min-height: 82px; display: flex; align-items: center; justify-content: center; gap: 8px; color: rgba(var(--v-theme-on-surface), 0.6); font-size: 13px; }
+.dm-cleanup-actions { position: sticky; bottom: -18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0 0; background: rgb(var(--v-theme-surface)); }
+.dm-cleanup-preview-list { max-height: 360px; overflow-y: auto; }
+.dm-actions { padding: 10px 18px; }
+@media (max-width: 760px) {
+  .dm-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
+  .dm-card { height: min(860px, calc(100dvh - 16px)); }
+  .dm-header :deep(.v-card-subtitle) { max-width: 100%; }
+  .dm-body { flex-direction: column; }
+  .dm-nav { width: 100%; flex: 0 0 auto; border-right: none; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .dm-nav::-webkit-scrollbar { display: none; }
+  .dm-nav-list { display: flex; flex-wrap: nowrap; gap: 6px; min-width: max-content; padding: 8px 12px !important; }
+  .dm-nav-item { flex: 0 0 auto; min-width: 96px; margin: 0; padding-inline: 10px; }
+  .dm-nav-item :deep(.v-list-item-title) { white-space: nowrap; }
+  .dm-subtabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 6px 12px; }
+  .dm-subtabs::-webkit-scrollbar { display: none; }
+  .dm-subtab { flex: 0 0 auto; padding: 6px 12px; }
+  .dm-flow { grid-template-columns: 1fr; }
+  .dm-flow-block:first-child { grid-column: auto; }
+  .dm-monitor-summary, .dm-upload-summary, .dm-monitor-baselines, .dm-monitor-speed-row { grid-template-columns: 1fr; }
+  .dm-upload-config-row, .dm-upload-site-row, .dm-upload-status-grid, .dm-upload-site-status-row { grid-template-columns: 1fr; }
+  .dm-upload-config-name, .dm-upload-site-name { padding-top: 0; }
+  .dm-upload-toolbar { align-items: stretch; flex-direction: column; }
+  .dm-upload-toolbar :deep(.v-btn) { width: 100%; }
+  .dm-upload-site-row :deep(.v-btn) { justify-self: end; margin-top: 0; }
+  .dm-threshold-suggestion-head { align-items: stretch; flex-direction: column; }
+  .dm-threshold-suggestion-head :deep(.v-btn) { align-self: flex-start; }
+  .dm-threshold-suggestion-row { grid-template-columns: minmax(112px, 1fr) minmax(84px, auto); grid-template-areas: 'label current' 'suggested action'; gap: 6px; }
+  .dm-threshold-suggestion-action { justify-self: end; }
+  .dm-monitor-speed-name { padding-top: 0; }
+  .dm-cleanup-toolbar, .dm-cleanup-summary, .dm-cleanup-actions, .dm-tag-group-head { align-items: stretch; flex-direction: column; }
+  .dm-cleanup-toolbar :deep(.v-btn), .dm-cleanup-actions :deep(.v-btn) { width: 100%; }
+  .dm-tag-line { flex-wrap: wrap; }
+  .dm-tag-name { width: 100%; }
+  .dm-window--overview { overflow-y: auto; }
+}
+@media (min-width: 761px) and (max-width: 960px) {
+  .dm-monitor-summary, .dm-upload-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dm-upload-site-row { grid-template-columns: minmax(180px, .7fr) minmax(220px, 1fr) auto; }
+  .dm-upload-status-grid { grid-template-columns: 1fr; }
+  .dm-upload-site-status-row { grid-template-columns: minmax(170px, 1fr) repeat(3, minmax(96px, auto)); }
+  .dm-flow { grid-template-columns: 1fr; }
+  .dm-flow-block:first-child { grid-column: auto; }
+  .dm-window--overview { overflow-y: auto; }
+}
+@media (max-height: 760px) {
+  .dm-window--overview { overflow-y: auto; }
+}
+</style>

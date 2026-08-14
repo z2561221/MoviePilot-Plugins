@@ -1,0 +1,7 @@
+{
+  "DownloadManagerLocal": {
+    "legacy_version": "3.2.9",
+    "v3_version": "3.3.0",
+    "reason": "user-approved same-major V3 migration"
+  }
+}
