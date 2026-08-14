@@ -14,7 +14,7 @@ from scripts.sync_to_mp_local import sync_to_target  # noqa: E402
 
 
 V3_PLUGIN_ROOT = REPO_ROOT / "plugins.v3" / "doubancenter"
-LEGACY_IMPORT_ROOTS = ("app.core", "app.helper", "app.utils", "app.log")
+LEGACY_IMPORT_ROOTS = ("app.helper", "app.utils", "app.log")
 
 
 def _is_legacy_import(module_name: str) -> bool:
@@ -26,7 +26,7 @@ def _is_legacy_import(module_name: str) -> bool:
 
 
 def test_v3_plugin_does_not_use_legacy_import_paths():
-    """V3 源码只能使用正式 SDK、领域或集成路径。"""
+    """V3 源码不能继续使用运行时诊断标记的兼容导入路径。"""
     violations = []
     for path in sorted(V3_PLUGIN_ROOT.rglob("*.py")):
         if "__pycache__" in path.parts:
@@ -58,6 +58,22 @@ def test_v3_plugin_does_not_use_legacy_import_paths():
                 if _is_legacy_import(module_name):
                     violations.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno} {module_name}")
     assert violations == []
+
+
+def test_v3_event_manager_keeps_host_event_contract():
+    """事件管理仍使用宿主实际提供的 app.core.event 合同。"""
+    source = (V3_PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8-sig")
+    webhook = (V3_PLUGIN_ROOT / "service" / "webhook.py").read_text(encoding="utf-8-sig")
+    assert "from app.core.event import Event, eventmanager" in source
+    assert "from app.core.event import Event" in webhook
+    assert "app.sdk.events" not in source + webhook
+
+
+def test_v3_cookiecloud_uses_runtime_supported_adapter():
+    """CookieCloud 必须使用 V3 运行时诊断给出的正式适配器路径。"""
+    source = (V3_PLUGIN_ROOT / "doubanapi.py").read_text(encoding="utf-8-sig")
+    assert "from app.adapters.external.cookiecloud import CookieCloudHelper" in source
+    assert "app.integrations.cookiecloud" not in source
 
 
 def test_sync_to_target_writes_only_v3_layout(tmp_path):

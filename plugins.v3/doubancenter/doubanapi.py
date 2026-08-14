@@ -12,7 +12,7 @@ from xml.etree import ElementTree
 import requests
 from bs4 import BeautifulSoup
 from http.cookies import SimpleCookie
-from app.integrations.cookiecloud import CookieCloudHelper
+from app.adapters.external.cookiecloud import CookieCloudHelper
 from app.sdk.config import settings
 from app.sdk.logging import logger
 from app.sdk.media import MetaBase

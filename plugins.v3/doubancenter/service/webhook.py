@@ -4,7 +4,7 @@ import datetime
 import threading
 from typing import Callable
 
-from app.sdk.events import Event
+from app.core.event import Event
 
 _played_lock = threading.Lock()
 
