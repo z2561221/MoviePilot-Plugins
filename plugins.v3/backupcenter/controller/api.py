@@ -9,7 +9,7 @@ from starlette.background import BackgroundTask
 
 from app.core.config import settings
 from app.core.plugin import PluginManager
-from app.core.security import verify_token
+from app.application.security.access import verify_token
 from ..model.api import (
     AutomaticBackupData,
     BackupConfigData,

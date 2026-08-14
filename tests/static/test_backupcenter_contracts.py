@@ -102,6 +102,8 @@ def test_backupcenter_api_is_bearer_only_and_exports_offline_package():
     controller = API_CONTROLLER.read_text(encoding="utf-8")
     frontend = FRONTEND_API.read_text(encoding="utf-8")
 
+    assert "from app.application.security.access import verify_token" in controller
+    assert "app.core.security" not in controller
     assert '"auth": "bear"' in controller
     assert '"/backups/{backup_id}/export"' in controller
     assert "FileResponse" in controller

@@ -35,9 +35,14 @@ def _verify_token() -> None:
 plugin_module = ModuleType("app.core.plugin")
 plugin_module.PluginManager = _PluginManager
 sys.modules["app.core.plugin"] = plugin_module
-security_module = ModuleType("app.core.security")
+application_module = _package("app.application", PLUGIN_DIR)
+security_package = _package("app.application.security", PLUGIN_DIR)
+security_module = ModuleType("app.application.security.access")
 security_module.verify_token = _verify_token
-sys.modules["app.core.security"] = security_module
+security_package.access = security_module
+application_module.security = security_package
+sys.modules["app"].application = application_module
+sys.modules["app.application.security.access"] = security_module
 
 _package(PACKAGE_NAME, PLUGIN_DIR)
 _package(f"{PACKAGE_NAME}.controller", PLUGIN_DIR / "controller")
