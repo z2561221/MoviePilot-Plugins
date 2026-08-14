@@ -14,7 +14,7 @@ const emit = defineEmits(['close', 'switch'])
 const loading = ref(false)
 const stats = ref(null)
 const historyData = ref({ items: [], total: 0, page: 1, page_size: 20, total_pages: 0 })
-const archiveData = ref({ items: [], total: 0, page: 1, page_size: 20, total_pages: 0 })
+const archiveData = ref({ items: [], total: 0, page: 1, page_size: 10, total_pages: 0 })
 const archivePage = ref(false)
 const cheatLogs = ref([])
 const pendingObservations = ref([])
@@ -266,13 +266,18 @@ async function loadArchive() {
   loading.value = true
   loadError.value = ''
   try {
-    const response = await getPluginApi(
-      props.api,
-      `archive_records?page=${archiveData.value.page}&page_size=${archiveData.value.page_size}`,
-      { timeoutMs: INITIAL_LOAD_TIMEOUT_MS },
-    )
-    if (response?.success === false) throw new Error(response.message || '归档记录加载失败')
-    const data = normalizeApiData(response)
+    const fetchPage = async page => {
+      const response = await getPluginApi(
+        props.api,
+        `archive_records?page=${page}&page_size=${archiveData.value.page_size}`,
+        { timeoutMs: INITIAL_LOAD_TIMEOUT_MS },
+      )
+      if (response?.success === false) throw new Error(response.message || '归档记录加载失败')
+      return normalizeApiData(response)
+    }
+    let data = await fetchPage(archiveData.value.page)
+    const lastPage = Math.max(Number(data?.total_pages) || 0, 1)
+    if ((Number(data?.page) || 1) > lastPage) data = await fetchPage(lastPage)
     if (data) archiveData.value = data
   } catch (e) {
     loadError.value = '归档记录加载失败'
@@ -297,6 +302,12 @@ async function goPage(p) {
   await loadAll()
 }
 
+async function goArchivePage(p) {
+  if (p < 1 || p > archiveData.value.total_pages || p === archiveData.value.page) return
+  archiveData.value.page = p
+  await loadArchive()
+}
+
 async function runDelete(path, body, key, successText) {
   if (actionKey.value) return
   actionKey.value = key
@@ -307,7 +318,8 @@ async function runDelete(path, body, key, successText) {
     const res = await postPluginApi(props.api, qs ? `${path}?${qs}` : path, {})
     actionOk.value = !!(res && res.success)
     actionMessage.value = (res && res.message) || (actionOk.value ? successText : '操作失败')
-    await loadAll()
+    if (archivePage.value) await loadArchive()
+    else await loadAll()
   } catch (e) {
     actionOk.value = false
     actionMessage.value = e?.message || '操作失败'
@@ -517,6 +529,11 @@ onMounted(loadAll)
             </div>
           </div>
           <div v-else-if="!loading" class="text-center text-medium-emphasis py-4 text-caption">暂无归档记录</div>
+          <div v-if="archiveData.total_pages > 1" class="dc-pagination">
+            <VBtn icon="mdi-chevron-left" variant="text" size="x-small" title="上一页" aria-label="上一页" :disabled="archiveData.page <= 1" @click="goArchivePage(archiveData.page - 1)" />
+            <span class="dc-pagination-label">{{ archiveData.page }} / {{ archiveData.total_pages }}</span>
+            <VBtn icon="mdi-chevron-right" variant="text" size="x-small" title="下一页" aria-label="下一页" :disabled="archiveData.page >= archiveData.total_pages" @click="goArchivePage(archiveData.page + 1)" />
+          </div>
         </div>
       </template>
 
@@ -663,8 +680,8 @@ onMounted(loadAll)
 </template>
 
 <style scoped>
-.dc-page { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
-.dc-page--app { width: 100%; min-height: calc(100dvh - 104px); border-radius: 14px; }
+.dc-page { width: 100%; height: clamp(640px, calc(100dvh - 48px), 860px); max-height: calc(100dvh - 16px); display: flex; flex-direction: column; border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
+.dc-page--app { height: calc(100dvh - 104px); max-height: none; min-height: 0; border-radius: 14px; }
 .dc-page-toolbar { background: rgb(var(--v-theme-surface)); padding-right: 8px; }
 .dc-page-heading { min-width: 0; }
 .dc-page-toolbar-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 2px; }
@@ -672,7 +689,7 @@ onMounted(loadAll)
 .dc-toolbar-label { white-space: nowrap; }
 .dc-page-heading .text-h6,
 .dc-page-heading .text-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dc-flow { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .dc-section { border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .72)); border-radius: 8px; padding: 12px; margin-bottom: 0; background: rgba(var(--v-theme-on-surface), .012); min-width: 0; }
 .dc-section--archive { order: 0; grid-column: 1 / -1; }
 .dc-section--rank { order: 1; grid-column: 1 / -1; }
@@ -719,6 +736,8 @@ onMounted(loadAll)
 .dc-history-info { min-width: 0; }
 .dc-history-title { font-size: 13px; font-weight: 500; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-history-meta { display: flex; align-items: center; gap: 4px; margin-top: 1px; min-width: 0; overflow: hidden; }
+.dc-pagination { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; margin-top: 8px; }
+.dc-pagination-label { min-width: 48px; text-align: center; font-size: 12px; color: rgba(var(--v-theme-on-surface), .62); font-variant-numeric: tabular-nums; }
 .dc-rank-chip { border: 1px solid; font-weight: 700; }
 .dc-row-status { max-width: 160px; }
 .dc-row-action { flex: 0 0 auto; }

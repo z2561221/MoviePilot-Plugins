@@ -27,3 +27,21 @@ def test_page_and_dashboard_forward_media_identity_pair():
     assert "delete_subscribe_history" in page
     assert "media_source: item?.media_source" in page
     assert "media_id: item?.media_id" in page
+
+
+def test_archive_view_is_paginated_and_bounded_in_detail_and_discovery_pages():
+    """详情弹窗和发现页共用分页归档，并由内容区承载滚动。"""
+    page = (COMPONENTS / "Page.vue").read_text(encoding="utf-8")
+    app_page = (COMPONENTS / "AppPage.vue").read_text(encoding="utf-8")
+
+    assert "page_size: 10" in page
+    assert "function goArchivePage" in page
+    assert "archiveData.total_pages > 1" in page
+    assert "goArchivePage(archiveData.page - 1)" in page
+    assert "goArchivePage(archiveData.page + 1)" in page
+    assert "if (archivePage.value) await loadArchive()" in page
+    assert "height: clamp(640px, calc(100dvh - 48px), 860px)" in page
+    assert ".dc-page--app { height: calc(100dvh - 104px)" in page
+    assert "min-height: 0; overflow-y: auto; align-content: start" in page
+    assert "import Page from './Page.vue'" in app_page
+    assert "app-page" in app_page

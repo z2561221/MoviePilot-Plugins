@@ -34,94 +34,99 @@ const _hoisted_16 = {
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
 const _hoisted_17 = {
+  key: 2,
+  class: "dc-pagination"
+};
+const _hoisted_18 = { class: "dc-pagination-label" };
+const _hoisted_19 = {
   key: 0,
   class: "dc-section dc-section--stats"
 };
-const _hoisted_18 = { class: "dc-stats-grid" };
-const _hoisted_19 = { class: "dc-stat-card" };
-const _hoisted_20 = { class: "dc-stat-value" };
+const _hoisted_20 = { class: "dc-stats-grid" };
 const _hoisted_21 = { class: "dc-stat-card" };
 const _hoisted_22 = { class: "dc-stat-value" };
-const _hoisted_23 = { class: "dc-stat-label" };
-const _hoisted_24 = {
+const _hoisted_23 = { class: "dc-stat-card" };
+const _hoisted_24 = { class: "dc-stat-value" };
+const _hoisted_25 = { class: "dc-stat-label" };
+const _hoisted_26 = {
   key: 1,
   class: "dc-section dc-section--rank"
 };
-const _hoisted_25 = { class: "dc-rank-grid dc-rank-grid--snapshot" };
-const _hoisted_26 = { class: "dc-rank-head" };
-const _hoisted_27 = ["onClick"];
-const _hoisted_28 = { class: "dc-rank-title" };
-const _hoisted_29 = {
+const _hoisted_27 = { class: "dc-rank-grid dc-rank-grid--snapshot" };
+const _hoisted_28 = { class: "dc-rank-head" };
+const _hoisted_29 = ["onClick"];
+const _hoisted_30 = { class: "dc-rank-title" };
+const _hoisted_31 = {
   key: 0,
   class: "dc-rank-wish"
 };
-const _hoisted_30 = {
+const _hoisted_32 = {
   key: 1,
   class: "dc-rank-empty"
 };
-const _hoisted_31 = { class: "dc-section dc-section--blacklist" };
-const _hoisted_32 = { class: "dc-section-title mb-2 dc-title-with-chips" };
-const _hoisted_33 = { class: "text-caption font-weight-regular text-medium-emphasis" };
-const _hoisted_34 = {
+const _hoisted_33 = { class: "dc-section dc-section--blacklist" };
+const _hoisted_34 = { class: "dc-section-title mb-2 dc-title-with-chips" };
+const _hoisted_35 = { class: "text-caption font-weight-regular text-medium-emphasis" };
+const _hoisted_36 = {
   key: 0,
   class: "dc-history-list"
 };
-const _hoisted_35 = { class: "dc-history-info" };
-const _hoisted_36 = { class: "dc-history-title" };
-const _hoisted_37 = { class: "dc-history-meta" };
-const _hoisted_38 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_39 = {
+const _hoisted_37 = { class: "dc-history-info" };
+const _hoisted_38 = { class: "dc-history-title" };
+const _hoisted_39 = { class: "dc-history-meta" };
+const _hoisted_40 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_41 = {
   key: 1,
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
-const _hoisted_40 = { class: "dc-section dc-section--observe" };
-const _hoisted_41 = { class: "dc-section-title mb-2" };
-const _hoisted_42 = { class: "text-caption font-weight-regular text-medium-emphasis" };
-const _hoisted_43 = {
+const _hoisted_42 = { class: "dc-section dc-section--observe" };
+const _hoisted_43 = { class: "dc-section-title mb-2" };
+const _hoisted_44 = { class: "text-caption font-weight-regular text-medium-emphasis" };
+const _hoisted_45 = {
   key: 0,
   class: "dc-history-list"
 };
-const _hoisted_44 = ["onClick"];
-const _hoisted_45 = { class: "dc-history-info" };
-const _hoisted_46 = { class: "dc-history-title" };
-const _hoisted_47 = { class: "dc-history-meta" };
-const _hoisted_48 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_49 = {
+const _hoisted_46 = ["onClick"];
+const _hoisted_47 = { class: "dc-history-info" };
+const _hoisted_48 = { class: "dc-history-title" };
+const _hoisted_49 = { class: "dc-history-meta" };
+const _hoisted_50 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_51 = {
   key: 1,
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
-const _hoisted_50 = { class: "dc-section dc-section--history" };
-const _hoisted_51 = { class: "dc-section-title mb-2" };
-const _hoisted_52 = { class: "text-caption font-weight-regular text-medium-emphasis" };
-const _hoisted_53 = {
+const _hoisted_52 = { class: "dc-section dc-section--history" };
+const _hoisted_53 = { class: "dc-section-title mb-2" };
+const _hoisted_54 = { class: "text-caption font-weight-regular text-medium-emphasis" };
+const _hoisted_55 = {
   key: 0,
   class: "dc-history-list"
 };
-const _hoisted_54 = { class: "dc-history-info" };
-const _hoisted_55 = { class: "dc-history-title" };
-const _hoisted_56 = { class: "dc-history-meta" };
-const _hoisted_57 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_58 = {
+const _hoisted_56 = { class: "dc-history-info" };
+const _hoisted_57 = { class: "dc-history-title" };
+const _hoisted_58 = { class: "dc-history-meta" };
+const _hoisted_59 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_60 = {
   key: 1,
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
-const _hoisted_59 = {
+const _hoisted_61 = {
   key: 2,
   class: "d-flex justify-center mt-2"
 };
-const _hoisted_60 = { class: "d-flex align-center mx-2 text-caption text-medium-emphasis" };
-const _hoisted_61 = { class: "dc-section dc-section--logs" };
-const _hoisted_62 = { class: "dc-section-title mb-2" };
-const _hoisted_63 = { class: "text-caption font-weight-regular text-medium-emphasis" };
-const _hoisted_64 = {
+const _hoisted_62 = { class: "d-flex align-center mx-2 text-caption text-medium-emphasis" };
+const _hoisted_63 = { class: "dc-section dc-section--logs" };
+const _hoisted_64 = { class: "dc-section-title mb-2" };
+const _hoisted_65 = { class: "text-caption font-weight-regular text-medium-emphasis" };
+const _hoisted_66 = {
   key: 0,
   class: "dc-history-list"
 };
-const _hoisted_65 = { class: "dc-history-info" };
-const _hoisted_66 = { class: "dc-history-title" };
-const _hoisted_67 = { class: "dc-history-meta" };
-const _hoisted_68 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_69 = {
+const _hoisted_67 = { class: "dc-history-info" };
+const _hoisted_68 = { class: "dc-history-title" };
+const _hoisted_69 = { class: "dc-history-meta" };
+const _hoisted_70 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_71 = {
   key: 1,
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
@@ -148,7 +153,7 @@ const emit = __emit;
 const loading = ref(false);
 const stats = ref(null);
 const historyData = ref({ items: [], total: 0, page: 1, page_size: 20, total_pages: 0 });
-const archiveData = ref({ items: [], total: 0, page: 1, page_size: 20, total_pages: 0 });
+const archiveData = ref({ items: [], total: 0, page: 1, page_size: 10, total_pages: 0 });
 const archivePage = ref(false);
 const cheatLogs = ref([]);
 const pendingObservations = ref([]);
@@ -398,13 +403,18 @@ async function loadArchive() {
   loading.value = true;
   loadError.value = '';
   try {
-    const response = await getPluginApi(
-      props.api,
-      `archive_records?page=${archiveData.value.page}&page_size=${archiveData.value.page_size}`,
-      { timeoutMs: INITIAL_LOAD_TIMEOUT_MS },
-    );
-    if (response?.success === false) throw new Error(response.message || '归档记录加载失败')
-    const data = normalizeApiData(response);
+    const fetchPage = async page => {
+      const response = await getPluginApi(
+        props.api,
+        `archive_records?page=${page}&page_size=${archiveData.value.page_size}`,
+        { timeoutMs: INITIAL_LOAD_TIMEOUT_MS },
+      );
+      if (response?.success === false) throw new Error(response.message || '归档记录加载失败')
+      return normalizeApiData(response)
+    };
+    let data = await fetchPage(archiveData.value.page);
+    const lastPage = Math.max(Number(data?.total_pages) || 0, 1);
+    if ((Number(data?.page) || 1) > lastPage) data = await fetchPage(lastPage);
     if (data) archiveData.value = data;
   } catch (e) {
     loadError.value = '归档记录加载失败';
@@ -429,6 +439,12 @@ async function goPage(p) {
   await loadAll();
 }
 
+async function goArchivePage(p) {
+  if (p < 1 || p > archiveData.value.total_pages || p === archiveData.value.page) return
+  archiveData.value.page = p;
+  await loadArchive();
+}
+
 async function runDelete(path, body, key, successText) {
   if (actionKey.value) return
   actionKey.value = key;
@@ -439,7 +455,8 @@ async function runDelete(path, body, key, successText) {
     const res = await postPluginApi(props.api, qs ? `${path}?${qs}` : path, {});
     actionOk.value = !!(res && res.success);
     actionMessage.value = (res && res.message) || (actionOk.value ? successText : '操作失败');
-    await loadAll();
+    if (archivePage.value) await loadArchive();
+    else await loadAll();
   } catch (e) {
     actionOk.value = false;
     actionMessage.value = e?.message || '操作失败';
@@ -648,7 +665,7 @@ return (_ctx, _cache) => {
                   size: "18",
                   class: "dc-toolbar-icon"
                 }),
-                _cache[8] || (_cache[8] = _createElementVNode("span", { class: "dc-toolbar-label" }, "刷新", -1))
+                _cache[10] || (_cache[10] = _createElementVNode("span", { class: "dc-toolbar-label" }, "刷新", -1))
               ]),
               _: 1
             }, 8, ["loading"]),
@@ -687,7 +704,7 @@ return (_ctx, _cache) => {
                       size: "18",
                       class: "dc-toolbar-icon"
                     }),
-                    _cache[9] || (_cache[9] = _createElementVNode("span", { class: "dc-toolbar-label" }, "设置", -1))
+                    _cache[11] || (_cache[11] = _createElementVNode("span", { class: "dc-toolbar-label" }, "设置", -1))
                   ]),
                   _: 1
                 }))
@@ -747,7 +764,7 @@ return (_ctx, _cache) => {
                       loading: loading.value,
                       onClick: _cache[4] || (_cache[4] = $event => (archivePage.value ? loadArchive() : loadAll()))
                     }, {
-                      default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+                      default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
                         _createTextVNode("重试", -1)
                       ]))]),
                       _: 1
@@ -766,7 +783,7 @@ return (_ctx, _cache) => {
           (archivePage.value)
             ? (_openBlock(), _createElementBlock("div", _hoisted_7, [
                 _createElementVNode("div", _hoisted_8, [
-                  _cache[11] || (_cache[11] = _createTextVNode("归档记录 ", -1)),
+                  _cache[13] || (_cache[13] = _createTextVNode("归档记录 ", -1)),
                   _createElementVNode("span", _hoisted_9, "（共 " + _toDisplayString(archiveData.value.total || 0) + " 条）", 1)
                 ]),
                 (archiveData.value.items && archiveData.value.items.length)
@@ -865,20 +882,43 @@ return (_ctx, _cache) => {
                     ]))
                   : (!loading.value)
                     ? (_openBlock(), _createElementBlock("div", _hoisted_16, "暂无归档记录"))
-                    : _createCommentVNode("", true)
+                    : _createCommentVNode("", true),
+                (archiveData.value.total_pages > 1)
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_17, [
+                      _createVNode(_component_VBtn, {
+                        icon: "mdi-chevron-left",
+                        variant: "text",
+                        size: "x-small",
+                        title: "上一页",
+                        "aria-label": "上一页",
+                        disabled: archiveData.value.page <= 1,
+                        onClick: _cache[5] || (_cache[5] = $event => (goArchivePage(archiveData.value.page - 1)))
+                      }, null, 8, ["disabled"]),
+                      _createElementVNode("span", _hoisted_18, _toDisplayString(archiveData.value.page) + " / " + _toDisplayString(archiveData.value.total_pages), 1),
+                      _createVNode(_component_VBtn, {
+                        icon: "mdi-chevron-right",
+                        variant: "text",
+                        size: "x-small",
+                        title: "下一页",
+                        "aria-label": "下一页",
+                        disabled: archiveData.value.page >= archiveData.value.total_pages,
+                        onClick: _cache[6] || (_cache[6] = $event => (goArchivePage(archiveData.value.page + 1)))
+                      }, null, 8, ["disabled"])
+                    ]))
+                  : _createCommentVNode("", true)
               ]))
             : (_openBlock(), _createElementBlock(_Fragment, { key: 3 }, [
                 (stats.value)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_17, [
-                      _cache[14] || (_cache[14] = _createElementVNode("div", { class: "dc-section-title mb-2" }, "订阅统计", -1)),
-                      _createElementVNode("div", _hoisted_18, [
-                        _createElementVNode("div", _hoisted_19, [
-                          _createElementVNode("div", _hoisted_20, _toDisplayString(stats.value.total || 0), 1),
-                          _cache[12] || (_cache[12] = _createElementVNode("div", { class: "dc-stat-label" }, "总订阅数", -1))
-                        ]),
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_19, [
+                      _cache[16] || (_cache[16] = _createElementVNode("div", { class: "dc-section-title mb-2" }, "订阅统计", -1)),
+                      _createElementVNode("div", _hoisted_20, [
                         _createElementVNode("div", _hoisted_21, [
-                          _createElementVNode("div", _hoisted_22, _toDisplayString(stats.value.month_new || 0), 1),
-                          _cache[13] || (_cache[13] = _createElementVNode("div", { class: "dc-stat-label" }, "本月新增", -1))
+                          _createElementVNode("div", _hoisted_22, _toDisplayString(stats.value.total || 0), 1),
+                          _cache[14] || (_cache[14] = _createElementVNode("div", { class: "dc-stat-label" }, "总订阅数", -1))
+                        ]),
+                        _createElementVNode("div", _hoisted_23, [
+                          _createElementVNode("div", _hoisted_24, _toDisplayString(stats.value.month_new || 0), 1),
+                          _cache[15] || (_cache[15] = _createElementVNode("div", { class: "dc-stat-label" }, "本月新增", -1))
                         ]),
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((stats.value.rank_stats || []), (item) => {
                           return (_openBlock(), _createElementBlock("div", {
@@ -889,25 +929,25 @@ return (_ctx, _cache) => {
                               class: "dc-stat-value",
                               style: _normalizeStyle({ color: rankColorOf(item.key) })
                             }, _toDisplayString(item.count), 5),
-                            _createElementVNode("div", _hoisted_23, _toDisplayString(item.name || rankNameOf(item.key)), 1)
+                            _createElementVNode("div", _hoisted_25, _toDisplayString(item.name || rankNameOf(item.key)), 1)
                           ]))
                         }), 128))
                       ])
                     ]))
                   : _createCommentVNode("", true),
                 (rankHistory.value && Object.keys(rankHistory.value).length)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_24, [
-                      _cache[15] || (_cache[15] = _createElementVNode("div", { class: "dc-section-title mb-2" }, [
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_26, [
+                      _cache[17] || (_cache[17] = _createElementVNode("div", { class: "dc-section-title mb-2" }, [
                         _createTextVNode("榜单快照 "),
                         _createElementVNode("span", { class: "text-caption font-weight-regular text-medium-emphasis" }, "（点击条目订阅或打开来源）")
                       ], -1)),
-                      _createElementVNode("div", _hoisted_25, [
+                      _createElementVNode("div", _hoisted_27, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(Object.entries(rankHistory.value), ([key, items]) => {
                           return (_openBlock(), _createElementBlock("div", {
                             key: key,
                             class: "dc-rank-card"
                           }, [
-                            _createElementVNode("div", _hoisted_26, [
+                            _createElementVNode("div", _hoisted_28, [
                               _createVNode(_component_VIcon, {
                                 icon: "mdi-format-list-numbered",
                                 size: "15",
@@ -943,22 +983,22 @@ return (_ctx, _cache) => {
                                       ]),
                                       _: 2
                                     }, 1024),
-                                    _createElementVNode("span", _hoisted_28, _toDisplayString(item.title || ''), 1),
+                                    _createElementVNode("span", _hoisted_30, _toDisplayString(item.title || ''), 1),
                                     (key === 'coming' && item.wish_count)
-                                      ? (_openBlock(), _createElementBlock("span", _hoisted_29, _toDisplayString(item.wish_count), 1))
+                                      ? (_openBlock(), _createElementBlock("span", _hoisted_31, _toDisplayString(item.wish_count), 1))
                                       : _createCommentVNode("", true)
-                                  ], 8, _hoisted_27))
+                                  ], 8, _hoisted_29))
                                 }), 128))
-                              : (_openBlock(), _createElementBlock("div", _hoisted_30, "暂无榜单数据"))
+                              : (_openBlock(), _createElementBlock("div", _hoisted_32, "暂无榜单数据"))
                           ]))
                         }), 128))
                       ])
                     ]))
                   : _createCommentVNode("", true),
-                _createElementVNode("div", _hoisted_31, [
-                  _createElementVNode("div", _hoisted_32, [
-                    _cache[16] || (_cache[16] = _createTextVNode(" 黑名拦截 ", -1)),
-                    _createElementVNode("span", _hoisted_33, "（关键词 " + _toDisplayString(blacklistKeywords.value.length) + " 个，最近命中 " + _toDisplayString(blacklistEntries.value.length) + " 条）", 1),
+                _createElementVNode("div", _hoisted_33, [
+                  _createElementVNode("div", _hoisted_34, [
+                    _cache[18] || (_cache[18] = _createTextVNode(" 黑名拦截 ", -1)),
+                    _createElementVNode("span", _hoisted_35, "（关键词 " + _toDisplayString(blacklistKeywords.value.length) + " 个，最近命中 " + _toDisplayString(blacklistEntries.value.length) + " 条）", 1),
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(blacklistKeywords.value, (word, i) => {
                       return (_openBlock(), _createBlock(_component_VChip, {
                         key: `${word}-${i}`,
@@ -975,7 +1015,7 @@ return (_ctx, _cache) => {
                     }), 128))
                   ]),
                   (blacklistEntries.value && blacklistEntries.value.length)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_34, [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_36, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(blacklistEntries.value, (item, i) => {
                           return (_openBlock(), _createElementBlock("div", {
                             key: i,
@@ -995,10 +1035,10 @@ return (_ctx, _cache) => {
                               ]),
                               _: 1
                             }),
-                            _createElementVNode("div", _hoisted_35, [
-                              _createElementVNode("div", _hoisted_36, _toDisplayString(item.title || '未命名条目'), 1),
-                              _createElementVNode("div", _hoisted_37, [
-                                _createElementVNode("span", _hoisted_38, _toDisplayString(item.time || ''), 1)
+                            _createElementVNode("div", _hoisted_37, [
+                              _createElementVNode("div", _hoisted_38, _toDisplayString(item.title || '未命名条目'), 1),
+                              _createElementVNode("div", _hoisted_39, [
+                                _createElementVNode("span", _hoisted_40, _toDisplayString(item.time || ''), 1)
                               ])
                             ]),
                             _createVNode(_component_VChip, {
@@ -1025,16 +1065,16 @@ return (_ctx, _cache) => {
                         }), 128))
                       ]))
                     : (!loading.value)
-                      ? (_openBlock(), _createElementBlock("div", _hoisted_39, "暂无被黑名单筛选的条目"))
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_41, "暂无被黑名单筛选的条目"))
                       : _createCommentVNode("", true)
                 ]),
-                _createElementVNode("div", _hoisted_40, [
-                  _createElementVNode("div", _hoisted_41, [
-                    _cache[17] || (_cache[17] = _createTextVNode("观察队列 ", -1)),
-                    _createElementVNode("span", _hoisted_42, "（待自动订阅 " + _toDisplayString(pendingObservations.value.length) + " 条）", 1)
+                _createElementVNode("div", _hoisted_42, [
+                  _createElementVNode("div", _hoisted_43, [
+                    _cache[19] || (_cache[19] = _createTextVNode("观察队列 ", -1)),
+                    _createElementVNode("span", _hoisted_44, "（待自动订阅 " + _toDisplayString(pendingObservations.value.length) + " 条）", 1)
                   ]),
                   (pendingObservations.value && pendingObservations.value.length)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_43, [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_45, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(pendingObservations.value, (item, i) => {
                           return (_openBlock(), _createElementBlock("div", {
                             key: i,
@@ -1055,9 +1095,9 @@ return (_ctx, _cache) => {
                               ]),
                               _: 1
                             }),
-                            _createElementVNode("div", _hoisted_45, [
-                              _createElementVNode("div", _hoisted_46, _toDisplayString(item.title), 1),
-                              _createElementVNode("div", _hoisted_47, [
+                            _createElementVNode("div", _hoisted_47, [
+                              _createElementVNode("div", _hoisted_48, _toDisplayString(item.title), 1),
+                              _createElementVNode("div", _hoisted_49, [
                                 _createVNode(_component_VChip, {
                                   size: "x-small",
                                   style: _normalizeStyle(rankChipStyle(item.rank_key)),
@@ -1069,7 +1109,7 @@ return (_ctx, _cache) => {
                                   ]),
                                   _: 2
                                 }, 1032, ["style"]),
-                                _createElementVNode("span", _hoisted_48, "观察 " + _toDisplayString(item.elapsed_days || 0) + " / " + _toDisplayString(item.observe_days || 0) + " 天", 1)
+                                _createElementVNode("span", _hoisted_50, "观察 " + _toDisplayString(item.elapsed_days || 0) + " / " + _toDisplayString(item.observe_days || 0) + " 天", 1)
                               ])
                             ]),
                             _createVNode(_component_VChip, {
@@ -1092,20 +1132,20 @@ return (_ctx, _cache) => {
                               loading: actionKey.value === rowKey('obs', item, i),
                               onClick: _withModifiers($event => (deleteObservation(item, i)), ["stop"])
                             }, null, 8, ["loading", "onClick"])
-                          ], 8, _hoisted_44))
+                          ], 8, _hoisted_46))
                         }), 128))
                       ]))
                     : (!loading.value)
-                      ? (_openBlock(), _createElementBlock("div", _hoisted_49, "暂无观察期条目"))
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_51, "暂无观察期条目"))
                       : _createCommentVNode("", true)
                 ]),
-                _createElementVNode("div", _hoisted_50, [
-                  _createElementVNode("div", _hoisted_51, [
-                    _cache[18] || (_cache[18] = _createTextVNode("订阅历史 ", -1)),
-                    _createElementVNode("span", _hoisted_52, "（共 " + _toDisplayString(historyData.value.total) + " 条）", 1)
+                _createElementVNode("div", _hoisted_52, [
+                  _createElementVNode("div", _hoisted_53, [
+                    _cache[20] || (_cache[20] = _createTextVNode("订阅历史 ", -1)),
+                    _createElementVNode("span", _hoisted_54, "（共 " + _toDisplayString(historyData.value.total) + " 条）", 1)
                   ]),
                   (historyData.value.items && historyData.value.items.length)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_53, [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_55, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(historyData.value.items, (item, i) => {
                           return (_openBlock(), _createElementBlock("div", {
                             key: i,
@@ -1130,9 +1170,9 @@ return (_ctx, _cache) => {
                               ]),
                               _: 2
                             }, 1024),
-                            _createElementVNode("div", _hoisted_54, [
-                              _createElementVNode("div", _hoisted_55, _toDisplayString(item.title), 1),
-                              _createElementVNode("div", _hoisted_56, [
+                            _createElementVNode("div", _hoisted_56, [
+                              _createElementVNode("div", _hoisted_57, _toDisplayString(item.title), 1),
+                              _createElementVNode("div", _hoisted_58, [
                                 _createVNode(_component_VChip, {
                                   size: "x-small",
                                   style: _normalizeStyle(rankChipStyle(item.rank_key)),
@@ -1144,7 +1184,7 @@ return (_ctx, _cache) => {
                                   ]),
                                   _: 2
                                 }, 1032, ["style"]),
-                                _createElementVNode("span", _hoisted_57, _toDisplayString(item.time ? item.time.split(' ')[0] : ''), 1)
+                                _createElementVNode("span", _hoisted_59, _toDisplayString(item.time ? item.time.split(' ')[0] : ''), 1)
                               ])
                             ]),
                             _createVNode(_component_VChip, {
@@ -1171,31 +1211,31 @@ return (_ctx, _cache) => {
                         }), 128))
                       ]))
                     : (!loading.value)
-                      ? (_openBlock(), _createElementBlock("div", _hoisted_58, "暂无订阅记录"))
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_60, "暂无订阅记录"))
                       : _createCommentVNode("", true),
                   (historyData.value.total_pages > 1)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_59, [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_61, [
                         _createVNode(_component_VBtn, {
                           variant: "text",
                           size: "x-small",
                           disabled: historyData.value.page <= 1,
                           class: "mx-1",
-                          onClick: _cache[5] || (_cache[5] = $event => (goPage(historyData.value.page - 1)))
+                          onClick: _cache[7] || (_cache[7] = $event => (goPage(historyData.value.page - 1)))
                         }, {
-                          default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+                          default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
                             _createTextVNode("上一页", -1)
                           ]))]),
                           _: 1
                         }, 8, ["disabled"]),
-                        _createElementVNode("span", _hoisted_60, _toDisplayString(historyData.value.page) + " / " + _toDisplayString(historyData.value.total_pages), 1),
+                        _createElementVNode("span", _hoisted_62, _toDisplayString(historyData.value.page) + " / " + _toDisplayString(historyData.value.total_pages), 1),
                         _createVNode(_component_VBtn, {
                           variant: "text",
                           size: "x-small",
                           disabled: historyData.value.page >= historyData.value.total_pages,
                           class: "mx-1",
-                          onClick: _cache[6] || (_cache[6] = $event => (goPage(historyData.value.page + 1)))
+                          onClick: _cache[8] || (_cache[8] = $event => (goPage(historyData.value.page + 1)))
                         }, {
-                          default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+                          default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
                             _createTextVNode("下一页", -1)
                           ]))]),
                           _: 1
@@ -1203,13 +1243,13 @@ return (_ctx, _cache) => {
                       ]))
                     : _createCommentVNode("", true)
                 ]),
-                _createElementVNode("div", _hoisted_61, [
-                  _createElementVNode("div", _hoisted_62, [
-                    _cache[21] || (_cache[21] = _createTextVNode("观察日志 ", -1)),
-                    _createElementVNode("span", _hoisted_63, "（最近 " + _toDisplayString(cheatLogs.value.length) + " 条）", 1)
+                _createElementVNode("div", _hoisted_63, [
+                  _createElementVNode("div", _hoisted_64, [
+                    _cache[23] || (_cache[23] = _createTextVNode("观察日志 ", -1)),
+                    _createElementVNode("span", _hoisted_65, "（最近 " + _toDisplayString(cheatLogs.value.length) + " 条）", 1)
                   ]),
                   (cheatLogs.value && cheatLogs.value.length)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_64, [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_66, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(cheatLogs.value.slice().reverse(), (log, i) => {
                           return (_openBlock(), _createElementBlock("div", {
                             key: i,
@@ -1234,9 +1274,9 @@ return (_ctx, _cache) => {
                               ]),
                               _: 2
                             }, 1024),
-                            _createElementVNode("div", _hoisted_65, [
-                              _createElementVNode("div", _hoisted_66, _toDisplayString(log.title), 1),
-                              _createElementVNode("div", _hoisted_67, [
+                            _createElementVNode("div", _hoisted_67, [
+                              _createElementVNode("div", _hoisted_68, _toDisplayString(log.title), 1),
+                              _createElementVNode("div", _hoisted_69, [
                                 _createVNode(_component_VChip, {
                                   size: "x-small",
                                   style: _normalizeStyle(rankChipStyle(log.rank_key)),
@@ -1248,7 +1288,7 @@ return (_ctx, _cache) => {
                                   ]),
                                   _: 2
                                 }, 1032, ["style"]),
-                                _createElementVNode("span", _hoisted_68, _toDisplayString(log.time ? log.time.split(' ')[0] : ''), 1)
+                                _createElementVNode("span", _hoisted_70, _toDisplayString(log.time ? log.time.split(' ')[0] : ''), 1)
                               ])
                             ]),
                             _createVNode(_component_VChip, {
@@ -1275,7 +1315,7 @@ return (_ctx, _cache) => {
                         }), 128))
                       ]))
                     : (!loading.value)
-                      ? (_openBlock(), _createElementBlock("div", _hoisted_69, "暂无观察日志"))
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_71, "暂无观察日志"))
                       : _createCommentVNode("", true)
                 ])
               ], 64))
@@ -1284,7 +1324,7 @@ return (_ctx, _cache) => {
       }),
       _createVNode(_component_VDialog, {
         modelValue: showDialog.value,
-        "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((showDialog).value = $event)),
+        "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((showDialog).value = $event)),
         "max-width": "420"
       }, {
         default: _withCtx(() => [
@@ -1340,7 +1380,7 @@ return (_ctx, _cache) => {
                     class: "dc-dialog-action text-none",
                     onClick: doSubscribe
                   }, {
-                    default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
+                    default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
                       _createTextVNode("订阅", -1)
                     ]))]),
                     _: 1
@@ -1352,7 +1392,7 @@ return (_ctx, _cache) => {
                     disabled: !tmdbIdOf(dialogItem.value?.item),
                     onClick: doOpenTmdb
                   }, {
-                    default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
+                    default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
                       _createTextVNode("TMDB", -1)
                     ]))]),
                     _: 1
@@ -1389,6 +1429,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3cecd21f"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c72c1a03"]]);
 
 export { Page as default };
