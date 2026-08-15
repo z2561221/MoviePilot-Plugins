@@ -6,6 +6,7 @@ from app.schemas.types import MediaSource, MediaType
 
 from doubancenter import feed
 from doubancenter.adapter import douban as douban_adapter
+from doubancenter.adapter import rss as rss_adapter
 from doubancenter.model.identity import convert_identity
 from doubancenter.service import dashboard_rank_media
 
@@ -263,6 +264,13 @@ def test_parse_mobile_original_titles_reads_public_subject_page_markup():
     ]
 
 
+def test_douban_subject_id_reads_coming_rss_link():
+    """即将上映 RSS 链接必须提供可转换的豆瓣 subject ID。"""
+    assert rss_adapter.douban_subject_id(
+        "https://movie.douban.com/subject/37218278/"
+    ) == "37218278"
+
+
 def test_preserve_existing_tmdb_identity_during_transient_refresh_failure():
     """刷新瞬时失败时不得把已确认的 TMDB 主身份回退为豆瓣。"""
     entry = {
@@ -353,6 +361,54 @@ def test_rank_refresh_converts_douban_identity_before_recognition():
     assert entry["douban_id"] == "36508123"
     assert entry["poster"] == "tmdb-poster.jpg"
     assert chain.recognize_calls[0]["media_source"] == MediaSource.TMDB
+
+
+def test_rank_refresh_reuses_existing_tmdb_identity_before_network_conversion():
+    """同一豆瓣条目已有 TMDB 身份时直接复用，避免重复请求转换链。"""
+    tmdb_media = FakeMediaInfo(
+        title="瑞克和莫蒂",
+        source=MediaSource.TMDB,
+        media_id="60625",
+        tmdb_id=60625,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(mapping=RuntimeError("should not convert"), tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=chain)
+    item = {
+        "title": "瑞克和莫蒂 第九季",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "36508123",
+        "link": "https://movie.douban.com/subject/36508123/",
+    }
+    entry = {
+        "title": item["title"],
+        "year": item["year"],
+        "poster": "douban-poster.jpg",
+        "douban_id": "36508123",
+    }
+    existing = {
+        "title": "瑞克和莫蒂",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "60625",
+        "tmdbid": 60625,
+        "link": "https://movie.douban.com/subject/36508123/",
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "tv_global",
+        {"key": "tv_global", "route": "/douban/tv/weekly_global"},
+        existing=existing,
+    )
+
+    assert result is tmdb_media
+    assert chain.convert_calls == []
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "60625"
+    assert entry["douban_id"] == "36508123"
 
 
 def test_rank_refresh_keeps_douban_identity_when_mapping_is_missing():
