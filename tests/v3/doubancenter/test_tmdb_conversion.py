@@ -42,14 +42,27 @@ class FakeMediaInfo:
 class ConversionChain:
     """模拟跨源转换和后续媒体识别。"""
 
-    def __init__(self, *, mapping=None, tmdb_media=None, douban_media=None, title_media=None):
+    def __init__(
+        self,
+        *,
+        mapping=None,
+        tmdb_media=None,
+        douban_media=None,
+        title_media=None,
+        douban_detail=None,
+        title_mapping=None,
+    ):
         """保存各识别分支的预设返回值。"""
         self.mapping = mapping
         self.tmdb_media = tmdb_media
         self.douban_media = douban_media
         self.title_media = title_media
+        self.douban_detail = douban_detail
+        self.title_mapping = title_mapping
         self.convert_calls = []
         self.recognize_calls = []
+        self.douban_info_calls = []
+        self.match_tmdb_calls = []
 
     def convert_media_identity(self, **kwargs):
         """记录转换参数并返回预设映射。"""
@@ -67,6 +80,16 @@ class ConversionChain:
         if source == MediaSource.Douban:
             return self.douban_media
         return self.title_media
+
+    def douban_info(self, **kwargs):
+        """记录豆瓣详情参数并返回预设详情。"""
+        self.douban_info_calls.append(kwargs)
+        return self.douban_detail
+
+    def match_tmdbinfo(self, **kwargs):
+        """记录 TMDB 标题匹配参数并返回预设映射。"""
+        self.match_tmdb_calls.append(kwargs)
+        return self.title_mapping
 
 
 def test_convert_identity_reads_raw_tmdb_mapping_and_forwards_season():
@@ -101,6 +124,87 @@ def test_convert_identity_rejects_zero_tmdb_mapping():
         target_source=MediaSource.TMDB,
         media_source=MediaSource.Douban,
         media_id="36508123",
+    ) == (None, None)
+
+
+def test_convert_identity_retries_original_title_without_year_for_unreleased_tmdb():
+    """宿主年份过滤未定档条目时，使用豆瓣英文原名无年份精确匹配。"""
+    chain = ConversionChain(
+        mapping=None,
+        douban_detail={
+            "title": "大理石庄园谋杀案",
+            "original_title": "Marble Hall Murders",
+            "year": "2026",
+        },
+        title_mapping={
+            "id": 283319,
+            "name": "Marble Hall Murders",
+            "first_air_date": "",
+        },
+    )
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="37218278",
+        mtype=MediaType.TV,
+    ) == (MediaSource.TMDB, "283319")
+    assert chain.douban_info_calls == [{
+        "doubanid": "37218278",
+        "mtype": MediaType.TV,
+    }]
+    assert chain.match_tmdb_calls == [{
+        "name": "Marble Hall Murders",
+        "mtype": MediaType.TV,
+        "year": None,
+        "season": None,
+    }]
+
+
+def test_convert_identity_does_not_retry_chinese_title():
+    """豆瓣缺少非中文原名时，不得重新按中文标题冒险匹配。"""
+    chain = ConversionChain(
+        mapping=None,
+        douban_detail={
+            "title": "大理石庄园谋杀案",
+            "original_title": "",
+            "year": "2026",
+        },
+        title_mapping={"id": 283319},
+    )
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="37218278",
+        mtype=MediaType.TV,
+    ) == (None, None)
+    assert chain.match_tmdb_calls == []
+
+
+def test_convert_identity_rejects_conflicting_yearless_match():
+    """无年份搜索命中明确不同年份时，不得接受该 TMDB 身份。"""
+    chain = ConversionChain(
+        mapping=None,
+        douban_detail={
+            "original_title": "Marble Hall Murders",
+            "year": "2026",
+        },
+        title_mapping={
+            "id": 283319,
+            "name": "Marble Hall Murders",
+            "first_air_date": "2024-01-01",
+        },
+    )
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="37218278",
+        mtype=MediaType.TV,
     ) == (None, None)
 
 

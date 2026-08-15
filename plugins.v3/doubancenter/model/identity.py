@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping, Optional, Tuple
 
 # MoviePilot V3 e28de9cf 的 app.sdk.media 尚未导出媒体身份规范化函数。
@@ -107,6 +108,71 @@ def _conversion_identity(
     return None, None
 
 
+def _contains_cjk(value: Any) -> bool:
+    """判断标题是否包含中日韩统一表意文字。"""
+    return bool(re.search(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]", str(value or "")))
+
+
+def _mapping_year(value: Mapping[str, Any]) -> str:
+    """从来源详情或 TMDB 匹配结果中提取可比较年份。"""
+    for field in ("year", "first_air_date", "release_date"):
+        raw_value = str(value.get(field) or "").strip()
+        match = re.search(r"(?:19|20)\d{2}", raw_value)
+        if match:
+            return match.group(0)
+    return ""
+
+
+def _douban_tmdb_original_title_fallback(
+    chain: Any,
+    *,
+    media_id: str,
+    mtype: Any = None,
+    season: Any = None,
+) -> Tuple[Optional[MediaSource], Optional[str]]:
+    """用豆瓣非中文原名做一次不带年份的 TMDB 精确匹配。"""
+    douban_info = getattr(chain, "douban_info", None)
+    match_tmdbinfo = getattr(chain, "match_tmdbinfo", None)
+    if not callable(douban_info) or not callable(match_tmdbinfo):
+        return None, None
+
+    detail_kwargs = {"doubanid": media_id}
+    if mtype is not None:
+        detail_kwargs["mtype"] = mtype
+    source_info = douban_info(**detail_kwargs)
+    if not isinstance(source_info, Mapping):
+        return None, None
+
+    source_year = _mapping_year(source_info)
+    seen = set()
+    for field in ("original_title", "en_title", "title"):
+        title = re.sub(r"\s+", " ", str(source_info.get(field) or "")).strip()
+        title_key = title.casefold()
+        if (
+            not title
+            or title_key in seen
+            or _contains_cjk(title)
+            or not re.search(r"[A-Za-z]", title)
+        ):
+            continue
+        seen.add(title_key)
+        target_info = match_tmdbinfo(
+            name=title,
+            mtype=mtype,
+            year=None,
+            season=season,
+        )
+        if not isinstance(target_info, Mapping):
+            continue
+        target_year = _mapping_year(target_info)
+        if source_year and target_year and source_year != target_year:
+            continue
+        source, target_id = _conversion_identity(target_info, MediaSource.TMDB)
+        if source and target_id:
+            return source, target_id
+    return None, None
+
+
 def convert_identity(
     chain: Any,
     *,
@@ -116,7 +182,7 @@ def convert_identity(
     mtype: Any = None,
     season: Any = None,
 ) -> Tuple[Optional[MediaSource], Optional[str]]:
-    """调用 V3 跨源转换链并返回经过校验的目标媒体身份。"""
+    """调用 V3 跨源转换链，并为未定档条目补受限原名匹配。"""
     target_source = normalize_media_source(target_source)
     source, resolved_id = resolve_media_identity(
         media_source=media_source,
@@ -139,7 +205,17 @@ def convert_identity(
         kwargs["mtype"] = mtype
     if season is not None:
         kwargs["season"] = season
-    return _conversion_identity(converter(**kwargs), target_source)
+    converted_identity = _conversion_identity(converter(**kwargs), target_source)
+    if all(converted_identity):
+        return converted_identity
+    if target_source == MediaSource.TMDB and source == MediaSource.Douban:
+        return _douban_tmdb_original_title_fallback(
+            chain,
+            media_id=resolved_id,
+            mtype=mtype,
+            season=season,
+        )
+    return None, None
 
 
 def identity_from_media(media: Any) -> Tuple[Optional[MediaSource], Optional[str]]:
