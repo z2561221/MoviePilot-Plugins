@@ -56,10 +56,12 @@ def _coerce_delay_minutes(value) -> int:
 
 def _ensure_scheduler(plugin) -> None:
     """确保插件持有已启动的后台 scheduler。"""
-    if plugin._scheduler:
-        return
-    plugin._scheduler = BackgroundScheduler(timezone=settings.TZ)
-    plugin._scheduler.start()
+    scheduler = plugin._scheduler
+    if not scheduler:
+        scheduler = BackgroundScheduler(timezone=settings.TZ)
+        plugin._scheduler = scheduler
+    if not scheduler.running:
+        scheduler.start()
 
 
 __all__ = (

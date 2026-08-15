@@ -31,6 +31,40 @@ def _load(module_name: str):
     return importlib.import_module(f"downloadmanagerlocal.{module_name}")
 
 
+def _load_scheduler_events():
+    """用最小 SDK 与服务桩隔离加载延迟转种事件模块。"""
+    _prepare_imports()
+    app_sdk = types.ModuleType("app.sdk")
+    app_sdk.__path__ = []
+    app_sdk_config = types.ModuleType("app.sdk.config")
+    app_sdk_config.settings = SimpleNamespace(TZ="Asia/Shanghai")
+    app_sdk_logging = types.ModuleType("app.sdk.logging")
+    app_sdk_logging.logger = SimpleNamespace(info=lambda *_args, **_kwargs: None)
+    sys.modules.update({
+        "app.sdk": app_sdk,
+        "app.sdk.config": app_sdk_config,
+        "app.sdk.logging": app_sdk_logging,
+    })
+
+    dependency_functions = {
+        "downloadmanagerlocal.service.speed_monitor": {
+            "handle_download_added_event": lambda *_args, **_kwargs: {},
+        },
+        "downloadmanagerlocal.service.speed_worker": {
+            "start_speed_monitor_worker": lambda *_args, **_kwargs: False,
+        },
+        "downloadmanagerlocal.service.upload_limit_worker": {
+            "wake_upload_limit_worker": lambda *_args, **_kwargs: None,
+        },
+    }
+    for module_name, functions in dependency_functions.items():
+        module = types.ModuleType(module_name)
+        for name, function in functions.items():
+            setattr(module, name, function)
+        sys.modules[module_name] = module
+    return importlib.import_module("downloadmanagerlocal.service.events")
+
+
 class FakeDownloader:
     """提供可重复轮询结果的下载器替身。"""
 
@@ -190,6 +224,58 @@ def test_scheduler_and_lifecycle_use_on_demand_monitor_worker():
     assert "def on_download_added(self, event: Event):" in entry_source
     assert "return _handle_download_added_event_impl(self, event)" in entry_source
     assert "start_speed_monitor_worker(plugin)" in events_source
+
+
+class FakeScheduler:
+    """记录延迟转种 scheduler 的启动次数。"""
+
+    def __init__(self, timezone=None, running: bool = False):
+        """保存时区与初始运行状态。"""
+        self.timezone = timezone
+        self.running = running
+        self.start_count = 0
+
+    def start(self):
+        """记录启动并切换为运行状态。"""
+        self.start_count += 1
+        self.running = True
+
+
+def test_transfer_event_scheduler_is_created_and_started(monkeypatch):
+    """没有 scheduler 时应创建并启动延迟转种调度器。"""
+    events = _load_scheduler_events()
+    scheduler = FakeScheduler()
+    monkeypatch.setattr(events, "BackgroundScheduler", lambda timezone=None: scheduler)
+    plugin = SimpleNamespace(_scheduler=None)
+
+    events._ensure_scheduler(plugin)
+
+    assert plugin._scheduler is scheduler
+    assert scheduler.start_count == 1
+
+
+def test_transfer_event_starts_existing_stopped_scheduler():
+    """初始化阶段留下的停止 scheduler 必须在收到事件时启动。"""
+    events = _load_scheduler_events()
+    scheduler = FakeScheduler(running=False)
+    plugin = SimpleNamespace(_scheduler=scheduler)
+
+    events._ensure_scheduler(plugin)
+
+    assert plugin._scheduler is scheduler
+    assert scheduler.start_count == 1
+
+
+def test_transfer_event_keeps_existing_running_scheduler():
+    """已运行的 scheduler 不应被重复启动或替换。"""
+    events = _load_scheduler_events()
+    scheduler = FakeScheduler(running=True)
+    plugin = SimpleNamespace(_scheduler=scheduler)
+
+    events._ensure_scheduler(plugin)
+
+    assert plugin._scheduler is scheduler
+    assert scheduler.start_count == 0
 
 
 def test_worker_starts_once_and_plugin_stop_signals_and_joins_it():
