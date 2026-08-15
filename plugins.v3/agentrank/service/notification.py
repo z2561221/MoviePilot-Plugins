@@ -286,7 +286,7 @@ class NotificationService:
     def _pending_detail_link(self) -> Any:
         """返回待处理中心深链；未配置外部域名时交给宿主默认详情链接。"""
         try:
-            from app.core.config import settings
+            from app.sdk.config import settings
 
             plugin_id = self._plugin.__class__.__name__
             return settings.MP_DOMAIN(

@@ -68,7 +68,7 @@ class SubscriptionService:
     @staticmethod
     def _default_media_factory() -> Callable[..., Any]:
         """返回当前 MoviePilot MediaInfo 类。"""
-        from app.core.context import MediaInfo
+        from app.sdk.media import MediaInfo
 
         return MediaInfo
 

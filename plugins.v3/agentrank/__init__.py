@@ -2,9 +2,9 @@
 
 from typing import Any, Dict, List, Optional, Tuple, Type
 
-from app.core.event import Event, eventmanager
 from app.plugins import _PluginBase
 from app.schemas.types import EventType
+from app.sdk.events import Event, eventmanager
 
 from .controller.api import build_api_routes, config_response, status_response
 from .model.config import default_config

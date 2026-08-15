@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Mapping
 from fastapi import Depends
 
 from app import schemas
+# MoviePilot V3 e28de9cf 的 SDK 尚未导出 bearer token 校验依赖。
 from app.application.security.access import verify_token
 
 from .schemas import API_RESPONSE_MODELS

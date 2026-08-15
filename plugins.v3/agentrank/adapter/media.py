@@ -52,8 +52,8 @@ class MediaRecognitionAdapter:
         if self._chain_factory and self._meta_factory and self._media_type_cls:
             return self._chain_factory, self._meta_factory, self._media_type_cls
         from app.chain.media import MediaChain
-        from app.core.metainfo import MetaInfo
         from app.schemas.types import MediaType
+        from app.sdk.media import MetaInfo
 
         return (
             self._chain_factory or MediaChain,

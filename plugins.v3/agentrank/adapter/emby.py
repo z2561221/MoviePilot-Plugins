@@ -15,7 +15,7 @@ class EmbyServiceAccess:
     def __init__(self, helper: Any = None, request_factory: Any = None):
         """允许测试注入媒体服务器帮助器和请求工厂。"""
         if helper is None:
-            from app.helper.mediaserver import MediaServerHelper
+            from app.sdk.services import MediaServerHelper
 
             helper = MediaServerHelper()
         self._helper = helper
@@ -173,7 +173,7 @@ class EmbyServiceAccess:
         """创建带短超时的宿主 HTTP 客户端。"""
         if self._request_factory is not None:
             return self._request_factory(timeout=timeout)
-        from app.utils.http import RequestUtils
+        from app.sdk.network import RequestUtils
 
         return RequestUtils(timeout=timeout, content_type="application/json")
 

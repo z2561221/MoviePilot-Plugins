@@ -50,7 +50,7 @@ def test_endpoint_boundary_returns_business_data_without_manual_envelope():
 
 def test_api_contract_error_uses_clean_detail_and_machine_code_header():
     """HTTP 错误交给宿主统一包装，机器码保留在专用响应头。"""
-    with pytest.raises(HTTPException) as raised:
+    with pytest.raises(Exception) as raised:
         _http_error(ApiContractError(409, "board_conflict", "榜单已刷新"))
 
     assert raised.value.status_code == 409

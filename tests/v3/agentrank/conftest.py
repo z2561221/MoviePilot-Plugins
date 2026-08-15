@@ -10,6 +10,6 @@ PLUGIN_DIR = Path(__file__).resolve().parents[3] / "plugins.v3" / "agentrank"
 package = sys.modules.setdefault("agentrank", ModuleType("agentrank"))
 package.__path__ = [str(PLUGIN_DIR)]
 
-security = ModuleType("app.core.security")
+security = ModuleType("app.application.security.access")
 security.verify_token = lambda: SimpleNamespace(super_user=True, sub="1")
-sys.modules.setdefault("app.core.security", security)
+sys.modules["app.application.security.access"] = security

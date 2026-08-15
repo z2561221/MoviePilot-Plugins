@@ -13,8 +13,8 @@ class TelegramTargetAdapter:
     ):
         """绑定宿主用户设置读取器，并允许测试注入替身。"""
         if user_oper_factory is None:
-            from app.core.config import settings
             from app.db.user_oper import UserOper
+            from app.sdk.config import settings
 
             user_oper_factory = UserOper
             superuser = superuser or settings.SUPERUSER
