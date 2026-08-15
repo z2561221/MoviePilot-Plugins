@@ -20,7 +20,7 @@ class AgentRank(_PluginBase):
     plugin_color = "#7C4DFF"
     plugin_version = "3.0.0"
     plugin_label = "智能推荐"
-    plugin_author = "牧濑红莉栖"
+    plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "agentrank_"
     plugin_order = 30
