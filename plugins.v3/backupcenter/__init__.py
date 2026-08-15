@@ -22,7 +22,7 @@ class BackupCenter(_PluginBase):
     plugin_color = "#00897B"
     plugin_version = "3.0.0"
     plugin_label = "系统工具,数据安全"
-    plugin_author = "牧濑红莉栖"
+    plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "backupcenter_"
     plugin_order = 35
