@@ -429,10 +429,13 @@ def _apply_display_recognition(
         if recognized_source == MediaSource.TMDB and recognized_id:
             logger.warning(f"豆瓣中心：榜单条目《{title}》已转换 TMDB ID {recognized_id}，但详情识别无结果")
         return None
-    cn_title = getattr(mediainfo, "title", None) or title
-    if cn_title and cn_title != title:
-        entry["original_title"] = title
-    entry["title"] = cn_title
+    tmdb_title = str(getattr(mediainfo, "title", None) or "").strip()
+    if tmdb_title:
+        entry["tmdb_title"] = tmdb_title
+    else:
+        entry.pop("tmdb_title", None)
+    entry["title"] = title
+    entry.pop("original_title", None)
     entry["year"] = getattr(mediainfo, "year", None) or entry.get("year") or ""
     resolved_type = _resolved_media_type_name(rd, item, mediainfo)
     entry["media_type"] = "movie" if resolved_type == "movie" else ("tv" if resolved_type == "tv" else "unknown")
@@ -492,9 +495,19 @@ def _preserve_existing_tmdb_identity(entry: dict, existing: dict) -> None:
     entry["media_id"] = str(normalized_tmdb_id)
     entry["tmdb_id"] = normalized_tmdb_id
     entry["tmdbid"] = entry["tmdb_id"]
-    for field in ("title", "poster", "original_title"):
-        if existing.get(field):
-            entry[field] = existing.get(field)
+    if existing.get("poster"):
+        entry["poster"] = existing.get("poster")
+    if not entry.get("tmdb_title"):
+        tmdb_title = str(existing.get("tmdb_title") or "").strip()
+        if not tmdb_title:
+            legacy_title = str(existing.get("title") or "").strip()
+            legacy_original_title = str(existing.get("original_title") or "").strip()
+            current_title = str(entry.get("title") or "").strip()
+            if legacy_title and legacy_original_title and legacy_original_title == current_title:
+                tmdb_title = legacy_title
+        if tmdb_title:
+            entry["tmdb_title"] = tmdb_title
+    entry.pop("original_title", None)
 
 
 def _fetch_bangumi_subject(self, bangumiid: Any) -> Optional[dict]:
@@ -1430,6 +1443,8 @@ def _merge_rank_items(self, rank_key, items, rd, return_snapshot: bool = False):
             else:
                 merged = dict(existing)
                 merged.update(entry)
+                if rank_key != "bangumi":
+                    merged.pop("original_title", None)
                 if existing.get("observing"):
                     merged["observing"] = True
                     if existing.get("first_seen"):

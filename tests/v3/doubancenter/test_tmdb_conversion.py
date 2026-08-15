@@ -294,6 +294,7 @@ def test_preserve_existing_tmdb_identity_during_transient_refresh_failure():
     }
     existing = {
         "title": "瑞克和莫蒂",
+        "tmdb_title": "瑞克和莫蒂",
         "original_title": "瑞克和莫蒂 第九季",
         "media_source": MediaSource.TMDB.value,
         "media_id": "60625",
@@ -307,7 +308,9 @@ def test_preserve_existing_tmdb_identity_during_transient_refresh_failure():
     assert entry["media_source"] == MediaSource.TMDB.value
     assert entry["media_id"] == "60625"
     assert entry["tmdbid"] == 60625
-    assert entry["title"] == "瑞克和莫蒂"
+    assert entry["title"] == "瑞克和莫蒂 第九季"
+    assert entry["tmdb_title"] == "瑞克和莫蒂"
+    assert "original_title" not in entry
     assert entry["poster"] == "tmdb-poster.jpg"
 
 
@@ -373,8 +376,91 @@ def test_rank_refresh_converts_douban_identity_before_recognition():
     assert entry["media_id"] == "60625"
     assert entry["tmdbid"] == 60625
     assert entry["douban_id"] == "36508123"
+    assert entry["title"] == "瑞克和莫蒂 第九季"
+    assert entry["tmdb_title"] == "瑞克和莫蒂"
+    assert "original_title" not in entry
     assert entry["poster"] == "tmdb-poster.jpg"
     assert chain.recognize_calls[0]["media_source"] == MediaSource.TMDB
+
+
+def test_rank_refresh_keeps_douban_name_for_marble_hall_murders():
+    """英文 TMDB 名称只写入辅助字段，榜单仍展示豆瓣中文名。"""
+    tmdb_media = FakeMediaInfo(
+        title="Marble Hall Murders",
+        source=MediaSource.TMDB,
+        media_id="283319",
+        tmdb_id=283319,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(mapping={"id": 283319}, tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=chain)
+    item = {
+        "title": "大理石庄园谋杀案",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "37218278",
+    }
+    entry = {
+        "title": item["title"],
+        "year": item["year"],
+        "douban_id": "37218278",
+        "original_title": item["title"],
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "coming",
+        {"key": "coming", "route": "/douban/tv/coming"},
+    )
+
+    assert result is tmdb_media
+    assert entry["title"] == "大理石庄园谋杀案"
+    assert entry["tmdb_title"] == "Marble Hall Murders"
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "283319"
+    assert entry["tmdbid"] == 283319
+    assert "original_title" not in entry
+
+
+def test_rank_refresh_keeps_douban_name_for_slow_horses_season_six():
+    """带季号的豆瓣名称保持不变，同时记录 TMDB 基础剧名。"""
+    tmdb_media = FakeMediaInfo(
+        title="Slow Horses",
+        source=MediaSource.TMDB,
+        media_id="95480",
+        tmdb_id=95480,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(mapping={"id": 95480}, tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=chain)
+    item = {
+        "title": "流人 第六季",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "36689816",
+    }
+    entry = {
+        "title": item["title"],
+        "year": item["year"],
+        "douban_id": "36689816",
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "coming",
+        {"key": "coming", "route": "/douban/tv/coming"},
+    )
+
+    assert result is tmdb_media
+    assert entry["title"] == "流人 第六季"
+    assert entry["tmdb_title"] == "Slow Horses"
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "95480"
+    assert entry["tmdbid"] == 95480
 
 
 def test_rank_refresh_reuses_existing_tmdb_identity_before_network_conversion():
@@ -423,6 +509,8 @@ def test_rank_refresh_reuses_existing_tmdb_identity_before_network_conversion():
     assert entry["media_source"] == MediaSource.TMDB.value
     assert entry["media_id"] == "60625"
     assert entry["douban_id"] == "36508123"
+    assert entry["title"] == "瑞克和莫蒂 第九季"
+    assert entry["tmdb_title"] == "瑞克和莫蒂"
 
 
 def test_rank_refresh_uses_media_chain_when_plugin_base_chain_cannot_convert():
@@ -463,6 +551,8 @@ def test_rank_refresh_uses_media_chain_when_plugin_base_chain_cannot_convert():
     assert plugin_chain.recognize_calls == []
     assert entry["media_source"] == MediaSource.TMDB.value
     assert entry["media_id"] == "60625"
+    assert entry["title"] == "瑞克和莫蒂 第九季"
+    assert entry["tmdb_title"] == "瑞克和莫蒂"
 
 
 def test_rank_refresh_keeps_douban_identity_when_mapping_is_missing():
@@ -499,6 +589,8 @@ def test_rank_refresh_keeps_douban_identity_when_mapping_is_missing():
     assert result is None
     assert chain.recognize_calls == []
     assert entry["douban_id"] == "36689816"
+    assert entry["title"] == "流人 第六季"
+    assert "tmdb_title" not in entry
     assert entry.get("tmdbid") is None
     assert entry.get("media_source") is None
 
