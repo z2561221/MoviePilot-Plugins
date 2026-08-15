@@ -5,6 +5,7 @@ import os
 import sys
 import types
 from pathlib import Path
+from types import SimpleNamespace
 
 
 PLUGIN_DIR = Path(
@@ -24,6 +25,43 @@ def _load_tag_cleanup():
     return importlib.import_module("downloadmanagerlocal.utils.tag_cleanup")
 
 
+def _load_site_tag(host_tag: str):
+    """隔离加载站点标签服务并注入用户自定义宿主标签。"""
+    cleanup = _load_tag_cleanup()
+
+    app = types.ModuleType("app")
+    app.__path__ = []
+    app_sdk = types.ModuleType("app.sdk")
+    app_sdk.__path__ = []
+    app_sdk_config = types.ModuleType("app.sdk.config")
+    app_sdk_config.settings = SimpleNamespace(TORRENT_TAG=host_tag)
+    app_sdk_logging = types.ModuleType("app.sdk.logging")
+    app_sdk_logging.logger = SimpleNamespace(
+        info=lambda *_args, **_kwargs: None,
+        warning=lambda *_args, **_kwargs: None,
+        error=lambda *_args, **_kwargs: None,
+    )
+    adapter = types.ModuleType("downloadmanagerlocal.adapter.moviepilot")
+    adapter.generate_random_tag = lambda length=10: "A" * length
+    adapter.get_site_indexer = lambda *_args, **_kwargs: None
+    adapter.get_url_domain = lambda value: value
+    adapter.list_site_dicts = lambda: []
+    torrent_adapter = types.ModuleType("downloadmanagerlocal.utils.torrent_adapter")
+    torrent_adapter.get_hash = lambda torrent, _kind: torrent.get("hash")
+    torrent_adapter.get_label = lambda torrent, _kind: torrent.get("tags", "")
+
+    sys.modules.update({
+        "app": app,
+        "app.sdk": app_sdk,
+        "app.sdk.config": app_sdk_config,
+        "app.sdk.logging": app_sdk_logging,
+        "downloadmanagerlocal.adapter.moviepilot": adapter,
+        "downloadmanagerlocal.utils.tag_cleanup": cleanup,
+        "downloadmanagerlocal.utils.torrent_adapter": torrent_adapter,
+    })
+    return importlib.import_module("downloadmanagerlocal.service.site_tag")
+
+
 def test_managed_anchor_recognizes_single_task_legacy_temporary_tag():
     """当前业务锚点应识别单任务上的十位旧临时标签。"""
     cleanup = _load_tag_cleanup()
@@ -38,18 +76,28 @@ def test_managed_anchor_recognizes_single_task_legacy_temporary_tag():
     ) == "legacy_temporary"
 
 
-def test_managed_ten_character_tag_is_never_treated_as_temporary():
-    """宿主业务标签即使十位长也不得进入旧临时标签候选。"""
-    cleanup = _load_tag_cleanup()
-    torrent_tags = {"qb-hash": {"MoviePilot", "SUURFaG0p7"}}
+def test_custom_host_tag_is_protected_and_anchors_legacy_cleanup():
+    """用户自定义宿主标签应受保护并能证明同任务旧随机标签的归属。"""
+    site_tag = _load_site_tag("CustomTag1")
+    cleanup = sys.modules["downloadmanagerlocal.utils.tag_cleanup"]
+    plugin = SimpleNamespace(_torrent_tags=[], _iyuu_labelsafterseed="")
+    managed_tags = site_tag._managed_tag_anchors(plugin)
+    torrent_tags = {"qb-hash": {"CustomTag1", "SUURFaG0p7"}}
 
     assert cleanup.classify_tag(
-        "MoviePilot",
+        "CustomTag1",
         ["qb-hash"],
         torrent_tags,
-        {"MoviePilot"},
+        managed_tags,
         set(),
     ) == "managed"
+    assert cleanup.classify_tag(
+        "SUURFaG0p7",
+        ["qb-hash"],
+        torrent_tags,
+        managed_tags,
+        set(),
+    ) == "legacy_temporary"
 
 
 def test_shared_legacy_tag_is_not_treated_as_cleanup_candidate():
