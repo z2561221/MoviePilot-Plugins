@@ -1,0 +1,1377 @@
+"""
+DoubanCenter - 榜单订阅引擎
+"""
+import datetime
+import re
+import time
+from typing import Any, Dict, List, Optional
+
+from app.chain.subscribe import SubscribeChain
+from app.sdk.config import settings
+from app.sdk.logging import logger
+from app.sdk.media import MetaInfo
+from app.sdk.network import RequestUtils
+from app.sdk.utilities import DomUtils
+from app.schemas.types import MediaType
+
+from . import utils
+from .adapter import bangumi as bangumi_adapter
+from .adapter import rss as rss_adapter
+from .model import rank as rank_model
+from .model.identity import identity_payload, recognize_media as recognize_with_identity
+from .service import observation as observation_service
+from .service import rank_refresh as rank_refresh_service
+from .service import rank_subscription as rank_subscription_service
+from .service import subscription as subscription_service
+from .storage import records as storage
+
+RANK_HISTORY_LIMIT = 500
+UNLIMITED_RANK_FETCH_LIMIT = 50
+DEFAULT_OBSERVE_RANK_KEYS = rank_model.DEFAULT_OBSERVE_RANK_KEYS
+BUILTIN_RANKS: List[Dict[str, Any]] = rank_model.BUILTIN_RANKS
+
+
+def get_rank_definitions(plugin) -> List[Dict[str, Any]]:
+    """返回当前插件配置下的有效榜单集合。"""
+    return rank_model.effective_ranks(getattr(plugin, "_custom_ranks", []))
+
+
+def _trim_history(history: List[dict], limit: int = RANK_HISTORY_LIMIT) -> List[dict]:
+    """裁剪榜单历史，只保留最新条目。"""
+    return storage.trim_records(history, limit)
+
+
+def _custom_rank_history_key(source: str) -> str:
+    """为自定义 RSS 生成跨进程稳定的历史数据键。"""
+    return storage.custom_rank_history_key(source)
+
+
+def _rank_media_type(rank: dict, item: dict) -> str:
+    """根据榜单定义和 RSS 条目推断媒体类型。"""
+    return rank_model.infer_media_type(rank, item)
+
+
+def _resolved_media_type_name(rank: dict, item: dict, mediainfo=None) -> str:
+    """综合 RSS 字段、已知路由和媒体识别结果确定类型。"""
+    inferred = _rank_media_type(rank, item)
+    if inferred in ("movie", "tv"):
+        return inferred
+    raw = str(getattr(mediainfo, "type", "") or "").lower()
+    if "movie" in raw or "电影" in raw:
+        return "movie"
+    if "tv" in raw or "电视剧" in raw or "series" in raw:
+        return "tv"
+    return "unknown"
+
+
+def _recognize_rss_item(self, item: dict, rank: dict):
+    """按条目和榜单路由识别 RSS 媒体，未知类型交给识别链自动判断。"""
+    item = item if isinstance(item, dict) else {}
+    rank = rank if isinstance(rank, dict) else {}
+    meta = MetaInfo(str(item.get("title") or ""))
+    if item.get("year"):
+        meta.year = str(item.get("year"))
+    inferred = _rank_media_type(rank, item)
+    if inferred in ("movie", "tv"):
+        meta.type = MediaType.MOVIE if inferred == "movie" else MediaType.TV
+        mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
+    else:
+        try:
+            mediainfo = self.chain.recognize_media(meta=meta)
+        except TypeError:
+            # 兼容旧测试宿主；正式 MP 链路支持省略 mtype 的自动识别。
+            mediainfo = self.chain.recognize_media(meta=meta, mtype=MediaType.TV)
+    return meta, mediainfo, _resolved_media_type_name(rank, item, mediainfo)
+
+
+def _rss_default_media_type(addr: str) -> str:
+    """根据 RSS 地址推断默认媒体类型。"""
+    return rss_adapter.default_media_type(addr)
+
+
+def _record_history_item(history: List[dict], entry: dict) -> None:
+    """更新或插入榜单历史条目，并原位替换观察占位。"""
+    rank_model.record_history_item(history, entry)
+
+
+def _history_item_subscribed(item: dict) -> bool:
+    """判断历史条目是否已经产生过订阅。"""
+    return subscription_service.history_item_subscribed(item)
+
+
+def _history_item_existing(item: dict) -> bool:
+    """判断历史条目是否已确认存在订阅。"""
+    return subscription_service.history_item_existing(item)
+
+
+def _history_index_by_unique(history: List[dict]) -> Dict[str, dict]:
+    """按唯一标识构建榜单历史索引。"""
+    return subscription_service.history_index_by_unique(history)
+
+
+# 订阅过滤与观察期工具函数
+
+
+def _log_anti_cheat(self, reason: str, title: str, detail: str = "", link: str = ""):
+    """记录订阅过滤日志。"""
+    observation_service.log_anti_cheat(self, reason, title, detail=detail, link=link)
+
+
+def _cleanup_observe_logs(self, title: str = "", unique: str = "") -> None:
+    """订阅成功后清理对应条目的观察日志。"""
+    observation_service.cleanup_observe_logs(self, title=title, unique=unique)
+
+
+def _is_existing_media(mediainfo, meta=None) -> bool:
+    """判断媒体是否已存在订阅。"""
+    return subscription_service.is_existing_media(mediainfo, meta=meta, subscribe_chain_cls=SubscribeChain)
+
+
+def _record_existing_history(
+    history: List[dict],
+    unique: str,
+    title: str = "",
+    year: Any = "",
+    link: str = "",
+    mediainfo=None,
+    rank_key: str = "",
+    rank_name: str = "",
+    media_type: str = "",
+) -> None:
+    """记录已存在订阅，避免后续再次进入观察队列。"""
+    subscription_service.record_existing_history(
+        history,
+        unique,
+        title=title,
+        year=year,
+        link=link,
+        mediainfo=mediainfo,
+        rank_key=rank_key,
+        rank_name=rank_name,
+        media_type=media_type,
+    )
+
+
+def _match_blacklist_line(line: str, haystack: str) -> bool:
+    """判断一行黑名单规则是否命中文本。"""
+    rule = line.strip()
+    if not rule:
+        return False
+    case_sensitive = False
+    if rule.lower().startswith("case:"):
+        case_sensitive = True
+        rule = rule[5:].strip()
+    flags = 0 if case_sensitive else re.IGNORECASE
+    if rule.lower().startswith("regex:"):
+        pattern = rule[6:].strip()
+        try:
+            return bool(pattern and re.search(pattern, haystack, flags))
+        except re.error:
+            rule = pattern
+    source = haystack if case_sensitive else haystack.lower()
+    tokens = [token for token in re.split(r"\s+", rule) if token]
+    if not tokens:
+        return False
+    if not case_sensitive:
+        tokens = [token.lower() for token in tokens]
+    return all(token in source for token in tokens)
+
+
+def _blacklist_description(*sources: Any) -> str:
+    """汇总 RSS 原名、摘要、分类、地区与类型字段供黑名单匹配。"""
+    values: List[str] = []
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key in ("original_title", "description", "category", "regions", "genres"):
+            value = source.get(key)
+            if isinstance(value, (list, tuple, set)):
+                text = " ".join(str(item).strip() for item in value if str(item).strip())
+            else:
+                text = str(value or "").strip()
+            if text:
+                values.append(text)
+    return "\n".join(values)
+
+
+def _normalize_region_values(value: Any) -> List[str]:
+    """统一地区字段并兼容最小测试宿主。"""
+    normalizer = getattr(utils, "normalize_region_values", None)
+    if callable(normalizer):
+        return normalizer(value)
+    if isinstance(value, str):
+        return [part for part in re.split(r"[\s、,，/|；;]+", value) if part]
+    if isinstance(value, (list, tuple, set)):
+        return [str(part).strip() for part in value if str(part).strip()]
+    return []
+
+
+def _check_blacklist(self, title: str, description: str = "", link: str = "") -> bool:
+    """标题或 RSS 文本字段匹配黑名单关键词时返回 True。"""
+    kw = (self._blacklist_keywords or "").strip()
+    if not kw:
+        return False
+    haystack = "\n".join([title or "", description or ""])
+    for line in kw.split("\n"):
+        word = line.strip()
+        if word and _match_blacklist_line(word, haystack):
+            logger.info(f"豆瓣中心：黑名单关键词《{word}》匹配《{title}》，跳过")
+            _log_anti_cheat(self, "黑名拦截", title, f"匹配词：{word}", link=link)
+            return True
+    return False
+
+
+def default_observe_rank_keys() -> List[str]:
+    """返回默认启用观察期的波动榜单。"""
+    return observation_service.default_observe_rank_keys()
+
+
+def _rank_observe_enabled(self, rank_key: str = "") -> bool:
+    """判断指定榜单是否启用观察期。"""
+    return observation_service.rank_observe_enabled(self, rank_key)
+
+
+def _check_observe(self, unique: str, history: List[dict], title: str = "", rank_key: str = "") -> bool:
+    """条目仍处于观察期内时返回 True。"""
+    return observation_service.check_observe(self, unique, history, title=title, rank_key=rank_key)
+
+
+def _rc(self, key: str) -> dict:
+    """读取指定榜单的订阅配置。"""
+    return rank_subscription_service.rank_config(self._rank_configs, key)
+
+
+def _ren(self, key: str) -> bool:
+    """判断指定榜单是否启用自动订阅。"""
+    return rank_subscription_service.rank_enabled(self._rank_configs, key)
+
+
+def _rcount(self, key: str) -> int:
+    """读取指定榜单的自动订阅候选数量。"""
+    return rank_subscription_service.rank_count(self._rank_configs, key)
+
+
+def _drop_stale_observations(history: List[dict], current_candidates: set) -> None:
+    """将已跌出当前候选窗口的观察条目标记为结束。"""
+    observation_service.drop_stale_observations(history, current_candidates)
+
+
+def _positive_number(value: Any) -> bool:
+    """判断值是否能解析为正数。"""
+    return rank_model.positive_number(value)
+
+
+def _year_below_min(value: Any, min_year: int) -> bool:
+    """判断年份是否低于最低年份筛选条件。"""
+    return rank_model.year_below_min(value, min_year)
+
+
+def _apply_bangumi_recognition(self, item: dict, entry: dict):
+    """用 MP 识别结果补全 BangumiTV 榜单的中文名和 TMDB 信息。"""
+    title = str(item.get("title") or "")
+    if not title:
+        return None
+    meta = MetaInfo(title)
+    year = item.get("year")
+    if year:
+        meta.year = str(year)
+    meta.type = MediaType.TV
+    tmdbid = item.get("tmdbid") or entry.get("tmdbid")
+    bangumiid = _extract_bangumi_id(item) or _extract_bangumi_id(entry)
+    try:
+        mediainfo = _recognize_bangumi_media(self.chain, meta, tmdbid=tmdbid, bangumiid=bangumiid)
+    except Exception as err:
+        logger.warning(f"豆瓣中心：BangumiTV 条目《{title}》识别失败：{err}")
+        return None
+    if not mediainfo:
+        subject = _fetch_bangumi_subject(self, bangumiid)
+        if subject:
+            _apply_bangumi_subject(subject, entry, title=title, bangumiid=bangumiid)
+        return None
+    cn_title = getattr(mediainfo, "title", None) or title
+    if cn_title and cn_title != title:
+        entry["original_title"] = title
+    entry["title"] = cn_title
+    entry["year"] = getattr(mediainfo, "year", None) or entry.get("year") or ""
+    entry["tmdbid"] = getattr(mediainfo, "tmdb_id", None) or entry.get("tmdbid")
+    entry["bangumi_id"] = getattr(mediainfo, "bangumi_id", None) or bangumiid or entry.get("bangumi_id")
+    entry["bangumiid"] = entry["bangumi_id"]
+    entry.update(identity_payload(mediainfo, bangumi_id=bangumiid, tmdb_id=tmdbid))
+    try:
+        entry["poster"] = mediainfo.get_poster_image() or entry.get("poster")
+    except Exception:
+        pass
+    return mediainfo
+
+
+def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd: dict):
+    """刷新榜单展示数据时用 MP 识别结果补全标题、海报和 TMDB 信息。"""
+    title = str(item.get("title") or "")
+    if not title:
+        return None
+    meta = MetaInfo(title)
+    year = item.get("year")
+    if year:
+        meta.year = str(year)
+    inferred_type = "tv" if rank_key == "coming" else _rank_media_type(rd, item)
+    media_type = MediaType.MOVIE if inferred_type == "movie" else MediaType.TV
+    meta.type = media_type
+    try:
+        if inferred_type == "unknown":
+            try:
+                mediainfo = self.chain.recognize_media(meta=meta)
+            except TypeError:
+                mediainfo = self.chain.recognize_media(meta=meta, mtype=media_type)
+        else:
+            mediainfo = self.chain.recognize_media(meta=meta, mtype=media_type)
+    except Exception as err:
+        logger.warning(f"豆瓣中心：刷新榜单条目《{title}》识别失败：{err}")
+        return None
+    if not mediainfo:
+        return None
+    cn_title = getattr(mediainfo, "title", None) or title
+    if cn_title and cn_title != title:
+        entry["original_title"] = title
+    entry["title"] = cn_title
+    entry["year"] = getattr(mediainfo, "year", None) or entry.get("year") or ""
+    resolved_type = _resolved_media_type_name(rd, item, mediainfo)
+    entry["media_type"] = "movie" if resolved_type == "movie" else ("tv" if resolved_type == "tv" else "unknown")
+    entry["tmdbid"] = getattr(mediainfo, "tmdb_id", None) or entry.get("tmdbid")
+    if getattr(mediainfo, "bangumi_id", None):
+        entry["bangumi_id"] = getattr(mediainfo, "bangumi_id", None)
+        entry["bangumiid"] = entry["bangumi_id"]
+    entry.update(identity_payload(mediainfo, tmdb_id=entry.get("tmdbid"), bangumi_id=entry.get("bangumiid")))
+    try:
+        entry["poster"] = mediainfo.get_poster_image() or entry.get("poster")
+    except Exception:
+        pass
+    if not entry.get("regions"):
+        for key in ("regions", "countries", "origin_country", "production_countries", "country"):
+            values = _normalize_region_values(getattr(mediainfo, key, None))
+            if values:
+                entry["regions"] = values
+                entry["region_source"] = "mediainfo"
+                break
+    return mediainfo
+
+
+def _fetch_bangumi_subject(self, bangumiid: Any) -> Optional[dict]:
+    """通过 Bangumi subject id 获取官方条目详情。"""
+    return bangumi_adapter.fetch_subject(self, bangumiid, request_utils_cls=RequestUtils, settings_obj=settings)
+
+
+def _bangumi_subject_title(subject: dict, fallback: str = "") -> str:
+    """从 Bangumi subject 详情提取优先中文标题。"""
+    return bangumi_adapter.subject_title(subject, fallback=fallback)
+
+
+def _bangumi_subject_year(subject: dict, fallback: Any = "") -> str:
+    """从 Bangumi subject 详情提取年份。"""
+    return bangumi_adapter.subject_year(subject, fallback=fallback)
+
+
+def _bangumi_subject_poster(subject: dict) -> str:
+    """从 Bangumi subject 详情提取海报。"""
+    return bangumi_adapter.subject_poster(subject)
+
+
+def _apply_bangumi_subject(subject: dict, entry: dict, title: str = "", bangumiid: Any = None) -> None:
+    """用 Bangumi subject 详情补全榜单条目。"""
+    bangumi_adapter.apply_subject(subject, entry, title=title, bangumiid=bangumiid)
+
+
+def bangumi_subject_to_media_data(subject: dict, media_type_name: str, fallback_title: str = "", bangumiid: Any = None) -> dict:
+    """将 Bangumi subject 详情转换为前端可展示的媒体对象。"""
+    return bangumi_adapter.subject_to_media_data(
+        subject,
+        media_type_name,
+        fallback_title=fallback_title,
+        bangumiid=bangumiid,
+    )
+
+
+def _recognize_bangumi_media(chain, meta: MetaInfo, tmdbid: Any = None, bangumiid: Any = None):
+    """按 TMDB、Bangumi、标题顺序调用 MP 媒体识别。"""
+    attempts = []
+    if tmdbid:
+        attempts.append({"tmdb_id": tmdbid})
+    if bangumiid:
+        attempts.append({"bangumi_id": bangumiid})
+    attempts.append({})
+
+    last_type_error = None
+    for extra in attempts:
+        try:
+            mediainfo = recognize_with_identity(
+                chain,
+                meta=meta,
+                mtype=MediaType.TV,
+                tmdb_id=extra.get("tmdb_id"),
+                bangumi_id=extra.get("bangumi_id"),
+            )
+            if mediainfo:
+                return mediainfo
+        except TypeError as err:
+            last_type_error = err
+            continue
+    if last_type_error:
+        raise last_type_error
+    return None
+
+
+def _extract_bangumi_id(item: dict) -> Optional[str]:
+    """从 BangumiTV 榜单条目中提取 Bangumi subject id。"""
+    return bangumi_adapter.extract_subject_id(item)
+
+
+def _has_cjk_text(value: Any) -> bool:
+    """判断文本中是否包含中日韩统一表意文字。"""
+    return bangumi_adapter.has_cjk_text(value)
+
+
+def _normalize_bangumi_history(self, history: List[dict]) -> List[dict]:
+    """迁移旧 BangumiTV 榜单缓存，补齐中文名和 TMDB 信息。"""
+    if not isinstance(history, list):
+        return []
+    changed = False
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title")
+        if not title:
+            continue
+        if item.get("tmdbid") and _has_cjk_text(title):
+            continue
+        before = (
+            item.get("title"),
+            item.get("year"),
+            item.get("tmdbid"),
+            item.get("poster"),
+            item.get("original_title"),
+        )
+        _apply_bangumi_recognition(self, item, item)
+        after = (
+            item.get("title"),
+            item.get("year"),
+            item.get("tmdbid"),
+            item.get("poster"),
+            item.get("original_title"),
+        )
+        if after != before:
+            changed = True
+    if changed:
+        storage.save_rank_history(self, "bangumi", history)
+    return history
+
+
+def _has_global_subscription_filter(self) -> bool:
+    """判断是否配置了全局自动订阅安全条件。"""
+    return rank_subscription_service.has_global_filter(
+        blacklist_keywords=self._blacklist_keywords,
+        observe_enabled=_rank_observe_enabled(self),
+    )
+
+
+def _has_rank_subscription_filter(self, rd: dict) -> bool:
+    """判断单个榜单是否配置了自动订阅安全条件。"""
+    return rank_subscription_service.has_rank_filter(_rc(self, rd["key"]), rd)
+
+
+def _has_subscription_safety_filter(self) -> bool:
+    """判断当前配置是否足以安全执行自动订阅。"""
+    return rank_subscription_service.has_safety_filter(
+        self._rank_configs,
+        get_rank_definitions(self),
+        blacklist_keywords=self._blacklist_keywords,
+        observe_enabled=_rank_observe_enabled(self),
+    )
+
+
+def subscribe_to_ranks(self, refresh_when_unsafe: bool = True) -> None:
+    """按当前配置执行榜单订阅，必要时只刷新榜单历史。"""
+    if not _has_subscription_safety_filter(self):
+        logger.warning("豆瓣中心：未配置有效订阅筛选条件，跳过自动订阅，仅刷新榜单历史以避免误触发大量订阅")
+        if refresh_when_unsafe:
+            refresh_rank_data(self)
+        return
+
+    rsshub = utils.normalize_rss_domain(self._rsshub_domain)
+    for rd in get_rank_definitions(self):
+        key = rd["key"]
+        if not _ren(self, key):
+            continue
+        count = _rcount(self, key)
+        fetch_count = count if count > 0 else UNLIMITED_RANK_FETCH_LIMIT
+        url = rss_adapter.build_rsshub_url(rsshub, rd["route"], fetch_count)
+        logger.info(f"豆瓣中心：开始处理 [{rd['name']}] {url}")
+        if rd["coming"]:
+            _process_coming(self, url, rd)
+        else:
+            _process_general(self, url, rd)
+        time.sleep(1)
+    logger.info("豆瓣中心：榜单订阅刷新完成")
+
+
+def _subscription_limit_by_rank(self) -> Dict[str, int]:
+    """生成运行周期每个启用榜单需要拉取的候选数量。"""
+    limits: Dict[str, int] = {}
+    for rd in get_rank_definitions(self):
+        key = rd["key"]
+        if not _ren(self, key):
+            continue
+        count = _rcount(self, key)
+        limits[key] = max(5, count) if count > 0 else UNLIMITED_RANK_FETCH_LIMIT
+    return limits
+
+
+def _blacklist_enabled(self) -> bool:
+    """判断当前是否启用了黑名单筛选。"""
+    return bool((getattr(self, "_blacklist_keywords", "") or "").strip())
+
+
+def _emit_rank_subscription_summary(rd: dict, description: str, result_lines: List[str]) -> None:
+    """输出单个榜单的订阅筛选摘要。"""
+    rank_name = (rd or {}).get("name") or (rd or {}).get("key") or "榜单"
+    lines = [
+        f"豆瓣中心：[{rank_name}] 订阅筛选完成",
+        f"筛选条件：{description}",
+        "处理结果：",
+    ]
+    lines.extend(result_lines or ["- 无订阅动作"])
+    logger.info("\n".join(lines))
+
+
+def _log_rank_skip(rd: dict, title: str, reason: str, result_lines: Optional[List[str]] = None) -> None:
+    """输出榜单条目跳过原因。"""
+    rank_name = (rd or {}).get("name") or (rd or {}).get("key") or "榜单"
+    message = f"跳过《{title or '未命名条目'}》：{reason}"
+    if result_lines is not None:
+        result_lines.append(f"- {message}")
+        return
+    logger.info(f"豆瓣中心：[{rank_name}] {message}")
+
+
+def _check_rank_region(self, rd: dict, item: dict, entry: dict = None, mediainfo=None, result_lines: Optional[List[str]] = None) -> bool:
+    """执行榜单独立地区条件，未知地区时保守跳过并留下诊断。"""
+    config = _rc(self, rd["key"])
+    matched, reason = rank_subscription_service.region_filter_result(
+        config, item=item, entry=entry, mediainfo=mediainfo
+    )
+    if matched:
+        return True
+    title = str((entry or {}).get("title") or (item or {}).get("title") or "")
+    _log_rank_skip(rd, title, reason, result_lines=result_lines)
+    selected = rank_subscription_service._normalize_regions_for_filter(config.get("regions"))
+    _log_anti_cheat(
+        self,
+        reason,
+        title,
+        detail=f"榜单地区条件：{','.join(selected)}",
+        link=str((entry or {}).get("link") or (item or {}).get("link") or ""),
+    )
+    return False
+
+
+def _snapshot_media_type(rd: dict, item: dict, entry: dict, mediainfo=None):
+    """根据快照条目生成 MoviePilot 媒体类型。"""
+    mtype = _resolved_media_type_name(rd, item, mediainfo)
+    if str((entry or {}).get("media_type") or "").lower() in ("movie", "tv"):
+        mtype = str(entry.get("media_type")).lower()
+    return MediaType.MOVIE if mtype == "movie" else MediaType.TV
+
+
+def _snapshot_meta(item: dict, entry: dict, media_type) -> MetaInfo:
+    """根据快照条目生成订阅所需的 MetaInfo。"""
+    title = str((item or {}).get("title") or (entry or {}).get("original_title") or (entry or {}).get("title") or "")
+    meta = MetaInfo(title)
+    year = (item or {}).get("year") or (entry or {}).get("year")
+    if year:
+        meta.year = str(year)
+    meta.type = media_type
+    return meta
+
+
+def _snapshot_poster(mediainfo, entry: dict) -> str:
+    """从识别结果或榜单快照中提取海报地址。"""
+    try:
+        return mediainfo.get_poster_image() or (entry or {}).get("poster")
+    except Exception:
+        return (entry or {}).get("poster")
+
+
+def subscribe_to_rank_snapshots(self, rank_snapshots: Dict[str, dict]) -> None:
+    """使用本轮已识别榜单快照执行自动订阅。"""
+    if not _has_subscription_safety_filter(self):
+        logger.warning("豆瓣中心：未配置有效订阅筛选条件，本轮已刷新榜单展示，跳过自动订阅")
+        return
+
+    for rd in get_rank_definitions(self):
+        key = rd["key"]
+        if not _ren(self, key):
+            continue
+        count = _rcount(self, key)
+        snapshots = ((rank_snapshots or {}).get(key) or {}).get("items") or []
+        subscribe_items = snapshots if count <= 0 else snapshots[:count]
+        description = rank_subscription_service.describe_rank_filter(
+            _rc(self, key),
+            rd,
+            candidate_count=len(subscribe_items),
+            blacklist_enabled=_blacklist_enabled(self),
+            observe_enabled=_rank_observe_enabled(self, key),
+        )
+        result_lines: List[str] = []
+        if not subscribe_items:
+            result_lines.append("- 本轮没有可处理的订阅候选")
+            _emit_rank_subscription_summary(rd, description, result_lines)
+            continue
+        if rd["coming"]:
+            _process_coming_snapshots(self, subscribe_items, rd, result_lines=result_lines)
+        else:
+            _process_general_snapshots(self, subscribe_items, rd, result_lines=result_lines)
+        _emit_rank_subscription_summary(rd, description, result_lines)
+        time.sleep(1)
+    logger.info("豆瓣中心：榜单订阅刷新完成")
+
+
+def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_lines: Optional[List[str]] = None) -> None:
+    """处理即将上映榜单的已识别订阅候选。"""
+    cfg = _rc(self, rd["key"])
+    min_wish = int(cfg.get("wish_count", 0) or 0)
+    air_days = int(cfg.get("air_days", 0) or 0)
+    min_vote = float(cfg.get("vote", 0) or 0)
+    history: List[dict] = storage.read_rank_history(self, rd["key"])
+    history_index = _history_index_by_unique(history)
+    current_candidates = set()
+    for snapshot in snapshots or []:
+        if not isinstance(snapshot, dict):
+            continue
+        item = snapshot.get("raw") if isinstance(snapshot.get("raw"), dict) else {}
+        entry = snapshot.get("entry") if isinstance(snapshot.get("entry"), dict) else {}
+        title = str(entry.get("title") or item.get("title") or "")
+        link = entry.get("link") or item.get("link") or ""
+        year = entry.get("year") or item.get("year") or ""
+        wish = int(entry.get("wish_count") or item.get("wish_count") or 0)
+        unique = entry.get("unique") or f"dc2_coming:{link or item.get('title') or title}"
+        if not title:
+            continue
+        current_candidates.add(unique)
+        if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
+            _log_rank_skip(rd, title, "历史中已订阅或已存在", result_lines=result_lines)
+            continue
+        blacklist_description = _blacklist_description(entry, item)
+        if _check_blacklist(self, title, description=blacklist_description, link=link):
+            _log_rank_skip(rd, title, "命中黑名单", result_lines=result_lines)
+            continue
+        if min_wish > 0 and wish < min_wish:
+            _log_rank_skip(rd, title, f"想看 {wish} < {min_wish}", result_lines=result_lines)
+            continue
+        mediainfo = snapshot.get("mediainfo")
+        if not mediainfo:
+            _log_rank_skip(rd, title, "TMDB 识别无结果", result_lines=result_lines)
+            continue
+        if not _check_rank_region(self, rd, item, entry, mediainfo, result_lines=result_lines):
+            continue
+        vote_average = getattr(mediainfo, "vote_average", None)
+        if min_vote > 0 and vote_average and vote_average < min_vote:
+            _log_rank_skip(rd, title, f"评分 {vote_average} < {min_vote}", result_lines=result_lines)
+            continue
+        meta = _snapshot_meta(item, entry, MediaType.TV)
+        if _is_existing_media(mediainfo, meta):
+            _log_rank_skip(rd, getattr(mediainfo, "title", "") or title, "已存在订阅，跳过观察与订阅", result_lines=result_lines)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type="tv",
+            )
+            _cleanup_observe_logs(self, title=title, unique=unique)
+            _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""), unique=unique)
+            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
+            continue
+        ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
+        if air_days > 0:
+            if not ad:
+                _log_rank_skip(rd, title, "未获取到上映日期", result_lines=result_lines)
+                continue
+            if not utils.is_within_days(ad, air_days):
+                _log_rank_skip(rd, title, f"上映日期 {ad} 不在未来 {air_days} 天内", result_lines=result_lines)
+                continue
+        if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
+            _log_rank_skip(rd, title, "观察期规则拦截", result_lines=result_lines)
+            continue
+        if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
+            cn_title = mediainfo.title or title
+            subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": year,
+                "wish_count": wish,
+                "air_date": ad,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": _snapshot_poster(mediainfo, entry),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": "tv",
+            })
+            history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
+            if result_lines is not None:
+                result_lines.append(f"- 已订阅《{cn_title}》")
+            else:
+                logger.info(f"豆瓣中心：[{rd['name']}] 已订阅《{cn_title}》")
+    _drop_stale_observations(history, current_candidates)
+    storage.save_rank_history(self, rd["key"], history)
+
+
+def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lines: Optional[List[str]] = None) -> None:
+    """处理普通榜单的已识别订阅候选。"""
+    cfg = _rc(self, rd["key"])
+    min_vote = float(cfg.get("vote", 0) or 0)
+    min_year = int(cfg.get("year", 0) or 0)
+    air_days = int(cfg.get("air_days", 0) or 0)
+    date_mode = rank_model.rank_date_mode(rd)
+    history: List[dict] = storage.read_rank_history(self, rd["key"])
+    history_index = _history_index_by_unique(history)
+    current_candidates = set()
+    for snapshot in snapshots or []:
+        if not isinstance(snapshot, dict):
+            continue
+        item = snapshot.get("raw") if isinstance(snapshot.get("raw"), dict) else {}
+        entry = snapshot.get("entry") if isinstance(snapshot.get("entry"), dict) else {}
+        title = str(entry.get("title") or item.get("title") or "")
+        link = entry.get("link") or item.get("link") or ""
+        year = entry.get("year") or item.get("year")
+        mtype = str(entry.get("media_type") or _rank_media_type(rd, item))
+        unique = entry.get("unique") or f"dc2_rank:{link or item.get('title') or title}"
+        if not title:
+            continue
+        current_candidates.add(unique)
+        if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
+            _log_rank_skip(rd, title, "历史中已订阅或已存在", result_lines=result_lines)
+            continue
+        blacklist_description = _blacklist_description(entry, item)
+        if _check_blacklist(self, title, description=blacklist_description, link=link):
+            _log_rank_skip(rd, title, "命中黑名单", result_lines=result_lines)
+            continue
+        if _year_below_min(year, min_year):
+            _log_rank_skip(rd, title, f"年份 {year} < {min_year}", result_lines=result_lines)
+            continue
+        mediainfo = snapshot.get("mediainfo")
+        if not mediainfo:
+            _log_rank_skip(rd, title, "TMDB 识别无结果", result_lines=result_lines)
+            continue
+        if not _check_rank_region(self, rd, item, entry, mediainfo, result_lines=result_lines):
+            continue
+        vote_average = getattr(mediainfo, "vote_average", None)
+        if min_vote > 0 and vote_average and vote_average < min_vote:
+            _log_rank_skip(rd, title, f"评分 {vote_average} < {min_vote}", result_lines=result_lines)
+            continue
+        if _year_below_min(getattr(mediainfo, "year", None), min_year):
+            _log_rank_skip(rd, title, f"识别年份 {getattr(mediainfo, 'year', '')} < {min_year}", result_lines=result_lines)
+            continue
+        media_type = _snapshot_media_type(rd, item, entry, mediainfo)
+        mtype = _resolved_media_type_name(rd, item, mediainfo)
+        meta = _snapshot_meta(item, entry, media_type)
+        if _is_existing_media(mediainfo, meta):
+            _log_rank_skip(rd, getattr(mediainfo, "title", "") or title, "已存在订阅，跳过观察与订阅", result_lines=result_lines)
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type=mtype,
+            )
+            _cleanup_observe_logs(self, title=title, unique=unique)
+            _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""), unique=unique)
+            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
+            continue
+        air_date = None
+        if air_days > 0:
+            air_date = utils.get_media_release_date(mediainfo, season=meta.begin_season)
+            if not air_date:
+                _log_rank_skip(rd, title, "未获取到上映日期", result_lines=result_lines)
+                continue
+            within_window = (
+                utils.is_within_days(air_date, air_days)
+                if date_mode == rank_model.DATE_MODE_FUTURE
+                else utils.is_within_recent_days(air_date, air_days)
+            )
+            if not within_window:
+                window_label = "未来" if date_mode == rank_model.DATE_MODE_FUTURE else "最近"
+                _log_rank_skip(rd, title, f"上映日期 {air_date} 不在{window_label} {air_days} 天内", result_lines=result_lines)
+                continue
+        if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
+            _log_rank_skip(rd, title, "观察期规则拦截", result_lines=result_lines)
+            continue
+        if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
+            cn_title = mediainfo.title or title
+            subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": mediainfo.year or year or "",
+                "air_date": air_date,
+                "media_type": mtype,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": _snapshot_poster(mediainfo, entry),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": mtype,
+            })
+            history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
+            if result_lines is not None:
+                result_lines.append(f"- 已订阅《{cn_title}》")
+            else:
+                logger.info(f"豆瓣中心：[{rd['name']}] 已订阅《{cn_title}》")
+    _drop_stale_observations(history, current_candidates)
+    storage.save_rank_history(self, rd["key"], history)
+
+
+def _refresh_then_subscribe(self, message: str) -> None:
+    """刷新榜单展示数据后，再按当前订阅配置执行订阅。"""
+    logger.info(message)
+    _, snapshots = refresh_rank_data(
+        self,
+        limit_by_rank=_subscription_limit_by_rank(self),
+        with_snapshots=True,
+    )
+    subscribe_to_rank_snapshots(self, snapshots)
+
+
+def run_once(self) -> None:
+    """立即刷新榜单数据，并按当前订阅配置执行订阅。"""
+    _refresh_then_subscribe(self, "豆瓣中心：立即运行开始，先刷新 RSS 榜单，再按配置执行订阅")
+
+
+def run_scheduled(self) -> None:
+    """定时刷新榜单数据，并按当前订阅配置执行订阅。"""
+    _refresh_then_subscribe(self, "豆瓣中心：定时运行开始，先刷新 RSS 榜单，再按配置执行订阅")
+
+
+def _process_coming(self, url: str, rd: dict) -> None:
+    cfg = _rc(self, rd["key"])
+    min_wish = int(cfg.get("wish_count", 0) or 0)
+    air_days = int(cfg.get("air_days", 0) or 0)
+    min_vote = float(cfg.get("vote", 0) or 0)
+    items = _fetch_coming_rss(self, url)
+    if not items:
+        return
+    history: List[dict] = storage.read_rank_history(self, rd["key"])
+    history_index = _history_index_by_unique(history)
+    current_candidates = set()
+    for item in items:
+        title, link, wish = item.get("title", ""), item.get("link", ""), item.get("wish_count", 0)
+        year = item.get("year", "")
+        if not title:
+            continue
+        unique = f"dc2_coming:{link or title}"
+        current_candidates.add(unique)
+        if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
+            continue
+        if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
+            continue
+        if min_wish > 0 and wish < min_wish:
+            continue
+        meta = MetaInfo(title)
+        if year:
+            meta.year = str(year)
+        meta.type = MediaType.TV
+        mediainfo = self.chain.recognize_media(meta=meta, mtype=MediaType.TV)
+        if not mediainfo:
+            continue
+        if not _check_rank_region(self, rd, item, {}, mediainfo):
+            continue
+        vote_average = getattr(mediainfo, "vote_average", None)
+        if min_vote > 0 and vote_average and vote_average < min_vote:
+            continue
+        if _is_existing_media(mediainfo, meta):
+            logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type="tv",
+            )
+            _cleanup_observe_logs(self, title=title, unique=unique)
+            _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
+            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
+            continue
+        ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
+        if air_days > 0:
+            if not ad:
+                _log_rank_skip(rd, title, "未获取到上映日期")
+                continue
+            if not utils.is_within_days(ad, air_days):
+                _log_rank_skip(rd, title, f"上映日期 {ad} 不在未来 {air_days} 天内")
+                continue
+        # 观察期：仅对选中的波动榜单延迟订阅。
+        if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
+            continue
+        if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
+            # 使用 TMDB 识别后的中文名替换原始标题
+            cn_title = mediainfo.title or title
+            subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": year,
+                "wish_count": wish,
+                "air_date": ad,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": "tv",
+            })
+            history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
+    _drop_stale_observations(history, current_candidates)
+    storage.save_rank_history(self, rd["key"], history)
+
+
+def _process_general(self, url: str, rd: dict) -> None:
+    cfg = _rc(self, rd["key"])
+    min_vote = float(cfg.get("vote", 0) or 0)
+    min_year = int(cfg.get("year", 0) or 0)
+    air_days = int(cfg.get("air_days", 0) or 0)
+    date_mode = rank_model.rank_date_mode(rd)
+    items = _fetch_rss(self, url)
+    if not items:
+        return
+    history: List[dict] = storage.read_rank_history(self, rd["key"])
+    history_index = _history_index_by_unique(history)
+    current_candidates = set()
+    for item in items:
+        title, link, year = item.get("title", ""), item.get("link", ""), item.get("year")
+        mtype = _rank_media_type(rd, item)
+        if not title:
+            continue
+        unique = f"dc2_rank:{link or title}"
+        current_candidates.add(unique)
+        if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
+            continue
+        if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
+            continue
+        if _year_below_min(year, min_year):
+            continue
+        meta, mediainfo, mtype = _recognize_rss_item(self, item, rd)
+        if not mediainfo:
+            continue
+        if not _check_rank_region(self, rd, item, {}, mediainfo):
+            continue
+        if min_vote > 0 and mediainfo.vote_average and mediainfo.vote_average < min_vote:
+            continue
+        if _year_below_min(mediainfo.year, min_year):
+            continue
+        if _is_existing_media(mediainfo, meta):
+            logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=rd["key"],
+                rank_name=rd["name"],
+                media_type=mtype,
+            )
+            _cleanup_observe_logs(self, title=title, unique=unique)
+            _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
+            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
+            continue
+        air_date = None
+        if air_days > 0:
+            air_date = utils.get_media_release_date(mediainfo, season=meta.begin_season)
+            if not air_date:
+                _log_rank_skip(rd, title, "未获取到上映日期")
+                continue
+            within_window = (
+                utils.is_within_days(air_date, air_days)
+                if date_mode == rank_model.DATE_MODE_FUTURE
+                else utils.is_within_recent_days(air_date, air_days)
+            )
+            if not within_window:
+                window_label = "未来" if date_mode == rank_model.DATE_MODE_FUTURE else "最近"
+                _log_rank_skip(rd, title, f"上映日期 {air_date} 不在{window_label} {air_days} 天内")
+                continue
+        # 观察期：仅对选中的波动榜单延迟订阅。
+        if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
+            continue
+        if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
+            cn_title = mediainfo.title or title
+            subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": mediainfo.year or year or "",
+                "air_date": air_date,
+                "media_type": mtype,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+            })
+            history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
+    _drop_stale_observations(history, current_candidates)
+    storage.save_rank_history(self, rd["key"], history)
+
+
+def _process_items(self, items: List[dict], source: str) -> None:
+    history: List[dict] = storage.read_rank_history(self, source)
+    history_index = _history_index_by_unique(history)
+    for item in items:
+        title, link, mtype, year = item.get("title", ""), item.get("link", ""), item.get("mtype", ""), item.get("year")
+        if not title:
+            continue
+        unique = f"dc2_rank:{link or title}"
+        if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
+            continue
+        if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
+            continue
+        meta, mediainfo, mtype = _recognize_rss_item(self, item, {"key": source})
+        if not mediainfo:
+            continue
+        if _is_existing_media(mediainfo, meta):
+            logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
+            _record_existing_history(
+                history,
+                unique,
+                title=title,
+                year=year,
+                link=link,
+                mediainfo=mediainfo,
+                rank_key=source,
+                rank_name=source,
+                media_type=mtype,
+            )
+            _cleanup_observe_logs(self, title=title, unique=unique)
+            _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
+            history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
+            continue
+        # 观察期：仅对自定义源显式配置时延迟订阅。
+        if _check_observe(self, unique, history, title=title, rank_key=source):
+            continue
+        if _add_sub(self, mediainfo, meta, source_link=link):
+            cn_title = mediainfo.title or title
+            subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _record_history_item(history, {
+                "title": cn_title,
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": subscribed_at,
+                "unique": unique,
+                "subscribed": True,
+                "subscribed_at": subscribed_at,
+                "rank_key": source,
+                "rank_name": source,
+                "media_type": mtype,
+            })
+            history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
+    storage.save_rank_history(self, source, history)
+
+
+def _write_subscribe_record(self, mediainfo, rank_key: str = "", rank_name: str = "", status: str = "success", reason: str = "", source_link: str = "") -> None:
+    """写入自动订阅历史记录。"""
+    subscription_service.write_subscribe_record(self, mediainfo, rank_key=rank_key, rank_name=rank_name, status=status, reason=reason, source_link=source_link)
+
+
+def _add_sub(self, mediainfo, meta=None, rank_key="", rank_name="", source_link: str = "") -> bool:
+    """按 MP 默认 TMDB 语义执行自动订阅。"""
+    return subscription_service.add_subscription(
+        self,
+        mediainfo,
+        meta=meta,
+        rank_key=rank_key,
+        rank_name=rank_name,
+        source_link=source_link,
+        subscribe_chain_cls=SubscribeChain,
+    )
+
+
+def _fetch_coming_rss(self, addr: str) -> List[dict]:
+    rss_adapter.RequestUtils = RequestUtils
+    rss_adapter.DomUtils = DomUtils
+    return rss_adapter.fetch_coming(self, addr)
+
+
+def _fetch_rss(self, addr: str) -> List[dict]:
+    rss_adapter.RequestUtils = RequestUtils
+    rss_adapter.DomUtils = DomUtils
+    return rss_adapter.fetch_rank(self, addr)
+
+
+def get_enabled_rank_keys(self) -> List[str]:
+    """返回当前配置中启用的榜单 key。"""
+    return [rd["key"] for rd in get_rank_definitions(self) if _ren(self, rd["key"])]
+
+
+def get_rank_history_by_key(self, rank_key: str) -> List[dict]:
+    """只读指定榜单历史，不在页面读取阶段执行媒体识别。"""
+    return storage.read_rank_history(self, rank_key)
+
+
+def _dashboard_rank_sort_key(item: dict) -> tuple:
+    """生成仪表盘榜单排序键。"""
+    return rank_refresh_service.dashboard_rank_sort_key(item)
+
+
+def get_dashboard_rank_items(self, rank_key: str, limit: int = 5) -> List[dict]:
+    """返回最新 RSS 批次中的仪表盘榜单条目。"""
+    history = get_rank_history_by_key(self, rank_key)
+    return rank_refresh_service.dashboard_rank_items(history, limit=limit)
+
+
+def refresh_rank_data(self, rank_keys=None, limit_by_rank: Optional[Dict[str, int]] = None, with_snapshots: bool = False):
+    """刷新 RSS 榜单数据供仪表盘展示，不触发订阅。"""
+    # rank_keys: 可选的榜单 key 列表。
+    # 仪表盘刷新默认固定拉取 5 条，不受 count 配置限制。
+    # 返回：{rank_key: [items]}，代表本次刷新结果。
+
+    result = {}
+    snapshots = {}
+    try:
+        rsshub = utils.normalize_rss_domain(self._rsshub_domain)
+        targets = [
+            rd
+            for rd in get_rank_definitions(self)
+            if (rank_keys is None and _ren(self, rd["key"]))
+            or (rank_keys and rd["key"] in rank_keys)
+        ]
+        for rd in targets:
+            key = rd["key"]
+            # 仪表盘刷新只拉取 5 条；运行周期可按订阅候选数放大拉取窗口。
+            limit = 5
+            if isinstance(limit_by_rank, dict) and key in limit_by_rank:
+                try:
+                    limit = max(5, int(limit_by_rank.get(key) or 0))
+                except (TypeError, ValueError):
+                    limit = 5
+            url = rss_adapter.build_rsshub_url(rsshub, rd["route"], limit)
+            logger.info(f"豆瓣中心：刷新 RSS [{rd['name']}] {url}")
+            if rd.get("coming"):
+                items = _fetch_coming_rss(self, url)
+            else:
+                items = _fetch_rss(self, url)
+            if items:
+                if with_snapshots:
+                    _, rank_snapshots = _merge_rank_items(self, key, items, rd, return_snapshot=True)
+                    snapshots[key] = {"rank": rd, "items": rank_snapshots}
+                else:
+                    _merge_rank_items(self, key, items, rd)
+                result[key] = get_dashboard_rank_items(self, key, limit=5)
+            time.sleep(1)
+        logger.info("豆瓣中心：RSS 刷新完成")
+    except Exception as err:
+        logger.error(f"豆瓣中心：刷新 RSS 失败：{err}", exc_info=True)
+    if with_snapshots:
+        return result, snapshots
+    return result
+
+
+def _merge_rank_items(self, rank_key, items, rd, return_snapshot: bool = False):
+    """合并拉取到的 RSS 榜单条目，并更新当前批次顺序。"""
+    history: List[dict] = storage.read_rank_history(self, rank_key)
+    history_index = {
+        item.get("unique"): index
+        for index, item in enumerate(history)
+        if isinstance(item, dict) and item.get("unique")
+    }
+    snapshots = []
+    new_count = 0
+    refresh_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for rank_index, item in enumerate(items):
+        try:
+            title = item.get("title", "")
+            link = item.get("link", "")
+            if not title:
+                continue
+            unique = f"dc2_rank:{link or title}" if rank_key != "coming" else f"dc2_coming:{link or title}"
+            year = item.get("year", "")
+            tmdbid = item.get("tmdbid")
+            poster = item.get("poster")
+            cn_title = title
+            douban_id = item.get("doubanid")  # 优先使用 RSS 中解析的豆瓣 ID
+            meta_type = "tv" if rank_key == "coming" else _rank_media_type(rd, item)
+            entry = {
+                "title": cn_title,
+                "year": year or "",
+                "media_type": meta_type,
+                "link": link,
+                "rank_route": rd.get("route", ""),
+                "tmdbid": tmdbid,
+                "poster": poster,
+                "time": refresh_time,
+                "unique": unique,
+                "douban_id": douban_id,
+                "regions": list(item.get("regions") or []),
+                "region_source": item.get("region_source") or "",
+                "rank_index": rank_index,
+                "rank_order": rank_index + 1,
+                "rank_key": rank_key,
+                "rank_name": rd.get("name", ""),
+                "rank_refreshed_at": refresh_time,
+            }
+            source_link = item.get("source_link") or ""
+            if source_link:
+                entry["source_link"] = source_link
+            mediainfo = None
+            if rank_key == "coming":
+                entry.update({"year": year, "wish_count": item.get("wish_count", 0)})
+                mediainfo = _apply_display_recognition(self, item, entry, rank_key, rd)
+            elif rank_key == "bangumi":
+                mediainfo = _apply_bangumi_recognition(self, item, entry)
+            else:
+                mediainfo = _apply_display_recognition(self, item, entry, rank_key, rd)
+            snapshots.append({
+                "raw": dict(item),
+                "entry": dict(entry),
+                "mediainfo": mediainfo,
+            })
+            existing_index = history_index.get(unique)
+            if existing_index is None:
+                history.append(entry)
+                history_index[unique] = len(history) - 1
+                new_count += 1
+            else:
+                existing = history[existing_index] if isinstance(history[existing_index], dict) else {}
+                merged = dict(existing)
+                merged.update(entry)
+                if existing.get("observing"):
+                    merged["observing"] = True
+                    if existing.get("first_seen"):
+                        merged["first_seen"] = existing.get("first_seen")
+                    elif existing.get("time"):
+                        merged["first_seen"] = existing.get("time")
+                if existing.get("observe_deleted"):
+                    merged["observe_deleted"] = True
+                    if existing.get("observe_deleted_at"):
+                        merged["observe_deleted_at"] = existing.get("observe_deleted_at")
+                history[existing_index] = merged
+        except Exception as err:
+            logger.error(f"豆瓣中心：合并 {rank_key} 榜单条目出错：{err}")
+            continue
+    history = storage.save_rank_history(self, rank_key, history)
+    logger.info(
+        f"豆瓣中心：{rd['name']} 刷新完成，当前批次 {len(items)} 条，新增 {new_count} 条，累计 {len(history)} 条"
+    )
+    if return_snapshot:
+        return history, snapshots
+    return history
+
+
+def _refresh_coming(self, url, rd):
+    """只刷新即将上映榜单数据，不触发订阅。"""
+    items = _fetch_coming_rss(self, url)
+    if not items:
+        return
+    history: List[dict] = storage.read_rank_history(self, rd["key"])
+    uh = {i.get("unique") for i in history}
+    new_count = 0
+    for item in items:
+        try:
+            title, link = item.get("title", ""), item.get("link", "")
+            year = item.get("year", "")
+            unique = f"dc2_coming:{link or title}"
+            if unique in uh:
+                continue
+            meta = MetaInfo(title)
+            if year:
+                meta.year = str(year)
+            meta.type = MediaType.TV
+            mediainfo = self.chain.recognize_media(meta=meta, mtype=MediaType.TV)
+            if not mediainfo:
+                continue
+            cn_title = mediainfo.title or title
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": year,
+                "wish_count": item.get("wish_count", 0),
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "unique": unique,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": "tv",
+            })
+            uh.add(unique)
+            new_count += 1
+        except Exception as e:
+            logger.error(f"豆瓣中心：刷新即将上映条目出错：{e}")
+            continue
+    storage.save_rank_history(self, rd["key"], history)
+    logger.info(f"豆瓣中心：即将上映刷新完成，新增 {new_count} 条")
+
+
+def _refresh_general(self, url, rd):
+    """只刷新普通榜单数据，不触发订阅。"""
+    items = _fetch_rss(self, url)
+    if not items:
+        return
+    history: List[dict] = storage.read_rank_history(self, rd["key"])
+    uh = {i.get("unique") for i in history}
+    new_count = 0
+    for item in items:
+        try:
+            title, link, year = item.get("title", ""), item.get("link", ""), item.get("year")
+            mtype = _rank_media_type(rd, item)
+            if not title:
+                continue
+            unique = f"dc2_rank:{link or title}"
+            if unique in uh:
+                continue
+            meta, mediainfo, mtype = _recognize_rss_item(self, item, rd)
+            if not mediainfo:
+                continue
+            cn_title = mediainfo.title or title
+            _record_history_item(history, {
+                "title": cn_title,
+                "year": mediainfo.year or year or "",
+                "link": link,
+                "tmdbid": mediainfo.tmdb_id,
+                "poster": mediainfo.get_poster_image(),
+                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "unique": unique,
+                "rank_key": rd["key"],
+                "rank_name": rd["name"],
+                "media_type": mtype,
+            })
+            uh.add(unique)
+            new_count += 1
+        except Exception as e:
+            logger.error(f"豆瓣中心：刷新 {rd['name']} 条目出错：{e}")
+            continue
+    storage.save_rank_history(self, rd["key"], history)
+    logger.info(f"豆瓣中心：{rd['name']} 刷新完成，新增 {new_count} 条")

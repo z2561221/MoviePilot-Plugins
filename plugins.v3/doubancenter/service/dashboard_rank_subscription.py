@@ -1,0 +1,320 @@
+"""豆瓣中心榜单手动订阅服务。"""
+
+from typing import Any, Callable, Optional
+
+from ..model.identity import identity_from_media, legacy_identity, recognize_media
+
+
+def _default_media_chain_cls():
+    """按调用时环境读取 MoviePilot 媒体链类。"""
+    from app.chain.media import MediaChain
+
+    return MediaChain
+
+
+def _default_subscribe_chain_cls():
+    """按调用时环境读取 MoviePilot 订阅链类。"""
+    from app.chain.subscribe import SubscribeChain
+
+    return SubscribeChain
+
+
+def _default_meta_cls():
+    """按调用时环境读取 MoviePilot 媒体元信息类。"""
+    from app.sdk.media import MetaInfo
+
+    return MetaInfo
+
+
+def _default_media_type_cls():
+    """按调用时环境读取 MoviePilot 媒体类型枚举。"""
+    from app.schemas.types import MediaType
+
+    return MediaType
+
+
+def _record_manual_subscription(
+    plugin,
+    *,
+    title: str,
+    year: Any,
+    media_type_value,
+    tmdb_id: Any = None,
+    bangumi_id: Any = None,
+    media_source: Any = None,
+    media_id: Any = None,
+    rank_key: str = "",
+    rank_name: str = "",
+    source_link: str = "",
+    status: str = "success",
+    reason: str = "",
+    mediainfo=None,
+) -> None:
+    """记录榜单手动订阅，保留来源榜单上下文。"""
+    if not hasattr(plugin, "get_data") or not hasattr(plugin, "save_data"):
+        return
+    from . import subscription
+
+    subscription.write_subscribe_record(
+        plugin,
+        mediainfo,
+        rank_key=rank_key,
+        rank_name=rank_name,
+        status=status,
+        reason=reason,
+        source_link=source_link,
+        title=title,
+        year=year,
+        media_type=media_type_value,
+        tmdb_id=tmdb_id,
+        bangumi_id=bangumi_id,
+        media_source=media_source,
+        media_id=media_id,
+    )
+
+
+def rank_media_type(media_type: str, media_type_cls):
+    """将前端媒体类型参数转换为手动订阅使用的媒体类型。"""
+    return media_type_cls.TV if media_type == "tv" else media_type_cls.MOVIE
+
+
+def build_meta(title: str, year: Any, media_type_value, meta_cls):
+    """构造 MoviePilot 媒体识别元信息。"""
+    meta = meta_cls(title)
+    if year:
+        meta.year = str(year)
+    meta.type = media_type_value
+    return meta
+
+
+def recognize_rank_media(
+    media_chain,
+    meta,
+    media_type_value,
+    tmdb_id: Any = None,
+    bangumi_id: Any = None,
+    media_source: Any = None,
+    media_id: Any = None,
+):
+    """按 V3 身份对、标题和旧来源字段顺序识别榜单媒体。"""
+    attempts = []
+    if media_source is not None or media_id is not None:
+        attempts.append({"media_source": media_source, "media_id": media_id})
+    if tmdb_id not in (None, ""):
+        attempts.append({"tmdb_id": tmdb_id})
+    if bangumi_id not in (None, ""):
+        attempts.append({"bangumi_id": bangumi_id})
+    attempts.append({})
+    for identity in attempts:
+        try:
+            mediainfo = recognize_media(
+                media_chain,
+                meta=meta,
+                mtype=media_type_value,
+                **identity,
+            )
+        except TypeError:
+            if identity:
+                continue
+            mediainfo = media_chain.recognize_media(meta=meta, mtype=media_type_value)
+        if mediainfo:
+            return mediainfo
+    return None
+
+
+def add_silent_subscription(
+    subscribe_chain,
+    title: str,
+    year: Any,
+    media_type_value,
+    tmdb_id: Any = None,
+    bangumi_id: Any = None,
+    media_source: Any = None,
+    media_id: Any = None,
+):
+    """按 MoviePilot 默认订阅参数静默添加订阅。"""
+    kwargs = {
+        "title": title,
+        "year": year or "",
+        "mtype": media_type_value,
+        "season": None,
+        "resolution": None,
+        "sites": None,
+        "exist_ok": True,
+        "username": "豆瓣中心",
+    }
+    source, resolved_id = legacy_identity(
+        media_source=media_source,
+        media_id=media_id,
+        tmdb_id=tmdb_id,
+        bangumi_id=bangumi_id,
+    )
+    if source and resolved_id:
+        kwargs.update(media_source=source, media_id=resolved_id)
+    return subscribe_chain.add(**kwargs)
+
+
+def subscribe_from_bangumi_subject(
+    plugin,
+    subscribe_chain,
+    media_type_value,
+    title: str,
+    year: Any,
+    bangumi_id: Any,
+    *,
+    bangumi_subject_fetcher: Optional[Callable[[object, Any], Optional[dict]]] = None,
+    bangumi_subject_title: Optional[Callable[..., str]] = None,
+    bangumi_subject_year: Optional[Callable[..., str]] = None,
+    rank_key: str = "",
+    rank_name: str = "",
+    source_link: str = "",
+):
+    """在媒体链识别失败时使用 Bangumi subject 信息添加订阅。"""
+    if not bangumi_id or not bangumi_subject_fetcher or not bangumi_subject_title or not bangumi_subject_year:
+        return {"success": False, "message": "无法识别媒体信息"}
+    subject = bangumi_subject_fetcher(plugin, bangumi_id)
+    if not subject:
+        return {"success": False, "message": "无法识别媒体信息"}
+    sub_title = bangumi_subject_title(subject, fallback=title)
+    sub_year = bangumi_subject_year(subject, fallback=year)
+    sid, msg = add_silent_subscription(
+        subscribe_chain,
+        sub_title,
+        sub_year,
+        media_type_value,
+        bangumi_id=bangumi_id,
+        media_source="bangumi",
+        media_id=str(bangumi_id),
+    )
+    if not sid:
+        _record_manual_subscription(
+            plugin,
+            title=sub_title,
+            year=sub_year,
+            media_type_value=media_type_value,
+            bangumi_id=bangumi_id,
+            media_source="bangumi",
+            media_id=str(bangumi_id),
+            rank_key=rank_key,
+            rank_name=rank_name,
+            source_link=source_link,
+            status="failed",
+            reason=msg or "订阅失败",
+        )
+        return {"success": False, "message": msg}
+    _record_manual_subscription(
+        plugin,
+        title=sub_title,
+        year=sub_year,
+        media_type_value=media_type_value,
+        bangumi_id=bangumi_id,
+        media_source="bangumi",
+        media_id=str(bangumi_id),
+        rank_key=rank_key,
+        rank_name=rank_name,
+        source_link=source_link,
+    )
+    return {"success": True, "message": "已添加订阅"}
+
+
+def subscribe_from_rank(
+    plugin,
+    tmdb_id: Any,
+    media_type: str,
+    title: str,
+    year: Any,
+    bangumi_id: Any = None,
+    *,
+    media_chain_cls=None,
+    subscribe_chain_cls=None,
+    meta_cls=None,
+    media_type_cls=None,
+    bangumi_subject_fetcher: Optional[Callable[[object, Any], Optional[dict]]] = None,
+    bangumi_subject_title: Optional[Callable[..., str]] = None,
+    bangumi_subject_year: Optional[Callable[..., str]] = None,
+    rank_key: str = "",
+    rank_name: str = "",
+    source_link: str = "",
+    media_source: Any = None,
+    media_id: Any = None,
+):
+    """根据榜单条目执行一次手动订阅。"""
+    media_chain_cls = media_chain_cls or _default_media_chain_cls()
+    subscribe_chain_cls = subscribe_chain_cls or _default_subscribe_chain_cls()
+    meta_cls = meta_cls or _default_meta_cls()
+    media_type_cls = media_type_cls or _default_media_type_cls()
+
+    media_type_value = rank_media_type(media_type, media_type_cls)
+    meta = build_meta(title, year, media_type_value, meta_cls)
+    mediainfo = recognize_rank_media(
+        media_chain_cls(),
+        meta,
+        media_type_value,
+        tmdb_id=tmdb_id,
+        bangumi_id=bangumi_id,
+        media_source=media_source,
+        media_id=media_id,
+    )
+    subscribe_chain = subscribe_chain_cls()
+    if not mediainfo:
+        return subscribe_from_bangumi_subject(
+            plugin,
+            subscribe_chain,
+            media_type_value,
+            title,
+            year,
+            bangumi_id,
+            bangumi_subject_fetcher=bangumi_subject_fetcher,
+            bangumi_subject_title=bangumi_subject_title,
+            bangumi_subject_year=bangumi_subject_year,
+            rank_key=rank_key,
+            rank_name=rank_name,
+            source_link=source_link,
+        )
+
+    if subscribe_chain.exists(mediainfo=mediainfo, meta=meta):
+        return {"success": False, "message": "已订阅"}
+    source, resolved_id = identity_from_media(mediainfo)
+    sid, msg = add_silent_subscription(
+        subscribe_chain,
+        getattr(mediainfo, "title", None) or title,
+        getattr(mediainfo, "year", None) or year or "",
+        media_type_value,
+        media_source=source,
+        media_id=resolved_id,
+        tmdb_id=tmdb_id or getattr(mediainfo, "tmdb_id", None),
+        bangumi_id=bangumi_id or getattr(mediainfo, "bangumi_id", None),
+    )
+    if not sid:
+        _record_manual_subscription(
+            plugin,
+            title=getattr(mediainfo, "title", None) or title,
+            year=getattr(mediainfo, "year", None) or year or "",
+            media_type_value=media_type_value,
+            tmdb_id=tmdb_id or getattr(mediainfo, "tmdb_id", None),
+            bangumi_id=bangumi_id or getattr(mediainfo, "bangumi_id", None),
+            media_source=source,
+            media_id=resolved_id,
+            rank_key=rank_key,
+            rank_name=rank_name,
+            source_link=source_link,
+            status="failed",
+            reason=msg or "订阅失败",
+            mediainfo=mediainfo,
+        )
+        return {"success": False, "message": msg}
+    _record_manual_subscription(
+        plugin,
+        title=getattr(mediainfo, "title", None) or title,
+        year=getattr(mediainfo, "year", None) or year or "",
+        media_type_value=media_type_value,
+        media_source=source,
+        media_id=resolved_id,
+        tmdb_id=tmdb_id or getattr(mediainfo, "tmdb_id", None),
+        bangumi_id=bangumi_id or getattr(mediainfo, "bangumi_id", None),
+        rank_key=rank_key,
+        rank_name=rank_name,
+        source_link=source_link,
+        mediainfo=mediainfo,
+    )
+    return {"success": True, "message": "已添加订阅"}

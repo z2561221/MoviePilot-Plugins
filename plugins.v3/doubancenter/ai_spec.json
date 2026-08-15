@@ -1,0 +1,14 @@
+{
+  "plugin_id": "DoubanCenter",
+  "version": "3.0.0",
+  "agent_tools": [],
+  "capabilities": [
+    "rank_subscription",
+    "douban_folio_sync",
+    "dashboard_overview",
+    "archive_management",
+    "v3_media_identity",
+    "v3_rest_envelope"
+  ],
+  "notes": "MoviePilot V3 专版；统一媒体身份、存量数据迁移、REST 单层响应与 Vue 联邦 API 均按 V3 合同实现，不注册 Agent tools。"
+}

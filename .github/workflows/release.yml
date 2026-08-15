@@ -40,6 +40,7 @@ jobs:
 
           process_package() {
             local pkg_file="$1"
+            local plugin_root="$2"
             [ -f "$pkg_file" ] || return 0
 
             echo "Processing $pkg_file"
@@ -57,11 +58,6 @@ jobs:
               plugin_version="${entry##*|}"
               plugin_id_lc="$(echo "$plugin_id" | tr '[:upper:]' '[:lower:]')"
 
-              case "$pkg_file" in
-                package.v3.json) plugin_root="plugins.v3" ;;
-                package.v2.json) plugin_root="plugins.v2" ;;
-                *) plugin_root="plugins" ;;
-              esac
               plugin_dir="${plugin_root}/${plugin_id_lc}"
 
               if [ ! -d "$plugin_dir" ]; then
@@ -123,8 +119,7 @@ jobs:
             done
           }
 
-          process_package "package.json"
-          process_package "package.v2.json"
-          process_package "package.v3.json"
-
+          process_package "package.json" "plugins"
+          process_package "package.v2.json" "plugins.v2"
+          process_package "package.v3.json" "plugins.v3"
 
