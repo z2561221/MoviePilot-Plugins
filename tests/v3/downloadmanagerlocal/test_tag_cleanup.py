@@ -50,7 +50,7 @@ def _load_site_tag(host_tag: str):
     torrent_adapter.get_hash = lambda torrent, _kind: torrent.get("hash")
     torrent_adapter.get_label = lambda torrent, _kind: torrent.get("tags", "")
 
-    sys.modules.update({
+    stubs = {
         "app": app,
         "app.sdk": app_sdk,
         "app.sdk.config": app_sdk_config,
@@ -58,8 +58,18 @@ def _load_site_tag(host_tag: str):
         "downloadmanagerlocal.adapter.moviepilot": adapter,
         "downloadmanagerlocal.utils.tag_cleanup": cleanup,
         "downloadmanagerlocal.utils.torrent_adapter": torrent_adapter,
-    })
-    return importlib.import_module("downloadmanagerlocal.service.site_tag")
+    }
+    missing = object()
+    previous = {name: sys.modules.get(name, missing) for name in stubs}
+    sys.modules.update(stubs)
+    try:
+        return importlib.import_module("downloadmanagerlocal.service.site_tag")
+    finally:
+        for name, module in previous.items():
+            if module is missing:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
 
 
 def test_managed_anchor_recognizes_single_task_legacy_temporary_tag():
