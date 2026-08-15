@@ -94,6 +94,20 @@ class ConversionChain:
         return self.title_mapping
 
 
+class PluginBaseChain:
+    """模拟宿主插件基类自带但没有 V3 身份转换方法的处理链。"""
+
+    def __init__(self, tmdb_media=None):
+        """保存识别结果并记录调用。"""
+        self.tmdb_media = tmdb_media
+        self.recognize_calls = []
+
+    def recognize_media(self, **kwargs):
+        """记录媒体识别参数并返回预设结果。"""
+        self.recognize_calls.append(kwargs)
+        return self.tmdb_media
+
+
 def test_convert_identity_reads_raw_tmdb_mapping_and_forwards_season():
     """转换助手读取宿主原始 TMDB 字典并传递季号。"""
     chain = ConversionChain(mapping={"id": 60625})
@@ -409,6 +423,46 @@ def test_rank_refresh_reuses_existing_tmdb_identity_before_network_conversion():
     assert entry["media_source"] == MediaSource.TMDB.value
     assert entry["media_id"] == "60625"
     assert entry["douban_id"] == "36508123"
+
+
+def test_rank_refresh_uses_media_chain_when_plugin_base_chain_cannot_convert():
+    """插件基类处理链缺少 V3 转换方法时必须切换到 MediaChain。"""
+    tmdb_media = FakeMediaInfo(
+        title="瑞克和莫蒂",
+        source=MediaSource.TMDB,
+        media_id="60625",
+        tmdb_id=60625,
+    )
+    plugin_chain = PluginBaseChain(tmdb_media=tmdb_media)
+    conversion_chain = ConversionChain(mapping={"id": 60625}, tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=plugin_chain)
+    item = {
+        "title": "瑞克和莫蒂 第九季",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "36508123",
+    }
+    entry = {
+        "title": item["title"],
+        "year": item["year"],
+        "douban_id": "36508123",
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "tv_global",
+        {"key": "tv_global", "route": "/douban/tv/weekly_global"},
+        media_chain_cls=lambda: conversion_chain,
+    )
+
+    assert result is tmdb_media
+    assert conversion_chain.convert_calls[0]["media_id"] == "36508123"
+    assert conversion_chain.recognize_calls[0]["media_source"] == MediaSource.TMDB
+    assert plugin_chain.recognize_calls == []
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "60625"
 
 
 def test_rank_refresh_keeps_douban_identity_when_mapping_is_missing():

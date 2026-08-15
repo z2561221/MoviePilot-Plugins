@@ -6,6 +6,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
+from app.chain.media import MediaChain
 from app.chain.subscribe import SubscribeChain
 from app.sdk.config import settings
 from app.sdk.logging import logger
@@ -353,6 +354,7 @@ def _apply_display_recognition(
     rd: dict,
     douban_original_title_fetcher=None,
     existing: Optional[dict] = None,
+    media_chain_cls=MediaChain,
 ):
     """刷新榜单展示数据时用 MP 识别结果补全标题、海报和 TMDB 信息。"""
     title = str(item.get("title") or "")
@@ -375,13 +377,18 @@ def _apply_display_recognition(
     recognized_source = source
     recognized_id = source_id
     mediainfo = None
+    recognition_chain = self.chain
     if source == MediaSource.Douban and source_id:
         entry["douban_id"] = source_id
+        conversion_chain = self.chain
+        if not callable(getattr(conversion_chain, "convert_media_identity", None)):
+            conversion_chain = media_chain_cls()
+        recognition_chain = conversion_chain
         recognized_source, recognized_id = _existing_tmdb_identity(existing or {}, source_id)
         if not recognized_source or not recognized_id:
             try:
                 recognized_source, recognized_id = convert_identity(
-                    self.chain,
+                    conversion_chain,
                     target_source=MediaSource.TMDB,
                     media_source=source,
                     media_id=source_id,
@@ -402,7 +409,7 @@ def _apply_display_recognition(
     try:
         if recognized_source and recognized_id:
             mediainfo = recognize_with_identity(
-                self.chain,
+                recognition_chain,
                 meta=meta,
                 mtype=media_type,
                 media_source=recognized_source,
