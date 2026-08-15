@@ -16,6 +16,7 @@ from app.schemas.types import MediaSource, MediaType
 
 from . import utils
 from .adapter import bangumi as bangumi_adapter
+from .adapter import douban as douban_adapter
 from .adapter import rss as rss_adapter
 from .model import rank as rank_model
 from .model.identity import (
@@ -309,7 +310,14 @@ def _apply_bangumi_recognition(self, item: dict, entry: dict):
     return mediainfo
 
 
-def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd: dict):
+def _apply_display_recognition(
+    self,
+    item: dict,
+    entry: dict,
+    rank_key: str,
+    rd: dict,
+    douban_original_title_fetcher=None,
+):
     """刷新榜单展示数据时用 MP 识别结果补全标题、海报和 TMDB 信息。"""
     title = str(item.get("title") or "")
     if not title:
@@ -341,6 +349,11 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
                 media_id=source_id,
                 mtype=media_type,
                 season=getattr(meta, "begin_season", None),
+                fallback_title_loader=(
+                    lambda: douban_original_title_fetcher(self, source_id)
+                    if callable(douban_original_title_fetcher)
+                    else []
+                ),
             )
         except Exception as err:
             logger.warning(f"豆瓣中心：榜单条目《{title}》豆瓣 ID {source_id} 转换 TMDB 失败：{err}")
@@ -405,6 +418,45 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
                 entry["region_source"] = "mediainfo"
                 break
     return mediainfo
+
+
+def _preserve_existing_tmdb_identity(entry: dict, existing: dict) -> None:
+    """本轮识别暂时失败时保留历史中已经确认的 TMDB 主身份。"""
+    current_source, current_id = legacy_identity(
+        media_source=entry.get("media_source"),
+        media_id=entry.get("media_id"),
+        tmdb_id=entry.get("tmdb_id") or entry.get("tmdbid"),
+    )
+    if current_source == MediaSource.TMDB and current_id:
+        return
+    if current_source not in (None, MediaSource.Douban):
+        return
+    current_douban_id = str(entry.get("douban_id") or entry.get("doubanid") or "").strip()
+    if not current_douban_id:
+        return
+    existing_douban_id = str(existing.get("douban_id") or existing.get("doubanid") or "").strip()
+    if existing_douban_id and existing_douban_id != current_douban_id:
+        return
+    existing_source, existing_id = legacy_identity(
+        media_source=existing.get("media_source"),
+        media_id=existing.get("media_id"),
+        tmdb_id=existing.get("tmdb_id") or existing.get("tmdbid"),
+    )
+    if existing_source != MediaSource.TMDB or not existing_id:
+        return
+    try:
+        normalized_tmdb_id = int(existing_id)
+    except (TypeError, ValueError):
+        return
+    if normalized_tmdb_id <= 0:
+        return
+    entry["media_source"] = MediaSource.TMDB.value
+    entry["media_id"] = str(normalized_tmdb_id)
+    entry["tmdb_id"] = normalized_tmdb_id
+    entry["tmdbid"] = entry["tmdb_id"]
+    for field in ("title", "poster", "original_title"):
+        if existing.get(field):
+            entry[field] = existing.get(field)
 
 
 def _fetch_bangumi_subject(self, bangumiid: Any) -> Optional[dict]:
@@ -1297,26 +1349,45 @@ def _merge_rank_items(self, rank_key, items, rd, return_snapshot: bool = False):
             source_link = item.get("source_link") or ""
             if source_link:
                 entry["source_link"] = source_link
+            existing_index = history_index.get(unique)
+            existing = (
+                history[existing_index]
+                if existing_index is not None and isinstance(history[existing_index], dict)
+                else {}
+            )
             mediainfo = None
             if rank_key == "coming":
                 entry.update({"year": year, "wish_count": item.get("wish_count", 0)})
-                mediainfo = _apply_display_recognition(self, item, entry, rank_key, rd)
+                mediainfo = _apply_display_recognition(
+                    self,
+                    item,
+                    entry,
+                    rank_key,
+                    rd,
+                    douban_original_title_fetcher=douban_adapter.fetch_mobile_original_titles,
+                )
             elif rank_key == "bangumi":
                 mediainfo = _apply_bangumi_recognition(self, item, entry)
             else:
-                mediainfo = _apply_display_recognition(self, item, entry, rank_key, rd)
+                mediainfo = _apply_display_recognition(
+                    self,
+                    item,
+                    entry,
+                    rank_key,
+                    rd,
+                    douban_original_title_fetcher=douban_adapter.fetch_mobile_original_titles,
+                )
+            _preserve_existing_tmdb_identity(entry, existing)
             snapshots.append({
                 "raw": dict(item),
                 "entry": dict(entry),
                 "mediainfo": mediainfo,
             })
-            existing_index = history_index.get(unique)
             if existing_index is None:
                 history.append(entry)
                 history_index[unique] = len(history) - 1
                 new_count += 1
             else:
-                existing = history[existing_index] if isinstance(history[existing_index], dict) else {}
                 merged = dict(existing)
                 merged.update(entry)
                 if existing.get("observing"):

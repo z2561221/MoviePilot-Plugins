@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, Optional
 from app.schemas.types import MediaSource
 from app.sdk.logging import logger
 
+from ..adapter import douban as douban_adapter
 from ..model.identity import convert_identity, identity_payload, legacy_identity, recognize_media
 
 
@@ -200,10 +201,12 @@ def resolve_media_from_rank(
     media_chain_cls=None,
     meta_cls=None,
     media_type_cls=None,
+    douban_original_title_fetcher=None,
     bangumi_subject_fetcher: Optional[Callable[[object, Any], Optional[dict]]] = None,
     bangumi_subject_converter: Optional[Callable[..., Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """识别榜单条目并返回前端可展示的媒体信息。"""
+    uses_default_media_chain = media_chain_cls is None
     media_chain_cls = media_chain_cls or _default_media_chain_cls()
     meta_cls = meta_cls or _default_meta_cls()
     media_type_cls = media_type_cls or _default_media_type_cls()
@@ -212,6 +215,8 @@ def resolve_media_from_rank(
     meta = _build_meta(title, year, media_type_value, meta_cls=meta_cls)
 
     chain = media_chain_cls()
+    if douban_original_title_fetcher is None and uses_default_media_chain:
+        douban_original_title_fetcher = douban_adapter.fetch_mobile_original_titles
     source, source_id = legacy_identity(media_source=media_source, media_id=media_id)
     recognized_source = None
     recognized_id = None
@@ -225,6 +230,11 @@ def resolve_media_from_rank(
                 media_id=source_id,
                 mtype=media_type_value,
                 season=getattr(meta, "begin_season", None),
+                fallback_title_loader=(
+                    lambda: douban_original_title_fetcher(plugin, source_id)
+                    if callable(douban_original_title_fetcher)
+                    else []
+                ),
             )
         except Exception as err:
             logger.warning(f"豆瓣中心：手动识别《{title}》豆瓣 ID {source_id} 转换 TMDB 失败：{err}")

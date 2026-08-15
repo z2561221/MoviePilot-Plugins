@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from app.schemas.types import MediaSource, MediaType
 
 from doubancenter import feed
+from doubancenter.adapter import douban as douban_adapter
 from doubancenter.model.identity import convert_identity
 from doubancenter.service import dashboard_rank_media
 
@@ -206,6 +207,111 @@ def test_convert_identity_rejects_conflicting_yearless_match():
         media_id="37218278",
         mtype=MediaType.TV,
     ) == (None, None)
+
+
+def test_convert_identity_uses_mobile_original_title_when_douban_chain_is_limited():
+    """豆瓣链受限时使用移动页英文原名，并去掉季号后匹配 TMDB。"""
+    chain = ConversionChain(
+        mapping=None,
+        douban_detail=RuntimeError("rate limited"),
+        title_mapping={"id": 95480, "name": "Slow Horses", "first_air_date": "2022-04-01"},
+    )
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="36689816",
+        mtype=MediaType.TV,
+        season=6,
+        fallback_title_loader=lambda: ["Slow Horses Season 6（2026）"],
+    ) == (MediaSource.TMDB, "95480")
+    assert chain.match_tmdb_calls == [{
+        "name": "Slow Horses",
+        "mtype": MediaType.TV,
+        "year": None,
+        "season": 6,
+    }]
+    assert chain.douban_info_calls == []
+
+
+def test_convert_identity_rejects_chinese_mobile_title():
+    """移动页没有英文原名时仍不得按中文标题重试。"""
+    chain = ConversionChain(mapping=None, douban_detail=None, title_mapping={"id": 95480})
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="36689816",
+        mtype=MediaType.TV,
+        season=6,
+        fallback_title_loader=lambda: ["流人 第六季（2026）"],
+    ) == (None, None)
+    assert chain.match_tmdb_calls == []
+
+
+def test_parse_mobile_original_titles_reads_public_subject_page_markup():
+    """豆瓣移动页适配器只读取原名节点并解码实体。"""
+    document = """
+    <div class="sub-title">流人 第六季</div>
+    <div class="sub-original-title">Slow Horses &amp; Friends Season 6（2026）</div>
+    """
+
+    assert douban_adapter.parse_mobile_original_titles(document) == [
+        "Slow Horses & Friends Season 6（2026）"
+    ]
+
+
+def test_preserve_existing_tmdb_identity_during_transient_refresh_failure():
+    """刷新瞬时失败时不得把已确认的 TMDB 主身份回退为豆瓣。"""
+    entry = {
+        "title": "瑞克和莫蒂 第九季",
+        "douban_id": "36508123",
+        "poster": "douban-poster.jpg",
+    }
+    existing = {
+        "title": "瑞克和莫蒂",
+        "original_title": "瑞克和莫蒂 第九季",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "60625",
+        "tmdbid": 60625,
+        "douban_id": "36508123",
+        "poster": "tmdb-poster.jpg",
+    }
+
+    feed._preserve_existing_tmdb_identity(entry, existing)
+
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "60625"
+    assert entry["tmdbid"] == 60625
+    assert entry["title"] == "瑞克和莫蒂"
+    assert entry["poster"] == "tmdb-poster.jpg"
+
+
+def test_preserve_existing_tmdb_identity_rejects_changed_douban_subject():
+    """同一榜单位置换成其他豆瓣条目时不得沿用旧 TMDB 身份。"""
+    entry = {
+        "title": "流人 第六季",
+        "douban_id": "36689816",
+        "poster": "new-poster.jpg",
+    }
+    existing = {
+        "title": "瑞克和莫蒂",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "60625",
+        "tmdbid": 60625,
+        "douban_id": "36508123",
+        "poster": "old-poster.jpg",
+    }
+
+    feed._preserve_existing_tmdb_identity(entry, existing)
+
+    assert entry.get("media_source") is None
+    assert entry.get("media_id") is None
+    assert entry.get("tmdbid") is None
+    assert entry["title"] == "流人 第六季"
+    assert entry["poster"] == "new-poster.jpg"
 
 
 def test_rank_refresh_converts_douban_identity_before_recognition():

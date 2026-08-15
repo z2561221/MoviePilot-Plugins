@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from typing import Any, Mapping, Optional, Tuple
 
 # MoviePilot V3 e28de9cf 的 app.sdk.media 尚未导出媒体身份规范化函数。
@@ -123,53 +124,116 @@ def _mapping_year(value: Mapping[str, Any]) -> str:
     return ""
 
 
+def _fallback_title_candidates(value: Any, season: Any = None) -> list[str]:
+    """把豆瓣原名清理为可用于 TMDB 精确匹配的非中文候选。"""
+    title = re.sub(r"\s+", " ", str(value or "")).strip()
+    title = re.sub(r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", title).strip()
+    candidates = [title]
+    if season is not None:
+        try:
+            normalized_season = int(season)
+        except (TypeError, ValueError):
+            normalized_season = None
+        if normalized_season is not None:
+            base_title = re.sub(
+                rf"\s+(?:Season\s*0*{normalized_season}|S0*{normalized_season})\s*$",
+                "",
+                title,
+                flags=re.IGNORECASE,
+            ).strip()
+            if base_title and base_title != title:
+                candidates.insert(0, base_title)
+    result = []
+    seen = set()
+    for candidate in candidates:
+        key = candidate.casefold()
+        if (
+            not candidate
+            or key in seen
+            or _contains_cjk(candidate)
+            or not re.search(r"[A-Za-z]", candidate)
+        ):
+            continue
+        seen.add(key)
+        result.append(candidate)
+    return result
+
+
 def _douban_tmdb_original_title_fallback(
     chain: Any,
     *,
     media_id: str,
     mtype: Any = None,
     season: Any = None,
+    fallback_title_loader: Optional[Callable[[], Iterable[Any]]] = None,
 ) -> Tuple[Optional[MediaSource], Optional[str]]:
     """用豆瓣非中文原名做一次不带年份的 TMDB 精确匹配。"""
     douban_info = getattr(chain, "douban_info", None)
     match_tmdbinfo = getattr(chain, "match_tmdbinfo", None)
-    if not callable(douban_info) or not callable(match_tmdbinfo):
+    if not callable(match_tmdbinfo):
         return None, None
 
-    detail_kwargs = {"doubanid": media_id}
-    if mtype is not None:
-        detail_kwargs["mtype"] = mtype
-    source_info = douban_info(**detail_kwargs)
-    if not isinstance(source_info, Mapping):
-        return None, None
-
-    source_year = _mapping_year(source_info)
     seen = set()
-    for field in ("original_title", "en_title", "title"):
-        title = re.sub(r"\s+", " ", str(source_info.get(field) or "")).strip()
-        title_key = title.casefold()
-        if (
-            not title
-            or title_key in seen
-            or _contains_cjk(title)
-            or not re.search(r"[A-Za-z]", title)
-        ):
-            continue
-        seen.add(title_key)
-        target_info = match_tmdbinfo(
-            name=title,
-            mtype=mtype,
-            year=None,
-            season=season,
+
+    def _match_sources(title_sources: Iterable[Any], source_year: str = ""):
+        """按顺序精确匹配一组原名候选。"""
+        for title_source in title_sources:
+            embedded_year = _mapping_year({"year": title_source})
+            comparable_source_year = source_year or embedded_year
+            for title in _fallback_title_candidates(title_source, season=season):
+                title_key = title.casefold()
+                if title_key in seen:
+                    continue
+                seen.add(title_key)
+                target_info = match_tmdbinfo(
+                    name=title,
+                    mtype=mtype,
+                    year=None,
+                    season=season,
+                )
+                if not isinstance(target_info, Mapping):
+                    continue
+                target_year = _mapping_year(target_info)
+                if (
+                    season is None
+                    and comparable_source_year
+                    and target_year
+                    and comparable_source_year != target_year
+                ):
+                    continue
+                source, target_id = _conversion_identity(target_info, MediaSource.TMDB)
+                if source and target_id:
+                    return source, target_id
+        return None, None
+
+    if callable(fallback_title_loader):
+        try:
+            loaded_titles = fallback_title_loader()
+        except Exception:
+            loaded_titles = []
+        if isinstance(loaded_titles, str):
+            loaded_titles = [loaded_titles]
+        if isinstance(loaded_titles, Iterable):
+            converted = _match_sources(loaded_titles)
+            if all(converted):
+                return converted
+
+    source_info = None
+    if callable(douban_info):
+        detail_kwargs = {"doubanid": media_id}
+        if mtype is not None:
+            detail_kwargs["mtype"] = mtype
+        try:
+            source_info = douban_info(**detail_kwargs)
+        except Exception:
+            source_info = None
+    if isinstance(source_info, Mapping):
+        converted = _match_sources(
+            (source_info.get(field) for field in ("original_title", "en_title", "title")),
+            source_year=_mapping_year(source_info),
         )
-        if not isinstance(target_info, Mapping):
-            continue
-        target_year = _mapping_year(target_info)
-        if source_year and target_year and source_year != target_year:
-            continue
-        source, target_id = _conversion_identity(target_info, MediaSource.TMDB)
-        if source and target_id:
-            return source, target_id
+        if all(converted):
+            return converted
     return None, None
 
 
@@ -181,6 +245,7 @@ def convert_identity(
     media_id: Any,
     mtype: Any = None,
     season: Any = None,
+    fallback_title_loader: Optional[Callable[[], Iterable[Any]]] = None,
 ) -> Tuple[Optional[MediaSource], Optional[str]]:
     """调用 V3 跨源转换链，并为未定档条目补受限原名匹配。"""
     target_source = normalize_media_source(target_source)
@@ -214,6 +279,7 @@ def convert_identity(
             media_id=resolved_id,
             mtype=mtype,
             season=season,
+            fallback_title_loader=fallback_title_loader,
         )
     return None, None
 
