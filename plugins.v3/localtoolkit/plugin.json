@@ -2,7 +2,7 @@
     "name": "工具中心",
     "description": "整合清理库存、扫描缺集、清理TMDB的本地维护工具中心。",
     "version": "3.0.0",
-    "author": "牧濑红莉栖",
+    "author": "Kurisu",
     "level": 1,
     "system_version": ">=3.0.0",
     "history": {

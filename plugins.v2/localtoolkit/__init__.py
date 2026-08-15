@@ -19,7 +19,7 @@ class LocalToolkit(_PluginBase):
     plugin_icon = "Ittools_A.png"
     plugin_color = "#26A69A"
     plugin_version = "1.2.13"
-    plugin_author = "牧濑红莉栖"
+    plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "localtoolkit_"
     plugin_order = 52

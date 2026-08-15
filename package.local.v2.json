@@ -4,7 +4,7 @@
     "description": "整合清理库存、扫描缺集、清理TMDB的本地维护工具中心。",
     "version": "1.2.13",
     "icon": "Ittools_A.png",
-    "author": "牧濑红莉栖",
+    "author": "Kurisu",
     "level": 1,
     "v2": true,
     "v3": false,
