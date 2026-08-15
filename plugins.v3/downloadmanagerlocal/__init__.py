@@ -48,7 +48,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件版本
     plugin_version = "3.3.0"
     # 插件作者
-    plugin_author = "牧濑红莉栖"
+    plugin_author = "Kurisu"
     # 作者主页
     author_url = "https://github.com/z2561221"
     # 插件配置项ID前缀
