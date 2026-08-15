@@ -1,4 +1,4 @@
-# DownloadManagerLocal 后端上下文
+# DownloadManagerLocal 插件上下文
 
 ## 插件定位
 
@@ -9,25 +9,34 @@
 - 种子重命名：转移或补刀时根据 MoviePilot 识别结果与原始发布名模板重命名。
 - 站点标签：根据 tracker 域名映射站点名并写入下载器标签。
 - 做种校验：转移或辅种后登记队列，后台线程轮询任务状态并按配置自动开始做种。
+- 速度监控：按下载器建立稳健速度基准，跟踪活跃下载会话并提供异常处置入口。
+- 上传限速：支持 qBittorrent 与 Transmission 下载器全局上传上限；用户可按需填写站点合计上限，正数站点跨下载器共享该额度，空值或 `0` 不写单种限速，并支持新种宽限和停用恢复。
 - 诊断与总览：为 Vue 详情页提供只读诊断、运行总览、重命名历史和归档记录。
 
-本文件只描述后端。UI、Vue 联邦组件、构建产物和页面文案不在本轮重构范围内。
+Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产物位于 `dist/assets/`。前端通过注入的 `api` prop 调用 `bear` 认证插件 API。
 
-## 禁止改动区域
+## 当前开发边界
 
-本轮后端重构不得修改：
+上传限速当前周期允许修改目标插件后端、Vue 配置页、联邦构建产物、目标测试和本文件，但必须遵守：
 
-- `plugins.v2/downloadmanagerlocal/frontend/src/**`
-- `plugins.v2/downloadmanagerlocal/dist/**`
-- `plugins.v2/downloadmanagerlocal/frontend/index.html`
-- `plugins.v2/downloadmanagerlocal/frontend/vite.config.js`
-- `plugins.v2/downloadmanagerlocal/frontend/package.json`
-- `plugins.v2/downloadmanagerlocal/frontend/package-lock.json`
-- `plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml`
+- 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
+- 不执行真实种子删除、转移或标签清理。
+- 不修改 `plugin_version`、`plugin.json`、`package.v2.json` 或发布历史。
+- 不 push、merge 或发布。
+- 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
 
-如后端改动看起来需要 UI 配合，停止执行并报告决策缺口。
+## 2026-08-12 上传限速周期
 
-## 当前完成状态
+- 后端核心已拆分为 `model/upload_limit.py`、`adapter/upload_limit.py`、`service/upload_allocator.py`、`service/upload_limiter.py` 和 `service/upload_limit_worker.py`。
+- 配置、生命周期、`DownloadAdded` 事件、总览 API 与 Vue 配置页已接入。
+- qBittorrent 与 Transmission 均使用 fake client 做读写契约测试，不连接真实下载器。
+- Vue 配置页包含基础设置、站点策略和运行状态，并已构建到 `dist/assets/`。
+- 一级导航按运行链路将上传限速放在做种校验之后；运行状态中的“当前速率”表示实际上传流量，不是分配额度。
+- 扫描站点只追加 `{limit_kib: 0}`，Vue 输入框默认显示为空；空值或 `0` 的站点、未知标签、无标签和多站点标签都不写单种限速，只受下载器全局上限约束。填写正数的站点进入受限池，多个受限站点等权并按实际上传需求共享下载器全局额度。
+- 运行状态严格区分实时上传速率、下载器全局上限、站点合计上限和插件写入的站点额度；`allocated_kib` 不是实际吞吐或 Peer 能力证明。停用时状态 API 会清零上一周期的速率、额度和任务摘要。
+- 当前周期只做本地 commit 与 MP 本地仓库默认关闭验收，不修改版本或发布元数据。
+
+## 历史基线（2026-07-04）
 
 2026-07-04 标准化收口后，`DownloadManagerLocal` 已按 MoviePilot 插件维护规范完成后端分层与运行态闭环验收，UI 源码和可见行为保持不变。
 
@@ -35,7 +44,9 @@
 - Controller 层：`controller/api.py` 维护 API route metadata，`controller/handlers.py` 维护 handler 调度和响应 shape。
 - Service 层：`service/lifecycle.py`、`events.py`、`transfer.py`、`iyuu.py`、`rename.py`、`archive.py`、`site_tag.py`、`diagnostics.py`、`recheck.py` 等模块承载业务编排。
 - Adapter 层：`adapter/moviepilot.py` 集中访问 MoviePilot 下载器、站点、系统配置、HTTP、TorrentHelper、下载历史和外部链接能力。
+- 上传限速 Adapter：`adapter/upload_limit.py` 归一化 qBittorrent / Transmission 全局与单种上传设置，并负责读写和恢复。
 - Model 层：`model/state.py` 集中维护持久化 key、IYUU 动态 key helper 和 dict 数据读写 helper，保持旧 key 后向兼容。
+- 上传限速 Model：`model/upload_limit.py` 固定 schema、30 秒协调周期、下载器和站点状态 DTO。
 - Utils 层：只保留无业务状态的解析、脱敏、路径、tracker、种子字段适配和配置默认值工厂等小工具。
 - `modules/`：保留为兼容 shim；AST 扫描显示 `modules/*.py` 顶层 class/function 定义数均为 0，不再承载业务决策。
 - 文档质量：public class/function/method 中文 docstring 缺口为 0；本轮新增或改动的 private helper 中文 docstring 缺口为 0。
@@ -66,6 +77,12 @@
 | `/downloaders` | GET | 获取下载器列表 | `api_downloaders` |
 | `/rename_history` | GET | 获取重命名历史 | `api_rename_history` |
 | `/overview` | GET | 获取下载中心总览 | `api_overview` |
+| `/reset_speed_monitor_baseline` | POST | 重置下载速度基准 | `api_reset_speed_monitor_baseline` |
+| `/upload_limit_status` | GET | 获取上传限速状态 | `api_upload_limit_status` |
+| `/upload_limit_reallocate` | POST | 立即重新分配上传额度 | `api_upload_limit_reallocate` |
+| `/upload_limit_site_tags` | POST | 扫描上传限速站点标签 | `api_upload_limit_site_tags` |
+| `/upload_limit_site_rules_update` | POST | 立即保存上传限速站点策略 | `api_upload_limit_site_rules_update` |
+| `/upload_limit_disable_restore` | POST | 停用上传限速并恢复原值 | `api_upload_limit_disable_restore` |
 | `/diagnostics` | GET | 获取诊断信息 | `api_diagnostics` |
 | `/retry_renames` | POST | 一键补刀重命名 | `api_retry_renames` |
 | `/retry_rename` | POST | 单条补刀重命名 | `api_retry_rename` |
@@ -83,6 +100,25 @@
 - `tests/static/test_downloadmanagerlocal_backend_contract.py`
 
 ## 服务与事件
+
+### 上传限速协调 worker
+
+- `service/upload_limit_worker.py` 启用后立即执行一轮，此后每 30 秒协调一次；`DownloadAdded` 事件可提前唤醒。
+- `service/upload_limiter.py` 每轮先写下载器全局上限；没有正数站点上限时不接管单种限速，有正数站点上限时再扫描已完成任务、识别新种宽限、聚合站点池、按站点合计上限和实际需求分配，并持久化最新状态。
+- 首次启用和首次扫描的存量任务立即纳入管理，不进入宽限；后续新发现的已完成任务按 `max(completed_at, added_at)` 计算宽限。
+- 宽限期间不写站点/单种额度，但仍受下载器总上传上限。
+- 正数受限站点内部按实时上传和 Peer 信号估算各任务需求，并用轮换探测避免空闲任务长期占用额度；该探测只是单种额度分配的内部实现，不是用户可见的站点优先级，也不能作为真实吞吐能力的证明。
+- 站点规则只接受唯一有效的 `{tag_siteprefix}站点名` 标签（默认前缀为 `🏠`）；空值或 `0` 规则、无标签、多个站点标签和未配置站点均不进入受限池，只受下载器全局上限约束。
+- 站点硬上限跨所有受管下载器共享，下载器总上限分别独立生效。
+- qBittorrent 同步普通与备用上传上限；Transmission 写 Session 上传上限。
+- 运行中清空全部站点规则时，按 compare-and-set 恢复此前由插件写入的单种设置，同时继续保持下载器总上传上限。
+- MP 或插件离线时下载器保留最后写入值；重新上线后从持久化状态继续协调。
+- 运行期间插件分配覆盖单种手工值；若检测到用户后来手工修改，会更新恢复基线，明确停用时保留该新值。
+
+### `DownloadAdded`
+
+- 建立速度监控会话后唤醒速度 worker。
+- 无论速度会话是否建立，都尝试唤醒上传限速 worker，以便新完成/新增任务尽快进入下一轮观测。
 
 ### `get_service()`
 
@@ -121,9 +157,14 @@
 - `service/archive.py`：失败分类、连续失败归档、恢复、删除、列表和统计。
 - `service/recheck.py`：做种校验队列、后台线程、状态判断和超时判断。
 - `service/site_tag.py`：tracker 域名解析、站点标签写入、临时标签回收和人工标签清理。
+- `service/upload_allocator.py`：纯逻辑额度分配、需求估算、站点共享硬上限和单种轮换探测。
+- `service/upload_limiter.py`：上传限速扫描、分配、持久化、状态摘要和 compare-and-set 恢复。
+- `service/upload_limit_worker.py`：30 秒常驻协调、事件唤醒和只停 worker 的离线保持语义。
 - `service/diagnostics.py`：诊断数据构建。
 - `modules/*.py`：兼容 shim，只重导出 service 实现；不得新增业务判断。
 - `utils/config.py`：配置默认值工厂、启用状态、安全整数、转移/IYUU 活跃判定。
+- `adapter/upload_limit.py`：qBittorrent / Transmission 全局与单种上传设置适配，不承载额度业务判断。
+- `model/upload_limit.py`：上传限速 DTO、schema 和站点规则归一化。
 - `utils/torrent_adapter.py`：qBittorrent 和 Transmission 的 hash、标签、分类、保存路径和大小适配。
 - `utils/tag_cleanup.py`：临时标签归属判定和标签类型分类。
 - `utils/name_cleaner.py`：发布名清洗、污染名检测和补刀 hash 收集。
@@ -151,6 +192,9 @@
 
 - `iyuu_source_<seed_hash>`
   - 辅种 hash 到母种 hash 的反向映射。
+
+- `upload_limit_state`
+  - schema v1 的上传限速运行态，保存管理状态、下载器原始/最后写入设置、内部探测状态、单种原始/最后写入设置、宽限截止时间、失败计数和最近状态摘要；这些字段保持向后兼容，但不构成站点策略配置。
 
 插件配置中还持久化 IYUU 缓存字段：
 
@@ -221,12 +265,42 @@ IYUU：
 - `seed_check_interval`
 - `seed_max_wait_minutes`
 
+速度监控：
+
+- `speed_monitor_enabled`
+- `speed_monitor_downloaders`
+- `speed_monitor_mode`
+- `speed_monitor_tolerance`
+- `speed_monitor_min_samples`
+- `speed_monitor_interval_seconds`
+- `speed_monitor_grace_minutes`
+- `speed_monitor_consecutive_abnormal_samples`
+- `speed_monitor_manual_speed_bps`
+- `speed_monitor_floor_speed_bps`
+- `speed_monitor_notification_type`
+
+上传限速：
+
+- `upload_limit_enabled`：默认 `false`。
+- `upload_limit_downloaders`：用户自定义选择的 qBittorrent / Transmission 实例；未选择的下载器不展示额度也不接管。
+- `upload_limit_downloader_limits_kib`：每个受管下载器的正整数总上限，单位 KiB/s。
+- `upload_limit_site_rules`：站点名到 `{limit_kib}`；正数表示该站点所有任务共享的合计上限，空值或 `0` 表示该站点不写单种限速，只受下载器全局上限约束。
+- `upload_limit_grace_minutes`：站点策略模式的新种宽限，默认 30 分钟，0 表示完成后立即纳入单种分配。
+- 扫描站点、清空策略和站点上限编辑会立即串行持久化 `upload_limit_site_rules`，不依赖插件配置页的整体保存；扫描新增站点默认保存为 `0`，前端显示为空。上述操作不直接触发额度重分配，用户点击“立即分配”时会先等待扫描和策略保存完成再执行，后台 worker 仍按 30 秒周期读取最新策略。
+
 ## 验证命令
 
 当前隔离 worktree 使用 Codex bundled Python：
 
 ```powershell
 & 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m compileall plugins.v2/downloadmanagerlocal
+```
+
+Vue 联邦构建使用 Codex bundled Node，并显式补入 PATH：
+
+```powershell
+$env:PATH = 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\fallback;' + $env:PATH
+& 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\fallback\pnpm.cmd' --dir plugins.v2/downloadmanagerlocal/frontend run build
 ```
 
 静态测试使用 `--confcutdir=tests/static`，避免仓库根 `tests/conftest.py` 强制 v1/v2 会话选择导致 static 目录测试无法直接运行：
@@ -236,13 +310,7 @@ $env:MOVIEPILOT_BACKEND_PATH='D:\AIGC\MoviePilot\tmp\MoviePilot-core-v2'
 & 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m pytest --confcutdir=tests/static tests/static/test_downloadmanagerlocal_backend_contract.py tests/static/test_downloadmanagerlocal_private_helpers.py tests/static/test_downloadmanagerlocal_stability_baseline.py
 ```
 
-no-UI gate：
-
-```powershell
-git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend plugins.v2/downloadmanagerlocal/dist
-```
-
-该命令必须输出为空。
+上传限速针对性测试不得连接真实下载器；使用 pure allocator、fake qBittorrent / Transmission adapter、fake lifecycle worker 和静态 Vue/API 契约完成验证。
 
 ## 已知环境注意事项
 

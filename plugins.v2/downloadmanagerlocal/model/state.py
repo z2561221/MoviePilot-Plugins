@@ -17,6 +17,8 @@ SPEED_MONITOR_TERMINAL_TTL_SECONDS = 30 * 24 * 60 * 60
 SPEED_MONITOR_TERMINAL_MAX_ITEMS = 1000
 SPEED_MONITOR_HEALTH_SAMPLE_WINDOW = 20
 
+UPLOAD_LIMIT_STATE_KEY = "upload_limit_state"
+
 IYUU_HISTORY_KEY_PREFIX = "iyuu_"
 IYUU_SOURCE_KEY_PREFIX = "iyuu_source_"
 IYUU_PERMANENT_ERROR_CACHES_KEY = "iyuu_permanent_error_caches"
@@ -36,6 +38,7 @@ PERSISTED_STATE_KEYS = {
     "speed_monitor_sessions": SPEED_MONITOR_SESSIONS_KEY,
     "speed_monitor_baselines": SPEED_MONITOR_BASELINES_KEY,
     "speed_monitor_alerts": SPEED_MONITOR_ALERTS_KEY,
+    "upload_limit_state": UPLOAD_LIMIT_STATE_KEY,
     "iyuu_history": f"{IYUU_HISTORY_KEY_PREFIX}<source_hash>",
     "iyuu_source": f"{IYUU_SOURCE_KEY_PREFIX}<seed_hash>",
     "iyuu_cache_config": IYUU_CACHE_CONFIG_KEYS,

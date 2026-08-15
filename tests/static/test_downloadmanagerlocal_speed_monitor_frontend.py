@@ -7,6 +7,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "plugins.v2" / "downloadmanagerlocal"
 CONFIG = PLUGIN_DIR / "frontend" / "src" / "components" / "Config.vue"
+PAGE = PLUGIN_DIR / "frontend" / "src" / "components" / "Page.vue"
 ROUTES = PLUGIN_DIR / "controller" / "api.py"
 
 
@@ -112,6 +113,30 @@ def test_monitor_status_matches_overview_contract_and_warns_before_deletion():
     assert "重置自动基准" in source
     assert "空闲" in source
     assert "监控中" in source
+
+
+def test_monitor_runtime_status_is_complete_on_page_and_retained_in_config():
+    """详情页应展示完整速度监控状态，配置页原运行状态入口继续保留。"""
+    config_source = _source()
+    page_source = PAGE.read_text(encoding="utf-8")
+
+    assert "{ key: 'monitor_status', title: '运行状态', icon: 'mdi-pulse' }" in config_source
+    assert 'v-show="activeSub === \'monitor_status\'"' in config_source
+    assert 'data-runtime-section="speed-monitor"' in page_source
+    for field in [
+        "selected_downloaders",
+        "active_sessions",
+        "pending_alerts",
+        "state_error",
+        "reference_speed_bps",
+        "trusted_speed_bps",
+        "provisional_speed_bps",
+        "relative_only",
+        "last_disposition",
+    ]:
+        assert field in page_source
+    for title in ["速度监控运行状态", "下载器基准", "最近处置"]:
+        assert title in page_source
 
 
 def test_monitor_layout_has_mobile_and_tablet_overflow_guards():

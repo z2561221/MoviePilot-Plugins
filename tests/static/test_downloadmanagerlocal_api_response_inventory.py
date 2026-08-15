@@ -40,6 +40,9 @@ def test_downloadmanagerlocal_overview_response_inventory():
         '"relative_only"',
         '"last_disposition"',
         '"threshold_suggestion"',
+        '"upload_limit"',
+        '"managed"',
+        '"grace"',
     ]:
         assert key in source
 
@@ -104,3 +107,21 @@ def test_downloadmanagerlocal_tag_cleanup_response_inventory():
     assert "def api_tag_cleanup_execute(plugin, payload: dict = None):" in source
     assert 'request.get("removals")' in source
     assert "execute_tag_cleanup(plugin," in source
+
+
+def test_downloadmanagerlocal_upload_limit_response_inventory():
+    source = _handler_source()
+
+    assert "def api_upload_limit_status(plugin):" in source
+    assert "get_upload_limit_status(plugin)" in source
+    assert "def api_upload_limit_reallocate(plugin, payload: dict = None):" in source
+    assert 'reason="manual"' in source
+    assert "def api_upload_limit_site_tags(plugin, payload: dict = None):" in source
+    assert 'request.get("downloaders")' in source
+    assert 'request.get("rules")' in source
+    assert "persist_upload_limit_site_rules(plugin, rules)" in source
+    assert "def api_upload_limit_site_rules_update(plugin, payload: dict = None):" in source
+    assert "persist_upload_limit_site_rules(plugin, request.get(\"rules\"))" in source
+    assert "def api_upload_limit_disable_restore(plugin, payload: dict = None):" in source
+    assert 'config["upload_limit_enabled"] = False' in source
+    assert "restore_upload_limits(plugin)" in source

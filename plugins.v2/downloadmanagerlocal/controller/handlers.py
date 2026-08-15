@@ -14,6 +14,14 @@ from ..service.speed_monitor import (
     load_speed_monitor_runtime_snapshot,
     reset_speed_monitor_baseline,
 )
+from ..service.upload_limiter import (
+    get_upload_limit_status,
+    persist_upload_limit_site_rules,
+    restore_upload_limits,
+    run_upload_limit_cycle,
+    scan_upload_limit_site_tags,
+)
+from ..service.upload_limit_worker import stop_upload_limit_worker
 from ..utils.config import is_speed_monitor_active
 
 
@@ -155,6 +163,7 @@ def api_overview(plugin):
     try:
         diagnostics = plugin._diagnostics()
         archive = plugin.rename_archive_stats()
+        upload_limit = get_upload_limit_status(plugin)
         rename_history = diagnostics.get("rename_history", {}) if isinstance(diagnostics, dict) else {}
         return {
             "code": 0,
@@ -164,7 +173,14 @@ def api_overview(plugin):
             "rename_history": rename_history,
             "archive": archive,
             "speed_monitor": _speed_monitor_overview(plugin),
+            "upload_limit": upload_limit,
             "cards": {
+                "upload_limit": {
+                    "enabled": bool(getattr(plugin, "_upload_limit_enabled", False)),
+                    "active": bool(upload_limit.get("active")),
+                    "managed": int(upload_limit.get("managed_torrents") or 0),
+                    "grace": int(upload_limit.get("grace_torrents") or 0),
+                },
                 "transfer": {
                     "enabled": bool(getattr(plugin, "_transfer_enabled", False)),
                     "active": bool(getattr(plugin, "_transfer_active", False)),
@@ -208,6 +224,80 @@ def api_reset_speed_monitor_baseline(plugin, payload: dict = None):
     except Exception as e:
         logger.error(f"速度基准重置失败: {e}")
         return {"code": 1, "msg": f"重置失败: {e}", "success": False}
+
+
+def api_upload_limit_status(plugin):
+    """返回上传限速配置页状态。"""
+    try:
+        return {"code": 0, **get_upload_limit_status(plugin)}
+    except Exception as e:
+        logger.error(f"上传限速状态读取失败: {e}")
+        return {"code": 1, "msg": f"状态读取失败: {e}"}
+
+
+def api_upload_limit_reallocate(plugin, payload: dict = None):
+    """立即执行一轮上传额度重新分配。"""
+    try:
+        result = run_upload_limit_cycle(plugin, reason="manual")
+        return {"code": 0 if not result.get("errors") else 2, "msg": "上传额度已重新分配", **result}
+    except Exception as e:
+        logger.error(f"上传额度重新分配失败: {e}")
+        return {"code": 1, "msg": f"重新分配失败: {e}"}
+
+
+def api_upload_limit_site_tags(plugin, payload: dict = None):
+    """扫描指定下载器中的站点前缀标签。"""
+    try:
+        request = payload if isinstance(payload, dict) else {}
+        result = scan_upload_limit_site_tags(
+            plugin, request.get("downloaders")
+        )
+        request_rules = request.get("rules")
+        rules = dict(
+            request_rules
+            if isinstance(request_rules, dict)
+            else (getattr(plugin, "_upload_limit_site_rules", {}) or {})
+        )
+        for item in result.get("items") or []:
+            name = str(item.get("name") or "").strip()
+            if name:
+                rules.setdefault(name, {"limit_kib": 0})
+        result["rules"] = persist_upload_limit_site_rules(plugin, rules)
+        result["msg"] = "站点标签扫描完成，策略已立即生效" if result.get("code") == 0 else result.get("msg")
+        return result
+    except Exception as e:
+        logger.error(f"上传限速站点标签扫描失败: {e}")
+        return {"code": 1, "msg": f"扫描失败: {e}", "items": [], "errors": []}
+
+
+def api_upload_limit_site_rules_update(plugin, payload: dict = None):
+    """立即保存上传限速站点策略，不触发重新分配。"""
+    try:
+        request = payload if isinstance(payload, dict) else {}
+        rules = persist_upload_limit_site_rules(plugin, request.get("rules"))
+        return {
+            "code": 0,
+            "msg": "站点策略已清空并立即生效" if not rules else "站点策略已立即生效",
+            "rules": rules,
+        }
+    except Exception as e:
+        logger.error(f"上传限速站点策略保存失败: {e}")
+        return {"code": 1, "msg": f"站点策略保存失败: {e}", "rules": {}}
+
+
+def api_upload_limit_disable_restore(plugin, payload: dict = None):
+    """停用上传限速、停止协调 worker 并恢复接管前设置。"""
+    try:
+        config = dict(plugin.get_config() or {})
+        config["upload_limit_enabled"] = False
+        plugin._upload_limit_enabled = False
+        stop_upload_limit_worker(plugin)
+        plugin.update_config(config=config)
+        result = restore_upload_limits(plugin)
+        return result
+    except Exception as e:
+        logger.error(f"停用并恢复上传限速失败: {e}")
+        return {"code": 1, "msg": f"停用恢复失败: {e}", "errors": [str(e)]}
 
 
 def api_downloaders(plugin):
