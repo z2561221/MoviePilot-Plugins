@@ -121,22 +121,5 @@
       "v1.0.1": "[1]移除画像访问控制;[2]显示接口真实错误",
       "v1.0.0": "[1]完成自适应推荐闭环;[2]支持自由检索与动态问询;[3]完善反馈学习与订阅;[4]优化榜单与移动端"
     }
-  },
-  "BackupCenter": {
-    "name": "备份中心",
-    "description": "备份 MoviePilot 与插件设置，生成可校验的离线恢复包。",
-    "labels": "系统工具,数据安全",
-    "version": "0.0.1",
-    "icon": "backup.png",
-    "color": "#00897B",
-    "author": "牧濑红莉栖",
-    "author_url": "https://github.com/z2561221",
-    "level": 1,
-    "v2": true,
-    "v3": false,
-    "system_version": ">=3.0.0",
-    "history": {
-      "v0.0.1": "[1]支持可选加密;[2]新增自动备份;[3]支持MP与插件手动包"
-    }
   }
 }

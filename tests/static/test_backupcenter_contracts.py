@@ -56,7 +56,7 @@ def _class_string(class_node: ast.ClassDef, name: str) -> str:
 def test_backupcenter_metadata_is_consistent_and_v3_scoped():
     """包索引、插件 manifest 与入口类共享同一身份和 V3 宿主边界。"""
     package = _json(PACKAGE_JSON)["BackupCenter"]
-    package_v2 = _json(PACKAGE_V2_JSON)["BackupCenter"]
+    package_v2 = _json(PACKAGE_V2_JSON)
     manifest = _json(PLUGIN_JSON)
     plugin_class = _entrypoint_class()
 
@@ -73,7 +73,12 @@ def test_backupcenter_metadata_is_consistent_and_v3_scoped():
         assert package[metadata_key] == _class_string(plugin_class, class_key)
     assert package["version"] == manifest["version"] == "3.0.0"
     assert "v2" not in package and "v2" not in manifest
-    assert package_v2["v3"] is False
+    assert package["release"] is True
+    assert package["history"] == manifest["history"] == {
+        "v3.0.0": "[1]备份MP与插件;[2]支持加密校验;[3]附带离线恢复"
+    }
+    assert "BackupCenter" not in package_v2
+    assert not (ROOT / "plugins.v2" / "backupcenter" / "__init__.py").exists()
     assert package["system_version"] == manifest["system_version"] == ">=3.0.0"
     assert package["author_url"] == "https://github.com/z2561221"
 
