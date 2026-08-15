@@ -9,7 +9,7 @@
     "author": "牧濑红莉栖",
     "author_url": "https://github.com/z2561221",
     "level": 1,
-    "release": false,
+    "release": true,
     "system_version": ">=3.0.0",
     "history": {
       "v3.0.0": "[1]适配V3媒体身份;[2]适配V3接口响应;[3]迁移旧榜单身份",
