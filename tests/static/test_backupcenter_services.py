@@ -75,6 +75,19 @@ app_core_module.config = app_core_config_module
 app_log_module = ModuleType("app.log")
 app_log_module.logger = SimpleNamespace(warning=lambda *_args, **_kwargs: None)
 sys.modules["app.log"] = app_log_module
+app_sdk_module = _package("app.sdk", PLUGIN_DIR)
+app_sdk_config_module = ModuleType("app.sdk.config")
+app_sdk_config_module.settings = app_core_config_module.settings
+sys.modules["app.sdk.config"] = app_sdk_config_module
+app_sdk_logging_module = ModuleType("app.sdk.logging")
+app_sdk_logging_module.logger = app_log_module.logger
+sys.modules["app.sdk.logging"] = app_sdk_logging_module
+app_sdk_plugins_module = ModuleType("app.sdk.plugins")
+app_sdk_plugins_module.PluginManager = SimpleNamespace
+sys.modules["app.sdk.plugins"] = app_sdk_plugins_module
+app_sdk_module.config = app_sdk_config_module
+app_sdk_module.logging = app_sdk_logging_module
+app_sdk_module.plugins = app_sdk_plugins_module
 app_schemas_module = _package("app.schemas", PLUGIN_DIR)
 app_schemas_types_module = ModuleType("app.schemas.types")
 app_schemas_types_module.SystemConfigKey = _SystemConfigKey
@@ -88,6 +101,7 @@ app_db_plugindata_module.PluginData = _PluginData
 sys.modules["app.db.models.plugindata"] = app_db_plugindata_module
 app_db_models_module.plugindata = app_db_plugindata_module
 app_module.core = app_core_module
+app_module.sdk = app_sdk_module
 app_module.schemas = app_schemas_module
 app_module.db = app_db_module
 apscheduler_module = _package("apscheduler", PLUGIN_DIR)
@@ -923,9 +937,9 @@ def test_partial_plugin_stop_failure_reloads_already_stopped_plugins(monkeypatch
 
     manager.stop = stop
     manager.reload_plugin = reload_plugin
-    plugin_module = ModuleType("app.core.plugin")
+    plugin_module = ModuleType("app.sdk.plugins")
     plugin_module.PluginManager = lambda: manager
-    monkeypatch.setitem(sys.modules, "app.core.plugin", plugin_module)
+    monkeypatch.setitem(sys.modules, "app.sdk.plugins", plugin_module)
 
     with pytest.raises(restore_module.RestoreServiceError, match="PluginB"):
         restore_module.RestoreService._stop_target_plugins(["PluginA", "PluginB"])

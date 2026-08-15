@@ -4,7 +4,7 @@ import re
 from typing import Any, Dict, List
 
 from apscheduler.triggers.cron import CronTrigger
-from app.log import logger
+from app.sdk.logging import logger
 
 
 _WEEKDAY_ALIASES = {

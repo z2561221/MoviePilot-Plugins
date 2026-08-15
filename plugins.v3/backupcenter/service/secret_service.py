@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from app.core.config import settings
+from app.sdk.config import settings
 
 from .crypto_service import BackupCryptoError, CryptoService
 

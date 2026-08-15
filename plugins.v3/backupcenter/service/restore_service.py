@@ -251,7 +251,7 @@ class RestoreService:
     @staticmethod
     def _stop_target_plugins(plugin_ids: Iterable[str]) -> Tuple[Any, List[str]]:
         """停止当前运行中的目标插件，并返回管理器与实际停止列表。"""
-        from app.core.plugin import PluginManager
+        from app.sdk.plugins import PluginManager
 
         manager = PluginManager()
         stopped: List[str] = []

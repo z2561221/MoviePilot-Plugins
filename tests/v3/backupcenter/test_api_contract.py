@@ -32,9 +32,9 @@ def _verify_token() -> None:
     return None
 
 
-plugin_module = ModuleType("app.core.plugin")
+plugin_module = ModuleType("app.sdk.plugins")
 plugin_module.PluginManager = _PluginManager
-sys.modules["app.core.plugin"] = plugin_module
+sys.modules["app.sdk.plugins"] = plugin_module
 application_module = _package("app.application", PLUGIN_DIR)
 security_package = _package("app.application.security", PLUGIN_DIR)
 security_module = ModuleType("app.application.security.access")

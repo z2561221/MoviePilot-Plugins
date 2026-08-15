@@ -7,9 +7,10 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from app.core.config import settings
-from app.core.plugin import PluginManager
+# MoviePilot V3 e28de9cf 的 SDK 尚未导出 bearer token 校验依赖。
 from app.application.security.access import verify_token
+from app.sdk.config import settings
+from app.sdk.plugins import PluginManager
 from ..model.api import (
     AutomaticBackupData,
     BackupConfigData,

@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
-from app.core.config import settings
 from app.schemas.types import SystemConfigKey
+from app.sdk.config import settings
 from version import APP_VERSION
 
 from ..model.backup import BackupScope, ScopeError, normalize_plugin_ids
