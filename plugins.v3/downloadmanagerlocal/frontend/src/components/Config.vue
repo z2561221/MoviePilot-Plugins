@@ -609,7 +609,9 @@ function tagSelectionKey(downloader, tag) {
 function resetCleanupKeep(groups) {
   Object.keys(cleanupKeep).forEach(key => delete cleanupKeep[key])
   for (const group of groups || []) {
-    for (const item of group.tags || []) cleanupKeep[tagSelectionKey(group.name, item.tag)] = true
+    for (const item of group.tags || []) {
+      cleanupKeep[tagSelectionKey(group.name, item.tag)] = item.kind !== 'legacy_candidate'
+    }
   }
 }
 
@@ -625,6 +627,7 @@ function cleanupKindMeta(kind) {
     managed: { label: '业务', color: 'success' },
     temporary: { label: '临时', color: 'warning' },
     legacy_temporary: { label: '旧临时', color: 'warning' },
+    legacy_candidate: { label: '疑似旧临时', color: 'warning' },
     active_temporary: { label: '使用中', color: 'info' },
     other: { label: '其他', color: 'default' },
   }[kind] || { label: '其他', color: 'default' }

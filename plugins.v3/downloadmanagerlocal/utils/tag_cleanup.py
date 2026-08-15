@@ -30,15 +30,13 @@ def classify_tag(
         return "active_temporary"
     if tag_text.startswith(TEMP_TAG_PREFIX):
         return "temporary"
-    if (
-        LEGACY_TEMP_TAG_PATTERN.fullmatch(tag_text)
-        and len(hash_set) == 1
-        and any(
+    if LEGACY_TEMP_TAG_PATTERN.fullmatch(tag_text) and len(hash_set) == 1:
+        if any(
             (torrent_tags_by_hash.get(torrent_hash, set()) - {tag_text}) & managed_tags
             for torrent_hash in hash_set
-        )
-    ):
-        return "legacy_temporary"
+        ):
+            return "legacy_temporary"
+        return "legacy_candidate"
     if site_prefix and tag_text.startswith(site_prefix):
         return "site"
     if tag_text in managed_tags:
