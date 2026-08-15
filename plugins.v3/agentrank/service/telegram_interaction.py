@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 from app.schemas.types import MessageChannel, NotificationType
 
 from ..adapter.telegram import TelegramTargetAdapter
+from ..adapter.telegram_compat import telegram_message_not_found_guard
 from ..model.board import RecommendationBoard, RecommendationItem
 from ..model.constants import RECOMMENDATION_LIMIT
 from ..model.pending_center import PendingNotice
@@ -588,12 +589,13 @@ class TelegramSelectionService:
         for attempt in range(self.pending_message_retry_attempts):
             for source in sources:
                 try:
-                    result = delete_message(
-                        channel=MessageChannel.Telegram,
-                        source=source,
-                        message_id=session.message_id,
-                        chat_id=session.chat_id or None,
-                    )
+                    with telegram_message_not_found_guard():
+                        result = delete_message(
+                            channel=MessageChannel.Telegram,
+                            source=source,
+                            message_id=session.message_id,
+                            chat_id=session.chat_id or None,
+                        )
                     if result is True:
                         session.source = source
                         return True
@@ -621,15 +623,16 @@ class TelegramSelectionService:
         for attempt in range(self.pending_message_retry_attempts):
             for source in sources:
                 try:
-                    result = edit_message(
-                        channel=MessageChannel.Telegram,
-                        source=source,
-                        message_id=session.message_id,
-                        chat_id=session.chat_id,
-                        title=f"{self._agent_label()} · 已处理",
-                        text=_compact_text(text, 300),
-                        buttons=None,
-                    )
+                    with telegram_message_not_found_guard():
+                        result = edit_message(
+                            channel=MessageChannel.Telegram,
+                            source=source,
+                            message_id=session.message_id,
+                            chat_id=session.chat_id,
+                            title=f"{self._agent_label()} · 已处理",
+                            text=_compact_text(text, 300),
+                            buttons=None,
+                        )
                     if result is True:
                         session.source = source
                         return True
@@ -896,14 +899,15 @@ class TelegramSelectionService:
         if message_id in (None, "") or not callable(delete_message):
             return False
         try:
-            return bool(
-                delete_message(
-                    channel=MessageChannel.Telegram,
-                    source=(event_data or {}).get("source"),
-                    message_id=message_id,
-                    chat_id=(event_data or {}).get("original_chat_id"),
+            with telegram_message_not_found_guard():
+                return bool(
+                    delete_message(
+                        channel=MessageChannel.Telegram,
+                        source=(event_data or {}).get("source"),
+                        message_id=message_id,
+                        chat_id=(event_data or {}).get("original_chat_id"),
+                    )
                 )
-            )
         except Exception:
             logger.exception("AgentRank Telegram 原交互消息删除失败，回退原地编辑")
             return False

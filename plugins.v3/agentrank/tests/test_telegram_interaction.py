@@ -140,6 +140,22 @@ class FakeMessageChain:
         return None
 
 
+def _install_telegram_bot(monkeypatch, bot):
+    """向兼容适配器注入当前测试使用的 Telegram bot。"""
+    telegram_module = SimpleNamespace(
+        get_instances=lambda: {"Telegram": SimpleNamespace(_bot=bot)}
+    )
+    manager = SimpleNamespace(
+        get_running_module=lambda module_id: (
+            telegram_module if module_id == "TelegramModule" else None
+        )
+    )
+    plugins_module = ModuleType("app.sdk.plugins")
+    plugins_module.ModuleManager = lambda: manager
+    monkeypatch.setitem(sys.modules, "app.sdk.plugins", plugins_module)
+    monkeypatch.setattr(sdk_module, "plugins", plugins_module, raising=False)
+
+
 class FakePlugin:
     """记录插件数据与发送消息的测试替身。"""
 
@@ -646,6 +662,82 @@ def test_pending_cross_device_delete_uses_persisted_message_identity():
         "message_id": "903",
         "chat_id": "1001",
     }
+
+
+def test_pending_delete_not_found_is_terminalized_without_edit_fallback(monkeypatch):
+    """旧宿主删除目标已不存在时直接收束，不再重试或回退编辑。"""
+
+    class MissingDeleteBot:
+        """模拟 Telegram 删除目标已不存在。"""
+
+        def delete_message(self, **kwargs):
+            """抛出旧宿主尚未幂等处理的删除错误。"""
+            raise RuntimeError("Bad Request: message to delete not found")
+
+    bot = MissingDeleteBot()
+    _install_telegram_bot(monkeypatch, bot)
+    response = SimpleNamespace(
+        success=True,
+        message_id=903,
+        chat_id="1001",
+        source="Telegram",
+    )
+    plugin, repository, _, service, _ = _service(direct_result=response)
+    notice = _question_notice()
+    assert service.start_pending(username="alice", notice=notice) is True
+    baseline_edit_count = len(plugin.chain.edit_calls)
+
+    def delete_through_host(**kwargs):
+        """记录消息链参数并转发给伪宿主 bot。"""
+        plugin.chain.delete_calls.append(kwargs)
+        return bot.delete_message(**kwargs)
+
+    plugin.chain.delete_message = delete_through_host
+    assert service.resolve_pending_item(notice.item) == 1
+    assert len(plugin.chain.delete_calls) == 1
+    assert len(plugin.chain.edit_calls) == baseline_edit_count
+    session = repository.load_telegram_pending_session("token123")
+    assert session.status == "resolved"
+    assert session.message_id == ""
+
+
+def test_pending_edit_not_found_is_terminalized_without_retry(monkeypatch):
+    """旧宿主编辑目标已不存在时视为终态完成，不重复编辑。"""
+
+    class MissingEditBot:
+        """模拟 Telegram 编辑目标已不存在。"""
+
+        def edit_message_text(self, **kwargs):
+            """抛出旧宿主尚未幂等处理的编辑错误。"""
+            raise RuntimeError("Bad Request: message to edit not found")
+
+    bot = MissingEditBot()
+    _install_telegram_bot(monkeypatch, bot)
+    response = SimpleNamespace(
+        success=True,
+        message_id=904,
+        chat_id="1001",
+        source="Telegram",
+    )
+    plugin, repository, _, service, _ = _service(
+        delete_result=False,
+        direct_result=response,
+    )
+    notice = _question_notice()
+    assert service.start_pending(username="alice", notice=notice) is True
+    baseline_edit_count = len(plugin.chain.edit_calls)
+
+    def edit_through_host(**kwargs):
+        """记录消息链参数并转发给伪宿主 bot。"""
+        plugin.chain.edit_calls.append(kwargs)
+        return bot.edit_message_text(**kwargs)
+
+    plugin.chain.edit_message = edit_through_host
+    assert service.resolve_pending_item(notice.item) == 1
+    assert len(plugin.chain.edit_calls) == baseline_edit_count + 1
+    session = repository.load_telegram_pending_session("token123")
+    assert session.status == "resolved"
+    assert session.message_id == ""
 
 
 def test_pending_cross_device_cleanup_retries_resolved_session():
