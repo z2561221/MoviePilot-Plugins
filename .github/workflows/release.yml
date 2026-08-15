@@ -77,6 +77,15 @@ jobs:
                 continue
               fi
 
+              # Published tags/releases are immutable. A directory may contain
+              # unreleased follow-up work while its package entry still points
+              # to the previous version; never rewrite that historical release.
+              if git show-ref --tags --verify --quiet "refs/tags/$tag" || gh release view "$tag" >/dev/null 2>&1; then
+                echo "Release $tag already exists; keep it unchanged and skip $plugin_id."
+                echo "$tag" >> processed_tags.txt
+                continue
+              fi
+
               # Find previous tag for this plugin (any version)
               prev_tag="$(git tag --list "${plugin_id}_v*" --sort=-version:refname | head -n 1 || true)"
 
@@ -96,16 +105,6 @@ jobs:
               echo "Packing $plugin_id from $plugin_dir -> $asset"
               rm -f "$asset"
               (cd "$(dirname "$plugin_dir")" && zip -r "$GITHUB_WORKSPACE/$asset" "$(basename "$plugin_dir")" -x "*/__pycache__/*" -x "*.pyc") >/dev/null
-
-              # If same tag exists, delete release and both remote/local tag first
-              if gh release view "$tag" >/dev/null 2>&1; then
-                echo "Release $tag exists, deleting..."
-                gh release delete "$tag" -y
-                git push origin :refs/tags/"$tag" || true
-              fi
-
-              # Ensure no stale local tag remains
-              git tag -d "$tag" >/dev/null 2>&1 || true
 
               release_notes="$(jq -r --arg plugin_id "$plugin_id" --arg version_key "v${plugin_version}" '
                 .[$plugin_id].history[$version_key] // .[$plugin_id].history[$version_key[1:]] // ""

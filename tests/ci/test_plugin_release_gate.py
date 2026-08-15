@@ -209,3 +209,13 @@ def test_workflows_and_runner_include_v3_gate() -> None:
     assert checker_command in release_workflow
     assert "package.v3.json" in release_workflow
     assert 'for generation in ("ci", "v3", "v2", "v1"):' in runner
+
+
+def test_release_workflow_keeps_existing_releases_immutable() -> None:
+    """同版目录有后续改动时也不得删除并重建历史 Release。"""
+    release_workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'git show-ref --tags --verify --quiet "refs/tags/$tag"' in release_workflow
+    assert 'gh release view "$tag"' in release_workflow
+    assert 'gh release delete "$tag"' not in release_workflow
+    assert 'git push origin :refs/tags/"$tag"' not in release_workflow
