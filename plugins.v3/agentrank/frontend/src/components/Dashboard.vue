@@ -1,0 +1,204 @@
+<script setup>
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useAgentRankState } from './useAgentRankState'
+import RecommendationActions from './RecommendationActions.vue'
+
+const props = defineProps({
+  api: { type: [Object, Function], default: null },
+  config: { type: Object, default: () => ({}) },
+  allowRefresh: { type: Boolean, default: true },
+  nativeSubscribe: { type: Function, default: null },
+})
+const state = useAgentRankState(props.api)
+const snackbar = ref({ show: false, message: '', color: 'success' })
+let runProgressTimer = null
+
+const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5))
+const fullBoardHref = computed(() => {
+  const pluginId = String(props.config?.id || 'AgentRank').trim() || 'AgentRank'
+  return `#/plugin-app/${encodeURIComponent(pluginId)}/main`
+})
+const status = computed(() => state.isRunning.value ? 'running' : (state.board.value?.status || 'idle'))
+const generatedAt = computed(() => state.board.value?.generated_at || '')
+const statusMeta = computed(() => ({
+  idle: { text: '待生成', color: 'default' },
+  running: { text: '运行中', color: 'primary' },
+  success: { text: '已完成', color: 'success' },
+  sample_insufficient: { text: '样本不足', color: 'warning' },
+  candidate_insufficient: { text: '候选不足', color: 'warning' },
+  recommendation_incomplete: { text: '榜单不足', color: 'warning' },
+  recommendation_degraded: { text: '降级榜单', color: 'warning' },
+  agent_failed: { text: 'Agent失败', color: 'error' },
+  validation_failed: { text: '校验失败', color: 'error' },
+  profile_agent_failed: { text: '画像生成失败', color: 'error' },
+  profile_validation_failed: { text: '画像校验失败', color: 'error' },
+  candidate_failed: { text: '候选采集失败', color: 'error' },
+  candidate_filter_failed: { text: '候选过滤失败', color: 'error' },
+  candidate_snapshot_failed: { text: '候选快照失败', color: 'error' },
+  ranking_agent_failed: { text: '排序生成失败', color: 'error' },
+  ranking_validation_failed: { text: '排序校验失败', color: 'error' },
+  ranking_save_failed: { text: '榜单保存失败', color: 'error' },
+  runtime_exception: { text: '运行异常', color: 'error' },
+  subscription_partial_failed: { text: '部分订阅失败', color: 'warning' },
+}[status.value] || { text: '运行异常', color: 'error' }))
+
+function formatTime(value) {
+  if (!value) return '尚未生成'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString()
+}
+
+async function initialize() {
+  try {
+    await state.loadOptions()
+    if (props.config?.default_profile_id && state.identities.value.some(identity => identity.profile_id === props.config.default_profile_id)) {
+      state.selectedProfileId.value = props.config.default_profile_id
+    }
+    if (state.selectedProfileId.value) {
+      await Promise.all([state.loadProfileData(), state.loadRunProgress()])
+      scheduleRunProgressPoll(1000, true)
+    }
+  } catch (_) { /* 卡片内显示共享错误 */ }
+}
+
+async function refreshBoard() {
+  try {
+    await state.refresh()
+    scheduleRunProgressPoll(250)
+  } catch (_) { /* 卡片内显示共享错误 */ }
+}
+
+function fitScoreText(item) {
+  const rawScore = item?.fit_score
+  if (rawScore === null || rawScore === undefined || rawScore === '') return '—'
+  const score = Number(rawScore)
+  return Number.isFinite(score) && score >= 0 && score <= 100 ? `${Math.round(score)}分` : '—'
+}
+
+function stopRunProgressPoll() {
+  if (runProgressTimer) window.clearTimeout(runProgressTimer)
+  runProgressTimer = null
+}
+
+function scheduleRunProgressPoll(delay = 1000, force = false) {
+  stopRunProgressPoll()
+  if (!state.selectedProfileId.value || (!force && !state.runProgress.value?.active)) return
+  runProgressTimer = window.setTimeout(pollRunProgress, delay)
+}
+
+async function pollRunProgress() {
+  stopRunProgressPoll()
+  const profileId = state.selectedProfileId.value
+  const wasActive = Boolean(state.runProgress.value?.active)
+  try {
+    const progress = await state.loadRunProgress(profileId)
+    if (wasActive && !progress?.active && state.selectedProfileId.value === profileId) {
+      await state.loadProfileData(profileId, { force: true })
+    }
+  } catch (_) {
+    scheduleRunProgressPoll(2000, true)
+    return
+  }
+  scheduleRunProgressPoll()
+}
+
+async function runItemAction(action, successMessage) {
+  try {
+    const result = await action()
+    snackbar.value = { show: true, message: result?.message || successMessage, color: 'success' }
+  } catch (error) {
+    snackbar.value = { show: true, message: error?.message || '操作失败', color: 'error' }
+  }
+}
+
+function openFullBoard() {
+  window.location.hash = fullBoardHref.value.slice(1)
+}
+
+onMounted(initialize)
+onBeforeUnmount(stopRunProgressPoll)
+</script>
+
+<template>
+  <VCard variant="flat" class="ar-dashboard">
+    <VCardItem>
+      <template #prepend><VAvatar color="primary" variant="tonal" size="38"><VIcon icon="mdi-brain" /></VAvatar></template>
+      <VCardTitle class="text-subtitle-1 font-weight-bold">Agent榜单中心 · 精选前5名</VCardTitle>
+      <VCardSubtitle>{{ formatTime(generatedAt) }} · {{ statusMeta.text }}</VCardSubtitle>
+      <template #append>
+        <VBtn icon="mdi-refresh" variant="text" size="small" :disabled="!allowRefresh || state.isRunning.value" :loading="state.loading.action === 'refresh' || state.loading.data" aria-label="刷新仪表板" @click="refreshBoard" />
+      </template>
+    </VCardItem>
+    <VDivider />
+    <VCardText class="ar-dashboard__content">
+      <VSkeletonLoader v-if="state.loading.data" type="list-item-three-line@3" />
+      <VAlert v-else-if="state.error.value" type="error" variant="tonal">{{ state.error.value.message }}</VAlert>
+      <VEmptyState v-else-if="!topItems.length" icon="mdi-format-list-numbered" title="推荐榜单尚未生成" text="打开完整榜单或点击刷新开始生成。" />
+      <div v-else class="ar-dashboard__list">
+          <div v-for="item in topItems" :key="item.candidate_id" class="ar-dashboard__item">
+          <div class="ar-dashboard__rank">{{ item.rank }}</div>
+          <div class="ar-dashboard__poster">
+            <VImg v-if="item.poster_path" :src="item.poster_path" :alt="`${item.title} 海报`" cover>
+              <template #error><div class="ar-dashboard__poster-error"><VIcon icon="mdi-image-off-outline" size="18" /></div></template>
+            </VImg>
+            <VIcon v-else icon="mdi-image-off-outline" size="18" />
+          </div>
+          <div class="ar-dashboard__main">
+            <div class="font-weight-medium text-truncate">{{ item.title }}</div>
+            <div class="d-flex flex-wrap ga-1 mt-1">
+              <VChip v-if="item.in_library" size="x-small" variant="tonal" color="info">已入库</VChip>
+              <VChip v-if="item.subscribed" size="x-small" variant="tonal" color="warning">已订阅</VChip>
+              <VChip v-if="item.watch_status === 'partial'" size="x-small" variant="tonal" color="secondary">部分观看</VChip>
+            </div>
+            <div class="ar-dashboard__copy text-caption">推荐：{{ item.reason || item.summary }}</div>
+            <div class="ar-dashboard__copy text-caption text-medium-emphasis">简介：{{ item.summary }}</div>
+          </div>
+          <div class="ar-dashboard__controls">
+            <VChip size="x-small" color="primary" variant="tonal" class="ar-dashboard__fit-score">{{ fitScoreText(item) }}</VChip>
+            <RecommendationActions
+              :item="item"
+              :loading-action="state.loading.action"
+              :native-subscribe="nativeSubscribe"
+              @like="candidateId => runItemAction(() => state.reactToRecommendation('like', candidateId), '已记录点赞')"
+              @dislike="candidateId => runItemAction(() => state.reactToRecommendation('dislike', candidateId), '已记录点踩')"
+              @subscribe="candidateId => runItemAction(() => state.subscribe(candidateId), '订阅操作已完成')"
+              @native-subscribe-opened="candidateId => runItemAction(() => state.recordNativeDrawerOpened(candidateId), '已打开订阅设置')"
+              @archive="candidateId => runItemAction(() => state.archive(candidateId), '已忽略推荐')"
+            />
+          </div>
+        </div>
+      </div>
+    </VCardText>
+    <VDivider />
+    <VCardActions>
+      <VChip size="small" variant="tonal" :color="statusMeta.color">{{ statusMeta.text }}</VChip>
+      <VSpacer />
+      <VBtn variant="text" color="primary" prepend-icon="mdi-open-in-new" @click="openFullBoard">完整榜单</VBtn>
+    </VCardActions>
+    <VSnackbar v-model="snackbar.show" :color="snackbar.color" timeout="4000">{{ snackbar.message }}</VSnackbar>
+  </VCard>
+</template>
+
+<style scoped>
+.ar-dashboard { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; overflow: hidden; }
+.ar-dashboard :deep(.v-btn--icon) { min-width: 40px; min-height: 40px; }
+.ar-dashboard__content { min-height: 260px; }
+.ar-dashboard__list { display: flex; flex-direction: column; gap: 7px; }
+.ar-dashboard__item { min-height: 92px; display: grid; grid-template-columns: 28px 44px minmax(0, 1fr) minmax(0, max-content); grid-template-rows: auto auto; gap: 7px 9px; align-items: center; padding: 7px 8px; border: 1px solid rgba(var(--v-border-color), calc(var(--v-border-opacity) * .75)); border-radius: 8px; }
+.ar-dashboard__rank { grid-row: 1 / span 2; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .12); font-size: 12px; font-weight: 700; }
+.ar-dashboard__poster { grid-row: 1 / span 2; width: 44px; height: 64px; display: grid; place-items: center; overflow: hidden; border-radius: 4px; color: rgba(var(--v-theme-on-surface), .4); background: rgba(var(--v-theme-on-surface), .05); }
+.ar-dashboard__poster :deep(.v-img) { width: 100%; height: 100%; }
+.ar-dashboard__poster-error { width: 100%; height: 100%; display: grid; place-items: center; }
+.ar-dashboard__main { min-width: 0; }
+.ar-dashboard__copy { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
+.ar-dashboard__controls { grid-column: 4; grid-row: 1 / span 2; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
+.ar-dashboard__fit-score { flex: 0 0 auto; margin-left: auto; }
+.ar-dashboard__controls :deep(.ar-actions) { max-width: 100%; }
+@media (max-width: 760px) {
+  .ar-dashboard__item { grid-template-columns: 28px 44px minmax(0, 1fr); }
+  .ar-dashboard__rank, .ar-dashboard__poster { grid-row: 1; }
+  .ar-dashboard__controls { grid-column: 1 / -1; grid-row: 2; justify-content: flex-end; }
+  .ar-dashboard__controls :deep(.ar-actions) { order: 1; }
+  .ar-dashboard__fit-score { order: 2; margin-left: auto; }
+}
+</style>

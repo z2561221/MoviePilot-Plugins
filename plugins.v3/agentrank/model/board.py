@@ -1,0 +1,215 @@
+"""推荐榜单领域对象。"""
+
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Mapping, Optional
+
+from .candidate import infer_media_identity
+from .support import SupportScore
+
+
+SELECTION_SOURCES = frozenset({"legacy", "agent", "safe_fallback", "returning"})
+
+
+@dataclass
+class RecommendationItem:
+    """表示榜单中的一条安全推荐。"""
+
+    candidate_id: str
+    rank: int
+    summary: str = ""
+    reason: str = ""
+    confidence: float = 0.0
+    fit_score: Optional[int] = None
+    support: Optional[SupportScore] = None
+    selection_source: str = "legacy"
+    analysis_id: str = ""
+    title: str = ""
+    media_type: str = "unknown"
+    year: Optional[int] = None
+    media_source: str = ""
+    media_id: str = ""
+    source_ids: Dict[str, str] = field(default_factory=dict)
+    sources: List[str] = field(default_factory=list)
+    poster_path: str = ""
+    backdrop_path: str = ""
+    match_tags: List[str] = field(default_factory=list)
+    original_title: str = ""
+    in_library: bool = False
+    subscribed: bool = False
+    watch_status: str = "unwatched"
+
+    def __post_init__(self) -> None:
+        """规范并校验推荐条目的选择来源与 Agent 契合度。"""
+        self.selection_source = str(self.selection_source or "legacy").strip()
+        self.analysis_id = str(self.analysis_id or "").strip()[:128]
+        self.media_source, self.media_id = infer_media_identity(
+            {
+                "candidate_id": self.candidate_id,
+                "media_source": self.media_source,
+                "media_id": self.media_id,
+                "source_ids": self.source_ids,
+            }
+        )
+        if self.selection_source not in SELECTION_SOURCES:
+            raise ValueError("recommendation selection_source is invalid")
+        if self.fit_score is not None:
+            if isinstance(self.fit_score, bool):
+                raise ValueError("recommendation fit_score is invalid")
+            try:
+                self.fit_score = int(self.fit_score)
+            except (TypeError, ValueError) as error:
+                raise ValueError("recommendation fit_score is invalid") from error
+            if not 0 <= self.fit_score <= 100:
+                raise ValueError("recommendation fit_score is out of range")
+
+    @property
+    def support_percentage(self) -> Optional[int]:
+        """返回新策略生成的确定性支持度；旧置信度不作为回退。"""
+        return self.support.percentage if self.support is not None else None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """返回可经宿主 JSON 存储无损往返的推荐字典。"""
+        value = asdict(self)
+        value["support"] = self.support.to_dict() if self.support is not None else None
+        return value
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "RecommendationItem":
+        """从持久化字典恢复推荐条目。"""
+        if not isinstance(value, Mapping):
+            raise ValueError("recommendation item must be a mapping")
+        candidate_id = str(value.get("candidate_id") or "").strip()
+        if not candidate_id:
+            raise ValueError("recommendation candidate_id is required")
+        raw_source_ids = dict(value.get("source_ids") or {})
+        source_aliases = {
+            "tmdb": ("tmdb", "tmdb_id", "tmdbid", "themoviedb", "themoviedb_id"),
+            "douban": ("douban", "douban_id", "doubanid"),
+            "bangumi": ("bangumi", "bangumi_id", "bangumiid", "bgm", "bgm_id"),
+            "anilist": ("anilist", "anilist_id", "anilistid"),
+        }
+        for canonical, aliases in source_aliases.items():
+            if raw_source_ids.get(canonical) not in (None, ""):
+                continue
+            for alias in aliases:
+                value_for_alias = value.get(alias)
+                if value_for_alias in (None, ""):
+                    value_for_alias = raw_source_ids.get(alias)
+                if value_for_alias not in (None, ""):
+                    raw_source_ids[canonical] = str(value_for_alias)
+                    break
+        return cls(
+            candidate_id=candidate_id,
+            rank=max(1, int(value.get("rank") or 1)),
+            summary=str(value.get("summary") or ""),
+            reason=str(value.get("reason") or ""),
+            confidence=float(value.get("confidence") or 0.0),
+            fit_score=(
+                int(value.get("fit_score"))
+                if value.get("fit_score") not in (None, "")
+                else None
+            ),
+            support=(
+                SupportScore.from_dict(value.get("support"))
+                if isinstance(value.get("support"), Mapping)
+                else None
+            ),
+            selection_source=str(value.get("selection_source") or "legacy"),
+            analysis_id=str(value.get("analysis_id") or ""),
+            title=str(value.get("title") or ""),
+            original_title=str(value.get("original_title") or value.get("original_name") or ""),
+            media_type=str(value.get("media_type") or "unknown"),
+            year=(
+                int(value.get("year"))
+                if value.get("year") not in (None, "")
+                else None
+            ),
+            media_source=str(value.get("media_source") or ""),
+            media_id=str(value.get("media_id") or ""),
+            source_ids=raw_source_ids,
+            sources=[str(item) for item in value.get("sources") or []],
+            poster_path=str(value.get("poster_path") or ""),
+            backdrop_path=str(value.get("backdrop_path") or ""),
+            match_tags=[str(item) for item in value.get("match_tags") or []],
+            in_library=bool(value.get("in_library", False)),
+            subscribed=bool(value.get("subscribed", False)),
+            watch_status=str(value.get("watch_status") or "unwatched"),
+        )
+
+
+@dataclass
+class RecommendationBoard:
+    """表示某个稳定 Emby 画像身份当前可见的推荐榜单。"""
+
+    profile_id: str
+    run_id: str
+    username: str = ""
+    status: str = "idle"
+    recommendations: List[RecommendationItem] = field(default_factory=list)
+    generated_at: str = ""
+    message: str = ""
+    previous_run_id: Optional[str] = None
+    revision: int = 1
+    schema_version: int = 3
+
+    def __post_init__(self) -> None:
+        """规范化榜单归属并拒绝空 profile_id。"""
+        self.profile_id = str(self.profile_id or "").strip()
+        self.username = str(self.username or "").strip()
+        self.revision = max(1, int(self.revision or 1))
+        if not self.profile_id:
+            raise ValueError("board profile_id is required")
+
+    @property
+    def board_revision(self) -> int:
+        """返回面向曝光与交互 API 的榜单版本别名。"""
+        return self.revision
+
+    @board_revision.setter
+    def board_revision(self, value: Any) -> None:
+        """兼容 API 调用方以 board_revision 更新当前版本。"""
+        self.revision = max(1, int(value or 1))
+
+    def to_dict(self) -> Dict[str, Any]:
+        """返回可持久化字典。"""
+        return {
+            "profile_id": self.profile_id,
+            "run_id": self.run_id,
+            "username": self.username,
+            "status": self.status,
+            "recommendations": [item.to_dict() for item in self.recommendations],
+            "generated_at": self.generated_at,
+            "message": self.message,
+            "previous_run_id": self.previous_run_id,
+            "revision": self.revision,
+            "board_revision": self.revision,
+            "schema_version": self.schema_version,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "RecommendationBoard":
+        """从持久化字典恢复榜单。"""
+        if not isinstance(value, Mapping):
+            raise ValueError("board must be a mapping")
+        profile_id = str(value.get("profile_id") or "").strip()
+        if not profile_id:
+            raise ValueError("board profile_id is required")
+        return cls(
+            profile_id=profile_id,
+            run_id=str(value.get("run_id") or ""),
+            username=str(value.get("username") or "").strip(),
+            status=str(value.get("status") or "idle"),
+            recommendations=[
+                RecommendationItem.from_dict(item)
+                for item in value.get("recommendations") or []
+            ],
+            generated_at=str(value.get("generated_at") or ""),
+            message=str(value.get("message") or ""),
+            previous_run_id=(
+                str(value.get("previous_run_id"))
+                if value.get("previous_run_id") is not None
+                else None
+            ),
+            revision=max(1, int(value.get("revision") or value.get("board_revision") or 1)),
+            schema_version=int(value.get("schema_version") or 2),
+        )
