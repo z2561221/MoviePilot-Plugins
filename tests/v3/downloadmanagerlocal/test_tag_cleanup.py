@@ -38,6 +38,20 @@ def test_managed_anchor_recognizes_single_task_legacy_temporary_tag():
     ) == "legacy_temporary"
 
 
+def test_managed_ten_character_tag_is_never_treated_as_temporary():
+    """宿主业务标签即使十位长也不得进入旧临时标签候选。"""
+    cleanup = _load_tag_cleanup()
+    torrent_tags = {"qb-hash": {"MoviePilot", "SUURFaG0p7"}}
+
+    assert cleanup.classify_tag(
+        "MoviePilot",
+        ["qb-hash"],
+        torrent_tags,
+        {"MoviePilot"},
+        set(),
+    ) == "managed"
+
+
 def test_shared_legacy_tag_is_not_treated_as_cleanup_candidate():
     """被多个任务共用的十位标签不得按旧临时标签自动清理。"""
     cleanup = _load_tag_cleanup()

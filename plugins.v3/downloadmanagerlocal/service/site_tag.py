@@ -2,6 +2,7 @@
 
 from typing import Dict, Iterable, List, Optional
 
+from app.sdk.config import settings
 from app.sdk.logging import logger
 
 from ..adapter.moviepilot import generate_random_tag, get_site_indexer, get_url_domain, list_site_dicts
@@ -59,6 +60,7 @@ def _managed_tag_anchors(plugin) -> set:
     managed = normalize_tags(getattr(plugin, "_torrent_tags", []) or [])
     iyuu_tags = str(getattr(plugin, "_iyuu_labelsafterseed", "") or "").split(",")
     managed.update(normalize_tags(iyuu_tags))
+    managed.update(normalize_tags(getattr(settings, "TORRENT_TAG", "") or ""))
     return managed
 
 
