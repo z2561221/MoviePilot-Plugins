@@ -1,4 +1,4 @@
-﻿"""
+"""
 DoubanCenter v3.0.0 - MoviePilot V3 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """

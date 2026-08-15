@@ -1,4 +1,4 @@
-﻿"""
+"""
 DoubanCenter - 榜单订阅引擎
 """
 import datetime

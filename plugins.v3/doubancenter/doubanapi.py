@@ -12,6 +12,7 @@ from xml.etree import ElementTree
 import requests
 from bs4 import BeautifulSoup
 from http.cookies import SimpleCookie
+# MoviePilot V3 e28de9cf 的 SDK 尚未导出 CookieCloudHelper。
 from app.adapters.external.cookiecloud import CookieCloudHelper
 from app.sdk.config import settings
 from app.sdk.logging import logger
