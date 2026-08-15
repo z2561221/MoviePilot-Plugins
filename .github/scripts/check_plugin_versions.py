@@ -142,17 +142,34 @@ def _check_v3_release_contract(
         if not isinstance(exception, dict):
             errors.append(f"{path}: {plugin_id} 的 V3 版本例外必须是对象")
         else:
-            required_keys = {"legacy_version", "v3_version", "reason"}
-            if set(exception) != required_keys or not str(exception.get("reason") or "").strip():
+            mode = str(exception.get("mode") or "").strip()
+            required_keys = (
+                {"mode", "legacy_version", "v3_version", "reason"}
+                if mode == "migration"
+                else {"mode", "v3_version", "reason"}
+            )
+            if (
+                mode not in {"migration", "v3_only"}
+                or set(exception) != required_keys
+                or not str(exception.get("reason") or "").strip()
+            ):
                 errors.append(
                     f"{path}: {plugin_id} 的 V3 版本例外必须精确包含 "
-                    "legacy_version/v3_version/reason"
+                    "对应 mode 所需字段"
                 )
-            if legacy_meta and str(exception.get("legacy_version") or "") != str(legacy_meta.get("version") or ""):
-                errors.append(
-                    f"{path}: {plugin_id} 版本例外来源与旧代版本不一致："
-                    f"exception={exception.get('legacy_version')}, legacy={legacy_meta.get('version')}"
-                )
+            if mode == "migration":
+                if not isinstance(legacy_meta, dict):
+                    errors.append(f"{path}: {plugin_id} 迁移例外缺少旧代条目")
+                else:
+                    if str(exception.get("legacy_version") or "") != str(legacy_meta.get("version") or ""):
+                        errors.append(
+                            f"{path}: {plugin_id} 版本例外来源与旧代版本不一致："
+                            f"exception={exception.get('legacy_version')}, legacy={legacy_meta.get('version')}"
+                        )
+                    if legacy_meta.get("v3") is not False:
+                        errors.append(f"{path}: {plugin_id} 旧索引必须声明 v3=false")
+            elif mode == "v3_only" and isinstance(legacy_meta, dict):
+                errors.append(f"{path}: {plugin_id} 已声明 V3-only，不得保留旧代条目")
             if package_version != str(exception.get("v3_version") or ""):
                 errors.append(
                     f"{path}: {plugin_id} 版本例外目标与 package 版本不一致："
@@ -165,6 +182,10 @@ def _check_v3_release_contract(
                 f"{path}: {plugin_id} V3 版本应从旧代 {legacy_meta.get('version')} 跃迁至 {expected}，"
                 f"当前为 {package_version}"
             )
+        if isinstance(legacy_meta, dict) and legacy_meta.get("v3") is not False:
+            errors.append(f"{path}: {plugin_id} 旧索引必须声明 v3=false")
+    elif parsed_version:
+        errors.append(f"{path}: {plugin_id} 缺少旧代条目或 V3-only 分类")
     return errors
 
 
@@ -173,10 +194,6 @@ def check_package(path: Path) -> list[str]:
     errors: list[str] = []
     package = _load_package(path)
     exceptions = _load_v3_exceptions(path.parent) if path.name == "package.v3.json" else {}
-    if path.name == "package.v3.json":
-        for exception_id in exceptions:
-            if exception_id not in package:
-                errors.append(f"{path}: 版本例外 {exception_id} 不存在对应 V3 条目")
     for plugin_id, meta in package.items():
         if not isinstance(meta, dict):
             continue
@@ -203,13 +220,6 @@ def check_package(path: Path) -> list[str]:
             )
         if path.name == "package.v3.json":
             errors.extend(_check_v3_release_contract(path, plugin_id, meta, exceptions))
-            legacy_meta = None
-            for legacy_name in ("package.v2.json", "package.json"):
-                legacy_meta = _load_package(path.parent / legacy_name).get(plugin_id)
-                if isinstance(legacy_meta, dict):
-                    break
-            if not isinstance(legacy_meta, dict) or legacy_meta.get("v3") is not False:
-                errors.append(f"{path}: {plugin_id} 旧索引必须声明 v3=false")
     return errors
 
 

@@ -1,7 +1,25 @@
 {
   "DownloadManagerLocal": {
+    "mode": "migration",
     "legacy_version": "3.2.9",
     "v3_version": "3.3.0",
-    "reason": "user-approved same-major V3 migration"
+    "reason": "user-approved MoviePilot V3 version line"
+  },
+  "DoubanCenter": {
+    "mode": "migration",
+    "legacy_version": "1.2.20",
+    "v3_version": "3.0.0",
+    "reason": "user-approved MoviePilot V3 version line"
+  },
+  "AgentRank": {
+    "mode": "migration",
+    "legacy_version": "1.0.1",
+    "v3_version": "3.0.0",
+    "reason": "user-approved MoviePilot V3 version line"
+  },
+  "BackupCenter": {
+    "mode": "v3_only",
+    "v3_version": "3.0.0",
+    "reason": "new V3-only plugin on the approved 3.x version line"
   }
 }

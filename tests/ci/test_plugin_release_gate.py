@@ -1,4 +1,4 @@
-"""验证下载中心 V3 版本例外和仓库发布门禁。"""
+"""验证仓库 V3 版本白名单和发布门禁。"""
 
 from __future__ import annotations
 
@@ -24,6 +24,8 @@ def _write_v3_fixture(
     exception_id: str | None = "DownloadManagerLocal",
     exception_legacy: str = "3.2.9",
     exception_v3: str = "3.3.0",
+    exception_mode: str = "migration",
+    include_legacy: bool = True,
 ) -> None:
     """构造一个最小 V3 仓库，隔离验证精确版本例外。"""
     plugin_dir = repo / "plugins.v3" / plugin_id.lower()
@@ -33,9 +35,13 @@ def _write_v3_fixture(
         encoding="utf-8",
     )
     (repo / "package.json").write_text("{}\n", encoding="utf-8")
+    legacy_package = (
+        {plugin_id: {"version": legacy_version, "v3": False}}
+        if include_legacy
+        else {}
+    )
     (repo / "package.v2.json").write_text(
-        json.dumps({plugin_id: {"version": legacy_version, "v3": False}}),
-        encoding="utf-8",
+        json.dumps(legacy_package), encoding="utf-8"
     )
     (repo / "package.v3.json").write_text(
         json.dumps(
@@ -52,17 +58,15 @@ def _write_v3_fixture(
     if exception_id:
         exceptions_path = repo / ".github/v3-version-exceptions.json"
         exceptions_path.parent.mkdir(parents=True)
+        policy = {
+            "mode": exception_mode,
+            "v3_version": exception_v3,
+            "reason": "user-approved MoviePilot V3 version line",
+        }
+        if exception_mode == "migration":
+            policy["legacy_version"] = exception_legacy
         exceptions_path.write_text(
-            json.dumps(
-                {
-                    exception_id: {
-                        "legacy_version": exception_legacy,
-                        "v3_version": exception_v3,
-                        "reason": "user-approved same-major V3 migration",
-                    }
-                }
-            ),
-            encoding="utf-8",
+            json.dumps({exception_id: policy}), encoding="utf-8"
         )
 
 
@@ -102,19 +106,52 @@ def test_checker_rejects_exception_target_mismatch(tmp_path: Path) -> None:
     assert "例外目标与 package 版本不一致" in result.stdout
 
 
-def test_checker_rejects_exception_for_other_plugin(tmp_path: Path) -> None:
-    """下载中心例外不能被其他插件借用。"""
+def test_checker_requires_migration_source(tmp_path: Path) -> None:
+    """迁移类白名单必须精确绑定真实旧代条目。"""
     _write_v3_fixture(
         tmp_path,
-        plugin_id="OtherPlugin",
-        exception_id="DownloadManagerLocal",
+        include_legacy=False,
     )
 
     result = _run_checker(tmp_path)
 
     assert result.returncode == 1
-    assert "不存在对应 V3 条目" in result.stdout
-    assert "V3 版本应从旧代 3.2.9 跃迁至 4.0.0" in result.stdout
+    assert "迁移例外缺少旧代条目" in result.stdout
+
+
+def test_checker_accepts_explicit_v3_only_plugin(tmp_path: Path) -> None:
+    """全新 V3-only 插件无需伪造旧代条目。"""
+    _write_v3_fixture(
+        tmp_path,
+        plugin_id="BackupCenter",
+        v3_version="3.0.0",
+        exception_id="BackupCenter",
+        exception_v3="3.0.0",
+        exception_mode="v3_only",
+        include_legacy=False,
+    )
+
+    result = _run_checker(tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_checker_rejects_legacy_entry_for_v3_only_plugin(tmp_path: Path) -> None:
+    """V3-only 分类必须反向阻止旧代条目残留。"""
+    _write_v3_fixture(
+        tmp_path,
+        plugin_id="BackupCenter",
+        legacy_version="0.0.1",
+        v3_version="3.0.0",
+        exception_id="BackupCenter",
+        exception_v3="3.0.0",
+        exception_mode="v3_only",
+    )
+
+    result = _run_checker(tmp_path)
+
+    assert result.returncode == 1
+    assert "已声明 V3-only，不得保留旧代条目" in result.stdout
 
 
 def test_checker_keeps_default_next_major_rule(tmp_path: Path) -> None:
@@ -138,6 +175,24 @@ def test_current_repository_passes_version_gate() -> None:
     result = _run_checker(REPO_ROOT)
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_current_repository_has_only_approved_v3_version_policies() -> None:
+    """第三方 3.x 版号例外必须严格限于用户批准的四个插件。"""
+    policies = json.loads(
+        (REPO_ROOT / ".github/v3-version-exceptions.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert set(policies) == {
+        "DownloadManagerLocal",
+        "DoubanCenter",
+        "AgentRank",
+        "BackupCenter",
+    }
+    assert policies["BackupCenter"]["mode"] == "v3_only"
+    assert all(policy["v3_version"].startswith("3.") for policy in policies.values())
 
 
 def test_workflows_and_runner_include_v3_gate() -> None:
