@@ -12,13 +12,18 @@ from app.sdk.logging import logger
 from app.sdk.media import MetaInfo
 from app.sdk.network import RequestUtils
 from app.sdk.utilities import DomUtils
-from app.schemas.types import MediaType
+from app.schemas.types import MediaSource, MediaType
 
 from . import utils
 from .adapter import bangumi as bangumi_adapter
 from .adapter import rss as rss_adapter
 from .model import rank as rank_model
-from .model.identity import identity_payload, recognize_media as recognize_with_identity
+from .model.identity import (
+    convert_identity,
+    identity_payload,
+    legacy_identity,
+    recognize_media as recognize_with_identity,
+)
 from .service import observation as observation_service
 from .service import rank_refresh as rank_refresh_service
 from .service import rank_subscription as rank_subscription_service
@@ -316,8 +321,43 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
     inferred_type = "tv" if rank_key == "coming" else _rank_media_type(rd, item)
     media_type = MediaType.MOVIE if inferred_type == "movie" else MediaType.TV
     meta.type = media_type
+    source, source_id = legacy_identity(
+        media_source=item.get("media_source") or entry.get("media_source"),
+        media_id=item.get("media_id") or entry.get("media_id"),
+        tmdb_id=item.get("tmdb_id") or item.get("tmdbid") or entry.get("tmdbid"),
+        douban_id=item.get("douban_id") or item.get("doubanid") or entry.get("douban_id"),
+        bangumi_id=item.get("bangumi_id") or item.get("bangumiid") or entry.get("bangumi_id"),
+    )
+    recognized_source = source
+    recognized_id = source_id
+    mediainfo = None
+    if source == MediaSource.Douban and source_id:
+        entry["douban_id"] = source_id
+        try:
+            recognized_source, recognized_id = convert_identity(
+                self.chain,
+                target_source=MediaSource.TMDB,
+                media_source=source,
+                media_id=source_id,
+                mtype=media_type,
+                season=getattr(meta, "begin_season", None),
+            )
+        except Exception as err:
+            logger.warning(f"豆瓣中心：榜单条目《{title}》豆瓣 ID {source_id} 转换 TMDB 失败：{err}")
+            return None
+        if not recognized_source or not recognized_id:
+            logger.info(f"豆瓣中心：榜单条目《{title}》豆瓣 ID {source_id} 暂无 TMDB 映射，保留豆瓣身份")
+            return None
     try:
-        if inferred_type == "unknown":
+        if recognized_source and recognized_id:
+            mediainfo = recognize_with_identity(
+                self.chain,
+                meta=meta,
+                mtype=media_type,
+                media_source=recognized_source,
+                media_id=recognized_id,
+            )
+        elif inferred_type == "unknown":
             try:
                 mediainfo = self.chain.recognize_media(meta=meta)
             except TypeError:
@@ -328,6 +368,8 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
         logger.warning(f"豆瓣中心：刷新榜单条目《{title}》识别失败：{err}")
         return None
     if not mediainfo:
+        if recognized_source == MediaSource.TMDB and recognized_id:
+            logger.warning(f"豆瓣中心：榜单条目《{title}》已转换 TMDB ID {recognized_id}，但详情识别无结果")
         return None
     cn_title = getattr(mediainfo, "title", None) or title
     if cn_title and cn_title != title:
@@ -336,11 +378,21 @@ def _apply_display_recognition(self, item: dict, entry: dict, rank_key: str, rd:
     entry["year"] = getattr(mediainfo, "year", None) or entry.get("year") or ""
     resolved_type = _resolved_media_type_name(rd, item, mediainfo)
     entry["media_type"] = "movie" if resolved_type == "movie" else ("tv" if resolved_type == "tv" else "unknown")
-    entry["tmdbid"] = getattr(mediainfo, "tmdb_id", None) or entry.get("tmdbid")
+    entry["tmdbid"] = (
+        getattr(mediainfo, "tmdb_id", None)
+        or (recognized_id if recognized_source == MediaSource.TMDB else None)
+        or entry.get("tmdbid")
+    )
     if getattr(mediainfo, "bangumi_id", None):
         entry["bangumi_id"] = getattr(mediainfo, "bangumi_id", None)
         entry["bangumiid"] = entry["bangumi_id"]
-    entry.update(identity_payload(mediainfo, tmdb_id=entry.get("tmdbid"), bangumi_id=entry.get("bangumiid")))
+    entry.update(identity_payload(
+        mediainfo,
+        media_source=recognized_source,
+        media_id=recognized_id,
+        tmdb_id=entry.get("tmdbid"),
+        bangumi_id=entry.get("bangumiid"),
+    ))
     try:
         entry["poster"] = mediainfo.get_poster_image() or entry.get("poster")
     except Exception:

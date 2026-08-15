@@ -15,6 +15,18 @@ LEGACY_ID_FIELDS = {
     MediaSource.Bangumi: ("bangumi_id", "bangumiid"),
 }
 
+CONVERSION_ID_FIELDS = {
+    MediaSource.TMDB: ("tmdb_id", "tmdbid", "id"),
+    MediaSource.Douban: ("douban_id", "doubanid", "id"),
+    MediaSource.Bangumi: ("bangumi_id", "bangumiid", "id"),
+}
+
+CONVERSION_INFO_FIELDS = {
+    MediaSource.TMDB: "tmdb_info",
+    MediaSource.Douban: "douban_info",
+    MediaSource.Bangumi: "bangumi_info",
+}
+
 
 def _source_value(source: Any) -> str:
     """返回来源的稳定传输值。"""
@@ -44,6 +56,90 @@ def legacy_identity(
             if normalized_source and normalized_id and normalized_id != "0":
                 return normalized_source, normalized_id
     return None, None
+
+
+def _target_identity(target_source: Any, media_id: Any) -> Tuple[Optional[MediaSource], Optional[str]]:
+    """校验转换结果中的目标来源 ID，并拒绝非正数 TMDB ID。"""
+    target_source = normalize_media_source(target_source)
+    source, resolved_id = resolve_media_identity(
+        media_source=target_source,
+        media_id=media_id,
+    )
+    if not source or not resolved_id:
+        return None, None
+    if source == MediaSource.TMDB:
+        try:
+            tmdb_id = int(resolved_id)
+        except (TypeError, ValueError):
+            return None, None
+        if tmdb_id <= 0:
+            return None, None
+        resolved_id = str(tmdb_id)
+    return source, resolved_id
+
+
+def _conversion_identity(
+    value: Any,
+    target_source: Any,
+) -> Tuple[Optional[MediaSource], Optional[str]]:
+    """从字典、媒体对象或裸 ID 中提取转换后的目标身份。"""
+    target_source = normalize_media_source(target_source)
+    if not target_source or value is None:
+        return None, None
+    if isinstance(value, (str, int)) and not isinstance(value, bool):
+        return _target_identity(target_source, value)
+
+    source, media_id = resolve_media_identity(media=value)
+    if source == target_source and media_id:
+        return _target_identity(target_source, media_id)
+
+    for field in CONVERSION_ID_FIELDS.get(target_source, ("media_id", "id")):
+        raw_id = value.get(field) if isinstance(value, Mapping) else getattr(value, field, None)
+        source, media_id = _target_identity(target_source, raw_id)
+        if source and media_id:
+            return source, media_id
+
+    nested_field = CONVERSION_INFO_FIELDS.get(target_source)
+    if nested_field:
+        nested = value.get(nested_field) if isinstance(value, Mapping) else getattr(value, nested_field, None)
+        if nested is not None and nested is not value:
+            return _conversion_identity(nested, target_source)
+    return None, None
+
+
+def convert_identity(
+    chain: Any,
+    *,
+    target_source: Any,
+    media_source: Any,
+    media_id: Any,
+    mtype: Any = None,
+    season: Any = None,
+) -> Tuple[Optional[MediaSource], Optional[str]]:
+    """调用 V3 跨源转换链并返回经过校验的目标媒体身份。"""
+    target_source = normalize_media_source(target_source)
+    source, resolved_id = resolve_media_identity(
+        media_source=media_source,
+        media_id=media_id,
+    )
+    if not target_source or not source or not resolved_id:
+        return None, None
+    if source == target_source:
+        return _target_identity(target_source, resolved_id)
+
+    converter = getattr(chain, "convert_media_identity", None)
+    if not callable(converter):
+        return None, None
+    kwargs = {
+        "target_source": target_source,
+        "media_source": source,
+        "media_id": resolved_id,
+    }
+    if mtype is not None:
+        kwargs["mtype"] = mtype
+    if season is not None:
+        kwargs["season"] = season
+    return _conversion_identity(converter(**kwargs), target_source)
 
 
 def identity_from_media(media: Any) -> Tuple[Optional[MediaSource], Optional[str]]:

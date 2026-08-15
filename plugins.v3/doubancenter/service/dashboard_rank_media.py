@@ -2,7 +2,10 @@
 
 from typing import Any, Callable, Dict, Optional
 
-from ..model.identity import identity_payload, legacy_identity, recognize_media
+from app.schemas.types import MediaSource
+from app.sdk.logging import logger
+
+from ..model.identity import convert_identity, identity_payload, legacy_identity, recognize_media
 
 
 def _default_media_chain_cls():
@@ -75,6 +78,11 @@ def _fallback_media_data(
     )
     source_value = getattr(source, "value", source) if source else None
     resolved_id = str(resolved_id) if resolved_id else None
+    if source == MediaSource.TMDB and not tmdb_id:
+        tmdb_id = resolved_id
+    if source == MediaSource.Bangumi and not bangumi_id:
+        bangumi_id = resolved_id
+    douban_id = resolved_id if source == MediaSource.Douban else None
     mediaid_prefix = source_value or ("tmdb" if tmdb_id else "bangumi")
     return {
         "title": title or "",
@@ -83,8 +91,8 @@ def _fallback_media_data(
         "type": media_type_name,
         "tmdb_id": tmdb_id,
         "tmdbid": tmdb_id,
-        "douban_id": None,
-        "doubanid": None,
+        "douban_id": douban_id,
+        "doubanid": douban_id,
         "bangumi_id": bangumi_id,
         "bangumiid": bangumi_id,
         "mediaid_prefix": mediaid_prefix,
@@ -106,11 +114,21 @@ def _mediainfo_media_data(
     bangumi_id: Any = None,
     media_source: Any = None,
     media_id: Any = None,
+    douban_id: Any = None,
     season: Any = None,
 ) -> Dict[str, Any]:
     """将 MoviePilot 媒体识别结果转换为前端媒体对象。"""
-    resolved_tmdb_id = getattr(mediainfo, "tmdb_id", None)
-    resolved_bangumi_id = getattr(mediainfo, "bangumi_id", None) or bangumi_id
+    primary_source, primary_id = legacy_identity(media_source=media_source, media_id=media_id)
+    resolved_tmdb_id = (
+        getattr(mediainfo, "tmdb_id", None)
+        or (primary_id if primary_source == MediaSource.TMDB else None)
+    )
+    resolved_bangumi_id = (
+        getattr(mediainfo, "bangumi_id", None)
+        or (primary_id if primary_source == MediaSource.Bangumi else None)
+        or bangumi_id
+    )
+    resolved_douban_id = getattr(mediainfo, "douban_id", None) or douban_id
     payload = {
         "title": getattr(mediainfo, "title", "") or title,
         "name": getattr(mediainfo, "title", "") or title,
@@ -118,8 +136,8 @@ def _mediainfo_media_data(
         "type": media_type_name,
         "tmdb_id": resolved_tmdb_id,
         "tmdbid": resolved_tmdb_id,
-        "douban_id": getattr(mediainfo, "douban_id", None),
-        "doubanid": getattr(mediainfo, "douban_id", None),
+        "douban_id": resolved_douban_id,
+        "doubanid": resolved_douban_id,
         "bangumi_id": resolved_bangumi_id,
         "bangumiid": resolved_bangumi_id,
         "mediaid_prefix": "tmdb" if resolved_tmdb_id else ("bangumi" if resolved_bangumi_id else None),
@@ -194,32 +212,103 @@ def resolve_media_from_rank(
     meta = _build_meta(title, year, media_type_value, meta_cls=meta_cls)
 
     chain = media_chain_cls()
-    mediainfo = recognize_media(
-        chain,
-        meta=meta,
-        mtype=media_type_value,
-        media_source=media_source,
-        media_id=media_id,
-    ) if media_source is not None or media_id is not None else None
-    if not mediainfo and tmdb_id:
+    source, source_id = legacy_identity(media_source=media_source, media_id=media_id)
+    recognized_source = None
+    recognized_id = None
+    mediainfo = None
+    if source == MediaSource.Douban and source_id:
+        try:
+            recognized_source, recognized_id = convert_identity(
+                chain,
+                target_source=MediaSource.TMDB,
+                media_source=source,
+                media_id=source_id,
+                mtype=media_type_value,
+                season=getattr(meta, "begin_season", None),
+            )
+        except Exception as err:
+            logger.warning(f"豆瓣中心：手动识别《{title}》豆瓣 ID {source_id} 转换 TMDB 失败：{err}")
+            recognized_source, recognized_id = None, None
+        if recognized_source and recognized_id:
+            try:
+                mediainfo = recognize_media(
+                    chain,
+                    meta=meta,
+                    mtype=media_type_value,
+                    media_source=recognized_source,
+                    media_id=recognized_id,
+                )
+            except Exception as err:
+                logger.warning(f"豆瓣中心：手动识别《{title}》TMDB ID {recognized_id} 失败：{err}")
+                mediainfo = None
+        else:
+            logger.info(f"豆瓣中心：手动识别《{title}》豆瓣 ID {source_id} 暂无 TMDB 映射，保留豆瓣身份")
+    elif source and source_id:
+        recognized_source, recognized_id = source, source_id
+        mediainfo = recognize_media(
+            chain,
+            meta=meta,
+            mtype=media_type_value,
+            media_source=source,
+            media_id=source_id,
+        )
+
+    if not mediainfo and source == MediaSource.Douban and source_id:
         try:
             mediainfo = recognize_media(
                 chain,
                 meta=meta,
                 mtype=media_type_value,
-                tmdb_id=tmdb_id,
+                media_source=source,
+                media_id=source_id,
             )
+            if mediainfo:
+                recognized_source, recognized_id = source, source_id
+        except Exception as err:
+            logger.warning(f"豆瓣中心：手动识别《{title}》回退豆瓣 ID {source_id} 失败：{err}")
+
+    tmdb_source, normalized_tmdb_id = legacy_identity(tmdb_id=tmdb_id)
+    if not mediainfo and tmdb_source and normalized_tmdb_id:
+        try:
+            mediainfo = recognize_media(
+                chain,
+                meta=meta,
+                mtype=media_type_value,
+                media_source=tmdb_source,
+                media_id=normalized_tmdb_id,
+            )
+            if mediainfo:
+                recognized_source, recognized_id = tmdb_source, normalized_tmdb_id
         except TypeError:
             mediainfo = None
-    if not mediainfo and bangumi_id:
+    bangumi_source, normalized_bangumi_id = legacy_identity(bangumi_id=bangumi_id)
+    if not mediainfo and bangumi_source and normalized_bangumi_id:
         try:
             mediainfo = recognize_media(
                 chain,
                 meta=meta,
                 mtype=media_type_value,
-                bangumi_id=bangumi_id,
+                media_source=bangumi_source,
+                media_id=normalized_bangumi_id,
             )
+            if mediainfo:
+                recognized_source, recognized_id = bangumi_source, normalized_bangumi_id
         except TypeError:
+            mediainfo = None
+
+    has_stable_identity = bool(
+        (source and source_id)
+        or (tmdb_source and normalized_tmdb_id)
+        or (bangumi_source and normalized_bangumi_id)
+    )
+    if not mediainfo and not has_stable_identity:
+        try:
+            mediainfo = recognize_media(
+                chain,
+                meta=meta,
+                mtype=media_type_value,
+            )
+        except Exception:
             mediainfo = None
 
     if not mediainfo:
@@ -233,7 +322,7 @@ def resolve_media_from_rank(
         )
         if subject_response:
             return subject_response
-        if not tmdb_id and not bangumi_id and not (media_source and media_id):
+        if not has_stable_identity:
             return {"success": False, "message": "无法识别媒体信息"}
         return {
             "success": True,
@@ -256,9 +345,10 @@ def resolve_media_from_rank(
             media_type_name=media_type_name,
             title=title,
             year=year,
-            bangumi_id=bangumi_id,
-            media_source=media_source,
-            media_id=media_id,
+            bangumi_id=normalized_bangumi_id,
+            media_source=recognized_source,
+            media_id=recognized_id,
+            douban_id=source_id if source == MediaSource.Douban else None,
             season=getattr(meta, "begin_season", None) if media_type_value == media_type_cls.TV else None,
         ),
     }
