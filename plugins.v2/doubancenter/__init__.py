@@ -35,7 +35,7 @@ class DoubanCenter(_PluginBase):
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
     plugin_version = "1.2.20"
-    plugin_author = "牧濑红莉栖"
+    plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
     plugin_order = 14
