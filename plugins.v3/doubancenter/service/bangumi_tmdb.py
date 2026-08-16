@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Optional
 from app.schemas.types import MediaSource
 
 from ..adapter import bangumi as bangumi_adapter
-from ..model.identity import identity_from_media, recognize_media
+from ..model.identity import identity_from_media, legacy_identity, recognize_media
 
 
 def _subject_value(
@@ -54,6 +54,32 @@ def _is_tmdb_media(mediainfo: Any) -> bool:
     # 只有没有其它明确来源时才接受这个兼容形态，避免把 Bangumi 身份误判成 TMDB。
     tmdb_id = getattr(mediainfo, "tmdb_id", None)
     return source is None and tmdb_id not in (None, "", 0, "0")
+
+
+def _tmdb_id_from_match(value: Any) -> Optional[str]:
+    """从宿主 TMDB 匹配结果提取有效的 TMDB ID。"""
+    candidates = []
+    if isinstance(value, dict):
+        candidates.extend(
+            value.get(field)
+            for field in ("tmdb_id", "tmdbid", "id")
+        )
+        nested = value.get("tmdb_info")
+        if isinstance(nested, dict):
+            candidates.extend(
+                nested.get(field)
+                for field in ("tmdb_id", "tmdbid", "id")
+            )
+    else:
+        candidates.extend(
+            getattr(value, field, None)
+            for field in ("tmdb_id", "tmdbid", "id")
+        )
+    for candidate in candidates:
+        source, media_id = legacy_identity(tmdb_id=candidate)
+        if source == MediaSource.TMDB and media_id:
+            return media_id
+    return None
 
 
 def recognize_bangumi_tmdb(
@@ -117,6 +143,32 @@ def recognize_bangumi_tmdb(
         return result
 
     subject_meta = _subject_meta(meta, title, year, meta_cls=meta_cls)
+    matcher = getattr(chain, "match_tmdbinfo", None)
+    if callable(matcher):
+        try:
+            tmdb_match = matcher(
+                name=title,
+                mtype=media_type,
+                year=year or None,
+                season=getattr(subject_meta, "begin_season", None),
+            )
+        except (Exception, TypeError):
+            tmdb_match = None
+        matched_tmdb_id = _tmdb_id_from_match(tmdb_match)
+        if matched_tmdb_id:
+            try:
+                mediainfo = recognize_media(
+                    chain,
+                    meta=subject_meta,
+                    mtype=media_type,
+                    tmdb_id=matched_tmdb_id,
+                    cache=False,
+                )
+            except Exception:
+                mediainfo = None
+            if _is_tmdb_media(mediainfo):
+                result["mediainfo"] = mediainfo
+                return result
     try:
         mediainfo = recognize_media(
             chain,
