@@ -510,14 +510,20 @@ def _douban_match_from_identity(title: str, media_type: str, mediainfo=None):
             True,
         )
     chain = MediaChain()
+    season = _media_season(title, mediainfo)
+    conversion_kwargs = {
+        "target_source": MediaSource.Douban,
+        "media_source": source,
+        "media_id": str(media_id),
+        "mtype": _media_type_for_douban(media_type),
+        "season": season,
+    }
     try:
-        converted = chain.convert_media_identity(
-            target_source=MediaSource.Douban,
-            media_source=source,
-            media_id=str(media_id),
-            mtype=_media_type_for_douban(media_type),
-            season=_media_season(title, mediainfo),
-        )
+        converted = chain.convert_media_identity(**conversion_kwargs)
+        if not converted and season is not None:
+            logger.info(f"{title} 未匹配到分季豆瓣条目，尝试复用整剧媒体身份")
+            conversion_kwargs["season"] = None
+            converted = chain.convert_media_identity(**conversion_kwargs)
     except Exception as err:
         logger.warning(f"{title} 媒体身份转换豆瓣失败：{err}")
         return None, None, "", True

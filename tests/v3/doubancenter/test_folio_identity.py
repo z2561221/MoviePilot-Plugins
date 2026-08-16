@@ -52,6 +52,17 @@ class FakeMediaChain:
         return self.converted
 
 
+class SeasonFallbackMediaChain(FakeMediaChain):
+    """模拟分季转换失败但整剧身份可转换的媒体链。"""
+
+    def convert_media_identity(self, **kwargs):
+        """仅在不限定季号时返回死神整剧豆瓣身份。"""
+        self.convert_calls.append(dict(kwargs))
+        if kwargs.get("season") is not None:
+            return None
+        return self.converted
+
+
 def _plugin(wait=None):
     """构造具备豆瓣时间持久化能力的最小插件对象。"""
     saved = {}
@@ -152,6 +163,38 @@ def test_bleach_never_accepts_duke_of_death_title_candidate(monkeypatch):
         mediainfo=None,
         api=FakeDoubanApi("cookie"),
     ) == (None, None, "")
+
+
+def test_bleach_retries_exact_tmdb_identity_at_series_level(monkeypatch):
+    """死神分季转换无结果时复用 TMDB 30984 匹配豆瓣整剧条目。"""
+    FakeDoubanApi.reset()
+    FakeDoubanApi.search_result = ("死神少爷与黑女仆 第二季", "35605985")
+    chain = SeasonFallbackMediaChain(converted={
+        "id": "1460932",
+        "title": "死神",
+        "cover_url": "https://img.example/bleach.webp",
+    })
+    monkeypatch.setattr(folio, "DoubanApi", FakeDoubanApi)
+    monkeypatch.setattr(folio, "MediaChain", lambda: chain)
+    media = SimpleNamespace(
+        media_source=MediaSource.TMDB,
+        media_id="30984",
+        title="死神",
+        year="2004",
+        season=2,
+        poster_path="",
+    )
+    plugin = _plugin()
+    processed = {}
+
+    assert folio._sync_to_douban(plugin, "死神 第2季", "do", "TV", processed, media)
+
+    assert FakeDoubanApi.search_calls == []
+    assert FakeDoubanApi.status_calls == [("1460932", "do", True)]
+    assert [call["season"] for call in chain.convert_calls] == [2, None]
+    assert all(call["media_id"] == "30984" for call in chain.convert_calls)
+    assert processed["死神 第2季"]["subject_id"] == "1460932"
+    assert processed["死神 第2季"]["subject_name"] == "死神"
 
 
 def test_waiting_subject_reads_douban_detail_to_restore_poster(monkeypatch):
