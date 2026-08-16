@@ -240,7 +240,6 @@ def recognize_bangumi_tmdb(
             chain,
             meta=subject_meta,
             mtype=media_type,
-            cache=False,
         )
     except Exception:
         mediainfo = None
