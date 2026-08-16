@@ -97,6 +97,27 @@ class ConversionChain:
         return self.title_mapping
 
 
+class SeasonalConversionChain(ConversionChain):
+    """仅在基础标题和季号同时正确时返回 TMDB 映射。"""
+
+    def __init__(self, *, expected_title: str, expected_season: int, tmdb_media):
+        """保存期望的基础标题、季号和媒体结果。"""
+        super().__init__(tmdb_media=tmdb_media)
+        self.expected_title = expected_title
+        self.expected_season = expected_season
+
+    def match_tmdbinfo(self, **kwargs):
+        """记录匹配参数并仅接受季号归一化后的调用。"""
+        self.match_tmdb_calls.append(kwargs)
+        if (
+            kwargs.get("name") == self.expected_title
+            and kwargs.get("year") is None
+            and kwargs.get("season") == self.expected_season
+        ):
+            return {"id": 94664}
+        return None
+
+
 class PluginBaseChain:
     """模拟宿主插件基类自带但没有 V3 身份转换方法的处理链。"""
 
@@ -775,6 +796,78 @@ def test_bangumi_title_year_fallback_survives_subject_fetch_failure():
 
     assert result["mediainfo"] is tmdb_media
     assert result["subject"] is None
+
+
+def test_bangumi_chinese_season_title_matches_tmdb_series_identity():
+    """Bangumi 中文季度标题使用基础剧名和季号匹配 TMDB 主条目。"""
+    tmdb_media = FakeMediaInfo(
+        title="无职转生～到了异世界就拿出真本事～ 第三季",
+        source=MediaSource.TMDB,
+        media_id="94664",
+        tmdb_id=94664,
+    )
+    chain = SeasonalConversionChain(
+        expected_title="无职转生",
+        expected_season=3,
+        tmdb_media=tmdb_media,
+    )
+    subject = {
+        "id": 501963,
+        "name": "無職転生Ⅲ ～異世界行ったら本気だす～",
+        "name_cn": "无职转生 第三季 ～到了异世界就拿出真本事～",
+        "date": "2026-07-01",
+    }
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("無職転生Ⅲ ～異世界行ったら本気だす～"),
+        bangumi_id="501963",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert result["season"] == 3
+    assert chain.match_tmdb_calls[-1] == {
+        "name": "无职转生",
+        "mtype": MediaType.TV,
+        "year": None,
+        "season": 3,
+    }
+
+
+def test_bangumi_unicode_roman_season_matches_when_subject_fetch_fails():
+    """Bangumi subject 不可用时从 Unicode 罗马数字恢复季号。"""
+    tmdb_media = FakeMediaInfo(
+        title="无职转生～到了异世界就拿出真本事～ 第三季",
+        source=MediaSource.TMDB,
+        media_id="94664",
+        tmdb_id=94664,
+    )
+    chain = SeasonalConversionChain(
+        expected_title="無職転生",
+        expected_season=3,
+        tmdb_media=tmdb_media,
+    )
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("無職転生Ⅲ ～異世界行ったら本気だす～"),
+        bangumi_id="501963",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: None,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert result["season"] == 3
+    assert chain.match_tmdb_calls[-1] == {
+        "name": "無職転生",
+        "mtype": MediaType.TV,
+        "year": None,
+        "season": 3,
+    }
 
 
 def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):

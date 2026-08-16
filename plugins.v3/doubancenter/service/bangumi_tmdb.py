@@ -1,5 +1,7 @@
 """Bangumi subject 到 TMDB 的统一识别辅助。"""
 
+import re
+import unicodedata
 from typing import Any, Callable, Dict, Optional
 
 from app.schemas.types import MediaSource
@@ -45,6 +47,51 @@ def _subject_meta(meta: Any, title: str, year: str, meta_cls=None) -> Any:
     return subject_meta
 
 
+def _seasonal_title_candidates(meta: Any, title: str) -> list[tuple[str, int]]:
+    """生成带明确季号的 BGM 基础标题候选。"""
+    candidates: list[tuple[str, int]] = []
+    parsed_name = re.sub(r"\s+", " ", str(getattr(meta, "name", None) or "")).strip()
+    parsed_season = getattr(meta, "begin_season", None)
+    try:
+        parsed_season = int(parsed_season) if parsed_season is not None else None
+    except (TypeError, ValueError):
+        parsed_season = None
+    if parsed_name and parsed_season is not None and parsed_name.casefold() != str(title or "").strip().casefold():
+        candidates.append((parsed_name, parsed_season))
+
+    raw_title = str(title or "")
+    roman_match = re.search(
+        r"([\u2160-\u216b\u2170-\u217b])(?=\s*(?:[~～:：—-]|$))",
+        raw_title,
+    )
+    if roman_match:
+        try:
+            roman_season = int(unicodedata.numeric(roman_match.group(1)))
+        except (TypeError, ValueError):
+            roman_season = None
+        if roman_season is not None:
+            base_title = re.sub(
+                r"\s+",
+                " ",
+                f"{raw_title[:roman_match.start()]}{raw_title[roman_match.end():]}",
+            ).strip()
+            if base_title:
+                candidates.append((base_title, roman_season))
+                short_title = re.split(r"\s*[~～:：—]\s*", base_title, maxsplit=1)[0].strip()
+                if short_title and short_title != base_title:
+                    candidates.append((short_title, roman_season))
+
+    result: list[tuple[str, int]] = []
+    seen = set()
+    for candidate_title, season in candidates:
+        key = (candidate_title.casefold(), season)
+        if not candidate_title or key in seen:
+            continue
+        seen.add(key)
+        result.append((candidate_title, season))
+    return result
+
+
 def _is_tmdb_media(mediainfo: Any) -> bool:
     """判断识别结果是否确实拥有 TMDB 主身份。"""
     source, media_id = identity_from_media(mediainfo)
@@ -86,6 +133,24 @@ def _tmdb_id_from_match(value: Any) -> Optional[str]:
         if source == MediaSource.TMDB and media_id:
             return media_id
     return None
+
+
+def _recognize_tmdb_match(chain: Any, meta: Any, media_type: Any, value: Any) -> Any:
+    """使用 TMDB 匹配结果中的明确身份读取媒体详情。"""
+    matched_tmdb_id = _tmdb_id_from_match(value)
+    if not matched_tmdb_id:
+        return None
+    try:
+        mediainfo = recognize_media(
+            chain,
+            meta=meta,
+            mtype=media_type,
+            tmdb_id=matched_tmdb_id,
+            cache=False,
+        )
+    except Exception:
+        return None
+    return mediainfo if _is_tmdb_media(mediainfo) else None
 
 
 def _media_value(media: Any, field: str) -> Any:
@@ -197,20 +262,35 @@ def recognize_bangumi_tmdb(
             )
         except (Exception, TypeError):
             tmdb_match = None
-        matched_tmdb_id = _tmdb_id_from_match(tmdb_match)
-        if matched_tmdb_id:
+        mediainfo = _recognize_tmdb_match(chain, subject_meta, media_type, tmdb_match)
+        if mediainfo:
+            result["mediainfo"] = mediainfo
+            return result
+        seasonal_candidates: list[tuple[str, int]] = []
+        seen_seasonal_candidates = set()
+        for candidate_source in (title, getattr(meta, "title", None)):
+            for candidate in _seasonal_title_candidates(subject_meta, str(candidate_source or "")):
+                key = (candidate[0].casefold(), candidate[1])
+                if key in seen_seasonal_candidates:
+                    continue
+                seen_seasonal_candidates.add(key)
+                seasonal_candidates.append(candidate)
+        for candidate_title, season in seasonal_candidates:
             try:
-                mediainfo = recognize_media(
-                    chain,
-                    meta=subject_meta,
+                tmdb_match = matcher(
+                    name=candidate_title,
                     mtype=media_type,
-                    tmdb_id=matched_tmdb_id,
-                    cache=False,
+                    year=None,
+                    season=season,
                 )
             except Exception:
-                mediainfo = None
-            if _is_tmdb_media(mediainfo):
+                tmdb_match = None
+            season_meta = _subject_meta(meta, candidate_title, year, meta_cls=meta_cls)
+            season_meta.begin_season = season
+            mediainfo = _recognize_tmdb_match(chain, season_meta, media_type, tmdb_match)
+            if mediainfo:
                 result["mediainfo"] = mediainfo
+                result["season"] = season
                 return result
     searcher = getattr(chain, "search", None)
     if callable(searcher):
