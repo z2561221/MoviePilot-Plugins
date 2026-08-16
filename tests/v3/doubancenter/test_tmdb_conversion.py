@@ -706,6 +706,7 @@ def test_bangumi_subject_title_year_identifies_tmdb_and_rejects_bangumi_identity
     assert result["title"] == "尼古喵喵"
     assert result["year"] == "2026"
     assert chain.recognize_calls[0]["meta"].name == "尼古喵喵"
+    assert chain.recognize_calls[0]["cache"] is False
     assert "media_source" not in chain.recognize_calls[0]
 
     bangumi_media = FakeMediaInfo(
