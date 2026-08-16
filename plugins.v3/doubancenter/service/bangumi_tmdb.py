@@ -169,6 +169,17 @@ def recognize_bangumi_tmdb(
             if _is_tmdb_media(mediainfo):
                 result["mediainfo"] = mediainfo
                 return result
+    by_meta = getattr(chain, "recognize_by_meta", None)
+    if callable(by_meta):
+        try:
+            mediainfo = by_meta(subject_meta, mtype=media_type)
+        except TypeError:
+            mediainfo = by_meta(subject_meta)
+        except Exception:
+            mediainfo = None
+        if _is_tmdb_media(mediainfo):
+            result["mediainfo"] = mediainfo
+            return result
     try:
         mediainfo = recognize_media(
             chain,
