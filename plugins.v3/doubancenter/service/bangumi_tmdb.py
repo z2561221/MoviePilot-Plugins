@@ -141,7 +141,7 @@ def recognize_bangumi_tmdb(
     result: Dict[str, Any] = {
         "mediainfo": None,
         "subject": None,
-        "title": str(getattr(meta, "title", None) or ""),
+        "title": str(getattr(meta, "name", None) or getattr(meta, "title", None) or ""),
         "year": str(getattr(meta, "year", None) or ""),
     }
 
@@ -165,22 +165,23 @@ def recognize_bangumi_tmdb(
         subject = subject_fetcher(plugin, bangumi_id)
     except Exception:
         subject = None
-    if not isinstance(subject, dict):
-        return result
-
-    title = _subject_value(
-        subject,
-        subject_title,
-        fallback=result["title"],
-        field="title",
-    )
-    year = _subject_value(
-        subject,
-        subject_year,
-        fallback=result["year"],
-        field="year",
-    )
-    result.update(subject=subject, title=title, year=year)
+    if isinstance(subject, dict):
+        title = _subject_value(
+            subject,
+            subject_title,
+            fallback=result["title"],
+            field="title",
+        )
+        year = _subject_value(
+            subject,
+            subject_year,
+            fallback=result["year"],
+            field="year",
+        )
+        result.update(subject=subject, title=title, year=year)
+    else:
+        title = result["title"]
+        year = result["year"]
     if not title:
         return result
 
