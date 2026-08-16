@@ -345,7 +345,7 @@ def _apply_bangumi_recognition(self, item: dict, entry: dict):
         if subject:
             _apply_bangumi_subject(subject, entry, title=title, bangumiid=bangumiid)
         return None
-    cn_title = recognition.get("title") or getattr(mediainfo, "title", None) or title
+    cn_title = getattr(mediainfo, "title", None) or recognition.get("title") or title
     if cn_title and cn_title != title:
         entry["original_title"] = title
     entry["title"] = cn_title

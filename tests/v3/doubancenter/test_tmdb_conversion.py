@@ -778,9 +778,9 @@ def test_bangumi_title_year_fallback_survives_subject_fetch_failure():
 
 
 def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
-    """Bangumi 榜单刷新成功后保存 TMDB 主身份并保留 Bangumi 辅助 ID。"""
+    """Bangumi 榜单刷新保存 TMDB 身份并优先展示 MP 中文名。"""
     tmdb_media = FakeMediaInfo(
-        title="Yan neko",
+        title="尼古喵喵",
         source=MediaSource.TMDB,
         media_id="312949",
         tmdb_id=312949,
@@ -790,7 +790,7 @@ def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
         chain=ConversionChain(title_media=tmdb_media),
         save_data=lambda key, value: None,
     )
-    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "烟猫", "date": "2026-04-01"}
     monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
     item = {"title": "ヤニねこ", "year": "2026", "bangumi_id": "622206"}
     entry = {"title": item["title"], "year": item["year"], "bangumi_id": "622206"}
@@ -804,6 +804,7 @@ def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
     assert entry["tmdbid"] == 312949
     assert entry["bangumi_id"] == "622206"
     assert entry["title"] == "尼古喵喵"
+    assert entry["original_title"] == "ヤニねこ"
 
 
 def test_manual_bangumi_resolve_returns_tmdb_identity():
