@@ -3,12 +3,15 @@
 from types import SimpleNamespace
 
 from app.schemas.types import MediaSource, MediaType
+from app.sdk.media import MetaInfo
 
 from doubancenter import feed
 from doubancenter.adapter import douban as douban_adapter
 from doubancenter.adapter import rss as rss_adapter
 from doubancenter.model.identity import convert_identity
 from doubancenter.service import dashboard_rank_media
+from doubancenter.service import dashboard_rank_subscription
+from doubancenter.service import bangumi_tmdb
 
 
 class FakeMediaInfo:
@@ -677,3 +680,145 @@ def test_manual_resolve_uses_title_fallback_without_stable_identity():
     assert result["data"]["tmdb_id"] == 283319
     assert len(chain.recognize_calls) == 1
     assert "media_source" not in chain.recognize_calls[0]
+
+
+def test_bangumi_subject_title_year_identifies_tmdb_and_rejects_bangumi_identity():
+    """Bangumi subject 只作为标题年份来源，标题识别必须返回 TMDB 身份。"""
+    tmdb_media = FakeMediaInfo(
+        title="Yan neko",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    chain = ConversionChain(title_media=tmdb_media)
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("ヤニねこ"),
+        bangumi_id="622206",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert result["title"] == "尼古喵喵"
+    assert result["year"] == "2026"
+    assert chain.recognize_calls[0]["meta"].name == "尼古喵喵"
+    assert "media_source" not in chain.recognize_calls[0]
+
+    bangumi_media = FakeMediaInfo(
+        title="尼古喵喵",
+        source=MediaSource.Bangumi,
+        media_id="622206",
+    )
+    bangumi_chain = ConversionChain(title_media=bangumi_media)
+    failed = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        bangumi_chain,
+        MetaInfo("ヤニねこ"),
+        bangumi_id="622206",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+    assert failed["mediainfo"] is None
+
+
+def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
+    """Bangumi 榜单刷新成功后保存 TMDB 主身份并保留 Bangumi 辅助 ID。"""
+    tmdb_media = FakeMediaInfo(
+        title="Yan neko",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+        poster="tmdb-poster.jpg",
+    )
+    plugin = SimpleNamespace(
+        chain=ConversionChain(title_media=tmdb_media),
+        save_data=lambda key, value: None,
+    )
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    item = {"title": "ヤニねこ", "year": "2026", "bangumi_id": "622206"}
+    entry = {"title": item["title"], "year": item["year"], "bangumi_id": "622206"}
+
+    result = feed._apply_bangumi_recognition(plugin, item, entry)
+
+    assert result is tmdb_media
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "312949"
+    assert entry["tmdb_id"] == 312949
+    assert entry["tmdbid"] == 312949
+    assert entry["bangumi_id"] == "622206"
+    assert entry["title"] == "尼古喵喵"
+
+
+def test_manual_bangumi_resolve_returns_tmdb_identity():
+    """手动点击榜单识别时复用 Bangumi subject 标题年份得到的 TMDB 身份。"""
+    tmdb_media = FakeMediaInfo(
+        title="Yan neko",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    chain = ConversionChain(title_media=tmdb_media)
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+
+    result = dashboard_rank_media.resolve_media_from_rank(
+        object(),
+        "tv",
+        "ヤニねこ",
+        "2026",
+        media_source="bangumi",
+        media_id="622206",
+        media_chain_cls=lambda: chain,
+        bangumi_subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["media_source"] == MediaSource.TMDB.value
+    assert result["data"]["media_id"] == "312949"
+    assert result["data"]["tmdb_id"] == 312949
+    assert result["data"]["bangumi_id"] == "622206"
+
+
+def test_manual_bangumi_subscription_passes_tmdb_identity_to_subscribe_chain():
+    """手动订阅识别成功后向订阅链传递 TMDB 来源和 ID。"""
+    tmdb_media = FakeMediaInfo(
+        title="Yan neko",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    media_chain = ConversionChain(title_media=tmdb_media)
+    captured = {}
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+
+    class SubscribeChain:
+        """记录手动订阅调用。"""
+
+        def exists(self, mediainfo, meta):
+            """模拟没有重复订阅。"""
+            return False
+
+        def add(self, **kwargs):
+            """保存订阅身份并返回成功。"""
+            captured.update(kwargs)
+            return 1, ""
+
+    result = dashboard_rank_subscription.subscribe_from_rank(
+        object(),
+        None,
+        "tv",
+        "ヤニねこ",
+        "2026",
+        bangumi_id="622206",
+        media_chain_cls=lambda: media_chain,
+        subscribe_chain_cls=SubscribeChain,
+        bangumi_subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result == {"success": True, "message": "已添加订阅"}
+    assert captured["media_source"] == MediaSource.TMDB
+    assert captured["media_id"] == "312949"

@@ -27,6 +27,7 @@ from .model.identity import (
     recognize_media as recognize_with_identity,
 )
 from .service import observation as observation_service
+from .service import bangumi_tmdb as bangumi_tmdb_service
 from .service import rank_refresh as rank_refresh_service
 from .service import rank_subscription as rank_subscription_service
 from .service import subscription as subscription_service
@@ -321,24 +322,39 @@ def _apply_bangumi_recognition(self, item: dict, entry: dict):
     tmdbid = item.get("tmdbid") or entry.get("tmdbid")
     bangumiid = _extract_bangumi_id(item) or _extract_bangumi_id(entry)
     try:
-        mediainfo = _recognize_bangumi_media(self.chain, meta, tmdbid=tmdbid, bangumiid=bangumiid)
+        recognition = bangumi_tmdb_service.recognize_bangumi_tmdb(
+            self,
+            self.chain,
+            meta,
+            bangumi_id=bangumiid,
+            tmdb_id=tmdbid,
+            media_type=MediaType.TV,
+            subject_fetcher=_fetch_bangumi_subject,
+            subject_title=_bangumi_subject_title,
+            subject_year=_bangumi_subject_year,
+            meta_cls=MetaInfo,
+        )
     except Exception as err:
         logger.warning(f"豆瓣中心：BangumiTV 条目《{title}》识别失败：{err}")
         return None
+    mediainfo = recognition.get("mediainfo")
     if not mediainfo:
-        subject = _fetch_bangumi_subject(self, bangumiid)
+        subject = recognition.get("subject")
+        if not subject:
+            subject = _fetch_bangumi_subject(self, bangumiid)
         if subject:
             _apply_bangumi_subject(subject, entry, title=title, bangumiid=bangumiid)
         return None
-    cn_title = getattr(mediainfo, "title", None) or title
+    cn_title = recognition.get("title") or getattr(mediainfo, "title", None) or title
     if cn_title and cn_title != title:
         entry["original_title"] = title
     entry["title"] = cn_title
-    entry["year"] = getattr(mediainfo, "year", None) or entry.get("year") or ""
-    entry["tmdbid"] = getattr(mediainfo, "tmdb_id", None) or entry.get("tmdbid")
+    entry["year"] = recognition.get("year") or getattr(mediainfo, "year", None) or entry.get("year") or ""
+    entry["tmdbid"] = getattr(mediainfo, "tmdb_id", None) or tmdbid or entry.get("tmdbid")
+    entry["tmdb_id"] = entry["tmdbid"]
     entry["bangumi_id"] = getattr(mediainfo, "bangumi_id", None) or bangumiid or entry.get("bangumi_id")
     entry["bangumiid"] = entry["bangumi_id"]
-    entry.update(identity_payload(mediainfo, bangumi_id=bangumiid, tmdb_id=tmdbid))
+    entry.update(identity_payload(mediainfo, bangumi_id=bangumiid, tmdb_id=entry["tmdbid"]))
     try:
         entry["poster"] = mediainfo.get_poster_image() or entry.get("poster")
     except Exception:
@@ -546,32 +562,16 @@ def bangumi_subject_to_media_data(subject: dict, media_type_name: str, fallback_
 
 
 def _recognize_bangumi_media(chain, meta: MetaInfo, tmdbid: Any = None, bangumiid: Any = None):
-    """按 TMDB、Bangumi、标题顺序调用 MP 媒体识别。"""
-    attempts = []
-    if tmdbid:
-        attempts.append({"tmdb_id": tmdbid})
-    if bangumiid:
-        attempts.append({"bangumi_id": bangumiid})
-    attempts.append({})
-
-    last_type_error = None
-    for extra in attempts:
-        try:
-            mediainfo = recognize_with_identity(
-                chain,
-                meta=meta,
-                mtype=MediaType.TV,
-                tmdb_id=extra.get("tmdb_id"),
-                bangumi_id=extra.get("bangumi_id"),
-            )
-            if mediainfo:
-                return mediainfo
-        except TypeError as err:
-            last_type_error = err
-            continue
-    if last_type_error:
-        raise last_type_error
-    return None
+    """兼容旧调用方，按标题+年份优先返回 TMDB 媒体对象。"""
+    recognition = bangumi_tmdb_service.recognize_bangumi_tmdb(
+        None,
+        chain,
+        meta,
+        bangumi_id=bangumiid,
+        tmdb_id=tmdbid,
+        media_type=MediaType.TV,
+    )
+    return recognition.get("mediainfo")
 
 
 def _extract_bangumi_id(item: dict) -> Optional[str]:

@@ -2,7 +2,10 @@
 
 from typing import Any, Callable, Optional
 
+from app.schemas.types import MediaSource
+
 from ..model.identity import identity_from_media, legacy_identity, recognize_media
+from . import bangumi_tmdb as bangumi_tmdb_service
 
 
 def _default_media_chain_cls():
@@ -246,15 +249,38 @@ def subscribe_from_rank(
 
     media_type_value = rank_media_type(media_type, media_type_cls)
     meta = build_meta(title, year, media_type_value, meta_cls)
-    mediainfo = recognize_rank_media(
-        media_chain_cls(),
-        meta,
-        media_type_value,
-        tmdb_id=tmdb_id,
-        bangumi_id=bangumi_id,
-        media_source=media_source,
-        media_id=media_id,
+    media_chain = media_chain_cls()
+    source, source_id = legacy_identity(media_source=media_source, media_id=media_id)
+    bangumi_identity_id = (
+        str(bangumi_id).strip()
+        if bangumi_id not in (None, "")
+        else (source_id if source == MediaSource.Bangumi else None)
     )
+    mediainfo = None
+    if bangumi_identity_id:
+        recognition = bangumi_tmdb_service.recognize_bangumi_tmdb(
+            plugin,
+            media_chain,
+            meta,
+            bangumi_id=bangumi_identity_id,
+            tmdb_id=tmdb_id,
+            media_type=media_type_value,
+            subject_fetcher=bangumi_subject_fetcher,
+            subject_title=bangumi_subject_title,
+            subject_year=bangumi_subject_year,
+            meta_cls=meta_cls,
+        )
+        mediainfo = recognition.get("mediainfo")
+    if not mediainfo:
+        mediainfo = recognize_rank_media(
+            media_chain,
+            meta,
+            media_type_value,
+            tmdb_id=tmdb_id,
+            bangumi_id=bangumi_identity_id or bangumi_id,
+            media_source=media_source,
+            media_id=media_id,
+        )
     subscribe_chain = subscribe_chain_cls()
     if not mediainfo:
         return subscribe_from_bangumi_subject(
