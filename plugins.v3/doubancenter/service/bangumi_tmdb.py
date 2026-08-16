@@ -53,7 +53,13 @@ def _is_tmdb_media(mediainfo: Any) -> bool:
     # 部分宿主媒体对象只填充 tmdb_id，尚未回填统一 media_source/media_id。
     # 只有没有其它明确来源时才接受这个兼容形态，避免把 Bangumi 身份误判成 TMDB。
     tmdb_id = getattr(mediainfo, "tmdb_id", None)
-    return source is None and tmdb_id not in (None, "", 0, "0")
+    raw_source = getattr(mediainfo, "media_source", None)
+    raw_source = str(getattr(raw_source, "value", raw_source) or "").strip().lower()
+    return (
+        source is None
+        and raw_source in ("", "tmdb", "themoviedb")
+        and tmdb_id not in (None, "", 0, "0")
+    )
 
 
 def _tmdb_id_from_match(value: Any) -> Optional[str]:
@@ -96,7 +102,7 @@ def _select_tmdb_search_media(value: Any, title: str, year: str) -> Any:
     expected_year = str(year or "").strip()
     year_matches = []
     for candidate in candidates:
-        if not _is_tmdb_media(candidate):
+        if not _is_tmdb_media(candidate) and not _tmdb_id_from_match(candidate):
             continue
         titles = [
             _media_value(candidate, field)
