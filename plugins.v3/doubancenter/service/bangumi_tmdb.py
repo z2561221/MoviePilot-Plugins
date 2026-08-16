@@ -48,7 +48,12 @@ def _subject_meta(meta: Any, title: str, year: str, meta_cls=None) -> Any:
 def _is_tmdb_media(mediainfo: Any) -> bool:
     """判断识别结果是否确实拥有 TMDB 主身份。"""
     source, media_id = identity_from_media(mediainfo)
-    return source == MediaSource.TMDB and bool(media_id)
+    if source == MediaSource.TMDB and media_id:
+        return True
+    # 部分宿主媒体对象只填充 tmdb_id，尚未回填统一 media_source/media_id。
+    # 只有没有其它明确来源时才接受这个兼容形态，避免把 Bangumi 身份误判成 TMDB。
+    tmdb_id = getattr(mediainfo, "tmdb_id", None)
+    return source is None and tmdb_id not in (None, "", 0, "0")
 
 
 def recognize_bangumi_tmdb(
