@@ -726,6 +726,34 @@ def test_bangumi_subject_title_year_identifies_tmdb_and_rejects_bangumi_identity
     assert failed["mediainfo"] is None
 
 
+def test_bangumi_subject_uses_tmdb_limited_title_year_search():
+    """宿主限定 TMDB 搜索命中时直接复用候选媒体对象。"""
+    tmdb_media = FakeMediaInfo(
+        title="尼古喵喵",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    chain = ConversionChain()
+    search_calls = []
+    chain.search = lambda query, media_source=None: (
+        search_calls.append((query, media_source)) or (MetaInfo(query), [tmdb_media])
+    )
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("ヤニねこ"),
+        bangumi_id="622206",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert search_calls == [("尼古喵喵 2026", MediaSource.TMDB)]
+
+
 def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
     """Bangumi 榜单刷新成功后保存 TMDB 主身份并保留 Bangumi 辅助 ID。"""
     tmdb_media = FakeMediaInfo(

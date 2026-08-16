@@ -82,6 +82,42 @@ def _tmdb_id_from_match(value: Any) -> Optional[str]:
     return None
 
 
+def _media_value(media: Any, field: str) -> Any:
+    """兼容字典和媒体对象读取字段。"""
+    return media.get(field) if isinstance(media, dict) else getattr(media, field, None)
+
+
+def _select_tmdb_search_media(value: Any, title: str, year: str) -> Any:
+    """从 TMDB 限定搜索结果中选取标题或年份吻合的媒体。"""
+    candidates = value[1] if isinstance(value, tuple) and len(value) >= 2 else value
+    if not isinstance(candidates, (list, tuple)):
+        return None
+    expected_title = str(title or "").strip().casefold()
+    expected_year = str(year or "").strip()
+    year_matches = []
+    for candidate in candidates:
+        if not _is_tmdb_media(candidate):
+            continue
+        titles = [
+            _media_value(candidate, field)
+            for field in ("title", "en_title", "original_title", "original_name")
+        ]
+        names = _media_value(candidate, "names")
+        if isinstance(names, (list, tuple, set)):
+            titles.extend(names)
+        normalized_titles = {
+            str(candidate_title).strip().casefold()
+            for candidate_title in titles
+            if candidate_title
+        }
+        if expected_title and expected_title in normalized_titles:
+            return candidate
+        candidate_year = str(_media_value(candidate, "year") or "").strip()
+        if expected_year and candidate_year == expected_year:
+            year_matches.append(candidate)
+    return year_matches[0] if len(year_matches) == 1 else None
+
+
 def recognize_bangumi_tmdb(
     plugin: Any,
     chain: Any,
@@ -169,6 +205,19 @@ def recognize_bangumi_tmdb(
             if _is_tmdb_media(mediainfo):
                 result["mediainfo"] = mediainfo
                 return result
+    searcher = getattr(chain, "search", None)
+    if callable(searcher):
+        try:
+            search_result = searcher(
+                " ".join(part for part in (title, year) if part).strip(),
+                media_source=MediaSource.TMDB,
+            )
+        except Exception:
+            search_result = None
+        mediainfo = _select_tmdb_search_media(search_result, title, year)
+        if mediainfo:
+            result["mediainfo"] = mediainfo
+            return result
     by_meta = getattr(chain, "recognize_by_meta", None)
     if callable(by_meta):
         try:
