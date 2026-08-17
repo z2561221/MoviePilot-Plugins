@@ -7,6 +7,7 @@ from app.chain.media import MediaChain
 from app.sdk.media import MetaInfo
 from app.schemas.types import MediaType
 
+from . import folio
 from .service import archive as archive_service
 from .service import dashboard_config as dashboard_config_service
 from .service import dashboard_folio as dashboard_folio_service
@@ -38,7 +39,17 @@ def _resolve_folio_poster(item: dict) -> Optional[str]:
     """识别豆瓣时间线条目的海报地址。"""
     meta = MetaInfo(item.get("subject_name"))
     meta.type = MediaType("电视剧" if not item.get("type", "") else item.get("type"))
-    media_info = MediaChain().recognize_media(meta=meta, mtype=meta.type, cache=True)
+    source, media_id = folio.identity_from_media(item)
+    if source and media_id:
+        media_info = MediaChain().recognize_media(
+            meta=meta,
+            mtype=meta.type,
+            media_source=source,
+            media_id=media_id,
+            cache=True,
+        )
+    else:
+        media_info = MediaChain().recognize_media(meta=meta, mtype=meta.type, cache=True)
     return media_info.poster_path if media_info else None
 
 
@@ -49,6 +60,7 @@ def _fin(item, limit):
 
 def api_folio_data(self):
     """获取豆瓣时间数据，优先读自己的，没有则读原版豆瓣中心的。"""
+    folio.repair_folio_history(self)
     return dashboard_folio_service.get_folio_data(self)
 
 

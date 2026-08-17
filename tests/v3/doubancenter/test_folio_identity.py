@@ -63,6 +63,19 @@ class SeasonFallbackMediaChain(FakeMediaChain):
         return self.converted
 
 
+class SearchMediaChain(FakeMediaChain):
+    """模拟标题候选搜索。"""
+
+    def __init__(self, candidates):
+        """保存候选媒体。"""
+        super().__init__()
+        self.candidates = candidates
+
+    def search_medias(self, meta, media_source=None):
+        """返回预设标题候选。"""
+        return self.candidates
+
+
 def _plugin(wait=None):
     """构造具备豆瓣时间持久化能力的最小插件对象。"""
     saved = {}
@@ -105,6 +118,112 @@ def test_event_identity_prefers_v3_then_provider_ids_and_path():
         item_path="D:/动漫/凡人修仙传 [tmdbid=106449]/S01E02.mkv",
     )
     assert folio._event_media_identity(path) == (MediaSource.TMDB, "106449")
+
+
+def test_event_identity_prefers_raw_douban_over_host_selected_tmdb():
+    """原始 ProviderIds 同时含 TMDB 和豆瓣时必须保留豆瓣身份。"""
+    event = SimpleNamespace(
+        media_source=MediaSource.TMDB,
+        media_id="30984",
+        json_object={"Item": {"ProviderIds": {"Tmdb": "30984", "Douban": "1460932"}}},
+        item_path="",
+    )
+    assert folio._event_media_identity(event) == (MediaSource.Douban, "1460932")
+
+
+def test_event_identity_prefers_path_tmdb_over_episode_tvdb():
+    """整理路径中的 TMDB 主 ID 优先于 Episode 的 TVDB/IMDb 辅助 ID。"""
+    event = SimpleNamespace(
+        media_source=MediaSource.TVDB,
+        media_id="99999",
+        json_object={"Item": {"ProviderIds": {"Tvdb": "99999", "Imdb": "tt99999"}}},
+        item_path="D:/TV/死神 [tmdbid=30984]/S02E02.mkv",
+    )
+    assert folio._event_media_identity(event) == (MediaSource.TMDB, "30984")
+
+
+def test_series_context_uses_parent_series_year_and_identity(monkeypatch):
+    """剧集事件使用 Series 的年份和身份，不能使用 Episode 年份。"""
+    class FakeMediaServerChain:
+        """模拟媒体服务器父级查询。"""
+
+        def iteminfo(self, server, item_id):
+            """返回父级 Series 条目。"""
+            assert server == "Embyserver"
+            assert item_id == "series-1"
+            return SimpleNamespace(
+                title="死神",
+                year="2004",
+                media_source=MediaSource.TMDB,
+                media_id="30984",
+            )
+
+    monkeypatch.setattr(folio, "MediaServerChain", FakeMediaServerChain)
+    monkeypatch.setattr(folio, "MediaServerHelper", lambda: SimpleNamespace(get_services=lambda: {}))
+    plugin = _plugin()
+    event = SimpleNamespace(
+        item_id="series-1",
+        server_name="Embyserver",
+        item_path="",
+        json_object={"Item": {"SeriesName": "死神", "ProductionYear": 2026}},
+    )
+
+    context = folio._series_context(plugin, event)
+
+    assert context["title"] == "死神"
+    assert context["year"] == "2004"
+    assert context["media_source"] == MediaSource.TMDB
+    assert context["media_id"] == "30984"
+
+
+def test_title_candidates_with_same_year_are_not_blindly_selected(monkeypatch):
+    """同名同年存在多个媒体候选时必须保持未识别。"""
+    candidates = [
+        SimpleNamespace(
+            title="凡人修仙传", year="2020", type=MediaType.TV,
+            media_source=MediaSource.TMDB, media_id="106449",
+        ),
+        SimpleNamespace(
+            title="凡人修仙传", year="2020", type=MediaType.TV,
+            media_source=MediaSource.TMDB, media_id="243224",
+        ),
+    ]
+    monkeypatch.setattr(folio, "MediaChain", lambda: SearchMediaChain(candidates))
+    meta = folio.MetaInfo("凡人修仙传")
+    meta.type = MediaType.TV
+    meta.year = "2020"
+
+    assert folio._recognize_title_media(meta) is None
+
+
+def test_repair_folio_history_fills_poster_from_saved_douban_id(monkeypatch):
+    """历史记录已有豆瓣 ID但没有海报时回读详情并保存海报。"""
+    plugin = _plugin()
+    plugin.get_data = lambda key: {
+        "folio_data": {
+            "死神": {
+                "subject_id": "1460932",
+                "subject_name": "死神",
+                "media_source": MediaSource.Douban.value,
+                "media_id": "1460932",
+                "poster_path": "",
+                "type": "TV",
+                "timestamp": "2026-08-17 10:00:00",
+            }
+        }
+    }.get(key)
+    monkeypatch.setattr(
+        folio,
+        "_load_douban_media",
+        lambda subject_id, title, media_type: SimpleNamespace(
+            title="死神", poster_path="https://img.example/bleach.webp"
+        ),
+    )
+
+    changed = folio.repair_folio_history(plugin)
+
+    assert changed == 1
+    assert plugin.saved["folio_data"]["死神"]["poster_path"].endswith("bleach.webp")
 
 
 def test_fanren_reuses_tmdb_identity_and_converts_to_anime_douban(monkeypatch):
