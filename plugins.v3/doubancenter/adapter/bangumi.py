@@ -101,12 +101,12 @@ def extract_subject_id(item: dict) -> Optional[str]:
         value = item.get(key)
         if value:
             return str(value)
-    if item.get("rank_key") == "bangumi" and item.get("douban_id"):
-        return str(item.get("douban_id"))
     link = str(item.get("link") or "")
     match = re.search(r"(?:bgm\.tv|bangumi\.tv)/subject/(\d+)", link)
     if match:
         return match.group(1)
+    if item.get("rank_key") == "bangumi" and item.get("douban_id"):
+        return str(item.get("douban_id"))
     return None
 
 

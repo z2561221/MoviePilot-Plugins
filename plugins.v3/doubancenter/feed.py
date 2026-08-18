@@ -584,38 +584,77 @@ def _has_cjk_text(value: Any) -> bool:
     return bangumi_adapter.has_cjk_text(value)
 
 
-def _normalize_bangumi_history(self, history: List[dict]) -> List[dict]:
+def _is_complete_bangumi_history_item(item: dict) -> bool:
+    """判断 Bangumi 历史条目是否已有完整且一致的展示身份。"""
+    bangumiid = _extract_bangumi_id(item)
+    if not bangumiid or not item.get("poster") or not _has_cjk_text(item.get("title")):
+        return False
+    media_source = str(item.get("media_source") or "")
+    media_id = str(item.get("media_id") or "")
+    tmdbid = item.get("tmdbid") or item.get("tmdb_id")
+    if tmdbid not in (None, ""):
+        return media_source == MediaSource.TMDB.value and media_id == str(tmdbid)
+    return media_source == MediaSource.Bangumi.value and media_id == str(bangumiid)
+
+
+def _bangumi_history_repair_candidates(history: List[dict]) -> List[dict]:
+    """按当前榜单优先、最近历史次之生成 Bangumi 修复顺序。"""
+    candidates = rank_refresh_service.dashboard_rank_items(history, limit=5)
+    candidates.extend(reversed(history))
+    result = []
+    seen = set()
+    for item in candidates:
+        if not isinstance(item, dict) or id(item) in seen:
+            continue
+        seen.add(id(item))
+        result.append(item)
+    return result
+
+
+def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) -> List[dict]:
     """迁移旧 BangumiTV 榜单缓存，补齐中文名和 TMDB 信息。"""
     if not isinstance(history, list):
         return []
     changed = False
-    for item in history:
-        if not isinstance(item, dict):
-            continue
+    repair_count = 0
+    for item in _bangumi_history_repair_candidates(history):
         title = item.get("title")
-        if not title:
+        if not title or not _extract_bangumi_id(item):
             continue
-        if item.get("tmdbid") and _has_cjk_text(title):
+        if _is_complete_bangumi_history_item(item):
             continue
+        if max_repairs > 0 and repair_count >= max_repairs:
+            break
         before = (
             item.get("title"),
             item.get("year"),
             item.get("tmdbid"),
+            item.get("tmdb_id"),
             item.get("poster"),
             item.get("original_title"),
+            item.get("bangumiid"),
+            item.get("bangumi_id"),
+            item.get("media_source"),
+            item.get("media_id"),
         )
         _apply_bangumi_recognition(self, item, item)
+        repair_count += 1
         after = (
             item.get("title"),
             item.get("year"),
             item.get("tmdbid"),
+            item.get("tmdb_id"),
             item.get("poster"),
             item.get("original_title"),
+            item.get("bangumiid"),
+            item.get("bangumi_id"),
+            item.get("media_source"),
+            item.get("media_id"),
         )
         if after != before:
             changed = True
     if changed:
-        storage.save_rank_history(self, "bangumi", history)
+        history = storage.save_rank_history(self, "bangumi", history)
     return history
 
 

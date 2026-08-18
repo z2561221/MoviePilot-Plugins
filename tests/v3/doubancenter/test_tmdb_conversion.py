@@ -900,6 +900,55 @@ def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
     assert entry["original_title"] == "ヤニねこ"
 
 
+def test_bangumi_history_repairs_legacy_douban_identity_from_subject_link(monkeypatch):
+    """旧 Bangumi 缓存应以 subject 链接纠正来源并补中文名和海报。"""
+    saved = {}
+    plugin = SimpleNamespace(
+        chain=ConversionChain(),
+        save_data=lambda key, value: saved.update({key: value}),
+    )
+    subject = {
+        "id": 633836,
+        "name": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
+        "date": "2026-04-01",
+        "images": {"large": "https://lain.bgm.tv/pic/cover/l/43/ca/633836_ql0f3.jpg"},
+    }
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    history = [{
+        "rank_key": "bangumi",
+        "title": subject["name"],
+        "link": "https://bgm.tv/subject/633836",
+        "media_source": "douban",
+        "media_id": "633836",
+        "tmdbid": None,
+        "poster": None,
+    }]
+
+    result = feed.normalize_bangumi_history(plugin, history)
+
+    assert result[0]["media_source"] == MediaSource.Bangumi.value
+    assert result[0]["media_id"] == "633836"
+    assert "bangumiid" not in result[0]
+    assert "bangumi_id" not in result[0]
+    assert result[0]["title"] == "Re：从零开始的异世界生活 第四季 夺还篇"
+    assert result[0]["original_title"] == subject["name"]
+    assert result[0]["year"] == "2026"
+    assert result[0]["poster"] == subject["images"]["large"]
+    assert saved["rank_history_bangumi"] == result
+
+
+def test_bangumi_subject_link_precedes_legacy_douban_id():
+    """Bangumi 榜单旧字段冲突时应以 subject 链接为准。"""
+    item = {
+        "rank_key": "bangumi",
+        "douban_id": "1",
+        "link": "https://bgm.tv/subject/633836",
+    }
+
+    assert feed._extract_bangumi_id(item) == "633836"
+
+
 def test_manual_bangumi_resolve_returns_tmdb_identity():
     """手动点击榜单识别时复用 Bangumi subject 标题年份得到的 TMDB 身份。"""
     tmdb_media = FakeMediaInfo(

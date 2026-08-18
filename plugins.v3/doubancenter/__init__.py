@@ -139,6 +139,7 @@ class DoubanCenter(_PluginBase):
             rank_keys=[rank.get("key") for rank in effective_ranks],
             custom_rank_sources=[rank.get("route") for rank in self._custom_ranks],
         )
+        feed.normalize_bangumi_history(self, feed.get_rank_history_by_key(self, "bangumi"))
         migration.normalize_legacy_subscribe_usernames()
         self.stop_service()
         if self._onlyonce:
