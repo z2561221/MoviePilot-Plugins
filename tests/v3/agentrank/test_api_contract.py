@@ -39,13 +39,17 @@ def test_every_json_route_declares_a_named_business_response_model():
     assert len({model.__name__ for model in API_RESPONSE_MODELS.values()}) == len(routes)
 
 
-def test_endpoint_boundary_returns_business_data_without_manual_envelope():
-    """内部兼容包装在 FastAPI endpoint 边界只解包一次。"""
+def test_endpoint_boundary_unwraps_only_strict_envelope_and_preserves_custom_payload():
+    """FastAPI endpoint 边界只解包严格 envelope，非标准对象原样保留。"""
     controller = AgentRankApiController(object())
 
-    assert controller._endpoint(lambda: {"success": True, "data": {"ready": True}}) == {
+    assert controller._endpoint(
+        lambda: {"success": True, "message": "", "data": {"ready": True}}
+    ) == {
         "ready": True
     }
+    custom = {"success": True, "message": "", "data": {"ready": True}, "trace": "keep"}
+    assert controller._endpoint(lambda: custom) == custom
 
 
 def test_api_contract_error_uses_clean_detail_and_machine_code_header():
@@ -64,7 +68,9 @@ def test_frontend_reads_exactly_one_v3_envelope():
 
     assert "const payload = response\n" in source
     assert "payload.success === false" in source
-    assert "payload.success !== true" in source
+    assert "keys.length === 3" in source
+    assert "Object.prototype.hasOwnProperty.call(payload, key)" in source
+    assert "return payload" in source
     assert "return payload.data" in source
     assert "response?.data ?? response" not in source
     assert "payload.error" not in source

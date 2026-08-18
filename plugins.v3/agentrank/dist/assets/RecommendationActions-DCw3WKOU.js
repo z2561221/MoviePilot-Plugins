@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { g as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-Ba5YfA_5.js';
+import { g as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-BAfgmHFk.js';
 
 const {computed: computed$1,reactive,ref: ref$1,watch} = await importShared('vue');
 

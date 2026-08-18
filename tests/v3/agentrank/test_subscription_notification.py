@@ -19,14 +19,9 @@ package.__path__ = [str(PLUGIN_DIR)]
 app_module = sys.modules.setdefault("app", ModuleType("app"))
 schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
 types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-application_module = sys.modules.setdefault(
-    "app.application", ModuleType("app.application")
-)
+sdk_module = sys.modules.setdefault("app.sdk", ModuleType("app.sdk"))
 security_module = sys.modules.setdefault(
-    "app.application.security", ModuleType("app.application.security")
-)
-access_module = sys.modules.setdefault(
-    "app.application.security.access", ModuleType("app.application.security.access")
+    "app.sdk.security", ModuleType("app.sdk.security")
 )
 
 
@@ -67,14 +62,13 @@ class NotificationType(Enum):
 
 
 app_module.schemas = schemas_module
-app_module.application = application_module
-application_module.security = security_module
-security_module.access = access_module
+app_module.sdk = sdk_module
+sdk_module.security = security_module
 schemas_module.types = types_module
 schemas_module.TokenPayload = TokenPayload
 types_module.NotificationType = NotificationType
 types_module.MediaSource = MediaSource
-access_module.verify_token = verify_token
+security_module.verify_token = verify_token
 
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
