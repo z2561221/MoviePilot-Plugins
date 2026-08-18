@@ -949,6 +949,38 @@ def test_bangumi_subject_link_precedes_legacy_douban_id():
     assert feed._extract_bangumi_id(item) == "633836"
 
 
+def test_bangumi_history_poster_repair_preserves_existing_tmdb_identity(monkeypatch):
+    """补 Bangumi 海报时不得覆盖已经确认的 V3 TMDB 主身份。"""
+    saved = {}
+    plugin = SimpleNamespace(save_data=lambda key, value: saved.update({key: value}))
+    subject = {
+        "id": 622206,
+        "name": "ヤニねこ",
+        "name_cn": "烟猫",
+        "date": "2026-04-01",
+        "images": {"large": "https://lain.bgm.tv/pic/cover/l/622206.jpg"},
+    }
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    history = [{
+        "rank_key": "bangumi",
+        "title": subject["name"],
+        "link": "https://bgm.tv/subject/622206",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "312949",
+        "bangumi_id": "622206",
+        "poster": None,
+    }]
+
+    result = feed.normalize_bangumi_history(plugin, history)
+
+    assert result[0]["media_source"] == MediaSource.TMDB.value
+    assert result[0]["media_id"] == "312949"
+    assert str(result[0]["bangumi_id"]) == "622206"
+    assert result[0]["title"] == "烟猫"
+    assert result[0]["poster"] == subject["images"]["large"]
+    assert saved["rank_history_bangumi"] == result
+
+
 def test_manual_bangumi_resolve_returns_tmdb_identity():
     """手动点击榜单识别时复用 Bangumi subject 标题年份得到的 TMDB 身份。"""
     tmdb_media = FakeMediaInfo(

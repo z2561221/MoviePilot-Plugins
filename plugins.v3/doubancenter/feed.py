@@ -591,9 +591,8 @@ def _is_complete_bangumi_history_item(item: dict) -> bool:
         return False
     media_source = str(item.get("media_source") or "")
     media_id = str(item.get("media_id") or "")
-    tmdbid = item.get("tmdbid") or item.get("tmdb_id")
-    if tmdbid not in (None, ""):
-        return media_source == MediaSource.TMDB.value and media_id == str(tmdbid)
+    if media_source == MediaSource.TMDB.value and media_id:
+        return True
     return media_source == MediaSource.Bangumi.value and media_id == str(bangumiid)
 
 
@@ -612,7 +611,7 @@ def _bangumi_history_repair_candidates(history: List[dict]) -> List[dict]:
 
 
 def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) -> List[dict]:
-    """迁移旧 BangumiTV 榜单缓存，补齐中文名和 TMDB 信息。"""
+    """迁移旧 BangumiTV 榜单缓存，补齐 subject 身份和展示信息。"""
     if not isinstance(history, list):
         return []
     changed = False
@@ -637,7 +636,15 @@ def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) 
             item.get("media_source"),
             item.get("media_id"),
         )
-        _apply_bangumi_recognition(self, item, item)
+        bangumiid = _extract_bangumi_id(item)
+        subject = _fetch_bangumi_subject(self, bangumiid)
+        if subject:
+            media_source = item.get("media_source")
+            media_id = item.get("media_id")
+            _apply_bangumi_subject(subject, item, title=str(title), bangumiid=bangumiid)
+            if str(media_source or "") == MediaSource.TMDB.value and media_id not in (None, ""):
+                item["media_source"] = MediaSource.TMDB.value
+                item["media_id"] = str(media_id)
         repair_count += 1
         after = (
             item.get("title"),
