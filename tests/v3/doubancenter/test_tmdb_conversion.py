@@ -915,7 +915,7 @@ def test_bangumi_ordinal_season_uses_parent_series_title_without_year():
 
 
 def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
-    """Bangumi 榜单保留 BGM 原标题并单独保存 TMDB 标题。"""
+    """Bangumi 榜单展示中文名，并单独保存原名和 TMDB 标题。"""
     tmdb_media = FakeMediaInfo(
         title="尼古喵喵",
         source=MediaSource.TMDB,
@@ -940,13 +940,14 @@ def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
     assert entry["tmdb_id"] == 312949
     assert entry["tmdbid"] == 312949
     assert entry["bangumi_id"] == "622206"
-    assert entry["title"] == "ヤニねこ"
+    assert entry["title"] == "烟猫"
     assert entry["original_title"] == "ヤニねこ"
     assert entry["tmdb_title"] == "尼古喵喵"
+    assert entry["bangumi_title_source"] == "name_cn"
 
 
 def test_bangumi_history_repairs_legacy_douban_identity_from_subject_link(monkeypatch):
-    """旧 Bangumi 缓存应以 subject 链接纠正来源并保留 BGM 原标题。"""
+    """旧 Bangumi 缓存应以 subject 链接纠正来源并恢复 BGM 中文名。"""
     saved = {}
     plugin = SimpleNamespace(
         chain=ConversionChain(),
@@ -976,8 +977,9 @@ def test_bangumi_history_repairs_legacy_douban_identity_from_subject_link(monkey
     assert result[0]["media_id"] == "633836"
     assert "bangumiid" not in result[0]
     assert "bangumi_id" not in result[0]
-    assert result[0]["title"] == subject["name"]
+    assert result[0]["title"] == subject["name_cn"]
     assert result[0]["original_title"] == subject["name"]
+    assert result[0]["bangumi_title_source"] == "name_cn"
     assert result[0]["year"] == "2026"
     assert result[0]["poster"] == subject["images"]["large"]
     assert saved["rank_history_bangumi"] == result
@@ -1023,7 +1025,7 @@ def test_bangumi_history_replaces_wrong_tmdb_identity_with_parent_series(monkeyp
 
     result = feed.normalize_bangumi_history(plugin, history)
 
-    assert result[0]["title"] == subject["name"]
+    assert result[0]["title"] == subject["name_cn"]
     assert result[0]["tmdb_title"] == tmdb_media.title
     assert result[0]["match_title"] == "Re:ゼロから始める異世界生活"
     assert result[0]["season"] == 4
@@ -1073,7 +1075,7 @@ def test_bangumi_history_repairs_missing_season_for_saved_tmdb_identity(monkeypa
 
     result = feed.normalize_bangumi_history(plugin, history)
 
-    assert result[0]["title"] == subject["name"]
+    assert result[0]["title"] == subject["name_cn"]
     assert result[0]["tmdb_title"] == tmdb_media.title
     assert result[0]["match_title"] == "無職転生"
     assert result[0]["season"] == 3
@@ -1123,7 +1125,9 @@ def test_bangumi_history_poster_repair_preserves_existing_tmdb_identity(monkeypa
     assert result[0]["media_source"] == MediaSource.TMDB.value
     assert result[0]["media_id"] == "312949"
     assert str(result[0]["bangumi_id"]) == "622206"
-    assert result[0]["title"] == "ヤニねこ"
+    assert result[0]["title"] == subject["name_cn"]
+    assert result[0]["original_title"] == subject["name"]
+    assert result[0]["bangumi_title_source"] == "name_cn"
     assert result[0]["poster"] == subject["images"]["large"]
     assert saved["rank_history_bangumi"] == result
 
@@ -1194,7 +1198,7 @@ def test_manual_bangumi_resolve_returns_tmdb_identity():
 
 
 def test_manual_bangumi_resolve_reuses_saved_tmdb_and_returns_season():
-    """点击识别复用榜单 TMDB 身份，同时返回 BGM 原标题和独立季号。"""
+    """点击识别复用榜单 TMDB 身份，同时返回 BGM 中文名和独立季号。"""
     tmdb_media = FakeMediaInfo(
         title="Re：从零开始的异世界生活",
         source=MediaSource.TMDB,
@@ -1223,7 +1227,8 @@ def test_manual_bangumi_resolve_reuses_saved_tmdb_and_returns_season():
     )
 
     assert result["success"] is True
-    assert result["data"]["title"] == subject["name"]
+    assert result["data"]["title"] == subject["name_cn"]
+    assert result["data"]["original_title"] == subject["name"]
     assert result["data"]["tmdb_title"] == tmdb_media.title
     assert result["data"]["season"] == 4
     assert result["data"]["media_source"] == MediaSource.TMDB.value

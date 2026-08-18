@@ -370,10 +370,17 @@ def resolve_media_from_rank(
         if subject_response:
             subject_data = subject_response.get("data") if isinstance(subject_response, dict) else None
             if isinstance(subject_data, dict):
-                display_title = str(recognition.get("original_title") or title or "").strip()
+                display_title = str(recognition.get("title") or subject_data.get("title") or title or "").strip()
+                original_title = str(
+                    recognition.get("original_title") or subject_data.get("original_title") or ""
+                ).strip()
                 if display_title:
                     subject_data["title"] = display_title
                     subject_data["name"] = display_title
+                if original_title and original_title != display_title:
+                    subject_data["original_title"] = original_title
+                else:
+                    subject_data.pop("original_title", None)
                 subject_data["season"] = getattr(meta, "begin_season", None)
                 if recognition.get("match_title"):
                     subject_data["match_title"] = recognition["match_title"]
@@ -406,10 +413,15 @@ def resolve_media_from_rank(
         season=getattr(meta, "begin_season", None) if media_type_value == media_type_cls.TV else None,
     )
     if bangumi_identity_id:
-        display_title = str(recognition.get("original_title") or title or "").strip()
+        display_title = str(recognition.get("title") or title or "").strip()
+        original_title = str(recognition.get("original_title") or "").strip()
         if display_title:
             data["title"] = display_title
             data["name"] = display_title
+        if original_title and original_title != display_title:
+            data["original_title"] = original_title
+        else:
+            data.pop("original_title", None)
         resolved_source, _ = identity_from_media(mediainfo)
         if resolved_source == MediaSource.TMDB:
             data["tmdb_title"] = recognition.get("tmdb_title") or getattr(mediainfo, "title", None) or ""

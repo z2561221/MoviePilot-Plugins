@@ -323,7 +323,7 @@ def subscribe_from_rank(
     if subscribe_chain.exists(mediainfo=mediainfo, meta=meta):
         return {"success": False, "message": "已订阅"}
     source, resolved_id = identity_from_media(mediainfo)
-    display_title = str(recognition.get("original_title") or title or "") if bangumi_identity_id else ""
+    display_title = str(recognition.get("title") or title or "") if bangumi_identity_id else ""
     sid, msg = add_silent_subscription(
         subscribe_chain,
         getattr(mediainfo, "title", None) or title,

@@ -97,6 +97,8 @@ def _recognize_rss_item(self, item: dict, rank: dict):
         )
         if recognition.get("season") not in (None, ""):
             meta.begin_season = int(recognition["season"])
+        if recognition.get("title"):
+            item["display_title"] = recognition["title"]
         return meta, recognition.get("mediainfo"), "tv"
     if inferred in ("movie", "tv"):
         meta.type = MediaType.MOVIE if inferred == "movie" else MediaType.TV
@@ -338,7 +340,7 @@ def _apply_bangumi_recognition(
     *,
     reuse_tmdb_identity: bool = True,
 ):
-    """保留 BGM 原标题，并用母剧标题和独立季号补全 TMDB 信息。"""
+    """展示 BGM 中文名，并用原名、母剧标题和独立季号补全 TMDB 信息。"""
     title = str(item.get("title") or "")
     if not title:
         return None
@@ -372,24 +374,33 @@ def _apply_bangumi_recognition(
         logger.warning(f"豆瓣中心：BangumiTV 条目《{title}》识别失败：{err}")
         return None
     mediainfo = recognition.get("mediainfo")
+    subject = recognition.get("subject")
+    if not subject and not mediainfo:
+        subject = _fetch_bangumi_subject(self, bangumiid)
+    if subject:
+        _apply_bangumi_subject(subject, entry, title=title, bangumiid=bangumiid)
     if not mediainfo:
-        subject = recognition.get("subject")
-        if not subject:
-            subject = _fetch_bangumi_subject(self, bangumiid)
         if subject:
-            _apply_bangumi_subject(subject, entry, title=title, bangumiid=bangumiid)
-            display_title = str(recognition.get("original_title") or title or "").strip()
+            display_title = str(recognition.get("title") or entry.get("title") or title or "").strip()
+            original_title = str(recognition.get("original_title") or subject.get("name") or "").strip()
             if display_title:
                 entry["title"] = display_title
-                entry["original_title"] = display_title
+            if original_title and original_title != display_title:
+                entry["original_title"] = original_title
+            else:
+                entry.pop("original_title", None)
             if recognition.get("match_title"):
                 entry["match_title"] = recognition["match_title"]
             if recognition.get("season") not in (None, ""):
                 entry["season"] = int(recognition["season"])
         return None
-    display_title = str(recognition.get("original_title") or title or recognition.get("title") or "").strip()
+    display_title = str(recognition.get("title") or entry.get("title") or title or "").strip()
+    original_title = str(recognition.get("original_title") or "").strip()
     entry["title"] = display_title
-    entry["original_title"] = display_title
+    if original_title and original_title != display_title:
+        entry["original_title"] = original_title
+    else:
+        entry.pop("original_title", None)
     entry["tmdb_title"] = recognition.get("tmdb_title") or getattr(mediainfo, "title", None) or ""
     if recognition.get("match_title"):
         entry["match_title"] = recognition["match_title"]
@@ -633,7 +644,7 @@ def _has_cjk_text(value: Any) -> bool:
 def _is_complete_bangumi_history_item(item: dict) -> bool:
     """判断 Bangumi 历史条目是否已有完整且一致的展示身份。"""
     bangumiid = _extract_bangumi_id(item)
-    if not bangumiid or not item.get("poster"):
+    if not bangumiid or not item.get("poster") or not item.get("bangumi_title_source"):
         return False
     media_source = str(item.get("media_source") or "")
     media_id = str(item.get("media_id") or "")
@@ -703,7 +714,7 @@ def _apply_bangumi_media(mediainfo: Any, entry: dict, title: str, bangumiid: Any
 
 
 def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) -> List[dict]:
-    """按 BGM 原标题重新识别当前快照，修复旧 TMDB 身份、海报和季号。"""
+    """按 BGM 原名重新识别当前快照，并补齐中文展示名、TMDB 身份、海报和季号。"""
     if not isinstance(history, list):
         return []
     changed = False
@@ -730,6 +741,7 @@ def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) 
             item.get("tmdb_title"),
             item.get("match_title"),
             item.get("season"),
+            item.get("bangumi_title_source"),
         )
         existing_tmdb_identity = (
             item.get("media_source"),
@@ -791,6 +803,7 @@ def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) 
             item.get("tmdb_title"),
             item.get("match_title"),
             item.get("season"),
+            item.get("bangumi_title_source"),
         )
         if after != before:
             changed = True
@@ -1159,7 +1172,15 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
             _log_rank_skip(rd, title, "观察期规则拦截", result_lines=result_lines)
             continue
-        if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
+        if _add_sub(
+            self,
+            mediainfo,
+            meta,
+            rank_key=rd["key"],
+            rank_name=rd["name"],
+            source_link=link,
+            record_title=title,
+        ):
             cn_title = mediainfo.title or title
             stored_title = title if rd["key"] == "bangumi" else cn_title
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1371,9 +1392,18 @@ def _process_general(self, url: str, rd: dict) -> None:
         # 观察期：仅对选中的波动榜单延迟订阅。
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
             continue
-        if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
+        display_title = str(item.get("display_title") or title)
+        if _add_sub(
+            self,
+            mediainfo,
+            meta,
+            rank_key=rd["key"],
+            rank_name=rd["name"],
+            source_link=link,
+            record_title=display_title,
+        ):
             cn_title = mediainfo.title or title
-            stored_title = title if rd["key"] == "bangumi" else cn_title
+            stored_title = display_title if rd["key"] == "bangumi" else cn_title
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _record_history_item(history, {
                 "title": stored_title,
@@ -1457,7 +1487,15 @@ def _write_subscribe_record(self, mediainfo, rank_key: str = "", rank_name: str 
     subscription_service.write_subscribe_record(self, mediainfo, rank_key=rank_key, rank_name=rank_name, status=status, reason=reason, source_link=source_link)
 
 
-def _add_sub(self, mediainfo, meta=None, rank_key="", rank_name="", source_link: str = "") -> bool:
+def _add_sub(
+    self,
+    mediainfo,
+    meta=None,
+    rank_key="",
+    rank_name="",
+    source_link: str = "",
+    record_title: str = "",
+) -> bool:
     """按 MP 默认 TMDB 语义执行自动订阅。"""
     return subscription_service.add_subscription(
         self,
@@ -1466,7 +1504,7 @@ def _add_sub(self, mediainfo, meta=None, rank_key="", rank_name="", source_link:
         rank_key=rank_key,
         rank_name=rank_name,
         source_link=source_link,
-        record_title=(getattr(meta, "org_string", None) or "") if rank_key == "bangumi" else "",
+        record_title=record_title if rank_key == "bangumi" else "",
         subscribe_chain_cls=SubscribeChain,
     )
 

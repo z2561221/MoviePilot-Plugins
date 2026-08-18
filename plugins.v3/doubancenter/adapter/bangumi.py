@@ -55,9 +55,13 @@ def apply_subject(subject: dict, entry: dict, title: str = "", bangumiid: Any = 
     """用 Bangumi subject 详情补全榜单条目。"""
     subject = subject or {}
     cn_title = subject_title(subject, fallback=title)
-    if cn_title and cn_title != title:
-        entry["original_title"] = title
+    original_title = str(subject.get("name") or title or "").strip()
+    if original_title and original_title != cn_title:
+        entry["original_title"] = original_title
+    else:
+        entry.pop("original_title", None)
     entry["title"] = cn_title or title
+    entry["bangumi_title_source"] = "name_cn" if str(subject.get("name_cn") or "").strip() else "name"
     entry["year"] = subject_year(subject, fallback=entry.get("year"))
     subject_id = bangumiid or subject.get("id")
     entry["bangumi_id"] = int(subject_id) if str(subject_id or "").isdigit() else subject_id
@@ -72,7 +76,8 @@ def subject_to_media_data(subject: dict, media_type_name: str, fallback_title: s
     subject = subject or {}
     subject_id = bangumiid or subject.get("id")
     title = subject_title(subject, fallback=fallback_title)
-    return {
+    original_title = str(subject.get("name") or fallback_title or "").strip()
+    result = {
         "title": title,
         "name": title,
         "year": subject_year(subject),
@@ -90,7 +95,11 @@ def subject_to_media_data(subject: dict, media_type_name: str, fallback_title: s
         "overview": str(subject.get("summary") or ""),
         "season": None,
         "source": "bangumi",
+        "bangumi_title_source": "name_cn" if str(subject.get("name_cn") or "").strip() else "name",
     }
+    if original_title and original_title != title:
+        result["original_title"] = original_title
+    return result
 
 
 def extract_subject_id(item: dict) -> Optional[str]:
