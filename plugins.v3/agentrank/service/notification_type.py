@@ -21,7 +21,7 @@ def resolve_notification_type(
 ) -> Any:
     """从配置解析通知类型，无效或宿主缺项时安全回退插件类型。"""
     if notification_type_enum is None:
-        from app.schemas.types import NotificationType as notification_type_enum
+        from app.schemas.types import MessageType as notification_type_enum
 
     name = str((config or {}).get("notification_type") or "Plugin").strip()
     fallback = getattr(
@@ -34,7 +34,7 @@ def notification_type_options(notification_type_enum: Any = None) -> List[Dict[s
     """动态返回当前 MoviePilot 宿主提供的全部通知类型选项。"""
     try:
         if notification_type_enum is None:
-            from app.schemas.types import NotificationType as notification_type_enum
+            from app.schemas.types import MessageType as notification_type_enum
 
         values = tuple(
             (str(item.name), str(item.value)) for item in notification_type_enum

@@ -20,14 +20,14 @@ types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schem
 message_module = sys.modules.setdefault("app.schemas.message", ModuleType("app.schemas.message"))
 
 
-class NotificationType(Enum):
+class MessageType(Enum):
     """测试使用的通知类型。"""
 
     Subscribe = "订阅"
     Plugin = "插件"
 
 
-class MessageChannel(Enum):
+class NotificationChannel(Enum):
     """测试使用的消息渠道。"""
 
     Telegram = "Telegram"
@@ -35,8 +35,8 @@ class MessageChannel(Enum):
 
 app_module.schemas = schemas_module
 schemas_module.types = types_module
-types_module.NotificationType = NotificationType
-types_module.MessageChannel = MessageChannel
+types_module.MessageType = MessageType
+types_module.NotificationChannel = NotificationChannel
 
 sdk_module = sys.modules.setdefault("app.sdk", ModuleType("app.sdk"))
 services_module = sys.modules.setdefault(
@@ -384,7 +384,7 @@ def _event(action, userid="1001"):
     """构造 MoviePilot MessageAction 事件数据。"""
     return {
         "text": f"ar:token123:{action}",
-        "channel": MessageChannel.Telegram,
+        "channel": NotificationChannel.Telegram,
         "source": "Telegram",
         "userid": userid,
         "original_message_id": 77,
@@ -397,7 +397,7 @@ def _pending_event(action, argument="", userid="1001"):
     suffix = f":{argument}" if argument else ""
     return {
         "text": f"arp:token123:{action}{suffix}",
-        "channel": MessageChannel.Telegram,
+        "channel": NotificationChannel.Telegram,
         "source": "Telegram",
         "userid": userid,
         "original_message_id": 88,
@@ -657,7 +657,7 @@ def test_pending_cross_device_delete_uses_persisted_message_identity():
     assert service.resolve_pending_item(notice.item) == 1
 
     assert plugin.chain.delete_calls[-1] == {
-        "channel": MessageChannel.Telegram,
+        "channel": NotificationChannel.Telegram,
         "source": "Telegram",
         "message_id": "903",
         "chat_id": "1001",
@@ -1017,7 +1017,7 @@ def test_start_sends_linked_three_line_top_list_with_horizontal_cover():
     assert service.start("alice", "alice", _board()) is True
 
     message = plugin.messages[-1]
-    assert message["channel"] is MessageChannel.Telegram
+    assert message["channel"] is NotificationChannel.Telegram
     assert message.get("userid") is None
     assert message["username"] == "alice"
     assert message["targets"] == {"telegram_userid": "1001"}
@@ -1061,7 +1061,7 @@ def test_start_sends_linked_three_line_top_list_with_horizontal_cover():
     assert len(message["buttons"]) == 2
     assert max(len(row) for row in message["buttons"]) == 3
     assert len(message["text"]) <= service.caption_limit
-    assert message["mtype"] is NotificationType.Plugin
+    assert message["mtype"] is MessageType.Plugin
     assert all(len(value.encode("utf-8")) <= 64 for value in _callbacks(message))
     session = repository.load_telegram_session("token123")
     assert session.candidate_ids == ["tmdb:1", "tmdb:2"]
@@ -1142,7 +1142,7 @@ def test_number_toggle_and_clear_update_single_original_message():
     assert "已清空本轮选择" in plugin.messages[-1]["text"]
     assert "确认 0" in str(plugin.messages[-1]["buttons"])
     assert all(
-        message["mtype"] is NotificationType.Plugin for message in plugin.messages
+        message["mtype"] is MessageType.Plugin for message in plugin.messages
     )
     assert all(message.get("userid") is None for message in plugin.messages)
     assert all(

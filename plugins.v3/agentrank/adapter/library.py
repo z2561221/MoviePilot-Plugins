@@ -13,7 +13,7 @@ class LibraryAdapter:
     def __init__(self, oper: Any = None):
         """允许测试注入 MediaServerOper。"""
         if oper is None:
-            from app.db.mediaserver_oper import MediaServerOper
+            from app.db.oper.mediaserver import MediaServerOper
 
             oper = MediaServerOper()
         self._oper = oper
