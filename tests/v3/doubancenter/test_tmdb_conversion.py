@@ -6,12 +6,98 @@ from app.schemas.types import MediaSource, MediaType
 from app.sdk.media import MetaInfo
 
 from doubancenter import feed
+from doubancenter.adapter import bangumi as bangumi_adapter
 from doubancenter.adapter import douban as douban_adapter
 from doubancenter.adapter import rss as rss_adapter
 from doubancenter.model.identity import convert_identity
 from doubancenter.service import dashboard_rank_media
 from doubancenter.service import dashboard_rank_subscription
 from doubancenter.service import bangumi_tmdb
+
+
+def test_bangumi_subject_retries_rate_limit_and_returns_payload(monkeypatch):
+    """BGM subject 遇到 429 后应有限重试并继续返回详情。"""
+    class FakeResponse:
+        """模拟 BGM subject HTTP 响应。"""
+
+        def __init__(self, status_code, payload=None, headers=None):
+            """保存响应状态、JSON 数据和响应头。"""
+            self.status_code = status_code
+            self._payload = payload
+            self.headers = headers or {}
+            self.closed = False
+
+        def json(self):
+            """返回模拟 JSON 数据。"""
+            return self._payload
+
+        def close(self):
+            """记录响应已释放。"""
+            self.closed = True
+
+    responses = [
+        FakeResponse(429, headers={"Retry-After": "0"}),
+        FakeResponse(200, {"id": 622206, "name": "ヤニねこ", "name_cn": "烟猫"}),
+    ]
+
+    class FakeRequest:
+        """按顺序返回预设 HTTP 响应。"""
+
+        def __init__(self, **kwargs):
+            """记录请求初始化参数。"""
+            self.kwargs = kwargs
+
+        def get_res(self, url):
+            """返回下一个预设响应。"""
+            return responses.pop(0)
+
+    sleeps = []
+    monkeypatch.setattr(bangumi_adapter.time, "sleep", sleeps.append)
+    result = bangumi_adapter.fetch_subject(
+        SimpleNamespace(_proxy=False),
+        "622206",
+        request_utils_cls=FakeRequest,
+        settings_obj=SimpleNamespace(PROXY=None),
+    )
+
+    assert result["name_cn"] == "烟猫"
+    assert sleeps == [1.0]
+
+
+def test_bangumi_subject_does_not_retry_non_transient_error(monkeypatch):
+    """BGM subject 遇到 404 时应直接放弃并让榜单继续处理。"""
+    class FakeResponse:
+        """模拟不可重试的 BGM subject 响应。"""
+
+        status_code = 404
+        headers = {}
+
+        def close(self):
+            """提供响应释放接口。"""
+            return None
+
+    class FakeRequest:
+        """返回 404 响应的请求客户端。"""
+
+        def __init__(self, **kwargs):
+            """忽略请求配置。"""
+            return None
+
+        def get_res(self, url):
+            """返回 404 响应。"""
+            return FakeResponse()
+
+    sleeps = []
+    monkeypatch.setattr(bangumi_adapter.time, "sleep", sleeps.append)
+    result = bangumi_adapter.fetch_subject(
+        SimpleNamespace(_proxy=False),
+        "missing",
+        request_utils_cls=FakeRequest,
+        settings_obj=SimpleNamespace(PROXY=None),
+    )
+
+    assert result is None
+    assert sleeps == []
 
 
 class FakeMediaInfo:
