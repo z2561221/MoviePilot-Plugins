@@ -597,9 +597,8 @@ def _is_complete_bangumi_history_item(item: dict) -> bool:
 
 
 def _bangumi_history_repair_candidates(history: List[dict]) -> List[dict]:
-    """按当前榜单优先、最近历史次之生成 Bangumi 修复顺序。"""
+    """只生成当前榜单快照中的 Bangumi 修复对象，避免阻塞插件启动。"""
     candidates = rank_refresh_service.dashboard_rank_items(history, limit=5)
-    candidates.extend(reversed(history))
     result = []
     seen = set()
     for item in candidates:
@@ -611,7 +610,7 @@ def _bangumi_history_repair_candidates(history: List[dict]) -> List[dict]:
 
 
 def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) -> List[dict]:
-    """迁移旧 BangumiTV 榜单缓存，补齐 subject 身份和展示信息。"""
+    """修复当前 BangumiTV 榜单快照中的 subject 身份和展示信息。"""
     if not isinstance(history, list):
         return []
     changed = False
