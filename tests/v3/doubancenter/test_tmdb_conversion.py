@@ -981,6 +981,42 @@ def test_bangumi_history_poster_repair_preserves_existing_tmdb_identity(monkeypa
     assert saved["rank_history_bangumi"] == result
 
 
+def test_bangumi_history_falls_back_to_host_identity_when_subject_is_empty(monkeypatch):
+    """subject HTTP 为空时应复用宿主 Bangumi 身份识别补全展示数据。"""
+    bangumi_media = FakeMediaInfo(
+        title="Re：从零开始的异世界生活 第四季 夺还篇",
+        source=MediaSource.Bangumi,
+        media_id="633836",
+        poster="https://lain.bgm.tv/pic/cover/l/43/ca/633836_ql0f3.jpg",
+    )
+    chain = ConversionChain(title_media=bangumi_media)
+    saved = {}
+    plugin = SimpleNamespace(
+        chain=chain,
+        save_data=lambda key, value: saved.update({key: value}),
+    )
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: None)
+    history = [{
+        "rank_key": "bangumi",
+        "title": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "link": "https://bgm.tv/subject/633836",
+        "media_source": MediaSource.Douban.value,
+        "media_id": "633836",
+        "poster": None,
+    }]
+
+    result = feed.normalize_bangumi_history(plugin, history)
+
+    assert result[0]["media_source"] == MediaSource.Bangumi.value
+    assert result[0]["media_id"] == "633836"
+    assert result[0]["title"] == bangumi_media.title
+    assert result[0]["year"] == "2026"
+    assert result[0]["poster"] == bangumi_media.poster_path
+    assert chain.recognize_calls[-1]["media_source"] == MediaSource.Bangumi
+    assert chain.recognize_calls[-1]["media_id"] == "633836"
+    assert saved["rank_history_bangumi"] == result
+
+
 def test_manual_bangumi_resolve_returns_tmdb_identity():
     """手动点击榜单识别时复用 Bangumi subject 标题年份得到的 TMDB 身份。"""
     tmdb_media = FakeMediaInfo(

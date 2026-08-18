@@ -609,6 +609,33 @@ def _bangumi_history_repair_candidates(history: List[dict]) -> List[dict]:
     return result
 
 
+def _apply_bangumi_media(mediainfo: Any, entry: dict, title: str, bangumiid: Any) -> None:
+    """用宿主 Bangumi 身份识别结果补全历史条目并保留既有 TMDB 主身份。"""
+    media_source = str(entry.get("media_source") or "")
+    media_id = entry.get("media_id")
+    cn_title = str(getattr(mediainfo, "title", None) or title or "")
+    if cn_title and cn_title != title:
+        entry["original_title"] = title
+    entry["title"] = cn_title
+    entry["year"] = str(getattr(mediainfo, "year", None) or entry.get("year") or "")
+    resolved_bangumi_id = getattr(mediainfo, "bangumi_id", None) or bangumiid
+    entry["bangumi_id"] = resolved_bangumi_id
+    entry["bangumiid"] = resolved_bangumi_id
+    poster = str(getattr(mediainfo, "poster_path", None) or "")
+    if not poster and hasattr(mediainfo, "get_poster_image"):
+        try:
+            poster = str(mediainfo.get_poster_image() or "")
+        except Exception:
+            poster = ""
+    entry["poster"] = poster or entry.get("poster")
+    if media_source == MediaSource.TMDB.value and media_id not in (None, ""):
+        entry["media_source"] = MediaSource.TMDB.value
+        entry["media_id"] = str(media_id)
+    else:
+        entry["media_source"] = MediaSource.Bangumi.value
+        entry["media_id"] = str(resolved_bangumi_id)
+
+
 def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) -> List[dict]:
     """修复当前 BangumiTV 榜单快照中的 subject 身份和展示信息。"""
     if not isinstance(history, list):
@@ -644,6 +671,24 @@ def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) 
             if str(media_source or "") == MediaSource.TMDB.value and media_id not in (None, ""):
                 item["media_source"] = MediaSource.TMDB.value
                 item["media_id"] = str(media_id)
+        else:
+            meta = MetaInfo(str(title))
+            meta.type = MediaType.TV
+            if item.get("year"):
+                meta.year = str(item.get("year"))
+            try:
+                mediainfo = recognize_with_identity(
+                    self.chain,
+                    meta=meta,
+                    mtype=MediaType.TV,
+                    media_source=MediaSource.Bangumi,
+                    media_id=bangumiid,
+                )
+            except Exception as err:
+                logger.warning(f"豆瓣中心：BangumiTV 历史条目《{title}》身份修复失败：{err}")
+                mediainfo = None
+            if mediainfo:
+                _apply_bangumi_media(mediainfo, item, str(title), bangumiid)
         repair_count += 1
         after = (
             item.get("title"),
