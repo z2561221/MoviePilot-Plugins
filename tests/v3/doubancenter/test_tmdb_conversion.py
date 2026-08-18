@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from app.schemas.types import MediaSource, MediaType
 from app.sdk.media import MetaInfo
 
-from doubancenter import feed
+from doubancenter import DoubanCenter, feed
 from doubancenter.adapter import bangumi as bangumi_adapter
 from doubancenter.adapter import douban as douban_adapter
 from doubancenter.adapter import rss as rss_adapter
@@ -13,6 +13,66 @@ from doubancenter.model.identity import convert_identity
 from doubancenter.service import dashboard_rank_media
 from doubancenter.service import dashboard_rank_subscription
 from doubancenter.service import bangumi_tmdb
+
+
+def test_bangumi_subject_prefers_rsshub_chinese_title_and_poster():
+    """运行环境可达 RSSHub 时直接读取 BGM 中文名和封面。"""
+    rss = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0"><channel>
+      <title>尼古喵喵</title>
+      <description>测试简介 - Powered by RSSHub</description>
+      <item><title>ep.1</title><description><![CDATA[
+        <img src="http://lain.bgm.tv/pic/cover/l/6a/b3/622206_dpWcC.jpg">
+      ]]></description></item>
+    </channel></rss>"""
+    requested_urls = []
+
+    class FakeResponse:
+        """模拟 RSSHub subject 响应。"""
+
+        status_code = 200
+        text = rss
+
+        def close(self):
+            """提供响应释放接口。"""
+            return None
+
+    class FakeRequest:
+        """只允许访问预期 RSSHub 路由。"""
+
+        def __init__(self, **kwargs):
+            """忽略请求配置。"""
+            return None
+
+        def get_res(self, url):
+            """记录并返回 RSSHub 响应。"""
+            requested_urls.append(url)
+            return FakeResponse()
+
+    result = bangumi_adapter.fetch_subject(
+        SimpleNamespace(_proxy=False, _rsshub_domain="https://rsshub.example"),
+        "622206",
+        request_utils_cls=FakeRequest,
+        settings_obj=SimpleNamespace(PROXY=None),
+    )
+
+    assert requested_urls == ["https://rsshub.example/bangumi.tv/subject/622206"]
+    assert result["name_cn"] == "尼古喵喵"
+    assert result["images"]["large"] == "https://lain.bgm.tv/pic/cover/l/6a/b3/622206_dpWcC.jpg"
+
+
+def test_plugin_init_does_not_fetch_bangumi_history(monkeypatch):
+    """插件初始化不得同步请求 BGM，历史补全由榜单刷新链路承担。"""
+    plugin = object.__new__(DoubanCenter)
+    plugin.stop_service = lambda: None
+    plugin.update_config = lambda config: None
+    monkeypatch.setattr(feed, "normalize_bangumi_history", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr("doubancenter.migration.migrate_plugin_media_identity", lambda *args, **kwargs: None)
+    monkeypatch.setattr("doubancenter.migration.normalize_legacy_subscribe_usernames", lambda: None)
+
+    plugin.init_plugin({"enabled": True})
+
+    assert plugin.get_state() is True
 
 
 def test_bangumi_subject_retries_rate_limit_and_returns_payload(monkeypatch):
