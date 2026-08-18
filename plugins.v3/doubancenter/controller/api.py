@@ -133,6 +133,7 @@ def api_resolve_media(
     bangumi_id=None,
     media_source=None,
     media_id=None,
+    season=None,
 ):
     """将榜单条目识别为 V3 媒体身份。"""
     media_source, media_id = _normalize_request_identity(media_source, media_id)
@@ -150,6 +151,7 @@ def api_resolve_media(
         bangumi_id=bangumi_id,
         media_source=media_source,
         media_id=media_id,
+        season=season,
     )
 
 
@@ -165,6 +167,7 @@ def api_subscribe(
     rank_key="",
     rank_name="",
     source_link="",
+    season=None,
 ):
     """根据榜单条目创建 V3 媒体订阅。"""
     media_source, media_id = _normalize_request_identity(media_source, media_id)
@@ -185,6 +188,7 @@ def api_subscribe(
         rank_key=rank_key,
         rank_name=rank_name,
         source_link=source_link,
+        season=season,
     )
 
 

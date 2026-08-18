@@ -80,6 +80,24 @@ def _recognize_rss_item(self, item: dict, rank: dict):
     if item.get("year"):
         meta.year = str(item.get("year"))
     inferred = _rank_media_type(rank, item)
+    if str(rank.get("key") or "") == "bangumi":
+        meta.type = MediaType.TV
+        recognition = bangumi_tmdb_service.recognize_bangumi_tmdb(
+            self,
+            self.chain,
+            meta,
+            bangumi_id=_extract_bangumi_id(item),
+            tmdb_id=item.get("tmdb_id") or item.get("tmdbid"),
+            season=item.get("season"),
+            media_type=MediaType.TV,
+            subject_fetcher=_fetch_bangumi_subject,
+            subject_title=_bangumi_subject_title,
+            subject_year=_bangumi_subject_year,
+            meta_cls=MetaInfo,
+        )
+        if recognition.get("season") not in (None, ""):
+            meta.begin_season = int(recognition["season"])
+        return meta, recognition.get("mediainfo"), "tv"
     if inferred in ("movie", "tv"):
         meta.type = MediaType.MOVIE if inferred == "movie" else MediaType.TV
         mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
@@ -145,6 +163,8 @@ def _record_existing_history(
     rank_key: str = "",
     rank_name: str = "",
     media_type: str = "",
+    season: Any = None,
+    prefer_title: bool = False,
 ) -> None:
     """记录已存在订阅，避免后续再次进入观察队列。"""
     subscription_service.record_existing_history(
@@ -157,6 +177,8 @@ def _record_existing_history(
         rank_key=rank_key,
         rank_name=rank_name,
         media_type=media_type,
+        season=season,
+        prefer_title=prefer_title,
     )
 
 
@@ -309,8 +331,14 @@ def _existing_tmdb_identity(existing: dict, douban_id: Any):
     return None, None
 
 
-def _apply_bangumi_recognition(self, item: dict, entry: dict):
-    """用 MP 识别结果补全 BangumiTV 榜单的中文名和 TMDB 信息。"""
+def _apply_bangumi_recognition(
+    self,
+    item: dict,
+    entry: dict,
+    *,
+    reuse_tmdb_identity: bool = True,
+):
+    """保留 BGM 原标题，并用母剧标题和独立季号补全 TMDB 信息。"""
     title = str(item.get("title") or "")
     if not title:
         return None
@@ -319,7 +347,12 @@ def _apply_bangumi_recognition(self, item: dict, entry: dict):
     if year:
         meta.year = str(year)
     meta.type = MediaType.TV
-    tmdbid = item.get("tmdbid") or entry.get("tmdbid")
+    tmdbid = (
+        item.get("tmdb_id")
+        or item.get("tmdbid")
+        or entry.get("tmdb_id")
+        or entry.get("tmdbid")
+    ) if reuse_tmdb_identity else None
     bangumiid = _extract_bangumi_id(item) or _extract_bangumi_id(entry)
     try:
         recognition = bangumi_tmdb_service.recognize_bangumi_tmdb(
@@ -328,6 +361,7 @@ def _apply_bangumi_recognition(self, item: dict, entry: dict):
             meta,
             bangumi_id=bangumiid,
             tmdb_id=tmdbid,
+            season=item.get("season") or entry.get("season"),
             media_type=MediaType.TV,
             subject_fetcher=_fetch_bangumi_subject,
             subject_title=_bangumi_subject_title,
@@ -344,11 +378,23 @@ def _apply_bangumi_recognition(self, item: dict, entry: dict):
             subject = _fetch_bangumi_subject(self, bangumiid)
         if subject:
             _apply_bangumi_subject(subject, entry, title=title, bangumiid=bangumiid)
+            display_title = str(recognition.get("original_title") or title or "").strip()
+            if display_title:
+                entry["title"] = display_title
+                entry["original_title"] = display_title
+            if recognition.get("match_title"):
+                entry["match_title"] = recognition["match_title"]
+            if recognition.get("season") not in (None, ""):
+                entry["season"] = int(recognition["season"])
         return None
-    cn_title = getattr(mediainfo, "title", None) or recognition.get("title") or title
-    if cn_title and cn_title != title:
-        entry["original_title"] = title
-    entry["title"] = cn_title
+    display_title = str(recognition.get("original_title") or title or recognition.get("title") or "").strip()
+    entry["title"] = display_title
+    entry["original_title"] = display_title
+    entry["tmdb_title"] = recognition.get("tmdb_title") or getattr(mediainfo, "title", None) or ""
+    if recognition.get("match_title"):
+        entry["match_title"] = recognition["match_title"]
+    if recognition.get("season") not in (None, ""):
+        entry["season"] = int(recognition["season"])
     entry["year"] = recognition.get("year") or getattr(mediainfo, "year", None) or entry.get("year") or ""
     entry["tmdbid"] = getattr(mediainfo, "tmdb_id", None) or tmdbid or entry.get("tmdbid")
     entry["tmdb_id"] = entry["tmdbid"]
@@ -587,13 +633,13 @@ def _has_cjk_text(value: Any) -> bool:
 def _is_complete_bangumi_history_item(item: dict) -> bool:
     """判断 Bangumi 历史条目是否已有完整且一致的展示身份。"""
     bangumiid = _extract_bangumi_id(item)
-    if not bangumiid or not item.get("poster") or not _has_cjk_text(item.get("title")):
+    if not bangumiid or not item.get("poster"):
         return False
     media_source = str(item.get("media_source") or "")
     media_id = str(item.get("media_id") or "")
     if media_source == MediaSource.TMDB.value and media_id:
-        return True
-    return media_source == MediaSource.Bangumi.value and media_id == str(bangumiid)
+        return bool(item.get("tmdb_title"))
+    return False
 
 
 def _bangumi_history_repair_candidates(history: List[dict]) -> List[dict]:
@@ -637,7 +683,7 @@ def _apply_bangumi_media(mediainfo: Any, entry: dict, title: str, bangumiid: Any
 
 
 def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) -> List[dict]:
-    """修复当前 BangumiTV 榜单快照中的 subject 身份和展示信息。"""
+    """按 BGM 原标题重新识别当前快照，修复旧 TMDB 身份、海报和季号。"""
     if not isinstance(history, list):
         return []
     changed = False
@@ -661,17 +707,38 @@ def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) 
             item.get("bangumi_id"),
             item.get("media_source"),
             item.get("media_id"),
+            item.get("tmdb_title"),
+            item.get("match_title"),
+            item.get("season"),
+        )
+        existing_tmdb_identity = (
+            item.get("media_source"),
+            item.get("media_id"),
+            item.get("tmdb_id"),
+            item.get("tmdbid"),
         )
         bangumiid = _extract_bangumi_id(item)
-        subject = _fetch_bangumi_subject(self, bangumiid)
-        if subject:
-            media_source = item.get("media_source")
-            media_id = item.get("media_id")
-            _apply_bangumi_subject(subject, item, title=str(title), bangumiid=bangumiid)
-            if str(media_source or "") == MediaSource.TMDB.value and media_id not in (None, ""):
-                item["media_source"] = MediaSource.TMDB.value
-                item["media_id"] = str(media_id)
-        else:
+        source_title = str(item.get("original_title") or title or "")
+        repair_item = dict(item)
+        repair_item["title"] = source_title
+        mediainfo = _apply_bangumi_recognition(
+            self,
+            repair_item,
+            item,
+            reuse_tmdb_identity=False,
+        )
+        if (
+            not mediainfo
+            and str(existing_tmdb_identity[0] or "") == MediaSource.TMDB.value
+            and existing_tmdb_identity[1] not in (None, "")
+        ):
+            item["media_source"] = MediaSource.TMDB.value
+            item["media_id"] = str(existing_tmdb_identity[1])
+            if existing_tmdb_identity[2] not in (None, ""):
+                item["tmdb_id"] = existing_tmdb_identity[2]
+            if existing_tmdb_identity[3] not in (None, ""):
+                item["tmdbid"] = existing_tmdb_identity[3]
+        if not mediainfo and not item.get("poster"):
             meta = MetaInfo(str(title))
             meta.type = MediaType.TV
             if item.get("year"):
@@ -701,6 +768,9 @@ def normalize_bangumi_history(self, history: List[dict], max_repairs: int = 10) 
             item.get("bangumi_id"),
             item.get("media_source"),
             item.get("media_id"),
+            item.get("tmdb_title"),
+            item.get("match_title"),
+            item.get("season"),
         )
         if after != before:
             changed = True
@@ -833,6 +903,12 @@ def _snapshot_meta(item: dict, entry: dict, media_type) -> MetaInfo:
     if year:
         meta.year = str(year)
     meta.type = media_type
+    season = (entry or {}).get("season") or (item or {}).get("season")
+    if season not in (None, ""):
+        try:
+            meta.begin_season = int(season)
+        except (TypeError, ValueError):
+            pass
     return meta
 
 
@@ -1038,6 +1114,8 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
                 rank_key=rd["key"],
                 rank_name=rd["name"],
                 media_type=mtype,
+                season=entry.get("season"),
+                prefer_title=rd["key"] == "bangumi",
             )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""), unique=unique)
@@ -1063,9 +1141,10 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
             continue
         if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
             cn_title = mediainfo.title or title
+            stored_title = title if rd["key"] == "bangumi" else cn_title
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _record_history_item(history, {
-                "title": cn_title,
+                "title": stored_title,
                 "year": mediainfo.year or year or "",
                 "air_date": air_date,
                 "media_type": mtype,
@@ -1079,6 +1158,8 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
                 "rank_key": rd["key"],
                 "rank_name": rd["name"],
                 "media_type": mtype,
+                "season": entry.get("season"),
+                "tmdb_title": entry.get("tmdb_title") or getattr(mediainfo, "title", None) or "",
             })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
             if result_lines is not None:
@@ -1245,6 +1326,8 @@ def _process_general(self, url: str, rd: dict) -> None:
                 rank_key=rd["key"],
                 rank_name=rd["name"],
                 media_type=mtype,
+                season=getattr(meta, "begin_season", None),
+                prefer_title=rd["key"] == "bangumi",
             )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
@@ -1270,9 +1353,10 @@ def _process_general(self, url: str, rd: dict) -> None:
             continue
         if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
             cn_title = mediainfo.title or title
+            stored_title = title if rd["key"] == "bangumi" else cn_title
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _record_history_item(history, {
-                "title": cn_title,
+                "title": stored_title,
                 "year": mediainfo.year or year or "",
                 "air_date": air_date,
                 "media_type": mtype,
@@ -1285,6 +1369,8 @@ def _process_general(self, url: str, rd: dict) -> None:
                 "subscribed_at": subscribed_at,
                 "rank_key": rd["key"],
                 "rank_name": rd["name"],
+                "season": getattr(meta, "begin_season", None),
+                "tmdb_title": getattr(mediainfo, "title", None) or "",
             })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
     _drop_stale_observations(history, current_candidates)
@@ -1360,6 +1446,7 @@ def _add_sub(self, mediainfo, meta=None, rank_key="", rank_name="", source_link:
         rank_key=rank_key,
         rank_name=rank_name,
         source_link=source_link,
+        record_title=(getattr(meta, "org_string", None) or "") if rank_key == "bangumi" else "",
         subscribe_chain_cls=SubscribeChain,
     )
 

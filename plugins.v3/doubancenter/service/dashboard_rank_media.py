@@ -47,12 +47,17 @@ def _media_type_name(media_type_value, media_type_cls) -> str:
     return "电影" if media_type_value == media_type_cls.MOVIE else "电视剧"
 
 
-def _build_meta(title: str, year: Any, media_type_value, meta_cls):
+def _build_meta(title: str, year: Any, media_type_value, meta_cls, season: Any = None):
     """构造 MoviePilot 媒体识别入参。"""
     meta = meta_cls(title)
     if year:
         meta.year = str(year)
     meta.type = media_type_value
+    if season not in (None, ""):
+        try:
+            meta.begin_season = int(season)
+        except (TypeError, ValueError):
+            pass
     return meta
 
 
@@ -204,6 +209,7 @@ def resolve_media_from_rank(
     bangumi_id: Any = None,
     media_source: Any = None,
     media_id: Any = None,
+    season: Any = None,
     *,
     media_chain_cls=None,
     meta_cls=None,
@@ -219,7 +225,7 @@ def resolve_media_from_rank(
     media_type_cls = media_type_cls or _default_media_type_cls()
     media_type_value = _rank_media_type(media_type, media_type_cls=media_type_cls)
     media_type_name = _media_type_name(media_type_value, media_type_cls=media_type_cls)
-    meta = _build_meta(title, year, media_type_value, meta_cls=meta_cls)
+    meta = _build_meta(title, year, media_type_value, meta_cls=meta_cls, season=season)
 
     chain = media_chain_cls()
     if douban_original_title_fetcher is None and uses_default_media_chain:
@@ -228,6 +234,7 @@ def resolve_media_from_rank(
     recognized_source = None
     recognized_id = None
     mediainfo = None
+    recognition = {}
     tmdb_source, normalized_tmdb_id = legacy_identity(tmdb_id=tmdb_id)
     _, normalized_bangumi_id = legacy_identity(bangumi_id=bangumi_id)
     bangumi_identity_id = normalized_bangumi_id or (source_id if source == MediaSource.Bangumi else None)
@@ -263,22 +270,29 @@ def resolve_media_from_rank(
                 mediainfo = None
         else:
             logger.info(f"豆瓣中心：手动识别《{title}》豆瓣 ID {source_id} 暂无 TMDB 映射，保留豆瓣身份")
-    elif source == MediaSource.Bangumi and source_id:
-        # Bangumi subject 只是辅助身份，先用其标题和年份寻找 TMDB。
+    if not mediainfo and bangumi_identity_id:
+        # 即使榜单已有 TMDB 主身份，也先读取 BGM subject 恢复母剧标题和季号。
+        direct_tmdb_id = (
+            tmdb_id
+            or (source_id if source == MediaSource.TMDB else None)
+        )
         recognition = bangumi_tmdb_service.recognize_bangumi_tmdb(
             plugin,
             chain,
             meta,
-            bangumi_id=source_id,
-            tmdb_id=tmdb_id,
+            bangumi_id=bangumi_identity_id,
+            tmdb_id=direct_tmdb_id,
+            season=season,
             media_type=media_type_value,
             subject_fetcher=bangumi_subject_fetcher,
             meta_cls=meta_cls,
         )
         mediainfo = recognition.get("mediainfo")
+        if recognition.get("season") not in (None, ""):
+            meta.begin_season = int(recognition["season"])
         if mediainfo:
             recognized_source, recognized_id = identity_from_media(mediainfo)
-    elif source and source_id:
+    if not mediainfo and source and source_id and source != MediaSource.Bangumi:
         recognized_source, recognized_id = source, source_id
         mediainfo = recognize_media(
             chain,
@@ -287,22 +301,6 @@ def resolve_media_from_rank(
             media_source=source,
             media_id=source_id,
         )
-
-    if not mediainfo and bangumi_identity_id and source != MediaSource.Bangumi:
-        # 前端只传 bangumi_id 时也必须先走 subject 标题+年份 TMDB 识别。
-        recognition = bangumi_tmdb_service.recognize_bangumi_tmdb(
-            plugin,
-            chain,
-            meta,
-            bangumi_id=bangumi_identity_id,
-            tmdb_id=tmdb_id,
-            media_type=media_type_value,
-            subject_fetcher=bangumi_subject_fetcher,
-            meta_cls=meta_cls,
-        )
-        mediainfo = recognition.get("mediainfo")
-        if mediainfo:
-            recognized_source, recognized_id = identity_from_media(mediainfo)
 
     if not mediainfo and source == MediaSource.Douban and source_id:
         try:
@@ -370,6 +368,15 @@ def resolve_media_from_rank(
             bangumi_subject_converter=bangumi_subject_converter,
         )
         if subject_response:
+            subject_data = subject_response.get("data") if isinstance(subject_response, dict) else None
+            if isinstance(subject_data, dict):
+                display_title = str(recognition.get("original_title") or title or "").strip()
+                if display_title:
+                    subject_data["title"] = display_title
+                    subject_data["name"] = display_title
+                subject_data["season"] = getattr(meta, "begin_season", None)
+                if recognition.get("match_title"):
+                    subject_data["match_title"] = recognition["match_title"]
             return subject_response
         if not has_stable_identity:
             return {"success": False, "message": "无法识别媒体信息"}
@@ -387,17 +394,25 @@ def resolve_media_from_rank(
             ),
         }
 
-    return {
-        "success": True,
-        "data": _mediainfo_media_data(
-            mediainfo,
-            media_type_name=media_type_name,
-            title=title,
-            year=year,
-            bangumi_id=bangumi_identity_id,
-            media_source=recognized_source,
-            media_id=recognized_id,
-            douban_id=source_id if source == MediaSource.Douban else None,
-            season=getattr(meta, "begin_season", None) if media_type_value == media_type_cls.TV else None,
-        ),
-    }
+    data = _mediainfo_media_data(
+        mediainfo,
+        media_type_name=media_type_name,
+        title=title,
+        year=year,
+        bangumi_id=bangumi_identity_id,
+        media_source=recognized_source,
+        media_id=recognized_id,
+        douban_id=source_id if source == MediaSource.Douban else None,
+        season=getattr(meta, "begin_season", None) if media_type_value == media_type_cls.TV else None,
+    )
+    if bangumi_identity_id:
+        display_title = str(recognition.get("original_title") or title or "").strip()
+        if display_title:
+            data["title"] = display_title
+            data["name"] = display_title
+        resolved_source, _ = identity_from_media(mediainfo)
+        if resolved_source == MediaSource.TMDB:
+            data["tmdb_title"] = recognition.get("tmdb_title") or getattr(mediainfo, "title", None) or ""
+        if recognition.get("match_title"):
+            data["match_title"] = recognition["match_title"]
+    return {"success": True, "data": data}

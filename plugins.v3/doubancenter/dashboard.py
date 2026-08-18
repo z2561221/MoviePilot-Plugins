@@ -117,6 +117,7 @@ def api_resolve_media_from_rank(
     bangumi_id=None,
     media_source=None,
     media_id=None,
+    season=None,
 ):
     """识别榜单条目并返回媒体信息。"""
     from .feed import _fetch_bangumi_subject, bangumi_subject_to_media_data
@@ -130,6 +131,7 @@ def api_resolve_media_from_rank(
         bangumi_id=bangumi_id,
         media_source=media_source,
         media_id=media_id,
+        season=season,
         bangumi_subject_fetcher=_fetch_bangumi_subject,
         bangumi_subject_converter=bangumi_subject_to_media_data,
     )
@@ -147,6 +149,7 @@ def api_subscribe_from_rank(
     rank_key="",
     rank_name="",
     source_link="",
+    season=None,
 ):
     """根据榜单条目发起订阅。"""
     from .feed import _bangumi_subject_title, _bangumi_subject_year, _fetch_bangumi_subject
@@ -166,6 +169,7 @@ def api_subscribe_from_rank(
         rank_key=rank_key,
         rank_name=rank_name,
         source_link=source_link,
+        season=season,
     )
 
 

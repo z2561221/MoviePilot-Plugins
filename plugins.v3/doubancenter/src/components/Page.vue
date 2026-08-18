@@ -190,6 +190,7 @@ async function resolveRankMedia(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    season: item?.season || '',
   })
   const res = normalizeApiData(await getPluginApi(props.api, `resolve_media?${params}`))
   if (res?.success === false) throw new Error(res?.message || '媒体识别失败')
@@ -384,6 +385,7 @@ async function subscribeRankItem(rk, item) {
     rank_key: rk,
     rank_name: item?.rank_name || rankNameOf(rk, item),
     source_link: item?.link || '',
+    season: item?.season || '',
   })
   const res = await postPluginApi(props.api, `subscribe?${params}`, {})
   if (!res?.success) throw new Error(res?.message || '订阅失败')

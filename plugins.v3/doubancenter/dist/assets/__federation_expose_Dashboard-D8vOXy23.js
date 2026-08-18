@@ -161,6 +161,7 @@ async function resolveRankMedia(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    season: item?.season || '',
   });
   const res = normalizeApiData(await getPluginApi(props.api, `resolve_media?${params}`));
   if (res?.success === false) throw new Error(res?.message || '媒体识别失败')
@@ -278,6 +279,7 @@ async function subscribeRankItem(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    season: item?.season || '',
     rank_key: rk,
     rank_name: item?.rank_name || rankNameOf(rk, item),
     source_link: item?.link || '',
@@ -757,6 +759,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-39bb1d47"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6c562705"]]);
 
 export { Dashboard as default };

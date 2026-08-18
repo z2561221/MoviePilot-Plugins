@@ -100,11 +100,12 @@ class ConversionChain:
 class SeasonalConversionChain(ConversionChain):
     """仅在基础标题和季号同时正确时返回 TMDB 映射。"""
 
-    def __init__(self, *, expected_title: str, expected_season: int, tmdb_media):
+    def __init__(self, *, expected_title: str, expected_season: int, tmdb_media, matched_id: int = 94664):
         """保存期望的基础标题、季号和媒体结果。"""
         super().__init__(tmdb_media=tmdb_media)
         self.expected_title = expected_title
         self.expected_season = expected_season
+        self.matched_id = matched_id
 
     def match_tmdbinfo(self, **kwargs):
         """记录匹配参数并仅接受季号归一化后的调用。"""
@@ -114,7 +115,7 @@ class SeasonalConversionChain(ConversionChain):
             and kwargs.get("year") is None
             and kwargs.get("season") == self.expected_season
         ):
-            return {"id": 94664}
+            return {"id": self.matched_id}
         return None
 
 
@@ -870,8 +871,51 @@ def test_bangumi_unicode_roman_season_matches_when_subject_fetch_fails():
     }
 
 
+def test_bangumi_ordinal_season_uses_parent_series_title_without_year():
+    """BGM 英文序数季标题去掉季数和篇章后命中 TMDB 母剧。"""
+    tmdb_media = FakeMediaInfo(
+        title="Re：从零开始的异世界生活",
+        source=MediaSource.TMDB,
+        media_id="65942",
+        tmdb_id=65942,
+    )
+    chain = SeasonalConversionChain(
+        expected_title="Re:ゼロから始める異世界生活",
+        expected_season=4,
+        tmdb_media=tmdb_media,
+        matched_id=65942,
+    )
+    subject = {
+        "id": 633836,
+        "name": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
+        "date": "2026-04-01",
+    }
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo(subject["name"]),
+        bangumi_id="633836",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert result["original_title"] == subject["name"]
+    assert result["match_title"] == "Re:ゼロから始める異世界生活"
+    assert result["tmdb_title"] == tmdb_media.title
+    assert result["season"] == 4
+    assert chain.match_tmdb_calls[0] == {
+        "name": "Re:ゼロから始める異世界生活",
+        "mtype": MediaType.TV,
+        "year": None,
+        "season": 4,
+    }
+
+
 def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
-    """Bangumi 榜单刷新保存 TMDB 身份并优先展示 MP 中文名。"""
+    """Bangumi 榜单保留 BGM 原标题并单独保存 TMDB 标题。"""
     tmdb_media = FakeMediaInfo(
         title="尼古喵喵",
         source=MediaSource.TMDB,
@@ -896,12 +940,13 @@ def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
     assert entry["tmdb_id"] == 312949
     assert entry["tmdbid"] == 312949
     assert entry["bangumi_id"] == "622206"
-    assert entry["title"] == "尼古喵喵"
+    assert entry["title"] == "ヤニねこ"
     assert entry["original_title"] == "ヤニねこ"
+    assert entry["tmdb_title"] == "尼古喵喵"
 
 
 def test_bangumi_history_repairs_legacy_douban_identity_from_subject_link(monkeypatch):
-    """旧 Bangumi 缓存应以 subject 链接纠正来源并补中文名和海报。"""
+    """旧 Bangumi 缓存应以 subject 链接纠正来源并保留 BGM 原标题。"""
     saved = {}
     plugin = SimpleNamespace(
         chain=ConversionChain(),
@@ -931,10 +976,61 @@ def test_bangumi_history_repairs_legacy_douban_identity_from_subject_link(monkey
     assert result[0]["media_id"] == "633836"
     assert "bangumiid" not in result[0]
     assert "bangumi_id" not in result[0]
-    assert result[0]["title"] == "Re：从零开始的异世界生活 第四季 夺还篇"
+    assert result[0]["title"] == subject["name"]
     assert result[0]["original_title"] == subject["name"]
     assert result[0]["year"] == "2026"
     assert result[0]["poster"] == subject["images"]["large"]
+    assert saved["rank_history_bangumi"] == result
+
+
+def test_bangumi_history_replaces_wrong_tmdb_identity_with_parent_series(monkeypatch):
+    """旧 BGM 错误 TMDB 身份应按母剧标题和季号重新识别并覆盖。"""
+    tmdb_media = FakeMediaInfo(
+        title="Re：从零开始的异世界生活",
+        source=MediaSource.TMDB,
+        media_id="65942",
+        tmdb_id=65942,
+        poster="tmdb-65942.jpg",
+    )
+    chain = SeasonalConversionChain(
+        expected_title="Re:ゼロから始める異世界生活",
+        expected_season=4,
+        tmdb_media=tmdb_media,
+        matched_id=65942,
+    )
+    saved = {}
+    plugin = SimpleNamespace(
+        chain=chain,
+        save_data=lambda key, value: saved.update({key: value}),
+    )
+    subject = {
+        "id": 633836,
+        "name": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
+        "date": "2026-04-01",
+    }
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    history = [{
+        "rank_key": "bangumi",
+        "title": "错误 TMDB 标题",
+        "original_title": subject["name"],
+        "link": "https://bgm.tv/subject/633836",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "999",
+        "tmdbid": 999,
+        "poster": "wrong.jpg",
+    }]
+
+    result = feed.normalize_bangumi_history(plugin, history)
+
+    assert result[0]["title"] == subject["name"]
+    assert result[0]["tmdb_title"] == tmdb_media.title
+    assert result[0]["match_title"] == "Re:ゼロから始める異世界生活"
+    assert result[0]["season"] == 4
+    assert result[0]["media_source"] == MediaSource.TMDB.value
+    assert result[0]["media_id"] == "65942"
+    assert result[0].get("tmdbid") in (None, 65942)
+    assert result[0]["poster"] == "tmdb-65942.jpg"
     assert saved["rank_history_bangumi"] == result
 
 
@@ -952,7 +1048,10 @@ def test_bangumi_subject_link_precedes_legacy_douban_id():
 def test_bangumi_history_poster_repair_preserves_existing_tmdb_identity(monkeypatch):
     """补 Bangumi 海报时不得覆盖已经确认的 V3 TMDB 主身份。"""
     saved = {}
-    plugin = SimpleNamespace(save_data=lambda key, value: saved.update({key: value}))
+    plugin = SimpleNamespace(
+        chain=ConversionChain(),
+        save_data=lambda key, value: saved.update({key: value}),
+    )
     subject = {
         "id": 622206,
         "name": "ヤニねこ",
@@ -976,7 +1075,7 @@ def test_bangumi_history_poster_repair_preserves_existing_tmdb_identity(monkeypa
     assert result[0]["media_source"] == MediaSource.TMDB.value
     assert result[0]["media_id"] == "312949"
     assert str(result[0]["bangumi_id"]) == "622206"
-    assert result[0]["title"] == "烟猫"
+    assert result[0]["title"] == "ヤニねこ"
     assert result[0]["poster"] == subject["images"]["large"]
     assert saved["rank_history_bangumi"] == result
 
@@ -1046,6 +1145,46 @@ def test_manual_bangumi_resolve_returns_tmdb_identity():
     assert result["data"]["bangumi_id"] == "622206"
 
 
+def test_manual_bangumi_resolve_reuses_saved_tmdb_and_returns_season():
+    """点击识别复用榜单 TMDB 身份，同时返回 BGM 原标题和独立季号。"""
+    tmdb_media = FakeMediaInfo(
+        title="Re：从零开始的异世界生活",
+        source=MediaSource.TMDB,
+        media_id="65942",
+        tmdb_id=65942,
+    )
+    chain = ConversionChain(tmdb_media=tmdb_media)
+    subject = {
+        "id": 633836,
+        "name": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
+        "date": "2026-04-01",
+    }
+
+    result = dashboard_rank_media.resolve_media_from_rank(
+        object(),
+        "tv",
+        subject["name"],
+        "2026",
+        tmdb_id=65942,
+        bangumi_id="633836",
+        media_source=MediaSource.TMDB,
+        media_id="65942",
+        media_chain_cls=lambda: chain,
+        bangumi_subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["title"] == subject["name"]
+    assert result["data"]["tmdb_title"] == tmdb_media.title
+    assert result["data"]["season"] == 4
+    assert result["data"]["media_source"] == MediaSource.TMDB.value
+    assert result["data"]["media_id"] == "65942"
+    assert len(chain.recognize_calls) == 1
+    assert chain.recognize_calls[0]["media_source"] == MediaSource.TMDB
+    assert chain.recognize_calls[0]["media_id"] == "65942"
+
+
 def test_manual_bangumi_subscription_passes_tmdb_identity_to_subscribe_chain():
     """手动订阅识别成功后向订阅链传递 TMDB 来源和 ID。"""
     tmdb_media = FakeMediaInfo(
@@ -1085,3 +1224,54 @@ def test_manual_bangumi_subscription_passes_tmdb_identity_to_subscribe_chain():
     assert result == {"success": True, "message": "已添加订阅"}
     assert captured["media_source"] == MediaSource.TMDB
     assert captured["media_id"] == "312949"
+
+
+def test_manual_bangumi_subscription_reuses_tmdb_identity_and_season():
+    """手动订阅直接复用榜单 TMDB 身份并把季号传给订阅链。"""
+    tmdb_media = FakeMediaInfo(
+        title="Re：从零开始的异世界生活",
+        source=MediaSource.TMDB,
+        media_id="65942",
+        tmdb_id=65942,
+    )
+    media_chain = ConversionChain(tmdb_media=tmdb_media)
+    captured = {}
+    subject = {
+        "id": 633836,
+        "name": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
+        "date": "2026-04-01",
+    }
+
+    class SubscribeChain:
+        """记录季番手动订阅调用。"""
+
+        def exists(self, mediainfo, meta):
+            """模拟没有重复订阅。"""
+            return False
+
+        def add(self, **kwargs):
+            """保存订阅参数并返回成功。"""
+            captured.update(kwargs)
+            return 1, ""
+
+    result = dashboard_rank_subscription.subscribe_from_rank(
+        object(),
+        65942,
+        "tv",
+        subject["name"],
+        "2026",
+        bangumi_id="633836",
+        media_source=MediaSource.TMDB,
+        media_id="65942",
+        season=4,
+        media_chain_cls=lambda: media_chain,
+        subscribe_chain_cls=SubscribeChain,
+        bangumi_subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result == {"success": True, "message": "已添加订阅"}
+    assert captured["media_source"] == MediaSource.TMDB
+    assert captured["media_id"] == "65942"
+    assert captured["season"] == 4
+    assert len(media_chain.recognize_calls) == 1

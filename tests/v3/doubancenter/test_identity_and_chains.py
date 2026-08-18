@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from app.schemas.types import MediaSource
+from app.schemas.types import MediaSource, MediaType
 
 from doubancenter.model.identity import identity_from_media, legacy_identity, recognize_media
 from doubancenter.service import dashboard_rank_subscription, subscription
@@ -112,3 +112,60 @@ def test_completed_subscription_check_uses_v3_history_signature():
         "season": 2,
         "episode_group": "group-a",
     }
+
+
+def test_auto_subscription_forwards_season_and_keeps_bangumi_record_title():
+    """自动订阅复用 TMDB 身份和季号，历史保留 BGM 来源标题。"""
+    captured = {}
+    saved = {}
+    source_title = "Re:ゼロから始める異世界生活 4th season 奪還編"
+    media = SimpleNamespace(
+        title="Re：从零开始的异世界生活",
+        year="2016",
+        type=MediaType.TV,
+        media_source=MediaSource.TMDB,
+        media_id="65942",
+        tmdb_id=65942,
+        episode_group=None,
+        get_poster_image=lambda: "poster.jpg",
+    )
+    meta = SimpleNamespace(begin_season=4, org_string=source_title)
+    plugin = SimpleNamespace(
+        get_data=lambda key: saved.get(key),
+        save_data=lambda key, value: saved.update({key: value}),
+    )
+
+    class SubscribeChain:
+        """记录自动订阅参数。"""
+
+        def exists(self, mediainfo, meta):
+            """模拟没有活动订阅。"""
+            return False
+
+        def add(self, **kwargs):
+            """保存订阅参数并返回成功。"""
+            captured.update(kwargs)
+            return 1, ""
+
+    class SubscribeOper:
+        """模拟没有已完成订阅。"""
+
+        def exist_history(self, **kwargs):
+            """返回没有完成历史。"""
+            return False
+
+    assert subscription.add_subscription(
+        plugin,
+        media,
+        meta=meta,
+        rank_key="bangumi",
+        rank_name="BangumiTV",
+        record_title=source_title,
+        subscribe_chain_cls=SubscribeChain,
+        subscribe_oper_cls=SubscribeOper,
+    )
+    assert captured["media_source"] == MediaSource.TMDB
+    assert captured["media_id"] == "65942"
+    assert captured["season"] == 4
+    assert saved["subscribe_records"][0]["title"] == source_title
+    assert saved["subscribe_records"][0]["season"] == 4

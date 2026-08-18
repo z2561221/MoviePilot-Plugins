@@ -21,6 +21,7 @@ def test_page_and_dashboard_forward_media_identity_pair():
         source = (COMPONENTS / filename).read_text(encoding="utf-8")
         assert "media_source: item?.media_source" in source
         assert "media_id: item?.media_id" in source
+        assert source.count("season: item?.season || ''") >= 2
         assert "merged.media_source" in source
         assert "merged.media_id" in source
     page = (COMPONENTS / "Page.vue").read_text(encoding="utf-8")
