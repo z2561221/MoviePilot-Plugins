@@ -638,7 +638,27 @@ def _is_complete_bangumi_history_item(item: dict) -> bool:
     media_source = str(item.get("media_source") or "")
     media_id = str(item.get("media_id") or "")
     if media_source == MediaSource.TMDB.value and media_id:
-        return bool(item.get("tmdb_title"))
+        if not item.get("tmdb_title"):
+            return False
+        source_title = str(item.get("original_title") or item.get("title") or "").strip()
+        if not source_title:
+            return True
+        seasonal_candidates = bangumi_tmdb_service._seasonal_title_candidates(
+            MetaInfo(source_title),
+            source_title,
+            meta_cls=MetaInfo,
+        )
+        if not seasonal_candidates:
+            return True
+        try:
+            stored_season = int(item.get("season"))
+        except (TypeError, ValueError):
+            return False
+        stored_match_title = str(item.get("match_title") or "").strip().casefold()
+        return any(
+            stored_season == season and stored_match_title == candidate_title.casefold()
+            for candidate_title, season in seasonal_candidates
+        )
     return False
 
 

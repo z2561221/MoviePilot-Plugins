@@ -1034,6 +1034,54 @@ def test_bangumi_history_replaces_wrong_tmdb_identity_with_parent_series(monkeyp
     assert saved["rank_history_bangumi"] == result
 
 
+def test_bangumi_history_repairs_missing_season_for_saved_tmdb_identity(monkeypatch):
+    """已有 TMDB 和海报的季番旧记录仍应补齐母剧标题与季号。"""
+    tmdb_media = FakeMediaInfo(
+        title="无职转生～到了异世界就拿出真本事～",
+        source=MediaSource.TMDB,
+        media_id="94664",
+        tmdb_id=94664,
+        poster="tmdb-94664.jpg",
+    )
+    chain = SeasonalConversionChain(
+        expected_title="無職転生",
+        expected_season=3,
+        tmdb_media=tmdb_media,
+    )
+    saved = {}
+    plugin = SimpleNamespace(
+        chain=chain,
+        save_data=lambda key, value: saved.update({key: value}),
+    )
+    subject = {
+        "id": 501963,
+        "name": "無職転生Ⅲ ～異世界行ったら本気だす～",
+        "name_cn": "无职转生～到了异世界就拿出真本事～",
+        "date": "2026-04-01",
+    }
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    history = [{
+        "rank_key": "bangumi",
+        "title": subject["name_cn"],
+        "original_title": subject["name"],
+        "link": "https://bgm.tv/subject/501963",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "94664",
+        "tmdb_title": tmdb_media.title,
+        "poster": tmdb_media.poster_path,
+    }]
+
+    result = feed.normalize_bangumi_history(plugin, history)
+
+    assert result[0]["title"] == subject["name"]
+    assert result[0]["tmdb_title"] == tmdb_media.title
+    assert result[0]["match_title"] == "無職転生"
+    assert result[0]["season"] == 3
+    assert result[0]["media_source"] == MediaSource.TMDB.value
+    assert result[0]["media_id"] == "94664"
+    assert saved["rank_history_bangumi"] == result
+
+
 def test_bangumi_subject_link_precedes_legacy_douban_id():
     """Bangumi 榜单旧字段冲突时应以 subject 链接为准。"""
     item = {
