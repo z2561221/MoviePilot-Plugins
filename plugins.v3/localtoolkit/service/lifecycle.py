@@ -1,6 +1,7 @@
 """工具中心生命周期与旧配置迁移服务。"""
 
-from app.log import logger
+from app.sdk.logging import logger
+from app.sdk.plugins import PluginManager
 
 from ..model.config import merge_config
 from ..security import redact_sensitive_text
@@ -26,8 +27,6 @@ def initialize_plugin(plugin, config: dict | None = None) -> None:
 def migrate_old_configs(plugin) -> None:
     """从旧独立插件配置迁移到工具中心配置。"""
     try:
-        from app.core.plugin import PluginManager
-
         plugin_manager = PluginManager()
         mapping = {
             "ClearTmdbCache": "tmdb_cache",

@@ -1,6 +1,6 @@
 import re, time
 from pathlib import Path
-from app.log import logger
+from app.sdk.logging import logger
 from .base import BaseToolModule
 
 class CheckMissingModule(BaseToolModule):

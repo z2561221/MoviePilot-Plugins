@@ -11,6 +11,8 @@ V2_DIR = REPO / "plugins.v2" / "localtoolkit"
 V3_DIR = REPO / "plugins.v3" / "localtoolkit"
 V2_PACKAGE = REPO / "package.local.v2.json"
 V3_PACKAGE = REPO / "package.local.v3.json"
+FORBIDDEN_V3_IMPORT_PREFIXES = ("app.core", "app.helper", "app.utils")
+FORBIDDEN_V3_IMPORTS = {"app.log"}
 
 
 def _load_json(path: Path) -> dict:
@@ -41,6 +43,26 @@ def _public_docstring_gaps() -> list[str]:
             if not any("\u4e00" <= char <= "\u9fff" for char in docstring):
                 gaps.append(f"{path.relative_to(REPO).as_posix()}:{node.lineno}:{node.name}")
     return sorted(gaps)
+
+
+def _v3_legacy_imports() -> list[str]:
+    """列出 V3 源码中仍会触发宿主兼容导入的路径。"""
+    imports = []
+    for path in V3_DIR.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(module):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            else:
+                continue
+            for name in names:
+                if name in FORBIDDEN_V3_IMPORTS or name.startswith(FORBIDDEN_V3_IMPORT_PREFIXES):
+                    imports.append(f"{path.relative_to(REPO).as_posix()}:{node.lineno}:{name}")
+    return sorted(imports)
 
 
 def test_localtoolkit_v3_generation_metadata_is_isolated() -> None:
@@ -81,6 +103,17 @@ def test_localtoolkit_v3_uses_public_media_server_sdk() -> None:
 
     assert "from app.sdk.services import MediaServerHelper" in adapter
     assert "app.helper.mediaserver" not in adapter
+
+
+def test_localtoolkit_v3_uses_canonical_sdk_imports() -> None:
+    """确认 V3 源码不再依赖会触发兼容告警的宿主旧入口。"""
+    assert _v3_legacy_imports() == []
+    base = (V3_DIR / "service" / "base.py").read_text(encoding="utf-8")
+    cleanup = (V3_DIR / "service" / "library_cleanup.py").read_text(encoding="utf-8")
+    assert "from app.schemas.types import MessageType" in base
+    assert "from app.schemas.types import MessageType" in cleanup
+    assert "NotificationType" not in base
+    assert "NotificationType" not in cleanup
 
 
 def test_localtoolkit_v3_public_docstrings_are_complete() -> None:

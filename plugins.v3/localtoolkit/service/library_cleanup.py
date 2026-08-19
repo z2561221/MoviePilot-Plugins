@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from apscheduler.triggers.cron import CronTrigger
-from app.log import logger
-from app.schemas.types import NotificationType
+from app.sdk.logging import logger
+from app.schemas.types import MessageType
 
 from ..adapter.media_server import MediaServerCleanupAdapter
 from ..model.library_cleanup import CleanupCandidate, CleanupResult, filter_cleanup_candidates
@@ -57,7 +57,7 @@ class LibraryCleanupModule(BaseToolModule):
         if self.config.get("notify", True):
             try:
                 self.plugin.post_message(
-                    mtype=NotificationType.Plugin,
+                    mtype=MessageType.Plugin,
                     title=title,
                     text=text,
                     parse_mode="MarkdownV2",

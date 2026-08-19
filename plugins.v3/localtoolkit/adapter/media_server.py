@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional
 
+from app.sdk.logging import logger
+from app.sdk.network import RequestUtils
 from app.sdk.services import MediaServerHelper
-from app.log import logger
 
 from ..model.library_cleanup import CleanupCandidate, candidate_from_media_item, read_value
 from ..security import redact_sensitive_text
@@ -288,8 +289,6 @@ class MediaServerCleanupAdapter:
 
     def _request_utils(self) -> Any:
         """延迟导入宿主 HTTP 工具。"""
-        from app.utils.http import RequestUtils
-
         return RequestUtils()
 
     @staticmethod
