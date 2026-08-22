@@ -1,7 +1,14 @@
+const RESPONSE_ENVELOPE_KEYS = ['data', 'message', 'success'];
+
+function isResponseEnvelope(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return false
+  const keys = Object.keys(response).sort();
+  return keys.length === RESPONSE_ENVELOPE_KEYS.length
+    && keys.every((key, index) => key === RESPONSE_ENVELOPE_KEYS[index])
+}
+
 function readEnvelopeData(response, fallback = '备份中心请求失败') {
-  if (!response || typeof response !== 'object' || !('success' in response)) {
-    throw new Error(fallback)
-  }
+  if (!isResponseEnvelope(response)) return response
   if (!response.success) {
     throw new Error(response.message || fallback)
   }
