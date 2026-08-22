@@ -108,9 +108,9 @@ def original_message_kwargs(event_data: dict) -> dict:
 def resolve_notification_type(value: Any, notification_type: Any = None) -> Any:
     """按 MoviePilot 枚举名或显示值解析通知分类，非法值回退 Plugin。"""
     if notification_type is None:
-        from app.schemas.types import NotificationType
+        from app.schemas.types import MessageType
 
-        notification_type = NotificationType
+        notification_type = MessageType
     clean_value = str(value or "").strip()
     members = getattr(notification_type, "__members__", {})
     if clean_value in members:

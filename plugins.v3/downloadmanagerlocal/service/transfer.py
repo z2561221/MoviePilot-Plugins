@@ -10,11 +10,11 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from bencode import bdecode, bencode
 
+from app.schemas import ServiceInfo
+from app.schemas.types import EventType, MessageType
 from app.sdk.config import settings
 from app.sdk.events import eventmanager, Event
 from app.sdk.logging import logger
-from app.schemas import NotificationType, ServiceInfo
-from app.schemas.types import EventType
 
 from ..adapter.moviepilot import is_downloader_type
 from ..model.state import record_transfer_success
@@ -381,7 +381,7 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
 
         if plugin._notify:
             plugin.post_message(
-                mtype=NotificationType.SiteMessage,
+                mtype=MessageType.SiteMessage,
                 title="【转移做种任务执行完成】",
                 text=f"总数：{total}，成功：{success}，失败：{fail}，跳过：{skip}，删除重复：{del_dup}"
             )

@@ -2,7 +2,7 @@
   "DownloadManagerLocal": {
     "mode": "migration",
     "legacy_version": "3.2.9",
-    "v3_version": "3.3.0",
+    "v3_version": "3.3.1",
     "reason": "user-approved MoviePilot V3 version line"
   },
   "DoubanCenter": {

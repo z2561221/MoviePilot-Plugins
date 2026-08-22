@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,13 +11,12 @@ import pytest
 from pydantic import BaseModel
 
 from app import schemas
-from app.api.response import ResponseAPIRoute
 from app.schemas.types import MediaSource, MediaType
-from downloadmanagerlocal import DownloadManagerLocal
-from downloadmanagerlocal.adapter import moviepilot as moviepilot_adapter
-from downloadmanagerlocal.controller import handlers
-from downloadmanagerlocal.model.api import HashActionResult, OverviewResult
-from downloadmanagerlocal.service import rename as rename_service
+from app.plugins.downloadmanagerlocal import DownloadManagerLocal
+from app.plugins.downloadmanagerlocal.adapter import moviepilot as moviepilot_adapter
+from app.plugins.downloadmanagerlocal.controller import handlers
+from app.plugins.downloadmanagerlocal.model.api import HashActionResult, OverviewResult
+from app.plugins.downloadmanagerlocal.service import rename as rename_service
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[3] / "plugins.v3/downloadmanagerlocal"
@@ -54,6 +54,23 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
     for route in routes:
         assert route["auth"] == "bear"
         assert route.get("response_model") not in {None, dict, list}
+    bare_paths = {
+        "/downloaders",
+        "/rename_history",
+        "/overview",
+        "/upload_limit_status",
+        "/diagnostics",
+        "/rename_archive",
+        "/sites",
+    }
+    envelope_paths = {route["path"] for route in routes} - bare_paths
+    for route in routes:
+        response_model = route["response_model"]
+        is_envelope = isinstance(response_model, type) and issubclass(
+            response_model,
+            schemas.Response,
+        )
+        assert is_envelope is (route["path"] in envelope_paths)
 
 
 def test_json_post_routes_use_pydantic_request_models() -> None:
@@ -96,14 +113,14 @@ def test_operation_business_failure_is_single_v3_envelope() -> None:
     assert "data" not in dumped["data"]
 
 
-def test_query_business_model_is_wrapped_once_by_host() -> None:
-    """查询模型交给宿主包装后只能产生一个 data 层。"""
+def test_query_business_model_is_bare_payload_for_current_v3() -> None:
+    """V3 动态查询路由返回裸业务模型，不依赖宿主自动套壳。"""
     result = OverviewResult(code=0, cards={})
 
-    response = ResponseAPIRoute._wrap_result(result)
+    payload = result.model_dump()
 
-    assert response.model_dump()["data"]["code"] == 0
-    assert "data" not in response.model_dump()["data"]
+    assert payload["code"] == 0
+    assert "data" not in payload
 
 
 @pytest.mark.parametrize(
@@ -150,6 +167,11 @@ def test_rename_history_passes_only_complete_media_identity(
         _rename_tv_format="{{ title }}",
     )
     monkeypatch.setattr(rename_service, "get_download_history_by_hash", lambda _hash: history)
+    monkeypatch.setattr(
+        rename_service,
+        "_build_rename_meta",
+        lambda _torrent_name, _history: SimpleNamespace(),
+    )
     monkeypatch.setattr(rename_service, "save_rename_record", lambda *_args, **_kwargs: None)
 
     rename_service.rename_torrent(
@@ -248,3 +270,52 @@ def test_v3_source_removes_legacy_host_contracts() -> None:
         "app.utils.string",
     ):
         assert f"from {legacy_module}" not in sources
+
+
+def test_v3_message_imports_use_current_message_type() -> None:
+    """V3 通知消息不得继续导入已迁移的 NotificationType 符号。"""
+    legacy_imports = []
+    current_imports = []
+    for path in PLUGIN_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.module not in {
+                "app.schemas",
+                "app.schemas.types",
+            }:
+                continue
+            for alias in node.names:
+                if alias.name == "NotificationType":
+                    legacy_imports.append((path.relative_to(PLUGIN_ROOT), node.lineno))
+                elif alias.name == "MessageType":
+                    current_imports.append((path.relative_to(PLUGIN_ROOT), node.lineno))
+
+    assert legacy_imports == []
+    assert current_imports
+
+
+def test_v3_internal_imports_match_symbol_allowlist() -> None:
+    """内部宿主导入只能保留尚无 SDK 出口的 TorrentHelper。"""
+    internal_prefixes = (
+        "app.application.",
+        "app.domain.",
+        "app.foundation.",
+        "app.adapters.",
+        "app.runtime.",
+        "app.infrastructure.",
+        "app.services.",
+    )
+    allowed = {
+        ("app.application.torrent", "TorrentHelper"),
+        ("app.services.torrent", "TorrentHelper"),
+    }
+    actual = set()
+    for path in PLUGIN_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if node.module.startswith(internal_prefixes):
+                actual.update((node.module, alias.name) for alias in node.names)
+
+    assert actual == allowed

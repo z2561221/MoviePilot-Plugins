@@ -9,14 +9,9 @@ from app.db.site_oper import SiteOper
 from app.db.systemconfig_oper import SystemConfigOper
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
-from app.sdk.network import RequestUtils
+from app.sdk.network import RequestUtils, SitesHelper
 from app.sdk.services import DownloaderHelper
 from app.sdk.utilities import StringUtils
-
-try:
-    from app.sdk.network import SitesHelper
-except ImportError:
-    from app.infrastructure.sites import SitesHelper
 
 try:
     from app.application.torrent import TorrentHelper

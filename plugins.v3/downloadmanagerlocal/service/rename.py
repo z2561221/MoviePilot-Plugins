@@ -8,12 +8,10 @@ from typing import Optional
 
 from bencode import bdecode
 
-# MoviePilot V3 e28de9cf 的 app.sdk.media 尚未导出媒体身份规范化函数。
-from app.domain.media import resolve_media_identity
 from app.modules.filemanager.transhandler import TransHandler
 from app.schemas.types import MediaType
 from app.sdk.logging import logger
-from app.sdk.media import MetaBase, MetaInfo
+from app.sdk.media import MetaBase, MetaInfo, resolve_media_identity
 
 from ..adapter.moviepilot import get_download_history_by_hash
 from ..model.state import IYUU_SOURCE_KEY_PREFIX, RENAME_RECORDS_KEY, iyuu_source_key
