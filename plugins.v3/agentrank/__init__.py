@@ -18,7 +18,7 @@ class AgentRank(_PluginBase):
     plugin_desc = "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。"
     plugin_icon = "agentresourceofficer.png"
     plugin_color = "#7C4DFF"
-    plugin_version = "3.0.0"
+    plugin_version = "3.0.1"
     plugin_label = "智能推荐"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"

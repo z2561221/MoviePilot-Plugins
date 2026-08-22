@@ -7,7 +7,8 @@ from typing import Any, Dict, List, Mapping
 from fastapi import Depends
 
 from app import schemas
-from app.sdk.security import verify_token
+# 当前部署镜像未提供 app.sdk.security，复用宿主插件 API 的公开认证依赖。
+from app.api.endpoints.plugin import verify_token
 
 from .schemas import API_RESPONSE_MODELS
 from ..model.config import configured_identities, default_config

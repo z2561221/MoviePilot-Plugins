@@ -19,9 +19,12 @@ package.__path__ = [str(PLUGIN_DIR)]
 app_module = sys.modules.setdefault("app", ModuleType("app"))
 schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
 types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-sdk_module = sys.modules.setdefault("app.sdk", ModuleType("app.sdk"))
-security_module = sys.modules.setdefault(
-    "app.sdk.security", ModuleType("app.sdk.security")
+api_module = sys.modules.setdefault("app.api", ModuleType("app.api"))
+endpoint_package = sys.modules.setdefault(
+    "app.api.endpoints", ModuleType("app.api.endpoints")
+)
+host_plugin_module = sys.modules.setdefault(
+    "app.api.endpoints.plugin", ModuleType("app.api.endpoints.plugin")
 )
 
 
@@ -62,13 +65,14 @@ class MessageType(Enum):
 
 
 app_module.schemas = schemas_module
-app_module.sdk = sdk_module
-sdk_module.security = security_module
+app_module.api = api_module
+api_module.endpoints = endpoint_package
+endpoint_package.plugin = host_plugin_module
 schemas_module.types = types_module
 schemas_module.TokenPayload = TokenPayload
 types_module.MessageType = MessageType
 types_module.MediaSource = MediaSource
-security_module.verify_token = verify_token
+host_plugin_module.verify_token = verify_token
 
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")

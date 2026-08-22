@@ -19,7 +19,14 @@ except ModuleNotFoundError:
     sdk.__path__ = []
     sys.modules["app.sdk"] = sdk
     app_module.sdk = sdk
-security = ModuleType("app.sdk.security")
-security.verify_token = lambda: SimpleNamespace(super_user=True, sub="1")
-sys.modules["app.sdk.security"] = security
-sdk.security = security
+app_module = sys.modules.setdefault("app", ModuleType("app"))
+api = sys.modules.setdefault("app.api", ModuleType("app.api"))
+api.__path__ = []
+endpoints = sys.modules.setdefault("app.api.endpoints", ModuleType("app.api.endpoints"))
+endpoints.__path__ = []
+host_plugin = ModuleType("app.api.endpoints.plugin")
+host_plugin.verify_token = lambda: SimpleNamespace(super_user=True, sub="1")
+sys.modules["app.api.endpoints.plugin"] = host_plugin
+endpoints.plugin = host_plugin
+api.endpoints = endpoints
+app_module.api = api
