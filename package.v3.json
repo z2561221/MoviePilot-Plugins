@@ -62,7 +62,7 @@
     "name": "备份中心",
     "description": "备份 MoviePilot 与插件设置，生成可校验的离线恢复包。",
     "labels": "系统工具,数据安全",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "icon": "backup.png",
     "color": "#00897B",
     "author": "Kurisu",
@@ -71,6 +71,7 @@
     "system_version": ">=3.0.0",
     "release": true,
     "history": {
+      "v3.0.1": "[1]新增运行日志;[2]适配V3接口;[3]修复插件加载",
       "v3.0.0": "[1]备份MP与插件;[2]支持加密校验;[3]附带离线恢复"
     }
   }

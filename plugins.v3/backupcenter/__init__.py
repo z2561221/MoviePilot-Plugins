@@ -8,6 +8,7 @@ from app.plugins import _PluginBase
 
 from .controller.api import build_api_routes
 from .service.backup_service import BackupService
+from .service.operation_log_service import OperationLogService
 from .service.restore_service import RestoreService
 from .service.scheduler import build_services
 from .service.secret_service import SecretService
@@ -20,7 +21,7 @@ class BackupCenter(_PluginBase):
     plugin_desc = "备份 MoviePilot 与插件设置，生成可校验的离线恢复包。"
     plugin_icon = "backup.png"
     plugin_color = "#00897B"
-    plugin_version = "3.0.0"
+    plugin_version = "3.0.1"
     plugin_label = "系统工具,数据安全"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
@@ -46,6 +47,7 @@ class BackupCenter(_PluginBase):
     }
     _config: Dict[str, Any] = {}
     _backup_service: BackupService
+    _operation_log_service: OperationLogService
     _restore_service: RestoreService
     _secret_service: SecretService
 
@@ -57,6 +59,7 @@ class BackupCenter(_PluginBase):
         self._enabled = bool(self._config.get("enabled", True))
         self._secret_service = SecretService(self)
         self._backup_service = BackupService(self)
+        self._operation_log_service = OperationLogService(self)
         self._restore_service = RestoreService(self, self._backup_service)
 
     @classmethod
@@ -130,6 +133,13 @@ class BackupCenter(_PluginBase):
 
     def run_automatic_backup(self) -> Dict[str, Any]:
         """按配置范围执行一次自动备份并按数量清理旧自动备份。"""
+        return self._operation_log_service.execute(
+            "automatic_backup",
+            self._run_automatic_backup,
+        )
+
+    def _run_automatic_backup(self) -> Dict[str, Any]:
+        """执行一次不重复记录日志的自动备份核心流程。"""
         from .controller.api import BackupCenterApiController
         from .model.backup import BackupScope
 

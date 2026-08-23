@@ -233,6 +233,30 @@ class BackupDeleteData(BaseModel):
     deleted: bool
 
 
+class BackupOperationLogData(BaseModel):
+    """描述一条可公开展示的备份中心运行记录。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    log_id: str
+    operation: str
+    status: Literal["success", "failure"]
+    started_at: str
+    finished_at: str
+    duration_ms: int = 0
+    backup_id: str | None = None
+    message: str
+
+
+class BackupLogsData(BaseModel):
+    """描述最近的备份中心运行日志集合。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    logs: list[BackupOperationLogData] = Field(default_factory=list)
+    total: int = 0
+
+
 class RestorePreviewData(BaseModel):
     """描述在线恢复前的公开预检结果。"""
 

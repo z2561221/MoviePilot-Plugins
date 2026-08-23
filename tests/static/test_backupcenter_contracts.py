@@ -71,10 +71,11 @@ def test_backupcenter_metadata_is_consistent_and_v3_scoped():
     ):
         assert package[metadata_key] == manifest[metadata_key]
         assert package[metadata_key] == _class_string(plugin_class, class_key)
-    assert package["version"] == manifest["version"] == "3.0.0"
+    assert package["version"] == manifest["version"] == "3.0.1"
     assert "v2" not in package and "v2" not in manifest
     assert package["release"] is True
     assert package["history"] == manifest["history"] == {
+        "v3.0.1": "[1]新增运行日志;[2]适配V3接口;[3]修复插件加载",
         "v3.0.0": "[1]备份MP与插件;[2]支持加密校验;[3]附带离线恢复"
     }
     assert "BackupCenter" not in package_v2
@@ -107,7 +108,8 @@ def test_backupcenter_api_is_bearer_only_and_exports_offline_package():
     controller = API_CONTROLLER.read_text(encoding="utf-8")
     frontend = FRONTEND_API.read_text(encoding="utf-8")
 
-    assert "from app.application.security.access import verify_token" in controller
+    assert "from app.api.endpoints.plugin import verify_token" in controller
+    assert "app.application.security.access" not in controller
     assert "app.core.security" not in controller
     assert '"auth": "bear"' in controller
     assert '"/backups/{backup_id}/export"' in controller
@@ -122,6 +124,31 @@ def test_backupcenter_api_is_bearer_only_and_exports_offline_package():
     assert "def _success" not in controller
     assert "fetch(" not in frontend
     assert "API_TOKEN" not in frontend
+
+
+def test_backupcenter_exposes_sanitized_operation_logs():
+    """运行日志通过 Bearer API 和联邦页面展示脱敏后的最近记录。"""
+    controller = API_CONTROLLER.read_text(encoding="utf-8")
+    page = (PLUGIN_DIR / "frontend" / "src" / "components" / "Page.vue").read_text(
+        encoding="utf-8"
+    )
+    service = (
+        PLUGIN_DIR / "service" / "operation_log_service.py"
+    ).read_text(encoding="utf-8")
+
+    assert '("/logs", controller.endpoint_operation_logs, ["GET"]' in controller
+    assert "BackupLogsData" in controller
+    assert "app.sdk.logging import logger" in service
+    assert '_data_key = "operation_logs"' in service
+    assert "_limit = 200" in service
+    for marker in (
+        "运行日志",
+        "getPluginApi(props.api, 'logs')",
+        "formatDuration",
+        "operationLabel",
+        "bc-log-list",
+    ):
+        assert marker in page
 
 
 def test_backupcenter_requires_superuser_and_registers_no_sidebar():

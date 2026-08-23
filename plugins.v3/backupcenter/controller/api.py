@@ -7,14 +7,15 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-# MoviePilot V3 e28de9cf 的 SDK 尚未导出 bearer token 校验依赖。
-from app.application.security.access import verify_token
 from app.sdk.config import settings
 from app.sdk.plugins import PluginManager
+# 当前部署镜像未提供 app.sdk.security，复用宿主插件 API 的公开认证依赖。
+from app.api.endpoints.plugin import verify_token
 from ..model.api import (
     AutomaticBackupData,
     BackupConfigData,
     BackupDeleteData,
+    BackupLogsData,
     BackupManifestData,
     BackupOverviewData,
     BackupVerificationData,
@@ -141,11 +142,18 @@ class BackupCenterApiController:
 
     def run_automatic_backup(self) -> Dict[str, Any]:
         """按当前周期备份配置立即执行一次自动备份。"""
-        with self.plugin._operation_lock:
-            return self.plugin.run_automatic_backup()
+        return self.plugin.run_automatic_backup()
 
     def create_backup(self, payload: CreateBackupRequest) -> Dict[str, Any]:
         """创建 MoviePilot 范围或单插件范围的手动备份包。"""
+        return self.plugin._operation_log_service.execute(
+            "manual_backup",
+            self._create_backup,
+            payload,
+        )
+
+    def _create_backup(self, payload: CreateBackupRequest) -> Dict[str, Any]:
+        """执行一次不重复记录日志的手动备份核心流程。"""
         target = payload.target
         selection = ManualBackupSelection.from_payload(
             payload.selection.model_dump(),
@@ -193,11 +201,24 @@ class BackupCenterApiController:
 
     def verify_backup(self, backup_id: str) -> Dict[str, Any]:
         """验证备份外层文件的 SHA-256 清单。"""
-        return self.plugin._backup_service.verify_backup(backup_id)
+        return self.plugin._operation_log_service.execute(
+            "verify_backup",
+            self.plugin._backup_service.verify_backup,
+            backup_id,
+        )
 
     def delete_backup(self, backup_id: str) -> Dict[str, Any]:
         """删除指定备份目录和索引记录。"""
-        return self.plugin._backup_service.delete_backup(backup_id)
+        return self.plugin._operation_log_service.execute(
+            "delete_backup",
+            self.plugin._backup_service.delete_backup,
+            backup_id,
+        )
+
+    def operation_logs(self) -> Dict[str, Any]:
+        """返回最近的脱敏运行日志。"""
+        logs = self.plugin._operation_log_service.list_logs()
+        return {"logs": logs, "total": len(logs)}
 
     def preview_restore(self, backup_id: str) -> Dict[str, Any]:
         """返回无需解密负载的恢复预检信息。"""
@@ -205,6 +226,14 @@ class BackupCenterApiController:
 
     def restore_logical(self, payload: RestoreLogicalRequest) -> Dict[str, Any]:
         """执行受限的在线选择性恢复。"""
+        return self.plugin._operation_log_service.execute(
+            "restore_logical",
+            self._restore_logical,
+            payload,
+        )
+
+    def _restore_logical(self, payload: RestoreLogicalRequest) -> Dict[str, Any]:
+        """执行一次不重复记录日志的在线选择性恢复核心流程。"""
         selection = RestoreSelection.from_payload(payload.selection.model_dump())
         with self.plugin._operation_lock:
             return self.plugin._restore_service.restore_logical(
@@ -275,6 +304,13 @@ class BackupCenterApiController:
         self._require_superuser(token_payload)
         return self._run(self.encryption_status)
 
+    def endpoint_operation_logs(
+        self, token_payload: Any = Depends(verify_token)
+    ) -> BackupLogsData:
+        """FastAPI 运行日志查询入口。"""
+        self._require_superuser(token_payload)
+        return self._run(self.operation_logs)
+
     def endpoint_update_encryption_secret(
         self,
         payload: EncryptionSecretRequest,
@@ -343,6 +379,7 @@ def build_api_routes(plugin: Any) -> List[Dict[str, Any]]:
     specs = [
         ("/overview", controller.endpoint_overview, ["GET"], "获取备份中心概览", BackupOverviewData),
         ("/config", controller.endpoint_config, ["GET"], "读取备份中心配置", BackupConfigData),
+        ("/logs", controller.endpoint_operation_logs, ["GET"], "读取备份中心运行日志", BackupLogsData),
         ("/run", controller.endpoint_run_automatic_backup, ["POST"], "立即执行一次自动备份", AutomaticBackupData),
         ("/backups", controller.endpoint_create_backup, ["POST"], "创建可选加密备份", BackupManifestData),
         ("/encryption/status", controller.endpoint_encryption_status, ["GET"], "读取备份口令状态", EncryptionStatusData),

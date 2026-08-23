@@ -12,8 +12,10 @@ const emit = defineEmits(['close', 'switch'])
 
 const activeTab = ref('overview')
 const loading = ref(false)
+const logsLoading = ref(false)
 const actionLoading = ref('')
 const overview = ref({ backups: [], installed_plugin_ids: [], plugin_options: [] })
+const logs = ref([])
 const selectedBackupId = ref('')
 const preview = ref(null)
 const guide = ref(null)
@@ -52,6 +54,7 @@ const tabs = [
   { key: 'overview', title: '备份总览', icon: 'mdi-view-dashboard-outline' },
   { key: 'backups', title: '备份记录', icon: 'mdi-archive-outline' },
   { key: 'restore', title: '恢复中心', icon: 'mdi-database-arrow-left-outline' },
+  { key: 'logs', title: '运行日志', icon: 'mdi-text-box-search-outline' },
 ]
 const settingsShortcutVisible = computed(() => props.showSettings || props.show_switch)
 const backups = computed(() => overview.value?.backups || [])
@@ -129,6 +132,23 @@ function formatSize(bytes) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
+function formatDuration(milliseconds) {
+  const duration = Number(milliseconds || 0)
+  if (duration < 1000) return `${duration} ms`
+  if (duration < 60000) return `${(duration / 1000).toFixed(1)} 秒`
+  return `${(duration / 60000).toFixed(1)} 分钟`
+}
+
+function operationLabel(operation) {
+  return {
+    automatic_backup: '自动备份',
+    manual_backup: '手动备份',
+    verify_backup: '备份校验',
+    delete_backup: '删除备份',
+    restore_logical: '在线恢复',
+  }[operation] || '备份中心操作'
+}
+
 function backupKindLabel(kind) {
   return {
     automatic: '自动备份',
@@ -177,6 +197,22 @@ async function loadOverview() {
   }
 }
 
+async function loadLogs({ silent = false } = {}) {
+  logsLoading.value = true
+  try {
+    const result = await getPluginApi(props.api, 'logs') || {}
+    logs.value = Array.isArray(result.logs) ? result.logs : []
+  } catch (error) {
+    if (!silent) notify(error.message || '运行日志加载失败', 'error')
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+async function refreshAll() {
+  await Promise.all([loadOverview(), loadLogs()])
+}
+
 function openCreate() {
   createForm.target = 'moviepilot'
   createForm.pluginId = ''
@@ -209,6 +245,7 @@ async function createBackup() {
     notify(error.message || '创建备份失败', 'error')
   } finally {
     actionLoading.value = ''
+    await loadLogs({ silent: true })
   }
 }
 
@@ -221,6 +258,7 @@ async function verifyBackup(backupId) {
     notify(error.message || '备份校验失败', 'error')
   } finally {
     actionLoading.value = ''
+    await loadLogs({ silent: true })
   }
 }
 
@@ -237,6 +275,7 @@ async function deleteBackup(backupId) {
     notify(error.message || '备份删除失败', 'error')
   } finally {
     actionLoading.value = ''
+    await loadLogs({ silent: true })
   }
 }
 
@@ -323,10 +362,11 @@ async function restoreLogical() {
     notify(error.message || '选择性恢复失败', 'error')
   } finally {
     actionLoading.value = ''
+    await loadLogs({ silent: true })
   }
 }
 
-onMounted(loadOverview)
+onMounted(refreshAll)
 </script>
 
 <template>
@@ -343,7 +383,7 @@ onMounted(loadOverview)
       <VBtn v-if="settingsShortcutVisible" icon="mdi-cog-outline" variant="text" aria-label="打开配置" @click="emit('switch')">
         <VTooltip activator="parent">打开配置</VTooltip>
       </VBtn>
-      <VBtn icon="mdi-refresh" variant="text" aria-label="刷新" :loading="loading" @click="loadOverview">
+      <VBtn icon="mdi-refresh" variant="text" aria-label="刷新" :loading="loading || logsLoading" @click="refreshAll">
         <VTooltip activator="parent">刷新</VTooltip>
       </VBtn>
       <VBtn v-if="showClose" icon="mdi-close" variant="text" aria-label="关闭" @click="emit('close')">
@@ -368,7 +408,7 @@ onMounted(loadOverview)
     <VDivider />
 
     <main class="bc-content">
-      <div v-if="loading && !backups.length" class="bc-state">
+      <div v-if="(activeTab !== 'logs' && loading && !backups.length) || (activeTab === 'logs' && logsLoading && !logs.length)" class="bc-state">
         <VProgressCircular indeterminate color="primary" />
       </div>
 
@@ -493,7 +533,7 @@ onMounted(loadOverview)
         </section>
       </template>
 
-      <template v-else>
+      <template v-else-if="activeTab === 'restore'">
         <section class="bc-band bc-band--top">
           <div class="bc-band-heading">
             <div>
@@ -534,6 +574,45 @@ onMounted(loadOverview)
             </div>
           </div>
           <div v-else class="bc-empty">请选择一份备份</div>
+        </section>
+      </template>
+
+      <template v-else>
+        <section class="bc-band bc-band--top">
+          <div class="bc-band-heading">
+            <div>
+              <div class="text-subtitle-1 font-weight-bold">运行日志</div>
+              <div class="bc-muted">保留最近 200 条备份、校验、删除与在线恢复结果。</div>
+            </div>
+            <VBtn icon="mdi-refresh" variant="text" aria-label="刷新运行日志" :loading="logsLoading" @click="loadLogs()">
+              <VTooltip activator="parent">刷新运行日志</VTooltip>
+            </VBtn>
+          </div>
+          <div v-if="!logs.length" class="bc-empty">
+            <VIcon icon="mdi-text-box-search-outline" size="34" />
+            <span>暂无运行日志</span>
+          </div>
+          <div v-else class="bc-log-list">
+            <article v-for="item in logs" :key="item.log_id" class="bc-log-row">
+              <div class="bc-log-state" :class="`bc-log-state--${item.status}`">
+                <VIcon :icon="item.status === 'success' ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline'" size="20" />
+              </div>
+              <div class="bc-log-main">
+                <div class="bc-log-heading">
+                  <strong>{{ operationLabel(item.operation) }}</strong>
+                  <VChip size="x-small" :color="item.status === 'success' ? 'success' : 'error'" variant="tonal">
+                    {{ item.status === 'success' ? '成功' : '失败' }}
+                  </VChip>
+                  <span>{{ formatDuration(item.duration_ms) }}</span>
+                </div>
+                <div class="bc-log-message">{{ item.message }}</div>
+                <div class="bc-log-meta">
+                  <span>{{ formatDate(item.finished_at) }}</span>
+                  <span v-if="item.backup_id" class="bc-log-backup-id">{{ item.backup_id }}</span>
+                </div>
+              </div>
+            </article>
+          </div>
         </section>
       </template>
     </main>
@@ -755,6 +834,17 @@ onMounted(loadOverview)
 .bc-record-title { font-size: 14px; overflow-wrap: anywhere; }
 .bc-chip-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .bc-record-facts { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; color: rgba(var(--v-theme-on-surface), .62); font-size: 12px; }
+.bc-log-list { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.bc-log-row { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; padding: 12px 4px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.bc-log-state { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; }
+.bc-log-state--success { color: rgb(var(--v-theme-success)); background: rgba(var(--v-theme-success), .1); }
+.bc-log-state--failure { color: rgb(var(--v-theme-error)); background: rgba(var(--v-theme-error), .1); }
+.bc-log-main { min-width: 0; }
+.bc-log-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; font-size: 13px; }
+.bc-log-heading > span { color: rgba(var(--v-theme-on-surface), .56); font-size: 11px; }
+.bc-log-message { margin-top: 3px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.bc-log-meta { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 4px; color: rgba(var(--v-theme-on-surface), .52); font-size: 11px; }
+.bc-log-backup-id { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
 .bc-backup-select { max-width: 680px; }
 .bc-restore-paths { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .bc-restore-path { display: flex; gap: 12px; padding: 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
@@ -789,6 +879,7 @@ onMounted(loadOverview)
   .bc-page { width: min(100%, calc(100vw - 16px)); height: min(860px, 100dvh); max-height: 100%; }
   .bc-toolbar-subtitle { display: none; }
   .bc-tabs { padding-inline: 8px; }
+  .bc-tab { gap: 5px; padding-inline: 5px; font-size: 12px; }
   .bc-content { padding: 10px 10px 14px; }
   .bc-stat-grid { grid-template-columns: 1fr; gap: 8px; }
   .bc-stat { padding: 10px 12px; }

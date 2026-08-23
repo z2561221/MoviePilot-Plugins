@@ -73,7 +73,11 @@ app_core_config_module.settings = SimpleNamespace(SECRET_KEY="backupcenter-test-
 sys.modules["app.core.config"] = app_core_config_module
 app_core_module.config = app_core_config_module
 app_log_module = ModuleType("app.log")
-app_log_module.logger = SimpleNamespace(warning=lambda *_args, **_kwargs: None)
+app_log_module.logger = SimpleNamespace(
+    info=lambda *_args, **_kwargs: None,
+    warning=lambda *_args, **_kwargs: None,
+    error=lambda *_args, **_kwargs: None,
+)
 sys.modules["app.log"] = app_log_module
 app_sdk_module = _package("app.sdk", PLUGIN_DIR)
 app_sdk_config_module = ModuleType("app.sdk.config")
@@ -164,6 +168,10 @@ scheduler_module = _load(
     f"{PACKAGE_NAME}.service.scheduler",
     PLUGIN_DIR / "service" / "scheduler.py",
 )
+operation_log_module = _load(
+    f"{PACKAGE_NAME}.service.operation_log_service",
+    PLUGIN_DIR / "service" / "operation_log_service.py",
+)
 
 
 class _SystemConfig:
@@ -209,6 +217,92 @@ class _Plugin:
     def del_data(self, key):
         """删除测试持久化记录。"""
         self.records.pop(key, None)
+
+
+def test_operation_log_records_success_failure_and_sanitizes(tmp_path, monkeypatch):
+    """运行日志记录结果与耗时，且不会泄露秘密或绝对路径。"""
+    plugin = _Plugin(tmp_path)
+    service = operation_log_module.OperationLogService(plugin)
+    host_logs = {"info": [], "error": []}
+    monkeypatch.setattr(
+        operation_log_module,
+        "logger",
+        SimpleNamespace(
+            info=lambda message: host_logs["info"].append(message),
+            error=lambda message: host_logs["error"].append(message),
+            warning=lambda *_args, **_kwargs: None,
+        ),
+    )
+
+    result = service.execute(
+        "verify_backup",
+        lambda backup_id: {"backup_id": backup_id, "verified_files": []},
+        "backup-safe",
+    )
+    assert result["backup_id"] == "backup-safe"
+    service.execute(
+        "restore_logical",
+        lambda backup_id: {
+            "backup_id": backup_id,
+            "emergency_backup_id": "backup-emergency",
+        },
+        "backup-source",
+    )
+
+    def fail(backup_id):
+        """模拟包含敏感信息的校验失败。"""
+        raise RuntimeError(
+            r"password=plain-text token:abc123 C:\private\backup\manifest.json"
+        )
+
+    with pytest.raises(RuntimeError, match="password"):
+        service.execute("verify_backup", fail, "backup-failed")
+
+    records = service.list_logs()
+    assert [item["status"] for item in records] == ["failure", "success", "success"]
+    assert records[0]["backup_id"] == "backup-failed"
+    assert records[1]["backup_id"] == "backup-source"
+    assert records[2]["backup_id"] == "backup-safe"
+    assert records[1]["message"] == "在线恢复完成，应急备份 backup-emergency"
+    assert records[0]["duration_ms"] >= 0
+    serialized = str(records)
+    assert "plain-text" not in serialized
+    assert "abc123" not in serialized
+    assert "C:\\private" not in serialized
+    assert "<路径>" in records[0]["message"]
+    assert "operation=verify_backup status=success" in host_logs["info"][0]
+    assert "operation=verify_backup status=failure" in host_logs["error"][0]
+
+
+def test_operation_log_keeps_latest_200_and_skips_corrupt_data(tmp_path):
+    """运行日志只保留最近 200 条，并对损坏的 PluginData 记录容错。"""
+    plugin = _Plugin(tmp_path)
+    service = operation_log_module.OperationLogService(plugin)
+
+    for index in range(205):
+        service.execute(
+            "delete_backup",
+            lambda backup_id: {"backup_id": backup_id, "deleted": True},
+            f"backup-{index}",
+        )
+
+    records = service.list_logs()
+    assert len(records) == 200
+    assert records[0]["backup_id"] == "backup-204"
+    assert records[-1]["backup_id"] == "backup-5"
+
+    plugin.records["operation_logs"] = [
+        "broken",
+        {"operation": "manual_backup"},
+        {
+            **records[0],
+            "message": r"secret=hidden-value /config/private/settings.json",
+        },
+    ]
+    sanitized = service.list_logs()
+    assert len(sanitized) == 1
+    assert "hidden-value" not in sanitized[0]["message"]
+    assert "/config/private" not in sanitized[0]["message"]
 
 
 class _Query:
