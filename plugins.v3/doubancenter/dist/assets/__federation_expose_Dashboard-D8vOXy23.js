@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BDe5Uc2e.js';
+import { _ as _export_sfc, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-B-tn2TZA.js';
 import { d as doubanDispatchUrl, s as sourceDescriptor } from './source-C4GtvHOz.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,unref:_unref,normalizeStyle:_normalizeStyle} = await importShared('vue');
@@ -161,6 +161,7 @@ async function resolveRankMedia(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    season: item?.season || '',
   });
   const res = normalizeApiData(await getPluginApi(props.api, `resolve_media?${params}`));
   if (res?.success === false) throw new Error(res?.message || '媒体识别失败')
@@ -278,6 +279,7 @@ async function subscribeRankItem(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    season: item?.season || '',
     rank_key: rk,
     rank_name: item?.rank_name || rankNameOf(rk, item),
     source_link: item?.link || '',
@@ -757,6 +759,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-39bb1d47"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6c562705"]]);
 
 export { Dashboard as default };

@@ -30,6 +30,16 @@ DoubanCenter 3.0.0 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 - `dashboard.py`：仪表盘和详情页 API 编排，归档核心算法委托给 `service/archive.py`。
 - `folio.py`：豆瓣时间同步主流程，外层事件串行化由 `service/webhook.py` 承担。
 
+## 最新 V3 宿主适配
+
+- 已按 MoviePilot V3 `da51ff1a5feea9c22451968e4b86bc8f32011925` 使用
+  `app.sdk.media` 的媒体身份规范化函数，以及 `app.sdk.services` 的媒体服务器
+  Helper。
+- `app.adapters.external.cookiecloud.CookieCloudHelper` 当前仍没有稳定 SDK 出口，
+  是唯一保留的宿主内部导入；修改前应先重新核对宿主 `app.sdk` 的 `__all__`。
+- 17 条插件 API 显式返回 `schemas.Response[T]`，前端注入客户端读取最终
+  `success/message/data` envelope，不允许再增加一层 `data`。
+
 ## 主要数据 key
 
 - `subscribe_records`：自动订阅成功和失败历史。

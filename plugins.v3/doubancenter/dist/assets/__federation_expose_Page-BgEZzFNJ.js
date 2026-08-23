@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BDe5Uc2e.js';
+import { _ as _export_sfc, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-B-tn2TZA.js';
 import { s as sourceDescriptor } from './source-C4GtvHOz.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,unref:_unref,withModifiers:_withModifiers} = await importShared('vue');
@@ -167,6 +167,9 @@ const actionOk = ref(true);
 const loadError = ref('');
 const dialogItem = ref(null);
 const showDialog = ref(false);
+const dialogResolving = ref(false);
+const dialogResolveError = ref('');
+const dialogResolveToken = ref(0);
 const rankNames = {
   coming: '即将上映',
   tv_real_time: '实时热门',
@@ -327,6 +330,7 @@ async function resolveRankMedia(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    season: item?.season || '',
   });
   const res = normalizeApiData(await getPluginApi(props.api, `resolve_media?${params}`));
   if (res?.success === false) throw new Error(res?.message || '媒体识别失败')
@@ -491,9 +495,25 @@ async function deleteArchive(item, index) {
   await runDelete('delete_archive', { archive_id: item?.id || '' }, rowKey('archive-delete', item, index), '已删除归档记录');
 }
 
-function showActionDialog(rk, item) {
-  dialogItem.value = { rk, item };
+async function showActionDialog(rk, item) {
+  const token = ++dialogResolveToken.value;
+  dialogItem.value = { rk, item: { ...(item || {}) } };
+  dialogResolveError.value = '';
   showDialog.value = true;
+  if (tmdbIdOf(item)) return
+  dialogResolving.value = true;
+  try {
+    const media = await resolveRankMedia(rk, item);
+    if (token !== dialogResolveToken.value) return
+    dialogItem.value = { rk, item: media };
+    if (!tmdbIdOf(media)) dialogResolveError.value = '未找到对应的 TMDB 条目';
+  } catch (error) {
+    if (token === dialogResolveToken.value) {
+      dialogResolveError.value = error?.message || 'TMDB 识别失败';
+    }
+  } finally {
+    if (token === dialogResolveToken.value) dialogResolving.value = false;
+  }
 }
 
 function dialogPoster() {
@@ -521,6 +541,7 @@ async function subscribeRankItem(rk, item) {
     rank_key: rk,
     rank_name: item?.rank_name || rankNameOf(rk, item),
     source_link: item?.link || '',
+    season: item?.season || '',
   });
   const res = await postPluginApi(props.api, `subscribe?${params}`, {});
   if (!res?.success) throw new Error(res?.message || '订阅失败')
@@ -530,7 +551,7 @@ async function subscribeRankItem(rk, item) {
 }
 
 async function doSubscribe() {
-  if (!dialogItem.value) return
+  if (!dialogItem.value || dialogResolving.value) return
   const { rk, item } = dialogItem.value;
   showDialog.value = false;
   actionMessage.value = '';
@@ -1371,6 +1392,16 @@ return (_ctx, _cache) => {
                 _: 1
               }),
               _createVNode(_component_VDivider),
+              (dialogResolveError.value)
+                ? (_openBlock(), _createBlock(_component_VAlert, {
+                    key: 0,
+                    type: "warning",
+                    variant: "tonal",
+                    density: "compact",
+                    class: "mx-3 mt-3",
+                    text: dialogResolveError.value
+                  }, null, 8, ["text"]))
+                : _createCommentVNode("", true),
               _createVNode(_component_VCardActions, { class: "pa-3 pt-2 dc-dialog-actions" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VBtn, {
@@ -1378,25 +1409,27 @@ return (_ctx, _cache) => {
                     color: "primary",
                     "prepend-icon": "mdi-plus-circle-outline",
                     class: "dc-dialog-action text-none",
+                    disabled: dialogResolving.value,
                     onClick: doSubscribe
                   }, {
                     default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
                       _createTextVNode("订阅", -1)
                     ]))]),
                     _: 1
-                  }),
+                  }, 8, ["disabled"]),
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
                     "prepend-icon": "mdi-movie-open-outline",
                     class: "dc-dialog-action dc-dialog-action--tmdb text-none",
-                    disabled: !tmdbIdOf(dialogItem.value?.item),
+                    loading: dialogResolving.value,
+                    disabled: dialogResolving.value || !tmdbIdOf(dialogItem.value?.item),
                     onClick: doOpenTmdb
                   }, {
                     default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
                       _createTextVNode("TMDB", -1)
                     ]))]),
                     _: 1
-                  }, 8, ["disabled"]),
+                  }, 8, ["loading", "disabled"]),
                   _createVNode(_component_VBtn, {
                     href: sourceButtonHref() || undefined,
                     target: "_blank",
@@ -1429,6 +1462,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-202491b7"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a479c66e"]]);
 
 export { Page as default };

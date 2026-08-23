@@ -46,6 +46,12 @@ def default_media_type(addr: str) -> str:
     return "unknown"
 
 
+def douban_subject_id(value: Any) -> str:
+    """从豆瓣 subject 链接或复合文本中提取数字 ID。"""
+    match = re.search(r"/(?:movie/)?subject/(\d+)(?:[/?#]|$)", str(value or ""), flags=re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
 def build_rsshub_url(domain: str, route: str, limit: int = 5) -> str:
     """构造公共 RSSHub 请求地址并安全合并 limit 参数。"""
     raw_route = str(route or "").strip()
@@ -213,6 +219,7 @@ def fetch_coming(plugin, addr: str) -> List[dict]:
                 {
                     "title": title,
                     "link": link,
+                    "doubanid": douban_subject_id(link) or None,
                     "source_link": source_link,
                     "description": desc,
                     "category": cat,
@@ -252,9 +259,7 @@ def fetch_rank(plugin, addr: str) -> List[dict]:
                 mtype = "tv"
             doubanid = None
             if link:
-                match = re.search(r"/subject/(\d+)/?", link)
-                if match:
-                    doubanid = match.group(1)
+                doubanid = douban_subject_id(link) or None
             year = None
             if desc:
                 match = re.search(r"\b(19|20)\d{2}\b", desc)

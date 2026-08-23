@@ -66,8 +66,6 @@ def build_timeline_items(
                 remaining_months -= 1
             current = _new_timeline_item(timestamp.month)
             last_month = timestamp.month
-        if "original" not in poster:
-            continue
         current["content"][0]["content"][1]["content"].append(_poster_card(value, poster, mobile=mobile))
     if current:
         finish_timeline_item(current, item_limit)

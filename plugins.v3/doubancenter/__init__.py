@@ -1,5 +1,5 @@
 """
-DoubanCenter v3.0.0 - MoviePilot V3 本地插件
+DoubanCenter v3.0.1 - MoviePilot V3 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
 import threading
@@ -34,7 +34,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "3.0.0"
+    plugin_version = "3.0.1"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
@@ -218,6 +218,10 @@ class DoubanCenter(_PluginBase):
     def api_folio_data(self):
         """返回豆瓣时间数据。"""
         return api_controller.api_folio_data(self)
+
+    def api_repair_folio_posters(self):
+        """修复豆瓣时间线历史海报。"""
+        return api_controller.api_repair_folio_posters(self)
 
     def api_overview(self):
         """返回插件总览数据。"""

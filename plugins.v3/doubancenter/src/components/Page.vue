@@ -28,6 +28,9 @@ const actionOk = ref(true)
 const loadError = ref('')
 const dialogItem = ref(null)
 const showDialog = ref(false)
+const dialogResolving = ref(false)
+const dialogResolveError = ref('')
+const dialogResolveToken = ref(0)
 const INITIAL_LOAD_TIMEOUT_MS = 8000
 
 const rankNames = {
@@ -190,6 +193,7 @@ async function resolveRankMedia(rk, item) {
     media_type: mediaType,
     title: item?.title || item?.name || '',
     year: item?.year || '',
+    season: item?.season || '',
   })
   const res = normalizeApiData(await getPluginApi(props.api, `resolve_media?${params}`))
   if (res?.success === false) throw new Error(res?.message || '媒体识别失败')
@@ -354,9 +358,25 @@ async function deleteArchive(item, index) {
   await runDelete('delete_archive', { archive_id: item?.id || '' }, rowKey('archive-delete', item, index), '已删除归档记录')
 }
 
-function showActionDialog(rk, item) {
-  dialogItem.value = { rk, item }
+async function showActionDialog(rk, item) {
+  const token = ++dialogResolveToken.value
+  dialogItem.value = { rk, item: { ...(item || {}) } }
+  dialogResolveError.value = ''
   showDialog.value = true
+  if (tmdbIdOf(item)) return
+  dialogResolving.value = true
+  try {
+    const media = await resolveRankMedia(rk, item)
+    if (token !== dialogResolveToken.value) return
+    dialogItem.value = { rk, item: media }
+    if (!tmdbIdOf(media)) dialogResolveError.value = '未找到对应的 TMDB 条目'
+  } catch (error) {
+    if (token === dialogResolveToken.value) {
+      dialogResolveError.value = error?.message || 'TMDB 识别失败'
+    }
+  } finally {
+    if (token === dialogResolveToken.value) dialogResolving.value = false
+  }
 }
 
 function dialogPoster() {
@@ -384,6 +404,7 @@ async function subscribeRankItem(rk, item) {
     rank_key: rk,
     rank_name: item?.rank_name || rankNameOf(rk, item),
     source_link: item?.link || '',
+    season: item?.season || '',
   })
   const res = await postPluginApi(props.api, `subscribe?${params}`, {})
   if (!res?.success) throw new Error(res?.message || '订阅失败')
@@ -393,7 +414,7 @@ async function subscribeRankItem(rk, item) {
 }
 
 async function doSubscribe() {
-  if (!dialogItem.value) return
+  if (!dialogItem.value || dialogResolving.value) return
   const { rk, item } = dialogItem.value
   showDialog.value = false
   actionMessage.value = ''
@@ -669,9 +690,10 @@ onMounted(loadAll)
           <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? rankNameOf(dialogItem.rk, dialogItem.item) : '' }}</VCardSubtitle>
         </VCardItem>
         <VDivider />
+        <VAlert v-if="dialogResolveError" type="warning" variant="tonal" density="compact" class="mx-3 mt-3" :text="dialogResolveError" />
         <VCardActions class="pa-3 pt-2 dc-dialog-actions">
-          <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
-          <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :disabled="!tmdbIdOf(dialogItem?.item)" @click="doOpenTmdb">TMDB</VBtn>
+          <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" :disabled="dialogResolving" @click="doSubscribe">订阅</VBtn>
+          <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :loading="dialogResolving" :disabled="dialogResolving || !tmdbIdOf(dialogItem?.item)" @click="doOpenTmdb">TMDB</VBtn>
           <VBtn :href="sourceButtonHref() || undefined" target="_blank" rel="noopener noreferrer" variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none" @click="openSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>

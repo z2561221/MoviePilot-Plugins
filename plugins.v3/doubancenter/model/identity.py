@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable, Iterable
 from typing import Any, Mapping, Optional, Tuple
 
-# MoviePilot V3 e28de9cf 的 app.sdk.media 尚未导出媒体身份规范化函数。
-from app.domain.media import normalize_media_source, resolve_media_identity
+from app.sdk.media import normalize_media_source, resolve_media_identity
 from app.schemas.types import MediaSource
 
 
@@ -13,6 +14,18 @@ LEGACY_ID_FIELDS = {
     MediaSource.TMDB: ("tmdb_id", "tmdbid"),
     MediaSource.Douban: ("douban_id", "doubanid"),
     MediaSource.Bangumi: ("bangumi_id", "bangumiid"),
+}
+
+CONVERSION_ID_FIELDS = {
+    MediaSource.TMDB: ("tmdb_id", "tmdbid", "id"),
+    MediaSource.Douban: ("douban_id", "doubanid", "id"),
+    MediaSource.Bangumi: ("bangumi_id", "bangumiid", "id"),
+}
+
+CONVERSION_INFO_FIELDS = {
+    MediaSource.TMDB: "tmdb_info",
+    MediaSource.Douban: "douban_info",
+    MediaSource.Bangumi: "bangumi_info",
 }
 
 
@@ -43,6 +56,230 @@ def legacy_identity(
             normalized_id = str(value).strip()
             if normalized_source and normalized_id and normalized_id != "0":
                 return normalized_source, normalized_id
+    return None, None
+
+
+def _target_identity(target_source: Any, media_id: Any) -> Tuple[Optional[MediaSource], Optional[str]]:
+    """校验转换结果中的目标来源 ID，并拒绝非正数 TMDB ID。"""
+    target_source = normalize_media_source(target_source)
+    source, resolved_id = resolve_media_identity(
+        media_source=target_source,
+        media_id=media_id,
+    )
+    if not source or not resolved_id:
+        return None, None
+    if source == MediaSource.TMDB:
+        try:
+            tmdb_id = int(resolved_id)
+        except (TypeError, ValueError):
+            return None, None
+        if tmdb_id <= 0:
+            return None, None
+        resolved_id = str(tmdb_id)
+    return source, resolved_id
+
+
+def _conversion_identity(
+    value: Any,
+    target_source: Any,
+) -> Tuple[Optional[MediaSource], Optional[str]]:
+    """从字典、媒体对象或裸 ID 中提取转换后的目标身份。"""
+    target_source = normalize_media_source(target_source)
+    if not target_source or value is None:
+        return None, None
+    if isinstance(value, (str, int)) and not isinstance(value, bool):
+        return _target_identity(target_source, value)
+
+    source, media_id = resolve_media_identity(media=value)
+    if source == target_source and media_id:
+        return _target_identity(target_source, media_id)
+
+    for field in CONVERSION_ID_FIELDS.get(target_source, ("media_id", "id")):
+        raw_id = value.get(field) if isinstance(value, Mapping) else getattr(value, field, None)
+        source, media_id = _target_identity(target_source, raw_id)
+        if source and media_id:
+            return source, media_id
+
+    nested_field = CONVERSION_INFO_FIELDS.get(target_source)
+    if nested_field:
+        nested = value.get(nested_field) if isinstance(value, Mapping) else getattr(value, nested_field, None)
+        if nested is not None and nested is not value:
+            return _conversion_identity(nested, target_source)
+    return None, None
+
+
+def _contains_cjk(value: Any) -> bool:
+    """判断标题是否包含中日韩统一表意文字。"""
+    return bool(re.search(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]", str(value or "")))
+
+
+def _mapping_year(value: Mapping[str, Any]) -> str:
+    """从来源详情或 TMDB 匹配结果中提取可比较年份。"""
+    for field in ("year", "first_air_date", "release_date"):
+        raw_value = str(value.get(field) or "").strip()
+        match = re.search(r"(?:19|20)\d{2}", raw_value)
+        if match:
+            return match.group(0)
+    return ""
+
+
+def _fallback_title_candidates(value: Any, season: Any = None) -> list[str]:
+    """把豆瓣原名清理为可用于 TMDB 精确匹配的非中文候选。"""
+    title = re.sub(r"\s+", " ", str(value or "")).strip()
+    title = re.sub(r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", title).strip()
+    candidates = [title]
+    if season is not None:
+        try:
+            normalized_season = int(season)
+        except (TypeError, ValueError):
+            normalized_season = None
+        if normalized_season is not None:
+            base_title = re.sub(
+                rf"\s+(?:Season\s*0*{normalized_season}|S0*{normalized_season})\s*$",
+                "",
+                title,
+                flags=re.IGNORECASE,
+            ).strip()
+            if base_title and base_title != title:
+                candidates.insert(0, base_title)
+    result = []
+    seen = set()
+    for candidate in candidates:
+        key = candidate.casefold()
+        if (
+            not candidate
+            or key in seen
+            or _contains_cjk(candidate)
+            or not re.search(r"[A-Za-z]", candidate)
+        ):
+            continue
+        seen.add(key)
+        result.append(candidate)
+    return result
+
+
+def _douban_tmdb_original_title_fallback(
+    chain: Any,
+    *,
+    media_id: str,
+    mtype: Any = None,
+    season: Any = None,
+    fallback_title_loader: Optional[Callable[[], Iterable[Any]]] = None,
+) -> Tuple[Optional[MediaSource], Optional[str]]:
+    """用豆瓣非中文原名做一次不带年份的 TMDB 精确匹配。"""
+    douban_info = getattr(chain, "douban_info", None)
+    match_tmdbinfo = getattr(chain, "match_tmdbinfo", None)
+    if not callable(match_tmdbinfo):
+        return None, None
+
+    seen = set()
+
+    def _match_sources(title_sources: Iterable[Any], source_year: str = ""):
+        """按顺序精确匹配一组原名候选。"""
+        for title_source in title_sources:
+            embedded_year = _mapping_year({"year": title_source})
+            comparable_source_year = source_year or embedded_year
+            for title in _fallback_title_candidates(title_source, season=season):
+                title_key = title.casefold()
+                if title_key in seen:
+                    continue
+                seen.add(title_key)
+                target_info = match_tmdbinfo(
+                    name=title,
+                    mtype=mtype,
+                    year=None,
+                    season=season,
+                )
+                if not isinstance(target_info, Mapping):
+                    continue
+                target_year = _mapping_year(target_info)
+                if (
+                    season is None
+                    and comparable_source_year
+                    and target_year
+                    and comparable_source_year != target_year
+                ):
+                    continue
+                source, target_id = _conversion_identity(target_info, MediaSource.TMDB)
+                if source and target_id:
+                    return source, target_id
+        return None, None
+
+    if callable(fallback_title_loader):
+        try:
+            loaded_titles = fallback_title_loader()
+        except Exception:
+            loaded_titles = []
+        if isinstance(loaded_titles, str):
+            loaded_titles = [loaded_titles]
+        if isinstance(loaded_titles, Iterable):
+            converted = _match_sources(loaded_titles)
+            if all(converted):
+                return converted
+
+    source_info = None
+    if callable(douban_info):
+        detail_kwargs = {"doubanid": media_id}
+        if mtype is not None:
+            detail_kwargs["mtype"] = mtype
+        try:
+            source_info = douban_info(**detail_kwargs)
+        except Exception:
+            source_info = None
+    if isinstance(source_info, Mapping):
+        converted = _match_sources(
+            (source_info.get(field) for field in ("original_title", "en_title", "title")),
+            source_year=_mapping_year(source_info),
+        )
+        if all(converted):
+            return converted
+    return None, None
+
+
+def convert_identity(
+    chain: Any,
+    *,
+    target_source: Any,
+    media_source: Any,
+    media_id: Any,
+    mtype: Any = None,
+    season: Any = None,
+    fallback_title_loader: Optional[Callable[[], Iterable[Any]]] = None,
+) -> Tuple[Optional[MediaSource], Optional[str]]:
+    """调用 V3 跨源转换链，并为未定档条目补受限原名匹配。"""
+    target_source = normalize_media_source(target_source)
+    source, resolved_id = resolve_media_identity(
+        media_source=media_source,
+        media_id=media_id,
+    )
+    if not target_source or not source or not resolved_id:
+        return None, None
+    if source == target_source:
+        return _target_identity(target_source, resolved_id)
+
+    converter = getattr(chain, "convert_media_identity", None)
+    if not callable(converter):
+        return None, None
+    kwargs = {
+        "target_source": target_source,
+        "media_source": source,
+        "media_id": resolved_id,
+    }
+    if mtype is not None:
+        kwargs["mtype"] = mtype
+    if season is not None:
+        kwargs["season"] = season
+    converted_identity = _conversion_identity(converter(**kwargs), target_source)
+    if all(converted_identity):
+        return converted_identity
+    if target_source == MediaSource.TMDB and source == MediaSource.Douban:
+        return _douban_tmdb_original_title_fallback(
+            chain,
+            media_id=resolved_id,
+            mtype=mtype,
+            season=season,
+            fallback_title_loader=fallback_title_loader,
+        )
     return None, None
 
 

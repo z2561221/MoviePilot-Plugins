@@ -1,0 +1,1586 @@
+"""豆瓣中心 V3 豆瓣到 TMDB 转换测试。"""
+
+from types import SimpleNamespace
+
+from app.schemas.types import MediaSource, MediaType
+from app.sdk.media import MetaInfo
+
+from doubancenter import DoubanCenter, feed
+from doubancenter.adapter import bangumi as bangumi_adapter
+from doubancenter.adapter import douban as douban_adapter
+from doubancenter.adapter import rss as rss_adapter
+from doubancenter.model.identity import convert_identity
+from doubancenter.service import dashboard_rank_media
+from doubancenter.service import dashboard_rank_subscription
+from doubancenter.service import bangumi_tmdb
+
+
+def test_bangumi_subject_prefers_rsshub_chinese_title_and_poster():
+    """运行环境可达 RSSHub 时直接读取 BGM 中文名和封面。"""
+    rss = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0"><channel>
+      <title>尼古喵喵</title>
+      <description>测试简介 - Powered by RSSHub</description>
+      <item><title>ep.1</title><description><![CDATA[
+        <img src="http://lain.bgm.tv/pic/cover/l/6a/b3/622206_dpWcC.jpg">
+      ]]></description></item>
+    </channel></rss>"""
+    requested_urls = []
+
+    class FakeResponse:
+        """模拟 RSSHub subject 响应。"""
+
+        status_code = 200
+        text = rss
+
+        def close(self):
+            """提供响应释放接口。"""
+            return None
+
+    class FakeRequest:
+        """只允许访问预期 RSSHub 路由。"""
+
+        def __init__(self, **kwargs):
+            """忽略请求配置。"""
+            return None
+
+        def get_res(self, url):
+            """记录并返回 RSSHub 响应。"""
+            requested_urls.append(url)
+            return FakeResponse()
+
+    result = bangumi_adapter.fetch_subject(
+        SimpleNamespace(_proxy=False, _rsshub_domain="https://rsshub.example"),
+        "622206",
+        request_utils_cls=FakeRequest,
+        settings_obj=SimpleNamespace(PROXY=None),
+    )
+
+    assert requested_urls == ["https://rsshub.example/bangumi.tv/subject/622206"]
+    assert result["name_cn"] == "尼古喵喵"
+    assert result["images"]["large"] == "https://lain.bgm.tv/pic/cover/l/6a/b3/622206_dpWcC.jpg"
+
+
+def test_plugin_init_does_not_fetch_bangumi_history(monkeypatch):
+    """插件初始化不得同步请求 BGM，历史补全由榜单刷新链路承担。"""
+    plugin = object.__new__(DoubanCenter)
+    plugin.stop_service = lambda: None
+    plugin.update_config = lambda config: None
+    monkeypatch.setattr(feed, "normalize_bangumi_history", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr("doubancenter.migration.migrate_plugin_media_identity", lambda *args, **kwargs: None)
+    monkeypatch.setattr("doubancenter.migration.normalize_legacy_subscribe_usernames", lambda: None)
+
+    plugin.init_plugin({"enabled": True})
+
+    assert plugin.get_state() is True
+
+
+def test_bangumi_subject_retries_rate_limit_and_returns_payload(monkeypatch):
+    """BGM subject 遇到 429 后应有限重试并继续返回详情。"""
+    class FakeResponse:
+        """模拟 BGM subject HTTP 响应。"""
+
+        def __init__(self, status_code, payload=None, headers=None):
+            """保存响应状态、JSON 数据和响应头。"""
+            self.status_code = status_code
+            self._payload = payload
+            self.headers = headers or {}
+            self.closed = False
+
+        def json(self):
+            """返回模拟 JSON 数据。"""
+            return self._payload
+
+        def close(self):
+            """记录响应已释放。"""
+            self.closed = True
+
+    responses = [
+        FakeResponse(429, headers={"Retry-After": "0"}),
+        FakeResponse(200, {"id": 622206, "name": "ヤニねこ", "name_cn": "烟猫"}),
+    ]
+
+    class FakeRequest:
+        """按顺序返回预设 HTTP 响应。"""
+
+        def __init__(self, **kwargs):
+            """记录请求初始化参数。"""
+            self.kwargs = kwargs
+
+        def get_res(self, url):
+            """返回下一个预设响应。"""
+            return responses.pop(0)
+
+    sleeps = []
+    monkeypatch.setattr(bangumi_adapter.time, "sleep", sleeps.append)
+    result = bangumi_adapter.fetch_subject(
+        SimpleNamespace(_proxy=False),
+        "622206",
+        request_utils_cls=FakeRequest,
+        settings_obj=SimpleNamespace(PROXY=None),
+    )
+
+    assert result["name_cn"] == "烟猫"
+    assert sleeps == [1.0]
+
+
+def test_bangumi_subject_does_not_retry_non_transient_error(monkeypatch):
+    """BGM subject 遇到 404 时应直接放弃并让榜单继续处理。"""
+    class FakeResponse:
+        """模拟不可重试的 BGM subject 响应。"""
+
+        status_code = 404
+        headers = {}
+
+        def close(self):
+            """提供响应释放接口。"""
+            return None
+
+    class FakeRequest:
+        """返回 404 响应的请求客户端。"""
+
+        def __init__(self, **kwargs):
+            """忽略请求配置。"""
+            return None
+
+        def get_res(self, url):
+            """返回 404 响应。"""
+            return FakeResponse()
+
+    sleeps = []
+    monkeypatch.setattr(bangumi_adapter.time, "sleep", sleeps.append)
+    result = bangumi_adapter.fetch_subject(
+        SimpleNamespace(_proxy=False),
+        "missing",
+        request_utils_cls=FakeRequest,
+        settings_obj=SimpleNamespace(PROXY=None),
+    )
+
+    assert result is None
+    assert sleeps == []
+
+
+class FakeMediaInfo:
+    """提供榜单识别需要的最小媒体对象。"""
+
+    def __init__(
+        self,
+        *,
+        title: str,
+        source: MediaSource,
+        media_id: str,
+        tmdb_id=None,
+        douban_id=None,
+        poster: str = "",
+    ):
+        """初始化可识别的媒体字段。"""
+        self.title = title
+        self.year = "2026"
+        self.type = MediaType.TV
+        self.media_source = source
+        self.media_id = str(media_id)
+        self.tmdb_id = tmdb_id
+        self.douban_id = douban_id
+        self.bangumi_id = None
+        self.poster_path = poster
+        self.overview = "测试简介"
+
+    def get_poster_image(self):
+        """返回测试海报地址。"""
+        return self.poster_path
+
+
+class ConversionChain:
+    """模拟跨源转换和后续媒体识别。"""
+
+    def __init__(
+        self,
+        *,
+        mapping=None,
+        tmdb_media=None,
+        douban_media=None,
+        title_media=None,
+        douban_detail=None,
+        title_mapping=None,
+    ):
+        """保存各识别分支的预设返回值。"""
+        self.mapping = mapping
+        self.tmdb_media = tmdb_media
+        self.douban_media = douban_media
+        self.title_media = title_media
+        self.douban_detail = douban_detail
+        self.title_mapping = title_mapping
+        self.convert_calls = []
+        self.recognize_calls = []
+        self.douban_info_calls = []
+        self.match_tmdb_calls = []
+
+    def convert_media_identity(self, **kwargs):
+        """记录转换参数并返回预设映射。"""
+        self.convert_calls.append(kwargs)
+        if isinstance(self.mapping, Exception):
+            raise self.mapping
+        return self.mapping
+
+    def recognize_media(self, **kwargs):
+        """按识别来源返回对应的测试媒体。"""
+        self.recognize_calls.append(kwargs)
+        source = kwargs.get("media_source")
+        if source == MediaSource.TMDB:
+            return self.tmdb_media
+        if source == MediaSource.Douban:
+            return self.douban_media
+        return self.title_media
+
+    def douban_info(self, **kwargs):
+        """记录豆瓣详情参数并返回预设详情。"""
+        self.douban_info_calls.append(kwargs)
+        return self.douban_detail
+
+    def match_tmdbinfo(self, **kwargs):
+        """记录 TMDB 标题匹配参数并返回预设映射。"""
+        self.match_tmdb_calls.append(kwargs)
+        return self.title_mapping
+
+
+class SeasonalConversionChain(ConversionChain):
+    """仅在基础标题和季号同时正确时返回 TMDB 映射。"""
+
+    def __init__(self, *, expected_title: str, expected_season: int, tmdb_media, matched_id: int = 94664):
+        """保存期望的基础标题、季号和媒体结果。"""
+        super().__init__(tmdb_media=tmdb_media)
+        self.expected_title = expected_title
+        self.expected_season = expected_season
+        self.matched_id = matched_id
+
+    def match_tmdbinfo(self, **kwargs):
+        """记录匹配参数并仅接受季号归一化后的调用。"""
+        self.match_tmdb_calls.append(kwargs)
+        if (
+            kwargs.get("name") == self.expected_title
+            and kwargs.get("year") is None
+            and kwargs.get("season") == self.expected_season
+        ):
+            return {"id": self.matched_id}
+        return None
+
+
+class PluginBaseChain:
+    """模拟宿主插件基类自带但没有 V3 身份转换方法的处理链。"""
+
+    def __init__(self, tmdb_media=None):
+        """保存识别结果并记录调用。"""
+        self.tmdb_media = tmdb_media
+        self.recognize_calls = []
+
+    def recognize_media(self, **kwargs):
+        """记录媒体识别参数并返回预设结果。"""
+        self.recognize_calls.append(kwargs)
+        return self.tmdb_media
+
+
+def test_convert_identity_reads_raw_tmdb_mapping_and_forwards_season():
+    """转换助手读取宿主原始 TMDB 字典并传递季号。"""
+    chain = ConversionChain(mapping={"id": 60625})
+
+    source, media_id = convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="36508123",
+        mtype=MediaType.TV,
+        season=9,
+    )
+
+    assert (source, media_id) == (MediaSource.TMDB, "60625")
+    assert chain.convert_calls == [{
+        "target_source": MediaSource.TMDB,
+        "media_source": MediaSource.Douban,
+        "media_id": "36508123",
+        "mtype": MediaType.TV,
+        "season": 9,
+    }]
+
+
+def test_convert_identity_rejects_zero_tmdb_mapping():
+    """转换结果为零值时不得构造 TMDB 身份。"""
+    chain = ConversionChain(mapping={"id": 0})
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="36508123",
+    ) == (None, None)
+
+
+def test_convert_identity_retries_original_title_without_year_for_unreleased_tmdb():
+    """宿主年份过滤未定档条目时，使用豆瓣英文原名无年份精确匹配。"""
+    chain = ConversionChain(
+        mapping=None,
+        douban_detail={
+            "title": "大理石庄园谋杀案",
+            "original_title": "Marble Hall Murders",
+            "year": "2026",
+        },
+        title_mapping={
+            "id": 283319,
+            "name": "Marble Hall Murders",
+            "first_air_date": "",
+        },
+    )
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="37218278",
+        mtype=MediaType.TV,
+    ) == (MediaSource.TMDB, "283319")
+    assert chain.douban_info_calls == [{
+        "doubanid": "37218278",
+        "mtype": MediaType.TV,
+    }]
+    assert chain.match_tmdb_calls == [{
+        "name": "Marble Hall Murders",
+        "mtype": MediaType.TV,
+        "year": None,
+        "season": None,
+    }]
+
+
+def test_convert_identity_does_not_retry_chinese_title():
+    """豆瓣缺少非中文原名时，不得重新按中文标题冒险匹配。"""
+    chain = ConversionChain(
+        mapping=None,
+        douban_detail={
+            "title": "大理石庄园谋杀案",
+            "original_title": "",
+            "year": "2026",
+        },
+        title_mapping={"id": 283319},
+    )
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="37218278",
+        mtype=MediaType.TV,
+    ) == (None, None)
+    assert chain.match_tmdb_calls == []
+
+
+def test_convert_identity_rejects_conflicting_yearless_match():
+    """无年份搜索命中明确不同年份时，不得接受该 TMDB 身份。"""
+    chain = ConversionChain(
+        mapping=None,
+        douban_detail={
+            "original_title": "Marble Hall Murders",
+            "year": "2026",
+        },
+        title_mapping={
+            "id": 283319,
+            "name": "Marble Hall Murders",
+            "first_air_date": "2024-01-01",
+        },
+    )
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="37218278",
+        mtype=MediaType.TV,
+    ) == (None, None)
+
+
+def test_convert_identity_uses_mobile_original_title_when_douban_chain_is_limited():
+    """豆瓣链受限时使用移动页英文原名，并去掉季号后匹配 TMDB。"""
+    chain = ConversionChain(
+        mapping=None,
+        douban_detail=RuntimeError("rate limited"),
+        title_mapping={"id": 95480, "name": "Slow Horses", "first_air_date": "2022-04-01"},
+    )
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="36689816",
+        mtype=MediaType.TV,
+        season=6,
+        fallback_title_loader=lambda: ["Slow Horses Season 6（2026）"],
+    ) == (MediaSource.TMDB, "95480")
+    assert chain.match_tmdb_calls == [{
+        "name": "Slow Horses",
+        "mtype": MediaType.TV,
+        "year": None,
+        "season": 6,
+    }]
+    assert chain.douban_info_calls == []
+
+
+def test_convert_identity_rejects_chinese_mobile_title():
+    """移动页没有英文原名时仍不得按中文标题重试。"""
+    chain = ConversionChain(mapping=None, douban_detail=None, title_mapping={"id": 95480})
+
+    assert convert_identity(
+        chain,
+        target_source=MediaSource.TMDB,
+        media_source=MediaSource.Douban,
+        media_id="36689816",
+        mtype=MediaType.TV,
+        season=6,
+        fallback_title_loader=lambda: ["流人 第六季（2026）"],
+    ) == (None, None)
+    assert chain.match_tmdb_calls == []
+
+
+def test_parse_mobile_original_titles_reads_public_subject_page_markup():
+    """豆瓣移动页适配器只读取原名节点并解码实体。"""
+    document = """
+    <div class="sub-title">流人 第六季</div>
+    <div class="sub-original-title">Slow Horses &amp; Friends Season 6（2026）</div>
+    """
+
+    assert douban_adapter.parse_mobile_original_titles(document) == [
+        "Slow Horses & Friends Season 6（2026）"
+    ]
+
+
+def test_douban_subject_id_reads_coming_rss_link():
+    """即将上映 RSS 链接必须提供可转换的豆瓣 subject ID。"""
+    assert rss_adapter.douban_subject_id(
+        "https://movie.douban.com/subject/37218278/"
+    ) == "37218278"
+
+
+def test_preserve_existing_tmdb_identity_during_transient_refresh_failure():
+    """刷新瞬时失败时不得把已确认的 TMDB 主身份回退为豆瓣。"""
+    entry = {
+        "title": "瑞克和莫蒂 第九季",
+        "douban_id": "36508123",
+        "poster": "douban-poster.jpg",
+    }
+    existing = {
+        "title": "瑞克和莫蒂",
+        "tmdb_title": "瑞克和莫蒂",
+        "original_title": "瑞克和莫蒂 第九季",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "60625",
+        "tmdbid": 60625,
+        "douban_id": "36508123",
+        "poster": "tmdb-poster.jpg",
+    }
+
+    feed._preserve_existing_tmdb_identity(entry, existing)
+
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "60625"
+    assert entry["tmdbid"] == 60625
+    assert entry["title"] == "瑞克和莫蒂 第九季"
+    assert entry["tmdb_title"] == "瑞克和莫蒂"
+    assert "original_title" not in entry
+    assert entry["poster"] == "tmdb-poster.jpg"
+
+
+def test_preserve_existing_tmdb_identity_rejects_changed_douban_subject():
+    """同一榜单位置换成其他豆瓣条目时不得沿用旧 TMDB 身份。"""
+    entry = {
+        "title": "流人 第六季",
+        "douban_id": "36689816",
+        "poster": "new-poster.jpg",
+    }
+    existing = {
+        "title": "瑞克和莫蒂",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "60625",
+        "tmdbid": 60625,
+        "douban_id": "36508123",
+        "poster": "old-poster.jpg",
+    }
+
+    feed._preserve_existing_tmdb_identity(entry, existing)
+
+    assert entry.get("media_source") is None
+    assert entry.get("media_id") is None
+    assert entry.get("tmdbid") is None
+    assert entry["title"] == "流人 第六季"
+    assert entry["poster"] == "new-poster.jpg"
+
+
+def test_rank_refresh_converts_douban_identity_before_recognition():
+    """榜单刷新优先按豆瓣 ID 转换，并保存 TMDB 主身份和海报。"""
+    tmdb_media = FakeMediaInfo(
+        title="瑞克和莫蒂",
+        source=MediaSource.TMDB,
+        media_id="60625",
+        tmdb_id=60625,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(mapping={"id": 60625}, tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=chain)
+    item = {
+        "title": "瑞克和莫蒂 第九季",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "36508123",
+    }
+    entry = {
+        "title": item["title"],
+        "year": item["year"],
+        "poster": "douban-poster.jpg",
+        "douban_id": "36508123",
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "tv_global",
+        {"key": "tv_global", "route": "/douban/tv/weekly_global"},
+    )
+
+    assert result is tmdb_media
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "60625"
+    assert entry["tmdbid"] == 60625
+    assert entry["douban_id"] == "36508123"
+    assert entry["title"] == "瑞克和莫蒂 第九季"
+    assert entry["tmdb_title"] == "瑞克和莫蒂"
+    assert "original_title" not in entry
+    assert entry["poster"] == "tmdb-poster.jpg"
+    assert chain.recognize_calls[0]["media_source"] == MediaSource.TMDB
+
+
+def test_rank_refresh_keeps_douban_name_for_marble_hall_murders():
+    """英文 TMDB 名称只写入辅助字段，榜单仍展示豆瓣中文名。"""
+    tmdb_media = FakeMediaInfo(
+        title="Marble Hall Murders",
+        source=MediaSource.TMDB,
+        media_id="283319",
+        tmdb_id=283319,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(mapping={"id": 283319}, tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=chain)
+    item = {
+        "title": "大理石庄园谋杀案",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "37218278",
+    }
+    entry = {
+        "title": item["title"],
+        "year": item["year"],
+        "douban_id": "37218278",
+        "original_title": item["title"],
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "coming",
+        {"key": "coming", "route": "/douban/tv/coming"},
+    )
+
+    assert result is tmdb_media
+    assert entry["title"] == "大理石庄园谋杀案"
+    assert entry["tmdb_title"] == "Marble Hall Murders"
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "283319"
+    assert entry["tmdbid"] == 283319
+    assert "original_title" not in entry
+
+
+def test_rank_refresh_keeps_douban_name_for_slow_horses_season_six():
+    """带季号的豆瓣名称保持不变，同时记录 TMDB 基础剧名。"""
+    tmdb_media = FakeMediaInfo(
+        title="Slow Horses",
+        source=MediaSource.TMDB,
+        media_id="95480",
+        tmdb_id=95480,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(mapping={"id": 95480}, tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=chain)
+    item = {
+        "title": "流人 第六季",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "36689816",
+    }
+    entry = {
+        "title": item["title"],
+        "year": item["year"],
+        "douban_id": "36689816",
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "coming",
+        {"key": "coming", "route": "/douban/tv/coming"},
+    )
+
+    assert result is tmdb_media
+    assert entry["title"] == "流人 第六季"
+    assert entry["tmdb_title"] == "Slow Horses"
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "95480"
+    assert entry["tmdbid"] == 95480
+
+
+def test_rank_refresh_restores_chinese_title_when_current_rss_title_is_english():
+    """当前 RSS 只返回英文名时，合并仍保留历史豆瓣中文名。"""
+    tmdb_media = FakeMediaInfo(
+        title="Marble Hall Murders",
+        source=MediaSource.TMDB,
+        media_id="283319",
+        tmdb_id=283319,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(mapping={"id": 283319}, tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=chain)
+    item = {
+        "title": "Marble Hall Murders",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "37218278",
+    }
+    entry = {"title": item["title"], "year": item["year"], "douban_id": "37218278"}
+    existing = {
+        "title": "Marble Hall Murders",
+        "original_title": "翠鸟谋杀案",
+        "douban_id": "37218278",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "283319",
+        "tmdb_id": 283319,
+        "tmdb_title": "Marble Hall Murders",
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "coming",
+        {"key": "coming", "route": "/douban/tv/coming"},
+        existing=existing,
+    )
+
+    assert result is tmdb_media
+    assert entry["title"] == "翠鸟谋杀案"
+    assert entry["tmdb_title"] == "Marble Hall Murders"
+    assert "original_title" not in entry
+
+
+def test_rank_refresh_reuses_existing_tmdb_identity_before_network_conversion():
+    """同一豆瓣条目已有 TMDB 身份时直接复用，避免重复请求转换链。"""
+    tmdb_media = FakeMediaInfo(
+        title="瑞克和莫蒂",
+        source=MediaSource.TMDB,
+        media_id="60625",
+        tmdb_id=60625,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(mapping=RuntimeError("should not convert"), tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=chain)
+    item = {
+        "title": "瑞克和莫蒂 第九季",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "36508123",
+        "link": "https://movie.douban.com/subject/36508123/",
+    }
+    entry = {
+        "title": item["title"],
+        "year": item["year"],
+        "poster": "douban-poster.jpg",
+        "douban_id": "36508123",
+    }
+    existing = {
+        "title": "瑞克和莫蒂",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "60625",
+        "tmdbid": 60625,
+        "link": "https://movie.douban.com/subject/36508123/",
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "tv_global",
+        {"key": "tv_global", "route": "/douban/tv/weekly_global"},
+        existing=existing,
+    )
+
+    assert result is tmdb_media
+    assert chain.convert_calls == []
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "60625"
+    assert entry["douban_id"] == "36508123"
+    assert entry["title"] == "瑞克和莫蒂 第九季"
+    assert entry["tmdb_title"] == "瑞克和莫蒂"
+
+
+def test_rank_refresh_uses_media_chain_when_plugin_base_chain_cannot_convert():
+    """插件基类处理链缺少 V3 转换方法时必须切换到 MediaChain。"""
+    tmdb_media = FakeMediaInfo(
+        title="瑞克和莫蒂",
+        source=MediaSource.TMDB,
+        media_id="60625",
+        tmdb_id=60625,
+    )
+    plugin_chain = PluginBaseChain(tmdb_media=tmdb_media)
+    conversion_chain = ConversionChain(mapping={"id": 60625}, tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=plugin_chain)
+    item = {
+        "title": "瑞克和莫蒂 第九季",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "36508123",
+    }
+    entry = {
+        "title": item["title"],
+        "year": item["year"],
+        "douban_id": "36508123",
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "tv_global",
+        {"key": "tv_global", "route": "/douban/tv/weekly_global"},
+        media_chain_cls=lambda: conversion_chain,
+    )
+
+    assert result is tmdb_media
+    assert conversion_chain.convert_calls[0]["media_id"] == "36508123"
+    assert conversion_chain.recognize_calls[0]["media_source"] == MediaSource.TMDB
+    assert plugin_chain.recognize_calls == []
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "60625"
+    assert entry["title"] == "瑞克和莫蒂 第九季"
+    assert entry["tmdb_title"] == "瑞克和莫蒂"
+
+
+def test_rank_refresh_keeps_douban_identity_when_mapping_is_missing():
+    """豆瓣 ID 无映射时不允许回退标题并误写 TMDB 身份。"""
+    wrong_title_media = FakeMediaInfo(
+        title="错误匹配",
+        source=MediaSource.TMDB,
+        media_id="999",
+        tmdb_id=999,
+    )
+    chain = ConversionChain(mapping=None, title_media=wrong_title_media)
+    plugin = SimpleNamespace(chain=chain)
+    item = {
+        "title": "流人 第六季",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "36689816",
+    }
+    entry = {
+        "title": item["title"],
+        "year": item["year"],
+        "poster": "douban-poster.jpg",
+        "douban_id": "36689816",
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "coming",
+        {"key": "coming", "route": "/douban/tv/coming"},
+    )
+
+    assert result is None
+    assert chain.recognize_calls == []
+    assert entry["douban_id"] == "36689816"
+    assert entry["title"] == "流人 第六季"
+    assert "tmdb_title" not in entry
+    assert entry.get("tmdbid") is None
+    assert entry.get("media_source") is None
+
+
+def test_manual_resolve_returns_tmdb_identity_and_preserves_douban_id():
+    """手动识别转换成功后返回 TMDB 主身份并保留豆瓣辅助 ID。"""
+    tmdb_media = FakeMediaInfo(
+        title="瑞克和莫蒂",
+        source=MediaSource.TMDB,
+        media_id="60625",
+        tmdb_id=60625,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(mapping={"id": 60625}, tmdb_media=tmdb_media)
+
+    result = dashboard_rank_media.resolve_media_from_rank(
+        object(),
+        "tv",
+        "瑞克和莫蒂 第九季",
+        "2026",
+        media_source="douban",
+        media_id="36508123",
+        media_chain_cls=lambda: chain,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["media_source"] == MediaSource.TMDB.value
+    assert result["data"]["media_id"] == "60625"
+    assert result["data"]["tmdb_id"] == 60625
+    assert result["data"]["douban_id"] == "36508123"
+    assert chain.convert_calls[0]["season"] == 9
+
+
+def test_manual_resolve_keeps_douban_identity_when_mapping_is_missing():
+    """手动转换无映射时使用豆瓣详情，但不伪造 TMDB ID。"""
+    douban_media = FakeMediaInfo(
+        title="流人 第六季",
+        source=MediaSource.Douban,
+        media_id="36689816",
+        douban_id="36689816",
+        poster="douban-poster.jpg",
+    )
+    chain = ConversionChain(mapping=None, douban_media=douban_media)
+
+    result = dashboard_rank_media.resolve_media_from_rank(
+        object(),
+        "tv",
+        "流人 第六季",
+        "2026",
+        media_source="douban",
+        media_id="36689816",
+        media_chain_cls=lambda: chain,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["media_source"] == MediaSource.Douban.value
+    assert result["data"]["media_id"] == "36689816"
+    assert result["data"]["douban_id"] == "36689816"
+    assert result["data"]["tmdb_id"] is None
+
+
+def test_manual_resolve_uses_title_fallback_without_stable_identity():
+    """没有来源身份时仍保留原有的标题识别兜底能力。"""
+    tmdb_media = FakeMediaInfo(
+        title="Marble Hall Murders",
+        source=MediaSource.TMDB,
+        media_id="283319",
+        tmdb_id=283319,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(title_media=tmdb_media)
+
+    result = dashboard_rank_media.resolve_media_from_rank(
+        object(),
+        "tv",
+        "Marble Hall Murders",
+        "",
+        media_chain_cls=lambda: chain,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["media_source"] == MediaSource.TMDB.value
+    assert result["data"]["media_id"] == "283319"
+    assert result["data"]["tmdb_id"] == 283319
+    assert len(chain.recognize_calls) == 1
+    assert "media_source" not in chain.recognize_calls[0]
+
+
+def test_bangumi_subject_title_year_identifies_tmdb_and_rejects_bangumi_identity():
+    """Bangumi subject 只作为标题年份来源，标题识别必须返回 TMDB 身份。"""
+    tmdb_media = FakeMediaInfo(
+        title="Yan neko",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    chain = ConversionChain(title_media=tmdb_media)
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("ヤニねこ"),
+        bangumi_id="622206",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert result["title"] == "尼古喵喵"
+    assert result["year"] == "2026"
+    assert chain.recognize_calls[0]["meta"].name == "尼古喵喵"
+    assert chain.recognize_calls[0]["cache"] is True
+    assert "media_source" not in chain.recognize_calls[0]
+
+    bangumi_media = FakeMediaInfo(
+        title="尼古喵喵",
+        source=MediaSource.Bangumi,
+        media_id="622206",
+    )
+    bangumi_chain = ConversionChain(title_media=bangumi_media)
+    failed = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        bangumi_chain,
+        MetaInfo("ヤニねこ"),
+        bangumi_id="622206",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+    assert failed["mediainfo"] is None
+
+
+def test_bangumi_subject_uses_tmdb_limited_title_year_search():
+    """宿主限定 TMDB 搜索命中时直接复用候选媒体对象。"""
+    tmdb_media = FakeMediaInfo(
+        title="尼古喵喵",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    chain = ConversionChain()
+    search_calls = []
+    chain.search = lambda query, media_source=None: (
+        search_calls.append((query, media_source)) or (MetaInfo(query), [tmdb_media])
+    )
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("ヤニねこ"),
+        bangumi_id="622206",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert search_calls == [("尼古喵喵 2026", MediaSource.TMDB)]
+
+
+def test_bangumi_subject_search_supports_host_single_argument_contract():
+    """宿主 MediaChain.search 仅接收标题参数时仍能筛出 TMDB 媒体。"""
+    tmdb_media = FakeMediaInfo(
+        title="尼古喵喵",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    chain = ConversionChain()
+    search_calls = []
+
+    def search(query):
+        """模拟 MoviePilot 当前仅接受 title 的搜索合同。"""
+        search_calls.append(query)
+        return MetaInfo(query), [tmdb_media]
+
+    chain.search = search
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("ヤニねこ"),
+        bangumi_id="622206",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert search_calls == ["尼古喵喵 2026"]
+
+
+def test_bangumi_title_year_fallback_survives_subject_fetch_failure():
+    """Bangumi subject 暂时不可用时仍使用榜单标题年份识别 TMDB。"""
+    tmdb_media = FakeMediaInfo(
+        title="尼古喵喵",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    chain = ConversionChain(title_media=tmdb_media)
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("尼古喵喵"),
+        bangumi_id="622206",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: None,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert result["subject"] is None
+
+
+def test_bangumi_chinese_season_title_matches_tmdb_series_identity():
+    """Bangumi 中文季度标题使用基础剧名和季号匹配 TMDB 主条目。"""
+    tmdb_media = FakeMediaInfo(
+        title="无职转生～到了异世界就拿出真本事～ 第三季",
+        source=MediaSource.TMDB,
+        media_id="94664",
+        tmdb_id=94664,
+    )
+    chain = SeasonalConversionChain(
+        expected_title="无职转生",
+        expected_season=3,
+        tmdb_media=tmdb_media,
+    )
+    subject = {
+        "id": 501963,
+        "name": "無職転生Ⅲ ～異世界行ったら本気だす～",
+        "name_cn": "无职转生 第三季 ～到了异世界就拿出真本事～",
+        "date": "2026-07-01",
+    }
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("無職転生Ⅲ ～異世界行ったら本気だす～"),
+        bangumi_id="501963",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert result["season"] == 3
+    assert chain.match_tmdb_calls[-1] == {
+        "name": "无职转生",
+        "mtype": MediaType.TV,
+        "year": None,
+        "season": 3,
+    }
+
+
+def test_bangumi_unicode_roman_season_matches_when_subject_fetch_fails():
+    """Bangumi subject 不可用时从 Unicode 罗马数字恢复季号。"""
+    tmdb_media = FakeMediaInfo(
+        title="无职转生～到了异世界就拿出真本事～ 第三季",
+        source=MediaSource.TMDB,
+        media_id="94664",
+        tmdb_id=94664,
+    )
+    chain = SeasonalConversionChain(
+        expected_title="無職転生",
+        expected_season=3,
+        tmdb_media=tmdb_media,
+    )
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("無職転生Ⅲ ～異世界行ったら本気だす～"),
+        bangumi_id="501963",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: None,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert result["season"] == 3
+    assert chain.match_tmdb_calls[-1] == {
+        "name": "無職転生",
+        "mtype": MediaType.TV,
+        "year": None,
+        "season": 3,
+    }
+
+
+def test_bangumi_ordinal_season_uses_parent_series_title_without_year():
+    """BGM 英文序数季标题去掉季数和篇章后命中 TMDB 母剧。"""
+    tmdb_media = FakeMediaInfo(
+        title="Re：从零开始的异世界生活",
+        source=MediaSource.TMDB,
+        media_id="65942",
+        tmdb_id=65942,
+    )
+    chain = SeasonalConversionChain(
+        expected_title="Re:ゼロから始める異世界生活",
+        expected_season=4,
+        tmdb_media=tmdb_media,
+        matched_id=65942,
+    )
+    subject = {
+        "id": 633836,
+        "name": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
+        "date": "2026-04-01",
+    }
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo(subject["name"]),
+        bangumi_id="633836",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert result["original_title"] == subject["name"]
+    assert result["match_title"] == "Re:ゼロから始める異世界生活"
+    assert result["tmdb_title"] == tmdb_media.title
+    assert result["season"] == 4
+    assert chain.match_tmdb_calls[0] == {
+        "name": "Re:ゼロから始める異世界生活",
+        "mtype": MediaType.TV,
+        "year": None,
+        "season": 4,
+    }
+
+
+def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
+    """Bangumi 榜单展示中文名，并单独保存原名和 TMDB 标题。"""
+    tmdb_media = FakeMediaInfo(
+        title="尼古喵喵",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+        poster="tmdb-poster.jpg",
+    )
+    plugin = SimpleNamespace(
+        chain=ConversionChain(title_media=tmdb_media),
+        save_data=lambda key, value: None,
+    )
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "烟猫", "date": "2026-04-01"}
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    item = {"title": "ヤニねこ", "year": "2026", "bangumi_id": "622206"}
+    entry = {"title": item["title"], "year": item["year"], "bangumi_id": "622206"}
+
+    result = feed._apply_bangumi_recognition(plugin, item, entry)
+
+    assert result is tmdb_media
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "312949"
+    assert entry["tmdb_id"] == 312949
+    assert entry["tmdbid"] == 312949
+    assert entry["bangumi_id"] == "622206"
+    assert entry["title"] == "烟猫"
+    assert entry["original_title"] == "ヤニねこ"
+    assert entry["tmdb_title"] == "尼古喵喵"
+    assert entry["bangumi_title_source"] == "name_cn"
+
+
+def test_bangumi_history_repairs_legacy_douban_identity_from_subject_link(monkeypatch):
+    """旧 Bangumi 缓存应以 subject 链接纠正来源并恢复 BGM 中文名。"""
+    saved = {}
+    plugin = SimpleNamespace(
+        chain=ConversionChain(),
+        save_data=lambda key, value: saved.update({key: value}),
+    )
+    subject = {
+        "id": 633836,
+        "name": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
+        "date": "2026-04-01",
+        "images": {"large": "https://lain.bgm.tv/pic/cover/l/43/ca/633836_ql0f3.jpg"},
+    }
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    history = [{
+        "rank_key": "bangumi",
+        "title": subject["name"],
+        "link": "https://bgm.tv/subject/633836",
+        "media_source": "douban",
+        "media_id": "633836",
+        "tmdbid": None,
+        "poster": None,
+    }]
+
+    result = feed.normalize_bangumi_history(plugin, history)
+
+    assert result[0]["media_source"] == MediaSource.Bangumi.value
+    assert result[0]["media_id"] == "633836"
+    assert "bangumiid" not in result[0]
+    assert "bangumi_id" not in result[0]
+    assert result[0]["title"] == subject["name_cn"]
+    assert result[0]["original_title"] == subject["name"]
+    assert result[0]["bangumi_title_source"] == "name_cn"
+    assert result[0]["year"] == "2026"
+    assert result[0]["poster"] == subject["images"]["large"]
+    assert saved["rank_history_bangumi"] == result
+
+
+def test_bangumi_history_replaces_wrong_tmdb_identity_with_parent_series(monkeypatch):
+    """旧 BGM 错误 TMDB 身份应按母剧标题和季号重新识别并覆盖。"""
+    tmdb_media = FakeMediaInfo(
+        title="Re：从零开始的异世界生活",
+        source=MediaSource.TMDB,
+        media_id="65942",
+        tmdb_id=65942,
+        poster="tmdb-65942.jpg",
+    )
+    chain = SeasonalConversionChain(
+        expected_title="Re:ゼロから始める異世界生活",
+        expected_season=4,
+        tmdb_media=tmdb_media,
+        matched_id=65942,
+    )
+    saved = {}
+    plugin = SimpleNamespace(
+        chain=chain,
+        save_data=lambda key, value: saved.update({key: value}),
+    )
+    subject = {
+        "id": 633836,
+        "name": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
+        "date": "2026-04-01",
+    }
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    history = [{
+        "rank_key": "bangumi",
+        "title": "错误 TMDB 标题",
+        "original_title": subject["name"],
+        "link": "https://bgm.tv/subject/633836",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "999",
+        "tmdbid": 999,
+        "poster": "wrong.jpg",
+    }]
+
+    result = feed.normalize_bangumi_history(plugin, history)
+
+    assert result[0]["title"] == subject["name_cn"]
+    assert result[0]["tmdb_title"] == tmdb_media.title
+    assert result[0]["match_title"] == "Re:ゼロから始める異世界生活"
+    assert result[0]["season"] == 4
+    assert result[0]["media_source"] == MediaSource.TMDB.value
+    assert result[0]["media_id"] == "65942"
+    assert result[0].get("tmdbid") in (None, 65942)
+    assert result[0]["poster"] == "tmdb-65942.jpg"
+    assert saved["rank_history_bangumi"] == result
+
+
+def test_bangumi_history_repairs_missing_season_for_saved_tmdb_identity(monkeypatch):
+    """已有 TMDB 和海报的季番旧记录仍应补齐母剧标题与季号。"""
+    tmdb_media = FakeMediaInfo(
+        title="无职转生～到了异世界就拿出真本事～",
+        source=MediaSource.TMDB,
+        media_id="94664",
+        tmdb_id=94664,
+        poster="tmdb-94664.jpg",
+    )
+    chain = SeasonalConversionChain(
+        expected_title="無職転生",
+        expected_season=3,
+        tmdb_media=tmdb_media,
+    )
+    saved = {}
+    plugin = SimpleNamespace(
+        chain=chain,
+        save_data=lambda key, value: saved.update({key: value}),
+    )
+    subject = {
+        "id": 501963,
+        "name": "無職転生Ⅲ ～異世界行ったら本気だす～",
+        "name_cn": "无职转生～到了异世界就拿出真本事～",
+        "date": "2026-04-01",
+    }
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    history = [{
+        "rank_key": "bangumi",
+        "title": subject["name_cn"],
+        "original_title": subject["name"],
+        "link": "https://bgm.tv/subject/501963",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "94664",
+        "tmdb_title": tmdb_media.title,
+        "poster": tmdb_media.poster_path,
+    }]
+
+    result = feed.normalize_bangumi_history(plugin, history)
+
+    assert result[0]["title"] == subject["name_cn"]
+    assert result[0]["tmdb_title"] == tmdb_media.title
+    assert result[0]["match_title"] == "無職転生"
+    assert result[0]["season"] == 3
+    assert result[0]["media_source"] == MediaSource.TMDB.value
+    assert result[0]["media_id"] == "94664"
+    assert saved["rank_history_bangumi"] == result
+
+
+def test_bangumi_subject_link_precedes_legacy_douban_id():
+    """Bangumi 榜单旧字段冲突时应以 subject 链接为准。"""
+    item = {
+        "rank_key": "bangumi",
+        "douban_id": "1",
+        "link": "https://bgm.tv/subject/633836",
+    }
+
+    assert feed._extract_bangumi_id(item) == "633836"
+
+
+def test_bangumi_history_poster_repair_preserves_existing_tmdb_identity(monkeypatch):
+    """补 Bangumi 海报时不得覆盖已经确认的 V3 TMDB 主身份。"""
+    saved = {}
+    plugin = SimpleNamespace(
+        chain=ConversionChain(),
+        save_data=lambda key, value: saved.update({key: value}),
+    )
+    subject = {
+        "id": 622206,
+        "name": "ヤニねこ",
+        "name_cn": "烟猫",
+        "date": "2026-04-01",
+        "images": {"large": "https://lain.bgm.tv/pic/cover/l/622206.jpg"},
+    }
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    history = [{
+        "rank_key": "bangumi",
+        "title": subject["name"],
+        "link": "https://bgm.tv/subject/622206",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "312949",
+        "bangumi_id": "622206",
+        "poster": None,
+    }]
+
+    result = feed.normalize_bangumi_history(plugin, history)
+
+    assert result[0]["media_source"] == MediaSource.TMDB.value
+    assert result[0]["media_id"] == "312949"
+    assert str(result[0]["bangumi_id"]) == "622206"
+    assert result[0]["title"] == subject["name_cn"]
+    assert result[0]["original_title"] == subject["name"]
+    assert result[0]["bangumi_title_source"] == "name_cn"
+    assert result[0]["poster"] == subject["images"]["large"]
+    assert saved["rank_history_bangumi"] == result
+
+
+def test_bangumi_refresh_failure_preserves_saved_tmdb_identity_and_titles():
+    """相同 BGM subject 瞬时识别失败时不得退回 Bangumi 主身份。"""
+    entry = {
+        "rank_key": "bangumi",
+        "title": "无职转生 第三季 ～到了异世界就拿出真本事～",
+        "original_title": "無職転生Ⅲ ～異世界行ったら本気だす～",
+        "link": "https://bgm.tv/subject/501963",
+        "media_source": MediaSource.Bangumi.value,
+        "media_id": "501963",
+        "bangumi_id": 501963,
+        "bangumi_title_source": "name_cn",
+    }
+    existing = {
+        **entry,
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "94664",
+        "tmdb_id": 94664,
+        "tmdbid": 94664,
+        "tmdb_title": "无职转生～到了异世界就拿出真本事～",
+        "match_title": "無職転生",
+        "season": 3,
+        "poster": "tmdb-94664.jpg",
+    }
+
+    feed._preserve_existing_tmdb_identity(entry, existing)
+
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "94664"
+    assert entry["tmdb_id"] == 94664
+    assert entry["tmdb_title"] == existing["tmdb_title"]
+    assert entry["match_title"] == "無職転生"
+    assert entry["season"] == 3
+    assert entry["original_title"] == existing["original_title"]
+
+
+def test_bangumi_history_falls_back_to_host_identity_when_subject_is_empty(monkeypatch):
+    """subject HTTP 为空时应复用宿主 Bangumi 身份识别补全展示数据。"""
+    bangumi_media = FakeMediaInfo(
+        title="Re：从零开始的异世界生活 第四季 夺还篇",
+        source=MediaSource.Bangumi,
+        media_id="633836",
+        poster="https://lain.bgm.tv/pic/cover/l/43/ca/633836_ql0f3.jpg",
+    )
+    chain = ConversionChain(title_media=bangumi_media)
+    saved = {}
+    plugin = SimpleNamespace(
+        chain=chain,
+        save_data=lambda key, value: saved.update({key: value}),
+    )
+    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: None)
+    history = [{
+        "rank_key": "bangumi",
+        "title": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "link": "https://bgm.tv/subject/633836",
+        "media_source": MediaSource.Douban.value,
+        "media_id": "633836",
+        "poster": None,
+    }]
+
+    result = feed.normalize_bangumi_history(plugin, history)
+
+    assert result[0]["media_source"] == MediaSource.Bangumi.value
+    assert result[0]["media_id"] == "633836"
+    assert result[0]["title"] == bangumi_media.title
+    assert result[0]["year"] == "2026"
+    assert result[0]["poster"] == bangumi_media.poster_path
+    assert chain.recognize_calls[-1]["media_source"] == MediaSource.Bangumi
+    assert chain.recognize_calls[-1]["media_id"] == "633836"
+    assert saved["rank_history_bangumi"] == result
+
+
+def test_manual_bangumi_resolve_returns_tmdb_identity():
+    """手动点击榜单识别时复用 Bangumi subject 标题年份得到的 TMDB 身份。"""
+    tmdb_media = FakeMediaInfo(
+        title="Yan neko",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    chain = ConversionChain(title_media=tmdb_media)
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+
+    result = dashboard_rank_media.resolve_media_from_rank(
+        object(),
+        "tv",
+        "ヤニねこ",
+        "2026",
+        media_source="bangumi",
+        media_id="622206",
+        media_chain_cls=lambda: chain,
+        bangumi_subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["media_source"] == MediaSource.TMDB.value
+    assert result["data"]["media_id"] == "312949"
+    assert result["data"]["tmdb_id"] == 312949
+    assert result["data"]["bangumi_id"] == "622206"
+
+
+def test_manual_bangumi_resolve_reuses_saved_tmdb_and_returns_season():
+    """点击识别复用榜单 TMDB 身份，同时返回 BGM 中文名和独立季号。"""
+    tmdb_media = FakeMediaInfo(
+        title="Re：从零开始的异世界生活",
+        source=MediaSource.TMDB,
+        media_id="65942",
+        tmdb_id=65942,
+    )
+    chain = ConversionChain(tmdb_media=tmdb_media)
+    subject = {
+        "id": 633836,
+        "name": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
+        "date": "2026-04-01",
+    }
+
+    result = dashboard_rank_media.resolve_media_from_rank(
+        object(),
+        "tv",
+        subject["name"],
+        "2026",
+        tmdb_id=65942,
+        bangumi_id="633836",
+        media_source=MediaSource.TMDB,
+        media_id="65942",
+        media_chain_cls=lambda: chain,
+        bangumi_subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["title"] == subject["name_cn"]
+    assert result["data"]["original_title"] == subject["name"]
+    assert result["data"]["tmdb_title"] == tmdb_media.title
+    assert result["data"]["season"] == 4
+    assert result["data"]["media_source"] == MediaSource.TMDB.value
+    assert result["data"]["media_id"] == "65942"
+    assert len(chain.recognize_calls) == 1
+    assert chain.recognize_calls[0]["media_source"] == MediaSource.TMDB
+    assert chain.recognize_calls[0]["media_id"] == "65942"
+
+
+def test_manual_bangumi_subscription_passes_tmdb_identity_to_subscribe_chain():
+    """手动订阅识别成功后向订阅链传递 TMDB 来源和 ID。"""
+    tmdb_media = FakeMediaInfo(
+        title="Yan neko",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    media_chain = ConversionChain(title_media=tmdb_media)
+    captured = {}
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+
+    class SubscribeChain:
+        """记录手动订阅调用。"""
+
+        def exists(self, mediainfo, meta):
+            """模拟没有重复订阅。"""
+            return False
+
+        def add(self, **kwargs):
+            """保存订阅身份并返回成功。"""
+            captured.update(kwargs)
+            return 1, ""
+
+    result = dashboard_rank_subscription.subscribe_from_rank(
+        object(),
+        None,
+        "tv",
+        "ヤニねこ",
+        "2026",
+        bangumi_id="622206",
+        media_chain_cls=lambda: media_chain,
+        subscribe_chain_cls=SubscribeChain,
+        bangumi_subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result == {"success": True, "message": "已添加订阅"}
+    assert captured["media_source"] == MediaSource.TMDB
+    assert captured["media_id"] == "312949"
+
+
+def test_manual_bangumi_subscription_reuses_tmdb_identity_and_season():
+    """手动订阅直接复用榜单 TMDB 身份并把季号传给订阅链。"""
+    tmdb_media = FakeMediaInfo(
+        title="Re：从零开始的异世界生活",
+        source=MediaSource.TMDB,
+        media_id="65942",
+        tmdb_id=65942,
+    )
+    media_chain = ConversionChain(tmdb_media=tmdb_media)
+    captured = {}
+    subject = {
+        "id": 633836,
+        "name": "Re:ゼロから始める異世界生活 4th season 奪還編",
+        "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
+        "date": "2026-04-01",
+    }
+
+    class SubscribeChain:
+        """记录季番手动订阅调用。"""
+
+        def exists(self, mediainfo, meta):
+            """模拟没有重复订阅。"""
+            return False
+
+        def add(self, **kwargs):
+            """保存订阅参数并返回成功。"""
+            captured.update(kwargs)
+            return 1, ""
+
+    result = dashboard_rank_subscription.subscribe_from_rank(
+        object(),
+        65942,
+        "tv",
+        subject["name"],
+        "2026",
+        bangumi_id="633836",
+        media_source=MediaSource.TMDB,
+        media_id="65942",
+        season=4,
+        media_chain_cls=lambda: media_chain,
+        subscribe_chain_cls=SubscribeChain,
+        bangumi_subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result == {"success": True, "message": "已添加订阅"}
+    assert captured["media_source"] == MediaSource.TMDB
+    assert captured["media_id"] == "65942"
+    assert captured["season"] == 4
+    assert len(media_chain.recognize_calls) == 1

@@ -3,7 +3,14 @@ export function unwrapResponse(response) {
 }
 
 export function toPosterThumbnail(url) {
-  return String(url || '').replace(/\/(?:original|w500)\//, '/w200/')
+  const value = String(url || '').trim()
+  if (!value) return ''
+
+  const thumbnail = value.replace(/\/(?:original|w500)\//, '/w200/')
+  if (/^https?:\/\/[^/]*doubanio\.com\//i.test(thumbnail)) {
+    return `api/v1/system/img/0?imgurl=${encodeURIComponent(thumbnail)}&cache=true`
+  }
+  return thumbnail
 }
 
 const SLOW_REQUEST_MS = 1500

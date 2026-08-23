@@ -14,7 +14,7 @@ from . import observation
 
 def _default_subscribe_oper_cls():
     """按调用时环境读取 MoviePilot 订阅数据库操作类。"""
-    from app.db.subscribe_oper import SubscribeOper
+    from app.db.oper.subscribe import SubscribeOper
 
     return SubscribeOper
 
@@ -74,11 +74,13 @@ def record_existing_history(
     rank_key: str = "",
     rank_name: str = "",
     media_type: str = "",
+    season: Any = None,
+    prefer_title: bool = False,
 ) -> None:
     """记录已存在订阅，避免后续再次进入观察队列。"""
     existing_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = {
-        "title": getattr(mediainfo, "title", None) or title or unique,
+        "title": (title if prefer_title else None) or getattr(mediainfo, "title", None) or title or unique,
         "year": getattr(mediainfo, "year", None) or year or "",
         "link": link,
         "tmdbid": getattr(mediainfo, "tmdb_id", ""),
@@ -99,6 +101,8 @@ def record_existing_history(
         entry["rank_name"] = rank_name
     if media_type:
         entry["media_type"] = media_type
+    if season not in (None, ""):
+        entry["season"] = int(season)
     for index, item in enumerate(history):
         if isinstance(item, dict) and item.get("unique") == unique:
             merged = dict(item)
@@ -125,9 +129,11 @@ def write_subscribe_record(
     bangumi_id: Any = None,
     media_source: Any = None,
     media_id: Any = None,
+    season: Any = None,
+    prefer_title: bool = False,
 ) -> None:
     """写入自动或榜单手动订阅历史记录。"""
-    resolved_title = getattr(mediainfo, "title", None) or title
+    resolved_title = (title if prefer_title else None) or getattr(mediainfo, "title", None) or title
     resolved_year = getattr(mediainfo, "year", None) or year or ""
     resolved_tmdb_id = getattr(mediainfo, "tmdb_id", None) if mediainfo else tmdb_id
     resolved_type = getattr(mediainfo, "type", None) if mediainfo else media_type
@@ -151,6 +157,8 @@ def write_subscribe_record(
         "reason": reason,
         "link": source_link or "",
     }
+    if season not in (None, ""):
+        record["season"] = int(season)
     resolved_source, resolved_id = identity_from_media(mediainfo) if mediainfo else legacy_identity(
         media_source=media_source,
         media_id=media_id,
@@ -169,6 +177,7 @@ def write_subscribe_record(
         str(resolved_title or ""),
         str(resolved_year or ""),
         str(rank_key or ""),
+        str(record.get("season") or ""),
     )
     kept = []
     for item in subs:
@@ -182,6 +191,7 @@ def write_subscribe_record(
             str(item.get("title") or ""),
             str(item.get("year") or ""),
             str(item.get("rank_key") or ""),
+            str(item.get("season") or ""),
         )
         if item_key == record_key:
             continue
@@ -197,6 +207,7 @@ def add_subscription(
     rank_key: str = "",
     rank_name: str = "",
     source_link: str = "",
+    record_title: str = "",
     subscribe_chain_cls=SubscribeChain,
     subscribe_oper_cls=None,
 ) -> bool:
@@ -210,6 +221,7 @@ def add_subscription(
         observation.cleanup_observe_logs(plugin, title=getattr(mediainfo, "title", ""))
         return False
     subscribe_chain = subscribe_chain_cls()
+    season = getattr(meta, "begin_season", None) if meta else None
     media_source, media_id = identity_from_media(mediainfo)
     if not media_source or not media_id:
         write_subscribe_record(
@@ -220,6 +232,9 @@ def add_subscription(
             status="failed",
             reason="缺少有效媒体身份",
             source_link=source_link,
+            title=record_title,
+            season=season,
+            prefer_title=bool(record_title),
         )
         return False
     sid, msg = subscribe_chain.add(
@@ -228,15 +243,36 @@ def add_subscription(
         mtype=mediainfo.type if mediainfo.type else MediaType.TV,
         media_source=media_source,
         media_id=media_id,
-        season=None,
+        season=season,
         resolution=None,
         sites=None,
         exist_ok=True,
         username="豆瓣中心",
     )
     if not sid:
-        write_subscribe_record(plugin, mediainfo, rank_key=rank_key, rank_name=rank_name, status="failed", reason=msg or "订阅失败", source_link=source_link)
+        write_subscribe_record(
+            plugin,
+            mediainfo,
+            rank_key=rank_key,
+            rank_name=rank_name,
+            status="failed",
+            reason=msg or "订阅失败",
+            source_link=source_link,
+            title=record_title,
+            season=season,
+            prefer_title=bool(record_title),
+        )
         return False
     observation.cleanup_observe_logs(plugin, title=mediainfo.title)
-    write_subscribe_record(plugin, mediainfo, rank_key=rank_key, rank_name=rank_name, status="success", source_link=source_link)
+    write_subscribe_record(
+        plugin,
+        mediainfo,
+        rank_key=rank_key,
+        rank_name=rank_name,
+        status="success",
+        source_link=source_link,
+        title=record_title,
+        season=season,
+        prefer_title=bool(record_title),
+    )
     return True
