@@ -83,9 +83,9 @@ def _post_action_card(
         **original_message_kwargs(event_data),
     }
     try:
-        from app.schemas.types import MessageChannel
+        from app.schemas.types import NotificationChannel
 
-        kwargs["channel"] = MessageChannel.Telegram
+        kwargs["channel"] = NotificationChannel.Telegram
     except Exception:
         pass
     plugin.post_message(**kwargs)

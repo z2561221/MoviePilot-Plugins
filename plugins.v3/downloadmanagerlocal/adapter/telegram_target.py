@@ -12,7 +12,7 @@ def resolve_admin_telegram_userid(
     """从 MoviePilot 用户通知设置读取管理员 Telegram 用户 ID。"""
     if user_oper_factory is None:
         from app.sdk.config import settings
-        from app.db.user_oper import UserOper
+        from app.db.oper.user import UserOper
 
         user_oper_factory = UserOper
         username = username or settings.SUPERUSER

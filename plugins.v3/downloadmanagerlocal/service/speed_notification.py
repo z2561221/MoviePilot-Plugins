@@ -62,7 +62,7 @@ def parse_speed_monitor_callback(text: Any) -> Optional[tuple[str, str]]:
 
 
 def is_telegram_channel(channel: Any) -> bool:
-    """兼容 MessageChannel 枚举和值字符串判断 Telegram 渠道。"""
+    """兼容 NotificationChannel 枚举和值字符串判断 Telegram 渠道。"""
     value = getattr(channel, "value", channel)
     return str(value or "").strip().lower() == "telegram"
 

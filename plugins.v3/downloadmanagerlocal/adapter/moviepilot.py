@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.db.downloadhistory_oper import DownloadHistoryOper
-from app.db.site_oper import SiteOper
-from app.db.systemconfig_oper import SystemConfigOper
+from app.db.oper.downloadhistory import DownloadHistoryOper
+from app.db.oper.site import SiteOper
+from app.db.oper.systemconfig import SystemConfigOper
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.sdk.network import RequestUtils, SitesHelper

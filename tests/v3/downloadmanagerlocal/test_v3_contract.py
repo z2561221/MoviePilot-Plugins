@@ -272,6 +272,45 @@ def test_v3_source_removes_legacy_host_contracts() -> None:
         assert f"from {legacy_module}" not in sources
 
 
+def test_v3_database_imports_use_oper_modules() -> None:
+    """V3 数据库访问必须使用当前 Oper 模块路径。"""
+    imports = []
+    legacy_modules = {
+        "app.db.downloadhistory_oper",
+        "app.db.site_oper",
+        "app.db.systemconfig_oper",
+        "app.db.user_oper",
+    }
+    current_modules = {
+        "app.db.oper.downloadhistory",
+        "app.db.oper.site",
+        "app.db.oper.systemconfig",
+        "app.db.oper.user",
+    }
+    for path in PLUGIN_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                imports.extend((node.module, alias.name) for alias in node.names)
+
+    imported_modules = {module for module, _symbol in imports}
+    assert imported_modules.isdisjoint(legacy_modules)
+    assert current_modules <= imported_modules
+
+
+def test_v3_notification_channel_import_uses_current_contract() -> None:
+    """V3 消息发送必须使用 NotificationChannel 而非旧 MessageChannel。"""
+    imports = []
+    for path in PLUGIN_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "app.schemas.types":
+                imports.extend(alias.name for alias in node.names)
+
+    assert "MessageChannel" not in imports
+    assert "NotificationChannel" in imports
+
+
 def test_v3_message_imports_use_current_message_type() -> None:
     """V3 通知消息不得继续导入已迁移的 NotificationType 符号。"""
     legacy_imports = []
