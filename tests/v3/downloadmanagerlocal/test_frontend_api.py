@@ -1,4 +1,4 @@
-"""验证 Vue 联邦 API helper 只处理 MoviePilot V3 最终 envelope。"""
+"""验证 Vue 联邦 API helper 处理 MoviePilot V3 最终 payload。"""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ def _run_node(script: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_frontend_api_success_failure_and_network_reject() -> None:
-    """成功读取 response.data，业务失败与网络失败都必须 reject。"""
+def test_frontend_api_strict_envelope_bare_payload_and_network_reject() -> None:
+    """严格解包标准 envelope，裸查询和网络失败保持各自合同。"""
     module_url = API_MODULE.as_uri()
     script = f"""
       import assert from 'node:assert/strict'
@@ -32,6 +32,22 @@ def test_frontend_api_success_failure_and_network_reject() -> None:
         get: async () => ({{ success: true, message: '', data: {{ code: 0, value: 7 }} }})
       }}
       assert.deepEqual(await getPluginApi(successApi, 'overview'), {{ code: 0, value: 7 }})
+
+      const bareApi = {{
+        get: async () => ({{ code: 0, cards: {{ transfer: {{ active: false }} }} }})
+      }}
+      assert.deepEqual(
+        await getPluginApi(bareApi, 'overview'),
+        {{ code: 0, cards: {{ transfer: {{ active: false }} }} }}
+      )
+
+      const customApi = {{
+        get: async () => ({{ success: true, message: '', data: {{ code: 0 }}, trace: 'keep' }})
+      }}
+      assert.deepEqual(
+        await getPluginApi(customApi, 'overview'),
+        {{ success: true, message: '', data: {{ code: 0 }}, trace: 'keep' }}
+      )
 
       const failureApi = {{
         get: async () => ({{ success: false, message: '业务失败', data: {{ code: 1 }} }})

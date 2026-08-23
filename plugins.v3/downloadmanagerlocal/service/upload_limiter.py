@@ -1060,10 +1060,10 @@ def _record_downloader_failure(
         return
     item["notified"] = True
     try:
-        from app.schemas import NotificationType
+        from app.schemas.types import MessageType
 
         plugin.post_message(
-            mtype=NotificationType.Plugin,
+            mtype=MessageType.Plugin,
             title="下载中心上传限速异常",
             text=(
                 f"下载器：{downloader_id}\n"

@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from downloadmanagerlocal.controller import handlers
-from downloadmanagerlocal.model.state import load_transfer_stats
-from downloadmanagerlocal.service import transfer as transfer_service
+from app.plugins.downloadmanagerlocal.controller import handlers
+from app.plugins.downloadmanagerlocal.model.state import load_transfer_stats
+from app.plugins.downloadmanagerlocal.service import transfer as transfer_service
 
 
 class FakePlugin:

@@ -69,6 +69,15 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
 - Controller 层：`controller/api.py` 维护 API route metadata，`controller/handlers.py` 维护 handler 调度和响应 shape。
 - Service 层：`service/lifecycle.py`、`events.py`、`transfer.py`、`iyuu.py`、`rename.py`、`archive.py`、`site_tag.py`、`diagnostics.py`、`recheck.py` 等模块承载业务编排。
 - Adapter 层：`adapter/moviepilot.py` 集中访问 MoviePilot 下载器、站点、系统配置、HTTP、TorrentHelper、下载历史和外部链接能力。
+- SDK 导入：媒体身份使用 `app.sdk.media.resolve_media_identity`，站点模板使用
+  `app.sdk.network.SitesHelper`，不再回退到宿主内部媒体或站点目录。
+- 内部导入允许清单：仅保留
+  `app.application.torrent.TorrentHelper` 与
+  `app.services.torrent.TorrentHelper` 的兼容二选一导入。原因是当前稳定 SDK
+  尚未导出 TorrentHelper，插件仍需下载种子内容；当前宿主基线为
+  `v3@4cc06ce7adaf6a417620376ecd2a16d0b9659b88`，实际运行态复核在同步/reload
+  阶段完成。SDK 提供等价出口后移除此例外；聚焦守护为
+  `test_v3_internal_imports_match_symbol_allowlist`。
 - 上传限速 Adapter：`adapter/upload_limit.py` 归一化 qBittorrent / Transmission 全局与单种上传设置，并负责读写和恢复。
 - Model 层：`model/state.py` 集中维护持久化 key、IYUU 动态 key helper 和 dict 数据读写 helper，保持旧 key 后向兼容。
 - 上传限速 Model：`model/upload_limit.py` 固定 schema、30 秒协调周期、下载器和站点状态 DTO。
@@ -119,6 +128,12 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
 | `/sites` | GET | 获取站点列表（用于辅种站点选择） | `api_sites` |
 | `/tag_cleanup_scan` | POST | 扫描下载器标签并清理临时标签 | `api_tag_cleanup_scan` |
 | `/tag_cleanup_execute` | POST | 按扫描快照清理标签 | `api_tag_cleanup_execute` |
+
+其中 7 条 GET 查询路由返回声明的裸业务模型，其余 13 条操作路由显式返回严格
+`schemas.Response[T]`。Vue helper 仅在顶层字段恰好为
+`success/message/data` 且 `success` 为布尔值时解包；裸业务模型及带额外字段的
+自定义 payload 原样返回。这样既符合当前 V3 动态路由合同，也兼容旧镜像曾经提供
+的自动 envelope。
 
 守护测试：
 

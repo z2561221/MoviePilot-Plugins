@@ -9,9 +9,10 @@ from urllib.parse import urljoin
 from bencode import bdecode
 from lxml import etree
 
+from app.schemas import ServiceInfo
+from app.schemas.types import MessageType
 from app.sdk.config import settings
 from app.sdk.logging import logger
-from app.schemas import NotificationType, ServiceInfo
 
 from ..adapter.moviepilot import (
     check_site,
@@ -233,7 +234,7 @@ def _iyuu_auto_seed(plugin):
     update_iyuu_config(plugin)
     if plugin._notify and (plugin._iyuu_success or plugin._iyuu_fail):
         plugin.post_message(
-            mtype=NotificationType.SiteMessage,
+            mtype=MessageType.SiteMessage,
             title="【IYUU自动辅种任务完成】",
             text=f"服务器返回可辅种总数：{plugin._iyuu_total}\n"
                  f"实际可辅种数：{plugin._iyuu_realtotal}\n"

@@ -1,7 +1,15 @@
+function isStandardEnvelope(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return false
+  const keys = Object.keys(response).sort();
+  return keys.length === 3
+    && keys[0] === 'data'
+    && keys[1] === 'message'
+    && keys[2] === 'success'
+    && typeof response.success === 'boolean'
+}
+
 function unwrapResponse(response) {
-  if (!response || typeof response !== 'object' || typeof response.success !== 'boolean') {
-    throw new Error('MoviePilot V3 API 响应格式无效')
-  }
+  if (!isStandardEnvelope(response)) return response
   if (!response.success) throw new Error(response.message || '请求失败')
   return response.data
 }
