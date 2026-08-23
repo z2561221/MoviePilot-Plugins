@@ -832,8 +832,13 @@ def _tmdb_poster_for_record(self, title: str, record: Mapping, detail=None) -> s
     subject_name = str(record.get("subject_name") or title)
     media_type = str(record.get("type") or "TV")
     year = str(record.get("year") or "")
-    tmdb_id = str(media_id) if source == MediaSource.TMDB else ""
-    if source == MediaSource.Douban:
+    detail_source, detail_id = identity_from_media(detail) if detail is not None else (None, None)
+    tmdb_id = (
+        str(detail_id)
+        if detail_source == MediaSource.TMDB and detail_id
+        else str(media_id) if source == MediaSource.TMDB else ""
+    )
+    if source == MediaSource.Douban and not (detail_source == MediaSource.TMDB and detail_id):
         try:
             converted_source, converted_id = convert_identity(
                 MediaChain(),
