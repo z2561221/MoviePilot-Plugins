@@ -1,15 +1,25 @@
 /**
  * 将后端稳定响应解包为 data，并保留机器错误码。
  */
+function isResponseEnvelope(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
+  const keys = Object.keys(payload)
+  return (
+    keys.length === 3 &&
+    keys.every(key => ['success', 'message', 'data'].includes(key)) &&
+    ['success', 'message', 'data'].every(key =>
+      Object.prototype.hasOwnProperty.call(payload, key),
+    )
+  )
+}
+
 export function unwrapResponse(response) {
   const payload = response
+  if (!isResponseEnvelope(payload)) return payload
   if (payload && typeof payload === 'object' && payload.success === false) {
     const error = new Error(payload.message || 'Agent榜单请求失败')
     error.code = 'request_failed'
     throw error
-  }
-  if (!payload || typeof payload !== 'object' || payload.success !== true) {
-    throw new Error('MoviePilot API 返回了无效响应结构')
   }
   return payload.data
 }

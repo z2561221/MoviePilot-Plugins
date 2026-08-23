@@ -33,6 +33,14 @@ FORBIDDEN_AGENT_CAPABILITIES = {
     "send_message",
     "post_message",
 }
+FORBIDDEN_V3_HOST_IMPORTS = {
+    ("app.db.mediaserver_oper", "*"),
+    ("app.db.user_oper", "*"),
+    ("app.schemas", "MessageChannel"),
+    ("app.schemas", "NotificationType"),
+    ("app.schemas.types", "MessageChannel"),
+    ("app.schemas.types", "NotificationType"),
+}
 
 
 def _source(relative_path: str) -> str:
@@ -52,6 +60,27 @@ def _assigned_string_collection(source: str, variable_name: str) -> set[str]:
         value = ast.literal_eval(statement.value)
         return set(value)
     raise AssertionError(f"{variable_name} must be a module-level literal collection")
+
+
+def test_v3_host_imports_do_not_use_registered_compatibility_aliases():
+    """生产代码不得重新引入宿主已登记的 V3 兼容导入别名。"""
+    violations = []
+    for path in sorted(PLUGIN_DIR.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = str(node.module or "")
+                for alias in node.names:
+                    if (module, "*") in FORBIDDEN_V3_HOST_IMPORTS or (
+                        module,
+                        alias.name,
+                    ) in FORBIDDEN_V3_HOST_IMPORTS:
+                        violations.append(f"{path.relative_to(PLUGIN_DIR)}:{node.lineno}")
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if (alias.name, "*") in FORBIDDEN_V3_HOST_IMPORTS:
+                        violations.append(f"{path.relative_to(PLUGIN_DIR)}:{node.lineno}")
+    assert violations == []
 
 
 def test_per_user_domain_and_storage_contract_exists():

@@ -1,7 +1,7 @@
 {
   "name": "Agent榜单中心",
   "description": "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "author": "Kurisu",
   "author_url": "https://github.com/z2561221",
   "level": 1,
@@ -11,6 +11,7 @@
   "icon": "agentresourceofficer.png",
   "color": "#7C4DFF",
   "history": {
+    "v3.0.1": "[1]适配V3接口;[2]兼容通知服务;[3]修复插件加载",
     "v3.0.0": "[1]适配V3媒体身份;[2]适配V3接口响应;[3]迁移旧榜单身份",
     "v1.0.1": "[1]移除画像访问控制;[2]显示接口真实错误",
     "v1.0.0": "[1]完成自适应推荐闭环;[2]支持自由检索与动态问询;[3]完善反馈学习与订阅;[4]优化榜单与移动端"

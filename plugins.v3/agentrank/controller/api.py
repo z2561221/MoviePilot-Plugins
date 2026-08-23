@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Mapping
 from fastapi import Depends
 
 from app import schemas
-# MoviePilot V3 e28de9cf 的 SDK 尚未导出 bearer token 校验依赖。
-from app.application.security.access import verify_token
+# 当前部署镜像未提供 app.sdk.security，复用宿主插件 API 的公开认证依赖。
+from app.api.endpoints.plugin import verify_token
 
 from .schemas import API_RESPONSE_MODELS
 from ..model.config import configured_identities, default_config
@@ -55,16 +55,16 @@ class AgentRankApiController:
 
     @staticmethod
     def _success(data: Any) -> Dict[str, Any]:
-        """保留纯控制器测试合同；FastAPI 边界会返回其中的业务对象。"""
-        return {"success": True, "data": data}
+        """返回严格三字段的内部成功 envelope。"""
+        return {"success": True, "message": "", "data": data}
 
     @staticmethod
     def _business_data(value: Any) -> Any:
         """从内部控制器结果提取 V3 endpoint 应直接返回的业务对象。"""
         if (
             isinstance(value, Mapping)
+            and set(value) == {"success", "message", "data"}
             and value.get("success") is True
-            and "data" in value
         ):
             return value.get("data")
         return value

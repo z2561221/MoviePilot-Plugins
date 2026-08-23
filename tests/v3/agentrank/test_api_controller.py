@@ -54,14 +54,12 @@ fastapi_params_module.Depends = DependsParam
 app_module = sys.modules.setdefault("app", ModuleType("app"))
 schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
 types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-application_module = sys.modules.setdefault(
-    "app.application", ModuleType("app.application")
+api_module = sys.modules.setdefault("app.api", ModuleType("app.api"))
+endpoint_package = sys.modules.setdefault(
+    "app.api.endpoints", ModuleType("app.api.endpoints")
 )
-security_module = sys.modules.setdefault(
-    "app.application.security", ModuleType("app.application.security")
-)
-access_module = sys.modules.setdefault(
-    "app.application.security.access", ModuleType("app.application.security.access")
+host_plugin_module = sys.modules.setdefault(
+    "app.api.endpoints.plugin", ModuleType("app.api.endpoints.plugin")
 )
 
 
@@ -93,13 +91,13 @@ def verify_token():
 
 
 app_module.schemas = schemas_module
-app_module.application = application_module
-application_module.security = security_module
-security_module.access = access_module
+app_module.api = api_module
+api_module.endpoints = endpoint_package
+endpoint_package.plugin = host_plugin_module
 schemas_module.types = types_module
 schemas_module.TokenPayload = TokenPayload
 types_module.MediaSource = MediaSource
-access_module.verify_token = verify_token
+host_plugin_module.verify_token = verify_token
 
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 analysis_module = importlib.import_module(f"{PACKAGE_NAME}.model.analysis")
@@ -1039,6 +1037,9 @@ def test_options_overview_board_profile_and_history_have_stable_data_shape():
     history = controller.run_history(HOME_PROFILE)
     board_history = controller.board_history(HOME_PROFILE)
 
+    for response in (options, overview, board, profile, history, board_history):
+        assert set(response) == {"success", "message", "data"}
+        assert response["message"] == ""
     assert options["success"] is True
     assert options["data"]["emby_identities"] == [HOME_IDENTITY, REMOTE_IDENTITY]
     assert options["data"]["default_profile_id"] == HOME_PROFILE

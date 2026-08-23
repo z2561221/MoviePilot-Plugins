@@ -7,7 +7,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
-from app.schemas.types import MessageChannel, NotificationType
+from app.schemas.types import MessageType, NotificationChannel
 
 from ..adapter.telegram import TelegramTargetAdapter
 from ..adapter.telegram_compat import telegram_message_not_found_guard
@@ -72,7 +72,7 @@ class TelegramSelectionService:
         self._pending_center = service
 
     @staticmethod
-    def _notification_sources(notification_type: NotificationType) -> List[str]:
+    def _notification_sources(notification_type: MessageType) -> List[str]:
         """返回所有允许当前通知类型的启用 Telegram 配置名。"""
         try:
             from app.sdk.services import ServiceConfigHelper
@@ -102,7 +102,7 @@ class TelegramSelectionService:
 
     @classmethod
     def _notification_source(
-        cls, notification_type: NotificationType
+        cls, notification_type: MessageType
     ) -> Optional[str]:
         """返回允许当前通知类型的首个启用 Telegram 配置名。"""
         sources = cls._notification_sources(notification_type)
@@ -112,7 +112,7 @@ class TelegramSelectionService:
         self, session: TelegramPendingSession
     ) -> List[str]:
         """返回原消息来源及当前可用插件来源，供删除和编辑回退。"""
-        notification_type = resolve_notification_type(self._config, NotificationType)
+        notification_type = resolve_notification_type(self._config, MessageType)
         sources: List[str] = []
         for source in (
             session.source,
@@ -293,7 +293,7 @@ class TelegramSelectionService:
                         ):
                             try:
                                 edit_kwargs = {
-                                    "channel": MessageChannel.Telegram,
+                                    "channel": NotificationChannel.Telegram,
                                     "source": session.source,
                                     "message_id": session.message_id,
                                     "chat_id": session.chat_id,
@@ -354,7 +354,7 @@ class TelegramSelectionService:
             self.reconcile_pending_sessions()
         except Exception:
             logger.warning("AgentRank Telegram 新题投递前对账失败", exc_info=True)
-        notification_type = resolve_notification_type(self._config, NotificationType)
+        notification_type = resolve_notification_type(self._config, MessageType)
         notification_source = self._notification_source(notification_type)
         existing = self._repository.load_telegram_pending_sessions(
             notice.item.profile_id,
@@ -401,7 +401,7 @@ class TelegramSelectionService:
         with self._lock:
             self._repository.save_telegram_pending_session(session)
         message_payload = dict(
-            channel=MessageChannel.Telegram,
+            channel=NotificationChannel.Telegram,
             source=notification_source,
             mtype=notification_type,
             title=f"{self._agent_label()} · 待处理",
@@ -460,10 +460,10 @@ class TelegramSelectionService:
             return True
         if self._edit_session_terminal(session, text):
             return True
-        notification_type = resolve_notification_type(self._config, NotificationType)
+        notification_type = resolve_notification_type(self._config, MessageType)
         notification_source = self._notification_source(notification_type)
         payload = dict(
-            channel=MessageChannel.Telegram,
+            channel=NotificationChannel.Telegram,
             mtype=notification_type,
             title=f"{self._agent_label()} · 已处理",
             text=html.escape(_compact_text(text, 300)),
@@ -591,7 +591,7 @@ class TelegramSelectionService:
                 try:
                     with telegram_message_not_found_guard():
                         result = delete_message(
-                            channel=MessageChannel.Telegram,
+                            channel=NotificationChannel.Telegram,
                             source=source,
                             message_id=session.message_id,
                             chat_id=session.chat_id or None,
@@ -625,7 +625,7 @@ class TelegramSelectionService:
                 try:
                     with telegram_message_not_found_guard():
                         result = edit_message(
-                            channel=MessageChannel.Telegram,
+                            channel=NotificationChannel.Telegram,
                             source=source,
                             message_id=session.message_id,
                             chat_id=session.chat_id,
@@ -654,7 +654,7 @@ class TelegramSelectionService:
         if not parsed:
             return None
         channel = (event_data or {}).get("channel")
-        if getattr(channel, "value", channel) != MessageChannel.Telegram.value:
+        if getattr(channel, "value", channel) != NotificationChannel.Telegram.value:
             return False
         token, action, argument = parsed
         with self._lock:
@@ -838,9 +838,9 @@ class TelegramSelectionService:
         text, buttons, image = self._single_page_payload(session, board, notice)
         original_message_id = event_data.get("original_message_id")
         self._plugin.post_message(
-            channel=MessageChannel.Telegram,
+            channel=NotificationChannel.Telegram,
             source=event_data.get("source"),
-            mtype=resolve_notification_type(self._config, NotificationType),
+            mtype=resolve_notification_type(self._config, MessageType),
             title=f"{self._agent_label()} · Top {len(session.candidate_ids):02d}",
             text=text,
             image=image,
@@ -871,9 +871,9 @@ class TelegramSelectionService:
         image = self._image_url(items[0]) if items else None
         deleted = self._delete_original_message(event_data)
         self._plugin.post_message(
-            channel=MessageChannel.Telegram,
+            channel=NotificationChannel.Telegram,
             source=event_data.get("source"),
-            mtype=resolve_notification_type(self._config, NotificationType),
+            mtype=resolve_notification_type(self._config, MessageType),
             title=title,
             text=text,
             image=image,
@@ -902,7 +902,7 @@ class TelegramSelectionService:
             with telegram_message_not_found_guard():
                 return bool(
                     delete_message(
-                        channel=MessageChannel.Telegram,
+                        channel=NotificationChannel.Telegram,
                         source=(event_data or {}).get("source"),
                         message_id=message_id,
                         chat_id=(event_data or {}).get("original_chat_id"),
@@ -915,9 +915,9 @@ class TelegramSelectionService:
     def _post_rejection(self, event_data: Dict[str, Any], text: str) -> None:
         """向越权点击者单独发送拒绝提示，不修改原卡片。"""
         self._plugin.post_message(
-            channel=MessageChannel.Telegram,
+            channel=NotificationChannel.Telegram,
             source=event_data.get("source"),
-            mtype=resolve_notification_type(self._config, NotificationType),
+            mtype=resolve_notification_type(self._config, MessageType),
             title=self._agent_label(),
             text=html.escape(text),
             targets={"telegram_userid": str(event_data.get("userid") or "")},
@@ -1034,7 +1034,7 @@ class TelegramSelectionService:
         if not parsed:
             return False
         channel = (event_data or {}).get("channel")
-        if getattr(channel, "value", channel) != MessageChannel.Telegram.value:
+        if getattr(channel, "value", channel) != NotificationChannel.Telegram.value:
             return False
         token, action, argument = parsed
         with self._lock:

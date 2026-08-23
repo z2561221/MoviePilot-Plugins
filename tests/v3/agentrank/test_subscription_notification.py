@@ -19,14 +19,12 @@ package.__path__ = [str(PLUGIN_DIR)]
 app_module = sys.modules.setdefault("app", ModuleType("app"))
 schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
 types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-application_module = sys.modules.setdefault(
-    "app.application", ModuleType("app.application")
+api_module = sys.modules.setdefault("app.api", ModuleType("app.api"))
+endpoint_package = sys.modules.setdefault(
+    "app.api.endpoints", ModuleType("app.api.endpoints")
 )
-security_module = sys.modules.setdefault(
-    "app.application.security", ModuleType("app.application.security")
-)
-access_module = sys.modules.setdefault(
-    "app.application.security.access", ModuleType("app.application.security.access")
+host_plugin_module = sys.modules.setdefault(
+    "app.api.endpoints.plugin", ModuleType("app.api.endpoints.plugin")
 )
 
 
@@ -57,7 +55,7 @@ def verify_token():
     return TokenPayload(sub=1, username="admin", super_user=True)
 
 
-class NotificationType(Enum):
+class MessageType(Enum):
     """测试使用的最小 MoviePilot 通知类型枚举。"""
 
     Subscribe = "订阅"
@@ -67,14 +65,14 @@ class NotificationType(Enum):
 
 
 app_module.schemas = schemas_module
-app_module.application = application_module
-application_module.security = security_module
-security_module.access = access_module
+app_module.api = api_module
+api_module.endpoints = endpoint_package
+endpoint_package.plugin = host_plugin_module
 schemas_module.types = types_module
 schemas_module.TokenPayload = TokenPayload
-types_module.NotificationType = NotificationType
+types_module.MessageType = MessageType
 types_module.MediaSource = MediaSource
-access_module.verify_token = verify_token
+host_plugin_module.verify_token = verify_token
 
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
@@ -116,10 +114,10 @@ PendingNotice = pending_model_module.PendingNotice
 
 def test_notification_type_options_follow_current_host_enum():
     """配置选项动态复用当前 MoviePilot 宿主通知类型。"""
-    options = notification_type_module.notification_type_options(NotificationType)
+    options = notification_type_module.notification_type_options(MessageType)
 
     assert options == [
-        {"title": item.value, "value": item.name} for item in NotificationType
+        {"title": item.value, "value": item.name} for item in MessageType
     ]
 
 PROFILE_ID = "emby:home:user-1"
@@ -344,7 +342,7 @@ def test_notification_confirmation_sends_summary_without_subscription_dependency
 
     assert len(plugin.messages) == 1
     assert plugin.messages[0]["username"] == "Alice"
-    assert plugin.messages[0]["mtype"] is NotificationType.Plugin
+    assert plugin.messages[0]["mtype"] is MessageType.Plugin
     assert plugin.messages[0]["parse_mode"] == "MarkdownV2"
     assert plugin.messages[0]["disable_web_page_preview"] is True
     assert plugin.messages[0]["text"].startswith("本轮 克里斯蒂娜 推荐已生成，共 1 条：\n\n```")
@@ -473,7 +471,7 @@ def test_failure_notification_hides_addresses_credentials_and_emby_identity():
     )
 
     text = plugin.messages[-1]["text"]
-    assert plugin.messages[-1]["mtype"] is NotificationType.Plugin
+    assert plugin.messages[-1]["mtype"] is MessageType.Plugin
     assert "Alice" not in text
     assert "emby:home:user-1" not in text
     assert "192.0.2.12" not in text
@@ -515,7 +513,7 @@ def test_notification_type_is_shared_by_ranking_failure_and_pending_messages():
     )
 
     assert len(plugin.messages) == 3
-    assert all(message["mtype"] is NotificationType.Manual for message in plugin.messages)
+    assert all(message["mtype"] is MessageType.Manual for message in plugin.messages)
 
 
 def test_manual_subscription_passes_username_and_identifiers_after_all_gates():
@@ -733,7 +731,7 @@ def test_runtime_failure_only_notifies_for_background_run_with_old_board_state()
     asyncio.run(runtime.run_scheduled())
 
     assert len(plugin.messages) == 1
-    assert plugin.messages[0]["mtype"] == NotificationType.Plugin
+    assert plugin.messages[0]["mtype"] == MessageType.Plugin
     assert plugin.messages[0]["title"] == "克里斯蒂娜运行异常"
     assert "run-failed" in plugin.messages[0]["text"]
     assert "状态：Agent 调用失败" in plugin.messages[0]["text"]

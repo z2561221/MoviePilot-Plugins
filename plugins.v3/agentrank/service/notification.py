@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any, Optional
 
-from app.schemas.types import NotificationType
+from app.schemas.types import MessageType
 
 from ..model.board import RecommendationBoard
 from ..model.constants import RECOMMENDATION_LIMIT
@@ -247,7 +247,7 @@ class NotificationService:
         text += f"\n\n请前往 **{agent_name}** 手动订阅；此通知不会自动创建订阅。"
         self._plugin.post_message(
             mtype=resolve_notification_type(
-                getattr(self._plugin, "_config", {}), NotificationType
+                getattr(self._plugin, "_config", {}), MessageType
             ),
             title=f"{agent_name}推荐确认",
             text=text,
@@ -276,7 +276,7 @@ class NotificationService:
         ]
         self._plugin.post_message(
             mtype=resolve_notification_type(
-                getattr(self._plugin, "_config", {}), NotificationType
+                getattr(self._plugin, "_config", {}), MessageType
             ),
             title=f"{self._agent_name()}运行异常",
             text="\n".join(lines),
@@ -329,7 +329,7 @@ class NotificationService:
         ]
         kwargs = {
             "mtype": resolve_notification_type(
-                getattr(self._plugin, "_config", {}), NotificationType
+                getattr(self._plugin, "_config", {}), MessageType
             ),
             "title": f"{self._agent_name()}待处理",
             "text": "\n".join(lines),
