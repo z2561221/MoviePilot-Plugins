@@ -17,9 +17,9 @@ class ApiPlugin:
 
 
 def test_all_plugin_routes_use_bearer_and_concrete_response_models():
-    """17 条普通 JSON 路由均声明 bearer 与具体响应模型。"""
+    """18 条普通 JSON 路由均声明 bearer 与具体响应模型。"""
     routes = api_controller.get_api(ApiPlugin())
-    assert len(routes) == 17
+    assert len(routes) == 18
     assert {route["path"] for route in routes} == set(api_schemas.API_RESPONSE_MODELS)
     for route in routes:
         assert route["auth"] == "bear"
@@ -38,6 +38,7 @@ def test_to_response_produces_one_business_envelope():
         api_schemas.ResolveMediaData,
     )
     dumped = response.model_dump()
+    assert set(dumped) == {"success", "message", "data"}
     assert dumped["success"] is True
     assert dumped["message"] == "识别成功"
     assert dumped["data"]["media_source"] == "douban"

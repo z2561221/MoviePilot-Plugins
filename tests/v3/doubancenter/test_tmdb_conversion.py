@@ -634,6 +634,49 @@ def test_rank_refresh_keeps_douban_name_for_slow_horses_season_six():
     assert entry["tmdbid"] == 95480
 
 
+def test_rank_refresh_restores_chinese_title_when_current_rss_title_is_english():
+    """当前 RSS 只返回英文名时，合并仍保留历史豆瓣中文名。"""
+    tmdb_media = FakeMediaInfo(
+        title="Marble Hall Murders",
+        source=MediaSource.TMDB,
+        media_id="283319",
+        tmdb_id=283319,
+        poster="tmdb-poster.jpg",
+    )
+    chain = ConversionChain(mapping={"id": 283319}, tmdb_media=tmdb_media)
+    plugin = SimpleNamespace(chain=chain)
+    item = {
+        "title": "Marble Hall Murders",
+        "year": "2026",
+        "media_type": "tv",
+        "doubanid": "37218278",
+    }
+    entry = {"title": item["title"], "year": item["year"], "douban_id": "37218278"}
+    existing = {
+        "title": "Marble Hall Murders",
+        "original_title": "翠鸟谋杀案",
+        "douban_id": "37218278",
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "283319",
+        "tmdb_id": 283319,
+        "tmdb_title": "Marble Hall Murders",
+    }
+
+    result = feed._apply_display_recognition(
+        plugin,
+        item,
+        entry,
+        "coming",
+        {"key": "coming", "route": "/douban/tv/coming"},
+        existing=existing,
+    )
+
+    assert result is tmdb_media
+    assert entry["title"] == "翠鸟谋杀案"
+    assert entry["tmdb_title"] == "Marble Hall Murders"
+    assert "original_title" not in entry
+
+
 def test_rank_refresh_reuses_existing_tmdb_identity_before_network_conversion():
     """同一豆瓣条目已有 TMDB 身份时直接复用，避免重复请求转换链。"""
     tmdb_media = FakeMediaInfo(
@@ -920,6 +963,38 @@ def test_bangumi_subject_uses_tmdb_limited_title_year_search():
 
     assert result["mediainfo"] is tmdb_media
     assert search_calls == [("尼古喵喵 2026", MediaSource.TMDB)]
+
+
+def test_bangumi_subject_search_supports_host_single_argument_contract():
+    """宿主 MediaChain.search 仅接收标题参数时仍能筛出 TMDB 媒体。"""
+    tmdb_media = FakeMediaInfo(
+        title="尼古喵喵",
+        source=MediaSource.TMDB,
+        media_id="312949",
+        tmdb_id=312949,
+    )
+    chain = ConversionChain()
+    search_calls = []
+
+    def search(query):
+        """模拟 MoviePilot 当前仅接受 title 的搜索合同。"""
+        search_calls.append(query)
+        return MetaInfo(query), [tmdb_media]
+
+    chain.search = search
+    subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "尼古喵喵", "date": "2026-04-01"}
+
+    result = bangumi_tmdb.recognize_bangumi_tmdb(
+        object(),
+        chain,
+        MetaInfo("ヤニねこ"),
+        bangumi_id="622206",
+        media_type=MediaType.TV,
+        subject_fetcher=lambda plugin, bangumi_id: subject,
+    )
+
+    assert result["mediainfo"] is tmdb_media
+    assert search_calls == ["尼古喵喵 2026"]
 
 
 def test_bangumi_title_year_fallback_survives_subject_fetch_failure():
@@ -1276,6 +1351,41 @@ def test_bangumi_history_poster_repair_preserves_existing_tmdb_identity(monkeypa
     assert result[0]["bangumi_title_source"] == "name_cn"
     assert result[0]["poster"] == subject["images"]["large"]
     assert saved["rank_history_bangumi"] == result
+
+
+def test_bangumi_refresh_failure_preserves_saved_tmdb_identity_and_titles():
+    """相同 BGM subject 瞬时识别失败时不得退回 Bangumi 主身份。"""
+    entry = {
+        "rank_key": "bangumi",
+        "title": "无职转生 第三季 ～到了异世界就拿出真本事～",
+        "original_title": "無職転生Ⅲ ～異世界行ったら本気だす～",
+        "link": "https://bgm.tv/subject/501963",
+        "media_source": MediaSource.Bangumi.value,
+        "media_id": "501963",
+        "bangumi_id": 501963,
+        "bangumi_title_source": "name_cn",
+    }
+    existing = {
+        **entry,
+        "media_source": MediaSource.TMDB.value,
+        "media_id": "94664",
+        "tmdb_id": 94664,
+        "tmdbid": 94664,
+        "tmdb_title": "无职转生～到了异世界就拿出真本事～",
+        "match_title": "無職転生",
+        "season": 3,
+        "poster": "tmdb-94664.jpg",
+    }
+
+    feed._preserve_existing_tmdb_identity(entry, existing)
+
+    assert entry["media_source"] == MediaSource.TMDB.value
+    assert entry["media_id"] == "94664"
+    assert entry["tmdb_id"] == 94664
+    assert entry["tmdb_title"] == existing["tmdb_title"]
+    assert entry["match_title"] == "無職転生"
+    assert entry["season"] == 3
+    assert entry["original_title"] == existing["original_title"]
 
 
 def test_bangumi_history_falls_back_to_host_identity_when_subject_is_empty(monkeypatch):

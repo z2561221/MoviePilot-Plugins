@@ -82,6 +82,12 @@ class OperationPayload(FlexibleRecord):
     archive_id: str = ""
 
 
+class RepairFolioPostersPayload(FlexibleRecord):
+    """描述豆瓣时间线历史海报修复结果。"""
+
+    updated: int = 0
+
+
 class FolioData(RootModel[Dict[str, Union[FlexibleRecord, List[FlexibleRecord], str, int, bool, None]]]):
     """豆瓣时间数据响应。"""
 
@@ -150,6 +156,10 @@ class DeleteArchiveData(RootModel[OperationPayload]):
     """归档删除响应。"""
 
 
+class RepairFolioPostersData(RootModel[RepairFolioPostersPayload]):
+    """豆瓣时间线海报修复响应。"""
+
+
 API_RESPONSE_MODELS = {
     "/folio_data": FolioData,
     "/overview": OverviewData,
@@ -168,4 +178,5 @@ API_RESPONSE_MODELS = {
     "/archive_records": ArchiveRecordsData,
     "/restore_archive": RestoreArchiveData,
     "/delete_archive": DeleteArchiveData,
+    "/repair_folio_posters": RepairFolioPostersData,
 }

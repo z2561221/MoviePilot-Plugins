@@ -59,8 +59,7 @@ def _fin(item, limit):
 
 
 def api_folio_data(self):
-    """获取豆瓣时间数据，优先读自己的，没有则读原版豆瓣中心的。"""
-    folio.repair_folio_history(self)
+    """直接返回持久化的豆瓣时间数据，不在页面请求中执行媒体识别。"""
     return dashboard_folio_service.get_folio_data(self)
 
 

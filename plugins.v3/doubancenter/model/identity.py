@@ -6,8 +6,7 @@ import re
 from collections.abc import Callable, Iterable
 from typing import Any, Mapping, Optional, Tuple
 
-# MoviePilot V3 e28de9cf 的 app.sdk.media 尚未导出媒体身份规范化函数。
-from app.domain.media import normalize_media_source, resolve_media_identity
+from app.sdk.media import normalize_media_source, resolve_media_identity
 from app.schemas.types import MediaSource
 
 

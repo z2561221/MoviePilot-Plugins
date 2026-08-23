@@ -19,6 +19,10 @@ const refreshResult = ref('')
 const loadError = ref('')
 const dialogItem = ref(null)
 const showDialog = ref(false)
+const dialogResolving = ref(false)
+const dialogResolveError = ref('')
+const dialogResolveToken = ref(0)
+const timelineImageFailed = ref({})
 
 const builtinRankDefs = {
   coming: { name: '即将上映' },
@@ -40,6 +44,8 @@ const rankIconColors = {
 const TIMELINE_MONTH_LIMIT = 3
 const TIMELINE_ITEM_LIMIT = 50
 const INITIAL_LOAD_TIMEOUT_MS = 8000
+const TIMELINE_RETRY_DELAYS_MS = [800, 2500]
+const TIMELINE_RETRY_TIMEOUT_MS = 12000
 
 function rankColorOf(key) {
   return rankIconColors[key] || rankIconColors.unknown
@@ -76,6 +82,29 @@ function mediaIdOf(media) {
   if (media?.bangumi_id) return `bangumi:${media.bangumi_id}`
   if (media?.media_id && media?.mediaid_prefix) return `${media.mediaid_prefix}:${media.media_id}`
   return ''
+}
+
+async function requestFolioData(timeoutMs) {
+  const response = await getPluginApi(props.api, 'folio_data', { timeoutMs })
+  if (response?.success === false) throw new Error(response.message || '追影时间线加载失败')
+  return response
+}
+
+async function loadFolioData() {
+  let lastError = null
+  for (let attempt = 0; attempt <= TIMELINE_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise(resolve => setTimeout(resolve, TIMELINE_RETRY_DELAYS_MS[attempt - 1]))
+    }
+    try {
+      const timeoutMs = attempt === 0 ? INITIAL_LOAD_TIMEOUT_MS : TIMELINE_RETRY_TIMEOUT_MS
+      return await requestFolioData(timeoutMs)
+    } catch (error) {
+      lastError = error
+      if (error?.code === 'PLUGIN_API_TIMEOUT' && attempt > 0) break
+    }
+  }
+  throw lastError || new Error('追影时间线加载失败')
 }
 
 function tmdbIdOf(media) {
@@ -143,7 +172,7 @@ async function load() {
   folioLoading.value = true
   loadError.value = ''
   const errors = []
-  const folioRequest = getPluginApi(props.api, 'folio_data', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS })
+  const folioRequest = Promise.allSettled([loadFolioData()])
   const coreRequests = [
     { label: '仪表配置', run: getPluginApi(props.api, 'config', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS }) },
     { label: '榜单快照', run: getPluginApi(props.api, 'rank_history', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS }) },
@@ -166,13 +195,14 @@ async function load() {
   })
   loading.value = false
 
-  const [folioResult] = await Promise.allSettled([folioRequest])
+  const [folioResult] = await folioRequest
   if (folioResult.status === 'fulfilled') {
     if (folioResult.value?.success === false) {
       errors.push('追影时间线')
-    } else {
-      folioData.value = normalizeApiData(folioResult.value) || {}
-    }
+      } else {
+        folioData.value = normalizeApiData(folioResult.value) || {}
+        timelineImageFailed.value = {}
+      }
   } else {
     errors.push('追影时间线')
     console.error('[DoubanCenter] 追影时间线加载失败', folioResult.reason)
@@ -181,14 +211,14 @@ async function load() {
   loadError.value = errors.length ? `部分数据加载失败：${errors.join('、')}` : ''
 }
 
-async function refreshRss() {
+async function refreshDashboard() {
   refreshing.value = true
   refreshResult.value = ''
+  await load()
   try {
     const res = await postPluginApi(props.api, 'refresh_rss', {})
     if (res.success) {
       if (res.data) rankHistory.value = res.data
-      else rankHistory.value = normalizeApiData(await getPluginApi(props.api, 'rank_history')) || {}
       refreshResult.value = 'RSS 已刷新'
     } else {
       refreshResult.value = res.message || 'RSS 刷新失败'
@@ -200,9 +230,29 @@ async function refreshRss() {
   setTimeout(() => { refreshResult.value = '' }, 3000)
 }
 
-function showActionDialog(rk, item) {
-  dialogItem.value = { rk, item }
+async function showActionDialog(rk, item) {
+  const token = ++dialogResolveToken.value
+  dialogItem.value = { rk, item: { ...(item || {}) } }
+  dialogResolveError.value = ''
   showDialog.value = true
+  if (tmdbIdOf(item)) return
+  dialogResolving.value = true
+  try {
+    const media = await resolveRankMedia(rk, item)
+    if (token !== dialogResolveToken.value) return
+    dialogItem.value = { rk, item: media }
+    if (!tmdbIdOf(media)) dialogResolveError.value = '未找到对应的 TMDB 条目'
+  } catch (error) {
+    if (token === dialogResolveToken.value) {
+      dialogResolveError.value = error?.message || 'TMDB 识别失败'
+    }
+  } finally {
+    if (token === dialogResolveToken.value) dialogResolving.value = false
+  }
+}
+
+function markTimelineImageFailed(key) {
+  timelineImageFailed.value = { ...timelineImageFailed.value, [key]: true }
 }
 
 function dialogPoster() {
@@ -237,7 +287,7 @@ async function subscribeRankItem(rk, item) {
 }
 
 async function doSubscribe() {
-  if (!dialogItem.value) return
+  if (!dialogItem.value || dialogResolving.value) return
   const { rk, item } = dialogItem.value
   showDialog.value = false
   subscribeResult.value = ''
@@ -343,7 +393,7 @@ onMounted(load)
       <VCardTitle>豆瓣中心</VCardTitle>
       <VCardSubtitle>点击榜单条目可选择来源、TMDB 或订阅</VCardSubtitle>
       <template #append>
-        <VBtn variant="text" size="x-small" prepend-icon="mdi-refresh" class="text-none" :loading="refreshing" @click="refreshRss">刷新</VBtn>
+        <VBtn variant="text" size="x-small" prepend-icon="mdi-refresh" class="text-none" :loading="refreshing" @click="refreshDashboard">刷新</VBtn>
       </template>
     </VCardItem>
     <VDivider />
@@ -377,7 +427,7 @@ onMounted(load)
                         class="dc-poster"
                         :title="item.subject_name"
                       >
-                        <VImg v-if="item.poster" :src="item.poster" width="60" height="90" cover class="rounded" />
+                        <VImg v-if="item.poster && !timelineImageFailed[item.key]" :src="item.poster" width="60" height="90" cover class="rounded" @error="markTimelineImageFailed(item.key)" />
                         <div v-else class="dc-ph"><VIcon icon="mdi-filmstrip" size="14" /></div>
                       </a>
                     </div>
@@ -422,9 +472,10 @@ onMounted(load)
           <VCardSubtitle class="text-caption pa-0">{{ dialogItem?.rk ? rankNameOf(dialogItem.rk, dialogItem.item) : '' }}</VCardSubtitle>
         </VCardItem>
         <VDivider />
+        <VAlert v-if="dialogResolveError" type="warning" variant="tonal" density="compact" class="mx-3 mt-3" :text="dialogResolveError" />
         <VCardActions class="pa-3 pt-2 dc-dialog-actions">
-          <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" @click="doSubscribe">订阅</VBtn>
-          <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :disabled="!tmdbIdOf(dialogItem?.item)" @click="doOpenTmdb">TMDB</VBtn>
+          <VBtn variant="tonal" color="primary" prepend-icon="mdi-plus-circle-outline" class="dc-dialog-action text-none" :disabled="dialogResolving" @click="doSubscribe">订阅</VBtn>
+          <VBtn variant="tonal" prepend-icon="mdi-movie-open-outline" class="dc-dialog-action dc-dialog-action--tmdb text-none" :loading="dialogResolving" :disabled="dialogResolving || !tmdbIdOf(dialogItem?.item)" @click="doOpenTmdb">TMDB</VBtn>
           <VBtn :href="sourceButtonHref() || undefined" target="_blank" rel="noopener noreferrer" variant="tonal" :color="sourceButtonColor()" :prepend-icon="sourceButtonIcon()" :disabled="!sourceButtonUrl()" class="dc-dialog-action text-none" @click="openSource">{{ sourceButtonLabel() }}</VBtn>
         </VCardActions>
       </VCard>

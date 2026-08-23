@@ -383,11 +383,17 @@ def recognize_bangumi_tmdb(
             for candidate_title, season in seasonal_candidates
         ] or [(title, year, None)]
         for candidate_title, candidate_year, season in search_candidates:
+            query = " ".join(part for part in (candidate_title, candidate_year) if part).strip()
             try:
                 search_result = searcher(
-                    " ".join(part for part in (candidate_title, candidate_year) if part).strip(),
+                    query,
                     media_source=MediaSource.TMDB,
                 )
+            except TypeError:
+                try:
+                    search_result = searcher(query)
+                except Exception:
+                    search_result = None
             except Exception:
                 search_result = None
             mediainfo = _select_tmdb_search_media(search_result, candidate_title, candidate_year)

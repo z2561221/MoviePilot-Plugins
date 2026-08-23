@@ -333,6 +333,50 @@ def _existing_tmdb_identity(existing: dict, douban_id: Any):
     return None, None
 
 
+def _record_bangumi_id(record: dict) -> str:
+    """从榜单记录中读取 Bangumi subject ID。"""
+    direct = bangumi_adapter.extract_subject_id(record)
+    if direct:
+        return str(direct)
+    source, source_id = legacy_identity(
+        media_source=(record or {}).get("media_source"),
+        media_id=(record or {}).get("media_id"),
+    )
+    return str(source_id) if source == MediaSource.Bangumi and source_id else ""
+
+
+def _preferred_douban_display_title(item: dict, entry: dict, existing: Optional[dict], fallback: str) -> str:
+    """从当前和历史豆瓣字段中选择稳定的中文展示标题。"""
+    candidates = (
+        (item or {}).get("display_title"),
+        (item or {}).get("title_cn"),
+        (item or {}).get("name_cn"),
+        fallback,
+        (existing or {}).get("original_title"),
+        (existing or {}).get("title"),
+    )
+    for candidate in candidates:
+        value = str(candidate or "").strip()
+        if value and _has_cjk_text(value):
+            return value
+    return str(fallback or "").strip()
+
+
+def _existing_bangumi_tmdb_identity(existing: dict, bangumi_id: Any):
+    """读取同一 Bangumi subject 历史中已经确认的 TMDB 身份。"""
+    normalized_bangumi_id = str(bangumi_id or "").strip()
+    if not normalized_bangumi_id or _record_bangumi_id(existing) != normalized_bangumi_id:
+        return None, None
+    source, media_id = legacy_identity(
+        media_source=existing.get("media_source"),
+        media_id=existing.get("media_id"),
+        tmdb_id=existing.get("tmdb_id") or existing.get("tmdbid"),
+    )
+    if source == MediaSource.TMDB and media_id:
+        return source, media_id
+    return None, None
+
+
 def _apply_bangumi_recognition(
     self,
     item: dict,
@@ -507,7 +551,7 @@ def _apply_display_recognition(
         entry["tmdb_title"] = tmdb_title
     else:
         entry.pop("tmdb_title", None)
-    entry["title"] = title
+    entry["title"] = _preferred_douban_display_title(item, entry, existing, title)
     entry.pop("original_title", None)
     entry["year"] = getattr(mediainfo, "year", None) or entry.get("year") or ""
     resolved_type = _resolved_media_type_name(rd, item, mediainfo)
@@ -550,12 +594,18 @@ def _preserve_existing_tmdb_identity(entry: dict, existing: dict) -> None:
     )
     if current_source == MediaSource.TMDB and current_id:
         return
-    if current_source not in (None, MediaSource.Douban):
-        return
-    current_douban_id = _record_douban_id(entry)
-    if not current_douban_id:
-        return
-    existing_source, existing_id = _existing_tmdb_identity(existing, current_douban_id)
+    preserve_bangumi = False
+    current_bangumi_id = _record_bangumi_id(entry)
+    if current_bangumi_id:
+        existing_source, existing_id = _existing_bangumi_tmdb_identity(existing, current_bangumi_id)
+        preserve_bangumi = bool(existing_source and existing_id)
+    else:
+        if current_source not in (None, MediaSource.Douban):
+            return
+        current_douban_id = _record_douban_id(entry)
+        if not current_douban_id:
+            return
+        existing_source, existing_id = _existing_tmdb_identity(existing, current_douban_id)
     if not existing_source or not existing_id:
         return
     try:
@@ -568,11 +618,11 @@ def _preserve_existing_tmdb_identity(entry: dict, existing: dict) -> None:
     entry["media_id"] = str(normalized_tmdb_id)
     entry["tmdb_id"] = normalized_tmdb_id
     entry["tmdbid"] = entry["tmdb_id"]
-    if existing.get("poster"):
+    if existing.get("poster") and (not preserve_bangumi or not entry.get("poster")):
         entry["poster"] = existing.get("poster")
     if not entry.get("tmdb_title"):
         tmdb_title = str(existing.get("tmdb_title") or "").strip()
-        if not tmdb_title:
+        if not tmdb_title and not preserve_bangumi:
             legacy_title = str(existing.get("title") or "").strip()
             legacy_original_title = str(existing.get("original_title") or "").strip()
             current_title = str(entry.get("title") or "").strip()
@@ -580,7 +630,29 @@ def _preserve_existing_tmdb_identity(entry: dict, existing: dict) -> None:
                 tmdb_title = legacy_title
         if tmdb_title:
             entry["tmdb_title"] = tmdb_title
-    entry.pop("original_title", None)
+    if preserve_bangumi:
+        resolved_bangumi_id = (
+            entry.get("bangumi_id")
+            or entry.get("bangumiid")
+            or existing.get("bangumi_id")
+            or existing.get("bangumiid")
+            or current_bangumi_id
+        )
+        entry["bangumi_id"] = resolved_bangumi_id
+        entry["bangumiid"] = resolved_bangumi_id
+        if not entry.get("bangumi_title_source") and existing.get("bangumi_title_source"):
+            entry["bangumi_title_source"] = existing.get("bangumi_title_source")
+            if existing.get("title"):
+                entry["title"] = existing.get("title")
+            if existing.get("original_title"):
+                entry["original_title"] = existing.get("original_title")
+        elif not entry.get("original_title") and existing.get("original_title"):
+            entry["original_title"] = existing.get("original_title")
+        for field in ("match_title", "season"):
+            if entry.get(field) in (None, "") and existing.get(field) not in (None, ""):
+                entry[field] = existing.get(field)
+    else:
+        entry.pop("original_title", None)
 
 
 def _fetch_bangumi_subject(self, bangumiid: Any) -> Optional[dict]:

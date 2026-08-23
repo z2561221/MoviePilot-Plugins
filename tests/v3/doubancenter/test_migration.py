@@ -31,9 +31,17 @@ def test_media_identity_migration_is_idempotent_and_preserves_unresolved_records
             {"title": "Dynamic", "media_source": "vendor.one", "media_id": "abc"},
             {"title": "Half", "media_source": "douban"},
         ],
-        storage.ANTI_CHEAT_LOGS_KEY: [{"title": "Bangumi", "bangumiid": 22}],
+        storage.ANTI_CHEAT_LOGS_KEY: [
+            {"title": "Bangumi", "bangumiid": 22},
+            {"title": "仅记录观察结果", "reason": "未达到订阅条件"},
+        ],
         storage.ARCHIVE_RECORDS_KEY: [
             {"id": "a1", "source": "subscribe_history", "record": {"title": "豆瓣", "doubanid": 33}},
+            {
+                "id": "a2",
+                "source": "anti_cheat_log",
+                "record": {"title": "旧观察日志", "reason": "观察结束"},
+            },
         ],
         storage.FOLIO_DATA_KEY: {"条目": {"subject_id": 44, "subject_name": "条目"}},
         storage.FOLIO_WAIT_KEY: {"等待": {"subject_id": "55", "subject_name": "等待"}},
@@ -48,7 +56,7 @@ def test_media_identity_migration_is_idempotent_and_preserves_unresolved_records
         custom_rank_sources=["/custom/list"],
     )
     assert first["changed_keys"]
-    assert first["unresolved_count"] >= 1
+    assert first["unresolved_count"] == 1
     assert plugin.data[storage.SUBSCRIBE_RECORDS_KEY][0]["media_source"] == "themoviedb"
     assert plugin.data[storage.SUBSCRIBE_RECORDS_KEY][0]["media_id"] == "11"
     assert "tmdbid" not in plugin.data[storage.SUBSCRIBE_RECORDS_KEY][0]
@@ -57,6 +65,14 @@ def test_media_identity_migration_is_idempotent_and_preserves_unresolved_records
     assert plugin.data[storage.ARCHIVE_RECORDS_KEY][0]["record"]["media_source"] == "douban"
     assert plugin.data[storage.ARCHIVE_RECORDS_KEY][0]["media_id"] == "33"
     assert "doubanid" not in plugin.data[storage.ARCHIVE_RECORDS_KEY][0]["record"]
+    assert plugin.data[storage.ANTI_CHEAT_LOGS_KEY][1] == {
+        "title": "仅记录观察结果",
+        "reason": "未达到订阅条件",
+    }
+    assert plugin.data[storage.ARCHIVE_RECORDS_KEY][1]["record"] == {
+        "title": "旧观察日志",
+        "reason": "观察结束",
+    }
     assert plugin.data[storage.FOLIO_DATA_KEY]["条目"]["media_source"] == "douban"
     assert plugin.data[storage.FOLIO_WAIT_KEY]["等待"]["media_id"] == "55"
     assert plugin.data[storage.FOLIO_WISH_QUEUE_KEY][0]["media_id"] == "66"
@@ -70,4 +86,5 @@ def test_media_identity_migration_is_idempotent_and_preserves_unresolved_records
         custom_rank_sources=["/custom/list"],
     )
     assert second["changed_keys"] == []
+    assert second["unresolved_count"] == 1
     assert plugin.data == snapshot

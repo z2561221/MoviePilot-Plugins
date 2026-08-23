@@ -7,12 +7,12 @@ from typing import Any, Callable, Dict, List
 from fastapi import HTTPException
 
 from app import schemas
-# MoviePilot V3 e28de9cf 的 app.sdk.media 尚未导出媒体身份规范化函数。
-from app.domain.media import resolve_media_identity
+from app.sdk.media import resolve_media_identity
 from app.sdk.logging import logger
 
 from .. import dashboard as dash
 from .. import feed
+from .. import folio
 from . import schemas as api_schemas
 
 
@@ -41,6 +41,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/archive_records", plugin.api_archive_records, ["GET"], "获取归档记录"),
         ("/restore_archive", plugin.api_restore_archive, ["POST"], "恢复归档记录"),
         ("/delete_archive", plugin.api_delete_archive, ["POST"], "彻底删除归档记录"),
+        ("/repair_folio_posters", plugin.api_repair_folio_posters, ["POST"], "修复豆瓣时间线海报"),
     ]
     return [
         {
@@ -300,4 +301,13 @@ def api_delete_archive(plugin, archive_id=""):
         error_message="删除归档记录失败",
         self=plugin,
         archive_id=archive_id,
+    )
+
+
+def api_repair_folio_posters(plugin):
+    """修复历史豆瓣时间线中的失效豆瓣海报。"""
+    return _invoke(
+        api_schemas.RepairFolioPostersData,
+        lambda: {"updated": folio.repair_folio_history(plugin)},
+        error_message="修复豆瓣时间线海报失败",
     )

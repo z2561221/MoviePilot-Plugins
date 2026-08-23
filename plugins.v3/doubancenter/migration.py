@@ -19,6 +19,16 @@ LEGACY_SUBSCRIBE_USERNAMES = {
     "豆瓣中心-即映",
     "豆瓣中心-仪表盘",
 }
+IDENTITY_HINT_FIELDS = {
+    "media_source",
+    "media_id",
+    "tmdb_id",
+    "tmdbid",
+    "douban_id",
+    "doubanid",
+    "bangumi_id",
+    "bangumiid",
+}
 
 
 def normalize_subscribe_username(username: Any) -> str:
@@ -108,8 +118,8 @@ def _normalize_oper(module_name: str, class_name: str, required: bool = False) -
 def normalize_legacy_subscribe_usernames() -> int:
     """归一化订阅表和订阅历史表中的豆瓣中心旧订阅者名。"""
     changed = 0
-    changed += _normalize_oper("app.db.subscribe_oper", "SubscribeOper", required=True)
-    changed += _normalize_oper("app.db.subscribehistory_oper", "SubscribeHistoryOper")
+    changed += _normalize_oper("app.db.oper.subscribe", "SubscribeOper", required=True)
+    changed += _normalize_oper("app.db.oper.subscribehistory", "SubscribeHistoryOper")
     if changed:
         _log_info(f"豆瓣中心：已归一历史订阅者 {changed} 条为「{TARGET_SUBSCRIBE_USERNAME}」")
     return changed
@@ -134,7 +144,19 @@ def _save_plugin_data(plugin: Any, key: str, value: Any) -> bool:
         return False
 
 
-def _migrate_record(record: Any, *, subject_id_as_douban: bool = False) -> tuple[Any, bool, bool]:
+def _has_identity_hint(record: Any) -> bool:
+    """判断记录是否声明过需要迁移的媒体身份字段。"""
+    if not isinstance(record, dict):
+        return False
+    return any(record.get(field) not in (None, "") for field in IDENTITY_HINT_FIELDS)
+
+
+def _migrate_record(
+    record: Any,
+    *,
+    subject_id_as_douban: bool = False,
+    identity_optional: bool = False,
+) -> tuple[Any, bool, bool]:
     """迁移一条记录并返回新记录、是否变化及是否 unresolved。"""
     if not isinstance(record, dict):
         return record, False, False
@@ -151,10 +173,17 @@ def _migrate_record(record: Any, *, subject_id_as_douban: bool = False) -> tuple
                 migrated = subject_identity
                 changed = migrated != record
                 unresolved = False
+    if unresolved and identity_optional and not _has_identity_hint(record):
+        unresolved = False
     return migrated, changed, unresolved
 
 
-def _migrate_list(records: Any, *, subject_id_as_douban: bool = False) -> tuple[list, bool, int]:
+def _migrate_list(
+    records: Any,
+    *,
+    subject_id_as_douban: bool = False,
+    identity_optional: bool = False,
+) -> tuple[list, bool, int]:
     """迁移列表记录并统计 unresolved 条目。"""
     if not isinstance(records, list):
         return records if isinstance(records, list) else [], False, 0
@@ -165,6 +194,7 @@ def _migrate_list(records: Any, *, subject_id_as_douban: bool = False) -> tuple[
         migrated, item_changed, unresolved = _migrate_record(
             record,
             subject_id_as_douban=subject_id_as_douban,
+            identity_optional=identity_optional,
         )
         migrated_records.append(migrated)
         changed = changed or item_changed
@@ -202,7 +232,11 @@ def _migrate_archive_list(records: Any) -> tuple[list, bool, int]:
             migrated_records.append(archive)
             continue
         copied = dict(archive)
-        nested, nested_changed, nested_unresolved = _migrate_record(archive.get("record") or {})
+        identity_optional = archive.get("source") == "anti_cheat_log"
+        nested, nested_changed, nested_unresolved = _migrate_record(
+            archive.get("record") or {},
+            identity_optional=identity_optional,
+        )
         if isinstance(nested, dict):
             copied["record"] = nested
             source = nested.get("media_source")
@@ -212,7 +246,10 @@ def _migrate_archive_list(records: Any) -> tuple[list, bool, int]:
                     copied["media_source"] = source
                     copied["media_id"] = media_id
                     nested_changed = True
-        migrated, outer_changed, outer_unresolved = _migrate_record(copied)
+        migrated, outer_changed, outer_unresolved = _migrate_record(
+            copied,
+            identity_optional=identity_optional,
+        )
         migrated_records.append(migrated)
         changed = changed or nested_changed or outer_changed
         unresolved_count += int(nested_unresolved or outer_unresolved)
@@ -262,6 +299,7 @@ def migrate_plugin_media_identity(
                     storage.FOLIO_WISH_PROCESSED_KEY,
                     storage.FOLIO_WISH_FAILED_KEY,
                 },
+                identity_optional=key == storage.ANTI_CHEAT_LOGS_KEY,
             )
         if changed and _save_plugin_data(plugin, key, migrated):
             changed_keys.append(key)

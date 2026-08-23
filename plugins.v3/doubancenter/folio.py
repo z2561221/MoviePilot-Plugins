@@ -6,18 +6,18 @@ import re
 import threading
 from collections.abc import Mapping
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from app.chain.media import MediaChain
 from app.chain.mediaserver import MediaServerChain
 from app.sdk.logging import logger
 from app.sdk.media import MetaInfo
-from app.schemas.types import MediaSource, MediaType, NotificationType
-# MoviePilot V3 953e084cec85 当前尚未从 SDK 导出媒体服务器 ProviderIds 适配器。
-from app.application.mediaserver import MediaServerHelper, MediaServerIdentityHelper
+from app.schemas.types import MediaSource, MediaType, MessageType
+from app.sdk.services import MediaServerHelper, MediaServerIdentityHelper
 
 from . import utils
 from .doubanapi import DoubanApi
-from .model.identity import identity_from_media, legacy_identity, recognize_media
+from .model.identity import convert_identity, identity_from_media, legacy_identity, recognize_media
 from .storage import records as storage
 
 WISH_NOTIFY_THROTTLE_SECONDS = 6 * 60 * 60
@@ -30,6 +30,23 @@ _PROVIDER_KEYS = {
     MediaSource.Bangumi: ("Bangumi", "bangumi", "bangumi_id"),
     MediaSource.IMDb: ("Imdb", "IMDb", "imdb", "imdb_id"),
     MediaSource.TVDB: ("Tvdb", "TVDB", "tvdb", "tvdb_id"),
+}
+
+# 这三条历史记录的豆瓣 ID 已由人工核对到 TMDB，作为跨源转换暂时不可用时的
+# 精确兜底。按豆瓣 ID 命中，不按裸标题猜测，避免「凡人修仙传」误命中真人版。
+_FOLIO_TMDB_POSTER_FALLBACKS = {
+    "30513783": {
+        "tmdb_id": "94664",
+        "poster_path": "https://image.tmdb.org/t/p/original/u7LWdKmEdEr6Ui3GZMsFGlKZQBd.jpg",
+    },
+    "37441858": {
+        "tmdb_id": "296286",
+        "poster_path": "https://image.tmdb.org/t/p/original/1ZkivwzRnJOTMyZvyE88EvjK4ML.jpg",
+    },
+    "34925294": {
+        "tmdb_id": "106449",
+        "poster_path": "https://image.tmdb.org/t/p/original/u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg",
+    },
 }
 
 
@@ -661,7 +678,8 @@ def _subject_title_matches(query: str, candidate: str) -> bool:
 
 def _media_type_for_douban(media_type: str) -> MediaType:
     """把媒体服务器类型转换为 V3 豆瓣链媒体类型。"""
-    return MediaType.TV if str(media_type or "").upper() == "TV" else MediaType.MOVIE
+    value = str(media_type or "").strip().upper()
+    return MediaType.TV if value in {"TV", "电视剧", "剧集", "SERIES"} else MediaType.MOVIE
 
 
 def _media_season(title: str, mediainfo=None) -> Optional[int]:
@@ -695,6 +713,33 @@ def _poster_from_douban(value) -> str:
             poster = _value_from_mapping(nested, "large", "normal", "url")
             if poster:
                 return str(poster)
+    return ""
+
+
+def _is_douban_poster_url(value: str) -> bool:
+    """判断地址是否属于已确认失效的豆瓣图片源。"""
+    host = (urlparse(str(value or "")).hostname or "").lower().rstrip(".")
+    return bool(re.fullmatch(r"img\d*\.doubanio\.com", host))
+
+
+def _poster_from_tmdb_media(value) -> str:
+    """仅从明确拥有 TMDB 身份的媒体对象提取海报。"""
+    source, media_id = identity_from_media(value)
+    poster = _value_from_mapping(value, "poster_path", "poster", "image")
+    if source == MediaSource.TMDB and media_id and poster:
+        return str(poster)
+    return ""
+
+
+def _canonical_douban_id_from_poster(poster: str) -> str:
+    """根据已核对的 TMDB 海报反查稳定的豆瓣 subject ID。"""
+    normalized = str(poster or "").split("?", 1)[0].rstrip("/")
+    if not normalized:
+        return ""
+    for douban_id, fallback in _FOLIO_TMDB_POSTER_FALLBACKS.items():
+        expected = str(fallback.get("poster_path") or "").split("?", 1)[0].rstrip("/")
+        if expected and normalized == expected:
+            return str(douban_id)
     return ""
 
 
@@ -754,6 +799,65 @@ def _load_douban_media(subject_id: str, title: str, media_type: str):
         return None
 
 
+def _load_tmdb_media(tmdb_id: str, title: str, media_type: str, year: str = ""):
+    """按 TMDB ID 回读媒体详情，用于取得官方 TMDB 海报。"""
+    meta = MetaInfo(title)
+    meta.type = _media_type_for_douban(media_type)
+    if year:
+        meta.year = str(year)
+    try:
+        return _recognize_media(
+            meta,
+            media_source=MediaSource.TMDB,
+            media_id=str(tmdb_id),
+        )
+    except Exception as err:
+        logger.warning(f"回读 TMDB {tmdb_id} 详情失败：{err}")
+        return None
+
+
+def _tmdb_poster_for_record(self, title: str, record: Mapping, detail=None) -> str:
+    """把豆瓣时间记录转换为 TMDB 海报，失败时使用已核对的精确兜底。"""
+    source, media_id = identity_from_media(record)
+    if not source or not media_id:
+        return ""
+
+    # 已经核对过的历史记录直接使用固定 TMDB 地址，避免恢复过程再次受标题、
+    # 年份或第三方转换服务波动影响。
+    fallback = _FOLIO_TMDB_POSTER_FALLBACKS.get(str(media_id)) if source == MediaSource.Douban else None
+    if fallback:
+        logger.info(f"{title} 使用已核对的 TMDB 海报：{fallback['tmdb_id']}")
+        return fallback["poster_path"]
+
+    subject_name = str(record.get("subject_name") or title)
+    media_type = str(record.get("type") or "TV")
+    year = str(record.get("year") or "")
+    tmdb_id = str(media_id) if source == MediaSource.TMDB else ""
+    if source == MediaSource.Douban:
+        try:
+            converted_source, converted_id = convert_identity(
+                MediaChain(),
+                target_source=MediaSource.TMDB,
+                media_source=source,
+                media_id=media_id,
+                mtype=_media_type_for_douban(media_type),
+                season=_media_season(subject_name, detail),
+            )
+        except Exception as err:
+            logger.warning(f"{title} 豆瓣 ID {media_id} 转换 TMDB 失败：{err}")
+            converted_source, converted_id = None, None
+        if converted_source == MediaSource.TMDB and converted_id:
+            tmdb_id = str(converted_id)
+
+    if tmdb_id:
+        tmdb_media = _load_tmdb_media(tmdb_id, subject_name, media_type, year=year)
+        poster = _poster_from_tmdb_media(tmdb_media)
+        if poster:
+            return poster
+
+    return ""
+
+
 def _resolve_douban_subject(self, title: str, media_type: str, mediainfo=None, api=None):
     """按身份转换、失败记录和严格标题搜索顺序解析豆瓣 subject。"""
     name, subject_id, poster, had_identity = _douban_match_from_identity(title, media_type, mediainfo)
@@ -798,7 +902,23 @@ def _sync_to_douban(self, title: str, status: str, mediaType: str, processed: Di
         if detail:
             name = _value_from_mapping(detail, "title", "name") or name or title
             poster = _poster_from_douban(detail)
-    poster = poster or (getattr(mediainfo, "poster_path", "") if mediainfo else "")
+    # 时间线海报统一使用 TMDB，不能把豆瓣转换结果中的 cover_url 再写回去。
+    tmdb_poster = _FOLIO_TMDB_POSTER_FALLBACKS.get(str(sid), {}).get("poster_path", "")
+    if not tmdb_poster:
+        tmdb_poster = _poster_from_tmdb_media(mediainfo)
+    if not tmdb_poster:
+        tmdb_poster = _tmdb_poster_for_record(
+            self,
+            title,
+            {
+                "media_source": MediaSource.Douban.value,
+                "media_id": str(sid or ""),
+                "subject_name": name or title,
+                "type": mediaType,
+            },
+            detail=mediainfo,
+        )
+    poster = tmdb_poster
     if sid:
         logger.info(f"查询：{title} => 匹配豆瓣：{name}")
         if dh.set_watching_status(subject_id=sid, status=status, private=self._folio_private):
@@ -852,14 +972,22 @@ def repair_folio_history(self) -> int:
         subject_name = str(record.get("subject_name") or title)
         poster = str(record.get("poster_path") or "")
         detail = None
-        if not poster:
-            detail = _load_douban_media(str(media_id), subject_name, media_type)
-            subject_name = _value_from_mapping(detail, "title", "name") or subject_name
-            poster = _poster_from_douban(detail)
+        if not poster or _is_douban_poster_url(poster):
+            poster = _tmdb_poster_for_record(self, title, record)
+            if not poster:
+                detail = _load_douban_media(str(media_id), subject_name, media_type)
+                subject_name = _value_from_mapping(detail, "title", "name") or subject_name
+                poster = _tmdb_poster_for_record(self, title, record, detail=detail)
+
+        # 已核对的 TMDB 海报携带了比标题搜索更可靠的跨源身份；优先用它反查
+        # 豆瓣 subject，避免把动画条目重新识别成同名真人版。
+        canonical_douban_id = _canonical_douban_id_from_poster(poster)
+        if canonical_douban_id:
+            media_id = canonical_douban_id
 
         # 只对明显的标题错配尝试重新识别；同名条目没有足够信息时保持原记录，
         # 避免用不确定的标题搜索覆盖用户已有的豆瓣 ID。
-        if not _subject_title_matches(title, subject_name):
+        if not canonical_douban_id and not _subject_title_matches(title, subject_name):
             meta = MetaInfo(_normalize_subject_title(title))
             meta.type = _media_type_for_douban(media_type)
             candidate = _recognize_media(meta)
@@ -879,13 +1007,16 @@ def repair_folio_history(self) -> int:
             "media_id": str(media_id),
             "poster_path": poster,
         }
+        record_changed = False
         for key, value in updates.items():
             if value and record.get(key) != value:
                 record[key] = value
-                changed += 1
+                record_changed = True
+        if record_changed:
+            changed += 1
     if changed:
         storage.save_folio_data(self, data)
-        logger.info(f"豆瓣时间线历史数据修复完成，更新 {changed} 个字段")
+        logger.info(f"豆瓣时间线历史数据修复完成，更新 {changed} 条记录")
     return changed
 
 
@@ -895,7 +1026,7 @@ def _send_folio_notification(self, success: bool, message: str):
     t = f"豆瓣观影档案 {'成功' if success else '失败'}"
     msg = message.strip() + f"\n时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     try:
-        self.post_message(mtype=NotificationType.MediaServer, title=t, text=msg)
+        self.post_message(mtype=MessageType.MediaServer, title=t, text=msg)
     except Exception as e:
         logger.error(f'{self.plugin_name} 发送通知失败: {e}')
 
@@ -915,6 +1046,6 @@ def _send_wish_notification(self, message: str, throttle_key: str = "wish", thro
     self._wish_notification_last_times = last_map
     msg = message.strip() + f"\n时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     try:
-        self.post_message(mtype=NotificationType.MediaServer, title="豆瓣想看同步失败", text=msg)
+        self.post_message(mtype=MessageType.MediaServer, title="豆瓣想看同步失败", text=msg)
     except Exception as e:
         logger.error(f'{self.plugin_name} 发送同步想看通知失败: {e}')

@@ -196,8 +196,8 @@ def test_title_candidates_with_same_year_are_not_blindly_selected(monkeypatch):
     assert folio._recognize_title_media(meta) is None
 
 
-def test_repair_folio_history_fills_poster_from_saved_douban_id(monkeypatch):
-    """历史记录已有豆瓣 ID但没有海报时回读详情并保存海报。"""
+def test_repair_folio_history_does_not_restore_douban_poster(monkeypatch):
+    """历史记录没有 TMDB 映射时不再把豆瓣详情海报写回时间线。"""
     plugin = _plugin()
     plugin.get_data = lambda key: {
         "folio_data": {
@@ -222,8 +222,8 @@ def test_repair_folio_history_fills_poster_from_saved_douban_id(monkeypatch):
 
     changed = folio.repair_folio_history(plugin)
 
-    assert changed == 1
-    assert plugin.saved["folio_data"]["死神"]["poster_path"].endswith("bleach.webp")
+    assert changed == 0
+    assert plugin.saved.get("folio_data") is None
 
 
 def test_fanren_reuses_tmdb_identity_and_converts_to_anime_douban(monkeypatch):
@@ -262,7 +262,9 @@ def test_fanren_reuses_tmdb_identity_and_converts_to_anime_douban(monkeypatch):
     assert processed["凡人修仙传"]["subject_id"] == "34925294"
     assert processed["凡人修仙传"]["media_source"] == MediaSource.Douban.value
     assert processed["凡人修仙传"]["media_id"] == "34925294"
-    assert processed["凡人修仙传"]["poster_path"] == "https://img.example/fanren.webp"
+    assert processed["凡人修仙传"]["poster_path"] == (
+        "https://image.tmdb.org/t/p/original/u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg"
+    )
 
 
 def test_bleach_never_accepts_duke_of_death_title_candidate(monkeypatch):
@@ -350,7 +352,9 @@ def test_waiting_subject_reads_douban_detail_to_restore_poster(monkeypatch):
     assert FakeDoubanApi.search_calls == []
     assert recognize_calls == [(MediaSource.Douban, "37441858", MediaType.TV)]
     assert processed[title]["subject_id"] == "37441858"
-    assert processed[title]["poster_path"] == "https://img.example/smoking.webp"
+    assert processed[title]["poster_path"] == (
+        "https://image.tmdb.org/t/p/original/1ZkivwzRnJOTMyZvyE88EvjK4ML.jpg"
+    )
     assert title not in plugin._wait_process
 
 
@@ -381,4 +385,78 @@ def test_failed_status_persists_douban_identity_and_poster(monkeypatch):
     assert waiting["subject_id"] == "34925294"
     assert waiting["media_source"] == MediaSource.Douban.value
     assert waiting["media_id"] == "34925294"
-    assert waiting["poster_path"] == "https://img.example/fanren.webp"
+    assert waiting["poster_path"] == (
+        "https://image.tmdb.org/t/p/original/u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg"
+    )
+
+
+def test_repair_folio_history_replaces_three_douban_posters_with_tmdb(monkeypatch):
+    """三条已核对豆瓣记录只替换失效豆瓣图片，保留其它时间线数据。"""
+    plugin = _plugin()
+    plugin.get_data = lambda key: {
+        "folio_data": {
+            "无职转生": {
+                "subject_id": "30513783",
+                "subject_name": "无职转生",
+                "media_source": MediaSource.Douban.value,
+                "media_id": "30513783",
+                "poster_path": "https://img3.doubanio.com/view/photo/p2919762107.jpg",
+                "type": "TV",
+                "timestamp": "2026-08-17 23:08:20",
+            },
+            "躲在超市后门抽烟的两人": {
+                "subject_id": "37441858",
+                "subject_name": "躲在超市后门抽烟的两人",
+                "media_source": MediaSource.Douban.value,
+                "media_id": "37441858",
+                "poster_path": "https://img9.doubanio.com/view/photo/p2929038414.webp",
+                "type": "TV",
+                "timestamp": "2026-08-16 19:37:55",
+            },
+            "凡人修仙传": {
+                "subject_id": "34925294",
+                "subject_name": "凡人修仙传",
+                "media_source": MediaSource.Douban.value,
+                "media_id": "34925294",
+                "poster_path": "https://img9.doubanio.com/view/photo/p2610801866.webp",
+                "type": "TV",
+                "year": "2020",
+                "timestamp": "2026-07-31 16:47:02",
+            },
+        }
+    }.get(key)
+    monkeypatch.setattr(folio, "_load_douban_media", lambda *args: None)
+
+    assert folio.repair_folio_history(plugin) == 3
+    repaired = plugin.saved["folio_data"]
+    assert repaired["无职转生"]["poster_path"].endswith("u7LWdKmEdEr6Ui3GZMsFGlKZQBd.jpg")
+    assert repaired["躲在超市后门抽烟的两人"]["poster_path"].endswith("1ZkivwzRnJOTMyZvyE88EvjK4ML.jpg")
+    assert repaired["凡人修仙传"]["poster_path"].endswith("u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg")
+    assert all("doubanio.com" not in item["poster_path"] for item in repaired.values())
+
+
+def test_repair_folio_history_restores_canonical_douban_id_from_tmdb_poster():
+    """已是动画 TMDB 海报的记录不得被标题识别改成真人版豆瓣 ID。"""
+    data = {
+        "folio_data": {
+            "凡人修仙传": {
+                "subject_id": "35861087",
+                "subject_name": "凡人修仙传",
+                "media_source": MediaSource.Douban.value,
+                "media_id": "35861087",
+                "poster_path": "https://image.tmdb.org/t/p/original/u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg",
+                "type": "TV",
+                "timestamp": "2026-08-17 23:08:20",
+            }
+        }
+    }
+    plugin = _plugin()
+    plugin.get_data = lambda key: data.get(key)
+    plugin.save_data = lambda key, value: data.__setitem__(key, value)
+
+    assert folio.repair_folio_history(plugin) == 1
+    repaired = data["folio_data"]["凡人修仙传"]
+    assert repaired["subject_id"] == "34925294"
+    assert repaired["media_id"] == "34925294"
+    assert repaired["poster_path"].endswith("u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg")
+    assert folio.repair_folio_history(plugin) == 0

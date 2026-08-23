@@ -14,7 +14,7 @@ from . import observation
 
 def _default_subscribe_oper_cls():
     """按调用时环境读取 MoviePilot 订阅数据库操作类。"""
-    from app.db.subscribe_oper import SubscribeOper
+    from app.db.oper.subscribe import SubscribeOper
 
     return SubscribeOper
 
