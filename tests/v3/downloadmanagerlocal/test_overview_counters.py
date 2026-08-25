@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.plugins.downloadmanagerlocal.controller import handlers
+from app.plugins.downloadmanagerlocal.model import state
 from app.plugins.downloadmanagerlocal.model.state import load_transfer_stats
 from app.plugins.downloadmanagerlocal.service import transfer as transfer_service
 
@@ -50,14 +51,26 @@ class FakePlugin:
         return {}
 
 
-def test_overview_uses_persisted_transfer_and_iyuu_cache_totals(monkeypatch) -> None:
-    """总览必须返回累计转种统计与去重后的 IYUU 缓存数量。"""
+def test_overview_uses_persisted_transfer_and_iyuu_totals(monkeypatch) -> None:
+    """总览必须返回累计与今日的转种、IYUU 持久化统计。"""
+    today = state.today_stamp()
     plugin = FakePlugin({
         "transfer_stats": {
-            "schema_version": 1,
+            "schema_version": 2,
             "success_total": 12,
             "fallback_success": 4,
-        }
+            "today_date": today,
+            "today_success": 5,
+            "today_fallback": 2,
+        },
+        "iyuu_stats": {
+            "schema_version": 1,
+            "success_total": 158,
+            "fail_total": 75,
+            "today_date": today,
+            "today_success": 6,
+            "today_fail": 1,
+        },
     })
     monkeypatch.setattr(handlers, "get_upload_limit_status", lambda _plugin: {})
     monkeypatch.setattr(handlers, "_speed_monitor_overview", lambda _plugin: {})
@@ -66,8 +79,12 @@ def test_overview_uses_persisted_transfer_and_iyuu_cache_totals(monkeypatch) -> 
 
     assert result.cards["transfer"]["success_total"] == 12
     assert result.cards["transfer"]["fallback_success"] == 4
-    assert result.cards["iyuu"]["success_total"] == 2
-    assert result.cards["iyuu"]["fail_total"] == 3
+    assert result.cards["transfer"]["today_success"] == 5
+    assert result.cards["transfer"]["today_fallback"] == 2
+    assert result.cards["iyuu"]["success_total"] == 158
+    assert result.cards["iyuu"]["fail_total"] == 75
+    assert result.cards["iyuu"]["today_success"] == 6
+    assert result.cards["iyuu"]["today_fail"] == 1
     assert result.cards["iyuu"]["success"] == 0
     assert result.cards["iyuu"]["fail"] == 0
 
@@ -129,19 +146,30 @@ def test_transfer_successes_persist_total_and_fallback_subset(monkeypatch, tmp_p
     transfer_service.transfer(plugin, trigger_source="兜底扫描")
 
     assert load_transfer_stats(plugin) == {
-        "schema_version": 1,
+        "schema_version": 2,
         "success_total": 2,
         "fallback_success": 1,
+        "today_date": state.today_stamp(),
+        "today_success": 2,
+        "today_fallback": 1,
     }
 
 
-def test_page_uses_cumulative_counter_copy() -> None:
-    """详情页必须展示累计转种与持久化 IYUU 计数。"""
+def test_page_uses_today_and_cumulative_counter_copy() -> None:
+    """详情页必须展示今日与累计的转种、IYUU 计数。"""
     page_source = (
         Path(__file__).resolve().parents[3]
         / "plugins.v3/downloadmanagerlocal/frontend/src/components/Page.vue"
     ).read_text(encoding="utf-8")
 
-    assert "累计成功 ${cards.transfer?.success_total || 0} · 其中兜底 ${cards.transfer?.fallback_success || 0}" in page_source
-    assert "已铺种 ${cards.iyuu?.success_total || 0} · 失败 ${cards.iyuu?.fail_total || 0}" in page_source
+    assert (
+        "今日 ${cards.transfer?.today_success || 0}"
+        " · 累计 ${cards.transfer?.success_total || 0}"
+        " · 兜底 ${cards.transfer?.fallback_success || 0}" in page_source
+    )
+    assert (
+        "今日 ${cards.iyuu?.today_success || 0}"
+        " · 累计 ${cards.iyuu?.success_total || 0}"
+        " · 失败 ${cards.iyuu?.fail_total || 0}" in page_source
+    )
     assert "兜底服务已启用" not in page_source

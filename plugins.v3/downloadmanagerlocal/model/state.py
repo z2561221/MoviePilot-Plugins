@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from threading import RLock
 from typing import Any, Iterable
 
@@ -10,8 +11,12 @@ RENAME_RECORDS_KEY = "rename_records"
 RENAME_RETRY_STATE_KEY = "rename_retry_state"
 SEED_RECHECK_QUEUE_KEY = "seed_recheck_queue"
 TRANSFER_STATS_KEY = "transfer_stats"
-TRANSFER_STATS_SCHEMA_VERSION = 1
+TRANSFER_STATS_SCHEMA_VERSION = 2
 _TRANSFER_STATS_LOCK = RLock()
+
+IYUU_STATS_KEY = "iyuu_stats"
+IYUU_STATS_SCHEMA_VERSION = 1
+_IYUU_STATS_LOCK = RLock()
 
 SPEED_MONITOR_SCHEMA_VERSION = 1
 SPEED_MONITOR_SESSIONS_KEY = "speed_monitor_sessions"
@@ -47,6 +52,7 @@ PERSISTED_STATE_KEYS = {
     "iyuu_history": f"{IYUU_HISTORY_KEY_PREFIX}<source_hash>",
     "iyuu_source": f"{IYUU_SOURCE_KEY_PREFIX}<seed_hash>",
     "iyuu_cache_config": IYUU_CACHE_CONFIG_KEYS,
+    "iyuu_stats": IYUU_STATS_KEY,
 }
 
 
@@ -71,57 +77,117 @@ def save_dict_data(plugin: Any, key: str, value: dict | None) -> None:
     plugin.save_data(key, value or {})
 
 
-def load_transfer_stats(plugin: Any) -> dict[str, int]:
-    """读取并规范化累计转种成功统计。"""
+def _non_negative_int(value: Any) -> int:
+    """把不可信计数规范为非负整数。"""
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def today_stamp() -> str:
+    """返回本地时区当天日期戳，用于今日计数按天归零。"""
+    return date.today().isoformat()
+
+
+def _normalize_daily_counters(
+    payload: dict,
+    *,
+    total_keys: tuple[str, ...],
+    today_keys: tuple[str, ...],
+) -> dict[str, Any]:
+    """按当天日期戳规范化今日计数，跨天读取时视为归零且不写盘。
+
+    :param payload: 原始持久化字典
+    :param total_keys: 累计计数字段名，按父子顺序排列，后者必须是前者的子集
+    :param today_keys: 今日计数字段名，与累计字段一一对应
+    :return: 规范化后的今日日期戳与今日计数字段
+    """
+    today = today_stamp()
+    if str(payload.get("today_date") or "").strip() != today:
+        return {"today_date": today, **{key: 0 for key in today_keys}}
+    normalized: dict[str, Any] = {"today_date": today}
+    ceiling: int | None = None
+    for total_key, today_key in zip(total_keys, today_keys):
+        limit = _non_negative_int(payload.get(total_key))
+        if ceiling is not None:
+            limit = min(limit, ceiling)
+        value = min(limit, _non_negative_int(payload.get(today_key)))
+        normalized[today_key] = value
+        ceiling = value
+    return normalized
+
+
+def load_transfer_stats(plugin: Any) -> dict[str, Any]:
+    """读取并规范化累计与今日转种成功统计。"""
     raw_value = plugin.get_data(TRANSFER_STATS_KEY)
     payload = raw_value if isinstance(raw_value, dict) else {}
-
-    def _non_negative_int(value: Any) -> int:
-        """把不可信计数规范为非负整数。"""
-        try:
-            return max(0, int(value or 0))
-        except (TypeError, ValueError):
-            return 0
-
     success_total = _non_negative_int(payload.get("success_total"))
     fallback_success = min(
         success_total,
         _non_negative_int(payload.get("fallback_success")),
     )
+    daily = _normalize_daily_counters(
+        payload,
+        total_keys=("success_total", "fallback_success"),
+        today_keys=("today_success", "today_fallback"),
+    )
     return {
         "schema_version": TRANSFER_STATS_SCHEMA_VERSION,
         "success_total": success_total,
         "fallback_success": fallback_success,
+        **daily,
     }
 
 
-def record_transfer_success(plugin: Any, count: int, *, fallback: bool) -> dict[str, int]:
+def record_transfer_success(plugin: Any, count: int, *, fallback: bool) -> dict[str, Any]:
     """累计一次转种成功批次，并返回最新持久化统计。"""
-    try:
-        increment = max(0, int(count or 0))
-    except (TypeError, ValueError):
-        increment = 0
+    increment = _non_negative_int(count)
     with _TRANSFER_STATS_LOCK:
         stats = load_transfer_stats(plugin)
         if increment:
             stats["success_total"] += increment
+            stats["today_success"] += increment
             if fallback:
                 stats["fallback_success"] += increment
+                stats["today_fallback"] += increment
             plugin.save_data(TRANSFER_STATS_KEY, stats)
         return stats
 
 
-def count_unique_cache_items(*cache_values: Any) -> int:
-    """统计一个或多个 IYUU 缓存中的非空唯一项目数。"""
-    unique_items = set()
-    for cache_value in cache_values:
-        if not isinstance(cache_value, (list, tuple, set)):
-            continue
-        for item in cache_value:
-            normalized = str(item or "").strip().lower()
-            if normalized:
-                unique_items.add(normalized)
-    return len(unique_items)
+def load_iyuu_stats(plugin: Any) -> dict[str, Any]:
+    """读取并规范化累计与今日 IYUU 辅种统计。"""
+    raw_value = plugin.get_data(IYUU_STATS_KEY)
+    payload = raw_value if isinstance(raw_value, dict) else {}
+    daily = _normalize_daily_counters(
+        payload,
+        total_keys=("success_total", "fail_total"),
+        today_keys=("today_success", "today_fail"),
+    )
+    return {
+        "schema_version": IYUU_STATS_SCHEMA_VERSION,
+        "success_total": _non_negative_int(payload.get("success_total")),
+        "fail_total": _non_negative_int(payload.get("fail_total")),
+        "today_date": daily["today_date"],
+        "today_success": daily["today_success"],
+        "today_fail": daily["today_fail"],
+    }
+
+
+def record_iyuu_results(plugin: Any, *, success: int, fail: int) -> dict[str, Any]:
+    """累计一轮 IYUU 辅种的成功与失败数，并返回最新持久化统计。"""
+    success_increment = _non_negative_int(success)
+    fail_increment = _non_negative_int(fail)
+    with _IYUU_STATS_LOCK:
+        stats = load_iyuu_stats(plugin)
+        if success_increment or fail_increment:
+            stats["success_total"] += success_increment
+            stats["today_success"] += success_increment
+            stats["fail_total"] += fail_increment
+            stats["today_fail"] += fail_increment
+            plugin.save_data(IYUU_STATS_KEY, stats)
+        return stats
+
 
 
 class SpeedMonitorStateMigrationError(ValueError):

@@ -5,8 +5,8 @@ const currentImports = {};
       dynamicLoadingCss(["__federation_expose_Config-e-iSv2vY.css"], false, './Config');
       return __federation_import('./__federation_expose_Config-CJtSx1ti.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Page":()=>{
-      dynamicLoadingCss(["__federation_expose_Page-CRzqINKV.css"], false, './Page');
-      return __federation_import('./__federation_expose_Page-Cb96P-rB.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_Page-B9dKd9Aa.css"], false, './Page');
+      return __federation_import('./__federation_expose_Page-D7oEkCE0.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;
@@ -45,7 +45,7 @@ const currentImports = {};
          } else {
            href = cssPath;
          }
-
+         
           if (dontAppendStylesToHead) {
             const key = 'css__DownloadManagerLocalV316__' + exposeItemName;
             window[key] = window[key] || [];
