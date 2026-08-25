@@ -10,6 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.sdk.config import settings
 from app.sdk.logging import logger
 
+from .site_tag import cleanup_temporary_tags_for_event
 from .speed_monitor import handle_download_added_event as create_speed_monitor_session
 from .speed_worker import start_speed_monitor_worker
 from .upload_limit_worker import wake_upload_limit_worker
@@ -41,7 +42,8 @@ def handle_transfer_complete_event(plugin, event) -> None:
 
 
 def handle_download_added_event(plugin, event) -> dict:
-    """处理 DownloadAdded 事件并唤醒速度监控与上传限速 worker。"""
+    """处理 DownloadAdded 事件、回收临时标签并唤醒监控 worker。"""
+    cleanup_temporary_tags_for_event(plugin, event)
     result = create_speed_monitor_session(plugin, event)
     if isinstance(result, dict) and int(result.get("active_sessions") or 0) > 0:
         start_speed_monitor_worker(plugin)
