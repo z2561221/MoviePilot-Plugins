@@ -28,7 +28,7 @@ from ..adapter.moviepilot import (
     request_post_res,
 )
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
-from ..model.state import iyuu_history_key, iyuu_source_key
+from ..model.state import iyuu_history_key, iyuu_source_key, record_iyuu_results
 from ..utils.sensitive import mask_sensitive_url
 
 
@@ -122,6 +122,20 @@ def iyuu_auto_seed(plugin):
             update_iyuu_config(plugin)
         except Exception as save_err:
             logger.error(f"IYUU辅种：异常后保存缓存失败: {save_err}", exc_info=True)
+    finally:
+        _flush_iyuu_stats(plugin)
+
+
+def _flush_iyuu_stats(plugin):
+    """把本轮辅种成功与失败数并入累计与今日统计。"""
+    try:
+        success = int(getattr(plugin, "_iyuu_success", 0) or 0)
+        fail = int(getattr(plugin, "_iyuu_fail", 0) or 0)
+        if not success and not fail:
+            return
+        record_iyuu_results(plugin, success=success, fail=fail)
+    except Exception as e:
+        logger.error(f"IYUU辅种：累计统计写入失败: {e}", exc_info=True)
 
 
 def _iyuu_auto_seed(plugin):

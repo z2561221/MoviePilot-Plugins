@@ -47,6 +47,9 @@ def _load_scheduler_events():
     })
 
     dependency_functions = {
+        "downloadmanagerlocal.service.site_tag": {
+            "cleanup_temporary_tags_for_event": lambda *_args, **_kwargs: {},
+        },
         "downloadmanagerlocal.service.speed_monitor": {
             "handle_download_added_event": lambda *_args, **_kwargs: {},
         },
@@ -223,6 +226,7 @@ def test_scheduler_and_lifecycle_use_on_demand_monitor_worker():
     assert "EventType.DownloadAdded" in entry_source
     assert "def on_download_added(self, event: Event):" in entry_source
     assert "return _handle_download_added_event_impl(self, event)" in entry_source
+    assert "cleanup_temporary_tags_for_event(plugin, event)" in events_source
     assert "start_speed_monitor_worker(plugin)" in events_source
 
 

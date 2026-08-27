@@ -36,7 +36,7 @@ from ..model.api import (
 from ..model.state import (
     RENAME_RECORDS_KEY,
     RENAME_RETRY_STATE_KEY,
-    count_unique_cache_items,
+    load_iyuu_stats,
     load_transfer_stats,
 )
 from ..service.site_tag import execute_tag_cleanup, scan_and_clean_tags
@@ -234,13 +234,7 @@ def api_overview(plugin):
         archive = plugin.rename_archive_stats()
         upload_limit = get_upload_limit_status(plugin)
         transfer_stats = load_transfer_stats(plugin)
-        iyuu_success_total = count_unique_cache_items(
-            getattr(plugin, "_iyuu_success_caches", []),
-        )
-        iyuu_fail_total = count_unique_cache_items(
-            getattr(plugin, "_iyuu_error_caches", []),
-            getattr(plugin, "_iyuu_permanent_error_caches", []),
-        )
+        iyuu_stats = load_iyuu_stats(plugin)
         rename_history = diagnostics.get("rename_history", {}) if isinstance(diagnostics, dict) else {}
         return OverviewResult.model_validate({
             "code": 0,
@@ -264,14 +258,18 @@ def api_overview(plugin):
                     "fallback_enabled": bool(getattr(plugin, "_transfer_fallback_enabled", False)),
                     "success_total": int(transfer_stats["success_total"]),
                     "fallback_success": int(transfer_stats["fallback_success"]),
+                    "today_success": int(transfer_stats["today_success"]),
+                    "today_fallback": int(transfer_stats["today_fallback"]),
                 },
                 "iyuu": {
                     "enabled": bool(getattr(plugin, "_iyuu_enabled", False)),
                     "success": int(getattr(plugin, "_iyuu_success", 0) or 0),
                     "fail": int(getattr(plugin, "_iyuu_fail", 0) or 0),
                     "cached": int(getattr(plugin, "_iyuu_cached", 0) or 0),
-                    "success_total": iyuu_success_total,
-                    "fail_total": iyuu_fail_total,
+                    "success_total": int(iyuu_stats["success_total"]),
+                    "fail_total": int(iyuu_stats["fail_total"]),
+                    "today_success": int(iyuu_stats["today_success"]),
+                    "today_fail": int(iyuu_stats["today_fail"]),
                 },
                 "rename": {
                     "enabled": bool(getattr(plugin, "_rename_enabled", False)),

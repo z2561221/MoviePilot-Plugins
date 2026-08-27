@@ -55,6 +55,149 @@ def release_temporary_tag(plugin, dl, torrent_hash: str, tag: str, source: str) 
         forget_temporary_tag(plugin, tag)
 
 
+def cleanup_temporary_tags_for_event(plugin, event) -> dict:
+    """按下载新增事件清理来源或目标下载器当前任务上的新临时标签。"""
+    event_data = getattr(event, "event_data", None)
+    if not isinstance(event_data, dict):
+        return {"handled": False, "reason": "invalid_event"}
+
+    downloader_name = str(
+        event_data.get("downloader")
+        or event_data.get("downloader_name")
+        or ""
+    ).strip()
+    selected_downloaders = normalize_tags((
+        getattr(plugin, "_fromdownloader", ""),
+        getattr(plugin, "_todownloader", ""),
+    ))
+    if not downloader_name or downloader_name not in selected_downloaders:
+        return {
+            "handled": False,
+            "downloader": downloader_name,
+            "reason": "downloader_not_selected",
+        }
+
+    torrent_hash = str(
+        event_data.get("hash")
+        or event_data.get("torrent_hash")
+        or event_data.get("download_hash")
+        or ""
+    ).strip()
+    if not torrent_hash:
+        return {"handled": False, "downloader": downloader_name, "reason": "hash_missing"}
+
+    service = plugin.service_info(downloader_name)
+    if not service or str(getattr(service, "type", "")).lower() != "qbittorrent":
+        return {
+            "handled": False,
+            "downloader": downloader_name,
+            "hash": torrent_hash,
+            "reason": "unsupported_downloader",
+        }
+
+    try:
+        response = service.instance.get_torrents(ids=[torrent_hash])
+        if isinstance(response, tuple) and len(response) == 2:
+            torrents, error = response
+        else:
+            torrents, error = response, None
+    except Exception as err:
+        logger.warning(f"下载新增事件：读取任务失败 downloader={downloader_name} hash={torrent_hash}: {err}")
+        return {
+            "handled": True,
+            "downloader": downloader_name,
+            "hash": torrent_hash,
+            "reason": "torrent_read_failed",
+        }
+
+    if error or not torrents:
+        return {
+            "handled": True,
+            "downloader": downloader_name,
+            "hash": torrent_hash,
+            "reason": "torrent_not_found" if not error else "torrent_read_failed",
+        }
+
+    torrent = next(
+        (
+            item for item in torrents
+            if str(get_hash(item, "qbittorrent") or "").lower() == torrent_hash.lower()
+        ),
+        torrents[0],
+    )
+    current_hash = get_hash(torrent, "qbittorrent") or torrent_hash
+    current_tags = normalize_tags(get_label(torrent, "qbittorrent"))
+    if not current_tags:
+        return {
+            "handled": True,
+            "downloader": downloader_name,
+            "hash": current_hash,
+            "removed": [],
+            "reason": "no_tags",
+        }
+
+    managed_tags = _managed_tag_anchors(plugin)
+    active_tags = _active_temporary_tags(plugin)
+    event_tags_by_hash = {current_hash: current_tags}
+    grouped_tags = None
+    grouped_tags_by_hash = event_tags_by_hash
+    removed = []
+    failed = []
+    for tag in sorted(current_tags, key=str.casefold):
+        kind = classify_tag(
+            tag=tag,
+            hashes=[current_hash],
+            torrent_tags_by_hash=event_tags_by_hash,
+            managed_tags=managed_tags,
+            active_tags=active_tags,
+            site_prefix=str(getattr(plugin, "_tag_siteprefix", "") or ""),
+        )
+
+        # 旧式随机标签必须先确认不是多个任务共用的普通标签。
+        if kind in {"legacy_temporary", "legacy_candidate"} and grouped_tags is None:
+            all_torrents, all_error = _read_qb_torrents(service)
+            if all_error:
+                failed.append({"tag": tag, "kind": kind, "reason": all_error})
+                grouped_tags = {}
+                grouped_tags_by_hash = {}
+                continue
+            grouped_tags, grouped_tags_by_hash = _group_tags(all_torrents)
+
+        if grouped_tags is not None and kind in {"legacy_temporary", "legacy_candidate"}:
+            snapshot = grouped_tags.get(tag, {})
+            kind = classify_tag(
+                tag=tag,
+                hashes=snapshot.get("hashes", []),
+                torrent_tags_by_hash=grouped_tags_by_hash,
+                managed_tags=managed_tags,
+                active_tags=active_tags,
+                site_prefix=str(getattr(plugin, "_tag_siteprefix", "") or ""),
+            )
+
+        if not is_auto_removable(kind):
+            continue
+
+        if release_temporary_tag(plugin, service.instance, current_hash, tag, "下载新增事件"):
+            removed.append(tag)
+        else:
+            failed.append({"tag": tag, "kind": kind})
+
+    if removed:
+        logger.info(
+            "下载新增事件：自动移除临时标签 downloader=%s hash=%s tags=%s",
+            downloader_name,
+            current_hash,
+            ",".join(removed),
+        )
+    return {
+        "handled": True,
+        "downloader": downloader_name,
+        "hash": current_hash,
+        "removed": removed,
+        "failed": failed,
+    }
+
+
 def _managed_tag_anchors(plugin) -> set:
     """返回可证明旧随机标签来自下载中心的业务锚点标签。"""
     managed = normalize_tags(getattr(plugin, "_torrent_tags", []) or [])
@@ -319,6 +462,7 @@ def tag_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_tags: list,
 
 
 __all__ = (
+    "cleanup_temporary_tags_for_event",
     "create_temporary_tag",
     "execute_tag_cleanup",
     "find_site_by_domain",
