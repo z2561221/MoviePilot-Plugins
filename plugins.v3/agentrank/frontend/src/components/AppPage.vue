@@ -105,13 +105,12 @@ async function saveSettings(config) {
 }
 
 @media (max-width: 760px) {
-  :global(html.ar-app-page-host-lock),
-  :global(body.ar-app-page-host-lock) {
+  :global(.ar-app-page-host-lock) {
     overflow-y: hidden !important;
     overscroll-behavior-y: none;
   }
 
-  :global(html.ar-app-page-host-lock .layout-footer) {
+  :global(.ar-app-page-host-lock .layout-footer) {
     display: none !important;
   }
 }

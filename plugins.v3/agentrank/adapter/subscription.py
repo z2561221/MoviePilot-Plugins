@@ -2,7 +2,7 @@
 
 from typing import Any, Callable, List, Mapping, Set
 
-from app.schemas.types import MediaSource
+from app.schemas.types import MediaSource, MediaType
 
 from ..model.candidate import typed_tmdb_candidate_id
 
@@ -13,7 +13,7 @@ class SubscriptionAdapter:
     def __init__(self, oper: Any = None, chain_factory: Callable[[], Any] = None):
         """允许测试注入订阅表与媒体身份转换链。"""
         if oper is None:
-            from app.db.subscribe_oper import SubscribeOper
+            from app.db.oper.subscribe import SubscribeOper
 
             oper = SubscribeOper()
         self._oper = oper
@@ -37,6 +37,18 @@ class SubscriptionAdapter:
     def list_all(self) -> List[Any]:
         """读取 MoviePilot 当前全部订阅，不按用户名划分范围。"""
         return list(self._oper.list() or [])
+
+    @staticmethod
+    def _normalize_media_type(value: Any) -> MediaType:
+        """把订阅中的字符串媒体类型转换为 MoviePilot MediaType。"""
+        if isinstance(value, MediaType):
+            return value
+        raw = str(getattr(value, "value", value) or "").strip().casefold()
+        if raw in {"movie", "电影"}:
+            return MediaType.MOVIE
+        if raw in {"tv", "电视剧", "剧集", "电视"} or raw.startswith("tv"):
+            return MediaType.TV
+        raise ValueError("subscription media type is unsupported")
 
     @staticmethod
     def _mapping_tmdb_id(value: Any) -> str:
@@ -66,12 +78,13 @@ class SubscriptionAdapter:
             raise RuntimeError("subscription media source is unsupported") from error
         if source == MediaSource.TMDB:
             return str(int(media_id)) if media_id.isdigit() and int(media_id) > 0 else ""
+        normalized_media_type = self._normalize_media_type(media_type)
         try:
             mapping = self._chain().convert_media_identity(
                 target_source=MediaSource.TMDB,
                 media_source=source,
                 media_id=media_id,
-                mtype=media_type,
+                mtype=normalized_media_type,
             )
         except Exception as error:
             raise RuntimeError("subscription identity conversion unavailable") from error

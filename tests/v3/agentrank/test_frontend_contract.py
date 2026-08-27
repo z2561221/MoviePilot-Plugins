@@ -629,10 +629,9 @@ def test_mobile_page_and_config_keep_only_one_hidden_scroll_surface():
     assert "onMounted(lockHostScroll)" in app_page
     assert "onBeforeUnmount(unlockHostScroll)" in app_page
     assert "agentRankScrollLocks" in app_page
-    assert ":global(html.ar-app-page-host-lock)" in app_page
-    assert ":global(body.ar-app-page-host-lock)" in app_page
+    assert ":global(.ar-app-page-host-lock)" in app_page
     assert "overflow-y: hidden !important;" in app_page
-    assert ":global(html.ar-app-page-host-lock .layout-footer)" in app_page
+    assert ":global(.ar-app-page-host-lock .layout-footer)" in app_page
     assert "display: none !important;" in app_page
     assert "height: min(876px, calc(100dvh - 48px))" in config
     assert ".ar-config__card { width: 100%; height: 100%; min-height: 0;" in config

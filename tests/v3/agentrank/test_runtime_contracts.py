@@ -35,6 +35,7 @@ FORBIDDEN_AGENT_CAPABILITIES = {
 }
 FORBIDDEN_V3_HOST_IMPORTS = {
     ("app.db.mediaserver_oper", "*"),
+    ("app.db.subscribe_oper", "*"),
     ("app.db.user_oper", "*"),
     ("app.schemas", "MessageChannel"),
     ("app.schemas", "NotificationType"),
