@@ -3,8 +3,7 @@
 from types import SimpleNamespace
 
 from app.schemas.types import MediaSource, MediaType
-
-from doubancenter import folio
+from app.plugins.doubancenter import folio
 
 
 class FakeDoubanApi:
@@ -50,6 +49,34 @@ class FakeMediaChain:
         """记录转换参数并返回预设豆瓣详情。"""
         self.convert_calls.append(kwargs)
         return self.converted
+
+
+class WishMediaChain:
+    """模拟想看条目的豆瓣到 TMDB 转换和媒体识别。"""
+
+    def __init__(self, converted=None, identity_media=None, title_media=None):
+        """保存想看识别各阶段的预设结果。"""
+        self.converted = converted
+        self.identity_media = identity_media
+        self.title_media = title_media
+        self.convert_calls = []
+        self.identity_recognize_calls = []
+        self.title_recognize_calls = []
+
+    def convert_media_identity(self, **kwargs):
+        """记录豆瓣 subject 到 TMDB 的转换请求。"""
+        self.convert_calls.append(kwargs)
+        return self.converted
+
+    def recognize_media(self, **kwargs):
+        """返回按 TMDB 身份识别得到的媒体。"""
+        self.identity_recognize_calls.append(kwargs)
+        return self.identity_media
+
+    def recognize_by_meta(self, meta):
+        """返回标题识别的回退媒体。"""
+        self.title_recognize_calls.append(meta)
+        return self.title_media
 
 
 class SeasonFallbackMediaChain(FakeMediaChain):
@@ -118,6 +145,115 @@ def test_event_identity_prefers_v3_then_provider_ids_and_path():
         item_path="D:/动漫/凡人修仙传 [tmdbid=106449]/S01E02.mkv",
     )
     assert folio._event_media_identity(path) == (MediaSource.TMDB, "106449")
+
+
+def test_default_wish_recognize_prefers_douban_subject_identity(monkeypatch):
+    """想看默认识别优先使用豆瓣 subject ID 转换出的 TMDB 身份。"""
+    identity_media = SimpleNamespace(title="TMDB 条目")
+    chain = WishMediaChain(converted={"id": 12345}, identity_media=identity_media)
+    monkeypatch.setattr(folio, "MediaChain", lambda: chain)
+    monkeypatch.setattr(
+        folio,
+        "MetaInfo",
+        lambda title: SimpleNamespace(
+            title=title,
+            year="",
+            type=MediaType.UNKNOWN,
+            begin_season=None,
+        ),
+    )
+
+    recognizer = folio._default_wish_recognize(SimpleNamespace())
+    result = recognizer("测试条目", "2026", "7654321")
+
+    assert result is identity_media
+    assert chain.convert_calls == [{
+        "target_source": MediaSource.TMDB,
+        "media_source": MediaSource.Douban,
+        "media_id": "7654321",
+    }]
+    assert chain.identity_recognize_calls[0]["media_source"] == MediaSource.TMDB
+    assert chain.identity_recognize_calls[0]["media_id"] == "12345"
+    assert chain.title_recognize_calls == []
+
+
+def test_default_wish_recognize_falls_back_to_title_after_identity_failure(monkeypatch):
+    """想看 subject 转换失败时仍回退现有标题识别。"""
+    title_media = SimpleNamespace(title="标题回退条目")
+    chain = WishMediaChain(converted=None, title_media=title_media)
+    monkeypatch.setattr(folio, "MediaChain", lambda: chain)
+    monkeypatch.setattr(
+        folio,
+        "MetaInfo",
+        lambda title: SimpleNamespace(
+            title=title,
+            year="",
+            type=MediaType.UNKNOWN,
+            begin_season=None,
+        ),
+    )
+
+    recognizer = folio._default_wish_recognize(SimpleNamespace())
+    result = recognizer("测试条目", "2026", "7654321")
+
+    assert result is title_media
+    assert len(chain.convert_calls) == 1
+    assert chain.identity_recognize_calls == []
+    assert len(chain.title_recognize_calls) == 1
+
+
+def test_default_wish_recognize_falls_back_after_tmdb_detail_failure(monkeypatch):
+    """想看已转出 TMDB ID 但详情识别失败时仍回退标题识别。"""
+    title_media = SimpleNamespace(title="标题回退条目")
+    chain = WishMediaChain(converted={"id": 12345}, title_media=title_media)
+    monkeypatch.setattr(folio, "MediaChain", lambda: chain)
+    monkeypatch.setattr(
+        folio,
+        "MetaInfo",
+        lambda title: SimpleNamespace(
+            title=title,
+            year="",
+            type=MediaType.UNKNOWN,
+            begin_season=None,
+        ),
+    )
+
+    recognizer = folio._default_wish_recognize(SimpleNamespace())
+    result = recognizer("测试条目", "2026", "7654321")
+
+    assert result is title_media
+    assert len(chain.identity_recognize_calls) == 1
+    assert len(chain.title_recognize_calls) == 1
+
+
+def test_process_wish_queue_preserves_two_argument_callback(monkeypatch):
+    """想看队列仍兼容只接收标题和年份的旧测试或扩展识别器。"""
+    captured = {}
+
+    def recognize(title, year):
+        """记录旧版识别器参数。"""
+        captured.update({"title": title, "year": year})
+        return SimpleNamespace(tmdb_id="12345", title=title)
+
+    saved = {}
+    monkeypatch.setattr(folio.storage, "read_folio_wish_queue", lambda plugin: [{
+        "subject_id": "7654321",
+        "title": "条目",
+        "year": "2026",
+    }])
+    monkeypatch.setattr(folio.storage, "read_folio_wish_processed", lambda plugin: [])
+    monkeypatch.setattr(folio.storage, "read_folio_wish_failed", lambda plugin: [])
+    monkeypatch.setattr(folio.storage, "read_folio_wish_state", lambda plugin: {})
+    monkeypatch.setattr(folio.storage, "save_folio_wish_queue", lambda plugin, value: saved.update(queue=value))
+    monkeypatch.setattr(folio.storage, "save_folio_wish_processed", lambda plugin, value: saved.update(processed=value))
+    monkeypatch.setattr(folio.storage, "save_folio_wish_failed", lambda plugin, value: saved.update(failed=value))
+    monkeypatch.setattr(folio.storage, "save_folio_wish_state", lambda plugin, value: saved.update(state=value))
+
+    plugin = SimpleNamespace(get_data=lambda key: [])
+    folio.process_wish_queue(plugin, recognize=recognize, subscribe=lambda *args, **kwargs: True)
+
+    assert captured == {"title": "条目", "year": "2026"}
+    assert saved["queue"] == []
 
 
 def test_event_identity_prefers_raw_douban_over_host_selected_tmdb():

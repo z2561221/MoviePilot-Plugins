@@ -177,12 +177,41 @@ def _wish_recognize_title(title):
 
 def _default_wish_recognize(self):
     """返回默认的想看识别函数。"""
-    def recognize(title, year):
-        """识别想看条目对应的媒体信息。"""
+    def recognize(title, year, subject_id=None):
+        """优先按豆瓣 subject ID 识别想看条目，失败后回退标题识别。"""
         meta = MetaInfo(_wish_recognize_title(title))
         if year:
             meta.year = str(year)
-        return MediaChain().recognize_by_meta(meta)
+        chain = MediaChain()
+        mtype = meta.type if meta.type in (MediaType.MOVIE, MediaType.TV) else None
+        if subject_id:
+            try:
+                source, media_id = convert_identity(
+                    chain,
+                    target_source=MediaSource.TMDB,
+                    media_source=MediaSource.Douban,
+                    media_id=subject_id,
+                    mtype=mtype,
+                    season=getattr(meta, "begin_season", None),
+                )
+            except Exception as err:
+                logger.warning(f"豆瓣想看《{title}》subject ID 转换 TMDB 失败：{err}")
+                source, media_id = None, None
+            if source and media_id:
+                try:
+                    mediainfo = recognize_media(
+                        chain,
+                        meta=meta,
+                        mtype=mtype,
+                        media_source=source,
+                        media_id=media_id,
+                    )
+                except Exception as err:
+                    logger.warning(f"豆瓣想看《{title}》TMDB ID {media_id} 识别失败：{err}")
+                    mediainfo = None
+                if mediainfo:
+                    return mediainfo
+        return chain.recognize_by_meta(meta)
     return recognize
 
 
@@ -194,6 +223,7 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
     processed = storage.read_folio_wish_processed(self)
     failed = storage.read_folio_wish_failed(self)
     state = storage.read_folio_wish_state(self)
+    uses_default_recognizer = recognize is None
     recognizer = recognize or _default_wish_recognize(self)
     subscriber = subscribe
     if subscriber is None:
@@ -209,7 +239,11 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
         link = item.get("link") or ""
         mediainfo = None
         try:
-            mediainfo = recognizer(title, year)
+            mediainfo = (
+                recognizer(title, year, subject_id)
+                if uses_default_recognizer
+                else recognizer(title, year)
+            )
         except Exception as err:
             logger.warning(f"豆瓣想看识别失败：{title} {err}")
             mediainfo = None
