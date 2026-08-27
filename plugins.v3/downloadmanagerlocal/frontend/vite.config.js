@@ -1,6 +1,19 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
+import { rmSync } from 'node:fs'
+
+function cleanFederationArtifacts() {
+  return {
+    name: 'clean-federation-artifacts',
+    closeBundle() {
+      rmSync(new URL('../dist/assets/__federation_shared_vuetify', import.meta.url), {
+        recursive: true,
+        force: true,
+      })
+    },
+  }
+}
 
 export default defineConfig({
   plugins: [vue(), federation({
@@ -11,10 +24,17 @@ export default defineConfig({
       vuetify: { requiredVersion: false, generate: false, singleton: true },
       'vuetify/styles': { requiredVersion: false, generate: false, singleton: true },
     }, format: 'esm',
-  })],
+  }), cleanFederationArtifacts()],
   build: { target: 'esnext', minify: false, cssCodeSplit: true, outDir: '../dist', emptyOutDir: true },
   css: { postcss: { plugins: [
     { postcssPlugin: 'internal:charset-removal', AtRule: { charset: atRule => { if (atRule.name === 'charset') atRule.remove() } } },
-    { postcssPlugin: 'vuetify-filter', Root(root) { root.walkRules(rule => { if (rule.selector && (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) { rule.remove() } }) } },
+    { postcssPlugin: 'vuetify-filter', Root(root) {
+      const sourcePath = root.source?.input?.file?.replaceAll('\\', '/') || ''
+      if (sourcePath.includes('/node_modules/vuetify/') || sourcePath.includes('/node_modules/@mdi/')) {
+        root.nodes = []
+        return
+      }
+      root.walkRules(rule => { if (rule.selector && !rule.selector.includes('.dm-') && (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) { rule.remove() } })
+    } },
   ]}},
 })

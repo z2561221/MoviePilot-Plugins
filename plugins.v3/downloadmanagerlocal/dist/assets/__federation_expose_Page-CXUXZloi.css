@@ -177,6 +177,13 @@
   align-self: flex-start;
   white-space: normal;
 }
+.dm-record-status[data-v-5fadb8c4] .v-chip__content {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.25;
+  word-break: keep-all;
+}
 .dm-record-meta[data-v-5fadb8c4] {
   display: grid;
   gap: 7px;
@@ -376,6 +383,8 @@
     margin: 0;
     padding-inline: 10px;
 }
+.dm-side-item[data-v-5fadb8c4] .v-list-item-title { white-space: nowrap;
+}
 .dm-main[data-v-5fadb8c4] { padding: 10px;
 }
 .dm-desktop-table[data-v-5fadb8c4] { display: none;
@@ -388,9 +397,15 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
 }
+.dm-record-actions[data-v-5fadb8c4] .v-btn {
+    flex: 1 1 72px;
+    max-width: 128px;
+}
 .dm-overview-stat-grid[data-v-5fadb8c4], .dm-feature-grid[data-v-5fadb8c4] { grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .dm-overview-stat[data-v-5fadb8c4] { grid-template-columns: 28px minmax(0, 1fr); gap: 8px; padding: 9px;
+}
+.dm-overview-stat[data-v-5fadb8c4] .v-avatar { width: 28px !important; height: 28px !important;
 }
 .dm-overview-stat-value[data-v-5fadb8c4] { font-size: 16px;
 }
