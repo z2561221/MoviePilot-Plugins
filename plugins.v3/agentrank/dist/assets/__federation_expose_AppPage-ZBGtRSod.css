@@ -1,15 +1,15 @@
 
-.ar-app-page[data-v-b38ebfbc] {
+.ar-app-page[data-v-3459de08] {
   width: 100%;
   min-width: 0;
   overflow: hidden;
 }
 @media (max-width: 760px) {
-html.ar-app-page-host-lock,body.ar-app-page-host-lock {
+.ar-app-page-host-lock {
     overflow-y: hidden !important;
     overscroll-behavior-y: none;
 }
-html.ar-app-page-host-lock .layout-footer {
+.ar-app-page-host-lock .layout-footer {
     display: none !important;
 }
 }
