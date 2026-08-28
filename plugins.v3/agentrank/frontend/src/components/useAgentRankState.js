@@ -5,7 +5,7 @@ const OPTIONS_CACHE_TTL_MS = 5 * 60 * 1000
 const PROFILE_CACHE_TTL_MS = 60 * 1000
 const ACTIVITY_LIMIT = 50
 const cacheByApi = new WeakMap()
-const fallbackCache = createSharedCache()
+const fallbackCacheByPlugin = new Map()
 
 function createSharedCache() {
   return {
@@ -16,10 +16,18 @@ function createSharedCache() {
   }
 }
 
-function sharedCacheFor(api) {
-  if (!api || !['object', 'function'].includes(typeof api)) return fallbackCache
-  if (!cacheByApi.has(api)) cacheByApi.set(api, createSharedCache())
-  return cacheByApi.get(api)
+function sharedCacheFor(api, pluginId) {
+  const instanceId = String(pluginId || '').trim()
+  if (!api || !['object', 'function'].includes(typeof api)) {
+    if (!fallbackCacheByPlugin.has(instanceId)) {
+      fallbackCacheByPlugin.set(instanceId, createSharedCache())
+    }
+    return fallbackCacheByPlugin.get(instanceId)
+  }
+  if (!cacheByApi.has(api)) cacheByApi.set(api, new Map())
+  const scopedCaches = cacheByApi.get(api)
+  if (!scopedCaches.has(instanceId)) scopedCaches.set(instanceId, createSharedCache())
+  return scopedCaches.get(instanceId)
 }
 
 function isFresh(updatedAt, ttl) {
@@ -100,8 +108,10 @@ function emptyAttribution(profileId = '') {
 /**
  * 统一管理 AgentRank Emby identity 选择、只读数据与变更动作。
  */
-export function useAgentRankState(api) {
-  const sharedCache = sharedCacheFor(api)
+export function useAgentRankState(api, pluginId) {
+  const sharedCache = sharedCacheFor(api, pluginId)
+  const getApi = (path, params = {}) => getPluginApi(api, pluginId, path, params)
+  const postApi = (path, payload = {}) => postPluginApi(api, pluginId, path, payload)
   const options = ref({ emby_identities: [], default_profile_id: '', config: {} })
   const selectedProfileId = ref('')
   const overview = ref(null)
@@ -315,7 +325,7 @@ export function useAgentRankState(api) {
 
   function fetchOptions() {
     if (!sharedCache.optionsRequest) {
-      sharedCache.optionsRequest = getPluginApi(api, 'config/options')
+      sharedCache.optionsRequest = getApi('config/options')
         .then(value => {
           sharedCache.options = value
           sharedCache.optionsUpdatedAt = Date.now()
@@ -384,7 +394,7 @@ export function useAgentRankState(api) {
 
   function fetchProfileData(profileId, entry) {
     if (!entry.request) {
-      entry.request = getPluginApi(api, 'overview', { profile_id: profileId })
+      entry.request = getApi('overview', { profile_id: profileId })
         .then(value => {
           entry.value = value
           entry.updatedAt = Date.now()
@@ -437,7 +447,7 @@ export function useAgentRankState(api) {
     return runOperation(
       'history',
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'run-history', {
+        const result = await getApi('run-history', {
           profile_id: targetProfile,
           page,
           page_size: pageSize,
@@ -460,7 +470,7 @@ export function useAgentRankState(api) {
     if (!profileId) return emptyRunProgress('')
     requireCurrentProfile(profileId)
     ensureSecondaryScope(profileId)
-    const result = await getPluginApi(api, 'run-progress', { profile_id: profileId })
+    const result = await getApi('run-progress', { profile_id: profileId })
     if (selectedProfileId.value !== profileId) return result
     runProgress.value = {
       ...emptyRunProgress(profileId, selectedIdentity.value?.username || ''),
@@ -473,7 +483,7 @@ export function useAgentRankState(api) {
     if (loading.action) return null
     feedback.value = null
     const execute = async ({ isCurrent }) => {
-      const result = await postPluginApi(api, path, payload)
+      const result = await postApi(path, payload)
       if (isCurrent()) feedback.value = { ok: true, message: `${label}已完成`, result }
       return result
     }
@@ -638,7 +648,7 @@ export function useAgentRankState(api) {
       const result = await runOperation(
         `consumption:exposure:${currentBoard.run_id}:${currentBoard.revision}`,
         async ({ isCurrent }) => {
-          const response = await postPluginApi(api, 'consumption/exposure', payload)
+          const response = await postApi('consumption/exposure', payload)
           recordedExposureKeys.add(key)
           if (isCurrent() && selectedProfileId.value === targetProfile) {
             board.value = { ...board.value, consumption: response?.consumption || null }
@@ -663,7 +673,7 @@ export function useAgentRankState(api) {
     return runOperation(
       `consumption:detail:${currentBoard.run_id}:${currentBoard.revision}:${candidateId}`,
       async ({ isCurrent }) => {
-        const response = await postPluginApi(api, 'consumption/detail-opened', {
+        const response = await postApi('consumption/detail-opened', {
           profile_id: targetProfile,
           run_id: currentBoard.run_id,
           board_revision: currentBoard.revision,
@@ -687,7 +697,7 @@ export function useAgentRankState(api) {
     return runOperation(
       `consumption:${kind}:${candidateId}`,
       async ({ isCurrent }) => {
-        const response = await postPluginApi(api, 'consumption/interaction', {
+        const response = await postApi('consumption/interaction', {
           profile_id: targetProfile,
           run_id: currentBoard.run_id,
           board_revision: currentBoard.revision,
@@ -719,7 +729,7 @@ export function useAgentRankState(api) {
     return runOperation(
       key,
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'analysis', {
+        const result = await getApi('analysis', {
           profile_id: targetProfile,
           candidate_id: targetCandidate,
           analysis_id: targetAnalysis,
@@ -764,7 +774,7 @@ export function useAgentRankState(api) {
     return runOperation(
       'conversation',
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'conversation', {
+        const result = await getApi('conversation', {
           profile_id: targetProfile,
           mark_read: markRead,
         }) || emptyConversation()
@@ -785,7 +795,7 @@ export function useAgentRankState(api) {
     return runOperation(
       'board-history',
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'board-history', {
+        const result = await getApi('board-history', {
           profile_id: targetProfile,
           page,
           page_size: pageSize,
@@ -812,7 +822,7 @@ export function useAgentRankState(api) {
     return runOperation(
       'conversation:status',
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'conversation/status', {
+        const result = await getApi('conversation/status', {
           profile_id: targetProfile,
         }) || emptyConversationStatus(targetProfile)
         if (isCurrent() && selectedProfileId.value === targetProfile) {
@@ -835,7 +845,7 @@ export function useAgentRankState(api) {
     return runOperation(
       'conversation:send',
       async ({ isCurrent }) => {
-        const result = await postPluginApi(api, 'conversation/messages', payload) || emptyConversation()
+        const result = await postApi('conversation/messages', payload) || emptyConversation()
         if (isCurrent() && selectedProfileId.value === targetProfile) {
           conversation.value = result
           conversationStatus.value = {
@@ -857,7 +867,7 @@ export function useAgentRankState(api) {
     return runOperation(
       `conversation:retry:${messageId}`,
       async ({ isCurrent }) => {
-        const result = await postPluginApi(api, 'conversation/messages/retry', payload) || emptyConversation()
+        const result = await postApi('conversation/messages/retry', payload) || emptyConversation()
         if (isCurrent() && selectedProfileId.value === targetProfile) {
           conversation.value = result
           conversationStatus.value = {
@@ -878,7 +888,7 @@ export function useAgentRankState(api) {
     const payload = { profile_id: targetProfile, command_id: commandId, action }
     const result = await runOperation(
       `conversation-command:${commandId}`,
-      () => postPluginApi(api, 'conversation/commands/respond', payload),
+      () => postApi('conversation/commands/respond', payload),
       retryForProfile(targetProfile, () => respondConversationCommand(commandId, action)),
       { globalError: false },
     )
@@ -896,7 +906,7 @@ export function useAgentRankState(api) {
     return runOperation(
       `pending:${scope}`,
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'pending', {
+        const result = await getApi('pending', {
           profile_id: targetProfile,
           view: scope,
         }) || emptyPendingCenter(targetProfile)
@@ -925,7 +935,7 @@ export function useAgentRankState(api) {
     const key = `pending:${item?.item_type || 'item'}:${item?.item_id || 'unknown'}`
     const result = await runOperation(
       key,
-      () => postPluginApi(api, 'pending/respond', payload),
+      () => postApi('pending/respond', payload),
       retryForProfile(targetProfile, () => respondPending(item, action, { ...options, idempotencyKey: payload.idempotency_key })),
       { globalError: false },
     )
@@ -946,7 +956,7 @@ export function useAgentRankState(api) {
     return runOperation(
       'attribution',
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'attribution', {
+        const result = await getApi('attribution', {
           profile_id: targetProfile,
         }) || emptyAttribution(targetProfile)
         if (isCurrent() && selectedProfileId.value === targetProfile) attribution.value = result
@@ -963,7 +973,7 @@ export function useAgentRankState(api) {
     return runOperation(
       'learning-health',
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'learning-health', { profile_id: targetProfile })
+        const result = await getApi('learning-health', { profile_id: targetProfile })
         if (isCurrent() && selectedProfileId.value === targetProfile) learningHealth.value = result
         return result
       },
@@ -977,7 +987,7 @@ export function useAgentRankState(api) {
     const payload = { profile_id: targetProfile }
     const result = await runOperation(
       'attribution:verify',
-      () => postPluginApi(api, 'attribution/verify', payload),
+      () => postApi('attribution/verify', payload),
       retryForProfile(targetProfile, verifyAttribution),
       { globalError: false },
     )
@@ -992,7 +1002,7 @@ export function useAgentRankState(api) {
     return runOperation(
       'data:export',
       async ({ isCurrent }) => {
-        const result = await getPluginApi(api, 'data/export', {
+        const result = await getApi('data/export', {
           profile_id: targetProfile,
         })
         if (isCurrent() && selectedProfileId.value === targetProfile) exportedData.value = result
@@ -1019,7 +1029,7 @@ export function useAgentRankState(api) {
     const payload = { profile_id: targetProfile, confirm: confirm === true }
     const result = await runOperation(
       'data:reset-learning',
-      () => postPluginApi(api, 'data/reset/learning', payload),
+      () => postApi('data/reset/learning', payload),
       retryForProfile(targetProfile, () => resetLearning(confirm)),
       { globalError: false },
     )
@@ -1035,7 +1045,7 @@ export function useAgentRankState(api) {
     return runOperation(
       'data:reset-full-prepare',
       async ({ isCurrent }) => {
-        const result = await postPluginApi(api, 'data/reset/full/prepare', payload)
+        const result = await postApi('data/reset/full/prepare', payload)
         if (isCurrent() && selectedProfileId.value === targetProfile) fullResetConfirmation.value = result
         return result
       },
@@ -1053,7 +1063,7 @@ export function useAgentRankState(api) {
     }
     const result = await runOperation(
       'data:reset-full',
-      () => postPluginApi(api, 'data/reset/full', payload),
+      () => postApi('data/reset/full', payload),
       retryForProfile(targetProfile, () => resetFull(token)),
       { globalError: false },
     )

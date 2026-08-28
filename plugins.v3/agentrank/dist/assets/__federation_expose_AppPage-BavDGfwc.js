@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-BlOb6zQ3.js';
-import Page from './__federation_expose_Page-DMaFlKrx.js';
-import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-BAfgmHFk.js';
+import Config from './__federation_expose_Config-CElXrnNP.js';
+import Page from './__federation_expose_Page-yr7V4bFW.js';
+import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-DbLHTEvd.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock,createVNode:_createVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,createElementBlock:_createElementBlock} = await importShared('vue');
 
@@ -18,7 +18,8 @@ const _sfc_main = {
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
   navKey: { type: String, default: 'main' },
-  pluginId: { type: String, default: 'AgentRank' },
+  pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
 },
   setup(__props) {
 
@@ -67,7 +68,7 @@ function openSettings(config = {}) {
 async function saveSettings(config) {
   savingSettings.value = true;
   try {
-    await savePluginConfig(props.api, config);
+    await savePluginConfig(props.api, props.pluginId, config);
     settingsConfig.value = { ...(config || {}) };
     settingsDialog.value = false;
     pageKey.value += 1;
@@ -96,9 +97,11 @@ return (_ctx, _cache) => {
       key: pageKey.value,
       api: __props.api,
       "native-subscribe": __props.nativeSubscribe,
+      "plugin-id": __props.pluginId,
+      "source-plugin-id": __props.sourcePluginId,
       "show-close": false,
       onSwitch: openSettings
-    }, null, 8, ["api", "native-subscribe"])),
+    }, null, 8, ["api", "native-subscribe", "plugin-id", "source-plugin-id"])),
     _createVNode(_component_VDialog, {
       modelValue: settingsDialog.value,
       "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((settingsDialog).value = $event)),
@@ -108,10 +111,12 @@ return (_ctx, _cache) => {
       default: _withCtx(() => [
         _createVNode(Config, {
           api: __props.api,
+          "plugin-id": __props.pluginId,
+          "source-plugin-id": __props.sourcePluginId,
           "initial-config": settingsConfig.value,
           onSave: saveSettings,
           onClose: _cache[0] || (_cache[0] = $event => (settingsDialog.value = false))
-        }, null, 8, ["api", "initial-config"])
+        }, null, 8, ["api", "plugin-id", "source-plugin-id", "initial-config"])
       ]),
       _: 1
     }, 8, ["modelValue", "persistent"]),
@@ -131,6 +136,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3459de08"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e1525862"]]);
 
 export { AppPage as default };

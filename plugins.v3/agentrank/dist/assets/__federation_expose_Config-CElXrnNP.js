@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BAfgmHFk.js';
+import { _ as _export_sfc, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-DbLHTEvd.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass,createCommentVNode:_createCommentVNode,createBlock:_createBlock,vShow:_vShow,withDirectives:_withDirectives,mergeProps:_mergeProps} = await importShared('vue');
 
@@ -158,6 +158,8 @@ const _sfc_main = {
   __name: 'Config',
   props: {
   api: { type: [Object, Function], default: null },
+  pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
   initialConfig: { type: Object, default: () => ({}) },
 },
   emits: ['save', 'close'],
@@ -165,6 +167,18 @@ const _sfc_main = {
 
 const props = __props;
 const emit = __emit;
+const getApi = (path, params = {}) => getPluginApi(
+  props.api,
+  props.pluginId,
+  path,
+  params,
+);
+const postApi = (path, payload = {}) => postPluginApi(
+  props.api,
+  props.pluginId,
+  path,
+  payload,
+);
 
 const defaults = {
   enabled: false,
@@ -527,7 +541,7 @@ async function loadOverview(profileId = selectedProfileId.value) {
     overview.value = null;
     return
   }
-  overview.value = await getPluginApi(props.api, 'overview', { profile_id: profileId });
+  overview.value = await getApi('overview', { profile_id: profileId });
 }
 
 async function loadRuntime() {
@@ -536,8 +550,8 @@ async function loadRuntime() {
   loadError.value = '';
   try {
     const [statusData, optionsData] = await Promise.all([
-      getPluginApi(props.api, 'status'),
-      getPluginApi(props.api, 'config/options'),
+      getApi('status'),
+      getApi('config/options'),
     ]);
     status.value = statusData || status.value;
     availableIdentities.value = Array.isArray(optionsData?.emby_identities) ? optionsData.emby_identities : [];
@@ -572,7 +586,7 @@ async function exportProfileData() {
   if (!selectedProfileId.value || dataActionLoading.value) return
   dataActionLoading.value = 'export';
   try {
-    const data = await getPluginApi(props.api, 'data/export', { profile_id: selectedProfileId.value });
+    const data = await getApi('data/export', { profile_id: selectedProfileId.value });
     const content = JSON.stringify(data, null, 2);
     const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
     const href = URL.createObjectURL(blob);
@@ -596,7 +610,7 @@ async function confirmLearningReset() {
   if (!selectedProfileId.value || dataActionLoading.value) return
   dataActionLoading.value = 'learning';
   try {
-    await postPluginApi(props.api, 'data/reset/learning', {
+    await postApi('data/reset/learning', {
       profile_id: selectedProfileId.value,
       confirm: true,
     });
@@ -629,7 +643,7 @@ async function prepareFullReset() {
   if (!selectedProfileId.value || dataActionLoading.value) return
   dataActionLoading.value = 'full-prepare';
   try {
-    fullResetConfirmation.value = await postPluginApi(props.api, 'data/reset/full/prepare', {
+    fullResetConfirmation.value = await postApi('data/reset/full/prepare', {
       profile_id: selectedProfileId.value,
     });
     fullResetStage.value = 'confirm';
@@ -644,15 +658,15 @@ async function confirmFullReset() {
   if (fullResetPhrase.value !== '清空全部数据' || !fullResetConfirmation.value?.confirmation_token || dataActionLoading.value) return
   dataActionLoading.value = 'full-reset';
   try {
-    await postPluginApi(props.api, 'data/reset/full', {
+    await postApi('data/reset/full', {
       profile_id: selectedProfileId.value,
       confirmation_token: fullResetConfirmation.value.confirmation_token,
     });
-    const snapshot = await postPluginApi(props.api, 'playback/sync', {
+    const snapshot = await postApi('playback/sync', {
       profile_id: selectedProfileId.value,
     });
     status.value = { ...status.value, playback: snapshot };
-    await postPluginApi(props.api, 'refresh', {
+    await postApi('refresh', {
       profile_id: selectedProfileId.value,
     });
     fullResetDialog.value = false;
@@ -672,7 +686,7 @@ async function syncPlayback() {
   if (!props.api?.post || !selectedProfileId.value) return
   loading.value = true;
   try {
-    const snapshot = await postPluginApi(props.api, 'playback/sync', { profile_id: selectedProfileId.value });
+    const snapshot = await postApi('playback/sync', { profile_id: selectedProfileId.value });
     status.value = { ...status.value, playback: snapshot };
     await loadOverview(selectedProfileId.value);
     actionFeedback.show = true;
@@ -745,8 +759,8 @@ function cancelClearProfile() {
 async function confirmClearProfile() {
   clearProfileLoading.value = true;
   try {
-    await postPluginApi(props.api, 'profile/clear', { profile_id: selectedProfileId.value, confirm: true });
-    await postPluginApi(props.api, 'refresh', { profile_id: selectedProfileId.value });
+    await postApi('profile/clear', { profile_id: selectedProfileId.value, confirm: true });
+    await postApi('refresh', { profile_id: selectedProfileId.value });
     actionFeedback.color = 'success';
     actionFeedback.message = `${selectedIdentity.value?.username || selectedProfileId.value} 的画像正在重新生成`;
     await loadOverview(selectedProfileId.value);
@@ -2579,6 +2593,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-903c5747"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3ee98cc3"]]);
 
 export { Config as default };

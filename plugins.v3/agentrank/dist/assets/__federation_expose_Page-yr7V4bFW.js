@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DCw3WKOU.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-BAfgmHFk.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-C_F9khe6.js';
+import { _ as _export_sfc } from './_plugin-vue_export-helper-DbLHTEvd.js';
 
 const {unref:_unref$4,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,createElementVNode:_createElementVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,mergeProps:_mergeProps$1,withCtx:_withCtx$4,openBlock:_openBlock$4,createBlock:_createBlock$4,createCommentVNode:_createCommentVNode$4,createElementBlock:_createElementBlock$3,withModifiers:_withModifiers$2,renderList:_renderList$3,Fragment:_Fragment$3} = await importShared('vue');
 
@@ -1636,6 +1636,8 @@ const _sfc_main = {
   props: {
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
+  pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
   showClose: { type: Boolean, default: true },
 },
   emits: ['switch', 'close'],
@@ -1643,7 +1645,7 @@ const _sfc_main = {
 
 const props = __props;
 const emit = __emit;
-const state = useAgentRankState(props.api);
+const state = useAgentRankState(props.api, props.pluginId);
 
 const activeTab = ref('board');
 const snackbar = ref({ show: false, message: '', color: 'success' });
@@ -3675,6 +3677,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cf25e006"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e0ce40e6"]]);
 
 export { Page as default };

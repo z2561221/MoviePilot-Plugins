@@ -62,37 +62,45 @@ export function normalizeApiError(error, fallback = 'Agent榜单请求失败') {
   return normalized
 }
 
+function pluginApiPath(pluginId, path = '') {
+  const instanceId = String(pluginId || '').trim()
+  if (!instanceId) throw new Error('MoviePilot 插件实例 ID 未就绪')
+  const endpoint = String(path || '').replace(/^\/+/, '')
+  const basePath = `plugin/${encodeURIComponent(instanceId)}`
+  return endpoint ? `${basePath}/${endpoint}` : basePath
+}
+
 /**
- * 调用 AgentRank GET 接口，并通过 injected client 自动携带 bearer。
+ * 调用当前插件实例的 GET 接口，并通过 injected client 自动携带 bearer。
  */
-export async function getPluginApi(api, path, params = {}) {
+export async function getPluginApi(api, pluginId, path, params = {}) {
   if (!api?.get) throw new Error('MoviePilot 插件 API 未就绪')
   try {
-    return unwrapResponse(await api.get('plugin/AgentRank/' + path, { params }))
+    return unwrapResponse(await api.get(pluginApiPath(pluginId, path), { params }))
   } catch (error) {
     throw normalizeApiError(error)
   }
 }
 
 /**
- * 调用 AgentRank POST 接口，并通过 injected client 自动携带 bearer。
+ * 调用当前插件实例的 POST 接口，并通过 injected client 自动携带 bearer。
  */
-export async function postPluginApi(api, path, payload = {}) {
+export async function postPluginApi(api, pluginId, path, payload = {}) {
   if (!api?.post) throw new Error('MoviePilot 插件 API 未就绪')
   try {
-    return unwrapResponse(await api.post('plugin/AgentRank/' + path, payload))
+    return unwrapResponse(await api.post(pluginApiPath(pluginId, path), payload))
   } catch (error) {
     throw normalizeApiError(error)
   }
 }
 
 /**
- * 通过 MoviePilot 核心配置接口保存并重新加载 AgentRank。
+ * 通过 MoviePilot 核心配置接口保存并重新加载当前插件实例。
  */
-export async function savePluginConfig(api, payload = {}) {
+export async function savePluginConfig(api, pluginId, payload = {}) {
   if (!api?.put) throw new Error('MoviePilot 配置 API 未就绪')
   try {
-    return unwrapResponse(await api.put('plugin/AgentRank', payload))
+    return unwrapResponse(await api.put(pluginApiPath(pluginId), payload))
   } catch (error) {
     throw normalizeApiError(error, '插件配置保存失败')
   }
