@@ -6,9 +6,8 @@ import re
 from typing import Any, Callable, Dict, List, Mapping, Type
 
 from app.agent import MoviePilotAgent, ReplyMode
-# MoviePilot V3 e28de9cf 的 SDK 尚未导出内部 Agent 身份常量。
-from app.foundation.identity import SYSTEM_INTERNAL_USER_ID
 
+from ..host_compat import SYSTEM_INTERNAL_USER_ID
 from ..agent_tools.context import (
     CONVERSATION_AGENT_ROLE,
     FEEDBACK_AGENT_ROLE,
