@@ -28,6 +28,43 @@ def test_douban_api_old_path_is_adapter_facade():
     assert issubclass(doubanapi.DoubanApi, douban_account.DoubanApi)
 
 
+def test_plugin_instances_do_not_share_mutable_runtime_state(monkeypatch):
+    """不同插件实例不得共享配置容器、联邦选项或运行锁。"""
+    monkeypatch.setattr(DoubanCenter.__mro__[1], "__init__", lambda self: None)
+
+    first = DoubanCenter()
+    second = DoubanCenter()
+
+    mutable_fields = (
+        "_rank_configs",
+        "_custom_ranks",
+        "_region_filters",
+        "_genre_filters",
+        "_resolution_filters",
+        "_custom_rss_addrs",
+        "_dashboard_rank_keys",
+        "_observe_rank_keys",
+        "_region_options",
+        "_genre_options",
+        "_resolution_options",
+    )
+    for field in mutable_fields:
+        assert getattr(first, field) is not getattr(second, field)
+
+    first._rank_configs["coming"] = {"enabled": True}
+    first._custom_ranks.append({"key": "custom"})
+    first._resolution_options[0]["title"] = "changed"
+    first._enabled = True
+    first._scheduler = object()
+
+    assert second._rank_configs == {}
+    assert second._custom_ranks == []
+    assert second._resolution_options[0]["title"] == "2160p/4K"
+    assert second._enabled is False
+    assert second._scheduler is None
+    assert first._sync_lock is not second._sync_lock
+
+
 def test_init_stops_previous_run_before_config_migration_and_tasks(monkeypatch):
     """重复初始化必须先停止旧资源，再覆盖配置、迁移数据和启动一次性任务。"""
     events = []

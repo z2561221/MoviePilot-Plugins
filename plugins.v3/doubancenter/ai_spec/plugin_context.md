@@ -2,7 +2,7 @@
 
 ## 插件用途
 
-DoubanCenter 3.0.0 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
+DoubanCenter 3.0.3 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
 
 ## 入口与渲染
 
@@ -26,9 +26,9 @@ DoubanCenter 3.0.0 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 - `model/identity.py`：统一 `(media_source, media_id)`、旧字段回填和 V3 `MediaChain` 参数。
 - `migration.py`：初始化时幂等迁移榜单、订阅、观察、归档、豆瓣时间和想看记录；unresolved 原样保留。
 - `controller/schemas.py`：17 条普通 JSON 路由的具体 Pydantic 业务模型。
-- `feed.py`：榜单刷新和订阅主编排，旧 helper 名保留为兼容转发。
-- `dashboard.py`：仪表盘和详情页 API 编排，归档核心算法委托给 `service/archive.py`。
-- `folio.py`：豆瓣时间同步主流程，外层事件串行化由 `service/webhook.py` 承担。
+- `service/rank_pipeline.py`：榜单刷新和订阅主编排；根 `feed.py` 仅保留兼容转发。
+- `service/dashboard.py`：仪表盘和详情页 API 编排，归档核心算法委托给 `service/archive.py`；根 `dashboard.py` 仅保留兼容转发。
+- `service/folio.py`：豆瓣时间同步主流程，外层事件串行化由 `service/webhook.py` 承担；根 `folio.py` 仅保留兼容转发。
 
 ## 最新 V3 宿主适配
 
@@ -56,10 +56,10 @@ DoubanCenter 3.0.0 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 
 ## 关键调用链
 
-- 定时 / 立即运行：`DoubanCenter.__run_all()` -> `feed.run_scheduled()` / `feed.run_once()` -> `feed.refresh_rank_data()` -> `feed.subscribe_to_ranks()`。
-- 榜单订阅：`feed._process_coming()` / `feed._process_general()` / `feed._process_items()` -> `service/observation.py` -> `service/subscription.py`。
-- 详情 API：`controller/api.py` -> `dashboard.py` -> `storage/records.py` / `service/archive.py`。
-- 豆瓣时间：Webhook event -> `service/webhook.py` -> `folio.py` -> `DoubanApi`。
+- 定时 / 立即运行：`DoubanCenter.__run_all()` -> `service/rank_pipeline.py:run_scheduled()` / `run_once()` -> `refresh_rank_data()` -> `subscribe_to_ranks()`。
+- 榜单订阅：`service/rank_pipeline.py:_process_coming()` / `_process_general()` / `_process_items()` -> `service/observation.py` -> `service/subscription.py`。
+- 详情 API：`controller/api.py` -> `service/dashboard.py` -> `storage/records.py` / `service/archive.py`。
+- 豆瓣时间：Webhook event -> `service/webhook.py` -> `service/folio.py` -> `adapter/douban_account.py:DoubanApi`。
 
 ## 验收方式
 

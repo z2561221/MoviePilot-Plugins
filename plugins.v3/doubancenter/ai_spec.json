@@ -1,6 +1,6 @@
 {
   "plugin_id": "DoubanCenter",
-  "version": "3.0.0",
+  "version": "3.0.3",
   "agent_tools": [],
   "capabilities": [
     "rank_subscription",
