@@ -10,9 +10,9 @@ from app import schemas
 from app.sdk.media import resolve_media_identity
 from app.sdk.logging import logger
 
-from .. import dashboard as dash
-from .. import feed
-from .. import folio
+from ..service import dashboard as dash
+from ..service import folio
+from ..service import rank_pipeline as feed
 from . import schemas as api_schemas
 
 

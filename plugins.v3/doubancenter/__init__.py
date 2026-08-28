@@ -9,7 +9,7 @@ from app.plugins import _PluginBase
 from app.sdk.events import Event, eventmanager
 from app.schemas.types import EventType
 
-from . import dashboard as dash, feed, folio, migration
+from . import migration
 from . import utils
 from .controller import api as api_controller
 from .model.config import (
@@ -23,6 +23,9 @@ from .model.config import (
     normalize_rank_configs,
 )
 from .model import rank as rank_model
+from .service import dashboard as dash
+from .service import folio
+from .service import rank_pipeline as feed
 from .service import scheduler as scheduler_service
 from .service import webhook as webhook_service
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPONENTS = REPO_ROOT / "plugins.v3" / "doubancenter" / "src" / "components"
-DASHBOARD_BACKEND = REPO_ROOT / "plugins.v3" / "doubancenter" / "dashboard.py"
+DASHBOARD_BACKEND = REPO_ROOT / "plugins.v3" / "doubancenter" / "service" / "dashboard.py"
 PLUGIN_ROOT = REPO_ROOT / "plugins.v3" / "doubancenter"
 
 

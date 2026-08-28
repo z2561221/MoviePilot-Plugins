@@ -81,7 +81,7 @@ def test_v3_sdk_migrations_use_current_public_exports():
     """媒体身份和媒体服务器能力使用最新 V3 稳定 SDK。"""
     api_source = (V3_PLUGIN_ROOT / "controller" / "api.py").read_text(encoding="utf-8-sig")
     identity_source = (V3_PLUGIN_ROOT / "model" / "identity.py").read_text(encoding="utf-8-sig")
-    folio_source = (V3_PLUGIN_ROOT / "folio.py").read_text(encoding="utf-8-sig")
+    folio_source = (V3_PLUGIN_ROOT / "service" / "folio.py").read_text(encoding="utf-8-sig")
     migration_source = (V3_PLUGIN_ROOT / "migration.py").read_text(encoding="utf-8-sig")
     subscription_source = (V3_PLUGIN_ROOT / "service" / "subscription.py").read_text(encoding="utf-8-sig")
     assert "from app.sdk.media import resolve_media_identity" in api_source
@@ -96,6 +96,25 @@ def test_v3_sdk_migrations_use_current_public_exports():
     assert "app.db.subscribehistory_oper" not in migration_source
     assert "app.domain.media" not in api_source + identity_source
     assert "app.application.mediaserver" not in folio_source
+
+
+def test_v3_entrypoints_keep_business_implementation_out_of_package_root():
+    """根目录入口只保留兼容门面，业务实现必须位于 service 层。"""
+    root = V3_PLUGIN_ROOT
+    for filename, service_name in (("feed.py", "rank_pipeline"), ("folio.py", "folio"), ("dashboard.py", "dashboard")):
+        source = (root / filename).read_text(encoding="utf-8-sig")
+        assert f"from .service import {service_name}" in source
+        assert "def " not in source
+    controller_source = (root / "controller" / "api.py").read_text(encoding="utf-8-sig")
+    assert "from ..service import dashboard as dash" in controller_source
+    assert "from ..service import folio" in controller_source
+    assert "from ..service import rank_pipeline as feed" in controller_source
+    assert "from .. import dashboard" not in controller_source
+    assert "from .. import feed" not in controller_source
+    assert "from .. import folio" not in controller_source
+    rank_source = (root / "service" / "rank_pipeline.py").read_text(encoding="utf-8-sig")
+    assert "rss_adapter.RequestUtils =" not in rank_source
+    assert "rss_adapter.DomUtils =" not in rank_source
 
 
 def test_v3_event_manager_uses_public_sdk_contract():

@@ -6,6 +6,8 @@ from typing import Callable
 
 from app.sdk.events import Event
 
+from . import folio
+
 _played_lock = threading.Lock()
 
 
@@ -23,8 +25,6 @@ def handle_sync_log(plugin, event: Event, played: bool = False) -> None:
             plugin._last_skip_log_time = now
         return
     try:
-        from .. import folio
-
         folio.check_cookie_periodically(plugin)
         folio.sync_log_handler(plugin, event.event_data, played=played)
     finally:
