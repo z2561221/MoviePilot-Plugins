@@ -4,100 +4,20 @@ import asyncio
 import importlib
 import inspect
 import json
-import sys
 import threading
 import time
-from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
+import fastapi as fastapi_module
 import pytest
+from fastapi.params import Depends as DependsParam
+
+from app import schemas as schemas_module
+from app.sdk.security import verify_token
 
 
-PLUGIN_DIR = Path(__file__).resolve().parents[3] / "plugins.v3" / "agentrank"
-PACKAGE_NAME = "agentrank_api_test"
-
-package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
-package.__path__ = [str(PLUGIN_DIR)]
-
-fastapi_module = sys.modules.setdefault("fastapi", ModuleType("fastapi"))
-fastapi_params_module = sys.modules.setdefault(
-    "fastapi.params", ModuleType("fastapi.params")
-)
-
-
-class DependsParam:
-    """测试使用的最小 FastAPI 依赖描述。"""
-
-    def __init__(self, dependency=None):
-        self.dependency = dependency
-
-
-class HTTPException(Exception):
-    """测试使用的最小 FastAPI HTTP 异常。"""
-
-    def __init__(self, status_code, detail=None, headers=None):
-        self.status_code = status_code
-        self.detail = detail
-        self.headers = headers or {}
-        super().__init__(str(detail))
-
-
-def Depends(dependency=None):
-    """构造测试依赖描述。"""
-    return DependsParam(dependency)
-
-
-fastapi_module.Depends = Depends
-fastapi_module.HTTPException = HTTPException
-fastapi_params_module.Depends = DependsParam
-
-app_module = sys.modules.setdefault("app", ModuleType("app"))
-schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
-types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-api_module = sys.modules.setdefault("app.api", ModuleType("app.api"))
-endpoint_package = sys.modules.setdefault(
-    "app.api.endpoints", ModuleType("app.api.endpoints")
-)
-host_plugin_module = sys.modules.setdefault(
-    "app.api.endpoints.plugin", ModuleType("app.api.endpoints.plugin")
-)
-
-
-class TokenPayload:
-    """测试使用的最小 MoviePilot 登录载荷。"""
-
-    def __init__(self, sub=None, username=None, super_user=False):
-        self.sub = sub
-        self.username = username
-        self.super_user = super_user
-
-
-class MediaSource(str):
-    """测试使用的可扩展 V3 媒体来源值。"""
-
-    def __new__(cls, value):
-        instance = str.__new__(cls, value)
-        instance.value = value
-        return instance
-
-
-MediaSource.TMDB = MediaSource("themoviedb")
-MediaSource.Douban = MediaSource("douban")
-
-
-def verify_token():
-    """为 FastAPI endpoint 签名提供测试鉴权依赖。"""
-    return TokenPayload(sub=1, username="admin", super_user=True)
-
-
-app_module.schemas = schemas_module
-app_module.api = api_module
-api_module.endpoints = endpoint_package
-endpoint_package.plugin = host_plugin_module
-schemas_module.types = types_module
-schemas_module.TokenPayload = TokenPayload
-types_module.MediaSource = MediaSource
-host_plugin_module.verify_token = verify_token
+PACKAGE_NAME = "app.plugins.agentrank"
+TokenPayload = schemas_module.TokenPayload
 
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 analysis_module = importlib.import_module(f"{PACKAGE_NAME}.model.analysis")

@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from agentrank.storage.repository import AgentRankRepository
+from app.plugins.agentrank.storage.repository import AgentRankRepository
 
 
 class MemoryPlugin:

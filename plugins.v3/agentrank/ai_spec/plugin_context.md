@@ -2,9 +2,9 @@
 
 ## 插件定位
 
-`AgentRank` 是 MoviePilot V2 Vue 联邦插件。它以 Emby 播放事实、用户确认偏好和候选媒体事实为输入，调用受限 Agent 生成个性化 Top 5 榜单，并提供反馈学习、对话、待确认中心、订阅归因和历史追踪。
+`AgentRank` 是 MoviePilot V3 Vue 联邦插件。它以 Emby 播放事实、用户确认偏好和候选媒体事实为输入，调用受限 Agent 生成个性化 Top 5 榜单，并提供反馈学习、对话、待确认中心、订阅归因和历史追踪。
 
-插件 ID 为 `AgentRank`，源码位于 `plugins.v2/agentrank`，入口类为 `AgentRank`，配置前缀为 `agentrank_`。当前运行模式为 `("vue", "dist/assets")`。
+插件 ID 为 `AgentRank`，源码位于 `plugins.v3/agentrank`，生产导入命名空间为 `app.plugins.agentrank`，入口类为 `AgentRank`，配置前缀为 `agentrank_`。当前运行模式为 `("vue", "dist/assets")`。
 
 ## 入口与生命周期
 
@@ -13,7 +13,7 @@
 - `EventType.MessageAction` 只处理 `plugin_id=AgentRank` 的 Telegram 回调。
 - `get_sidebar_nav()` 在插件启用且 `discovery_page_enabled=true` 时提供发现区入口。
 - Vue 联邦暴露 `./Page`、`./Config`、`./Dashboard` 和 `./AppPage`，构建产物必须完整保留在 `dist/assets`。
-- 前端 API 全部由 `controller/api.py::build_api_routes()` 声明为 `auth: "bear"`，浏览器端只能使用宿主注入的 `api` 客户端。
+- 前端 API 由 `controller/routes.py::build_api_routes()` 统一注册，端点绑定位于 `controller/endpoints.py`，并全部声明为 `auth: "bear"`。浏览器端只能使用宿主注入的 `api` 客户端，且必须以宿主传入的 `pluginId` 组装当前实例路由。
 
 ## 推荐主链
 

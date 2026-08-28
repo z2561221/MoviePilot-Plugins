@@ -1,12 +1,12 @@
 """Executable red gates for AgentRank domain and restricted Agent contracts."""
 
 import ast
+import json
+import re
 from pathlib import Path
 
-import pytest
-
-
-PLUGIN_DIR = Path(__file__).resolve().parents[3] / "plugins.v3" / "agentrank"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "agentrank"
 if not (PLUGIN_DIR / "__init__.py").is_file():
     mirrored_plugin_dir = (PLUGIN_DIR / "adapter").resolve().parent
     if (mirrored_plugin_dir / "__init__.py").is_file():
@@ -41,6 +41,9 @@ FORBIDDEN_V3_HOST_IMPORTS = {
     ("app.schemas", "NotificationType"),
     ("app.schemas.types", "MessageChannel"),
     ("app.schemas.types", "NotificationType"),
+}
+REVIEWED_INTERNAL_IMPORTS = {
+    ("app.foundation.identity", "SYSTEM_INTERNAL_USER_ID"),
 }
 
 
@@ -82,6 +85,73 @@ def test_v3_host_imports_do_not_use_registered_compatibility_aliases():
                     if (alias.name, "*") in FORBIDDEN_V3_HOST_IMPORTS:
                         violations.append(f"{path.relative_to(PLUGIN_DIR)}:{node.lineno}")
     assert violations == []
+
+
+def test_v3_internal_imports_match_symbol_allowlist_and_avoid_host_models():
+    """内部宿主导入只能保留有移除条件的系统 Agent 身份常量。"""
+    internal_prefixes = (
+        "app.application.",
+        "app.domain.",
+        "app.foundation.",
+        "app.adapters.",
+        "app.runtime.",
+        "app.infrastructure.",
+        "app.services.",
+    )
+    actual = set()
+    forbidden = []
+    for path in sorted(PLUGIN_DIR.rglob("*.py")):
+        relative = path.relative_to(PLUGIN_DIR)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                if node.module.startswith(internal_prefixes):
+                    actual.update((node.module, alias.name) for alias in node.names)
+                if node.module.startswith("app.db.models"):
+                    forbidden.append(f"{relative}:{node.lineno}")
+                if node.module == "app.db" and any(
+                    alias.name in {"ScopedSession", "SessionFactory", "AsyncSessionFactory"}
+                    for alias in node.names
+                ):
+                    forbidden.append(f"{relative}:{node.lineno}")
+    assert actual == REVIEWED_INTERNAL_IMPORTS
+    assert forbidden == []
+    compat = _source("host_compat.py")
+    assert "2026-08-29" in compat
+    assert "稳定 SDK 导出后" in compat
+
+
+def test_api_controller_is_split_by_business_responsibility():
+    """控制器门面、HTTP 端点、路由和各业务域必须保持独立模块。"""
+    expected = {
+        "controller/api.py": "AgentRankApiController",
+        "controller/endpoints.py": "AgentRankApiEndpointMixin",
+        "controller/routes.py": "build_api_routes",
+        "controller/read_api.py": "ReadApiMixin",
+        "controller/feedback_api.py": "FeedbackApiMixin",
+        "controller/conversation_api.py": "ConversationApiMixin",
+        "controller/data_api.py": "DataApiMixin",
+        "controller/attribution_api.py": "AttributionApiMixin",
+    }
+    for relative, symbol in expected.items():
+        source = _source(relative)
+        assert symbol in source
+        assert len(source.splitlines()) <= 600
+
+
+def test_v3_metadata_version_and_history_are_consistent():
+    """V3 入口、插件清单与仓库索引必须共用当前版本历史。"""
+    manifest = json.loads((PLUGIN_DIR / "plugin.json").read_text(encoding="utf-8"))
+    package = json.loads((REPO_ROOT / "package.v3.json").read_text(encoding="utf-8"))[
+        "AgentRank"
+    ]
+    match = re.search(r'plugin_version\s*=\s*"([^"]+)"', _source("__init__.py"))
+    assert match is not None
+    version = match.group(1)
+    history_key = f"v{version}"
+    assert package["version"] == manifest["version"] == version
+    assert package["history"][history_key] == manifest["history"][history_key]
+    assert package["history"][history_key].startswith("[1]")
 
 
 def test_per_user_domain_and_storage_contract_exists():
