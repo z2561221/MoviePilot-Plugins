@@ -4,6 +4,7 @@ import { getPluginApi } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
+  pluginId: { type: String, default: 'DoubanCenter' },
   initialConfig: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['save', 'close', 'switch'])
@@ -292,7 +293,7 @@ function selectMain(key) {
 async function loadOverview() {
   loadingOverview.value = true
   try {
-    const resp = await getPluginApi(props.api, 'overview')
+    const resp = await getPluginApi(props.api, props.pluginId, 'overview')
     if (resp?.success === false) throw new Error(resp.message || '总览加载失败')
     const data = resp?.data ?? resp
     if (data?.code === 0 || data?.cards) overview.value = data

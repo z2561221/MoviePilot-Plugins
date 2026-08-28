@@ -41,12 +41,19 @@ async function getWithTimeout(api, url, path, timeoutMs) {
   }
 }
 
-export async function getPluginApi(api, path, options = {}) {
+function pluginPath(pluginId, path = '') {
+  const normalizedId = String(pluginId || '').trim()
+  if (!normalizedId) throw new Error('缺少 MoviePilot 注入的 pluginId')
+  const suffix = String(path || '').replace(/^\/+/, '')
+  return suffix ? `plugin/${normalizedId}/${suffix}` : `plugin/${normalizedId}`
+}
+
+export async function getPluginApi(api, pluginId, path, options = {}) {
   if (!api?.get) throw new Error('缺少 MoviePilot 注入的 api.get')
   const timeoutMs = Math.max(0, Number(options.timeoutMs) || 0)
   const startedAt = Date.now()
   try {
-    const response = await getWithTimeout(api, `plugin/DoubanCenter/${path}`, path, timeoutMs)
+    const response = await getWithTimeout(api, pluginPath(pluginId, path), path, timeoutMs)
     return response
   } finally {
     const elapsedMs = Date.now() - startedAt
@@ -56,21 +63,21 @@ export async function getPluginApi(api, path, options = {}) {
   }
 }
 
-export async function postPluginApi(api, path, payload = {}) {
+export async function postPluginApi(api, pluginId, path, payload = {}) {
   if (!api?.post) throw new Error('缺少 MoviePilot 注入的 api.post')
-  return await api.post(`plugin/DoubanCenter/${path}`, payload)
+  return await api.post(pluginPath(pluginId, path), payload)
 }
 
-export async function getPluginConfig(api) {
+export async function getPluginConfig(api, pluginId) {
   if (!api?.get) throw new Error('缺少 MoviePilot 配置 API')
-  const response = await api.get('plugin/DoubanCenter')
+  const response = await api.get(pluginPath(pluginId))
   if (response?.success === false) throw new Error(response?.message || '插件配置读取失败')
   return response?.data ?? response
 }
 
-export async function savePluginConfig(api, payload = {}) {
+export async function savePluginConfig(api, pluginId, payload = {}) {
   if (!api?.put) throw new Error('缺少 MoviePilot 配置 API')
-  const response = await api.put('plugin/DoubanCenter', payload)
+  const response = await api.put(pluginPath(pluginId), payload)
   if (response?.success === false) throw new Error(response?.message || '插件配置保存失败')
   return response?.data ?? response
 }

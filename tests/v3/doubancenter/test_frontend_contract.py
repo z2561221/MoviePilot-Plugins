@@ -16,17 +16,22 @@ def test_api_client_reads_final_v3_envelope_without_double_unwrap():
     assert "response.data.data" not in source
     assert "return response" in source
     assert "response?.data ?? response" in source
+    assert "plugin/DoubanCenter" not in source
+    assert "pluginPath(pluginId" in source
 
 
 def test_page_and_dashboard_forward_media_identity_pair():
     """详情页和仪表盘订阅请求均优先传递来源与媒体 ID。"""
+    actions = (COMPONENTS / "useRankMediaActions.js").read_text(encoding="utf-8")
     for filename in ("Page.vue", "Dashboard.vue"):
         source = (COMPONENTS / filename).read_text(encoding="utf-8")
-        assert "media_source: item?.media_source" in source
-        assert "media_id: item?.media_id" in source
-        assert source.count("season: item?.season || ''") >= 2
-        assert "merged.media_source" in source
-        assert "merged.media_id" in source
+        assert "useRankMediaActions" in source
+        assert "async function resolveRankMedia" not in source
+    assert actions.count("media_source: item?.media_source") >= 2
+    assert actions.count("media_id: item?.media_id") >= 2
+    assert actions.count("season: item?.season || ''") >= 2
+    assert "merged.media_source" in actions
+    assert "merged.media_id" in actions
     page = (COMPONENTS / "Page.vue").read_text(encoding="utf-8")
     assert "delete_subscribe_history" in page
     assert "media_source: item?.media_source" in page
@@ -86,10 +91,25 @@ def test_dashboard_retries_timeline_without_blocking_core_data():
     refresh_source = source.split("async function refreshDashboard()", 1)[1].split(
         "function showActionDialog", 1
     )[0]
-    assert "await postPluginApi(props.api, 'refresh_rss', {})" in refresh_source
+    assert "await postPluginApi(props.api, dashboardPluginId.value, 'refresh_rss', {})" in refresh_source
     assert "await load()" in refresh_source
     assert refresh_source.index("await load()") < refresh_source.index("await postPluginApi")
     assert '@click="refreshDashboard"' in source
+
+
+def test_vue_components_use_instance_scoped_plugin_id():
+    """联邦组件通过注入或宿主配置解析当前插件实例 ID。"""
+    page = (COMPONENTS / "Page.vue").read_text(encoding="utf-8")
+    config = (COMPONENTS / "Config.vue").read_text(encoding="utf-8")
+    dashboard = (COMPONENTS / "Dashboard.vue").read_text(encoding="utf-8")
+    app_page = (COMPONENTS / "AppPage.vue").read_text(encoding="utf-8")
+
+    assert "pluginId: { type: String, default: 'DoubanCenter' }" in page
+    assert "pluginId: { type: String, default: 'DoubanCenter' }" in config
+    assert "props.config?.id" in dashboard
+    assert ':plugin-id="props.pluginId"' in app_page
+    assert "getPluginConfig(props.api, props.pluginId)" in app_page
+    assert "savePluginConfig(props.api, props.pluginId, config)" in app_page
 
 
 def test_timeline_api_reads_persisted_data_without_history_repair():
