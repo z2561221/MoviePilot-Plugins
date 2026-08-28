@@ -109,9 +109,11 @@ def test_v3_event_manager_uses_public_sdk_contract():
 
 def test_v3_cookiecloud_uses_runtime_supported_adapter():
     """CookieCloud 保留唯一已审查的 V3 内部适配器路径。"""
-    source = (V3_PLUGIN_ROOT / "doubanapi.py").read_text(encoding="utf-8-sig")
-    assert "from app.adapters.external.cookiecloud import CookieCloudHelper" in source
-    assert "app.integrations.cookiecloud" not in source
+    adapter_source = (V3_PLUGIN_ROOT / "adapter" / "douban_account.py").read_text(encoding="utf-8-sig")
+    facade_source = (V3_PLUGIN_ROOT / "doubanapi.py").read_text(encoding="utf-8-sig")
+    assert "from app.adapters.external.cookiecloud import CookieCloudHelper" in adapter_source
+    assert "from .adapter import douban_account as _account" in facade_source
+    assert "app.integrations.cookiecloud" not in adapter_source + facade_source
 
 
 def test_sync_to_target_writes_only_v3_layout(tmp_path):

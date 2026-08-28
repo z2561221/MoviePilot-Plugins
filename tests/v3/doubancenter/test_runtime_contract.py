@@ -1,6 +1,7 @@
 """豆瓣中心 V3 生命周期、命名空间与网络合同测试。"""
 
 from app.plugins.doubancenter import DoubanCenter, doubanapi, feed, folio, migration
+from app.plugins.doubancenter.adapter import douban_account
 
 
 class _FakeResponse:
@@ -20,6 +21,11 @@ class _FakeResponse:
 def test_plugin_imports_through_production_namespace():
     """插件主类只能以生产命名空间加载。"""
     assert DoubanCenter.__module__ == "app.plugins.doubancenter"
+
+
+def test_douban_api_old_path_is_adapter_facade():
+    """旧 DoubanApi 路径必须代理到适配器实现且保持类型兼容。"""
+    assert issubclass(doubanapi.DoubanApi, douban_account.DoubanApi)
 
 
 def test_init_stops_previous_run_before_config_migration_and_tasks(monkeypatch):
