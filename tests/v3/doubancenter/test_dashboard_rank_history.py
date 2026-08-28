@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from doubancenter.service import dashboard_rank_history
+from app.plugins.doubancenter.service import dashboard_rank_history
 
 
 def test_rank_history_response_uses_chinese_legacy_original_title_without_mutating_storage():

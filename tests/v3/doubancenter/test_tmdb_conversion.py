@@ -5,14 +5,14 @@ from types import SimpleNamespace
 from app.schemas.types import MediaSource, MediaType
 from app.sdk.media import MetaInfo
 
-from doubancenter import DoubanCenter, feed
-from doubancenter.adapter import bangumi as bangumi_adapter
-from doubancenter.adapter import douban as douban_adapter
-from doubancenter.adapter import rss as rss_adapter
-from doubancenter.model.identity import convert_identity
-from doubancenter.service import dashboard_rank_media
-from doubancenter.service import dashboard_rank_subscription
-from doubancenter.service import bangumi_tmdb
+from app.plugins.doubancenter import DoubanCenter, feed
+from app.plugins.doubancenter.adapter import bangumi as bangumi_adapter
+from app.plugins.doubancenter.adapter import douban as douban_adapter
+from app.plugins.doubancenter.adapter import rss as rss_adapter
+from app.plugins.doubancenter.model.identity import convert_identity
+from app.plugins.doubancenter.service import dashboard_rank_media
+from app.plugins.doubancenter.service import dashboard_rank_subscription
+from app.plugins.doubancenter.service import bangumi_tmdb
 
 
 def test_bangumi_subject_prefers_rsshub_chinese_title_and_poster():
@@ -67,8 +67,8 @@ def test_plugin_init_does_not_fetch_bangumi_history(monkeypatch):
     plugin.stop_service = lambda: None
     plugin.update_config = lambda config: None
     monkeypatch.setattr(feed, "normalize_bangumi_history", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
-    monkeypatch.setattr("doubancenter.migration.migrate_plugin_media_identity", lambda *args, **kwargs: None)
-    monkeypatch.setattr("doubancenter.migration.normalize_legacy_subscribe_usernames", lambda: None)
+    monkeypatch.setattr("app.plugins.doubancenter.migration.migrate_plugin_media_identity", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.plugins.doubancenter.migration.normalize_legacy_subscribe_usernames", lambda: None)
 
     plugin.init_plugin({"enabled": True})
 

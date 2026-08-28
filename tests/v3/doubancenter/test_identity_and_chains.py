@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 from app.schemas.types import MediaSource, MediaType
 
-from doubancenter.model.identity import identity_from_media, legacy_identity, recognize_media
-from doubancenter.service import dashboard_rank_subscription, subscription
+from app.plugins.doubancenter.model.identity import identity_from_media, legacy_identity, recognize_media
+from app.plugins.doubancenter.service import dashboard_rank_subscription, subscription
 
 
 class CaptureMediaChain:

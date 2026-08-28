@@ -9,7 +9,6 @@ from typing import Tuple
 from urllib.parse import unquote, urljoin
 from xml.etree import ElementTree
 
-import requests
 from bs4 import BeautifulSoup
 from http.cookies import SimpleCookie
 # MoviePilot V3 da51ff1a5feea9c22451968e4b86bc8f32011925 仍未将 CookieCloudHelper
@@ -259,7 +258,7 @@ class DoubanApi:
     def set_ck(self):
         """从豆瓣首页响应中刷新 ck cookie。"""
         self.headers["Cookie"] = ";".join([f"{k}={v}" for k, v in self.cookies.items()])
-        response = requests.get("https://www.douban.com/", headers=self.headers)
+        response = RequestUtils(headers=self.headers).get_res("https://www.douban.com/")
         if not response:
             self.cookies['ck'] = ''
             return
@@ -392,7 +391,10 @@ class DoubanApi:
         data = {"ck": self.ck, "interest": status, "rating": "", "foldcollect": "U", "tags": "", "comment": ""}
         if private:
             data["private"] = "on"
-        response = requests.post(f"https://movie.douban.com/j/subject/{subject_id}/interest", headers=self.headers, data=data)
+        response = RequestUtils(headers=self.headers).post_res(
+            f"https://movie.douban.com/j/subject/{subject_id}/interest",
+            data=data,
+        )
         if response and response.status_code == 200:
             r = response.json().get("r")
             if not (isinstance(r, bool) and r is False):

@@ -87,6 +87,7 @@ class DoubanCenter(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         """根据插件配置初始化运行状态并触发一次性任务。"""
+        self.stop_service()
         config = config or {}
         self._enabled = config.get("enabled", False)
         self._cron = config.get("cron") or DEFAULT_CRON
@@ -140,7 +141,6 @@ class DoubanCenter(_PluginBase):
             custom_rank_sources=[rank.get("route") for rank in self._custom_ranks],
         )
         migration.normalize_legacy_subscribe_usernames()
-        self.stop_service()
         if self._onlyonce:
             self._onlyonce = False
             self.__update_config()
