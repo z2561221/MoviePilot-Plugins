@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.3.2 - MoviePilot V3 本地插件
+DownloadManagerLocal v3.3.3 - MoviePilot V3 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 from threading import Event as ThreadEvent
@@ -46,7 +46,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.3.2"
+    plugin_version = "3.3.3"
     # 插件作者
     plugin_author = "Kurisu"
     # 作者主页
@@ -112,9 +112,9 @@ class DownloadManagerLocal(_PluginBase):
 
     # ── 上传限速配置 ──
     _upload_limit_enabled: bool = False
-    _upload_limit_downloaders: list = []
-    _upload_limit_downloader_limits_kib: dict = {}
-    _upload_limit_site_rules: dict = {}
+    _upload_limit_downloaders: Optional[list] = None
+    _upload_limit_downloader_limits_kib: Optional[dict] = None
+    _upload_limit_site_rules: Optional[dict] = None
     _upload_limit_grace_minutes: int = 30
 
     # ── IYUU 辅种配置 ──
@@ -122,9 +122,9 @@ class DownloadManagerLocal(_PluginBase):
     _iyuu_cron: str = ""
     _iyuu_onlyonce: bool = False
     _iyuu_token: str = ""
-    _iyuu_downloaders: list = []
+    _iyuu_downloaders: Optional[list] = None
     _iyuu_auto_downloader: str = ""
-    _iyuu_sites: list = []
+    _iyuu_sites: Optional[list] = None
     _iyuu_nolabels: str = ""
     _iyuu_nopaths: str = ""
     _iyuu_size: float = 0
@@ -133,9 +133,9 @@ class DownloadManagerLocal(_PluginBase):
     _iyuu_categoryafterseed: str = ""
     _iyuu_clearcache: bool = False
     # IYUU 辅种缓存
-    _iyuu_error_caches: list = []
-    _iyuu_success_caches: list = []
-    _iyuu_permanent_error_caches: list = []
+    _iyuu_error_caches: Optional[list] = None
+    _iyuu_success_caches: Optional[list] = None
+    _iyuu_permanent_error_caches: Optional[list] = None
     _iyuu_seed_cache_max: int = 10000
     # IYUU 辅种计数
     _iyuu_total: int = 0
@@ -145,29 +145,69 @@ class DownloadManagerLocal(_PluginBase):
     _iyuu_fail: int = 0
     _iyuu_cached: int = 0
     # IYUU 种子链接 xpaths
-    _iyuu_torrent_xpaths: list = [
-        "//form[contains(@action, 'download.php?id=')]/@action",
-        "//a[contains(@href, 'download.php?hash=')]/@href",
-        "//a[contains(@href, 'download.php?id=')]/@href",
-        "//a[@class='index'][contains(@href, '/dl/')]/@href",
-    ]
+    _iyuu_torrent_xpaths: Optional[list] = None
 
     # 退出事件
-    _event = ThreadEvent()
+    _event = None
     # 待检查种子清单：{下载器名: {hash: 来源}}
-    _recheck_torrents = {}
+    _recheck_torrents: Optional[dict] = None
     _is_recheck_running = False
     _seed_recheck_running = False
-    _seed_recheck_lock = threading.RLock()
+    _seed_recheck_lock = None
     _seed_recheck_queue_key = SEED_RECHECK_QUEUE_KEY
 
     # 任务标签
-    _torrent_tags = []
+    _torrent_tags: Optional[list] = None
     # tracker 映射
-    _tracker_mappings: Dict[str, str] = {}
+    _tracker_mappings: Optional[Dict[str, str]] = None
 
     # 辅助
     downloader_helper = None
+
+    def __init__(self):
+        """初始化实例级运行态，避免多实例共享配置、队列、缓存或退出信号。"""
+        super().__init__()
+        self._scheduler = None
+        self._speed_monitor_thread = None
+        self._speed_monitor_stop_event = None
+        self._speed_monitor_worker_lock = None
+        self._speed_monitor_runtime = None
+        self._upload_limit_thread = None
+        self._upload_limit_stop_event = None
+        self._upload_limit_wake_event = None
+        self._upload_limit_worker_lock = None
+        self._upload_limit_cycle_lock = None
+        self._upload_limit_state = None
+        self._upload_limit_state_error = ""
+        self._upload_limit_downloaders = []
+        self._upload_limit_downloader_limits_kib = {}
+        self._upload_limit_site_rules = {}
+        self._iyuu_downloaders = []
+        self._iyuu_sites = []
+        self._iyuu_error_caches = []
+        self._iyuu_success_caches = []
+        self._iyuu_permanent_error_caches = []
+        self._iyuu_torrent_xpaths = [
+            "//form[contains(@action, 'download.php?id=')]/@action",
+            "//a[contains(@href, 'download.php?hash=')]/@href",
+            "//a[contains(@href, 'download.php?id=')]/@href",
+            "//a[@class='index'][contains(@href, '/dl/')]/@href",
+        ]
+        self._iyuu_total = 0
+        self._iyuu_realtotal = 0
+        self._iyuu_success = 0
+        self._iyuu_exist = 0
+        self._iyuu_fail = 0
+        self._iyuu_cached = 0
+        self._event = ThreadEvent()
+        self._recheck_torrents = {}
+        self._is_recheck_running = False
+        self._seed_recheck_running = False
+        self._seed_recheck_lock = threading.RLock()
+        self._torrent_tags = []
+        self._tracker_mappings = {}
+        self.downloader_helper = None
+        self.iyuu_helper = None
 
     def init_plugin(self, config: dict = None):
         """根据配置初始化插件运行状态和后台服务。"""; return _initialize_plugin_impl(self, config)

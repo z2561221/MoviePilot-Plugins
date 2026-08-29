@@ -14,12 +14,14 @@ class IyuuHelper(object):
     """
     _version = "8.2.0"
     _api_base = "https://2025.iyuu.cn"
-    _sites = {}
+    _sites = None
     _token = None
     _sid_sha1 = None
 
     def __init__(self, token: str):
         self._token = token
+        self._sites = {}
+        self._sid_sha1 = None
         if self._token:
             self.init_config()
 
