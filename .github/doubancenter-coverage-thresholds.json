@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "minimum_total_percent": 41.9,
+  "minimum_file_percent": {
+    "plugins.v3/doubancenter/service/bangumi_tmdb.py": 79.9,
+    "plugins.v3/doubancenter/service/dashboard_rank_media.py": 70.6,
+    "plugins.v3/doubancenter/service/rank_recognition.py": 83.7,
+    "plugins.v3/doubancenter/service/rank_refresh.py": 71.8,
+    "plugins.v3/doubancenter/service/rank_snapshot.py": 78.9,
+    "plugins.v3/doubancenter/service/rank_subscription.py": 36.0
+  }
+}
