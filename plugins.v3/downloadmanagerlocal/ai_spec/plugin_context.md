@@ -2,8 +2,8 @@
 
 ## 插件定位
 
-`DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前版本为
-`3.3.0`。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
+`3.3.3`（基于已发布的 V3.3.2）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -25,7 +25,7 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 固定为 `3.3.0`；V2 保持
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 固定为当前开发版 `3.3.3`；V2 保持
   `3.2.9`，旧索引只增加 `"v3": false`。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
@@ -85,22 +85,14 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
 - `modules/`：保留为兼容 shim；AST 扫描显示 `modules/*.py` 顶层 class/function 定义数均为 0，不再承载业务决策。
 - 文档质量：public class/function/method 中文 docstring 缺口为 0；本轮新增或改动的 private helper 中文 docstring 缺口为 0。
 
-## 2026-07-04 完整插件标准完成证据
+## 2026-07-04 历史 V2 标准完成证据
 
-完成证据以执行账本为准：
+以下执行账本只对应旧 V2 `3.2.4` 周期，不能作为当前 V3.3.3 的运行态证据：
 
 - 计划：`docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md`
 - 账本：`docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-progress.json`
-- `tests/static/test_downloadmanagerlocal_standard_completion.py`：最终标准断言通过。
-- 全量 `tests/static/test_downloadmanagerlocal_*.py`：62 passed。
-- `compileall -q plugins.v2/downloadmanagerlocal`：exit 0。
-- `git diff --check`：exit 0。
-- no-UI gate：空输出，证明 `frontend/src/**`、`frontend/index.html`、`frontend/vite.config.js`、前端 package/lock 文件未被本轮重构改变。
-- MP 本地仓库同步成功；运行态 history 显示 `plugin_version=3.2.4` 且 history 包含 `v3.2.4`。
-- `/api/v1/plugin/remotes?token=moviepilot` 包含 `/plugin/file/downloadmanagerlocal/dist/assets/remoteEntry.js`。
-- `/api/v1/plugin/form/DownloadManagerLocal` 返回 `render_mode=vue`。
-- `/api/v1/plugin/DownloadManagerLocal/overview` 返回有效数据。
-- 重载后 `moviepilot.log` 追加片段中 DownloadManagerLocal 相关 `ERROR`、`Traceback`、`Exception` 数量为 0。
+- 当时的静态测试、编译、MP 同步、reload、history 和 API 回读均属于旧 V2 实例。
+- 当前 V3.3.3 必须按本文末尾的本周期验证记录重新核验。
 
 ## API 路由契约
 
@@ -365,45 +357,38 @@ Vue/API 契约完成验证。运行验收前必须先取得目标 MoviePilot 实
 - IYUU 下载链接和日志脱敏涉及外部站点差异，不能用真实网络调用做单测。
 - 做种校验后台线程需要保持退出事件和锁语义，否则可能导致重复 worker 或无法停止。
 
-## 2026-07-04 标准化收口记录
+## 2026-07-04 历史标准化收口记录
 
-本轮已经完成从“后端拆层历史基线”到“完整插件标准闭环”的收口：
+以下记录属于旧 V2 `3.2.4` 周期，仅用于追溯，不代表当前 V3.3.3 运行态：
 
-- Win 本地仓库：`worldlinefix/downloadmanagerlocal` 分支完成分层、docstring、静态守护和上下文更新。
-- MP 本地仓库：已通过 `scripts/sync_to_mp_local.py --plugin DownloadManagerLocal` 同步。
-- 运行态 MoviePilot：已从 MP 运行态本地仓库路径 `/vol1/1000/docker/moviepilot-v2/config/local plugins` force install，并显式 reload。
-- 版本：源码 `plugin_version`、MP 本地 `package.v2.json`、运行态 history 均指向 `3.2.4`；history 含 `v3.2.4`。
-- UI：未修改前端源码、前端配置或依赖；Vue federation 仍通过 `dist/assets/remoteEntry.js` 加载。
+- 当时完成后端拆层、docstring、静态守护和 MP 本地仓库验收。
+- 当时的源码、索引和运行态 history 均指向 V2 `3.2.4`。
+- 当前 V3 源码、索引和运行态必须按本文顶部的 V3.3.3 规则单独核验。
 
-最终验证命令：
+## 2026-08-29 V3.3.3 结构修正记录
 
-```powershell
-& 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m compileall -q plugins.v2/downloadmanagerlocal
-```
+本周期针对已发布 V3.3.2 的下载中心进行 V3.3.3 结构收紧：
 
-```powershell
-$tests = Get-ChildItem tests/static -Filter 'test_downloadmanagerlocal_*.py' | ForEach-Object { $_.FullName }
-& 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m pytest --confcutdir=tests/static @tests
-```
+- Vue 联邦 API helper 改为使用宿主注入的 `pluginId`，组件不再固定请求 `DownloadManagerLocal` 路径。
+- 下载中心入口和 `IyuuHelper` 的可变队列、缓存、锁、事件和站点摘要改为实例所有，避免多实例相互污染。
+- 新增 V3 测试命名空间引导和实例隔离合同；前端联邦产物已由当前源码重新构建。
+- 上下文文档、测试路径和 V3.3.3 版本边界统一，未宣称尚未完成的 MP reload 或浏览器验收。
+
+本周期已完成的实验室验证：
 
 ```powershell
-git diff --check
-git diff --name-only -- plugins.v2/downloadmanagerlocal/frontend/src plugins.v2/downloadmanagerlocal/frontend/index.html plugins.v2/downloadmanagerlocal/frontend/vite.config.js plugins.v2/downloadmanagerlocal/frontend/package.json plugins.v2/downloadmanagerlocal/frontend/package-lock.json plugins.v2/downloadmanagerlocal/frontend/pnpm-lock.yaml
+$env:MOVIEPILOT_BACKEND_PATH = 'D:\AIGC\MoviePilot\.worktrees\agentrank-host-v3'
+$nodeDir = 'C:\Users\ZhaoYu\AppData\Local\Logi\LogiPluginService\PluginHosts\node22\node'
+$env:Path = "$nodeDir;$env:Path"
+& 'D:\AIGC\MoviePilot\.venv-test\Scripts\python.exe' -m pytest --confcutdir=tests -q tests/v3/downloadmanagerlocal
 ```
 
-最新验证结果：
-
-- `compileall -q`：exit 0。
-- 全量 DownloadManagerLocal static tests：`62 passed`。
+- V3 下载中心聚焦测试：`176 passed`。
+- 前端 `npm run build`：exit 0，产物为 `dist/assets/remoteEntry.js` 及对应 hash 资源。
 - `git diff --check`：exit 0。
-- no-UI gate：空输出。
-- MP runtime history：`plugin_version=3.2.4`，history 包含 `v3.2.4`。
-- MP runtime remotes：包含 `/plugin/file/downloadmanagerlocal/dist/assets/remoteEntry.js`。
-- MP runtime form：`render_mode=vue`。
-- MP runtime overview：返回有效数据。
-- reload 后日志：DownloadManagerLocal 相关 `ERROR`、`Traceback`、`Exception` 数量为 0。
 
-残余风险：
+残余边界：
 
-- 未 push 到 Git 在线仓库，未合入 `main`，未发布 Release；这些动作必须由用户明确确认后才能执行。
-- IYUU 外部站点真实网络链路未做生产站点实测，本轮以静态回归、编译、服务边界测试和运行态 API 验收保护。
+- MP 本地源同步、目标实例 GET reload、history/API 回读和浏览器验收尚待本周期运行态窗口；本文件不把源码或构建结果当作运行态证据。
+- IYUU 外部站点真实链路仍以目标实例配置和日志为准，实验室测试不替代生产站点实测。
+- 未 push、merge 或发布；这些动作仍需用户明确确认。
