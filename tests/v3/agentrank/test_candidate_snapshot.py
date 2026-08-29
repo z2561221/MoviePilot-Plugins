@@ -102,6 +102,45 @@ def test_snapshot_roundtrip_preserves_metadata_and_content_hash():
     assert loaded.calculate_content_hash() == loaded.content_hash
 
 
+def test_empty_aliases_are_omitted_to_preserve_legacy_snapshot_shape():
+    """没有别名的旧候选不因新增字段改变 V4 快照 hash 输入。"""
+    candidate = Candidate(
+        candidate_id="tmdb:movie:1",
+        title="Candidate",
+        media_type="movie",
+        source_ids={"tmdb": "1"},
+    )
+
+    assert candidate.names == []
+    assert "names" not in candidate.to_dict()
+
+
+def test_aliases_roundtrip_through_snapshot():
+    """聚合别名随候选快照可持久化并保持有界。"""
+    snapshot = CandidateSnapshot.create(
+        profile_id=PROFILE_ID,
+        run_id="run-alias",
+        profile_version={"run_id": "profile-run", "schema_version": 4},
+        retrieval_plan={},
+        candidates=[
+            Candidate(
+                candidate_id="tmdb:movie:8",
+                title="主标题",
+                media_type="movie",
+                media_source="themoviedb",
+                media_id="8",
+                source_ids={"tmdb": "8"},
+                names=["English", "香港标题"],
+                metadata={"mp_media_type": "电影"},
+            )
+        ],
+    )
+
+    loaded = CandidateSnapshot.from_dict(snapshot.to_dict())
+
+    assert loaded.candidates[0].names == ["English", "香港标题"]
+
+
 def test_snapshot_same_run_is_write_once_and_never_appended():
     """同 profile_id/run_id 的第二次写入必须拒绝且不改变首次内容。"""
     plugin = FakePlugin()

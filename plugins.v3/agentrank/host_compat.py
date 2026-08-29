@@ -9,4 +9,10 @@
 # Reviewed against MoviePilot V3 origin/v3 on 2026-08-29.
 from app.foundation.identity import SYSTEM_INTERNAL_USER_ID
 
-__all__ = ["SYSTEM_INTERNAL_USER_ID"]
+
+def get_internal_user_id() -> str:
+    """返回 AgentRank 隔离会话使用的宿主内部用户标识。"""
+    return SYSTEM_INTERNAL_USER_ID
+
+
+__all__ = ["get_internal_user_id"]

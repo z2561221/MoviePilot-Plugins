@@ -3,7 +3,7 @@
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
-from .candidate import infer_media_identity
+from .candidate import infer_media_identity, normalize_title_names
 from .support import SupportScore
 
 
@@ -34,6 +34,7 @@ class RecommendationItem:
     backdrop_path: str = ""
     match_tags: List[str] = field(default_factory=list)
     original_title: str = ""
+    names: List[str] = field(default_factory=list)
     in_library: bool = False
     subscribed: bool = False
     watch_status: str = "unwatched"
@@ -61,6 +62,10 @@ class RecommendationItem:
                 raise ValueError("recommendation fit_score is invalid") from error
             if not 0 <= self.fit_score <= 100:
                 raise ValueError("recommendation fit_score is out of range")
+        self.names = normalize_title_names(
+            self.names,
+            excluded=(self.title, self.original_title),
+        )
 
     @property
     def support_percentage(self) -> Optional[int]:
@@ -118,6 +123,10 @@ class RecommendationItem:
             analysis_id=str(value.get("analysis_id") or ""),
             title=str(value.get("title") or ""),
             original_title=str(value.get("original_title") or value.get("original_name") or ""),
+            names=normalize_title_names(
+                value.get("names") or (),
+                excluded=(value.get("title") or "", value.get("original_title") or value.get("original_name") or ""),
+            ),
             media_type=str(value.get("media_type") or "unknown"),
             year=(
                 int(value.get("year"))

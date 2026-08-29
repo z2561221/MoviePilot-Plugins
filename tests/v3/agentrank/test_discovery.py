@@ -267,6 +267,29 @@ def test_builtin_source_prefix_is_trusted_when_payload_uses_media_id():
     assert candidate.candidate_id == "douban:db-1"
 
 
+def test_normalize_preserves_bounded_aggregated_title_aliases():
+    """聚合来源的别名进入候选，但不覆盖主标题或稳定身份。"""
+    candidate = CandidateCollectionService._normalize(
+        RawDiscoveredItem(
+            source="tmdb_movies",
+            mediaid_prefix="tmdb",
+            payload={
+                "title": "主标题",
+                "original_title": "Original",
+                "media_id": "10",
+                "names": ["主标题", {"name": "English Title"}, "English Title"],
+                "hk_title": "香港标题",
+                "tw_title": "台湾标题",
+                "title_overflow": [f"别名-{index}" for index in range(30)],
+            },
+        )
+    )
+
+    assert candidate.candidate_id == "tmdb:movie:10"
+    assert candidate.names == ["English Title", "香港标题", "台湾标题"]
+    assert len(candidate.names) <= 12
+
+
 def test_payload_cannot_override_a_trusted_source_prefix():
     """来源载荷不能把宿主信任的豆瓣前缀改成另一个来源。"""
     with pytest.raises(ValueError, match="mediaid_prefix mismatch"):

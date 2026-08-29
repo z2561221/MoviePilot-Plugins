@@ -133,6 +133,7 @@ def _seed_profile(repository, plugin):
                     candidate_id="tmdb:tv:101",
                     rank=1,
                     title="候选1",
+                    names=["English Candidate", "香港标题"],
                     reason="节奏匹配",
                     summary="完整短句",
                     confidence=0.8,
@@ -373,6 +374,10 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
     assert exported["run_history"][0]["metrics"]["policy_memory_revision"] == 3
     assert exported["board"]["recommendations"][0]["candidate_id"] == "tmdb:tv:101"
     assert exported["board"]["recommendations"][0]["selection_source"] == "agent"
+    assert exported["board"]["recommendations"][0]["names"] == [
+        "English Candidate",
+        "香港标题",
+    ]
     assert exported["run_history"][0]["metrics"]["selection_source_counts"] == {
         "agent": 4,
         "safe_fallback": 1,

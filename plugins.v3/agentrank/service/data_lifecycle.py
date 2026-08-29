@@ -190,6 +190,12 @@ class DataLifecycleService:
             "candidate_id": _safe_scalar(item.get("candidate_id")),
             "rank": int(item.get("rank") or 0),
             "title": _redact_text(item.get("title")),
+            "names": [
+                safe_name
+                for name in item.get("names") or ()
+                for safe_name in [_redact_text(name)[:120]]
+                if safe_name
+            ][:12],
             "media_type": _redact_text(item.get("media_type")),
             "year": item.get("year"),
             "summary": _redact_text(item.get("summary")),

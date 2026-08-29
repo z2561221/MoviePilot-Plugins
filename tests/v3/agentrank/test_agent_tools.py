@@ -525,6 +525,7 @@ def test_minimal_candidate_exposes_only_safe_library_and_watch_state():
         {
             "candidate_id": "tmdb:tv:1",
             "title": "待续播剧集",
+            "names": ["Alias", "Alias", "另一个别名"],
             "media_type": "tv",
             "metadata": {
                 "in_library": True,
@@ -538,6 +539,7 @@ def test_minimal_candidate_exposes_only_safe_library_and_watch_state():
     assert candidate["in_library"] is True
     assert candidate["subscribed"] is False
     assert candidate["watch_status"] == "partial"
+    assert candidate["names"] == ["Alias", "另一个别名"]
     assert "metadata" not in candidate
     assert "must-not-leak" not in str(candidate)
 
