@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi, p as postPluginJsonApi } from './_plugin-vue_export-helper-CrP2OQog.js';
+import { _ as _export_sfc, g as getPluginApi, p as postPluginJsonApi } from './_plugin-vue_export-helper-CQaya97K.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -178,12 +178,16 @@ const _sfc_main = {
   props: {
   api: { type: [Object, Function], default: null },
   initialConfig: { type: Object, default: () => ({}) },
+  pluginId: { type: String, default: 'DownloadManagerLocal' },
+  sourcePluginId: { type: String, default: 'DownloadManagerLocal' },
 },
   emits: ['save', 'close', 'switch'],
   setup(__props, { emit: __emit }) {
 
 const props = __props;
 const emit = __emit;
+const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, path, options);
+const postJsonApi = (path, payload = {}, options = {}) => postPluginJsonApi(props.api, props.pluginId, path, payload, options);
 
 const form = reactive({});
 const activeMain = ref('overview');
@@ -215,16 +219,16 @@ let uploadSiteRulesRevision = 0;
 let uploadSiteScanTail = Promise.resolve();
 
 async function refreshOverview() {
-  const response = await getPluginApi(props.api, 'overview');
+  const response = await getApi('overview');
   if (response?.code === 0 || response?.cards) overview.value = response;
 }
 
 onMounted(async () => {
   try {
     const [dlResp, siteResp, overviewResp] = await Promise.all([
-      getPluginApi(props.api, 'downloaders', { feedback: 'silent' }),
-      getPluginApi(props.api, 'sites', { feedback: 'silent' }),
-      getPluginApi(props.api, 'overview', { feedback: 'silent' }),
+      getApi('downloaders', { feedback: 'silent' }),
+      getApi('sites', { feedback: 'silent' }),
+      getApi('overview', { feedback: 'silent' }),
     ]);
     if (dlResp) {
       downloaderItems.value = dlResp;
@@ -559,7 +563,7 @@ function queueUploadSiteRulesSave(rules) {
   const snapshot = cloneUploadSiteRules(rules);
   const revision = ++uploadSiteRulesRevision;
   uploadSiteRulesSaveTail = uploadSiteRulesSaveTail.catch(() => undefined).then(async () => {
-    const response = await postPluginJsonApi(props.api, 'upload_limit_site_rules_update', { rules: snapshot });
+    const response = await postJsonApi('upload_limit_site_rules_update', { rules: snapshot });
     if (response?.code !== 0) throw new Error(response?.msg || '站点策略保存失败')
     if (revision === uploadSiteRulesRevision) {
       form.upload_limit_site_rules = cloneUploadSiteRules(response?.rules || snapshot);
@@ -629,8 +633,7 @@ async function refreshUploadLimitStatus({ silent = false } = {}) {
     uploadMessage.value = '';
   }
   try {
-    const response = await getPluginApi(
-      props.api,
+    const response = await getApi(
       'upload_limit_status',
       silent ? { feedback: 'silent' } : {},
     );
@@ -697,7 +700,7 @@ async function scanUploadSites() {
   uploadScanningSites.value = true;
   const scanOperation = (async () => {
     await flushUploadSiteRulesSave();
-    return postPluginJsonApi(props.api, 'upload_limit_site_tags', {
+    return postJsonApi('upload_limit_site_tags', {
       downloaders: form.upload_limit_downloaders,
       rules: cloneUploadSiteRules(),
     })
@@ -724,7 +727,7 @@ async function reallocateUploadLimits() {
   try {
     await uploadSiteScanTail;
     await flushUploadSiteRulesSave();
-    const response = await postPluginJsonApi(props.api, 'upload_limit_reallocate', {});
+    const response = await postJsonApi('upload_limit_reallocate', {});
     applyUploadStatus(response);
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
     uploadMessage.value = response?.msg || '上传额度已重新分配';
@@ -740,7 +743,7 @@ async function disableAndRestoreUploadLimits() {
   uploadActionRunning.value = 'restore';
   uploadMessage.value = '';
   try {
-    const response = await postPluginJsonApi(props.api, 'upload_limit_disable_restore', {});
+    const response = await postJsonApi('upload_limit_disable_restore', {});
     form.upload_limit_enabled = false;
     uploadRestoreDialog.value = false;
     await refreshUploadLimitStatus();
@@ -766,7 +769,7 @@ async function resetMonitorBaseline(downloaderId) {
   monitorResetting.value = downloaderId;
   monitorMessage.value = '';
   try {
-    const response = await postPluginJsonApi(props.api, 'reset_speed_monitor_baseline', { downloader_id: downloaderId });
+    const response = await postJsonApi('reset_speed_monitor_baseline', { downloader_id: downloaderId });
     monitorMessageStatus.value = response?.code === 0 ? 'success' : 'error';
     monitorMessage.value = response?.msg || (response?.code === 0 ? '速度基准已重置' : '重置失败');
     if (response?.code === 0) await refreshOverview();
@@ -818,7 +821,7 @@ async function scanCleanupTags() {
   }
   cleanupScanning.value = true;
   try {
-    const response = await postPluginJsonApi(props.api, 'tag_cleanup_scan', { downloaders: cleanupDownloaders.value });
+    const response = await postJsonApi('tag_cleanup_scan', { downloaders: cleanupDownloaders.value });
     cleanupScan.value = response || null;
     resetCleanupKeep(response?.downloaders || []);
     const errorCount = response?.errors?.length || 0;
@@ -846,7 +849,7 @@ function previewCleanupTags() {
 async function executeCleanupTags() {
   cleanupExecuting.value = true;
   try {
-    const response = await postPluginJsonApi(props.api, 'tag_cleanup_execute', { removals: cleanupRemovals.value });
+    const response = await postJsonApi('tag_cleanup_execute', { removals: cleanupRemovals.value });
     cleanupDialog.value = false;
     await scanCleanupTags();
     cleanupStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
@@ -3355,6 +3358,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-fb7a4733"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-955ba7d0"]]);
 
 export { Config as default };
