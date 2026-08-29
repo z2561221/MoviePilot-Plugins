@@ -26,15 +26,24 @@ FORBIDDEN_IMPORT_ROOTS = (
     "app.adapters",
     "app.runtime",
 )
-REVIEWED_INTERNAL_IMPORTS = {"app.adapters.external.cookiecloud"}
 LEGACY_DB_IMPORTS = {"app.db.subscribe_oper", "app.db.subscribehistory_oper"}
 
 
-def _is_forbidden_import(module_name: str) -> bool:
+def _reviewed_internal_imports() -> set[tuple[str, str]]:
+    """读取评分器共用的逐符号宿主内部导入例外。"""
+    path = REPO_ROOT / ".github" / "plugin-quality-exceptions.json"
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    return {
+        (entry["module"], entry["symbol"])
+        for entry in payload.get("DoubanCenter", {}).get("imports", [])
+    }
+
+
+def _is_forbidden_import(module_name: str, symbol: str = "*") -> bool:
     """判断模块名是否命中禁止路径且不在已审查允许清单。"""
     if module_name in LEGACY_DB_IMPORTS:
         return True
-    if module_name in REVIEWED_INTERNAL_IMPORTS:
+    if (module_name, symbol) in _reviewed_internal_imports():
         return False
     return any(
         module_name == root or module_name.startswith(f"{root}.")
@@ -52,9 +61,9 @@ def test_v3_plugin_does_not_use_unreviewed_internal_import_paths():
         for node in ast.walk(tree):
             modules = []
             if isinstance(node, ast.Import):
-                modules.extend(alias.name for alias in node.names)
+                modules.extend((alias.name, "*") for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
-                modules.append(node.module)
+                modules.extend((node.module, alias.name) for alias in node.names)
             elif isinstance(node, ast.Call) and node.args:
                 function_name = ""
                 if isinstance(node.func, ast.Name):
@@ -70,10 +79,12 @@ def test_v3_plugin_does_not_use_unreviewed_internal_import_paths():
                     and isinstance(argument, ast.Constant)
                     and isinstance(argument.value, str)
                 ):
-                    modules.append(argument.value)
-            for module_name in modules:
-                if _is_forbidden_import(module_name):
-                    violations.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno} {module_name}")
+                    modules.append((argument.value, "*"))
+            for module_name, symbol in modules:
+                if _is_forbidden_import(module_name, symbol):
+                    violations.append(
+                        f"{path.relative_to(REPO_ROOT)}:{node.lineno} {module_name}:{symbol}"
+                    )
     assert violations == []
 
 
@@ -127,12 +138,24 @@ def test_v3_event_manager_uses_public_sdk_contract():
 
 
 def test_v3_cookiecloud_uses_runtime_supported_adapter():
-    """CookieCloud 保留唯一已审查的 V3 内部适配器路径。"""
+    """CookieCloud 保留唯一已审查且已登记的 V3 内部适配器路径。"""
     adapter_source = (V3_PLUGIN_ROOT / "adapter" / "douban_account.py").read_text(encoding="utf-8-sig")
     facade_source = (V3_PLUGIN_ROOT / "doubanapi.py").read_text(encoding="utf-8-sig")
+    exception_path = REPO_ROOT / ".github" / "plugin-quality-exceptions.json"
+    exceptions = json.loads(exception_path.read_text(encoding="utf-8-sig"))
+    entries = exceptions["DoubanCenter"]["imports"]
     assert "from app.adapters.external.cookiecloud import CookieCloudHelper" in adapter_source
     assert "from .adapter import douban_account as _account" in facade_source
     assert "app.integrations.cookiecloud" not in adapter_source + facade_source
+    assert any(
+        entry["module"] == "app.adapters.external.cookiecloud"
+        and entry["symbol"] == "CookieCloudHelper"
+        and all(
+            entry.get(key)
+            for key in ("reason", "host_version", "removal_condition", "test")
+        )
+        for entry in entries
+    )
 
 
 def test_sync_to_target_writes_only_v3_layout(tmp_path):

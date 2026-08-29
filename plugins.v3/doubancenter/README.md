@@ -1,0 +1,19 @@
+# 豆瓣中心
+
+DoubanCenter 是 MoviePilot V3 插件，用于同步豆瓣榜单、豆瓣时间和“想看”列表，
+并提供自动订阅、观察期治理、归档记录和仪表盘概览。
+
+## 使用
+
+在 MoviePilot 插件配置中启用后，可按需配置豆瓣 Cookie、CookieCloud、RSS 榜单、
+自动订阅和观察期策略。豆瓣 Cookie 留空时，插件会按宿主 CookieCloud 配置读取
+`douban.com` Cookie。
+
+插件使用 Vue 联邦界面，运行资源位于 `dist/assets/remoteEntry.js` 及其关联文件。
+
+## 注意
+
+- 插件只处理插件自身的榜单、订阅、观察和归档记录，不修改 MoviePilot 核心数据结构。
+- 外部豆瓣请求可能受到登录、验证码或风控限制；失败记录会保留在插件状态中。
+- CookieCloud 兼容导入是当前 V3 宿主尚无稳定 SDK 出口的受审计例外，待宿主提供稳定
+  出口后移除。
