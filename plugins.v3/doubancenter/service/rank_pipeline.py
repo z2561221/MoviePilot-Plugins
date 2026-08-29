@@ -3,7 +3,6 @@ DoubanCenter - 榜单订阅引擎
 """
 import datetime
 import re
-import time
 from typing import Any, Dict, List, Optional
 
 from app.chain.media import MediaChain
@@ -28,7 +27,9 @@ from ..model.identity import (
 )
 from . import observation as observation_service
 from . import bangumi_tmdb as bangumi_tmdb_service
+from . import rank_recognition as rank_recognition_service
 from . import rank_refresh as rank_refresh_service
+from . import rank_snapshot as rank_snapshot_service
 from . import rank_subscription as rank_subscription_service
 from . import subscription as subscription_service
 from ..storage import records as storage
@@ -74,42 +75,17 @@ def _resolved_media_type_name(rank: dict, item: dict, mediainfo=None) -> str:
 
 def _recognize_rss_item(self, item: dict, rank: dict):
     """按条目和榜单路由识别 RSS 媒体，未知类型交给识别链自动判断。"""
-    item = item if isinstance(item, dict) else {}
-    rank = rank if isinstance(rank, dict) else {}
-    meta = MetaInfo(str(item.get("title") or ""))
-    if item.get("year"):
-        meta.year = str(item.get("year"))
-    inferred = _rank_media_type(rank, item)
-    if str(rank.get("key") or "") == "bangumi":
-        meta.type = MediaType.TV
-        recognition = bangumi_tmdb_service.recognize_bangumi_tmdb(
-            self,
-            self.chain,
-            meta,
-            bangumi_id=_extract_bangumi_id(item),
-            tmdb_id=item.get("tmdb_id") or item.get("tmdbid"),
-            season=item.get("season"),
-            media_type=MediaType.TV,
-            subject_fetcher=_fetch_bangumi_subject,
-            subject_title=_bangumi_subject_title,
-            subject_year=_bangumi_subject_year,
-            meta_cls=MetaInfo,
-        )
-        if recognition.get("season") not in (None, ""):
-            meta.begin_season = int(recognition["season"])
-        if recognition.get("title"):
-            item["display_title"] = recognition["title"]
-        return meta, recognition.get("mediainfo"), "tv"
-    if inferred in ("movie", "tv"):
-        meta.type = MediaType.MOVIE if inferred == "movie" else MediaType.TV
-        mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type)
-    else:
-        try:
-            mediainfo = self.chain.recognize_media(meta=meta)
-        except TypeError:
-            # 兼容旧测试宿主；正式 MP 链路支持省略 mtype 的自动识别。
-            mediainfo = self.chain.recognize_media(meta=meta, mtype=MediaType.TV)
-    return meta, mediainfo, _resolved_media_type_name(rank, item, mediainfo)
+    return rank_recognition_service.recognize_rss_item(
+        self,
+        item,
+        rank,
+        infer_media_type=_rank_media_type,
+        resolved_media_type=_resolved_media_type_name,
+        extract_bangumi_id=_extract_bangumi_id,
+        fetch_bangumi_subject=_fetch_bangumi_subject,
+        bangumi_subject_title=_bangumi_subject_title,
+        bangumi_subject_year=_bangumi_subject_year,
+    )
 
 
 def _rss_default_media_type(addr: str) -> str:
@@ -909,39 +885,27 @@ def _has_subscription_safety_filter(self) -> bool:
 
 def subscribe_to_ranks(self, refresh_when_unsafe: bool = True) -> None:
     """按当前配置执行榜单订阅，必要时只刷新榜单历史。"""
-    if not _has_subscription_safety_filter(self):
-        logger.warning("豆瓣中心：未配置有效订阅筛选条件，跳过自动订阅，仅刷新榜单历史以避免误触发大量订阅")
-        if refresh_when_unsafe:
-            refresh_rank_data(self)
-        return
-
-    rsshub = utils.normalize_rss_domain(self._rsshub_domain)
-    for rd in get_rank_definitions(self):
-        key = rd["key"]
-        if not _ren(self, key):
-            continue
-        count = _rcount(self, key)
-        fetch_count = count if count > 0 else UNLIMITED_RANK_FETCH_LIMIT
-        url = rss_adapter.build_rsshub_url(rsshub, rd["route"], fetch_count)
-        logger.info(f"豆瓣中心：开始处理 [{rd['name']}] {url}")
-        if rd["coming"]:
-            _process_coming(self, url, rd)
-        else:
-            _process_general(self, url, rd)
-        time.sleep(1)
-    logger.info("豆瓣中心：榜单订阅刷新完成")
+    rank_subscription_service.subscribe_ranks(
+        self,
+        ranks=get_rank_definitions(self),
+        safety_filter=_has_subscription_safety_filter,
+        rank_enabled_callback=_ren,
+        rank_count_callback=_rcount,
+        process_coming=_process_coming,
+        process_general=_process_general,
+        refresh_rank_data=refresh_rank_data,
+        unlimited_limit=UNLIMITED_RANK_FETCH_LIMIT,
+        refresh_when_unsafe=refresh_when_unsafe,
+    )
 
 
 def _subscription_limit_by_rank(self) -> Dict[str, int]:
     """生成运行周期每个启用榜单需要拉取的候选数量。"""
-    limits: Dict[str, int] = {}
-    for rd in get_rank_definitions(self):
-        key = rd["key"]
-        if not _ren(self, key):
-            continue
-        count = _rcount(self, key)
-        limits[key] = max(5, count) if count > 0 else UNLIMITED_RANK_FETCH_LIMIT
-    return limits
+    return rank_subscription_service.subscription_limits(
+        self._rank_configs,
+        get_rank_definitions(self),
+        UNLIMITED_RANK_FETCH_LIMIT,
+    )
 
 
 def _blacklist_enabled(self) -> bool:
@@ -1027,36 +991,20 @@ def _snapshot_poster(mediainfo, entry: dict) -> str:
 
 def subscribe_to_rank_snapshots(self, rank_snapshots: Dict[str, dict]) -> None:
     """使用本轮已识别榜单快照执行自动订阅。"""
-    if not _has_subscription_safety_filter(self):
-        logger.warning("豆瓣中心：未配置有效订阅筛选条件，本轮已刷新榜单展示，跳过自动订阅")
-        return
-
-    for rd in get_rank_definitions(self):
-        key = rd["key"]
-        if not _ren(self, key):
-            continue
-        count = _rcount(self, key)
-        snapshots = ((rank_snapshots or {}).get(key) or {}).get("items") or []
-        subscribe_items = snapshots if count <= 0 else snapshots[:count]
-        description = rank_subscription_service.describe_rank_filter(
-            _rc(self, key),
-            rd,
-            candidate_count=len(subscribe_items),
-            blacklist_enabled=_blacklist_enabled(self),
-            observe_enabled=_rank_observe_enabled(self, key),
-        )
-        result_lines: List[str] = []
-        if not subscribe_items:
-            result_lines.append("- 本轮没有可处理的订阅候选")
-            _emit_rank_subscription_summary(rd, description, result_lines)
-            continue
-        if rd["coming"]:
-            _process_coming_snapshots(self, subscribe_items, rd, result_lines=result_lines)
-        else:
-            _process_general_snapshots(self, subscribe_items, rd, result_lines=result_lines)
-        _emit_rank_subscription_summary(rd, description, result_lines)
-        time.sleep(1)
-    logger.info("豆瓣中心：榜单订阅刷新完成")
+    rank_subscription_service.subscribe_rank_snapshots(
+        self,
+        rank_snapshots,
+        ranks=get_rank_definitions(self),
+        safety_filter=_has_subscription_safety_filter,
+        rank_enabled_callback=_ren,
+        rank_count_callback=_rcount,
+        rank_config_callback=_rc,
+        blacklist_enabled=_blacklist_enabled,
+        observe_enabled=_rank_observe_enabled,
+        process_coming=_process_coming_snapshots,
+        process_general=_process_general_snapshots,
+        emit_summary=_emit_rank_subscription_summary,
+    )
 
 
 def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_lines: Optional[List[str]] = None) -> None:
@@ -1260,7 +1208,6 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
                 "title": stored_title,
                 "year": mediainfo.year or year or "",
                 "air_date": air_date,
-                "media_type": mtype,
                 "link": link,
                 "tmdbid": mediainfo.tmdb_id,
                 "poster": _snapshot_poster(mediainfo, entry),
@@ -1285,13 +1232,13 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
 
 def _refresh_then_subscribe(self, message: str) -> None:
     """刷新榜单展示数据后，再按当前订阅配置执行订阅。"""
-    logger.info(message)
-    _, snapshots = refresh_rank_data(
+    rank_subscription_service.refresh_then_subscribe(
         self,
-        limit_by_rank=_subscription_limit_by_rank(self),
-        with_snapshots=True,
+        message,
+        limit_by_rank=_subscription_limit_by_rank,
+        refresh_rank_data=refresh_rank_data,
+        subscribe_snapshots=subscribe_to_rank_snapshots,
     )
-    subscribe_to_rank_snapshots(self, snapshots)
 
 
 def run_once(self) -> None:
@@ -1626,163 +1573,47 @@ def get_dashboard_rank_items(self, rank_key: str, limit: int = 5) -> List[dict]:
 
 def refresh_rank_data(self, rank_keys=None, limit_by_rank: Optional[Dict[str, int]] = None, with_snapshots: bool = False):
     """刷新 RSS 榜单数据供仪表盘展示，不触发订阅。"""
-    # rank_keys: 可选的榜单 key 列表。
-    # 仪表盘刷新默认固定拉取 5 条，不受 count 配置限制。
-    # 返回：{rank_key: [items]}，代表本次刷新结果。
+    return rank_refresh_service.refresh_rank_data(
+        self,
+        ranks=get_rank_definitions(self),
+        rank_enabled=_ren,
+        fetch_coming=_fetch_coming_rss,
+        fetch_general=_fetch_rss,
+        merge_items=_merge_rank_items,
+        dashboard_items=get_dashboard_rank_items,
+        rank_keys=rank_keys,
+        limit_by_rank=limit_by_rank,
+        with_snapshots=with_snapshots,
+    )
 
-    result = {}
-    snapshots = {}
-    try:
-        rsshub = utils.normalize_rss_domain(self._rsshub_domain)
-        targets = [
-            rd
-            for rd in get_rank_definitions(self)
-            if (rank_keys is None and _ren(self, rd["key"]))
-            or (rank_keys and rd["key"] in rank_keys)
-        ]
-        for rd in targets:
-            key = rd["key"]
-            # 仪表盘刷新只拉取 5 条；运行周期可按订阅候选数放大拉取窗口。
-            limit = 5
-            if isinstance(limit_by_rank, dict) and key in limit_by_rank:
-                try:
-                    limit = max(5, int(limit_by_rank.get(key) or 0))
-                except (TypeError, ValueError):
-                    limit = 5
-            url = rss_adapter.build_rsshub_url(rsshub, rd["route"], limit)
-            logger.info(f"豆瓣中心：刷新 RSS [{rd['name']}] {url}")
-            if rd.get("coming"):
-                items = _fetch_coming_rss(self, url)
-            else:
-                items = _fetch_rss(self, url)
-            if items:
-                if with_snapshots:
-                    _, rank_snapshots = _merge_rank_items(self, key, items, rd, return_snapshot=True)
-                    snapshots[key] = {"rank": rd, "items": rank_snapshots}
-                else:
-                    _merge_rank_items(self, key, items, rd)
-                result[key] = get_dashboard_rank_items(self, key, limit=5)
-            time.sleep(1)
-        logger.info("豆瓣中心：RSS 刷新完成")
-    except Exception as err:
-        logger.error(f"豆瓣中心：刷新 RSS 失败：{err}", exc_info=True)
-    if with_snapshots:
-        return result, snapshots
-    return result
+
+def _recognize_snapshot_item(self, rank_key: str, item: dict, entry: dict, rd: dict, existing: dict):
+    """按榜单类型执行快照识别。"""
+    return rank_recognition_service.recognize_snapshot_item(
+        self,
+        rank_key,
+        item,
+        entry,
+        rd,
+        existing,
+        apply_bangumi=_apply_bangumi_recognition,
+        apply_display=_apply_display_recognition,
+        douban_original_title_fetcher=douban_adapter.fetch_mobile_original_titles,
+    )
 
 
 def _merge_rank_items(self, rank_key, items, rd, return_snapshot: bool = False):
-    """合并拉取到的 RSS 榜单条目，并更新当前批次顺序。"""
-    history: List[dict] = storage.read_rank_history(self, rank_key)
-    history_index = {
-        item.get("unique"): index
-        for index, item in enumerate(history)
-        if isinstance(item, dict) and item.get("unique")
-    }
-    snapshots = []
-    new_count = 0
-    refresh_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    for rank_index, item in enumerate(items):
-        try:
-            title = item.get("title", "")
-            link = item.get("link", "")
-            if not title:
-                continue
-            unique = f"dc2_rank:{link or title}" if rank_key != "coming" else f"dc2_coming:{link or title}"
-            year = item.get("year", "")
-            tmdbid = item.get("tmdbid")
-            poster = item.get("poster")
-            cn_title = title
-            douban_id = item.get("doubanid")  # 优先使用 RSS 中解析的豆瓣 ID
-            meta_type = "tv" if rank_key == "coming" else _rank_media_type(rd, item)
-            entry = {
-                "title": cn_title,
-                "year": year or "",
-                "media_type": meta_type,
-                "link": link,
-                "rank_route": rd.get("route", ""),
-                "tmdbid": tmdbid,
-                "poster": poster,
-                "time": refresh_time,
-                "unique": unique,
-                "douban_id": douban_id,
-                "regions": list(item.get("regions") or []),
-                "region_source": item.get("region_source") or "",
-                "rank_index": rank_index,
-                "rank_order": rank_index + 1,
-                "rank_key": rank_key,
-                "rank_name": rd.get("name", ""),
-                "rank_refreshed_at": refresh_time,
-            }
-            source_link = item.get("source_link") or ""
-            if source_link:
-                entry["source_link"] = source_link
-            existing_index = history_index.get(unique)
-            existing = (
-                history[existing_index]
-                if existing_index is not None and isinstance(history[existing_index], dict)
-                else {}
-            )
-            mediainfo = None
-            if rank_key == "coming":
-                entry.update({"year": year, "wish_count": item.get("wish_count", 0)})
-                mediainfo = _apply_display_recognition(
-                    self,
-                    item,
-                    entry,
-                    rank_key,
-                    rd,
-                    douban_original_title_fetcher=douban_adapter.fetch_mobile_original_titles,
-                    existing=existing,
-                )
-            elif rank_key == "bangumi":
-                mediainfo = _apply_bangumi_recognition(self, item, entry)
-            else:
-                mediainfo = _apply_display_recognition(
-                    self,
-                    item,
-                    entry,
-                    rank_key,
-                    rd,
-                    douban_original_title_fetcher=douban_adapter.fetch_mobile_original_titles,
-                    existing=existing,
-                )
-            _preserve_existing_tmdb_identity(entry, existing)
-            snapshots.append({
-                "raw": dict(item),
-                "entry": dict(entry),
-                "mediainfo": mediainfo,
-            })
-            if existing_index is None:
-                history.append(entry)
-                history_index[unique] = len(history) - 1
-                new_count += 1
-            else:
-                merged = dict(existing)
-                merged.update(entry)
-                if rank_key != "bangumi":
-                    merged.pop("original_title", None)
-                if existing.get("observing"):
-                    merged["observing"] = True
-                    if existing.get("first_seen"):
-                        merged["first_seen"] = existing.get("first_seen")
-                    elif existing.get("time"):
-                        merged["first_seen"] = existing.get("time")
-                if existing.get("observe_deleted"):
-                    merged["observe_deleted"] = True
-                    if existing.get("observe_deleted_at"):
-                        merged["observe_deleted_at"] = existing.get("observe_deleted_at")
-                history[existing_index] = merged
-        except Exception as err:
-            logger.error(f"豆瓣中心：合并 {rank_key} 榜单条目出错：{err}")
-            continue
-    history = storage.save_rank_history(self, rank_key, history)
-    logger.info(
-        f"豆瓣中心：{rd['name']} 刷新完成，当前批次 {len(items)} 条，新增 {new_count} 条，累计 {len(history)} 条"
+    """通过快照服务合并 RSS 榜单条目。"""
+    return rank_snapshot_service.merge_rank_items(
+        self,
+        rank_key,
+        items,
+        rd,
+        infer_media_type=_rank_media_type,
+        recognize_item=_recognize_snapshot_item,
+        preserve_existing_identity=_preserve_existing_tmdb_identity,
+        return_snapshot=return_snapshot,
     )
-    if return_snapshot:
-        return history, snapshots
-    return history
 
 
 def _refresh_coming(self, url, rd):
@@ -1841,13 +1672,12 @@ def _refresh_general(self, url, rd):
     for item in items:
         try:
             title, link, year = item.get("title", ""), item.get("link", ""), item.get("year")
-            mtype = _rank_media_type(rd, item)
             if not title:
                 continue
             unique = f"dc2_rank:{link or title}"
             if unique in uh:
                 continue
-            meta, mediainfo, mtype = _recognize_rss_item(self, item, rd)
+            _, mediainfo, mtype = _recognize_rss_item(self, item, rd)
             if not mediainfo:
                 continue
             cn_title = mediainfo.title or title
