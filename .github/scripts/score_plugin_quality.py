@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-RULE_VERSION = "3.1.0"
+RULE_VERSION = "3.0.2"
 PACKAGE_FILE = "package.v3.json"
 SOURCE_ROOT = "plugins.v3"
 TEST_ROOT = "tests/v3"

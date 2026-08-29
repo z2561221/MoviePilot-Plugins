@@ -93,7 +93,7 @@ def test_static_trial_score_is_capped_at_eight(tmp_path: Path) -> None:
 
     report = scorer.score_repository(tmp_path)[0]
 
-    assert report["rule_version"] == "3.1.0"
+    assert report["rule_version"] == "3.0.2"
     assert report["quality_score"] == 10.0
     assert report["quality_max_score"] == 9.0
     assert "gated_score" not in report
@@ -224,7 +224,7 @@ def test_json_cli_output_contains_rule_and_tree_hash(tmp_path: Path, capsys) -> 
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
-    assert payload["rule_version"] == "3.1.0"
+    assert payload["rule_version"] == "3.0.2"
     assert len(payload["reports"][0]["tree_sha256"]) == 64
 
 
