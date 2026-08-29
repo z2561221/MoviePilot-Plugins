@@ -271,6 +271,8 @@ def test_backupcenter_automatic_scope_is_persisted_and_used_by_scheduler():
     assert '"/config"' in controller
     assert "plugin/BackupCenter/config" in api
     assert "auto_backup_scope" in config
+    assert "legacy_database_scope" in entrypoint
+    assert 'for key in ("mp_settings", "app_env", "cookies")' in entrypoint
 
 
 def test_backupcenter_basic_settings_expose_immediate_automatic_backup():

@@ -81,6 +81,9 @@ class BackupCenter(_PluginBase):
             retention_count = 5
         default_scope = dict(cls._default_config["auto_backup_scope"])
         supplied_scope = raw.get("auto_backup_scope")
+        legacy_database_scope = isinstance(supplied_scope, dict) and bool(
+            supplied_scope.get("database")
+        )
         if isinstance(supplied_scope, dict):
             auto_backup_scope = {
                 key: bool(supplied_scope.get(key, default_value))
@@ -88,6 +91,9 @@ class BackupCenter(_PluginBase):
             }
         else:
             auto_backup_scope = default_scope
+        if legacy_database_scope:
+            for key in ("mp_settings", "app_env", "cookies"):
+                auto_backup_scope[key] = False
         if not any(auto_backup_scope.values()):
             auto_backup_scope = default_scope
         return {
