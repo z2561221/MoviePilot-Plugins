@@ -6,6 +6,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPONENTS = REPO_ROOT / "plugins.v3" / "doubancenter" / "src" / "components"
+PAGE_COMPONENTS = COMPONENTS / "page"
+CONFIG_COMPONENTS = COMPONENTS / "config"
 DASHBOARD_BACKEND = REPO_ROOT / "plugins.v3" / "doubancenter" / "service" / "dashboard.py"
 PLUGIN_ROOT = REPO_ROOT / "plugins.v3" / "doubancenter"
 
@@ -23,8 +25,9 @@ def test_api_client_reads_final_v3_envelope_without_double_unwrap():
 def test_page_and_dashboard_forward_media_identity_pair():
     """详情页和仪表盘订阅请求均优先传递来源与媒体 ID。"""
     actions = (COMPONENTS / "useRankMediaActions.js").read_text(encoding="utf-8")
-    for filename in ("Page.vue", "Dashboard.vue"):
-        source = (COMPONENTS / filename).read_text(encoding="utf-8")
+    page_runtime = (PAGE_COMPONENTS / "usePageRuntime.js").read_text(encoding="utf-8")
+    dashboard = (COMPONENTS / "Dashboard.vue").read_text(encoding="utf-8")
+    for source in (page_runtime, dashboard):
         assert "useRankMediaActions" in source
         assert "async function resolveRankMedia" not in source
     assert actions.count("media_source: item?.media_source") >= 2
@@ -32,25 +35,54 @@ def test_page_and_dashboard_forward_media_identity_pair():
     assert actions.count("season: item?.season || ''") >= 2
     assert "merged.media_source" in actions
     assert "merged.media_id" in actions
-    page = (COMPONENTS / "Page.vue").read_text(encoding="utf-8")
-    assert "delete_subscribe_history" in page
-    assert "media_source: item?.media_source" in page
-    assert "media_id: item?.media_id" in page
+    assert "delete_subscribe_history" in page_runtime
+    assert "media_source: item?.media_source" in page_runtime
+    assert "media_id: item?.media_id" in page_runtime
 
 
 def test_rank_dialog_resolves_missing_tmdb_identity_before_enabling_link():
     """榜单条目缺少 TMDB ID 时，详情弹窗应自动识别并显示加载状态。"""
-    for filename in ("Page.vue", "Dashboard.vue"):
-        source = (COMPONENTS / filename).read_text(encoding="utf-8")
+    page_runtime = (PAGE_COMPONENTS / "usePageRuntime.js").read_text(encoding="utf-8")
+    page_dialog = (PAGE_COMPONENTS / "PageActionDialog.vue").read_text(encoding="utf-8")
+    dashboard = (COMPONENTS / "Dashboard.vue").read_text(encoding="utf-8")
+    for source in (page_runtime, dashboard):
         assert "async function showActionDialog" in source
         assert "if (tmdbIdOf(item)) return" in source
         assert "const media = await resolveRankMedia(rk, item)" in source
         assert "dialogItem.value = { rk, item: media }" in source
         assert "dialogResolving" in source
-        assert ":loading=\"dialogResolving\"" in source
-        assert ":disabled=\"dialogResolving\"" in source
         assert "if (!dialogItem.value || dialogResolving.value) return" in source
         assert "未找到对应的 TMDB 条目" in source
+    assert ':loading="page.dialogResolving"' in page_dialog
+    assert ':disabled="page.dialogResolving"' in page_dialog
+    assert ':loading="dialogResolving"' in dashboard
+    assert ':disabled="dialogResolving"' in dashboard
+
+
+def test_page_and_config_keep_thin_federation_entry_components():
+    """联邦入口只装配宿主契约，复杂状态与业务视图下沉到内部模块。"""
+    page = (COMPONENTS / "Page.vue").read_text(encoding="utf-8")
+    config = (COMPONENTS / "Config.vue").read_text(encoding="utf-8")
+    vite_config = (PLUGIN_ROOT / "vite.config.js").read_text(encoding="utf-8")
+
+    assert "usePageRuntime" in page
+    assert "PageContent" in page
+    assert "PageActionDialog" in page
+    assert "useConfigForm" in config
+    for component in (
+        "ConfigOverviewPane",
+        "ConfigRankPane",
+        "ConfigFolioPane",
+        "ConfigDashboardPane",
+    ):
+        assert component in config
+        assert (CONFIG_COMPONENTS / f"{component}.vue").is_file()
+    assert (PAGE_COMPONENTS / "usePageRuntime.js").is_file()
+    assert (CONFIG_COMPONENTS / "useConfigForm.js").is_file()
+    assert len(page.splitlines()) < 130
+    assert len(config.splitlines()) < 150
+    assert "'./Page': './src/components/Page.vue'" in vite_config
+    assert "'./Config': './src/components/Config.vue'" in vite_config
 
 
 def test_federation_build_retains_previous_hashed_assets():
@@ -110,6 +142,8 @@ def test_vue_components_use_instance_scoped_plugin_id():
     assert ':plugin-id="props.pluginId"' in app_page
     assert "getPluginConfig(props.api, props.pluginId)" in app_page
     assert "savePluginConfig(props.api, props.pluginId, config)" in app_page
+    config_form = (CONFIG_COMPONENTS / "useConfigForm.js").read_text(encoding="utf-8")
+    assert "getPluginApi(api(), pluginId(), 'overview')" in config_form
 
 
 def test_timeline_api_reads_persisted_data_without_history_repair():
@@ -124,17 +158,19 @@ def test_timeline_api_reads_persisted_data_without_history_repair():
 def test_archive_view_is_paginated_without_forcing_home_page_scroll():
     """详情首页自然伸展，仅详情与发现页的归档状态承载内部滚动。"""
     page = (COMPONENTS / "Page.vue").read_text(encoding="utf-8")
+    page_runtime = (PAGE_COMPONENTS / "usePageRuntime.js").read_text(encoding="utf-8")
+    page_content = (PAGE_COMPONENTS / "PageContent.vue").read_text(encoding="utf-8")
     app_page = (COMPONENTS / "AppPage.vue").read_text(encoding="utf-8")
     base_page_rule = next(line for line in page.splitlines() if line.startswith(".dc-page {"))
     base_flow_rule = next(line for line in page.splitlines() if line.startswith(".dc-flow {"))
 
-    assert "page_size: 10" in page
-    assert "function goArchivePage" in page
-    assert "archiveData.total_pages > 1" in page
-    assert "goArchivePage(archiveData.page - 1)" in page
-    assert "goArchivePage(archiveData.page + 1)" in page
-    assert "if (archivePage.value) await loadArchive()" in page
-    assert "'dc-page--archive': archivePage" in page
+    assert "page_size: 10" in page_runtime
+    assert "function goArchivePage" in page_runtime
+    assert "page.archiveData.total_pages > 1" in page_content
+    assert "page.goArchivePage(page.archiveData.page - 1)" in page_content
+    assert "page.goArchivePage(page.archiveData.page + 1)" in page_content
+    assert "if (archivePage.value) await loadArchive()" in page_runtime
+    assert "'dc-page--archive': page.archivePage" in page
     assert ".dc-page--archive { height: clamp(640px, calc(100dvh - 48px), 860px)" in page
     assert ".dc-page--app.dc-page--archive { height: calc(100dvh - 104px)" in page
     assert ".dc-page--archive .dc-flow { flex: 1 1 auto; min-height: 0; overflow-y: auto" in page
