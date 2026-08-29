@@ -846,7 +846,7 @@ onBeforeUnmount(detachPageOverlay)
 .bc-backup-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
 .bc-backup-meta { margin-top: 3px; color: rgba(var(--v-theme-on-surface), .56); font-size: 12px; }
 .bc-row-actions { display: flex; align-items: center; }
-.bc-record-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.bc-record-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .bc-record-card { min-width: 0; border-radius: 8px; background: transparent; }
 .bc-record-title { font-size: 14px; overflow-wrap: anywhere; }
 .bc-chip-list { display: flex; flex-wrap: wrap; gap: 5px; }

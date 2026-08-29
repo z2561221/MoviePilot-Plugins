@@ -402,6 +402,7 @@ def test_backupcenter_layout_has_stable_mobile_constraints():
     assert "min-height: calc(100dvh" not in page
     assert "height: min(860px, 100dvh)" in page
     assert "max-height: 100%" in page
+    assert ".bc-record-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }" in page
     for marker in (
         "activeMain = ref('overview')",
         "运行总览",
