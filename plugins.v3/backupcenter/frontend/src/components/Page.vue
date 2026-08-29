@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { downloadBackup, getPluginApi, postPluginApi } from './api'
 
 const props = defineProps({
@@ -24,7 +24,7 @@ const restoreDialog = ref(false)
 const guideDialog = ref(false)
 const feedback = reactive({ show: false, message: '', color: 'success' })
 const createForm = reactive({
-  target: 'moviepilot',
+  target: 'plugin',
   pluginId: '',
   pluginSelection: {
     configuration: false,
@@ -37,7 +37,6 @@ const createForm = reactive({
     cookies: false,
     plugin_data: false,
     plugin_files: false,
-    database: false,
   },
 })
 const restoreForm = reactive({
@@ -49,6 +48,9 @@ const restoreForm = reactive({
     pluginData: false,
   },
 })
+const pageRoot = ref(null)
+let pageOverlay = null
+const pageOverlayClass = 'bc-page-overlay'
 
 const tabs = [
   { key: 'overview', title: '备份总览', icon: 'mdi-view-dashboard-outline' },
@@ -178,7 +180,6 @@ function scopeLabels(scope = {}) {
     plugin_files: '插件文件和缓存',
     app_env: '环境变量',
     cookies: '登录 Cookie',
-    database: '整个数据库',
   }
   return Object.entries(scope).filter(([, enabled]) => enabled).map(([key]) => labels[key])
 }
@@ -214,7 +215,7 @@ async function refreshAll() {
 }
 
 function openCreate() {
-  createForm.target = 'moviepilot'
+  createForm.target = 'plugin'
   createForm.pluginId = ''
   Object.keys(createForm.pluginSelection).forEach(key => { createForm.pluginSelection[key] = false })
   Object.keys(createForm.moviepilotSelection).forEach(key => { createForm.moviepilotSelection[key] = false })
@@ -239,7 +240,7 @@ async function createBackup() {
     })
     createDialog.value = false
     selectedBackupId.value = result.backup_id
-    notify(result.encrypted ? '加密备份已创建，可校验并下载离线恢复包' : '未加密备份已创建，可校验并下载离线恢复包')
+    notify(result.encrypted ? '加密备份已创建，可校验并下载' : '未加密备份已创建，可校验并下载')
     await loadOverview()
   } catch (error) {
     notify(error.message || '创建备份失败', 'error')
@@ -288,9 +289,9 @@ async function exportBackup(backupId) {
       encodeURIComponent(backupId),
       backupDownloadName(item || { backup_id: backupId }),
     )
-    notify('离线恢复包下载已开始')
+    notify('备份包下载已开始')
   } catch (error) {
-    notify(error.message || '离线恢复包下载失败', 'error')
+    notify(error.message || '备份包下载失败', 'error')
   } finally {
     actionLoading.value = ''
   }
@@ -356,7 +357,13 @@ async function restoreLogical() {
     const reload = result.reload_required?.length
       ? `；重载失败，请检查：${result.reload_required.join('、')}`
       : ''
-    notify(`选择性恢复完成，应急备份 ${result.emergency_backup_id}${reloaded}${reload}`, result.reload_required?.length ? 'warning' : 'success')
+    const hostBackup = result.host_database_backup_name
+      ? `；宿主恢复点：${result.host_database_backup_name}`
+      : ''
+    notify(
+      `选择性恢复完成，应急备份 ${result.emergency_backup_id}${hostBackup}${reloaded}${reload}`,
+      result.reload_required?.length ? 'warning' : 'success',
+    )
     await loadOverview()
   } catch (error) {
     notify(error.message || '选择性恢复失败', 'error')
@@ -366,17 +373,32 @@ async function restoreLogical() {
   }
 }
 
-onMounted(refreshAll)
+function attachPageOverlay() {
+  pageOverlay = pageRoot.value?.closest('.v-overlay__content') || null
+  pageOverlay?.classList.add(pageOverlayClass)
+}
+
+function detachPageOverlay() {
+  pageOverlay?.classList.remove(pageOverlayClass)
+  pageOverlay = null
+}
+
+onMounted(() => {
+  attachPageOverlay()
+  refreshAll()
+})
+
+onBeforeUnmount(detachPageOverlay)
 </script>
 
 <template>
-  <div class="bc-page">
+  <div ref="pageRoot" class="bc-page">
     <VToolbar density="comfortable" class="bc-toolbar">
       <VIcon icon="mdi-shield-sync-outline" class="ms-3 me-2" color="primary" />
       <div class="bc-toolbar-copy">
         <div class="text-h6">备份中心</div>
         <div class="text-caption text-medium-emphasis bc-toolbar-subtitle">
-          可选加密备份、选择性恢复与停机整库恢复指引
+          插件配置数据保护与宿主数据库恢复点
         </div>
       </div>
       <VSpacer />
@@ -419,8 +441,8 @@ onMounted(refreshAll)
             <div><strong>{{ overview.backup_count || 0 }}</strong><span>本地备份</span></div>
           </div>
           <div class="bc-stat">
-            <VIcon icon="mdi-database-outline" color="info" size="24" />
-            <div><strong>{{ overview.database_type || '未知' }}</strong><span>当前数据库</span></div>
+            <VIcon icon="mdi-database-check-outline" color="info" size="24" />
+            <div><strong>主程序托管</strong><span>数据库恢复</span></div>
           </div>
           <div class="bc-stat">
           <VIcon :icon="overview.encryption_active ? 'mdi-lock-check-outline' : 'mdi-lock-open-outline'" :color="overview.encryption_active ? 'success' : 'warning'" size="24" />
@@ -447,10 +469,10 @@ onMounted(refreshAll)
               </div>
             </div>
             <div class="bc-route">
-              <VIcon icon="mdi-power-plug-off-outline" color="warning" size="26" />
+              <VIcon icon="mdi-database-check-outline" color="info" size="26" />
               <div>
-                <div class="bc-route-title">离线整库恢复</div>
-                <div class="bc-muted">SQLite 或 PostgreSQL 完整快照。必须停机并按包内教程操作。</div>
+                <div class="bc-route-title">宿主数据库恢复点</div>
+                <div class="bc-muted">在线恢复前自动创建；整库回退请使用 MoviePilot 主程序命令。</div>
               </div>
             </div>
           </div>
@@ -474,12 +496,10 @@ onMounted(refreshAll)
                 <div class="bc-backup-title">{{ backupDisplayName(item) }}</div>
                 <div class="bc-backup-meta">{{ formatSize(item.package_size) }} · {{ item.backup_id }}</div>
               </div>
-              <VChip size="small" :color="item.database?.included ? 'warning' : 'success'" variant="tonal">
-                {{ item.database?.included ? '含整库快照' : '逻辑备份' }}
-              </VChip>
+              <VChip size="small" color="success" variant="tonal">逻辑备份</VChip>
               <div class="bc-row-actions">
                 <VBtn icon="mdi-check-decagram-outline" size="small" variant="text" :loading="actionLoading === `verify:${item.backup_id}`" @click="verifyBackup(item.backup_id)"><VTooltip activator="parent">校验</VTooltip></VBtn>
-                <VBtn icon="mdi-download-outline" size="small" variant="text" :loading="actionLoading === `export:${item.backup_id}`" @click="exportBackup(item.backup_id)"><VTooltip activator="parent">下载离线包</VTooltip></VBtn>
+                <VBtn icon="mdi-download-outline" size="small" variant="text" :loading="actionLoading === `export:${item.backup_id}`" @click="exportBackup(item.backup_id)"><VTooltip activator="parent">下载备份包</VTooltip></VBtn>
                 <VBtn icon="mdi-database-arrow-left-outline" size="small" variant="text" @click="prepareRestore(item.backup_id)"><VTooltip activator="parent">恢复预检</VTooltip></VBtn>
                 <VBtn icon="mdi-delete-outline" size="small" variant="text" color="error" :loading="actionLoading === `delete:${item.backup_id}`" @click="deleteBackup(item.backup_id)"><VTooltip activator="parent">删除备份</VTooltip></VBtn>
               </div>
@@ -493,7 +513,7 @@ onMounted(refreshAll)
           <div class="bc-band-heading">
             <div>
               <div class="text-subtitle-1 font-weight-bold">备份记录</div>
-              <div class="bc-muted">每个离线包都包含明文教程、校验清单、工具，以及普通 ZIP 或加密负载。</div>
+              <div class="bc-muted">每个备份包都包含明文教程、校验清单、校验工具，以及普通 ZIP 或加密负载。</div>
             </div>
             <VBtn color="primary" variant="flat" prepend-icon="mdi-plus" @click="openCreate">新建备份</VBtn>
           </div>
@@ -504,9 +524,7 @@ onMounted(refreshAll)
                 <VCardTitle class="bc-record-title">{{ backupDisplayName(item) }}</VCardTitle>
                 <VCardSubtitle>{{ item.backup_id }}</VCardSubtitle>
                 <template #append>
-                  <VChip size="small" :color="item.database?.included ? 'warning' : 'success'" variant="tonal">
-                    {{ item.database?.included ? item.database.type : '逻辑' }}
-                  </VChip>
+                  <VChip size="small" color="success" variant="tonal">逻辑</VChip>
                 </template>
               </VCardItem>
               <VCardText>
@@ -557,18 +575,18 @@ onMounted(refreshAll)
               <div class="bc-restore-icon bc-restore-icon--online"><VIcon icon="mdi-cloud-sync-outline" /></div>
               <div class="bc-restore-copy">
                 <div class="bc-route-title">在线选择性恢复</div>
-                <div class="bc-muted">恢复配置或数据。不会替换整个数据库。</div>
+                <div class="bc-muted">恢复配置或数据。不会替换数据库，执行前会创建宿主恢复点。</div>
                 <VBtn class="mt-3" color="primary" variant="tonal" prepend-icon="mdi-file-search-outline" :loading="actionLoading === `preview:${selectedBackupId}`" @click="prepareRestore(selectedBackupId)">开始预检</VBtn>
               </div>
             </div>
             <div class="bc-restore-path">
-              <div class="bc-restore-icon bc-restore-icon--offline"><VIcon icon="mdi-power-plug-off-outline" /></div>
+              <div class="bc-restore-icon bc-restore-icon--offline"><VIcon icon="mdi-database-check-outline" /></div>
               <div class="bc-restore-copy">
-                <div class="bc-route-title">离线整库恢复</div>
-                <div class="bc-muted">{{ selectedBackup.database?.included ? `包含 ${selectedBackup.database.type} 快照，必须停机恢复。` : '此备份未包含完整数据库快照。' }}</div>
+                <div class="bc-route-title">宿主数据库恢复点</div>
+                <div class="bc-muted">数据库由 MoviePilot 主程序统一备份与整库恢复，本插件不会导出或替换数据库。</div>
                 <div class="d-flex flex-wrap ga-2 mt-3">
-                  <VBtn variant="outlined" prepend-icon="mdi-book-open-page-variant-outline" @click="showGuide(selectedBackupId)">查看教程</VBtn>
-                  <VBtn color="warning" variant="tonal" prepend-icon="mdi-download-outline" @click="exportBackup(selectedBackupId)">下载离线包</VBtn>
+                  <VBtn variant="outlined" prepend-icon="mdi-book-open-page-variant-outline" @click="showGuide(selectedBackupId)">查看说明</VBtn>
+                  <VBtn color="primary" variant="tonal" prepend-icon="mdi-download-outline" @click="exportBackup(selectedBackupId)">下载备份包</VBtn>
                 </div>
               </div>
             </div>
@@ -671,8 +689,7 @@ onMounted(refreshAll)
               <div class="bc-scope-group-title">数据</div>
               <VCheckbox v-model="createForm.moviepilotSelection.plugin_data" label="插件保存的数据（PluginData）" density="compact" hide-details />
               <VCheckbox v-model="createForm.moviepilotSelection.plugin_files" label="插件文件和缓存" density="compact" hide-details />
-              <VCheckbox v-model="createForm.moviepilotSelection.database" label="整个数据库" density="compact" hide-details />
-              <div class="bc-muted px-2 pb-2">完整数据库只能停机后按包内教程恢复。</div>
+              <div class="bc-muted px-2 pb-2">数据库由 MoviePilot 主程序统一管理；此处只保存可在线恢复的逻辑内容。</div>
             </section>
           </div>
           <VAlert :type="overview.encryption_active ? 'info' : 'warning'" variant="tonal" density="compact" class="mt-4">
@@ -702,7 +719,7 @@ onMounted(refreshAll)
           </VAlert>
           <div class="bc-preview-grid">
             <div><span>来源版本</span><strong>{{ preview?.manifest?.source_mp_version || '未知' }}</strong></div>
-            <div><span>数据库模式</span><strong>{{ preview?.database_restore_mode === 'offline' ? '整库仅离线' : '无整库快照' }}</strong></div>
+            <div><span>数据库模式</span><strong>{{ preview?.database_restore_mode === 'host_managed' ? '主程序托管' : '历史离线包' }}</strong></div>
             <div><span>外层校验</span><strong>{{ preview?.verified_files?.length || 0 }} 个文件</strong></div>
             <div><span>插件范围</span><strong>{{ preview?.manifest?.selected_plugin_ids?.length || 0 }} 个</strong></div>
           </div>
@@ -749,7 +766,7 @@ onMounted(refreshAll)
             persistent-hint
           />
           <VAlert type="warning" variant="tonal" density="compact" class="mt-4">
-            恢复时会停用目标插件并自动重载；失败项会单独列出。完整数据库和 app.env 不会在线恢复。
+            恢复时会先创建宿主数据库恢复点，再停用目标插件并自动重载；数据库文件与 app.env 不会在线替换。
           </VAlert>
         </VCardText>
         <VDivider />
@@ -765,7 +782,7 @@ onMounted(refreshAll)
       <VCard class="bc-guide-dialog">
         <VCardItem>
           <template #prepend><VIcon icon="mdi-book-open-page-variant-outline" color="primary" size="26" /></template>
-          <VCardTitle>离线恢复教程</VCardTitle>
+          <VCardTitle>备份恢复说明</VCardTitle>
           <VCardSubtitle class="bc-dialog-subtitle">{{ selectedBackupLabel }} · {{ selectedBackupId }}</VCardSubtitle>
           <template #append><VBtn icon="mdi-close" variant="text" @click="guideDialog = false"><VTooltip activator="parent">关闭</VTooltip></VBtn></template>
         </VCardItem>
@@ -783,7 +800,7 @@ onMounted(refreshAll)
         <VDivider />
         <VCardActions>
           <VSpacer />
-          <VBtn color="primary" variant="flat" prepend-icon="mdi-download-outline" @click="exportBackup(selectedBackupId)">下载完整离线包</VBtn>
+          <VBtn color="primary" variant="flat" prepend-icon="mdi-download-outline" @click="exportBackup(selectedBackupId)">下载备份包</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
@@ -795,9 +812,9 @@ onMounted(refreshAll)
 </template>
 
 <style scoped>
-:global(.v-overlay__content:has(.bc-page)) { width: min(960px, calc(100vw - 48px)) !important; max-width: min(960px, calc(100vw - 48px)) !important; }
-:global(.v-overlay__content:has(.bc-page) > .v-card),
-:global(.v-overlay__content:has(.bc-page) > .v-card > .v-card-text) { width: 100%; }
+:global(.bc-page-overlay) { width: min(960px, calc(100vw - 48px)) !important; max-width: min(960px, calc(100vw - 48px)) !important; }
+:global(.bc-page-overlay > .v-card),
+:global(.bc-page-overlay > .v-card > .v-card-text) { width: 100%; }
 .bc-page { width: min(960px, calc(100vw - 48px)); max-width: 100%; height: min(660px, calc(100dvh - 48px)); min-width: 0; min-height: 0; margin: 0 auto; display: flex; flex-direction: column; background: transparent; overflow: hidden; }
 .bc-toolbar { flex: 0 0 auto; background: transparent; }
 .bc-toolbar-copy { min-width: 0; }
@@ -875,7 +892,7 @@ onMounted(refreshAll)
 .bc-guide-layout section { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .bc-guide-text { flex: 1 1 auto; min-height: 0; margin: 0; padding: 14px; overflow: auto; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .025); color: inherit; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
-  :global(.v-overlay__content:has(.bc-page)) { width: calc(100vw - 16px) !important; max-width: calc(100vw - 16px) !important; }
+  :global(.bc-page-overlay) { width: calc(100vw - 16px) !important; max-width: calc(100vw - 16px) !important; }
   .bc-page { width: min(100%, calc(100vw - 16px)); height: min(860px, 100dvh); max-height: 100%; }
   .bc-toolbar-subtitle { display: none; }
   .bc-tabs { padding-inline: 8px; }

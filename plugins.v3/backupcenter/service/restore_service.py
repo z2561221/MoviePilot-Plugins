@@ -1,4 +1,4 @@
-"""执行受限的在线选择性恢复，并阻断完整数据库在线恢复。"""
+"""执行受限的在线选择性恢复，并委托宿主管理数据库恢复点。"""
 
 import re
 import shutil
@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Tuple
 
 from app.db import ScopedSession
 from app.db.models.plugindata import PluginData
+from app.sdk.database import create_backup as create_database_backup
 from version import APP_VERSION
 
 from ..model.backup import BackupScope, RestoreSelection, normalize_plugin_ids
@@ -24,7 +25,7 @@ class RestoreServiceError(RuntimeError):
 
 
 class RestoreService:
-    """将明文或加密负载恢复为受限的在线逻辑数据，整库恢复始终离线。"""
+    """将明文或加密负载恢复为受限的在线逻辑数据。"""
 
     def __init__(self, plugin: Any, backup_service: BackupService) -> None:
         """绑定插件和创建应急备份所需的备份服务。"""
@@ -61,13 +62,18 @@ class RestoreService:
         """验证、按需解密并安全解压负载，离开作用域后删除临时文件。"""
         backup_path = self.backup_service.get_backup_path(backup_id)
         ManifestService.verify_checksums(backup_path)
-        with tempfile.TemporaryDirectory(prefix=".restore-", dir=self.backup_service.get_backup_root()) as temporary:
+        with tempfile.TemporaryDirectory(
+            prefix=".restore-",
+            dir=self.backup_service.get_backup_root(),
+        ) as temporary:
             temporary_root = Path(temporary)
             payload_zip = temporary_root / "payload.zip"
             try:
                 encryption = public_manifest.get("encryption") or {}
                 if encryption.get("enabled"):
-                    restore_password = str(password or self.plugin.get_stored_backup_password() or "")
+                    restore_password = str(
+                        password or self.plugin.get_stored_backup_password() or ""
+                    )
                     if not restore_password:
                         raise RestoreServiceError("加密备份需要口令")
                     CryptoService.decrypt_file(
@@ -109,7 +115,11 @@ class RestoreService:
             "manifest": manifest,
             "verified_files": verification["verified_files"],
             "online_restore_allowed": source_major == target_major and bool(source_major),
-            "database_restore_mode": "offline" if manifest.get("database", {}).get("included") else "none",
+            "database_restore_mode": (
+                "legacy_offline"
+                if (manifest.get("database") or {}).get("included")
+                else "host_managed"
+            ),
             "encrypted": bool((manifest.get("encryption") or {}).get("enabled")),
         }
 
@@ -132,7 +142,7 @@ class RestoreService:
         public_manifest: Dict[str, Any], private_manifest: Dict[str, Any]
     ) -> None:
         """核对公开摘要与明文负载中的恢复边界字段。"""
-        comparable_fields = (
+        comparable_fields = [
             "format_version",
             "backup_id",
             "source_mp_version",
@@ -140,12 +150,13 @@ class RestoreService:
             "selected_plugin_ids",
             "selected_plugins",
             "content_counts",
-            "database",
             "emergency",
             "backup_kind",
             "manual_target",
             "encrypted",
-        )
+        ]
+        if int(private_manifest.get("format_version") or 0) < 3:
+            comparable_fields.append("database")
         for field in comparable_fields:
             if private_manifest.get(field) != public_manifest.get(field):
                 raise RestoreServiceError("备份公开摘要与负载不匹配")
@@ -290,6 +301,18 @@ class RestoreService:
                 failed.append(plugin_id)
         return reloaded, failed
 
+    @staticmethod
+    def _create_host_database_backup() -> str:
+        """请求宿主创建数据库恢复点，只返回不含路径的制品名。"""
+        try:
+            artifact = create_database_backup()
+        except Exception as error:
+            raise RestoreServiceError("创建宿主管理的数据库恢复点失败") from error
+        name = getattr(artifact, "name", None)
+        if not name:
+            raise RestoreServiceError("宿主数据库恢复点缺少制品名")
+        return str(name)
+
     def restore_logical(
         self,
         backup_id: Any,
@@ -297,7 +320,7 @@ class RestoreService:
         plugin_ids: Iterable[Any] | None,
         password: Any = None,
     ) -> Dict[str, Any]:
-        """执行在线逻辑恢复，并在写入前创建应急备份。"""
+        """执行在线逻辑恢复，并在写入前创建宿主与插件应急备份。"""
         normalized_backup_id = ManifestService.validate_backup_id(backup_id)
         public_manifest = self.backup_service.read_public_manifest(normalized_backup_id)
         self._verify_compatibility(public_manifest)
@@ -309,11 +332,6 @@ class RestoreService:
         ]
         if unavailable:
             raise RestoreServiceError("所选内容不在这份备份中")
-        database = public_manifest.get("database") or {}
-        if database.get("included") and bool(scope.get("database")):
-            database_message = "完整数据库恢复只能停机后按离线恢复教程执行"
-        else:
-            database_message = "备份不包含完整数据库快照"
         selected_plugin_ids = self._resolve_selected_plugin_ids(
             public_manifest.get("selected_plugin_ids") or [], plugin_ids
         )
@@ -333,28 +351,8 @@ class RestoreService:
             plugin_files=selection.plugin_files,
             app_env=False,
             cookies=False,
-            database=False,
         )
-        try:
-            emergency = self.backup_service.create_backup(
-                emergency_scope,
-                selected_plugin_ids,
-                emergency=True,
-                backup_kind="emergency",
-                password=self.plugin.get_backup_password(),
-            )
-        except BackupServiceError:
-            raise
-        except Exception as error:
-            raise RestoreServiceError("创建恢复前应急备份失败") from error
-        result = {
-            "emergency_backup_id": emergency["backup_id"],
-            "selection": selection.to_dict(),
-            "restored": {"mp_settings": 0, "plugin_settings": 0, "plugin_data": 0, "plugin_files": []},
-            "reload_required": [],
-            "reloaded": [],
-            "database_message": database_message,
-        }
+        result: Dict[str, Any] = {}
         manager = None
         stopped_plugins: List[str] = []
         try:
@@ -363,6 +361,34 @@ class RestoreService:
             ) as payload_root:
                 private_manifest = ManifestService.read_json(payload_root / "manifest.json")
                 self._verify_private_manifest(public_manifest, private_manifest)
+                host_database_backup_name = self._create_host_database_backup()
+                try:
+                    emergency = self.backup_service.create_backup(
+                        emergency_scope,
+                        selected_plugin_ids,
+                        emergency=True,
+                        backup_kind="emergency",
+                        password=self.plugin.get_backup_password(),
+                    )
+                except BackupServiceError as error:
+                    raise RestoreServiceError(
+                        "创建恢复前应急备份失败"
+                    ) from error
+                except Exception as error:
+                    raise RestoreServiceError("创建恢复前应急备份失败") from error
+                result = {
+                    "emergency_backup_id": emergency["backup_id"],
+                    "selection": selection.to_dict(),
+                    "restored": {
+                        "mp_settings": 0,
+                        "plugin_settings": 0,
+                        "plugin_data": 0,
+                        "plugin_files": [],
+                    },
+                    "reload_required": [],
+                    "reloaded": [],
+                    "host_database_backup_name": host_database_backup_name,
+                }
                 plugin_selection = (
                     selected_plugin_ids
                     if selection.plugin_settings or selection.plugin_data or selection.plugin_files

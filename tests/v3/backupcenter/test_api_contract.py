@@ -40,6 +40,9 @@ sys.modules["app.sdk.config"] = config_module
 plugin_module = ModuleType("app.sdk.plugins")
 plugin_module.PluginManager = _PluginManager
 sys.modules["app.sdk.plugins"] = plugin_module
+database_module = ModuleType("app.sdk.database")
+database_module.create_backup = lambda: SimpleNamespace(name="test.sqlite")
+sys.modules["app.sdk.database"] = database_module
 api_package = _package("app.api", PLUGIN_DIR)
 endpoint_package = _package("app.api.endpoints", PLUGIN_DIR)
 host_plugin_module = ModuleType("app.api.endpoints.plugin")

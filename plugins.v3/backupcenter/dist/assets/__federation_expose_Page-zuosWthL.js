@@ -1,123 +1,123 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as getPluginApi, d as downloadBackup, p as postPluginApi } from './_plugin-vue_export-helper-Bq_GLM4N.js';
+import { _ as _export_sfc, a as getPluginApi, d as downloadBackup, p as postPluginApi } from './_plugin-vue_export-helper-DZv_LBIW.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,normalizeClass:_normalizeClass} = await importShared('vue');
 
 
-const _hoisted_1 = { class: "bc-page" };
-const _hoisted_2 = {
+const _hoisted_1 = {
   class: "bc-tabs",
   role: "tablist",
   "aria-label": "备份中心视图"
 };
-const _hoisted_3 = ["onClick"];
-const _hoisted_4 = { class: "bc-content" };
-const _hoisted_5 = {
+const _hoisted_2 = ["onClick"];
+const _hoisted_3 = { class: "bc-content" };
+const _hoisted_4 = {
   key: 0,
   class: "bc-state"
 };
-const _hoisted_6 = { class: "bc-stat-grid" };
+const _hoisted_5 = { class: "bc-stat-grid" };
+const _hoisted_6 = { class: "bc-stat" };
 const _hoisted_7 = { class: "bc-stat" };
 const _hoisted_8 = { class: "bc-stat" };
-const _hoisted_9 = { class: "bc-stat" };
-const _hoisted_10 = { class: "bc-band" };
-const _hoisted_11 = { class: "bc-band-heading" };
-const _hoisted_12 = { class: "bc-route-grid" };
+const _hoisted_9 = { class: "bc-band" };
+const _hoisted_10 = { class: "bc-band-heading" };
+const _hoisted_11 = { class: "bc-route-grid" };
+const _hoisted_12 = { class: "bc-route" };
 const _hoisted_13 = { class: "bc-route" };
-const _hoisted_14 = { class: "bc-route" };
-const _hoisted_15 = { class: "bc-band" };
-const _hoisted_16 = { class: "bc-band-heading" };
-const _hoisted_17 = {
+const _hoisted_14 = { class: "bc-band" };
+const _hoisted_15 = { class: "bc-band-heading" };
+const _hoisted_16 = {
   key: 0,
   class: "bc-empty"
 };
-const _hoisted_18 = {
+const _hoisted_17 = {
   key: 1,
   class: "bc-backup-list"
 };
-const _hoisted_19 = { class: "bc-backup-main" };
-const _hoisted_20 = { class: "bc-backup-title" };
-const _hoisted_21 = { class: "bc-backup-meta" };
-const _hoisted_22 = { class: "bc-row-actions" };
-const _hoisted_23 = {
+const _hoisted_18 = { class: "bc-backup-main" };
+const _hoisted_19 = { class: "bc-backup-title" };
+const _hoisted_20 = { class: "bc-backup-meta" };
+const _hoisted_21 = { class: "bc-row-actions" };
+const _hoisted_22 = {
   key: 2,
   class: "bc-band bc-band--top"
 };
-const _hoisted_24 = { class: "bc-band-heading" };
-const _hoisted_25 = {
+const _hoisted_23 = { class: "bc-band-heading" };
+const _hoisted_24 = {
   key: 0,
   class: "bc-empty"
 };
-const _hoisted_26 = {
+const _hoisted_25 = {
   key: 1,
   class: "bc-record-grid"
 };
-const _hoisted_27 = { class: "bc-chip-list" };
-const _hoisted_28 = { class: "bc-record-facts" };
-const _hoisted_29 = {
+const _hoisted_26 = { class: "bc-chip-list" };
+const _hoisted_27 = { class: "bc-record-facts" };
+const _hoisted_28 = {
   key: 3,
   class: "bc-band bc-band--top"
 };
-const _hoisted_30 = {
+const _hoisted_29 = {
   key: 0,
   class: "bc-restore-paths"
 };
-const _hoisted_31 = { class: "bc-restore-path" };
-const _hoisted_32 = { class: "bc-restore-icon bc-restore-icon--online" };
-const _hoisted_33 = { class: "bc-restore-copy" };
-const _hoisted_34 = { class: "bc-restore-path" };
-const _hoisted_35 = { class: "bc-restore-icon bc-restore-icon--offline" };
-const _hoisted_36 = { class: "bc-restore-copy" };
-const _hoisted_37 = { class: "bc-muted" };
-const _hoisted_38 = { class: "d-flex flex-wrap ga-2 mt-3" };
-const _hoisted_39 = {
+const _hoisted_30 = { class: "bc-restore-path" };
+const _hoisted_31 = { class: "bc-restore-icon bc-restore-icon--online" };
+const _hoisted_32 = { class: "bc-restore-copy" };
+const _hoisted_33 = { class: "bc-restore-path" };
+const _hoisted_34 = { class: "bc-restore-icon bc-restore-icon--offline" };
+const _hoisted_35 = { class: "bc-restore-copy" };
+const _hoisted_36 = { class: "d-flex flex-wrap ga-2 mt-3" };
+const _hoisted_37 = {
   key: 1,
   class: "bc-empty"
 };
-const _hoisted_40 = {
+const _hoisted_38 = {
   key: 4,
   class: "bc-band bc-band--top"
 };
-const _hoisted_41 = { class: "bc-band-heading" };
-const _hoisted_42 = {
+const _hoisted_39 = { class: "bc-band-heading" };
+const _hoisted_40 = {
   key: 0,
   class: "bc-empty"
 };
-const _hoisted_43 = {
+const _hoisted_41 = {
   key: 1,
   class: "bc-log-list"
 };
-const _hoisted_44 = { class: "bc-log-main" };
-const _hoisted_45 = { class: "bc-log-heading" };
-const _hoisted_46 = { class: "bc-log-message" };
-const _hoisted_47 = { class: "bc-log-meta" };
-const _hoisted_48 = {
+const _hoisted_42 = { class: "bc-log-main" };
+const _hoisted_43 = { class: "bc-log-heading" };
+const _hoisted_44 = { class: "bc-log-message" };
+const _hoisted_45 = { class: "bc-log-meta" };
+const _hoisted_46 = {
   key: 0,
   class: "bc-log-backup-id"
 };
-const _hoisted_49 = { class: "bc-section-label" };
-const _hoisted_50 = {
+const _hoisted_47 = { class: "bc-section-label" };
+const _hoisted_48 = {
   key: 1,
   class: "bc-scope-groups"
 };
-const _hoisted_51 = { class: "bc-scope-group" };
-const _hoisted_52 = { class: "bc-scope-group" };
-const _hoisted_53 = {
+const _hoisted_49 = { class: "bc-scope-group" };
+const _hoisted_50 = { class: "bc-scope-group" };
+const _hoisted_51 = {
   key: 2,
   class: "bc-scope-groups"
 };
-const _hoisted_54 = { class: "bc-scope-group" };
-const _hoisted_55 = { class: "bc-scope-group" };
-const _hoisted_56 = { class: "bc-preview-grid" };
-const _hoisted_57 = { class: "bc-section-label mt-5" };
-const _hoisted_58 = { class: "bc-scope-groups" };
-const _hoisted_59 = { class: "bc-scope-group" };
-const _hoisted_60 = { class: "bc-scope-group" };
-const _hoisted_61 = { class: "bc-guide-layout" };
-const _hoisted_62 = { class: "bc-guide-text" };
-const _hoisted_63 = { class: "bc-guide-text" };
+const _hoisted_52 = { class: "bc-scope-group" };
+const _hoisted_53 = { class: "bc-scope-group" };
+const _hoisted_54 = { class: "bc-preview-grid" };
+const _hoisted_55 = { class: "bc-section-label mt-5" };
+const _hoisted_56 = { class: "bc-scope-groups" };
+const _hoisted_57 = { class: "bc-scope-group" };
+const _hoisted_58 = { class: "bc-scope-group" };
+const _hoisted_59 = { class: "bc-guide-layout" };
+const _hoisted_60 = { class: "bc-guide-text" };
+const _hoisted_61 = { class: "bc-guide-text" };
 
-const {computed,onMounted,reactive,ref} = await importShared('vue');
+const {computed,onBeforeUnmount,onMounted,reactive,ref} = await importShared('vue');
+
+const pageOverlayClass = 'bc-page-overlay';
 
 
 const _sfc_main = {
@@ -148,7 +148,7 @@ const restoreDialog = ref(false);
 const guideDialog = ref(false);
 const feedback = reactive({ show: false, message: '', color: 'success' });
 const createForm = reactive({
-  target: 'moviepilot',
+  target: 'plugin',
   pluginId: '',
   pluginSelection: {
     configuration: false,
@@ -161,7 +161,6 @@ const createForm = reactive({
     cookies: false,
     plugin_data: false,
     plugin_files: false,
-    database: false,
   },
 });
 const restoreForm = reactive({
@@ -173,7 +172,8 @@ const restoreForm = reactive({
     pluginData: false,
   },
 });
-
+const pageRoot = ref(null);
+let pageOverlay = null;
 const tabs = [
   { key: 'overview', title: '备份总览', icon: 'mdi-view-dashboard-outline' },
   { key: 'backups', title: '备份记录', icon: 'mdi-archive-outline' },
@@ -302,7 +302,6 @@ function scopeLabels(scope = {}) {
     plugin_files: '插件文件和缓存',
     app_env: '环境变量',
     cookies: '登录 Cookie',
-    database: '整个数据库',
   };
   return Object.entries(scope).filter(([, enabled]) => enabled).map(([key]) => labels[key])
 }
@@ -338,7 +337,7 @@ async function refreshAll() {
 }
 
 function openCreate() {
-  createForm.target = 'moviepilot';
+  createForm.target = 'plugin';
   createForm.pluginId = '';
   Object.keys(createForm.pluginSelection).forEach(key => { createForm.pluginSelection[key] = false; });
   Object.keys(createForm.moviepilotSelection).forEach(key => { createForm.moviepilotSelection[key] = false; });
@@ -363,7 +362,7 @@ async function createBackup() {
     });
     createDialog.value = false;
     selectedBackupId.value = result.backup_id;
-    notify(result.encrypted ? '加密备份已创建，可校验并下载离线恢复包' : '未加密备份已创建，可校验并下载离线恢复包');
+    notify(result.encrypted ? '加密备份已创建，可校验并下载' : '未加密备份已创建，可校验并下载');
     await loadOverview();
   } catch (error) {
     notify(error.message || '创建备份失败', 'error');
@@ -412,9 +411,9 @@ async function exportBackup(backupId) {
       encodeURIComponent(backupId),
       backupDownloadName(item || { backup_id: backupId }),
     );
-    notify('离线恢复包下载已开始');
+    notify('备份包下载已开始');
   } catch (error) {
-    notify(error.message || '离线恢复包下载失败', 'error');
+    notify(error.message || '备份包下载失败', 'error');
   } finally {
     actionLoading.value = '';
   }
@@ -480,7 +479,13 @@ async function restoreLogical() {
     const reload = result.reload_required?.length
       ? `；重载失败，请检查：${result.reload_required.join('、')}`
       : '';
-    notify(`选择性恢复完成，应急备份 ${result.emergency_backup_id}${reloaded}${reload}`, result.reload_required?.length ? 'warning' : 'success');
+    const hostBackup = result.host_database_backup_name
+      ? `；宿主恢复点：${result.host_database_backup_name}`
+      : '';
+    notify(
+      `选择性恢复完成，应急备份 ${result.emergency_backup_id}${hostBackup}${reloaded}${reload}`,
+      result.reload_required?.length ? 'warning' : 'success',
+    );
     await loadOverview();
   } catch (error) {
     notify(error.message || '选择性恢复失败', 'error');
@@ -490,7 +495,22 @@ async function restoreLogical() {
   }
 }
 
-onMounted(refreshAll);
+function attachPageOverlay() {
+  pageOverlay = pageRoot.value?.closest('.v-overlay__content') || null;
+  pageOverlay?.classList.add(pageOverlayClass);
+}
+
+function detachPageOverlay() {
+  pageOverlay?.classList.remove(pageOverlayClass);
+  pageOverlay = null;
+}
+
+onMounted(() => {
+  attachPageOverlay();
+  refreshAll();
+});
+
+onBeforeUnmount(detachPageOverlay);
 
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent("VIcon");
@@ -515,7 +535,11 @@ return (_ctx, _cache) => {
   const _component_VTextField = _resolveComponent("VTextField");
   const _component_VSnackbar = _resolveComponent("VSnackbar");
 
-  return (_openBlock(), _createElementBlock("div", _hoisted_1, [
+  return (_openBlock(), _createElementBlock("div", {
+    ref_key: "pageRoot",
+    ref: pageRoot,
+    class: "bc-page"
+  }, [
     _createVNode(_component_VToolbar, {
       density: "comfortable",
       class: "bc-toolbar"
@@ -526,9 +550,9 @@ return (_ctx, _cache) => {
           class: "ms-3 me-2",
           color: "primary"
         }),
-        _cache[35] || (_cache[35] = _createElementVNode("div", { class: "bc-toolbar-copy" }, [
+        _cache[34] || (_cache[34] = _createElementVNode("div", { class: "bc-toolbar-copy" }, [
           _createElementVNode("div", { class: "text-h6" }, "备份中心"),
-          _createElementVNode("div", { class: "text-caption text-medium-emphasis bc-toolbar-subtitle" }, " 可选加密备份、选择性恢复与停机整库恢复指引 ")
+          _createElementVNode("div", { class: "text-caption text-medium-emphasis bc-toolbar-subtitle" }, " 插件配置数据保护与宿主数据库恢复点 ")
         ], -1)),
         _createVNode(_component_VSpacer),
         (settingsShortcutVisible.value)
@@ -541,7 +565,7 @@ return (_ctx, _cache) => {
             }, {
               default: _withCtx(() => [
                 _createVNode(_component_VTooltip, { activator: "parent" }, {
-                  default: _withCtx(() => [...(_cache[32] || (_cache[32] = [
+                  default: _withCtx(() => [...(_cache[31] || (_cache[31] = [
                     _createTextVNode("打开配置", -1)
                   ]))]),
                   _: 1
@@ -559,7 +583,7 @@ return (_ctx, _cache) => {
         }, {
           default: _withCtx(() => [
             _createVNode(_component_VTooltip, { activator: "parent" }, {
-              default: _withCtx(() => [...(_cache[33] || (_cache[33] = [
+              default: _withCtx(() => [...(_cache[32] || (_cache[32] = [
                 _createTextVNode("刷新", -1)
               ]))]),
               _: 1
@@ -577,7 +601,7 @@ return (_ctx, _cache) => {
             }, {
               default: _withCtx(() => [
                 _createVNode(_component_VTooltip, { activator: "parent" }, {
-                  default: _withCtx(() => [...(_cache[34] || (_cache[34] = [
+                  default: _withCtx(() => [...(_cache[33] || (_cache[33] = [
                     _createTextVNode("关闭", -1)
                   ]))]),
                   _: 1
@@ -590,7 +614,7 @@ return (_ctx, _cache) => {
       _: 1
     }),
     _createVNode(_component_VDivider),
-    _createElementVNode("div", _hoisted_2, [
+    _createElementVNode("div", _hoisted_1, [
       (_openBlock(), _createElementBlock(_Fragment, null, _renderList(tabs, (tab) => {
         return _createElementVNode("button", {
           key: tab.key,
@@ -603,13 +627,13 @@ return (_ctx, _cache) => {
             size: "18"
           }, null, 8, ["icon"]),
           _createElementVNode("span", null, _toDisplayString(tab.title), 1)
-        ], 10, _hoisted_3)
+        ], 10, _hoisted_2)
       }), 64))
     ]),
     _createVNode(_component_VDivider),
-    _createElementVNode("main", _hoisted_4, [
+    _createElementVNode("main", _hoisted_3, [
       ((activeTab.value !== 'logs' && loading.value && !backups.value.length) || (activeTab.value === 'logs' && logsLoading.value && !logs.value.length))
-        ? (_openBlock(), _createElementBlock("div", _hoisted_5, [
+        ? (_openBlock(), _createElementBlock("div", _hoisted_4, [
             _createVNode(_component_VProgressCircular, {
               indeterminate: "",
               color: "primary"
@@ -617,8 +641,8 @@ return (_ctx, _cache) => {
           ]))
         : (activeTab.value === 'overview')
           ? (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
-              _createElementVNode("section", _hoisted_6, [
-                _createElementVNode("div", _hoisted_7, [
+              _createElementVNode("section", _hoisted_5, [
+                _createElementVNode("div", _hoisted_6, [
                   _createVNode(_component_VIcon, {
                     icon: "mdi-archive-check-outline",
                     color: "primary",
@@ -626,21 +650,21 @@ return (_ctx, _cache) => {
                   }),
                   _createElementVNode("div", null, [
                     _createElementVNode("strong", null, _toDisplayString(overview.value.backup_count || 0), 1),
-                    _cache[36] || (_cache[36] = _createElementVNode("span", null, "本地备份", -1))
+                    _cache[35] || (_cache[35] = _createElementVNode("span", null, "本地备份", -1))
                   ])
                 ]),
-                _createElementVNode("div", _hoisted_8, [
+                _createElementVNode("div", _hoisted_7, [
                   _createVNode(_component_VIcon, {
-                    icon: "mdi-database-outline",
+                    icon: "mdi-database-check-outline",
                     color: "info",
                     size: "24"
                   }),
-                  _createElementVNode("div", null, [
-                    _createElementVNode("strong", null, _toDisplayString(overview.value.database_type || '未知'), 1),
-                    _cache[37] || (_cache[37] = _createElementVNode("span", null, "当前数据库", -1))
-                  ])
+                  _cache[36] || (_cache[36] = _createElementVNode("div", null, [
+                    _createElementVNode("strong", null, "主程序托管"),
+                    _createElementVNode("span", null, "数据库恢复")
+                  ], -1))
                 ]),
-                _createElementVNode("div", _hoisted_9, [
+                _createElementVNode("div", _hoisted_8, [
                   _createVNode(_component_VIcon, {
                     icon: overview.value.encryption_active ? 'mdi-lock-check-outline' : 'mdi-lock-open-outline',
                     color: overview.value.encryption_active ? 'success' : 'warning',
@@ -648,13 +672,13 @@ return (_ctx, _cache) => {
                   }, null, 8, ["icon", "color"]),
                   _createElementVNode("div", null, [
                     _createElementVNode("strong", null, _toDisplayString(overview.value.encryption_active ? '已加密' : '未加密'), 1),
-                    _cache[38] || (_cache[38] = _createElementVNode("span", null, "新建备份格式", -1))
+                    _cache[37] || (_cache[37] = _createElementVNode("span", null, "新建备份格式", -1))
                   ])
                 ])
               ]),
-              _createElementVNode("section", _hoisted_10, [
-                _createElementVNode("div", _hoisted_11, [
-                  _cache[40] || (_cache[40] = _createElementVNode("div", null, [
+              _createElementVNode("section", _hoisted_9, [
+                _createElementVNode("div", _hoisted_10, [
+                  _cache[39] || (_cache[39] = _createElementVNode("div", null, [
                     _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "恢复路径"),
                     _createElementVNode("div", { class: "bc-muted" }, "不同数据按风险进入独立恢复路径。")
                   ], -1)),
@@ -664,40 +688,40 @@ return (_ctx, _cache) => {
                     "prepend-icon": "mdi-plus",
                     onClick: openCreate
                   }, {
-                    default: _withCtx(() => [...(_cache[39] || (_cache[39] = [
+                    default: _withCtx(() => [...(_cache[38] || (_cache[38] = [
                       _createTextVNode(" 新建备份 ", -1)
                     ]))]),
                     _: 1
                   })
                 ]),
-                _createElementVNode("div", _hoisted_12, [
-                  _createElementVNode("div", _hoisted_13, [
+                _createElementVNode("div", _hoisted_11, [
+                  _createElementVNode("div", _hoisted_12, [
                     _createVNode(_component_VIcon, {
                       icon: "mdi-cloud-sync-outline",
                       color: "success",
                       size: "26"
                     }),
-                    _cache[41] || (_cache[41] = _createElementVNode("div", null, [
+                    _cache[40] || (_cache[40] = _createElementVNode("div", null, [
                       _createElementVNode("div", { class: "bc-route-title" }, "在线选择性恢复"),
                       _createElementVNode("div", { class: "bc-muted" }, "配置和数据。恢复前自动创建应急备份。")
                     ], -1))
                   ]),
-                  _createElementVNode("div", _hoisted_14, [
+                  _createElementVNode("div", _hoisted_13, [
                     _createVNode(_component_VIcon, {
-                      icon: "mdi-power-plug-off-outline",
-                      color: "warning",
+                      icon: "mdi-database-check-outline",
+                      color: "info",
                       size: "26"
                     }),
-                    _cache[42] || (_cache[42] = _createElementVNode("div", null, [
-                      _createElementVNode("div", { class: "bc-route-title" }, "离线整库恢复"),
-                      _createElementVNode("div", { class: "bc-muted" }, "SQLite 或 PostgreSQL 完整快照。必须停机并按包内教程操作。")
+                    _cache[41] || (_cache[41] = _createElementVNode("div", null, [
+                      _createElementVNode("div", { class: "bc-route-title" }, "宿主数据库恢复点"),
+                      _createElementVNode("div", { class: "bc-muted" }, "在线恢复前自动创建；整库回退请使用 MoviePilot 主程序命令。")
                     ], -1))
                   ])
                 ])
               ]),
-              _createElementVNode("section", _hoisted_15, [
-                _createElementVNode("div", _hoisted_16, [
-                  _cache[44] || (_cache[44] = _createElementVNode("div", null, [
+              _createElementVNode("section", _hoisted_14, [
+                _createElementVNode("div", _hoisted_15, [
+                  _cache[43] || (_cache[43] = _createElementVNode("div", null, [
                     _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "最近备份"),
                     _createElementVNode("div", { class: "bc-muted" }, "先校验，再下载或进入恢复预检。")
                   ], -1)),
@@ -706,41 +730,41 @@ return (_ctx, _cache) => {
                     "append-icon": "mdi-arrow-right",
                     onClick: _cache[2] || (_cache[2] = $event => (activeTab.value = 'backups'))
                   }, {
-                    default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
+                    default: _withCtx(() => [...(_cache[42] || (_cache[42] = [
                       _createTextVNode("全部记录", -1)
                     ]))]),
                     _: 1
                   })
                 ]),
                 (!backups.value.length)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_17, [
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_16, [
                       _createVNode(_component_VIcon, {
                         icon: "mdi-archive-off-outline",
                         size: "34"
                       }),
-                      _cache[45] || (_cache[45] = _createElementVNode("span", null, "尚无备份记录", -1))
+                      _cache[44] || (_cache[44] = _createElementVNode("span", null, "尚无备份记录", -1))
                     ]))
-                  : (_openBlock(), _createElementBlock("div", _hoisted_18, [
+                  : (_openBlock(), _createElementBlock("div", _hoisted_17, [
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(backups.value.slice(0, 3), (item) => {
                         return (_openBlock(), _createElementBlock("article", {
                           key: item.backup_id,
                           class: "bc-backup-row"
                         }, [
-                          _createElementVNode("div", _hoisted_19, [
-                            _createElementVNode("div", _hoisted_20, _toDisplayString(backupDisplayName(item)), 1),
-                            _createElementVNode("div", _hoisted_21, _toDisplayString(formatSize(item.package_size)) + " · " + _toDisplayString(item.backup_id), 1)
+                          _createElementVNode("div", _hoisted_18, [
+                            _createElementVNode("div", _hoisted_19, _toDisplayString(backupDisplayName(item)), 1),
+                            _createElementVNode("div", _hoisted_20, _toDisplayString(formatSize(item.package_size)) + " · " + _toDisplayString(item.backup_id), 1)
                           ]),
                           _createVNode(_component_VChip, {
                             size: "small",
-                            color: item.database?.included ? 'warning' : 'success',
+                            color: "success",
                             variant: "tonal"
                           }, {
-                            default: _withCtx(() => [
-                              _createTextVNode(_toDisplayString(item.database?.included ? '含整库快照' : '逻辑备份'), 1)
-                            ]),
-                            _: 2
-                          }, 1032, ["color"]),
-                          _createElementVNode("div", _hoisted_22, [
+                            default: _withCtx(() => [...(_cache[45] || (_cache[45] = [
+                              _createTextVNode("逻辑备份", -1)
+                            ]))]),
+                            _: 1
+                          }),
+                          _createElementVNode("div", _hoisted_21, [
                             _createVNode(_component_VBtn, {
                               icon: "mdi-check-decagram-outline",
                               size: "small",
@@ -768,7 +792,7 @@ return (_ctx, _cache) => {
                               default: _withCtx(() => [
                                 _createVNode(_component_VTooltip, { activator: "parent" }, {
                                   default: _withCtx(() => [...(_cache[47] || (_cache[47] = [
-                                    _createTextVNode("下载离线包", -1)
+                                    _createTextVNode("下载备份包", -1)
                                   ]))]),
                                   _: 1
                                 })
@@ -816,11 +840,11 @@ return (_ctx, _cache) => {
               ])
             ], 64))
           : (activeTab.value === 'backups')
-            ? (_openBlock(), _createElementBlock("section", _hoisted_23, [
-                _createElementVNode("div", _hoisted_24, [
+            ? (_openBlock(), _createElementBlock("section", _hoisted_22, [
+                _createElementVNode("div", _hoisted_23, [
                   _cache[51] || (_cache[51] = _createElementVNode("div", null, [
                     _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "备份记录"),
-                    _createElementVNode("div", { class: "bc-muted" }, "每个离线包都包含明文教程、校验清单、工具，以及普通 ZIP 或加密负载。")
+                    _createElementVNode("div", { class: "bc-muted" }, "每个备份包都包含明文教程、校验清单、校验工具，以及普通 ZIP 或加密负载。")
                   ], -1)),
                   _createVNode(_component_VBtn, {
                     color: "primary",
@@ -835,8 +859,8 @@ return (_ctx, _cache) => {
                   })
                 ]),
                 (!backups.value.length)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_25, "暂无备份记录"))
-                  : (_openBlock(), _createElementBlock("div", _hoisted_26, [
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_24, "暂无备份记录"))
+                  : (_openBlock(), _createElementBlock("div", _hoisted_25, [
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(backups.value, (item) => {
                         return (_openBlock(), _createBlock(_component_VCard, {
                           key: item.backup_id,
@@ -848,14 +872,14 @@ return (_ctx, _cache) => {
                               append: _withCtx(() => [
                                 _createVNode(_component_VChip, {
                                   size: "small",
-                                  color: item.database?.included ? 'warning' : 'success',
+                                  color: "success",
                                   variant: "tonal"
                                 }, {
-                                  default: _withCtx(() => [
-                                    _createTextVNode(_toDisplayString(item.database?.included ? item.database.type : '逻辑'), 1)
-                                  ]),
-                                  _: 2
-                                }, 1032, ["color"])
+                                  default: _withCtx(() => [...(_cache[52] || (_cache[52] = [
+                                    _createTextVNode("逻辑", -1)
+                                  ]))]),
+                                  _: 1
+                                })
                               ]),
                               default: _withCtx(() => [
                                 _createVNode(_component_VCardTitle, { class: "bc-record-title" }, {
@@ -875,7 +899,7 @@ return (_ctx, _cache) => {
                             }, 1024),
                             _createVNode(_component_VCardText, null, {
                               default: _withCtx(() => [
-                                _createElementVNode("div", _hoisted_27, [
+                                _createElementVNode("div", _hoisted_26, [
                                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(scopeLabels(item.scope), (label) => {
                                     return (_openBlock(), _createBlock(_component_VChip, {
                                       key: label,
@@ -889,7 +913,7 @@ return (_ctx, _cache) => {
                                     }, 1024))
                                   }), 128))
                                 ]),
-                                _createElementVNode("div", _hoisted_28, [
+                                _createElementVNode("div", _hoisted_27, [
                                   _createElementVNode("span", null, _toDisplayString(item.selected_plugin_ids?.length || 0) + " 个插件", 1),
                                   _createElementVNode("span", null, _toDisplayString(formatSize(item.package_size)), 1),
                                   _createElementVNode("span", null, _toDisplayString(backupKindLabel(item.backup_kind)), 1),
@@ -908,7 +932,7 @@ return (_ctx, _cache) => {
                                   loading: actionLoading.value === `verify:${item.backup_id}`,
                                   onClick: $event => (verifyBackup(item.backup_id))
                                 }, {
-                                  default: _withCtx(() => [...(_cache[52] || (_cache[52] = [
+                                  default: _withCtx(() => [...(_cache[53] || (_cache[53] = [
                                     _createTextVNode("校验", -1)
                                   ]))]),
                                   _: 1
@@ -920,7 +944,7 @@ return (_ctx, _cache) => {
                                   loading: actionLoading.value === `guide:${item.backup_id}`,
                                   onClick: $event => (showGuide(item.backup_id))
                                 }, {
-                                  default: _withCtx(() => [...(_cache[53] || (_cache[53] = [
+                                  default: _withCtx(() => [...(_cache[54] || (_cache[54] = [
                                     _createTextVNode("教程", -1)
                                   ]))]),
                                   _: 1
@@ -933,7 +957,7 @@ return (_ctx, _cache) => {
                                   loading: actionLoading.value === `delete:${item.backup_id}`,
                                   onClick: $event => (deleteBackup(item.backup_id))
                                 }, {
-                                  default: _withCtx(() => [...(_cache[54] || (_cache[54] = [
+                                  default: _withCtx(() => [...(_cache[55] || (_cache[55] = [
                                     _createTextVNode("删除", -1)
                                   ]))]),
                                   _: 1
@@ -947,7 +971,7 @@ return (_ctx, _cache) => {
                                   loading: actionLoading.value === `export:${item.backup_id}`,
                                   onClick: $event => (exportBackup(item.backup_id))
                                 }, {
-                                  default: _withCtx(() => [...(_cache[55] || (_cache[55] = [
+                                  default: _withCtx(() => [...(_cache[56] || (_cache[56] = [
                                     _createTextVNode("下载", -1)
                                   ]))]),
                                   _: 1
@@ -962,8 +986,8 @@ return (_ctx, _cache) => {
                     ]))
               ]))
             : (activeTab.value === 'restore')
-              ? (_openBlock(), _createElementBlock("section", _hoisted_29, [
-                  _cache[62] || (_cache[62] = _createElementVNode("div", { class: "bc-band-heading" }, [
+              ? (_openBlock(), _createElementBlock("section", _hoisted_28, [
+                  _cache[64] || (_cache[64] = _createElementVNode("div", { class: "bc-band-heading" }, [
                     _createElementVNode("div", null, [
                       _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "恢复中心"),
                       _createElementVNode("div", { class: "bc-muted" }, "一次选择一份备份；恢复内容可以只选一项，也可以按需多选。")
@@ -982,14 +1006,14 @@ return (_ctx, _cache) => {
                     class: "bc-backup-select"
                   }, null, 8, ["modelValue", "items"]),
                   (selectedBackup.value)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_30, [
-                        _createElementVNode("div", _hoisted_31, [
-                          _createElementVNode("div", _hoisted_32, [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_29, [
+                        _createElementVNode("div", _hoisted_30, [
+                          _createElementVNode("div", _hoisted_31, [
                             _createVNode(_component_VIcon, { icon: "mdi-cloud-sync-outline" })
                           ]),
-                          _createElementVNode("div", _hoisted_33, [
-                            _cache[57] || (_cache[57] = _createElementVNode("div", { class: "bc-route-title" }, "在线选择性恢复", -1)),
-                            _cache[58] || (_cache[58] = _createElementVNode("div", { class: "bc-muted" }, "恢复配置或数据。不会替换整个数据库。", -1)),
+                          _createElementVNode("div", _hoisted_32, [
+                            _cache[58] || (_cache[58] = _createElementVNode("div", { class: "bc-route-title" }, "在线选择性恢复", -1)),
+                            _cache[59] || (_cache[59] = _createElementVNode("div", { class: "bc-muted" }, "恢复配置或数据。不会替换数据库，执行前会创建宿主恢复点。", -1)),
                             _createVNode(_component_VBtn, {
                               class: "mt-3",
                               color: "primary",
@@ -998,39 +1022,39 @@ return (_ctx, _cache) => {
                               loading: actionLoading.value === `preview:${selectedBackupId.value}`,
                               onClick: _cache[4] || (_cache[4] = $event => (prepareRestore(selectedBackupId.value)))
                             }, {
-                              default: _withCtx(() => [...(_cache[56] || (_cache[56] = [
+                              default: _withCtx(() => [...(_cache[57] || (_cache[57] = [
                                 _createTextVNode("开始预检", -1)
                               ]))]),
                               _: 1
                             }, 8, ["loading"])
                           ])
                         ]),
-                        _createElementVNode("div", _hoisted_34, [
-                          _createElementVNode("div", _hoisted_35, [
-                            _createVNode(_component_VIcon, { icon: "mdi-power-plug-off-outline" })
+                        _createElementVNode("div", _hoisted_33, [
+                          _createElementVNode("div", _hoisted_34, [
+                            _createVNode(_component_VIcon, { icon: "mdi-database-check-outline" })
                           ]),
-                          _createElementVNode("div", _hoisted_36, [
-                            _cache[61] || (_cache[61] = _createElementVNode("div", { class: "bc-route-title" }, "离线整库恢复", -1)),
-                            _createElementVNode("div", _hoisted_37, _toDisplayString(selectedBackup.value.database?.included ? `包含 ${selectedBackup.value.database.type} 快照，必须停机恢复。` : '此备份未包含完整数据库快照。'), 1),
-                            _createElementVNode("div", _hoisted_38, [
+                          _createElementVNode("div", _hoisted_35, [
+                            _cache[62] || (_cache[62] = _createElementVNode("div", { class: "bc-route-title" }, "宿主数据库恢复点", -1)),
+                            _cache[63] || (_cache[63] = _createElementVNode("div", { class: "bc-muted" }, "数据库由 MoviePilot 主程序统一备份与整库恢复，本插件不会导出或替换数据库。", -1)),
+                            _createElementVNode("div", _hoisted_36, [
                               _createVNode(_component_VBtn, {
                                 variant: "outlined",
                                 "prepend-icon": "mdi-book-open-page-variant-outline",
                                 onClick: _cache[5] || (_cache[5] = $event => (showGuide(selectedBackupId.value)))
                               }, {
-                                default: _withCtx(() => [...(_cache[59] || (_cache[59] = [
-                                  _createTextVNode("查看教程", -1)
+                                default: _withCtx(() => [...(_cache[60] || (_cache[60] = [
+                                  _createTextVNode("查看说明", -1)
                                 ]))]),
                                 _: 1
                               }),
                               _createVNode(_component_VBtn, {
-                                color: "warning",
+                                color: "primary",
                                 variant: "tonal",
                                 "prepend-icon": "mdi-download-outline",
                                 onClick: _cache[6] || (_cache[6] = $event => (exportBackup(selectedBackupId.value)))
                               }, {
-                                default: _withCtx(() => [...(_cache[60] || (_cache[60] = [
-                                  _createTextVNode("下载离线包", -1)
+                                default: _withCtx(() => [...(_cache[61] || (_cache[61] = [
+                                  _createTextVNode("下载备份包", -1)
                                 ]))]),
                                 _: 1
                               })
@@ -1038,11 +1062,11 @@ return (_ctx, _cache) => {
                           ])
                         ])
                       ]))
-                    : (_openBlock(), _createElementBlock("div", _hoisted_39, "请选择一份备份"))
+                    : (_openBlock(), _createElementBlock("div", _hoisted_37, "请选择一份备份"))
                 ]))
-              : (_openBlock(), _createElementBlock("section", _hoisted_40, [
-                  _createElementVNode("div", _hoisted_41, [
-                    _cache[64] || (_cache[64] = _createElementVNode("div", null, [
+              : (_openBlock(), _createElementBlock("section", _hoisted_38, [
+                  _createElementVNode("div", _hoisted_39, [
+                    _cache[66] || (_cache[66] = _createElementVNode("div", null, [
                       _createElementVNode("div", { class: "text-subtitle-1 font-weight-bold" }, "运行日志"),
                       _createElementVNode("div", { class: "bc-muted" }, "保留最近 200 条备份、校验、删除与在线恢复结果。")
                     ], -1)),
@@ -1055,7 +1079,7 @@ return (_ctx, _cache) => {
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTooltip, { activator: "parent" }, {
-                          default: _withCtx(() => [...(_cache[63] || (_cache[63] = [
+                          default: _withCtx(() => [...(_cache[65] || (_cache[65] = [
                             _createTextVNode("刷新运行日志", -1)
                           ]))]),
                           _: 1
@@ -1065,14 +1089,14 @@ return (_ctx, _cache) => {
                     }, 8, ["loading"])
                   ]),
                   (!logs.value.length)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_42, [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_40, [
                         _createVNode(_component_VIcon, {
                           icon: "mdi-text-box-search-outline",
                           size: "34"
                         }),
-                        _cache[65] || (_cache[65] = _createElementVNode("span", null, "暂无运行日志", -1))
+                        _cache[67] || (_cache[67] = _createElementVNode("span", null, "暂无运行日志", -1))
                       ]))
-                    : (_openBlock(), _createElementBlock("div", _hoisted_43, [
+                    : (_openBlock(), _createElementBlock("div", _hoisted_41, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(logs.value, (item) => {
                           return (_openBlock(), _createElementBlock("article", {
                             key: item.log_id,
@@ -1086,8 +1110,8 @@ return (_ctx, _cache) => {
                                 size: "20"
                               }, null, 8, ["icon"])
                             ], 2),
-                            _createElementVNode("div", _hoisted_44, [
-                              _createElementVNode("div", _hoisted_45, [
+                            _createElementVNode("div", _hoisted_42, [
+                              _createElementVNode("div", _hoisted_43, [
                                 _createElementVNode("strong", null, _toDisplayString(operationLabel(item.operation)), 1),
                                 _createVNode(_component_VChip, {
                                   size: "x-small",
@@ -1101,11 +1125,11 @@ return (_ctx, _cache) => {
                                 }, 1032, ["color"]),
                                 _createElementVNode("span", null, _toDisplayString(formatDuration(item.duration_ms)), 1)
                               ]),
-                              _createElementVNode("div", _hoisted_46, _toDisplayString(item.message), 1),
-                              _createElementVNode("div", _hoisted_47, [
+                              _createElementVNode("div", _hoisted_44, _toDisplayString(item.message), 1),
+                              _createElementVNode("div", _hoisted_45, [
                                 _createElementVNode("span", null, _toDisplayString(formatDate(item.finished_at)), 1),
                                 (item.backup_id)
-                                  ? (_openBlock(), _createElementBlock("span", _hoisted_48, _toDisplayString(item.backup_id), 1))
+                                  ? (_openBlock(), _createElementBlock("span", _hoisted_46, _toDisplayString(item.backup_id), 1))
                                   : _createCommentVNode("", true)
                               ])
                             ])
@@ -1116,7 +1140,7 @@ return (_ctx, _cache) => {
     ]),
     _createVNode(_component_VDialog, {
       modelValue: createDialog.value,
-      "onUpdate:modelValue": _cache[20] || (_cache[20] = $event => ((createDialog).value = $event)),
+      "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((createDialog).value = $event)),
       "max-width": "760",
       persistent: actionLoading.value === 'create'
     }, {
@@ -1133,7 +1157,7 @@ return (_ctx, _cache) => {
               ]),
               default: _withCtx(() => [
                 _createVNode(_component_VCardTitle, null, {
-                  default: _withCtx(() => [...(_cache[66] || (_cache[66] = [
+                  default: _withCtx(() => [...(_cache[68] || (_cache[68] = [
                     _createTextVNode("新建备份", -1)
                   ]))]),
                   _: 1
@@ -1150,7 +1174,7 @@ return (_ctx, _cache) => {
             _createVNode(_component_VDivider),
             _createVNode(_component_VCardText, { class: "bc-dialog-scroll" }, {
               default: _withCtx(() => [
-                _cache[77] || (_cache[77] = _createElementVNode("div", { class: "bc-section-label" }, "备份对象", -1)),
+                _cache[79] || (_cache[79] = _createElementVNode("div", { class: "bc-section-label" }, "备份对象", -1)),
                 _createVNode(_component_VBtnToggle, {
                   modelValue: createForm.target,
                   "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((createForm.target) = $event)),
@@ -1166,7 +1190,7 @@ return (_ctx, _cache) => {
                       value: "moviepilot",
                       "prepend-icon": "mdi-movie-open-cog-outline"
                     }, {
-                      default: _withCtx(() => [...(_cache[67] || (_cache[67] = [
+                      default: _withCtx(() => [...(_cache[69] || (_cache[69] = [
                         _createTextVNode("MoviePilot", -1)
                       ]))]),
                       _: 1
@@ -1175,7 +1199,7 @@ return (_ctx, _cache) => {
                       value: "plugin",
                       "prepend-icon": "mdi-puzzle-outline"
                     }, {
-                      default: _withCtx(() => [...(_cache[68] || (_cache[68] = [
+                      default: _withCtx(() => [...(_cache[70] || (_cache[70] = [
                         _createTextVNode("插件", -1)
                       ]))]),
                       _: 1
@@ -1185,7 +1209,7 @@ return (_ctx, _cache) => {
                 }, 8, ["modelValue"]),
                 (createForm.target === 'plugin')
                   ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
-                      _cache[69] || (_cache[69] = _createElementVNode("div", { class: "bc-muted mb-2" }, "每份手动备份只打包一个插件，包名会使用插件中文名。", -1)),
+                      _cache[71] || (_cache[71] = _createElementVNode("div", { class: "bc-muted mb-2" }, "每份手动备份只打包一个插件，包名会使用插件中文名。", -1)),
                       _createVNode(_component_VSelect, {
                         modelValue: createForm.pluginId,
                         "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((createForm.pluginId) = $event)),
@@ -1200,12 +1224,12 @@ return (_ctx, _cache) => {
                       }, null, 8, ["modelValue", "items"])
                     ], 64))
                   : _createCommentVNode("", true),
-                _createElementVNode("div", _hoisted_49, "备份内容 · 已选 " + _toDisplayString(createScopeCount.value) + " 项", 1),
-                _cache[78] || (_cache[78] = _createElementVNode("div", { class: "bc-muted bc-scope-explain" }, "默认全部不选，只保存你明确勾选的内容。", -1)),
+                _createElementVNode("div", _hoisted_47, "备份内容 · 已选 " + _toDisplayString(createScopeCount.value) + " 项", 1),
+                _cache[80] || (_cache[80] = _createElementVNode("div", { class: "bc-muted bc-scope-explain" }, "默认全部不选，只保存你明确勾选的内容。", -1)),
                 (createForm.target === 'plugin')
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_50, [
-                      _createElementVNode("section", _hoisted_51, [
-                        _cache[70] || (_cache[70] = _createElementVNode("div", { class: "bc-scope-group-title" }, "配置", -1)),
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_48, [
+                      _createElementVNode("section", _hoisted_49, [
+                        _cache[72] || (_cache[72] = _createElementVNode("div", { class: "bc-scope-group-title" }, "配置", -1)),
                         _createVNode(_component_VCheckbox, {
                           modelValue: createForm.pluginSelection.configuration,
                           "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((createForm.pluginSelection.configuration) = $event)),
@@ -1213,10 +1237,10 @@ return (_ctx, _cache) => {
                           density: "compact",
                           "hide-details": ""
                         }, null, 8, ["modelValue"]),
-                        _cache[71] || (_cache[71] = _createElementVNode("div", { class: "bc-muted px-2 pb-2" }, "插件在 MoviePilot 中保存的配置。", -1))
+                        _cache[73] || (_cache[73] = _createElementVNode("div", { class: "bc-muted px-2 pb-2" }, "插件在 MoviePilot 中保存的配置。", -1))
                       ]),
-                      _createElementVNode("section", _hoisted_52, [
-                        _cache[72] || (_cache[72] = _createElementVNode("div", { class: "bc-scope-group-title" }, "数据", -1)),
+                      _createElementVNode("section", _hoisted_50, [
+                        _cache[74] || (_cache[74] = _createElementVNode("div", { class: "bc-scope-group-title" }, "数据", -1)),
                         _createVNode(_component_VCheckbox, {
                           modelValue: createForm.pluginSelection.data,
                           "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((createForm.pluginSelection.data) = $event)),
@@ -1224,12 +1248,12 @@ return (_ctx, _cache) => {
                           density: "compact",
                           "hide-details": ""
                         }, null, 8, ["modelValue"]),
-                        _cache[73] || (_cache[73] = _createElementVNode("div", { class: "bc-muted px-2 pb-2" }, "插件保存的数据、文件和缓存。", -1))
+                        _cache[75] || (_cache[75] = _createElementVNode("div", { class: "bc-muted px-2 pb-2" }, "插件保存的数据、文件和缓存。", -1))
                       ])
                     ]))
-                  : (_openBlock(), _createElementBlock("div", _hoisted_53, [
-                      _createElementVNode("section", _hoisted_54, [
-                        _cache[74] || (_cache[74] = _createElementVNode("div", { class: "bc-scope-group-title" }, "配置", -1)),
+                  : (_openBlock(), _createElementBlock("div", _hoisted_51, [
+                      _createElementVNode("section", _hoisted_52, [
+                        _cache[76] || (_cache[76] = _createElementVNode("div", { class: "bc-scope-group-title" }, "配置", -1)),
                         _createVNode(_component_VCheckbox, {
                           modelValue: createForm.moviepilotSelection.mp_settings,
                           "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((createForm.moviepilotSelection.mp_settings) = $event)),
@@ -1259,8 +1283,8 @@ return (_ctx, _cache) => {
                           "hide-details": ""
                         }, null, 8, ["modelValue"])
                       ]),
-                      _createElementVNode("section", _hoisted_55, [
-                        _cache[75] || (_cache[75] = _createElementVNode("div", { class: "bc-scope-group-title" }, "数据", -1)),
+                      _createElementVNode("section", _hoisted_53, [
+                        _cache[77] || (_cache[77] = _createElementVNode("div", { class: "bc-scope-group-title" }, "数据", -1)),
                         _createVNode(_component_VCheckbox, {
                           modelValue: createForm.moviepilotSelection.plugin_data,
                           "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((createForm.moviepilotSelection.plugin_data) = $event)),
@@ -1275,14 +1299,7 @@ return (_ctx, _cache) => {
                           density: "compact",
                           "hide-details": ""
                         }, null, 8, ["modelValue"]),
-                        _createVNode(_component_VCheckbox, {
-                          modelValue: createForm.moviepilotSelection.database,
-                          "onUpdate:modelValue": _cache[18] || (_cache[18] = $event => ((createForm.moviepilotSelection.database) = $event)),
-                          label: "整个数据库",
-                          density: "compact",
-                          "hide-details": ""
-                        }, null, 8, ["modelValue"]),
-                        _cache[76] || (_cache[76] = _createElementVNode("div", { class: "bc-muted px-2 pb-2" }, "完整数据库只能停机后按包内教程恢复。", -1))
+                        _cache[78] || (_cache[78] = _createElementVNode("div", { class: "bc-muted px-2 pb-2" }, "数据库由 MoviePilot 主程序统一管理；此处只保存可在线恢复的逻辑内容。", -1))
                       ])
                     ])),
                 _createVNode(_component_VAlert, {
@@ -1305,9 +1322,9 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VSpacer),
                 _createVNode(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[19] || (_cache[19] = $event => (createDialog.value = false))
+                  onClick: _cache[18] || (_cache[18] = $event => (createDialog.value = false))
                 }, {
-                  default: _withCtx(() => [...(_cache[79] || (_cache[79] = [
+                  default: _withCtx(() => [...(_cache[81] || (_cache[81] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -1320,7 +1337,7 @@ return (_ctx, _cache) => {
                   loading: actionLoading.value === 'create',
                   onClick: createBackup
                 }, {
-                  default: _withCtx(() => [...(_cache[80] || (_cache[80] = [
+                  default: _withCtx(() => [...(_cache[82] || (_cache[82] = [
                     _createTextVNode("创建备份", -1)
                   ]))]),
                   _: 1
@@ -1336,7 +1353,7 @@ return (_ctx, _cache) => {
     }, 8, ["modelValue", "persistent"]),
     _createVNode(_component_VDialog, {
       modelValue: restoreDialog.value,
-      "onUpdate:modelValue": _cache[27] || (_cache[27] = $event => ((restoreDialog).value = $event)),
+      "onUpdate:modelValue": _cache[26] || (_cache[26] = $event => ((restoreDialog).value = $event)),
       "max-width": "820",
       persistent: actionLoading.value === 'restore'
     }, {
@@ -1353,7 +1370,7 @@ return (_ctx, _cache) => {
               ]),
               default: _withCtx(() => [
                 _createVNode(_component_VCardTitle, null, {
-                  default: _withCtx(() => [...(_cache[81] || (_cache[81] = [
+                  default: _withCtx(() => [...(_cache[83] || (_cache[83] = [
                     _createTextVNode("选择性恢复预检", -1)
                   ]))]),
                   _: 1
@@ -1381,44 +1398,44 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }, 8, ["type"]),
-                _createElementVNode("div", _hoisted_56, [
+                _createElementVNode("div", _hoisted_54, [
                   _createElementVNode("div", null, [
-                    _cache[82] || (_cache[82] = _createElementVNode("span", null, "来源版本", -1)),
+                    _cache[84] || (_cache[84] = _createElementVNode("span", null, "来源版本", -1)),
                     _createElementVNode("strong", null, _toDisplayString(preview.value?.manifest?.source_mp_version || '未知'), 1)
                   ]),
                   _createElementVNode("div", null, [
-                    _cache[83] || (_cache[83] = _createElementVNode("span", null, "数据库模式", -1)),
-                    _createElementVNode("strong", null, _toDisplayString(preview.value?.database_restore_mode === 'offline' ? '整库仅离线' : '无整库快照'), 1)
+                    _cache[85] || (_cache[85] = _createElementVNode("span", null, "数据库模式", -1)),
+                    _createElementVNode("strong", null, _toDisplayString(preview.value?.database_restore_mode === 'host_managed' ? '主程序托管' : '历史离线包'), 1)
                   ]),
                   _createElementVNode("div", null, [
-                    _cache[84] || (_cache[84] = _createElementVNode("span", null, "外层校验", -1)),
+                    _cache[86] || (_cache[86] = _createElementVNode("span", null, "外层校验", -1)),
                     _createElementVNode("strong", null, _toDisplayString(preview.value?.verified_files?.length || 0) + " 个文件", 1)
                   ]),
                   _createElementVNode("div", null, [
-                    _cache[85] || (_cache[85] = _createElementVNode("span", null, "插件范围", -1)),
+                    _cache[87] || (_cache[87] = _createElementVNode("span", null, "插件范围", -1)),
                     _createElementVNode("strong", null, _toDisplayString(preview.value?.manifest?.selected_plugin_ids?.length || 0) + " 个", 1)
                   ])
                 ]),
-                _createElementVNode("div", _hoisted_57, "在线恢复哪些内容 · 已选 " + _toDisplayString(restoreScopeCount.value) + " 项", 1),
-                _cache[91] || (_cache[91] = _createElementVNode("div", { class: "bc-muted bc-scope-explain" }, "只能恢复这份备份里实际保存过的内容；可以只选一项，也可以按需多选。", -1)),
-                _createElementVNode("div", _hoisted_58, [
-                  _createElementVNode("section", _hoisted_59, [
-                    _cache[86] || (_cache[86] = _createElementVNode("div", { class: "bc-scope-group-title" }, "MoviePilot", -1)),
+                _createElementVNode("div", _hoisted_55, "在线恢复哪些内容 · 已选 " + _toDisplayString(restoreScopeCount.value) + " 项", 1),
+                _cache[93] || (_cache[93] = _createElementVNode("div", { class: "bc-muted bc-scope-explain" }, "只能恢复这份备份里实际保存过的内容；可以只选一项，也可以按需多选。", -1)),
+                _createElementVNode("div", _hoisted_56, [
+                  _createElementVNode("section", _hoisted_57, [
+                    _cache[88] || (_cache[88] = _createElementVNode("div", { class: "bc-scope-group-title" }, "MoviePilot", -1)),
                     _createVNode(_component_VCheckbox, {
                       modelValue: restoreForm.selection.mpSettings,
-                      "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((restoreForm.selection.mpSettings) = $event)),
+                      "onUpdate:modelValue": _cache[20] || (_cache[20] = $event => ((restoreForm.selection.mpSettings) = $event)),
                       label: "恢复 MoviePilot 配置",
                       disabled: !restoreAvailable.value.mpSettings,
                       density: "compact",
                       "hide-details": ""
                     }, null, 8, ["modelValue", "disabled"]),
-                    _cache[87] || (_cache[87] = _createElementVNode("div", { class: "bc-muted px-2 pb-2" }, "恢复非插件系统设置，不包含 app.env 和插件安装清单。", -1))
+                    _cache[89] || (_cache[89] = _createElementVNode("div", { class: "bc-muted px-2 pb-2" }, "恢复非插件系统设置，不包含 app.env 和插件安装清单。", -1))
                   ]),
-                  _createElementVNode("section", _hoisted_60, [
-                    _cache[88] || (_cache[88] = _createElementVNode("div", { class: "bc-scope-group-title" }, "插件", -1)),
+                  _createElementVNode("section", _hoisted_58, [
+                    _cache[90] || (_cache[90] = _createElementVNode("div", { class: "bc-scope-group-title" }, "插件", -1)),
                     _createVNode(_component_VCheckbox, {
                       modelValue: restoreForm.selection.pluginSettings,
-                      "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((restoreForm.selection.pluginSettings) = $event)),
+                      "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((restoreForm.selection.pluginSettings) = $event)),
                       label: "恢复插件配置",
                       disabled: !restoreAvailable.value.pluginSettings,
                       density: "compact",
@@ -1426,18 +1443,18 @@ return (_ctx, _cache) => {
                     }, null, 8, ["modelValue", "disabled"]),
                     _createVNode(_component_VCheckbox, {
                       modelValue: restoreForm.selection.pluginData,
-                      "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((restoreForm.selection.pluginData) = $event)),
+                      "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((restoreForm.selection.pluginData) = $event)),
                       label: "恢复插件数据",
                       disabled: !restoreAvailable.value.pluginData,
                       density: "compact",
                       "hide-details": ""
                     }, null, 8, ["modelValue", "disabled"]),
-                    _cache[89] || (_cache[89] = _createElementVNode("div", { class: "bc-muted px-2 pb-2" }, "先在下方选择插件；数据包含 PluginData、插件文件和缓存。", -1))
+                    _cache[91] || (_cache[91] = _createElementVNode("div", { class: "bc-muted px-2 pb-2" }, "先在下方选择插件；数据包含 PluginData、插件文件和缓存。", -1))
                   ])
                 ]),
                 _createVNode(_component_VSelect, {
                   modelValue: restoreForm.pluginIds,
-                  "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((restoreForm.pluginIds) = $event)),
+                  "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((restoreForm.pluginIds) = $event)),
                   items: restorePluginOptions.value,
                   "item-title": "title",
                   "item-value": "value",
@@ -1454,7 +1471,7 @@ return (_ctx, _cache) => {
                   ? (_openBlock(), _createBlock(_component_VTextField, {
                       key: 0,
                       modelValue: restoreForm.password,
-                      "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((restoreForm.password) = $event)),
+                      "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((restoreForm.password) = $event)),
                       label: "备份口令",
                       type: "password",
                       density: "compact",
@@ -1472,8 +1489,8 @@ return (_ctx, _cache) => {
                   density: "compact",
                   class: "mt-4"
                 }, {
-                  default: _withCtx(() => [...(_cache[90] || (_cache[90] = [
-                    _createTextVNode(" 恢复时会停用目标插件并自动重载；失败项会单独列出。完整数据库和 app.env 不会在线恢复。 ", -1)
+                  default: _withCtx(() => [...(_cache[92] || (_cache[92] = [
+                    _createTextVNode(" 恢复时会先创建宿主数据库恢复点，再停用目标插件并自动重载；数据库文件与 app.env 不会在线替换。 ", -1)
                   ]))]),
                   _: 1
                 })
@@ -1486,9 +1503,9 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VSpacer),
                 _createVNode(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[26] || (_cache[26] = $event => (restoreDialog.value = false))
+                  onClick: _cache[25] || (_cache[25] = $event => (restoreDialog.value = false))
                 }, {
-                  default: _withCtx(() => [...(_cache[92] || (_cache[92] = [
+                  default: _withCtx(() => [...(_cache[94] || (_cache[94] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -1502,7 +1519,7 @@ return (_ctx, _cache) => {
                   loading: actionLoading.value === 'restore',
                   onClick: restoreLogical
                 }, {
-                  default: _withCtx(() => [...(_cache[93] || (_cache[93] = [
+                  default: _withCtx(() => [...(_cache[95] || (_cache[95] = [
                     _createTextVNode("确认恢复", -1)
                   ]))]),
                   _: 1
@@ -1518,7 +1535,7 @@ return (_ctx, _cache) => {
     }, 8, ["modelValue", "persistent"]),
     _createVNode(_component_VDialog, {
       modelValue: guideDialog.value,
-      "onUpdate:modelValue": _cache[30] || (_cache[30] = $event => ((guideDialog).value = $event)),
+      "onUpdate:modelValue": _cache[29] || (_cache[29] = $event => ((guideDialog).value = $event)),
       "max-width": "900"
     }, {
       default: _withCtx(() => [
@@ -1536,11 +1553,11 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VBtn, {
                   icon: "mdi-close",
                   variant: "text",
-                  onClick: _cache[28] || (_cache[28] = $event => (guideDialog.value = false))
+                  onClick: _cache[27] || (_cache[27] = $event => (guideDialog.value = false))
                 }, {
                   default: _withCtx(() => [
                     _createVNode(_component_VTooltip, { activator: "parent" }, {
-                      default: _withCtx(() => [...(_cache[95] || (_cache[95] = [
+                      default: _withCtx(() => [...(_cache[97] || (_cache[97] = [
                         _createTextVNode("关闭", -1)
                       ]))]),
                       _: 1
@@ -1551,8 +1568,8 @@ return (_ctx, _cache) => {
               ]),
               default: _withCtx(() => [
                 _createVNode(_component_VCardTitle, null, {
-                  default: _withCtx(() => [...(_cache[94] || (_cache[94] = [
-                    _createTextVNode("离线恢复教程", -1)
+                  default: _withCtx(() => [...(_cache[96] || (_cache[96] = [
+                    _createTextVNode("备份恢复说明", -1)
                   ]))]),
                   _: 1
                 }),
@@ -1566,14 +1583,14 @@ return (_ctx, _cache) => {
               _: 1
             }),
             _createVNode(_component_VDivider),
-            _createElementVNode("div", _hoisted_61, [
+            _createElementVNode("div", _hoisted_59, [
               _createElementVNode("section", null, [
-                _cache[96] || (_cache[96] = _createElementVNode("div", { class: "bc-section-label" }, "恢复教程", -1)),
-                _createElementVNode("pre", _hoisted_62, _toDisplayString(guide.value?.guide || ''), 1)
+                _cache[98] || (_cache[98] = _createElementVNode("div", { class: "bc-section-label" }, "恢复教程", -1)),
+                _createElementVNode("pre", _hoisted_60, _toDisplayString(guide.value?.guide || ''), 1)
               ]),
               _createElementVNode("section", null, [
-                _cache[97] || (_cache[97] = _createElementVNode("div", { class: "bc-section-label" }, "恢复核对清单", -1)),
-                _createElementVNode("pre", _hoisted_63, _toDisplayString(guide.value?.checklist || ''), 1)
+                _cache[99] || (_cache[99] = _createElementVNode("div", { class: "bc-section-label" }, "恢复核对清单", -1)),
+                _createElementVNode("pre", _hoisted_61, _toDisplayString(guide.value?.checklist || ''), 1)
               ])
             ]),
             _createVNode(_component_VDivider),
@@ -1584,10 +1601,10 @@ return (_ctx, _cache) => {
                   color: "primary",
                   variant: "flat",
                   "prepend-icon": "mdi-download-outline",
-                  onClick: _cache[29] || (_cache[29] = $event => (exportBackup(selectedBackupId.value)))
+                  onClick: _cache[28] || (_cache[28] = $event => (exportBackup(selectedBackupId.value)))
                 }, {
-                  default: _withCtx(() => [...(_cache[98] || (_cache[98] = [
-                    _createTextVNode("下载完整离线包", -1)
+                  default: _withCtx(() => [...(_cache[100] || (_cache[100] = [
+                    _createTextVNode("下载备份包", -1)
                   ]))]),
                   _: 1
                 })
@@ -1602,7 +1619,7 @@ return (_ctx, _cache) => {
     }, 8, ["modelValue"]),
     _createVNode(_component_VSnackbar, {
       modelValue: feedback.show,
-      "onUpdate:modelValue": _cache[31] || (_cache[31] = $event => ((feedback.show) = $event)),
+      "onUpdate:modelValue": _cache[30] || (_cache[30] = $event => ((feedback.show) = $event)),
       color: feedback.color,
       timeout: "6000"
     }, {
@@ -1611,11 +1628,11 @@ return (_ctx, _cache) => {
       ]),
       _: 1
     }, 8, ["modelValue", "color"])
-  ]))
+  ], 512))
 }
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b110e996"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-777ac6bd"]]);
 
 export { Page as default };

@@ -13,11 +13,11 @@ class ScopeError(ValueError):
 class BackupScope:
     """描述一份备份中包含的数据类别。"""
 
-    mp_settings: bool = True
+    mp_settings: bool = False
     plugin_settings: bool = True
     plugin_data: bool = True
     plugin_files: bool = True
-    app_env: bool = True
+    app_env: bool = False
     cookies: bool = False
     database: bool = False
 
@@ -26,21 +26,27 @@ class BackupScope:
         """从 API 请求体构造经过默认值归一化的备份范围。"""
         raw = payload or {}
         scope = cls(
-            mp_settings=bool(raw.get("mp_settings", True)),
+            mp_settings=bool(raw.get("mp_settings", False)),
             plugin_settings=bool(raw.get("plugin_settings", True)),
             plugin_data=bool(raw.get("plugin_data", True)),
             plugin_files=bool(raw.get("plugin_files", True)),
-            app_env=bool(raw.get("app_env", True)),
+            app_env=bool(raw.get("app_env", False)),
             cookies=bool(raw.get("cookies", False)),
             database=bool(raw.get("database", False)),
         )
+        if scope.database:
+            raise ScopeError("完整数据库备份由 MoviePilot 主程序管理")
         if not any(asdict(scope).values()):
             raise ScopeError("至少选择一项备份内容")
         return scope
 
     def to_dict(self) -> Dict[str, bool]:
         """返回可安全写入 manifest 的范围字典。"""
-        return asdict(self)
+        return {
+            key: value
+            for key, value in asdict(self).items()
+            if key != "database"
+        }
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,8 @@ class ManualBackupSelection:
             cookies=bool(raw.get("cookies", False)),
             database=bool(raw.get("database", False)),
         )
+        if selection.database:
+            raise ScopeError("完整数据库备份由 MoviePilot 主程序管理")
         if normalized_target == "plugin" and not (
             selection.configuration or selection.data
         ):
@@ -91,7 +99,6 @@ class ManualBackupSelection:
                 selection.plugin_files,
                 selection.app_env,
                 selection.cookies,
-                selection.database,
             )
         ):
             raise ScopeError("至少选择一项备份内容")
@@ -107,7 +114,7 @@ class ManualBackupSelection:
                 plugin_files=self.plugin_files,
                 app_env=self.app_env,
                 cookies=self.cookies,
-                database=self.database,
+                database=False,
             )
         return BackupScope(
             mp_settings=False,

@@ -1,10 +1,7 @@
-"""创建 MoviePilot 逻辑备份与整库离线恢复包。"""
+"""创建 MoviePilot 逻辑备份包。"""
 
-import os
 import re
 import shutil
-import sqlite3
-import subprocess
 import tempfile
 import uuid
 import zipfile
@@ -23,13 +20,13 @@ from .offline_guide_service import OfflineGuideService
 
 
 class BackupServiceError(RuntimeError):
-    """表示备份创建、快照或包校验失败。"""
+    """表示备份创建或包校验失败。"""
 
 
 class BackupService:
     """从宿主配置、插件数据和标准目录构造可选加密备份包。"""
 
-    _format_version = 2
+    _format_version = 3
     _backup_kind_labels = {
         "manual": "手动备份",
         "automatic": "自动备份",
@@ -107,72 +104,6 @@ class BackupService:
                 count += 1
         return count
 
-    def _snapshot_sqlite(self, destination: Path) -> Dict[str, Any]:
-        """通过 SQLite Online Backup API 创建一致性数据库快照。"""
-        source = Path(self.settings.CONFIG_PATH) / "user.db"
-        if not source.is_file():
-            raise BackupServiceError("SQLite 数据库文件不存在")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            source_uri = f"file:{source.as_posix()}?mode=ro"
-            with sqlite3.connect(source_uri, uri=True) as source_db:
-                with sqlite3.connect(destination) as destination_db:
-                    source_db.backup(destination_db)
-        except sqlite3.Error as error:
-            destination.unlink(missing_ok=True)
-            raise BackupServiceError("创建 SQLite 一致性快照失败") from error
-        return {"type": "sqlite", "file": "database/user.db"}
-
-    def _snapshot_postgresql(self, destination: Path) -> Dict[str, Any]:
-        """使用 pg_dump -Fc 创建 PostgreSQL 一致性归档。"""
-        pg_dump = shutil.which("pg_dump")
-        if not pg_dump:
-            raise BackupServiceError("未找到 pg_dump，无法创建 PostgreSQL 备份")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        command = [
-            pg_dump,
-            "-Fc",
-            "--no-owner",
-            "--file",
-            str(destination),
-            "--host",
-            str(self.settings.DB_POSTGRESQL_HOST),
-            "--port",
-            str(self.settings.DB_POSTGRESQL_PORT),
-            "--username",
-            str(self.settings.DB_POSTGRESQL_USERNAME),
-            str(self.settings.DB_POSTGRESQL_DATABASE),
-        ]
-        environment = os.environ.copy()
-        environment["PGPASSWORD"] = str(self.settings.DB_POSTGRESQL_PASSWORD or "")
-        try:
-            result = subprocess.run(
-                command,
-                env=environment,
-                capture_output=True,
-                text=True,
-                timeout=60 * 30,
-                check=False,
-            )
-        except OSError as error:
-            destination.unlink(missing_ok=True)
-            raise BackupServiceError("无法启动 pg_dump") from error
-        finally:
-            environment.pop("PGPASSWORD", None)
-        if result.returncode != 0:
-            destination.unlink(missing_ok=True)
-            raise BackupServiceError("pg_dump 失败，请检查数据库连接、权限和客户端版本")
-        return {"type": "postgresql", "file": "database/moviepilot.dump"}
-
-    def _snapshot_database(self, destination: Path) -> Dict[str, Any]:
-        """按宿主数据库类型创建完整数据库快照。"""
-        database_type = str(self.settings.DB_TYPE or "sqlite").lower()
-        if database_type == "sqlite":
-            return self._snapshot_sqlite(destination / "user.db")
-        if database_type == "postgresql":
-            return self._snapshot_postgresql(destination / "moviepilot.dump")
-        raise BackupServiceError(f"不支持的数据库类型：{database_type}")
-
     @staticmethod
     def _zip_payload(payload_root: Path, destination: Path) -> None:
         """将已准备的负载目录压缩为临时 ZIP，不暴露到最终备份包。"""
@@ -223,8 +154,16 @@ class BackupService:
         else:
             plugin_id = selected_ids[0] if selected_ids else "未命名插件"
             subject_name = str((plugin_names or {}).get(plugin_id) or plugin_id).strip()
-        has_configuration = bool(scope and (scope.mp_settings or scope.plugin_settings or scope.app_env or scope.cookies))
-        has_data = bool(scope and (scope.plugin_data or scope.plugin_files or scope.database))
+        has_configuration = bool(
+            scope
+            and (
+                scope.mp_settings
+                or scope.plugin_settings
+                or scope.app_env
+                or scope.cookies
+            )
+        )
+        has_data = bool(scope and (scope.plugin_data or scope.plugin_files))
         if has_configuration and has_data:
             content_label = "配置和数据"
         elif has_configuration:
@@ -291,6 +230,8 @@ class BackupService:
         """创建明文或加密校验备份包并返回公开 manifest。"""
         if backup_kind not in {"manual", "automatic", "emergency"}:
             raise BackupServiceError("备份类型无效")
+        if scope.database:
+            raise BackupServiceError("完整数据库备份由 MoviePilot 主程序管理")
         if emergency:
             backup_kind = "emergency"
         config = self.plugin.systemconfig.all()
@@ -335,7 +276,6 @@ class BackupService:
             "plugin_files": 0,
             "cookies": 0,
         }
-        database: Dict[str, Any] = {"type": "none", "included": False}
         try:
             with tempfile.TemporaryDirectory(prefix=".payload-", dir=backup_root) as temporary:
                 temporary_root = Path(temporary)
@@ -348,7 +288,6 @@ class BackupService:
                     "display_name": normalized_display_name,
                     "created_at": created_at.isoformat(),
                     "source_mp_version": APP_VERSION,
-                    "database_type": str(self.settings.DB_TYPE or "sqlite").lower(),
                     "scope": scope.to_dict(),
                     "selected_plugin_ids": selected_ids,
                     "selected_plugins": selected_plugins,
@@ -400,11 +339,7 @@ class BackupService:
                     content_counts["cookies"] = self._copy_tree(
                         Path(self.settings.COOKIE_PATH), payload_root / "files" / "cookies"
                     )
-                if scope.database:
-                    database = self._snapshot_database(payload_root / "database")
-                    database["included"] = True
                 private_manifest["content_counts"] = content_counts
-                private_manifest["database"] = database
                 self._write_payload_json(payload_root / "manifest.json", private_manifest)
                 guide = OfflineGuideService.build_guide(private_manifest)
                 checklist = OfflineGuideService.build_checklist(private_manifest)
@@ -431,7 +366,6 @@ class BackupService:
                 "display_name": normalized_display_name,
                 "created_at": created_at.isoformat(),
                 "source_mp_version": APP_VERSION,
-                "database": database,
                 "scope": scope.to_dict(),
                 "selected_plugin_ids": selected_ids,
                 "selected_plugins": selected_plugins,
@@ -441,7 +375,6 @@ class BackupService:
                 "manual_target": normalized_manual_target if backup_kind == "manual" else None,
                 "encryption": encryption,
                 "encrypted": bool(normalized_password),
-                "offline_database_restore_required": bool(scope.database),
             }
             ManifestService.write_json(backup_path / "manifest.public.json", public_manifest)
             (backup_path / "RECOVERY-GUIDE.md").write_text(

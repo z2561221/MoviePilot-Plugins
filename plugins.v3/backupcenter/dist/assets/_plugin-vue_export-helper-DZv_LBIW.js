@@ -89,7 +89,7 @@ async function downloadBackup(api, backupId, downloadName = '') {
     anchor.remove();
     URL.revokeObjectURL(url);
   } catch (error) {
-    throw normalizeApiError(error, '离线恢复包下载失败')
+    throw normalizeApiError(error, '备份包下载失败')
   }
 }
 

@@ -89,9 +89,15 @@ sys.modules["app.sdk.logging"] = app_sdk_logging_module
 app_sdk_plugins_module = ModuleType("app.sdk.plugins")
 app_sdk_plugins_module.PluginManager = SimpleNamespace
 sys.modules["app.sdk.plugins"] = app_sdk_plugins_module
+app_sdk_database_module = ModuleType("app.sdk.database")
+app_sdk_database_module.create_backup = lambda: SimpleNamespace(
+    name="db-backup-test.sqlite"
+)
+sys.modules["app.sdk.database"] = app_sdk_database_module
 app_sdk_module.config = app_sdk_config_module
 app_sdk_module.logging = app_sdk_logging_module
 app_sdk_module.plugins = app_sdk_plugins_module
+app_sdk_module.database = app_sdk_database_module
 app_schemas_module = _package("app.schemas", PLUGIN_DIR)
 app_schemas_types_module = ModuleType("app.schemas.types")
 app_schemas_types_module.SystemConfigKey = _SystemConfigKey
@@ -433,6 +439,12 @@ def test_backup_payload_and_export_keep_recovery_tutorials(tmp_path, monkeypatch
         assert "payload/docs/RECOVERY-GUIDE.md" in payload_names
         assert "payload/docs/RECOVERY-CHECKLIST.txt" in payload_names
         assert "payload/manifest.json" in payload_names
+        private_manifest = manifest_module.ManifestService.read_json(
+            Path(payload.extract("payload/manifest.json", tmp_path))
+        )
+        assert private_manifest["format_version"] == 3
+        assert "database" not in private_manifest
+    assert "database" not in manifest
 
     archive_path, archive_name = service.create_export_archive(manifest["backup_id"])
     try:
@@ -447,8 +459,6 @@ def test_backup_payload_and_export_keep_recovery_tutorials(tmp_path, monkeypatch
                 "checksums.sha256",
                 "tools/verify-backup.ps1",
                 "tools/decrypt-backup.py",
-                "tools/restore-sqlite.ps1",
-                "tools/restore-postgresql.ps1",
             ):
                 assert f"{prefix}{relative}" in names
         assert archive_name == "升级前备份.zip"
@@ -543,7 +553,6 @@ def test_manual_backup_selection_defaults_empty_and_maps_both_targets():
         "plugin_files": False,
         "app_env": False,
         "cookies": False,
-        "database": False,
     }
 
     data = backup_model.ManualBackupSelection.from_payload(
@@ -564,7 +573,6 @@ def test_manual_backup_selection_defaults_empty_and_maps_both_targets():
             "cookies": True,
             "plugin_data": True,
             "plugin_files": True,
-            "database": True,
         },
         "moviepilot",
     ).to_backup_scope()
@@ -654,7 +662,6 @@ def test_automatic_bundle_can_restore_one_plugins_data_only(tmp_path, monkeypatc
             "plugin_files": True,
             "app_env": True,
             "cookies": False,
-            "database": False,
         },
         "selected_plugin_ids": ["PluginA", "PluginB"],
         "selected_plugins": [
@@ -715,6 +722,54 @@ def test_automatic_bundle_can_restore_one_plugins_data_only(tmp_path, monkeypatc
     assert restored_plugins == ["PluginA"]
     assert result["restored"]["plugin_data"] == 1
     assert result["reloaded"] == ["PluginA"]
+    assert result["host_database_backup_name"] == "db-backup-test.sqlite"
+
+
+def test_restore_stops_before_plugin_emergency_backup_when_host_backup_fails(
+    tmp_path, monkeypatch
+):
+    """宿主数据库恢复点失败时，不应开始插件应急备份或写入。"""
+    manifest = {
+        "backup_id": "backup-host-failure",
+        "source_mp_version": "v3.0.0",
+        "scope": {"plugin_data": True},
+        "selected_plugin_ids": ["PluginA"],
+    }
+    calls = []
+    backup_service = SimpleNamespace(
+        read_public_manifest=lambda _backup_id: manifest,
+        create_backup=lambda *_args, **_kwargs: calls.append("plugin")
+        or {"backup_id": "backup-emergency"},
+    )
+    service = restore_module.RestoreService(SimpleNamespace(), backup_service)
+
+    @contextmanager
+    def payload_directory(*_args, **_kwargs):
+        yield tmp_path
+
+    monkeypatch.setattr(service, "_payload_directory", payload_directory)
+    monkeypatch.setattr(
+        restore_module.ManifestService,
+        "read_json",
+        lambda _path: manifest,
+    )
+    def fail_host_backup():
+        """模拟宿主管理恢复点创建失败。"""
+        raise restore_module.RestoreServiceError("宿主失败")
+
+    monkeypatch.setattr(
+        restore_module.RestoreService,
+        "_create_host_database_backup",
+        staticmethod(fail_host_backup),
+    )
+
+    with pytest.raises(restore_module.RestoreServiceError, match="宿主失败"):
+        service.restore_logical(
+            backup_id="backup-host-failure",
+            selection=backup_model.RestoreSelection(plugin_data=True),
+            plugin_ids=["PluginA"],
+        )
+    assert calls == []
 
 
 def test_restore_rejects_content_missing_from_backup():
