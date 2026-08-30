@@ -44,28 +44,6 @@ class _SystemConfigKey:
     UserInstalledPlugins = _SystemConfigKeyValue()
 
 
-class _PluginColumn:
-    """记录 SQLAlchemy `in_` 条件值。"""
-
-    def in_(self, values):
-        """返回便于测试断言的过滤条件。"""
-        return tuple(values)
-
-
-class _PluginData:
-    """模拟宿主 PluginData 模型构造行为。"""
-
-    plugin_id = _PluginColumn()
-
-    def __init__(self, plugin_id, key, value):
-        """保存待插入的插件数据字段。"""
-        if key == "raise-constructor":
-            raise RuntimeError("constructor failed")
-        self.plugin_id_value = plugin_id
-        self.key = key
-        self.value = value
-
-
 app_module = _package("app", PLUGIN_DIR)
 app_core_module = _package("app.core", PLUGIN_DIR)
 app_core_config_module = ModuleType("app.core.config")
@@ -103,17 +81,9 @@ app_schemas_types_module = ModuleType("app.schemas.types")
 app_schemas_types_module.SystemConfigKey = _SystemConfigKey
 sys.modules["app.schemas.types"] = app_schemas_types_module
 app_schemas_module.types = app_schemas_types_module
-app_db_module = _package("app.db", PLUGIN_DIR)
-app_db_module.ScopedSession = None
-app_db_models_module = _package("app.db.models", PLUGIN_DIR)
-app_db_plugindata_module = ModuleType("app.db.models.plugindata")
-app_db_plugindata_module.PluginData = _PluginData
-sys.modules["app.db.models.plugindata"] = app_db_plugindata_module
-app_db_models_module.plugindata = app_db_plugindata_module
 app_module.core = app_core_module
 app_module.sdk = app_sdk_module
 app_module.schemas = app_schemas_module
-app_module.db = app_db_module
 apscheduler_module = _package("apscheduler", PLUGIN_DIR)
 apscheduler_triggers_module = _package("apscheduler.triggers", PLUGIN_DIR)
 apscheduler_cron_module = ModuleType("apscheduler.triggers.cron")
@@ -188,14 +158,6 @@ class _SystemConfig:
         return {"UserInstalledPlugins": ["DemoPlugin"], "Language": "zh-CN"}
 
 
-class _PluginDataOper:
-    """提供备份创建所需的 PluginData 读取接口。"""
-
-    def get_data_all(self, plugin_id):
-        """返回指定插件的空数据集合。"""
-        return []
-
-
 class _Plugin:
     """提供备份服务所需的最小插件宿主接口。"""
 
@@ -203,8 +165,9 @@ class _Plugin:
         """初始化临时数据目录和持久化记录。"""
         self.root = root
         self.systemconfig = _SystemConfig()
-        self.plugindata = _PluginDataOper()
         self.records = {}
+        self.plugin_records = {}
+        self.fail_on_save = None
 
     def get_data_path(self):
         """返回插件测试数据目录。"""
@@ -212,17 +175,35 @@ class _Plugin:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def get_data(self, key):
-        """读取测试持久化记录。"""
-        return self.records.get(key)
+    def get_data(self, key=None, plugin_id=None):
+        """读取自身记录或指定插件的公开数据行。"""
+        if plugin_id is None:
+            return self.records.get(key) if key is not None else []
+        values = self.plugin_records.setdefault(plugin_id, {})
+        if key is not None:
+            return values.get(key)
+        return [
+            SimpleNamespace(key=item_key, value=value)
+            for item_key, value in values.items()
+        ]
 
-    def save_data(self, key, value):
-        """保存测试持久化记录。"""
-        self.records[key] = value
+    def save_data(self, key, value, plugin_id=None):
+        """保存自身记录或指定插件数据，并支持注入失败。"""
+        if key == self.fail_on_save:
+            raise RuntimeError("injected save failure")
+        if plugin_id is None:
+            self.records[key] = value
+        else:
+            self.plugin_records.setdefault(plugin_id, {})[key] = value
 
-    def del_data(self, key):
-        """删除测试持久化记录。"""
-        self.records.pop(key, None)
+    def del_data(self, key, plugin_id=None):
+        """删除自身记录或指定插件数据。"""
+        target = (
+            self.records
+            if plugin_id is None
+            else self.plugin_records.setdefault(plugin_id, {})
+        )
+        target.pop(key, None)
 
 
 def test_operation_log_records_success_failure_and_sanitizes(tmp_path, monkeypatch):
@@ -309,77 +290,6 @@ def test_operation_log_keeps_latest_200_and_skips_corrupt_data(tmp_path):
     assert len(sanitized) == 1
     assert "hidden-value" not in sanitized[0]["message"]
     assert "/config/private" not in sanitized[0]["message"]
-
-
-class _Query:
-    """记录事务中的查询、过滤和删除调用。"""
-
-    def __init__(self, session):
-        """绑定测试会话。"""
-        self.session = session
-
-    def filter(self, condition):
-        """记录目标插件 ID。"""
-        self.session.filtered = condition
-        return self
-
-    def delete(self, synchronize_session=False):
-        """记录删除调用且不提交。"""
-        self.session.deleted = True
-        self.session.synchronize_session = synchronize_session
-
-
-class _Session:
-    """模拟 SQLAlchemy 会话的事务状态。"""
-
-    def __init__(self):
-        """初始化事务观测字段。"""
-        self.filtered = None
-        self.deleted = False
-        self.added = []
-        self.commits = 0
-        self.rollbacks = 0
-        self.closed = 0
-
-    def query(self, model):
-        """返回测试查询对象。"""
-        assert model is _PluginData
-        return _Query(self)
-
-    def add_all(self, rows):
-        """消费待写入行，模拟 SQLAlchemy 收集对象。"""
-        self.added.extend(list(rows))
-
-    def commit(self):
-        """记录唯一提交。"""
-        self.commits += 1
-
-    def rollback(self):
-        """记录回滚。"""
-        self.rollbacks += 1
-
-    def close(self):
-        """记录会话关闭。"""
-        self.closed += 1
-
-
-class _ScopedSessionFactory:
-    """模拟宿主 ScopedSession 工厂和 remove 接口。"""
-
-    def __init__(self, session):
-        """保存即将返回的测试会话。"""
-        self.session = session
-        self.calls = 0
-        self.removes = 0
-
-    def __call__(self):
-        """返回测试会话。"""
-        self.calls += 1
-        return self.session
-
-    def remove(self):
-        """记录 scoped session 清理。"""
-        self.removes += 1
 
 
 def _service_settings(root: Path):
@@ -928,8 +838,8 @@ def test_automatic_retention_deletes_only_old_automatic_backups(tmp_path):
     assert not (service.get_backup_root() / "backup-auto-old").exists()
 
 
-def test_plugin_data_restore_commits_all_selected_plugins_once(tmp_path, monkeypatch):
-    """多个插件的 PluginData 删除和重建只提交一次事务。"""
+def test_plugin_data_restore_replaces_all_selected_plugins_via_public_api(tmp_path):
+    """多个插件的数据通过公开接口替换，未选插件保持不变。"""
     payload = tmp_path / "payload"
     manifest_module.ManifestService.write_json(
         payload / "plugin_data.json",
@@ -938,72 +848,64 @@ def test_plugin_data_restore_commits_all_selected_plugins_once(tmp_path, monkeyp
             "PluginB": [{"key": "two", "value": [1, 2]}],
         },
     )
-    session = _Session()
-    factory = _ScopedSessionFactory(session)
-    monkeypatch.setattr(restore_module, "ScopedSession", factory)
-    monkeypatch.setattr(restore_module, "PluginData", _PluginData)
-    service = restore_module.RestoreService(SimpleNamespace(), SimpleNamespace())
+    plugin = _Plugin(tmp_path)
+    plugin.plugin_records = {
+        "PluginA": {"old": 1},
+        "PluginB": {"old": 2},
+        "PluginC": {"keep": 3},
+    }
+    service = restore_module.RestoreService(plugin, SimpleNamespace())
 
     restored = service._restore_plugin_data(payload, ["PluginA", "PluginB"])
 
     assert restored == 2
-    assert session.filtered == ("PluginA", "PluginB")
-    assert session.deleted is True
-    assert session.synchronize_session is False
-    assert session.commits == 1
-    assert session.rollbacks == 0
-    assert session.closed == 1
-    assert factory.removes == 1
-    assert [(row.plugin_id_value, row.key) for row in session.added] == [
-        ("PluginA", "one"),
-        ("PluginB", "two"),
-    ]
+    assert plugin.plugin_records == {
+        "PluginA": {"one": {"count": 1}},
+        "PluginB": {"two": [1, 2]},
+        "PluginC": {"keep": 3},
+    }
 
 
-def test_plugin_data_restore_rolls_back_when_any_row_fails(tmp_path, monkeypatch):
-    """任一 PluginData 行构造失败时回滚且不提交。"""
+def test_plugin_data_restore_rolls_back_when_any_write_fails(tmp_path):
+    """任一公开接口写入失败时恢复所有目标插件快照。"""
     payload = tmp_path / "payload"
     manifest_module.ManifestService.write_json(
         payload / "plugin_data.json",
         {
             "PluginA": [
                 {"key": "one", "value": 1},
-                {"key": "raise-constructor", "value": 2},
+                {"key": "fail", "value": 2},
             ]
         },
     )
-    session = _Session()
-    factory = _ScopedSessionFactory(session)
-    monkeypatch.setattr(restore_module, "ScopedSession", factory)
-    monkeypatch.setattr(restore_module, "PluginData", _PluginData)
-    service = restore_module.RestoreService(SimpleNamespace(), SimpleNamespace())
+    plugin = _Plugin(tmp_path)
+    plugin.plugin_records = {"PluginA": {"old": {"enabled": True}}}
+    original = copy.deepcopy(plugin.plugin_records)
+    plugin.fail_on_save = "fail"
+    service = restore_module.RestoreService(plugin, SimpleNamespace())
 
-    with pytest.raises(RuntimeError, match="constructor failed"):
+    with pytest.raises(restore_module.RestoreServiceError, match="已自动回滚"):
         service._restore_plugin_data(payload, ["PluginA"])
 
-    assert session.commits == 0
-    assert session.rollbacks == 1
-    assert session.closed == 1
-    assert factory.removes == 1
+    assert plugin.plugin_records == original
 
 
-def test_invalid_plugin_data_is_rejected_before_transaction(tmp_path, monkeypatch):
-    """插件数据格式错误时不得打开删除事务。"""
+def test_invalid_plugin_data_is_rejected_before_public_api_writes(tmp_path):
+    """插件数据格式错误时不得修改宿主公开数据。"""
     payload = tmp_path / "payload"
     manifest_module.ManifestService.write_json(
         payload / "plugin_data.json",
         {"PluginA": [{"key": "", "value": "invalid"}]},
     )
-    session = _Session()
-    factory = _ScopedSessionFactory(session)
-    monkeypatch.setattr(restore_module, "ScopedSession", factory)
-    service = restore_module.RestoreService(SimpleNamespace(), SimpleNamespace())
+    plugin = _Plugin(tmp_path)
+    plugin.plugin_records = {"PluginA": {"old": 1}}
+    original = copy.deepcopy(plugin.plugin_records)
+    service = restore_module.RestoreService(plugin, SimpleNamespace())
 
     with pytest.raises(restore_module.RestoreServiceError, match="插件数据项无效"):
         service._restore_plugin_data(payload, ["PluginA"])
 
-    assert factory.calls == 0
-    assert session.deleted is False
+    assert plugin.plugin_records == original
 
 
 def test_restore_selection_and_private_manifest_are_boundary_checked():

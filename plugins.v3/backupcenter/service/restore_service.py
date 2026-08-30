@@ -9,8 +9,6 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, Iterator, List, Tuple
 
-from app.db import ScopedSession
-from app.db.models.plugindata import PluginData
 from app.sdk.database import create_backup as create_database_backup
 from version import APP_VERSION
 
@@ -18,6 +16,7 @@ from ..model.backup import BackupScope, RestoreSelection, normalize_plugin_ids
 from .backup_service import BackupService, BackupServiceError
 from .crypto_service import BackupCryptoError, CryptoService
 from .manifest_service import ManifestError, ManifestService
+from .plugin_data import normalize_plugin_data_rows
 
 
 class RestoreServiceError(RuntimeError):
@@ -187,7 +186,7 @@ class RestoreService:
     def _validated_plugin_data_rows(
         self, payload_root: Path, plugin_ids: Iterable[str]
     ) -> Tuple[List[str], List[Tuple[str, str, Any]]]:
-        """在开启写事务前验证并展开全部 PluginData 行。"""
+        """在修改宿主数据前验证并展开全部 PluginData 行。"""
         data = self._read_optional_json(payload_root / "plugin_data.json")
         included_ids: List[str] = []
         validated: List[Tuple[str, str, Any]] = []
@@ -204,26 +203,51 @@ class RestoreService:
                 validated.append((plugin_id, str(row["key"]), row.get("value")))
         return included_ids, validated
 
-    def _restore_plugin_data(self, payload_root: Path, plugin_ids: Iterable[str]) -> int:
-        """在单一 SQLAlchemy 事务中替换全部选中插件的 PluginData。"""
-        included_ids, rows = self._validated_plugin_data_rows(payload_root, plugin_ids)
-        session = ScopedSession()
+    def _read_plugin_data_rows(self, plugin_id: str) -> List[Tuple[str, Any]]:
+        """通过宿主公开插件接口读取一个插件的全部数据。"""
         try:
-            if included_ids:
-                session.query(PluginData).filter(
-                    PluginData.plugin_id.in_(included_ids)
-                ).delete(synchronize_session=False)
-            session.add_all(
-                PluginData(plugin_id=plugin_id, key=key, value=value)
-                for plugin_id, key, value in rows
+            return normalize_plugin_data_rows(
+                self.plugin.get_data(plugin_id=plugin_id), plugin_id
             )
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
-            ScopedSession.remove()
+        except ValueError as error:
+            raise RestoreServiceError(str(error)) from error
+
+    def _clear_plugin_data(self, plugin_ids: Iterable[str]) -> None:
+        """通过宿主公开插件接口删除目标插件的全部数据键。"""
+        for plugin_id in plugin_ids:
+            for key, _ in self._read_plugin_data_rows(plugin_id):
+                self.plugin.del_data(key, plugin_id=plugin_id)
+
+    def _write_plugin_data(self, rows: Iterable[Tuple[str, str, Any]]) -> None:
+        """通过宿主公开插件接口逐项写入已经验证的数据。"""
+        for plugin_id, key, value in rows:
+            self.plugin.save_data(key, value, plugin_id=plugin_id)
+
+    def _restore_plugin_data(self, payload_root: Path, plugin_ids: Iterable[str]) -> int:
+        """替换目标插件数据，失败时使用写入前快照补偿回滚。"""
+        included_ids, rows = self._validated_plugin_data_rows(payload_root, plugin_ids)
+        snapshots = {
+            plugin_id: self._read_plugin_data_rows(plugin_id)
+            for plugin_id in included_ids
+        }
+        try:
+            self._clear_plugin_data(included_ids)
+            self._write_plugin_data(rows)
+        # 任意宿主写入异常都必须进入补偿回滚。
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            try:
+                self._clear_plugin_data(included_ids)
+                rollback_rows = (
+                    (plugin_id, key, value)
+                    for plugin_id in included_ids
+                    for key, value in snapshots[plugin_id]
+                )
+                self._write_plugin_data(rollback_rows)
+            except Exception as rollback_error:
+                raise RestoreServiceError(
+                    "插件数据恢复失败且自动回滚失败，请使用应急备份回退"
+                ) from rollback_error
+            raise RestoreServiceError("插件数据恢复失败，已自动回滚") from error
         return len(rows)
 
     def _restore_plugin_files(self, payload_root: Path, plugin_ids: Iterable[str]) -> List[str]:

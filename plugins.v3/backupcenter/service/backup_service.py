@@ -17,6 +17,7 @@ from ..model.backup import BackupScope, ScopeError, normalize_plugin_ids
 from .crypto_service import CryptoService
 from .manifest_service import ManifestError, ManifestService
 from .offline_guide_service import OfflineGuideService
+from .plugin_data import normalize_plugin_data_rows
 
 
 class BackupServiceError(RuntimeError):
@@ -316,9 +317,14 @@ class BackupService:
                 if scope.plugin_data:
                     plugin_data: Dict[str, List[Dict[str, Any]]] = {}
                     for plugin_id in selected_ids:
-                        rows = self.plugin.plugindata.get_data_all(plugin_id) or []
+                        try:
+                            rows = normalize_plugin_data_rows(
+                                self.plugin.get_data(plugin_id=plugin_id), plugin_id
+                            )
+                        except ValueError as error:
+                            raise BackupServiceError(str(error)) from error
                         plugin_data[plugin_id] = [
-                            {"key": row.key, "value": row.value} for row in rows
+                            {"key": key, "value": value} for key, value in rows
                         ]
                         content_counts["plugin_data"] += len(plugin_data[plugin_id])
                     self._write_payload_json(payload_root / "plugin_data.json", plugin_data)

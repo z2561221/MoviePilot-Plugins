@@ -75,7 +75,7 @@ def test_backupcenter_metadata_is_consistent_and_v3_scoped():
     assert "v2" not in package and "v2" not in manifest
     assert package["release"] is True
     assert package["history"] == manifest["history"] == {
-        "v3.0.2": "[1]移除重复整库备份;[2]聚焦插件配置恢复;[3]接入宿主恢复点",
+        "v3.0.2": "[1]聚焦逻辑备份;[2]接入宿主恢复点;[3]恢复失败自动回滚",
         "v3.0.1": "[1]新增运行日志;[2]适配V3接口;[3]修复插件加载",
         "v3.0.0": "[1]备份MP与插件;[2]支持加密校验;[3]附带离线恢复"
     }
@@ -440,7 +440,7 @@ def test_backupcenter_context_records_non_negotiable_restore_boundaries():
         "plugins.v3/backupcenter",
         "v3:false",
         "不修改 MoviePilot 主程序",
-        "ScopedSession",
+        "get_data/save_data/del_data",
         "SystemConfigOper.set()",
         "不承诺跨键全局事务",
         "多个插件目录之间不承诺全局原子性",
