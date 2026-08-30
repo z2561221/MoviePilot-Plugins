@@ -16,7 +16,7 @@ GENERATION_LAYOUTS = {
     },
     "v3": {
         "package_file": "package.v3.json",
-        "local_package_file": None,
+        "local_package_file": "package.local.v3.json",
         "plugins_dir": "plugins.v3",
     },
 }
