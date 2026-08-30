@@ -158,6 +158,35 @@ def test_v3_metadata_version_and_history_are_consistent():
     assert package["history"][history_key].startswith("[1]")
 
 
+def test_v3_market_label_matches_entrypoint_label():
+    """市场 labels 与入口 plugin_label 必须一致，避免本地与在线安装标签不同。"""
+    package = json.loads((REPO_ROOT / "package.v3.json").read_text(encoding="utf-8"))[
+        "AgentRank"
+    ]
+    match = re.search(r'plugin_label\s*=\s*"([^"]+)"', _source("__init__.py"))
+    assert match is not None
+    assert package["labels"] == match.group(1)
+
+
+def test_v3_readme_documents_enablement_gate_and_boundaries():
+    """README 必须说明启用硬门禁、配置要点与排障状态。"""
+    readme = PLUGIN_DIR / "README.md"
+    assert readme.is_file()
+    text = readme.read_text(encoding="utf-8")
+    for phrase in (
+        "Playback Reporting",
+        "configuration_error",
+        "not_installed",
+        "permission_error",
+        "emby_unavailable",
+        "transient_error",
+        "recommendation_incomplete",
+        "candidate_pool_size",
+        ">= 3.0.0",
+    ):
+        assert phrase in text
+
+
 def test_per_user_domain_and_storage_contract_exists():
     """User/run scoped domain records and the storage boundary must be explicit."""
     required_modules = {

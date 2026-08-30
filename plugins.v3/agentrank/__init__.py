@@ -19,7 +19,7 @@ class AgentRank(_PluginBase):
     plugin_icon = "agentresourceofficer.png"
     plugin_color = "#7C4DFF"
     plugin_version = "3.0.3"
-    plugin_label = "智能推荐"
+    plugin_label = "智能推荐,发现"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "agentrank_"
