@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from types import SimpleNamespace
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -45,6 +45,32 @@ def test_runner_skips_orphaned_generation_tests(tmp_path: Path, capsys) -> None:
 
     assert targets == [valid_tests]
     assert "跳过无源码测试目录" in capsys.readouterr().err
+
+
+def test_runner_isolates_each_generation_target(monkeypatch) -> None:
+    """代际中的每个测试目标必须使用独立 pytest 进程。"""
+    module = _load_test_runner_module()
+    targets = [Path("tests/v3/agentrank"), Path("tests/v3/doubancenter")]
+    calls = []
+
+    monkeypatch.setattr(module, "_generation_targets", lambda _generation: targets)
+    monkeypatch.setattr(
+        module.subprocess,
+        "call",
+        lambda command, cwd: calls.append((command, cwd)) or 0,
+    )
+
+    assert module._run_generation("v3", ["-q"]) == 0
+    assert calls == [
+        (
+            [sys.executable, "-m", "pytest", str(targets[0]), "-q"],
+            str(module._REPO_ROOT),
+        ),
+        (
+            [sys.executable, "-m", "pytest", str(targets[1]), "-q"],
+            str(module._REPO_ROOT),
+        ),
+    ]
 
 
 def test_bootstrap_supports_current_and_legacy_network_guard_modules(monkeypatch) -> None:

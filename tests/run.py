@@ -46,14 +46,18 @@ def _generation_targets(
 
 
 def _run_generation(generation: str, extra_args: list) -> int:
-    """在独立子进程运行一个测试分组；该分组无用例则跳过、返回 0。"""
+    """在每个测试目标的独立子进程运行一个代际分组。"""
     targets = _generation_targets(generation)
     if not targets:
         return 0
-    return subprocess.call(
-        [sys.executable, "-m", "pytest", *(str(path) for path in targets), *extra_args],
-        cwd=str(_REPO_ROOT),
-    )
+    exit_code = 0
+    for target in targets:
+        rc = subprocess.call(
+            [sys.executable, "-m", "pytest", str(target), *extra_args],
+            cwd=str(_REPO_ROOT),
+        )
+        exit_code = exit_code or rc
+    return exit_code
 
 
 if __name__ == "__main__":
