@@ -399,3 +399,20 @@ def test_iyuu_helper_cache_is_instance_owned() -> None:
 
     assert first._sites is not second._sites
     assert first._sid_sha1 is second._sid_sha1 is None
+
+
+def test_v3_readme_documents_enablement_gates_and_boundaries() -> None:
+    """插件目录必须提供说明，覆盖四项能力门禁与关键边界。"""
+    readme = PLUGIN_ROOT / "README.md"
+
+    assert readme.is_file()
+    content = readme.read_text(encoding="utf-8")
+    for keyword in (
+        "transfer_enabled",
+        "iyuu_token",
+        "speed_monitor_enabled",
+        "upload_limit_downloader_limits_kib",
+        "Transmission",
+        "bear",
+    ):
+        assert keyword in content
