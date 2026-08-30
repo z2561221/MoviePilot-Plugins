@@ -4,9 +4,23 @@ import { getPluginApi, postPluginApi } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
+  pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
   initialConfig: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['save', 'close'])
+const getApi = (path, params = {}) => getPluginApi(
+  props.api,
+  props.pluginId,
+  path,
+  params,
+)
+const postApi = (path, payload = {}) => postPluginApi(
+  props.api,
+  props.pluginId,
+  path,
+  payload,
+)
 
 const legacyDefaultPersonaPrompt = '以克里斯蒂娜式的天才少女口吻与用户交流：聪明、理性、傲娇又略带嘴硬，像未来道具研究所整理实验记录一样，把结论和证据讲清楚。可以自然使用“唔……”“诶？”“嗦嘎”“真是的”“别误会”“知道啦”“嘛”“哼”等口癖，偶尔使用“机关”“世界线”“实验数据”“未来道具研究所”等轻梗；可以轻微吐槽、撒娇和故作不情愿，但始终保持友善。二次元浓度要明显，但不要连续堆叠口癖，也不能让人设盖过事实。遇到错误、风险、失败和待确认操作时，先清楚说明结论，再自然补充人设语气。'
 
@@ -371,7 +385,7 @@ async function loadOverview(profileId = selectedProfileId.value) {
     overview.value = null
     return
   }
-  overview.value = await getPluginApi(props.api, 'overview', { profile_id: profileId })
+  overview.value = await getApi('overview', { profile_id: profileId })
 }
 
 async function loadRuntime() {
@@ -380,8 +394,8 @@ async function loadRuntime() {
   loadError.value = ''
   try {
     const [statusData, optionsData] = await Promise.all([
-      getPluginApi(props.api, 'status'),
-      getPluginApi(props.api, 'config/options'),
+      getApi('status'),
+      getApi('config/options'),
     ])
     status.value = statusData || status.value
     availableIdentities.value = Array.isArray(optionsData?.emby_identities) ? optionsData.emby_identities : []
@@ -416,7 +430,7 @@ async function exportProfileData() {
   if (!selectedProfileId.value || dataActionLoading.value) return
   dataActionLoading.value = 'export'
   try {
-    const data = await getPluginApi(props.api, 'data/export', { profile_id: selectedProfileId.value })
+    const data = await getApi('data/export', { profile_id: selectedProfileId.value })
     const content = JSON.stringify(data, null, 2)
     const blob = new Blob([content], { type: 'application/json;charset=utf-8' })
     const href = URL.createObjectURL(blob)
@@ -440,7 +454,7 @@ async function confirmLearningReset() {
   if (!selectedProfileId.value || dataActionLoading.value) return
   dataActionLoading.value = 'learning'
   try {
-    await postPluginApi(props.api, 'data/reset/learning', {
+    await postApi('data/reset/learning', {
       profile_id: selectedProfileId.value,
       confirm: true,
     })
@@ -473,7 +487,7 @@ async function prepareFullReset() {
   if (!selectedProfileId.value || dataActionLoading.value) return
   dataActionLoading.value = 'full-prepare'
   try {
-    fullResetConfirmation.value = await postPluginApi(props.api, 'data/reset/full/prepare', {
+    fullResetConfirmation.value = await postApi('data/reset/full/prepare', {
       profile_id: selectedProfileId.value,
     })
     fullResetStage.value = 'confirm'
@@ -488,15 +502,15 @@ async function confirmFullReset() {
   if (fullResetPhrase.value !== '清空全部数据' || !fullResetConfirmation.value?.confirmation_token || dataActionLoading.value) return
   dataActionLoading.value = 'full-reset'
   try {
-    await postPluginApi(props.api, 'data/reset/full', {
+    await postApi('data/reset/full', {
       profile_id: selectedProfileId.value,
       confirmation_token: fullResetConfirmation.value.confirmation_token,
     })
-    const snapshot = await postPluginApi(props.api, 'playback/sync', {
+    const snapshot = await postApi('playback/sync', {
       profile_id: selectedProfileId.value,
     })
     status.value = { ...status.value, playback: snapshot }
-    await postPluginApi(props.api, 'refresh', {
+    await postApi('refresh', {
       profile_id: selectedProfileId.value,
     })
     fullResetDialog.value = false
@@ -516,7 +530,7 @@ async function syncPlayback() {
   if (!props.api?.post || !selectedProfileId.value) return
   loading.value = true
   try {
-    const snapshot = await postPluginApi(props.api, 'playback/sync', { profile_id: selectedProfileId.value })
+    const snapshot = await postApi('playback/sync', { profile_id: selectedProfileId.value })
     status.value = { ...status.value, playback: snapshot }
     await loadOverview(selectedProfileId.value)
     actionFeedback.show = true
@@ -589,8 +603,8 @@ function cancelClearProfile() {
 async function confirmClearProfile() {
   clearProfileLoading.value = true
   try {
-    await postPluginApi(props.api, 'profile/clear', { profile_id: selectedProfileId.value, confirm: true })
-    await postPluginApi(props.api, 'refresh', { profile_id: selectedProfileId.value })
+    await postApi('profile/clear', { profile_id: selectedProfileId.value, confirm: true })
+    await postApi('refresh', { profile_id: selectedProfileId.value })
     actionFeedback.color = 'success'
     actionFeedback.message = `${selectedIdentity.value?.username || selectedProfileId.value} 的画像正在重新生成`
     await loadOverview(selectedProfileId.value)

@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-DCw3WKOU.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-BAfgmHFk.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-C_F9khe6.js';
+import { _ as _export_sfc } from './_plugin-vue_export-helper-DbLHTEvd.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
 
@@ -29,18 +29,22 @@ const _sfc_main = {
   config: { type: Object, default: () => ({}) },
   allowRefresh: { type: Boolean, default: true },
   nativeSubscribe: { type: Function, default: null },
+  pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
 },
   setup(__props) {
 
 const props = __props;
-const state = useAgentRankState(props.api);
+const state = useAgentRankState(props.api, props.pluginId);
 const snackbar = ref({ show: false, message: '', color: 'success' });
 let runProgressTimer = null;
 
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5));
 const fullBoardHref = computed(() => {
-  const pluginId = String(props.config?.id || 'AgentRank').trim() || 'AgentRank';
-  return `#/plugin-app/${encodeURIComponent(pluginId)}/main`
+  const targetId = String(
+    props.pluginId || props.config?.id || props.sourcePluginId || '',
+  ).trim();
+  return targetId ? `#/plugin-app/${encodeURIComponent(targetId)}/main` : '#'
 });
 const status = computed(() => state.isRunning.value ? 'running' : (state.board.value?.status || 'idle'));
 const generatedAt = computed(() => state.board.value?.generated_at || '');
@@ -384,6 +388,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-65895430"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9ed46c57"]]);
 
 export { Dashboard as default };

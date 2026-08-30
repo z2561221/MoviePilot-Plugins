@@ -17,12 +17,14 @@ identity_module = importlib.import_module(f"{PACKAGE_NAME}.model.identity")
 model = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 service_module = importlib.import_module(f"{PACKAGE_NAME}.service.playback_profile")
 reporting_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.playback_reporting")
+emby_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.emby")
 
 EmbyIdentity = identity_module.EmbyIdentity
 PlaybackCapability = model.PlaybackCapability
 PlaybackSample = model.PlaybackSample
 PlaybackSnapshot = model.PlaybackSnapshot
 PlaybackProfileService = service_module.PlaybackProfileService
+EmbyServiceAccess = emby_module.EmbyServiceAccess
 PlaybackReportingAdapter = reporting_module.PlaybackReportingAdapter
 merge_playback_samples = reporting_module.merge_playback_samples
 
@@ -348,7 +350,41 @@ def test_reporting_uses_shared_emby_synced_item_identity():
     ).read_text(encoding="utf-8")
     assert "synced_item" in emby_source
     assert "synced_item" in reporting_source
-    assert "MediaServerItem.get_by_server_itemid" in emby_source
+    assert "MediaServerChain" in emby_source
+    assert "app.db.models" not in emby_source
+
+
+def test_emby_synced_item_uses_public_chain_media_identity():
+    """共享 Emby 访问器通过公开 Chain 按服务器条目补全 TMDB 身份。"""
+
+    class FakeChain:
+        def __init__(self):
+            self.calls = []
+
+        def iteminfo(self, server, item_id):
+            self.calls.append((server, item_id))
+            return type(
+                "MediaItem",
+                (),
+                {
+                    "media_source": "themoviedb",
+                    "media_id": "321",
+                    "title": "测试电影",
+                    "item_type": "Movie",
+                    "year": 2026,
+                },
+            )()
+
+    chain = FakeChain()
+    access = EmbyServiceAccess(helper=object(), media_chain=chain)
+
+    assert access.synced_item("emby-main", "item-1") == {
+        "tmdbid": "321",
+        "title": "测试电影",
+        "item_type": "Movie",
+        "year": 2026,
+    }
+    assert chain.calls == [("emby-main", "item-1")]
 
 
 def test_reporting_permission_error_is_not_misclassified_as_missing_plugin():

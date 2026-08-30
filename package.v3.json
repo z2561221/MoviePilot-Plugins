@@ -49,7 +49,7 @@
     "name": "Agent榜单中心",
     "description": "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。",
     "labels": "智能推荐,发现",
-    "version": "3.0.2",
+    "version": "3.0.3",
     "icon": "agentresourceofficer.png",
     "color": "#7C4DFF",
     "author": "Kurisu",
@@ -58,6 +58,7 @@
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
+      "v3.0.3": "[1]修复实例隔离;[2]收敛V3边界;[3]规范接口模型;[4]对齐市场标签与说明",
       "v3.0.2": "[1]修复V3订阅兼容",
       "v3.0.1": "[1]适配V3接口;[2]兼容通知服务;[3]修复插件加载",
       "v3.0.0": "[1]适配V3媒体身份;[2]适配V3接口响应;[3]迁移旧榜单身份",

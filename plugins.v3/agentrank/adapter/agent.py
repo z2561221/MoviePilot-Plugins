@@ -6,9 +6,8 @@ import re
 from typing import Any, Callable, Dict, List, Mapping, Type
 
 from app.agent import MoviePilotAgent, ReplyMode
-# MoviePilot V3 e28de9cf 的 SDK 尚未导出内部 Agent 身份常量。
-from app.foundation.identity import SYSTEM_INTERNAL_USER_ID
 
+from ..host_compat import get_internal_user_id
 from ..agent_tools.context import (
     CONVERSATION_AGENT_ROLE,
     FEEDBACK_AGENT_ROLE,
@@ -206,12 +205,12 @@ class AgentRankAgentAdapter:
         self,
         agent_factory: Type[Any] = RestrictedAgentRankAgent,
         memory_clearer: Callable[[str, str], Any] = None,
-        user_id: str = SYSTEM_INTERNAL_USER_ID,
+        user_id: str = "",
     ):
         """允许测试注入 Agent 工厂和内存清理器。"""
         self._agent_factory = agent_factory
         self._memory_clearer = memory_clearer or self._default_memory_clearer
-        self._user_id = str(user_id or SYSTEM_INTERNAL_USER_ID)
+        self._user_id = str(user_id or get_internal_user_id())
 
     @staticmethod
     def _default_memory_clearer(session_id: str, user_id: str) -> None:

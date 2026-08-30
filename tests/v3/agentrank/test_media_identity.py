@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 from app.schemas.types import MediaSource, MediaType
 
-from agentrank.adapter.library import LibraryAdapter
-from agentrank.adapter.media import MediaRecognitionAdapter
-from agentrank.adapter.subscription import SubscriptionAdapter
-from agentrank.model.board import RecommendationItem
-from agentrank.model.candidate import Candidate, backfill_media_identity_payload
+from app.plugins.agentrank.adapter.library import LibraryAdapter
+from app.plugins.agentrank.adapter.media import MediaRecognitionAdapter
+from app.plugins.agentrank.adapter.subscription import SubscriptionAdapter
+from app.plugins.agentrank.model.board import RecommendationItem
+from app.plugins.agentrank.model.candidate import Candidate, backfill_media_identity_payload
 
 
 def test_legacy_candidate_and_board_item_backfill_tmdb_identity():

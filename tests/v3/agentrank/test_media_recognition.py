@@ -85,6 +85,7 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
                 type=FakeMediaType.MOVIE,
                 year="2026",
                 original_title="Original",
+                names=["English Title", "香港标题"],
                 overview="Overview",
                 poster_path="https://image.example/poster.jpg",
                 backdrop_path="https://image.example/backdrop.jpg",
@@ -116,6 +117,7 @@ def test_recognition_prefers_tmdb_id_and_rebuilds_display_fields():
     assert calls[0]["mtype"] == FakeMediaType.MOVIE
     assert result.candidate_id == "tmdb:movie:900"
     assert result.title == "TMDB 标准标题"
+    assert result.names == ["English Title", "香港标题", "来源标题"]
     assert result.year == 2026
     assert result.poster_path.endswith("poster.jpg")
     assert result.source_ids == {"douban": "db-9", "tmdb": "900"}
@@ -278,6 +280,7 @@ def test_title_fallback_uses_at_most_two_distinct_titles():
         candidate_id="anilist:321",
         title="中文标题",
         original_title="Original Title",
+        names=["English Alias"],
         media_type="anime",
         source_ids={"anilist": "321"},
     )
@@ -289,7 +292,8 @@ def test_title_fallback_uses_at_most_two_distinct_titles():
         for source, media_id, title in calls
         if source == MediaSource.TMDB or media_id is None
     ]
-    assert len(set(title_calls)) <= 2
+    assert len(set(title_calls)) <= 3
+    assert "English Alias" in title_calls
 
 
 def test_recognition_excludes_non_director_crew_from_director_evidence():
@@ -606,6 +610,7 @@ def test_recommendation_item_normalizes_legacy_source_id_aliases():
             "rank": 1,
             "title": "旧字段剧集",
             "original_name": "Legacy Show",
+            "names": ["English Show", "English Show"],
             "themoviedb": "903",
             "source_ids": {"bgm_id": "bgm-903"},
         }
@@ -614,6 +619,7 @@ def test_recommendation_item_normalizes_legacy_source_id_aliases():
     assert item.source_ids["tmdb"] == "903"
     assert item.source_ids["bangumi"] == "bgm-903"
     assert item.original_title == "Legacy Show"
+    assert item.names == ["English Show"]
 
 
 def test_poster_image_service_returns_bounded_tmdb_thumbnail_url():

@@ -6,13 +6,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from agentrank.controller.api import (
+from app.plugins.agentrank.controller.api import (
     AgentRankApiController,
     ApiContractError,
     _http_error,
     build_api_routes,
 )
-from agentrank.controller.schemas import API_RESPONSE_MODELS
+from app.plugins.agentrank.controller.schemas import API_RESPONSE_MODELS
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -37,6 +37,13 @@ def test_every_json_route_declares_a_named_business_response_model():
     assert {route["path"] for route in routes} == set(API_RESPONSE_MODELS)
     assert all(route["response_model"] is API_RESPONSE_MODELS[route["path"]] for route in routes)
     assert len({model.__name__ for model in API_RESPONSE_MODELS.values()}) == len(routes)
+    assert all(model.model_fields for model in API_RESPONSE_MODELS.values())
+    assert {"enabled", "state", "plugin_version"} <= set(
+        API_RESPONSE_MODELS["/status"].model_fields
+    )
+    assert {"thread", "messages", "commands"} <= set(
+        API_RESPONSE_MODELS["/conversation"].model_fields
+    )
 
 
 def test_endpoint_boundary_unwraps_only_strict_envelope_and_preserves_custom_payload():

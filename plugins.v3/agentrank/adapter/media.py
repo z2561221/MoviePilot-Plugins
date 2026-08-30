@@ -6,7 +6,11 @@ from typing import Any, Callable, Iterable, List, Mapping, Optional, Tuple
 
 from app.schemas.types import MediaSource
 
-from ..model.candidate import Candidate, typed_tmdb_candidate_id
+from ..model.candidate import (
+    Candidate,
+    normalize_title_names,
+    typed_tmdb_candidate_id,
+)
 
 
 class MediaRecognitionAdapter:
@@ -33,7 +37,7 @@ class MediaRecognitionAdapter:
         "tvdb": "tvdb",
         "imdb": "imdb",
     }
-    _MAX_TITLE_RECOGNITION_ATTEMPTS = 2
+    _MAX_TITLE_RECOGNITION_ATTEMPTS = 3
     _MAX_RECOGNITION_WORKERS = 6
 
     def __init__(
@@ -328,13 +332,18 @@ class MediaRecognitionAdapter:
         for value in (
             candidate.title,
             candidate.original_title,
+            candidate.names,
             getattr(mediainfo, "title", "") if mediainfo else "",
             getattr(mediainfo, "original_title", "") if mediainfo else "",
             getattr(mediainfo, "en_title", "") if mediainfo else "",
+            getattr(mediainfo, "names", ()) if mediainfo else (),
+            getattr(mediainfo, "aliases", ()) if mediainfo else (),
         ):
-            name = str(value or "").strip()
-            if name and name not in names:
-                names.append(name)
+            for name in normalize_title_names(value):
+                if name not in names:
+                    names.append(name)
+                if len(names) >= cls._MAX_TITLE_RECOGNITION_ATTEMPTS:
+                    break
             if len(names) >= cls._MAX_TITLE_RECOGNITION_ATTEMPTS:
                 break
         return names
@@ -348,7 +357,7 @@ class MediaRecognitionAdapter:
         meta_factory: Callable[[str], Any],
         media_type: Any,
     ) -> Any:
-        """最多按两个标题尝试 TMDB 识别，避免候选采集串行放大。"""
+        """最多按三个标题尝试 TMDB 识别，兼顾聚合别名与请求上限。"""
         for title in cls._title_candidates(candidate, mediainfo):
             meta = cls._recognition_meta(candidate, title, meta_factory, media_type)
             result = cls._call_recognize(chain, meta, media_type)
@@ -395,6 +404,8 @@ class MediaRecognitionAdapter:
         candidate.media_source = str(MediaSource.TMDB)
         candidate.media_id = str(resolved_tmdb_id)
         self._copy_media_ids(candidate, mediainfo)
+        source_title = candidate.title
+        source_original_title = candidate.original_title
         candidate.title = str(getattr(mediainfo, "title", "") or candidate.title)
         resolved_year = getattr(mediainfo, "year", None)
         try:
@@ -403,6 +414,20 @@ class MediaRecognitionAdapter:
             pass
         candidate.original_title = str(
             getattr(mediainfo, "original_title", "") or candidate.original_title
+        )
+        candidate.names = normalize_title_names(
+            [
+                candidate.names,
+                getattr(mediainfo, "names", ()) if mediainfo else (),
+                getattr(mediainfo, "aliases", ()) if mediainfo else (),
+                source_title,
+                source_original_title,
+                getattr(mediainfo, "en_title", "") if mediainfo else "",
+                getattr(mediainfo, "hk_title", "") if mediainfo else "",
+                getattr(mediainfo, "tw_title", "") if mediainfo else "",
+                getattr(mediainfo, "jp_title", "") if mediainfo else "",
+            ],
+            excluded=(candidate.title, candidate.original_title),
         )
         candidate.overview = str(
             getattr(mediainfo, "overview", "") or candidate.overview
@@ -540,10 +565,11 @@ class MediaRecognitionAdapter:
         for raw_name in (
             getattr(candidate, "title", ""),
             getattr(candidate, "original_title", ""),
+            getattr(candidate, "names", ()),
         ):
-            name = str(raw_name or "").strip()
-            if name and name not in names:
-                names.append(name)
+            for name in normalize_title_names(raw_name):
+                if name not in names and len(names) < self._MAX_TITLE_RECOGNITION_ATTEMPTS:
+                    names.append(name)
         for name in names:
             try:
                 douban_info = relaxed_match(

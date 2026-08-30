@@ -10,10 +10,12 @@ import RecommendationActions from './RecommendationActions.vue'
 const props = defineProps({
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
+  pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
   showClose: { type: Boolean, default: true },
 })
 const emit = defineEmits(['switch', 'close'])
-const state = useAgentRankState(props.api)
+const state = useAgentRankState(props.api, props.pluginId)
 
 const activeTab = ref('board')
 const snackbar = ref({ show: false, message: '', color: 'success' })

@@ -153,7 +153,7 @@ def test_playback_settings_enforce_reporting_and_sync_by_profile_id():
     assert "Playback Reporting" in config
     assert "Playback Reporting 硬依赖未满足" in config
     assert "插件无法开启" in config
-    assert "postPluginApi(props.api, 'playback/sync'" in config
+    assert "postApi('playback/sync'" in config
     assert "{ profile_id: selectedProfileId.value }" in config
     assert "playback_source_mode" not in config
     assert "playback_user_map" not in config
@@ -307,7 +307,26 @@ def test_discovery_settings_open_embedded_config_and_use_core_save_api():
     assert '@switch="openSettings"' in app_page
     assert "<Config" in app_page
     assert "emit('switch')" not in app_page
-    assert "api.put('plugin/AgentRank', payload)" in api
+    assert "api.put(pluginApiPath(pluginId), payload)" in api
+
+
+def test_federation_components_scope_api_and_cache_to_current_plugin_instance():
+    """普通实例和虚拟分身必须共享产物但隔离 API 路径与前端缓存。"""
+    api = _read("api.js")
+    state = _read("useAgentRankState.js")
+    app_page = _read("AppPage.vue")
+    for name in ("Page.vue", "Config.vue", "Dashboard.vue", "AppPage.vue"):
+        component = _read(name)
+        assert "pluginId: { type: String, default: '' }" in component
+        assert "sourcePluginId: { type: String, default: '' }" in component
+    assert "plugin/AgentRank" not in api
+    assert "encodeURIComponent(instanceId)" in api
+    assert "return endpoint ? `${basePath}/${endpoint}` : basePath" in api
+    assert "pluginApiPath(pluginId, path)" in api
+    assert "sharedCacheFor(api, pluginId)" in state
+    assert "cacheByApi.set(api, new Map())" in state
+    assert ':plugin-id="pluginId"' in app_page
+    assert ':source-plugin-id="sourcePluginId"' in app_page
 
 
 def test_api_error_normalizer_reads_fastapi_validation_details():
@@ -330,9 +349,9 @@ def test_ranking_surfaces_cache_overview_by_stable_profile_id():
     page = _read("Page.vue")
     assert "const cacheByApi = new WeakMap()" in state
     assert "const PROFILE_CACHE_TTL_MS = 60 * 1000" in state
-    assert "getPluginApi(api, 'overview', { profile_id: profileId })" in state
-    assert "getPluginApi(api, 'board'" not in state
-    assert "getPluginApi(api, 'profile'" not in state
+    assert "getApi('overview', { profile_id: profileId })" in state
+    assert "getApi('board'" not in state
+    assert "getApi('profile'" not in state
     assert "{ legacyLoading: cached ? '' : 'data' }" in state
     assert "void runOperation(" in state
     assert "() => loadProfileData(profileId, { force: true })" in state
@@ -350,7 +369,7 @@ def test_profile_rebuild_only_lives_in_playback_profile_settings():
         assert "mdi-account-remove-outline" not in page
     assert "重建画像" in config
     assert '@click="requestClearProfile"' in config
-    assert "postPluginApi(props.api, 'profile/clear'" in config
+    assert "postApi('profile/clear'" in config
     assert "profile_id: selectedProfileId.value, confirm: true" in config
     assert 'v-model="clearProfileDialog"' in config
     assert "确认重建" in config
@@ -372,7 +391,7 @@ def test_board_history_is_paginated_read_only_and_marks_cross_run_changes():
     page = _read("Page.vue")
     state = _read("useAgentRankState.js")
     assert "{ key: 'board-history', title: '历史榜单'" in page
-    assert "getPluginApi(api, 'board-history'," in state
+    assert "getApi('board-history'," in state
     assert "loadBoardHistory(page, pageSize)" in state
     assert "本轮新入榜" in page
     assert "历史再推荐" in page
@@ -437,7 +456,7 @@ def test_profile_view_edits_archives_restores_preferences_and_shows_board_matche
     for label in ("播放样本", "偏好标签", "避雷标签", "本轮命中", "归档标签", "恢复标签"):
         assert label in page
     assert "ar-page__profile-groups" in page
-    assert "getPluginApi(api, 'overview', { profile_id: profileId })" in state
+    assert "getApi('overview', { profile_id: profileId })" in state
     assert "'profile/tags'" in state
 
 

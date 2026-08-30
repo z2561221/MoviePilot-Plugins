@@ -138,6 +138,9 @@ def _minimal_candidate(value: Any) -> Dict[str, Any]:
     return {
         "candidate_id": _bounded_text(item.get("candidate_id"), 128),
         "title": _bounded_text(item.get("title"), 120),
+        "names": _bounded_strings(
+            item.get("names") or (), maximum_items=8, maximum_chars=80
+        ),
         "media_type": _bounded_text(item.get("media_type"), 12),
         "year": item.get("year") if isinstance(item.get("year"), int) else None,
         "overview": _bounded_text(item.get("overview"), 240),

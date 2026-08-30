@@ -8,7 +8,11 @@ import time
 from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 from ..adapter.discovery import DiscoveryAdapter, DiscoveryFetchResult, RawDiscoveredItem
-from ..model.candidate import Candidate, typed_tmdb_candidate_id
+from ..model.candidate import (
+    Candidate,
+    normalize_title_names,
+    typed_tmdb_candidate_id,
+)
 from ..model.candidate_snapshot import CandidateSnapshot
 from ..model.retrieval import RetrievalPlan
 from ..storage.repository import AgentRankRepository
@@ -236,6 +240,9 @@ class CandidateCollectionService:
         if category:
             safe_metadata["category"] = str(category)
         media_type = cls._media_type(data, raw.source)
+        original_title = str(
+            cls._first(data, "original_title", "original_name") or ""
+        ).strip()
         return Candidate(
             candidate_id=cls._candidate_id(ids, media_type),
             title=title,
@@ -243,7 +250,17 @@ class CandidateCollectionService:
             year=year,
             source_ids=ids,
             sources=[raw.source],
-            original_title=str(cls._first(data, "original_title", "original_name") or ""),
+            original_title=original_title,
+            names=normalize_title_names(
+                [
+                    cls._first(data, "names", "aliases", "titles"),
+                    cls._first(data, "en_title", "english_title"),
+                    cls._first(data, "hk_title", "hongkong_title"),
+                    cls._first(data, "tw_title", "taiwan_title"),
+                    cls._first(data, "jp_title", "japanese_title"),
+                ],
+                excluded=(title, original_title),
+            ),
             overview=str(cls._first(data, "overview", "description") or ""),
             poster_path=str(cls._first(data, "poster_path", "poster") or ""),
             backdrop_path=str(cls._first(data, "backdrop_path", "backdrop") or ""),
@@ -273,6 +290,10 @@ class CandidateCollectionService:
         ):
             if not getattr(target, name) and getattr(incoming, name):
                 setattr(target, name, getattr(incoming, name))
+        target.names = normalize_title_names(
+            [target.names, incoming.names],
+            excluded=(target.title, target.original_title),
+        )
         if target.year is None:
             target.year = incoming.year
         if target.rating is None:

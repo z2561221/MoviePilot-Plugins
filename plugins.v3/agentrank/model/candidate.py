@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 
 _TYPED_TMDB_ID = re.compile(r"^tmdb:(movie|tv):([1-9]\d*)$")
@@ -17,6 +17,41 @@ _MEDIA_SOURCE_ALIASES = {
     "imdb": "imdb",
     "tvdb": "tvdb",
 }
+MAX_CANDIDATE_NAMES = 12
+MAX_CANDIDATE_NAME_LENGTH = 120
+
+
+def normalize_title_names(
+    values: Any, *, excluded: Iterable[Any] = ()
+) -> List[str]:
+    """规范化聚合来源别名并限制数量，避免不可信载荷放大。"""
+    excluded_names = {
+        " ".join(str(value or "").split()).strip()
+        for value in excluded
+        if str(value or "").strip()
+    }
+    result: List[str] = []
+
+    def visit(value: Any) -> None:
+        if len(result) >= MAX_CANDIDATE_NAMES or value in (None, ""):
+            return
+        if isinstance(value, Mapping):
+            visit(value.get("name") or value.get("title"))
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                visit(item)
+                if len(result) >= MAX_CANDIDATE_NAMES:
+                    break
+            return
+        if not isinstance(value, str):
+            value = getattr(value, "name", None) or getattr(value, "title", None)
+        text = " ".join(str(value or "").split()).strip()[:MAX_CANDIDATE_NAME_LENGTH]
+        if text and text not in excluded_names and text not in result:
+            result.append(text)
+
+    visit(values)
+    return result
 
 
 def normalize_media_identity(media_source: Any, media_id: Any) -> tuple[str, str]:
@@ -111,6 +146,7 @@ class Candidate:
     source_ids: Dict[str, str] = field(default_factory=dict)
     sources: List[str] = field(default_factory=list)
     original_title: str = ""
+    names: List[str] = field(default_factory=list)
     overview: str = ""
     poster_path: str = ""
     backdrop_path: str = ""
@@ -136,10 +172,18 @@ class Candidate:
         )
         self.media_source = source
         self.media_id = media_id
+        self.names = normalize_title_names(
+            self.names,
+            excluded=(self.title, self.original_title),
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """返回可持久化字典。"""
-        return asdict(self)
+        value = asdict(self)
+        # 空别名不写入载荷，保持已有 V4 快照的内容 hash 稳定。
+        if not self.names:
+            value.pop("names", None)
+        return value
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "Candidate":
@@ -161,6 +205,10 @@ class Candidate:
             source_ids=dict(value.get("source_ids") or {}),
             sources=[str(item) for item in value.get("sources") or []],
             original_title=str(value.get("original_title") or ""),
+            names=normalize_title_names(
+                value.get("names") or (),
+                excluded=(title, value.get("original_title") or ""),
+            ),
             overview=str(value.get("overview") or ""),
             poster_path=str(value.get("poster_path") or ""),
             backdrop_path=str(value.get("backdrop_path") or ""),

@@ -8,7 +8,8 @@ const props = defineProps({
   api: { type: [Object, Function], default: null },
   nativeSubscribe: { type: Function, default: null },
   navKey: { type: String, default: 'main' },
-  pluginId: { type: String, default: 'AgentRank' },
+  pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
 })
 
 const settingsDialog = ref(false)
@@ -55,7 +56,7 @@ function openSettings(config = {}) {
 async function saveSettings(config) {
   savingSettings.value = true
   try {
-    await savePluginConfig(props.api, config)
+    await savePluginConfig(props.api, props.pluginId, config)
     settingsConfig.value = { ...(config || {}) }
     settingsDialog.value = false
     pageKey.value += 1
@@ -78,6 +79,8 @@ async function saveSettings(config) {
       :key="pageKey"
       :api="api"
       :native-subscribe="nativeSubscribe"
+      :plugin-id="pluginId"
+      :source-plugin-id="sourcePluginId"
       :show-close="false"
       @switch="openSettings"
     />
@@ -85,6 +88,8 @@ async function saveSettings(config) {
     <VDialog v-model="settingsDialog" max-width="1160" :persistent="savingSettings">
       <Config
         :api="api"
+        :plugin-id="pluginId"
+        :source-plugin-id="sourcePluginId"
         :initial-config="settingsConfig"
         @save="saveSettings"
         @close="settingsDialog = false"

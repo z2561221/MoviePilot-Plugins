@@ -14,7 +14,7 @@
   "AgentRank": {
     "mode": "migration",
     "legacy_version": "1.0.1",
-    "v3_version": "3.0.2",
+    "v3_version": "3.0.3",
     "reason": "user-approved MoviePilot V3 version line"
   },
   "BackupCenter": {

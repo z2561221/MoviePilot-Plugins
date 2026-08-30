@@ -8,15 +8,19 @@ const props = defineProps({
   config: { type: Object, default: () => ({}) },
   allowRefresh: { type: Boolean, default: true },
   nativeSubscribe: { type: Function, default: null },
+  pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
 })
-const state = useAgentRankState(props.api)
+const state = useAgentRankState(props.api, props.pluginId)
 const snackbar = ref({ show: false, message: '', color: 'success' })
 let runProgressTimer = null
 
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5))
 const fullBoardHref = computed(() => {
-  const pluginId = String(props.config?.id || 'AgentRank').trim() || 'AgentRank'
-  return `#/plugin-app/${encodeURIComponent(pluginId)}/main`
+  const targetId = String(
+    props.pluginId || props.config?.id || props.sourcePluginId || '',
+  ).trim()
+  return targetId ? `#/plugin-app/${encodeURIComponent(targetId)}/main` : '#'
 })
 const status = computed(() => state.isRunning.value ? 'running' : (state.board.value?.status || 'idle'))
 const generatedAt = computed(() => state.board.value?.generated_at || '')

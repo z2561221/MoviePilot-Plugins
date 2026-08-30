@@ -12,14 +12,20 @@ from ..model.playback import PlaybackSample
 class EmbyServiceAccess:
     """封装 MoviePilot 在线 Emby 实例、用户枚举及安全 HTTP 访问。"""
 
-    def __init__(self, helper: Any = None, request_factory: Any = None):
-        """允许测试注入媒体服务器帮助器和请求工厂。"""
+    def __init__(
+        self,
+        helper: Any = None,
+        request_factory: Any = None,
+        media_chain: Any = None,
+    ):
+        """允许测试注入媒体服务器帮助器、请求工厂和查询 Chain。"""
         if helper is None:
             from app.sdk.services import MediaServerHelper
 
             helper = MediaServerHelper()
         self._helper = helper
         self._request_factory = request_factory
+        self._media_chain = media_chain
 
     def services(self) -> Dict[str, Any]:
         """返回全部在线 Emby 服务，不返回其他媒体服务器或离线实例。"""
@@ -149,19 +155,27 @@ class EmbyServiceAccess:
             )
         return libraries
 
-    @staticmethod
-    def synced_item(server: str, item_id: str) -> Dict[str, Any]:
-        """读取 MP 媒体库同步表中的条目身份，不触碰播放状态。"""
+    def synced_item(self, server: str, item_id: str) -> Dict[str, Any]:
+        """通过宿主公开 Chain 读取媒体条目身份，不触碰播放状态。"""
         if not server or not item_id:
             return {}
         try:
-            from app.db.models.mediaserver import MediaServerItem
+            chain = self._media_chain
+            if chain is None:
+                from app.chain.mediaserver import MediaServerChain
 
-            item = MediaServerItem.get_by_server_itemid(server, str(item_id))
+                chain = MediaServerChain()
+                self._media_chain = chain
+            item = chain.iteminfo(server=server, item_id=str(item_id))
             if not item:
                 return {}
+            media_source = getattr(item, "media_source", None)
+            source_value = getattr(media_source, "value", media_source)
+            tmdbid = getattr(item, "tmdbid", None)
+            if not tmdbid and str(source_value or "") == "themoviedb":
+                tmdbid = getattr(item, "media_id", None)
             return {
-                "tmdbid": getattr(item, "tmdbid", None),
+                "tmdbid": tmdbid,
                 "title": getattr(item, "title", ""),
                 "item_type": getattr(item, "item_type", ""),
                 "year": getattr(item, "year", None),
