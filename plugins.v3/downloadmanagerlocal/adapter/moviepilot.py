@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.application.torrent.download import TorrentHelper
 from app.db.oper.downloadhistory import DownloadHistoryOper
 from app.db.oper.site import SiteOper
 from app.db.oper.systemconfig import SystemConfigOper
@@ -12,11 +13,6 @@ from app.modules.transmission import Transmission
 from app.sdk.network import RequestUtils, SitesHelper
 from app.sdk.services import DownloaderHelper
 from app.sdk.utilities import StringUtils
-
-try:
-    from app.application.torrent import TorrentHelper
-except ImportError:
-    from app.services.torrent import TorrentHelper
 
 
 DownloaderInstance = Qbittorrent | Transmission

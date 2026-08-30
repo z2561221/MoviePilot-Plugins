@@ -346,8 +346,7 @@ def test_v3_internal_imports_match_symbol_allowlist() -> None:
         "app.services.",
     )
     allowed = {
-        ("app.application.torrent", "TorrentHelper"),
-        ("app.services.torrent", "TorrentHelper"),
+        ("app.application.torrent.download", "TorrentHelper"),
     }
     actual = set()
     for path in PLUGIN_ROOT.rglob("*.py"):

@@ -72,11 +72,11 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
 - SDK 导入：媒体身份使用 `app.sdk.media.resolve_media_identity`，站点模板使用
   `app.sdk.network.SitesHelper`，不再回退到宿主内部媒体或站点目录。
 - 内部导入允许清单：仅保留
-  `app.application.torrent.TorrentHelper` 与
-  `app.services.torrent.TorrentHelper` 的兼容二选一导入。原因是当前稳定 SDK
-  尚未导出 TorrentHelper，插件仍需下载种子内容；当前宿主基线为
-  `v3@4cc06ce7adaf6a417620376ecd2a16d0b9659b88`，实际运行态复核在同步/reload
-  阶段完成。SDK 提供等价出口后移除此例外；聚焦守护为
+  `app.application.torrent.download.TorrentHelper`。原因是当前稳定 SDK 尚未导出
+  TorrentHelper，插件仍需下载种子内容；2026-08-30 更新后的宿主已将该能力从
+  `app.application.torrent` 包根迁入 `download` 子模块，旧的
+  `app.services.torrent` 回退路径也已删除。实际运行态复核在同步/reload 阶段完成。
+  SDK 提供等价出口后移除此例外；聚焦守护为
   `test_v3_internal_imports_match_symbol_allowlist`。
 - 上传限速 Adapter：`adapter/upload_limit.py` 归一化 qBittorrent / Transmission 全局与单种上传设置，并负责读写和恢复。
 - Model 层：`model/state.py` 集中维护持久化 key、IYUU 动态 key helper 和 dict 数据读写 helper，保持旧 key 后向兼容。
