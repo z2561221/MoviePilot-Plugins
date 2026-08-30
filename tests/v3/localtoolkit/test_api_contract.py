@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -142,3 +143,21 @@ def test_response_router_produces_exact_single_envelope() -> None:
     assert status["success"] is True
     assert status["data"]["enabled"] is True
     assert failed == {"success": False, "message": "Redis 未连接", "data": None}
+
+
+def test_readme_documents_modules_and_boundaries() -> None:
+    """插件目录必须提供说明，覆盖三模块触发方式与关键边界。"""
+    readme = Path(__file__).resolve().parents[3] / "plugins.v3/localtoolkit/README.md"
+
+    assert readme.is_file()
+    content = readme.read_text(encoding="utf-8")
+    for keyword in (
+        "library_cleanup",
+        "check_missing",
+        "tmdb_cache",
+        "package.local.v3.json",
+        "auto_delete",
+        "dry_run",
+        "bear",
+    ):
+        assert keyword in content
