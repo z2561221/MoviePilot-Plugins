@@ -189,7 +189,7 @@ def test_restore_plugin_data_uses_public_interface_and_keeps_unselected_data(
         {"PluginA": [{"key": "new", "value": {"enabled": True}}]},
     )
 
-    restored = RestoreService(plugin, SimpleNamespace())._restore_plugin_data(
+    restored = RestoreService(plugin, SimpleNamespace())._restore_plugin_data(  # pylint: disable=protected-access
         tmp_path, ["PluginA"]
     )
 
@@ -217,7 +217,7 @@ def test_restore_plugin_data_rolls_back_partial_writes(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RestoreServiceError, match="已自动回滚"):
-        RestoreService(plugin, SimpleNamespace())._restore_plugin_data(
+        RestoreService(plugin, SimpleNamespace())._restore_plugin_data(  # pylint: disable=protected-access
             tmp_path, ["PluginA", "PluginB"]
         )
 

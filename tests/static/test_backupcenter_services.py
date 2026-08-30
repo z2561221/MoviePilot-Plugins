@@ -679,7 +679,7 @@ def test_restore_stops_before_plugin_emergency_backup_when_host_backup_fails(
             selection=backup_model.RestoreSelection(plugin_data=True),
             plugin_ids=["PluginA"],
         )
-    assert calls == []
+    assert not calls
 
 
 def test_restore_rejects_content_missing_from_backup():
