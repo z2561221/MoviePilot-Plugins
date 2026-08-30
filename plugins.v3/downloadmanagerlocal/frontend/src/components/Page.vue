@@ -2,8 +2,14 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { getPluginApi, postPluginApi } from './api'
 
-const props = defineProps({ api: { type: [Object, Function], default: null } })
+const props = defineProps({
+  api: { type: [Object, Function], default: null },
+  pluginId: { type: String, default: 'DownloadManagerLocal' },
+  sourcePluginId: { type: String, default: 'DownloadManagerLocal' },
+})
 const emit = defineEmits(['close', 'switch'])
+const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, path, options)
+const postApi = (path, payload = {}, options = {}) => postPluginApi(props.api, props.pluginId, path, payload, options)
 
 const activeTab = ref('overview')
 const overview = ref(null)
@@ -206,8 +212,8 @@ async function loadOverview({ silent = false } = {}) {
   try {
     const requestOptions = { feedback: 'silent' }
     const [overviewResp, uploadResp] = await Promise.all([
-      getPluginApi(props.api, 'overview', requestOptions),
-      getPluginApi(props.api, 'upload_limit_status', requestOptions).catch(error => {
+      getApi('overview', requestOptions),
+      getApi('upload_limit_status', requestOptions).catch(error => {
         console.error('上传限速状态刷新失败，保留总览快照:', error)
         return null
       }),
@@ -231,7 +237,7 @@ async function loadHistory() {
   loading.value = true
   error.value = ''
   try {
-    const resp = await getPluginApi(props.api, `rename_history?page=${page.value}&page_size=${pageSize}`)
+    const resp = await getApi(`rename_history?page=${page.value}&page_size=${pageSize}`)
     records.value = Array.isArray(resp?.items) ? resp.items : []
     total.value = resp?.total || 0
   } catch (e) {
@@ -245,7 +251,7 @@ async function loadArchive() {
   loading.value = true
   error.value = ''
   try {
-    const resp = await getPluginApi(props.api, `rename_archive?page=${archivePage.value}&page_size=${pageSize}`)
+    const resp = await getApi(`rename_archive?page=${archivePage.value}&page_size=${pageSize}`)
     archiveRecords.value = Array.isArray(resp?.items) ? resp.items : []
     archiveTotal.value = resp?.total || 0
   } catch (e) {
@@ -259,7 +265,7 @@ async function loadDiagnostics() {
   loading.value = true
   error.value = ''
   try {
-    const resp = await getPluginApi(props.api, 'diagnostics')
+    const resp = await getApi('diagnostics')
     if (resp?.code && resp.code !== 0) {
       error.value = resp?.msg || '诊断失败'
       return
@@ -342,7 +348,7 @@ async function doRecovery(hash) {
   actionMsg.value = ''
   actionOk.value = false
   try {
-    const resp = await postPluginApi(props.api, 'recovery_torrent', { hash })
+    const resp = await postApi('recovery_torrent', { hash })
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '恢复成功' : '恢复失败')
     actionOk.value = resp?.code === 0
     if (resp?.code === 0) await loadHistory()
@@ -355,7 +361,7 @@ async function doDelete(hash) {
   actionMsg.value = ''
   actionOk.value = false
   try {
-    const resp = await postPluginApi(props.api, 'delete_rename_history', { hash })
+    const resp = await postApi('delete_rename_history', { hash })
     actionOk.value = resp?.code === 0
     actionMsg.value = resp?.msg || '已删除'
     if (resp?.code === 0) await loadHistory()
@@ -369,7 +375,7 @@ async function doRetryRenames() {
   actionOk.value = false
   retrying.value = true
   try {
-    const resp = await postPluginApi(props.api, 'retry_renames', {})
+    const resp = await postApi('retry_renames', {})
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '补刀完成' : '补刀失败')
     actionOk.value = resp?.code === 0
     if (resp?.code === 0) await refreshActive()
@@ -386,7 +392,7 @@ async function doRetryRename(hash) {
   actionOk.value = false
   retryingHash.value = hash
   try {
-    const resp = await postPluginApi(props.api, 'retry_rename', { hash })
+    const resp = await postApi('retry_rename', { hash })
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '补刀完成' : '补刀失败')
     actionOk.value = resp?.code === 0
     if (resp?.code === 0) await loadHistory()
@@ -403,7 +409,7 @@ async function restoreArchive(hash) {
   actionOk.value = false
   restoringHash.value = hash
   try {
-    const resp = await postPluginApi(props.api, 'restore_rename_archive', { hash })
+    const resp = await postApi('restore_rename_archive', { hash })
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '已恢复' : '恢复失败')
     actionOk.value = resp?.code === 0
     if (resp?.code === 0) await loadArchive()
@@ -419,7 +425,7 @@ async function deleteArchive(hash) {
   actionOk.value = false
   deletingHash.value = hash
   try {
-    const resp = await postPluginApi(props.api, 'delete_rename_archive', { hash })
+    const resp = await postApi('delete_rename_archive', { hash })
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '已删除' : '删除失败')
     actionOk.value = resp?.code === 0
     if (resp?.code === 0) await loadArchive()

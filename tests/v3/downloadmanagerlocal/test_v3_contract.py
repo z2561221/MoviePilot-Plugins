@@ -15,6 +15,7 @@ from app.schemas.types import MediaSource, MediaType
 from app.plugins.downloadmanagerlocal import DownloadManagerLocal
 from app.plugins.downloadmanagerlocal.adapter import moviepilot as moviepilot_adapter
 from app.plugins.downloadmanagerlocal.controller import handlers
+from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
 from app.plugins.downloadmanagerlocal.model.api import HashActionResult, OverviewResult
 from app.plugins.downloadmanagerlocal.service import rename as rename_service
 
@@ -345,8 +346,7 @@ def test_v3_internal_imports_match_symbol_allowlist() -> None:
         "app.services.",
     )
     allowed = {
-        ("app.application.torrent", "TorrentHelper"),
-        ("app.services.torrent", "TorrentHelper"),
+        ("app.application.torrent.download", "TorrentHelper"),
     }
     actual = set()
     for path in PLUGIN_ROOT.rglob("*.py"):
@@ -358,3 +358,60 @@ def test_v3_internal_imports_match_symbol_allowlist() -> None:
                 actual.update((node.module, alias.name) for alias in node.names)
 
     assert actual == allowed
+
+
+def test_frontend_uses_injected_plugin_instance_id() -> None:
+    """Vue 联邦组件必须使用宿主注入的实例 ID，不得硬编码源插件路径。"""
+    api_source = (PLUGIN_ROOT / "frontend/src/components/api.js").read_text(encoding="utf-8")
+    config_source = (PLUGIN_ROOT / "frontend/src/components/Config.vue").read_text(encoding="utf-8")
+    page_source = (PLUGIN_ROOT / "frontend/src/components/Page.vue").read_text(encoding="utf-8")
+
+    assert "plugin/DownloadManagerLocal" not in api_source
+    assert "pluginId" in config_source and "sourcePluginId" in config_source
+    assert "pluginId" in page_source and "sourcePluginId" in page_source
+
+
+def test_runtime_mutable_state_is_instance_owned(monkeypatch) -> None:
+    """运行事件、队列、缓存和锁不得在插件实例之间共享。"""
+    base_class = DownloadManagerLocal.__mro__[1]
+    monkeypatch.setattr(base_class, "__init__", lambda _self: None)
+    first = DownloadManagerLocal()
+    second = DownloadManagerLocal()
+
+    for name in (
+        "_event",
+        "_recheck_torrents",
+        "_torrent_tags",
+        "_tracker_mappings",
+        "_iyuu_error_caches",
+        "_iyuu_success_caches",
+        "_iyuu_permanent_error_caches",
+        "_seed_recheck_lock",
+    ):
+        assert getattr(first, name) is not getattr(second, name)
+
+
+def test_iyuu_helper_cache_is_instance_owned() -> None:
+    """IYUU 站点缓存和汇报摘要不得由类属性隐式共享。"""
+    first = IyuuHelper("")
+    second = IyuuHelper("")
+
+    assert first._sites is not second._sites
+    assert first._sid_sha1 is second._sid_sha1 is None
+
+
+def test_v3_readme_documents_enablement_gates_and_boundaries() -> None:
+    """插件目录必须提供说明，覆盖四项能力门禁与关键边界。"""
+    readme = PLUGIN_ROOT / "README.md"
+
+    assert readme.is_file()
+    content = readme.read_text(encoding="utf-8")
+    for keyword in (
+        "transfer_enabled",
+        "iyuu_token",
+        "speed_monitor_enabled",
+        "upload_limit_downloader_limits_kib",
+        "Transmission",
+        "bear",
+    ):
+        assert keyword in content

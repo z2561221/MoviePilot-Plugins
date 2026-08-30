@@ -29,15 +29,15 @@ def test_frontend_api_strict_envelope_bare_payload_and_network_reject() -> None:
       import {{ getPluginApi }} from {module_url!r}
 
       const successApi = {{
-        get: async () => ({{ success: true, message: '', data: {{ code: 0, value: 7 }} }})
+        get: async path => {{ assert.equal(path, 'plugin/CloneDownloadManager/overview'); return ({{ success: true, message: '', data: {{ code: 0, value: 7 }} }}) }}
       }}
-      assert.deepEqual(await getPluginApi(successApi, 'overview'), {{ code: 0, value: 7 }})
+      assert.deepEqual(await getPluginApi(successApi, 'CloneDownloadManager', 'overview'), {{ code: 0, value: 7 }})
 
       const bareApi = {{
-        get: async () => ({{ code: 0, cards: {{ transfer: {{ active: false }} }} }})
+        get: async path => {{ assert.equal(path, 'plugin/CloneDownloadManager/overview'); return ({{ code: 0, cards: {{ transfer: {{ active: false }} }} }}) }}
       }}
       assert.deepEqual(
-        await getPluginApi(bareApi, 'overview'),
+        await getPluginApi(bareApi, 'CloneDownloadManager', 'overview'),
         {{ code: 0, cards: {{ transfer: {{ active: false }} }} }}
       )
 
@@ -45,17 +45,17 @@ def test_frontend_api_strict_envelope_bare_payload_and_network_reject() -> None:
         get: async () => ({{ success: true, message: '', data: {{ code: 0 }}, trace: 'keep' }})
       }}
       assert.deepEqual(
-        await getPluginApi(customApi, 'overview'),
+        await getPluginApi(customApi, 'CloneDownloadManager', 'overview'),
         {{ success: true, message: '', data: {{ code: 0 }}, trace: 'keep' }}
       )
 
       const failureApi = {{
         get: async () => ({{ success: false, message: '业务失败', data: {{ code: 1 }} }})
       }}
-      await assert.rejects(() => getPluginApi(failureApi, 'overview'), /业务失败/)
+      await assert.rejects(() => getPluginApi(failureApi, 'CloneDownloadManager', 'overview'), /业务失败/)
 
       const networkApi = {{ get: async () => {{ throw new Error('network down') }} }}
-      await assert.rejects(() => getPluginApi(networkApi, 'overview'), /network down/)
+      await assert.rejects(() => getPluginApi(networkApi, 'CloneDownloadManager', 'overview'), /network down/)
     """
 
     result = _run_node(script)
@@ -77,7 +77,7 @@ def test_frontend_api_forwards_silent_feedback_without_double_unwrap() -> None:
           return {{ success: true, message: '', data: {{ nested: {{ data: 9 }} }} }}
         }}
       }}
-      const result = await getPluginApi(api, 'overview', {{ feedback: 'silent' }})
+      const result = await getPluginApi(api, 'CloneDownloadManager', 'overview', {{ feedback: 'silent' }})
       assert.deepEqual(received, {{ feedback: 'silent' }})
       assert.deepEqual(result, {{ nested: {{ data: 9 }} }})
     """
