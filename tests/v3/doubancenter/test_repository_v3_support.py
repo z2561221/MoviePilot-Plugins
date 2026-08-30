@@ -26,15 +26,24 @@ FORBIDDEN_IMPORT_ROOTS = (
     "app.adapters",
     "app.runtime",
 )
-REVIEWED_INTERNAL_IMPORTS = {"app.adapters.external.cookiecloud"}
 LEGACY_DB_IMPORTS = {"app.db.subscribe_oper", "app.db.subscribehistory_oper"}
 
 
-def _is_forbidden_import(module_name: str) -> bool:
+def _reviewed_internal_imports() -> set[tuple[str, str]]:
+    """读取评分器共用的逐符号宿主内部导入例外。"""
+    path = REPO_ROOT / ".github" / "plugin-quality-exceptions.json"
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    return {
+        (entry["module"], entry["symbol"])
+        for entry in payload.get("DoubanCenter", {}).get("imports", [])
+    }
+
+
+def _is_forbidden_import(module_name: str, symbol: str = "*") -> bool:
     """判断模块名是否命中禁止路径且不在已审查允许清单。"""
     if module_name in LEGACY_DB_IMPORTS:
         return True
-    if module_name in REVIEWED_INTERNAL_IMPORTS:
+    if (module_name, symbol) in _reviewed_internal_imports():
         return False
     return any(
         module_name == root or module_name.startswith(f"{root}.")
@@ -52,9 +61,9 @@ def test_v3_plugin_does_not_use_unreviewed_internal_import_paths():
         for node in ast.walk(tree):
             modules = []
             if isinstance(node, ast.Import):
-                modules.extend(alias.name for alias in node.names)
+                modules.extend((alias.name, "*") for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
-                modules.append(node.module)
+                modules.extend((node.module, alias.name) for alias in node.names)
             elif isinstance(node, ast.Call) and node.args:
                 function_name = ""
                 if isinstance(node.func, ast.Name):
@@ -70,10 +79,12 @@ def test_v3_plugin_does_not_use_unreviewed_internal_import_paths():
                     and isinstance(argument, ast.Constant)
                     and isinstance(argument.value, str)
                 ):
-                    modules.append(argument.value)
-            for module_name in modules:
-                if _is_forbidden_import(module_name):
-                    violations.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno} {module_name}")
+                    modules.append((argument.value, "*"))
+            for module_name, symbol in modules:
+                if _is_forbidden_import(module_name, symbol):
+                    violations.append(
+                        f"{path.relative_to(REPO_ROOT)}:{node.lineno} {module_name}:{symbol}"
+                    )
     assert violations == []
 
 
@@ -81,7 +92,7 @@ def test_v3_sdk_migrations_use_current_public_exports():
     """媒体身份和媒体服务器能力使用最新 V3 稳定 SDK。"""
     api_source = (V3_PLUGIN_ROOT / "controller" / "api.py").read_text(encoding="utf-8-sig")
     identity_source = (V3_PLUGIN_ROOT / "model" / "identity.py").read_text(encoding="utf-8-sig")
-    folio_source = (V3_PLUGIN_ROOT / "folio.py").read_text(encoding="utf-8-sig")
+    folio_source = (V3_PLUGIN_ROOT / "service" / "folio.py").read_text(encoding="utf-8-sig")
     migration_source = (V3_PLUGIN_ROOT / "migration.py").read_text(encoding="utf-8-sig")
     subscription_source = (V3_PLUGIN_ROOT / "service" / "subscription.py").read_text(encoding="utf-8-sig")
     assert "from app.sdk.media import resolve_media_identity" in api_source
@@ -98,6 +109,25 @@ def test_v3_sdk_migrations_use_current_public_exports():
     assert "app.application.mediaserver" not in folio_source
 
 
+def test_v3_entrypoints_keep_business_implementation_out_of_package_root():
+    """根目录入口只保留兼容门面，业务实现必须位于 service 层。"""
+    root = V3_PLUGIN_ROOT
+    for filename, service_name in (("feed.py", "rank_pipeline"), ("folio.py", "folio"), ("dashboard.py", "dashboard")):
+        source = (root / filename).read_text(encoding="utf-8-sig")
+        assert f"from .service import {service_name}" in source
+        assert "def " not in source
+    controller_source = (root / "controller" / "api.py").read_text(encoding="utf-8-sig")
+    assert "from ..service import dashboard as dash" in controller_source
+    assert "from ..service import folio" in controller_source
+    assert "from ..service import rank_pipeline as feed" in controller_source
+    assert "from .. import dashboard" not in controller_source
+    assert "from .. import feed" not in controller_source
+    assert "from .. import folio" not in controller_source
+    rank_source = (root / "service" / "rank_pipeline.py").read_text(encoding="utf-8-sig")
+    assert "rss_adapter.RequestUtils =" not in rank_source
+    assert "rss_adapter.DomUtils =" not in rank_source
+
+
 def test_v3_event_manager_uses_public_sdk_contract():
     """事件管理使用 V3 正式 SDK，避免触发兼容导入告警。"""
     source = (V3_PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8-sig")
@@ -108,10 +138,24 @@ def test_v3_event_manager_uses_public_sdk_contract():
 
 
 def test_v3_cookiecloud_uses_runtime_supported_adapter():
-    """CookieCloud 保留唯一已审查的 V3 内部适配器路径。"""
-    source = (V3_PLUGIN_ROOT / "doubanapi.py").read_text(encoding="utf-8-sig")
-    assert "from app.adapters.external.cookiecloud import CookieCloudHelper" in source
-    assert "app.integrations.cookiecloud" not in source
+    """CookieCloud 保留唯一已审查且已登记的 V3 内部适配器路径。"""
+    adapter_source = (V3_PLUGIN_ROOT / "adapter" / "douban_account.py").read_text(encoding="utf-8-sig")
+    facade_source = (V3_PLUGIN_ROOT / "doubanapi.py").read_text(encoding="utf-8-sig")
+    exception_path = REPO_ROOT / ".github" / "plugin-quality-exceptions.json"
+    exceptions = json.loads(exception_path.read_text(encoding="utf-8-sig"))
+    entries = exceptions["DoubanCenter"]["imports"]
+    assert "from app.adapters.external.cookiecloud import CookieCloudHelper" in adapter_source
+    assert "from .adapter import douban_account as _account" in facade_source
+    assert "app.integrations.cookiecloud" not in adapter_source + facade_source
+    assert any(
+        entry["module"] == "app.adapters.external.cookiecloud"
+        and entry["symbol"] == "CookieCloudHelper"
+        and all(
+            entry.get(key)
+            for key in ("reason", "host_version", "removal_condition", "test")
+        )
+        for entry in entries
+    )
 
 
 def test_sync_to_target_writes_only_v3_layout(tmp_path):

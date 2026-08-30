@@ -75,11 +75,14 @@ def build_rsshub_url(domain: str, route: str, limit: int = 5) -> str:
     return f"{utils.normalize_rss_domain(domain)}{route_url}"
 
 
-def _get_response(plugin, addr: str):
+def _get_response(plugin, addr: str, *, request_utils_cls=None, settings_obj=None):
+    """通过注入的宿主网络封装读取 RSS 响应。"""
+    request_utils_cls = request_utils_cls or RequestUtils
+    settings_obj = settings_obj or settings
     return (
-        RequestUtils(proxies=settings.PROXY).get_res(addr)
+        request_utils_cls(proxies=settings_obj.PROXY).get_res(addr)
         if getattr(plugin, "_proxy", False)
-        else RequestUtils().get_res(addr)
+        else request_utils_cls().get_res(addr)
     )
 
 
@@ -98,17 +101,26 @@ def _douban_rexxar_url(collection: str, count: int) -> str:
     )
 
 
-def _rexxar_items(plugin, collection: str, count: int) -> List[dict]:
+def _rexxar_items(
+    plugin,
+    collection: str,
+    count: int,
+    *,
+    request_utils_cls=None,
+    settings_obj=None,
+) -> List[dict]:
     """读取 rexxar 条目；网络或响应异常时返回空列表。"""
+    request_utils_cls = request_utils_cls or RequestUtils
+    settings_obj = settings_obj or settings
     headers = {
         **_DOUBAN_REXXAR_HEADERS,
         "Referer": f"https://m.douban.com/subject_collection/{quote(collection, safe='')}/",
     }
     try:
         request = (
-            RequestUtils(headers=headers, proxies=settings.PROXY)
+            request_utils_cls(headers=headers, proxies=settings_obj.PROXY)
             if getattr(plugin, "_proxy", False)
-            else RequestUtils(headers=headers)
+            else request_utils_cls(headers=headers)
         )
         response = request.get_res(_douban_rexxar_url(collection, count))
         if not response or getattr(response, "status_code", 200) >= 400:
@@ -155,14 +167,27 @@ def _strict_title(value: Any) -> str:
     return re.sub(r"\s+", "", str(value or "")).casefold()
 
 
-def _enrich_douban_ids(plugin, addr: str, items: List[dict]) -> None:
+def _enrich_douban_ids(
+    plugin,
+    addr: str,
+    items: List[dict],
+    *,
+    request_utils_cls=None,
+    settings_obj=None,
+) -> None:
     """按 RSS 顺序和唯一标题严格补回豆瓣 subject id。"""
     collection = _douban_collection_from_addr(addr)
     pending = [item for item in items if isinstance(item, dict) and not item.get("doubanid")]
     if not collection or not pending:
         return
     count = min(max(len(items), 1), _DOUBAN_REXXAR_MAX_ITEMS)
-    remote_items = _rexxar_items(plugin, collection, count)
+    remote_items = _rexxar_items(
+        plugin,
+        collection,
+        count,
+        request_utils_cls=request_utils_cls,
+        settings_obj=settings_obj,
+    )
     if not remote_items:
         return
 
@@ -192,10 +217,23 @@ def _enrich_douban_ids(plugin, addr: str, items: List[dict]) -> None:
             used_ids.add(subject_id)
 
 
-def fetch_coming(plugin, addr: str) -> List[dict]:
+def fetch_coming(
+    plugin,
+    addr: str,
+    *,
+    request_utils_cls=None,
+    dom_utils=None,
+    settings_obj=None,
+) -> List[dict]:
     """拉取并解析豆瓣即将上映 RSS 条目。"""
+    dom_utils = dom_utils or DomUtils
     try:
-        ret = _get_response(plugin, addr)
+        ret = _get_response(
+            plugin,
+            addr,
+            request_utils_cls=request_utils_cls,
+            settings_obj=settings_obj,
+        )
         if not ret:
             return []
         dom = xml.dom.minidom.parseString(ret.text)
@@ -203,10 +241,10 @@ def fetch_coming(plugin, addr: str) -> List[dict]:
         source_link = _channel_link(root)
         result = []
         for item in root.getElementsByTagName("item"):
-            title = DomUtils.tag_value(item, "title", default="")
-            link = DomUtils.tag_value(item, "link", default="")
-            desc = DomUtils.tag_value(item, "description", default="")
-            cat = DomUtils.tag_value(item, "category", default="")
+            title = dom_utils.tag_value(item, "title", default="")
+            link = dom_utils.tag_value(item, "link", default="")
+            desc = dom_utils.tag_value(item, "description", default="")
+            cat = dom_utils.tag_value(item, "category", default="")
             if not title and not link:
                 continue
             regions, genres = utils.parse_regions_and_genres(cat)
@@ -236,10 +274,23 @@ def fetch_coming(plugin, addr: str) -> List[dict]:
         return []
 
 
-def fetch_rank(plugin, addr: str) -> List[dict]:
+def fetch_rank(
+    plugin,
+    addr: str,
+    *,
+    request_utils_cls=None,
+    dom_utils=None,
+    settings_obj=None,
+) -> List[dict]:
     """拉取并解析通用榜单 RSS 条目。"""
+    dom_utils = dom_utils or DomUtils
     try:
-        ret = _get_response(plugin, addr)
+        ret = _get_response(
+            plugin,
+            addr,
+            request_utils_cls=request_utils_cls,
+            settings_obj=settings_obj,
+        )
         if not ret:
             return []
         dom = xml.dom.minidom.parseString(ret.text)
@@ -248,10 +299,10 @@ def fetch_rank(plugin, addr: str) -> List[dict]:
         result = []
         default_mtype = default_media_type(addr)
         for item in root.getElementsByTagName("item"):
-            title = DomUtils.tag_value(item, "title", default="")
-            link = DomUtils.tag_value(item, "link", default="")
-            desc = DomUtils.tag_value(item, "description", default="")
-            cat = DomUtils.tag_value(item, "category", default="")
+            title = dom_utils.tag_value(item, "title", default="")
+            link = dom_utils.tag_value(item, "link", default="")
+            desc = dom_utils.tag_value(item, "description", default="")
+            cat = dom_utils.tag_value(item, "category", default="")
             if not title:
                 continue
             mtype = default_mtype
@@ -286,7 +337,13 @@ def fetch_rank(plugin, addr: str) -> List[dict]:
                     "genres": genres,
                 }
             )
-        _enrich_douban_ids(plugin, addr, result)
+        _enrich_douban_ids(
+            plugin,
+            addr,
+            result,
+            request_utils_cls=request_utils_cls,
+            settings_obj=settings_obj,
+        )
         return result
     except Exception as err:
         logger.error(f"获取 RSS 失败：{err}")

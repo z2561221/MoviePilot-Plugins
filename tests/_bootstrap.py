@@ -47,7 +47,20 @@ if str(_BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(_BACKEND_PATH))
 
 _bootstrap = import_module("app.testing.bootstrap")
-block_real_network = import_module("app.testing.network_guard").block_real_network
+
+
+def _load_network_guard():
+    """优先加载当前网络守卫模块，并兼容旧宿主模块名。"""
+    try:
+        network = import_module("app.testing.network")
+    except ModuleNotFoundError as error:
+        if error.name != "app.testing.network":
+            raise
+        network = import_module("app.testing.network_guard")
+    return network.block_real_network
+
+
+block_real_network = _load_network_guard()
 
 
 def isolate_config_dir() -> str:

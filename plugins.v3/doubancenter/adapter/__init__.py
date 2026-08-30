@@ -1,5 +1,5 @@
 """External integration adapters for DoubanCenter."""
 
-from . import douban, rss
+from . import douban, douban_account, rss
 
-__all__ = ["douban", "rss"]
+__all__ = ["douban", "douban_account", "rss"]

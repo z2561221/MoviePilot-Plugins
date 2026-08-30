@@ -1,7 +1,11 @@
-"""豆瓣中心榜单订阅策略服务。"""
+"""豆瓣中心榜单订阅策略与运行编排服务。"""
 
-from typing import Any, Dict, List
+import time
+from typing import Any, Callable, Dict, List
 
+from app.sdk.logging import logger
+
+from ..adapter import rss as rss_adapter
 from ..model import rank as rank_model
 from .. import utils
 
@@ -164,3 +168,112 @@ def has_safety_filter(
         rank_enabled(rank_configs, rank.get("key", "")) and has_rank_filter(rank_config(rank_configs, rank.get("key", "")), rank)
         for rank in ranks
     )
+
+
+def subscription_limits(rank_configs: Dict[str, dict], ranks: List[dict], unlimited_limit: int) -> Dict[str, int]:
+    """生成运行周期每个启用榜单需要拉取的候选数量。"""
+    limits: Dict[str, int] = {}
+    for rank in ranks:
+        key = rank["key"]
+        if not rank_enabled(rank_configs, key):
+            continue
+        count = rank_count(rank_configs, key)
+        limits[key] = max(5, count) if count > 0 else unlimited_limit
+    return limits
+
+
+def subscribe_ranks(
+    plugin: Any,
+    *,
+    ranks: List[dict],
+    safety_filter: Callable[[Any], bool],
+    rank_enabled_callback: Callable[[Any, str], bool],
+    rank_count_callback: Callable[[Any, str], int],
+    process_coming: Callable[[Any, str, dict], None],
+    process_general: Callable[[Any, str, dict], None],
+    refresh_rank_data: Callable[[Any], Any],
+    unlimited_limit: int,
+    refresh_when_unsafe: bool = True,
+) -> None:
+    """按当前配置处理传统 RSS 订阅入口。"""
+    if not safety_filter(plugin):
+        logger.warning("豆瓣中心：未配置有效订阅筛选条件，跳过自动订阅，仅刷新榜单历史以避免误触发大量订阅")
+        if refresh_when_unsafe:
+            refresh_rank_data(plugin)
+        return
+    rsshub = utils.normalize_rss_domain(plugin._rsshub_domain)
+    for rank in ranks:
+        key = rank["key"]
+        if not rank_enabled_callback(plugin, key):
+            continue
+        count = rank_count_callback(plugin, key)
+        fetch_count = count if count > 0 else unlimited_limit
+        url = rss_adapter.build_rsshub_url(rsshub, rank["route"], fetch_count)
+        logger.info(f"豆瓣中心：开始处理 [{rank['name']}] {url}")
+        processor = process_coming if rank["coming"] else process_general
+        processor(plugin, url, rank)
+        time.sleep(1)
+    logger.info("豆瓣中心：榜单订阅刷新完成")
+
+
+def subscribe_rank_snapshots(
+    plugin: Any,
+    rank_snapshots: Dict[str, dict],
+    *,
+    ranks: List[dict],
+    safety_filter: Callable[[Any], bool],
+    rank_enabled_callback: Callable[[Any, str], bool],
+    rank_count_callback: Callable[[Any, str], int],
+    rank_config_callback: Callable[[Any, str], dict],
+    blacklist_enabled: Callable[[Any], bool],
+    observe_enabled: Callable[[Any, str], bool],
+    process_coming: Callable[..., None],
+    process_general: Callable[..., None],
+    emit_summary: Callable[[dict, str, List[str]], None],
+) -> None:
+    """使用本轮已识别快照执行自动订阅。"""
+    if not safety_filter(plugin):
+        logger.warning("豆瓣中心：未配置有效订阅筛选条件，本轮已刷新榜单展示，跳过自动订阅")
+        return
+    for rank in ranks:
+        key = rank["key"]
+        if not rank_enabled_callback(plugin, key):
+            continue
+        count = rank_count_callback(plugin, key)
+        snapshots = ((rank_snapshots or {}).get(key) or {}).get("items") or []
+        subscribe_items = snapshots if count <= 0 else snapshots[:count]
+        description = describe_rank_filter(
+            rank_config_callback(plugin, key),
+            rank,
+            candidate_count=len(subscribe_items),
+            blacklist_enabled=blacklist_enabled(plugin),
+            observe_enabled=observe_enabled(plugin, key),
+        )
+        result_lines: List[str] = []
+        if not subscribe_items:
+            result_lines.append("- 本轮没有可处理的订阅候选")
+            emit_summary(rank, description, result_lines)
+            continue
+        processor = process_coming if rank["coming"] else process_general
+        processor(plugin, subscribe_items, rank, result_lines=result_lines)
+        emit_summary(rank, description, result_lines)
+        time.sleep(1)
+    logger.info("豆瓣中心：榜单订阅刷新完成")
+
+
+def refresh_then_subscribe(
+    plugin: Any,
+    message: str,
+    *,
+    limit_by_rank: Callable[[Any], Dict[str, int]],
+    refresh_rank_data: Callable[..., Any],
+    subscribe_snapshots: Callable[[Any, Dict[str, dict]], None],
+) -> None:
+    """刷新榜单展示数据后，再按当前配置订阅已识别快照。"""
+    logger.info(message)
+    _, snapshots = refresh_rank_data(
+        plugin,
+        limit_by_rank=limit_by_rank(plugin),
+        with_snapshots=True,
+    )
+    subscribe_snapshots(plugin, snapshots)

@@ -1,5 +1,5 @@
 """
-DoubanCenter v3.0.2 - MoviePilot V3 本地插件
+DoubanCenter v3.0.3 - MoviePilot V3 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
 import threading
@@ -9,7 +9,7 @@ from app.plugins import _PluginBase
 from app.sdk.events import Event, eventmanager
 from app.schemas.types import EventType
 
-from . import dashboard as dash, feed, folio, migration
+from . import migration
 from . import utils
 from .controller import api as api_controller
 from .model.config import (
@@ -23,6 +23,9 @@ from .model.config import (
     normalize_rank_configs,
 )
 from .model import rank as rank_model
+from .service import dashboard as dash
+from .service import folio
+from .service import rank_pipeline as feed
 from .service import scheduler as scheduler_service
 from .service import webhook as webhook_service
 
@@ -34,59 +37,58 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "3.0.2"
+    plugin_version = "3.0.3"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
     plugin_order = 14
     auth_level = 1
 
-    _enabled = False
-    _cron = DEFAULT_CRON
-    _notify = False
-    _proxy = False
-    _onlyonce = False
-    _rsshub_domain = DEFAULT_RSSHUB_DOMAIN
-    _rank_configs: Dict[str, Any] = {}
-    _custom_ranks: List[Dict[str, Any]] = []
-    _region_filters: List[str] = []
-    _genre_filters: List[str] = []
-    _resolution_filters: List[str] = []
-    _custom_rss_addrs: List[str] = []
-    _folio_enabled = True
-    _folio_private = True
-    _folio_first = True
-    _folio_notify = False
-    _folio_exclude_live_tv = True
-    _folio_user = ""
-    _folio_exclude = ""
-    _folio_cookie = ""
-    _wish_enabled = False
-    _wish_cron = DEFAULT_WISH_CRON
-    _wish_user = ""
-    _wish_notify = False
-    _wish_onlyonce = False
-    _wish_max_pages = 1
-    _wish_days = 7
-    _dashboard_rank_keys: List[str] = []
-    _discovery_page_enabled = False
-    _blacklist_keywords: str = ""
-    _observe_days: int = 0
-    _observe_rank_keys: List[str] = []
-
-    _region_options = REGION_OPTIONS
-    _genre_options = GENRE_OPTIONS
-    _resolution_options = RESOLUTION_OPTIONS
-
-    _scheduler = None
-    _wait_process: Dict = None
-
     def __init__(self, *args, **kwargs):
+        """建立当前插件实例独享的配置和运行状态。"""
         super().__init__(*args, **kwargs)
+        self._enabled = False
+        self._cron = DEFAULT_CRON
+        self._notify = False
+        self._proxy = False
+        self._onlyonce = False
+        self._rsshub_domain = DEFAULT_RSSHUB_DOMAIN
+        self._rank_configs: Dict[str, Any] = {}
+        self._custom_ranks: List[Dict[str, Any]] = []
+        self._region_filters: List[str] = []
+        self._genre_filters: List[str] = []
+        self._resolution_filters: List[str] = []
+        self._custom_rss_addrs: List[str] = []
+        self._folio_enabled = True
+        self._folio_private = True
+        self._folio_first = True
+        self._folio_notify = False
+        self._folio_exclude_live_tv = True
+        self._folio_user = ""
+        self._folio_exclude = ""
+        self._folio_cookie = ""
+        self._wish_enabled = False
+        self._wish_cron = DEFAULT_WISH_CRON
+        self._wish_user = ""
+        self._wish_notify = False
+        self._wish_onlyonce = False
+        self._wish_max_pages = 1
+        self._wish_days = 7
+        self._dashboard_rank_keys: List[str] = []
+        self._discovery_page_enabled = False
+        self._blacklist_keywords = ""
+        self._observe_days = 0
+        self._observe_rank_keys: List[str] = []
+        self._region_options = list(REGION_OPTIONS)
+        self._genre_options = list(GENRE_OPTIONS)
+        self._resolution_options = [dict(option) for option in RESOLUTION_OPTIONS]
+        self._scheduler = None
+        self._wait_process: Optional[Dict[str, Any]] = None
         self._sync_lock = threading.Lock()
 
     def init_plugin(self, config: dict = None):
         """根据插件配置初始化运行状态并触发一次性任务。"""
+        self.stop_service()
         config = config or {}
         self._enabled = config.get("enabled", False)
         self._cron = config.get("cron") or DEFAULT_CRON
@@ -140,7 +142,6 @@ class DoubanCenter(_PluginBase):
             custom_rank_sources=[rank.get("route") for rank in self._custom_ranks],
         )
         migration.normalize_legacy_subscribe_usernames()
-        self.stop_service()
         if self._onlyonce:
             self._onlyonce = False
             self.__update_config()

@@ -1,0 +1,14 @@
+{
+  "DoubanCenter": {
+    "imports": [
+      {
+        "module": "app.adapters.external.cookiecloud",
+        "symbol": "CookieCloudHelper",
+        "reason": "当前 V3 宿主尚未将 CookieCloudHelper 导出到稳定 SDK。",
+        "host_version": "da51ff1a5feea9c22451968e4b86bc8f32011925",
+        "removal_condition": "宿主稳定 SDK 导出 CookieCloudHelper 后迁移并删除此例外。",
+        "test": "tests/v3/doubancenter/test_repository_v3_support.py::test_v3_cookiecloud_uses_runtime_supported_adapter"
+      }
+    ]
+  }
+}

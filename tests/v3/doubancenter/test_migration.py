@@ -2,8 +2,8 @@
 
 from copy import deepcopy
 
-from doubancenter import migration
-from doubancenter.storage import records as storage
+from app.plugins.doubancenter import migration
+from app.plugins.doubancenter.storage import records as storage
 
 
 class MemoryPlugin:

@@ -2,7 +2,7 @@
 
 ## 插件用途
 
-DoubanCenter 3.0.0 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
+DoubanCenter 3.0.3 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
 
 ## 入口与渲染
 
@@ -26,9 +26,13 @@ DoubanCenter 3.0.0 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 - `model/identity.py`：统一 `(media_source, media_id)`、旧字段回填和 V3 `MediaChain` 参数。
 - `migration.py`：初始化时幂等迁移榜单、订阅、观察、归档、豆瓣时间和想看记录；unresolved 原样保留。
 - `controller/schemas.py`：17 条普通 JSON 路由的具体 Pydantic 业务模型。
-- `feed.py`：榜单刷新和订阅主编排，旧 helper 名保留为兼容转发。
-- `dashboard.py`：仪表盘和详情页 API 编排，归档核心算法委托给 `service/archive.py`。
-- `folio.py`：豆瓣时间同步主流程，外层事件串行化由 `service/webhook.py` 承担。
+- `service/rank_pipeline.py`：榜单领域兼容入口和运行回调；根 `feed.py` 仅保留兼容转发。
+- `service/rank_refresh.py`：RSS 目标选择、拉取窗口和仪表盘刷新编排。
+- `service/rank_recognition.py`：RSS 条目与快照的识别器选择。
+- `service/rank_snapshot.py`：榜单快照构造、历史合并和观察状态保留。
+- `service/rank_subscription.py`：订阅筛选策略、快照订阅和运行周期编排。
+- `service/dashboard.py`：仪表盘和详情页 API 编排，归档核心算法委托给 `service/archive.py`；根 `dashboard.py` 仅保留兼容转发。
+- `service/folio.py`：豆瓣时间同步主流程，外层事件串行化由 `service/webhook.py` 承担；根 `folio.py` 仅保留兼容转发。
 
 ## 最新 V3 宿主适配
 
@@ -36,7 +40,8 @@ DoubanCenter 3.0.0 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
   `app.sdk.media` 的媒体身份规范化函数，以及 `app.sdk.services` 的媒体服务器
   Helper。
 - `app.adapters.external.cookiecloud.CookieCloudHelper` 当前仍没有稳定 SDK 出口，
-  是唯一保留的宿主内部导入；修改前应先重新核对宿主 `app.sdk` 的 `__all__`。
+  是唯一保留的宿主内部导入；精确例外登记在仓库根目录
+  `.github/plugin-quality-exceptions.json`，修改前应先重新核对宿主 `app.sdk` 的 `__all__`。
 - 17 条插件 API 显式返回 `schemas.Response[T]`，前端注入客户端读取最终
   `success/message/data` envelope，不允许再增加一层 `data`。
 
@@ -56,10 +61,11 @@ DoubanCenter 3.0.0 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 
 ## 关键调用链
 
-- 定时 / 立即运行：`DoubanCenter.__run_all()` -> `feed.run_scheduled()` / `feed.run_once()` -> `feed.refresh_rank_data()` -> `feed.subscribe_to_ranks()`。
-- 榜单订阅：`feed._process_coming()` / `feed._process_general()` / `feed._process_items()` -> `service/observation.py` -> `service/subscription.py`。
-- 详情 API：`controller/api.py` -> `dashboard.py` -> `storage/records.py` / `service/archive.py`。
-- 豆瓣时间：Webhook event -> `service/webhook.py` -> `folio.py` -> `DoubanApi`。
+- 定时 / 立即运行：`DoubanCenter.__run_all()` -> `service/rank_pipeline.py:run_scheduled()` / `run_once()` -> `service/rank_subscription.py:refresh_then_subscribe()` -> `service/rank_refresh.py:refresh_rank_data()`。
+- 榜单刷新：`service/rank_refresh.py` -> `service/rank_snapshot.py` -> `service/rank_recognition.py` -> `service/rank_pipeline.py` 领域识别回调。
+- 榜单订阅：`service/rank_subscription.py` -> `service/rank_pipeline.py:_process_coming_snapshots()` / `_process_general_snapshots()` -> `service/observation.py` -> `service/subscription.py`。
+- 详情 API：`controller/api.py` -> `service/dashboard.py` -> `storage/records.py` / `service/archive.py`。
+- 豆瓣时间：Webhook event -> `service/webhook.py` -> `service/folio.py` -> `adapter/douban_account.py:DoubanApi`。
 
 ## 验收方式
 

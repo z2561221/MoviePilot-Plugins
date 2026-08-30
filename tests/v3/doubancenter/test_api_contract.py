@@ -4,8 +4,8 @@ from fastapi import HTTPException
 
 from app import schemas
 
-from doubancenter.controller import api as api_controller
-from doubancenter.controller import schemas as api_schemas
+from app.plugins.doubancenter.controller import api as api_controller
+from app.plugins.doubancenter.controller import schemas as api_schemas
 
 
 class ApiPlugin:

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
-
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -44,3 +45,57 @@ def test_runner_skips_orphaned_generation_tests(tmp_path: Path, capsys) -> None:
 
     assert targets == [valid_tests]
     assert "跳过无源码测试目录" in capsys.readouterr().err
+
+
+def test_runner_isolates_each_generation_target(monkeypatch) -> None:
+    """代际中的每个测试目标必须使用独立 pytest 进程。"""
+    module = _load_test_runner_module()
+    targets = [Path("tests/v3/agentrank"), Path("tests/v3/doubancenter")]
+    calls = []
+
+    monkeypatch.setattr(module, "_generation_targets", lambda _generation: targets)
+    monkeypatch.setattr(
+        module.subprocess,
+        "call",
+        lambda command, cwd: calls.append((command, cwd)) or 0,
+    )
+
+    assert module._run_generation("v3", ["-q"]) == 0
+    assert calls == [
+        (
+            [sys.executable, "-m", "pytest", str(targets[0]), "-q"],
+            str(module._REPO_ROOT),
+        ),
+        (
+            [sys.executable, "-m", "pytest", str(targets[1]), "-q"],
+            str(module._REPO_ROOT),
+        ),
+    ]
+
+
+def test_bootstrap_supports_current_and_legacy_network_guard_modules(monkeypatch) -> None:
+    """测试薄壳优先使用当前网络守卫，并兼容旧宿主模块名。"""
+    from tests import _bootstrap
+
+    current_guard = object()
+    legacy_guard = object()
+    calls = []
+
+    def load_current(name: str):
+        calls.append(name)
+        return SimpleNamespace(block_real_network=current_guard)
+
+    monkeypatch.setattr(_bootstrap, "import_module", load_current)
+    assert _bootstrap._load_network_guard() is current_guard
+    assert calls == ["app.testing.network"]
+
+    def load_legacy(name: str):
+        calls.append(name)
+        if name == "app.testing.network":
+            raise ModuleNotFoundError(name=name)
+        return SimpleNamespace(block_real_network=legacy_guard)
+
+    calls.clear()
+    monkeypatch.setattr(_bootstrap, "import_module", load_legacy)
+    assert _bootstrap._load_network_guard() is legacy_guard
+    assert calls == ["app.testing.network", "app.testing.network_guard"]
