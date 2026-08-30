@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
-DEFAULT_GENERATION = "v2"
 GENERATION_LAYOUTS = {
     "v2": {
         "package_file": "package.v2.json",
@@ -21,9 +20,6 @@ GENERATION_LAYOUTS = {
         "plugins_dir": "plugins.v3",
     },
 }
-PACKAGE_FILE = GENERATION_LAYOUTS[DEFAULT_GENERATION]["package_file"]
-LOCAL_PACKAGE_FILE = GENERATION_LAYOUTS[DEFAULT_GENERATION]["local_package_file"]
-PLUGINS_DIR = GENERATION_LAYOUTS[DEFAULT_GENERATION]["plugins_dir"]
 ICONS_DIR = "icons"
 DEFAULT_TARGET = Path(r"Z:\moviepilot-v2\config\local plugins")
 IGNORE_NAMES = {
@@ -46,20 +42,20 @@ def read_package(path: Path) -> dict:
     return data
 
 
-def generation_layout(generation: str) -> dict[str, str]:
-    """返回指定插件代际的目录与索引布局。"""
+def generation_layout(generation: str) -> dict:
+    """返回指定插件代际的索引与目录布局。"""
     try:
         return GENERATION_LAYOUTS[generation]
     except KeyError as exc:
-        supported = ", ".join(sorted(GENERATION_LAYOUTS))
-        raise ValueError(f"Unsupported generation '{generation}'. Supported: {supported}") from exc
+        raise ValueError(f"Unsupported plugin generation: {generation}") from exc
 
 
-def read_source_package(source_root: Path, generation: str = DEFAULT_GENERATION) -> dict:
-    """读取指定代际的在线索引与本地专用索引，并合并为同步清单。"""
+def read_source_package(source_root: Path, generation: str) -> dict:
+    """读取指定代际索引，并合并该代允许的本地专用索引。"""
     layout = generation_layout(generation)
     package = read_package(source_root / layout["package_file"])
-    local_package = read_package(source_root / layout["local_package_file"])
+    local_package_file = layout["local_package_file"]
+    local_package = read_package(source_root / local_package_file) if local_package_file else {}
     duplicate_ids = set(package).intersection(local_package)
     if duplicate_ids:
         names = ", ".join(sorted(duplicate_ids))
@@ -108,7 +104,8 @@ def is_relative_to(path: Path, parent: Path) -> bool:
         return False
 
 
-def safe_plugin_destination(target_root: Path, plugin_id: str, plugins_dir: str = PLUGINS_DIR) -> Path:
+def safe_plugin_destination(target_root: Path, plugin_id: str, plugins_dir: str) -> Path:
+    """返回限制在目标代际目录内的插件路径。"""
     plugins_root = (target_root / plugins_dir).resolve()
     destination = (plugins_root / plugin_dir_name(plugin_id)).resolve()
     if not is_relative_to(destination, plugins_root):
@@ -128,10 +125,10 @@ def copy_plugin_directory(
     source_root: Path,
     target_root: Path,
     plugin_id: str,
+    plugins_dir: str,
     dry_run: bool,
-    plugins_dir: str = PLUGINS_DIR,
 ) -> str:
-    """复制指定代际的单个插件目录。"""
+    """复制指定代际的一个插件目录。"""
     source = source_root / plugins_dir / plugin_dir_name(plugin_id)
     destination = safe_plugin_destination(target_root, plugin_id, plugins_dir)
     if not source.is_dir():
@@ -168,11 +165,10 @@ def sync_to_target(
     target_root: Path | str,
     plugin_ids: Iterable[str] | None = None,
     *,
+    generation: str = "v2",
     dry_run: bool = False,
     include_icons: bool = True,
-    generation: str = DEFAULT_GENERATION,
 ) -> list[str]:
-    """把选定代际的插件与元数据同步到 MoviePilot 本地插件仓库。"""
     source_root = Path(source_root).resolve()
     target_root = Path(target_root).resolve()
     if not target_root.exists():
@@ -191,8 +187,8 @@ def sync_to_target(
                 source_root,
                 target_root,
                 plugin_id,
-                dry_run,
                 layout["plugins_dir"],
+                dry_run,
             )
         )
         if include_icons:
@@ -228,6 +224,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Sync selected local plugins into MoviePilot's local plugin repository."
     )
     parser.add_argument(
+        "--generation",
+        choices=tuple(GENERATION_LAYOUTS),
+        default="v2",
+        help="Plugin generation to sync. Use v3 explicitly for package.v3.json/plugins.v3.",
+    )
+    parser.add_argument(
         "--source",
         type=Path,
         default=Path(__file__).resolve().parents[1],
@@ -238,12 +240,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(os.environ.get("MP_LOCAL_PLUGIN_REPO", str(DEFAULT_TARGET))),
         help="MoviePilot local plugin repository path, usually the SMB mapped path.",
-    )
-    parser.add_argument(
-        "--generation",
-        choices=sorted(GENERATION_LAYOUTS),
-        default=DEFAULT_GENERATION,
-        help="Plugin generation to sync. Defaults to v2.",
     )
     parser.add_argument(
         "--plugin",
@@ -262,9 +258,9 @@ def main(argv: list[str] | None = None) -> int:
             args.source,
             args.target,
             split_plugin_args(args.plugin),
+            generation=args.generation,
             dry_run=args.dry_run,
             include_icons=not args.no_icons,
-            generation=args.generation,
         )
     except Exception as exc:
         print(f"sync failed: {exc}", file=sys.stderr)

@@ -9,8 +9,8 @@
 tests/
 ├─ _bootstrap.py   薄壳 shim：定位同级 MoviePilot 后端入 sys.path，引导逻辑委托主程序 app/testing.bootstrap
 ├─ conftest.py     pytest 引导：按本次运行目标选择 v1/v2/v3 插件环境并注册网络守卫
+├─ ci/             仓库脚本与版本门禁单测，不加载插件运行时
 ├─ v3/             v3 插件（plugins.v3/）单测；每个插件按插件 ID 建子目录
-│  └─ localtoolkit/
 ├─ v2/             v2 插件（plugins.v2/）单测；每个插件按插件 ID 建子目录
 │  └─ agenttokens/
 └─ v1/             v1 插件（plugins/）单测；每个插件按插件 ID 建子目录
@@ -22,7 +22,7 @@ tests/
 并使用带后端依赖的解释器（如 `<workspace>/.venv/bin/python`）。
 
 ```bash
-# 全量（推荐入口）：v1/v2/v3 各自独立会话依次跑，命令行参数透传给 pytest
+# 全量（推荐入口）：ci/v3/v2/v1 各自独立会话依次跑，命令行参数透传给 pytest
 <workspace>/.venv/bin/python tests/run.py
 
 # 也可按代单独跑（v1/v2/v3 必须分会话，勿混跑）
@@ -31,9 +31,9 @@ tests/
 <workspace>/.venv/bin/python -m pytest tests/v1
 ```
 
-`tests/run.py` 把 v1/v2/v3 放在独立子进程依次运行、无用例的代自动跳过——不同代际可能存在同名
+`tests/run.py` 把 ci/v3/v2/v1 放在独立子进程依次运行、无用例的代自动跳过——各代存在同名
 插件包（如 `brushflowlowfreq`、`torrentclassifier`），同一解释器进程无法同时加载、混跑
-会相互覆盖。隔离 `CONFIG_DIR`、建表、`app.helper.sites` 垫片、插件目录注入、v1/v2/v3 marker、
+会相互覆盖。隔离 `CONFIG_DIR`、建表、`app.helper.sites` 垫片、插件目录注入、分代 marker、
 autouse 网络守卫等引导逻辑统一在主程序 `app/testing`（`bootstrap` / `network_guard`）维护一处；
 本仓 `tests/_bootstrap.py` 仅是「定位后端入 `sys.path`」的薄壳 shim，故后端需为含 `app/testing/bootstrap`
 的较新 MoviePilot。共享 harness（`stub_modules` 等）在 bootstrap 后可直接复用。
