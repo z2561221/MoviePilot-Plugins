@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,3 +45,31 @@ def test_runner_skips_orphaned_generation_tests(tmp_path: Path, capsys) -> None:
 
     assert targets == [valid_tests]
     assert "跳过无源码测试目录" in capsys.readouterr().err
+
+
+def test_bootstrap_supports_current_and_legacy_network_guard_modules(monkeypatch) -> None:
+    """测试薄壳优先使用当前网络守卫，并兼容旧宿主模块名。"""
+    from tests import _bootstrap
+
+    current_guard = object()
+    legacy_guard = object()
+    calls = []
+
+    def load_current(name: str):
+        calls.append(name)
+        return SimpleNamespace(block_real_network=current_guard)
+
+    monkeypatch.setattr(_bootstrap, "import_module", load_current)
+    assert _bootstrap._load_network_guard() is current_guard
+    assert calls == ["app.testing.network"]
+
+    def load_legacy(name: str):
+        calls.append(name)
+        if name == "app.testing.network":
+            raise ModuleNotFoundError(name=name)
+        return SimpleNamespace(block_real_network=legacy_guard)
+
+    calls.clear()
+    monkeypatch.setattr(_bootstrap, "import_module", load_legacy)
+    assert _bootstrap._load_network_guard() is legacy_guard
+    assert calls == ["app.testing.network", "app.testing.network_guard"]
