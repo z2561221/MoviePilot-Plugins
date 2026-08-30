@@ -17,13 +17,12 @@ const passwordVisible = ref(false)
 const feedback = reactive({ show: false, message: '', color: 'success' })
 
 const defaultAutoBackupScope = {
-  mp_settings: true,
+  mp_settings: false,
   plugin_settings: true,
   plugin_data: true,
   plugin_files: true,
-  app_env: true,
+  app_env: false,
   cookies: false,
-  database: false,
 }
 
 const form = reactive({
@@ -375,11 +374,10 @@ onMounted(loadSecretStatus)
                       <div class="bc-scope-group-title">数据</div>
                       <VCheckbox v-model="form.auto_backup_scope.plugin_data" label="插件保存的数据（PluginData）" density="compact" hide-details />
                       <VCheckbox v-model="form.auto_backup_scope.plugin_files" label="插件文件和缓存" density="compact" hide-details />
-                      <VCheckbox v-model="form.auto_backup_scope.database" label="整个数据库" color="warning" density="compact" hide-details />
                     </section>
                   </div>
-                  <VAlert v-if="form.auto_backup_scope.database" type="warning" variant="tonal" density="compact" class="mt-3">
-                    周期备份包含整个数据库时，生成的整库快照只能停机后按离线教程恢复。
+                  <VAlert type="info" variant="tonal" density="compact" class="mt-3">
+                    数据库备份由 MoviePilot 主程序统一管理，插件只负责插件设置、数据与标准目录。
                   </VAlert>
                 </div>
               </div>

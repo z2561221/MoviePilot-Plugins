@@ -219,6 +219,16 @@ class OperationLogService:
             message = (
                 f"{message}，应急备份 {self.sanitize_message(emergency_backup_id)}"
             )
+        host_database_backup_name = (
+            result.get("host_database_backup_name")
+            if isinstance(result, dict)
+            else None
+        )
+        if host_database_backup_name:
+            message = (
+                f"{message}，宿主恢复点 "
+                f"{self.sanitize_message(host_database_backup_name)}"
+            )
         self.record(
             operation=operation,
             status="success",

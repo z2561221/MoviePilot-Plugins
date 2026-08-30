@@ -108,16 +108,6 @@ class BackupContentCountsData(BaseModel):
     cookies: int = 0
 
 
-class DatabaseSnapshotData(BaseModel):
-    """描述完整数据库快照的类型和文件。"""
-
-    model_config = ConfigDict(extra="allow")
-
-    type: str = "none"
-    included: bool = False
-    file: str | None = None
-
-
 class ScryptParametersData(BaseModel):
     """描述加密负载使用的 scrypt 参数。"""
 
@@ -153,7 +143,6 @@ class BackupManifestData(BaseModel):
     display_name: str
     created_at: str
     source_mp_version: str
-    database: DatabaseSnapshotData
     scope: BackupScopeData
     selected_plugin_ids: list[str] = Field(default_factory=list)
     selected_plugins: list[SelectedPluginData] = Field(default_factory=list)
@@ -163,7 +152,6 @@ class BackupManifestData(BaseModel):
     manual_target: str | None = None
     encryption: EncryptionMetadataData
     encrypted: bool = False
-    offline_database_restore_required: bool = False
     package_size: int | None = None
 
 
@@ -176,7 +164,7 @@ class BackupOverviewData(BaseModel):
     backup_root: str
     backup_count: int
     backups: list[BackupManifestData] = Field(default_factory=list)
-    database_type: str
+    database_management: str
     encryption_configured: bool
     encryption_active: bool
     installed_plugin_ids: list[str] = Field(default_factory=list)
@@ -299,4 +287,4 @@ class RestoreLogicalData(BaseModel):
     restored: RestoredContentData
     reload_required: list[str] = Field(default_factory=list)
     reloaded: list[str] = Field(default_factory=list)
-    database_message: str
+    host_database_backup_name: str | None = None

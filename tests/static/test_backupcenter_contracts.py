@@ -71,10 +71,11 @@ def test_backupcenter_metadata_is_consistent_and_v3_scoped():
     ):
         assert package[metadata_key] == manifest[metadata_key]
         assert package[metadata_key] == _class_string(plugin_class, class_key)
-    assert package["version"] == manifest["version"] == "3.0.1"
+    assert package["version"] == manifest["version"] == "3.0.2"
     assert "v2" not in package and "v2" not in manifest
     assert package["release"] is True
     assert package["history"] == manifest["history"] == {
+        "v3.0.2": "[1]聚焦逻辑备份;[2]接入宿主恢复点;[3]恢复失败自动回滚",
         "v3.0.1": "[1]新增运行日志;[2]适配V3接口;[3]修复插件加载",
         "v3.0.0": "[1]备份MP与插件;[2]支持加密校验;[3]附带离线恢复"
     }
@@ -172,11 +173,11 @@ def test_backupcenter_frontend_keeps_online_and_offline_restore_separate():
     )
     for marker in (
         "在线选择性恢复",
-        "离线整库恢复",
-        "完整数据库和 app.env 不会在线恢复",
+        "宿主数据库恢复点",
+        "数据库文件与 app.env 不会在线替换",
         "留空时尝试使用配置页当前保存的口令",
-        "下载完整离线包",
-        "离线恢复教程",
+        "下载备份包",
+        "备份恢复说明",
     ):
         assert marker in page
     assert "restore/logical" in page
@@ -270,6 +271,8 @@ def test_backupcenter_automatic_scope_is_persisted_and_used_by_scheduler():
     assert '"/config"' in controller
     assert "plugin/BackupCenter/config" in api
     assert "auto_backup_scope" in config
+    assert "legacy_database_scope" in entrypoint
+    assert 'for key in ("mp_settings", "app_env", "cookies")' in entrypoint
 
 
 def test_backupcenter_basic_settings_expose_immediate_automatic_backup():
@@ -307,7 +310,6 @@ def test_backupcenter_scope_uses_plain_language_configuration_and_data_groups():
         'label="登录 Cookie"',
         'label="插件保存的数据（PluginData）"',
         'label="插件文件和缓存"',
-        'label="整个数据库"',
         'label="插件设置"',
         'label="插件数据"',
         "在线恢复哪些内容",
@@ -324,7 +326,6 @@ def test_backupcenter_scope_uses_plain_language_configuration_and_data_groups():
     assert 'configuration: false' in page
     assert 'data: false' in page
     assert 'mp_settings: false' in page
-    assert 'database: false' in page
     assert 'mp_settings: restoreForm.selection.mpSettings' in page
     assert 'plugin_settings: restoreForm.selection.pluginSettings && hasPluginSelection' in page
     assert 'plugin_data: restoreForm.selection.pluginData && hasPluginSelection' in page
@@ -395,12 +396,13 @@ def test_backupcenter_layout_has_stable_mobile_constraints():
     assert "minmax(0, 1fr)" in page
     assert "width: min(960px, calc(100vw - 48px))" in page
     assert "height: min(660px, calc(100dvh - 48px))" in page
-    assert ":global(.v-overlay__content:has(.bc-page))" in page
+    assert ":global(.bc-page-overlay)" in page
     assert "flex: 1 1 auto" in page
     assert "overflow-y: auto" in page
     assert "min-height: calc(100dvh" not in page
     assert "height: min(860px, 100dvh)" in page
     assert "max-height: 100%" in page
+    assert ".bc-record-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }" in page
     for marker in (
         "activeMain = ref('overview')",
         "运行总览",
@@ -438,7 +440,7 @@ def test_backupcenter_context_records_non_negotiable_restore_boundaries():
         "plugins.v3/backupcenter",
         "v3:false",
         "不修改 MoviePilot 主程序",
-        "ScopedSession",
+        "get_data/save_data/del_data",
         "SystemConfigOper.set()",
         "不承诺跨键全局事务",
         "多个插件目录之间不承诺全局原子性",

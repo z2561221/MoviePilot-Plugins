@@ -15,13 +15,13 @@ from .service.secret_service import SecretService
 
 
 class BackupCenter(_PluginBase):
-    """为 MoviePilot 提供可选加密备份、选择性恢复和离线恢复指引。"""
+    """为 MoviePilot 提供插件逻辑备份与选择性恢复。"""
 
     plugin_name = "备份中心"
-    plugin_desc = "备份 MoviePilot 与插件设置，生成可校验的离线恢复包。"
+    plugin_desc = "备份插件设置与数据，调用 MoviePilot 主程序保护数据库。"
     plugin_icon = "backup.png"
     plugin_color = "#00897B"
-    plugin_version = "3.0.1"
+    plugin_version = "3.0.2"
     plugin_label = "系统工具,数据安全"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
@@ -36,13 +36,12 @@ class BackupCenter(_PluginBase):
         "auto_backup_cron": "0 3 * * 6",
         "retention_count": 5,
         "auto_backup_scope": {
-            "mp_settings": True,
+            "mp_settings": False,
             "plugin_settings": True,
             "plugin_data": True,
             "plugin_files": True,
-            "app_env": True,
+            "app_env": False,
             "cookies": False,
-            "database": False,
         },
     }
     _config: Dict[str, Any] = {}
@@ -82,6 +81,9 @@ class BackupCenter(_PluginBase):
             retention_count = 5
         default_scope = dict(cls._default_config["auto_backup_scope"])
         supplied_scope = raw.get("auto_backup_scope")
+        legacy_database_scope = isinstance(supplied_scope, dict) and bool(
+            supplied_scope.get("database")
+        )
         if isinstance(supplied_scope, dict):
             auto_backup_scope = {
                 key: bool(supplied_scope.get(key, default_value))
@@ -89,6 +91,9 @@ class BackupCenter(_PluginBase):
             }
         else:
             auto_backup_scope = default_scope
+        if legacy_database_scope:
+            for key in ("mp_settings", "app_env", "cookies"):
+                auto_backup_scope[key] = False
         if not any(auto_backup_scope.values()):
             auto_backup_scope = default_scope
         return {

@@ -7,7 +7,6 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from app.sdk.config import settings
 from app.sdk.plugins import PluginManager
 # 当前部署镜像未提供 app.sdk.security，复用宿主插件 API 的公开认证依赖。
 from app.api.endpoints.plugin import verify_token
@@ -125,13 +124,13 @@ class BackupCenterApiController:
             "backup_root": "插件数据目录/BackupCenter/backups",
             "backup_count": len(backups),
             "backups": backups,
-            "database_type": str(settings.DB_TYPE or "sqlite").lower(),
+            "database_management": "由 MoviePilot 主程序管理",
             "encryption_configured": encryption_configured,
             "encryption_active": encryption_configured,
             "installed_plugin_ids": installed,
             "plugin_options": self._plugin_options(installed),
             "online_restore": "仅设置、PluginData 与插件标准数据目录",
-            "database_restore": "完整数据库必须停机后按离线教程执行",
+            "database_restore": "在线恢复前自动创建宿主数据库恢复点；整库恢复使用主程序命令",
         }
 
     def config(self) -> Dict[str, Any]:
