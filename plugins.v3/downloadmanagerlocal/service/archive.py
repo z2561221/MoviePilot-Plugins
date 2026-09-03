@@ -6,7 +6,7 @@ from datetime import datetime
 
 from app.sdk.logging import logger
 
-from ..model.state import RENAME_RETRY_STATE_KEY
+from ..model.state import RENAME_RECORDS_KEY, RENAME_RETRY_STATE_KEY
 
 RETRY_STATE_KEY = RENAME_RETRY_STATE_KEY
 DEFAULT_ARCHIVE_THRESHOLD = 3
@@ -154,14 +154,21 @@ def restore_rename_archive(plugin, torrent_hash: str) -> dict:
     item = dict(state.get(hash_text) or {})
     if not item:
         return {"code": 1, "msg": "归档记录不存在", "hash": hash_text}
+    restored_at = now_text()
     item.update({
         "archived": False,
         "fail_count": 0,
-        "restored_at": now_text(),
+        "restored_at": restored_at,
     })
     item.pop("archived_at", None)
     state[hash_text] = item
     save_rename_retry_state(plugin, state)
+
+    records = plugin.get_data(RENAME_RECORDS_KEY) or {}
+    record = records.get(hash_text)
+    if isinstance(record, dict):
+        record["time"] = restored_at
+        plugin.save_data(RENAME_RECORDS_KEY, records)
     return {"code": 0, "msg": "已恢复，后续将重新参与补刀", "hash": hash_text}
 
 
