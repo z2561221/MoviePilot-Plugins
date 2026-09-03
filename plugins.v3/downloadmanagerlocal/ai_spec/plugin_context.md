@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.3`（基于已发布的 V3.3.2）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.4`（基于已发布的 V3.3.3）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -25,7 +25,7 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 固定为当前开发版 `3.3.3`；V2 保持
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 固定为当前开发版 `3.3.4`；V2 保持
   `3.2.9`，旧索引只增加 `"v3": false`。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
@@ -87,12 +87,12 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
 
 ## 2026-07-04 历史 V2 标准完成证据
 
-以下执行账本只对应旧 V2 `3.2.4` 周期，不能作为当前 V3.3.3 的运行态证据：
+以下执行账本只对应旧 V2 `3.2.4` 周期，不能作为当前 V3.3.4 的运行态证据：
 
 - 计划：`docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md`
 - 账本：`docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-progress.json`
 - 当时的静态测试、编译、MP 同步、reload、history 和 API 回读均属于旧 V2 实例。
-- 当前 V3.3.3 必须按本文末尾的本周期验证记录重新核验。
+- 当前 V3.3.4 必须按本文末尾的本周期验证记录重新核验。
 
 ## API 路由契约
 
@@ -359,11 +359,11 @@ Vue/API 契约完成验证。运行验收前必须先取得目标 MoviePilot 实
 
 ## 2026-07-04 历史标准化收口记录
 
-以下记录属于旧 V2 `3.2.4` 周期，仅用于追溯，不代表当前 V3.3.3 运行态：
+以下记录属于旧 V2 `3.2.4` 周期，仅用于追溯，不代表当前 V3.3.4 运行态：
 
 - 当时完成后端拆层、docstring、静态守护和 MP 本地仓库验收。
 - 当时的源码、索引和运行态 history 均指向 V2 `3.2.4`。
-- 当前 V3 源码、索引和运行态必须按本文顶部的 V3.3.3 规则单独核验。
+- 当前 V3 源码、索引和运行态必须按本文顶部的 V3.3.4 规则单独核验。
 
 ## 2026-08-29 V3.3.3 结构修正记录
 
