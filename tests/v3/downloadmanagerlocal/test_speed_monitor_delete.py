@@ -96,6 +96,28 @@ class FakePlugin:
         self.messages.append(kwargs)
 
 
+class EditingChain:
+    """记录通过 MoviePilot 消息链发起的原消息编辑。"""
+
+    def __init__(self):
+        """初始化编辑调用记录。"""
+        self.calls = []
+
+    def edit_message(self, **kwargs):
+        """记录编辑参数并模拟 Telegram 原地编辑成功。"""
+        self.calls.append(kwargs)
+        return True
+
+
+class EditingPlugin(FakePlugin):
+    """为终态收束测试提供可成功编辑原消息的处理链。"""
+
+    def __init__(self, runtime, downloader, downloader_type="qbittorrent"):
+        """初始化带消息链记录器的 fake 插件。"""
+        super().__init__(runtime, downloader, downloader_type)
+        self.chain = EditingChain()
+
+
 def _runtime(status="notified", downloader_type="qbittorrent"):
     """构造一个已通知且可操作的异常会话。"""
     monitor = _load("service.speed_monitor")
@@ -225,6 +247,24 @@ def test_confirm_delete_calls_qb_and_tr_with_delete_file_true(downloader_type):
     assert plugin.data["speed_monitor_sessions"]["items"]["qb-main:abc123"]["status"] == "deleted"
 
 
+def test_confirm_delete_edits_original_card_when_terminal_result_has_no_buttons():
+    """确认删除成功时无按钮结果必须原地编辑，不能留下旧确认卡片。"""
+    actions = _load("service.speed_actions")
+    runtime = _runtime("confirming")
+    downloader = FakeDownloader()
+    plugin = EditingPlugin(runtime, downloader)
+
+    _process(actions, plugin, "confirm", plugin_id="EditingPlugin")
+
+    assert plugin.messages == []
+    assert len(plugin.chain.calls) == 1
+    edit = plugin.chain.calls[0]
+    assert edit["message_id"] == 77
+    assert edit["chat_id"] == 88
+    assert edit["title"] == "种子及全部数据已删除"
+    assert edit["buttons"] is None
+
+
 def test_unauthorized_expired_terminal_and_repeated_callbacks_are_idempotent():
     """越权、过期、终态和重复点击均不得调用删除器。"""
     actions = _load("service.speed_actions")
@@ -262,7 +302,8 @@ def test_delete_failure_is_persisted_and_can_be_cancelled_without_second_call():
     assert alert["status"] == "confirming"
     assert alert["deletion_result"]["success"] is False
     assert alert["deletion_result"]["error"] == "offline"
-    assert plugin.data["speed_monitor_alerts"]["items"]["qb-main:abc123:1"]["deletion_result"]["error"] == "offline"
+    persisted_alert = plugin.data["speed_monitor_alerts"]["items"]["qb-main:abc123:1"]
+    assert persisted_alert["deletion_result"]["error"] == "offline"
 
     _process(actions, plugin, "cancel")
     assert downloader.delete_calls == [(["abc123"], True)]

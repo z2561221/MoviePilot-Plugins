@@ -70,6 +70,14 @@ def _post_action_card(
     notification_type: Any = None,
 ) -> None:
     """通过原消息字段编辑 Telegram 卡片并保持目标用户不变。"""
+    original = original_message_kwargs(event_data)
+    channel = (event_data or {}).get("channel")
+    try:
+        from app.schemas.types import NotificationChannel
+
+        channel = NotificationChannel.Telegram
+    except ImportError:
+        pass
     kwargs = {
         "mtype": resolve_notification_type(
             getattr(plugin, "_speed_monitor_notification_type", "Plugin"),
@@ -80,15 +88,42 @@ def _post_action_card(
         "buttons": buttons,
         "targets": {"telegram_userid": str(telegram_userid or "")},
         "save_history": False,
-        **original_message_kwargs(event_data),
+        **original,
     }
-    try:
-        from app.schemas.types import NotificationChannel
-
-        kwargs["channel"] = NotificationChannel.Telegram
-    except Exception:
-        pass
+    if channel is not None:
+        kwargs["channel"] = channel
+    edit_kwargs = {
+        "channel": channel,
+        "source": original.get("source"),
+        "message_id": original.get("original_message_id"),
+        "chat_id": original.get("original_chat_id"),
+        "title": title,
+        "text": text,
+        "buttons": buttons,
+    }
+    if _edit_action_card(plugin, edit_kwargs):
+        return
     plugin.post_message(**kwargs)
+
+
+def _edit_action_card(
+    plugin: Any,
+    edit_kwargs: dict[str, Any],
+) -> bool:
+    """通过插件处理链直接编辑原消息，确保无按钮终态也能原地收束。"""
+    if not all(
+        edit_kwargs.get(field)
+        for field in ("channel", "message_id", "chat_id")
+    ):
+        return False
+    chain = getattr(plugin, "chain", None)
+    edit_message = getattr(chain, "edit_message", None)
+    if not callable(edit_message):
+        return False
+    try:
+        return bool(edit_message(**edit_kwargs))
+    except Exception:  # pylint: disable=broad-exception-caught  # noqa: BLE001
+        return False
 
 
 def _rejection_text(reason: str) -> str:
