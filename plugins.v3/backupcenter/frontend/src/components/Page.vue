@@ -539,12 +539,13 @@ onBeforeUnmount(detachPageOverlay)
                 </div>
               </VCardText>
               <VDivider />
-              <VCardActions>
-                <VBtn size="small" variant="text" prepend-icon="mdi-check-decagram-outline" :loading="actionLoading === `verify:${item.backup_id}`" @click="verifyBackup(item.backup_id)">校验</VBtn>
-                <VBtn size="small" variant="text" prepend-icon="mdi-book-open-page-variant-outline" :loading="actionLoading === `guide:${item.backup_id}`" @click="showGuide(item.backup_id)">教程</VBtn>
-                <VBtn size="small" variant="text" color="error" prepend-icon="mdi-delete-outline" :loading="actionLoading === `delete:${item.backup_id}`" @click="deleteBackup(item.backup_id)">删除</VBtn>
-                <VSpacer />
-                <VBtn size="small" color="primary" variant="tonal" prepend-icon="mdi-download-outline" :loading="actionLoading === `export:${item.backup_id}`" @click="exportBackup(item.backup_id)">下载</VBtn>
+              <VCardActions class="bc-record-actions">
+                <div class="bc-record-action-group">
+                  <VBtn size="small" variant="text" prepend-icon="mdi-check-decagram-outline" :loading="actionLoading === `verify:${item.backup_id}`" @click="verifyBackup(item.backup_id)">校验</VBtn>
+                  <VBtn size="small" variant="text" prepend-icon="mdi-book-open-page-variant-outline" :loading="actionLoading === `guide:${item.backup_id}`" @click="showGuide(item.backup_id)">教程</VBtn>
+                  <VBtn size="small" variant="text" color="error" prepend-icon="mdi-delete-outline" :loading="actionLoading === `delete:${item.backup_id}`" @click="deleteBackup(item.backup_id)">删除</VBtn>
+                  <VBtn size="small" color="primary" variant="tonal" prepend-icon="mdi-download-outline" :loading="actionLoading === `export:${item.backup_id}`" @click="exportBackup(item.backup_id)">下载</VBtn>
+                </div>
               </VCardActions>
             </VCard>
           </div>
@@ -848,6 +849,9 @@ onBeforeUnmount(detachPageOverlay)
 .bc-row-actions { display: flex; align-items: center; }
 .bc-record-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .bc-record-card { min-width: 0; border-radius: 8px; background: transparent; }
+.bc-record-actions { min-height: 56px; display: flex; align-items: center; padding: 8px 16px; }
+.bc-record-action-group { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
+.bc-record-action-group > :deep(.v-btn) { align-self: center; margin-block: 0; }
 .bc-record-title { font-size: 14px; overflow-wrap: anywhere; }
 .bc-chip-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .bc-record-facts { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; color: rgba(var(--v-theme-on-surface), .62); font-size: 12px; }
@@ -903,6 +907,8 @@ onBeforeUnmount(detachPageOverlay)
   .bc-band-heading { align-items: flex-start; }
   .bc-band-heading > :deep(.v-btn) { flex: 0 0 auto; }
   .bc-route-grid, .bc-record-grid, .bc-restore-paths { grid-template-columns: 1fr; }
+  .bc-record-actions { gap: 8px; padding-inline: 12px; }
+  .bc-record-action-group { gap: 0; }
   .bc-backup-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
   .bc-backup-row > :deep(.v-chip) { grid-column: 1; justify-self: start; }
   .bc-row-actions { grid-column: 2; grid-row: 1 / span 2; }

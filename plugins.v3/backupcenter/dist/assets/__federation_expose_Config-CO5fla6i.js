@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-DLxMntTb.js';
+import { _ as _export_sfc, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-DZv_LBIW.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives,createBlock:_createBlock,createCommentVNode:_createCommentVNode} = await importShared('vue');
 
@@ -718,6 +718,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5a1629a2"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0390a808"]]);
 
 export { Config as default };
