@@ -8,7 +8,7 @@
   "DoubanCenter": {
     "mode": "migration",
     "legacy_version": "1.2.20",
-    "v3_version": "3.0.3",
+    "v3_version": "3.0.4",
     "reason": "user-approved MoviePilot V3 version line"
   },
   "AgentRank": {
