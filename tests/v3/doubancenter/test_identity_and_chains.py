@@ -1,5 +1,6 @@
 """豆瓣中心 V3 媒体身份与链参数测试。"""
 
+import threading
 from types import SimpleNamespace
 
 from app.schemas.types import MediaSource, MediaType
@@ -212,6 +213,72 @@ def test_bangumi_fallback_stops_when_completed_history_exists():
 
     assert result == {"success": False, "message": "已订阅"}
     assert fetched is False
+
+
+def test_concurrent_auto_subscriptions_create_one_subscription():
+    """并发自动任务对同一媒体只允许一个订阅创建调用。"""
+    media = SimpleNamespace(
+        title="并发电影",
+        year="2026",
+        type=MediaType.MOVIE,
+        media_source=MediaSource.TMDB,
+        media_id="456",
+        tmdb_id=456,
+        episode_group=None,
+        get_poster_image=lambda: "",
+    )
+    state = {"active": False, "add_calls": 0}
+    state_lock = threading.Lock()
+    plugin_data = {}
+    plugin = SimpleNamespace(
+        get_data=lambda key: plugin_data.get(key),
+        save_data=lambda key, value: plugin_data.__setitem__(key, value),
+    )
+
+    class SubscribeChain:
+        """模拟共享订阅表状态。"""
+
+        def exists(self, mediainfo, meta):
+            """读取当前活动订阅状态。"""
+            with state_lock:
+                return state["active"]
+
+        def add(self, **kwargs):
+            """记录创建调用并写入共享状态。"""
+            with state_lock:
+                state["add_calls"] += 1
+                state["active"] = True
+            return 1, ""
+
+    class SubscribeOper:
+        """模拟没有完成历史的操作类。"""
+
+        def exists(self, **kwargs):
+            """活动状态由 SubscribeChain 负责。"""
+            return False
+
+        def exist_history(self, **kwargs):
+            """没有已完成订阅历史。"""
+            return False
+
+    barrier = threading.Barrier(2)
+
+    def run():
+        barrier.wait()
+        return subscription.add_subscription(
+            plugin,
+            media,
+            subscribe_chain_cls=SubscribeChain,
+            subscribe_oper_cls=SubscribeOper,
+        )
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert state["add_calls"] == 1
 
 
 def test_auto_subscription_forwards_season_and_keeps_bangumi_record_title():

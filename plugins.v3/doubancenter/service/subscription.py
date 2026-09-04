@@ -1,6 +1,7 @@
 """豆瓣中心订阅服务。"""
 
 import datetime
+import threading
 from typing import Any, Dict, List
 
 from app.chain.subscribe import SubscribeChain
@@ -10,6 +11,9 @@ from app.schemas.types import MediaType
 from ..model.identity import identity_from_media, identity_payload, legacy_identity
 from ..storage import records as storage
 from . import observation
+
+
+_SUBSCRIBE_LOCK = threading.Lock()
 
 
 def _default_subscribe_oper_cls():
@@ -249,67 +253,69 @@ def add_subscription(
     subscribe_oper_cls=None,
 ) -> bool:
     """按 MoviePilot V3 通用媒体身份执行自动订阅。"""
-    if is_existing_media(
-        mediainfo,
-        meta,
-        subscribe_chain_cls=subscribe_chain_cls,
-        subscribe_oper_cls=subscribe_oper_cls,
-    ):
-        observation.cleanup_observe_logs(plugin, title=getattr(mediainfo, "title", ""))
-        return False
-    subscribe_chain = subscribe_chain_cls()
-    season = getattr(meta, "begin_season", None) if meta else None
-    media_source, media_id = identity_from_media(mediainfo)
-    if not media_source or not media_id:
+    # 订阅链本身是先查后建，锁住整个区段以防并发榜单任务重复创建同一媒体。
+    with _SUBSCRIBE_LOCK:
+        if is_existing_media(
+            mediainfo,
+            meta,
+            subscribe_chain_cls=subscribe_chain_cls,
+            subscribe_oper_cls=subscribe_oper_cls,
+        ):
+            observation.cleanup_observe_logs(plugin, title=getattr(mediainfo, "title", ""))
+            return False
+        subscribe_chain = subscribe_chain_cls()
+        season = getattr(meta, "begin_season", None) if meta else None
+        media_source, media_id = identity_from_media(mediainfo)
+        if not media_source or not media_id:
+            write_subscribe_record(
+                plugin,
+                mediainfo,
+                rank_key=rank_key,
+                rank_name=rank_name,
+                status="failed",
+                reason="缺少有效媒体身份",
+                source_link=source_link,
+                title=record_title,
+                season=season,
+                prefer_title=bool(record_title),
+            )
+            return False
+        sid, msg = subscribe_chain.add(
+            title=mediainfo.title,
+            year=mediainfo.year or "",
+            mtype=mediainfo.type if mediainfo.type else MediaType.TV,
+            media_source=media_source,
+            media_id=media_id,
+            season=season,
+            resolution=None,
+            sites=None,
+            exist_ok=True,
+            username="豆瓣中心",
+        )
+        if not sid:
+            write_subscribe_record(
+                plugin,
+                mediainfo,
+                rank_key=rank_key,
+                rank_name=rank_name,
+                status="failed",
+                reason=msg or "订阅失败",
+                source_link=source_link,
+                title=record_title,
+                season=season,
+                prefer_title=bool(record_title),
+            )
+            return False
+        observation.cleanup_observe_logs(plugin, title=mediainfo.title)
         write_subscribe_record(
             plugin,
             mediainfo,
             rank_key=rank_key,
             rank_name=rank_name,
-            status="failed",
-            reason="缺少有效媒体身份",
+            status="success",
             source_link=source_link,
             title=record_title,
             season=season,
             prefer_title=bool(record_title),
         )
-        return False
-    sid, msg = subscribe_chain.add(
-        title=mediainfo.title,
-        year=mediainfo.year or "",
-        mtype=mediainfo.type if mediainfo.type else MediaType.TV,
-        media_source=media_source,
-        media_id=media_id,
-        season=season,
-        resolution=None,
-        sites=None,
-        exist_ok=True,
-        username="豆瓣中心",
-    )
-    if not sid:
-        write_subscribe_record(
-            plugin,
-            mediainfo,
-            rank_key=rank_key,
-            rank_name=rank_name,
-            status="failed",
-            reason=msg or "订阅失败",
-            source_link=source_link,
-            title=record_title,
-            season=season,
-            prefer_title=bool(record_title),
-        )
-        return False
-    observation.cleanup_observe_logs(plugin, title=mediainfo.title)
-    write_subscribe_record(
-        plugin,
-        mediainfo,
-        rank_key=rank_key,
-        rank_name=rank_name,
-        status="success",
-        source_link=source_link,
-        title=record_title,
-        season=season,
-        prefer_title=bool(record_title),
-    )
-    return True
+        return True
