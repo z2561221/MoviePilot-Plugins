@@ -114,6 +114,106 @@ def test_completed_subscription_check_uses_v3_history_signature():
     }
 
 
+def test_manual_subscription_stops_when_completed_history_exists():
+    """手动榜单订阅不能绕过已完成订阅历史再次创建。"""
+    media = SimpleNamespace(
+        title="测试电影",
+        year="2026",
+        type=MediaType.MOVIE,
+        media_source=MediaSource.TMDB,
+        media_id="123",
+        tmdb_id=123,
+        episode_group=None,
+        get_poster_image=lambda: "",
+    )
+
+    class MediaChain:
+        """返回固定媒体识别结果。"""
+
+        def recognize_media(self, **kwargs):
+            """返回测试媒体。"""
+            return media
+
+    class SubscribeChain:
+        """模拟没有活动订阅的链。"""
+
+        def exists(self, mediainfo, meta):
+            """返回没有活动订阅。"""
+            return False
+
+        def add(self, **kwargs):
+            """不应被重复订阅路径调用。"""
+            raise AssertionError("completed subscription must stop before add")
+
+    class SubscribeOper:
+        """模拟只有已完成订阅历史。"""
+
+        def exists(self, **kwargs):
+            """返回没有活动订阅。"""
+            return False
+
+        def exist_history(self, **kwargs):
+            """返回已存在的完成历史。"""
+            return True
+
+    result = dashboard_rank_subscription.subscribe_from_rank(
+        object(),
+        123,
+        "movie",
+        "测试电影",
+        "2026",
+        media_chain_cls=MediaChain,
+        subscribe_chain_cls=SubscribeChain,
+        subscribe_oper_cls=SubscribeOper,
+    )
+
+    assert result == {"success": False, "message": "已订阅"}
+
+
+def test_bangumi_fallback_stops_when_completed_history_exists():
+    """Bangumi 无 TMDB 识别时同样不能绕过已完成历史。"""
+    fetched = False
+
+    class SubscribeChain:
+        """模拟没有活动订阅的链。"""
+
+        def add(self, **kwargs):
+            """不应被重复订阅路径调用。"""
+            raise AssertionError("completed subscription must stop before add")
+
+    class SubscribeOper:
+        """模拟只有已完成 Bangumi 订阅历史。"""
+
+        def exists(self, **kwargs):
+            """返回没有活动订阅。"""
+            return False
+
+        def exist_history(self, **kwargs):
+            """返回已存在的完成历史。"""
+            return True
+
+    def fetch_subject(*args, **kwargs):
+        nonlocal fetched
+        fetched = True
+        return {"name_cn": "测试动画", "date": "2026-01-01"}
+
+    result = dashboard_rank_subscription.subscribe_from_bangumi_subject(
+        object(),
+        SubscribeChain(),
+        MediaType.TV,
+        "测试动画",
+        "2026",
+        42,
+        bangumi_subject_fetcher=fetch_subject,
+        bangumi_subject_title=lambda subject, fallback="": subject["name_cn"],
+        bangumi_subject_year=lambda subject, fallback="": subject["date"][:4],
+        subscribe_oper_cls=SubscribeOper,
+    )
+
+    assert result == {"success": False, "message": "已订阅"}
+    assert fetched is False
+
+
 def test_auto_subscription_forwards_season_and_keeps_bangumi_record_title():
     """自动订阅复用 TMDB 身份和季号，历史保留 BGM 来源标题。"""
     captured = {}

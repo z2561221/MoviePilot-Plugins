@@ -42,6 +42,48 @@ def history_index_by_unique(history: List[dict]) -> Dict[str, dict]:
     }
 
 
+def is_existing_identity(
+    media_source: Any,
+    media_id: Any,
+    *,
+    season: Any = None,
+    episode_group: Any = None,
+    subscribe_oper_cls=None,
+) -> bool:
+    """按媒体身份检查活动订阅与已完成订阅历史。"""
+    source, resolved_id = legacy_identity(
+        media_source=media_source,
+        media_id=media_id,
+    )
+    if not source or not resolved_id:
+        return False
+    try:
+        subscribe_oper_cls = subscribe_oper_cls or _default_subscribe_oper_cls()
+        oper = subscribe_oper_cls()
+    except Exception as err:
+        logger.warning(f"豆瓣中心：初始化订阅状态检查失败：{err}")
+        return False
+    params = {
+        "media_source": source,
+        "media_id": resolved_id,
+        "season": season,
+        "episode_group": episode_group,
+    }
+    try:
+        exists = getattr(oper, "exists", None)
+        if callable(exists) and exists(**params):
+            return True
+    except Exception as err:
+        logger.warning(f"豆瓣中心：检查活动订阅状态失败：{err}")
+    try:
+        exist_history = getattr(oper, "exist_history", None)
+        if callable(exist_history) and exist_history(**params):
+            return True
+    except Exception as err:
+        logger.warning(f"豆瓣中心：检查已完成订阅状态失败：{err}")
+    return False
+
+
 def is_existing_media(mediainfo, meta=None, subscribe_chain_cls=SubscribeChain, subscribe_oper_cls=None) -> bool:
     """判断媒体是否存在活动订阅或已完成订阅历史。"""
     try:
@@ -49,19 +91,14 @@ def is_existing_media(mediainfo, meta=None, subscribe_chain_cls=SubscribeChain, 
             return True
     except Exception as err:
         logger.warning(f"豆瓣中心：检查订阅存在状态失败：{err}")
-    try:
-        subscribe_oper_cls = subscribe_oper_cls or _default_subscribe_oper_cls()
-        media_source, media_id = identity_from_media(mediainfo)
-        if media_source and media_id and subscribe_oper_cls().exist_history(
-            media_source=media_source,
-            media_id=media_id,
-            season=getattr(meta, "begin_season", None) if meta else None,
-            episode_group=getattr(mediainfo, "episode_group", None),
-        ):
-            return True
-    except Exception as err:
-        logger.warning(f"豆瓣中心：检查已完成订阅状态失败：{err}")
-    return False
+    media_source, media_id = identity_from_media(mediainfo)
+    return is_existing_identity(
+        media_source,
+        media_id,
+        season=getattr(meta, "begin_season", None) if meta else None,
+        episode_group=getattr(mediainfo, "episode_group", None),
+        subscribe_oper_cls=subscribe_oper_cls,
+    )
 
 
 def record_existing_history(

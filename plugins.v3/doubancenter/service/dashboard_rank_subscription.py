@@ -6,6 +6,7 @@ from app.schemas.types import MediaSource
 
 from ..model.identity import identity_from_media, legacy_identity, recognize_media
 from . import bangumi_tmdb as bangumi_tmdb_service
+from . import subscription as subscription_service
 
 
 def _default_media_chain_cls():
@@ -182,10 +183,18 @@ def subscribe_from_bangumi_subject(
     rank_name: str = "",
     source_link: str = "",
     season: Any = None,
+    subscribe_oper_cls=None,
 ):
     """在媒体链识别失败时使用 Bangumi subject 信息添加订阅。"""
     if not bangumi_id or not bangumi_subject_fetcher or not bangumi_subject_title or not bangumi_subject_year:
         return {"success": False, "message": "无法识别媒体信息"}
+    if subscription_service.is_existing_identity(
+        MediaSource.Bangumi,
+        str(bangumi_id),
+        season=season,
+        subscribe_oper_cls=subscribe_oper_cls,
+    ):
+        return {"success": False, "message": "已订阅"}
     subject = bangumi_subject_fetcher(plugin, bangumi_id)
     if not subject:
         return {"success": False, "message": "无法识别媒体信息"}
@@ -257,6 +266,7 @@ def subscribe_from_rank(
     media_source: Any = None,
     media_id: Any = None,
     season: Any = None,
+    subscribe_oper_cls=None,
 ):
     """根据榜单条目执行一次手动订阅。"""
     media_chain_cls = media_chain_cls or _default_media_chain_cls()
@@ -318,9 +328,15 @@ def subscribe_from_rank(
             rank_name=rank_name,
             source_link=source_link,
             season=getattr(meta, "begin_season", None),
+            subscribe_oper_cls=subscribe_oper_cls,
         )
 
-    if subscribe_chain.exists(mediainfo=mediainfo, meta=meta):
+    if subscription_service.is_existing_media(
+        mediainfo,
+        meta,
+        subscribe_chain_cls=subscribe_chain_cls,
+        subscribe_oper_cls=subscribe_oper_cls,
+    ):
         return {"success": False, "message": "已订阅"}
     source, resolved_id = identity_from_media(mediainfo)
     display_title = str(recognition.get("title") or title or "") if bangumi_identity_id else ""
