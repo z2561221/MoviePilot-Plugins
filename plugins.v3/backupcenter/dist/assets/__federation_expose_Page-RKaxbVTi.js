@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as getPluginApi, d as downloadBackup, p as postPluginApi } from './_plugin-vue_export-helper-DZv_LBIW.js';
+import { _ as _export_sfc, a as getPluginApi, d as downloadBackup, p as postPluginApi } from './_plugin-vue_export-helper-bVvXBjcW.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,normalizeClass:_normalizeClass} = await importShared('vue');
 
@@ -125,6 +125,7 @@ const _sfc_main = {
   __name: 'Page',
   props: {
   api: { type: [Object, Function], default: null },
+  pluginId: { type: String, default: 'BackupCenter' },
   showClose: { type: Boolean, default: true },
   showSettings: { type: Boolean, default: false },
   show_switch: { type: Boolean, default: false },
@@ -310,7 +311,7 @@ function scopeLabels(scope = {}) {
 async function loadOverview() {
   loading.value = true;
   try {
-    overview.value = await getPluginApi(props.api, 'overview') || {};
+    overview.value = await getPluginApi(props.api, props.pluginId, 'overview') || {};
     if (!selectedBackupId.value && backups.value.length) {
       selectedBackupId.value = backups.value[0].backup_id;
     }
@@ -324,7 +325,7 @@ async function loadOverview() {
 async function loadLogs({ silent = false } = {}) {
   logsLoading.value = true;
   try {
-    const result = await getPluginApi(props.api, 'logs') || {};
+    const result = await getPluginApi(props.api, props.pluginId, 'logs') || {};
     logs.value = Array.isArray(result.logs) ? result.logs : [];
   } catch (error) {
     if (!silent) notify(error.message || '运行日志加载失败', 'error');
@@ -356,7 +357,7 @@ async function createBackup() {
   }
   actionLoading.value = 'create';
   try {
-    const result = await postPluginApi(props.api, 'backups', {
+    const result = await postPluginApi(props.api, props.pluginId, 'backups', {
       target: createForm.target,
       plugin_ids: createForm.target === 'plugin' ? [createForm.pluginId] : [],
       selection: { ...createSelection.value },
@@ -376,7 +377,7 @@ async function createBackup() {
 async function verifyBackup(backupId) {
   actionLoading.value = `verify:${backupId}`;
   try {
-    const result = await getPluginApi(props.api, `backups/${encodeURIComponent(backupId)}/verify`);
+    const result = await getPluginApi(props.api, props.pluginId, `backups/${encodeURIComponent(backupId)}/verify`);
     notify(`校验通过，共验证 ${result.verified_files?.length || 0} 个文件`);
   } catch (error) {
     notify(error.message || '备份校验失败', 'error');
@@ -391,7 +392,7 @@ async function deleteBackup(backupId) {
   if (!window.confirm(`确认删除“${backupDisplayName(item)}”？此操作不可撤销。`)) return
   actionLoading.value = `delete:${backupId}`;
   try {
-    await postPluginApi(props.api, `backups/${encodeURIComponent(backupId)}/delete`);
+    await postPluginApi(props.api, props.pluginId, `backups/${encodeURIComponent(backupId)}/delete`);
     if (selectedBackupId.value === backupId) selectedBackupId.value = '';
     notify('备份已删除');
     await loadOverview();
@@ -409,6 +410,7 @@ async function exportBackup(backupId) {
     const item = backups.value.find(backup => backup.backup_id === backupId);
     await downloadBackup(
       props.api,
+      props.pluginId,
       encodeURIComponent(backupId),
       backupDownloadName(item || { backup_id: backupId }),
     );
@@ -423,7 +425,7 @@ async function exportBackup(backupId) {
 async function showGuide(backupId) {
   actionLoading.value = `guide:${backupId}`;
   try {
-    guide.value = await getPluginApi(props.api, `backups/${encodeURIComponent(backupId)}/guide`);
+    guide.value = await getPluginApi(props.api, props.pluginId, `backups/${encodeURIComponent(backupId)}/guide`);
     selectedBackupId.value = backupId;
     guideDialog.value = true;
   } catch (error) {
@@ -437,7 +439,7 @@ async function prepareRestore(backupId) {
   selectedBackupId.value = backupId;
   actionLoading.value = `preview:${backupId}`;
   try {
-    preview.value = await getPluginApi(props.api, `backups/${encodeURIComponent(backupId)}/preview`);
+    preview.value = await getPluginApi(props.api, props.pluginId, `backups/${encodeURIComponent(backupId)}/preview`);
     restoreForm.password = '';
     restoreForm.pluginIds = [];
     Object.keys(restoreForm.selection).forEach(key => { restoreForm.selection[key] = false; });
@@ -462,7 +464,7 @@ async function restoreLogical() {
   try {
     const scope = preview.value?.manifest?.scope || {};
     const hasPluginSelection = restoreForm.pluginIds.length > 0;
-    const result = await postPluginApi(props.api, 'restore/logical', {
+    const result = await postPluginApi(props.api, props.pluginId, 'restore/logical', {
       backup_id: selectedBackupId.value,
       password: restoreForm.password,
       plugin_ids: restoreForm.pluginIds,
@@ -1635,6 +1637,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6c2d5b41"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2a268302"]]);
 
 export { Page as default };

@@ -19,7 +19,7 @@
   },
   "BackupCenter": {
     "mode": "v3_only",
-    "v3_version": "3.0.3",
+    "v3_version": "3.0.4",
     "reason": "new V3-only plugin on the approved 3.x version line"
   }
 }

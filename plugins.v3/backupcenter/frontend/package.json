@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "build": "vite build",
+    "test": "node --test ../../../tests/v3/backupcenter/frontend-api.test.mjs"
   },
   "dependencies": {
     "@originjs/vite-plugin-federation": "^1.4.1",

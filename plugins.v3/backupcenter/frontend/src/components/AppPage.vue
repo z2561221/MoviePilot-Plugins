@@ -20,7 +20,7 @@ const snackbar = ref({ show: false, message: '', color: 'success' })
 async function openSettings() {
   loadingSettings.value = true
   try {
-    settingsConfig.value = await getPluginConfig(props.api)
+    settingsConfig.value = await getPluginConfig(props.api, props.pluginId)
     settingsDialog.value = true
   } catch (error) {
     snackbar.value = { show: true, message: error?.message || '设置加载失败', color: 'error' }
@@ -32,7 +32,7 @@ async function openSettings() {
 async function saveSettings(config) {
   savingSettings.value = true
   try {
-    await savePluginConfig(props.api, config)
+    await savePluginConfig(props.api, props.pluginId, config)
     settingsConfig.value = { ...(config || {}) }
     settingsDialog.value = false
     pageKey.value += 1
@@ -50,6 +50,7 @@ async function saveSettings(config) {
     <Page
       :key="`${props.pluginId}-${props.navKey}-${pageKey}`"
       :api="props.api"
+      :plugin-id="props.pluginId"
       :show-close="false"
       show-settings
       @switch="openSettings"
@@ -60,6 +61,7 @@ async function saveSettings(config) {
       <Config
         v-if="!loadingSettings"
         :api="props.api"
+        :plugin-id="props.pluginId"
         :initial-config="settingsConfig"
         @save="saveSettings"
         @close="settingsDialog = false"
