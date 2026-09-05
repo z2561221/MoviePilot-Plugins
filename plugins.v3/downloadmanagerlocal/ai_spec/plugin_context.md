@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.4`（基于已发布的 V3.3.3）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.5`（基于已发布的 V3.3.4）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -25,7 +25,7 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 固定为当前开发版 `3.3.4`；V2 保持
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 固定为当前开发版 `3.3.5`；V2 保持
   `3.2.9`，旧索引只增加 `"v3": false`。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
@@ -78,6 +78,18 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
   `app.services.torrent` 回退路径也已删除。实际运行态复核在同步/reload 阶段完成。
   SDK 提供等价出口后移除此例外；聚焦守护为
   `test_v3_internal_imports_match_symbol_allowlist`。
+- 宿主数据访问例外（按 MoviePilot V3 `1f3d2b7f` 复核）：
+  - 下载历史 hash 查询优先使用 `app.sdk.queries.list_download_history`，返回脱离 ORM 的
+    `DownloadHistorySnapshot`；旧 V3 镜像缺少该 SDK 时才回退
+    `DownloadHistoryOper.get_by_hash`，回退只为兼容旧宿主，不作为新路径。
+  - `DownloadHistoryOper.get_hash_by_fullpath` 仅用于 `DownloadFiles` 的完整路径反查；
+    当前稳定查询 SDK 没有文件级路径到 hash 的接口。宿主提供等价文件查询后移除。
+  - `SiteOper` 用于读取已配置站点列表、优先级和域名记录；当前没有等价稳定 SDK，
+    继续保留，待宿主提供站点查询 SDK 后迁移。
+  - `SystemConfigOper` 用于合并当前插件实例的 IYUU 缓存配置；当前模块适配器没有等价
+    稳定 SDK，继续保留，待基类配置快照可从适配器安全传入后迁移。
+  - `UserOper` 用于读取管理员 Telegram 通知目标；当前没有等价稳定 SDK，继续保留，
+    待宿主提供用户通知目标查询出口后迁移。
 - 上传限速 Adapter：`adapter/upload_limit.py` 归一化 qBittorrent / Transmission 全局与单种上传设置，并负责读写和恢复。
 - Model 层：`model/state.py` 集中维护持久化 key、IYUU 动态 key helper 和 dict 数据读写 helper，保持旧 key 后向兼容。
 - 上传限速 Model：`model/upload_limit.py` 固定 schema、30 秒协调周期、下载器和站点状态 DTO。
@@ -87,12 +99,12 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
 
 ## 2026-07-04 历史 V2 标准完成证据
 
-以下执行账本只对应旧 V2 `3.2.4` 周期，不能作为当前 V3.3.4 的运行态证据：
+以下执行账本只对应旧 V2 `3.2.4` 周期，不能作为当前 V3.3.5 的运行态证据：
 
 - 计划：`docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md`
 - 账本：`docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-progress.json`
 - 当时的静态测试、编译、MP 同步、reload、history 和 API 回读均属于旧 V2 实例。
-- 当前 V3.3.4 必须按本文末尾的本周期验证记录重新核验。
+- 当前 V3.3.5 必须按本文末尾的本周期验证记录重新核验。
 
 ## API 路由契约
 
@@ -359,11 +371,11 @@ Vue/API 契约完成验证。运行验收前必须先取得目标 MoviePilot 实
 
 ## 2026-07-04 历史标准化收口记录
 
-以下记录属于旧 V2 `3.2.4` 周期，仅用于追溯，不代表当前 V3.3.4 运行态：
+以下记录属于旧 V2 `3.2.4` 周期，仅用于追溯，不代表当前 V3 运行态：
 
 - 当时完成后端拆层、docstring、静态守护和 MP 本地仓库验收。
 - 当时的源码、索引和运行态 history 均指向 V2 `3.2.4`。
-- 当前 V3 源码、索引和运行态必须按本文顶部的 V3.3.4 规则单独核验。
+- 当前 V3 源码、索引和运行态必须按本文顶部的当前版本规则单独核验。
 
 ## 2026-08-29 V3.3.3 结构修正记录
 

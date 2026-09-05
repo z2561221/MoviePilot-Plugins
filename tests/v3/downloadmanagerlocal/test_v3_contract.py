@@ -247,6 +247,80 @@ def test_site_adapter_merges_v3_database_record_and_indexer(monkeypatch) -> None
     assert moviepilot_adapter.list_custom_site_dicts() == []
 
 
+def test_download_history_hash_prefers_query_sdk_snapshot(monkeypatch) -> None:
+    """下载历史 hash 查询优先返回查询 SDK 的脱离 ORM 快照。"""
+    snapshot = SimpleNamespace(
+        download_hash="abc123",
+        torrent_name="Example.2024.1080p",
+        type=MediaType.MOVIE.value,
+        seasons="",
+        episodes="",
+    )
+    calls = {}
+
+    class FakePage:
+        """提供查询 SDK 的最小分页结果。"""
+
+        def __init__(self, items):
+            """保存本次查询返回的快照列表。"""
+            self.items = items
+
+    def fake_list_download_history(*, filters, page):
+        """记录查询筛选和分页参数。"""
+        calls["filters"] = filters
+        calls["page"] = page
+        return FakePage([snapshot])
+
+    class FailingHistoryOper:
+        """确保 SDK 查询成功时不会触发 Oper。"""
+
+        def __init__(self):
+            """标记不应被调用的兼容 Oper。"""
+            raise AssertionError("SDK 查询成功时不应构造 DownloadHistoryOper")
+
+    monkeypatch.setattr(moviepilot_adapter, "list_download_history", fake_list_download_history)
+    monkeypatch.setattr(moviepilot_adapter, "DownloadHistoryOper", FailingHistoryOper)
+
+    result = moviepilot_adapter.get_download_history_by_hash(" abc123 ")
+
+    assert result is snapshot
+    assert calls["filters"].download_hash == "abc123"
+    assert calls["page"].count == 1
+
+
+def test_download_history_hash_falls_back_to_oper_when_query_sdk_unavailable(monkeypatch) -> None:
+    """查询 SDK 不可用时保留旧 V3 Oper 兼容路径。"""
+    history = SimpleNamespace(download_hash="abc123")
+
+    class FakeHistoryOper:
+        """提供旧宿主下载历史查询替身。"""
+
+        def get_by_hash(self, torrent_hash):
+            """返回规范化 hash 对应的历史记录。"""
+            assert torrent_hash == "abc123"
+            return history
+
+    monkeypatch.setattr(moviepilot_adapter, "list_download_history", None)
+    monkeypatch.setattr(moviepilot_adapter, "DownloadHistoryOper", FakeHistoryOper)
+
+    assert moviepilot_adapter.get_download_history_by_hash(" abc123 ") is history
+
+
+def test_oper_exceptions_are_documented() -> None:
+    """宿主 Oper 例外必须记录原因、边界和移除条件。"""
+    context = (PLUGIN_ROOT / "ai_spec/plugin_context.md").read_text(encoding="utf-8")
+
+    for marker in (
+        "app.sdk.queries.list_download_history",
+        "DownloadHistoryOper.get_hash_by_fullpath",
+        "SiteOper",
+        "SystemConfigOper",
+        "UserOper",
+        "移除",
+    ):
+        assert marker in context
+
+
 def test_v3_source_removes_legacy_host_contracts() -> None:
     """V3 源码不得调用旧宿主合同或依赖已安装插件路径。"""
     sources = "\n".join(

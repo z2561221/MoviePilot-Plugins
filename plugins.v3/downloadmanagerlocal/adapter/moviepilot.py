@@ -14,6 +14,18 @@ from app.sdk.network import RequestUtils, SitesHelper
 from app.sdk.services import DownloaderHelper
 from app.sdk.utilities import StringUtils
 
+try:
+    from app.sdk.queries import (
+        DownloadHistoryFilter,
+        QueryPageRequest,
+        list_download_history,
+    )
+except (ImportError, AttributeError):
+    # 旧 V3 镜像尚未提供查询 SDK 时，保留已审查的 Oper 兼容路径。
+    DownloadHistoryFilter = None
+    QueryPageRequest = None
+    list_download_history = None
+
 
 DownloaderInstance = Qbittorrent | Transmission
 
@@ -54,8 +66,22 @@ def get_url_domain(url: str) -> str:
 
 
 def get_download_history_by_hash(torrent_hash: str):
-    """按种子 hash 读取 MoviePilot 下载历史。"""
-    return DownloadHistoryOper().get_by_hash(torrent_hash)
+    """优先通过查询 SDK 读取下载历史快照，旧镜像回退到 Oper。"""
+    normalized_hash = str(torrent_hash or "").strip()
+    if not normalized_hash:
+        return None
+
+    if list_download_history and DownloadHistoryFilter and QueryPageRequest:
+        page = list_download_history(
+            filters=DownloadHistoryFilter(download_hash=normalized_hash),
+            page=QueryPageRequest(count=1),
+        )
+        items = getattr(page, "items", None) or []
+        if items:
+            return items[0]
+        return None
+
+    return DownloadHistoryOper().get_by_hash(normalized_hash)
 
 
 def get_download_hash_by_fullpath(fullpath: str) -> str:
