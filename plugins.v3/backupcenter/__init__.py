@@ -21,7 +21,7 @@ class BackupCenter(_PluginBase):
     plugin_desc = "备份插件设置与数据，调用 MoviePilot 主程序保护数据库。"
     plugin_icon = "backup.png"
     plugin_color = "#00897B"
-    plugin_version = "3.0.2"
+    plugin_version = "3.0.3"
     plugin_label = "系统工具,数据安全"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
