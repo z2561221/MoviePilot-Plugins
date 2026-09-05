@@ -1,5 +1,11 @@
 const STANDARD_RESPONSE_KEYS = new Set(['data', 'message', 'success'])
 
+/** 构造当前插件实例的 API 路径。 */
+export function pluginApiPath(pluginId, path) {
+  const id = String(pluginId || 'LocalToolkit').trim() || 'LocalToolkit'
+  return `plugin/${encodeURIComponent(id)}/${path}`
+}
+
 /** 判断响应是否为严格三字段的 MoviePilot 标准 envelope。 */
 export function isStandardEnvelope(response) {
   if (!response || typeof response !== 'object' || Array.isArray(response)) return false

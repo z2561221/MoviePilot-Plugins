@@ -1,8 +1,11 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { apiGet, apiPost } from '../api.js'
+import { apiGet, apiPost, pluginApiPath } from '../api.js'
 
-const props = defineProps({ api: { type: Object, default: () => ({}) } })
+const props = defineProps({
+  api: { type: Object, default: () => ({}) },
+  pluginId: { type: String, default: 'LocalToolkit' },
+})
 const emit = defineEmits(['close'])
 
 const status = ref(null)
@@ -63,8 +66,8 @@ const modules = computed(() => [
 
 async function load() {
   try {
-    status.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/status')
-    const hist = await apiGet(props.api, `plugin/LocalToolkit/local_toolkit/history?page=${page.value}&page_size=${pageSize}`)
+    status.value = await apiGet(props.api, pluginApiPath(props.pluginId, 'local_toolkit/status'))
+    const hist = await apiGet(props.api, pluginApiPath(props.pluginId, `local_toolkit/history?page=${page.value}&page_size=${pageSize}`))
     history.value = hist.items || []
     total.value = hist.total || 0
   } catch (e) {
@@ -75,7 +78,7 @@ async function load() {
 async function run(moduleKey) {
   loadingModule.value = moduleKey
   try {
-    result.value = await apiPost(props.api, `plugin/LocalToolkit/local_toolkit/run/${moduleKey}`)
+    result.value = await apiPost(props.api, pluginApiPath(props.pluginId, `local_toolkit/run/${moduleKey}`))
   } catch (e) {
     result.value = { success: false, message: String(e) }
   } finally {

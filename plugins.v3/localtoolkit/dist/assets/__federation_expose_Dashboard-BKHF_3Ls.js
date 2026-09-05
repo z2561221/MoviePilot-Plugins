@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as apiGet } from './_plugin-vue_export-helper-C3Ljopbq.js';
+import { _ as _export_sfc, a as apiGet, p as pluginApiPath } from './_plugin-vue_export-helper-S8_J6agn.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString} = await importShared('vue');
 
@@ -14,6 +14,7 @@ const _sfc_main = {
   __name: 'Dashboard',
   props: {
   api: { type: Object, default: () => ({}) },
+  pluginId: { type: String, default: 'LocalToolkit' },
   allowRefresh: { type: Boolean, default: false },
 },
   setup(__props) {
@@ -24,7 +25,7 @@ const loading = ref(false);
 async function load() {
   loading.value = true;
   try {
-    status.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/status');
+    status.value = await apiGet(props.api, pluginApiPath(props.pluginId, 'local_toolkit/status'));
   } catch(e) {
   } finally {
     loading.value = false;
@@ -112,6 +113,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-64680cb7"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d6a65f3b"]]);
 
 export { Dashboard as default };

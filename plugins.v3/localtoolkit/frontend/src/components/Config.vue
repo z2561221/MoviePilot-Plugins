@@ -1,10 +1,11 @@
 <script setup>
 import { reactive, ref, computed, watch, onMounted } from 'vue'
-import { apiGet } from '../api.js'
+import { apiGet, pluginApiPath } from '../api.js'
 
 const props = defineProps({
   initialConfig: { type: Object, default: () => ({}) },
   api: { type: Object, default: () => ({}) },
+  pluginId: { type: String, default: 'LocalToolkit' },
 })
 const emit = defineEmits(['save', 'close', 'switch'])
 
@@ -95,7 +96,7 @@ async function loadOptions() {
       selected_server: form.library_cleanup.selected_server || '',
       selected_user: form.library_cleanup.selected_user || '',
     })
-    const res = await apiGet(props.api, `plugin/LocalToolkit/local_toolkit/options?${params.toString()}`)
+    const res = await apiGet(props.api, pluginApiPath(props.pluginId, `local_toolkit/options?${params.toString()}`))
     if (requestId !== optionsRequestId) return
     const data = res?.library_cleanup || res || {}
     cleanupOptions.servers = data.servers || []

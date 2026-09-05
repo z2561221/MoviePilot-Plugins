@@ -1,8 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { apiGet } from '../api.js'
+import { apiGet, pluginApiPath } from '../api.js'
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
+  pluginId: { type: String, default: 'LocalToolkit' },
   allowRefresh: { type: Boolean, default: false },
 })
 const status = ref(null)
@@ -10,7 +11,7 @@ const loading = ref(false)
 async function load() {
   loading.value = true
   try {
-    status.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/status')
+    status.value = await apiGet(props.api, pluginApiPath(props.pluginId, 'local_toolkit/status'))
   } catch(e) {
   } finally {
     loading.value = false

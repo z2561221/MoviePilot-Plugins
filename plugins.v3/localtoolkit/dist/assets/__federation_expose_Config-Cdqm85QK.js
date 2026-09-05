@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as apiGet } from './_plugin-vue_export-helper-C3Ljopbq.js';
+import { _ as _export_sfc, a as apiGet, p as pluginApiPath } from './_plugin-vue_export-helper-S8_J6agn.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives,createCommentVNode:_createCommentVNode,createBlock:_createBlock} = await importShared('vue');
 
@@ -31,6 +31,7 @@ const _sfc_main = {
   props: {
   initialConfig: { type: Object, default: () => ({}) },
   api: { type: Object, default: () => ({}) },
+  pluginId: { type: String, default: 'LocalToolkit' },
 },
   emits: ['save', 'close', 'switch'],
   setup(__props, { emit: __emit }) {
@@ -125,7 +126,7 @@ async function loadOptions() {
       selected_server: form.library_cleanup.selected_server || '',
       selected_user: form.library_cleanup.selected_user || '',
     });
-    const res = await apiGet(props.api, `plugin/LocalToolkit/local_toolkit/options?${params.toString()}`);
+    const res = await apiGet(props.api, pluginApiPath(props.pluginId, `local_toolkit/options?${params.toString()}`));
     if (requestId !== optionsRequestId) return
     const data = res?.library_cleanup || res || {};
     cleanupOptions.servers = data.servers || [];
@@ -919,6 +920,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7065edfa"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-02486b1f"]]);
 
 export { Config as default };

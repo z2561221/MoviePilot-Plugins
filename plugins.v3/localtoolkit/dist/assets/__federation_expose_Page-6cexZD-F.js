@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as apiGet, b as apiPost } from './_plugin-vue_export-helper-C3Ljopbq.js';
+import { _ as _export_sfc, a as apiGet, p as pluginApiPath, b as apiPost } from './_plugin-vue_export-helper-S8_J6agn.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString} = await importShared('vue');
 
@@ -28,8 +28,11 @@ const pageSize = 10;
 
 
 const _sfc_main = {
-  __name: 'AppPage',
-  props: { api: { type: Object, default: () => ({}) } },
+  __name: 'Page',
+  props: {
+  api: { type: Object, default: () => ({}) },
+  pluginId: { type: String, default: 'LocalToolkit' },
+},
   emits: ['close'],
   setup(__props, { emit: __emit }) {
 
@@ -92,8 +95,8 @@ const modules = computed(() => [
 
 async function load() {
   try {
-    status.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/status');
-    const hist = await apiGet(props.api, `plugin/LocalToolkit/local_toolkit/history?page=${page.value}&page_size=${pageSize}`);
+    status.value = await apiGet(props.api, pluginApiPath(props.pluginId, 'local_toolkit/status'));
+    const hist = await apiGet(props.api, pluginApiPath(props.pluginId, `local_toolkit/history?page=${page.value}&page_size=${pageSize}`));
     history.value = hist.items || [];
     total.value = hist.total || 0;
   } catch (e) {
@@ -104,7 +107,7 @@ async function load() {
 async function run(moduleKey) {
   loadingModule.value = moduleKey;
   try {
-    result.value = await apiPost(props.api, `plugin/LocalToolkit/local_toolkit/run/${moduleKey}`);
+    result.value = await apiPost(props.api, pluginApiPath(props.pluginId, `local_toolkit/run/${moduleKey}`));
   } catch (e) {
     result.value = { success: false, message: String(e) };
   } finally {
@@ -299,7 +302,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode(_component_VCardSubtitle, null, {
               default: _withCtx(() => [
-                _createTextVNode("每页 10 条，共 " + _toDisplayString(history.value?.length || 0) + " 条记录。", 1)
+                _createTextVNode("每页 10 条，共 " + _toDisplayString(total.value || 0) + " 条记录。", 1)
               ]),
               _: 1
             })
@@ -394,6 +397,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7ac532a6"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c82f4ac2"]]);
 
-export { AppPage as default };
+export { Page as default };
