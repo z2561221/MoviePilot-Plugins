@@ -258,28 +258,18 @@ def test_download_history_hash_prefers_query_sdk_snapshot(monkeypatch) -> None:
     )
     calls = {}
 
-    class FakePage:
-        """提供查询 SDK 的最小分页结果。"""
-
-        def __init__(self, items):
-            """保存本次查询返回的快照列表。"""
-            self.items = items
-
     def fake_list_download_history(*, filters, page):
         """记录查询筛选和分页参数。"""
         calls["filters"] = filters
         calls["page"] = page
-        return FakePage([snapshot])
+        return SimpleNamespace(items=[snapshot])
 
-    class FailingHistoryOper:
-        """确保 SDK 查询成功时不会触发 Oper。"""
-
-        def __init__(self):
-            """标记不应被调用的兼容 Oper。"""
-            raise AssertionError("SDK 查询成功时不应构造 DownloadHistoryOper")
+    def unexpected_history_oper():
+        """确保 SDK 查询成功时不会构造兼容 Oper。"""
+        raise AssertionError("SDK 查询成功时不应构造 DownloadHistoryOper")
 
     monkeypatch.setattr(moviepilot_adapter, "list_download_history", fake_list_download_history)
-    monkeypatch.setattr(moviepilot_adapter, "DownloadHistoryOper", FailingHistoryOper)
+    monkeypatch.setattr(moviepilot_adapter, "DownloadHistoryOper", unexpected_history_oper)
 
     result = moviepilot_adapter.get_download_history_by_hash(" abc123 ")
 
@@ -292,16 +282,17 @@ def test_download_history_hash_falls_back_to_oper_when_query_sdk_unavailable(mon
     """查询 SDK 不可用时保留旧 V3 Oper 兼容路径。"""
     history = SimpleNamespace(download_hash="abc123")
 
-    class FakeHistoryOper:
-        """提供旧宿主下载历史查询替身。"""
+    def fake_get_by_hash(torrent_hash):
+        """返回规范化 hash 对应的历史记录。"""
+        assert torrent_hash == "abc123"
+        return history
 
-        def get_by_hash(self, torrent_hash):
-            """返回规范化 hash 对应的历史记录。"""
-            assert torrent_hash == "abc123"
-            return history
+    def fake_history_oper():
+        """提供只包含下载历史查询方法的旧宿主读取器。"""
+        return SimpleNamespace(get_by_hash=fake_get_by_hash)
 
     monkeypatch.setattr(moviepilot_adapter, "list_download_history", None)
-    monkeypatch.setattr(moviepilot_adapter, "DownloadHistoryOper", FakeHistoryOper)
+    monkeypatch.setattr(moviepilot_adapter, "DownloadHistoryOper", fake_history_oper)
 
     assert moviepilot_adapter.get_download_history_by_hash(" abc123 ") is history
 
