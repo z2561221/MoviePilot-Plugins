@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
+from threading import Lock
 from typing import List, Optional
 
-from apscheduler.triggers.cron import CronTrigger
 from app.sdk.logging import logger
-from app.schemas.types import MessageType
+from apscheduler.triggers.cron import CronTrigger
 
+from ..adapter.cleanup_notification import CleanupReportNotifier
 from ..adapter.media_server import MediaServerCleanupAdapter
-from ..model.library_cleanup import CleanupCandidate, CleanupResult, filter_cleanup_candidates
+from ..model.library_cleanup import (
+    CleanupCandidate,
+    CleanupResult,
+    CleanupVerification,
+    filter_cleanup_candidates,
+)
 from ..security import redact_sensitive_text, safe_error_text
 from .base import BaseToolModule
-
+from .cleanup_report import REPORT_TITLE, build_report
 
 _options_cache = {}
 
@@ -25,11 +31,20 @@ class LibraryCleanupModule(BaseToolModule):
     module_key = "library_cleanup"
     module_name = "清理库存"
     last_error = ""
+    verification_attempts = 3
+    verification_delay = 2
 
-    def __init__(self, plugin, adapter: Optional[MediaServerCleanupAdapter] = None):
+    def __init__(
+        self,
+        plugin,
+        adapter: Optional[MediaServerCleanupAdapter] = None,
+        notifier_factory=CleanupReportNotifier,
+    ):
         """初始化清理库存模块。"""
         super().__init__(plugin)
         self.adapter = adapter or MediaServerCleanupAdapter()
+        self._notifier_factory = notifier_factory
+        self._run_lock = Lock()
 
     def get_default_config(self):
         """返回清理库存默认配置。"""
@@ -53,15 +68,10 @@ class LibraryCleanupModule(BaseToolModule):
         }
 
     def send_notification(self, title: str, text: str) -> None:
-        """使用 Telegram MarkdownV2 发送清理库存通知。"""
+        """发送不需要后续更新的 HTML 清理报告。"""
         if self.config.get("notify", True):
             try:
-                self.plugin.post_message(
-                    mtype=MessageType.Plugin,
-                    title=title,
-                    text=text,
-                    parse_mode="MarkdownV2",
-                )
+                self._notifier_factory(self.plugin).finish(title, text)
             except Exception as err:
                 logger.warning(f"本地工具集：发送通知失败：{redact_sensitive_text(err)}")
 
@@ -119,6 +129,14 @@ class LibraryCleanupModule(BaseToolModule):
 
     def run_once(self):
         """执行一次清理库存检查和可选自动删除。"""
+        if not self._run_lock.acquire(blocking=False):
+            return {"success": False, "message": "本轮清理仍在进行，请等待当前报告更新"}
+        try:
+            return self._run_once()
+        finally:
+            self._run_lock.release()
+
+    def _run_once(self):
         start = time.time()
         self.last_error = ""
         auto_delete = bool(self.config.get("auto_delete", False))
@@ -141,27 +159,48 @@ class LibraryCleanupModule(BaseToolModule):
             self._send_report("清理库存检查报告", result, summary, checked_at)
             return {"success": True, "summary": summary}
 
-        if auto_delete:
-            limit_response = self._guard_auto_delete_limit(result, checked_at, start)
-            if limit_response:
-                return limit_response
-            dry_run_response = self._guard_dry_run(result, checked_at, start)
-            if dry_run_response:
-                return dry_run_response
-            self._send_report("清理库存检查报告", result, "即将开始自动删除...", checked_at)
+        if not auto_delete:
+            summary = f"符合条件 {qualified} 部，未开启自动删除"
+            self._save_result(result, checked_at, summary=summary)
+            self.add_history("success", summary, time.time() - start)
+            self._send_report(REPORT_TITLE, result, summary, checked_at)
+            return {"success": True, "summary": summary}
 
-        success_count, fail_count = self._delete_candidates(result.qualified_movies) if auto_delete else (0, 0)
-        summary = f"符合条件 {qualified} 部，删除成功 {success_count} 部，失败 {fail_count} 部"
+        limit_response = self._guard_auto_delete_limit(result, checked_at, start)
+        if limit_response:
+            return limit_response
+        dry_run_response = self._guard_dry_run(result, checked_at, start)
+        if dry_run_response:
+            return dry_run_response
+        notifier = self._notifier_factory(self.plugin) if self.config.get("notify", True) else None
+        if notifier:
+            notifier.start(REPORT_TITLE, self._build_report_text(result, "", checked_at, phase="deleting"))
+        success_count, fail_count = self._delete_candidates(result.qualified_movies)
+        if notifier:
+            notifier.update(REPORT_TITLE, self._build_report_text(result, "", checked_at, phase="verifying"))
+        verification = self._verify_deleted_candidates(result.qualified_movies)
+        summary = f"符合条件 {qualified} 部，{verification.summary}"
+        if not verification.complete:
+            self.last_error = "本轮清理未全部完成"
+        final_text = self._build_report_text(
+            result, "", checked_at, phase="finished", verification=verification,
+        )
+        if notifier and not notifier.finish(REPORT_TITLE, final_text):
+            self.last_error = "；".join(filter(None, [self.last_error, "清理报告更新失败"]))
+            summary += "；清理报告更新失败"
         self._save_result(
             result,
             checked_at,
             summary=summary,
-            deletion={"success_count": success_count, "fail_count": fail_count},
+            deletion={
+                "success_count": success_count,
+                "fail_count": fail_count,
+                "verification": verification.to_dict(checked_at),
+            },
+            report={"title": REPORT_TITLE, "text": final_text, **(notifier.to_dict() if notifier else {})},
         )
-        self.add_history("success", summary, time.time() - start)
-        if not auto_delete:
-            self._send_report("清理库存检查报告", result, summary, checked_at)
-        return {"success": True, "summary": summary}
+        self.add_history("success" if verification.complete else "failed", summary, time.time() - start)
+        return {"success": verification.complete, "summary": summary}
 
     def get_status(self):
         """返回清理库存模块状态。"""
@@ -210,7 +249,12 @@ class LibraryCleanupModule(BaseToolModule):
         for index, item in enumerate(list(movies), start=1):
             code = item.code or item.movie_id or "未知"
             logger.info(f"本地工具集：自动删除 [{index}/{len(movies)}]: {code}")
-            if self.adapter.delete_item(item):
+            try:
+                deleted = self.adapter.delete_item(item)
+            except Exception as err:
+                deleted = False
+                logger.warning(f"本地工具集：删除候选项异常：{redact_sensitive_text(err)}")
+            if deleted:
                 success_count += 1
             else:
                 fail_count += 1
@@ -218,12 +262,37 @@ class LibraryCleanupModule(BaseToolModule):
                 time.sleep(delay)
         return success_count, fail_count
 
+    def _verify_deleted_candidates(self, movies: List[CleanupCandidate]) -> CleanupVerification:
+        states: list[Optional[bool]] = [None] * len(movies)
+        pending = list(range(len(movies)))
+        for _attempt in range(self.verification_attempts):
+            if not pending:
+                break
+            if self.verification_delay > 0:
+                time.sleep(self.verification_delay)
+            for index in pending:
+                try:
+                    state = self.adapter.item_exists(
+                        movies[index], str(self.config.get("selected_user") or ""),
+                    )
+                    states[index] = state if isinstance(state, bool) else None
+                except Exception as err:
+                    states[index] = None
+                    logger.warning(f"本地工具集：复核候选项异常：{redact_sensitive_text(err)}")
+            pending = [index for index in pending if states[index] is not False]
+        return CleanupVerification(
+            removed=[movie for movie, state in zip(movies, states) if state is False],
+            remaining=[movie for movie, state in zip(movies, states) if state is True],
+            unknown=[movie for movie, state in zip(movies, states) if state is None],
+        )
+
     def _save_result(
         self,
         result: CleanupResult,
         checked_at: datetime,
         summary: str = "",
         deletion: Optional[dict] = None,
+        report: Optional[dict] = None,
     ) -> None:
         """保存本次清理库存结果。"""
         payload = result.to_dict(checked_at)
@@ -231,6 +300,8 @@ class LibraryCleanupModule(BaseToolModule):
         payload["checked_at"] = checked_at.isoformat()
         if deletion:
             payload["deletion"] = deletion
+        if report:
+            payload["report"] = report
         self.plugin.save_data(key="library_cleanup_result", value=payload)
 
     def _send_report(self, title: str, result: CleanupResult, summary: str, checked_at: datetime) -> None:
@@ -238,41 +309,11 @@ class LibraryCleanupModule(BaseToolModule):
         text = self._build_report_text(result, summary, checked_at)
         self.send_notification(title, text)
 
-    def _build_report_text(self, result: CleanupResult, summary: str, checked_at: datetime) -> str:
-        """生成 Markdown 格式的清理库存通知正文。"""
-        favorite_labels = {"all": "收藏不限", "fav": "已收藏", "unfav": "未收藏"}
-        played_labels = {"all": "观看不限", "played": "已看过", "unplayed": "未看过"}
-        lines = ["**筛选条件**"]
-        for condition in result.conditions:
-            lines.append(
-                f"{condition.title}：{favorite_labels[condition.favorite]} + "
-                f"{played_labels[condition.played]} + 超过 {condition.days_threshold} 天"
-            )
-        lines.extend([
-            "",
-            "**检查结果**",
-            f"符合条件：{result.qualified_count} 部",
-            f"自动删除：{'已开启' if self.config.get('auto_delete', False) else '未开启'}",
-        ])
-        if summary and not summary.startswith("符合条件 "):
-            lines.append(summary)
-        movies = result.qualified_movies
-        if movies:
-            lines.append("")
-            lines.append("**待处理列表**")
-            rows = []
-            names = []
-            for movie in movies[:20]:
-                name = str(movie.title or movie.code or movie.movie_id or "未知").replace("`", "'")
-                names.append(name if len(name) <= 20 else f"{name[:19]}…")
-            name_width = max(12, min(20, max((len(name) for name in names), default=12)))
-            rows.append(f"序号  {'电影名称'.ljust(name_width)}  天数   入库日期")
-            for index, (movie, name) in enumerate(zip(movies[:20], names), start=1):
-                date_text = movie.date_created[:10] if movie.date_created else "未知"
-                age = movie.age_days(checked_at)
-                age_text = f"{age}天" if age is not None else "未知"
-                rows.append(f"{index:02d}    {name.ljust(name_width)}  {age_text.rjust(4)}   {date_text}")
-            lines.extend(["```", *rows, "```"])
-            if len(movies) > 20:
-                lines.append(f"... 还有{len(movies) - 20}部")
-        return "\n".join(lines)
+    def _build_report_text(
+        self, result: CleanupResult, summary: str, checked_at: datetime, *,
+        phase: str = "", verification: CleanupVerification | None = None,
+    ) -> str:
+        """生成单条 HTML 报告，上方名单保持不变，仅更新末尾结果。"""
+        return build_report(
+            self.config, result, summary, checked_at, phase=phase, verification=verification,
+        )

@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, List, Optional
 
-
 FAVORITE_LABELS = {
     "all": "收藏不限",
     "fav": "已收藏",
@@ -113,6 +112,46 @@ class CleanupResult:
             "condition_label": self.condition_label,
             "conditions": [condition.label for condition in self.conditions],
             "qualified_movies": [movie.to_dict(now) for movie in self.qualified_movies],
+        }
+
+
+@dataclass
+class CleanupVerification:
+    """本轮媒体条目的三态复核结果，不代表磁盘文件核验。"""
+
+    removed: List[CleanupCandidate] = field(default_factory=list)
+    remaining: List[CleanupCandidate] = field(default_factory=list)
+    unknown: List[CleanupCandidate] = field(default_factory=list)
+
+    @property
+    def complete(self) -> bool:
+        """仅全部目标已确认移除时视为完成。"""
+        return bool(self.removed) and not self.remaining and not self.unknown
+
+    @property
+    def summary(self) -> str:
+        """返回与实际复核结果一致的运行摘要。"""
+        return (
+            f"确认移除 {len(self.removed)} 部，仍然存在 {len(self.remaining)} 部，"
+            f"无法核验 {len(self.unknown)} 部"
+        )
+
+    def to_dict(self, now: Optional[datetime] = None) -> dict:
+        """保存计数及每个本轮目标的核验状态。"""
+        return {
+            "complete": self.complete,
+            "removed_count": len(self.removed),
+            "remaining_count": len(self.remaining),
+            "unknown_count": len(self.unknown),
+            "items": [
+                {**movie.to_dict(now), "state": state}
+                for state, movies in (
+                    ("removed", self.removed),
+                    ("remaining", self.remaining),
+                    ("unknown", self.unknown),
+                )
+                for movie in movies
+            ],
         }
 
 

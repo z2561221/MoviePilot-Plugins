@@ -109,9 +109,9 @@ def test_localtoolkit_v3_uses_canonical_sdk_imports() -> None:
     """确认 V3 源码不再依赖会触发兼容告警的宿主旧入口。"""
     assert _v3_legacy_imports() == []
     base = (V3_DIR / "service" / "base.py").read_text(encoding="utf-8")
-    cleanup = (V3_DIR / "service" / "library_cleanup.py").read_text(encoding="utf-8")
+    cleanup = (V3_DIR / "adapter" / "cleanup_notification.py").read_text(encoding="utf-8")
     assert "from app.schemas.types import MessageType" in base
-    assert "from app.schemas.types import MessageType" in cleanup
+    assert "from app.schemas.types import MessageType, NotificationChannel" in cleanup
     assert "NotificationType" not in base
     assert "NotificationType" not in cleanup
 

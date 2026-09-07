@@ -8,7 +8,11 @@ from app.sdk.logging import logger
 from app.sdk.network import RequestUtils
 from app.sdk.services import MediaServerHelper
 
-from ..model.library_cleanup import CleanupCandidate, candidate_from_media_item, read_value
+from ..model.library_cleanup import (
+    CleanupCandidate,
+    candidate_from_media_item,
+    read_value,
+)
 from ..security import redact_sensitive_text
 
 
@@ -149,6 +153,35 @@ class MediaServerCleanupAdapter:
                     return False
         return self._delete_by_http(instance, candidate.movie_id)
 
+    def item_exists(self, candidate: CleanupCandidate, selected_user: str = "") -> Optional[bool]:
+        """实时复核条目；仅明确 404 表示不存在，错误和无权限均返回未知。"""
+        if not candidate.server or not candidate.movie_id:
+            return None
+        service = self.helper.get_service(name=candidate.server)
+        instance = getattr(service, "instance", None)
+        service_type = getattr(service, "type", "")
+        host = getattr(instance, "_host", "")
+        apikey = getattr(instance, "_apikey", "")
+        user_id = self._resolve_user_id(instance, selected_user)
+        if service_type not in ("emby", "jellyfin") or not host or not apikey or not user_id:
+            return None
+        prefix = "emby/" if service_type == "emby" else ""
+        url = f"{host.rstrip('/')}/{prefix}Users/{user_id}/Items/{candidate.movie_id}"
+        try:
+            response = self._request_utils(timeout=10).get_res(url, {"api_key": apikey})
+            # HTTP 错误响应可能为 falsy，不能用 bool(response) 吞掉 404。
+            if response is None:
+                return None
+            if response.status_code == 404:
+                return False
+            if response.status_code == 200:
+                item = response.json()
+                item_id = read_value(item, "Id", "id", "item_id")
+                return True if str(item_id or "") == candidate.movie_id else None
+        except Exception as err:
+            logger.warning(f"本地工具集：核验媒体条目失败：{redact_sensitive_text(err)}")
+        return None
+
     def _build_chain(self) -> Any:
         """延迟构建宿主媒体服务器链，测试环境缺失时返回空。"""
         try:
@@ -287,9 +320,9 @@ class MediaServerCleanupAdapter:
                 return None
         return None
 
-    def _request_utils(self) -> Any:
+    def _request_utils(self, timeout: Optional[int] = None) -> Any:
         """延迟导入宿主 HTTP 工具。"""
-        return RequestUtils()
+        return RequestUtils(timeout=timeout) if timeout is not None else RequestUtils()
 
     @staticmethod
     def _is_inactive(instance: Any) -> bool:
