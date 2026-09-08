@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
 import pytest
-from localtoolkit.adapter.media_server import MediaServerCleanupAdapter
-from localtoolkit.model.library_cleanup import CleanupCandidate
+from app.plugins.localtoolkit.adapter.media_server import MediaServerCleanupAdapter
+from app.plugins.localtoolkit.model.library_cleanup import CleanupCandidate
 
 
 class Response:

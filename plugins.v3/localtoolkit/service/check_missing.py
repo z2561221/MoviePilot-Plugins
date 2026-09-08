@@ -1,7 +1,9 @@
 import re, time
 from pathlib import Path
 from app.sdk.logging import logger
+from ..adapter.cleanup_notification import plain_report
 from .base import BaseToolModule
+from .missing_report import build_missing_report
 
 class CheckMissingModule(BaseToolModule):
     """扫描缺集模块，按配置路径检查 STRM 剧集缺口。"""
@@ -56,32 +58,10 @@ class CheckMissingModule(BaseToolModule):
         logger.info('本地工具集：'+summary)
         self.add_history('success', summary, time.time()-start)
         if self.config.get('notify', True):
-            by_path = {}
-            for item in results:
-                by_path.setdefault(item.get('path',''), []).append(item)
-            detail_lines = []
-            for p, items in by_path.items():
-                pp = Path(p)
-                path_label = '/'.join(pp.parts[-3:]) if len(pp.parts) >= 3 else ('/'.join(pp.parts[-2:]) if len(pp.parts) >= 2 else pp.name)
-                detail_lines.append('[' + path_label + ']')
-                for item in items[:15]:
-                    if item.get('missing'):
-                        miss = sorted(item['missing'])
-                        ranges = []
-                        start_r = miss[0]; end_r = miss[0]
-                        for e in miss[1:]:
-                            if e == end_r + 1: end_r = e
-                            else:
-                                ranges.append(str(start_r) if start_r == end_r else f'{start_r}~{end_r}')
-                                start_r = end_r = e
-                        ranges.append(str(start_r) if start_r == end_r else f'{start_r}~{end_r}')
-                        # 简化标题：去掉 [tmdbid=...] 和 [tmdb=...] 后缀
-                        title = item['title']
-                        import re as re2
-                        title = re2.sub(r'\s*\[tmdb(id)?=[^\]]*\]', '', title)
-                        detail_lines.append(f"  {title} S{item['season']}: 缺 {', '.join(ranges[:8])}")
-            detail = chr(10).join(detail_lines[:30]) if detail_lines else '无缺失'
-            self.send_notification('本地工具集 - 扫描缺集', summary + chr(10) + chr(10) + detail)
+            report = build_missing_report(results, summary)
+            self.send_notification(
+                '本地工具集 - 扫描缺集', plain_report(report), html_text=report,
+            )
         return {'success': True, 'summary': summary, 'missing_total': missing_total, 'items': results[:200]}
     def get_status(self):
         """返回扫描缺集模块状态。"""

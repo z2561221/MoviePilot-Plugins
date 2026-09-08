@@ -1,14 +1,14 @@
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 
-from localtoolkit.adapter.cleanup_notification import plain_report
-from localtoolkit.model.library_cleanup import (
+from app.plugins.localtoolkit.adapter.cleanup_notification import plain_report
+from app.plugins.localtoolkit.model.library_cleanup import (
     CleanupCandidate,
     CleanupCondition,
     CleanupResult,
     CleanupVerification,
 )
-from localtoolkit.service.cleanup_report import build_report
+from app.plugins.localtoolkit.service.cleanup_report import build_report
 
 NOW = datetime(2026, 9, 8, tzinfo=timezone.utc)
 

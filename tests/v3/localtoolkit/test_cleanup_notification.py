@@ -2,12 +2,12 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from app.schemas.message import MessageResponse
-from app.schemas.types import MessageType, NotificationChannel
-from localtoolkit.adapter.cleanup_notification import (
+from app.plugins.localtoolkit.adapter.cleanup_notification import (
     CleanupReportNotifier,
     ServiceConfigHelper,
 )
+from app.schemas.message import MessageResponse
+from app.schemas.types import MessageType, NotificationChannel
 
 
 def config(name="TG", kind="telegram", *, enabled=True, switchs=None):
@@ -66,7 +66,7 @@ def test_multiple_telegram_sources_keep_separate_receipts_and_other_channels_get
 
 
 def test_edit_failure_retries_original_message_without_posting_another_telegram_report(monkeypatch):
-    monkeypatch.setattr("localtoolkit.adapter.cleanup_notification.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("app.plugins.localtoolkit.adapter.cleanup_notification.time.sleep", lambda _seconds: None)
     notifier, plugin = build_notifier(monkeypatch)
     notifier.start("报告", "开始")
     plugin.chain.run_module.return_value = False

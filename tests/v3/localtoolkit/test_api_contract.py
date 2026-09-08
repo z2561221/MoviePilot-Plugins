@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 
 from app import schemas
 from app.api.response import ResponseAPIRouter
-from localtoolkit import LocalToolkit
-from localtoolkit.controller.api import run_module
-from localtoolkit.model.api import (
+from app.plugins.localtoolkit import LocalToolkit
+from app.plugins.localtoolkit.controller.api import run_module
+from app.plugins.localtoolkit.model.api import (
     ToolkitHistoryData,
     ToolkitOptionsData,
     ToolkitRunData,

@@ -2,8 +2,8 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from localtoolkit.model.library_cleanup import CleanupCandidate
-from localtoolkit.service.library_cleanup import LibraryCleanupModule
+from app.plugins.localtoolkit.model.library_cleanup import CleanupCandidate
+from app.plugins.localtoolkit.service.library_cleanup import LibraryCleanupModule
 
 
 class FakePlugin:

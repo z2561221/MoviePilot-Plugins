@@ -1,6 +1,7 @@
 from datetime import datetime
 from app.sdk.logging import logger
-from app.schemas.types import MessageType
+from app.schemas.types import MessageType, NotificationChannel
+from app.sdk.services import ServiceConfigHelper
 from ..security import redact_sensitive_text
 
 class BaseToolModule:
@@ -50,10 +51,31 @@ class BaseToolModule:
         })
         self.plugin.save_data(key='tool_history', value=history[:30])
 
-    def send_notification(self, title, text):
-        """按模块配置发送插件通知。"""
+    def send_notification(self, title, text, *, html_text=None):
+        """简短回执使用纯文本，结构化报告按通知源选择格式。"""
         if self.config.get('notify', True):
             try:
-                self.plugin.post_message(mtype=MessageType.Plugin, title=title, text=text)
+                common = {"mtype": MessageType.Plugin, "title": title}
+                configs = []
+                if html_text:
+                    try:
+                        configs = ServiceConfigHelper.get_notification_configs() or []
+                    except Exception:  # noqa: BLE001 - notification source API is optional
+                        logger.exception('工具中心：读取通知源失败，使用纯文本')
+                if not configs:
+                    self.plugin.post_message(**common, text=text, parse_mode="plain")
+                    return
+                for config in configs:
+                    if not config.enabled or MessageType.Plugin.value not in (config.switchs or []):
+                        continue
+                    is_telegram = str(config.type).lower() == "telegram"
+                    self.plugin.post_message(
+                        **common, source=config.name,
+                        text=html_text if is_telegram else text,
+                        parse_mode="HTML" if is_telegram else "plain", save_history=False,
+                    )
+                self.plugin.post_message(
+                    **common, channel=NotificationChannel.Web, text=text, parse_mode="plain",
+                )
             except Exception as e:
                 logger.warning(f'本地工具集：发送通知失败：{redact_sensitive_text(e)}')
