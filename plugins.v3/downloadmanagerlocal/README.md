@@ -36,6 +36,7 @@
 - `speed_monitor_mode`、`speed_monitor_tolerance`、`speed_monitor_min_samples`、`speed_monitor_interval_seconds`、`speed_monitor_grace_minutes`、`speed_monitor_consecutive_abnormal_samples`：基准来源、判定容忍度、采样与宽限。
 - `upload_limit_site_rules`、`upload_limit_grace_minutes`：站点合计上限与新种宽限；站点值为空或 `0` 时不写单种限速。
 - `notify`、`speed_monitor_notification_type`：通知开关与消息通道。
+- 速度告警与操作结果在 Telegram 使用 HTML，并更新原卡片；其他渠道及辅种、转移统计使用纯文本。
 
 ## 运行流程
 

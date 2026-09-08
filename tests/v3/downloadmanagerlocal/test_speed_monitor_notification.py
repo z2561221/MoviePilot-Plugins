@@ -183,6 +183,7 @@ def test_without_telegram_target_sends_plain_mp_notification_once():
     assert len(plugin.messages) == 1
     message = plugin.messages[0]
     assert message["mtype"] is NotificationType.Manual
+    assert message["parse_mode"] == "plain"
     assert "buttons" not in message
     assert "targets" not in message
     assert runtime.alerts["qb-main:abc123:1"]["status"] == "notified"

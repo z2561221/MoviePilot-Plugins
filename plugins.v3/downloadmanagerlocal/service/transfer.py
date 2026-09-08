@@ -383,6 +383,7 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
             plugin.post_message(
                 mtype=MessageType.SiteMessage,
                 title="【转移做种任务执行完成】",
+                parse_mode="plain",
                 text=f"总数：{total}，成功：{success}，失败：{fail}，跳过：{skip}，删除重复：{del_dup}"
             )
     else:

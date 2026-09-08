@@ -250,6 +250,7 @@ def _iyuu_auto_seed(plugin):
         plugin.post_message(
             mtype=MessageType.SiteMessage,
             title="【IYUU自动辅种任务完成】",
+            parse_mode="plain",
             text=f"服务器返回可辅种总数：{plugin._iyuu_total}\n"
                  f"实际可辅种数：{plugin._iyuu_realtotal}\n"
                  f"已存在：{plugin._iyuu_exist}\n"
