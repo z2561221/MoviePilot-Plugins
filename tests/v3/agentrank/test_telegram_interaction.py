@@ -1010,8 +1010,8 @@ def test_target_adapter_does_not_bypass_existing_user_without_binding():
     assert user_oper.calls == ["alice"]
 
 
-def test_start_sends_linked_three_line_top_list_with_horizontal_cover():
-    """初始通知用榜首横版封面和三行榜单展示链接、推荐与简介。"""
+def test_start_sends_linked_compact_top_list_with_horizontal_cover():
+    """初始通知保留封面和推荐理由，完整简介留在插件详情。"""
     plugin, repository, _, service, _ = _service()
 
     assert service.start("alice", "alice", _board()) is True
@@ -1025,20 +1025,21 @@ def test_start_sends_linked_three_line_top_list_with_horizontal_cover():
     assert (
         '<code>01</code> <a href="https://www.themoviedb.org/movie/1">'
         '第一部电影</a> · 2025\n'
-        '<b>推荐：</b>第一部推荐理由\n'
-        '<b>简介：</b>第一部简介'
+        '<b>推荐：</b>第一部推荐理由'
     ) in message["text"]
     assert (
         '<code>02</code> <a href="https://www.themoviedb.org/tv/2">'
         '第二部剧集</a> · 2026\n'
-        '<b>推荐：</b>第二部推荐理由\n'
-        '<b>简介：</b>第二部简介'
+        '<b>推荐：</b>第二部推荐理由'
     ) in message["text"]
     assert (
-        '<b>简介：</b>第一部简介\n\n'
+        '<b>推荐：</b>第一部推荐理由\n\n'
         '<code>02</code> <a href="https://www.themoviedb.org/tv/2">'
     ) in message["text"]
     assert "\n\n\n" not in message["text"]
+    assert "<b>简介：</b>" not in message["text"]
+    assert "完整简介见插件详情" in message["text"]
+    assert message["parse_mode"] == "HTML"
     assert "92%" not in message["text"]
     assert "88%" not in message["text"]
     assert "置信度" not in message["text"]
@@ -1087,9 +1088,9 @@ def test_oversized_board_is_limited_to_five_items():
     assert "\n　　" not in message["text"]
     assert "日本动画" not in message["text"]
     assert message["text"].count("<b>推荐：</b>") == 5
-    assert message["text"].count("<b>简介：</b>") == 5
+    assert "<b>简介：</b>" not in message["text"]
     assert "较长推荐理由会在标签后按客户端宽度自然换行" in message["text"]
-    assert "较长剧情简介会在标签后按客户端宽度自然换行" in message["text"]
+    assert "较长剧情简介会在标签后按客户端宽度自然换行" not in message["text"]
     assert "90%" not in message["text"]
 
 

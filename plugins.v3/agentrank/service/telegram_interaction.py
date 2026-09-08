@@ -16,9 +16,9 @@ from ..model.constants import RECOMMENDATION_LIMIT
 from ..model.pending_center import PendingNotice
 from ..model.telegram_pending import TelegramPendingSession
 from ..model.telegram_selection import TelegramSelectionSession
+from .notification_format import caption_units, compact_html
 from .notification_type import resolve_notification_type
 from .prompt import AGENT_DISPLAY_NAME_DEFAULT, configured_agent_display_name
-
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class TelegramSelectionService:
     callback_prefix = "ar"
     pending_callback_prefix = "arp"
     session_ttl_hours = 24
-    caption_limit = 3500
+    caption_limit = 1024
     pending_message_retry_attempts = 2
 
     def __init__(
@@ -142,9 +142,9 @@ class TelegramSelectionService:
     @staticmethod
     def _linked_title(item: RecommendationItem) -> str:
         """返回带 TMDB 详情链接的安全标题，缺少有效 ID 时使用纯文本。"""
-        title = html.escape(_compact_text(item.title, 14) or "未命名条目")
+        title = compact_html(_compact_text(item.title, 14) or "未命名条目", 36)
         tmdb_id = str((item.source_ids or {}).get("tmdb") or "").strip()
-        if not tmdb_id.isdigit():
+        if not tmdb_id.isdigit() or len(tmdb_id) > 20:
             return title
         media_path = "movie" if item.media_type == "movie" else "tv"
         url = f"https://www.themoviedb.org/{media_path}/{tmdb_id}"
@@ -751,13 +751,29 @@ class TelegramSelectionService:
             self._repository.save_telegram_pending_session(session)
             return True
 
+    def _selection_title(self, session: TelegramSelectionSession) -> str:
+        """限制标题的转义后长度，为五条推荐保留正文空间。"""
+        name = html.unescape(compact_html(self._agent_label(), 64))
+        return f"{name} · Top {len(session.candidate_ids):02d}"
+
+    def _selection_detail_link(self) -> str:
+        """显式取得宿主默认详情链接，使发送与长度预算使用同一地址。"""
+        from app.sdk.config import settings
+
+        return settings.MP_DOMAIN(
+            f"#/plugins?tab=installed&id={self._plugin.__class__.__name__}"
+        ) or ""
+
     def _single_page_payload(
         self,
         session: TelegramSelectionSession,
         board: RecommendationBoard,
         notice: str = "",
+        *,
+        title: str = "",
+        detail_link: str = "",
     ) -> Tuple[str, List[List[Dict[str, str]]], Optional[str]]:
-        """生成横版封面、三行式五条榜单正文及编号按钮。"""
+        """在完整图片说明预算内生成五条简明推荐及编号按钮。"""
         item_map = self._item_map(board)
         items = [
             item_map[candidate_id]
@@ -771,27 +787,19 @@ class TelegramSelectionService:
         ]
         buttons: List[List[Dict[str, str]]] = []
         choice_buttons: List[Dict[str, str]] = []
+        reason_slots = []
         for index, item in enumerate(items):
             candidate_id = str(item.candidate_id)
             selected = candidate_id in session.selected_ids
-            title = self._linked_title(item)
-            year = html.escape(str(item.year or "").strip())
-            reason = html.escape(
-                _compact_text(item.reason, 120) or "暂无推荐理由"
-            )
-            summary = html.escape(_compact_text(item.summary, 180) or "暂无简介")
+            linked_title = self._linked_title(item)
+            year = compact_html(item.year, 6)
             if index:
                 lines.append("")
-            title_line = f"<code>{index + 1:02d}</code> {title}"
+            title_line = f"<code>{index + 1:02d}</code> {linked_title}"
             if year:
                 title_line = f"{title_line} · {year}"
-            lines.extend(
-                [
-                    title_line,
-                    f"<b>推荐：</b>{reason}",
-                    f"<b>简介：</b>{summary}",
-                ]
-            )
+            lines.extend([title_line, "<b>推荐：</b>"])
+            reason_slots.append((len(lines) - 1, item.reason or "暂无推荐理由"))
             choice_buttons.append(
                 {
                     "text": f"✓{index + 1:02d}" if selected else f"{index + 1:02d}",
@@ -799,8 +807,8 @@ class TelegramSelectionService:
                 }
             )
         if notice:
-            lines.extend(["", f"<i>{html.escape(_compact_text(notice, 120))}</i>"])
-        lines.extend(["", "点击编号选择，确认后创建订阅。"])
+            lines.extend(["", f"<i>{compact_html(notice, 80)}</i>"])
+        lines.extend(["", "点击编号选择，确认后创建订阅；完整简介见插件详情。"])
         buttons.extend(
             choice_buttons[index : index + 5]
             for index in range(0, len(choice_buttons), 5)
@@ -821,8 +829,17 @@ class TelegramSelectionService:
                 },
             ]
         )
+        title = title or self._selection_title(session)
+        available = self.caption_limit - 1 - caption_units(
+            title, "\n".join(lines), detail_link
+        )
+        reason_limit = min(96, available // max(total, 1))
+        if reason_limit < 2:
+            raise ValueError("telegram single-page caption has no room for recommendations")
+        for position, reason in reason_slots:
+            lines[position] += compact_html(reason, reason_limit)
         text = "\n".join(lines)
-        if len(text) > self.caption_limit:
+        if caption_units(title, text, detail_link) >= self.caption_limit:
             raise ValueError("telegram single-page caption exceeds safe character limit")
         return text, buttons, self._image_url(items[0]) if items else None
 
@@ -835,15 +852,20 @@ class TelegramSelectionService:
     ) -> None:
         """发送单页榜单卡片或原地更新选择状态。"""
         event_data = event_data or {}
-        text, buttons, image = self._single_page_payload(session, board, notice)
+        title = self._selection_title(session)
+        detail_link = self._selection_detail_link()
+        text, buttons, image = self._single_page_payload(
+            session, board, notice, title=title, detail_link=detail_link
+        )
         original_message_id = event_data.get("original_message_id")
         self._plugin.post_message(
             channel=NotificationChannel.Telegram,
             source=event_data.get("source"),
             mtype=resolve_notification_type(self._config, MessageType),
-            title=f"{self._agent_label()} · Top {len(session.candidate_ids):02d}",
+            title=title,
             text=text,
             image=image,
+            link=detail_link,
             username=session.username,
             targets={"telegram_userid": session.telegram_userid},
             buttons=buttons,
@@ -1013,7 +1035,8 @@ class TelegramSelectionService:
                 )
                 label = f"❌ {_compact_text(error, 36) or '订阅异常'}"
             results.append(
-                f"{html.escape(_compact_text(getattr(item, 'title', ''), 28) or candidate_id)}　{html.escape(label)}"
+                f"{compact_html(getattr(item, 'title', '') or candidate_id, 48)}　"
+                f"{compact_html(label, 72)}"
             )
         session.status = "completed"
         self._repository.save_telegram_session(session)
