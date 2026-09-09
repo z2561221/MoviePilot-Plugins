@@ -138,6 +138,36 @@ def build_resolution_rule(resolution_filters: List[str]) -> Optional[str]:
     return "|".join([f"(?:{item})" for item in resolution_filters if item])
 
 
+def normalize_season(value: Any) -> int | None:
+    """规范化明确季号，保留特别篇的第零季，拒绝小数和布尔值。"""
+    if isinstance(value, bool):
+        return None
+    text = str(value).strip() if value is not None else ""
+    return int(text) if re.fullmatch(r"[0-9]+", text) else None
+
+
+def resolve_media_season(meta, *, season: Any = None, titles=()) -> int | None:
+    """保留明确季号，并补齐宿主未提取的英文季标记及原始标题中的季号。"""
+    for value in (season, getattr(meta, "begin_season", None)):
+        if (number := normalize_season(value)) is not None:
+            return number
+    original = str(getattr(meta, "org_string", None) or "")
+    for title in dict.fromkeys(str(value or "").strip() for value in (original, *titles)):
+        if not title:
+            continue
+        matched = re.search(
+            r"(?i)\b(?:season\s*(\d{1,3})|(\d{1,3})(?:st|nd|rd|th)\s+season)\b",
+            title,
+        )
+        if matched:
+            return int(next(value for value in matched.groups() if value is not None))
+        if title != original:
+            parsed = MetaInfo(title)
+            if (number := normalize_season(getattr(parsed, "begin_season", None))) is not None:
+                return number
+    return None
+
+
 def get_tmdb_air_date(chain, tmdb_id: Optional[int], season: Optional[int] = None) -> Optional[str]:
     """查询 TMDB 剧集或媒体播出日期。"""
     if not tmdb_id:

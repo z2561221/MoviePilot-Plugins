@@ -5,6 +5,7 @@ from typing import Any, Callable, Tuple
 from app.schemas.types import MediaType
 from app.sdk.media import MetaInfo
 
+from .. import utils
 from . import bangumi_tmdb as bangumi_tmdb_service
 
 
@@ -24,6 +25,7 @@ def recognize_rss_item(
     item = item if isinstance(item, dict) else {}
     rank = rank if isinstance(rank, dict) else {}
     meta = MetaInfo(str(item.get("title") or ""))
+    meta.begin_season = utils.resolve_media_season(meta, season=item.get("season"))
     if item.get("year"):
         meta.year = str(item.get("year"))
     inferred = infer_media_type(rank, item)

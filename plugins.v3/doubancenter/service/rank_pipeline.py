@@ -460,6 +460,13 @@ def _apply_display_recognition(
     inferred_type = "tv" if rank_key == "coming" else _rank_media_type(rd, item)
     media_type = MediaType.MOVIE if inferred_type == "movie" else MediaType.TV
     meta.type = media_type
+    meta.begin_season = utils.resolve_media_season(
+        meta,
+        season=item.get("season"),
+        titles=(entry.get("title"), (existing or {}).get("title")),
+    )
+    if media_type == MediaType.TV and meta.begin_season is not None:
+        entry["season"] = meta.begin_season
     source, source_id = legacy_identity(
         media_source=item.get("media_source") or entry.get("media_source"),
         media_id=item.get("media_id") or entry.get("media_id"),
@@ -972,12 +979,14 @@ def _snapshot_meta(item: dict, entry: dict, media_type) -> MetaInfo:
     if year:
         meta.year = str(year)
     meta.type = media_type
-    season = (entry or {}).get("season") or (item or {}).get("season")
-    if season not in (None, ""):
-        try:
-            meta.begin_season = int(season)
-        except (TypeError, ValueError):
-            pass
+    season = utils.normalize_season((entry or {}).get("season"))
+    if season is None:
+        season = (item or {}).get("season")
+    meta.begin_season = utils.resolve_media_season(
+        meta,
+        season=season,
+        titles=((entry or {}).get("original_title"), (entry or {}).get("title")),
+    )
     return meta
 
 
@@ -1062,6 +1071,7 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
                 rank_key=rd["key"],
                 rank_name=rd["name"],
                 media_type="tv",
+                season=meta.begin_season,
             )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""), unique=unique)
@@ -1096,6 +1106,7 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
                 "rank_key": rd["key"],
                 "rank_name": rd["name"],
                 "media_type": "tv",
+                "season": meta.begin_season,
             })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
             if result_lines is not None:
@@ -1167,7 +1178,7 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
                 rank_key=rd["key"],
                 rank_name=rd["name"],
                 media_type=mtype,
-                season=entry.get("season"),
+                season=meta.begin_season,
                 prefer_title=rd["key"] == "bangumi",
             )
             _cleanup_observe_logs(self, title=title, unique=unique)
@@ -1218,7 +1229,7 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
                 "rank_key": rd["key"],
                 "rank_name": rd["name"],
                 "media_type": mtype,
-                "season": entry.get("season"),
+                "season": meta.begin_season,
                 "tmdb_title": entry.get("tmdb_title") or getattr(mediainfo, "title", None) or "",
             })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
@@ -1275,10 +1286,7 @@ def _process_coming(self, url: str, rd: dict) -> None:
             continue
         if min_wish > 0 and wish < min_wish:
             continue
-        meta = MetaInfo(title)
-        if year:
-            meta.year = str(year)
-        meta.type = MediaType.TV
+        meta = _snapshot_meta(item, {}, MediaType.TV)
         mediainfo = self.chain.recognize_media(meta=meta, mtype=MediaType.TV)
         if not mediainfo:
             continue
@@ -1299,6 +1307,7 @@ def _process_coming(self, url: str, rd: dict) -> None:
                 rank_key=rd["key"],
                 rank_name=rd["name"],
                 media_type="tv",
+                season=meta.begin_season,
             )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
@@ -1334,6 +1343,7 @@ def _process_coming(self, url: str, rd: dict) -> None:
                 "rank_key": rd["key"],
                 "rank_name": rd["name"],
                 "media_type": "tv",
+                "season": meta.begin_season,
             })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
     _drop_stale_observations(history, current_candidates)
@@ -1473,6 +1483,7 @@ def _process_items(self, items: List[dict], source: str) -> None:
                 rank_key=source,
                 rank_name=source,
                 media_type=mtype,
+                season=meta.begin_season,
             )
             _cleanup_observe_logs(self, title=title, unique=unique)
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
@@ -1496,6 +1507,7 @@ def _process_items(self, items: List[dict], source: str) -> None:
                 "rank_key": source,
                 "rank_name": source,
                 "media_type": mtype,
+                "season": meta.begin_season,
             })
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
     storage.save_rank_history(self, source, history)
