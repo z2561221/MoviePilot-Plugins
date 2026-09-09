@@ -1077,10 +1077,13 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
             _cleanup_observe_logs(self, title=getattr(mediainfo, "title", ""), unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
-        ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
+        ad = utils.get_tmdb_air_date(
+            self.chain, mediainfo.tmdb_id, season=meta.begin_season, mediainfo=mediainfo,
+        )
         if air_days > 0:
             if not ad:
-                _log_rank_skip(rd, title, "未获取到上映日期", result_lines=result_lines)
+                target = f"第{meta.begin_season}季首播日期" if meta.begin_season is not None else "上映日期"
+                _log_rank_skip(rd, title, f"未获取到{target}，下轮重试", result_lines=result_lines)
                 continue
             if not utils.is_within_days(ad, air_days):
                 _log_rank_skip(rd, title, f"上映日期 {ad} 不在未来 {air_days} 天内", result_lines=result_lines)
@@ -1313,10 +1316,13 @@ def _process_coming(self, url: str, rd: dict) -> None:
             _cleanup_observe_logs(self, title=mediainfo.title, unique=unique)
             history_index[unique] = {"existing": True, "existing_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "existing_reason": "subscribe"}
             continue
-        ad = utils.get_tmdb_air_date(self.chain, mediainfo.tmdb_id, season=meta.begin_season)
+        ad = utils.get_tmdb_air_date(
+            self.chain, mediainfo.tmdb_id, season=meta.begin_season, mediainfo=mediainfo,
+        )
         if air_days > 0:
             if not ad:
-                _log_rank_skip(rd, title, "未获取到上映日期")
+                target = f"第{meta.begin_season}季首播日期" if meta.begin_season is not None else "上映日期"
+                _log_rank_skip(rd, title, f"未获取到{target}，下轮重试")
                 continue
             if not utils.is_within_days(ad, air_days):
                 _log_rank_skip(rd, title, f"上映日期 {ad} 不在未来 {air_days} 天内")
