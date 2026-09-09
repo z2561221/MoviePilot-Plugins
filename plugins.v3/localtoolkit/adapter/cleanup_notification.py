@@ -6,8 +6,10 @@ import time
 from html import unescape
 from typing import Any
 
+from app.db.oper.user import UserOper
 from app.schemas.message import Message
 from app.schemas.types import MessageType, NotificationChannel
+from app.sdk.config import settings
 from app.sdk.logging import logger
 from app.sdk.services import NotificationHelper, ServiceConfigHelper
 
@@ -45,8 +47,7 @@ class CleanupReportNotifier:
         action = ServiceConfigHelper.get_notification_switch(MessageType.Plugin) or "all"
         if action.split(",")[0] != "admin":
             return None
-        chain = self.plugin.chain
-        return chain.data_ports.user().get_settings(chain.runtime_config.superuser)
+        return UserOper().get_settings(settings.SUPERUSER) or {}
 
     def start(self, title: str, text: str) -> None:
         """仅向支持回执和编辑的 Telegram 路由发送处理中报告。"""

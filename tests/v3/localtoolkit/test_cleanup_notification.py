@@ -5,6 +5,7 @@ import pytest
 from app.plugins.localtoolkit.adapter.cleanup_notification import (
     CleanupReportNotifier,
     ServiceConfigHelper,
+    UserOper,
 )
 from app.schemas.message import MessageResponse
 from app.schemas.types import MessageType, NotificationChannel
@@ -17,6 +18,11 @@ def config(name="TG", kind="telegram", *, enabled=True, switchs=None):
 
 def build_notifier(monkeypatch, configs=None, *, action="all", targets=None):
     monkeypatch.setattr(ServiceConfigHelper, "get_notification_switch", lambda _kind: action)
+    monkeypatch.setattr(UserOper, "get_settings", Mock(return_value=targets))
+    monkeypatch.setattr(
+        "app.plugins.localtoolkit.adapter.cleanup_notification.settings",
+        SimpleNamespace(SUPERUSER="admin"),
+    )
     plugin = SimpleNamespace(post_message=Mock())
     plugin.chain = SimpleNamespace(
         send_direct_message=Mock(side_effect=lambda message: MessageResponse(
@@ -24,8 +30,6 @@ def build_notifier(monkeypatch, configs=None, *, action="all", targets=None):
             source=message.source, channel=NotificationChannel.Telegram,
         )),
         run_module=Mock(return_value=True),
-        data_ports=SimpleNamespace(user=lambda: SimpleNamespace(get_settings=Mock(return_value=targets))),
-        runtime_config=SimpleNamespace(superuser="admin"),
     )
     routes = configs if configs is not None else [config()]
     helper = SimpleNamespace(get_configs=lambda: {conf.name: conf for conf in routes})
@@ -92,16 +96,37 @@ def test_missing_or_foreign_receipt_never_edits_arbitrary_message_or_resends(mon
 
 def test_admin_routing_is_preserved_without_bypassing_notification_type_switch(monkeypatch):
     notifier, plugin = build_notifier(monkeypatch, action="admin", targets={"telegram_userid": "admin-chat"})
+    assert not hasattr(plugin.chain, "data_ports")
+    assert not hasattr(plugin.chain, "runtime_config")
     notifier.start("报告", "开始")
+    UserOper.get_settings.assert_called_once_with("admin")
     sent = plugin.chain.send_direct_message.call_args.args[0]
     assert sent.targets == {"telegram_userid": "admin-chat"}
     assert sent.userid is None and sent.mtype == MessageType.Plugin
 
 
-def test_admin_without_telegram_target_does_not_fall_back_to_default_chat(monkeypatch):
-    notifier, plugin = build_notifier(monkeypatch, action="admin", targets={"wechat_userid": "admin"})
+@pytest.mark.parametrize("targets", [None, {}, {"wechat_userid": "admin"}])
+def test_admin_without_telegram_target_does_not_fall_back_to_default_chat(monkeypatch, targets):
+    notifier, plugin = build_notifier(monkeypatch, action="admin", targets=targets)
     notifier.start("报告", "开始")
     assert notifier.finish("报告", "结束")
+    plugin.chain.send_direct_message.assert_not_called()
+    assert all(call.kwargs.get("source") != "TG" for call in plugin.post_message.call_args_list)
+
+
+def test_all_routing_does_not_read_administrator_settings(monkeypatch):
+    notifier, plugin = build_notifier(monkeypatch)
+    notifier.start("报告", "开始")
+    UserOper.get_settings.assert_not_called()
+    plugin.chain.send_direct_message.assert_called_once()
+    assert plugin.chain.send_direct_message.call_args.args[0].targets is None
+
+
+def test_admin_lookup_failure_does_not_send_to_default_chat(monkeypatch):
+    notifier, plugin = build_notifier(monkeypatch, action="admin")
+    UserOper.get_settings.side_effect = RuntimeError("用户设置读取失败")
+    notifier.start("报告", "开始")
+    assert notifier.finish("报告", "结束") is False
     plugin.chain.send_direct_message.assert_not_called()
     assert all(call.kwargs.get("source") != "TG" for call in plugin.post_message.call_args_list)
 
