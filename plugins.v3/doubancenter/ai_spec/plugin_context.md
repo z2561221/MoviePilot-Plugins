@@ -2,7 +2,7 @@
 
 ## 插件用途
 
-DoubanCenter 3.0.3 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
+DoubanCenter 3.0.4 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
 
 ## 入口与渲染
 
@@ -25,7 +25,7 @@ DoubanCenter 3.0.3 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 - `storage/records.py`：插件持久化 key、读写封装、记录裁剪和榜单历史 key。
 - `model/identity.py`：统一 `(media_source, media_id)`、旧字段回填和 V3 `MediaChain` 参数。
 - `migration.py`：初始化时幂等迁移榜单、订阅、观察、归档、豆瓣时间和想看记录；unresolved 原样保留。
-- `controller/schemas.py`：17 条普通 JSON 路由的具体 Pydantic 业务模型。
+- `controller/schemas.py`：18 条普通 JSON 路由的具体 Pydantic 业务模型。
 - `service/rank_pipeline.py`：榜单领域兼容入口和运行回调；根 `feed.py` 仅保留兼容转发。
 - `service/rank_refresh.py`：RSS 目标选择、拉取窗口和仪表盘刷新编排。
 - `service/rank_recognition.py`：RSS 条目与快照的识别器选择。
@@ -42,7 +42,7 @@ DoubanCenter 3.0.3 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 - `app.adapters.external.cookiecloud.CookieCloudHelper` 当前仍没有稳定 SDK 出口，
   是唯一保留的宿主内部导入；精确例外登记在仓库根目录
   `.github/plugin-quality-exceptions.json`，修改前应先重新核对宿主 `app.sdk` 的 `__all__`。
-- 17 条插件 API 显式返回 `schemas.Response[T]`，前端注入客户端读取最终
+- 18 条插件 API 显式返回 `schemas.Response[T]`，前端注入客户端读取最终
   `success/message/data` envelope，不允许再增加一层 `data`。
 
 ## 主要数据 key

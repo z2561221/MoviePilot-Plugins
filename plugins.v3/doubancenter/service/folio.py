@@ -3,7 +3,6 @@ DoubanCenter - 豆瓣档案模块
 """
 import datetime
 import re
-import threading
 from collections.abc import Mapping
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
@@ -1065,7 +1064,7 @@ def _send_folio_notification(self, success: bool, message: str):
     t = f"豆瓣观影档案 {'成功' if success else '失败'}"
     msg = message.strip() + f"\n时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     try:
-        self.post_message(mtype=MessageType.MediaServer, title=t, text=msg)
+        self.post_message(mtype=MessageType.MediaServer, title=t, text=msg, parse_mode="plain")
     except Exception as e:
         logger.error(f'{self.plugin_name} 发送通知失败: {e}')
 
@@ -1085,6 +1084,6 @@ def _send_wish_notification(self, message: str, throttle_key: str = "wish", thro
     self._wish_notification_last_times = last_map
     msg = message.strip() + f"\n时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     try:
-        self.post_message(mtype=MessageType.MediaServer, title="豆瓣想看同步失败", text=msg)
+        self.post_message(mtype=MessageType.MediaServer, title="豆瓣想看同步失败", text=msg, parse_mode="plain")
     except Exception as e:
         logger.error(f'{self.plugin_name} 发送同步想看通知失败: {e}')

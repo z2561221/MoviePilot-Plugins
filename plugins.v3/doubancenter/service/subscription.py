@@ -8,6 +8,7 @@ from app.chain.subscribe import SubscribeChain
 from app.sdk.logging import logger
 from app.schemas.types import MediaType
 
+from .. import utils
 from ..model.identity import identity_from_media, identity_payload, legacy_identity
 from ..storage import records as storage
 from . import observation
@@ -253,6 +254,8 @@ def add_subscription(
     subscribe_oper_cls=None,
 ) -> bool:
     """按 MoviePilot V3 通用媒体身份执行自动订阅。"""
+    if meta is not None:
+        meta.begin_season = utils.resolve_media_season(meta, titles=(record_title,))
     # 订阅链本身是先查后建，锁住整个区段以防并发榜单任务重复创建同一媒体。
     with _SUBSCRIBE_LOCK:
         if is_existing_media(

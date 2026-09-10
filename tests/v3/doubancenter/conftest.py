@@ -4,9 +4,14 @@ import sys
 from importlib.util import find_spec
 from pathlib import Path
 
+from tests._bootstrap import prepare_v3_backend
+
 
 def pytest_configure():
     """把 V3 插件目录挂入 ``app.plugins``，保持生产导入身份。"""
+    # 子目录 hook 可能先执行，必须先准备隔离库再读取配置快照。
+    prepare_v3_backend()
+
     import app.plugins
 
     plugin_root = Path(__file__).resolve().parents[3] / "plugins.v3"

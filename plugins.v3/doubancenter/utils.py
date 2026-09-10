@@ -138,49 +138,111 @@ def build_resolution_rule(resolution_filters: List[str]) -> Optional[str]:
     return "|".join([f"(?:{item})" for item in resolution_filters if item])
 
 
-def get_tmdb_air_date(chain, tmdb_id: Optional[int], season: Optional[int] = None) -> Optional[str]:
-    """查询 TMDB 剧集或媒体播出日期。"""
+def normalize_season(value: Any) -> int | None:
+    """规范化明确季号，保留特别篇的第零季，拒绝小数和布尔值。"""
+    if isinstance(value, bool):
+        return None
+    text = str(value).strip() if value is not None else ""
+    return int(text) if re.fullmatch(r"[0-9]+", text) else None
+
+
+def resolve_media_season(meta, *, season: Any = None, titles=()) -> int | None:
+    """保留明确季号，并补齐宿主未提取的英文季标记及原始标题中的季号。"""
+    for value in (season, getattr(meta, "begin_season", None)):
+        if (number := normalize_season(value)) is not None:
+            return number
+    original = str(getattr(meta, "org_string", None) or "")
+    for title in dict.fromkeys(str(value or "").strip() for value in (original, *titles)):
+        if not title:
+            continue
+        matched = re.search(
+            r"(?i)\b(?:season\s*(\d{1,3})|(\d{1,3})(?:st|nd|rd|th)\s+season)\b",
+            title,
+        )
+        if matched:
+            return int(next(value for value in matched.groups() if value is not None))
+        if title != original:
+            parsed = MetaInfo(title)
+            if (number := normalize_season(getattr(parsed, "begin_season", None))) is not None:
+                return number
+    return None
+
+
+def _tmdb_date_info(chain, tmdb_id: int, season: int | None = None) -> dict | None:
+    """隔离日期查询失败，使季详情不可用时仍可查询整剧的季列表。"""
+    try:
+        info = chain.tmdb_info(tmdbid=tmdb_id, mtype=MediaType.TV, season=season)
+    except Exception as err:
+        target = f"第{season}季" if season is not None else "剧集"
+        logger.error(f"获取TMDB{target}播出日期失败：{err}")
+        return None
+    return info if isinstance(info, dict) else None
+
+
+def get_tmdb_air_date(
+    chain, tmdb_id: int | None, season: int | None = None, *, mediainfo: Any = None,
+) -> str | None:
+    """优先复用已识别的目标季日期，再查询 TMDB，续季不回退到整剧首播。"""
+    target_season = normalize_season(season)
+    if season is not None and target_season is None:
+        return None
+    if date := get_media_release_date(mediainfo, season=target_season):
+        return date
     if not tmdb_id:
         return None
-    try:
-        if season:
-            season_info = chain.tmdb_info(tmdbid=tmdb_id, mtype=MediaType.TV, season=season)
-            if season_info:
-                date = season_info.get("air_date") or season_info.get("first_air_date")
-                if date:
+    if target_season is not None:
+        season_info = _tmdb_date_info(chain, tmdb_id, target_season)
+        if season_info:
+            returned_season = normalize_season(season_info.get("season_number"))
+            if returned_season in (None, target_season):
+                if date := _normalize_iso_date(season_info.get("air_date")):
                     return date
-        tmdb_info = chain.tmdb_info(tmdbid=tmdb_id, mtype=MediaType.TV)
-        if not tmdb_info:
+    tmdb_info = _tmdb_date_info(chain, tmdb_id)
+    if not tmdb_info:
+        return None
+    if target_season is not None:
+        if date := _season_air_date(tmdb_info.get("seasons"), target_season):
+            return date
+        if target_season != 1:
             return None
-        if season:
-            for s in (tmdb_info.get("seasons") or []):
-                if s.get("season_number") == season and s.get("air_date"):
-                    return s.get("air_date")
-        return tmdb_info.get("first_air_date") or tmdb_info.get("release_date")
-    except Exception as err:
-        logger.error(f"获取TMDB播出日期失败：{err}")
+    return _normalize_iso_date(tmdb_info.get("first_air_date") or tmdb_info.get("release_date"))
+
+
+def _normalize_iso_date(value: Any) -> str | None:
+    """从日期或日期时间值中提取有效的 ISO 日期。"""
+    match = re.search(r"\d{4}-\d{2}-\d{2}", str(value or "").strip())
+    if not match:
+        return None
+    try:
+        return datetime.date.fromisoformat(match.group(0)).isoformat()
+    except ValueError:
         return None
 
 
-def _normalize_iso_date(value: Any) -> Optional[str]:
-    """从日期或日期时间值中提取 ISO 日期。"""
-    match = re.search(r"\d{4}-\d{2}-\d{2}", str(value or "").strip())
-    return match.group(0) if match else None
+def _season_air_date(seasons: Any, season: int) -> str | None:
+    """仅提取目标季的有效首播日期，忽略缺失或损坏的季条目。"""
+    if not isinstance(seasons, (list, tuple)):
+        return None
+    for season_info in seasons or []:
+        if not isinstance(season_info, dict):
+            continue
+        if normalize_season(season_info.get("season_number")) != season:
+            continue
+        if date := _normalize_iso_date(season_info.get("air_date")):
+            return date
+    return None
 
 
-def get_media_release_date(mediainfo: Any, season: Optional[int] = None) -> Optional[str]:
-    """优先返回指定季首播日期，否则返回媒体上映日期。"""
-    if season:
-        for season_info in getattr(mediainfo, "season_info", None) or []:
-            if not isinstance(season_info, dict):
-                continue
-            try:
-                season_number = int(season_info.get("season_number"))
-            except (TypeError, ValueError):
-                continue
-            if season_number == int(season):
-                if air_date := _normalize_iso_date(season_info.get("air_date")):
-                    return air_date
+def get_media_release_date(mediainfo: Any, season: int | None = None) -> str | None:
+    """读取指定季首播日期；整剧首播日期仅能补充首季或未指定季的媒体。"""
+    target_season = normalize_season(season)
+    if season is not None and target_season is None:
+        return None
+    if target_season is not None:
+        if date := _season_air_date(getattr(mediainfo, "season_info", None), target_season):
+            return date
+        if target_season != 1:
+            return None
     for value in (
         getattr(mediainfo, "release_date", None),
         getattr(mediainfo, "first_air_date", None),

@@ -37,7 +37,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "3.0.4"
+    plugin_version = "3.0.5"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
