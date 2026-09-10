@@ -122,6 +122,7 @@ class FolioRepairItem(BaseModel):
     reason: str = ""
     before: FlexibleRecord | None = None
     after: FlexibleRecord | None = None
+    evidence: FlexibleRecord = Field(default_factory=FlexibleRecord)
 
 
 class FolioRepairPreviewData(BaseModel):

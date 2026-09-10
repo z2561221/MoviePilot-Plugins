@@ -90,6 +90,7 @@ def preview(plugin, targets: list[dict]) -> dict:
         except (folio_media.FolioLookupError, ValueError, TypeError, AttributeError) as err:
             logger.warning(f"观影档案分季核验失败：{key}", exc_info=True)
             match = {"resolved": False, "reason": f"媒体查询失败（{type(err).__name__}），原记录保持不变"}
+        item["evidence"] = {"season": match.get("facts") or {}, "candidates": match.get("checks") or []}
         if not match.get("resolved"):
             item["reason"] = match.get("reason") or "分季身份尚未核实"
             continue

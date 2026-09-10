@@ -273,34 +273,46 @@ def resolve_tv_subject(chain, media, origin: dict) -> dict:
                 candidate_source, candidate_id = identity_from_media(candidate)
                 if candidate_source == MediaSource.Douban and candidate_id:
                     candidates.setdefault(str(candidate_id), candidate)
-    exact, whole = [], []
+    exact, whole, checks = [], [], []
     for candidate_id, summary in candidates.items():
+        check = {"id": candidate_id, "summary_title": value(summary, "title") or "",
+                 "summary_type": str(value(summary, "type") or ""), "stage": "summary_type"}
+        checks.append(check)
         if not _is_tv(summary):
             continue
+        check["stage"] = "summary_year"
         summary_year = str(value(summary, "year", "") or "")[:4]
         if summary_year and summary_year != facts["year"] and not _same_title(media, summary):
             continue
         detail = _query(chain.douban_info, doubanid=candidate_id, mtype=MediaType.TV)
+        check.update(stage="detail_type", title=value(detail, "title") or "",
+                     detail_type=str(value(detail, "type") or ""), is_tv=value(detail, "is_tv"),
+                     dates=[date.isoformat() for date in _candidate_dates(detail)])
         if not detail or not _is_tv(detail):
             continue
         if isinstance(detail, Mapping):
             detail = {**detail, "id": candidate_id}
+        check["stage"] = "series_identity"
         if not _same_series(chain, media, detail):
             continue
+        check["stage"] = "season_date"
         item = {
             "resolved": True, "subject_id": candidate_id,
             "subject_name": value(detail, "title") or value(detail, "name") or (names[0] if names else ""),
             "poster_path": facts["poster_path"], "facts": facts,
         }
         if _covers_series(detail, facts):
+            check["stage"] = "series_match"
             whole.append({**item, "identity_scope": "series"})
         elif _matches_season(detail, facts):
+            check["stage"] = "season_match"
             exact.append({**item, "identity_scope": "season"})
     matches = exact or whole
     if len(matches) == 1:
-        return matches[0]
+        return {**matches[0], "checks": checks}
     return {
         "resolved": False,
         "reason": "分季豆瓣候选不唯一" if matches else "未找到通过季首播日校验的豆瓣条目",
         "facts": facts,
+        "checks": checks,
     }
