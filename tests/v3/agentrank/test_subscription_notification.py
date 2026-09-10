@@ -7,6 +7,7 @@ from enum import Enum
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import pytest
 from fastapi import Depends, HTTPException
 
 
@@ -110,6 +111,14 @@ AgentRankRuntime = runtime_module.AgentRankRuntime
 AgentRankApiController = controller_module.AgentRankApiController
 PendingCenterItem = pending_model_module.PendingCenterItem
 PendingNotice = pending_model_module.PendingNotice
+
+
+@pytest.fixture(autouse=True)
+def isolated_notification_sources(monkeypatch):
+    """默认不启用外部通知源，隔离其他用例的宿主配置替身。"""
+    from app.sdk.services import ServiceConfigHelper
+
+    monkeypatch.setattr(ServiceConfigHelper, "get_notification_configs", list)
 
 
 def test_notification_type_options_follow_current_host_enum():
@@ -343,17 +352,17 @@ def test_notification_confirmation_sends_summary_without_subscription_dependency
     assert len(plugin.messages) == 1
     assert plugin.messages[0]["username"] == "Alice"
     assert plugin.messages[0]["mtype"] is MessageType.Plugin
-    assert plugin.messages[0]["parse_mode"] == "MarkdownV2"
+    assert plugin.messages[0]["parse_mode"] == "plain"
     assert plugin.messages[0]["disable_web_page_preview"] is True
-    assert plugin.messages[0]["text"].startswith("本轮 克里斯蒂娜 推荐已生成，共 1 条：\n\n```")
-    assert "01 │ One\n   │ 推荐：悬疑迷局层层牵出尘封往事与真相" in plugin.messages[0]["text"]
-    assert "   │ 简介：悬疑迷局层层牵出尘封往事与真相" in plugin.messages[0]["text"]
-    assert "请前往 **克里斯蒂娜** 手动订阅" in plugin.messages[0]["text"]
+    assert plugin.messages[0]["text"].startswith("本轮 克里斯蒂娜 推荐已生成，共 1 条：\n\n01. One")
+    assert "01. One\n推荐：悬疑迷局层层牵出尘封往事与真相" in plugin.messages[0]["text"]
+    assert "简介：悬疑迷局层层牵出尘封往事与真相" in plugin.messages[0]["text"]
+    assert "请前往 克里斯蒂娜 手动订阅" in plugin.messages[0]["text"]
     assert "One" in plugin.messages[0]["text"]
 
 
 def test_notification_confirmation_compacts_long_or_multiline_fields():
-    """MarkdownV2 榜单压缩多行文本并保持两位排名和等宽列结构。"""
+    """纯文本摘要压缩多行字段并保留两位排名及清晰分项。"""
     plugin = FakePlugin()
     board = RecommendationBoard(
         profile_id=PROFILE_ID,
@@ -373,10 +382,10 @@ def test_notification_confirmation_compacts_long_or_multiline_fields():
     NotificationService(plugin).send_confirmation("Alice", board)
 
     text = plugin.messages[0]["text"]
-    assert text.count("```") == 2
-    assert "10 │ A_B [Test] (2025)!" in text
-    assert "   │ 推荐：第一行 第二行 间隔" in text
-    assert "   │ 简介：第一行 第二行 间隔" in text
+    assert "```" not in text
+    assert "10. A_B [Test] (2025)!" in text
+    assert "推荐：第一行 第二行 间隔" in text
+    assert "简介：第一行 第二行 间隔" in text
     assert "…" in text
 
 
@@ -472,6 +481,7 @@ def test_failure_notification_hides_addresses_credentials_and_emby_identity():
 
     text = plugin.messages[-1]["text"]
     assert plugin.messages[-1]["mtype"] is MessageType.Plugin
+    assert plugin.messages[-1]["parse_mode"] == "plain"
     assert "Alice" not in text
     assert "emby:home:user-1" not in text
     assert "192.0.2.12" not in text
@@ -791,6 +801,7 @@ def test_pending_fallback_notification_is_safe_and_keeps_detail_entry():
     assert len(plugin.messages) == 1
     rendered = str(plugin.messages[0])
     assert plugin.messages[0]["title"] == "克里斯蒂娜待处理"
+    assert plugin.messages[0]["parse_mode"] == "plain"
     assert "尚未生效" in rendered and "待处理区域" in rendered
     assert "192.0.2.13" not in rendered
     assert "secret-value" not in rendered

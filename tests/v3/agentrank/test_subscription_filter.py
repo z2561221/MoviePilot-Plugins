@@ -2,54 +2,32 @@
 
 import importlib
 import sys
-from enum import Enum
-from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
 
 
-PLUGIN_DIR = Path(__file__).resolve().parents[3] / "plugins.v3" / "agentrank"
-PACKAGE_NAME = "agentrank_subscription_filter_test"
-
-package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
-package.__path__ = [str(PLUGIN_DIR)]
-
-app_module = sys.modules.setdefault("app", ModuleType("app"))
-schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
-types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-
-
-class V3MediaSource(str):
-    """测试使用的可扩展 V3 媒体来源值。"""
-
-    def __new__(cls, value):
-        instance = str.__new__(cls, value)
-        instance.value = value
-        return instance
-
-
-V3MediaSource.TMDB = V3MediaSource("themoviedb")
-V3MediaSource.Douban = V3MediaSource("douban")
-
-
-class V3MediaType(Enum):
-    """测试使用的 MoviePilot 媒体类型枚举。"""
-
-    MOVIE = "电影"
-    TV = "电视剧"
-
-
-app_module.schemas = schemas_module
-schemas_module.types = types_module
-types_module.MediaSource = V3MediaSource
-types_module.MediaType = V3MediaType
-
 subscription_module = importlib.import_module(
-    f"{PACKAGE_NAME}.adapter.subscription"
+    "app.plugins.agentrank.adapter.subscription"
 )
 SubscriptionAdapter = subscription_module.SubscriptionAdapter
 MediaSource = subscription_module.MediaSource
+V3MediaType = subscription_module.MediaType
+
+
+@pytest.fixture(name="query_sdk")
+def query_sdk_fixture(monkeypatch):
+    """仅在查询测试期间安装 SDK 替身，保留宿主模块的导入路径。"""
+    queries = ModuleType("app.sdk.queries")
+    queries.QueryPageRequest = SimpleNamespace
+    queries.QuerySort = SimpleNamespace
+    queries.QuerySortField = SimpleNamespace(ID="id")
+    queries.QuerySortDirection = SimpleNamespace(ASC="asc")
+    queries.MAX_QUERY_PAGE_SIZE = 200
+    queries.list_subscriptions = lambda **kwargs: SimpleNamespace(items=[], has_next=False)
+    monkeypatch.setitem(sys.modules, "app.sdk.queries", queries)
+    monkeypatch.setattr(importlib.import_module("app.sdk"), "queries", queries, raising=False)
+    return queries
 
 
 class RecordingOper:
@@ -144,22 +122,61 @@ def test_cross_source_conversion_receives_media_type_enum(raw_type, expected_typ
     assert len(calls) == 1
 
 
-def test_default_adapter_uses_v3_subscription_oper(monkeypatch):
-    """默认适配器应从 V3 公开订阅操作路径创建读取器。"""
-    oper_module = importlib.import_module("app.db.oper.subscribe")
+def test_query_sdk_reads_all_pages(query_sdk):
+    """超过单页上限的订阅必须全部进入过滤集合，并使用稳定排序。"""
+    calls = []
 
-    class FakeOper:
-        """避免默认构造测试触碰真实数据库。"""
+    def list_subscriptions(filters, page):
+        """按请求页号返回共 201 条订阅，末页只有一条电视剧。"""
+        calls.append((filters, page))
+        return SimpleNamespace(
+            items=[
+                {
+                    "media_source": MediaSource.TMDB,
+                    "media_id": str(media_id),
+                    "type": "电影" if page.page == 1 else "电视剧",
+                }
+                for media_id in (range(1, 201) if page.page == 1 else [201])
+            ],
+            has_next=page.page == 1,
+        )
 
-        def list(self):
-            """返回空订阅列表。"""
-            return []
+    query_sdk.list_subscriptions = list_subscriptions
+    result = SubscriptionAdapter(query_api=query_sdk).candidate_ids()
 
-    monkeypatch.setattr(oper_module, "SubscribeOper", FakeOper)
+    assert result == {f"tmdb:movie:{media_id}" for media_id in range(1, 201)} | {"tmdb:tv:201"}
+    assert [page.page for _, page in calls] == [1, 2]
+    for filters, page in calls:
+        assert filters == {"media_types": (V3MediaType.MOVIE, V3MediaType.TV)}
+        assert page.count == 200
+        assert page.sort.field == "id"
+        assert page.sort.direction == "asc"
 
-    adapter = SubscriptionAdapter()
 
-    assert isinstance(adapter._oper, FakeOper)
+def test_default_adapter_uses_v3_query_sdk(query_sdk):
+    """默认适配器应从 V3 稳定查询门面读取订阅。"""
+    record = {"media_source": MediaSource.TMDB, "media_id": "12", "type": "电影"}
+    query_sdk.list_subscriptions = lambda **kwargs: SimpleNamespace(items=[record], has_next=False)
+
+    assert SubscriptionAdapter().candidate_ids() == {"tmdb:movie:12"}
+
+
+@pytest.mark.parametrize("music_type", ["music", "音乐", V3MediaType.MUSIC])
+def test_music_subscriptions_are_skipped_before_identity_conversion(music_type):
+    """音乐原生 ID 不得转换成影视身份或阻断影视订阅过滤。"""
+    records = [
+        {"media_source": MediaSource("musicbrainz"), "media_id": "album-id", "type": music_type},
+        {"media_source": MediaSource.TMDB, "media_id": "10", "type": "电影"},
+    ]
+
+    def unexpected_conversion():
+        """任何音乐身份转换调用都使测试失败。"""
+        raise AssertionError("music subscriptions must not enter identity conversion")
+
+    adapter = SubscriptionAdapter(
+        oper=SimpleNamespace(list=lambda: records), chain_factory=unexpected_conversion
+    )
+    assert adapter.candidate_ids() == {"tmdb:movie:10"}
 
 
 def test_subscription_with_tmdb_id_but_unknown_type_fails_closed():

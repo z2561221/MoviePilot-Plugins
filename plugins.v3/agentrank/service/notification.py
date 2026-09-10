@@ -1,19 +1,20 @@
 """Agent 榜单通知确认服务。"""
 
 import hashlib
+import html
 import json
 import logging
 import re
 from typing import Any, Optional
 
-from app.schemas.types import MessageType
+from app.schemas.types import MessageType, NotificationChannel
 
 from ..model.board import RecommendationBoard
 from ..model.constants import RECOMMENDATION_LIMIT
 from ..model.pending_center import PendingNotice
+from .notification_format import compact_html
 from .notification_type import resolve_notification_type
 from .prompt import AGENT_DISPLAY_NAME_DEFAULT, configured_agent_display_name
-
 
 logger = logging.getLogger(__name__)
 
@@ -86,21 +87,21 @@ def _compact_text(value: Any, limit: int) -> str:
     return f"{text[: limit - 1]}…"
 
 
-def _format_ranking_block(board: RecommendationBoard) -> str:
-    """将固定榜单数量内的推荐格式化为 Telegram 等宽 Markdown 代码块。"""
+def _format_ranking_block(board: RecommendationBoard, html_mode: bool = False) -> str:
+    """将推荐渲染为分项列表，Telegram 使用转义后的 HTML。"""
     lines = []
     for item in board.recommendations[:RECOMMENDATION_LIMIT]:
         title = _compact_text(item.title, 42) or "未命名条目"
         summary = _compact_text(item.summary, 64) or "暂无推荐摘要"
         reason = _compact_text(getattr(item, "reason", ""), 32) or summary
-        lines.extend(
-            [
-                f"{int(item.rank):02d} │ {title}",
-                f"   │ 推荐：{reason}",
-                f"   │ 简介：{summary}",
-            ]
-        )
-    return "```\n" + "\n".join(lines) + "\n```"
+        if html_mode:
+            title = f"<b>{int(item.rank):02d}. {compact_html(title, 100)}</b>"
+            reason = compact_html(reason, 100)
+            summary = compact_html(summary, 160)
+        else:
+            title = f"{int(item.rank):02d}. {title}"
+        lines.append(f"{title}\n推荐：{reason}\n简介：{summary}")
+    return "\n\n".join(lines)
 
 
 def _recommendation_fingerprint(board: RecommendationBoard) -> str:
@@ -244,19 +245,51 @@ class NotificationService:
         count = len(board.recommendations[:RECOMMENDATION_LIMIT])
         agent_name = self._agent_name()
         text = f"本轮 {agent_name} 推荐已生成，共 {count} 条：\n\n{ranking}"
-        text += f"\n\n请前往 **{agent_name}** 手动订阅；此通知不会自动创建订阅。"
-        self._plugin.post_message(
-            mtype=resolve_notification_type(
-                getattr(self._plugin, "_config", {}), MessageType
-            ),
-            title=f"{agent_name}推荐确认",
-            text=text,
-            username=username,
-            parse_mode="MarkdownV2",
-            disable_web_page_preview=True,
+        text += f"\n\n请前往 {agent_name} 手动订阅；此通知不会自动创建订阅。"
+        html_text = (
+            f"本轮 {html.escape(agent_name)} 推荐已生成，共 {count} 条：\n\n"
+            f"{_format_ranking_block(board, html_mode=True)}\n\n"
+            f"请前往 <b>{html.escape(agent_name)}</b> 手动订阅；此通知不会自动创建订阅。"
         )
+        self._post_summary(username, f"{agent_name}推荐确认", text, html_text)
         self._record_notification_state(board, fingerprint, _NOTIFICATION_SENT)
         return True
+
+    def _post_summary(
+        self, username: str, title: str, text: str, html_text: str
+    ) -> None:
+        """按通知源选择格式，消息中心只保存一份纯文本摘要。"""
+        mtype = resolve_notification_type(
+            getattr(self._plugin, "_config", {}), MessageType
+        )
+        try:
+            from app.sdk.services import ServiceConfigHelper
+
+            configs = ServiceConfigHelper.get_notification_configs() or []
+        except Exception:
+            logger.warning("AgentRank 读取通知源失败，使用纯文本摘要", exc_info=True)
+            configs = []
+        common = {
+            "mtype": mtype, "title": title, "username": username,
+            "disable_web_page_preview": True,
+        }
+        if not configs:
+            self._plugin.post_message(text=text, parse_mode="plain", **common)
+            return
+        for config in configs:
+            if not config.enabled or mtype.value not in (config.switchs or []):
+                continue
+            is_telegram = str(config.type).lower() == "telegram"
+            self._plugin.post_message(
+                source=config.name,
+                text=html_text if is_telegram else text,
+                parse_mode="HTML" if is_telegram else "plain",
+                save_history=False,
+                **common,
+            )
+        self._plugin.post_message(
+            channel=NotificationChannel.Web, text=text, parse_mode="plain", **common
+        )
 
     def send_failure(
         self,
@@ -281,6 +314,7 @@ class NotificationService:
             title=f"{self._agent_name()}运行异常",
             text="\n".join(lines),
             username=username,
+            parse_mode="plain",
         )
 
     def _pending_detail_link(self) -> Any:
@@ -334,6 +368,7 @@ class NotificationService:
             "title": f"{self._agent_name()}待处理",
             "text": "\n".join(lines),
             "username": username,
+            "parse_mode": "plain",
         }
         if detail_link:
             kwargs["link"] = detail_link
