@@ -1,6 +1,6 @@
 name: Plugin Gate
 
-on:
+"on":
   pull_request:
     branches:
       - main
@@ -18,6 +18,14 @@ jobs:
 
       - name: Check plugin versions
         run: python .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check frontend instance routing
+        run: node --test tests/v3/*/*.test.mjs
 
   plugin-test-gate:
     name: Plugin test gate

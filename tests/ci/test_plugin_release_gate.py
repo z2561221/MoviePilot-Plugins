@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKER = REPO_ROOT / ".github/scripts/check_plugin_versions.py"
@@ -216,6 +219,52 @@ def test_release_workflow_keeps_existing_releases_immutable() -> None:
     release_workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 
     assert 'git show-ref --tags --verify --quiet "refs/tags/$tag"' in release_workflow
-    assert 'gh release view "$tag"' in release_workflow
+    assert "verify_release_assets.py" in release_workflow
     assert 'gh release delete "$tag"' not in release_workflow
     assert 'git push origin :refs/tags/"$tag"' not in release_workflow
+
+
+def test_manual_release_is_limited_to_main_and_serialized():
+    """Manual runs cannot publish a business branch or race another release."""
+    workflow = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    assert workflow["jobs"]["release"]["if"] == "github.ref == 'refs/heads/main'"
+    assert workflow["concurrency"] == {
+        "group": "plugin-release", "cancel-in-progress": False
+    }
+
+
+def test_frontend_node_tests_are_part_of_the_required_gate():
+    """The mandatory version gate also runs frontend instance-routing tests."""
+    workflow = yaml.safe_load(PR_WORKFLOW.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["plugin-release-gate"]["steps"]
+    assert any(step.get("run") == "node --test tests/v3/*/*.test.mjs" for step in steps)
+
+
+@pytest.mark.parametrize(
+    "plugin_dir", sorted((REPO_ROOT / "plugins.v3").glob("*/frontend/package.json")),
+    ids=lambda path: path.parents[1].name,
+)
+def test_frontend_built_references_exist(plugin_dir: Path):
+    """Every packaged Vue entry must resolve its JS and CSS dependencies."""
+    dist = plugin_dir.parents[1] / "dist"
+    assets = dist / "assets"
+    pending = [dist / "index.html", assets / "remoteEntry.js"]
+    visited = set()
+    pattern = re.compile(
+        r"(?:\./|/assets/)([^\"'()]+\.(?:js|css))|"
+        r"[\"']([^\"']+\.css)[\"']"
+    )
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        assert current.is_file(), f"Missing frontend entry: {current}"
+        visited.add(current)
+        for match in pattern.findall(current.read_text(encoding="utf-8")):
+            name = next(part for part in match if part)
+            asset = assets / name
+            if not asset.is_file():
+                asset = assets / Path(name).name
+            assert asset.is_file(), f"Missing asset in {current.name}: {name}"
+            if asset.suffix == ".js":
+                pending.append(asset)
