@@ -12,8 +12,13 @@ name: Plugin Release
 permissions:
   contents: write
 
+concurrency:
+  group: plugin-release
+  cancel-in-progress: false
+
 jobs:
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -73,13 +78,23 @@ jobs:
                 continue
               fi
 
-              # Published tags/releases are immutable. A directory may contain
-              # unreleased follow-up work while its package entry still points
-              # to the previous version; never rewrite that historical release.
-              if git show-ref --tags --verify --quiet "refs/tags/$tag" || gh release view "$tag" >/dev/null 2>&1; then
-                echo "Release $tag already exists; keep it unchanged and skip $plugin_id."
+              # Skip only a complete published release. A missing upload or an
+              # API failure must stop the run without rewriting its tag/assets.
+              if python .github/scripts/verify_release_assets.py \
+                --repo "$GITHUB_REPOSITORY" --tag "$tag" --asset "$asset" --allow-missing; then
+                echo "Release $tag is complete; keep it unchanged and skip $plugin_id."
                 echo "$tag" >> processed_tags.txt
                 continue
+              else
+                verification_status=$?
+                if [ "$verification_status" -ne 3 ]; then
+                  return "$verification_status"
+                fi
+              fi
+
+              if git show-ref --tags --verify --quiet "refs/tags/$tag"; then
+                echo "::error::Tag $tag exists without a Release; inspect and recover that release first."
+                return 1
               fi
 
               # Find previous tag for this plugin (any version)
@@ -115,6 +130,9 @@ jobs:
               echo "Creating release $tag"
               gh release create "$tag" "$asset" --title "$tag" --notes "$release_notes" --latest --target "$GITHUB_SHA"
 
+              python .github/scripts/verify_release_assets.py \
+                --repo "$GITHUB_REPOSITORY" --tag "$tag" --asset "$asset"
+
               echo "$tag" >> processed_tags.txt
             done
           }
@@ -122,4 +140,3 @@ jobs:
           process_package "package.json" "plugins"
           process_package "package.v2.json" "plugins.v2"
           process_package "package.v3.json" "plugins.v3"
-
