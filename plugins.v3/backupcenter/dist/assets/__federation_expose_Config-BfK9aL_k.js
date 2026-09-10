@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-DZv_LBIW.js';
+import { _ as _export_sfc, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-bVvXBjcW.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives,createBlock:_createBlock,createCommentVNode:_createCommentVNode} = await importShared('vue');
 
@@ -45,6 +45,7 @@ const _sfc_main = {
   __name: 'Config',
   props: {
   api: { type: [Object, Function], default: null },
+  pluginId: { type: String, default: 'BackupCenter' },
   initialConfig: { type: Object, default: () => ({}) },
 },
   emits: ['save', 'close'],
@@ -150,7 +151,7 @@ function selectMain(key) {
 
 async function loadSecretStatus() {
   try {
-    const result = await getPluginApi(props.api, 'encryption/status');
+    const result = await getPluginApi(props.api, props.pluginId, 'encryption/status');
     secretConfigured.value = Boolean(result?.configured);
   } catch (error) {
     notify(error.message || '口令状态读取失败', 'error');
@@ -168,7 +169,7 @@ async function updatePassword() {
   }
   secretLoading.value = true;
   try {
-    const result = await postPluginApi(props.api, 'encryption/secret', {
+    const result = await postPluginApi(props.api, props.pluginId, 'encryption/secret', {
       action: 'set',
       password: form.password,
     });
@@ -186,7 +187,7 @@ async function updatePassword() {
 async function clearPassword() {
   secretLoading.value = true;
   try {
-    const result = await postPluginApi(props.api, 'encryption/secret', { action: 'clear' });
+    const result = await postPluginApi(props.api, props.pluginId, 'encryption/secret', { action: 'clear' });
     secretConfigured.value = Boolean(result?.configured);
     form.password = '';
     form.passwordConfirm = '';
@@ -202,7 +203,7 @@ async function runAutomaticBackup() {
   if (runLoading.value) return
   runLoading.value = true;
   try {
-    const result = await postPluginApi(props.api, 'run');
+    const result = await postPluginApi(props.api, props.pluginId, 'run');
     const backup = result?.backup || {};
     const label = backup.display_name || backup.backup_id || '自动备份';
     notify(`已完成：${label}`);
@@ -718,6 +719,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0390a808"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-bfe72998"]]);
 
 export { Config as default };

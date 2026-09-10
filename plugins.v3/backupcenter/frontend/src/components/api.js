@@ -1,5 +1,15 @@
 const RESPONSE_ENVELOPE_KEYS = ['data', 'message', 'success']
 
+function resolvePluginId(pluginId, fallback = 'BackupCenter') {
+  const value = String(pluginId || '').trim()
+  return value || fallback
+}
+
+export function pluginApiPath(pluginId, path) {
+  const suffix = String(path || '')
+  return `plugin/${encodeURIComponent(resolvePluginId(pluginId))}${suffix ? `/${suffix}` : ''}`
+}
+
 export function isResponseEnvelope(response) {
   if (!response || typeof response !== 'object' || Array.isArray(response)) return false
   const keys = Object.keys(response).sort()
@@ -20,10 +30,10 @@ export function normalizeApiError(error, fallback = '备份中心请求失败') 
   return new Error(payload?.message || error?.message || fallback)
 }
 
-export async function getPluginApi(api, path) {
+export async function getPluginApi(api, pluginId, path) {
   if (!api?.get) throw new Error('MoviePilot 插件 API 未就绪')
   try {
-    const response = await api.get(`plugin/BackupCenter/${path}`, {
+    const response = await api.get(pluginApiPath(pluginId, path), {
       feedback: 'silent',
     })
     return readEnvelopeData(response)
@@ -32,10 +42,10 @@ export async function getPluginApi(api, path) {
   }
 }
 
-export async function getPluginConfig(api) {
+export async function getPluginConfig(api, pluginId) {
   if (!api?.get) throw new Error('MoviePilot 配置 API 未就绪')
   try {
-    const response = await api.get('plugin/BackupCenter/config', {
+    const response = await api.get(pluginApiPath(pluginId, 'config'), {
       feedback: 'silent',
     })
     return readEnvelopeData(response, '备份中心配置读取失败')
@@ -44,10 +54,10 @@ export async function getPluginConfig(api) {
   }
 }
 
-export async function postPluginApi(api, path, payload = {}) {
+export async function postPluginApi(api, pluginId, path, payload = {}) {
   if (!api?.post) throw new Error('MoviePilot 插件 API 未就绪')
   try {
-    const response = await api.post(`plugin/BackupCenter/${path}`, payload, {
+    const response = await api.post(pluginApiPath(pluginId, path), payload, {
       feedback: 'silent',
     })
     return readEnvelopeData(response)
@@ -56,10 +66,10 @@ export async function postPluginApi(api, path, payload = {}) {
   }
 }
 
-export async function savePluginConfig(api, payload = {}) {
+export async function savePluginConfig(api, pluginId, payload = {}) {
   if (!api?.put) throw new Error('MoviePilot 配置 API 未就绪')
   try {
-    const response = await api.put('plugin/BackupCenter', payload, {
+    const response = await api.put(pluginApiPath(pluginId, ''), payload, {
       feedback: 'silent',
     })
     return readEnvelopeData(response, '备份中心配置保存失败')
@@ -68,10 +78,10 @@ export async function savePluginConfig(api, payload = {}) {
   }
 }
 
-export async function downloadBackup(api, backupId, downloadName = '') {
+export async function downloadBackup(api, pluginId, backupId, downloadName = '') {
   if (!api?.get) throw new Error('MoviePilot 插件 API 未就绪')
   try {
-    const response = await api.get(`plugin/BackupCenter/backups/${backupId}/export`, {
+    const response = await api.get(pluginApiPath(pluginId, `backups/${backupId}/export`), {
       responseType: 'blob',
       feedback: 'silent',
     })

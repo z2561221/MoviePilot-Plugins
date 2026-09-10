@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-CO5fla6i.js';
-import Page from './__federation_expose_Page-BPKscLHZ.js';
-import { _ as _export_sfc, g as getPluginConfig, s as savePluginConfig } from './_plugin-vue_export-helper-DZv_LBIW.js';
+import Config from './__federation_expose_Config-BfK9aL_k.js';
+import Page from './__federation_expose_Page-RKaxbVTi.js';
+import { _ as _export_sfc, g as getPluginConfig, s as savePluginConfig } from './_plugin-vue_export-helper-bVvXBjcW.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock,resolveComponent:_resolveComponent,createCommentVNode:_createCommentVNode,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,createElementBlock:_createElementBlock} = await importShared('vue');
 
@@ -32,7 +32,7 @@ const snackbar = ref({ show: false, message: '', color: 'success' });
 async function openSettings() {
   loadingSettings.value = true;
   try {
-    settingsConfig.value = await getPluginConfig(props.api);
+    settingsConfig.value = await getPluginConfig(props.api, props.pluginId);
     settingsDialog.value = true;
   } catch (error) {
     snackbar.value = { show: true, message: error?.message || '设置加载失败', color: 'error' };
@@ -44,7 +44,7 @@ async function openSettings() {
 async function saveSettings(config) {
   savingSettings.value = true;
   try {
-    await savePluginConfig(props.api, config);
+    await savePluginConfig(props.api, props.pluginId, config);
     settingsConfig.value = { ...(config || {}) };
     settingsDialog.value = false;
     pageKey.value += 1;
@@ -65,10 +65,11 @@ return (_ctx, _cache) => {
     (_openBlock(), _createBlock(Page, {
       key: `${props.pluginId}-${props.navKey}-${pageKey.value}`,
       api: props.api,
+      "plugin-id": props.pluginId,
       "show-close": false,
       "show-settings": "",
       onSwitch: openSettings
-    }, null, 8, ["api"])),
+    }, null, 8, ["api", "plugin-id"])),
     _createVNode(_component_VDialog, {
       modelValue: settingsDialog.value,
       "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((settingsDialog).value = $event)),
@@ -87,10 +88,11 @@ return (_ctx, _cache) => {
           ? (_openBlock(), _createBlock(Config, {
               key: 1,
               api: props.api,
+              "plugin-id": props.pluginId,
               "initial-config": settingsConfig.value,
               onSave: saveSettings,
               onClose: _cache[0] || (_cache[0] = $event => (settingsDialog.value = false))
-            }, null, 8, ["api", "initial-config"]))
+            }, null, 8, ["api", "plugin-id", "initial-config"]))
           : _createCommentVNode("", true)
       ]),
       _: 1
@@ -111,6 +113,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2ec6c73e"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3ccf4829"]]);
 
 export { AppPage as default };

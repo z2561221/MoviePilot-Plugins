@@ -71,10 +71,12 @@ def test_backupcenter_metadata_is_consistent_and_v3_scoped():
     ):
         assert package[metadata_key] == manifest[metadata_key]
         assert package[metadata_key] == _class_string(plugin_class, class_key)
-    assert package["version"] == manifest["version"] == "3.0.2"
+    assert package["version"] == manifest["version"] == "3.0.4"
     assert "v2" not in package and "v2" not in manifest
     assert package["release"] is True
     assert package["history"] == manifest["history"] == {
+        "v3.0.4": "[1]隔离分身前端请求",
+        "v3.0.3": "[1]修复备份记录下载操作栏",
         "v3.0.2": "[1]聚焦逻辑备份;[2]接入宿主恢复点;[3]恢复失败自动回滚",
         "v3.0.1": "[1]新增运行日志;[2]适配V3接口;[3]修复插件加载",
         "v3.0.0": "[1]备份MP与插件;[2]支持加密校验;[3]附带离线恢复"
@@ -144,7 +146,7 @@ def test_backupcenter_exposes_sanitized_operation_logs():
     assert "_limit = 200" in service
     for marker in (
         "运行日志",
-        "getPluginApi(props.api, 'logs')",
+        "getPluginApi(props.api, props.pluginId, 'logs')",
         "formatDuration",
         "operationLabel",
         "bc-log-list",
@@ -222,7 +224,7 @@ def test_backupcenter_password_is_configured_outside_normal_plugin_config():
     assert "password" not in save_body.group("body")
     assert '"/encryption/status"' in controller
     assert '"/encryption/secret"' in controller
-    assert "postPluginApi(props.api, 'encryption/secret'" in config
+    assert "postPluginApi(props.api, props.pluginId, 'encryption/secret'" in config
     assert "口令单独密文保存" in config
     assert "至少需要 4 个字符" in config
     assert "最低 4 位" in config
@@ -269,7 +271,7 @@ def test_backupcenter_automatic_scope_is_persisted_and_used_by_scheduler():
     assert "BackupCenterApiController._plugin_name_map(plugin_ids)" in entrypoint
     assert "plugin_ids=plugin_ids" in entrypoint
     assert '"/config"' in controller
-    assert "plugin/BackupCenter/config" in api
+    assert "pluginApiPath(pluginId, 'config')" in api
     assert "auto_backup_scope" in config
     assert "legacy_database_scope" in entrypoint
     assert 'for key in ("mp_settings", "app_env", "cookies")' in entrypoint
@@ -287,7 +289,7 @@ def test_backupcenter_basic_settings_expose_immediate_automatic_backup():
     assert '("/run", controller.endpoint_run_automatic_backup, ["POST"]' in controller
     assert "plugin.run_automatic_backup()" in controller
     assert "立即运行一次" in config
-    assert "postPluginApi(props.api, 'run')" in config
+    assert "postPluginApi(props.api, props.pluginId, 'run')" in config
     assert "runLoading" in config
     assert ":loading=\"runLoading\"" in config
     assert "按当前周期备份范围立即生成一份自动备份" in config

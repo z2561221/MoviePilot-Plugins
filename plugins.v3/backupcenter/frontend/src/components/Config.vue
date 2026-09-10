@@ -4,6 +4,7 @@ import { getPluginApi, postPluginApi } from './api'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
+  pluginId: { type: String, default: 'BackupCenter' },
   initialConfig: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['save', 'close'])
@@ -105,7 +106,7 @@ function selectMain(key) {
 
 async function loadSecretStatus() {
   try {
-    const result = await getPluginApi(props.api, 'encryption/status')
+    const result = await getPluginApi(props.api, props.pluginId, 'encryption/status')
     secretConfigured.value = Boolean(result?.configured)
   } catch (error) {
     notify(error.message || '口令状态读取失败', 'error')
@@ -123,7 +124,7 @@ async function updatePassword() {
   }
   secretLoading.value = true
   try {
-    const result = await postPluginApi(props.api, 'encryption/secret', {
+    const result = await postPluginApi(props.api, props.pluginId, 'encryption/secret', {
       action: 'set',
       password: form.password,
     })
@@ -141,7 +142,7 @@ async function updatePassword() {
 async function clearPassword() {
   secretLoading.value = true
   try {
-    const result = await postPluginApi(props.api, 'encryption/secret', { action: 'clear' })
+    const result = await postPluginApi(props.api, props.pluginId, 'encryption/secret', { action: 'clear' })
     secretConfigured.value = Boolean(result?.configured)
     form.password = ''
     form.passwordConfirm = ''
@@ -157,7 +158,7 @@ async function runAutomaticBackup() {
   if (runLoading.value) return
   runLoading.value = true
   try {
-    const result = await postPluginApi(props.api, 'run')
+    const result = await postPluginApi(props.api, props.pluginId, 'run')
     const backup = result?.backup || {}
     const label = backup.display_name || backup.backup_id || '自动备份'
     notify(`已完成：${label}`)
