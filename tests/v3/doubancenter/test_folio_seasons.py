@@ -225,3 +225,44 @@ def test_pending_completed_status_is_not_downgraded_by_later_start(monkeypatch):
     assert folio._sync_to_douban(plugin, "还珠格格 第2季", "do", "TV", processed, media, origin=origin)
     assert calls == ["collect", "collect"]
     assert plugin._wait_process == {}
+
+
+def test_sparse_imdb_summary_loads_tv_detail_even_when_search_is_empty(monkeypatch):
+    """实际 IMDb 转换摘要缺类型时仍须回读详情，不能提前过滤掉首部。"""
+    media = huanzhu_media()
+    chain = FolioMediaChain(media, HUANZHU_SUBJECTS)
+    monkeypatch.setattr(chain, "convert_media_identity", lambda **kwargs: {"id": "1786739", "title": "還珠格格"})
+    monkeypatch.setattr(chain, "search_medias", lambda **kwargs: [])
+    result = folio_media.resolve_tv_subject(chain, media, folio._playback_origin(media, "TV", 1))
+    assert result["subject_id"] == "1786739"
+
+
+@pytest.mark.parametrize("season,expected", [(1, "1786739"), (2, "1786740")])
+def test_regional_premiere_difference_needs_matching_season_year_and_count(season, expected):
+    """现场豆瓣仅含大陆首播日，仍可用明确部号、同年与相同集数核验。"""
+    media = huanzhu_media()
+    subjects = [{**item, "pubdate": item["pubdate"][:1]} for item in HUANZHU_SUBJECTS]
+    result = folio_media.resolve_tv_subject(FolioMediaChain(media, subjects), media, folio._playback_origin(media, "TV", season))
+    assert result["subject_id"] == expected
+    check = next(item for item in result["checks"] if item["id"] == expected)
+    assert check["match_basis"] == "season_year_episode_count"
+    subjects[season - 1]["episodes_count"] = 999
+    assert not folio_media.resolve_tv_subject(FolioMediaChain(media, subjects), media, folio._playback_origin(media, "TV", season))["resolved"]
+
+
+def test_short_name_search_still_requires_full_series_and_group_date(monkeypatch):
+    """长标题搜索为空时补短名，命中后仍按剧集组日期选取 Part.2。"""
+    media = mushoku_media()
+    chain = FolioMediaChain(media, MUSHOKU_SUBJECTS)
+    search = chain.search_medias
+    queries = []
+
+    def short_search(meta, media_source=None):
+        """模拟实际豆瓣只接受主标题的检索。"""
+        queries.append(meta.name)
+        return search(meta, media_source) if meta.name == "无职转生" else []
+
+    monkeypatch.setattr(chain, "search_medias", short_search)
+    result = folio_media.resolve_tv_subject(chain, media, folio._playback_origin(media, "TV", 2))
+    assert result["subject_id"] == "35306636"
+    assert "无职转生" in queries

@@ -12,6 +12,7 @@ from app.sdk.logging import logger
 from app.sdk.media import MetaInfo
 
 from ..model.identity import identity_from_media
+from ..utils import resolve_media_season
 
 
 class FolioLookupError(RuntimeError):
@@ -66,6 +67,17 @@ def _title_key(name):
     text = re.sub(r"\b(?:seasons?|part|cour)[.\s]*[0-9ivx]+\b", "", text)
     text = re.sub(r"(?:\s+|(?<=[\u3400-\u9fff]))(?:iii|ii)(?=[\s:～~]|$)", "", text)
     return "".join(char for char in text if char.isalnum())
+
+
+def _search_names(media):
+    """长副标题可能无法检索，补主标题搜索但仍完整核验返回身份。"""
+    result = []
+    for name in _names(media)[:2]:
+        short = re.split(r"[：:～~]", name, maxsplit=1)[0].strip()
+        for candidate in (name, short if len(short) >= 2 else ""):
+            if candidate and candidate not in result:
+                result.append(candidate)
+    return result[:3]
 
 
 def _poster(path, fallback=""):
@@ -178,33 +190,39 @@ def _same_series(chain, media, candidate):
     return str(value(matched, "id") or value(matched, "media_id") or "") == str(source_id)
 
 
-def _is_tv(candidate):
-    """拒绝电影与未知类型，防止同名 OVA 或电影混入电视剧。"""
+def _tv_status(candidate):
+    """区分明确电视剧、明确电影和缺字段的跨源摘要。"""
     actual = value(candidate, "is_tv")
     if isinstance(actual, bool):
         return actual
     actual = value(candidate, "type") or value(candidate, "media_type")
     actual = str(getattr(actual, "value", actual) or "").lower()
-    return actual in {"tv", "series", "电视剧", "剧集"}
+    if actual in {"tv", "series", "电视剧", "剧集"}:
+        return True
+    return False if actual in {"movie", "mov", "电影"} else None
 
 
-def _matches_season(candidate, facts):
-    """以首播日期区分同年分段；日期缺失时才使用季名与年份。"""
+def _season_match_basis(candidate, facts):
+    """优先首播日期；地区日期不同时同时核验年份、部号和本季集数。"""
     expected_date = _date(facts["air_date"])
     dates = _candidate_dates(candidate)
-    if expected_date and dates:
-        return min(abs((date - expected_date).days) for date in dates) <= 7
+    if expected_date and dates and min(abs((date - expected_date).days) for date in dates) <= 7:
+        return "premiere_date"
     candidate_year = str(value(candidate, "year", "") or "")[:4]
     if not candidate_year or candidate_year != facts["year"]:
-        return False
+        return ""
     # 只有年份不足以区分同年分割放送的剧集组。
     if facts["episode_group"]:
-        return False
+        return ""
+    count = _number(value(candidate, "episodes_count"))
+    if not count or count != facts["episode_count"]:
+        return ""
     title = str(value(candidate, "title") or value(candidate, "name") or "")
-    declared = re.search(r"(?:第\s*(\d+)\s*(?:季|部)|season\s*(\d+))", title, re.IGNORECASE)
-    if declared:
-        return int(next(part for part in declared.groups() if part)) == facts["native_season"]
-    return facts["native_season"] == 1
+    title = re.sub(r"第\s*([0-9一二三四五六七八九十百]+)\s*部", r"第\1季", title)
+    declared = resolve_media_season(MetaInfo(title), titles=(title,))
+    if declared is None:
+        declared = 1
+    return "season_year_episode_count" if declared == facts["native_season"] else ""
 
 
 def _covers_series(candidate, facts):
@@ -265,20 +283,20 @@ def resolve_tv_subject(chain, media, origin: dict) -> dict:
     names = _names(media)
     # 搜索结果不直接采信，随后按源身份、季首播日和类型共同核验。
     if source != MediaSource.Douban:
-        for name in names[:2]:
+        for name in _search_names(media):
             meta = MetaInfo(name)
             meta.type = MediaType.TV
             meta.year = facts["year"]
             for candidate in (_query(chain.search_medias, meta=meta, media_source=MediaSource.Douban) or [])[:20]:
                 candidate_source, candidate_id = identity_from_media(candidate)
                 if candidate_source == MediaSource.Douban and candidate_id:
-                    candidates.setdefault(str(candidate_id), candidate)
+                    candidates[str(candidate_id)] = candidate
     exact, whole, checks = [], [], []
     for candidate_id, summary in candidates.items():
         check = {"id": candidate_id, "summary_title": value(summary, "title") or "",
                  "summary_type": str(value(summary, "type") or ""), "stage": "summary_type"}
         checks.append(check)
-        if not _is_tv(summary):
+        if _tv_status(summary) is False:
             continue
         check["stage"] = "summary_year"
         summary_year = str(value(summary, "year", "") or "")[:4]
@@ -287,8 +305,9 @@ def resolve_tv_subject(chain, media, origin: dict) -> dict:
         detail = _query(chain.douban_info, doubanid=candidate_id, mtype=MediaType.TV)
         check.update(stage="detail_type", title=value(detail, "title") or "",
                      detail_type=str(value(detail, "type") or ""), is_tv=value(detail, "is_tv"),
-                     dates=[date.isoformat() for date in _candidate_dates(detail)])
-        if not detail or not _is_tv(detail):
+                     dates=[date.isoformat() for date in _candidate_dates(detail)],
+                     episodes_count=_number(value(detail, "episodes_count")))
+        if not detail or _tv_status(detail) is not True:
             continue
         if isinstance(detail, Mapping):
             detail = {**detail, "id": candidate_id}
@@ -304,8 +323,9 @@ def resolve_tv_subject(chain, media, origin: dict) -> dict:
         if _covers_series(detail, facts):
             check["stage"] = "series_match"
             whole.append({**item, "identity_scope": "series"})
-        elif _matches_season(detail, facts):
+        elif basis := _season_match_basis(detail, facts):
             check["stage"] = "season_match"
+            check["match_basis"] = basis
             exact.append({**item, "identity_scope": "season"})
     matches = exact or whole
     if len(matches) == 1:
