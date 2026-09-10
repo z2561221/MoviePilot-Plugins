@@ -6,7 +6,6 @@ import importlib.util
 import json
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_ID = "DownloadManagerLocal"
 
@@ -26,8 +25,12 @@ def test_v3_index_has_dedicated_download_manager() -> None:
     package_v2 = json.loads((REPO_ROOT / "package.v2.json").read_text(encoding="utf-8"))
     package_v3 = json.loads((REPO_ROOT / "package.v3.json").read_text(encoding="utf-8"))
     metadata = package_v3[PLUGIN_ID]
+    plugin_metadata = json.loads(
+        (REPO_ROOT / "plugins.v3/downloadmanagerlocal/plugin.json").read_text(encoding="utf-8")
+    )
 
-    assert metadata["version"] == "3.3.4"
+    assert metadata["version"] == plugin_metadata["version"]
+    assert f"v{metadata['version']}" in metadata["history"]
     assert metadata["system_version"] == ">=3.0.0"
     assert package_v2[PLUGIN_ID]["version"] == "3.2.9"
     assert package_v2[PLUGIN_ID]["v3"] is False
@@ -55,8 +58,9 @@ def test_sync_generation_keeps_package_indexes_isolated(tmp_path: Path) -> None:
 
     package_v2 = json.loads((target / "package.v2.json").read_text(encoding="utf-8"))
     package_v3 = json.loads((target / "package.v3.json").read_text(encoding="utf-8"))
+    source_package = json.loads((REPO_ROOT / "package.v3.json").read_text(encoding="utf-8"))
     assert package_v2[PLUGIN_ID]["version"] == "3.2.9"
-    assert package_v3[PLUGIN_ID]["version"] == "3.3.4"
+    assert package_v3[PLUGIN_ID] == source_package[PLUGIN_ID]
     assert (target / "plugins.v3/downloadmanagerlocal/__init__.py").is_file()
     assert not (target / "plugins.v2/downloadmanagerlocal").exists()
     assert f"plugin:{PLUGIN_ID}" in actions

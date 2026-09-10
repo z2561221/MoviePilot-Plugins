@@ -1065,6 +1065,7 @@ def _record_downloader_failure(
         plugin.post_message(
             mtype=MessageType.Plugin,
             title="下载中心上传限速异常",
+            parse_mode="plain",
             text=(
                 f"下载器：{downloader_id}\n"
                 f"连续失败：{item['count']} 次\n"

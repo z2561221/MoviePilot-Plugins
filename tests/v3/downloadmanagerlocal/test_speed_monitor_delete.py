@@ -103,8 +103,9 @@ class EditingChain:
         """初始化编辑调用记录。"""
         self.calls = []
 
-    def edit_message(self, **kwargs):
-        """记录编辑参数并模拟 Telegram 原地编辑成功。"""
+    def run_module(self, method, **kwargs):
+        """按当前宿主入口记录支持 parse_mode 的原消息编辑。"""
+        assert method == "edit_message"
         self.calls.append(kwargs)
         return True
 
@@ -263,6 +264,7 @@ def test_confirm_delete_edits_original_card_when_terminal_result_has_no_buttons(
     assert edit["chat_id"] == 88
     assert edit["title"] == "种子及全部数据已删除"
     assert edit["buttons"] is None
+    assert edit["parse_mode"] == "HTML"
 
 
 def test_unauthorized_expired_terminal_and_repeated_callbacks_are_idempotent():

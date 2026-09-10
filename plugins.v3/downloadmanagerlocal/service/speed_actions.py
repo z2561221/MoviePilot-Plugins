@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import time
 from typing import Any
 
@@ -84,7 +85,8 @@ def _post_action_card(
             notification_type,
         ),
         "title": title,
-        "text": text,
+        "text": html.escape(text),
+        "parse_mode": "HTML",
         "buttons": buttons,
         "targets": {"telegram_userid": str(telegram_userid or "")},
         "save_history": False,
@@ -98,7 +100,8 @@ def _post_action_card(
         "message_id": original.get("original_message_id"),
         "chat_id": original.get("original_chat_id"),
         "title": title,
-        "text": text,
+        "text": kwargs["text"],
+        "parse_mode": "HTML",
         "buttons": buttons,
     }
     if _edit_action_card(plugin, edit_kwargs):
@@ -117,11 +120,12 @@ def _edit_action_card(
     ):
         return False
     chain = getattr(plugin, "chain", None)
-    edit_message = getattr(chain, "edit_message", None)
-    if not callable(edit_message):
+    run_module = getattr(chain, "run_module", None)
+    if not callable(run_module):
         return False
     try:
-        return bool(edit_message(**edit_kwargs))
+        # Chain.edit_message 不透传 parse_mode，直接使用宿主模块分发入口。
+        return bool(run_module("edit_message", **edit_kwargs))
     except Exception:  # pylint: disable=broad-exception-caught  # noqa: BLE001
         return False
 

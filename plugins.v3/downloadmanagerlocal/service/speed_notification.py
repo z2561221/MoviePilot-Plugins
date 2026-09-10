@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import secrets
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -152,22 +153,80 @@ def _human_duration(value: Any) -> str:
     return f"{seconds}秒"
 
 
-def format_speed_alert_text(session: Any, decision: dict) -> str:
-    """构造包含判断依据与删除风险的速度异常通知正文。"""
+def _escape_field(value: Any, limit: int) -> str:
+    """按转义后的 UTF-16 长度限制动态字段，避免切断实体或 Emoji。"""
+    text = " ".join(str(value or "").split())
+    escaped = html.escape(text)
+    if len(escaped.encode("utf-16-le")) // 2 <= limit:
+        return escaped
+    pieces = []
+    remaining = limit - 1
+    for char in text:
+        part = html.escape(char)
+        size = len(part.encode("utf-16-le")) // 2
+        if size > remaining:
+            break
+        pieces.append(part)
+        remaining -= size
+    return "".join(pieces) + "…"
+
+
+def format_speed_alert_text(session: Any, decision: dict, *, html_mode: bool = False) -> str:
+    """按渠道构造有界速度告警，完整保留判断依据及删除风险。"""
     details = decision if isinstance(decision, dict) else {}
     progress = max(0.0, min(1.0, float(details.get("progress") or 0.0)))
-    return "\n".join([
-        f"下载器：{getattr(session, 'downloader_id', '')}",
-        f"任务：{getattr(session, 'name', '')}",
-        f"Hash：{getattr(session, 'torrent_hash', '')}",
-        f"体积：{_human_bytes(getattr(session, 'total_bytes', 0))}",
-        f"进度：{progress * 100:.1f}%",
-        f"当前速度：{_human_bytes(details.get('current_speed_bps'))}/s",
-        f"参考速度：{_human_bytes(details.get('reference_speed_bps'))}/s",
-        f"有效时长：{_human_duration(details.get('effective_seconds'))}",
-        f"允许时限：{_human_duration(details.get('allowed_seconds'))}",
-        "风险：删除会同时清理该种子的全部数据且不可恢复。",
-    ])
+    fields = [
+        ("下载器", _escape_field(getattr(session, "downloader_id", ""), 128)),
+        ("任务", _escape_field(getattr(session, "name", ""), 768)),
+        ("Hash", _escape_field(getattr(session, "torrent_hash", ""), 128)),
+        ("体积", _human_bytes(getattr(session, "total_bytes", 0))),
+        ("进度", f"{progress * 100:.1f}%"),
+        ("当前速度", f"{_human_bytes(details.get('current_speed_bps'))}/s"),
+        ("参考速度", f"{_human_bytes(details.get('reference_speed_bps'))}/s"),
+        ("有效时长", _human_duration(details.get("effective_seconds"))),
+        ("允许时限", _human_duration(details.get("allowed_seconds"))),
+    ]
+    lines = []
+    for label, value in fields:
+        if html_mode:
+            value = f"<code>{value}</code>" if label == "Hash" else value
+            lines.append(f"<b>{label}：</b>{value}")
+        else:
+            lines.append(f"{label}：{html.unescape(value)}")
+    risk = "删除会同时清理该种子的全部数据且不可恢复。"
+    lines.extend(["", f"<b>风险：</b>{risk}" if html_mode else f"风险：{risk}"])
+    return "\n".join(lines)
+
+
+def _post_formatted_alert(plugin: Any, kwargs: dict, html_text: str) -> None:
+    """Telegram 使用 HTML 卡片，其余通知源及消息中心使用纯文本。"""
+    try:
+        from app.sdk.services import ServiceConfigHelper
+
+        configs = ServiceConfigHelper.get_notification_configs() or []
+    except Exception:  # pylint: disable=broad-exception-caught  # noqa: BLE001
+        configs = []
+    if not configs:
+        plugin.post_message(**kwargs, parse_mode="plain")
+        return
+    for config in configs:
+        if not config.enabled or kwargs["mtype"].value not in (config.switchs or []):
+            continue
+        payload = dict(kwargs)
+        is_telegram = str(config.type).lower() == "telegram"
+        payload.update(
+            source=config.name,
+            text=html_text if is_telegram else kwargs["text"],
+            parse_mode="HTML" if is_telegram else "plain",
+            save_history=False,
+        )
+        if not is_telegram:
+            payload.pop("buttons", None)
+        plugin.post_message(**payload)
+    from app.schemas.types import NotificationChannel
+
+    history = {key: value for key, value in kwargs.items() if key != "buttons"}
+    plugin.post_message(**history, channel=NotificationChannel.Web, parse_mode="plain")
 
 
 def _resolve_telegram_userid(plugin: Any) -> str:
@@ -234,7 +293,10 @@ def send_speed_alert(
         kwargs["buttons"] = _speed_alert_buttons(
             plugin.__class__.__name__, token
         )
-    plugin.post_message(**kwargs)
+    _post_formatted_alert(
+        plugin, kwargs,
+        format_speed_alert_text(session, alert.get("decision") or {}, html_mode=True),
+    )
     alert["status"] = "notified"
     alert["notified_at"] = float(now)
     alert["updated_at"] = float(now)
