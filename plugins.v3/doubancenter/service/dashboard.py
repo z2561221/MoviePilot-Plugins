@@ -4,10 +4,10 @@ DoubanCenter - 仪表盘模块
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.chain.media import MediaChain
-from app.sdk.media import MetaInfo
 from app.schemas.types import MediaType
+from app.sdk.media import MetaInfo
 
-from . import folio
+from ..storage import records as storage
 from . import archive as archive_service
 from . import dashboard_config as dashboard_config_service
 from . import dashboard_folio as dashboard_folio_service
@@ -17,8 +17,8 @@ from . import dashboard_rank_media as dashboard_rank_media_service
 from . import dashboard_rank_subscription as dashboard_rank_subscription_service
 from . import dashboard_stats as dashboard_stats_service
 from . import dashboard_subscribe_history as dashboard_subscribe_history_service
+from . import folio
 from . import observation as observation_service
-from ..storage import records as storage
 
 DETAIL_SECTION_LIMIT = 5
 
@@ -58,9 +58,9 @@ def _fin(item, limit):
     return dashboard_folio_service.finish_timeline_item(item, limit)
 
 
-def api_folio_data(self):
+def api_folio_data(self, raw: bool = False):
     """直接返回持久化的豆瓣时间数据，不在页面请求中执行媒体识别。"""
-    return dashboard_folio_service.get_folio_data(self)
+    return dashboard_folio_service.get_folio_data(self, raw=raw)
 
 
 def api_config(self):
@@ -151,7 +151,11 @@ def api_subscribe_from_rank(
     season=None,
 ):
     """根据榜单条目发起订阅。"""
-    from .rank_pipeline import _bangumi_subject_title, _bangumi_subject_year, _fetch_bangumi_subject
+    from .rank_pipeline import (
+        _bangumi_subject_title,
+        _bangumi_subject_year,
+        _fetch_bangumi_subject,
+    )
 
     return dashboard_rank_subscription_service.subscribe_from_rank(
         self,

@@ -17,9 +17,9 @@ class ApiPlugin:
 
 
 def test_all_plugin_routes_use_bearer_and_concrete_response_models():
-    """18 条普通 JSON 路由均声明 bearer 与具体响应模型。"""
+    """普通 JSON 路由均声明 bearer 与具体响应模型。"""
     routes = api_controller.get_api(ApiPlugin())
-    assert len(routes) == 18
+    assert len(routes) == 20
     assert {route["path"] for route in routes} == set(api_schemas.API_RESPONSE_MODELS)
     for route in routes:
         assert route["auth"] == "bear"

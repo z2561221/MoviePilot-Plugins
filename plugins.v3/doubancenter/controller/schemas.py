@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
@@ -86,6 +86,65 @@ class RepairFolioPostersPayload(FlexibleRecord):
     """描述豆瓣时间线历史海报修复结果。"""
 
     updated: int = 0
+
+
+class FolioRepairTarget(BaseModel):
+    """待核验的旧记录与实际播放身份，不接收未经核验的目标豆瓣 ID。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    key: str = Field(min_length=1, max_length=500)
+    media_source: str = Field(min_length=1, max_length=64)
+    media_id: str = Field(min_length=1, max_length=200)
+    season: int = Field(ge=0, le=9999)
+    episode_group: str = Field(default="", max_length=128)
+
+
+class FolioRepairPreviewRequest(BaseModel):
+    """限制每次修复为可审阅的一小批明确目标。"""
+
+    model_config = ConfigDict(extra="forbid")
+    items: list[FolioRepairTarget] = Field(min_length=1, max_length=20)
+
+
+class FolioRepairApplyRequest(BaseModel):
+    """仅接受当前实例生成的短期修复预览。"""
+
+    model_config = ConfigDict(extra="forbid")
+    plan_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
+class FolioRepairItem(BaseModel):
+    """一条历史记录修正前后的完整对照。"""
+
+    key: str
+    status: Literal["ready", "unchanged", "unresolved"]
+    changed: bool
+    reason: str = ""
+    before: FlexibleRecord | None = None
+    after: FlexibleRecord | None = None
+
+
+class FolioRepairPreviewData(BaseModel):
+    """历史身份修复的只读预览结果。"""
+
+    plan_id: str
+    ready: bool
+    items: list[FolioRepairItem]
+    changed: int
+    raw_count: int
+    timeline_before: int
+    timeline_after: int
+    expires_in: int
+
+
+class FolioRepairApplyData(BaseModel):
+    """修复回执及备份位置。"""
+
+    updated: int
+    backup_path: str
+    already_applied: bool
+    raw_count: int
+    timeline_count: int
 
 
 class FolioData(RootModel[Dict[str, Union[FlexibleRecord, List[FlexibleRecord], str, int, bool, None]]]):
@@ -179,4 +238,6 @@ API_RESPONSE_MODELS = {
     "/restore_archive": RestoreArchiveData,
     "/delete_archive": DeleteArchiveData,
     "/repair_folio_posters": RepairFolioPostersData,
+    "/folio_repair/preview": FolioRepairPreviewData,
+    "/folio_repair/apply": FolioRepairApplyData,
 }

@@ -50,6 +50,17 @@ class FakeMediaChain:
         self.convert_calls.append(kwargs)
         return self.converted
 
+    def search_medias(self, meta, media_source=None):
+        """返回隔离的豆瓣搜索候选供分季校验。"""
+        if not self.converted:
+            return []
+        return [SimpleNamespace(media_source=MediaSource.Douban, media_id=str(self.converted["id"]),
+                                title=self.converted["title"], year=self.converted.get("year"), type=MediaType.TV)]
+
+    def douban_info(self, doubanid, mtype=None):
+        """返回完整候选详情，不访问网络。"""
+        return self.converted
+
 
 class WishMediaChain:
     """模拟想看条目的豆瓣到 TMDB 转换和媒体识别。"""
@@ -368,6 +379,7 @@ def test_fanren_reuses_tmdb_identity_and_converts_to_anime_douban(monkeypatch):
     chain = FakeMediaChain(converted={
         "id": "34925294",
         "title": "凡人修仙传",
+        "type": "tv", "is_tv": True, "year": "2020", "pubdate": ["2020-07-25"],
         "pic": {"large": "https://img.example/fanren.webp"},
     })
     monkeypatch.setattr(folio, "DoubanApi", FakeDoubanApi)
@@ -379,6 +391,7 @@ def test_fanren_reuses_tmdb_identity_and_converts_to_anime_douban(monkeypatch):
         title="凡人修仙传",
         year="2020",
         season=1,
+        season_info=[{"season_number": 1, "air_date": "2020-07-25", "poster_path": "/u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg"}],
         poster_path="https://img.example/tmdb.jpg",
     )
     plugin = _plugin()
@@ -395,10 +408,11 @@ def test_fanren_reuses_tmdb_identity_and_converts_to_anime_douban(monkeypatch):
         "mtype": MediaType.TV,
         "season": 1,
     }]
-    assert processed["凡人修仙传"]["subject_id"] == "34925294"
-    assert processed["凡人修仙传"]["media_source"] == MediaSource.Douban.value
-    assert processed["凡人修仙传"]["media_id"] == "34925294"
-    assert processed["凡人修仙传"]["poster_path"] == (
+    record = next(iter(processed.values()))
+    assert record["subject_id"] == "34925294"
+    assert record["media_source"] == MediaSource.Douban.value
+    assert record["media_id"] == "34925294"
+    assert record["poster_path"] == (
         "https://image.tmdb.org/t/p/original/u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg"
     )
 
@@ -423,12 +437,14 @@ def test_bleach_never_accepts_duke_of_death_title_candidate(monkeypatch):
 
 
 def test_bleach_retries_exact_tmdb_identity_at_series_level(monkeypatch):
-    """死神分季转换无结果时复用 TMDB 30984 匹配豆瓣整剧条目。"""
+    """死神分季转换无结果时，整剧回退必须有首播日期和总集数证据。"""
     FakeDoubanApi.reset()
     FakeDoubanApi.search_result = ("死神少爷与黑女仆 第二季", "35605985")
     chain = SeasonFallbackMediaChain(converted={
         "id": "1460932",
         "title": "死神",
+        "type": "tv", "is_tv": True, "year": "2004", "episodes_count": 366,
+        "pubdate": ["2004-10-05"],
         "cover_url": "https://img.example/bleach.webp",
     })
     monkeypatch.setattr(folio, "DoubanApi", FakeDoubanApi)
@@ -439,6 +455,8 @@ def test_bleach_retries_exact_tmdb_identity_at_series_level(monkeypatch):
         title="死神",
         year="2004",
         season=2,
+        season_info=[{"season_number": 2, "air_date": "2005-03-01", "poster_path": "/bleach2.jpg"}],
+        tmdb_info={"first_air_date": "2004-10-05", "number_of_episodes": 366},
         poster_path="",
     )
     plugin = _plugin()
@@ -448,14 +466,16 @@ def test_bleach_retries_exact_tmdb_identity_at_series_level(monkeypatch):
 
     assert FakeDoubanApi.search_calls == []
     assert FakeDoubanApi.status_calls == [("1460932", "do", True)]
-    assert [call["season"] for call in chain.convert_calls] == [2, None]
+    assert [call["season"] for call in chain.convert_calls] == [2]
     assert all(call["media_id"] == "30984" for call in chain.convert_calls)
-    assert processed["死神 第2季"]["subject_id"] == "1460932"
-    assert processed["死神 第2季"]["subject_name"] == "死神"
+    record = next(iter(processed.values()))
+    assert record["subject_id"] == "1460932"
+    assert record["subject_name"] == "死神"
+    assert record["identity_scope"] == "series"
 
 
-def test_waiting_subject_reads_douban_detail_to_restore_poster(monkeypatch):
-    """待重试条目缺少媒体对象时按已存豆瓣 ID 回读并补齐海报。"""
+def test_verified_waiting_subject_reuses_identity_and_season_poster(monkeypatch):
+    """已核验待重试项从季证据复用海报，无需再次查询豆瓣详情。"""
     FakeDoubanApi.reset()
     monkeypatch.setattr(folio, "DoubanApi", FakeDoubanApi)
     recognize_calls = []
@@ -470,6 +490,7 @@ def test_waiting_subject_reads_douban_detail_to_restore_poster(monkeypatch):
 
     monkeypatch.setattr(folio, "_recognize_media", recognize)
     title = "躲在超市后门抽烟的两人"
+    origin = {"media_source": "themoviedb", "media_id": "296286", "type": "tv", "season": 1, "episode_group": ""}
     plugin = _plugin({
         title: {
             "subject_id": "37441858",
@@ -479,16 +500,21 @@ def test_waiting_subject_reads_douban_detail_to_restore_poster(monkeypatch):
             "status": "do",
             "poster_path": "",
             "type": "TV",
+            "origin": origin,
+            "identity_status": "verified",
+            "identity_scope": "season",
+            "season_facts": {"poster_path": "https://image.tmdb.org/t/p/original/1ZkivwzRnJOTMyZvyE88EvjK4ML.jpg"},
         }
     })
     processed = {}
 
-    assert folio._sync_to_douban(plugin, title, "do", "TV", processed, mediainfo=None)
+    assert folio._sync_to_douban(plugin, title, "do", "TV", processed, mediainfo=None, origin=origin)
 
     assert FakeDoubanApi.search_calls == []
-    assert recognize_calls == [(MediaSource.Douban, "37441858", MediaType.TV)]
-    assert processed[title]["subject_id"] == "37441858"
-    assert processed[title]["poster_path"] == (
+    assert recognize_calls == []
+    record = next(iter(processed.values()))
+    assert record["subject_id"] == "37441858"
+    assert record["poster_path"] == (
         "https://image.tmdb.org/t/p/original/1ZkivwzRnJOTMyZvyE88EvjK4ML.jpg"
     )
     assert title not in plugin._wait_process
@@ -501,6 +527,7 @@ def test_failed_status_persists_douban_identity_and_poster(monkeypatch):
     chain = FakeMediaChain(converted={
         "id": "34925294",
         "title": "凡人修仙传",
+        "type": "tv", "is_tv": True, "year": "2020", "pubdate": ["2020-07-25"],
         "cover_url": "https://img.example/fanren.webp",
     })
     monkeypatch.setattr(folio, "DoubanApi", FakeDoubanApi)
@@ -511,19 +538,22 @@ def test_failed_status_persists_douban_identity_and_poster(monkeypatch):
         title="凡人修仙传",
         year="2020",
         season=1,
+        season_info=[{"season_number": 1, "air_date": "2020-07-25", "poster_path": "/u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg"}],
         poster_path="",
     )
     plugin = _plugin()
 
     assert not folio._sync_to_douban(plugin, "凡人修仙传", "do", "TV", {}, media)
 
-    waiting = plugin._wait_process["凡人修仙传"]
+    waiting = next(iter(plugin._wait_process.values()))
     assert waiting["subject_id"] == "34925294"
     assert waiting["media_source"] == MediaSource.Douban.value
     assert waiting["media_id"] == "34925294"
     assert waiting["poster_path"] == (
         "https://image.tmdb.org/t/p/original/u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg"
     )
+    assert waiting["origin"]["media_id"] == "106449"
+    assert waiting["identity_status"] == "verified"
 
 
 def test_repair_folio_history_replaces_three_douban_posters_with_tmdb(monkeypatch):

@@ -1,0 +1,306 @@
+"""按实际播放季和剧集组核验豆瓣条目的只读媒体适配器。"""
+
+from __future__ import annotations
+
+import datetime
+import re
+import unicodedata
+from collections.abc import Mapping
+
+from app.schemas.types import MediaSource, MediaType
+from app.sdk.logging import logger
+from app.sdk.media import MetaInfo
+
+from ..model.identity import identity_from_media
+
+
+class FolioLookupError(RuntimeError):
+    """媒体来源调用失败，允许业务层保留待核验状态。"""
+
+
+def _query(callback, **kwargs):
+    """将不同来源的查询异常归一，和本模块自身的逻辑错误区分。"""
+    try:
+        return callback(**kwargs)
+    except Exception as err:
+        raise FolioLookupError(type(err).__name__) from err
+
+
+def value(item, key, default=None):
+    """兼容宿主媒体对象与原始详情字典。"""
+    return item.get(key, default) if isinstance(item, Mapping) else getattr(item, key, default)
+
+
+def _date(text):
+    """提取来源日期中的首个完整年月日。"""
+    match = re.search(r"(?:19|20)\d{2}-\d{2}-\d{2}", str(text or ""))
+    try:
+        return datetime.date.fromisoformat(match.group()) if match else None
+    except ValueError:
+        return None
+
+
+def _number(number):
+    """读取可选整数，缺失或非法时保持未知。"""
+    try:
+        return int(number) if number is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _names(media):
+    """收集正式标题和来源别名，保持搜索顺序。"""
+    names = [value(media, key) for key in ("title", "name", "original_title", "original_name",
+                                          "cn_name", "en_name", "hk_title", "tw_title")]
+    names.extend(value(media, "names", []) or [])
+    names.extend(value(media, "aka", []) or [])
+    raw = value(media, "tmdb_info", {}) or {}
+    names.extend(raw.get(key) for key in ("name", "title", "original_name", "original_title"))
+    return list(dict.fromkeys(str(name).strip() for name in names if name))
+
+
+def _title_key(name):
+    """仅去掉明确的季或分段标记，禁止模糊子串匹配。"""
+    text = unicodedata.normalize("NFKC", str(name or "")).casefold()
+    text = re.sub(r"第\s*[0-9一二三四五六七八九十]+\s*(?:季|部(?:分)?|期)", "", text)
+    text = re.sub(r"\b(?:seasons?|part|cour)[.\s]*[0-9ivx]+\b", "", text)
+    text = re.sub(r"(?:\s+|(?<=[\u3400-\u9fff]))(?:iii|ii)(?=[\s:～~]|$)", "", text)
+    return "".join(char for char in text if char.isalnum())
+
+
+def _poster(path, fallback=""):
+    """将 TMDB 相对图片路径补全，沿用宿主的图片域名。"""
+    if not path:
+        return ""
+    if str(path).startswith(("https://", "http://")):
+        return str(path)
+    if not str(path).startswith("/"):
+        return ""
+    base = str(fallback).split("/t/p/", 1)[0] if "/t/p/" in str(fallback) else "https://image.tmdb.org"
+    return base + "/t/p/original" + str(path)
+
+
+def season_facts(media, origin: dict) -> dict:
+    """从宿主已识别媒体取实际季首播日，保留剧集组与原始季的区别。"""
+    season = _number(origin.get("season"))
+    group_id = str(origin.get("episode_group") or value(media, "episode_group") or "")
+    raw = value(media, "tmdb_info", {}) or {}
+    regular = raw.get("seasons") or []
+    details = value(media, "season_info", []) or regular
+    first_date = None
+    episode_count = None
+    native_season = season
+    group = None
+    if group_id:
+        groups = value(media, "episode_groups", []) or details
+        group = next((item for item in groups if _number(item.get("order")) == season
+                      and item.get("episodes")), None)
+        if group is None:
+            return {"resolved": False, "reason": "缺少实际剧集组的季集映射"}
+        episodes = group["episodes"]
+        episode_count = len(episodes)
+        dates = [date for item in episodes if (date := _date(item.get("air_date")))]
+        first_date = min(dates) if dates else None
+        native = {_number(item.get("original_season_number", item.get("season_number")))
+                  for item in episodes}
+        native.discard(None)
+        # 剧集组可能把第 0 集特别篇放在正片开头；海报仍跟随唯一正片季。
+        if len(native) > 1:
+            native.discard(0)
+        native_season = next(iter(native)) if len(native) == 1 else None
+    else:
+        season_detail = next((item for item in details
+                              if _number(item.get("season_number")) == season), {})
+        first_date = _date(season_detail.get("air_date"))
+        episode_count = _number(season_detail.get("episode_count"))
+    years = value(media, "season_years", {}) or {}
+    year = str(first_date.year) if first_date else str(years.get(season, years.get(str(season), "")) or "")
+    if season == 1 and not year:
+        year = str(value(media, "year", "") or "")
+    regular_season = next((item for item in regular
+                           if _number(item.get("season_number")) == native_season), {})
+    season_poster = _poster(regular_season.get("poster_path"), value(media, "poster_path", ""))
+    if not season_poster and not group_id:
+        season_poster = _poster(next((item.get("poster_path") for item in details
+                                     if _number(item.get("season_number")) == season), ""))
+    return {
+        "resolved": bool(year),
+        "reason": "" if year else "缺少目标季首播年份",
+        "season": season,
+        "episode_count": episode_count,
+        "native_season": native_season,
+        "episode_group": group_id,
+        "air_date": first_date.isoformat() if first_date else "",
+        "year": year,
+        "poster_path": season_poster or value(media, "poster_path", "") or "",
+        "season_poster": bool(season_poster),
+        "series_episode_count": _number(raw.get("number_of_episodes") or value(media, "number_of_episodes")),
+        "series_air_date": str(raw.get("first_air_date") or value(media, "first_air_date")
+                               or value(media, "release_date") or ""),
+        "series_year": str(value(media, "year", "") or "")[:4],
+    }
+
+
+def _candidate_dates(candidate):
+    """保留全部地区首播日，避免仅使用首个中国大陆上映日。"""
+    dates = []
+    for key in ("release_date", "first_air_date", "pubdate", "pubdates"):
+        entries = value(candidate, key) or []
+        for entry in entries if isinstance(entries, (list, tuple)) else [entries]:
+            if date := _date(entry):
+                dates.append(date)
+    return dates
+
+
+def _same_title(media, candidate):
+    """校验规范化后的完整标题或正式别名。"""
+    left = {_title_key(name) for name in _names(media)}
+    right = {_title_key(name) for name in _names(candidate)}
+    return bool((left & right) - {""})
+
+
+def _same_series(chain, media, candidate):
+    """标题的繁简或译名不一致时，用反向媒体身份确认，禁止模糊包含。"""
+    if _same_title(media, candidate):
+        return True
+    source, source_id = identity_from_media(media)
+    candidate_id = str(value(candidate, "id") or value(candidate, "media_id") or "")
+    if source != MediaSource.TMDB or not candidate_id:
+        return False
+    try:
+        matched = _query(chain.convert_media_identity,
+            target_source=MediaSource.TMDB, media_source=MediaSource.Douban,
+            media_id=candidate_id, mtype=MediaType.TV,
+        )
+    except FolioLookupError:
+        logger.debug("分季候选反向身份查询失败", exc_info=True)
+        return False
+    return str(value(matched, "id") or value(matched, "media_id") or "") == str(source_id)
+
+
+def _is_tv(candidate):
+    """拒绝电影与未知类型，防止同名 OVA 或电影混入电视剧。"""
+    actual = value(candidate, "is_tv")
+    if isinstance(actual, bool):
+        return actual
+    actual = value(candidate, "type") or value(candidate, "media_type")
+    actual = str(getattr(actual, "value", actual) or "").lower()
+    return actual in {"tv", "series", "电视剧", "剧集"}
+
+
+def _matches_season(candidate, facts):
+    """以首播日期区分同年分段；日期缺失时才使用季名与年份。"""
+    expected_date = _date(facts["air_date"])
+    dates = _candidate_dates(candidate)
+    if expected_date and dates:
+        return min(abs((date - expected_date).days) for date in dates) <= 7
+    candidate_year = str(value(candidate, "year", "") or "")[:4]
+    if not candidate_year or candidate_year != facts["year"]:
+        return False
+    # 只有年份不足以区分同年分割放送的剧集组。
+    if facts["episode_group"]:
+        return False
+    title = str(value(candidate, "title") or value(candidate, "name") or "")
+    declared = re.search(r"(?:第\s*(\d+)\s*(?:季|部)|season\s*(\d+))", title, re.IGNORECASE)
+    if declared:
+        return int(next(part for part in declared.groups() if part)) == facts["native_season"]
+    return facts["native_season"] == 1
+
+
+def _covers_series(candidate, facts):
+    """整剧回退同时要求集数覆盖和整剧首播日期一致。"""
+    count = _number(value(candidate, "episodes_count"))
+    total = facts["series_episode_count"]
+    if not count or not total or total <= 0 or count < total:
+        return False
+    first_date = _date(facts["series_air_date"])
+    dates = _candidate_dates(candidate)
+    if first_date and dates:
+        return any(abs((date - first_date).days) <= 7 for date in dates)
+    return bool(facts["series_year"] and str(value(candidate, "year") or "")[:4] == facts["series_year"])
+
+
+def load_playback_media(chain, origin: dict, title: str = ""):
+    """按源身份和明确剧集组加载完整媒体，供重试与历史修复复用。"""
+    meta = MetaInfo(title)
+    meta.type = MediaType.TV
+    meta.begin_season = origin.get("season")
+    kwargs = {
+        "meta": meta, "media_source": origin["media_source"],
+        "media_id": str(origin["media_id"]), "mtype": MediaType.TV, "cache": True,
+    }
+    if origin.get("episode_group"):
+        kwargs["episode_group"] = origin["episode_group"]
+    media = _query(chain.recognize_media, **kwargs)
+    source, media_id = identity_from_media(media)
+    if (str(getattr(source, "value", source) or "") != origin["media_source"]
+            or str(media_id or "") != str(origin["media_id"])):
+        return None
+    return media
+
+
+def resolve_tv_subject(chain, media, origin: dict) -> dict:
+    """核验分季候选；整剧 IMDb 结果也必须通过日期或整剧覆盖范围校验。"""
+    facts = season_facts(media, origin)
+    if not facts["resolved"]:
+        return {"resolved": False, "reason": facts["reason"], "facts": facts}
+    source, source_id = identity_from_media(media)
+    if not source or not source_id:
+        return {"resolved": False, "reason": "缺少源媒体身份", "facts": facts}
+    candidates = {}
+    if source == MediaSource.Douban:
+        candidates[str(source_id)] = value(media, "douban_info", {}) or media
+    else:
+        try:
+            converted = _query(chain.convert_media_identity,
+                target_source=MediaSource.Douban, media_source=source,
+                media_id=str(source_id), mtype=MediaType.TV, season=facts["native_season"],
+            )
+        except FolioLookupError:
+            logger.debug("分季候选跨源转换失败，继续核验搜索结果", exc_info=True)
+            converted = None
+        candidate_id = value(converted, "id") or value(converted, "media_id")
+        if candidate_id:
+            candidates[str(candidate_id)] = converted
+    names = _names(media)
+    # 搜索结果不直接采信，随后按源身份、季首播日和类型共同核验。
+    if source != MediaSource.Douban:
+        for name in names[:2]:
+            meta = MetaInfo(name)
+            meta.type = MediaType.TV
+            meta.year = facts["year"]
+            for candidate in (_query(chain.search_medias, meta=meta, media_source=MediaSource.Douban) or [])[:20]:
+                candidate_source, candidate_id = identity_from_media(candidate)
+                if candidate_source == MediaSource.Douban and candidate_id:
+                    candidates.setdefault(str(candidate_id), candidate)
+    exact, whole = [], []
+    for candidate_id, summary in candidates.items():
+        if not _is_tv(summary):
+            continue
+        summary_year = str(value(summary, "year", "") or "")[:4]
+        if summary_year and summary_year != facts["year"] and not _same_title(media, summary):
+            continue
+        detail = _query(chain.douban_info, doubanid=candidate_id, mtype=MediaType.TV)
+        if not detail or not _is_tv(detail):
+            continue
+        if isinstance(detail, Mapping):
+            detail = {**detail, "id": candidate_id}
+        if not _same_series(chain, media, detail):
+            continue
+        item = {
+            "resolved": True, "subject_id": candidate_id,
+            "subject_name": value(detail, "title") or value(detail, "name") or (names[0] if names else ""),
+            "poster_path": facts["poster_path"], "facts": facts,
+        }
+        if _covers_series(detail, facts):
+            whole.append({**item, "identity_scope": "series"})
+        elif _matches_season(detail, facts):
+            exact.append({**item, "identity_scope": "season"})
+    matches = exact or whole
+    if len(matches) == 1:
+        return matches[0]
+    return {
+        "resolved": False,
+        "reason": "分季豆瓣候选不唯一" if matches else "未找到通过季首播日校验的豆瓣条目",
+        "facts": facts,
+    }
