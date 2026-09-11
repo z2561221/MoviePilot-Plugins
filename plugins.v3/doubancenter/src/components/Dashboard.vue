@@ -300,7 +300,7 @@ const timelineGroups = computed(() => {
     }
     if (currentGroup.items.length < limitNum) {
       const poster = toPosterThumbnail(entry.poster_path)
-      currentGroup.items.push({ key: entry.key, subject_name: entry.display_title || entry.subject_name || entry.key, subject_id: entry.subject_id, poster, type: entry.type, season_label: entry.season_label || '' })
+      currentGroup.items.push({ key: entry.key, subject_name: entry.display_title || entry.subject_name || entry.key, subject_id: entry.subject_id, poster, type: entry.type })
     }
   }
   return groups
@@ -352,7 +352,6 @@ onMounted(load)
                       >
                         <VImg v-if="item.poster && !timelineImageFailed[item.key]" :src="item.poster" width="60" height="90" cover class="rounded" @error="markTimelineImageFailed(item.key)" />
                         <div v-else class="dc-ph"><VIcon icon="mdi-filmstrip" size="14" /></div>
-                        <span v-if="item.season_label" class="dc-folio-season">{{ item.season_label }}</span>
                       </a>
                     </div>
                   </div>
@@ -412,7 +411,6 @@ onMounted(load)
 .dc-load-alert__content { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 12px; }
 .dc-load-alert__content span { min-width: 0; overflow-wrap: anywhere; }
 .dc-poster { position: relative; text-decoration: none; transition: transform .15s; display: block; border-radius: 4px; overflow: hidden; }
-.dc-folio-season { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0, 0, 0, .72); color: #fff; text-align: center; font-size: 10px; line-height: 18px; pointer-events: none; }
 .dc-poster:hover { transform: translateY(-2px); }
 .dc-ph { width: 60px; height: 90px; display: flex; align-items: center; justify-content: center; background: rgba(var(--v-theme-on-surface), .05); color: rgba(var(--v-theme-on-surface), .25); border-radius: 4px; }
 .dc-rank-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; }

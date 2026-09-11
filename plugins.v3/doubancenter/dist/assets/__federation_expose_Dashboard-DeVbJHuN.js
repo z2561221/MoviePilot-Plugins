@@ -29,25 +29,21 @@ const _hoisted_12 = {
   key: 1,
   class: "dc-ph"
 };
-const _hoisted_13 = {
-  key: 2,
-  class: "dc-folio-season"
-};
-const _hoisted_14 = { key: 4 };
-const _hoisted_15 = { class: "dc-rank-grid" };
-const _hoisted_16 = { class: "dc-rank-head" };
-const _hoisted_17 = { class: "dc-rank-body" };
-const _hoisted_18 = ["title", "onClick"];
-const _hoisted_19 = { class: "dc-rank-title" };
-const _hoisted_20 = {
+const _hoisted_13 = { key: 4 };
+const _hoisted_14 = { class: "dc-rank-grid" };
+const _hoisted_15 = { class: "dc-rank-head" };
+const _hoisted_16 = { class: "dc-rank-body" };
+const _hoisted_17 = ["title", "onClick"];
+const _hoisted_18 = { class: "dc-rank-title" };
+const _hoisted_19 = {
   key: 0,
   class: "dc-rank-wish"
 };
-const _hoisted_21 = {
+const _hoisted_20 = {
   key: 0,
   class: "text-center text-medium-emphasis py-2 text-caption"
 };
-const _hoisted_22 = {
+const _hoisted_21 = {
   key: 5,
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
@@ -356,7 +352,7 @@ const timelineGroups = computed(() => {
     }
     if (currentGroup.items.length < limitNum) {
       const poster = toPosterThumbnail(entry.poster_path);
-      currentGroup.items.push({ key: entry.key, subject_name: entry.display_title || entry.subject_name || entry.key, subject_id: entry.subject_id, poster, type: entry.type, season_label: entry.season_label || '' });
+      currentGroup.items.push({ key: entry.key, subject_name: entry.display_title || entry.subject_name || entry.key, subject_id: entry.subject_id, poster, type: entry.type });
     }
   }
   return groups
@@ -551,10 +547,7 @@ return (_ctx, _cache) => {
                                             icon: "mdi-filmstrip",
                                             size: "14"
                                           })
-                                        ])),
-                                    (item.season_label)
-                                      ? (_openBlock(), _createElementBlock("span", _hoisted_13, _toDisplayString(item.season_label), 1))
-                                      : _createCommentVNode("", true)
+                                        ]))
                                   ], 8, _hoisted_11))
                                 }), 128))
                               ])
@@ -568,14 +561,14 @@ return (_ctx, _cache) => {
               ]))
             : _createCommentVNode("", true),
           (config.value.dashboard_rank_keys && config.value.dashboard_rank_keys.length)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_14, [
-                _createElementVNode("div", _hoisted_15, [
+            ? (_openBlock(), _createElementBlock("div", _hoisted_13, [
+                _createElementVNode("div", _hoisted_14, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(config.value.dashboard_rank_keys.slice(0, 6), (rk) => {
                     return (_openBlock(), _createElementBlock("div", {
                       key: rk,
                       class: "dc-rank-cell"
                     }, [
-                      _createElementVNode("div", _hoisted_16, [
+                      _createElementVNode("div", _hoisted_15, [
                         _createVNode(_component_VIcon, {
                           icon: "mdi-format-list-numbered",
                           size: "15",
@@ -584,7 +577,7 @@ return (_ctx, _cache) => {
                         }, null, 8, ["style"]),
                         _createElementVNode("span", null, _toDisplayString(rankNameOf(rk, rankHistory.value[rk]?.[0])), 1)
                       ]),
-                      _createElementVNode("div", _hoisted_17, [
+                      _createElementVNode("div", _hoisted_16, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((rankHistory.value[rk] || []).slice(0, 5), (item, i) => {
                           return (_openBlock(), _createElementBlock("div", {
                             key: i,
@@ -611,14 +604,14 @@ return (_ctx, _cache) => {
                               ]),
                               _: 2
                             }, 1024),
-                            _createElementVNode("span", _hoisted_19, _toDisplayString(item.title), 1),
+                            _createElementVNode("span", _hoisted_18, _toDisplayString(item.title), 1),
                             (rk === 'coming' && item.wish_count)
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_20, _toDisplayString(item.wish_count), 1))
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_19, _toDisplayString(item.wish_count), 1))
                               : _createCommentVNode("", true)
-                          ], 8, _hoisted_18))
+                          ], 8, _hoisted_17))
                         }), 128)),
                         (!(rankHistory.value[rk] || []).length)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_21, "暂无数据"))
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_20, "暂无数据"))
                           : _createCommentVNode("", true)
                       ])
                     ]))
@@ -627,7 +620,7 @@ return (_ctx, _cache) => {
               ]))
             : _createCommentVNode("", true),
           (!loading.value && !folioLoading.value && !config.value.dashboard_rank_keys?.length && !timelineGroups.value.length)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_22, " 请在配置页「仪表显示」中选择要显示的榜单 "))
+            ? (_openBlock(), _createElementBlock("div", _hoisted_21, " 请在配置页「仪表显示」中选择要显示的榜单 "))
             : _createCommentVNode("", true)
         ]),
         _: 1
@@ -751,6 +744,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a5dd18ea"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9aa993ac"]]);
 
 export { Dashboard as default };

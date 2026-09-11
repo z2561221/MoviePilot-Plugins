@@ -1,7 +1,6 @@
 """豆瓣时间线仪表盘服务。"""
 
 import datetime
-from html import escape
 from typing import Callable, Dict, List, Optional
 
 from ..model.folio_record import timeline_records
@@ -133,14 +132,6 @@ def _poster_card(value: dict, poster: str, *, mobile: bool = False) -> dict:
         "component": "div", "props": {"style": dimensions + "display:grid;place-items:center;"},
         "content": [{"component": "VIcon", "props": {"icon": "mdi-filmstrip", "size": 18}}],
     }
-    children = [picture]
-    if value.get("season_label"):
-        children.append({
-            "component": "span",
-            "props": {"style": "position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.7);"
-                               "color:white;text-align:center;font-size:10px;line-height:18px;"},
-            "html": escape(str(value["season_label"])),
-        })
     return {
         "component": "a",
         "props": {
@@ -157,7 +148,7 @@ def _poster_card(value: dict, poster: str, *, mobile: bool = False) -> dict:
             {
                 "component": "VCard",
                 "props": {"class": "elevation-4", "style": "position:relative;"},
-                "content": children,
+                "content": [picture],
             }
         ],
     }
