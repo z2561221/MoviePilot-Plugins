@@ -1054,14 +1054,18 @@ def _sync_to_douban(
     if previous.get("identity_scope") == "library_season" and not folio_record.library_key(origin or {}):
         # 已修复的真实季接管旧 Cours 待重试项，不能重新写回旧分组身份。
         origin = previous["origin"]
-    if origin and origin.get("mediaserver") and not origin.get("library_season"):
+    if (origin and not origin.get("library_season")
+            and (origin.get("mediaserver") or (is_tv and mediainfo is None))):
+        # 旧重试没有服务器字段时也先查唯一库内季，避免新旧剧集组各写一条。
         library = folio_library.load_season(self, origin, refresh=True)
-        if not library:
+        if not library and origin.get("mediaserver"):
             wait_key, _ = folio_record.find_record(self._wait_process or {}, origin, title)
             _save_waiting_playback(self, wait_key, title, status, mediaType, origin,
                                    {"resolved": False, "reason": "实际媒体库分季暂不可核验"})
             return False
-        origin = folio_library.bind_season(origin, library)
+        if library:
+            origin = folio_library.bind_season(origin, library)
+            record_key, previous = folio_record.find_record(processed, origin, title)
     wait_key, waiting = folio_record.find_record(self._wait_process or {}, origin or {}, title)
     same_waiting_origin = folio_record.origin_key(waiting.get("origin") or {}) == folio_record.origin_key(origin or {})
     if waiting.get("status") == "collect" and same_waiting_origin:

@@ -48,8 +48,56 @@ def _replacement(record: dict, origin: dict, match: dict) -> dict:
     }
 
 
+def _merge_library_aliases(snapshot: dict, record: dict, keys: list[str]) -> tuple[dict, dict]:
+    """仅合并明确指定且已核实属于同一库内季的旧键，完整保留原记录。"""
+    if not keys:
+        return record, {}
+    origin = record.get("origin") or {}
+    if not folio_record.library_key(origin) or record.get("identity_scope") != "library_season":
+        raise ValueError("合并旧记录必须先核验实际媒体库季")
+    result = copy.deepcopy(record)
+    archived = result.setdefault("merged_aliases", {})
+    subjects = {str(record["subject_id"]),
+                *(str(item["subject_id"]) for item in record.get("related_subjects") or [])}
+    aliases = {}
+    for key in keys:
+        alias = snapshot.get(key)
+        if alias is None and key in archived:
+            continue
+        if (not isinstance(alias, dict) or alias.get("identity_status") != "verified"
+                or not folio_record.same_native_season(origin, alias.get("origin") or {})
+                or str(alias.get("subject_id") or "") not in subjects):
+            raise ValueError(f"旧记录不属于已核验的同一媒体库季：{key}")
+        aliases[key] = copy.deepcopy(alias)
+        archived[key] = copy.deepcopy(alias)
+        for field in ("last_synced_at", "last_played_at", "last_marked_at"):
+            if alias.get(field):
+                result[field] = max(result.get(field) or alias[field], alias[field])
+        # 旧 Part 的看过状态不能推断整季看完；同一主条目的在看状态可接续。
+        if (not result.get("watch_status") and alias.get("watch_status") == "do"
+                and str(alias["subject_id"]) == str(record["subject_id"])):
+            result["watch_status"] = "do"
+    return result, aliases
+
+
+def _project_replacement(snapshot, projected, item, replacement, merge_keys):
+    """将替换及精确合并范围一起纳入预览，应用前逐条检查并发变化。"""
+    replacement, aliases = _merge_library_aliases(snapshot, replacement, merge_keys)
+    changed = replacement != item["before"] or bool(aliases)
+    item.update(status="ready" if changed else "unchanged", changed=changed,
+                after=replacement, merge_before=aliases)
+    projected[item["key"]] = replacement
+    for key in aliases:
+        projected.pop(key)
+
+
 def preview(plugin, targets: list[dict], *, refresh_posters: bool = False) -> dict:
     """只读核验指定记录，返回可审阅的逐条修正对照。"""
+    target_keys = {target["key"] for target in targets}
+    merge_keys = [key for target in targets for key in target.get("merge_keys", [])]
+    if (len(merge_keys) != len(set(merge_keys)) or target_keys.intersection(merge_keys)
+            or (refresh_posters and merge_keys)):
+        raise ValueError("合并旧记录范围重复或与其他修复动作冲突")
     with plugin._sync_lock:
         snapshot = copy.deepcopy(storage.read_folio_data(plugin))
     chain = MediaChain()
@@ -110,11 +158,9 @@ def preview(plugin, targets: list[dict], *, refresh_posters: bool = False) -> di
             continue
         if verified:
             replacement = folio_watch.restore_first_playback(record, target.get("first_played_at"), target.get("time_evidence", ""))
-            changed = replacement != record
-            item.update(status="ready" if changed else "unchanged", changed=changed, after=replacement)
-            projected[key] = replacement
+            _project_replacement(snapshot, projected, item, replacement, target.get("merge_keys", []))
             continue
-        if any(other_key != key and isinstance(other, dict)
+        if any(other_key != key and other_key not in target.get("merge_keys", []) and isinstance(other, dict)
                and folio_record.origin_key(other.get("origin") or {}) == origin_id
                for other_key, other in snapshot.items()):
             item["reason"] = "相同播放身份已有记录，请先核对原始档案"
@@ -136,9 +182,7 @@ def preview(plugin, targets: list[dict], *, refresh_posters: bool = False) -> di
             continue
         replacement = _replacement(record, origin, match)
         replacement = folio_watch.restore_first_playback(replacement, target.get("first_played_at"), target.get("time_evidence", ""))
-        changed = replacement != record
-        item.update(status="ready" if changed else "unchanged", changed=changed, after=replacement)
-        projected[key] = replacement
+        _project_replacement(snapshot, projected, item, replacement, target.get("merge_keys", []))
     ready = bool(items) and all(item["status"] != "unresolved" for item in items)
     plan_id = uuid.uuid4().hex
     with plugin._sync_lock:
@@ -189,22 +233,31 @@ def apply(plugin, plan_id: str) -> dict:
             raise ValueError("仍有未核实的分季身份，不能应用修复")
         current = copy.deepcopy(storage.read_folio_data(plugin))
         if plan["receipt"] is not None:
-            return {**plan["receipt"], "updated": 0, "already_applied": True,
+            return {**plan["receipt"], "updated": 0, "merged": 0, "already_applied": True,
                     "raw_count": len(current), "timeline_count": len(folio_record.timeline_records(current))}
         target_keys = {item["key"] for item in plan["items"]}
+        target_keys.update(key for item in plan["items"] for key in item.get("merge_before", {}))
         for item in plan["items"]:
             key = item["key"]
             if key not in current or folio_record.fingerprint(current[key]) != folio_record.fingerprint(item["before"]):
                 raise ValueError(f"记录已在预览后变化：{key}，请重新预览")
-            origin = folio_record.origin_key(item["after"].get("origin") or {})
+            for alias_key, alias in item.get("merge_before", {}).items():
+                if current.get(alias_key) != alias:
+                    raise ValueError(f"合并旧记录已在预览后变化：{alias_key}，请重新预览")
+            after_origin = item["after"].get("origin") or {}
+            origin = folio_record.origin_key(after_origin)
             if any(other_key not in target_keys and isinstance(other, dict)
-                   and folio_record.origin_key(other.get("origin") or {}) == origin
+                   and (folio_record.origin_key(other.get("origin") or {}) == origin
+                        or (folio_record.library_key(after_origin)
+                            and folio_record.same_native_season(after_origin, other.get("origin") or {})))
                    for other_key, other in current.items()):
                 raise ValueError(f"预览后出现相同播放身份的新记录：{key}，请重新预览")
         changed_items = [item for item in plan["items"] if item["changed"]]
         backup_path = _backup(plugin, plan_id, current) if changed_items else ""
         for item in changed_items:
             current[item["key"]] = copy.deepcopy(item["after"])
+            for alias_key in item.get("merge_before", {}):
+                del current[alias_key]
         if changed_items:
             storage.save_folio_data(plugin, current)
             persisted = storage.read_folio_data(plugin)
@@ -212,6 +265,7 @@ def apply(plugin, plan_id: str) -> dict:
                 raise RuntimeError("修复写入后的档案回读不一致")
         receipt = {
             "updated": len(changed_items), "backup_path": backup_path, "already_applied": False,
+            "merged": sum(len(item.get("merge_before", {})) for item in changed_items),
             "raw_count": len(current), "timeline_count": len(folio_record.timeline_records(current)),
         }
         plan["receipt"] = receipt

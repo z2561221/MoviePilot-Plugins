@@ -110,6 +110,7 @@ class FolioRepairTarget(BaseModel):
     mediaserver: FolioLibraryReference | None = None
     first_played_at: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
     time_evidence: str = Field(default="", max_length=1000)
+    merge_keys: list[str] = Field(default_factory=list, max_length=20)
 
 
 class FolioRepairPreviewRequest(BaseModel):
@@ -137,6 +138,7 @@ class FolioRepairItem(BaseModel):
     before: FlexibleRecord | None = None
     after: FlexibleRecord | None = None
     evidence: FlexibleRecord = Field(default_factory=FlexibleRecord)
+    merge_before: dict[str, FlexibleRecord] = Field(default_factory=dict)
 
 
 class FolioRepairPreviewData(BaseModel):
@@ -156,6 +158,7 @@ class FolioRepairApplyData(BaseModel):
     """修复回执及备份位置。"""
 
     updated: int
+    merged: int = 0
     backup_path: str
     already_applied: bool
     raw_count: int
