@@ -75,6 +75,61 @@ def test_apply_and_new_preview_are_idempotent(repair_plugin):
     assert len(list(repair_plugin.data_path.rglob("*.json"))) == 1
 
 
+def test_refresh_verified_poster_only_uses_confirmed_subject(repair_plugin, monkeypatch):
+    """显式刷新已核验海报只改图片，保留身份、时间和未知字段，并支持幂等回读。"""
+    first = folio_repair.preview(repair_plugin, [_target()])
+    folio_repair.apply(repair_plugin, first["plan_id"])
+    before = copy.deepcopy(repair_plugin.data["folio_data"])
+    chain = folio_repair.MediaChain()
+    poster = "https://img3.doubanio.com/view/photo/m_ratio_poster/public/second-part.webp"
+    chain.subjects[1]["pic"] = {"large": poster}
+    monkeypatch.setattr(chain, "recognize_media", lambda **kwargs: pytest.fail("已核验海报刷新不重新识别媒体"))
+    assert folio_repair.preview(repair_plugin, [_target()])["changed"] == 0
+    app = FastAPI()
+    app.add_api_route("/preview", MethodType(DoubanCenter.api_folio_repair_preview, repair_plugin),
+                      methods=["POST"], response_model=schemas.Response[api_schemas.FolioRepairPreviewData])
+    with TestClient(app) as client:
+        response = client.post("/preview", json={"items": [_target()], "refresh_posters": True})
+    assert response.status_code == 200
+    plan = response.json()["data"]
+    assert plan["ready"] is True
+    assert plan["changed"] == 1
+    assert repair_plugin.data["folio_data"] == before
+    result = folio_repair.apply(repair_plugin, plan["plan_id"])
+    assert result["updated"] == 1
+    assert json.loads(Path(result["backup_path"]).read_text(encoding="utf-8"))["data"] == before
+    after = repair_plugin.data["folio_data"][_target()["key"]]
+    assert after == {**before[_target()["key"]], "poster_path": poster}
+    assert folio_repair.apply(repair_plugin, plan["plan_id"])["updated"] == 0
+    assert folio_repair.preview(repair_plugin, [_target()], refresh_posters=True)["changed"] == 0
+
+
+@pytest.mark.parametrize("detail", [None, {"id": "wrong", "is_tv": True},
+                                   {"id": "1786740", "is_tv": False},
+                                   {"id": "1786740", "is_tv": True}])
+def test_poster_refresh_rejects_missing_or_wrong_subject(repair_plugin, monkeypatch, detail):
+    """查询失败、条目或类型不符和无海报时保留原记录，不能盲换图片。"""
+    first = folio_repair.preview(repair_plugin, [_target()])
+    folio_repair.apply(repair_plugin, first["plan_id"])
+    before = copy.deepcopy(repair_plugin.data)
+    monkeypatch.setattr(folio_repair.MediaChain(), "douban_info", lambda **kwargs: detail)
+    plan = folio_repair.preview(repair_plugin, [_target()], refresh_posters=True)
+    assert plan["ready"] is False
+    assert plan["changed"] == 0
+    with pytest.raises(ValueError, match="未核实"):
+        folio_repair.apply(repair_plugin, plan["plan_id"])
+    assert repair_plugin.data == before
+
+
+def test_poster_refresh_requires_verified_playback_identity(repair_plugin):
+    """仅刷新海报不能顺带修复未核验身份。"""
+    before = copy.deepcopy(repair_plugin.data)
+    plan = folio_repair.preview(repair_plugin, [_target()], refresh_posters=True)
+    assert plan["ready"] is False
+    assert plan["changed"] == 0
+    assert repair_plugin.data == before
+
+
 def test_concurrent_target_update_rejects_stale_plan(repair_plugin):
     """预览后目标播放记录更新时拒绝覆盖，保留新时间。"""
     plan = folio_repair.preview(repair_plugin, [_target()])

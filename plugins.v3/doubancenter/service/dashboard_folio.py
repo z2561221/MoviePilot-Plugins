@@ -2,6 +2,7 @@
 
 import datetime
 from typing import Callable, Dict, List, Optional
+from urllib.parse import urlencode, urlparse
 
 from ..model.folio_record import timeline_records
 from ..storage import records as storage
@@ -125,9 +126,12 @@ def _new_timeline_item(month: int, year: int) -> dict:
 def _poster_card(value: dict, poster: str, *, mobile: bool = False) -> dict:
     """创建豆瓣条目海报卡片。"""
     dimensions = "width:44px;height:66px;" if mobile else "width:66px;height:99px;"
+    thumbnail = poster.replace("/original/", "/w200/")
+    if (urlparse(thumbnail).hostname or "").lower().endswith(".doubanio.com"):
+        thumbnail = "/api/v1/system/img/0?" + urlencode({"imgurl": thumbnail, "cache": "true"})
     picture = {
         "component": "VImg",
-        "props": {"src": poster.replace("/original/", "/w200/"), "style": dimensions, "aspect-ratio": "2/3"},
+        "props": {"src": thumbnail, "style": dimensions, "aspect-ratio": "2/3"},
     } if poster else {
         "component": "div", "props": {"style": dimensions + "display:grid;place-items:center;"},
         "content": [{"component": "VIcon", "props": {"icon": "mdi-filmstrip", "size": 18}}],

@@ -2,6 +2,7 @@
 
 import copy
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -27,7 +28,7 @@ def test_huanzhu_uses_season_and_all_regional_air_dates(season, expected):
 
 @pytest.mark.parametrize("season,expected,native", [(1, "30513783", 1), (2, "35306636", 1), (3, "35460731", 2)])
 def test_mushoku_group_number_is_not_tmdb_season_number(season, expected, native):
-    """同年分割放送按剧集组首播日分开，第 3 组使用第 2 季海报。"""
+    """分段匹配各自的豆瓣条目海报，原始 TMDB 季只保留为缺图回退依据。"""
     media = mushoku_media()
     result = folio_media.resolve_tv_subject(
         FolioMediaChain(media, MUSHOKU_SUBJECTS), media, folio._playback_origin(media, "TV", season),
@@ -35,6 +36,20 @@ def test_mushoku_group_number_is_not_tmdb_season_number(season, expected, native
     assert result["subject_id"] == expected
     assert result["facts"]["native_season"] == native
     assert result["facts"]["season"] == season
+    subject = next(item for item in MUSHOKU_SUBJECTS if item["id"] == expected)
+    assert result["poster_path"] == subject["pic"]["large"]
+    assert result["facts"]["poster_path"].endswith(f"mt{native}.jpg")
+
+
+@pytest.mark.parametrize("season,native", [(1, 1), (2, 1), (3, 2)])
+def test_missing_subject_poster_uses_correct_original_season(season, native):
+    """豆瓣条目缺图时回退实际原始季，不把播放分段号当作 TMDB 季。"""
+    media = mushoku_media()
+    subjects = [{key: value for key, value in item.items() if key != "pic"} for item in MUSHOKU_SUBJECTS]
+    result = folio_media.resolve_tv_subject(
+        FolioMediaChain(media, subjects), media, folio._playback_origin(media, "TV", season),
+    )
+    assert result["resolved"] is True
     assert result["poster_path"].endswith(f"mt{native}.jpg")
 
 
@@ -134,14 +149,29 @@ def test_unknown_legacy_pending_subject_cannot_write_douban(monkeypatch):
     assert plugin._wait_process["还珠格格 第2季"]["subject_id"] == "1786739"
 
 
-def test_verified_season_cannot_be_reidentified_from_shared_poster():
-    """Part.2 共享第一季 TMDB 海报时，海报修复不得改回首部 ID。"""
+@pytest.mark.parametrize("poster", [
+    "https://image.tmdb.org/t/p/original/u7LWdKmEdEr6Ui3GZMsFGlKZQBd.jpg",
+    "https://img3.doubanio.com/view/photo/m_ratio_poster/public/p2649427633.webp",
+])
+def test_verified_season_cannot_be_reidentified_from_shared_poster(poster):
+    """已核验分段的 ID 和独立豆瓣海报不能被旧海报维护覆盖。"""
     record = {"subject_id": "35306636", "subject_name": "无职转生 Part.2", "media_source": "douban",
               "media_id": "35306636", "identity_status": "verified", "type": "电视剧",
-              "poster_path": "https://image.tmdb.org/t/p/original/u7LWdKmEdEr6Ui3GZMsFGlKZQBd.jpg"}
+              "poster_path": poster}
     plugin = FolioPlugin({"无职 第2季": record})
     assert folio.repair_folio_history(plugin) == 0
     assert plugin.data["folio_data"]["无职 第2季"]["media_id"] == "35306636"
+    assert plugin.data["folio_data"]["无职 第2季"]["poster_path"] == poster
+
+
+def test_legacy_timeline_uses_host_proxy_for_douban_posters():
+    """旧版时间线与 Vue 一样经宿主图片代理访问豆瓣图，保留完整图片参数。"""
+    poster = "https://img3.doubanio.com/view/photo/m_ratio_poster/public/p2649427633.webp?size=small&v=2"
+    card = dashboard_folio._poster_card({"subject_id": "35306636"}, poster)
+    image = card["content"][0]["content"][0]
+    source = urlsplit(image["props"]["src"])
+    assert source.path == "/api/v1/system/img/0"
+    assert parse_qs(source.query) == {"imgurl": [poster], "cache": ["true"]}
 
 
 def test_timeline_is_readonly_and_deduplicates_by_source_type_and_id():

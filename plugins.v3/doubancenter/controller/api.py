@@ -118,7 +118,7 @@ def api_folio_repair_preview(plugin, request: api_schemas.FolioRepairPreviewRequ
         source, media_id = _normalize_request_identity(item.media_source, item.media_id)
         targets.append({**item.model_dump(), "media_source": source.value, "media_id": media_id})
     try:
-        result = folio_repair.preview(plugin, targets)
+        result = folio_repair.preview(plugin, targets, refresh_posters=request.refresh_posters)
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
     return _to_response(result, api_schemas.FolioRepairPreviewData)

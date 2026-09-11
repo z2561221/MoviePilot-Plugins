@@ -92,6 +92,28 @@ def _poster(path, fallback=""):
     return base + "/t/p/original" + str(path)
 
 
+def subject_poster(subject) -> str:
+    """优先读取豆瓣详情的条目海报，不用整剧图片替代分段封面。"""
+    picture = value(subject, "pic") or {}
+    for poster in (value(picture, "large"), value(picture, "normal"),
+                   value(subject, "poster_path"), value(subject, "cover_url")):
+        if isinstance(poster, str) and poster.startswith(("https://", "http://")):
+            return poster
+    return ""
+
+
+def load_subject_poster(chain, subject_id: str) -> str:
+    """只按已经确认的豆瓣 ID 取图，拒绝缺失、错条目或错误类型的详情。"""
+    subject = _query(chain.douban_info, doubanid=str(subject_id), mtype=MediaType.TV)
+    actual_id = str(value(subject, "id") or value(subject, "media_id") or "")
+    if actual_id != str(subject_id) or _tv_status(subject) is not True:
+        raise FolioLookupError("豆瓣海报详情与已核验条目不一致")
+    poster = subject_poster(subject)
+    if not poster:
+        raise FolioLookupError("已核验豆瓣条目暂无海报，保留原图")
+    return poster
+
+
 def season_facts(media, origin: dict) -> dict:
     """从宿主已识别媒体取实际季首播日，保留剧集组与原始季的区别。"""
     season = _number(origin.get("season"))
@@ -318,7 +340,7 @@ def resolve_tv_subject(chain, media, origin: dict) -> dict:
         item = {
             "resolved": True, "subject_id": candidate_id,
             "subject_name": value(detail, "title") or value(detail, "name") or (names[0] if names else ""),
-            "poster_path": facts["poster_path"], "facts": facts,
+            "poster_path": subject_poster(detail) or facts["poster_path"], "facts": facts,
         }
         if _covers_series(detail, facts):
             check["stage"] = "series_match"

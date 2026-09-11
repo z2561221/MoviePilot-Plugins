@@ -57,11 +57,14 @@ HUANZHU_SUBJECTS = [
 
 MUSHOKU_SUBJECTS = [
     {"id": "30513783", "title": "无职转生：到了异世界就拿出真本事", "year": "2021",
-     "type": "tv", "is_tv": True, "episodes_count": 11, "pubdate": ["2021-01-10(日本)"]},
+     "type": "tv", "is_tv": True, "episodes_count": 11, "pubdate": ["2021-01-10(日本)"],
+     "pic": {"large": "https://img3.doubanio.com/view/photo/m_ratio_poster/public/p2919762107.webp"}},
     {"id": "35306636", "title": "无职转生：到了异世界就拿出真本事 Part.2", "year": "2021",
-     "type": "tv", "is_tv": True, "episodes_count": 12, "pubdate": ["2021-10-03(日本)"]},
+     "type": "tv", "is_tv": True, "episodes_count": 12, "pubdate": ["2021-10-03(日本)"],
+     "pic": {"large": "https://img3.doubanio.com/view/photo/m_ratio_poster/public/p2649427633.webp"}},
     {"id": "35460731", "title": "无职转生Ⅱ 到了异世界就拿出真本事 Part.1", "year": "2023",
-     "type": "tv", "is_tv": True, "episodes_count": 13, "pubdate": ["2023-07-02(日本)"]},
+     "type": "tv", "is_tv": True, "episodes_count": 13, "pubdate": ["2023-07-02(日本)"],
+     "pic": {"large": "https://img9.doubanio.com/view/photo/m_ratio_poster/public/p2896229434.webp"}},
 ]
 
 

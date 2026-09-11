@@ -104,6 +104,7 @@ class FolioRepairPreviewRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     items: list[FolioRepairTarget] = Field(min_length=1, max_length=20)
+    refresh_posters: bool = False
 
 
 class FolioRepairApplyRequest(BaseModel):

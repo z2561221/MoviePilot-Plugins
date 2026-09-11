@@ -412,9 +412,7 @@ def test_fanren_reuses_tmdb_identity_and_converts_to_anime_douban(monkeypatch):
     assert record["subject_id"] == "34925294"
     assert record["media_source"] == MediaSource.Douban.value
     assert record["media_id"] == "34925294"
-    assert record["poster_path"] == (
-        "https://image.tmdb.org/t/p/original/u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg"
-    )
+    assert record["poster_path"] == "https://img.example/fanren.webp"
 
 
 def test_bleach_never_accepts_duke_of_death_title_candidate(monkeypatch):
@@ -549,9 +547,7 @@ def test_failed_status_persists_douban_identity_and_poster(monkeypatch):
     assert waiting["subject_id"] == "34925294"
     assert waiting["media_source"] == MediaSource.Douban.value
     assert waiting["media_id"] == "34925294"
-    assert waiting["poster_path"] == (
-        "https://image.tmdb.org/t/p/original/u1VRjvvCIVwb1MUhoxSAUimhoKZ.jpg"
-    )
+    assert waiting["poster_path"] == "https://img.example/fanren.webp"
     assert waiting["origin"]["media_id"] == "106449"
     assert waiting["identity_status"] == "verified"
 

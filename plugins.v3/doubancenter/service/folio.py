@@ -777,7 +777,7 @@ def _poster_from_douban(value) -> str:
 
 
 def _is_douban_poster_url(value: str) -> bool:
-    """判断地址是否属于已确认失效的豆瓣图片源。"""
+    """识别旧档案中的豆瓣原图地址。"""
     host = (urlparse(str(value or "")).hostname or "").lower().rstrip(".")
     return bool(re.fullmatch(r"img\d*\.doubanio\.com", host))
 
@@ -1047,12 +1047,12 @@ def _sync_to_douban(
         if detail:
             name = _value_from_mapping(detail, "title", "name") or name or title
             poster = _poster_from_douban(detail)
-    # 时间线海报统一使用 TMDB，不能把豆瓣转换结果中的 cover_url 再写回去。
-    tmdb_poster = verified.get("poster_path") or _FOLIO_TMDB_POSTER_FALLBACKS.get(str(sid), {}).get("poster_path", "")
-    if not tmdb_poster:
-        tmdb_poster = _poster_from_tmdb_media(mediainfo)
-    if not tmdb_poster:
-        tmdb_poster = _tmdb_poster_for_record(
+    # 已核验条目优先使用各自的豆瓣海报，缺图时沿用 TMDB 回退。
+    poster = verified.get("poster_path") or _FOLIO_TMDB_POSTER_FALLBACKS.get(str(sid), {}).get("poster_path", "")
+    if not poster:
+        poster = _poster_from_tmdb_media(mediainfo)
+    if not poster:
+        poster = _tmdb_poster_for_record(
             self,
             title,
             {
@@ -1063,7 +1063,6 @@ def _sync_to_douban(
             },
             detail=mediainfo,
         )
-    poster = tmdb_poster
     if sid:
         logger.info(f"查询：{title} => 匹配豆瓣：{name}")
         if dh.set_watching_status(subject_id=sid, status=status, private=self._folio_private):
@@ -1134,7 +1133,7 @@ def repair_folio_history(self) -> int:
         subject_name = str(record.get("subject_name") or title)
         poster = str(record.get("poster_path") or "")
         detail = None
-        if not poster or _is_douban_poster_url(poster):
+        if not poster or (_is_douban_poster_url(poster) and record.get("identity_status") != "verified"):
             poster = _tmdb_poster_for_record(self, title, record)
             if not poster:
                 detail = _load_douban_media(str(media_id), subject_name, media_type)

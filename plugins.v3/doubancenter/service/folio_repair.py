@@ -45,7 +45,7 @@ def _replacement(record: dict, origin: dict, match: dict) -> dict:
     }
 
 
-def preview(plugin, targets: list[dict]) -> dict:
+def preview(plugin, targets: list[dict], *, refresh_posters: bool = False) -> dict:
     """只读核验指定记录，返回可审阅的逐条修正对照。"""
     with plugin._sync_lock:
         snapshot = copy.deepcopy(storage.read_folio_data(plugin))
@@ -70,8 +70,27 @@ def preview(plugin, targets: list[dict]) -> dict:
         if not isinstance(record, dict):
             item["reason"] = "原始记录不存在"
             continue
-        if (record.get("identity_status") == "verified"
-                and folio_record.origin_key(record.get("origin") or {}) == origin_id):
+        verified = (record.get("identity_status") == "verified"
+                    and folio_record.origin_key(record.get("origin") or {}) == origin_id)
+        if refresh_posters:
+            if (not verified or record.get("media_source") != "douban"
+                    or not record.get("subject_id")
+                    or str(record.get("media_id")) != str(record["subject_id"])):
+                item["reason"] = "仅可刷新播放身份和豆瓣条目一致的已核验档案海报"
+                continue
+            try:
+                poster = folio_media.load_subject_poster(chain, record["subject_id"])
+            except folio_media.FolioLookupError as err:
+                item["reason"] = str(err)
+                continue
+            replacement = {**record, "poster_path": poster}
+            changed = replacement != record
+            item.update(status="ready" if changed else "unchanged", changed=changed, after=replacement,
+                        evidence={"subject_id": record["subject_id"], "poster_path": poster,
+                                  "poster_source": "douban"})
+            projected[key] = replacement
+            continue
+        if verified:
             item.update(status="unchanged", after=record)
             continue
         if any(other_key != key and isinstance(other, dict)
