@@ -4,6 +4,7 @@ import datetime
 from typing import Callable, Dict, List, Optional
 from urllib.parse import urlencode, urlparse
 
+from ..adapter import folio_library
 from ..model.folio_record import timeline_records
 from ..storage import records as storage
 
@@ -16,7 +17,7 @@ def get_folio_data(plugin, raw: bool = False) -> dict:
     data = storage.read_folio_data(plugin)
     if not data:
         data = storage.read_folio_data(plugin, plugin_id="DoubanCenter")
-    return {"data": data if raw else timeline_records(data)}
+    return {"data": data if raw else folio_library.project_posters(plugin, timeline_records(data))}
 
 
 def get_timeline_items(
@@ -26,6 +27,7 @@ def get_timeline_items(
 ) -> List[dict]:
     """按固定单排策略构建豆瓣时间线条目。"""
     data = storage.read_folio_data(plugin)
+    data = folio_library.project_posters(plugin, timeline_records(data))
     return build_timeline_items(
         data,
         mobile=mobile,

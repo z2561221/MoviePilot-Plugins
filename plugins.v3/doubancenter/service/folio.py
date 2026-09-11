@@ -15,7 +15,7 @@ from app.sdk.media import MetaInfo
 from app.sdk.services import MediaServerHelper, MediaServerIdentityHelper
 
 from .. import utils
-from ..adapter import folio_media
+from ..adapter import folio_library, folio_media
 from ..adapter.douban_account import DoubanApi
 from ..model import folio_record
 from ..model.identity import (
@@ -609,6 +609,9 @@ def _process_tv_show(self, event_info, processed: Dict, played: bool = False):
     title = utils.format_title(title, season_id)
     status = "collect" if len(episodes) == episode_id else "do"
     origin = _playback_origin(mediainfo, "TV", season_id)
+    library_context = folio_library.playback_context(event_info)
+    if library_context:
+        origin["mediaserver"] = library_context
     _, previous = folio_record.find_record(processed, origin, title)
     if folio_record.already_synced(previous, status):
         logger.info(f"{title} 相同播放身份已同步，不重复处理")
