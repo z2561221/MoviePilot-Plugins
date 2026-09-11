@@ -1,6 +1,6 @@
 {
   "plugin_id": "DoubanCenter",
-  "version": "3.0.4",
+  "version": "3.0.6",
   "agent_tools": [],
   "capabilities": [
     "rank_subscription",
@@ -8,7 +8,8 @@
     "dashboard_overview",
     "archive_management",
     "v3_media_identity",
-    "v3_rest_envelope"
+    "v3_rest_envelope",
+    "library_season_posters"
   ],
-  "notes": "MoviePilot V3 专版；统一媒体身份、存量数据迁移、REST 单层响应与 Vue 联邦 API 均按 V3 合同实现，不注册 Agent tools。"
+  "notes": "MoviePilot V3 专版；统一媒体身份、存量数据迁移、REST 单层响应与 Vue 联邦 API 均按 V3 合同实现，不注册 Agent tools。时间线只读优先展示已核验的媒体库季海报，原档案海报保留为回退；新播放记录保留服务器及实际季条目 ID。"
 }

@@ -2,19 +2,22 @@
 
 import datetime
 from typing import Callable, Dict, List, Optional
+from urllib.parse import urlencode, urlparse
 
+from ..adapter import folio_library
+from ..model.folio_record import timeline_records
 from ..storage import records as storage
 
 TIMELINE_MONTH_LIMIT = 3
 TIMELINE_ITEM_LIMIT = 50
 
 
-def get_folio_data(plugin) -> dict:
+def get_folio_data(plugin, raw: bool = False) -> dict:
     """读取豆瓣时间数据，当前插件无数据时回退到原 DoubanCenter 数据。"""
     data = storage.read_folio_data(plugin)
     if not data:
         data = storage.read_folio_data(plugin, plugin_id="DoubanCenter")
-    return {"data": data}
+    return {"data": data if raw else folio_library.project_posters(plugin, timeline_records(data))}
 
 
 def get_timeline_items(
@@ -24,6 +27,7 @@ def get_timeline_items(
 ) -> List[dict]:
     """按固定单排策略构建豆瓣时间线条目。"""
     data = storage.read_folio_data(plugin)
+    data = folio_library.project_posters(plugin, timeline_records(data))
     return build_timeline_items(
         data,
         mobile=mobile,
@@ -45,28 +49,26 @@ def build_timeline_items(
     content = []
     last_month = None
     current = None
-    remaining_months = int(month_limit or 0) - 1
     sorted_data = sorted(
-        (data or {}).items(),
-        key=lambda item: datetime.datetime.strptime(item[1]["timestamp"], "%Y-%m-%d %H:%M:%S"),
+        timeline_records(data).items(),
+        key=lambda item: str(item[1]["timestamp"]),
     )
     for _, value in sorted_data[::-1]:
         if not isinstance(value, dict):
             continue
         poster = _resolve_poster_path(value, poster_resolver)
-        if not poster:
-            continue
-        timestamp = datetime.datetime.strptime(value["timestamp"], "%Y-%m-%d %H:%M:%S")
-        if timestamp.month != last_month or last_month is None:
-            if remaining_months < 1:
-                break
-            if last_month:
+        timestamp = datetime.datetime.fromisoformat(str(value["timestamp"]))
+        month = (timestamp.year, timestamp.month)
+        if month != last_month:
+            if current:
                 finish_timeline_item(current, item_limit)
                 content.append(current)
-                remaining_months -= 1
-            current = _new_timeline_item(timestamp.month)
-            last_month = timestamp.month
-        current["content"][0]["content"][1]["content"].append(_poster_card(value, poster, mobile=mobile))
+            if month_limit > 0 and len(content) >= month_limit:
+                current = None
+                break
+            current = _new_timeline_item(timestamp.month, timestamp.year)
+            last_month = month
+        current["content"][0]["content"][1]["content"].append(_poster_card(value, poster or "", mobile=mobile))
     if current:
         finish_timeline_item(current, item_limit)
         content.append(current)
@@ -76,8 +78,9 @@ def build_timeline_items(
 def finish_timeline_item(item: dict, limit: int) -> None:
     """补齐月份标题统计并限制该月展示条数。"""
     cards = item["content"][0]["content"][1]["content"]
+    cards = cards[:limit] if limit > 0 else cards
     item["content"][0]["content"][0]["html"] += f"<span class='text-sm font-normal'>看过{len(cards)}部</span>"
-    item["content"][0]["content"][1]["content"] = cards[:limit]
+    item["content"][0]["content"][1]["content"] = cards
 
 
 def _resolve_poster_path(
@@ -93,7 +96,7 @@ def _resolve_poster_path(
     return poster_resolver(value)
 
 
-def _new_timeline_item(month: int) -> dict:
+def _new_timeline_item(month: int, year: int) -> dict:
     """创建月份时间线组件骨架。"""
     return {
         "component": "VTimelineItem",
@@ -109,7 +112,7 @@ def _new_timeline_item(month: int) -> dict:
                             "style": "padding:0rem 0rem 1rem 0rem;font-weight:bold;",
                             "class": "text-base",
                         },
-                        "html": f"{month}月 ",
+                        "html": f"{year}年{month}月 ",
                     },
                     {
                         "component": "VRow",
@@ -124,6 +127,17 @@ def _new_timeline_item(month: int) -> dict:
 
 def _poster_card(value: dict, poster: str, *, mobile: bool = False) -> dict:
     """创建豆瓣条目海报卡片。"""
+    dimensions = "width:44px;height:66px;" if mobile else "width:66px;height:99px;"
+    thumbnail = poster.replace("/original/", "/w200/")
+    if (urlparse(thumbnail).hostname or "").lower().endswith(".doubanio.com"):
+        thumbnail = "/api/v1/system/img/0?" + urlencode({"imgurl": thumbnail, "cache": "true"})
+    picture = {
+        "component": "VImg",
+        "props": {"src": thumbnail, "style": dimensions, "aspect-ratio": "2/3"},
+    } if poster else {
+        "component": "div", "props": {"style": dimensions + "display:grid;place-items:center;"},
+        "content": [{"component": "VIcon", "props": {"icon": "mdi-filmstrip", "size": 18}}],
+    }
     return {
         "component": "a",
         "props": {
@@ -132,22 +146,15 @@ def _poster_card(value: dict, poster: str, *, mobile: bool = False) -> dict:
                 f"uri=/movie/{value.get('subject_id')}?from=mdouban&open=app"
             ),
             "target": "_blank",
+            "rel": "noopener noreferrer",
+            "title": value.get("display_title") or value.get("subject_name") or "",
             "style": "padding: 0.2rem",
         },
         "content": [
             {
                 "component": "VCard",
-                "props": {"class": "elevation-4"},
-                "content": [
-                    {
-                        "component": "VImg",
-                        "props": {
-                            "src": poster.replace("/original/", "/w200/"),
-                            "style": "width:44px;height:66px;" if mobile else "width:66px;height:99px;",
-                            "aspect-ratio": "2/3",
-                        },
-                    }
-                ],
+                "props": {"class": "elevation-4", "style": "position:relative;"},
+                "content": [picture],
             }
         ],
     }

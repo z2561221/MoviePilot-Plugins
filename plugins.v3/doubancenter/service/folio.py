@@ -9,15 +9,23 @@ from urllib.parse import urlparse
 
 from app.chain.media import MediaChain
 from app.chain.mediaserver import MediaServerChain
+from app.schemas.types import MediaSource, MediaType, MessageType
 from app.sdk.logging import logger
 from app.sdk.media import MetaInfo
-from app.schemas.types import MediaSource, MediaType, MessageType
 from app.sdk.services import MediaServerHelper, MediaServerIdentityHelper
 
 from .. import utils
+from ..adapter import folio_library, folio_media
 from ..adapter.douban_account import DoubanApi
-from ..model.identity import convert_identity, identity_from_media, legacy_identity, recognize_media
+from ..model import folio_record
+from ..model.identity import (
+    convert_identity,
+    identity_from_media,
+    legacy_identity,
+    recognize_media,
+)
 from ..storage import records as storage
+from . import folio_watch
 
 WISH_NOTIFY_THROTTLE_SECONDS = 6 * 60 * 60
 WISH_RECOGNIZE_MAX_RETRIES = 3
@@ -576,9 +584,6 @@ def _process_tv_show(self, event_info, processed: Dict, played: bool = False):
         media_source, media_id = _event_media_identity(event_info)
     if not played:
         logger.info(f"开始播放 {title} 第{season_id}季 第{episode_id}集")
-    if episode_id < 2 and self._folio_first:
-        logger.info("剧集第1集的活动不同步到豆瓣档案，跳过")
-        return
     meta = MetaInfo(title)
     meta.begin_season = season_id
     meta.type = MediaType("电视剧")
@@ -598,18 +603,46 @@ def _process_tv_show(self, event_info, processed: Dict, played: bool = False):
         if not mediainfo:
             logger.error('仍然未识别到媒体信息')
             return
-    episodes = mediainfo.seasons.get(season_id, [])
-    title = utils.format_title(title, season_id)
-    status = "collect" if len(episodes) == episode_id else "do"
-    if processed.get(title) and len(episodes) != episode_id:
-        logger.info(f"{title} 已同步到豆瓣在看，不处理")
+    origin = _playback_origin(mediainfo, "TV", season_id)
+    library_context = folio_library.playback_context(event_info)
+    noted_library_time = False
+    if library_context:
+        origin["mediaserver"] = library_context
+        if folio_record.library_key(origin):
+            folio_watch.observe(self, origin, event_info, processed, played=played)
+            noted_library_time = True
+        library = folio_library.load_season(self, origin)
+        if not library:
+            origin["library_season"] = {}
+            wait_key, _ = folio_record.find_record(self._wait_process or {}, origin, title)
+            _save_waiting_playback(self, wait_key, title, "do", event_info.item_type, origin,
+                                   {"resolved": False, "reason": "实际媒体库分季暂不可核验"})
+            return
+        origin = folio_library.bind_season(origin, library)
+    if not noted_library_time:
+        folio_watch.observe(self, origin, event_info, processed, played=played)
+    if episode_id < 2 and self._folio_first:
+        logger.info("已记录首次播放时间，第1集活动不同步到豆瓣档案")
         return
-    if _sync_to_douban(self, title, status, event_info.item_type, processed, mediainfo):
+    episodes = mediainfo.seasons.get(season_id, mediainfo.seasons.get(str(season_id), []))
+    if library_context:
+        episodes = origin["library_season"]["episode_numbers"]
+    title = utils.format_title(title, season_id)
+    # 开始播放末集只证明在看；实际库内季的看过由明确已看事件推进。
+    finished = bool(episodes) and episode_id == max(episodes)
+    status = "collect" if finished and (played or not library_context) else "do"
+    _, previous = folio_record.find_record(processed, origin, title)
+    if (folio_record.origin_key(previous.get("origin") or {}) == folio_record.origin_key(origin)
+            and folio_record.already_synced(previous, status)):
+        logger.info(f"{title} 相同播放身份已同步，不重复处理")
+        return
+    if _sync_to_douban(self, title, status, event_info.item_type, processed, mediainfo, origin=origin):
         logger.info("尝试同步之前同步失败的条目")
         self._wait_process = storage.read_folio_wait(self)
         for k, v in list(self._wait_process.items()):
-            logger.info(f"尝试同步: {k}")
-            _sync_to_douban(self, k, v["status"], v["type"], processed, None)
+            retry_title = v.get("display_title") or v.get("subject_name") or k
+            logger.info(f"尝试同步: {retry_title}")
+            _sync_to_douban(self, retry_title, v["status"], v["type"], processed, None, origin=v.get("origin"))
 
 
 def _process_movie(self, event_info, processed: Dict, played: bool = False):
@@ -627,10 +660,24 @@ def _process_movie(self, event_info, processed: Dict, played: bool = False):
         if not mediainfo:
             logger.error('仍然未识别到媒体信息')
             return
-    if processed.get(title):
+    origin = _playback_origin(mediainfo, "MOV")
+    _, previous = folio_record.find_record(processed, origin, title)
+    if previous:
         logger.info(f"{title} 已同步到豆瓣在看，不处理")
         return
-    _sync_to_douban(self, title, "collect", event_info.item_type, processed, mediainfo)
+    _sync_to_douban(self, title, "collect", event_info.item_type, processed, mediainfo, origin=origin)
+
+
+def _playback_origin(mediainfo, media_type: str, season=None) -> dict:
+    """保存播放器实际使用的媒体身份、季号和剧集组。"""
+    source, media_id = identity_from_media(mediainfo)
+    return {
+        "media_source": getattr(source, "value", source) or "",
+        "media_id": str(media_id or ""),
+        "type": folio_record.media_kind(media_type),
+        "season": season,
+        "episode_group": str(getattr(mediainfo, "episode_group", None) or ""),
+    }
 
 
 def _recognize_media(
@@ -717,7 +764,10 @@ def _media_type_for_douban(media_type: str) -> MediaType:
 
 def _media_season(title: str, mediainfo=None) -> Optional[int]:
     """提取跨源转换需要的剧集季号。"""
-    value = getattr(mediainfo, "season", None) if mediainfo is not None else None
+    explicit = re.search(r"(?:第\s*(\d+)\s*季|\bS(\d+)\b)", title, re.IGNORECASE)
+    value = next((part for part in explicit.groups() if part), None) if explicit else None
+    if value is None:
+        value = getattr(mediainfo, "season", None) if mediainfo is not None else None
     if value is None:
         value = getattr(MetaInfo(title), "begin_season", None)
     try:
@@ -750,7 +800,7 @@ def _poster_from_douban(value) -> str:
 
 
 def _is_douban_poster_url(value: str) -> bool:
-    """判断地址是否属于已确认失效的豆瓣图片源。"""
+    """识别旧档案中的豆瓣原图地址。"""
     host = (urlparse(str(value or "")).hostname or "").lower().rstrip(".")
     return bool(re.fullmatch(r"img\d*\.doubanio\.com", host))
 
@@ -764,14 +814,16 @@ def _poster_from_tmdb_media(value) -> str:
     return ""
 
 
-def _canonical_douban_id_from_poster(poster: str) -> str:
-    """根据已核对的 TMDB 海报反查稳定的豆瓣 subject ID。"""
+def _canonical_douban_id_from_poster(poster: str, current_id: str = "") -> str:
+    """只修复已核实的真人版错配，不从共用海报推断任意分季身份。"""
+    if str(current_id) != "35861087":
+        return ""
     normalized = str(poster or "").split("?", 1)[0].rstrip("/")
     if not normalized:
         return ""
     for douban_id, fallback in _FOLIO_TMDB_POSTER_FALLBACKS.items():
         expected = str(fallback.get("poster_path") or "").split("?", 1)[0].rstrip("/")
-        if expected and normalized == expected:
+        if douban_id == "34925294" and expected and normalized == expected:
             return str(douban_id)
     return ""
 
@@ -851,6 +903,9 @@ def _load_tmdb_media(tmdb_id: str, title: str, media_type: str, year: str = ""):
 
 def _tmdb_poster_for_record(self, title: str, record: Mapping, detail=None) -> str:
     """把豆瓣时间记录转换为 TMDB 海报，失败时使用已核对的精确兜底。"""
+    if record.get("identity_status") == "verified" and record.get("origin"):
+        # 经分季核验后只复用该季的图片依据，不能退回首部的固定海报。
+        return str((record.get("season_facts") or {}).get("poster_path") or "")
     source, media_id = identity_from_media(record)
     if not source or not media_id:
         return ""
@@ -930,22 +985,116 @@ def _resolve_douban_subject(self, title: str, media_type: str, mediainfo=None, a
     return name, subject_id, ""
 
 
-def _sync_to_douban(self, title: str, status: str, mediaType: str, processed: Dict, mediainfo=None) -> bool:
-    """解析并写入豆瓣观看状态，优先复用身份和已有 subject。"""
+def _validated_playback_subject(title, mediainfo, origin, previous, waiting):
+    """已核验的季身份可复用，否则先执行严格分季匹配。"""
+    for record in (previous, waiting):
+        if (record.get("identity_status") == "verified"
+                and (not folio_record.library_key(origin) or record.get("identity_scope") == "library_season")
+                and folio_record.origin_key(record.get("origin") or {}) == folio_record.origin_key(origin)
+                and record.get("subject_id")):
+            return {
+                "resolved": True, "subject_id": str(record["subject_id"]),
+                "subject_name": record.get("subject_name") or title,
+                "poster_path": record.get("poster_path") or (record.get("season_facts") or {}).get("poster_path") or "",
+                 "identity_scope": record.get("identity_scope") or "season",
+                "related_subjects": record.get("related_subjects") or [],
+                "facts": record.get("season_facts") or {},
+            }
+    try:
+        chain = MediaChain()
+        if mediainfo is None:
+            mediainfo = folio_media.load_playback_media(chain, origin, title)
+        if mediainfo is None:
+            return {"resolved": False, "reason": "缺少可核验的原始播放媒体"}
+        return folio_media.resolve_tv_subject(chain, mediainfo, origin)
+    except (folio_media.FolioLookupError, ValueError, TypeError, AttributeError) as err:
+        logger.warning(f"{title} 分季媒体查询失败：{type(err).__name__}", exc_info=True)
+        return {"resolved": False, "reason": "分季媒体查询失败，等待后续重试"}
+
+
+def _save_waiting_playback(self, key, title, status, media_type, origin, verified, poster=""):
+    """按播放身份保留待重试项，不让后来的在看事件覆盖看过状态。"""
+    self._wait_process = self._wait_process or {}
+    previous = self._wait_process.get(key) or {}
+    record = {
+        **previous, "display_title": title,
+        "status": "collect" if previous.get("status") == "collect" else status,
+        "type": media_type,
+    }
+    if origin:
+        record["origin"] = dict(origin)
+    if verified:
+        record["identity_status"] = "verified" if verified.get("resolved") else "unresolved"
+        record["identity_reason"] = verified.get("reason") or ""
+        record["season_facts"] = verified.get("facts") or {}
+    if verified.get("resolved"):
+        record.update({
+            "subject_id": str(verified["subject_id"]),
+            "subject_name": verified["subject_name"],
+            "media_source": MediaSource.Douban.value,
+            "media_id": str(verified["subject_id"]),
+            "identity_scope": verified["identity_scope"], "poster_path": poster,
+        })
+    self._wait_process[key] = record
+    storage.save_folio_wait(self, self._wait_process)
+
+
+def _sync_to_douban(
+    self, title: str, status: str, mediaType: str, processed: Dict, mediainfo=None, *, origin=None,
+) -> bool:
+    """按播放身份核验并同步，未确认的剧集季禁止写入豆瓣。"""
     logger.info(f"开始尝试获取 {title} 豆瓣id")
+    is_tv = folio_record.media_kind(mediaType) == "tv"
+    if is_tv and not origin and mediainfo is not None:
+        origin = _playback_origin(mediainfo, mediaType, _media_season(title, mediainfo) or 1)
+    if is_tv and not folio_record.origin_key(origin or {}):
+        logger.warning(f"{title} 缺少原始播放身份，保留旧待重试条目，暂不写入豆瓣")
+        return False
+    record_key, previous = folio_record.find_record(processed, origin or {}, title)
+    if previous.get("identity_scope") == "library_season" and not folio_record.library_key(origin or {}):
+        # 已修复的真实季接管旧 Cours 待重试项，不能重新写回旧分组身份。
+        origin = previous["origin"]
+    if (origin and not origin.get("library_season")
+            and (origin.get("mediaserver") or (is_tv and mediainfo is None))):
+        # 旧重试没有服务器字段时也先查唯一库内季，避免新旧剧集组各写一条。
+        library = folio_library.load_season(self, origin, refresh=True)
+        if not library and origin.get("mediaserver"):
+            wait_key, _ = folio_record.find_record(self._wait_process or {}, origin, title)
+            _save_waiting_playback(self, wait_key, title, status, mediaType, origin,
+                                   {"resolved": False, "reason": "实际媒体库分季暂不可核验"})
+            return False
+        if library:
+            origin = folio_library.bind_season(origin, library)
+            record_key, previous = folio_record.find_record(processed, origin, title)
+    wait_key, waiting = folio_record.find_record(self._wait_process or {}, origin or {}, title)
+    same_waiting_origin = folio_record.origin_key(waiting.get("origin") or {}) == folio_record.origin_key(origin or {})
+    if waiting.get("status") == "collect" and same_waiting_origin:
+        status = "collect"
+    if (origin and folio_record.origin_key(previous.get("origin") or {}) == folio_record.origin_key(origin)
+            and folio_record.already_synced(previous, status)):
+        return True
     dh = DoubanApi(user_cookie=self._folio_cookie)
-    name, sid, poster = _resolve_douban_subject(self, title, mediaType, mediainfo, api=dh)
+    verified = {}
+    if is_tv:
+        verified = _validated_playback_subject(title, mediainfo, origin, previous, waiting)
+        if not verified.get("resolved"):
+            logger.warning(f"{title} 分季身份待核实，暂不写入豆瓣：{verified.get('reason', '')}")
+            _save_waiting_playback(self, wait_key, title, status, mediaType, origin, verified)
+            return False
+        name, sid, poster = verified["subject_name"], verified["subject_id"], verified.get("poster_path", "")
+    else:
+        name, sid, poster = _resolve_douban_subject(self, title, mediaType, mediainfo, api=dh)
     if sid and not poster:
         detail = _load_douban_media(sid, name or title, mediaType)
         if detail:
             name = _value_from_mapping(detail, "title", "name") or name or title
             poster = _poster_from_douban(detail)
-    # 时间线海报统一使用 TMDB，不能把豆瓣转换结果中的 cover_url 再写回去。
-    tmdb_poster = _FOLIO_TMDB_POSTER_FALLBACKS.get(str(sid), {}).get("poster_path", "")
-    if not tmdb_poster:
-        tmdb_poster = _poster_from_tmdb_media(mediainfo)
-    if not tmdb_poster:
-        tmdb_poster = _tmdb_poster_for_record(
+    # 已核验条目优先使用各自的豆瓣海报，缺图时沿用 TMDB 回退。
+    poster = verified.get("poster_path") or _FOLIO_TMDB_POSTER_FALLBACKS.get(str(sid), {}).get("poster_path", "")
+    if not poster:
+        poster = _poster_from_tmdb_media(mediainfo)
+    if not poster:
+        poster = _tmdb_poster_for_record(
             self,
             title,
             {
@@ -956,27 +1105,43 @@ def _sync_to_douban(self, title: str, status: str, mediaType: str, processed: Di
             },
             detail=mediainfo,
         )
-    poster = tmdb_poster
     if sid:
         logger.info(f"查询：{title} => 匹配豆瓣：{name}")
         if dh.set_watching_status(subject_id=sid, status=status, private=self._folio_private):
-            processed[title] = {
+            record = {
+                **previous,
                 "subject_id": sid, "subject_name": name or title,
                 "media_source": MediaSource.Douban.value, "media_id": str(sid),
-                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                **folio_watch.sync_fields(self, origin or {}, previous),
                 "poster_path": poster,
-                "type": "电视剧" if mediaType == "TV" else "电影"
+                "type": "电视剧" if is_tv else "电影",
+                "watch_status": status,
             }
-            if title in (self._wait_process or {}):
-                del self._wait_process[title]
+            if origin:
+                record["origin"] = dict(origin)
+                record["display_title"] = (folio_record.library_title(name or title)
+                                           if folio_record.library_key(origin) else name or title)
+            if verified:
+                record.update({
+                    "identity_status": "verified", "identity_scope": verified["identity_scope"],
+                    "season_facts": verified.get("facts") or {},
+                    "related_subjects": verified.get("related_subjects") or [],
+                    "season_label": f"第{origin['season']}季" if origin.get("season") is not None else "",
+                })
+            processed[record_key] = record
+            if wait_key in (self._wait_process or {}):
+                del self._wait_process[wait_key]
             storage.save_folio_data(self, processed)
             storage.save_folio_wait(self, self._wait_process)
             logger.info(f"{title} 同步到档案成功")
             _send_folio_notification(self, True, f"《{title}》已成功同步到豆瓣档案。")
             return True
         logger.error(f'{title} 同步到档案失败')
-        if title not in (self._wait_process or {}):
-            self._wait_process[title] = {
+        if verified:
+            _save_waiting_playback(self, wait_key, title, status, mediaType, origin, verified, poster)
+        else:
+            self._wait_process = self._wait_process or {}
+            self._wait_process[wait_key] = {
                 "subject_id": sid,
                 "subject_name": name or title,
                 "media_source": MediaSource.Douban.value,
@@ -985,8 +1150,10 @@ def _sync_to_douban(self, title: str, status: str, mediaType: str, processed: Di
                 "poster_path": poster,
                 "type": mediaType,
             }
+            if origin:
+                self._wait_process[wait_key]["origin"] = dict(origin)
             storage.save_folio_wait(self, self._wait_process)
-            logger.error(f'{title} 添加到待同步列表')
+        logger.error(f'{title} 添加到待同步列表')
         _send_folio_notification(self, False, f"《{title}》同步到豆瓣档案失败")
     else:
         logger.warning(f"获取 {title} subject_id 失败")
@@ -1010,33 +1177,20 @@ def repair_folio_history(self) -> int:
         subject_name = str(record.get("subject_name") or title)
         poster = str(record.get("poster_path") or "")
         detail = None
-        if not poster or _is_douban_poster_url(poster):
+        if not poster or (_is_douban_poster_url(poster) and record.get("identity_status") != "verified"):
             poster = _tmdb_poster_for_record(self, title, record)
             if not poster:
                 detail = _load_douban_media(str(media_id), subject_name, media_type)
                 subject_name = _value_from_mapping(detail, "title", "name") or subject_name
                 poster = _tmdb_poster_for_record(self, title, record, detail=detail)
 
-        # 已核对的 TMDB 海报携带了比标题搜索更可靠的跨源身份；优先用它反查
-        # 豆瓣 subject，避免把动画条目重新识别成同名真人版。
-        canonical_douban_id = _canonical_douban_id_from_poster(poster)
+        # 共用整剧海报不是分季身份凭据；只保留已核实的历史错配修正。
+        canonical_douban_id = (
+            _canonical_douban_id_from_poster(poster, str(media_id))
+            if record.get("identity_status") != "verified" else ""
+        )
         if canonical_douban_id:
             media_id = canonical_douban_id
-
-        # 只对明显的标题错配尝试重新识别；同名条目没有足够信息时保持原记录，
-        # 避免用不确定的标题搜索覆盖用户已有的豆瓣 ID。
-        if not canonical_douban_id and not _subject_title_matches(title, subject_name):
-            meta = MetaInfo(_normalize_subject_title(title))
-            meta.type = _media_type_for_douban(media_type)
-            candidate = _recognize_media(meta)
-            if candidate and _recognized_media_matches_meta(candidate, meta):
-                name, candidate_id, candidate_poster, _ = _douban_match_from_identity(
-                    title, media_type, candidate
-                )
-                if candidate_id and _subject_title_matches(title, name):
-                    subject_name = name or subject_name
-                    media_id = str(candidate_id)
-                    poster = poster or candidate_poster
 
         updates = {
             "subject_id": str(media_id),

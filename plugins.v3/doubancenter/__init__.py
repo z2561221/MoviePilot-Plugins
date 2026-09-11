@@ -1,28 +1,28 @@
 """
-DoubanCenter v3.0.3 - MoviePilot V3 本地插件
+DoubanCenter v3.0.6 - MoviePilot V3 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.plugins import _PluginBase
-from app.sdk.events import Event, eventmanager
 from app.schemas.types import EventType
+from app.sdk.events import Event, eventmanager
 
-from . import migration
-from . import utils
+from . import migration, utils
 from .controller import api as api_controller
+from .controller import schemas as api_schemas
+from .model import rank as rank_model
 from .model.config import (
     DEFAULT_CRON,
-    DEFAULT_WISH_CRON,
     DEFAULT_RSSHUB_DOMAIN,
+    DEFAULT_WISH_CRON,
     GENRE_OPTIONS,
     REGION_OPTIONS,
     RESOLUTION_OPTIONS,
     default_config,
     normalize_rank_configs,
 )
-from .model import rank as rank_model
 from .service import dashboard as dash
 from .service import folio
 from .service import rank_pipeline as feed
@@ -37,7 +37,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "3.0.5"
+    plugin_version = "3.0.6"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
@@ -85,6 +85,7 @@ class DoubanCenter(_PluginBase):
         self._scheduler = None
         self._wait_process: Optional[Dict[str, Any]] = None
         self._sync_lock = threading.Lock()
+        self._folio_repair_plans: dict[str, Any] = {}
 
     def init_plugin(self, config: dict = None):
         """根据插件配置初始化运行状态并触发一次性任务。"""
@@ -216,9 +217,17 @@ class DoubanCenter(_PluginBase):
         """返回插件对外开放的 API 路由定义。"""
         return api_controller.get_api(self)
 
-    def api_folio_data(self):
+    def api_folio_data(self, raw: bool = False):
         """返回豆瓣时间数据。"""
-        return api_controller.api_folio_data(self)
+        return api_controller.api_folio_data(self, raw=raw)
+
+    def api_folio_repair_preview(self, request: api_schemas.FolioRepairPreviewRequest):
+        """预览观影档案的分季身份修正。"""
+        return api_controller.api_folio_repair_preview(self, request)
+
+    def api_folio_repair_apply(self, request: api_schemas.FolioRepairApplyRequest):
+        """应用当前实例已核验的档案修正预览。"""
+        return api_controller.api_folio_repair_apply(self, request)
 
     def api_repair_folio_posters(self):
         """修复豆瓣时间线历史海报。"""

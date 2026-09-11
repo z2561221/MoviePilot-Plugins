@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List
 
+from app import schemas
+from app.sdk.logging import logger
+from app.sdk.media import resolve_media_identity
 from fastapi import HTTPException
 
-from app import schemas
-from app.sdk.media import resolve_media_identity
-from app.sdk.logging import logger
-
 from ..service import dashboard as dash
-from ..service import folio
+from ..service import folio, folio_repair
 from ..service import rank_pipeline as feed
 from . import schemas as api_schemas
 
@@ -42,6 +41,8 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/restore_archive", plugin.api_restore_archive, ["POST"], "恢复归档记录"),
         ("/delete_archive", plugin.api_delete_archive, ["POST"], "彻底删除归档记录"),
         ("/repair_folio_posters", plugin.api_repair_folio_posters, ["POST"], "修复豆瓣时间线海报"),
+        ("/folio_repair/preview", plugin.api_folio_repair_preview, ["POST"], "预览观影档案分季修正"),
+        ("/folio_repair/apply", plugin.api_folio_repair_apply, ["POST"], "应用已核验的观影档案修正"),
     ]
     return [
         {
@@ -105,9 +106,31 @@ def _normalize_request_identity(media_source: Any, media_id: Any):
     return source, normalized_id
 
 
-def api_folio_data(plugin):
+def api_folio_data(plugin, raw: bool = False):
     """返回豆瓣时间数据。"""
-    return _invoke(api_schemas.FolioData, dash.api_folio_data, error_message="获取豆瓣时间数据失败", self=plugin)
+    return _invoke(api_schemas.FolioData, dash.api_folio_data, error_message="获取豆瓣时间数据失败", self=plugin, raw=raw)
+
+
+def api_folio_repair_preview(plugin, request: api_schemas.FolioRepairPreviewRequest):
+    """规范化源身份并返回只读修正预览。"""
+    targets = []
+    for item in request.items:
+        source, media_id = _normalize_request_identity(item.media_source, item.media_id)
+        targets.append({**item.model_dump(), "media_source": source.value, "media_id": media_id})
+    try:
+        result = folio_repair.preview(plugin, targets, refresh_posters=request.refresh_posters)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    return _to_response(result, api_schemas.FolioRepairPreviewData)
+
+
+def api_folio_repair_apply(plugin, request: api_schemas.FolioRepairApplyRequest):
+    """在并发校验和备份通过后应用修复。"""
+    try:
+        result = folio_repair.apply(plugin, request.plan_id)
+    except ValueError as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
+    return _to_response(result, api_schemas.FolioRepairApplyData)
 
 
 def api_overview(plugin):
@@ -306,8 +329,13 @@ def api_delete_archive(plugin, archive_id=""):
 
 def api_repair_folio_posters(plugin):
     """修复历史豆瓣时间线中的失效豆瓣海报。"""
+    def repair():
+        """与播放同步及身份修复使用同一把锁。"""
+        with plugin._sync_lock:
+            return {"updated": folio.repair_folio_history(plugin)}
+
     return _invoke(
         api_schemas.RepairFolioPostersData,
-        lambda: {"updated": folio.repair_folio_history(plugin)},
+        repair,
         error_message="修复豆瓣时间线海报失败",
     )

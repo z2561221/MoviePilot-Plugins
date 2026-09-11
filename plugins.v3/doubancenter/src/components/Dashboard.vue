@@ -300,7 +300,7 @@ const timelineGroups = computed(() => {
     }
     if (currentGroup.items.length < limitNum) {
       const poster = toPosterThumbnail(entry.poster_path)
-      currentGroup.items.push({ key: entry.key, subject_name: entry.subject_name || entry.key, subject_id: entry.subject_id, poster, type: entry.type })
+      currentGroup.items.push({ key: entry.key, subject_name: entry.display_title || entry.subject_name || entry.key, subject_id: entry.subject_id, poster, type: entry.type })
     }
   }
   return groups
@@ -410,7 +410,7 @@ onMounted(load)
 .dc-card { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; max-width: 100%; }
 .dc-load-alert__content { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 12px; }
 .dc-load-alert__content span { min-width: 0; overflow-wrap: anywhere; }
-.dc-poster { text-decoration: none; transition: transform .15s; display: block; border-radius: 4px; overflow: hidden; }
+.dc-poster { position: relative; text-decoration: none; transition: transform .15s; display: block; border-radius: 4px; overflow: hidden; }
 .dc-poster:hover { transform: translateY(-2px); }
 .dc-ph { width: 60px; height: 90px; display: flex; align-items: center; justify-content: center; background: rgba(var(--v-theme-on-surface), .05); color: rgba(var(--v-theme-on-surface), .25); border-radius: 4px; }
 .dc-rank-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; }

@@ -1,5 +1,6 @@
 """豆瓣中心 V3 Vue 联邦静态合同测试。"""
 
+import ast
 import json
 from pathlib import Path
 
@@ -149,9 +150,11 @@ def test_vue_components_use_instance_scoped_plugin_id():
 def test_timeline_api_reads_persisted_data_without_history_repair():
     """时间线 API 只读持久化数据，不同步触发依赖 TMDB 缓存的历史修复。"""
     source = DASHBOARD_BACKEND.read_text(encoding="utf-8")
-    function_source = source.split("def api_folio_data(self):", 1)[1].split("\ndef ", 1)[0]
+    function = next(node for node in ast.parse(source).body
+                    if isinstance(node, ast.FunctionDef) and node.name == "api_folio_data")
+    function_source = ast.get_source_segment(source, function)
 
-    assert "dashboard_folio_service.get_folio_data(self)" in function_source
+    assert "dashboard_folio_service.get_folio_data(self, raw=raw)" in function_source
     assert "repair_folio_history" not in function_source
 
 
