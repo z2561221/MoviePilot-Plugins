@@ -114,8 +114,35 @@ def load_subject_poster(chain, subject_id: str) -> str:
     return poster
 
 
+def _library_facts(media, origin: dict) -> dict:
+    """只使用实际入库集表解释库内季，识别器附带的 Cours 不具有优先权。"""
+    library = origin["library_season"]
+    first_date = _date(library.get("air_date"))
+    count = _number(library.get("episode_count"))
+    if not first_date or not count or not origin.get("mediaserver", {}).get("season_id"):
+        return {"resolved": False, "reason": "缺少可核验的媒体库季集信息"}
+    raw = value(media, "tmdb_info", {}) or {}
+    number = _number(origin.get("season"))
+    regular = next((item for item in raw.get("seasons", [])
+                    if _number(item.get("season_number")) == number), {})
+    poster = _poster(regular.get("poster_path"), value(media, "poster_path", ""))
+    dates = [date.isoformat() for item in library.get("episodes", []) if (date := _date(item.get("air_date")))]
+    return {
+        "resolved": True, "reason": "", "basis": "mediaserver", "season": number,
+        "native_season": number, "episode_group": "", "episode_count": count,
+        "air_date": first_date.isoformat(), "year": str(first_date.year),
+        "library_years": sorted({date[:4] for date in dates}), "library_episode_dates": dates,
+        "poster_path": poster, "season_poster": bool(regular.get("poster_path")),
+        "series_episode_count": _number(raw.get("number_of_episodes") or value(media, "number_of_episodes")),
+        "series_air_date": str(raw.get("first_air_date") or value(media, "release_date") or ""),
+        "series_year": str(value(media, "year", "") or "")[:4],
+    }
+
+
 def season_facts(media, origin: dict) -> dict:
     """从宿主已识别媒体取实际季首播日，保留剧集组与原始季的区别。"""
+    if isinstance(origin.get("library_season"), dict):
+        return _library_facts(media, origin)
     season = _number(origin.get("season"))
     group_id = str(origin.get("episode_group") or value(media, "episode_group") or "")
     raw = value(media, "tmdb_info", {}) or {}
@@ -230,6 +257,10 @@ def _season_match_basis(candidate, facts):
     dates = _candidate_dates(candidate)
     if expected_date and dates and min(abs((date - expected_date).days) for date in dates) <= 7:
         return "premiere_date"
+    # 豆瓣可能把前一周的序章计入首播；库内未收序章时仍以完整入库季为一条。
+    if (facts.get("basis") == "mediaserver" and expected_date
+            and any(0 <= (expected_date - date).days <= 14 for date in dates)):
+        return "library_premiere_with_prologue"
     candidate_year = str(value(candidate, "year", "") or "")[:4]
     if not candidate_year or candidate_year != facts["year"]:
         return ""
@@ -304,16 +335,17 @@ def resolve_tv_subject(chain, media, origin: dict) -> dict:
             candidates[str(candidate_id)] = converted
     names = _names(media)
     # 搜索结果不直接采信，随后按源身份、季首播日和类型共同核验。
-    if source != MediaSource.Douban:
-        for name in _search_names(media):
-            meta = MetaInfo(name)
-            meta.type = MediaType.TV
-            meta.year = facts["year"]
-            for candidate in (_query(chain.search_medias, meta=meta, media_source=MediaSource.Douban) or [])[:20]:
-                candidate_source, candidate_id = identity_from_media(candidate)
-                if candidate_source == MediaSource.Douban and candidate_id:
-                    candidates[str(candidate_id)] = candidate
-    exact, whole, checks = [], [], []
+    if source != MediaSource.Douban or facts.get("basis") == "mediaserver":
+        for year in facts.get("library_years") or [facts["year"]]:
+            for name in _search_names(media):
+                meta = MetaInfo(name)
+                meta.type = MediaType.TV
+                meta.year = year
+                for candidate in (_query(chain.search_medias, meta=meta, media_source=MediaSource.Douban) or [])[:20]:
+                    candidate_source, candidate_id = identity_from_media(candidate)
+                    if candidate_source == MediaSource.Douban and candidate_id:
+                        candidates[str(candidate_id)] = candidate
+    exact, whole, checks, related = [], [], [], []
     for candidate_id, summary in candidates.items():
         check = {"id": candidate_id, "summary_title": value(summary, "title") or "",
                  "summary_type": str(value(summary, "type") or ""), "stage": "summary_type"}
@@ -342,6 +374,13 @@ def resolve_tv_subject(chain, media, origin: dict) -> dict:
             "subject_name": value(detail, "title") or value(detail, "name") or (names[0] if names else ""),
             "poster_path": subject_poster(detail) or facts["poster_path"], "facts": facts,
         }
+        if facts.get("basis") == "mediaserver":
+            dates = [_date(date) for date in facts["library_episode_dates"]]
+            for date in _candidate_dates(detail):
+                if dates and -14 <= (date - min(dates)).days and (date - max(dates)).days <= 7:
+                    related.append({"subject_id": candidate_id, "subject_name": item["subject_name"],
+                                    "air_date": date.isoformat()})
+                    break
         if _covers_series(detail, facts):
             check["stage"] = "series_match"
             whole.append({**item, "identity_scope": "series"})
@@ -351,7 +390,12 @@ def resolve_tv_subject(chain, media, origin: dict) -> dict:
             exact.append({**item, "identity_scope": "season"})
     matches = exact or whole
     if len(matches) == 1:
-        return {**matches[0], "checks": checks}
+        result = {**matches[0], "checks": checks}
+        if facts.get("basis") == "mediaserver":
+            result.update(identity_scope="library_season", related_subjects=sorted(
+                related, key=lambda item: (item["air_date"], item["subject_id"]),
+            ))
+        return result
     return {
         "resolved": False,
         "reason": "分季豆瓣候选不唯一" if matches else "未找到通过季首播日校验的豆瓣条目",

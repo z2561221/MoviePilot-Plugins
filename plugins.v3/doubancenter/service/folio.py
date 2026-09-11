@@ -25,6 +25,7 @@ from ..model.identity import (
     recognize_media,
 )
 from ..storage import records as storage
+from . import folio_watch
 
 WISH_NOTIFY_THROTTLE_SECONDS = 6 * 60 * 60
 WISH_RECOGNIZE_MAX_RETRIES = 3
@@ -583,9 +584,6 @@ def _process_tv_show(self, event_info, processed: Dict, played: bool = False):
         media_source, media_id = _event_media_identity(event_info)
     if not played:
         logger.info(f"开始播放 {title} 第{season_id}季 第{episode_id}集")
-    if episode_id < 2 and self._folio_first:
-        logger.info("剧集第1集的活动不同步到豆瓣档案，跳过")
-        return
     meta = MetaInfo(title)
     meta.begin_season = season_id
     meta.type = MediaType("电视剧")
@@ -605,15 +603,37 @@ def _process_tv_show(self, event_info, processed: Dict, played: bool = False):
         if not mediainfo:
             logger.error('仍然未识别到媒体信息')
             return
-    episodes = mediainfo.seasons.get(season_id, mediainfo.seasons.get(str(season_id), []))
-    title = utils.format_title(title, season_id)
-    status = "collect" if len(episodes) == episode_id else "do"
     origin = _playback_origin(mediainfo, "TV", season_id)
     library_context = folio_library.playback_context(event_info)
+    noted_library_time = False
     if library_context:
         origin["mediaserver"] = library_context
+        if folio_record.library_key(origin):
+            folio_watch.observe(self, origin, event_info, processed, played=played)
+            noted_library_time = True
+        library = folio_library.load_season(self, origin)
+        if not library:
+            origin["library_season"] = {}
+            wait_key, _ = folio_record.find_record(self._wait_process or {}, origin, title)
+            _save_waiting_playback(self, wait_key, title, "do", event_info.item_type, origin,
+                                   {"resolved": False, "reason": "实际媒体库分季暂不可核验"})
+            return
+        origin = folio_library.bind_season(origin, library)
+    if not noted_library_time:
+        folio_watch.observe(self, origin, event_info, processed, played=played)
+    if episode_id < 2 and self._folio_first:
+        logger.info("已记录首次播放时间，第1集活动不同步到豆瓣档案")
+        return
+    episodes = mediainfo.seasons.get(season_id, mediainfo.seasons.get(str(season_id), []))
+    if library_context:
+        episodes = origin["library_season"]["episode_numbers"]
+    title = utils.format_title(title, season_id)
+    # 开始播放末集只证明在看；实际库内季的看过由明确已看事件推进。
+    finished = bool(episodes) and episode_id == max(episodes)
+    status = "collect" if finished and (played or not library_context) else "do"
     _, previous = folio_record.find_record(processed, origin, title)
-    if folio_record.already_synced(previous, status):
+    if (folio_record.origin_key(previous.get("origin") or {}) == folio_record.origin_key(origin)
+            and folio_record.already_synced(previous, status)):
         logger.info(f"{title} 相同播放身份已同步，不重复处理")
         return
     if _sync_to_douban(self, title, status, event_info.item_type, processed, mediainfo, origin=origin):
@@ -969,13 +989,15 @@ def _validated_playback_subject(title, mediainfo, origin, previous, waiting):
     """已核验的季身份可复用，否则先执行严格分季匹配。"""
     for record in (previous, waiting):
         if (record.get("identity_status") == "verified"
+                and (not folio_record.library_key(origin) or record.get("identity_scope") == "library_season")
                 and folio_record.origin_key(record.get("origin") or {}) == folio_record.origin_key(origin)
                 and record.get("subject_id")):
             return {
                 "resolved": True, "subject_id": str(record["subject_id"]),
                 "subject_name": record.get("subject_name") or title,
                 "poster_path": record.get("poster_path") or (record.get("season_facts") or {}).get("poster_path") or "",
-                "identity_scope": record.get("identity_scope") or "season",
+                 "identity_scope": record.get("identity_scope") or "season",
+                "related_subjects": record.get("related_subjects") or [],
                 "facts": record.get("season_facts") or {},
             }
     try:
@@ -1029,10 +1051,23 @@ def _sync_to_douban(
         logger.warning(f"{title} 缺少原始播放身份，保留旧待重试条目，暂不写入豆瓣")
         return False
     record_key, previous = folio_record.find_record(processed, origin or {}, title)
+    if previous.get("identity_scope") == "library_season" and not folio_record.library_key(origin or {}):
+        # 已修复的真实季接管旧 Cours 待重试项，不能重新写回旧分组身份。
+        origin = previous["origin"]
+    if origin and origin.get("mediaserver") and not origin.get("library_season"):
+        library = folio_library.load_season(self, origin, refresh=True)
+        if not library:
+            wait_key, _ = folio_record.find_record(self._wait_process or {}, origin, title)
+            _save_waiting_playback(self, wait_key, title, status, mediaType, origin,
+                                   {"resolved": False, "reason": "实际媒体库分季暂不可核验"})
+            return False
+        origin = folio_library.bind_season(origin, library)
     wait_key, waiting = folio_record.find_record(self._wait_process or {}, origin or {}, title)
-    if waiting.get("status") == "collect":
+    same_waiting_origin = folio_record.origin_key(waiting.get("origin") or {}) == folio_record.origin_key(origin or {})
+    if waiting.get("status") == "collect" and same_waiting_origin:
         status = "collect"
-    if origin and folio_record.already_synced(previous, status):
+    if (origin and folio_record.origin_key(previous.get("origin") or {}) == folio_record.origin_key(origin)
+            and folio_record.already_synced(previous, status)):
         return True
     dh = DoubanApi(user_cookie=self._folio_cookie)
     verified = {}
@@ -1073,18 +1108,20 @@ def _sync_to_douban(
                 **previous,
                 "subject_id": sid, "subject_name": name or title,
                 "media_source": MediaSource.Douban.value, "media_id": str(sid),
-                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                **folio_watch.sync_fields(self, origin or {}, previous),
                 "poster_path": poster,
                 "type": "电视剧" if is_tv else "电影",
                 "watch_status": status,
             }
             if origin:
                 record["origin"] = dict(origin)
-                record["display_title"] = name or title
+                record["display_title"] = (folio_record.library_title(name or title)
+                                           if folio_record.library_key(origin) else name or title)
             if verified:
                 record.update({
                     "identity_status": "verified", "identity_scope": verified["identity_scope"],
                     "season_facts": verified.get("facts") or {},
+                    "related_subjects": verified.get("related_subjects") or [],
                     "season_label": f"第{origin['season']}季" if origin.get("season") is not None else "",
                 })
             processed[record_key] = record

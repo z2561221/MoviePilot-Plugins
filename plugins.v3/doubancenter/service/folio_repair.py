@@ -13,9 +13,10 @@ from pathlib import Path
 from app.chain.media import MediaChain
 from app.sdk.logging import logger
 
-from ..adapter import folio_media
+from ..adapter import folio_library, folio_media
 from ..model import folio_record
 from ..storage import records as storage
+from . import folio_watch
 
 PLAN_TTL_SECONDS = 15 * 60
 
@@ -35,12 +36,14 @@ def _replacement(record: dict, origin: dict, match: dict) -> dict:
         **record,
         "subject_id": str(match["subject_id"]),
         "subject_name": match["subject_name"],
-        "display_title": match["subject_name"],
+        "display_title": (folio_record.library_title(match["subject_name"])
+                          if match["identity_scope"] == "library_season" else match["subject_name"]),
         "media_source": "douban", "media_id": str(match["subject_id"]),
         "type": "电视剧", "origin": dict(origin),
         "poster_path": match.get("poster_path") or record.get("poster_path") or "",
         "identity_status": "verified", "identity_scope": match["identity_scope"],
         "season_facts": match.get("facts") or {},
+        "related_subjects": match.get("related_subjects") or [],
         "season_label": f"第{origin['season']}季",
     }
 
@@ -58,6 +61,15 @@ def preview(plugin, targets: list[dict], *, refresh_posters: bool = False) -> di
         key = target["key"]
         origin = {name: target[name] for name in ("media_source", "media_id", "season", "episode_group")}
         origin["type"] = "tv"
+        library_error = ""
+        if target.get("library_season"):
+            if target.get("mediaserver"):
+                origin["mediaserver"] = target["mediaserver"]
+            library = folio_library.load_season(plugin, origin, refresh=True)
+            if library:
+                origin = folio_library.bind_season(origin, library)
+            else:
+                library_error = "实际媒体库分季不可核验，保留原档案"
         origin_id = folio_record.origin_key(origin)
         if key in seen_keys or not origin_id or origin_id in seen_origins:
             raise ValueError("修复目标包含重复记录或无效播放身份")
@@ -70,8 +82,14 @@ def preview(plugin, targets: list[dict], *, refresh_posters: bool = False) -> di
         if not isinstance(record, dict):
             item["reason"] = "原始记录不存在"
             continue
+        if library_error:
+            item["reason"] = library_error
+            continue
         verified = (record.get("identity_status") == "verified"
-                    and folio_record.origin_key(record.get("origin") or {}) == origin_id)
+                    and folio_record.origin_key(record.get("origin") or {}) == origin_id
+                    and (not target.get("library_season")
+                         or (record.get("identity_scope") == "library_season"
+                             and record.get("origin", {}).get("library_season") == origin.get("library_season"))))
         if refresh_posters:
             if (not verified or record.get("media_source") != "douban"
                     or not record.get("subject_id")
@@ -91,7 +109,10 @@ def preview(plugin, targets: list[dict], *, refresh_posters: bool = False) -> di
             projected[key] = replacement
             continue
         if verified:
-            item.update(status="unchanged", after=record)
+            replacement = folio_watch.restore_first_playback(record, target.get("first_played_at"), target.get("time_evidence", ""))
+            changed = replacement != record
+            item.update(status="ready" if changed else "unchanged", changed=changed, after=replacement)
+            projected[key] = replacement
             continue
         if any(other_key != key and isinstance(other, dict)
                and folio_record.origin_key(other.get("origin") or {}) == origin_id
@@ -114,6 +135,7 @@ def preview(plugin, targets: list[dict], *, refresh_posters: bool = False) -> di
             item["reason"] = match.get("reason") or "分季身份尚未核实"
             continue
         replacement = _replacement(record, origin, match)
+        replacement = folio_watch.restore_first_playback(replacement, target.get("first_played_at"), target.get("time_evidence", ""))
         changed = replacement != record
         item.update(status="ready" if changed else "unchanged", changed=changed, after=replacement)
         projected[key] = replacement

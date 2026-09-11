@@ -174,14 +174,19 @@ def test_cache_is_instance_scoped_and_refreshes_changed_image_tags(library, monk
     assert folio_library.project_posters(plugin, records) == records
 
 
-def test_playback_persists_raw_season_item_id_without_changing_identity(monkeypatch):
-    """真实播放入口保存 SeasonId，并与用于身份键的数字季号分别处理。"""
+def test_playback_persists_raw_season_item_id_as_library_identity(monkeypatch):
+    """真实播放入口保存 SeasonId，实际入库季覆盖识别缓存的 Cours。"""
     media, plugin, captured = mushoku_media(), FolioPlugin(), {}
     plugin._folio_first = False
     monkeypatch.setattr(folio, "_series_context", lambda *args: {
         "title": media.title, "media_source": "themoviedb", "media_id": "94664",
     })
     monkeypatch.setattr(folio, "_recognize_media", lambda *args, **kwargs: media)
+    monkeypatch.setattr(folio_library, "load_season", lambda *args, **kwargs: {
+        "reference": {"server": "Embyserver", "series_id": "72893", "season_id": "73028"},
+        "season": 3, "episode_numbers": list(range(1, 12)), "episode_count": 11,
+        "air_date": "2026-07-04", "episodes": [{"episode": 1, "air_date": "2026-07-04"}],
+    })
 
     def capture(*args, origin=None):
         """读取准备交给同步链的播放上下文，不写入豆瓣。"""
@@ -195,6 +200,37 @@ def test_playback_persists_raw_season_item_id_without_changing_identity(monkeypa
     folio._process_tv_show(plugin, event, {})
     assert captured["season"] == 3
     assert captured["mediaserver"] == {"server": "Embyserver", "series_id": "72893", "season_id": "73028"}
-    assert folio_record.origin_key(captured) == folio_record.origin_key(folio._playback_origin(media, "TV", 3))
+    assert captured["episode_group"] == ""
+    assert folio_record.origin_key(captured).startswith("folio:library:")
+    assert folio_record.origin_key(captured) != folio_record.origin_key(folio._playback_origin(media, "TV", 3))
     del event.json_object["Item"]["SeasonId"]
     assert folio_library.playback_context(event)["season_id"] == ""
+
+
+def test_library_episode_lookup_consumes_all_pages_and_rejects_wrong_parent(library, monkeypatch):
+    """真实整季集数来自完整分页；缺页、跨季数据及重复页不能参与身份修复。"""
+    get_json = folio_library._get_json
+    pages = []
+    wrong = [False]
+
+    def read(service, path, params, memo):
+        if not path.endswith("/Episodes"):
+            return get_json(service, path, params, memo)
+        start = params["StartIndex"]
+        pages.append(start)
+        numbers = range(start + 1, min(start + 200, 201) + 1)
+        return {"TotalRecordCount": 201, "Items": [
+            {"Id": f"episode-{number}", "Type": "Episode", "SeriesId": "series-1",
+             "SeasonId": "wrong-season" if wrong[0] else "season-2", "ParentIndexNumber": 2,
+             "IndexNumber": number, "PremiereDate": "2023-07-10T00:00:00Z"}
+            for number in numbers]}
+
+    monkeypatch.setattr(folio_library, "_get_json", read)
+    plugin = FolioPlugin()
+    origin = _record()["origin"]
+    season = folio_library.load_season(plugin, origin)
+    assert season["episode_count"] == 201 and pages == [0, 200]
+    assert season["reference"]["season_id"] == "season-2"
+    assert folio_library.load_season(plugin, origin) == season and pages == [0, 200]
+    wrong[0] = True
+    assert folio_library.load_season(plugin, origin, refresh=True) is None

@@ -88,6 +88,15 @@ class RepairFolioPostersPayload(FlexibleRecord):
     updated: int = 0
 
 
+class FolioLibraryReference(BaseModel):
+    """服务器中的真实整剧与季条目引用。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    server: str = Field(min_length=1, max_length=128)
+    series_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    season_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+
+
 class FolioRepairTarget(BaseModel):
     """待核验的旧记录与实际播放身份，不接收未经核验的目标豆瓣 ID。"""
 
@@ -97,6 +106,10 @@ class FolioRepairTarget(BaseModel):
     media_id: str = Field(min_length=1, max_length=200)
     season: int = Field(ge=0, le=9999)
     episode_group: str = Field(default="", max_length=128)
+    library_season: bool = False
+    mediaserver: FolioLibraryReference | None = None
+    first_played_at: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+    time_evidence: str = Field(default="", max_length=1000)
 
 
 class FolioRepairPreviewRequest(BaseModel):

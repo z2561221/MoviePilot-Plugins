@@ -169,6 +169,98 @@ def _lookup_poster(services: list, origin: dict, memo: dict):
     }}
 
 
+def _season_episodes(service, series_id: str, season_id: str, number: int, memo: dict) -> list:
+    """消费完整季的分页结果，缺页、错父级或重复条目均不能充当分季依据。"""
+    episodes, seen = [], set()
+    while len(episodes) < 10000:
+        data = _get_json(service, f"Shows/{series_id}/Episodes", {
+            "SeasonId": season_id, "Fields": "ProviderIds", "StartIndex": len(episodes), "Limit": 200,
+        }, memo)
+        if not isinstance(data, dict) or not isinstance(data.get("Items"), list):
+            return []
+        items = data["Items"]
+        total = data.get("TotalRecordCount")
+        if not isinstance(total, int) or total <= 0 or not items:
+            return []
+        for item in items:
+            if (not isinstance(item, dict) or item.get("Type") != "Episode"
+                    or str(item.get("SeriesId")) != series_id or str(item.get("SeasonId")) != season_id
+                    or str(item.get("ParentIndexNumber")) != str(number)
+                    or not _item_id(item.get("Id")) or item["Id"] in seen
+                    or not isinstance(item.get("IndexNumber"), int)):
+                return []
+            seen.add(item["Id"])
+            episodes.append(item)
+        if len(episodes) == total:
+            return episodes
+        if len(episodes) > total:
+            return []
+    return []
+
+
+def load_season(plugin, origin: dict, *, refresh: bool = False) -> dict | None:
+    """读取实际入库分季，外部剧集组不参与季号解释；按插件实例短期缓存。"""
+    try:
+        services = list(MediaServerHelper().get_services(type_filter="emby").values())
+        service_key = tuple((service.name, _base_url(service)) for service in services)
+        reference = origin.get("mediaserver") or {}
+        key = (str(origin.get("media_source")), str(origin.get("media_id")), str(origin.get("season")),
+               folio_record.fingerprint(reference), service_key)
+        cache = getattr(plugin, "_folio_library_season_cache", {})
+        now = time.monotonic()
+        cache = {item: value for item, value in cache.items() if value[0] > now}
+        if not refresh and key in cache:
+            return cache[key][1]
+        memo = {}
+        match = _find_series(services, origin, reference, memo)
+        if not match:
+            return None
+        service, series = match
+        series_id = str(series["Id"])
+        data = _get_json(service, f"Shows/{series_id}/Seasons", {"Fields": "ProviderIds"}, memo)
+        if (not isinstance(data, dict) or not isinstance(data.get("Items"), list)
+                or data.get("TotalRecordCount", len(data["Items"])) != len(data["Items"])):
+            return None
+        number = int(origin["season"])
+        seasons = [item for item in data["Items"] if isinstance(item, dict)
+                   and item.get("Type") == "Season" and str(item.get("SeriesId")) == series_id
+                   and str(item.get("IndexNumber")) == str(number)
+                   and (not reference.get("season_id") or str(item.get("Id")) == reference["season_id"])]
+        if len(seasons) != 1 or not _item_id(seasons[0].get("Id")):
+            return None
+        season = seasons[0]
+        season_id = str(season["Id"])
+        episodes = [item for item in _season_episodes(service, series_id, season_id, number, memo)
+                    if not item.get("IsVirtualItem") and item.get("LocationType") != "Virtual"]
+        if not episodes:
+            return None
+        entries = sorted([{"episode": item["IndexNumber"], "air_date": str(item.get("PremiereDate") or "")[:10]}
+                          for item in episodes], key=lambda item: item["episode"])
+        if not entries[0]["air_date"]:
+            return None
+        result = {
+            "reference": {"server": service.name, "series_id": series_id, "season_id": season_id},
+            "season": number, "episode_count": len({item["episode"] for item in entries}),
+            "episode_numbers": sorted({item["episode"] for item in entries}),
+            "air_date": entries[0]["air_date"], "episodes": entries,
+            "name": str(season.get("Name") or ""), "basis": "mediaserver",
+        }
+        if len(cache) >= CACHE_LIMIT:
+            cache.pop(next(iter(cache)))
+        cache[key] = (now + CACHE_SECONDS, result)
+        plugin._folio_library_season_cache = cache
+        return result
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as err:
+        logger.debug(f"实际媒体库分季不可用：{type(err).__name__}")
+        return None
+
+
+def bind_season(origin: dict, season: dict) -> dict:
+    """将来源身份绑定到已读取的库内季，清除未经播放器确认的外部分组。"""
+    return {**origin, "season": season["season"], "episode_group": "",
+            "mediaserver": dict(season["reference"]), "library_season": dict(season)}
+
+
 def _eligible(record: dict) -> bool:
     """旧档案必须具备已核验的播放季，缺少依据时继续使用原海报。"""
     if not isinstance(record, dict):
