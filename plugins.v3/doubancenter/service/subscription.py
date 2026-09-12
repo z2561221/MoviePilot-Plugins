@@ -2,7 +2,7 @@
 
 import datetime
 import threading
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.chain.subscribe import SubscribeChain
 from app.sdk.logging import logger
@@ -54,8 +54,8 @@ def is_existing_identity(
     season: Any = None,
     episode_group: Any = None,
     subscribe_oper_cls=None,
-) -> bool:
-    """按媒体身份检查活动订阅与已完成订阅历史。"""
+) -> Optional[bool]:
+    """检查活动与完成订阅；查询失败返回 None，不能当成不存在。"""
     source, resolved_id = legacy_identity(
         media_source=media_source,
         media_id=media_id,
@@ -66,30 +66,33 @@ def is_existing_identity(
         subscribe_oper_cls = subscribe_oper_cls or _default_subscribe_oper_cls()
         oper = subscribe_oper_cls()
     except Exception as err:
-        logger.warning(f"豆瓣中心：初始化订阅状态检查失败：{err}")
-        return False
+        logger.warning(f"豆瓣中心：初始化订阅状态检查失败：{type(err).__name__}")
+        return None
     params = {
         "media_source": source,
         "media_id": resolved_id,
         "season": season,
         "episode_group": episode_group,
     }
+    lookup_failed = False
     try:
         exists = getattr(oper, "exists", None)
         if callable(exists) and exists(**params):
             return True
     except Exception as err:
-        logger.warning(f"豆瓣中心：检查活动订阅状态失败：{err}")
+        lookup_failed = True
+        logger.warning(f"豆瓣中心：检查活动订阅状态失败：{type(err).__name__}")
     try:
         exist_history = getattr(oper, "exist_history", None)
         if callable(exist_history) and exist_history(**params):
             return True
     except Exception as err:
-        logger.warning(f"豆瓣中心：检查已完成订阅状态失败：{err}")
-    return False
+        lookup_failed = True
+        logger.warning(f"豆瓣中心：检查已完成订阅状态失败：{type(err).__name__}")
+    return None if lookup_failed else False
 
 
-def is_existing_media(mediainfo, meta=None, subscribe_chain_cls=SubscribeChain, subscribe_oper_cls=None) -> bool:
+def is_existing_media(mediainfo, meta=None, subscribe_chain_cls=SubscribeChain, subscribe_oper_cls=None) -> Optional[bool]:
     """判断媒体是否存在活动订阅或已完成订阅历史。"""
     try:
         if subscribe_chain_cls().exists(mediainfo=mediainfo, meta=meta):
@@ -258,12 +261,22 @@ def add_subscription(
         meta.begin_season = utils.resolve_media_season(meta, titles=(record_title,))
     # 订阅链本身是先查后建，锁住整个区段以防并发榜单任务重复创建同一媒体。
     with _SUBSCRIBE_LOCK:
-        if is_existing_media(
+        existing_state = is_existing_media(
             mediainfo,
             meta,
             subscribe_chain_cls=subscribe_chain_cls,
             subscribe_oper_cls=subscribe_oper_cls,
-        ):
+        )
+        if existing_state is None:
+            write_subscribe_record(
+                plugin, mediainfo, rank_key=rank_key, rank_name=rank_name,
+                status="failed", reason="订阅状态检查失败，未提交订阅",
+                source_link=source_link, title=record_title,
+                season=getattr(meta, "begin_season", None) if meta else None,
+                prefer_title=bool(record_title),
+            )
+            return False
+        if existing_state:
             observation.cleanup_observe_logs(plugin, title=getattr(mediainfo, "title", ""))
             return False
         subscribe_chain = subscribe_chain_cls()
