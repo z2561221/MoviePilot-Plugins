@@ -1,4 +1,4 @@
-"""按实际播放身份读取媒体库季海报，原始档案继续保留外部海报回退。"""
+"""按实际播放身份读取媒体库电影及季海报，原始档案保留外部海报回退。"""
 
 import io
 import re
@@ -24,7 +24,7 @@ _PROVIDERS = {
 
 
 def playback_context(event_info) -> dict:
-    """保留事件的服务器及条目 ID，不把播放季号当作 SeasonId。"""
+    """保留电影 Item.Id 或剧集 SeriesId/SeasonId，不混用两种条目。"""
     payload = getattr(event_info, "json_object", None)
     if not isinstance(payload, Mapping):
         return {}
@@ -32,6 +32,9 @@ def playback_context(event_info) -> dict:
     if not isinstance(item, Mapping):
         return {}
     server = getattr(event_info, "server_name", None) or payload.get("source")
+    if folio_record.media_kind(item.get("Type") or getattr(event_info, "item_type", None)) == "movie":
+        movie_id = _item_id(item.get("Id") or getattr(event_info, "item_id", None))
+        return {"server": str(server), "item_id": movie_id} if server and movie_id else {}
     series_id = item.get("SeriesId") or getattr(event_info, "item_id", None)
     if not server or not _item_id(series_id):
         return {}
@@ -74,16 +77,16 @@ def _get_json(service, path: str, params: dict, memo: dict):
     return memo[key]
 
 
-def _series_match(item: dict, provider: str, media_id: str) -> bool:
-    """按来源 ID 核验整剧，不按同名标题或豆瓣分段编号猜测。"""
+def _provider_match(item: dict, provider: str, media_id: str, item_type: str) -> bool:
+    """按类型和来源 ID 核验条目，不按同名标题或豆瓣分段编号猜测。"""
     providers = item.get("ProviderIds") or {}
-    return (item.get("Type") == "Series" and bool(_item_id(item.get("Id")))
+    return (item.get("Type") == item_type and bool(_item_id(item.get("Id")))
             and isinstance(providers, Mapping)
             and any(str(key).casefold() == provider and str(value) == media_id
                     for key, value in providers.items()))
 
 
-def _find_series(services: list, origin: dict, reference: dict, memo: dict):
+def _find_item(services: list, origin: dict, reference: dict, memo: dict, *, item_type: str, reference_key: str):
     """精确查询播放条目或唯一源身份；重复版本及未知查询结果均保留回退。"""
     source, media_id = resolve_media_identity(
         media_source=origin.get("media_source"), media_id=origin.get("media_id"),
@@ -93,13 +96,13 @@ def _find_series(services: list, origin: dict, reference: dict, memo: dict):
         return None
     if reference:
         services = [service for service in services if service.name == reference.get("server")]
-        if not _item_id(reference.get("series_id")):
+        if not _item_id(reference.get(reference_key)):
             return None
     matches = []
     for service in services:
-        params = {"Recursive": "true", "IncludeItemTypes": "Series", "Fields": "ProviderIds", "Limit": 2}
+        params = {"Recursive": "true", "IncludeItemTypes": item_type, "Fields": "ProviderIds", "Limit": 2}
         if reference:
-            params["Ids"] = reference["series_id"]
+            params["Ids"] = reference[reference_key]
         else:
             params["AnyProviderIdEquals"] = f"{provider}.{media_id}"
         data = _get_json(service, "Items", params, memo)
@@ -109,10 +112,15 @@ def _find_series(services: list, origin: dict, reference: dict, memo: dict):
         if int(data.get("TotalRecordCount", len(items))) > 1 or len(items) > 1:
             return None
         for item in items:
-            if (isinstance(item, dict) and _series_match(item, provider, str(media_id))
-                    and (not reference or str(item["Id"]) == reference["series_id"])):
+            if (isinstance(item, dict) and _provider_match(item, provider, str(media_id), item_type)
+                    and (not reference or str(item["Id"]) == str(reference[reference_key]))):
                 matches.append((service, item))
     return matches[0] if len(matches) == 1 else None
+
+
+def _find_series(services: list, origin: dict, reference: dict, memo: dict):
+    """保留查季入口，始终限定为整剧类型和 SeriesId。"""
+    return _find_item(services, origin, reference, memo, item_type="Series", reference_key="series_id")
 
 
 def _valid_image(url: str) -> bool:
@@ -132,10 +140,16 @@ def _valid_image(url: str) -> bool:
 
 
 def _lookup_poster(services: list, origin: dict, memo: dict):
-    """读取匹配季的 Primary 图片，拒绝整剧图、单集截图及错父级条目。"""
+    """电影取影片 Primary，剧集取匹配季 Primary，拒绝跨类型替代。"""
     reference = origin.get("mediaserver") or {}
     if not isinstance(reference, dict):
         return None
+    if folio_record.media_kind(origin.get("type")) == "movie":
+        match = _find_item(services, origin, reference, memo, item_type="Movie", reference_key="item_id")
+        if not match:
+            return None
+        service, movie = match
+        return _primary_poster(service, movie, {"server": service.name, "item_id": str(movie["Id"])})
     match = _find_series(services, origin, reference, memo)
     if not match:
         return None
@@ -154,19 +168,24 @@ def _lookup_poster(services: list, origin: dict, memo: dict):
     if len(matches) != 1:
         return None
     season = matches[0]
-    season_id = _item_id(season.get("Id"))
-    image_tag = (season.get("ImageTags") or {}).get("Primary")
-    if not season_id or not image_tag:
+    return _primary_poster(service, season, {
+        "server": service.name, "series_id": series_id, "season_id": str(season.get("Id") or ""),
+        "season": season_number,
+    })
+
+
+def _primary_poster(service, item: dict, reference: dict):
+    """仅投影已验证的无密钥主海报地址，并附带匹配的库内条目。"""
+    item_id = _item_id(item.get("Id"))
+    image_tag = (item.get("ImageTags") or {}).get("Primary")
+    if not item_id or not image_tag:
         return None
-    url = _base_url(service) + f"Items/{season_id}/Images/Primary?" + urlencode({
+    url = _base_url(service) + f"Items/{item_id}/Images/Primary?" + urlencode({
         "tag": image_tag, "maxWidth": 400,
     })
     if not _valid_image(url):
         return None
-    return {"url": url, "reference": {
-        "server": service.name, "series_id": series_id, "season_id": season_id,
-        "season": season_number, "image_tag": str(image_tag),
-    }}
+    return {"url": url, "reference": {**reference, "image_tag": str(image_tag)}}
 
 
 def _season_episodes(service, series_id: str, season_id: str, number: int, memo: dict) -> list:
@@ -261,13 +280,27 @@ def bind_season(origin: dict, season: dict) -> dict:
             "mediaserver": dict(season["reference"]), "library_season": dict(season)}
 
 
+def _poster_origin(record: dict) -> dict:
+    """电影旧档案可按原生来源 ID 查库，剧集仍要求实际播放季证据。"""
+    origin = record.get("origin")
+    if origin is not None:
+        return origin if isinstance(origin, dict) else {}
+    if folio_record.media_kind(record.get("type")) == "movie":
+        return {"type": "movie", "media_source": record.get("media_source"), "media_id": record.get("media_id")}
+    return {}
+
+
 def _eligible(record: dict) -> bool:
-    """旧档案必须具备已核验的播放季，缺少依据时继续使用原海报。"""
+    """电影按精确身份匹配，剧集必须具备已核验的播放季。"""
     if not isinstance(record, dict):
         return False
-    origin = record.get("origin")
-    return (record.get("identity_status") == "verified" and isinstance(origin, dict)
-            and folio_record.media_kind(record.get("type")) == "tv"
+    origin = _poster_origin(record)
+    kind = folio_record.media_kind(record.get("type"))
+    if kind == "movie":
+        return (folio_record.media_kind(origin.get("type")) == "movie"
+                and record.get("identity_status") in (None, "", "verified")
+                and origin.get("season") is None and bool(folio_record.origin_key(origin)))
+    return (record.get("identity_status") == "verified" and kind == "tv"
             and folio_record.media_kind(origin.get("type")) == "tv"
             and origin.get("season") is not None and bool(folio_record.origin_key(origin)))
 
@@ -281,7 +314,7 @@ def project_posters(plugin, records: dict) -> dict:
         services = list(MediaServerHelper().get_services(type_filter="emby").values())
         service_key = tuple((service.name, _base_url(service)) for service in services)
     except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as err:
-        logger.debug(f"媒体库季海报服务不可用：{type(err).__name__}")
+        logger.debug(f"媒体库海报服务不可用：{type(err).__name__}")
         return records
     if not services:
         return records
@@ -290,13 +323,13 @@ def project_posters(plugin, records: dict) -> dict:
     cache = {key: value for key, value in cache.items() if value[0] > now}
     memo, result = {}, dict(records)
     for key, record in eligible.items():
-        origin = record["origin"]
+        origin = _poster_origin(record)
         cache_key = (folio_record.fingerprint(origin), service_key)
         if cache_key not in cache:
             try:
                 poster = _lookup_poster(services, origin, memo)
             except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as err:
-                logger.debug(f"媒体库季海报查询失败，使用档案海报：{type(err).__name__}")
+                logger.debug(f"媒体库海报查询失败，使用档案海报：{type(err).__name__}")
                 poster = None
             if len(cache) >= CACHE_LIMIT:
                 cache.pop(next(iter(cache)))

@@ -661,6 +661,9 @@ def _process_movie(self, event_info, processed: Dict, played: bool = False):
             logger.error('仍然未识别到媒体信息')
             return
     origin = _playback_origin(mediainfo, "MOV")
+    library_context = folio_library.playback_context(event_info)
+    if library_context:
+        origin["mediaserver"] = library_context
     _, previous = folio_record.find_record(processed, origin, title)
     if previous:
         logger.info(f"{title} 已同步到豆瓣在看，不处理")
@@ -1054,7 +1057,7 @@ def _sync_to_douban(
     if previous.get("identity_scope") == "library_season" and not folio_record.library_key(origin or {}):
         # 已修复的真实季接管旧 Cours 待重试项，不能重新写回旧分组身份。
         origin = previous["origin"]
-    if (origin and not origin.get("library_season")
+    if (is_tv and origin and not origin.get("library_season")
             and (origin.get("mediaserver") or (is_tv and mediainfo is None))):
         # 旧重试没有服务器字段时也先查唯一库内季，避免新旧剧集组各写一条。
         library = folio_library.load_season(self, origin, refresh=True)
@@ -1090,7 +1093,7 @@ def _sync_to_douban(
             name = _value_from_mapping(detail, "title", "name") or name or title
             poster = _poster_from_douban(detail)
     # 已核验条目优先使用各自的豆瓣海报，缺图时沿用 TMDB 回退。
-    poster = verified.get("poster_path") or _FOLIO_TMDB_POSTER_FALLBACKS.get(str(sid), {}).get("poster_path", "")
+    poster = poster or _FOLIO_TMDB_POSTER_FALLBACKS.get(str(sid), {}).get("poster_path", "")
     if not poster:
         poster = _poster_from_tmdb_media(mediainfo)
     if not poster:
