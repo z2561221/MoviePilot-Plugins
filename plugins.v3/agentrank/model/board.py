@@ -3,7 +3,7 @@
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
-from .candidate import infer_media_identity, normalize_title_names
+from .candidate import infer_media_identity, normalize_library_state, normalize_title_names
 from .support import SupportScore
 
 
@@ -35,7 +35,7 @@ class RecommendationItem:
     match_tags: List[str] = field(default_factory=list)
     original_title: str = ""
     names: List[str] = field(default_factory=list)
-    in_library: bool = False
+    in_library: Optional[bool] = None
     subscribed: bool = False
     watch_status: str = "unwatched"
 
@@ -140,7 +140,7 @@ class RecommendationItem:
             poster_path=str(value.get("poster_path") or ""),
             backdrop_path=str(value.get("backdrop_path") or ""),
             match_tags=[str(item) for item in value.get("match_tags") or []],
-            in_library=bool(value.get("in_library", False)),
+            in_library=normalize_library_state(value.get("in_library")),
             subscribed=bool(value.get("subscribed", False)),
             watch_status=str(value.get("watch_status") or "unwatched"),
         )

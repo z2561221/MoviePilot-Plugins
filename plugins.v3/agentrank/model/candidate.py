@@ -21,6 +21,11 @@ MAX_CANDIDATE_NAMES = 12
 MAX_CANDIDATE_NAME_LENGTH = 120
 
 
+def normalize_library_state(value: Any) -> Optional[bool]:
+    """只接受已确认的布尔库状态，其余值保留为未知。"""
+    return value if isinstance(value, bool) else None
+
+
 def normalize_title_names(
     values: Any, *, excluded: Iterable[Any] = ()
 ) -> List[str]:

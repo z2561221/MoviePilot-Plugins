@@ -19,21 +19,11 @@ class LibraryAdapter:
         self._oper = oper
 
     def exists(self, candidate: Candidate) -> bool:
-        """候选主身份已存在于任一媒体服务器时返回真。"""
-        lookup = self._lookup(candidate)
-        if lookup is None:
-            return False
-        media_source, media_id, media_type = lookup
-        try:
-            return bool(
-                self._oper.exists(
-                    media_source=media_source,
-                    media_id=media_id,
-                    mtype=media_type,
-                )
-            )
-        except (TypeError, ValueError):
-            return False
+        """查询单项已确认库状态；失败抛出异常供调用方保留待核验状态。"""
+        state = self.candidate_states([candidate]).get(candidate.candidate_id)
+        if state is None:
+            raise RuntimeError("媒体库状态查询失败")
+        return state
 
     @staticmethod
     def _lookup(
@@ -51,31 +41,31 @@ class LibraryAdapter:
             media_type = "电影" if candidate.media_type == "movie" else "电视剧"
         return media_source, str(candidate.media_id), media_type
 
-    def candidate_ids(self, candidates: Iterable[Candidate]) -> Set[str]:
-        """按去重后的规范身份读取媒体库状态，不直接访问宿主 ORM。"""
+    def candidate_states(self, candidates: Iterable[Candidate]) -> Dict[str, Optional[bool]]:
+        """按身份去重查询，分别保留存在、不存在和失败三种状态。"""
         items = list(candidates or ())
+        states: Dict[str, Optional[bool]] = {
+            candidate.candidate_id: None for candidate in items
+        }
         candidate_map: Dict[Tuple[MediaSource, str, str], Set[str]] = {}
         for candidate in items:
             lookup = self._lookup(candidate)
-            if lookup is None:
-                continue
-            candidate_map.setdefault(lookup, set()).add(candidate.candidate_id)
-        if not candidate_map:
-            return set()
-        result: Set[str] = set()
-        for (
-            media_source,
-            media_id,
-            media_type,
-        ), candidate_ids in candidate_map.items():
+            if lookup is not None:
+                candidate_map.setdefault(lookup, set()).add(candidate.candidate_id)
+        for (media_source, media_id, media_type), candidate_ids in candidate_map.items():
             try:
-                matched = self._oper.exists(
-                    media_source=media_source,
-                    media_id=media_id,
-                    mtype=media_type,
-                )
+                state = bool(self._oper.exists(
+                    media_source=media_source, media_id=media_id, mtype=media_type,
+                ))
             except Exception:
-                matched = None
-            if matched:
-                result.update(candidate_ids)
-        return result
+                state = None
+            for candidate_id in candidate_ids:
+                states[candidate_id] = state
+        return states
+
+    def candidate_ids(self, candidates: Iterable[Candidate]) -> Set[str]:
+        """兼容完整集合查询；部分失败时不得返回伪装成完整的空集合。"""
+        states = self.candidate_states(candidates)
+        if any(state is None for state in states.values()):
+            raise RuntimeError("部分候选媒体库状态未知")
+        return {candidate_id for candidate_id, state in states.items() if state is True}
