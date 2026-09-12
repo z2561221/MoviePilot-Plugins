@@ -1,4 +1,4 @@
-"""媒体库季海报的身份匹配、鉴权隔离、回退与只读展示回归。"""
+"""媒体库电影及季海报的身份匹配、鉴权隔离、回退与只读展示回归。"""
 
 import copy
 import io
@@ -38,6 +38,9 @@ def library(monkeypatch):
         services={service.name: service}, calls=[], fail=False, content=content.getvalue(),
         series=[{"Id": "series-1", "Type": "Series", "ProviderIds": {"Tmdb": "94664"},
                  "ImageTags": {"Primary": "whole-show"}}],
+        movies=[{"Id": "movie-1", "Type": "Movie",
+                 "ProviderIds": {"Tmdb": "1311031", "Douban": "36524559"},
+                 "ImageTags": {"Primary": "movie-poster"}}],
         seasons=[{"Id": f"season-{number}", "Type": "Season", "SeriesId": "series-1",
                   "IndexNumber": number, "ImageTags": {"Primary": f"poster-{number}"}}
                  for number in (1, 2, 3)],
@@ -52,7 +55,10 @@ def library(monkeypatch):
                 return SimpleNamespace(status_code=503)
             if "/Images/" in url:
                 return SimpleNamespace(status_code=200, content=state.content)
-            items = state.seasons if "/Seasons" in url else state.series
+            if "/Seasons" in url:
+                items = state.seasons
+            else:
+                items = state.movies if (params or {}).get("IncludeItemTypes") == "Movie" else state.series
             return SimpleNamespace(status_code=200, json=lambda: {
                 "Items": copy.deepcopy(items), "TotalRecordCount": len(items),
             })
@@ -143,14 +149,140 @@ def test_exact_playback_server_and_season_id_are_respected(library):
     assert folio_library.project_posters(FolioPlugin(), {"record": record}) == {"record": record}
 
 
-def test_old_records_without_playback_evidence_and_movies_do_not_query(library):
-    """不得从标题猜季，也不将电影套进季海报查询。"""
+def test_old_tv_records_and_conflicting_media_types_do_not_query(library):
+    """不得从标题猜季，也不将类型冲突的电影套进季海报查询。"""
     old = _record()
     del old["origin"]
     records = {"第2季": old, "movie": {**_record(), "type": "电影"},
                "unresolved": {**_record(), "identity_status": "unresolved"}}
     assert folio_library.project_posters(FolioPlugin(), records) == records
     assert library.calls == []
+
+
+def _movie_record(*, legacy=False):
+    """重现只有豆瓣身份且海报为空的电影记录。"""
+    record = {
+        "subject_id": "36524559", "subject_name": "鬼灭之刃：无限城篇",
+        "type": "电影", "media_source": "douban", "media_id": "36524559",
+        "timestamp": "2026-09-12 02:36:30", "poster_path": "",
+    }
+    if not legacy:
+        record["origin"] = {"type": "movie", "media_source": "douban", "media_id": "36524559"}
+    return record
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_movie_primary_uses_native_identity_and_preserves_archive(library, legacy):
+    """新旧电影记录均按源 ID 取主海报，两个 UI 共用投影且不写原档案。"""
+    plugin = FolioPlugin({"movie": _movie_record(legacy=legacy)})
+    before = copy.deepcopy(plugin.data)
+    data = dashboard_folio.get_folio_data(plugin)["data"]
+    record = next(iter(data.values()))
+    image_url = parse_qs(urlsplit(record["poster_path"]).query)["imgurl"][0]
+    assert "/Items/movie-1/Images/Primary?" in image_url
+    assert "tag=movie-poster" in image_url and "mp_sig=test" in image_url
+    assert record["library_poster"] == {
+        "server": "Embyserver", "item_id": "movie-1", "image_tag": "movie-poster",
+    }
+    assert record["poster_source"] == "mediaserver"
+    assert record["poster_fallback_path"] == ""
+    assert "test-library-key" not in str(data) and "api_key" not in image_url
+    assert library.calls[0][1]["AnyProviderIdEquals"] == "douban.36524559"
+    assert library.calls[0][1]["IncludeItemTypes"] == "Movie"
+    assert library.calls[0][2] == {"X-Emby-Token": "test-library-key"}
+    assert not any("/Shows/" in call[0] for call in library.calls)
+    count = len(library.calls)
+    assert record["poster_path"] in str(dashboard_folio.get_timeline_items(plugin))
+    assert len(library.calls) == count
+    assert dashboard_folio.get_folio_data(plugin, raw=True)["data"] == before["folio_data"]
+    assert plugin.data == before
+
+
+@pytest.mark.parametrize("failure", ["wrong_provider", "wrong_type", "missing_image", "duplicate",
+                                      "wrong_item", "missing_server", "bad_image", "offline"])
+def test_movie_lookup_keeps_fallback_when_identity_or_image_is_unusable(library, failure):
+    """错误来源、同源多个版本和坏图不得替换已有电影海报。"""
+    record = _movie_record()
+    record["poster_path"] = "https://img3.doubanio.com/movie.jpg"
+    if failure == "wrong_provider":
+        library.movies[0]["ProviderIds"]["Douban"] = "different-movie"
+    elif failure == "wrong_type":
+        library.movies[0]["Type"] = "Series"
+    elif failure == "missing_image":
+        library.movies[0]["ImageTags"] = {}
+    elif failure == "duplicate":
+        library.movies.append({**library.movies[0], "Id": "other-version"})
+    elif failure in {"wrong_item", "missing_server"}:
+        record["origin"]["mediaserver"] = {
+            "server": "missing" if failure == "missing_server" else "Embyserver",
+            "item_id": "other-item" if failure == "wrong_item" else "movie-1",
+        }
+    elif failure == "bad_image":
+        library.content = b"<html>login required</html>"
+    elif failure == "offline":
+        library.fail = True
+    records = {"movie": record}
+    assert folio_library.project_posters(FolioPlugin(), records) == records
+
+
+def test_movie_lookup_respects_playback_item_and_tmdb_identity(library):
+    """播放条目确定时按 Id 查询，同时校验影片源 ID。"""
+    record = _movie_record()
+    record["origin"].update({
+        "media_source": "themoviedb", "media_id": "1311031",
+        "mediaserver": {"server": "Embyserver", "item_id": "movie-1"},
+    })
+    result = folio_library.project_posters(FolioPlugin(), {"movie": record})
+    assert result["movie"]["library_poster"]["item_id"] == "movie-1"
+    assert library.calls[0][1]["Ids"] == "movie-1"
+    assert "AnyProviderIdEquals" not in library.calls[0][1]
+
+
+def test_movie_playback_keeps_emby_item_context(monkeypatch):
+    """电影播放入口保留 Item.Id，不能当作电视剧 SeriesId。"""
+    media = SimpleNamespace(media_source="douban", media_id="36524559")
+    captured = {}
+    monkeypatch.setattr(folio, "_event_media_identity", lambda event: ("douban", "36524559"))
+    monkeypatch.setattr(folio, "_recognize_media", lambda *args, **kwargs: media)
+
+    def capture(*args, origin=None):
+        captured.update(origin)
+
+    monkeypatch.setattr(folio, "_sync_to_douban", capture)
+    event = SimpleNamespace(item_name="鬼灭之刃：无限城篇", item_type="MOV",
+                            server_name="Embyserver", item_id="movie-1",
+                            json_object={"Item": {"Type": "Movie", "Id": "movie-1"}})
+    folio._process_movie(FolioPlugin(), event, {})
+    assert captured["mediaserver"] == {"server": "Embyserver", "item_id": "movie-1"}
+    assert captured["type"] == "movie" and captured["season"] is None
+
+
+@pytest.mark.parametrize("from_detail", [False, True])
+def test_movie_sync_retains_resolved_poster_and_skips_season_lookup(monkeypatch, from_detail):
+    """电影主体/详情返回的海报不会被空季验证结果覆盖，Emby 引用不触发查季。"""
+    plugin = FolioPlugin()
+    poster = "https://img3.doubanio.com/movie.jpg"
+    origin = _movie_record()["origin"]
+    origin["mediaserver"] = {"server": "Embyserver", "item_id": "movie-1"}
+    monkeypatch.setattr(folio, "DoubanApi", lambda **kwargs: SimpleNamespace(
+        set_watching_status=lambda **kwargs: True,
+    ))
+    monkeypatch.setattr(folio, "_resolve_douban_subject", lambda *args, **kwargs: (
+        "鬼灭之刃：无限城篇", "36524559", "" if from_detail else poster,
+    ))
+    monkeypatch.setattr(folio, "_load_douban_media", lambda *args: {"pic": {"large": poster}})
+    monkeypatch.setattr(folio, "_send_folio_notification", lambda *args: None)
+
+    def unexpected_lookup(*args, **kwargs):
+        raise AssertionError("电影已有海报，不应查询季信息或额外识别")
+
+    monkeypatch.setattr(folio_library, "load_season", unexpected_lookup)
+    monkeypatch.setattr(folio, "_tmdb_poster_for_record", unexpected_lookup)
+    records = {}
+    assert folio._sync_to_douban(plugin, "鬼灭之刃：无限城篇", "collect", "MOV", records, origin=origin)
+    saved = next(iter(records.values()))
+    assert saved["poster_path"] == poster
+    assert saved["origin"]["mediaserver"] == origin["mediaserver"]
 
 
 def test_cache_is_instance_scoped_and_refreshes_changed_image_tags(library, monkeypatch):
