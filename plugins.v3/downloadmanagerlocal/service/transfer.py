@@ -26,6 +26,15 @@ from .site_tag import create_temporary_tag, forget_temporary_tag, release_tempor
 _AUTOMATIC_DELAY_TRIGGER_SOURCES = frozenset({"兜底扫描", "事件驱动"})
 
 
+def _transfer_stopped(plugin, generation: int) -> bool:
+    """识别停止信号与已失效批次，避免重新初始化清除旧批次的取消。"""
+    event = getattr(plugin, "_event", None)
+    return (
+        int(getattr(plugin, "_transfer_stop_generation", 0) or 0) != generation
+        or (event is not None and event.is_set())
+    )
+
+
 def _transfer_delay_status(
     plugin,
     torrent,
@@ -68,8 +77,11 @@ def validate_config(plugin) -> bool:
 
 
 def download_torrent(plugin, service: ServiceInfo, content: bytes,
-                     save_path: str, torrent) -> Optional[str]:
-    """添加下载任务到目标下载器"""
+                     save_path: str, torrent, stop_generation: Optional[int] = None) -> Optional[str]:
+    """添加目标任务前核对所属批次仍有效。"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
+    if _transfer_stopped(plugin, generation):
+        return None
     if not service or not service.instance:
         return None
     downloader = service.instance
@@ -87,6 +99,8 @@ def download_torrent(plugin, service: ServiceInfo, content: bytes,
                 torrent_category = plugin.get_category(torrent, from_service.type)
             else:
                 torrent_category = None
+            if _transfer_stopped(plugin, generation):
+                return None
             state = downloader.add_torrent(content=content,
                                            download_dir=save_path,
                                            is_paused=True,
@@ -111,6 +125,8 @@ def download_torrent(plugin, service: ServiceInfo, content: bytes,
             new_tag = list(set(torrent_labels + plugin._torrent_tags))
         else:
             new_tag = plugin._torrent_tags
+        if _transfer_stopped(plugin, generation):
+            return None
         torrent = downloader.add_torrent(content=content,
                                          download_dir=save_path,
                                          is_paused=True,
@@ -124,8 +140,12 @@ def download_torrent(plugin, service: ServiceInfo, content: bytes,
     return None
 
 
-def post_transfer_process(plugin, to_service: ServiceInfo, torrent_hash: str):
-    """种子转移到目标下载器后，立即执行重命名 + 打站点标签"""
+def post_transfer_process(plugin, to_service: ServiceInfo, torrent_hash: str,
+                          stop_generation: Optional[int] = None):
+    """目标任务后处理逐步响应停止信号。"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
+    if _transfer_stopped(plugin, generation):
+        return
     if not torrent_hash or not to_service or not to_service.instance:
         return
 
@@ -159,16 +179,65 @@ def post_transfer_process(plugin, to_service: ServiceInfo, torrent_hash: str):
     if not torrent_name:
         return
 
+    if _transfer_stopped(plugin, generation):
+        return
     if plugin._rename_enabled:
         plugin._rename_torrent(dl, dl_type, torrent_hash, torrent_name, save_path)
 
+    if _transfer_stopped(plugin, generation):
+        return
     if plugin._tag_enabled:
         plugin._tag_torrent(dl, dl_type, torrent_hash, torrent_tags, trackers)
+
+
+def _complete_transfer(plugin, from_downloader, to_service, source_hash: str,
+                       download_id: str, generation: int) -> bool:
+    """完成当前目标任务的后处理，停止后保留源任务供下次续办。"""
+    if _transfer_stopped(plugin, generation):
+        return False
+    post_transfer_process(plugin, to_service, download_id, generation)
+    if _transfer_stopped(plugin, generation):
+        return False
+    to_downloader = to_service.instance
+    if is_downloader_type("qbittorrent", service=to_service):
+        if plugin._seed_skipverify:
+            if plugin._seed_autostart:
+                plugin._register_seed_recheck(to_service.name, [download_id], "transfer")
+        else:
+            to_downloader.recheck_torrents(ids=[download_id])
+            if _transfer_stopped(plugin, generation):
+                return False
+            plugin._register_seed_recheck(to_service.name, [download_id], "transfer")
+    else:
+        plugin._register_seed_recheck(to_service.name, [download_id], "transfer")
+    if _transfer_stopped(plugin, generation):
+        return False
+    if plugin._deletesource:
+        from_downloader.delete_torrents(delete_file=False, ids=[source_hash])
+    return True
+
+
+def _save_transfer_state(plugin, from_service, to_service, source_hash: str,
+                         download_id: str, completed: bool) -> None:
+    """保存真实阶段，已创建但未收尾的目标任务不会被当成普通重复项删除源。"""
+    plugin.save_data(
+        key=f"{from_service.name}-{source_hash}",
+        value={
+            "to_download": to_service.name,
+            "to_download_id": download_id,
+            "delete_source": bool(completed and plugin._deletesource),
+            "delete_duplicate": plugin._deleteduplicate,
+            "transfer_state": "completed" if completed else "stopped_after_add",
+        },
+    )
 
 
 def transfer(plugin, trigger_source: str = "手动/定时"):
     """开始转移做种"""
     logger.info(f"开始转移做种任务，触发来源：{trigger_source} ...")
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
+    if _transfer_stopped(plugin, generation):
+        return
 
     if not validate_config(plugin):
         return
@@ -190,8 +259,8 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
 
     trans_torrents = []
     for torrent in torrents:
-        if plugin._event.is_set():
-            logger.info(f"转移服务停止")
+        if _transfer_stopped(plugin, generation):
+            logger.info("转移服务停止")
             return
 
         hash_str = plugin.get_hash(torrent, from_service.type)
@@ -268,6 +337,8 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
         del_dup = 0
 
         for torrent_item in trans_torrents:
+            if _transfer_stopped(plugin, generation):
+                break
             torrent_file = Path(plugin._fromtorrentpath) / f"{torrent_item.get('hash')}.torrent"
             if not torrent_file.exists():
                 logger.error(f"种子文件不存在：{torrent_file}")
@@ -275,8 +346,28 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                 continue
 
             torrent_info, _ = to_downloader.get_torrents(ids=[torrent_item.get('hash')])
+            if _transfer_stopped(plugin, generation):
+                break
             if torrent_info:
+                previous = plugin.get_data(f"{from_service.name}-{torrent_item.get('hash')}") or {}
+                if (
+                    isinstance(previous, dict)
+                    and previous.get("transfer_state") == "stopped_after_add"
+                    and previous.get("to_download") == to_service.name
+                    and previous.get("to_download_id")
+                ):
+                    download_id = str(previous["to_download_id"])
+                    completed = _complete_transfer(
+                        plugin, from_downloader, to_service, torrent_item["hash"], download_id, generation,
+                    )
+                    _save_transfer_state(plugin, from_service, to_service, torrent_item["hash"], download_id, completed)
+                    if not completed:
+                        break
+                    success += 1
+                    continue
                 if plugin._deleteduplicate:
+                    if _transfer_stopped(plugin, generation):
+                        break
                     logger.info(f"删除重复的源下载器任务（不含文件）：{torrent_item.get('hash')} ...")
                     from_downloader.delete_torrents(delete_file=False, ids=[torrent_item.get('hash')])
                     del_dup += 1
@@ -331,47 +422,28 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                         fail += 1
                         continue
 
+            if _transfer_stopped(plugin, generation):
+                break
             logger.info(f"添加转移做种任务到下载器 {to_service.name}：{torrent_file}")
             download_id = download_torrent(plugin, service=to_service,
                                            content=torrent_file.read_bytes(),
                                            save_path=download_dir,
-                                           torrent=torrent_item.get('torrent'))
+                                           torrent=torrent_item.get('torrent'),
+                                           stop_generation=generation)
             if not download_id:
+                if _transfer_stopped(plugin, generation):
+                    break
                 fail += 1
                 logger.error(f"添加下载任务失败：{torrent_file}")
                 continue
-            else:
-                logger.info(f"成功添加转移做种任务，种子文件：{torrent_file}")
-
-                post_transfer_process(plugin, to_service, download_id)
-
-                if is_downloader_type("qbittorrent", service=to_service):
-                    if plugin._seed_skipverify:
-                        if plugin._seed_autostart:
-                            logger.info(f"{download_id} 跳过校验，开启自动开始，注意观察种子的完整性")
-                            plugin._register_seed_recheck(to_service.name, [download_id], "transfer")
-                        else:
-                            logger.info(f"{download_id} 跳过校验，请自行检查手动开始任务...")
-                    else:
-                        logger.info(f"qbittorrent 开始校验 {download_id} ...")
-                        to_downloader.recheck_torrents(ids=[download_id])
-                        plugin._register_seed_recheck(to_service.name, [download_id], "transfer")
-                else:
-                    plugin._register_seed_recheck(to_service.name, [download_id], "transfer")
-
-                if plugin._deletesource:
-                    logger.info(f"删除源下载器任务（不含文件）：{torrent_item.get('hash')} ...")
-                    from_downloader.delete_torrents(delete_file=False, ids=[torrent_item.get('hash')])
-
-                success += 1
-                history_key = f"{from_service.name}-{torrent_item.get('hash')}"
-                plugin.save_data(key=history_key,
-                                 value={
-                                     "to_download": to_service.name,
-                                     "to_download_id": download_id,
-                                     "delete_source": plugin._deletesource,
-                                     "delete_duplicate": plugin._deleteduplicate,
-                                 })
+            completed = _complete_transfer(
+                plugin, from_downloader, to_service, torrent_item["hash"], download_id, generation,
+            )
+            _save_transfer_state(plugin, from_service, to_service, torrent_item["hash"], download_id, completed)
+            if not completed:
+                logger.warning(f"转移已停止：目标任务 {download_id} 已创建，源任务保留，下次续办后处理")
+                break
+            success += 1
 
         record_transfer_success(
             plugin,
@@ -382,13 +454,16 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
         if plugin._notify:
             plugin.post_message(
                 mtype=MessageType.SiteMessage,
-                title="【转移做种任务执行完成】",
+                title="【转移做种任务已停止】" if _transfer_stopped(plugin, generation) else "【转移做种任务执行完成】",
                 parse_mode="plain",
                 text=f"总数：{total}，成功：{success}，失败：{fail}，跳过：{skip}，删除重复：{del_dup}"
             )
     else:
         logger.info(f"没有需要转移的种子")
 
+    if _transfer_stopped(plugin, generation):
+        logger.info("转移做种任务已停止，未继续执行重命名补刀")
+        return
     plugin._retry_failed_renames(to_service)
 
     logger.info("转移做种任务执行完成")
