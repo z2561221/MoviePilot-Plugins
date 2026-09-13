@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.5`（基于已发布的 V3.3.4）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.6`（基于已发布的 V3.3.5）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -20,13 +20,13 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 ## 当前开发边界
 
-V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建产物、分代仓库设施、
+当前维护范围为 V3 插件后端、Vue 配置页、联邦构建产物、
 目标测试和本文件，但必须遵守：
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 固定为当前开发版 `3.3.5`；V2 保持
-  `3.2.9`，旧索引只增加 `"v3": false`。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.6`；V2 源码与元数据保持原样。
+- 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
 
@@ -99,12 +99,12 @@ V3 迁移当前周期允许修改 V3 插件后端、Vue 配置页、联邦构建
 
 ## 2026-07-04 历史 V2 标准完成证据
 
-以下执行账本只对应旧 V2 `3.2.4` 周期，不能作为当前 V3.3.5 的运行态证据：
+以下执行账本只对应旧 V2 `3.2.4` 周期，不能作为当前 V3 周期的运行态证据：
 
 - 计划：`docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-phased-plan.md`
 - 账本：`docs/plans/2026-07-04-downloadmanagerlocal-plugin-standard-completion-progress.json`
 - 当时的静态测试、编译、MP 同步、reload、history 和 API 回读均属于旧 V2 实例。
-- 当前 V3.3.5 必须按本文末尾的本周期验证记录重新核验。
+- 当前 V3 周期按实际候选内容与目标实例单独验收，历史记录仅在输入未变化时复用。
 
 ## API 路由契约
 
@@ -334,20 +334,21 @@ IYUU：
 
 ## 验证命令
 
-V3 使用固定宿主、专用 Python 环境与 Codex bundled Node：
+V3 使用已核验的宿主 checkout、工作区共享测试解释器和已安装的 Node.js。执行前将 `MOVIEPILOT_BACKEND_PATH` 设为该宿主的绝对路径：
 
 ```powershell
-$env:MOVIEPILOT_BACKEND_PATH = 'D:\AIGC\MoviePilot\.worktrees\upstream-moviepilot-v3'
-$env:PATH = 'C:\Users\ZhaoYu\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;' + $env:PATH
-$python = 'D:\AIGC\MoviePilot\.agents\.local\python-envs\agentrank\Scripts\python.exe'
+Remove-Item Env:CONFIG_DIR -ErrorAction SilentlyContinue
+$env:DB_TYPE = 'sqlite'
+$pluginTestPython = 'D:\AIGC\MoviePilot\.venv-test\Scripts\python.exe'
 
-& $python -m pytest tests/v3/downloadmanagerlocal -q
-& $python -m compileall -q plugins.v3/downloadmanagerlocal
-& $python .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json
+& $pluginTestPython -m pytest tests/v3/downloadmanagerlocal -q
+& $pluginTestPython -m compileall -q plugins.v3/downloadmanagerlocal
+& $pluginTestPython .github/scripts/check_plugin_versions.py package.v3.json
 npm --prefix plugins.v3/downloadmanagerlocal/frontend run build
 git diff --check
-& $python tests/run.py
 ```
+
+批次完成后使用开发技能 `accept_local.py` 同步与必要本地安装，执行 `POST /api/v1/plugin/reload/DownloadManagerLocal`，再核对 history、installed、overview 和静态资产。浏览器验收由用户完成。
 
 上传限速、重命名、标签、删除与下载器控制测试不得连接真实下载器；使用 pure
 allocator、fake qBittorrent / Transmission adapter、fake lifecycle worker 和静态
@@ -401,6 +402,6 @@ $env:Path = "$nodeDir;$env:Path"
 
 残余边界：
 
-- MP 本地源同步、目标实例 GET reload、history/API 回读和浏览器验收尚待本周期运行态窗口；本文件不把源码或构建结果当作运行态证据。
+- 此历史周期记录未覆盖 MP 同步、目标实例 reload、history/API 与页面验收；当前 V3 reload 使用 POST，历史源码或构建结果不代表当前运行态已验收。
 - IYUU 外部站点真实链路仍以目标实例配置和日志为准，实验室测试不替代生产站点实测。
 - 未 push、merge 或发布；这些动作仍需用户明确确认。

@@ -27,8 +27,11 @@ from ..utils.config import is_speed_monitor_active, is_upload_limit_active
 
 def initialize_plugin(plugin, config: dict = None) -> None:
     """初始化插件运行时配置，并按当前配置登记一次性后台任务。"""
-    config = initialize_runtime_config(plugin, config)
     plugin.stop_service()
+    config = initialize_runtime_config(plugin, config)
+    event = getattr(plugin, "_event", None)
+    if event is not None:
+        event.clear()
 
     if is_speed_monitor_active(plugin):
         runtime = ensure_speed_monitor_runtime(plugin)
@@ -108,15 +111,17 @@ def _start_scheduler_if_needed(plugin, print_jobs: bool = False) -> None:
 
 
 def stop_plugin_service(plugin) -> None:
-    """停止插件持有的后台调度器并清理退出事件。"""
+    """发出退出信号并停止后台调度器，旧批次通过代次识别停止。"""
+    plugin._transfer_stop_generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) + 1
+    event = getattr(plugin, "_event", None)
+    if event is not None:
+        event.set()
     try:
         if not plugin._scheduler:
             return
         plugin._scheduler.remove_all_jobs()
         if plugin._scheduler.running:
-            plugin._event.set()
             plugin._scheduler.shutdown()
-            plugin._event.clear()
         plugin._scheduler = None
     except Exception as error:
         logger.error(f"停止服务失败: {error}")
