@@ -126,7 +126,7 @@ def _cleanup_observe_logs(self, title: str = "", unique: str = "") -> None:
     observation_service.cleanup_observe_logs(self, title=title, unique=unique)
 
 
-def _is_existing_media(mediainfo, meta=None) -> bool:
+def _is_existing_media(mediainfo, meta=None) -> Optional[bool]:
     """判断媒体是否已存在订阅。"""
     return subscription_service.is_existing_media(mediainfo, meta=meta, subscribe_chain_cls=SubscribeChain)
 
@@ -1059,7 +1059,11 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
             _log_rank_skip(rd, title, f"评分 {vote_average} < {min_vote}", result_lines=result_lines)
             continue
         meta = _snapshot_meta(item, entry, MediaType.TV)
-        if _is_existing_media(mediainfo, meta):
+        existing_state = _is_existing_media(mediainfo, meta)
+        if existing_state is None:
+            logger.warning(f"豆瓣中心：条目《{getattr(mediainfo, 'title', '')}》订阅状态未知，保留记录待下轮重试")
+            continue
+        if existing_state:
             _log_rank_skip(rd, getattr(mediainfo, "title", "") or title, "已存在订阅，跳过观察与订阅", result_lines=result_lines)
             _record_existing_history(
                 history,
@@ -1169,7 +1173,11 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         media_type = _snapshot_media_type(rd, item, entry, mediainfo)
         mtype = _resolved_media_type_name(rd, item, mediainfo)
         meta = _snapshot_meta(item, entry, media_type)
-        if _is_existing_media(mediainfo, meta):
+        existing_state = _is_existing_media(mediainfo, meta)
+        if existing_state is None:
+            logger.warning(f"豆瓣中心：条目《{getattr(mediainfo, 'title', '')}》订阅状态未知，保留记录待下轮重试")
+            continue
+        if existing_state:
             _log_rank_skip(rd, getattr(mediainfo, "title", "") or title, "已存在订阅，跳过观察与订阅", result_lines=result_lines)
             _record_existing_history(
                 history,
@@ -1298,7 +1306,11 @@ def _process_coming(self, url: str, rd: dict) -> None:
         vote_average = getattr(mediainfo, "vote_average", None)
         if min_vote > 0 and vote_average and vote_average < min_vote:
             continue
-        if _is_existing_media(mediainfo, meta):
+        existing_state = _is_existing_media(mediainfo, meta)
+        if existing_state is None:
+            logger.warning(f"豆瓣中心：条目《{getattr(mediainfo, 'title', '')}》订阅状态未知，保留记录待下轮重试")
+            continue
+        if existing_state:
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
             _record_existing_history(
                 history,
@@ -1390,7 +1402,11 @@ def _process_general(self, url: str, rd: dict) -> None:
             continue
         if _year_below_min(mediainfo.year, min_year):
             continue
-        if _is_existing_media(mediainfo, meta):
+        existing_state = _is_existing_media(mediainfo, meta)
+        if existing_state is None:
+            logger.warning(f"豆瓣中心：条目《{getattr(mediainfo, 'title', '')}》订阅状态未知，保留记录待下轮重试")
+            continue
+        if existing_state:
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
             _record_existing_history(
                 history,
@@ -1477,7 +1493,11 @@ def _process_items(self, items: List[dict], source: str) -> None:
         meta, mediainfo, mtype = _recognize_rss_item(self, item, {"key": source})
         if not mediainfo:
             continue
-        if _is_existing_media(mediainfo, meta):
+        existing_state = _is_existing_media(mediainfo, meta)
+        if existing_state is None:
+            logger.warning(f"豆瓣中心：条目《{getattr(mediainfo, 'title', '')}》订阅状态未知，保留记录待下轮重试")
+            continue
+        if existing_state:
             logger.info(f"豆瓣中心：条目《{mediainfo.title or title}》已存在订阅，跳过观察与订阅")
             _record_existing_history(
                 history,

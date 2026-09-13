@@ -188,12 +188,15 @@ def subscribe_from_bangumi_subject(
     """在媒体链识别失败时使用 Bangumi subject 信息添加订阅。"""
     if not bangumi_id or not bangumi_subject_fetcher or not bangumi_subject_title or not bangumi_subject_year:
         return {"success": False, "message": "无法识别媒体信息"}
-    if subscription_service.is_existing_identity(
+    existing_state = subscription_service.is_existing_identity(
         MediaSource.Bangumi,
         str(bangumi_id),
         season=season,
         subscribe_oper_cls=subscribe_oper_cls,
-    ):
+    )
+    if existing_state is None:
+        return {"success": False, "message": "订阅状态检查失败，请稍后重试"}
+    if existing_state:
         return {"success": False, "message": "已订阅"}
     subject = bangumi_subject_fetcher(plugin, bangumi_id)
     if not subject:
@@ -331,12 +334,15 @@ def subscribe_from_rank(
             subscribe_oper_cls=subscribe_oper_cls,
         )
 
-    if subscription_service.is_existing_media(
+    existing_state = subscription_service.is_existing_media(
         mediainfo,
         meta,
         subscribe_chain_cls=subscribe_chain_cls,
         subscribe_oper_cls=subscribe_oper_cls,
-    ):
+    )
+    if existing_state is None:
+        return {"success": False, "message": "订阅状态检查失败，请稍后重试"}
+    if existing_state:
         return {"success": False, "message": "已订阅"}
     source, resolved_id = identity_from_media(mediainfo)
     display_title = str(recognition.get("title") or title or "") if bangumi_identity_id else ""

@@ -2,7 +2,7 @@
 
 ## 插件用途
 
-DoubanCenter 3.0.4 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
+DoubanCenter 3.0.8 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
 
 ## 入口与渲染
 
@@ -16,7 +16,7 @@ DoubanCenter 3.0.4 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 
 - `service/scheduler.py`：定时服务声明和调度器停止。
 - `service/webhook.py`：Webhook 播放事件串行化和豆瓣时间入口。
-- `service/subscription.py`：订阅历史判断、已存在订阅记录、自动订阅执行、订阅记录去重写入。
+- `service/subscription.py`：订阅历史判断、已存在订阅记录、自动订阅执行、订阅记录去重写入；查重失败返回未知，停止该条写入并保留待重试记录。
 - `service/observation.py`：观察期启用判断、观察期日志、观察队列首次记录、观察期完成和跌出候选标记。
 - `service/archive.py`：归档记录去重键、完整度评分、归档写入、重复归档合并、归档移除。
 - `adapter/rss.py`：RSSHub / RSS 抓取与 RSS 条目解析。
@@ -25,7 +25,7 @@ DoubanCenter 3.0.4 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 - `storage/records.py`：插件持久化 key、读写封装、记录裁剪和榜单历史 key。
 - `model/identity.py`：统一 `(media_source, media_id)`、旧字段回填和 V3 `MediaChain` 参数。
 - `migration.py`：初始化时幂等迁移榜单、订阅、观察、归档、豆瓣时间和想看记录；unresolved 原样保留。
-- `controller/schemas.py`：18 条普通 JSON 路由的具体 Pydantic 业务模型。
+- `controller/schemas.py`：普通 JSON 路由的具体 Pydantic 业务模型。
 - `service/rank_pipeline.py`：榜单领域兼容入口和运行回调；根 `feed.py` 仅保留兼容转发。
 - `service/rank_refresh.py`：RSS 目标选择、拉取窗口和仪表盘刷新编排。
 - `service/rank_recognition.py`：RSS 条目与快照的识别器选择。
@@ -42,7 +42,7 @@ DoubanCenter 3.0.4 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 - `app.adapters.external.cookiecloud.CookieCloudHelper` 当前仍没有稳定 SDK 出口，
   是唯一保留的宿主内部导入；精确例外登记在仓库根目录
   `.github/plugin-quality-exceptions.json`，修改前应先重新核对宿主 `app.sdk` 的 `__all__`。
-- 18 条插件 API 显式返回 `schemas.Response[T]`，前端注入客户端读取最终
+- 普通 JSON 插件 API 显式返回 `schemas.Response[T]`，前端注入客户端读取最终
   `success/message/data` envelope，不允许再增加一层 `data`。
 
 ## 主要数据 key
@@ -72,8 +72,8 @@ DoubanCenter 3.0.4 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订�
 - V3 聚焦测试：设置 `MOVIEPILOT_BACKEND_PATH` 为固定 V3 宿主后运行 `python -m pytest tests/v3/doubancenter -q`。
 - Python 语法：`python -m compileall -q plugins.v3/doubancenter`。
 - 联邦构建：`pnpm --dir plugins.v3/doubancenter build`，并确认 `dist/assets/remoteEntry.js` 引用的资产均存在。
-- 版本门禁：解析 `package.v2.json` / `package.v3.json`，确认 V2 1.2.20 与 V3 3.0.0 分代一致。
-- MP 本地闭环：优先同步到 `Z:\moviepilot-v2\config\local plugins` 的 V3 代际目录，GET reload 后分别回读 history、API、remotes 和静态资产。
+- 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.8`；不修改 V2 元数据。
+- MP 本地闭环：使用开发技能的 `accept_local.py` 同步至可用的 MP 本地仓库；需要时从发现结果安装准确的本地来源，再执行 `POST /api/v1/plugin/reload/DoubanCenter`，回读 history、installed、overview、remotes 和静态资产。页面验收由用户完成。
 
 ## 禁止改动区
 
