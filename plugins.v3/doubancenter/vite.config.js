@@ -1,20 +1,28 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
-import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 function cleanFederationArtifacts() {
+  let outputDir
   return {
     name: 'clean-federation-artifacts',
+    configResolved(config) {
+      outputDir = resolve(config.root, config.build.outDir)
+    },
     closeBundle() {
-      rmSync(new URL('./dist/index.html', import.meta.url), { force: true })
-      rmSync(new URL('./dist/assets/__federation_shared_vuetify', import.meta.url), {
+      if (!outputDir) return
+      rmSync(resolve(outputDir, 'index.html'), { force: true })
+      rmSync(resolve(outputDir, 'assets/__federation_shared_vuetify'), {
         recursive: true,
         force: true,
       })
-      const remoteEntryUrl = new URL('./dist/assets/remoteEntry.js', import.meta.url)
-      const remoteEntry = readFileSync(remoteEntryUrl, 'utf8').replace(/[ \t]+(?=\r?$)/gm, '')
-      writeFileSync(remoteEntryUrl, remoteEntry, 'utf8')
+      const remoteEntryPath = resolve(outputDir, 'assets/remoteEntry.js')
+      if (existsSync(remoteEntryPath)) {
+        const remoteEntry = readFileSync(remoteEntryPath, 'utf8').replace(/[ \t]+(?=\r?$)/gm, '')
+        writeFileSync(remoteEntryPath, remoteEntry, 'utf8')
+      }
     },
   }
 }
