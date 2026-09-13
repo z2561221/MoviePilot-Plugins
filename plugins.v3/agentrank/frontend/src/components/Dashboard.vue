@@ -151,6 +151,7 @@ onBeforeUnmount(stopRunProgressPoll)
             <div class="font-weight-medium text-truncate">{{ item.title }}</div>
             <div class="d-flex flex-wrap ga-1 mt-1">
               <VChip v-if="item.in_library" size="x-small" variant="tonal" color="info">已入库</VChip>
+              <VChip v-if="item.in_library == null" size="x-small" variant="tonal" color="warning">库状态未知</VChip>
               <VChip v-if="item.subscribed" size="x-small" variant="tonal" color="warning">已订阅</VChip>
               <VChip v-if="item.watch_status === 'partial'" size="x-small" variant="tonal" color="secondary">部分观看</VChip>
             </div>

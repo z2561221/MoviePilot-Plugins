@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-C_F9khe6.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-DbLHTEvd.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-BBczK2MO.js';
+import { _ as _export_sfc } from './_plugin-vue_export-helper-C3tB_UbJ.js';
 
 const {unref:_unref$4,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,createElementVNode:_createElementVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,mergeProps:_mergeProps$1,withCtx:_withCtx$4,openBlock:_openBlock$4,createBlock:_createBlock$4,createCommentVNode:_createCommentVNode$4,createElementBlock:_createElementBlock$3,withModifiers:_withModifiers$2,renderList:_renderList$3,Fragment:_Fragment$3} = await importShared('vue');
 
@@ -405,7 +405,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const AgentAnalysisDialog = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-d42ff97a"]]);
+const AgentAnalysisDialog = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-386311a9"]]);
 
 const {unref:_unref$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,withCtx:_withCtx$3,toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,openBlock:_openBlock$3,createBlock:_createBlock$3,createCommentVNode:_createCommentVNode$3,createTextVNode:_createTextVNode$3,createElementBlock:_createElementBlock$2,renderList:_renderList$2,Fragment:_Fragment$2,normalizeClass:_normalizeClass$1,withModifiers:_withModifiers$1,withKeys:_withKeys$2} = await importShared('vue');
 
@@ -807,7 +807,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CriticChatDialog = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-d43df7c9"]]);
+const CriticChatDialog = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-9a64f11e"]]);
 
 const {unref:_unref$2,resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,createElementVNode:_createElementVNode$2,toDisplayString:_toDisplayString$2,withCtx:_withCtx$2,withModifiers:_withModifiers,withKeys:_withKeys$1,createTextVNode:_createTextVNode$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2} = await importShared('vue');
 
@@ -995,7 +995,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const FeedbackCommentDialog = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-2c90544e"]]);
+const FeedbackCommentDialog = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-ad9ce515"]]);
 
 const {unref:_unref$1,resolveComponent:_resolveComponent$1,createVNode:_createVNode$1,createElementVNode:_createElementVNode$1,toDisplayString:_toDisplayString$1,withCtx:_withCtx$1,createTextVNode:_createTextVNode$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createElementBlock:_createElementBlock$1,renderList:_renderList$1,Fragment:_Fragment$1} = await importShared('vue');
 
@@ -1481,7 +1481,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-30beb39a"]]);
+const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-676b632f"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,mergeProps:_mergeProps,vShow:_vShow,withDirectives:_withDirectives,withKeys:_withKeys} = await importShared('vue');
 
@@ -2657,35 +2657,34 @@ return (_ctx, _cache) => {
                                   _: 1
                                 }))
                               : _createCommentVNode("", true),
-                            (item.subscribed)
+                            (item.in_library == null)
                               ? (_openBlock(), _createBlock(_component_VChip, {
                                   key: 1,
+                                  size: "x-small",
+                                  variant: "tonal",
+                                  color: "warning"
+                                }, {
+                                  default: _withCtx(() => [...(_cache[28] || (_cache[28] = [
+                                    _createTextVNode("库状态未知", -1)
+                                  ]))]),
+                                  _: 1
+                                }))
+                              : _createCommentVNode("", true),
+                            (item.subscribed)
+                              ? (_openBlock(), _createBlock(_component_VChip, {
+                                  key: 2,
                                   size: "x-small",
                                   variant: "tonal",
                                   color: "warning",
                                   "prepend-icon": "mdi-bookmark-check-outline"
                                 }, {
-                                  default: _withCtx(() => [...(_cache[28] || (_cache[28] = [
+                                  default: _withCtx(() => [...(_cache[29] || (_cache[29] = [
                                     _createTextVNode("已订阅", -1)
                                   ]))]),
                                   _: 1
                                 }))
                               : _createCommentVNode("", true),
                             (item.in_library && item.watch_status === 'unwatched')
-                              ? (_openBlock(), _createBlock(_component_VChip, {
-                                  key: 2,
-                                  size: "x-small",
-                                  variant: "tonal",
-                                  color: "secondary",
-                                  "prepend-icon": "mdi-play-circle-outline"
-                                }, {
-                                  default: _withCtx(() => [...(_cache[29] || (_cache[29] = [
-                                    _createTextVNode("未观看", -1)
-                                  ]))]),
-                                  _: 1
-                                }))
-                              : _createCommentVNode("", true),
-                            (item.watch_status === 'partial')
                               ? (_openBlock(), _createBlock(_component_VChip, {
                                   key: 3,
                                   size: "x-small",
@@ -2694,6 +2693,20 @@ return (_ctx, _cache) => {
                                   "prepend-icon": "mdi-play-circle-outline"
                                 }, {
                                   default: _withCtx(() => [...(_cache[30] || (_cache[30] = [
+                                    _createTextVNode("未观看", -1)
+                                  ]))]),
+                                  _: 1
+                                }))
+                              : _createCommentVNode("", true),
+                            (item.watch_status === 'partial')
+                              ? (_openBlock(), _createBlock(_component_VChip, {
+                                  key: 4,
+                                  size: "x-small",
+                                  variant: "tonal",
+                                  color: "secondary",
+                                  "prepend-icon": "mdi-play-circle-outline"
+                                }, {
+                                  default: _withCtx(() => [...(_cache[31] || (_cache[31] = [
                                     _createTextVNode("部分观看", -1)
                                   ]))]),
                                   _: 1
@@ -2701,11 +2714,11 @@ return (_ctx, _cache) => {
                               : _createCommentVNode("", true)
                           ]),
                           _createElementVNode("div", _hoisted_18, [
-                            _cache[31] || (_cache[31] = _createElementVNode("span", { class: "ar-page__copy-label" }, "推荐：", -1)),
+                            _cache[32] || (_cache[32] = _createElementVNode("span", { class: "ar-page__copy-label" }, "推荐：", -1)),
                             _createElementVNode("span", _hoisted_19, _toDisplayString(item.reason || item.summary || '等待 Agent 补充推荐理由'), 1)
                           ]),
                           _createElementVNode("div", _hoisted_20, [
-                            _cache[32] || (_cache[32] = _createElementVNode("span", { class: "ar-page__copy-label" }, "简介：", -1)),
+                            _cache[33] || (_cache[33] = _createElementVNode("span", { class: "ar-page__copy-label" }, "简介：", -1)),
                             _createElementVNode("span", _hoisted_21, _toDisplayString(item.summary || '暂无简介'), 1)
                           ]),
                           (item.match_tags?.length)
@@ -2772,7 +2785,7 @@ return (_ctx, _cache) => {
             ]),
             _withDirectives(_createElementVNode("section", _hoisted_25, [
               _createElementVNode("div", _hoisted_26, [
-                _cache[33] || (_cache[33] = _createElementVNode("div", null, [
+                _cache[34] || (_cache[34] = _createElementVNode("div", null, [
                   _createElementVNode("div", { class: "ar-page__section-title" }, "用户画像"),
                   _createElementVNode("div", { class: "ar-page__section-desc" }, "用播放样本描述偏好、避雷方向与本轮榜单命中。")
                 ], -1)),
@@ -2820,7 +2833,7 @@ return (_ctx, _cache) => {
                     ]),
                     default: _withCtx(() => [
                       _createVNode(_component_VCardTitle, { class: "text-subtitle-1 font-weight-bold" }, {
-                        default: _withCtx(() => [...(_cache[34] || (_cache[34] = [
+                        default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
                           _createTextVNode("画像摘要", -1)
                         ]))]),
                         _: 1
@@ -2843,7 +2856,7 @@ return (_ctx, _cache) => {
                             icon: "mdi-text-box-search-outline",
                             size: "18"
                           }),
-                          _cache[35] || (_cache[35] = _createTextVNode("口味摘要", -1))
+                          _cache[36] || (_cache[36] = _createTextVNode("口味摘要", -1))
                         ]),
                         _createElementVNode("div", _hoisted_30, _toDisplayString(_unref(state).profile.value?.summary || '尚未生成用户画像'), 1)
                       ]),
@@ -2874,28 +2887,28 @@ return (_ctx, _cache) => {
                             icon: "mdi-chart-timeline-variant",
                             size: "18"
                           }),
-                          _cache[36] || (_cache[36] = _createTextVNode("学习健康度", -1))
+                          _cache[37] || (_cache[37] = _createTextVNode("学习健康度", -1))
                         ]),
                         _createElementVNode("div", _hoisted_34, [
                           _createElementVNode("div", null, [
                             _createElementVNode("strong", null, _toDisplayString(_unref(state).learningHealth.value?.short_term_signal_count || 0), 1),
-                            _cache[37] || (_cache[37] = _createElementVNode("small", null, "短期信号", -1))
+                            _cache[38] || (_cache[38] = _createElementVNode("small", null, "短期信号", -1))
                           ]),
                           _createElementVNode("div", null, [
                             _createElementVNode("strong", null, _toDisplayString(_unref(state).learningHealth.value?.confirmed_memory_count || 0), 1),
-                            _cache[38] || (_cache[38] = _createElementVNode("small", null, "确认记忆", -1))
+                            _cache[39] || (_cache[39] = _createElementVNode("small", null, "确认记忆", -1))
                           ]),
                           _createElementVNode("div", null, [
                             _createElementVNode("strong", null, _toDisplayString(_unref(state).learningHealth.value?.pending_count || 0), 1),
-                            _cache[39] || (_cache[39] = _createElementVNode("small", null, "待确认", -1))
+                            _cache[40] || (_cache[40] = _createElementVNode("small", null, "待确认", -1))
                           ]),
                           _createElementVNode("div", null, [
                             _createElementVNode("strong", null, _toDisplayString(_unref(state).learningHealth.value?.processed_count || 0), 1),
-                            _cache[40] || (_cache[40] = _createElementVNode("small", null, "已处理", -1))
+                            _cache[41] || (_cache[41] = _createElementVNode("small", null, "已处理", -1))
                           ]),
                           _createElementVNode("div", null, [
                             _createElementVNode("strong", null, _toDisplayString(_unref(state).learningHealth.value?.exposure_count || 0), 1),
-                            _cache[41] || (_cache[41] = _createElementVNode("small", null, "有效曝光", -1))
+                            _cache[42] || (_cache[42] = _createElementVNode("small", null, "有效曝光", -1))
                           ])
                         ]),
                         _createElementVNode("div", _hoisted_35, [
@@ -2925,7 +2938,7 @@ return (_ctx, _cache) => {
                               icon: "mdi-heart-outline",
                               size: "18"
                             }),
-                            _cache[42] || (_cache[42] = _createTextVNode("偏好标签", -1))
+                            _cache[43] || (_cache[43] = _createTextVNode("偏好标签", -1))
                           ]),
                           _createElementVNode("div", _hoisted_40, [
                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(positiveTags.value, (tag) => {
@@ -2965,7 +2978,7 @@ return (_ctx, _cache) => {
                               loading: _unref(state).loading.action === 'profile/tags',
                               onClick: _cache[12] || (_cache[12] = $event => (addProfileTag('positive')))
                             }, {
-                              default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
+                              default: _withCtx(() => [...(_cache[44] || (_cache[44] = [
                                 _createTextVNode("添加", -1)
                               ]))]),
                               _: 1
@@ -2978,7 +2991,7 @@ return (_ctx, _cache) => {
                               icon: "mdi-shield-alert-outline",
                               size: "18"
                             }),
-                            _cache[44] || (_cache[44] = _createTextVNode("避雷标签", -1))
+                            _cache[45] || (_cache[45] = _createTextVNode("避雷标签", -1))
                           ]),
                           _createElementVNode("div", _hoisted_45, [
                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(negativeTags.value, (tag) => {
@@ -3018,7 +3031,7 @@ return (_ctx, _cache) => {
                               loading: _unref(state).loading.action === 'profile/tags',
                               onClick: _cache[15] || (_cache[15] = $event => (addProfileTag('negative')))
                             }, {
-                              default: _withCtx(() => [...(_cache[45] || (_cache[45] = [
+                              default: _withCtx(() => [...(_cache[46] || (_cache[46] = [
                                 _createTextVNode("添加", -1)
                               ]))]),
                               _: 1
@@ -3031,7 +3044,7 @@ return (_ctx, _cache) => {
                               icon: "mdi-target-account",
                               size: "18"
                             }),
-                            _cache[46] || (_cache[46] = _createTextVNode("本轮命中", -1))
+                            _cache[47] || (_cache[47] = _createTextVNode("本轮命中", -1))
                           ]),
                           _createElementVNode("div", _hoisted_50, [
                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(boardMatchTags.value, (item) => {
@@ -3061,7 +3074,7 @@ return (_ctx, _cache) => {
                               icon: "mdi-archive-outline",
                               size: "18"
                             }),
-                            _cache[47] || (_cache[47] = _createTextVNode("归档标签", -1))
+                            _cache[48] || (_cache[48] = _createTextVNode("归档标签", -1))
                           ]),
                           _createElementVNode("div", _hoisted_55, [
                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(archivedProfileTags.value, (item) => {
@@ -3111,7 +3124,7 @@ return (_ctx, _cache) => {
             ]),
             _withDirectives(_createElementVNode("section", _hoisted_57, [
               _createElementVNode("div", _hoisted_58, [
-                _cache[48] || (_cache[48] = _createElementVNode("div", null, [
+                _cache[49] || (_cache[49] = _createElementVNode("div", null, [
                   _createElementVNode("div", { class: "ar-page__section-title" }, "忽略归档"),
                   _createElementVNode("div", { class: "ar-page__section-desc" }, "保留被忽略条目的原排名，可随时恢复推荐。")
                 ], -1)),
@@ -3153,7 +3166,7 @@ return (_ctx, _cache) => {
                                 "prepend-icon": "mdi-backup-restore",
                                 onClick: $event => (runAction(() => _unref(state).restore(entry.candidate_id), '推荐已恢复'))
                               }, {
-                                default: _withCtx(() => [...(_cache[49] || (_cache[49] = [
+                                default: _withCtx(() => [...(_cache[50] || (_cache[50] = [
                                   _createTextVNode("恢复", -1)
                                 ]))]),
                                 _: 1
@@ -3204,7 +3217,7 @@ return (_ctx, _cache) => {
             ]),
             _withDirectives(_createElementVNode("section", _hoisted_61, [
               _createElementVNode("div", _hoisted_62, [
-                _cache[50] || (_cache[50] = _createElementVNode("div", null, [
+                _cache[51] || (_cache[51] = _createElementVNode("div", null, [
                   _createElementVNode("div", { class: "ar-page__section-title" }, "运行历史"),
                   _createElementVNode("div", { class: "ar-page__section-desc" }, "按结果、耗时、阶段和候选统计查看每次运行。")
                 ], -1)),
@@ -3256,25 +3269,25 @@ return (_ctx, _cache) => {
                             }, 1032, ["color"])
                           ]),
                           _createElementVNode("div", _hoisted_67, [
-                            _cache[51] || (_cache[51] = _createElementVNode("span", { class: "ar-page__history-message-label" }, "结果：", -1)),
+                            _cache[52] || (_cache[52] = _createElementVNode("span", { class: "ar-page__history-message-label" }, "结果：", -1)),
                             _createTextVNode(_toDisplayString(translateHistoryError(run.message || '本轮运行已记录')), 1)
                           ]),
                           _createElementVNode("div", _hoisted_68, [
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", null, _toDisplayString(run.metrics?.candidate_count ?? 0), 1),
-                              _cache[52] || (_cache[52] = _createElementVNode("span", null, "候选条目", -1))
+                              _cache[53] || (_cache[53] = _createElementVNode("span", null, "候选条目", -1))
                             ]),
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", null, _toDisplayString(run.metrics?.final_count ?? 0), 1),
-                              _cache[53] || (_cache[53] = _createElementVNode("span", null, "安全推荐", -1))
+                              _cache[54] || (_cache[54] = _createElementVNode("span", null, "安全推荐", -1))
                             ]),
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", _hoisted_69, _toDisplayString(historyModelText(run)), 1),
-                              _cache[54] || (_cache[54] = _createElementVNode("span", null, "供应商 / 模型", -1))
+                              _cache[55] || (_cache[55] = _createElementVNode("span", null, "供应商 / 模型", -1))
                             ]),
                             _createElementVNode("div", null, [
                               _createElementVNode("strong", null, _toDisplayString(run.metrics?.subscription_success_count ?? 0), 1),
-                              _cache[55] || (_cache[55] = _createElementVNode("span", null, "自动订阅", -1))
+                              _cache[56] || (_cache[56] = _createElementVNode("span", null, "自动订阅", -1))
                             ])
                           ]),
                           (historyStages(run).length)
@@ -3323,16 +3336,16 @@ return (_ctx, _cache) => {
                           (isHistoryExpanded(run))
                             ? (_openBlock(), _createElementBlock("div", _hoisted_72, [
                                 _createElementVNode("div", null, [
-                                  _cache[56] || (_cache[56] = _createElementVNode("span", null, "运行编号", -1)),
+                                  _cache[57] || (_cache[57] = _createElementVNode("span", null, "运行编号", -1)),
                                   _createElementVNode("code", null, _toDisplayString(run.run_id || '—'), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[57] || (_cache[57] = _createElementVNode("span", null, "模型调用", -1)),
+                                  _cache[58] || (_cache[58] = _createElementVNode("span", null, "模型调用", -1)),
                                   _createElementVNode("span", null, _toDisplayString(run.metrics?.model_call_count ?? run.metrics?.agent_calls ?? 0) + " 次；画像任务 " + _toDisplayString(run.metrics?.profile_agent_calls ?? 0) + " 次；排序任务 " + _toDisplayString(run.metrics?.ranking_agent_calls ?? 0) + " 次", 1)
                                 ]),
                                 (historyAgentCalls(run).length)
                                   ? (_openBlock(), _createElementBlock("div", _hoisted_73, [
-                                      _cache[58] || (_cache[58] = _createElementVNode("span", null, "调用明细", -1)),
+                                      _cache[59] || (_cache[59] = _createElementVNode("span", null, "调用明细", -1)),
                                       _createElementVNode("div", _hoisted_74, [
                                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(historyAgentCalls(run), (call) => {
                                           return (_openBlock(), _createElementBlock("div", {
@@ -3354,55 +3367,55 @@ return (_ctx, _cache) => {
                                     ]))
                                   : _createCommentVNode("", true),
                                 _createElementVNode("div", null, [
-                                  _cache[59] || (_cache[59] = _createElementVNode("span", null, "画像缓存", -1)),
+                                  _cache[60] || (_cache[60] = _createElementVNode("span", null, "画像缓存", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyProfileCacheText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[60] || (_cache[60] = _createElementVNode("span", null, "排序策略", -1)),
+                                  _cache[61] || (_cache[61] = _createElementVNode("span", null, "排序策略", -1)),
                                   _createElementVNode("code", null, _toDisplayString(historyPolicyText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[61] || (_cache[61] = _createElementVNode("span", null, "播放快照", -1)),
+                                  _cache[62] || (_cache[62] = _createElementVNode("span", null, "播放快照", -1)),
                                   _createElementVNode("span", null, _toDisplayString(run.metrics?.playback_count ?? 0) + " 条，" + _toDisplayString(historyPlaybackStatus(run.metrics?.playback_status)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[62] || (_cache[62] = _createElementVNode("span", null, "候选耗时", -1)),
+                                  _cache[63] || (_cache[63] = _createElementVNode("span", null, "候选耗时", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyCandidateTimingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[63] || (_cache[63] = _createElementVNode("span", null, "候选处理", -1)),
+                                  _cache[64] || (_cache[64] = _createElementVNode("span", null, "候选处理", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyCandidateProcessingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[64] || (_cache[64] = _createElementVNode("span", null, "初赛批次", -1)),
+                                  _cache[65] || (_cache[65] = _createElementVNode("span", null, "初赛批次", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyTournamentText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[65] || (_cache[65] = _createElementVNode("span", null, "阶段耗时", -1)),
+                                  _cache[66] || (_cache[66] = _createElementVNode("span", null, "阶段耗时", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyTournamentTimingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[66] || (_cache[66] = _createElementVNode("span", null, "修正次数", -1)),
+                                  _cache[67] || (_cache[67] = _createElementVNode("span", null, "修正次数", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyRepairText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[67] || (_cache[67] = _createElementVNode("span", null, "降级来源", -1)),
+                                  _cache[68] || (_cache[68] = _createElementVNode("span", null, "降级来源", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyDegradeSourceText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[68] || (_cache[68] = _createElementVNode("span", null, "排序校验", -1)),
+                                  _cache[69] || (_cache[69] = _createElementVNode("span", null, "排序校验", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyRankingText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[69] || (_cache[69] = _createElementVNode("span", null, "校验丢弃", -1)),
+                                  _cache[70] || (_cache[70] = _createElementVNode("span", null, "校验丢弃", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyValidationDropText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[70] || (_cache[70] = _createElementVNode("span", null, "选择来源", -1)),
+                                  _cache[71] || (_cache[71] = _createElementVNode("span", null, "选择来源", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historySelectionSourceText(run)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[71] || (_cache[71] = _createElementVNode("span", null, "候选排除", -1)),
+                                  _cache[72] || (_cache[72] = _createElementVNode("span", null, "候选排除", -1)),
                                   _createElementVNode("span", null, _toDisplayString(historyExclusionText(run)), 1)
                                 ])
                               ]))
@@ -3428,7 +3441,7 @@ return (_ctx, _cache) => {
             ]),
             _withDirectives(_createElementVNode("section", _hoisted_77, [
               _createElementVNode("div", _hoisted_78, [
-                _cache[72] || (_cache[72] = _createElementVNode("div", null, [
+                _cache[73] || (_cache[73] = _createElementVNode("div", null, [
                   _createElementVNode("div", { class: "ar-page__section-title" }, "历史榜单"),
                   _createElementVNode("div", { class: "ar-page__section-desc" }, "只读查看每一轮生成时的完整前5名，保留当时的理由与评分。")
                 ], -1)),
@@ -3570,7 +3583,7 @@ return (_ctx, _cache) => {
                                               color: "success",
                                               variant: "tonal"
                                             }, {
-                                              default: _withCtx(() => [...(_cache[73] || (_cache[73] = [
+                                              default: _withCtx(() => [...(_cache[74] || (_cache[74] = [
                                                 _createTextVNode("本轮新入榜", -1)
                                               ]))]),
                                               _: 1
@@ -3580,7 +3593,7 @@ return (_ctx, _cache) => {
                                               size: "x-small",
                                               variant: "outlined"
                                             }, {
-                                              default: _withCtx(() => [...(_cache[74] || (_cache[74] = [
+                                              default: _withCtx(() => [...(_cache[75] || (_cache[75] = [
                                                 _createTextVNode("历史再推荐", -1)
                                               ]))]),
                                               _: 1
@@ -3592,7 +3605,7 @@ return (_ctx, _cache) => {
                                               color: "info",
                                               variant: "tonal"
                                             }, {
-                                              default: _withCtx(() => [...(_cache[75] || (_cache[75] = [
+                                              default: _withCtx(() => [...(_cache[76] || (_cache[76] = [
                                                 _createTextVNode("回归推荐", -1)
                                               ]))]),
                                               _: 1
@@ -3603,7 +3616,7 @@ return (_ctx, _cache) => {
                                         _createElementVNode("span", null, _toDisplayString(item.year || '年份未知'), 1)
                                       ]),
                                       _createElementVNode("div", _hoisted_94, [
-                                        _cache[76] || (_cache[76] = _createElementVNode("span", { class: "ar-page__copy-label" }, "推荐：", -1)),
+                                        _cache[77] || (_cache[77] = _createElementVNode("span", { class: "ar-page__copy-label" }, "推荐：", -1)),
                                         _createElementVNode("span", _hoisted_95, _toDisplayString(item.reason || item.summary || '暂无推荐理由'), 1)
                                       ]),
                                       _createElementVNode("div", _hoisted_96, [
@@ -3677,6 +3690,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e0ce40e6"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c4f2db06"]]);
 
 export { Page as default };
