@@ -837,6 +837,7 @@ onBeforeUnmount(() => {
                 <div class="ar-page__meta-row">
                   <span>{{ item.year || '年份未知' }}</span>
                   <VChip v-if="item.in_library" size="x-small" variant="tonal" color="info" prepend-icon="mdi-library-shelves">已入库</VChip>
+                  <VChip v-if="item.in_library == null" size="x-small" variant="tonal" color="warning">库状态未知</VChip>
                   <VChip v-if="item.subscribed" size="x-small" variant="tonal" color="warning" prepend-icon="mdi-bookmark-check-outline">已订阅</VChip>
                   <VChip v-if="item.in_library && item.watch_status === 'unwatched'" size="x-small" variant="tonal" color="secondary" prepend-icon="mdi-play-circle-outline">未观看</VChip>
                   <VChip v-if="item.watch_status === 'partial'" size="x-small" variant="tonal" color="secondary" prepend-icon="mdi-play-circle-outline">部分观看</VChip>

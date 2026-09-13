@@ -8,6 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.agent.tools.base import MoviePilotTool
 
+from ..model.candidate import normalize_library_state
 from .context import resolve_trusted_context, to_jsonable
 from .schemas import (
     SubmitBatchResultInput,
@@ -163,8 +164,8 @@ def _minimal_candidate(value: Any) -> Dict[str, Any]:
         if isinstance(item.get("popularity"), (int, float))
         else None,
         "release_date": _bounded_text(item.get("release_date"), 20),
-        "in_library": (
-            item.get("in_library") is True or metadata.get("in_library") is True
+        "in_library": normalize_library_state(
+            item["in_library"] if "in_library" in item else metadata.get("in_library")
         ),
         "subscribed": (
             item.get("subscribed") is True or metadata.get("subscribed") is True

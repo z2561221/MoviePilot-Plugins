@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from ..model.board import RecommendationItem
-from ..model.candidate import Candidate
+from ..model.candidate import Candidate, normalize_library_state
 from ..model.constants import RANKING_OUTPUT_LIMIT, RECOMMENDATION_LIMIT
 from ..model.retrieval import (
     ISO_639_1_CODES,
@@ -1695,7 +1695,7 @@ class RecommendationValidator:
                     poster_path=candidate.poster_path,
                     backdrop_path=candidate.backdrop_path,
                     match_tags=tags,
-                    in_library=bool(candidate.metadata.get("in_library")),
+                    in_library=normalize_library_state(candidate.metadata.get("in_library")),
                     subscribed=bool(candidate.metadata.get("subscribed")),
                     watch_status=str(
                         candidate.metadata.get("watch_status") or "unwatched"
@@ -1949,7 +1949,7 @@ class RecommendationValidator:
                     poster_path=candidate.poster_path,
                     backdrop_path=candidate.backdrop_path,
                     match_tags=match_tags,
-                    in_library=bool(candidate.metadata.get("in_library")),
+                    in_library=normalize_library_state(candidate.metadata.get("in_library")),
                     subscribed=bool(candidate.metadata.get("subscribed")),
                     watch_status=str(
                         candidate.metadata.get("watch_status") or "unwatched"

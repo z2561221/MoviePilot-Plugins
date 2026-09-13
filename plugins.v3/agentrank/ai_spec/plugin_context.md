@@ -6,6 +6,8 @@
 
 插件 ID 为 `AgentRank`，源码位于 `plugins.v3/agentrank`，生产导入命名空间为 `app.plugins.agentrank`，入口类为 `AgentRank`，配置前缀为 `agentrank_`。当前运行模式为 `("vue", "dist/assets")`。
 
+本周期开发版本为 `3.0.5`。媒体库状态使用 `true`、`false`、`null` 区分存在、不存在与查询失败；未知状态贯通候选、Agent 上下文、榜单持久化和页面。要求排除已入库媒体时，查询失败的候选不会当作未入库放行。
+
 ## 入口与生命周期
 
 - `init_plugin()` 委托 `service/lifecycle.py::initialize_plugin()`：规范化配置、执行存储迁移、探测 Playback Reporting 硬依赖并创建 `AgentRankRuntime`。
@@ -83,24 +85,26 @@
 - 禁止因候选不足放宽“排除已观看媒体”等宿主硬约束。
 - 禁止在浏览器端注入 API Token，禁止绕过 bearer API 和画像授权。
 - 禁止只修改 `frontend/src` 而不重建 `dist/assets`。
-- 未经明确确认，禁止递增版本、修改 history、push、合并或发布。
+- 开发周期版号与 history 按工作区已授权的版本预检规则维护；push、合并或发布须有对应的明确授权。
 
 ## 验收方式与常见坑
 
-从仓库根目录执行：
+从仓库根目录执行。先把 `MOVIEPILOT_BACKEND_PATH` 设为已核验的 V3 宿主 checkout 绝对路径，使用共享测试解释器和已安装的 Node.js：
 
 ```powershell
-& 'D:\AIGC\MoviePilot\.agents\.local\python-envs\agentrank\Scripts\python.exe' -m compileall -q plugins.v2\agentrank
-& 'D:\AIGC\MoviePilot\.agents\.local\python-envs\agentrank\Scripts\pytest.exe' -q --confcutdir=tests\static tests\static\test_agentrank_contracts.py tests\static\test_agentrank_frontend_contracts.py
-pnpm --dir plugins.v2\agentrank\frontend build
+Remove-Item Env:CONFIG_DIR -ErrorAction SilentlyContinue
+$env:DB_TYPE = 'sqlite'
+& 'D:\AIGC\MoviePilot\.venv-test\Scripts\python.exe' -m compileall -q plugins.v3\agentrank
+& 'D:\AIGC\MoviePilot\.venv-test\Scripts\python.exe' -m pytest -q tests\v3\agentrank
+pnpm --dir plugins.v3\agentrank\frontend build
 git diff --check
 ```
 
-完整本地闭环为：聚焦测试 -> `scripts/sync_to_mp_local.py --plugin AgentRank` -> GET reload -> `/api/v1/plugin/history/AgentRank` 与状态/overview 回读 -> 用户 Chrome 新标签页桌面和 390x844 验收。
+完整本地闭环为：聚焦测试 -> 开发技能 `accept_local.py` 同步与必要本地安装 -> `POST /api/v1/plugin/reload/AgentRank` -> `/api/v1/plugin/history/AgentRank`、installed、状态/overview 和静态资产回读。页面桌面与移动端验收由用户完成。
 
 常见坑：
 
 - 插件仓没有 MoviePilot 后端 `app/` 时，直接运行完整 pytest 会在收集阶段失败；应使用准备好的隔离环境或测试镜像，不能把环境失败报告成产品失败。
-- reload endpoint 使用 GET，不是 POST。
+- 当前 V3 宿主的 reload endpoint 使用 POST；宿主发生变化时先回读目标 OpenAPI。
 - MP 本地源仍存在时，history 显示 `local://` 属于预期，不能为了改变来源显示而删除本地插件。
-- 文件同步和哈希一致只证明文件状态；没有 reload、API 回读和页面检查就不能声称运行态已验收。
+- 文件同步和哈希一致只证明文件状态；reload、history、API 与 installed 回读共同验证运行态，页面交互另列验收结果。

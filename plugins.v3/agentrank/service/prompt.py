@@ -103,6 +103,7 @@ CONTINUATION_COPY_GUIDANCE = (
     "等句式。同一 Top 5 中的继续观看提示应随作品事实变化，避免重复措辞。in_library=true 且"
     "watch_status=unwatched 时，可以按当前人设提示开始或补看，但不得声称用户已经看过；"
     "watch_status=unknown 时不得虚构进度，watch_status=completed 时不得生成继续观看提示。"
+    "in_library=null 表示库状态尚未确认，不得声称已入库或未入库，也不得据此推断需要补订阅。"
 )
 
 AGENT_DISPLAY_NAME_DEFAULT = "克里斯蒂娜"

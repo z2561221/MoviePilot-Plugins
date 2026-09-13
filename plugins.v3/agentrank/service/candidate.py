@@ -11,6 +11,7 @@ from ..adapter.discovery import DiscoveryAdapter, DiscoveryFetchResult, RawDisco
 from ..model.candidate import (
     Candidate,
     normalize_title_names,
+    normalize_library_state,
     typed_tmdb_candidate_id,
 )
 from ..model.candidate_snapshot import CandidateSnapshot
@@ -463,12 +464,32 @@ class CandidateCollectionService:
             return set()
         candidate_ids = getattr(self._library_adapter, "candidate_ids", None)
         if callable(candidate_ids):
-            return set(candidate_ids(items) or set())
+            result = candidate_ids(items)
+            if result is None:
+                raise RuntimeError("媒体库状态查询失败")
+            return set(result)
         return {
             candidate.candidate_id
             for candidate in items
             if self._library_adapter.exists(candidate)
         }
+
+    def _library_candidate_states(self, candidates: Iterable[Candidate]) -> Dict[str, Optional[bool]]:
+        """优先使用逐项三态查询，并兼容旧适配器的完整身份集合。"""
+        items = list(candidates)
+        if self._library_adapter is None:
+            return {item.candidate_id: None for item in items}
+        lookup = getattr(self._library_adapter, "candidate_states", None)
+        if callable(lookup):
+            states = lookup(items)
+            if not isinstance(states, Mapping):
+                raise RuntimeError("媒体库状态响应无效")
+            return {
+                item.candidate_id: normalize_library_state(states.get(item.candidate_id))
+                for item in items
+            }
+        present = self._library_candidate_ids(items)
+        return {item.candidate_id: item.candidate_id in present for item in items}
 
     def _recent_survival_rate(self, profile_id: str) -> float:
         """读取最近成功运行的候选存活率，没有历史时使用保守默认值。"""
@@ -864,16 +885,14 @@ class CandidateCollectionService:
 
                 stage_clock = time.monotonic()
                 try:
-                    try:
-                        library_ids = self._library_candidate_ids(valid_batch)
-                    except Exception as error:
-                        # 状态标记失败不能阻断候选召回；硬观看过滤仍可独立执行。
-                        status_errors["library"] = str(error)
-                        library_ids = set()
+                    library_states = self._library_candidate_states(valid_batch)
                 except Exception as error:
-                    filter_errors["library"] = str(error)
-                    candidates = []
-                    break
+                    status_errors["library"] = str(error)
+                    library_states = {item.candidate_id: None for item in valid_batch}
+                if self._library_adapter is not None and any(
+                    state is None for state in library_states.values()
+                ):
+                    status_errors.setdefault("library", "部分候选媒体库状态未知")
                 filters = (
                     retrieval_plan.filters
                     if retrieval_plan is not None
@@ -882,7 +901,7 @@ class CandidateCollectionService:
                 for candidate in valid_batch:
                     candidate_id = candidate.candidate_id
                     candidate.metadata.pop("requested_media_type", None)
-                    candidate.metadata["in_library"] = candidate_id in library_ids
+                    candidate.metadata["in_library"] = library_states.get(candidate_id)
                     candidate.metadata["subscribed"] = candidate_id in subscribed_ids
                     candidate.metadata["watch_status"] = playback_statuses.get(
                         candidate_id, "unwatched"
@@ -899,7 +918,13 @@ class CandidateCollectionService:
                         exclusion_counts["cheap_media_type"] += 1
                     elif candidate_id in watched_ids:
                         exclusion_counts["watched_completed"] += 1
-                    elif exclude_library_candidates and candidate_id in library_ids:
+                    elif (
+                        exclude_library_candidates
+                        and self._library_adapter is not None
+                        and library_states.get(candidate_id) is None
+                    ):
+                        exclusion_counts["library_unknown"] = exclusion_counts.get("library_unknown", 0) + 1
+                    elif exclude_library_candidates and library_states.get(candidate_id) is True:
                         exclusion_counts["library"] += 1
                     elif candidate_id in disliked_ids:
                         exclusion_counts["disliked"] += 1
