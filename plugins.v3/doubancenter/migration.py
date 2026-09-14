@@ -12,6 +12,7 @@ except Exception:
     logger = None
 
 from .model.identity import identity_payload, normalize_record
+from .service.observation_metadata import enrich_log_metadata
 from .storage import records as storage
 
 TARGET_SUBSCRIBE_USERNAME = "豆瓣中心"
@@ -322,13 +323,16 @@ def migrate_plugin_media_identity(
         storage.FOLIO_WISH_FAILED_KEY,
     ]
     seen_keys = set(list_keys)
+    metadata_keys = {storage.SUBSCRIBE_RECORDS_KEY}
     for rank_key in rank_keys or ():
         key = storage.rank_history_key(str(rank_key))
+        metadata_keys.add(key)
         if key not in seen_keys:
             list_keys.append(key)
             seen_keys.add(key)
     for source in custom_rank_sources or ():
         key = storage.custom_rank_history_key(str(source))
+        metadata_keys.add(key)
         if key not in seen_keys:
             list_keys.append(key)
             seen_keys.add(key)
@@ -336,6 +340,7 @@ def migrate_plugin_media_identity(
     changed_keys = []
     unresolved_count = 0
     migrated_count = 0
+    metadata_sources = []
     for key in list_keys:
         raw = _read_plugin_data(plugin, key)
         if key == storage.ARCHIVE_RECORDS_KEY:
@@ -353,8 +358,16 @@ def migrate_plugin_media_identity(
             )
         if changed and _save_plugin_data(plugin, key, migrated):
             changed_keys.append(key)
+        if key in metadata_keys:
+            metadata_sources.extend(migrated)
         migrated_count += sum(1 for before, after in zip(raw or [], migrated or []) if before != after) if isinstance(raw, list) else 0
         unresolved_count += unresolved
+
+    raw_logs = _read_plugin_data(plugin, storage.ANTI_CHEAT_LOGS_KEY)
+    if isinstance(raw_logs, list):
+        enriched_logs, logs_changed = enrich_log_metadata(raw_logs, metadata_sources)
+        if logs_changed and _save_plugin_data(plugin, storage.ANTI_CHEAT_LOGS_KEY, enriched_logs):
+            changed_keys.append(storage.ANTI_CHEAT_LOGS_KEY)
 
     raw_archive = _read_plugin_data(plugin, storage.ARCHIVE_RECORDS_KEY)
     migrated_archive, archive_changed, archive_unresolved = _migrate_archive_list(raw_archive)
