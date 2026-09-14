@@ -4,6 +4,7 @@ import asyncio
 import logging
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
+from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Mapping
 
 from ..model.config import configured_identities
@@ -16,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 class AgentRankRuntime:
     """持有插件运行期领域服务并管理宿主调度入口。"""
+
+    retry_progress_interval_seconds = 5.0
 
     def __init__(
         self,
@@ -592,29 +595,103 @@ class AgentRankRuntime:
         """在自有事件循环中执行一次重试，不阻塞宿主消息回调。"""
         asyncio.run(self._execute_retry(profile_id))
 
+    def _retry_card_key(self, profile_id: str) -> tuple[str, int] | None:
+        """识别本次重试是否已经绑定可持续编辑的原通知。"""
+        getter = getattr(self.retry_service, "active_key", None)
+        return getter(profile_id) if callable(getter) else None
+
+    def retry_in_progress(self, profile_id: str) -> bool:
+        """区分仍在排队或执行的任务与重载后遗留的已提交会话。"""
+        with self._retry_lock:
+            future = self._retry_jobs.get(profile_id)
+            return bool(
+                (future is not None and not future.done())
+                or self.run_progress(profile_id).get("active")
+            )
+
+    async def _refresh_retry_card(self, profile_id: str, key: tuple[str, int]) -> None:
+        """每五秒合并一次真实阶段快照，编辑耗时不阻塞榜单生成。"""
+        while not self._stopped:
+            await asyncio.sleep(self.retry_progress_interval_seconds)
+            if self._stopped or self._retry_card_key(profile_id) != key:
+                return
+            try:
+                await asyncio.to_thread(
+                    self.retry_service.update_progress,
+                    profile_id, key, self.run_progress(profile_id),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("AgentRank 阶段通知更新失败 profile_id=%s", profile_id, exc_info=True)
+
+    async def _finish_retry_card(self, profile_id: str, key: tuple[str, int], result: Any) -> None:
+        """最终状态立即编辑；短暂失败仅有界重试编辑，不另发通知。"""
+        if await asyncio.to_thread(self.retry_service.finish, profile_id, key, result):
+            return
+        for delay in (1.0, 2.0):
+            await asyncio.sleep(delay)
+            if await asyncio.to_thread(self.retry_service.refresh_result, profile_id, key):
+                return
+
     async def _execute_retry(self, profile_id: str) -> None:
-        """跟踪可取消任务，并为结构化失败和未捕获异常继续发送通知。"""
+        """让阶段、成功、失败与停止持续更新同一条重试通知。"""
         task = asyncio.current_task()
         with self._retry_lock:
             if self._stopped:
                 return
             self._retry_tasks.add(task)
+        key = self._retry_card_key(profile_id)
+        progress_task = (
+            asyncio.create_task(self._refresh_retry_card(profile_id, key))
+            if key is not None else None
+        )
+        result = None
         try:
-            await self._execute_refresh(profile_id, source="telegram_retry")
+            result = await self._execute_refresh(profile_id, source="telegram_retry")
         except asyncio.CancelledError:
+            result = SimpleNamespace(status="stopped", run_id="", message="本次重试已停止")
             raise
         except Exception as error:
             logger.exception("AgentRank Telegram 重试异常 profile_id=%s", profile_id)
-            self._notify_exception(profile_id, "telegram_retry", error)
+            result = SimpleNamespace(
+                status="runtime_exception", run_id=self.run_progress(profile_id).get("run_id", ""),
+                message=str(error), old_board_preserved=True,
+            )
+            if key is None:
+                self._notify_exception(profile_id, "telegram_retry", error)
         finally:
-            with self._retry_lock:
-                self._retry_tasks.discard(task)
+            try:
+                if progress_task is not None:
+                    progress_task.cancel()
+                    try:
+                        await progress_task
+                    except asyncio.CancelledError:
+                        pass
+                if key is not None and result is not None:
+                    try:
+                        await self._finish_retry_card(profile_id, key, result)
+                    except Exception:
+                        logger.warning("AgentRank 运行结果更新失败 profile_id=%s", profile_id, exc_info=True)
+            finally:
+                with self._retry_lock:
+                    self._retry_tasks.discard(task)
 
     def _forget_retry_job(self, profile_id: str, future: Future) -> None:
         """释放完成的重试任务，并消费后台异常以免静默丢失。"""
         with self._retry_lock:
             if self._retry_jobs.get(profile_id) is future:
                 self._retry_jobs.pop(profile_id, None)
+        if future.cancelled() or self._stopped:
+            key = self._retry_card_key(profile_id)
+            if key is not None:
+                try:
+                    self.retry_service.finish(
+                        profile_id, key,
+                        SimpleNamespace(status="stopped", run_id="", message="排队任务已停止"),
+                    )
+                except Exception:
+                    logger.warning("AgentRank 排队任务通知更新失败 profile_id=%s", profile_id, exc_info=True)
         if not future.cancelled():
             error = future.exception()
             if error is not None and not isinstance(error, asyncio.CancelledError):
@@ -636,16 +713,17 @@ class AgentRankRuntime:
         self, profile_id: str, result: Any, *, source: str = "scheduled"
     ) -> None:
         """按动作模式执行通知或自动订阅后处理。"""
+        inline_retry = source == "telegram_retry" and self._retry_card_key(profile_id) is not None
         status = getattr(result, "status", "")
         if status not in {"success", "recommendation_incomplete"}:
             if status not in {"", "running"}:
-                if source != "manual":
+                if source != "manual" and not inline_retry:
                     self._notify_result_failure(profile_id, result)
             return
         mode = self.config.get("action_mode")
         board = getattr(result, "board", None)
         if mode == "notify":
-            if self.notification_service is not None and board is not None:
+            if not inline_retry and self.notification_service is not None and board is not None:
                 self.notification_service.send_confirmation(
                     getattr(board, "username", "")
                     or self._display_name(profile_id, self.config),

@@ -3017,12 +3017,17 @@ class AgentRankRepository:
 
     def save_telegram_retry_session(
         self, session: TelegramRetrySession, *, expected_status: str = "",
+        expected_attempt: int | None = None,
     ) -> bool:
         """原子更新重试状态，每个画像仅保留最新通知并有界裁剪。"""
         with self._telegram_retry_lock:
-            if expected_status:
+            if expected_status or expected_attempt is not None:
                 current = self.load_telegram_retry_session(session.token)
-                if current is None or current.status != expected_status:
+                if (
+                    current is None or current.profile_id != session.profile_id
+                    or (expected_status and current.status != expected_status)
+                    or (expected_attempt is not None and current.attempt != expected_attempt)
+                ):
                     return False
             raw = self._plugin.get_data(key=self.telegram_retry_sessions_key)
             retained: dict[str, Any] = {}

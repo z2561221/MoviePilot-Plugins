@@ -87,6 +87,19 @@ def _compact_text(value: Any, limit: int) -> str:
     return f"{text[: limit - 1]}…"
 
 
+def failure_notice_text(
+    status: str, run_id: str, message: str, old_board_preserved: bool,
+) -> str:
+    """为初始通知和原消息更新生成一致且脱敏的异常摘要。"""
+    reason = _compact_text(_safe_notice_text(message), 240) or "未知异常"
+    return "\n".join([
+        f"状态：{STATUS_LABELS.get(str(status or ''), '运行异常')}",
+        f"运行 ID：{_compact_text(run_id, 64) or '未生成'}",
+        f"原因：{reason}",
+        "旧榜单：已保留" if old_board_preserved else "旧榜单：无可用数据",
+    ])
+
+
 def _format_ranking_block(board: RecommendationBoard, html_mode: bool = False) -> str:
     """将推荐渲染为分项列表，Telegram 使用转义后的 HTML。"""
     lines = []
@@ -302,18 +315,12 @@ class NotificationService:
         profile_id: str = "",
     ) -> None:
         """向目标用户发送一次简洁的 Agent 运行异常通知。"""
-        reason = _compact_text(_safe_notice_text(message), 240) or "未知异常"
-        lines = [
-            f"状态：{STATUS_LABELS.get(str(status or ''), '运行异常')}",
-            f"运行 ID：{_compact_text(run_id, 64) or '未生成'}",
-            f"原因：{reason}",
-            "旧榜单：已保留" if old_board_preserved else "旧榜单：无可用数据",
-        ]
+        text = failure_notice_text(status, run_id, message, old_board_preserved)
         kwargs = {}
         if profile_id and self._retry_service is not None:
             try:
                 buttons = self._retry_service.create_buttons(
-                    profile_id, username, run_id, "\n".join(lines)
+                    profile_id, username, run_id, text
                 )
                 if buttons:
                     kwargs["buttons"] = buttons
@@ -324,7 +331,7 @@ class NotificationService:
                 getattr(self._plugin, "_config", {}), MessageType
             ),
             title=f"{self._agent_name()}运行异常",
-            text="\n".join(lines),
+            text=text,
             username=username,
             parse_mode="plain",
             **kwargs,

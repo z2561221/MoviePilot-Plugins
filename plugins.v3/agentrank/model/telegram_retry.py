@@ -20,6 +20,10 @@ class TelegramRetrySession:
     created_at: str
     expires_at: str
     status: str = "open"
+    message_id: str = ""
+    chat_id: str = ""
+    source: str = ""
+    attempt: int = 0
 
     def __post_init__(self) -> None:
         """拒绝缺失身份、非法令牌和未知状态。"""
@@ -27,8 +31,10 @@ class TelegramRetrySession:
             raise ValueError("invalid telegram retry token")
         if not all((self.profile_id, self.username, self.telegram_userid)):
             raise ValueError("telegram retry identity is incomplete")
-        if self.status not in {"open", "submitted", "expired", "stale"}:
+        if self.status not in {"open", "submitted", "completed", "expired", "stale"}:
             raise ValueError("invalid telegram retry status")
+        if self.attempt < 0:
+            raise ValueError("invalid telegram retry attempt")
 
     def to_dict(self) -> dict[str, Any]:
         """返回插件数据接口可保存的会话。"""
@@ -51,9 +57,13 @@ class TelegramRetrySession:
                     "message",
                     "created_at",
                     "expires_at",
+                    "message_id",
+                    "chat_id",
+                    "source",
                 )
             },
             status=str(value.get("status") or "open"),
+            attempt=int(value.get("attempt") or 0),
         )
 
     def is_expired(self, now: datetime | None = None) -> bool:
