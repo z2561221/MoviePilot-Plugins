@@ -11,7 +11,9 @@ MEDIA_FIELDS = (
 def media_snapshot(record: dict) -> dict:
     """只提取展示和身份字段，日志时间、状态与计数由日志自身维护。"""
     normalized = identity_payload(record)
-    normalized["poster"] = normalized.get("poster") or normalized.get("poster_path") or normalized.get("cover")
+    normalized["poster"] = (
+        normalized.get("poster") or normalized.get("poster_path") or normalized.get("cover")
+    )
     return {key: normalized[key] for key in MEDIA_FIELDS if normalized.get(key) not in (None, "")}
 
 
