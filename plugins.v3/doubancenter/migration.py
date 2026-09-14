@@ -1,8 +1,10 @@
 """
 DoubanCenter - 历史数据迁移工具
 """
+import re
 from importlib import import_module
 from typing import Any, Iterable, Optional
+from urllib.parse import urlsplit
 
 try:
     from app.sdk.logging import logger
@@ -11,7 +13,6 @@ except Exception:
 
 from .model.identity import identity_payload, normalize_record
 from .storage import records as storage
-
 
 TARGET_SUBSCRIBE_USERNAME = "豆瓣中心"
 LEGACY_SUBSCRIBE_USERNAMES = {
@@ -151,6 +152,43 @@ def _has_identity_hint(record: Any) -> bool:
     return any(record.get(field) not in (None, "") for field in IDENTITY_HINT_FIELDS)
 
 
+def _identity_from_record_link(record: dict) -> dict:
+    """仅从可信来源的条目链接补齐完全缺失的身份，不覆盖半截身份。"""
+    if _has_identity_hint(record):
+        return record
+    try:
+        parsed = urlsplit(str(record.get("link") or ""))
+    except ValueError:
+        return record
+    if parsed.scheme not in {"http", "https"}:
+        return record
+    if parsed.hostname in {"douban.com", "www.douban.com", "movie.douban.com"}:
+        source = "douban"
+        pattern = r"/(?:subject|doubanapp/dispatch/movie)/([1-9]\d*)/?"
+    elif parsed.hostname in {"bgm.tv", "bangumi.tv", "chii.in"}:
+        source = "bangumi"
+        pattern = r"/subject/([1-9]\d*)/?"
+    else:
+        return record
+    match = re.fullmatch(pattern, parsed.path)
+    if not match:
+        return record
+    return identity_payload(record, media_source=source, media_id=match.group(1))
+
+
+def _is_pending_folio_identity(record: Any) -> bool:
+    """已知播放来源但尚未核实豆瓣分季的队列项无需迁移目标身份。"""
+    if not isinstance(record, dict) or record.get("identity_status") != "unresolved":
+        return False
+    if _has_identity_hint(record) or record.get("subject_id") not in (None, "", "0"):
+        return False
+    origin = record.get("origin")
+    if not isinstance(origin, dict) or not origin.get("media_source") or not origin.get("media_id"):
+        return False
+    _, _, unresolved = normalize_record(origin)
+    return not unresolved
+
+
 def _migrate_record(
     record: Any,
     *,
@@ -161,6 +199,10 @@ def _migrate_record(
     if not isinstance(record, dict):
         return record, False, False
     migrated, changed, unresolved = normalize_record(record)
+    if unresolved:
+        migrated = _identity_from_record_link(migrated)
+        migrated, _, unresolved = normalize_record(migrated)
+        changed = migrated != record
     if unresolved and subject_id_as_douban:
         subject_id = migrated.get("subject_id")
         if subject_id not in (None, "", "0"):
@@ -202,7 +244,12 @@ def _migrate_list(
     return migrated_records, changed, unresolved_count
 
 
-def _migrate_dict_records(data: Any, *, subject_id_as_douban: bool = False) -> tuple[dict, bool, int]:
+def _migrate_dict_records(
+    data: Any,
+    *,
+    subject_id_as_douban: bool = False,
+    pending_origin_allowed: bool = False,
+) -> tuple[dict, bool, int]:
     """迁移以标题或 subject id 为键的字典记录。"""
     if not isinstance(data, dict):
         return {}, False, 0
@@ -210,6 +257,9 @@ def _migrate_dict_records(data: Any, *, subject_id_as_douban: bool = False) -> t
     changed = False
     unresolved_count = 0
     for key, value in data.items():
+        if pending_origin_allowed and _is_pending_folio_identity(value):
+            migrated_data[key] = dict(value)
+            continue
         migrated, item_changed, unresolved = _migrate_record(
             value,
             subject_id_as_douban=subject_id_as_douban,
@@ -312,9 +362,17 @@ def migrate_plugin_media_identity(
         changed_keys.append(storage.ARCHIVE_RECORDS_KEY)
     unresolved_count += archive_unresolved
 
+    pending_folio_count = 0
     for key in (storage.FOLIO_DATA_KEY, storage.FOLIO_WAIT_KEY):
         raw = _read_plugin_data(plugin, key)
-        migrated, changed, unresolved = _migrate_dict_records(raw, subject_id_as_douban=True)
+        pending_origin_allowed = key == storage.FOLIO_WAIT_KEY
+        if pending_origin_allowed and isinstance(raw, dict):
+            pending_folio_count = sum(_is_pending_folio_identity(record) for record in raw.values())
+        migrated, changed, unresolved = _migrate_dict_records(
+            raw,
+            subject_id_as_douban=True,
+            pending_origin_allowed=pending_origin_allowed,
+        )
         if changed and _save_plugin_data(plugin, key, migrated):
             changed_keys.append(key)
         unresolved_count += unresolved
@@ -323,9 +381,12 @@ def migrate_plugin_media_identity(
         "changed_keys": list(dict.fromkeys(changed_keys)),
         "migrated_count": migrated_count,
         "unresolved_count": unresolved_count,
+        "pending_folio_count": pending_folio_count,
     }
     if result["changed_keys"]:
         _log_info(f"豆瓣中心：V3 身份迁移完成，更新 {len(result['changed_keys'])} 个存储键")
     if unresolved_count:
         _log_warning(f"豆瓣中心：V3 身份迁移保留 {unresolved_count} 条无法回填的历史记录")
+    if pending_folio_count:
+        _log_info(f"豆瓣中心：{pending_folio_count} 条观影记录待豆瓣分季匹配，已保留来源身份")
     return result
