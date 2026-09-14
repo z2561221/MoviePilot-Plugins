@@ -57,6 +57,19 @@ _FOLIO_TMDB_POSTER_FALLBACKS = {
 }
 
 
+def _create_douban_api(self):
+    """统一接入 CK 失败告警，覆盖想看、搜索和观影同步入口。"""
+    return DoubanApi(
+        user_cookie=getattr(self, "_folio_cookie", ""),
+        on_ck_failure=lambda: _send_failure_notification(
+            self,
+            "豆瓣 CK 请求失败",
+            "请求 ck 失败，未取得豆瓣校验令牌。请检查豆瓣登录 Cookie 和网络访问后重试。",
+            throttle_key="cookie_invalid",
+        ),
+    )
+
+
 def check_cookie_periodically(self) -> None:
     """定期检测豆瓣 Cookie 是否仍然可用。"""
     now = datetime.datetime.now().timestamp()
@@ -66,7 +79,7 @@ def check_cookie_periodically(self) -> None:
         if not hasattr(self, '_last_cookie_invalid_time'):
             self._last_cookie_invalid_time = 0
         try:
-            _, sid = DoubanApi(user_cookie=self._folio_cookie).get_subject_id(title="肖申克的救赎")
+            _, sid = _create_douban_api(self).get_subject_id(title="肖申克的救赎")
         except Exception:
             sid = None
         if sid:
@@ -90,7 +103,7 @@ def run_wish_scheduled(self) -> None:
 
 def run_wish_sync(self, api=None, request_get=None) -> None:
     """读取豆瓣想看列表，首跑建立基线，后续仅将新增条目入队。"""
-    dh = api if api is not None else DoubanApi(user_cookie=getattr(self, "_folio_cookie", ""))
+    dh = api if api is not None else _create_douban_api(self)
     state = storage.read_folio_wish_state(self)
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -976,7 +989,7 @@ def _resolve_douban_subject(self, title: str, media_type: str, mediainfo=None, a
         logger.warning(f"{title} 已有媒体身份但未转换出豆瓣 ID，跳过标题兜底")
         return None, None, ""
 
-    dh = api or DoubanApi(user_cookie=self._folio_cookie)
+    dh = api or _create_douban_api(self)
     search = f"{title} {getattr(mediainfo, 'year', '')}".strip() if mediainfo and getattr(mediainfo, "year", None) else title
     name, subject_id = dh.get_subject_id(title=search)
     if not subject_id and search != title:
@@ -1076,7 +1089,7 @@ def _sync_to_douban(
     if (origin and folio_record.origin_key(previous.get("origin") or {}) == folio_record.origin_key(origin)
             and folio_record.already_synced(previous, status)):
         return True
-    dh = DoubanApi(user_cookie=self._folio_cookie)
+    dh = _create_douban_api(self)
     verified = {}
     if is_tv:
         verified = _validated_playback_subject(title, mediainfo, origin, previous, waiting)
@@ -1226,10 +1239,21 @@ def _send_folio_notification(self, success: bool, message: str):
         logger.error(f'{self.plugin_name} 发送通知失败: {e}')
 
 
-def _send_wish_notification(self, message: str, throttle_key: str = "wish", throttle_seconds: int = WISH_NOTIFY_THROTTLE_SECONDS):
-    """通过同步想看通知开关发送失败消息，并按类型节流。"""
+def _send_wish_notification(
+    self, message: str, throttle_key: str = "wish",
+    throttle_seconds: int = WISH_NOTIFY_THROTTLE_SECONDS,
+):
+    """通过同步想看通知开关发送普通失败消息，并按类型节流。"""
     if not getattr(self, "_wish_notify", False):
         return
+    _send_failure_notification(self, "豆瓣想看同步失败", message, throttle_key, throttle_seconds)
+
+
+def _send_failure_notification(
+    self, title: str, message: str, throttle_key: str,
+    throttle_seconds: int = WISH_NOTIFY_THROTTLE_SECONDS,
+):
+    """发送已经通过业务门禁的故障通知；发送失败不消耗节流窗口。"""
     now_ts = datetime.datetime.now().timestamp()
     last_map = getattr(self, "_wish_notification_last_times", None)
     if not isinstance(last_map, dict):
@@ -1237,10 +1261,10 @@ def _send_wish_notification(self, message: str, throttle_key: str = "wish", thro
     last_ts = float(last_map.get(throttle_key, 0) or 0)
     if throttle_seconds and now_ts - last_ts < throttle_seconds:
         return
-    last_map[throttle_key] = now_ts
-    self._wish_notification_last_times = last_map
     msg = message.strip() + f"\n时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     try:
-        self.post_message(mtype=MessageType.MediaServer, title="豆瓣想看同步失败", text=msg, parse_mode="plain")
+        self.post_message(mtype=MessageType.MediaServer, title=title, text=msg, parse_mode="plain")
+        last_map[throttle_key] = now_ts
+        self._wish_notification_last_times = last_map
     except Exception as e:
         logger.error(f'{self.plugin_name} 发送同步想看通知失败: {e}')

@@ -2,8 +2,8 @@
 
 from types import SimpleNamespace
 
-from app.schemas.types import MediaSource, MediaType
 from app.plugins.doubancenter import folio
+from app.schemas.types import MediaSource, MediaType
 
 
 class FakeDoubanApi:
@@ -14,9 +14,10 @@ class FakeDoubanApi:
     search_calls = []
     status_calls = []
 
-    def __init__(self, user_cookie=None):
+    def __init__(self, user_cookie=None, *, on_ck_failure=None):
         """保留 Cookie 参数但不访问网络。"""
         self.user_cookie = user_cookie
+        self.on_ck_failure = on_ck_failure
 
     @classmethod
     def reset(cls):
