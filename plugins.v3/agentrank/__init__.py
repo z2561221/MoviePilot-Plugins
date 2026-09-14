@@ -18,7 +18,7 @@ class AgentRank(_PluginBase):
     plugin_desc = "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。"
     plugin_icon = "agentresourceofficer.png"
     plugin_color = "#7C4DFF"
-    plugin_version = "3.0.5"
+    plugin_version = "3.0.6"
     plugin_label = "智能推荐,发现"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
@@ -54,13 +54,16 @@ class AgentRank(_PluginBase):
 
     @eventmanager.register(EventType.MessageAction)
     def message_action(self, event: Event) -> None:
-        """转发属于当前插件的 Telegram 榜单按钮回调。"""
+        """转发属于当前实例的 Telegram 榜单、待办和运行重试回调。"""
         if not self.get_state():
             return
         event_data = event.event_data or {}
         if event_data.get("plugin_id") != self.__class__.__name__:
             return
         runtime = getattr(self, "_runtime", None)
+        retry = getattr(runtime, "retry_service", None)
+        if retry is not None and retry.handle_callback(event_data):
+            return
         interaction = getattr(runtime, "interaction_service", None)
         if interaction is not None:
             interaction.handle_callback(event_data)

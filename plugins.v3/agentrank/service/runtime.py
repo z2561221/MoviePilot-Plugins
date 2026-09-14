@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Mapping
 
 from ..model.config import configured_identities
@@ -34,6 +36,7 @@ class AgentRankRuntime:
         pending_center_service: Any = None,
         attribution_service: Any = None,
         attribution_trigger_factory: Callable[[], Any] = None,
+        retry_service: Any = None,
     ):
         """组装真实依赖或接受测试注入。"""
         self.plugin = plugin
@@ -42,6 +45,10 @@ class AgentRankRuntime:
             configured_agent_display_name(config.get("agent_display_name"))
         )
         self._manual_tasks: Dict[str, asyncio.Task] = {}
+        self._retry_lock = threading.RLock()
+        self._retry_executor: ThreadPoolExecutor | None = None
+        self._retry_jobs: dict[str, Future] = {}
+        self._retry_tasks: set[asyncio.Task] = set()
         self.orchestrator = orchestrator or self._build_orchestrator(plugin, config)
         self._trigger_factory = trigger_factory or self._default_trigger_factory
         self._date_trigger_factory = (
@@ -57,6 +64,7 @@ class AgentRankRuntime:
             from .notification import NotificationService
             from .subscription import SubscriptionService
             from .telegram_interaction import TelegramSelectionService
+            from .telegram_retry import TelegramRunRetryService
             from ..adapter.subscription import SubscriptionAdapter
 
             subscription_service = subscription_service or SubscriptionService(
@@ -70,12 +78,16 @@ class AgentRankRuntime:
                 subscription_service=subscription_service,
                 config=config,
             )
+            retry_service = retry_service or TelegramRunRetryService(
+                plugin, plugin._repository, config, self.start_retry
+            )
             notification_service = notification_service or NotificationService(
-                plugin, interaction_service
+                plugin, interaction_service, retry_service
             )
         self.subscription_service = subscription_service
         self.notification_service = notification_service
         self.interaction_service = interaction_service
+        self.retry_service = retry_service
         self.attribution_service = attribution_service
         plugin._attribution_service = attribution_service
         repository = getattr(plugin, "_repository", None)
@@ -524,6 +536,10 @@ class AgentRankRuntime:
         current = self._manual_tasks.get(profile_id)
         if current is not None and not current.done():
             return self.run_progress(profile_id)
+        with self._retry_lock:
+            retry = self._retry_jobs.get(profile_id)
+            if retry is not None and not retry.done():
+                return self.run_progress(profile_id)
         self._run_progress.begin(profile_id)
         task = asyncio.create_task(
             self.refresh(profile_id),
@@ -537,6 +553,72 @@ class AgentRankRuntime:
             )
         )
         return self.run_progress(profile_id)
+
+    def start_retry(self, profile_id: str) -> dict[str, Any]:
+        """从同步消息回调受理重试，按画像去重并交给单个后台工作线程。"""
+        with self._retry_lock:
+            if self._stopped:
+                raise RuntimeError("AgentRank runtime is stopped")
+            get_state = getattr(self.plugin, "get_state", None)
+            if callable(get_state) and not get_state():
+                raise RuntimeError("AgentRank 插件当前不可用")
+            if profile_id not in {item.profile_id for item in configured_identities(self.config)}:
+                raise ValueError("AgentRank 重试画像已不在配置中")
+            current = self._retry_jobs.get(profile_id)
+            if (
+                (current is not None and not current.done())
+                or self.run_progress(profile_id).get("active")
+            ):
+                return {"accepted": False, "status": "running"}
+            progress = self._run_progress.begin(profile_id)
+            try:
+                if self._retry_executor is None:
+                    self._retry_executor = ThreadPoolExecutor(
+                        max_workers=1, thread_name_prefix="agentrank-retry"
+                    )
+                future = self._retry_executor.submit(self._run_retry_worker, profile_id)
+            except Exception:
+                self._run_progress.finish(
+                    profile_id, status="failed", message="重试暂未受理，请稍后重试"
+                )
+                raise
+            self._retry_jobs[profile_id] = future
+            future.add_done_callback(
+                lambda completed, target=profile_id: self._forget_retry_job(target, completed)
+            )
+            return {**progress, "accepted": True}
+
+    def _run_retry_worker(self, profile_id: str) -> None:
+        """在自有事件循环中执行一次重试，不阻塞宿主消息回调。"""
+        asyncio.run(self._execute_retry(profile_id))
+
+    async def _execute_retry(self, profile_id: str) -> None:
+        """跟踪可取消任务，并为结构化失败和未捕获异常继续发送通知。"""
+        task = asyncio.current_task()
+        with self._retry_lock:
+            if self._stopped:
+                return
+            self._retry_tasks.add(task)
+        try:
+            await self._execute_refresh(profile_id, source="telegram_retry")
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.exception("AgentRank Telegram 重试异常 profile_id=%s", profile_id)
+            self._notify_exception(profile_id, "telegram_retry", error)
+        finally:
+            with self._retry_lock:
+                self._retry_tasks.discard(task)
+
+    def _forget_retry_job(self, profile_id: str, future: Future) -> None:
+        """释放完成的重试任务，并消费后台异常以免静默丢失。"""
+        with self._retry_lock:
+            if self._retry_jobs.get(profile_id) is future:
+                self._retry_jobs.pop(profile_id, None)
+        if not future.cancelled():
+            error = future.exception()
+            if error is not None and not isinstance(error, asyncio.CancelledError):
+                logger.error("AgentRank 重试后台任务异常 profile_id=%s: %s", profile_id, error)
 
     async def refresh(self, profile_id: str) -> Any:
         """执行一次手动身份刷新；停止后拒绝新任务。"""
@@ -626,6 +708,7 @@ class AgentRankRuntime:
         if not self._notifications_enabled() or self.notification_service is None:
             return
         self.notification_service.send_failure(
+            profile_id=profile_id,
             username=self._display_name(profile_id, self.config),
             status=str(getattr(result, "status", "failed") or "failed"),
             run_id=str(getattr(result, "run_id", "") or ""),
@@ -638,6 +721,7 @@ class AgentRankRuntime:
         if not self._notifications_enabled() or self.notification_service is None:
             return
         self.notification_service.send_failure(
+            profile_id=profile_id,
             username=self._display_name(profile_id, self.config),
             status="runtime_exception",
             run_id="",
@@ -869,9 +953,23 @@ class AgentRankRuntime:
 
     def stop(self) -> None:
         """幂等停止运行时并取消所有进行中的调度任务。"""
-        if self._stopped:
-            return
-        self._stopped = True
+        with self._retry_lock:
+            if self._stopped:
+                return
+            self._stopped = True
+            retry_tasks = list(self._retry_tasks)
+            retry_executor = self._retry_executor
+            self._retry_executor = None
+        for task in retry_tasks:
+            loop = task.get_loop()
+            if not task.done() and not loop.is_closed():
+                try:
+                    loop.call_soon_threadsafe(task.cancel)
+                except RuntimeError:
+                    if not loop.is_closed():
+                        raise
+        if retry_executor is not None:
+            retry_executor.shutdown(wait=False, cancel_futures=True)
         if self.feedback_queue is not None and hasattr(self.feedback_queue, "stop"):
             self.feedback_queue.stop()
         if self.conversation_service is not None and hasattr(

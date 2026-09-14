@@ -120,10 +120,11 @@ def _recommendation_fingerprint(board: RecommendationBoard) -> str:
 class NotificationService:
     """优先发送 Telegram 自选订阅卡片，并保留摘要降级。"""
 
-    def __init__(self, plugin: Any, interaction_service: Any = None):
+    def __init__(self, plugin: Any, interaction_service: Any = None, retry_service: Any = None):
         """绑定插件通知扩展点与可选 Telegram 交互服务。"""
         self._plugin = plugin
         self._interaction_service = interaction_service
+        self._retry_service = retry_service
 
     def _agent_name(self) -> str:
         """读取当前配置的用户可见 Agent 名称。"""
@@ -298,6 +299,7 @@ class NotificationService:
         run_id: str,
         message: str,
         old_board_preserved: bool,
+        profile_id: str = "",
     ) -> None:
         """向目标用户发送一次简洁的 Agent 运行异常通知。"""
         reason = _compact_text(_safe_notice_text(message), 240) or "未知异常"
@@ -307,6 +309,16 @@ class NotificationService:
             f"原因：{reason}",
             "旧榜单：已保留" if old_board_preserved else "旧榜单：无可用数据",
         ]
+        kwargs = {}
+        if profile_id and self._retry_service is not None:
+            try:
+                buttons = self._retry_service.create_buttons(
+                    profile_id, username, run_id, "\n".join(lines)
+                )
+                if buttons:
+                    kwargs["buttons"] = buttons
+            except Exception:
+                logger.warning("AgentRank 重试按钮创建失败，保留异常通知", exc_info=True)
         self._plugin.post_message(
             mtype=resolve_notification_type(
                 getattr(self._plugin, "_config", {}), MessageType
@@ -315,6 +327,7 @@ class NotificationService:
             text="\n".join(lines),
             username=username,
             parse_mode="plain",
+            **kwargs,
         )
 
     def _pending_detail_link(self) -> Any:

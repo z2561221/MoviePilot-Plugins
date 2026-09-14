@@ -44,6 +44,7 @@ from ..model.policy import PolicySnapshot
 from ..model.run import AdaptiveFingerprints, LearningHealth, RecommendationRun
 from ..model.telegram_selection import TelegramSelectionSession
 from ..model.telegram_pending import TelegramPendingSession
+from ..model.telegram_retry import TelegramRetrySession
 
 
 ModelType = TypeVar("ModelType")
@@ -54,12 +55,14 @@ class AgentRankRepository:
 
     _board_archive_lock = threading.RLock()
     _telegram_pending_lock = threading.RLock()
+    _telegram_retry_lock = threading.RLock()
     _feedback_locks_guard = threading.Lock()
     _feedback_locks: Dict[str, threading.RLock] = {}
     recovery_log_key = "agentrank_recovery_log"
     telegram_sessions_key = "telegram_selection_sessions"
     telegram_pending_sessions_key = "telegram_pending_sessions"
     telegram_pending_session_prefix = "telegram_pending_session"
+    telegram_retry_sessions_key = "telegram_retry_sessions"
     board_history_prefix = "board_history"
     playback_snapshot_prefix = "playback_snapshot"
     candidate_snapshot_index_prefix = "candidate_snapshot_index"
@@ -2999,6 +3002,44 @@ class AgentRankRepository:
                 self._record_recovery(key, "ignored_cross_profile_item", run.profile_id)
         return result
 
+    def load_telegram_retry_session(self, token: str) -> TelegramRetrySession | None:
+        """按随机令牌恢复运行重试会话，损坏数据按失效处理。"""
+        with self._telegram_retry_lock:
+            raw = self._plugin.get_data(key=self.telegram_retry_sessions_key)
+            value = raw.get(str(token)) if isinstance(raw, Mapping) else None
+            if value is None:
+                return None
+            try:
+                session = TelegramRetrySession.from_dict(value)
+                return session if session.token == str(token) else None
+            except (TypeError, ValueError):
+                return None
+
+    def save_telegram_retry_session(
+        self, session: TelegramRetrySession, *, expected_status: str = "",
+    ) -> bool:
+        """原子更新重试状态，每个画像仅保留最新通知并有界裁剪。"""
+        with self._telegram_retry_lock:
+            if expected_status:
+                current = self.load_telegram_retry_session(session.token)
+                if current is None or current.status != expected_status:
+                    return False
+            raw = self._plugin.get_data(key=self.telegram_retry_sessions_key)
+            retained: dict[str, Any] = {}
+            for token, value in (raw.items() if isinstance(raw, Mapping) else []):
+                try:
+                    current = TelegramRetrySession.from_dict(value)
+                except (TypeError, ValueError):
+                    continue
+                if current.profile_id != session.profile_id and not current.is_expired():
+                    retained[str(token)] = current.to_dict()
+            retained[session.token] = session.to_dict()
+            self._plugin.save_data(
+                key=self.telegram_retry_sessions_key,
+                value=dict(list(retained.items())[-200:]),
+            )
+            return True
+
     def save_telegram_session(self, session: TelegramSelectionSession) -> None:
         """保存一个 Telegram 选择会话并裁剪过期记录。"""
         raw = self._plugin.get_data(key=self.telegram_sessions_key)
@@ -3376,9 +3417,16 @@ class AgentRankRepository:
 
     def reset_all_profile_data(self, profile_id: str) -> List[str]:
         """删除 AgentRank 自有 profile 数据，并保留插件配置和宿主数据。"""
-        with self._board_archive_lock, self._feedback_lock(profile_id):
+        with self._board_archive_lock, self._feedback_lock(profile_id), self._telegram_retry_lock:
             keys = self.full_profile_storage_keys(profile_id)
             updates: Dict[str, Any] = {}
+            retry_sessions = self._plugin.get_data(key=self.telegram_retry_sessions_key)
+            if isinstance(retry_sessions, Mapping):
+                updates[self.telegram_retry_sessions_key] = {
+                    token: value for token, value in retry_sessions.items()
+                    if not isinstance(value, Mapping)
+                    or str(value.get("profile_id") or "") != str(profile_id)
+                }
             raw_sessions = self._plugin.get_data(key=self.telegram_sessions_key)
             if isinstance(raw_sessions, Mapping):
                 retained_sessions = {
