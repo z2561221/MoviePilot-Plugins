@@ -6,13 +6,13 @@
 
 插件 ID 为 `AgentRank`，源码位于 `plugins.v3/agentrank`，生产导入命名空间为 `app.plugins.agentrank`，入口类为 `AgentRank`，配置前缀为 `agentrank_`。当前运行模式为 `("vue", "dist/assets")`。
 
-本周期开发版本为 `3.0.5`。媒体库状态使用 `true`、`false`、`null` 区分存在、不存在与查询失败；未知状态贯通候选、Agent 上下文、榜单持久化和页面。要求排除已入库媒体时，查询失败的候选不会当作未入库放行。
+本周期开发版本为 `3.0.6`。Telegram 重试会话持久化原消息来源、消息 ID、聊天 ID 与重试代次。同一轮及其重试仅发送一条通知，受理后移除按钮，后台每 5 秒合并真实阶段并调用宿主 `edit_message` 原地更新；成功显示结果，失败恢复下一代重试按钮，编辑失败不降级为新消息。重试仍使用有界后台线程，停止时取消任务与进度发布器。媒体库状态仍使用 `true`、`false`、`null` 区分存在、不存在与查询失败，排除已入库时拦截未知状态。
 
 ## 入口与生命周期
 
 - `init_plugin()` 委托 `service/lifecycle.py::initialize_plugin()`：规范化配置、执行存储迁移、探测 Playback Reporting 硬依赖并创建 `AgentRankRuntime`。
 - `get_service()` 委托运行时返回周期榜单服务；计划由 `schedule_enabled` 和 `cron` 控制。
-- `EventType.MessageAction` 只处理 `plugin_id=AgentRank` 的 Telegram 回调。
+- `EventType.MessageAction` 只处理当前实例 ID 的 Telegram 回调；运行重试交给 `service/telegram_retry.py`，榜单与待办按钮继续使用原交互服务。
 - `get_sidebar_nav()` 在插件启用且 `discovery_page_enabled=true` 时提供发现区入口。
 - Vue 联邦暴露 `./Page`、`./Config`、`./Dashboard` 和 `./AppPage`，构建产物必须完整保留在 `dist/assets`。
 - 前端 API 由 `controller/routes.py::build_api_routes()` 统一注册，端点绑定位于 `controller/endpoints.py`，并全部声明为 `auth: "bear"`。浏览器端只能使用宿主注入的 `api` 客户端，且必须以宿主传入的 `pluginId` 组装当前实例路由。
@@ -72,7 +72,7 @@
 - `conversation`、`conversation_messages`、`conversation_reads`
 - `policy_snapshot`、`adaptive_fingerprints`、`learning_health`
 - `attribution`、`agent_analysis`、`board_consumption`
-- `telegram_selection_sessions`、`telegram_pending_session`
+- `telegram_selection_sessions`、`telegram_pending_session`、`telegram_retry_sessions`
 - `agentrank_recovery_log`、`full_reset_confirmation`
 
 这些 key 属于兼容契约。修改前必须同时检查迁移、数据生命周期、导出/重置和回滚逻辑，禁止直接改名或改变画像隔离格式。
