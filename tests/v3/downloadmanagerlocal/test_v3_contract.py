@@ -350,7 +350,6 @@ def test_v3_database_imports_use_oper_modules() -> None:
     current_modules = {
         "app.db.oper.downloadhistory",
         "app.db.oper.site",
-        "app.db.oper.systemconfig",
         "app.db.oper.user",
     }
     for path in PLUGIN_ROOT.rglob("*.py"):
@@ -361,6 +360,7 @@ def test_v3_database_imports_use_oper_modules() -> None:
 
     imported_modules = {module for module, _symbol in imports}
     assert imported_modules.isdisjoint(legacy_modules)
+    assert "app.db.oper.systemconfig" not in imported_modules
     assert current_modules <= imported_modules
 
 

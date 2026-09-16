@@ -19,7 +19,6 @@ from ..adapter.moviepilot import (
     download_torrent_content,
     get_downloader_service,
     get_downloader_services,
-    get_plugin_config,
     get_site_indexer,
     get_url_domain,
     is_downloader_type,
@@ -765,10 +764,13 @@ def custom_sites() -> list:
         return []
 
 
-def update_iyuu_config(plugin, config: dict = None):
-    """更新 IYUU 辅种缓存到持久化存储（合并模式，不覆盖其他配置）"""
+def update_iyuu_config(plugin, config: dict | None = None):
+    """合并当前实例配置后保存缓存，读取失败时禁止覆盖业务设置。"""
     if config is None:
-        config = get_plugin_config(plugin.__class__.__name__)
+        config = plugin.get_config()
+    if not isinstance(config, dict):
+        raise TypeError("读取插件配置失败，已跳过 IYUU 缓存保存")
+    config = dict(config)
     config["iyuu_permanent_error_caches"] = plugin._iyuu_permanent_error_caches
     config["iyuu_error_caches"] = plugin._iyuu_error_caches
     config["iyuu_success_caches"] = plugin._iyuu_success_caches
