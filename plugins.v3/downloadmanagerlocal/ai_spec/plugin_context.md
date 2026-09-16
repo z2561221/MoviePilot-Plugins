@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.7`（基于已发布的 V3.3.6）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.8`（基于已发布的 V3.3.7）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -25,10 +25,18 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.7`；V2 源码与元数据保持原样。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.8`；V2 源码与元数据保持原样。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
+
+## 2026-09-16 归档记录直接补刀
+
+- 归档页桌面表格与手机卡片均按“补刀、恢复、删除”排列；补刀直接调用
+  `retry_rename`，不会先调用恢复接口或清零失败次数。
+- 单条补刀按重命名服务的实际结果返回成功或失败；重命名失败保留归档状态与原因。
+- 操作后刷新归档列表，最后一页清空时回到有效页；请求期间阻止重复补刀和同条恢复、删除。
+- 回归使用内存归档和 fake 下载器，不执行真实重命名或标签写入。
 
 ## 2026-09-16 IYUU 配置保护
 
