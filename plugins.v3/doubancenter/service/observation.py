@@ -5,9 +5,10 @@ from typing import Callable, List, Optional, Set
 
 from app.sdk.logging import logger
 
-from . import archive as archive_service
 from ..model import rank as rank_model
 from ..storage import records as storage
+from . import archive as archive_service
+from .observation_metadata import enrich_log_metadata, media_snapshot
 
 DETAIL_SECTION_LIMIT = 5
 DETAIL_OVERFLOW_REASON = "超过详情页显示上限归档"
@@ -44,7 +45,25 @@ def normalize_log_record(record: dict) -> dict:
 
 def log_anti_cheat(plugin, reason: str, title: str, detail: str = "", link: str = "") -> None:
     """记录订阅过滤与观察期日志。"""
+    _store_anti_cheat_log(plugin, {"reason": reason, "title": title, "detail": detail, "link": link})
+
+
+def _log_observation(plugin, reason: str, item: dict, detail: str) -> None:
+    """观察状态变化时把媒体快照与日志事实一起保存。"""
+    _store_anti_cheat_log(plugin, {
+        **media_snapshot(item), "reason": reason,
+        "title": item.get("title") or item.get("unique") or "", "detail": detail,
+    })
+
+
+def _store_anti_cheat_log(plugin, record: dict) -> None:
+    """合并同一日志事实，并保留已知的媒体信息。"""
+    reason = record.get("reason") or ""
+    title = record.get("title") or ""
+    detail = record.get("detail") or ""
     reason = normalize_log_reason(reason)
+    snapshot = media_snapshot(record)
+    link = snapshot.get("link") or ""
     logs = storage.read_anti_cheat_logs(plugin)
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     matched = None
@@ -58,7 +77,7 @@ def log_anti_cheat(plugin, reason: str, title: str, detail: str = "", link: str 
             copied.get("reason") == reason
             and copied.get("title") == title
             and copied.get("detail") == detail
-            and (copied.get("link") or "") == (link or "")
+            and (copied.get("link") or link) == link
         ):
             if matched is None:
                 matched = copied
@@ -70,6 +89,9 @@ def log_anti_cheat(plugin, reason: str, title: str, detail: str = "", link: str 
             continue
         kept.append(copied)
     if matched is not None:
+        for field, value in snapshot.items():
+            if matched.get(field) in (None, ""):
+                matched[field] = value
         try:
             matched["count"] = int(matched.get("count") or 1) + 1
         except (TypeError, ValueError):
@@ -80,6 +102,7 @@ def log_anti_cheat(plugin, reason: str, title: str, detail: str = "", link: str 
     else:
         logs = kept
         logs.append({
+            **snapshot,
             "time": now,
             "reason": reason,
             "title": title,
@@ -202,7 +225,7 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
             item.pop("observe_dropped_reason", None)
             item.pop("observe_dropped_detail", None)
             logger.info(f"豆瓣中心：条目《{item.get('title') or title or unique}》重新进入观察期（0/{days} 天），跳过订阅")
-            log_anti_cheat(plugin, OBSERVE_START_REASON, item.get("title") or title or unique, f"需要观察 {days} 天")
+            _log_observation(plugin, OBSERVE_START_REASON, item, f"需要观察 {days} 天")
             return True
         first_seen = item.get("first_seen") or item.get("time", "")
         if first_seen:
@@ -213,10 +236,12 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
                     item["first_seen"] = first_seen
                     item["observing"] = True
                     logger.info(f"豆瓣中心：条目《{item.get('title')}》观察期未满（{elapsed}/{days} 天），跳过订阅")
-                    log_anti_cheat(plugin, OBSERVE_WAIT_REASON, item.get("title", ""), f"已过 {elapsed} 天，需要 {days} 天")
+                    _log_observation(plugin, OBSERVE_WAIT_REASON, item,
+                                     f"已过 {elapsed} 天，需要 {days} 天")
                     return True
                 logger.info(f"豆瓣中心：条目《{item.get('title') or title or unique}》观察期已满（{elapsed}/{days} 天），继续订阅")
-                log_anti_cheat(plugin, OBSERVE_DONE_REASON, item.get("title") or title or unique, f"已过 {elapsed} 天，达到 {days} 天")
+                _log_observation(plugin, OBSERVE_DONE_REASON, item,
+                                 f"已过 {elapsed} 天，达到 {days} 天")
                 return False
             except Exception:
                 pass
@@ -230,10 +255,11 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
         "time": observed_at,
         "first_seen": observed_at,
         "unique": unique,
+        "rank_key": rank_key,
         "observing": True,
     })
     logger.info(f"豆瓣中心：条目《{title or unique}》首次进入观察期（0/{days} 天），跳过订阅")
-    log_anti_cheat(plugin, OBSERVE_START_REASON, title or unique, f"需要观察 {days} 天")
+    _log_observation(plugin, OBSERVE_START_REASON, history[-1], f"需要观察 {days} 天")
     return True
 
 
@@ -680,7 +706,15 @@ def reconcile_anti_cheat_logs(
         ranks=ranks,
         archived_completion_titles=archived_completion_titles,
     )
-    changed = changed or completion_logs_changed
+    candidates = list(subscribe_records or [])
+    for rank in ranks or []:
+        if isinstance(rank, dict):
+            candidates.extend(
+                {"rank_key": rank.get("key"), "rank_name": rank.get("name"), **item}
+                for item in rank.get("history") or [] if isinstance(item, dict)
+            )
+    logs, metadata_changed = enrich_log_metadata(logs, candidates)
+    changed = changed or completion_logs_changed or metadata_changed
     return logs, changed
 
 

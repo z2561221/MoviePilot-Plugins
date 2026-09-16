@@ -3,12 +3,11 @@ import datetime
 import re
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+from http.cookies import SimpleCookie
 from typing import Tuple
 from urllib.parse import unquote, urljoin
 from xml.etree import ElementTree
 
-from bs4 import BeautifulSoup
-from http.cookies import SimpleCookie
 # MoviePilot V3 da51ff1a5feea9c22451968e4b86bc8f32011925 仍未将 CookieCloudHelper
 # 导出到稳定 SDK；保留该单项内部适配器，并在测试允许清单中登记。
 from app.adapters.external.cookiecloud import CookieCloudHelper
@@ -16,6 +15,7 @@ from app.sdk.config import settings
 from app.sdk.logging import logger
 from app.sdk.media import MetaBase
 from app.sdk.network import RequestUtils
+from bs4 import BeautifulSoup
 
 
 class DoubanCookieError(RuntimeError):
@@ -234,7 +234,7 @@ class DoubanApi:
         """创建 MoviePilot 网络请求封装。"""
         return RequestUtils(**kwargs)
 
-    def __init__(self, user_cookie: str = None):
+    def __init__(self, user_cookie: str = None, *, on_ck_failure=None):
         if not user_cookie:
             self.cookiecloud = self._cookiecloud_helper()
             cookie_dict, msg = self.cookiecloud.download()
@@ -262,6 +262,8 @@ class DoubanApi:
             logger.error("cookie获取为空")
         if not self.ck:
             logger.error("请求ck失败")
+            if on_ck_failure is not None:
+                on_ck_failure()
 
     def set_ck(self):
         """从豆瓣首页响应中刷新 ck cookie。"""
