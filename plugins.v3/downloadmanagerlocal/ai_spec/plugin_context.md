@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.6`（基于已发布的 V3.3.5）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.7`（基于已发布的 V3.3.6）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -25,10 +25,20 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.6`；V2 源码与元数据保持原样。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.7`；V2 源码与元数据保持原样。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
+
+## 2026-09-16 IYUU 配置保护
+
+- 当前 V3 宿主把插件配置存入 `plugininstance.config_data`；旧 `systemconfig`
+  的 `plugin.<实例ID>` 已不是配置来源。
+- IYUU 缓存写回使用当前实例的 `get_config()` / `update_config()`，保留业务设置和
+  未知字段；读取异常或返回非字典时拒绝写入，不回退为空配置。
+- 初始化显式传入的配置仍优先使用，合并缓存时复制字典，避免修改调用方快照。
+- `tests/v3/downloadmanagerlocal/test_iyuu_config.py` 覆盖本体与分身的设置保留、
+  读取失败禁止写入和初始化配置保护。
 
 ## 2026-08-14 MoviePilot V3 迁移
 
@@ -86,8 +96,8 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
     当前稳定查询 SDK 没有文件级路径到 hash 的接口。宿主提供等价文件查询后移除。
   - `SiteOper` 用于读取已配置站点列表、优先级和域名记录；当前没有等价稳定 SDK，
     继续保留，待宿主提供站点查询 SDK 后迁移。
-  - `SystemConfigOper` 用于合并当前插件实例的 IYUU 缓存配置；当前模块适配器没有等价
-    稳定 SDK，继续保留，待基类配置快照可从适配器安全传入后迁移。
+  - IYUU 缓存的 `SystemConfigOper` 例外已移除；当前实例配置统一通过插件基类
+    `get_config()` / `update_config()` 读取和保存，不直接访问宿主配置表。
   - `UserOper` 用于读取管理员 Telegram 通知目标；当前没有等价稳定 SDK，继续保留，
     待宿主提供用户通知目标查询出口后迁移。
 - 上传限速 Adapter：`adapter/upload_limit.py` 归一化 qBittorrent / Transmission 全局与单种上传设置，并负责读写和恢复。

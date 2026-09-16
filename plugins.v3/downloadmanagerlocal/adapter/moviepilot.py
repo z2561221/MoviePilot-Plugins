@@ -7,7 +7,6 @@ from typing import Any
 from app.application.torrent.download import TorrentHelper
 from app.db.oper.downloadhistory import DownloadHistoryOper
 from app.db.oper.site import SiteOper
-from app.db.oper.systemconfig import SystemConfigOper
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.sdk.network import RequestUtils, SitesHelper
@@ -176,8 +175,3 @@ def request_get_res(url: str, params: dict | None = None, **kwargs):
 def request_post_res(url: str, params: dict | None = None, json: dict | None = None, **kwargs):
     """通过 MoviePilot RequestUtils 发送 POST 请求。"""
     return RequestUtils(**kwargs).post_res(url, params=params, json=json)
-
-
-def get_plugin_config(plugin_class_name: str) -> dict:
-    """读取指定插件类名对应的系统配置。"""
-    return SystemConfigOper().get(f"plugin.{plugin_class_name}") or {}
