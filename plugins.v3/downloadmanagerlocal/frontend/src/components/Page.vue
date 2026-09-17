@@ -251,7 +251,12 @@ async function loadArchive() {
   loading.value = true
   error.value = ''
   try {
-    const resp = await getApi(`rename_archive?page=${archivePage.value}&page_size=${pageSize}`)
+    let resp = await getApi(`rename_archive?page=${archivePage.value}&page_size=${pageSize}`)
+    const lastPage = Math.max(1, Math.ceil((resp?.total || 0) / pageSize))
+    if (archivePage.value > lastPage) {
+      archivePage.value = lastPage
+      resp = await getApi(`rename_archive?page=${archivePage.value}&page_size=${pageSize}`)
+    }
     archiveRecords.value = Array.isArray(resp?.items) ? resp.items : []
     archiveTotal.value = resp?.total || 0
   } catch (e) {
@@ -388,6 +393,8 @@ async function doRetryRenames() {
 }
 
 async function doRetryRename(hash) {
+  if (!hash || retryingHash.value) return
+  const fromArchive = activeTab.value === 'archive'
   actionMsg.value = ''
   actionOk.value = false
   retryingHash.value = hash
@@ -395,11 +402,12 @@ async function doRetryRename(hash) {
     const resp = await postApi('retry_rename', { hash })
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '补刀完成' : '补刀失败')
     actionOk.value = resp?.code === 0
-    if (resp?.code === 0) await loadHistory()
+    if (resp?.code === 0 && !fromArchive) await loadHistory()
   } catch (e) {
     actionOk.value = false
     actionMsg.value = e?.message || '补刀失败'
   } finally {
+    if (fromArchive) await loadArchive()
     retryingHash.value = ''
   }
 }
@@ -768,8 +776,9 @@ onBeforeUnmount(() => {
                   <td class="text-caption dm-ellipsis" :title="r.archive_reason || r.reason">{{ r.archive_reason || r.reason }}</td>
                   <td>
                     <div class="d-flex ga-1">
-                      <VBtn size="x-small" variant="tonal" color="primary" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash">恢复</VBtn>
-                      <VBtn size="x-small" variant="text" color="error" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash">删除</VBtn>
+                      <VBtn size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
+                      <VBtn size="x-small" variant="tonal" color="primary" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="retryingHash === r.hash">恢复</VBtn>
+                      <VBtn size="x-small" variant="text" color="error" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="retryingHash === r.hash">删除</VBtn>
                     </div>
                   </td>
                 </tr>
@@ -797,8 +806,9 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
                 <div class="dm-record-actions">
-                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-archive-arrow-up-outline" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash">恢复</VBtn>
-                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash">删除</VBtn>
+                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
+                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-archive-arrow-up-outline" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="retryingHash === r.hash">恢复</VBtn>
+                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="retryingHash === r.hash">删除</VBtn>
                 </div>
               </article>
             </div>
