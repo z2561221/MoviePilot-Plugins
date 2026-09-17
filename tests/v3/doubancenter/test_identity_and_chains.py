@@ -115,6 +115,156 @@ def test_completed_subscription_check_uses_v3_history_signature():
     }
 
 
+def test_library_media_check_uses_v3_identity_and_type():
+    """媒体库已有条目按规范身份和媒体类型命中。"""
+    captured = []
+    media = SimpleNamespace(
+        title="媒体库电影",
+        year="2026",
+        type=MediaType.MOVIE,
+        media_source=MediaSource.TMDB,
+        media_id="789",
+        episode_group=None,
+    )
+
+    class SubscribeChain:
+        """模拟没有活动订阅。"""
+
+        def exists(self, mediainfo, meta):
+            """返回没有活动订阅。"""
+            return False
+
+    class SubscribeOper:
+        """模拟没有订阅历史。"""
+
+        def exists(self, **kwargs):
+            """返回没有活动订阅。"""
+            return False
+
+        def exist_history(self, **kwargs):
+            """返回没有完成订阅历史。"""
+            return False
+
+    class MediaServerOper:
+        """记录媒体库查询并命中规范身份。"""
+
+        def exists(self, **kwargs):
+            """首次身份查询命中，标题回退不应执行。"""
+            captured.append(kwargs)
+            return object() if kwargs.get("media_id") == "789" else None
+
+    assert subscription.is_existing_media(
+        media,
+        subscribe_chain_cls=SubscribeChain,
+        subscribe_oper_cls=SubscribeOper,
+        media_server_oper_cls=MediaServerOper,
+    ) is True
+    assert captured == [{
+        "media_source": MediaSource.TMDB,
+        "media_id": "789",
+        "mtype": MediaType.MOVIE.value,
+        "season": None,
+    }]
+
+
+def test_library_media_check_falls_back_to_title_and_year():
+    """媒体库旧记录缺少身份时回退标题、年份和类型查询。"""
+    captured = []
+    media = SimpleNamespace(
+        title="旧媒体库电影",
+        year="2025",
+        type=MediaType.MOVIE,
+        media_source=MediaSource.TMDB,
+        media_id="654",
+        episode_group=None,
+    )
+
+    class MediaServerOper:
+        """模拟身份缺失的旧媒体库记录。"""
+
+        def exists(self, **kwargs):
+            """身份查询未命中，标题查询命中。"""
+            captured.append(kwargs)
+            return object() if kwargs.get("title") == "旧媒体库电影" else None
+
+    assert subscription.is_existing_library_media(
+        media,
+        media_server_oper_cls=MediaServerOper,
+    ) is True
+    assert captured == [
+        {
+            "media_source": MediaSource.TMDB,
+            "media_id": "654",
+            "mtype": MediaType.MOVIE.value,
+            "season": None,
+        },
+        {
+            "title": "旧媒体库电影",
+            "mtype": MediaType.MOVIE.value,
+            "year": "2025",
+            "season": None,
+        },
+    ]
+
+
+def test_auto_subscription_stops_when_library_media_exists(monkeypatch):
+    """媒体库已有媒体时自动订阅不得调用添加接口。"""
+    media = SimpleNamespace(
+        title="媒体库电视剧",
+        year="2026",
+        type=MediaType.TV,
+        media_source=MediaSource.TMDB,
+        media_id="987",
+        tmdb_id=987,
+        episode_group=None,
+        get_poster_image=lambda: "",
+    )
+    cleaned = []
+
+    class SubscribeChain:
+        """模拟没有活动订阅且禁止新增。"""
+
+        def exists(self, mediainfo, meta):
+            """返回没有活动订阅。"""
+            return False
+
+        def add(self, **kwargs):
+            """媒体库命中时不应进入添加。"""
+            raise AssertionError("library media must stop before add")
+
+    class SubscribeOper:
+        """模拟没有订阅记录。"""
+
+        def exists(self, **kwargs):
+            """返回没有活动订阅。"""
+            return False
+
+        def exist_history(self, **kwargs):
+            """返回没有完成订阅历史。"""
+            return False
+
+    class MediaServerOper:
+        """模拟媒体库已存在该媒体。"""
+
+        def exists(self, **kwargs):
+            """按规范身份返回媒体库条目。"""
+            return object() if kwargs.get("media_id") == "987" else None
+
+    monkeypatch.setattr(
+        subscription.observation,
+        "cleanup_observe_logs",
+        lambda *args, **kwargs: cleaned.append(kwargs),
+    )
+    assert subscription.add_subscription(
+        object(),
+        media,
+        subscribe_chain_cls=SubscribeChain,
+        subscribe_oper_cls=SubscribeOper,
+        media_server_oper_cls=MediaServerOper,
+    ) is False
+    assert cleaned == [{"title": "媒体库电视剧"}]
+
+
 def test_manual_subscription_stops_when_completed_history_exists():
     """手动榜单订阅不能绕过已完成订阅历史再次创建。"""
     media = SimpleNamespace(
