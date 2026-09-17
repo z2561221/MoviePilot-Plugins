@@ -24,6 +24,13 @@ def _default_subscribe_oper_cls():
     return SubscribeOper
 
 
+def _default_media_server_oper_cls():
+    """按调用时环境读取 MoviePilot 媒体库数据库操作类。"""
+    from app.db.mediaserver_oper import MediaServerOper
+
+    return MediaServerOper
+
+
 def history_item_subscribed(item: dict) -> bool:
     """判断历史条目是否已经产生过订阅。"""
     if not isinstance(item, dict):
@@ -92,21 +99,77 @@ def is_existing_identity(
     return None if lookup_failed else False
 
 
-def is_existing_media(mediainfo, meta=None, subscribe_chain_cls=SubscribeChain, subscribe_oper_cls=None) -> Optional[bool]:
-    """判断媒体是否存在活动订阅或已完成订阅历史。"""
+def is_existing_library_media(
+    mediainfo,
+    meta=None,
+    *,
+    media_server_oper_cls=None,
+) -> Optional[bool]:
+    """判断媒体是否已经同步到媒体库；查询失败返回 None。"""
+    try:
+        media_server_oper_cls = media_server_oper_cls or _default_media_server_oper_cls()
+        oper = media_server_oper_cls()
+    except Exception as err:
+        logger.warning(f"豆瓣中心：初始化媒体库状态检查失败：{type(err).__name__}")
+        return None
+
+    media_type = getattr(mediainfo, "type", None) or getattr(meta, "type", None)
+    media_type = getattr(media_type, "value", media_type)
+    season = getattr(meta, "begin_season", None) if meta else None
+    media_source, media_id = identity_from_media(mediainfo)
+    try:
+        if media_source and media_id and oper.exists(
+            media_source=media_source,
+            media_id=media_id,
+            mtype=media_type,
+            season=season,
+        ):
+            return True
+        title = str(getattr(mediainfo, "title", "") or "").strip()
+        if title and oper.exists(
+            title=title,
+            mtype=media_type,
+            year=getattr(mediainfo, "year", "") or "",
+            season=season,
+        ):
+            return True
+    except Exception as err:
+        logger.warning(f"豆瓣中心：检查媒体库存在状态失败：{type(err).__name__}")
+        return None
+    return False
+
+
+def is_existing_media(
+    mediainfo,
+    meta=None,
+    subscribe_chain_cls=SubscribeChain,
+    subscribe_oper_cls=None,
+    media_server_oper_cls=None,
+) -> Optional[bool]:
+    """判断媒体是否存在订阅或已同步到媒体库。"""
     try:
         if subscribe_chain_cls().exists(mediainfo=mediainfo, meta=meta):
             return True
     except Exception as err:
         logger.warning(f"豆瓣中心：检查订阅存在状态失败：{err}")
     media_source, media_id = identity_from_media(mediainfo)
-    return is_existing_identity(
+    subscription_state = is_existing_identity(
         media_source,
         media_id,
         season=getattr(meta, "begin_season", None) if meta else None,
         episode_group=getattr(mediainfo, "episode_group", None),
         subscribe_oper_cls=subscribe_oper_cls,
     )
+    library_state = is_existing_library_media(
+        mediainfo,
+        meta,
+        media_server_oper_cls=media_server_oper_cls,
+    )
+    if subscription_state or library_state:
+        return True
+    if subscription_state is None or library_state is None:
+        return None
+    return False
 
 
 def record_existing_history(
@@ -255,6 +318,7 @@ def add_subscription(
     record_title: str = "",
     subscribe_chain_cls=SubscribeChain,
     subscribe_oper_cls=None,
+    media_server_oper_cls=None,
 ) -> bool:
     """按 MoviePilot V3 通用媒体身份执行自动订阅。"""
     if meta is not None:
@@ -266,6 +330,7 @@ def add_subscription(
             meta,
             subscribe_chain_cls=subscribe_chain_cls,
             subscribe_oper_cls=subscribe_oper_cls,
+            media_server_oper_cls=media_server_oper_cls,
         )
         if existing_state is None:
             write_subscribe_record(
