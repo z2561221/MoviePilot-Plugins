@@ -300,6 +300,25 @@ def test_ranking_tools_reject_duplicate_snapshot_reads():
         asyncio.run(tool.run())
 
 
+@pytest.mark.parametrize("role,classes", [
+    ("profile", PROFILE_AGENT_TOOL_CLASSES),
+    ("retrieval", RETRIEVAL_AGENT_TOOL_CLASSES),
+    ("preliminary", PRELIMINARY_AGENT_TOOL_CLASSES),
+    ("final", FINAL_AGENT_TOOL_CLASSES),
+])
+def test_terminal_repeat_read_returns_submit_hint_without_new_attempt(role, classes):
+    """重复读取不再终止推理，也不消耗修正次数或泄露新的快照。"""
+    context = build_trusted_context("alice", "repeat-read", [], {}, {}, agent_role=role)
+    tools, collector = _role_tools(context, classes)
+    first = json.loads(asyncio.run(tools[0].run()))
+    repeated = json.loads(asyncio.run(tools[0].run()))
+    assert first != repeated
+    assert repeated["status"] == "already_read"
+    assert repeated["next_tool"] == collector.expected_tool
+    assert collector.context_read is True
+    assert collector.attempts == 0
+
+
 def test_tools_reject_missing_or_wrong_trusted_context():
     """General Agent sessions cannot use AgentRank tools without adapter injection."""
     for tool_class in AGENT_TOOL_CLASSES:

@@ -7,9 +7,10 @@ import sys
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
+from langchain.agents.middleware.types import ModelRequest
 
 
 PLUGIN_DIR = Path(__file__).resolve().parents[3] / "plugins.v3" / "agentrank"
@@ -926,6 +927,101 @@ def test_incomplete_cleanup_does_not_start_repair_agent():
     with pytest.raises(RuntimeError, match="repair cleanup did not complete"):
         asyncio.run(adapter.run_profile("profile", _trusted_context(agent_role="profile")))
     assert len(PendingCleanupRunner.instances) == 1
+
+
+def test_profile_repair_contains_frozen_evidence_without_session_memory():
+    """无渠道会话没有历史时，修正仍携带播放事实、旧画像及提交 schema。"""
+    trusted = build_trusted_context(
+        "alice", "repair-evidence", [], {}, {}, agent_role="profile",
+        playback={"sample_count": 15, "samples": [{"title": "唯一事实"}]},
+        previous_profile={"summary": "旧画像"},
+        profile_preferences={"custom_tags": ["悬疑"]},
+    )
+    adapter = AgentRankAgentAdapter(memory_clearer=lambda *_: None)
+    encoded = asyncio.run(adapter._repair_evidence(trusted, "session", ["x" * 15000]))
+    payload = json.loads(encoded.split("REPAIR_DATA=", 1)[1])
+    assert payload["role"] == "profile"
+    assert payload["snapshot"]["playback"]["sample_count"] == 15
+    assert payload["snapshot"]["playback"]["samples"][0]["title"] == "唯一事实"
+    assert payload["snapshot"]["previous_profile"]["summary"] == "旧画像"
+    assert payload["snapshot"]["confirmed_preferences"]["custom_tags"] == ["悬疑"]
+    assert "profile" in payload["submission_schema"]["properties"]
+    assert len(payload["previous_output"]) == 12000
+    assert "candidates" not in payload["snapshot"]
+
+
+def test_terminal_graph_adds_stage_protocol_with_shared_collector():
+    """画像图的工具阶段由当前收集器控制，首轮与修正都受约束。"""
+    from agentrank_agent_adapter_test.adapter.protocol import AgentRankProtocolMiddleware
+
+    for submission_only in (False, True):
+        agent = RestrictedAgentRankAgent(
+            trusted_context=_trusted_context(agent_role="profile"),
+            session_id="protocol", user_id="system", submission_only=submission_only,
+        )
+        agent._tool_context.update(asyncio.run(agent._build_tool_context(False)))
+        graph = asyncio.run(agent._create_agent())
+        protocol = graph["middleware"][1]
+        assert isinstance(protocol, AgentRankProtocolMiddleware)
+        assert protocol.collector is agent._agentrank_result_collector
+        assert protocol.submission_only is submission_only
+
+
+def test_protocol_switches_from_read_to_submit_and_supports_sync_calls():
+    """阶段切换实际改变绑定工具与指定工具名，修正禁止重新读取。"""
+    protocol_class = importlib.import_module(f"{PACKAGE_NAME}.adapter.protocol").AgentRankProtocolMiddleware
+    collector = SimpleNamespace(expected_tool="submit", context_read=False)
+    protocol = protocol_class(collector)
+    request = ModelRequest(model="unused", messages=[], tools=[
+        SimpleNamespace(name="read"), SimpleNamespace(name="submit")
+    ], state={}, runtime=None)
+    seen = []
+
+    def record(value):
+        """记录同步请求实际暴露的工具。"""
+        seen.append(value)
+        return "ok"
+
+    assert protocol.wrap_model_call(request, record) == "ok"
+    collector.context_read = True
+    protocol.wrap_model_call(request, record)
+    assert [x.tools[0].name for x in seen] == ["read", "submit"]
+    assert seen[1].tool_choice["function"]["name"] == "submit"
+    collector.context_read = False
+    repair = protocol_class(collector, submission_only=True)
+    repair.wrap_model_call(request, record)
+    assert seen[-1].tools[0].name == "submit"
+
+
+def test_protocol_only_falls_back_for_explicit_unsupported_tool_choice():
+    """只对未执行的参数拒绝降级一次，网络或其它错误必须向上传播。"""
+    protocol_class = importlib.import_module(f"{PACKAGE_NAME}.adapter.protocol").AgentRankProtocolMiddleware
+    collector = SimpleNamespace(expected_tool="submit", context_read=True)
+    protocol = protocol_class(collector)
+    request = ModelRequest(model="unused", messages=[], tools=[SimpleNamespace(name="submit")], state={}, runtime=None)
+    seen = []
+
+    class UnsupportedChoice(RuntimeError):
+        """模拟供应商明确拒绝 tool_choice 参数。"""
+        status_code = 400
+
+    async def handler(value):
+        """首次明确拒绝，后续检查工具白名单仍被保留。"""
+        seen.append(value)
+        if value.tool_choice is not None:
+            raise UnsupportedChoice("tool_choice is not supported")
+        return "ok"
+
+    assert asyncio.run(protocol.awrap_model_call(request, handler)) == "ok"
+    assert len(seen) == 2 and protocol.tool_choice_supported is False
+    assert all([tool.name for tool in value.tools] == ["submit"] for value in seen)
+
+    async def network_failure(value):
+        """不允许把其它失败冒充能力协商失败。"""
+        raise RuntimeError("connection lost")
+
+    with pytest.raises(RuntimeError, match="connection lost"):
+        asyncio.run(protocol.awrap_model_call(request, network_failure))
 
 
 def test_final_candidate_error_rebuilds_submission_only_repair_session():
