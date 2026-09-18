@@ -9,6 +9,8 @@ from enum import Enum
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 
 PLUGIN_DIR = Path(__file__).resolve().parents[3] / "plugins.v3" / "agentrank"
 PACKAGE_NAME = "agentrank_agent_adapter_test"
@@ -241,6 +243,7 @@ class FakeMissingSubmissionRunner(FakeRunner):
     """模拟两轮都没有调用终结提交工具。"""
 
     async def process(self, prompt):
+        assert not self.cleaned, "已关闭的宿主 Agent 不得再次执行"
         self.prompt = prompt
         self.prompts = [*getattr(self, "prompts", []), prompt]
         return "没有提交"
@@ -256,13 +259,14 @@ class FakeJsonSubmissionRunner(FakeRunner):
 
 
 class FakeRepairSubmissionRunner(FakeRunner):
-    """首次提交失败，收到短错误后在同一会话修正。"""
+    """首次提交失败，新 Agent 接续同一会话修正。"""
 
     async def process(self, prompt):
+        assert not self.cleaned, "已关闭的宿主 Agent 不得再次执行"
         self.prompt = prompt
         self.prompts = [*getattr(self, "prompts", []), prompt]
         collector = self.kwargs["result_collector"]
-        if len(self.prompts) == 1:
+        if not self.kwargs.get("submission_only"):
             collector.reject("schema_validation_failed", "profile.summary")
         else:
             collector.submit(
@@ -270,6 +274,10 @@ class FakeRepairSubmissionRunner(FakeRunner):
                 _profile_submission(),
             )
         return "工具回合结束"
+
+    def get_session_status(self):
+        """返回每个 Agent 对象独立记录的模型调用次数。"""
+        return {"model_call_count": 1 if self.kwargs.get("submission_only") else 2}
 
 
 class FakeFinalRepairSessionRunner(FakeRunner):
@@ -311,9 +319,10 @@ class FakeSchemaErrorResultRunner(FakeRunner):
     """模拟 LangChain 在调用 run 前返回字段化 args_schema 错误。"""
 
     async def process(self, prompt):
+        assert not self.cleaned, "已关闭的宿主 Agent 不得再次执行"
         self.prompt = prompt
         self.prompts = [*getattr(self, "prompts", []), prompt]
-        if len(self.prompts) == 1:
+        if not self.kwargs.get("submission_only"):
             return {
                 "content": (
                     '{"status":"rejected","code":"schema_validation_failed",'
@@ -822,13 +831,13 @@ def test_terminal_role_missing_submission_gets_one_short_repair_only():
     else:
         raise AssertionError("missing terminal submission was accepted")
 
-    runner = FakeMissingSubmissionRunner.instances[-1]
-    assert len(runner.prompts) == 2
-    assert runner.prompts[1].startswith(
+    first, repair = FakeMissingSubmissionRunner.instances
+    assert len(first.prompts) == len(repair.prompts) == 1
+    assert repair.prompts[0].startswith(
         "AGENTRANK_REPAIR code=submission_required field=submission."
     )
-    assert "完整画像协议和上下文" not in runner.prompts[1]
-    assert "read_agentrank" not in runner.prompts[1]
+    assert "完整画像协议和上下文" not in repair.prompts[0]
+    assert "read_agentrank" not in repair.prompts[0]
 
 
 def test_terminal_role_recovers_agent_json_through_schema_and_collector():
@@ -848,12 +857,13 @@ def test_terminal_role_recovers_agent_json_through_schema_and_collector():
     assert len(FakeJsonSubmissionRunner.instances[-1].prompts) == 1
 
 
-def test_terminal_role_repairs_one_named_field_in_same_session():
-    """首次结构错误只反馈错误码和字段，第二次提交成功即停止。"""
+def test_terminal_role_repairs_one_named_field_with_fresh_agent():
+    """新 Agent 接续原会话与收集器，修正成功后清理一次会话记忆。"""
     FakeRepairSubmissionRunner.instances.clear()
+    cleared = []
     adapter = AgentRankAgentAdapter(
         agent_factory=FakeRepairSubmissionRunner,
-        memory_clearer=lambda *_: None,
+        memory_clearer=lambda *args: cleared.append(args),
     )
 
     output = asyncio.run(
@@ -862,9 +872,60 @@ def test_terminal_role_repairs_one_named_field_in_same_session():
 
     assert json.loads(output) == _profile_submission()
     assert output.provenance["repair_count"] == 1
-    runner = FakeRepairSubmissionRunner.instances[-1]
-    assert len(runner.prompts) == 2
-    assert "code=schema_validation_failed field=profile.summary" in runner.prompts[1]
+    assert output.provenance["model_call_count"] == 3
+    first, repair = FakeRepairSubmissionRunner.instances
+    assert first is not repair
+    assert first.kwargs["session_id"] == repair.kwargs["session_id"]
+    assert first.kwargs["trusted_context"] is repair.kwargs["trusted_context"]
+    assert first.kwargs["result_collector"] is repair.kwargs["result_collector"]
+    assert repair.kwargs["submission_only"] is True
+    assert first.cleaned and repair.cleaned
+    assert len(first.prompts) == len(repair.prompts) == 1
+    assert "code=schema_validation_failed field=profile.summary" in repair.prompts[0]
+    assert cleared == [(first.kwargs["session_id"], "system")]
+
+
+@pytest.mark.parametrize("role", ["profile", "retrieval", "preliminary"])
+def test_repair_uses_fresh_agent_for_each_nonfinal_terminal_role(role):
+    """各非决赛角色均用新对象执行唯一修正回合，结束后清理共享记忆。"""
+    FakeMissingSubmissionRunner.instances.clear()
+    cleared = []
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeMissingSubmissionRunner,
+        memory_clearer=lambda *args: cleared.append(args),
+    )
+    trusted = _trusted_context(agent_role=role)
+    with pytest.raises(adapter_module.AgentSubmissionUnavailableError):
+        asyncio.run(adapter.run("first turn", trusted))
+
+    first, repair = FakeMissingSubmissionRunner.instances
+    assert first is not repair
+    assert first.cleaned and repair.cleaned
+    assert first.kwargs["session_id"] == repair.kwargs["session_id"]
+    assert repair.kwargs["trusted_context"] is trusted
+    assert first.kwargs["result_collector"] is repair.kwargs["result_collector"]
+    assert repair.kwargs["submission_only"] is True
+    assert len(first.prompts) == len(repair.prompts) == 1
+    assert cleared == [(first.kwargs["session_id"], "system")]
+
+
+def test_incomplete_cleanup_does_not_start_repair_agent():
+    """宿主未完成资源回收时停止修正，避免新旧执行器重叠。"""
+    class PendingCleanupRunner(FakeMissingSubmissionRunner):
+        """模拟宿主资源尚未收敛的关闭结果。"""
+
+        async def cleanup(self):
+            """标记对象已关闭，但报告资源仍待回收。"""
+            self.cleaned = True
+            return False
+
+    PendingCleanupRunner.instances.clear()
+    adapter = AgentRankAgentAdapter(
+        agent_factory=PendingCleanupRunner, memory_clearer=lambda *_: None
+    )
+    with pytest.raises(RuntimeError, match="repair cleanup did not complete"):
+        asyncio.run(adapter.run_profile("profile", _trusted_context(agent_role="profile")))
+    assert len(PendingCleanupRunner.instances) == 1
 
 
 def test_final_candidate_error_rebuilds_submission_only_repair_session():
@@ -913,9 +974,9 @@ def test_adapter_preserves_field_from_host_schema_validation_error():
     )
 
     assert json.loads(output) == _profile_submission()
-    prompts = FakeSchemaErrorResultRunner.instances[-1].prompts
-    assert len(prompts) == 2
-    assert "code=schema_validation_failed field=profile.summary" in prompts[1]
+    first, repair = FakeSchemaErrorResultRunner.instances
+    assert len(first.prompts) == len(repair.prompts) == 1
+    assert "code=schema_validation_failed field=profile.summary" in repair.prompts[0]
 
 
 def test_preliminary_and_final_adapter_methods_use_terminal_collectors():

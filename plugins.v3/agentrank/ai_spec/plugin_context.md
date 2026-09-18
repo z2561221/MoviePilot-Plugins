@@ -6,7 +6,7 @@
 
 插件 ID 为 `AgentRank`，源码位于 `plugins.v3/agentrank`，生产导入命名空间为 `app.plugins.agentrank`，入口类为 `AgentRank`，配置前缀为 `agentrank_`。当前运行模式为 `("vue", "dist/assets")`。
 
-本周期开发版本为 `3.0.6`。Telegram 重试会话持久化原消息来源、消息 ID、聊天 ID 与重试代次。同一轮及其重试仅发送一条通知，受理后移除按钮，后台每 5 秒合并真实阶段并调用宿主 `edit_message` 原地更新；成功显示结果，失败恢复下一代重试按钮，编辑失败不降级为新消息。重试仍使用有界后台线程，停止时取消任务与进度发布器。媒体库状态仍使用 `true`、`false`、`null` 区分存在、不存在与查询失败，排除已入库时拦截未知状态。
+本周期开发版本为 `3.0.7`。Agent 修正回合使用新对象，兼容宿主 cleanup 永久关闭任务作用域的行为；内部受信工具不向普通聊天注册。Telegram 重试会话持久化原消息来源、消息 ID、聊天 ID 与重试代次。同一轮及其重试仅发送一条通知，受理后移除按钮，后台每 5 秒合并真实阶段并调用宿主 `edit_message` 原地更新；成功显示结果，失败恢复下一代重试按钮，编辑失败不降级为新消息。重试仍使用有界后台线程，停止时取消任务与进度发布器。媒体库状态仍使用 `true`、`false`、`null` 区分存在、不存在与查询失败，排除已入库时拦截未知状态。
 
 ## 入口与生命周期
 
@@ -31,7 +31,7 @@
 
 运行时使用 `RestrictedAgentRankAgent`，并强制 `ReplyMode.CAPTURE_ONLY`。每个角色只实例化角色白名单工具，会话结果由提交工具捕获，结束后清理隔离会话和记忆。
 
-通用只读工具为：
+以下只读工具仅供插件内部角色使用，`get_agent_tools()` 返回空列表，不向普通聊天或通用 Agent 公开：
 
 - `read_agentrank_playback`
 - `read_agentrank_candidates`
@@ -45,6 +45,8 @@
 - 初赛：`read_agentrank_batch_context` -> `submit_agentrank_batch_result`
 - 决赛：`read_agentrank_final_context` -> `submit_agentrank_final_board`
 - 反馈与对话角色只能读取各自冻结上下文，不能获得通用 MoviePilot Agent 工具。
+
+提交失败至多修正一次。宿主 `cleanup()` 永久关闭 Agent 任务身份，禁止再次调用该对象的 `process()`。修正前完成旧对象清理，再创建仅含提交工具的新对象，复用本轮 trusted context 与结果收集器；画像、检索和初赛沿用原 session_id 读取上一轮会话证据，决赛沿用独立 `_repair` 会话策略。结束后清理所有创建的对象并按唯一 session_id 清除记忆，模型调用次数合并统计。
 
 所有候选标题、简介、标签、对话和来源文本均视为不可信数据，不能覆盖系统协议。Agent 禁止订阅、写配置、写文件、直接发消息、执行命令或调用任意网络工具；订阅只能经用户动作和宿主 API 安全链执行。
 

@@ -444,8 +444,17 @@ class AgentRankAgentAdapter:
         agent = build_agent(session_id)
         active_agent = agent
         cleanup_agents = [agent]
+        cleanup_session_ids = [session_id]
+        previous_model_calls = 0
         provenance: Dict[str, Any] = {}
         repair_count = 0
+
+        async def capture_provenance() -> Dict[str, Any]:
+            """合并新旧 Agent 的调用次数，保留当前执行器的模型溯源。"""
+            captured = await self._capture_provenance(active_agent)
+            captured["model_call_count"] += previous_model_calls
+            return captured
+
         try:
             result = await agent.process(str(prompt or ""))
             if trusted_context.agent_role in TERMINAL_AGENT_ROLES:
@@ -511,23 +520,21 @@ class AgentRankAgentAdapter:
                         )
                         + "。禁止提交 placeholder、repair、pending 或其它不在映射中的 ID。"
                     )
-                    repair_session_id = f"{session_id}_repair"[:96]
-                    if trusted_context.agent_role == FINAL_AGENT_ROLE:
-                        await agent.cleanup()
-                        repair_agent = build_agent(
-                            repair_session_id,
-                            submission_only=True,
-                        )
-                        cleanup_agents.append(repair_agent)
-                        active_agent = repair_agent
-                    else:
-                        enable_submission_only = getattr(
-                            agent, "enable_submission_only", None
-                        )
-                        if callable(enable_submission_only):
-                            enable_submission_only()
-                        await agent.cleanup()
-                        active_agent = agent
+                    repair_session_id = (
+                        f"{session_id}_repair"[:96]
+                        if trusted_context.agent_role == FINAL_AGENT_ROLE
+                        else session_id
+                    )
+                    first_provenance = await self._capture_provenance(agent)
+                    if await agent.cleanup() is False:
+                        raise RuntimeError("AgentRank repair cleanup did not complete")
+                    # cleanup 会永久封闭宿主任务作用域，必须换用新 Agent 对象。
+                    # 非决赛角色保留 session_id，以便从宿主记忆读取上一轮证据。
+                    repair_agent = build_agent(repair_session_id, submission_only=True)
+                    cleanup_agents.append(repair_agent)
+                    cleanup_session_ids.append(repair_session_id)
+                    active_agent = repair_agent
+                    previous_model_calls = first_provenance["model_call_count"]
                     repair_result = await active_agent.process(
                         "AGENTRANK_REPAIR "
                         f"code={code} field={field}. "
@@ -546,7 +553,7 @@ class AgentRankAgentAdapter:
                         result_collector,
                         repair_outputs,
                     )
-                provenance = await self._capture_provenance(active_agent)
+                provenance = await capture_provenance()
                 provenance["repair_count"] = repair_count
                 if result_collector.submitted:
                     return AgentExecutionResult(
@@ -557,7 +564,7 @@ class AgentRankAgentAdapter:
                     issue.code if issue is not None else "submission_required",
                     issue.field if issue is not None else "submission",
                 )
-            provenance = await self._capture_provenance(active_agent)
+            provenance = await capture_provenance()
             provenance["repair_count"] = repair_count
             candidates: List[Any] = [result]
             # 新版宿主的 CAPTURE_ONLY 路径可能只把最终文本留在 Agent
@@ -587,7 +594,7 @@ class AgentRankAgentAdapter:
             raise AgentTextUnavailableError("Agent did not produce text output")
         except Exception as error:
             if not provenance:
-                provenance = await self._capture_provenance(active_agent)
+                provenance = await capture_provenance()
             provenance["repair_count"] = repair_count
             try:
                 error.agentrank_provenance = dict(provenance)
@@ -600,10 +607,7 @@ class AgentRankAgentAdapter:
                     await cleanup_agent.cleanup()
                 except Exception:
                     pass
-            target_session_ids = [session_id]
-            if len(cleanup_agents) > 1:
-                target_session_ids.append(f"{session_id}_repair"[:96])
-            for target_session_id in dict.fromkeys(target_session_ids):
+            for target_session_id in dict.fromkeys(cleanup_session_ids):
                 await self._clear_memory(target_session_id)
 
     async def run_profile(
