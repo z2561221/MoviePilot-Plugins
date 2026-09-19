@@ -30,7 +30,9 @@ onMounted(load)
       </template>
     </VCardItem>
     <VCardText>
-      <div class="dash-row"><span>清库存周期</span><strong>{{ status?.modules?.library_cleanup?.enabled ? '开启' : '关闭' }}</strong></div>
+      <div class="dash-row"><span>周期扫描</span><strong>{{ status?.enabled && status?.modules?.library_cleanup?.scan_enabled ? '开启' : '关闭' }}</strong></div>
+      <div class="dash-row"><span>周期清理</span><strong>{{ status?.enabled && status?.modules?.library_cleanup?.cleanup_enabled ? '开启' : '关闭' }}</strong></div>
+      <div class="dash-row"><span>清理计划</span><strong>{{ status?.modules?.library_cleanup?.plan_count || 0 }} 部</strong></div>
       <div class="dash-row"><span>查漏路径</span><strong>{{ status?.modules?.check_missing?.paths || 0 }} 个</strong></div>
       <div class="dash-row"><span>TMDB缓存</span><strong>{{ status?.modules?.tmdb_cache?.keys || 0 }} 键</strong></div>
     </VCardText>

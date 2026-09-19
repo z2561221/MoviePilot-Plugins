@@ -1,6 +1,7 @@
 <script setup>
 import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { apiGet, pluginApiPath } from '../api.js'
+import { migrateCleanupConfig } from '../cleanupConfig.js'
 
 const props = defineProps({
   initialConfig: { type: Object, default: () => ({}) },
@@ -14,9 +15,12 @@ const defaults = {
   tmdb_cache: { notify: true, auto_clear: false, threshold_mb: 50 },
   check_missing: { notify: true, scan_paths: '', skip_empty: true },
   library_cleanup: {
-    enabled: false,
-    cron: '9 0 * * *',
-    notify: true,
+    scan_enabled: false,
+    scan_cron: '9 0 * * *',
+    scan_notify: true,
+    cleanup_enabled: false,
+    cleanup_cron: '0 * * * *',
+    cleanup_notify: true,
     days_threshold: 20,
     selected_server: '',
     selected_library: '',
@@ -44,7 +48,7 @@ let optionsRequestId = 0
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '统一管理三个本地维护模块。', color: 'primary' },
-  { key: 'library_cleanup', title: '清理库存', icon: 'mdi-delete-sweep-outline', desc: '周期先扫描入队，再按队列倒序分批清理。', color: 'error' },
+  { key: 'library_cleanup', title: '清理库存', icon: 'mdi-delete-sweep-outline', desc: '扫描与清理独立调度，共用清理计划。', color: 'error' },
   { key: 'check_missing', title: '扫描缺集', icon: 'mdi-magnify-scan', desc: '按需单次扫描媒体目录，检查已存在季的缺集。', color: 'primary' },
   { key: 'tmdb_cache', title: '清理TMDB', icon: 'mdi-database-refresh-outline', desc: '按需单次查询与清理 Redis 中的 TMDB 缓存。', color: 'warning' },
 ]
@@ -83,7 +87,7 @@ function merge(target, source, path = '') {
 watch(() => props.initialConfig, value => {
   Object.keys(form).forEach(k => delete form[k])
   Object.assign(form, JSON.parse(JSON.stringify(defaults)))
-  merge(form, value || {})
+  merge(form, { ...(value || {}), library_cleanup: migrateCleanupConfig(value?.library_cleanup) })
   delete form.tmdb_cache.cron
   delete form.check_missing.cron
 }, { immediate: true, deep: true })
@@ -194,9 +198,9 @@ function saveConfig() {
                   <VCard variant="tonal" color="error" class="status-card">
                     <VCardText>
                       <div class="text-subtitle-1 font-weight-bold">清理库存</div>
-                      <div class="plugin-hint">周期运行：{{ form.library_cleanup.enabled && form.enabled ? '开启' : '关闭' }}</div>
-                      <div class="plugin-hint">清理周期：{{ form.library_cleanup.cron || '未设置' }}</div>
-                      <div class="plugin-hint">周期冷却：{{ form.library_cleanup.cycle_cooldown_minutes }} 分钟</div>
+                      <div class="plugin-hint">周期扫描：{{ form.library_cleanup.scan_enabled && form.enabled ? form.library_cleanup.scan_cron || '未设置周期' : '关闭' }}</div>
+                      <div class="plugin-hint">周期清理：{{ form.library_cleanup.cleanup_enabled && form.enabled ? form.library_cleanup.cleanup_cron || '未设置周期' : '关闭' }}</div>
+                      <div class="plugin-hint">清理冷却：{{ form.library_cleanup.cycle_cooldown_minutes }} 分钟</div>
                       <div class="plugin-hint">自动删除：{{ form.library_cleanup.auto_delete ? '开启' : '关闭' }}</div>
                     </VCardText>
                   </VCard>
@@ -222,19 +226,29 @@ function saveConfig() {
                   </VCard>
                 </VCol>
               </VRow>
-              <VAlert class="mt-4" type="info" variant="tonal" text="详情页提供三个模块的一键立即执行按钮；配置页只负责保存参数。只有清理库存会在插件启用且模块启用时按 Cron 周期运行。" />
+              <VAlert class="mt-4" type="info" variant="tonal" text="清理库存分别控制周期扫描与周期清理；插件总开关关闭时，两项定时服务都停止。详情页可手动生成计划或执行一批清理。" />
             </div>
 
             <div v-show="activeMain === 'library_cleanup'" class="plugin-pane">
               <div v-if="activeSub === 'basic'">
                 <div class="plugin-section-title text-error">清理库存基础设置</div>
-                <VAlert type="warning" variant="tonal" class="mb-4" text="每次周期先完整扫描并写入清理计划，再按队列倒序处理设置数量；冷却期间不会重复删除。" />
+                <VAlert type="info" variant="tonal" class="mb-4" text="扫描只更新清理计划；清理仅读取已有计划，删除前逐项复核当前条件。两个周期互斥执行，空计划或冷却中不会重复推送。" />
+                <div class="condition-title">周期扫描</div>
                 <VRow>
-                  <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.enabled" color="error" label="启用周期清理库存" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.notify" color="info" label="运行通知" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model="form.library_cleanup.cron" label="清理周期（Cron）" placeholder="9 0 * * *" density="compact" variant="outlined" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.cycle_cooldown_minutes" label="周期冷却（分钟）" type="number" min="0" max="10080" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.scan_enabled" color="primary" label="启用周期扫描" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model="form.library_cleanup.scan_cron" label="扫描周期（Cron）" placeholder="9 0 * * *" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.scan_notify" color="info" label="扫描通知" hide-details /></VCol>
                 </VRow>
+                <div class="plugin-hint mt-2">计划有新增或失效移出时通知；扫描无变化只记录历史。</div>
+                <div class="condition-title condition-title--second">周期清理</div>
+                <VRow>
+                  <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.cleanup_enabled" color="error" label="启用周期清理" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model="form.library_cleanup.cleanup_cron" label="清理周期（Cron）" placeholder="0 * * * *" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.cleanup_notify" color="info" label="清理通知" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.cycle_cooldown_minutes" label="清理冷却（分钟）" type="number" min="0" max="10080" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.auto_delete_max_count" label="每周期删除数量" type="number" min="1" density="compact" variant="outlined" hide-details /></VCol>
+                </VRow>
+                <div class="plugin-hint mt-2">定时和手动清理共用冷却。Telegram 在本批原消息中更新结果，其他渠道只发送最终结果。</div>
               </div>
 
               <div v-if="activeSub === 'filter'">
@@ -270,7 +284,6 @@ function saveConfig() {
                   <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.auto_delete" color="error" label="自动删除" hide-details /></VCol>
                   <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.dry_run" color="warning" label="演练模式" hide-details /></VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.auto_delete_delay" label="删除间隔（秒）" type="number" min="0" density="compact" variant="outlined" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.auto_delete_max_count" label="每周期删除数量" type="number" min="1" density="compact" variant="outlined" hide-details /></VCol>
                 </VRow>
               </div>
             </div>

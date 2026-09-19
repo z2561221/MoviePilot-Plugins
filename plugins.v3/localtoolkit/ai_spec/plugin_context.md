@@ -123,9 +123,12 @@ Important persistent fields:
 - `check_missing.notify`
 - `check_missing.scan_paths`
 - `check_missing.skip_empty`
-- `library_cleanup.enabled`
-- `library_cleanup.cron`
-- `library_cleanup.notify`
+- `library_cleanup.scan_enabled`
+- `library_cleanup.cleanup_enabled`
+- `library_cleanup.scan_cron`
+- `library_cleanup.cleanup_cron`
+- `library_cleanup.scan_notify`
+- `library_cleanup.cleanup_notify`
 - `library_cleanup.selected_server`
 - `library_cleanup.selected_library`
 - `library_cleanup.selected_user`
@@ -207,3 +210,7 @@ Remove-Item -LiteralPath 'plugins.v3/localtoolkit/frontend/pnpm-lock.yaml' -Forc
   recording browser evidence.
 - Do not update version numbers for release unless a later explicit release
   request starts the release-preparation phase.
+
+## Independent cleanup cycles
+
+Scanning and cleanup use separate schedules and notification switches. Scanning commits a complete inventory into the persistent plan; cleanup must never call the full scanner, including on empty plans, cooldowns, and retries. Each selected item is re-read for current eligibility and library membership immediately before deletion, then checked again after deletion. Unknown states remain queued. Both entrypoints share the same instance lock. Legacy cadence and notification values migrate only when the new fields are absent. Scan changes produce a summary; Telegram cleanup progress edits the same message for that batch. Persistent identical errors are limited to one notification per 24 hours, followed by one recovery notification.

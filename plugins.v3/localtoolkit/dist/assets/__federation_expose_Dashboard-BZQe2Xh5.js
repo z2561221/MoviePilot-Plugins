@@ -7,6 +7,8 @@ const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_with
 const _hoisted_1 = { class: "dash-row" };
 const _hoisted_2 = { class: "dash-row" };
 const _hoisted_3 = { class: "dash-row" };
+const _hoisted_4 = { class: "dash-row" };
+const _hoisted_5 = { class: "dash-row" };
 
 const {ref,onMounted} = await importShared('vue');
 
@@ -92,15 +94,23 @@ return (_ctx, _cache) => {
       _createVNode(_component_VCardText, null, {
         default: _withCtx(() => [
           _createElementVNode("div", _hoisted_1, [
-            _cache[2] || (_cache[2] = _createElementVNode("span", null, "清库存周期", -1)),
-            _createElementVNode("strong", null, _toDisplayString(status.value?.modules?.library_cleanup?.enabled ? '开启' : '关闭'), 1)
+            _cache[2] || (_cache[2] = _createElementVNode("span", null, "周期扫描", -1)),
+            _createElementVNode("strong", null, _toDisplayString(status.value?.enabled && status.value?.modules?.library_cleanup?.scan_enabled ? '开启' : '关闭'), 1)
           ]),
           _createElementVNode("div", _hoisted_2, [
-            _cache[3] || (_cache[3] = _createElementVNode("span", null, "查漏路径", -1)),
-            _createElementVNode("strong", null, _toDisplayString(status.value?.modules?.check_missing?.paths || 0) + " 个", 1)
+            _cache[3] || (_cache[3] = _createElementVNode("span", null, "周期清理", -1)),
+            _createElementVNode("strong", null, _toDisplayString(status.value?.enabled && status.value?.modules?.library_cleanup?.cleanup_enabled ? '开启' : '关闭'), 1)
           ]),
           _createElementVNode("div", _hoisted_3, [
-            _cache[4] || (_cache[4] = _createElementVNode("span", null, "TMDB缓存", -1)),
+            _cache[4] || (_cache[4] = _createElementVNode("span", null, "清理计划", -1)),
+            _createElementVNode("strong", null, _toDisplayString(status.value?.modules?.library_cleanup?.plan_count || 0) + " 部", 1)
+          ]),
+          _createElementVNode("div", _hoisted_4, [
+            _cache[5] || (_cache[5] = _createElementVNode("span", null, "查漏路径", -1)),
+            _createElementVNode("strong", null, _toDisplayString(status.value?.modules?.check_missing?.paths || 0) + " 个", 1)
+          ]),
+          _createElementVNode("div", _hoisted_5, [
+            _cache[6] || (_cache[6] = _createElementVNode("span", null, "TMDB缓存", -1)),
             _createElementVNode("strong", null, _toDisplayString(status.value?.modules?.tmdb_cache?.keys || 0) + " 键", 1)
           ])
         ]),
@@ -113,6 +123,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d6a65f3b"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9f8e7cfb"]]);
 
 export { Dashboard as default };

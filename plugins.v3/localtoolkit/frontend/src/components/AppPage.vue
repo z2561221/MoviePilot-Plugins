@@ -33,34 +33,41 @@ const historyTotalPages = computed(() => Math.max(1, Math.ceil((historyTotal.val
 const cleanupPlanTotalPages = computed(() => Math.max(1, Number(cleanupPlan.value?.total_pages || Math.ceil((cleanupPlan.value?.total || 0) / cleanupPlanPageSize))))
 const cleanupStatus = computed(() => status.value?.modules?.library_cleanup || {})
 const batchSize = computed(() => Number(cleanupPlan.value?.batch_size || cleanupStatus.value?.cycle_batch_size || 10))
+function formatPlanTime(value) {
+  if (!value) return '尚未扫描'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
+}
 const overviewCards = computed(() => [
   {
-    title: '周期状态',
-    value: cleanupStatus.value.enabled ? '已开启' : '未开启',
-    detail: cleanupStatus.value.cron ? `周期 ${cleanupStatus.value.cron}` : '未设置清理周期',
+    title: '周期扫描',
+    value: status.value?.enabled && cleanupStatus.value.scan_enabled ? '已开启' : '未开启',
+    detail: cleanupStatus.value.scan_cron ? `周期 ${cleanupStatus.value.scan_cron}` : '未设置扫描周期',
+    icon: 'mdi-magnify-scan',
+    color: status.value?.enabled && cleanupStatus.value.scan_enabled ? 'success' : 'default',
+  },
+  {
+    title: '周期清理',
+    value: status.value?.enabled && cleanupStatus.value.cleanup_enabled ? '已开启' : '未开启',
+    detail: cleanupStatus.value.cleanup_cron ? `周期 ${cleanupStatus.value.cleanup_cron}` : '未设置清理周期',
     icon: 'mdi-calendar-clock-outline',
-    color: cleanupStatus.value.enabled ? 'success' : 'default',
+    color: status.value?.enabled && cleanupStatus.value.cleanup_enabled ? 'success' : 'default',
   },
   {
     title: '清理计划',
     value: `${cleanupPlan.value.total || 0} 部`,
-    detail: cleanupStatus.value.auto_delete ? '自动删除已开启' : '仅扫描入队，不自动删除',
+    detail: `最近扫描：${formatPlanTime(cleanupPlan.value.last_scan_at)}`,
     icon: 'mdi-playlist-check',
     color: cleanupPlan.value.total ? 'warning' : 'primary',
   },
   {
     title: '本周期数量',
     value: `${batchSize.value} 部`,
-    detail: `冷却 ${cleanupPlan.value.cooldown_minutes || cleanupStatus.value.cooldown_minutes || 0} 分钟`,
+    detail: !cleanupStatus.value.auto_delete ? '自动删除未开启' : cleanupPlan.value.next_cycle_at
+      ? `冷却至 ${formatPlanTime(cleanupPlan.value.next_cycle_at)}`
+      : `清理冷却 ${cleanupPlan.value.cooldown_minutes ?? cleanupStatus.value.cooldown_minutes ?? 0} 分钟`,
     icon: 'mdi-counter',
     color: 'primary',
-  },
-  {
-    title: '下次执行',
-    value: cleanupPlan.value.next_cycle_at ? '冷却中' : '等待周期',
-    detail: cleanupPlan.value.next_cycle_at || '当前没有冷却中的周期',
-    icon: 'mdi-timer-sand-outline',
-    color: cleanupPlan.value.next_cycle_at ? 'info' : 'default',
   },
 ])
 const attentionItems = computed(() => {
@@ -72,7 +79,7 @@ const attentionItems = computed(() => {
     items.push({ icon: 'mdi-playlist-check', color: 'warning', title: '计划待处理', detail: `${cleanupPlan.value.total} 部对象等待清理` })
   }
   if (cleanupPlan.value.next_cycle_at) {
-    items.push({ icon: 'mdi-timer-sand-outline', color: 'info', title: '周期冷却中', detail: `下次可执行：${cleanupPlan.value.next_cycle_at}` })
+    items.push({ icon: 'mdi-timer-sand-outline', color: 'info', title: '周期冷却中', detail: `冷却结束：${formatPlanTime(cleanupPlan.value.next_cycle_at)}` })
   }
   return items
 })
@@ -184,7 +191,7 @@ function planStatusColor(item) {
 }
 
 function historyStatus(item) {
-  return item.status === 'success' ? '成功' : item.status === 'failed' ? '失败' : item.status || '未知'
+  return item.status === 'success' ? '成功' : item.status === 'failed' ? '失败' : item.status === 'skipped' ? '跳过' : item.status || '未知'
 }
 
 function historyStatusColor(item) {
@@ -268,16 +275,16 @@ onMounted(loadOverview)
             <div class="lt-section-heading">
               <div>
                 <div class="lt-section-title">运行链路</div>
-                <div class="text-caption text-medium-emphasis">周期任务必须先完成扫描，删除阶段只消费持久化计划。</div>
+                <div class="text-caption text-medium-emphasis">扫描和清理使用独立周期；扫描更新计划，清理只处理已有计划中的本批对象。</div>
               </div>
               <VChip size="small" color="primary" variant="tonal">每周期 {{ batchSize }} 部</VChip>
             </div>
             <div class="lt-flow-grid mt-3">
               <div v-for="(step, index) in [
-                { icon: 'mdi-magnify-scan', title: '完整扫描', detail: '按当前筛选条件读取媒体库' },
-                { icon: 'mdi-playlist-plus', title: '持久化入队', detail: '按服务器与条目 ID 去重' },
-                { icon: 'mdi-sort-numeric-descending', title: '倒序执行', detail: `按设置数量处理 ${batchSize} 部` },
-                { icon: 'mdi-check-decagram-outline', title: '删除复核', detail: '成功移除，异常对象留队重试' },
+                { icon: 'mdi-magnify-scan', title: '周期扫描', detail: '独立扫描周期，仅读取媒体库' },
+                { icon: 'mdi-playlist-plus', title: '更新计划', detail: '新增入队，失效移出，失败保留原计划' },
+                { icon: 'mdi-sort-numeric-descending', title: '周期清理', detail: `倒序取最多 ${batchSize} 部，逐项复核条件` },
+                { icon: 'mdi-check-decagram-outline', title: '删除复核', detail: '确认移除后出队，异常对象保留重试' },
               ]" :key="step.title" class="lt-flow-step">
                 <div class="lt-flow-index">{{ index + 1 }}</div>
                 <VIcon :icon="step.icon" color="primary" size="22" />
@@ -304,7 +311,7 @@ onMounted(loadOverview)
 
           <section class="lt-panel mt-3">
             <div class="lt-section-heading">
-              <div><div class="lt-section-title">快速操作</div><div class="text-caption text-medium-emphasis">清理计划操作不会跳过扫描阶段。</div></div>
+              <div><div class="lt-section-title">快速操作</div><div class="text-caption text-medium-emphasis">生成计划会扫描；执行一周期只处理已有计划。</div></div>
               <VBtn size="small" variant="text" prepend-icon="mdi-format-list-bulleted" class="text-none" @click="selectTab('cleanup_plan')">查看计划</VBtn>
             </div>
             <div class="lt-action-row mt-3">
@@ -318,7 +325,7 @@ onMounted(loadOverview)
 
         <section v-else-if="activeTab === 'cleanup_plan'" class="lt-pane">
           <div class="lt-section-heading">
-            <div><div class="lt-section-title">清理计划</div><div class="text-caption text-medium-emphasis">扫描完成后进入队列，执行阶段按倒序消费；数量取设置页配置。</div></div>
+            <div><div class="lt-section-title">清理计划</div><div class="text-caption text-medium-emphasis">按设置数量倒序取本批对象，逐项复核后清理；执行周期不扫描媒体库。</div></div>
             <div class="lt-action-row lt-action-row--right">
               <VBtn size="small" variant="tonal" prepend-icon="mdi-playlist-plus" :loading="loadingAction === 'scan_plan'" @click="scanPlan">生成计划</VBtn>
               <VBtn size="small" color="error" variant="flat" prepend-icon="mdi-delete-sweep-outline" :loading="loadingAction === 'library_cleanup'" @click="runModule('library_cleanup')">执行一周期</VBtn>
@@ -329,17 +336,17 @@ onMounted(loadOverview)
           <div class="lt-plan-summary mt-3">
             <div><span>待处理对象</span><strong>{{ cleanupPlan.total || 0 }} 部</strong></div>
             <div><span>本周期数量</span><strong>{{ batchSize }} 部</strong></div>
-            <div><span>冷却</span><strong>{{ cleanupPlan.cooldown_minutes || cleanupStatus.cooldown_minutes || 0 }} 分钟</strong></div>
-            <div><span>下次执行</span><strong>{{ cleanupPlan.next_cycle_at || '等待周期' }}</strong></div>
+            <div><span>冷却</span><strong>{{ cleanupPlan.cooldown_minutes ?? cleanupStatus.cooldown_minutes ?? 0 }} 分钟</strong></div>
+            <div><span>清理冷却</span><strong>{{ cleanupPlan.next_cycle_at ? formatPlanTime(cleanupPlan.next_cycle_at) : '可执行' }}</strong></div>
           </div>
-          <VAlert v-if="cleanupPlan.next_cycle_at" type="info" variant="tonal" density="compact" class="mt-3">当前处于周期冷却，下次可执行：{{ cleanupPlan.next_cycle_at }}</VAlert>
+          <VAlert v-if="cleanupPlan.next_cycle_at" type="info" variant="tonal" density="compact" class="mt-3">当前处于清理冷却，冷却结束：{{ formatPlanTime(cleanupPlan.next_cycle_at) }}</VAlert>
 
           <div class="lt-table-wrap mt-3">
             <VTable class="lt-table" density="compact">
               <thead><tr><th>#</th><th>对象</th><th>媒体库</th><th>入库日期</th><th>尝试</th><th>状态</th></tr></thead>
               <tbody>
                 <tr v-for="(item, index) in cleanupPlan.items" :key="item.queue_key || index">
-                  <td>{{ index + 1 }}</td>
+                  <td>{{ (cleanupPlanPage - 1) * cleanupPlanPageSize + index + 1 }}</td>
                   <td class="lt-ellipsis" :title="item.title || item.code || item.movie_id">{{ item.title || item.code || item.movie_id || '未知对象' }}</td>
                   <td>{{ item.library_name || item.server || '未标记媒体库' }}</td>
                   <td>{{ item.date_created ? item.date_created.slice(0, 10) : '未知' }}</td>
