@@ -72,10 +72,11 @@ def test_backupcenter_metadata_is_consistent_and_v3_scoped():
     ):
         assert package[metadata_key] == manifest[metadata_key]
         assert package[metadata_key] == _class_string(plugin_class, class_key)
-    assert package["version"] == manifest["version"] == "3.0.4"
+    assert package["version"] == manifest["version"] == "3.0.5"
     assert "v2" not in package and "v2" not in manifest
     assert package["release"] is True
     assert package["history"] == manifest["history"] == {
+        "v3.0.5": "[1]修复V3兼容导入",
         "v3.0.4": "[1]隔离分身前端请求",
         "v3.0.3": "[1]修复备份记录下载操作栏",
         "v3.0.2": "[1]聚焦逻辑备份;[2]接入宿主恢复点;[3]恢复失败自动回滚",
