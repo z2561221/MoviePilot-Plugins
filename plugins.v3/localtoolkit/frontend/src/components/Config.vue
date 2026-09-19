@@ -232,23 +232,48 @@ function saveConfig() {
             <div v-show="activeMain === 'library_cleanup'" class="plugin-pane">
               <div v-if="activeSub === 'basic'">
                 <div class="plugin-section-title text-error">清理库存基础设置</div>
-                <VAlert type="info" variant="tonal" class="mb-4" text="扫描只更新清理计划；清理仅读取已有计划，删除前逐项复核当前条件。两个周期互斥执行，空计划或冷却中不会重复推送。" />
-                <div class="condition-title">周期扫描</div>
-                <VRow>
-                  <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.scan_enabled" color="primary" label="启用周期扫描" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model="form.library_cleanup.scan_cron" label="扫描周期（Cron）" placeholder="9 0 * * *" density="compact" variant="outlined" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.scan_notify" color="info" label="扫描通知" hide-details /></VCol>
-                </VRow>
-                <div class="plugin-hint mt-2">计划有新增或失效移出时通知；扫描无变化只记录历史。</div>
-                <div class="condition-title condition-title--second">周期清理</div>
-                <VRow>
-                  <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.cleanup_enabled" color="error" label="启用周期清理" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model="form.library_cleanup.cleanup_cron" label="清理周期（Cron）" placeholder="0 * * * *" density="compact" variant="outlined" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.cleanup_notify" color="info" label="清理通知" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.cycle_cooldown_minutes" label="清理冷却（分钟）" type="number" min="0" max="10080" density="compact" variant="outlined" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.auto_delete_max_count" label="每周期删除数量" type="number" min="1" density="compact" variant="outlined" hide-details /></VCol>
-                </VRow>
-                <div class="plugin-hint mt-2">定时和手动清理共用冷却。Telegram 在本批原消息中更新结果，其他渠道只发送最终结果。</div>
+                <VAlert type="info" variant="tonal" class="mb-4" text="扫描只更新清理计划；立即清理一批仅读取已有计划，删除前逐项复核当前条件。两个周期互斥执行，空计划或冷却中不会重复推送。" />
+                <section class="schedule-block schedule-block--scan">
+                  <div class="schedule-block__header">
+                    <div>
+                      <div class="schedule-block__title"><VIcon icon="mdi-magnify-scan" size="18" />周期扫描</div>
+                      <div class="plugin-hint">扫描媒体库并更新计划；计划有新增或失效移出时才发送通知。</div>
+                    </div>
+                    <VSwitch v-model="form.library_cleanup.scan_enabled" color="primary" inset label="启用" hide-details />
+                  </div>
+                  <VRow class="schedule-block__controls">
+                    <VCol cols="12" md="7">
+                      <VCronField v-model="form.library_cleanup.scan_cron" label="扫描周期" hint="使用可视化周期选择器" persistent-hint density="compact" variant="outlined" hide-details="auto" :disabled="!form.enabled || !form.library_cleanup.scan_enabled" />
+                    </VCol>
+                    <VCol cols="12" md="5" class="d-flex align-center">
+                      <VSwitch v-model="form.library_cleanup.scan_notify" color="info" inset label="计划变更通知" hide-details :disabled="!form.library_cleanup.scan_enabled" />
+                    </VCol>
+                  </VRow>
+                </section>
+                <section class="schedule-block schedule-block--cleanup">
+                  <div class="schedule-block__header">
+                    <div>
+                      <div class="schedule-block__title"><VIcon icon="mdi-delete-sweep-outline" size="18" />周期清理</div>
+                      <div class="plugin-hint">只处理已有计划；立即清理一批与周期清理共用冷却、批次数量和复核规则。</div>
+                    </div>
+                    <VSwitch v-model="form.library_cleanup.cleanup_enabled" color="error" inset label="启用" hide-details />
+                  </div>
+                  <VRow class="schedule-block__controls">
+                    <VCol cols="12" md="7">
+                      <VCronField v-model="form.library_cleanup.cleanup_cron" label="清理周期" hint="使用可视化周期选择器" persistent-hint density="compact" variant="outlined" hide-details="auto" :disabled="!form.enabled || !form.library_cleanup.cleanup_enabled" />
+                    </VCol>
+                    <VCol cols="12" md="5" class="d-flex align-center">
+                      <VSwitch v-model="form.library_cleanup.cleanup_notify" color="info" inset label="清理结果通知" hide-details :disabled="!form.library_cleanup.cleanup_enabled" />
+                    </VCol>
+                    <VCol cols="12" sm="6" md="4">
+                      <VTextField v-model.number="form.library_cleanup.cycle_cooldown_minutes" class="schedule-number-field" label="清理冷却（分钟）" type="number" min="0" max="10080" density="compact" variant="outlined" hide-details />
+                    </VCol>
+                    <VCol cols="12" sm="6" md="4">
+                      <VTextField v-model.number="form.library_cleanup.auto_delete_max_count" class="schedule-number-field" label="每周期删除数量" type="number" min="1" density="compact" variant="outlined" hide-details />
+                    </VCol>
+                  </VRow>
+                </section>
+                <div class="plugin-hint schedule-note">Telegram 会在本批原消息中更新进度，其他渠道只接收最终结果。</div>
               </div>
 
               <div v-if="activeSub === 'filter'">
@@ -343,6 +368,15 @@ function saveConfig() {
 .condition-title--second { margin-top: 4px; }
 .plugin-hint { font-size: 12px; line-height: 1.6; color: rgba(var(--v-theme-on-surface), .68); margin-top: 2px; }
 .status-card { border-radius: 14px; min-height: 132px; }
+.schedule-block { border: 1px solid rgba(var(--v-border-color), .16); border-radius: 10px; padding: 14px 16px 4px; }
+.schedule-block + .schedule-block { margin-top: 12px; }
+.schedule-block--scan { border-left: 3px solid rgb(var(--v-theme-primary)); }
+.schedule-block--cleanup { border-left: 3px solid rgb(var(--v-theme-error)); }
+.schedule-block__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.schedule-block__title { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 700; color: rgba(var(--v-theme-on-surface), .86); }
+.schedule-block__controls { margin-top: 4px; }
+.schedule-number-field { max-width: 180px; }
+.schedule-note { margin: 10px 2px 0; }
 .plugin-actions { padding: 10px 18px; }
 @media (max-width: 760px) {
   .plugin-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }

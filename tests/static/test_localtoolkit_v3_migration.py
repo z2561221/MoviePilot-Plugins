@@ -123,6 +123,21 @@ def test_localtoolkit_v3_cleanup_batch_comes_from_configuration() -> None:
     assert "max=\"10\"" not in config
 
 
+def test_localtoolkit_v3_schedule_controls_use_cron_fields_and_clear_actions() -> None:
+    """周期配置使用可视化控件，详情页立即清理文案与行为一致。"""
+    config = (V3_DIR / "frontend" / "src" / "components" / "Config.vue").read_text(encoding="utf-8")
+    page = (V3_DIR / "frontend" / "src" / "components" / "Page.vue").read_text(encoding="utf-8")
+    app_page = (V3_DIR / "frontend" / "src" / "components" / "AppPage.vue").read_text(encoding="utf-8")
+    assert config.count("<VCronField") == 2
+    assert "form.library_cleanup.scan_cron" in config
+    assert "form.library_cleanup.cleanup_cron" in config
+    assert "schedule-block--scan" in config and "schedule-block--cleanup" in config
+    for source in (page, app_page):
+        assert "立即清理一批" in source
+        assert "执行一周期" not in source
+        assert "立即清理一批只处理已有计划" in source
+
+
 def test_localtoolkit_v3_uses_public_media_server_sdk() -> None:
     """确认 V3 媒体服务器适配器使用公开 SDK。"""
     adapter = (V3_DIR / "adapter" / "media_server.py").read_text(encoding="utf-8")

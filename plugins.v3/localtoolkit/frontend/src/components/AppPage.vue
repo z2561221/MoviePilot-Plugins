@@ -311,12 +311,12 @@ onMounted(loadOverview)
 
           <section class="lt-panel mt-3">
             <div class="lt-section-heading">
-              <div><div class="lt-section-title">快速操作</div><div class="text-caption text-medium-emphasis">生成计划会扫描；执行一周期只处理已有计划。</div></div>
+              <div><div class="lt-section-title">快速操作</div><div class="text-caption text-medium-emphasis">生成计划会扫描；立即清理一批只处理已有计划。</div></div>
               <VBtn size="small" variant="text" prepend-icon="mdi-format-list-bulleted" class="text-none" @click="selectTab('cleanup_plan')">查看计划</VBtn>
             </div>
             <div class="lt-action-row mt-3">
               <VBtn color="primary" variant="tonal" prepend-icon="mdi-playlist-plus" :loading="loadingAction === 'scan_plan'" @click="scanPlan">生成清理计划</VBtn>
-              <VBtn color="error" variant="flat" prepend-icon="mdi-delete-sweep-outline" :loading="loadingAction === 'library_cleanup'" @click="runModule('library_cleanup')">执行一周期</VBtn>
+              <VBtn color="error" variant="flat" prepend-icon="mdi-delete-sweep-outline" :loading="loadingAction === 'library_cleanup'" @click="runModule('library_cleanup')">立即清理一批</VBtn>
               <VBtn color="primary" variant="text" prepend-icon="mdi-magnify-scan" :loading="loadingAction === 'check_missing'" @click="runModule('check_missing')">扫描缺集</VBtn>
               <VBtn color="warning" variant="text" prepend-icon="mdi-database-refresh-outline" :loading="loadingAction === 'tmdb_cache'" @click="runModule('tmdb_cache')">清理 TMDB</VBtn>
             </div>
@@ -328,7 +328,7 @@ onMounted(loadOverview)
             <div><div class="lt-section-title">清理计划</div><div class="text-caption text-medium-emphasis">按设置数量倒序取本批对象，逐项复核后清理；执行周期不扫描媒体库。</div></div>
             <div class="lt-action-row lt-action-row--right">
               <VBtn size="small" variant="tonal" prepend-icon="mdi-playlist-plus" :loading="loadingAction === 'scan_plan'" @click="scanPlan">生成计划</VBtn>
-              <VBtn size="small" color="error" variant="flat" prepend-icon="mdi-delete-sweep-outline" :loading="loadingAction === 'library_cleanup'" @click="runModule('library_cleanup')">执行一周期</VBtn>
+              <VBtn size="small" color="error" variant="flat" prepend-icon="mdi-delete-sweep-outline" :loading="loadingAction === 'library_cleanup'" @click="runModule('library_cleanup')">立即清理一批</VBtn>
               <VBtn size="small" color="warning" variant="text" prepend-icon="mdi-playlist-remove" :disabled="!cleanupPlan.total" :loading="loadingAction === 'clear_plan'" @click="clearPlan">清空计划</VBtn>
             </div>
           </div>

@@ -32,10 +32,16 @@ const _hoisted_12 = { class: "plugin-hint" };
 const _hoisted_13 = { class: "plugin-hint" };
 const _hoisted_14 = { class: "plugin-pane" };
 const _hoisted_15 = { key: 0 };
-const _hoisted_16 = { key: 1 };
-const _hoisted_17 = { key: 2 };
-const _hoisted_18 = { class: "plugin-pane" };
-const _hoisted_19 = { class: "plugin-pane" };
+const _hoisted_16 = { class: "schedule-block schedule-block--scan" };
+const _hoisted_17 = { class: "schedule-block__header" };
+const _hoisted_18 = { class: "schedule-block__title" };
+const _hoisted_19 = { class: "schedule-block schedule-block--cleanup" };
+const _hoisted_20 = { class: "schedule-block__header" };
+const _hoisted_21 = { class: "schedule-block__title" };
+const _hoisted_22 = { key: 1 };
+const _hoisted_23 = { key: 2 };
+const _hoisted_24 = { class: "plugin-pane" };
+const _hoisted_25 = { class: "plugin-pane" };
 
 const {reactive,ref,computed,watch,onMounted} = await importShared('vue');
 
@@ -212,6 +218,7 @@ return (_ctx, _cache) => {
   const _component_VCol = _resolveComponent("VCol");
   const _component_VRow = _resolveComponent("VRow");
   const _component_VAlert = _resolveComponent("VAlert");
+  const _component_VCronField = _resolveComponent("VCronField");
   const _component_VTextField = _resolveComponent("VTextField");
   const _component_VSelect = _resolveComponent("VSelect");
   const _component_VTextarea = _resolveComponent("VTextarea");
@@ -426,165 +433,190 @@ return (_ctx, _cache) => {
               _withDirectives(_createElementVNode("div", _hoisted_14, [
                 (activeSub.value === 'basic')
                   ? (_openBlock(), _createElementBlock("div", _hoisted_15, [
-                      _cache[37] || (_cache[37] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "清理库存基础设置", -1)),
+                      _cache[41] || (_cache[41] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "清理库存基础设置", -1)),
                       _createVNode(_component_VAlert, {
                         type: "info",
                         variant: "tonal",
                         class: "mb-4",
-                        text: "扫描只更新清理计划；清理仅读取已有计划，删除前逐项复核当前条件。两个周期互斥执行，空计划或冷却中不会重复推送。"
+                        text: "扫描只更新清理计划；立即清理一批仅读取已有计划，删除前逐项复核当前条件。两个周期互斥执行，空计划或冷却中不会重复推送。"
                       }),
-                      _cache[38] || (_cache[38] = _createElementVNode("div", { class: "condition-title" }, "周期扫描", -1)),
-                      _createVNode(_component_VRow, null, {
-                        default: _withCtx(() => [
-                          _createVNode(_component_VCol, {
-                            cols: "12",
-                            md: "4"
-                          }, {
-                            default: _withCtx(() => [
-                              _createVNode(_component_VSwitch, {
-                                modelValue: form.library_cleanup.scan_enabled,
-                                "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((form.library_cleanup.scan_enabled) = $event)),
-                                color: "primary",
-                                label: "启用周期扫描",
-                                "hide-details": ""
-                              }, null, 8, ["modelValue"])
+                      _createElementVNode("section", _hoisted_16, [
+                        _createElementVNode("div", _hoisted_17, [
+                          _createElementVNode("div", null, [
+                            _createElementVNode("div", _hoisted_18, [
+                              _createVNode(_component_VIcon, {
+                                icon: "mdi-magnify-scan",
+                                size: "18"
+                              }),
+                              _cache[37] || (_cache[37] = _createTextVNode("周期扫描", -1))
                             ]),
-                            _: 1
-                          }),
-                          _createVNode(_component_VCol, {
-                            cols: "12",
-                            md: "4"
-                          }, {
-                            default: _withCtx(() => [
-                              _createVNode(_component_VTextField, {
-                                modelValue: form.library_cleanup.scan_cron,
-                                "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((form.library_cleanup.scan_cron) = $event)),
-                                label: "扫描周期（Cron）",
-                                placeholder: "9 0 * * *",
-                                density: "compact",
-                                variant: "outlined",
-                                "hide-details": ""
-                              }, null, 8, ["modelValue"])
-                            ]),
-                            _: 1
-                          }),
-                          _createVNode(_component_VCol, {
-                            cols: "12",
-                            md: "4"
-                          }, {
-                            default: _withCtx(() => [
-                              _createVNode(_component_VSwitch, {
-                                modelValue: form.library_cleanup.scan_notify,
-                                "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((form.library_cleanup.scan_notify) = $event)),
-                                color: "info",
-                                label: "扫描通知",
-                                "hide-details": ""
-                              }, null, 8, ["modelValue"])
-                            ]),
-                            _: 1
-                          })
+                            _cache[38] || (_cache[38] = _createElementVNode("div", { class: "plugin-hint" }, "扫描媒体库并更新计划；计划有新增或失效移出时才发送通知。", -1))
+                          ]),
+                          _createVNode(_component_VSwitch, {
+                            modelValue: form.library_cleanup.scan_enabled,
+                            "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((form.library_cleanup.scan_enabled) = $event)),
+                            color: "primary",
+                            inset: "",
+                            label: "启用",
+                            "hide-details": ""
+                          }, null, 8, ["modelValue"])
                         ]),
-                        _: 1
-                      }),
-                      _cache[39] || (_cache[39] = _createElementVNode("div", { class: "plugin-hint mt-2" }, "计划有新增或失效移出时通知；扫描无变化只记录历史。", -1)),
-                      _cache[40] || (_cache[40] = _createElementVNode("div", { class: "condition-title condition-title--second" }, "周期清理", -1)),
-                      _createVNode(_component_VRow, null, {
-                        default: _withCtx(() => [
-                          _createVNode(_component_VCol, {
-                            cols: "12",
-                            md: "4"
-                          }, {
-                            default: _withCtx(() => [
-                              _createVNode(_component_VSwitch, {
-                                modelValue: form.library_cleanup.cleanup_enabled,
-                                "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((form.library_cleanup.cleanup_enabled) = $event)),
-                                color: "error",
-                                label: "启用周期清理",
-                                "hide-details": ""
-                              }, null, 8, ["modelValue"])
+                        _createVNode(_component_VRow, { class: "schedule-block__controls" }, {
+                          default: _withCtx(() => [
+                            _createVNode(_component_VCol, {
+                              cols: "12",
+                              md: "7"
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VCronField, {
+                                  modelValue: form.library_cleanup.scan_cron,
+                                  "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((form.library_cleanup.scan_cron) = $event)),
+                                  label: "扫描周期",
+                                  hint: "使用可视化周期选择器",
+                                  "persistent-hint": "",
+                                  density: "compact",
+                                  variant: "outlined",
+                                  "hide-details": "auto",
+                                  disabled: !form.enabled || !form.library_cleanup.scan_enabled
+                                }, null, 8, ["modelValue", "disabled"])
+                              ]),
+                              _: 1
+                            }),
+                            _createVNode(_component_VCol, {
+                              cols: "12",
+                              md: "5",
+                              class: "d-flex align-center"
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VSwitch, {
+                                  modelValue: form.library_cleanup.scan_notify,
+                                  "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((form.library_cleanup.scan_notify) = $event)),
+                                  color: "info",
+                                  inset: "",
+                                  label: "计划变更通知",
+                                  "hide-details": "",
+                                  disabled: !form.library_cleanup.scan_enabled
+                                }, null, 8, ["modelValue", "disabled"])
+                              ]),
+                              _: 1
+                            })
+                          ]),
+                          _: 1
+                        })
+                      ]),
+                      _createElementVNode("section", _hoisted_19, [
+                        _createElementVNode("div", _hoisted_20, [
+                          _createElementVNode("div", null, [
+                            _createElementVNode("div", _hoisted_21, [
+                              _createVNode(_component_VIcon, {
+                                icon: "mdi-delete-sweep-outline",
+                                size: "18"
+                              }),
+                              _cache[39] || (_cache[39] = _createTextVNode("周期清理", -1))
                             ]),
-                            _: 1
-                          }),
-                          _createVNode(_component_VCol, {
-                            cols: "12",
-                            md: "4"
-                          }, {
-                            default: _withCtx(() => [
-                              _createVNode(_component_VTextField, {
-                                modelValue: form.library_cleanup.cleanup_cron,
-                                "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.library_cleanup.cleanup_cron) = $event)),
-                                label: "清理周期（Cron）",
-                                placeholder: "0 * * * *",
-                                density: "compact",
-                                variant: "outlined",
-                                "hide-details": ""
-                              }, null, 8, ["modelValue"])
-                            ]),
-                            _: 1
-                          }),
-                          _createVNode(_component_VCol, {
-                            cols: "12",
-                            md: "4"
-                          }, {
-                            default: _withCtx(() => [
-                              _createVNode(_component_VSwitch, {
-                                modelValue: form.library_cleanup.cleanup_notify,
-                                "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((form.library_cleanup.cleanup_notify) = $event)),
-                                color: "info",
-                                label: "清理通知",
-                                "hide-details": ""
-                              }, null, 8, ["modelValue"])
-                            ]),
-                            _: 1
-                          }),
-                          _createVNode(_component_VCol, {
-                            cols: "12",
-                            md: "4"
-                          }, {
-                            default: _withCtx(() => [
-                              _createVNode(_component_VTextField, {
-                                modelValue: form.library_cleanup.cycle_cooldown_minutes,
-                                "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((form.library_cleanup.cycle_cooldown_minutes) = $event)),
-                                modelModifiers: { number: true },
-                                label: "清理冷却（分钟）",
-                                type: "number",
-                                min: "0",
-                                max: "10080",
-                                density: "compact",
-                                variant: "outlined",
-                                "hide-details": ""
-                              }, null, 8, ["modelValue"])
-                            ]),
-                            _: 1
-                          }),
-                          _createVNode(_component_VCol, {
-                            cols: "12",
-                            md: "4"
-                          }, {
-                            default: _withCtx(() => [
-                              _createVNode(_component_VTextField, {
-                                modelValue: form.library_cleanup.auto_delete_max_count,
-                                "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.library_cleanup.auto_delete_max_count) = $event)),
-                                modelModifiers: { number: true },
-                                label: "每周期删除数量",
-                                type: "number",
-                                min: "1",
-                                density: "compact",
-                                variant: "outlined",
-                                "hide-details": ""
-                              }, null, 8, ["modelValue"])
-                            ]),
-                            _: 1
-                          })
+                            _cache[40] || (_cache[40] = _createElementVNode("div", { class: "plugin-hint" }, "只处理已有计划；立即清理一批与周期清理共用冷却、批次数量和复核规则。", -1))
+                          ]),
+                          _createVNode(_component_VSwitch, {
+                            modelValue: form.library_cleanup.cleanup_enabled,
+                            "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((form.library_cleanup.cleanup_enabled) = $event)),
+                            color: "error",
+                            inset: "",
+                            label: "启用",
+                            "hide-details": ""
+                          }, null, 8, ["modelValue"])
                         ]),
-                        _: 1
-                      }),
-                      _cache[41] || (_cache[41] = _createElementVNode("div", { class: "plugin-hint mt-2" }, "定时和手动清理共用冷却。Telegram 在本批原消息中更新结果，其他渠道只发送最终结果。", -1))
+                        _createVNode(_component_VRow, { class: "schedule-block__controls" }, {
+                          default: _withCtx(() => [
+                            _createVNode(_component_VCol, {
+                              cols: "12",
+                              md: "7"
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VCronField, {
+                                  modelValue: form.library_cleanup.cleanup_cron,
+                                  "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.library_cleanup.cleanup_cron) = $event)),
+                                  label: "清理周期",
+                                  hint: "使用可视化周期选择器",
+                                  "persistent-hint": "",
+                                  density: "compact",
+                                  variant: "outlined",
+                                  "hide-details": "auto",
+                                  disabled: !form.enabled || !form.library_cleanup.cleanup_enabled
+                                }, null, 8, ["modelValue", "disabled"])
+                              ]),
+                              _: 1
+                            }),
+                            _createVNode(_component_VCol, {
+                              cols: "12",
+                              md: "5",
+                              class: "d-flex align-center"
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VSwitch, {
+                                  modelValue: form.library_cleanup.cleanup_notify,
+                                  "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((form.library_cleanup.cleanup_notify) = $event)),
+                                  color: "info",
+                                  inset: "",
+                                  label: "清理结果通知",
+                                  "hide-details": "",
+                                  disabled: !form.library_cleanup.cleanup_enabled
+                                }, null, 8, ["modelValue", "disabled"])
+                              ]),
+                              _: 1
+                            }),
+                            _createVNode(_component_VCol, {
+                              cols: "12",
+                              sm: "6",
+                              md: "4"
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VTextField, {
+                                  modelValue: form.library_cleanup.cycle_cooldown_minutes,
+                                  "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((form.library_cleanup.cycle_cooldown_minutes) = $event)),
+                                  modelModifiers: { number: true },
+                                  class: "schedule-number-field",
+                                  label: "清理冷却（分钟）",
+                                  type: "number",
+                                  min: "0",
+                                  max: "10080",
+                                  density: "compact",
+                                  variant: "outlined",
+                                  "hide-details": ""
+                                }, null, 8, ["modelValue"])
+                              ]),
+                              _: 1
+                            }),
+                            _createVNode(_component_VCol, {
+                              cols: "12",
+                              sm: "6",
+                              md: "4"
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VTextField, {
+                                  modelValue: form.library_cleanup.auto_delete_max_count,
+                                  "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.library_cleanup.auto_delete_max_count) = $event)),
+                                  modelModifiers: { number: true },
+                                  class: "schedule-number-field",
+                                  label: "每周期删除数量",
+                                  type: "number",
+                                  min: "1",
+                                  density: "compact",
+                                  variant: "outlined",
+                                  "hide-details": ""
+                                }, null, 8, ["modelValue"])
+                              ]),
+                              _: 1
+                            })
+                          ]),
+                          _: 1
+                        })
+                      ]),
+                      _cache[42] || (_cache[42] = _createElementVNode("div", { class: "plugin-hint schedule-note" }, "Telegram 会在本批原消息中更新进度，其他渠道只接收最终结果。", -1))
                     ]))
                   : _createCommentVNode("", true),
                 (activeSub.value === 'filter')
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_16, [
-                      _cache[44] || (_cache[44] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "筛选条件", -1)),
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_22, [
+                      _cache[45] || (_cache[45] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "筛选条件", -1)),
                       _createVNode(_component_VRow, null, {
                         default: _withCtx(() => [
                           _createVNode(_component_VCol, {
@@ -645,7 +677,7 @@ return (_ctx, _cache) => {
                             _: 1
                           }),
                           _createVNode(_component_VCol, { cols: "12" }, {
-                            default: _withCtx(() => [...(_cache[42] || (_cache[42] = [
+                            default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
                               _createElementVNode("div", { class: "condition-title" }, "条件一", -1)
                             ]))]),
                             _: 1
@@ -704,7 +736,7 @@ return (_ctx, _cache) => {
                             _: 1
                           }),
                           _createVNode(_component_VCol, { cols: "12" }, {
-                            default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
+                            default: _withCtx(() => [...(_cache[44] || (_cache[44] = [
                               _createElementVNode("div", { class: "condition-title condition-title--second" }, "条件二", -1)
                             ]))]),
                             _: 1
@@ -784,8 +816,8 @@ return (_ctx, _cache) => {
                     ]))
                   : _createCommentVNode("", true),
                 (activeSub.value === 'advanced')
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_17, [
-                      _cache[45] || (_cache[45] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "高级选项", -1)),
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_23, [
+                      _cache[46] || (_cache[46] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "高级选项", -1)),
                       _createVNode(_component_VAlert, {
                         type: "error",
                         variant: "tonal",
@@ -851,8 +883,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeMain.value === 'library_cleanup']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_18, [
-                _cache[46] || (_cache[46] = _createElementVNode("div", { class: "plugin-section-title" }, "扫描缺集按需扫描", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_24, [
+                _cache[47] || (_cache[47] = _createElementVNode("div", { class: "plugin-section-title" }, "扫描缺集按需扫描", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
                   variant: "tonal",
@@ -912,8 +944,8 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeMain.value === 'check_missing']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_19, [
-                _cache[47] || (_cache[47] = _createElementVNode("div", { class: "plugin-section-title text-warning" }, "TMDB 缓存按需清理", -1)),
+              _withDirectives(_createElementVNode("div", _hoisted_25, [
+                _cache[48] || (_cache[48] = _createElementVNode("div", { class: "plugin-section-title text-warning" }, "TMDB 缓存按需清理", -1)),
                 _createVNode(_component_VAlert, {
                   type: "warning",
                   variant: "tonal",
@@ -988,7 +1020,7 @@ return (_ctx, _cache) => {
               variant: "text",
               onClick: _cache[27] || (_cache[27] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[48] || (_cache[48] = [
+              default: _withCtx(() => [...(_cache[49] || (_cache[49] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -999,7 +1031,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-content-save-outline",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[49] || (_cache[49] = [
+              default: _withCtx(() => [...(_cache[50] || (_cache[50] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -1015,6 +1047,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a8e07b24"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-182f54ab"]]);
 
 export { Config as default };
