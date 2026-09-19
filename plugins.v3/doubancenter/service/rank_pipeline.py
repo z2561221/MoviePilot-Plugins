@@ -426,7 +426,19 @@ def _apply_bangumi_recognition(
         entry["match_title"] = recognition["match_title"]
     if recognition.get("season") not in (None, ""):
         entry["season"] = int(recognition["season"])
-    entry["year"] = recognition.get("year") or getattr(mediainfo, "year", None) or entry.get("year") or ""
+    entry["source_year"] = _bangumi_subject_year(subject or {})
+    entry["year"] = utils.get_media_year(
+        mediainfo,
+        season=entry.get("season"),
+        source_year=entry["source_year"],
+        season_date_loader=(
+            lambda target_season: utils.get_tmdb_air_date(
+                self.chain,
+                getattr(mediainfo, "tmdb_id", None) or tmdbid,
+                season=target_season,
+            )
+        ),
+    )
     entry["tmdbid"] = getattr(mediainfo, "tmdb_id", None) or tmdbid or entry.get("tmdbid")
     entry["tmdb_id"] = entry["tmdbid"]
     entry["bangumi_id"] = getattr(mediainfo, "bangumi_id", None) or bangumiid or entry.get("bangumi_id")
@@ -536,7 +548,10 @@ def _apply_display_recognition(
         entry.pop("tmdb_title", None)
     entry["title"] = _preferred_douban_display_title(item, entry, existing, title)
     entry.pop("original_title", None)
-    entry["year"] = getattr(mediainfo, "year", None) or entry.get("year") or ""
+    entry["source_year"] = str(item.get("year") or "")
+    entry["year"] = utils.get_media_year(
+        mediainfo, season=meta.begin_season, source_year=entry["source_year"],
+    )
     resolved_type = _resolved_media_type_name(rd, item, mediainfo)
     entry["media_type"] = "movie" if resolved_type == "movie" else ("tv" if resolved_type == "tv" else "unknown")
     entry["tmdbid"] = (
@@ -1154,12 +1169,31 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         if _check_blacklist(self, title, description=blacklist_description, link=link):
             _log_rank_skip(rd, title, "命中黑名单", result_lines=result_lines)
             continue
-        if _year_below_min(year, min_year):
-            _log_rank_skip(rd, title, f"年份 {year} < {min_year}", result_lines=result_lines)
-            continue
         mediainfo = snapshot.get("mediainfo")
         if not mediainfo:
             _log_rank_skip(rd, title, "TMDB 识别无结果", result_lines=result_lines)
+            continue
+        media_type = _snapshot_media_type(rd, item, entry, mediainfo)
+        meta = _snapshot_meta(item, entry, media_type)
+        year = utils.get_media_year(
+            mediainfo, season=meta.begin_season,
+            source_year=(
+                entry.get("source_year") or item.get("source_year")
+                or (item.get("year") if rd.get("key") != "bangumi" else "")
+            ),
+            season_date_loader=(
+                lambda target_season: utils.get_tmdb_air_date(
+                    self.chain,
+                    getattr(mediainfo, "tmdb_id", None) or recognized_id,
+                    season=target_season,
+                )
+            ),
+        )
+        if min_year > 0 and not year:
+            _log_rank_skip(rd, title, "未获取到本季年份，保留待重试", result_lines=result_lines)
+            continue
+        if _year_below_min(year, min_year):
+            _log_rank_skip(rd, title, f"年份 {year} < {min_year}", result_lines=result_lines)
             continue
         if not _check_rank_region(self, rd, item, entry, mediainfo, result_lines=result_lines):
             continue
@@ -1167,12 +1201,7 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         if min_vote > 0 and vote_average and vote_average < min_vote:
             _log_rank_skip(rd, title, f"评分 {vote_average} < {min_vote}", result_lines=result_lines)
             continue
-        if _year_below_min(getattr(mediainfo, "year", None), min_year):
-            _log_rank_skip(rd, title, f"识别年份 {getattr(mediainfo, 'year', '')} < {min_year}", result_lines=result_lines)
-            continue
-        media_type = _snapshot_media_type(rd, item, entry, mediainfo)
         mtype = _resolved_media_type_name(rd, item, mediainfo)
-        meta = _snapshot_meta(item, entry, media_type)
         existing_state = _is_existing_media(mediainfo, meta)
         if existing_state is None:
             logger.warning(f"豆瓣中心：条目《{getattr(mediainfo, 'title', '')}》订阅状态未知，保留记录待下轮重试")
@@ -1228,7 +1257,7 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _record_history_item(history, {
                 "title": stored_title,
-                "year": mediainfo.year or year or "",
+                "year": year or mediainfo.year or "",
                 "air_date": air_date,
                 "link": link,
                 "tmdbid": mediainfo.tmdb_id,
@@ -1391,16 +1420,21 @@ def _process_general(self, url: str, rd: dict) -> None:
             continue
         if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
             continue
-        if _year_below_min(year, min_year):
-            continue
         meta, mediainfo, mtype = _recognize_rss_item(self, item, rd)
         if not mediainfo:
+            continue
+        year = utils.get_media_year(
+            mediainfo, season=meta.begin_season,
+            source_year=item.get("source_year") or item.get("year"),
+        )
+        if min_year > 0 and not year:
+            _log_rank_skip(rd, title, "未获取到本季年份，保留待重试")
+            continue
+        if _year_below_min(year, min_year):
             continue
         if not _check_rank_region(self, rd, item, {}, mediainfo):
             continue
         if min_vote > 0 and mediainfo.vote_average and mediainfo.vote_average < min_vote:
-            continue
-        if _year_below_min(mediainfo.year, min_year):
             continue
         existing_state = _is_existing_media(mediainfo, meta)
         if existing_state is None:
@@ -1458,7 +1492,7 @@ def _process_general(self, url: str, rd: dict) -> None:
             subscribed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _record_history_item(history, {
                 "title": stored_title,
-                "year": mediainfo.year or year or "",
+                "year": year or mediainfo.year or "",
                 "air_date": air_date,
                 "media_type": mtype,
                 "link": link,

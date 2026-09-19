@@ -252,6 +252,43 @@ def get_media_release_date(mediainfo: Any, season: int | None = None) -> str | N
     return None
 
 
+def get_media_year(
+    mediainfo: Any,
+    season: Any = None,
+    *,
+    source_year: Any = "",
+    season_date_loader=None,
+) -> str:
+    """使用榜单条目或目标季年份，续季缺失时不借用母剧年份。"""
+    target_season = normalize_season(season)
+    if season is not None and target_season is None:
+        return ""
+
+    def valid_year(value: Any) -> str:
+        text = str(value or "").strip()
+        return text[:4] if re.fullmatch(r"(?:19|20)\d{2}(?:-\d{2}-\d{2})?", text) else ""
+
+    if target_season is not None:
+        if year := valid_year(source_year):
+            return year
+        if date := get_media_release_date(mediainfo, season=target_season):
+            return date[:4]
+        years = getattr(mediainfo, "season_years", None)
+        if isinstance(years, dict):
+            if year := valid_year(years.get(target_season, years.get(str(target_season)))):
+                return year
+        if callable(season_date_loader):
+            try:
+                if date := season_date_loader(target_season):
+                    if year := valid_year(date):
+                        return year
+            except Exception:
+                pass
+        if target_season != 1:
+            return ""
+    return valid_year(getattr(mediainfo, "year", None)) or valid_year(source_year)
+
+
 def is_within_days(date_str: str, days: int) -> bool:
     """判断日期是否位于未来指定天数内。"""
     try:

@@ -2,7 +2,7 @@
 
 ## 插件用途
 
-DoubanCenter 3.0.10 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
+DoubanCenter 3.0.11 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
 
 ## 入口与渲染
 
@@ -76,7 +76,7 @@ DoubanCenter 3.0.10 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - V3 聚焦测试：设置 `MOVIEPILOT_BACKEND_PATH` 为固定 V3 宿主后运行 `python -m pytest tests/v3/doubancenter -q`。
 - Python 语法：`python -m compileall -q plugins.v3/doubancenter`。
 - 联邦构建：`pnpm --dir plugins.v3/doubancenter build`，并确认 `dist/assets/remoteEntry.js` 引用的资产均存在。
-- 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.10`；不修改 V2 元数据。
+- 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.11`；不修改 V2 元数据。
 - MP 本地闭环：使用开发技能的 `accept_local.py` 同步至可用的 MP 本地仓库；需要时从发现结果安装准确的本地来源，再执行 `POST /api/v1/plugin/reload/DoubanCenter`，回读 history、installed、overview、remotes 和静态资产。页面验收由用户完成。
 
 ## 禁止改动区

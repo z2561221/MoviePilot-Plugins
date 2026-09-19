@@ -26,7 +26,7 @@ def _default_subscribe_oper_cls():
 
 def _default_media_server_oper_cls():
     """按调用时环境读取 MoviePilot 媒体库数据库操作类。"""
-    from app.db.mediaserver_oper import MediaServerOper
+    from app.db.oper.mediaserver import MediaServerOper
 
     return MediaServerOper
 
