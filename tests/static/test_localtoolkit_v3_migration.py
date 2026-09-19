@@ -96,6 +96,29 @@ def test_localtoolkit_v3_api_and_federation_contracts_are_present() -> None:
     assert (V3_DIR / "dist" / "assets" / "remoteEntry.js").is_file()
 
 
+def test_localtoolkit_v3_page_uses_download_center_style_sections() -> None:
+    """确认详情页按运行总览、清理计划、运行历史分栏。"""
+    page = (V3_DIR / "frontend" / "src" / "components" / "Page.vue").read_text(encoding="utf-8")
+    assert "title: '运行总览'" in page
+    assert "title: '清理计划'" in page
+    assert "title: '运行历史'" in page
+    assert "class=\"lt-side\"" in page
+    assert "class=\"lt-flow-grid" in page
+    assert "class=\"lt-plan-summary" in page
+    assert "class=\"lt-pagination" in page
+    assert "每周期固定最多" not in page
+
+
+def test_localtoolkit_v3_cleanup_batch_comes_from_configuration() -> None:
+    """确认每周期删除数量取配置，不再由固定十部常量封顶。"""
+    service = (V3_DIR / "service" / "library_cleanup.py").read_text(encoding="utf-8")
+    config = (V3_DIR / "frontend" / "src" / "components" / "Config.vue").read_text(encoding="utf-8")
+    assert "CYCLE_BATCH_SIZE" not in service
+    assert "return max_count if max_count > 0 else DEFAULT_BATCH_SIZE" in service
+    assert "每周期删除数量" in config
+    assert "max=\"10\"" not in config
+
+
 def test_localtoolkit_v3_uses_public_media_server_sdk() -> None:
     """确认 V3 媒体服务器适配器使用公开 SDK。"""
     adapter = (V3_DIR / "adapter" / "media_server.py").read_text(encoding="utf-8")

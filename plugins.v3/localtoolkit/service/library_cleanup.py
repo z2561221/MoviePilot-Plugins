@@ -28,7 +28,7 @@ from .cleanup_report import REPORT_TITLE, build_report
 _options_cache = {}
 PLAN_DATA_KEY = "library_cleanup_plan"
 PLAN_VERSION = 1
-CYCLE_BATCH_SIZE = 10
+DEFAULT_BATCH_SIZE = 10
 DEFAULT_COOLDOWN_MINUTES = 60
 
 
@@ -71,7 +71,7 @@ class LibraryCleanupModule(BaseToolModule):
             "auto_delete": False,
             "auto_delete_delay": 60,
             "dry_run": False,
-            "auto_delete_max_count": 10,
+            "auto_delete_max_count": DEFAULT_BATCH_SIZE,
             "cycle_cooldown_minutes": DEFAULT_COOLDOWN_MINUTES,
         }
 
@@ -163,7 +163,7 @@ class LibraryCleanupModule(BaseToolModule):
             "last_cycle": plan.get("last_cycle", {}),
             "next_cycle_at": self._next_cycle_at(plan),
             "cooldown_minutes": self._cooldown_minutes(),
-            "batch_size": CYCLE_BATCH_SIZE,
+            "batch_size": self._cycle_limit(),
         }
 
     def scan_plan(self):
@@ -373,19 +373,19 @@ class LibraryCleanupModule(BaseToolModule):
             "last_cycle_at": plan.get("last_cycle_at", ""),
             "next_cycle_at": self._next_cycle_at(plan),
             "cooldown_minutes": self._cooldown_minutes(),
-            "cycle_batch_size": CYCLE_BATCH_SIZE,
+            "cycle_batch_size": self._cycle_limit(),
         }
         if self.last_error:
             status["last_error"] = self.last_error
         return status
 
     def _cycle_limit(self) -> int:
-        """返回本周期实际删除上限，始终不超过十部。"""
+        """返回设置页配置的本周期删除数量。"""
         try:
             max_count = int(self.config.get("auto_delete_max_count") or 0)
         except (TypeError, ValueError):
-            max_count = 0
-        return min(CYCLE_BATCH_SIZE, max_count) if max_count > 0 else CYCLE_BATCH_SIZE
+            max_count = DEFAULT_BATCH_SIZE
+        return max_count if max_count > 0 else DEFAULT_BATCH_SIZE
 
     def _cooldown_minutes(self) -> int:
         """返回归一化后的周期冷却分钟数。"""

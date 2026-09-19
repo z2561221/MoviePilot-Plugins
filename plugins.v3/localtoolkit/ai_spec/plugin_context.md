@@ -105,7 +105,7 @@ must return no service entries when the plugin is disabled. `check_missing` and
 
 Each cleanup cycle first completes the full candidate scan and merges matching
 items into `library_cleanup_plan`. Only after the scan finishes does automatic
-deletion take the last queued items first, processing at most 10 items. The
+deletion take the last queued items first, processing the configured batch size. The
 cycle timestamp starts the configured cooldown; confirmed removals leave the
 queue, while remaining or unknown items stay for the next cycle.
 

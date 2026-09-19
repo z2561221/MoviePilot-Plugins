@@ -148,21 +148,21 @@ def test_check_dry_run_and_limit_guards_never_delete_or_verify(config):
     assert "✅ 本轮删除完毕" not in plugin.notifiers[0].calls[0][2]
 
 
-def test_cleanup_plan_processes_last_ten_items_first_and_respects_cooldown():
-    states = {str(index): [False] for index in range(12)}
-    module, plugin, adapter = build_module(states)
+def test_cleanup_plan_processes_configured_quantity_first_and_respects_cooldown():
+    states = {str(index): [False] for index in range(15)}
+    module, plugin, adapter = build_module(states, auto_delete_max_count=12)
 
     first = module.run_once()
 
     assert first["success"] is True
-    assert adapter.deleted == [str(index) for index in range(11, 1, -1)]
-    assert [item["movie_id"] for item in plugin.data["library_cleanup_plan"]["items"]] == ["0", "1"]
+    assert adapter.deleted == [str(index) for index in range(14, 2, -1)]
+    assert [item["movie_id"] for item in plugin.data["library_cleanup_plan"]["items"]] == ["0", "1", "2"]
 
     second = module.run_once()
 
     assert second["success"] is True
     assert second["cooldown"] is True
-    assert adapter.deleted == [str(index) for index in range(11, 1, -1)]
+    assert adapter.deleted == [str(index) for index in range(14, 2, -1)]
 
 
 def test_cleanup_plan_retains_failed_items_with_attempt_metadata():

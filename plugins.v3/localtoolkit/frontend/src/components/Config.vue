@@ -228,7 +228,7 @@ function saveConfig() {
             <div v-show="activeMain === 'library_cleanup'" class="plugin-pane">
               <div v-if="activeSub === 'basic'">
                 <div class="plugin-section-title text-error">清理库存基础设置</div>
-                <VAlert type="warning" variant="tonal" class="mb-4" text="每次周期先完整扫描并写入清理计划，再按队列倒序最多处理 10 部；冷却期间不会重复删除。" />
+                <VAlert type="warning" variant="tonal" class="mb-4" text="每次周期先完整扫描并写入清理计划，再按队列倒序处理设置数量；冷却期间不会重复删除。" />
                 <VRow>
                   <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.enabled" color="error" label="启用周期清理库存" hide-details /></VCol>
                   <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.notify" color="info" label="运行通知" hide-details /></VCol>
@@ -265,12 +265,12 @@ function saveConfig() {
 
               <div v-if="activeSub === 'advanced'">
                 <div class="plugin-section-title text-error">高级选项</div>
-                <VAlert type="error" variant="tonal" class="mb-4" text="自动删除会直接删除 Emby 条目；每周期最多 10 部，失败或无法核验的对象会留在计划中等待下周期重试。" />
+                <VAlert type="error" variant="tonal" class="mb-4" text="自动删除会直接删除 Emby 条目；每周期按上方数量处理，失败或无法核验的对象会留在计划中等待下周期重试。" />
                 <VRow>
                   <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.auto_delete" color="error" label="自动删除" hide-details /></VCol>
                   <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.dry_run" color="warning" label="演练模式" hide-details /></VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.auto_delete_delay" label="删除间隔（秒）" type="number" min="0" density="compact" variant="outlined" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.auto_delete_max_count" label="额外安全上限（最多10部）" type="number" min="0" max="10" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.auto_delete_max_count" label="每周期删除数量" type="number" min="1" density="compact" variant="outlined" hide-details /></VCol>
                 </VRow>
               </div>
             </div>

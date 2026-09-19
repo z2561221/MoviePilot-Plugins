@@ -415,7 +415,7 @@ return (_ctx, _cache) => {
                         type: "warning",
                         variant: "tonal",
                         class: "mb-4",
-                        text: "每次周期先完整扫描并写入清理计划，再按队列倒序最多处理 10 部；冷却期间不会重复删除。"
+                        text: "每次周期先完整扫描并写入清理计划，再按队列倒序处理设置数量；冷却期间不会重复删除。"
                       }),
                       _createVNode(_component_VRow, null, {
                         default: _withCtx(() => [
@@ -699,7 +699,7 @@ return (_ctx, _cache) => {
                         type: "error",
                         variant: "tonal",
                         class: "mb-4",
-                        text: "自动删除会直接删除 Emby 条目；每周期最多 10 部，失败或无法核验的对象会留在计划中等待下周期重试。"
+                        text: "自动删除会直接删除 Emby 条目；每周期按上方数量处理，失败或无法核验的对象会留在计划中等待下周期重试。"
                       }),
                       _createVNode(_component_VRow, null, {
                         default: _withCtx(() => [
@@ -761,10 +761,9 @@ return (_ctx, _cache) => {
                                 modelValue: form.library_cleanup.auto_delete_max_count,
                                 "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((form.library_cleanup.auto_delete_max_count) = $event)),
                                 modelModifiers: { number: true },
-                                label: "额外安全上限（最多10部）",
+                                label: "每周期删除数量",
                                 type: "number",
-                                min: "0",
-                                max: "10",
+                                min: "1",
                                 density: "compact",
                                 variant: "outlined",
                                 "hide-details": ""
@@ -944,6 +943,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-076cb94e"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-acf97044"]]);
 
 export { Config as default };
