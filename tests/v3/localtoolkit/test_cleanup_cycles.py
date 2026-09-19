@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from threading import Event, Thread
 
 import pytest
 from app.plugins.localtoolkit.model.cleanup_config import normalize_cleanup_config
@@ -237,3 +238,50 @@ def test_unknown_then_eligible_later_item_is_not_starved():
     assert module.run_once()["success"] is False
     assert module.run_once()["success"] is True
     assert adapter.deleted == ["a"]
+
+
+@pytest.mark.parametrize("disable_while_waiting", [False, True])
+def test_simultaneous_schedules_wait_in_sequence_instead_of_starving_cleanup(disable_while_waiting):
+    """旧周期相同时，清理等待扫描结束后执行，不能每次被跳过。"""
+    module, plugin, adapter = build_module({"a": [False]}, scan_enabled=True, cleanup_enabled=True,
+                                         scan_notify=False, cleanup_notify=False)
+    plugin.data["library_cleanup_plan"]["items"] = []
+    scanning = Event()
+    release_scan = Event()
+    entered_cleanup = Event()
+    cleanup_finished = Event()
+    results = {}
+    original_scan = adapter.iter_candidates
+
+    def scan_candidates(config):
+        scanning.set()
+        assert release_scan.wait(3)
+        return original_scan(config)
+
+    def cleanup():
+        entered_cleanup.set()
+        try:
+            results["cleanup"] = module.run_once(scheduled=True)
+        finally:
+            cleanup_finished.set()
+
+    adapter.iter_candidates = scan_candidates
+    scan_thread = Thread(target=lambda: results.update(scan=module.scan_plan(scheduled=True)))
+    cleanup_thread = Thread(target=cleanup)
+    scan_thread.start()
+    try:
+        assert scanning.wait(3)
+        cleanup_thread.start()
+        assert entered_cleanup.wait(3)
+        assert not cleanup_finished.wait(0.1)
+        if disable_while_waiting:
+            module.config["cleanup_enabled"] = False
+    finally:
+        release_scan.set()
+        scan_thread.join(3)
+        if cleanup_thread.ident is not None:
+            cleanup_thread.join(3)
+    assert not scan_thread.is_alive() and not cleanup_thread.is_alive()
+    assert results["scan"]["success"] is True and results["cleanup"]["success"] is True
+    assert adapter.scans == 1
+    assert adapter.deleted == ([] if disable_while_waiting else ["a"])

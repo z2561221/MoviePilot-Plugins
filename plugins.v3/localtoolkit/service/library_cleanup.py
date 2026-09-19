@@ -174,10 +174,12 @@ class LibraryCleanupModule(BaseToolModule):
         """独立扫描并更新计划，仅计划成员变化或异常时通知。"""
         if scheduled and not self.config.get("scan_enabled"):
             return {"success": True, "summary": "周期扫描已关闭", "operation": "scan"}
-        if not self._run_lock.acquire(blocking=False):
+        if not self._run_lock.acquire(blocking=scheduled):
             return self._busy_result("scan")
         start = time.time()
         try:
+            if scheduled and not self.config.get("scan_enabled"):
+                return {"success": True, "summary": "周期扫描已关闭", "operation": "scan"}
             result, checked_at, plan, added, removed = self._scan_and_queue()
             queue_count = len(plan["items"])
             summary = f"扫描完成，新增入队 {added} 部，失效移出 {removed} 部，待清理 {queue_count} 部"
@@ -239,10 +241,12 @@ class LibraryCleanupModule(BaseToolModule):
         """仅消费已有计划；定时与手动清理共用互斥和冷却。"""
         if scheduled and not self.config.get("cleanup_enabled"):
             return {"success": True, "summary": "周期清理已关闭", "operation": "cleanup"}
-        if not self._run_lock.acquire(blocking=False):
+        if not self._run_lock.acquire(blocking=scheduled):
             return self._busy_result("cleanup")
         start = time.time()
         try:
+            if scheduled and not self.config.get("cleanup_enabled"):
+                return {"success": True, "summary": "周期清理已关闭", "operation": "cleanup"}
             return self._run_once(start)
         except Exception as err:
             return self._operation_failed("cleanup", err, start)
