@@ -25,11 +25,12 @@
 
 清理库存
 
-- `cron`：清理计划，默认 `9 0 * * *`。
+- `cron`：清理周期，默认 `9 0 * * *`；每次周期先完整扫描，再处理清理计划。
+- `cycle_cooldown_minutes`：周期冷却分钟数，默认 `60`；冷却中只扫描入队，不重复删除。
 - `selected_server`、`selected_library`、`selected_user`：媒体服务器、媒体库与判定播放状态所用用户。
 - `filter_played`、`filter_favorite`、`days_threshold`：第一组条件，默认已播放、未收藏、20 天。
 - `filter_played_2`、`filter_favorite_2`、`days_threshold_2`：第二组条件，默认未播放、未收藏、40 天；两组条件按并集取候选。
-- `auto_delete`、`auto_delete_delay`、`auto_delete_max_count`、`dry_run`：自动删除开关、延迟秒数、单轮上限（默认 20）与演练模式。自动删除默认关闭。
+- `auto_delete`、`auto_delete_delay`、`auto_delete_max_count`、`dry_run`：自动删除开关、延迟秒数、额外安全上限与演练模式。每周期固定最多处理 10 部，安全上限会被 10 封顶；自动删除默认关闭。
 - `notify`：清理结果通知，Telegram 使用 HTML 分节和逐条影片列表。
 
 扫描缺集
@@ -55,26 +56,30 @@
 | `/local_toolkit/history` | GET | 分页读取运行历史 |
 | `/local_toolkit/options` | GET | 读取媒体服务器、媒体库与用户候选 |
 | `/local_toolkit/invalidate_cache` | POST | 失效候选与选项缓存 |
+| `/local_toolkit/cleanup_plan` | GET | 分页读取持久化清理计划 |
+| `/local_toolkit/cleanup_plan/scan` | POST | 完整扫描并合并清理计划，不执行删除 |
+| `/local_toolkit/cleanup_plan/clear` | POST | 清空清理计划，不删除媒体库条目 |
 
 `history` 接受 `page` 与 `page_size`，非法值会被收敛，返回 `total`、`page`、`page_size`、`total_pages` 和 `items`；历史存储损坏时返回空列表而不是报错。
 
 ## 运行流程
 
 1. 清理库存按 `cron` 拉取所选媒体库候选，两组条件取并集后去重。
-2. 候选补齐播放时间、收藏状态等详情，形成可读的动态条件标签。
-3. `dry_run` 打开时只产出结果不删除；关闭且 `auto_delete` 打开时按 `auto_delete_delay` 延迟执行，并受 `auto_delete_max_count` 限制。
+2. 当前周期必须先完成完整扫描；扫描结果按“媒体服务器 + 条目 ID”去重并写入 `library_cleanup_plan`，不在扫描过程中删除。
+3. 扫描完成后，若开启自动删除且不在冷却期，从持久化队列尾部倒序取最多 10 部处理；每周期只处理这一批。
 4. 自动删除前发送一份 Telegram 报告，删除与复核阶段编辑同一条消息；最终结果位于原报告底部。长名单按完整条目收起，保留总数和全部核验统计。
-5. 删除后仅对本轮媒体 ID 做最多三轮只读复核，间隔两秒；确认已移除的条目不再重查。明确不存在、仍然存在、无法核验分别计数，全部确认移除才显示“本轮删除完毕”。网络错误、无权限和响应异常均不计为成功。
-6. 扫描缺集按行遍历目录，用季集正则识别缺口并汇总。
-7. TMDB 缓存清理先统计 Redis 中 TMDB 相关键的体积，再按阈值与开关决定是否清理。
-8. 每次运行写入 `tool_history`（`get_data` / `save_data`），供详情页分页展示；本轮完整复核明细和最终报告保存在 `library_cleanup_result`。
+5. 删除后仅对本轮媒体 ID 做最多三轮只读复核，间隔两秒；明确确认已移除的条目从计划移除，仍存在或无法核验的条目保留并记录尝试次数，下一周期重试。
+6. 本轮结束时间写入计划并启动周期冷却；手动执行与后台周期共用同一冷却和互斥锁。
+7. 扫描缺集按行遍历目录，用季集正则识别缺口并汇总。
+8. TMDB 缓存清理先统计 Redis 中 TMDB 相关键的体积，再按阈值与开关决定是否清理。
+9. 每次运行写入 `tool_history`（`get_data` / `save_data`），供详情页分页展示；本轮扫描、队列和复核明细保存在 `library_cleanup_result` 与 `library_cleanup_plan`。
 
 ## 边界与限制
 
 - 清理库存直接由工具中心实现，不导入也不加载旧的独立 `LibraryCleanup` 插件；旧配置迁移只发生在 `service/lifecycle.py`。
 - `modules/` 下的文件只是兼容 shim，不承载业务编排与外部边界。
 - 扫描缺集与 TMDB 缓存清理不得恢复 cron 配置或后台服务注册。
-- 删除是不可逆操作：`auto_delete` 与 `auto_delete_max_count` 共同限制单轮影响面，验收阶段建议先用 `dry_run`。
+- 删除是不可逆操作：`auto_delete`、周期批次上限 10 部和 `auto_delete_max_count` 共同限制本轮影响面，验收阶段建议先用 `dry_run`。
 - 删除后复核只确认媒体库条目状态，不证明磁盘文件已经删除；复核不会启动新一轮清理或重复发出删除请求。
 - Telegram 回执缺失或编辑失败时不另发一份完成报告；记录通知失败并保留本轮结果。旧宿主缺少回执或编辑接口时，仅在结束后发送一次报告。其他渠道接收一次纯文本结果。
 - 同一模块实例的清理任务互斥，手动操作与定时任务重叠时拒绝重复执行。

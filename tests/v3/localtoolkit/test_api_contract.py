@@ -12,6 +12,7 @@ from app.api.response import ResponseAPIRouter
 from app.plugins.localtoolkit import LocalToolkit
 from app.plugins.localtoolkit.controller.api import run_module
 from app.plugins.localtoolkit.model.api import (
+    ToolkitCleanupPlanData,
     ToolkitHistoryData,
     ToolkitOptionsData,
     ToolkitRunData,
@@ -56,6 +57,9 @@ def test_routes_declare_concrete_v3_response_models() -> None:
     assert routes["/local_toolkit/history"]["response_model"] is ToolkitHistoryData
     assert routes["/local_toolkit/options"]["response_model"] is ToolkitOptionsData
     assert routes["/local_toolkit/invalidate_cache"]["response_model"] == schemas.Response[None]
+    assert routes["/local_toolkit/cleanup_plan"]["response_model"] is ToolkitCleanupPlanData
+    assert routes["/local_toolkit/cleanup_plan/scan"]["response_model"] == schemas.Response[ToolkitRunData]
+    assert routes["/local_toolkit/cleanup_plan/clear"]["response_model"] == schemas.Response[ToolkitRunData]
 
 
 def test_run_module_keeps_business_failure_in_single_envelope() -> None:

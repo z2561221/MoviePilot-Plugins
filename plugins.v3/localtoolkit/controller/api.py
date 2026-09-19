@@ -10,6 +10,7 @@ from app.sdk.logging import logger
 from ..model.api import (
     ToolkitHistoryData,
     ToolkitHistoryItem,
+    ToolkitCleanupPlanData,
     ToolkitLibraryCleanupOptions,
     ToolkitModulesStatus,
     ToolkitModuleStatus,
@@ -64,6 +65,32 @@ def build_api_routes(plugin) -> list[dict]:
             "methods": ["POST"],
             "summary": "清除选项缓存",
             "response_model": schemas.Response[None],
+        },
+        {
+            "path": "/local_toolkit/cleanup_plan",
+            "endpoint": plugin.api_cleanup_plan,
+            "auth": "bear",
+            "methods": ["GET"],
+            "summary": "读取清理计划",
+            "response_model": ToolkitCleanupPlanData,
+        },
+        {
+            "path": "/local_toolkit/cleanup_plan/scan",
+            "endpoint": plugin.api_cleanup_plan_scan,
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "扫描并更新清理计划",
+            "response_model": schemas.Response[ToolkitRunData],
+            "response_model_exclude_none": True,
+        },
+        {
+            "path": "/local_toolkit/cleanup_plan/clear",
+            "endpoint": plugin.api_cleanup_plan_clear,
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "清空清理计划",
+            "response_model": schemas.Response[ToolkitRunData],
+            "response_model_exclude_none": True,
         },
     ]
 
@@ -217,3 +244,20 @@ def invalidate_cache_response(plugin) -> schemas.Response[None]:
     """清除工具中心选项缓存并返回单层 V3 响应。"""
     plugin.library_cleanup.invalidate_options_cache()
     return schemas.Response[None](success=True, message="缓存已清除", data=None)
+
+
+def cleanup_plan_response(plugin, page: Any = 1, page_size: Any = 50) -> ToolkitCleanupPlanData:
+    """返回清理计划分页数据与周期状态。"""
+    return ToolkitCleanupPlanData.model_validate(
+        plugin.library_cleanup.get_cleanup_plan(page, page_size)
+    )
+
+
+def cleanup_plan_scan_response(plugin) -> schemas.Response[ToolkitRunData]:
+    """扫描候选并合并到清理计划，不执行删除。"""
+    return _normalize_run_result(plugin.library_cleanup.scan_plan())
+
+
+def cleanup_plan_clear_response(plugin) -> schemas.Response[ToolkitRunData]:
+    """清空清理计划并返回清理数量。"""
+    return _normalize_run_result(plugin.library_cleanup.clear_cleanup_plan())

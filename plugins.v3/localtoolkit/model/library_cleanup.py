@@ -88,6 +88,13 @@ class CleanupCandidate:
         }
 
 
+def cleanup_plan_key(candidate: CleanupCandidate) -> str:
+    """返回清理计划使用的媒体服务器与条目复合键。"""
+    identity = str(candidate.movie_id or candidate.code or candidate.title or "unknown")
+    server = str(candidate.server or "").strip()
+    return f"{server}:{identity}" if server else identity
+
+
 @dataclass
 class CleanupResult:
     """清理库存筛选结果。"""
@@ -327,6 +334,25 @@ def candidate_from_media_item(
         library_id=str(library_id or read_value(item, "library", "ParentId") or ""),
         library_name=str(library_name or ""),
         raw=raw,
+    )
+
+
+def candidate_from_plan_item(item: Any) -> CleanupCandidate:
+    """从持久化清理计划条目恢复媒体候选对象。"""
+    if not isinstance(item, dict):
+        return CleanupCandidate(movie_id="", raw=item)
+    return CleanupCandidate(
+        movie_id=str(item.get("movie_id") or ""),
+        code=str(item.get("code") or ""),
+        title=str(item.get("title") or ""),
+        date_created=str(item.get("date_created") or ""),
+        date_created_obj=parse_datetime(item.get("date_created")),
+        played=read_bool(item.get("played")),
+        favorite=read_bool(item.get("favorite")),
+        server=str(item.get("server") or ""),
+        library_id=str(item.get("library_id") or ""),
+        library_name=str(item.get("library_name") or ""),
+        raw=item,
     )
 
 

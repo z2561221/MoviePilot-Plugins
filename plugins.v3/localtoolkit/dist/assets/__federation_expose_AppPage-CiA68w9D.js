@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as apiGet, b as apiPost } from './_plugin-vue_export-helper-CufXJ4_7.js';
+import { _ as _export_sfc, a as apiGet, p as pluginApiPath, b as apiPost } from './_plugin-vue_export-helper-S8_J6agn.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString} = await importShared('vue');
 
@@ -9,18 +9,28 @@ const _hoisted_2 = { class: "d-flex align-center mb-2" };
 const _hoisted_3 = { class: "text-h6" };
 const _hoisted_4 = { class: "module-desc" };
 const _hoisted_5 = { class: "mt-3" };
-const _hoisted_6 = { class: "d-flex align-center" };
-const _hoisted_7 = { class: "text-caption mx-1" };
-const _hoisted_8 = { class: "history-mobile" };
-const _hoisted_9 = { class: "history-mobile-main" };
-const _hoisted_10 = { class: "history-mobile-title" };
-const _hoisted_11 = { class: "history-mobile-summary" };
-const _hoisted_12 = { class: "history-mobile-meta" };
-const _hoisted_13 = {
+const _hoisted_6 = { class: "plan-actions" };
+const _hoisted_7 = { class: "plan-mobile" };
+const _hoisted_8 = { class: "plan-mobile-main" };
+const _hoisted_9 = { class: "plan-mobile-title" };
+const _hoisted_10 = { class: "plan-mobile-meta" };
+const _hoisted_11 = {
   key: 0,
   class: "text-center text-medium-emphasis py-6"
 };
-const _hoisted_14 = { key: 0 };
+const _hoisted_12 = { key: 0 };
+const _hoisted_13 = { class: "d-flex align-center" };
+const _hoisted_14 = { class: "text-caption mx-1" };
+const _hoisted_15 = { class: "history-mobile" };
+const _hoisted_16 = { class: "history-mobile-main" };
+const _hoisted_17 = { class: "history-mobile-title" };
+const _hoisted_18 = { class: "history-mobile-summary" };
+const _hoisted_19 = { class: "history-mobile-meta" };
+const _hoisted_20 = {
+  key: 0,
+  class: "text-center text-medium-emphasis py-6"
+};
+const _hoisted_21 = { key: 0 };
 
 const {ref,onMounted,computed} = await importShared('vue');
 
@@ -29,7 +39,10 @@ const pageSize = 10;
 
 const _sfc_main = {
   __name: 'AppPage',
-  props: { api: { type: Object, default: () => ({}) } },
+  props: {
+  api: { type: Object, default: () => ({}) },
+  pluginId: { type: String, default: 'LocalToolkit' },
+},
   emits: ['close'],
   setup(__props, { emit: __emit }) {
 
@@ -39,7 +52,9 @@ const emit = __emit;
 const status = ref(null);
 const history = ref([]);
 const total = ref(0);
+const cleanupPlan = ref({ total: 0, items: [], batch_size: 10 });
 const loadingModule = ref('');
+const loadingPlanAction = ref('');
 const result = ref(null);
 const page = ref(1);
 const totalPages = computed(() => Math.max(1, Math.ceil((total.value || 0) / pageSize)));
@@ -51,13 +66,14 @@ const modules = computed(() => [
     title: '清理库存',
     icon: 'mdi-delete-sweep-outline',
     color: 'error',
-    action: '立即执行',
+    action: '执行一周期',
     mode: '周期 + 按需',
-    desc: '唯一支持后台周期运行的模块，手动执行也会遵循自动删除策略。',
+    desc: '周期先完整扫描并更新清理计划，再按队列倒序处理一批对象。',
     meta: [
       `周期：${status.value?.modules?.library_cleanup?.enabled ? '开启' : '关闭'}`,
       `自动删除：${status.value?.modules?.library_cleanup?.auto_delete ? '开启' : '关闭'}`,
-      `Cron：${status.value?.modules?.library_cleanup?.cron || '未设置'}`,
+      `计划队列：${status.value?.modules?.library_cleanup?.plan_count || 0} 部`,
+      `每周期：${status.value?.modules?.library_cleanup?.cycle_batch_size || 10} 部`,
     ],
   },
   {
@@ -92,10 +108,15 @@ const modules = computed(() => [
 
 async function load() {
   try {
-    status.value = await apiGet(props.api, 'plugin/LocalToolkit/local_toolkit/status');
-    const hist = await apiGet(props.api, `plugin/LocalToolkit/local_toolkit/history?page=${page.value}&page_size=${pageSize}`);
+    const [currentStatus, hist, plan] = await Promise.all([
+      apiGet(props.api, pluginApiPath(props.pluginId, 'local_toolkit/status')),
+      apiGet(props.api, pluginApiPath(props.pluginId, `local_toolkit/history?page=${page.value}&page_size=${pageSize}`)),
+      apiGet(props.api, pluginApiPath(props.pluginId, 'local_toolkit/cleanup_plan?page=1&page_size=50')),
+    ]);
+    status.value = currentStatus;
     history.value = hist.items || [];
     total.value = hist.total || 0;
+    cleanupPlan.value = plan || { total: 0, items: [], batch_size: 10 };
   } catch (e) {
     result.value = { success: false, message: String(e) };
   }
@@ -104,13 +125,46 @@ async function load() {
 async function run(moduleKey) {
   loadingModule.value = moduleKey;
   try {
-    result.value = await apiPost(props.api, `plugin/LocalToolkit/local_toolkit/run/${moduleKey}`);
+    result.value = await apiPost(props.api, pluginApiPath(props.pluginId, `local_toolkit/run/${moduleKey}`));
   } catch (e) {
     result.value = { success: false, message: String(e) };
   } finally {
     loadingModule.value = '';
     await load();
   }
+}
+
+async function scanPlan() {
+  loadingPlanAction.value = 'scan';
+  try {
+    result.value = await apiPost(props.api, pluginApiPath(props.pluginId, 'local_toolkit/cleanup_plan/scan'));
+  } catch (e) {
+    result.value = { success: false, message: String(e) };
+  } finally {
+    loadingPlanAction.value = '';
+    await load();
+  }
+}
+
+async function clearPlan() {
+  if (!window.confirm('确认清空当前清理计划吗？这不会删除媒体库条目。')) return
+  loadingPlanAction.value = 'clear';
+  try {
+    result.value = await apiPost(props.api, pluginApiPath(props.pluginId, 'local_toolkit/cleanup_plan/clear'));
+  } catch (e) {
+    result.value = { success: false, message: String(e) };
+  } finally {
+    loadingPlanAction.value = '';
+    await load();
+  }
+}
+
+function planStatus(item) {
+  return item.last_error || '待处理'
+}
+
+function planStatusColor(item) {
+  return item.last_error ? 'warning' : 'primary'
 }
 
 function prevPage() {
@@ -156,7 +210,7 @@ return (_ctx, _cache) => {
           color: "primary",
           class: "ms-4 me-3"
         }),
-        _cache[2] || (_cache[2] = _createElementVNode("div", { class: "toolbar-copy" }, [
+        _cache[3] || (_cache[3] = _createElementVNode("div", { class: "toolbar-copy" }, [
           _createElementVNode("div", { class: "text-h6" }, "工具中心"),
           _createElementVNode("div", { class: "text-caption text-medium-emphasis toolbar-subtitle" }, "清理库存保留周期运行；扫描缺集与清理 TMDB 改为按需单次执行。")
         ], -1)),
@@ -168,7 +222,7 @@ return (_ctx, _cache) => {
           class: "text-none me-1",
           onClick: load
         }, {
-          default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
+          default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
             _createTextVNode("刷新", -1)
           ]))]),
           _: 1
@@ -265,13 +319,170 @@ return (_ctx, _cache) => {
       _: 1
     }),
     _createVNode(_component_VCard, {
-      class: "history-card",
+      class: "plan-card mb-4",
       variant: "flat"
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VCardItem, null, {
           append: _withCtx(() => [
             _createElementVNode("div", _hoisted_6, [
+              _createVNode(_component_VBtn, {
+                size: "small",
+                variant: "tonal",
+                "prepend-icon": "mdi-playlist-plus",
+                loading: loadingPlanAction.value === 'scan',
+                onClick: scanPlan
+              }, {
+                default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
+                  _createTextVNode("生成计划", -1)
+                ]))]),
+                _: 1
+              }, 8, ["loading"]),
+              _createVNode(_component_VBtn, {
+                size: "small",
+                color: "error",
+                variant: "flat",
+                "prepend-icon": "mdi-delete-sweep-outline",
+                loading: loadingModule.value === 'library_cleanup',
+                onClick: _cache[1] || (_cache[1] = $event => (run('library_cleanup')))
+              }, {
+                default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
+                  _createTextVNode("执行一周期", -1)
+                ]))]),
+                _: 1
+              }, 8, ["loading"]),
+              _createVNode(_component_VBtn, {
+                size: "small",
+                color: "warning",
+                variant: "text",
+                "prepend-icon": "mdi-playlist-remove",
+                disabled: !cleanupPlan.value.total,
+                loading: loadingPlanAction.value === 'clear',
+                onClick: clearPlan
+              }, {
+                default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
+                  _createTextVNode("清空计划", -1)
+                ]))]),
+                _: 1
+              }, 8, ["disabled", "loading"])
+            ])
+          ]),
+          default: _withCtx(() => [
+            _createVNode(_component_VCardTitle, null, {
+              default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+                _createTextVNode("清理计划", -1)
+              ]))]),
+              _: 1
+            }),
+            _createVNode(_component_VCardSubtitle, null, {
+              default: _withCtx(() => [
+                _createTextVNode(" 扫描先入队，执行时按队列倒序处理，每周期最多 " + _toDisplayString(cleanupPlan.value.batch_size || 10) + " 部；当前 " + _toDisplayString(cleanupPlan.value.total || 0) + " 部。 ", 1)
+              ]),
+              _: 1
+            })
+          ]),
+          _: 1
+        }),
+        _createVNode(_component_VDivider),
+        (cleanupPlan.value.next_cycle_at)
+          ? (_openBlock(), _createBlock(_component_VAlert, {
+              key: 0,
+              type: "info",
+              variant: "tonal",
+              density: "compact",
+              class: "ma-4 mb-2",
+              text: `下次可执行：${cleanupPlan.value.next_cycle_at}；冷却 ${cleanupPlan.value.cooldown_minutes || 0} 分钟。`
+            }, null, 8, ["text"]))
+          : _createCommentVNode("", true),
+        _createElementVNode("div", _hoisted_7, [
+          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(cleanupPlan.value.items, (item, i) => {
+            return (_openBlock(), _createElementBlock("div", {
+              key: `plan-mobile-${item.queue_key || i}`,
+              class: "plan-mobile-item"
+            }, [
+              _createElementVNode("div", _hoisted_8, [
+                _createElementVNode("div", _hoisted_9, _toDisplayString(item.title || item.code || item.movie_id || '未知对象'), 1),
+                _createVNode(_component_VChip, {
+                  size: "x-small",
+                  color: planStatusColor(item),
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(_toDisplayString(planStatus(item)), 1)
+                  ]),
+                  _: 2
+                }, 1032, ["color"])
+              ]),
+              _createElementVNode("div", _hoisted_10, [
+                _createElementVNode("span", null, _toDisplayString(item.library_name || item.server || '未标记媒体库'), 1),
+                _createElementVNode("span", null, "尝试 " + _toDisplayString(item.attempts || 0) + " 次", 1)
+              ])
+            ]))
+          }), 128)),
+          (!cleanupPlan.value.items?.length)
+            ? (_openBlock(), _createElementBlock("div", _hoisted_11, "暂无待处理对象"))
+            : _createCommentVNode("", true)
+        ]),
+        _createVNode(_component_VTable, {
+          class: "plan-table",
+          density: "compact"
+        }, {
+          default: _withCtx(() => [
+            _cache[9] || (_cache[9] = _createElementVNode("thead", null, [
+              _createElementVNode("tr", null, [
+                _createElementVNode("th", null, "#"),
+                _createElementVNode("th", null, "对象"),
+                _createElementVNode("th", null, "媒体库"),
+                _createElementVNode("th", null, "尝试"),
+                _createElementVNode("th", null, "状态")
+              ])
+            ], -1)),
+            _createElementVNode("tbody", null, [
+              (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(cleanupPlan.value.items, (item, i) => {
+                return (_openBlock(), _createElementBlock("tr", {
+                  key: item.queue_key || i
+                }, [
+                  _createElementVNode("td", null, _toDisplayString(i + 1), 1),
+                  _createElementVNode("td", null, _toDisplayString(item.title || item.code || item.movie_id || '未知对象'), 1),
+                  _createElementVNode("td", null, _toDisplayString(item.library_name || item.server || '未标记媒体库'), 1),
+                  _createElementVNode("td", null, _toDisplayString(item.attempts || 0), 1),
+                  _createElementVNode("td", null, [
+                    _createVNode(_component_VChip, {
+                      size: "x-small",
+                      color: planStatusColor(item),
+                      variant: "tonal"
+                    }, {
+                      default: _withCtx(() => [
+                        _createTextVNode(_toDisplayString(planStatus(item)), 1)
+                      ]),
+                      _: 2
+                    }, 1032, ["color"])
+                  ])
+                ]))
+              }), 128)),
+              (!cleanupPlan.value.items?.length)
+                ? (_openBlock(), _createElementBlock("tr", _hoisted_12, [...(_cache[8] || (_cache[8] = [
+                    _createElementVNode("td", {
+                      colspan: "5",
+                      class: "text-center text-medium-emphasis py-6"
+                    }, "暂无待处理对象", -1)
+                  ]))]))
+                : _createCommentVNode("", true)
+            ])
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
+    }),
+    _createVNode(_component_VCard, {
+      class: "history-card",
+      variant: "flat"
+    }, {
+      default: _withCtx(() => [
+        _createVNode(_component_VCardItem, null, {
+          append: _withCtx(() => [
+            _createElementVNode("div", _hoisted_13, [
               _createVNode(_component_VBtn, {
                 size: "x-small",
                 variant: "tonal",
@@ -280,7 +491,7 @@ return (_ctx, _cache) => {
                 onClick: prevPage,
                 class: "mr-1"
               }, null, 8, ["disabled"]),
-              _createElementVNode("span", _hoisted_7, _toDisplayString(page.value) + " / " + _toDisplayString(totalPages.value), 1),
+              _createElementVNode("span", _hoisted_14, _toDisplayString(page.value) + " / " + _toDisplayString(totalPages.value), 1),
               _createVNode(_component_VBtn, {
                 size: "x-small",
                 variant: "tonal",
@@ -292,14 +503,14 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, null, {
-              default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
+              default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
                 _createTextVNode("运行历史", -1)
               ]))]),
               _: 1
             }),
             _createVNode(_component_VCardSubtitle, null, {
               default: _withCtx(() => [
-                _createTextVNode("每页 10 条，共 " + _toDisplayString(history.value?.length || 0) + " 条记录。", 1)
+                _createTextVNode("每页 10 条，共 " + _toDisplayString(total.value || 0) + " 条记录。", 1)
               ]),
               _: 1
             })
@@ -307,14 +518,14 @@ return (_ctx, _cache) => {
           _: 1
         }),
         _createVNode(_component_VDivider),
-        _createElementVNode("div", _hoisted_8, [
+        _createElementVNode("div", _hoisted_15, [
           (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(pagedHistory.value, (h, i) => {
             return (_openBlock(), _createElementBlock("div", {
               key: `mobile-${(page.value - 1) * pageSize + i}`,
               class: "history-mobile-item"
             }, [
-              _createElementVNode("div", _hoisted_9, [
-                _createElementVNode("div", _hoisted_10, _toDisplayString(h.module_name), 1),
+              _createElementVNode("div", _hoisted_16, [
+                _createElementVNode("div", _hoisted_17, _toDisplayString(h.module_name), 1),
                 _createVNode(_component_VChip, {
                   size: "x-small",
                   color: h.status === 'success' ? 'success' : 'error',
@@ -326,15 +537,15 @@ return (_ctx, _cache) => {
                   _: 2
                 }, 1032, ["color"])
               ]),
-              _createElementVNode("div", _hoisted_11, _toDisplayString(h.summary), 1),
-              _createElementVNode("div", _hoisted_12, [
+              _createElementVNode("div", _hoisted_18, _toDisplayString(h.summary), 1),
+              _createElementVNode("div", _hoisted_19, [
                 _createElementVNode("span", null, _toDisplayString(h.time), 1),
                 _createElementVNode("span", null, _toDisplayString(h.duration) + "s", 1)
               ])
             ]))
           }), 128)),
           (!pagedHistory.value.length)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_13, "暂无运行历史"))
+            ? (_openBlock(), _createElementBlock("div", _hoisted_20, "暂无运行历史"))
             : _createCommentVNode("", true)
         ]),
         _createVNode(_component_VTable, {
@@ -342,7 +553,7 @@ return (_ctx, _cache) => {
           density: "compact"
         }, {
           default: _withCtx(() => [
-            _cache[5] || (_cache[5] = _createElementVNode("thead", null, [
+            _cache[12] || (_cache[12] = _createElementVNode("thead", null, [
               _createElementVNode("tr", null, [
                 _createElementVNode("th", null, "时间"),
                 _createElementVNode("th", null, "模块"),
@@ -375,7 +586,7 @@ return (_ctx, _cache) => {
                 ]))
               }), 128)),
               (!pagedHistory.value.length)
-                ? (_openBlock(), _createElementBlock("tr", _hoisted_14, [...(_cache[4] || (_cache[4] = [
+                ? (_openBlock(), _createElementBlock("tr", _hoisted_21, [...(_cache[11] || (_cache[11] = [
                     _createElementVNode("td", {
                       colspan: "5",
                       class: "text-center text-medium-emphasis py-6"
@@ -394,6 +605,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7ac532a6"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7b1e2606"]]);
 
 export { AppPage as default };

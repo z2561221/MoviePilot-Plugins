@@ -66,15 +66,13 @@ def _v3_legacy_imports() -> list[str]:
 
 
 def test_localtoolkit_v3_generation_metadata_is_isolated() -> None:
-    """确认 V2 阻止回退且 V3 使用独立本地索引和版本。"""
-    v2_package = _load_json(V2_PACKAGE)["LocalToolkit"]
-    v2_plugin = _load_json(V2_DIR / "plugin.json")
+    """确认工具中心仅维护 V3 本地索引和版本。"""
+    v2_package = _load_json(V2_PACKAGE)
     v3_package = _load_json(V3_PACKAGE)["LocalToolkit"]
     v3_plugin = _load_json(V3_DIR / "plugin.json")
 
-    assert v2_package["version"] == "1.2.13"
-    assert v2_package["v3"] is False
-    assert v2_plugin["v3"] is False
+    assert "LocalToolkit" not in v2_package
+    assert not V2_DIR.exists()
     assert v3_package == v3_plugin
     assert v3_package["version"] == _plugin_version(V3_DIR / "__init__.py") == "3.0.0"
     assert v3_package["system_version"] == ">=3.0.0"
@@ -86,12 +84,13 @@ def test_localtoolkit_v3_api_and_federation_contracts_are_present() -> None:
     controller = (V3_DIR / "controller" / "api.py").read_text(encoding="utf-8")
     frontend_api = (V3_DIR / "frontend" / "src" / "api.js").read_text(encoding="utf-8")
 
-    assert controller.count('"response_model"') == 5
+    assert controller.count('"response_model"') == 8
     assert '"response_model": ToolkitStatusData' in controller
     assert '"response_model": schemas.Response[ToolkitRunData]' in controller
     assert '"response_model": ToolkitHistoryData' in controller
     assert '"response_model": ToolkitOptionsData' in controller
     assert '"response_model": schemas.Response[None]' in controller
+    assert '"response_model": ToolkitCleanupPlanData' in controller
     assert "response.data.data" not in frontend_api
     assert "return response.data" in frontend_api
     assert (V3_DIR / "dist" / "assets" / "remoteEntry.js").is_file()

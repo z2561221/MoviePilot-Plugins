@@ -29,7 +29,8 @@ const defaults = {
     auto_delete: false,
     auto_delete_delay: 60,
     dry_run: false,
-    auto_delete_max_count: 20,
+    auto_delete_max_count: 10,
+    cycle_cooldown_minutes: 60,
   },
 }
 
@@ -43,7 +44,7 @@ let optionsRequestId = 0
 
 const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '统一管理三个本地维护模块。', color: 'primary' },
-  { key: 'library_cleanup', title: '清理库存', icon: 'mdi-delete-sweep-outline', desc: '唯一保留周期运行的模块，可按 Cron 自动巡检与删除。', color: 'error' },
+  { key: 'library_cleanup', title: '清理库存', icon: 'mdi-delete-sweep-outline', desc: '周期先扫描入队，再按队列倒序分批清理。', color: 'error' },
   { key: 'check_missing', title: '扫描缺集', icon: 'mdi-magnify-scan', desc: '按需单次扫描媒体目录，检查已存在季的缺集。', color: 'primary' },
   { key: 'tmdb_cache', title: '清理TMDB', icon: 'mdi-database-refresh-outline', desc: '按需单次查询与清理 Redis 中的 TMDB 缓存。', color: 'warning' },
 ]
@@ -194,7 +195,8 @@ function saveConfig() {
                     <VCardText>
                       <div class="text-subtitle-1 font-weight-bold">清理库存</div>
                       <div class="plugin-hint">周期运行：{{ form.library_cleanup.enabled && form.enabled ? '开启' : '关闭' }}</div>
-                      <div class="plugin-hint">Cron：{{ form.library_cleanup.cron || '未设置' }}</div>
+                      <div class="plugin-hint">清理周期：{{ form.library_cleanup.cron || '未设置' }}</div>
+                      <div class="plugin-hint">周期冷却：{{ form.library_cleanup.cycle_cooldown_minutes }} 分钟</div>
                       <div class="plugin-hint">自动删除：{{ form.library_cleanup.auto_delete ? '开启' : '关闭' }}</div>
                     </VCardText>
                   </VCard>
@@ -226,11 +228,12 @@ function saveConfig() {
             <div v-show="activeMain === 'library_cleanup'" class="plugin-pane">
               <div v-if="activeSub === 'basic'">
                 <div class="plugin-section-title text-error">清理库存基础设置</div>
-                <VAlert type="warning" variant="tonal" class="mb-4" text="清理库存是唯一周期运行模块。若开启自动删除，请务必确认筛选范围和删除策略。" />
+                <VAlert type="warning" variant="tonal" class="mb-4" text="每次周期先完整扫描并写入清理计划，再按队列倒序最多处理 10 部；冷却期间不会重复删除。" />
                 <VRow>
                   <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.enabled" color="error" label="启用周期清理库存" hide-details /></VCol>
                   <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.notify" color="info" label="运行通知" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model="form.library_cleanup.cron" label="Cron 周期" placeholder="9 0 * * *" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model="form.library_cleanup.cron" label="清理周期（Cron）" placeholder="9 0 * * *" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.cycle_cooldown_minutes" label="周期冷却（分钟）" type="number" min="0" max="10080" density="compact" variant="outlined" hide-details /></VCol>
                 </VRow>
               </div>
 
@@ -262,12 +265,12 @@ function saveConfig() {
 
               <div v-if="activeSub === 'advanced'">
                 <div class="plugin-section-title text-error">高级选项</div>
-                <VAlert type="error" variant="tonal" class="mb-4" text="自动删除会直接删除 Emby 条目。按钮手动执行清理库存时也会遵循这里的自动删除配置。" />
+                <VAlert type="error" variant="tonal" class="mb-4" text="自动删除会直接删除 Emby 条目；每周期最多 10 部，失败或无法核验的对象会留在计划中等待下周期重试。" />
                 <VRow>
                   <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.auto_delete" color="error" label="自动删除" hide-details /></VCol>
                   <VCol cols="12" md="4"><VSwitch v-model="form.library_cleanup.dry_run" color="warning" label="演练模式" hide-details /></VCol>
                   <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.auto_delete_delay" label="删除间隔（秒）" type="number" min="0" density="compact" variant="outlined" hide-details /></VCol>
-                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.auto_delete_max_count" label="单次删除上限" type="number" min="0" density="compact" variant="outlined" hide-details /></VCol>
+                  <VCol cols="12" md="4"><VTextField v-model.number="form.library_cleanup.auto_delete_max_count" label="额外安全上限（最多10部）" type="number" min="0" max="10" density="compact" variant="outlined" hide-details /></VCol>
                 </VRow>
               </div>
             </div>

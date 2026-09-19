@@ -5,6 +5,9 @@ from app.plugins import _PluginBase
 
 from .controller.api import (
     build_api_routes,
+    cleanup_plan_clear_response,
+    cleanup_plan_response,
+    cleanup_plan_scan_response,
     history_response,
     invalidate_cache_response,
     options_response,
@@ -12,6 +15,7 @@ from .controller.api import (
     status_response,
 )
 from .model.api import (
+    ToolkitCleanupPlanData,
     ToolkitHistoryData,
     ToolkitOptionsData,
     ToolkitRunData,
@@ -80,6 +84,18 @@ class LocalToolkit(_PluginBase):
     def api_invalidate_cache(self) -> schemas.Response[None]:
         """清除选项缓存。"""
         return invalidate_cache_response(self)
+
+    def api_cleanup_plan(self, page: Any = 1, page_size: Any = 50) -> ToolkitCleanupPlanData:
+        """返回清理计划分页数据。"""
+        return cleanup_plan_response(self, page, page_size)
+
+    def api_cleanup_plan_scan(self) -> schemas.Response[ToolkitRunData]:
+        """扫描并更新清理计划，不执行删除。"""
+        return cleanup_plan_scan_response(self)
+
+    def api_cleanup_plan_clear(self) -> schemas.Response[ToolkitRunData]:
+        """清空清理计划，不删除媒体库条目。"""
+        return cleanup_plan_clear_response(self)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """返回 Vue 模式下的空配置 schema 与当前配置模型。"""

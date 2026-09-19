@@ -51,7 +51,7 @@ class FakeMediaServer:
         return [
             CleanupCandidate(movie_id=key, title=f"电影 {key}", server="emby",
                              date_created=created, favorite=False, played=True)
-            for key in self.states
+            for key in self.states if key not in self.deleted
         ]
 
     def delete_item(self, item):
@@ -86,8 +86,8 @@ def test_deletion_is_verified_before_same_report_gets_final_status():
     module, plugin, adapter = build_module({"a": [False], "b": [False]})
     result = module.run_once()
     assert result["success"] is True
-    assert adapter.deleted == ["a", "b"] and adapter.scans == 1
-    assert adapter.checked == [("a", "viewer"), ("b", "viewer")]
+    assert adapter.deleted == ["b", "a"] and adapter.scans == 1
+    assert adapter.checked == [("b", "viewer"), ("a", "viewer")]
     assert len(plugin.notifiers) == 1
     calls = plugin.notifiers[0].calls
     assert [call[0] for call in calls] == ["start", "update", "finish"]
@@ -101,8 +101,8 @@ def test_api_success_does_not_hide_remaining_or_unknown_items():
     module, plugin, adapter = build_module({"a": [False], "b": [True], "c": [None]})
     result = module.run_once()
     assert result["success"] is False
-    assert adapter.deleted == ["a", "b", "c"]
-    assert [key for key, _ in adapter.checked] == ["a", "b", "c", "b", "c", "b", "c"]
+    assert adapter.deleted == ["c", "b", "a"]
+    assert [key for key, _ in adapter.checked] == ["c", "b", "c", "b", "c", "b"]
     verification = plugin.data["library_cleanup_result"]["deletion"]["verification"]
     assert [verification[key] for key in ["removed_count", "remaining_count", "unknown_count"]] == [1, 1, 1]
     assert plugin.data["tool_history"][0]["status"] == "failed"
@@ -113,8 +113,8 @@ def test_api_success_does_not_hide_remaining_or_unknown_items():
 def test_bounded_recheck_handles_media_server_delay_without_redeleting():
     module, plugin, adapter = build_module({"a": [True, False], "b": [False]})
     assert module.run_once()["success"] is True
-    assert adapter.deleted == ["a", "b"]
-    assert [key for key, _ in adapter.checked] == ["a", "b", "a"]
+    assert adapter.deleted == ["b", "a"]
+    assert [key for key, _ in adapter.checked] == ["b", "a", "a"]
     assert plugin.data["library_cleanup_result"]["deletion"]["verification"]["complete"]
 
 
@@ -132,13 +132,13 @@ def test_delete_and_check_exceptions_do_not_skip_final_report_or_later_items():
         delete_results={"a": RuntimeError("delete failed")},
     )
     assert module.run_once()["success"] is False
-    assert adapter.deleted == ["a", "b"]
+    assert adapter.deleted == ["b", "a"]
     assert plugin.data["library_cleanup_result"]["deletion"]["verification"]["unknown_count"] == 1
     assert plugin.notifiers[0].calls[-1][0] == "finish"
 
 
 @pytest.mark.parametrize("config", [
-    {"auto_delete": False}, {"dry_run": True}, {"auto_delete_max_count": 1},
+    {"auto_delete": False}, {"dry_run": True},
 ])
 def test_check_dry_run_and_limit_guards_never_delete_or_verify(config):
     module, plugin, adapter = build_module({"a": [False], "b": [False]}, **config)
@@ -146,6 +146,37 @@ def test_check_dry_run_and_limit_guards_never_delete_or_verify(config):
     assert not adapter.deleted and not adapter.checked
     assert [call[0] for call in plugin.notifiers[0].calls] == ["finish"]
     assert "✅ 本轮删除完毕" not in plugin.notifiers[0].calls[0][2]
+
+
+def test_cleanup_plan_processes_last_ten_items_first_and_respects_cooldown():
+    states = {str(index): [False] for index in range(12)}
+    module, plugin, adapter = build_module(states)
+
+    first = module.run_once()
+
+    assert first["success"] is True
+    assert adapter.deleted == [str(index) for index in range(11, 1, -1)]
+    assert [item["movie_id"] for item in plugin.data["library_cleanup_plan"]["items"]] == ["0", "1"]
+
+    second = module.run_once()
+
+    assert second["success"] is True
+    assert second["cooldown"] is True
+    assert adapter.deleted == [str(index) for index in range(11, 1, -1)]
+
+
+def test_cleanup_plan_retains_failed_items_with_attempt_metadata():
+    states = {"a": [True], "b": [True]}
+    module, plugin, adapter = build_module(states, delete_results={"a": False, "b": False}, cycle_cooldown_minutes=0)
+
+    result = module.run_once()
+
+    assert result["success"] is False
+    assert adapter.deleted == ["b", "a"]
+    plan_items = plugin.data["library_cleanup_plan"]["items"]
+    assert [item["movie_id"] for item in plan_items] == ["a", "b"]
+    assert [item["attempts"] for item in plan_items] == [1, 1]
+    assert all(item["last_error"] for item in plan_items)
 
 
 def test_empty_inventory_sends_one_check_report_without_deletion():

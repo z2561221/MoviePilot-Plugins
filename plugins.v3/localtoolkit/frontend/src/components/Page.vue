@@ -11,7 +11,9 @@ const emit = defineEmits(['close'])
 const status = ref(null)
 const history = ref([])
 const total = ref(0)
+const cleanupPlan = ref({ total: 0, items: [], batch_size: 10 })
 const loadingModule = ref('')
+const loadingPlanAction = ref('')
 const result = ref(null)
 const page = ref(1)
 const pageSize = 10
@@ -25,13 +27,14 @@ const modules = computed(() => [
     title: '清理库存',
     icon: 'mdi-delete-sweep-outline',
     color: 'error',
-    action: '立即执行',
+    action: '执行一周期',
     mode: '周期 + 按需',
-    desc: '唯一支持后台周期运行的模块，手动执行也会遵循自动删除策略。',
+    desc: '周期先完整扫描并更新清理计划，再按队列倒序处理一批对象。',
     meta: [
       `周期：${status.value?.modules?.library_cleanup?.enabled ? '开启' : '关闭'}`,
       `自动删除：${status.value?.modules?.library_cleanup?.auto_delete ? '开启' : '关闭'}`,
-      `Cron：${status.value?.modules?.library_cleanup?.cron || '未设置'}`,
+      `计划队列：${status.value?.modules?.library_cleanup?.plan_count || 0} 部`,
+      `每周期：${status.value?.modules?.library_cleanup?.cycle_batch_size || 10} 部`,
     ],
   },
   {
@@ -66,10 +69,15 @@ const modules = computed(() => [
 
 async function load() {
   try {
-    status.value = await apiGet(props.api, pluginApiPath(props.pluginId, 'local_toolkit/status'))
-    const hist = await apiGet(props.api, pluginApiPath(props.pluginId, `local_toolkit/history?page=${page.value}&page_size=${pageSize}`))
+    const [currentStatus, hist, plan] = await Promise.all([
+      apiGet(props.api, pluginApiPath(props.pluginId, 'local_toolkit/status')),
+      apiGet(props.api, pluginApiPath(props.pluginId, `local_toolkit/history?page=${page.value}&page_size=${pageSize}`)),
+      apiGet(props.api, pluginApiPath(props.pluginId, 'local_toolkit/cleanup_plan?page=1&page_size=50')),
+    ])
+    status.value = currentStatus
     history.value = hist.items || []
     total.value = hist.total || 0
+    cleanupPlan.value = plan || { total: 0, items: [], batch_size: 10 }
   } catch (e) {
     result.value = { success: false, message: String(e) }
   }
@@ -85,6 +93,39 @@ async function run(moduleKey) {
     loadingModule.value = ''
     await load()
   }
+}
+
+async function scanPlan() {
+  loadingPlanAction.value = 'scan'
+  try {
+    result.value = await apiPost(props.api, pluginApiPath(props.pluginId, 'local_toolkit/cleanup_plan/scan'))
+  } catch (e) {
+    result.value = { success: false, message: String(e) }
+  } finally {
+    loadingPlanAction.value = ''
+    await load()
+  }
+}
+
+async function clearPlan() {
+  if (!window.confirm('确认清空当前清理计划吗？这不会删除媒体库条目。')) return
+  loadingPlanAction.value = 'clear'
+  try {
+    result.value = await apiPost(props.api, pluginApiPath(props.pluginId, 'local_toolkit/cleanup_plan/clear'))
+  } catch (e) {
+    result.value = { success: false, message: String(e) }
+  } finally {
+    loadingPlanAction.value = ''
+    await load()
+  }
+}
+
+function planStatus(item) {
+  return item.last_error || '待处理'
+}
+
+function planStatusColor(item) {
+  return item.last_error ? 'warning' : 'primary'
 }
 
 function prevPage() {
@@ -152,6 +193,50 @@ onMounted(load)
       </VCol>
     </VRow>
 
+    <VCard class="plan-card mb-4" variant="flat">
+      <VCardItem>
+        <VCardTitle>清理计划</VCardTitle>
+        <VCardSubtitle>
+          扫描先入队，执行时按队列倒序处理，每周期最多 {{ cleanupPlan.batch_size || 10 }} 部；当前 {{ cleanupPlan.total || 0 }} 部。
+        </VCardSubtitle>
+        <template #append>
+          <div class="plan-actions">
+            <VBtn size="small" variant="tonal" prepend-icon="mdi-playlist-plus" :loading="loadingPlanAction === 'scan'" @click="scanPlan">生成计划</VBtn>
+            <VBtn size="small" color="error" variant="flat" prepend-icon="mdi-delete-sweep-outline" :loading="loadingModule === 'library_cleanup'" @click="run('library_cleanup')">执行一周期</VBtn>
+            <VBtn size="small" color="warning" variant="text" prepend-icon="mdi-playlist-remove" :disabled="!cleanupPlan.total" :loading="loadingPlanAction === 'clear'" @click="clearPlan">清空计划</VBtn>
+          </div>
+        </template>
+      </VCardItem>
+      <VDivider />
+      <VAlert v-if="cleanupPlan.next_cycle_at" type="info" variant="tonal" density="compact" class="ma-4 mb-2" :text="`下次可执行：${cleanupPlan.next_cycle_at}；冷却 ${cleanupPlan.cooldown_minutes || 0} 分钟。`" />
+      <div class="plan-mobile">
+        <div v-for="(item, i) in cleanupPlan.items" :key="`plan-mobile-${item.queue_key || i}`" class="plan-mobile-item">
+          <div class="plan-mobile-main">
+            <div class="plan-mobile-title">{{ item.title || item.code || item.movie_id || '未知对象' }}</div>
+            <VChip size="x-small" :color="planStatusColor(item)" variant="tonal">{{ planStatus(item) }}</VChip>
+          </div>
+          <div class="plan-mobile-meta">
+            <span>{{ item.library_name || item.server || '未标记媒体库' }}</span>
+            <span>尝试 {{ item.attempts || 0 }} 次</span>
+          </div>
+        </div>
+        <div v-if="!cleanupPlan.items?.length" class="text-center text-medium-emphasis py-6">暂无待处理对象</div>
+      </div>
+      <VTable class="plan-table" density="compact">
+        <thead><tr><th>#</th><th>对象</th><th>媒体库</th><th>尝试</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr v-for="(item, i) in cleanupPlan.items" :key="item.queue_key || i">
+            <td>{{ i + 1 }}</td>
+            <td>{{ item.title || item.code || item.movie_id || '未知对象' }}</td>
+            <td>{{ item.library_name || item.server || '未标记媒体库' }}</td>
+            <td>{{ item.attempts || 0 }}</td>
+            <td><VChip size="x-small" :color="planStatusColor(item)" variant="tonal">{{ planStatus(item) }}</VChip></td>
+          </tr>
+          <tr v-if="!cleanupPlan.items?.length"><td colspan="5" class="text-center text-medium-emphasis py-6">暂无待处理对象</td></tr>
+        </tbody>
+      </VTable>
+    </VCard>
+
     <VCard class="history-card" variant="flat">
       <VCardItem>
         <VCardTitle>运行历史</VCardTitle>
@@ -198,16 +283,27 @@ onMounted(load)
 
 <style scoped>
 .toolkit-page { background: linear-gradient(180deg, rgba(var(--v-theme-primary), .04), transparent 220px); }
-.toolkit-toolbar, .history-card { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
+.toolkit-toolbar, .plan-card, .history-card { border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
 .toolkit-toolbar { background: rgb(var(--v-theme-surface)); }
 .toolbar-copy { min-width: 0; }
 .toolbar-subtitle { max-width: min(720px, 58vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .module-card { border-radius: 16px; min-height: 245px; height: 100%; }
 .module-desc { font-size: 13px; line-height: 1.55; color: rgba(var(--v-theme-on-surface), .72); min-height: 42px; }
 .module-meta { font-size: 12px; line-height: 1.7; color: rgba(var(--v-theme-on-surface), .68); }
+.plan-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.plan-mobile { display: none; }
+.plan-table th { font-weight: 700; }
 .history-mobile { display: none; }
 th { font-weight: 700; }
 @media (max-width: 600px) {
+  .plan-actions { justify-content: flex-start; margin-top: 8px; }
+  .plan-table { display: none; }
+  .plan-mobile { display: block; }
+  .plan-mobile-item { padding: 12px 16px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+  .plan-mobile-item:last-child { border-bottom: 0; }
+  .plan-mobile-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .plan-mobile-title { min-width: 0; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+  .plan-mobile-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 12px; color: rgba(var(--v-theme-on-surface), .58); }
   .history-table { display: none; }
   .history-mobile { display: block; }
   .history-mobile-item { padding: 12px 16px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }

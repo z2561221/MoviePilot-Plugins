@@ -18,6 +18,12 @@ class ToolkitModuleStatus(BaseModel):
     auto_delete: Optional[bool] = None
     cron: Optional[str] = None
     last_error: Optional[str] = None
+    plan_count: Optional[int] = None
+    last_scan_at: Optional[str] = None
+    last_cycle_at: Optional[str] = None
+    next_cycle_at: Optional[str] = None
+    cooldown_minutes: Optional[int] = None
+    cycle_batch_size: Optional[int] = None
     paths: Optional[int] = None
     last_count: Optional[int] = None
     keys: Optional[int] = None
@@ -82,6 +88,42 @@ class ToolkitOptionsData(BaseModel):
     library_cleanup: ToolkitLibraryCleanupOptions
 
 
+class ToolkitCleanupPlanItem(BaseModel):
+    """清理计划中的单个媒体快照。"""
+
+    queue_key: str = ""
+    movie_id: str = ""
+    code: str = ""
+    title: str = ""
+    server: str = ""
+    library_id: str = ""
+    library_name: str = ""
+    date_created: str = ""
+    age_days: Optional[int] = None
+    played: Optional[bool] = None
+    favorite: Optional[bool] = None
+    queued_at: str = ""
+    attempts: int = 0
+    last_attempt_at: str = ""
+    last_error: str = ""
+
+
+class ToolkitCleanupPlanData(BaseModel):
+    """清理计划分页数据与周期状态。"""
+
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    items: list[ToolkitCleanupPlanItem] = Field(default_factory=list)
+    last_scan_at: str = ""
+    last_cycle_at: str = ""
+    last_cycle: dict = Field(default_factory=dict)
+    next_cycle_at: str = ""
+    cooldown_minutes: int = 0
+    batch_size: int = 10
+
+
 class ToolkitCacheSnapshot(BaseModel):
     """TMDB 缓存清理前后的状态快照。"""
 
@@ -110,3 +152,11 @@ class ToolkitRunData(BaseModel):
     after: Optional[ToolkitCacheSnapshot] = None
     missing_total: Optional[int] = None
     items: Optional[list[ToolkitMissingItem]] = None
+    scanned_count: Optional[int] = None
+    queued_added: Optional[int] = None
+    queue_count: Optional[int] = None
+    processed_count: Optional[int] = None
+    success_count: Optional[int] = None
+    fail_count: Optional[int] = None
+    cleared_count: Optional[int] = None
+    cooldown: Optional[bool] = None

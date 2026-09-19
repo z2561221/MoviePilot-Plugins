@@ -21,7 +21,8 @@ that belongs to the later MP local runtime phase.
     delegation methods only.
   - `get_render_mode()` must return `("vue", "dist/assets")`.
   - `get_api()`, `api_status()`, `api_run()`, `api_history()`,
-    `api_options()`, and `api_invalidate_cache()` delegate to
+    `api_options()`, `api_cleanup_plan()`, `api_cleanup_plan_scan()`,
+    `api_cleanup_plan_clear()`, and `api_invalidate_cache()` delegate to
     `controller/api.py`.
   - `init_plugin()`, `get_service()`, and `stop_service()` delegate to
     `service/lifecycle.py`.
@@ -53,7 +54,8 @@ that belongs to the later MP local runtime phase.
   - Shared module helpers such as history recording and config storage.
 - `service/library_cleanup.py`
   - Library cleanup behavior, options cache, self-owned candidate filtering,
-    notification text, result saving, and optional deletion orchestration.
+    notification text, persistent cleanup queue, cooldown, reverse-order batch
+    deletion, result saving, and optional deletion orchestration.
 - `service/check_missing.py`
   - On-demand missing scan behavior.
 - `service/tmdb_cache.py`
@@ -81,6 +83,9 @@ Declared in `controller/api.py`:
 - `GET /local_toolkit/history`
 - `GET /local_toolkit/options`
 - `POST /local_toolkit/invalidate_cache`
+- `GET /local_toolkit/cleanup_plan`
+- `POST /local_toolkit/cleanup_plan/scan`
+- `POST /local_toolkit/cleanup_plan/clear`
 
 Supported module keys:
 
@@ -97,6 +102,12 @@ history storage by returning an empty list.
 Only `library_cleanup` may register a MoviePilot background service. The plugin
 must return no service entries when the plugin is disabled. `check_missing` and
 `tmdb_cache` are on-demand modules and must not regain cron scheduling.
+
+Each cleanup cycle first completes the full candidate scan and merges matching
+items into `library_cleanup_plan`. Only after the scan finishes does automatic
+deletion take the last queued items first, processing at most 10 items. The
+cycle timestamp starts the configured cooldown; confirmed removals leave the
+queue, while remaining or unknown items stay for the next cycle.
 
 ## Persistent Keys
 
@@ -128,8 +139,11 @@ Important persistent fields:
 - `library_cleanup.auto_delete_delay`
 - `library_cleanup.dry_run`
 - `library_cleanup.auto_delete_max_count`
+- `library_cleanup.cycle_cooldown_minutes`
 
 Runtime history is stored with `get_data` / `save_data` key `tool_history`.
+The persistent queue is stored with key `library_cleanup_plan`, and the latest
+scan/deletion snapshot is stored with `library_cleanup_result`.
 
 ## Frontend
 
@@ -160,7 +174,7 @@ Run from `D:/AIGC/MoviePilot/MoviePilot-Plugins` unless noted.
 
 ```powershell
 & 'C:/Users/ZhaoYu/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe' -m compileall -q plugins.v3/localtoolkit
-& 'C:/Users/ZhaoYu/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe' -m pytest --confcutdir=tests/static tests/static/test_localtoolkit_standard_completion.py -q
+& 'C:/Users/ZhaoYu/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe' -m pytest --confcutdir=tests/static tests/static/test_localtoolkit_v3_migration.py -q
 $env:MOVIEPILOT_BACKEND_PATH = '<MoviePilot V3 backend path>'
 & 'C:/Users/ZhaoYu/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe' -m pytest tests/v3/localtoolkit -q
 ```
