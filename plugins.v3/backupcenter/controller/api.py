@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from app.sdk.plugins import PluginManager
+from app.sdk.plugin.manager import PluginManager
 # 当前部署镜像未提供 app.sdk.security，复用宿主插件 API 的公开认证依赖。
 from app.api.endpoints.plugin import verify_token
 from ..model.api import (

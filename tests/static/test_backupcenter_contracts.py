@@ -13,6 +13,7 @@ PLUGIN_JSON = PLUGIN_DIR / "plugin.json"
 PACKAGE_JSON = ROOT / "package.v3.json"
 PACKAGE_V2_JSON = ROOT / "package.v2.json"
 API_CONTROLLER = PLUGIN_DIR / "controller" / "api.py"
+RESTORE_SERVICE = PLUGIN_DIR / "service" / "restore_service.py"
 FRONTEND_API = PLUGIN_DIR / "frontend" / "src" / "components" / "api.js"
 VITE_CONFIG = PLUGIN_DIR / "frontend" / "vite.config.js"
 REMOTE_ENTRY = PLUGIN_DIR / "dist" / "assets" / "remoteEntry.js"
@@ -127,6 +128,16 @@ def test_backupcenter_api_is_bearer_only_and_exports_offline_package():
     assert "def _success" not in controller
     assert "fetch(" not in frontend
     assert "API_TOKEN" not in frontend
+
+
+def test_backupcenter_uses_current_plugin_manager_sdk_path():
+    """V3 生产代码使用当前插件管理器 SDK，避免触发兼容导入告警。"""
+    controller = API_CONTROLLER.read_text(encoding="utf-8")
+    restore_service = RESTORE_SERVICE.read_text(encoding="utf-8")
+
+    for source in (controller, restore_service):
+        assert "from app.sdk.plugin.manager import PluginManager" in source
+        assert "from app.sdk.plugins import PluginManager" not in source
 
 
 def test_backupcenter_exposes_sanitized_operation_logs():

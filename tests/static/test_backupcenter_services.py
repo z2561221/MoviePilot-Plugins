@@ -64,9 +64,12 @@ sys.modules["app.sdk.config"] = app_sdk_config_module
 app_sdk_logging_module = ModuleType("app.sdk.logging")
 app_sdk_logging_module.logger = app_log_module.logger
 sys.modules["app.sdk.logging"] = app_sdk_logging_module
-app_sdk_plugins_module = ModuleType("app.sdk.plugins")
-app_sdk_plugins_module.PluginManager = SimpleNamespace
-sys.modules["app.sdk.plugins"] = app_sdk_plugins_module
+app_sdk_plugin_module = ModuleType("app.sdk.plugin")
+app_sdk_plugin_manager_module = ModuleType("app.sdk.plugin.manager")
+app_sdk_plugin_manager_module.PluginManager = SimpleNamespace
+app_sdk_plugin_module.manager = app_sdk_plugin_manager_module
+sys.modules["app.sdk.plugin"] = app_sdk_plugin_module
+sys.modules["app.sdk.plugin.manager"] = app_sdk_plugin_manager_module
 app_sdk_database_module = ModuleType("app.sdk.database")
 app_sdk_database_module.create_backup = lambda: SimpleNamespace(
     name="db-backup-test.sqlite"
@@ -74,7 +77,7 @@ app_sdk_database_module.create_backup = lambda: SimpleNamespace(
 sys.modules["app.sdk.database"] = app_sdk_database_module
 app_sdk_module.config = app_sdk_config_module
 app_sdk_module.logging = app_sdk_logging_module
-app_sdk_module.plugins = app_sdk_plugins_module
+app_sdk_module.plugin = app_sdk_plugin_module
 app_sdk_module.database = app_sdk_database_module
 app_schemas_module = _package("app.schemas", PLUGIN_DIR)
 app_schemas_types_module = ModuleType("app.schemas.types")
@@ -988,9 +991,9 @@ def test_partial_plugin_stop_failure_reloads_already_stopped_plugins(monkeypatch
 
     manager.stop = stop
     manager.reload_plugin = reload_plugin
-    plugin_module = ModuleType("app.sdk.plugins")
+    plugin_module = ModuleType("app.sdk.plugin.manager")
     plugin_module.PluginManager = lambda: manager
-    monkeypatch.setitem(sys.modules, "app.sdk.plugins", plugin_module)
+    monkeypatch.setitem(sys.modules, "app.sdk.plugin.manager", plugin_module)
 
     with pytest.raises(restore_module.RestoreServiceError, match="PluginB"):
         restore_module.RestoreService._stop_target_plugins(["PluginA", "PluginB"])
