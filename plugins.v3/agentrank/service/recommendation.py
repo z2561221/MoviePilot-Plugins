@@ -121,6 +121,26 @@ def _safe_agent_failure_reason(value: Any) -> str:
     return _PROVENANCE_SECRET_PATTERN.sub("[已脱敏凭据]", text)[:240]
 
 
+def _classify_agent_failure(value: Any) -> str:
+    """把失败摘要归入有限类别，避免按供应商原文做长期统计。"""
+    text = _safe_agent_failure_reason(value).casefold()
+    if "reasoning_text" in text:
+        return "upstream_reasoning"
+    if "404 page not found" in text or "http 404" in text:
+        return "upstream_http_not_found"
+    if "tool_choice" in text:
+        return "tool_choice_unsupported"
+    if "already returned" in text:
+        return "repeated_context_read"
+    if "schema" in text:
+        return "schema_validation"
+    if "submission" in text:
+        return "submission_required"
+    if "terminal" in text:
+        return "host_lifecycle"
+    return "agent_execution"
+
+
 def _ensure_default_persona_visibility(
     recommendations: List[RecommendationItem], persona_prompt: str
 ) -> Tuple[int, int]:
@@ -310,6 +330,11 @@ class RecommendationOrchestrator:
             "duration_ms": max(0, int(duration_ms or 0)),
             "status": "pending",
             "failure_reason": "",
+            "failure_class": str(
+                raw.get("repair_failure_class") or ""
+            ).strip()[:64],
+            "repair_kind": str(raw.get("repair_kind") or "").strip()[:32],
+            "repair_recovered": bool(raw.get("repair_recovered", False)),
         }
         entries = metrics.setdefault("agent_provenance", [])
         entries.append(entry)
@@ -352,6 +377,8 @@ class RecommendationOrchestrator:
             return
         entry["status"] = str(status or "failed").strip()[:32]
         entry["failure_reason"] = _safe_agent_failure_reason(failure_reason)
+        if entry["failure_reason"] and not entry.get("failure_class"):
+            entry["failure_class"] = _classify_agent_failure(failure_reason)
 
     @staticmethod
     def _display_name(profile_id: str, config: Mapping[str, Any]) -> str:
@@ -726,6 +753,7 @@ class RecommendationOrchestrator:
         final_metrics.pop("_stage_started_at", None)
         final_metrics.pop("_profile_id", None)
         final_metrics.pop("_run_id", None)
+        self._derive_agent_outcome_metrics(final_metrics)
         final_metrics["elapsed_ms"] = max(0, int((time.monotonic() - started_clock) * 1000))
         self._repository.append_run(
             RecommendationRun(
@@ -740,6 +768,50 @@ class RecommendationOrchestrator:
                 metrics=final_metrics,
             )
         )
+
+    @staticmethod
+    def _derive_agent_outcome_metrics(metrics: Dict[str, Any]) -> None:
+        """从逐调用记录生成首轮、修正和失败统计，供 API 与页面审计。"""
+        calls = [
+            item for item in metrics.get("agent_provenance", ())
+            if isinstance(item, Mapping)
+        ]
+        first_pass = 0
+        repaired = 0
+        failed = 0
+        failure_classes: Dict[str, int] = {}
+        repair_kinds: Dict[str, int] = {}
+        role_counts: Dict[str, Dict[str, int]] = {}
+        for item in calls:
+            role = str(item.get("role") or "agent").strip()[:32] or "agent"
+            status = str(item.get("status") or "pending").strip()
+            is_repaired = bool(item.get("repair_recovered")) or int(
+                item.get("repair_count") or 0
+            ) > 0
+            bucket = role_counts.setdefault(
+                role, {"first_pass_success": 0, "repair_success": 0, "terminal_failure": 0}
+            )
+            if status == "completed" and is_repaired:
+                repaired += 1
+                bucket["repair_success"] += 1
+            elif status == "completed":
+                first_pass += 1
+                bucket["first_pass_success"] += 1
+            elif status in {"failed", "validation_failed"}:
+                failed += 1
+                bucket["terminal_failure"] += 1
+            failure_class = str(item.get("failure_class") or "").strip()[:64]
+            if failure_class:
+                failure_classes[failure_class] = failure_classes.get(failure_class, 0) + 1
+            repair_kind = str(item.get("repair_kind") or "").strip()[:32]
+            if repair_kind:
+                repair_kinds[repair_kind] = repair_kinds.get(repair_kind, 0) + 1
+        metrics["agent_first_pass_success_count"] = first_pass
+        metrics["agent_repair_success_count"] = repaired
+        metrics["agent_terminal_failure_count"] = failed
+        metrics["agent_failure_class_counts"] = failure_classes
+        metrics["agent_repair_kind_counts"] = repair_kinds
+        metrics["agent_outcome_by_role"] = role_counts
 
     def _exclude_library_candidates(
         self, candidates: List[Any]

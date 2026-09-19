@@ -772,6 +772,11 @@ def test_run_history_aggregates_actual_agent_model_provenance():
     assert metrics["agent_repair_count"] == 3
     assert metrics["profile_repair_count"] == 1
     assert metrics["ranking_repair_count"] == 2
+    assert metrics["agent_first_pass_success_count"] == 0
+    assert metrics["agent_repair_success_count"] == 2
+    assert metrics["agent_terminal_failure_count"] == 0
+    assert metrics["agent_outcome_by_role"]["profile"]["repair_success"] == 1
+    assert metrics["agent_outcome_by_role"]["ranking"]["repair_success"] == 1
     assert [item["role"] for item in metrics["agent_provenance"]] == [
         "profile",
         "ranking",

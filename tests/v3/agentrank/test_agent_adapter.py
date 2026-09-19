@@ -873,6 +873,8 @@ def test_terminal_role_repairs_one_named_field_with_fresh_agent():
 
     assert json.loads(output) == _profile_submission()
     assert output.provenance["repair_count"] == 1
+    assert output.provenance["repair_recovered"] is True
+    assert output.provenance["repair_kind"] == "schema"
     assert output.provenance["model_call_count"] == 3
     first, repair = FakeRepairSubmissionRunner.instances
     assert first is not repair

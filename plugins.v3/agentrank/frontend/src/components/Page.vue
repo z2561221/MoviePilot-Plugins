@@ -185,6 +185,23 @@ const historyAgentStatusLabels = {
   failed: '调用失败',
   pending: '未完成',
 }
+const historyAgentFailureClassLabels = {
+  upstream_reasoning: '上游思考回传',
+  upstream_http_not_found: '上游接口404',
+  tool_choice_unsupported: '工具选择不兼容',
+  repeated_context_read: '重复读取上下文',
+  schema_validation: '结构校验',
+  submission_required: '缺少提交',
+  host_lifecycle: '宿主生命周期',
+  agent_execution: 'Agent执行',
+}
+const historyAgentRepairKindLabels = {
+  transport: '传输修正',
+  protocol: '协议修正',
+  schema: '结构修正',
+  submission: '提交修正',
+  output: '输出修正',
+}
 const historyAgentSourceLabels = {
   agent_tokens: 'Agent Tokens',
   moviepilot_system: 'MoviePilot 系统',
@@ -375,6 +392,8 @@ function historyAgentCalls(run) {
     const model = String(item?.model || '').trim()
     const source = String(item?.source || 'unknown').trim()
     const status = String(item?.status || 'pending').trim()
+    const failureClass = String(item?.failure_class || '').trim()
+    const repairKind = String(item?.repair_kind || '').trim()
     const attempt = Number(item?.attempt || 1)
     const modelCalls = Number(item?.model_call_count || 0)
     return {
@@ -389,6 +408,9 @@ function historyAgentCalls(run) {
       status: historyAgentStatusLabels[status] || '状态未返回',
       failed: status === 'failed' || status === 'validation_failed',
       failure: item?.failure_reason ? translateHistoryError(item.failure_reason) : '',
+      failureClass: historyAgentFailureClassLabels[failureClass] || failureClass,
+      repairKind: historyAgentRepairKindLabels[repairKind] || repairKind,
+      repairRecovered: item?.repair_recovered === true,
     }
   })
 }
@@ -459,6 +481,13 @@ function historyRepairText(run) {
   const repairs = Number(metrics.agent_repair_count || 0)
   const finalRetries = Number(metrics.final_retry_count || 0)
   return `结构修正 ${repairs} 次；决赛重试 ${finalRetries} 次`
+}
+function historyAgentOutcomeText(run) {
+  const metrics = run?.metrics || {}
+  const firstPass = Number(metrics.agent_first_pass_success_count || 0)
+  const repaired = Number(metrics.agent_repair_success_count || 0)
+  const failed = Number(metrics.agent_terminal_failure_count || 0)
+  return `首轮成功 ${firstPass} 次；修正成功 ${repaired} 次；终止失败 ${failed} 次`
 }
 function historyDegradeSourceText(run) {
   const metrics = run?.metrics || {}
@@ -1077,6 +1106,9 @@ onBeforeUnmount(() => {
                         </div>
                         <div>{{ call.provider }} · {{ call.model }}</div>
                         <small>{{ call.source }} · {{ call.duration }} · 模型调用 {{ call.modelCalls }} 次</small>
+                        <small v-if="call.failureClass || call.repairKind || call.repairRecovered">
+                          {{ call.failureClass ? `原因：${call.failureClass}` : '' }}{{ call.repairKind ? `；${call.repairKind}` : '' }}{{ call.repairRecovered ? '；已恢复' : '' }}
+                        </small>
                         <small v-if="call.failure" class="ar-page__history-agent-error">{{ call.failure }}</small>
                       </div>
                     </div>
@@ -1089,6 +1121,7 @@ onBeforeUnmount(() => {
                   <div><span>初赛批次</span><span>{{ historyTournamentText(run) }}</span></div>
                   <div><span>阶段耗时</span><span>{{ historyTournamentTimingText(run) }}</span></div>
                   <div><span>修正次数</span><span>{{ historyRepairText(run) }}</span></div>
+                  <div><span>Agent结果</span><span>{{ historyAgentOutcomeText(run) }}</span></div>
                   <div><span>降级来源</span><span>{{ historyDegradeSourceText(run) }}</span></div>
                   <div><span>排序校验</span><span>{{ historyRankingText(run) }}</span></div>
                   <div><span>校验丢弃</span><span>{{ historyValidationDropText(run) }}</span></div>

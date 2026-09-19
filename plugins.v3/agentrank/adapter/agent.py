@@ -390,6 +390,34 @@ class AgentRankAgentAdapter:
         return next((marker for marker in cls._host_failure_markers if marker in text), "")
 
     @classmethod
+    def _classify_repair(cls, values: List[Any], issue: Any) -> tuple[str, str]:
+        """把修正触发原因收敛为有限类别，不保存原始异常或模型输出。"""
+        text = " ".join(
+            item
+            for value in values
+            for item in cls._text_candidates(value)
+            if isinstance(item, str)
+        ).casefold()
+        if "reasoning_text" in text:
+            return "upstream_reasoning", "transport"
+        if "404 page not found" in text or "http 404" in text:
+            return "upstream_http_not_found", "transport"
+        if "tool_choice" in text and (
+            "unsupported" in text or "not support" in text
+        ):
+            return "tool_choice_unsupported", "protocol"
+        if "already returned" in text:
+            return "repeated_context_read", "protocol"
+        code = str(getattr(issue, "code", "") or "").strip().casefold()
+        if code.startswith("schema_"):
+            return code[:64], "schema"
+        if code and code != "submission_required":
+            return code[:64], "submission"
+        if code == "submission_required":
+            return code, "submission"
+        return "agent_output_missing", "output"
+
+    @classmethod
     def _capture_submission_issue(
         cls,
         collector: AgentRankSessionResultCollector,
@@ -477,6 +505,17 @@ class AgentRankAgentAdapter:
         previous_model_calls = 0
         provenance: Dict[str, Any] = {}
         repair_count = 0
+        repair_failure_class = ""
+        repair_kind = ""
+
+        def attach_repair_provenance(target: Dict[str, Any]) -> None:
+            """仅在实际发生修正时附加新诊断字段，保持无修正旧结果兼容。"""
+            if repair_count or repair_failure_class or repair_kind:
+                target["repair_failure_class"] = repair_failure_class
+                target["repair_kind"] = repair_kind
+                target["repair_recovered"] = bool(
+                    repair_count and result_collector.submitted
+                )
 
         async def capture_provenance() -> Dict[str, Any]:
             """合并新旧 Agent 的调用次数，保留当前执行器的模型溯源。"""
@@ -503,6 +542,9 @@ class AgentRankAgentAdapter:
                 if not result_collector.submitted and result_collector.can_repair:
                     repair_count += 1
                     issue = result_collector.last_issue
+                    repair_failure_class, repair_kind = self._classify_repair(
+                        terminal_outputs, issue
+                    )
                     code = issue.code if issue is not None else "submission_required"
                     field = issue.field if issue is not None else "submission"
                     repair_evidence = await self._repair_evidence(
@@ -590,6 +632,7 @@ class AgentRankAgentAdapter:
                     )
                 provenance = await capture_provenance()
                 provenance["repair_count"] = repair_count
+                attach_repair_provenance(provenance)
                 if result_collector.submitted:
                     return AgentExecutionResult(
                         result_collector.result_json(), provenance
@@ -601,6 +644,7 @@ class AgentRankAgentAdapter:
                 )
             provenance = await capture_provenance()
             provenance["repair_count"] = repair_count
+            attach_repair_provenance(provenance)
             candidates: List[Any] = [result]
             # 新版宿主的 CAPTURE_ONLY 路径可能只把最终文本留在 Agent
             # 自身的流式缓冲区，或以结构化 tuple/dict 返回，而不再完整
@@ -631,6 +675,7 @@ class AgentRankAgentAdapter:
             if not provenance:
                 provenance = await capture_provenance()
             provenance["repair_count"] = repair_count
+            attach_repair_provenance(provenance)
             try:
                 error.agentrank_provenance = dict(provenance)
             except Exception:
