@@ -53,4 +53,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, apiGet as a, apiPost as b, pluginApiPath as p };
+export { _export_sfc as _, apiPost as a, apiGet as b, pluginApiPath as p };

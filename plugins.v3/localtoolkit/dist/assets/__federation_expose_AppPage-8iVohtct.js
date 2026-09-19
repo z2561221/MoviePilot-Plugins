@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as apiGet, b as apiPost, p as pluginApiPath } from './_plugin-vue_export-helper-S8_J6agn.js';
+import { _ as _export_sfc, a as apiPost, b as apiGet, p as pluginApiPath } from './_plugin-vue_export-helper-aSpYeKwD.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass} = await importShared('vue');
 
@@ -55,33 +55,38 @@ const _hoisted_35 = {
   class: "lt-empty"
 };
 const _hoisted_36 = {
+  key: 1,
+  class: "lt-pagination"
+};
+const _hoisted_37 = {
   key: 5,
   class: "lt-pane"
 };
-const _hoisted_37 = { class: "lt-section-heading" };
-const _hoisted_38 = { class: "lt-table-wrap mt-3" };
-const _hoisted_39 = { class: "text-no-wrap" };
-const _hoisted_40 = ["title"];
-const _hoisted_41 = { key: 0 };
-const _hoisted_42 = { class: "lt-mobile-list" };
-const _hoisted_43 = { class: "lt-record-head" };
-const _hoisted_44 = { class: "lt-record-meta" };
-const _hoisted_45 = { class: "lt-record-summary" };
-const _hoisted_46 = {
+const _hoisted_38 = { class: "lt-section-heading" };
+const _hoisted_39 = { class: "lt-table-wrap mt-3" };
+const _hoisted_40 = { class: "text-no-wrap" };
+const _hoisted_41 = ["title"];
+const _hoisted_42 = { key: 0 };
+const _hoisted_43 = { class: "lt-mobile-list" };
+const _hoisted_44 = { class: "lt-record-head" };
+const _hoisted_45 = { class: "lt-record-meta" };
+const _hoisted_46 = { class: "lt-record-summary" };
+const _hoisted_47 = {
   key: 0,
   class: "lt-empty"
 };
-const _hoisted_47 = {
+const _hoisted_48 = {
   key: 0,
   class: "lt-pagination"
 };
 
 const {computed,onMounted,ref} = await importShared('vue');
 
+const cleanupPlanPageSize = 15;
 const historyPageSize = 15;
 
 const _sfc_main = {
-  __name: 'Page',
+  __name: 'AppPage',
   props: {
   api: { type: Object, default: () => ({}) },
   pluginId: { type: String, default: 'LocalToolkit' },
@@ -94,7 +99,8 @@ const emit = __emit;
 
 const activeTab = ref('overview');
 const status = ref(null);
-const cleanupPlan = ref({ total: 0, items: [], batch_size: 10 });
+const cleanupPlan = ref({ total: 0, page: 1, page_size: 15, total_pages: 1, items: [], batch_size: 10 });
+const cleanupPlanPage = ref(1);
 const history = ref([]);
 const historyTotal = ref(0);
 const historyPage = ref(1);
@@ -111,6 +117,7 @@ const tabs = [
 ];
 
 const historyTotalPages = computed(() => Math.max(1, Math.ceil((historyTotal.value || 0) / historyPageSize)));
+const cleanupPlanTotalPages = computed(() => Math.max(1, Number(cleanupPlan.value?.total_pages || Math.ceil((cleanupPlan.value?.total || 0) / cleanupPlanPageSize))));
 const cleanupStatus = computed(() => status.value?.modules?.library_cleanup || {});
 const batchSize = computed(() => Number(cleanupPlan.value?.batch_size || cleanupStatus.value?.cycle_batch_size || 10));
 const overviewCards = computed(() => [
@@ -161,18 +168,18 @@ function apiPath(path) {
   return pluginApiPath(props.pluginId, path)
 }
 
-async function loadOverview() {
-  const [currentStatus, plan] = await Promise.all([
-    apiGet(props.api, apiPath('local_toolkit/status')),
-    apiGet(props.api, apiPath('local_toolkit/cleanup_plan?page=1&page_size=50')),
-  ]);
-  status.value = currentStatus;
-  cleanupPlan.value = plan || { total: 0, items: [], batch_size: 10 };
+async function loadStatus() {
+  status.value = await apiGet(props.api, apiPath('local_toolkit/status'));
 }
 
 async function loadPlan() {
-  cleanupPlan.value = await apiGet(props.api, apiPath('local_toolkit/cleanup_plan?page=1&page_size=50'))
-    || { total: 0, items: [], batch_size: 10 };
+  const data = await apiGet(props.api, apiPath(`local_toolkit/cleanup_plan?page=${cleanupPlanPage.value}&page_size=${cleanupPlanPageSize}`));
+  cleanupPlan.value = data || { total: 0, page: 1, page_size: cleanupPlanPageSize, total_pages: 1, items: [], batch_size: 10 };
+  cleanupPlanPage.value = Number(cleanupPlan.value.page || cleanupPlanPage.value);
+}
+
+async function loadOverview() {
+  await Promise.all([loadStatus(), loadPlan()]);
 }
 
 async function loadHistory() {
@@ -186,7 +193,7 @@ async function refreshActive() {
   error.value = '';
   try {
     if (activeTab.value === 'overview') await loadOverview();
-    else if (activeTab.value === 'cleanup_plan') await Promise.all([loadOverview(), loadPlan()]);
+    else if (activeTab.value === 'cleanup_plan') await Promise.all([loadStatus(), loadPlan()]);
     else await loadHistory();
   } catch (err) {
     error.value = String(err);
@@ -202,7 +209,7 @@ async function selectTab(key) {
 }
 
 async function refreshAfterAction() {
-  await Promise.all([loadOverview(), loadPlan()]);
+  await Promise.all([loadStatus(), loadPlan()]);
   if (activeTab.value === 'history') await loadHistory();
 }
 
@@ -281,6 +288,18 @@ function nextHistoryPage() {
   if (historyPage.value >= historyTotalPages.value) return
   historyPage.value += 1;
   loadHistory();
+}
+
+function prevCleanupPlanPage() {
+  if (cleanupPlanPage.value <= 1) return
+  cleanupPlanPage.value -= 1;
+  loadPlan();
+}
+
+function nextCleanupPlanPage() {
+  if (cleanupPlanPage.value >= cleanupPlanTotalPages.value) return
+  cleanupPlanPage.value += 1;
+  loadPlan();
 }
 
 onMounted(loadOverview);
@@ -777,10 +796,29 @@ return (_ctx, _cache) => {
                     (!cleanupPlan.value.items?.length)
                       ? (_openBlock(), _createElementBlock("div", _hoisted_35, "暂无待处理对象"))
                       : _createCommentVNode("", true)
-                  ])
+                  ]),
+                  (cleanupPlanTotalPages.value > 1)
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_36, [
+                        _createVNode(_component_VBtn, {
+                          size: "x-small",
+                          variant: "tonal",
+                          icon: "mdi-chevron-left",
+                          disabled: cleanupPlanPage.value <= 1,
+                          onClick: prevCleanupPlanPage
+                        }, null, 8, ["disabled"]),
+                        _createElementVNode("span", null, _toDisplayString(cleanupPlanPage.value) + " / " + _toDisplayString(cleanupPlanTotalPages.value) + "（共 " + _toDisplayString(cleanupPlan.value.total || 0) + " 部）", 1),
+                        _createVNode(_component_VBtn, {
+                          size: "x-small",
+                          variant: "tonal",
+                          icon: "mdi-chevron-right",
+                          disabled: cleanupPlanPage.value >= cleanupPlanTotalPages.value,
+                          onClick: nextCleanupPlanPage
+                        }, null, 8, ["disabled"])
+                      ]))
+                    : _createCommentVNode("", true)
                 ]))
-              : (_openBlock(), _createElementBlock("section", _hoisted_36, [
-                  _createElementVNode("div", _hoisted_37, [
+              : (_openBlock(), _createElementBlock("section", _hoisted_37, [
+                  _createElementVNode("div", _hoisted_38, [
                     _cache[32] || (_cache[32] = _createElementVNode("div", null, [
                       _createElementVNode("div", { class: "lt-section-title" }, "运行历史"),
                       _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "保留最近 30 条模块运行记录，按后端分页查看。")
@@ -795,7 +833,7 @@ return (_ctx, _cache) => {
                       _: 1
                     })
                   ]),
-                  _createElementVNode("div", _hoisted_38, [
+                  _createElementVNode("div", _hoisted_39, [
                     _createVNode(_component_VTable, {
                       class: "lt-table",
                       density: "compact"
@@ -815,7 +853,7 @@ return (_ctx, _cache) => {
                             return (_openBlock(), _createElementBlock("tr", {
                               key: `${item.time}-${index}`
                             }, [
-                              _createElementVNode("td", _hoisted_39, _toDisplayString(item.time), 1),
+                              _createElementVNode("td", _hoisted_40, _toDisplayString(item.time), 1),
                               _createElementVNode("td", null, _toDisplayString(item.module_name), 1),
                               _createElementVNode("td", null, [
                                 _createVNode(_component_VChip, {
@@ -832,12 +870,12 @@ return (_ctx, _cache) => {
                               _createElementVNode("td", {
                                 class: "lt-ellipsis",
                                 title: item.summary
-                              }, _toDisplayString(item.summary), 9, _hoisted_40),
+                              }, _toDisplayString(item.summary), 9, _hoisted_41),
                               _createElementVNode("td", null, _toDisplayString(item.duration) + "s", 1)
                             ]))
                           }), 128)),
                           (!history.value.length)
-                            ? (_openBlock(), _createElementBlock("tr", _hoisted_41, [...(_cache[33] || (_cache[33] = [
+                            ? (_openBlock(), _createElementBlock("tr", _hoisted_42, [...(_cache[33] || (_cache[33] = [
                                 _createElementVNode("td", {
                                   colspan: "5",
                                   class: "text-center text-medium-emphasis py-8"
@@ -849,13 +887,13 @@ return (_ctx, _cache) => {
                       _: 1
                     })
                   ]),
-                  _createElementVNode("div", _hoisted_42, [
+                  _createElementVNode("div", _hoisted_43, [
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value, (item, index) => {
                       return (_openBlock(), _createElementBlock("article", {
                         key: `mobile-history-${item.time}-${index}`,
                         class: "lt-record"
                       }, [
-                        _createElementVNode("div", _hoisted_43, [
+                        _createElementVNode("div", _hoisted_44, [
                           _createElementVNode("strong", null, _toDisplayString(item.module_name), 1),
                           _createVNode(_component_VChip, {
                             size: "x-small",
@@ -868,21 +906,21 @@ return (_ctx, _cache) => {
                             _: 2
                           }, 1032, ["color"])
                         ]),
-                        _createElementVNode("div", _hoisted_44, [
+                        _createElementVNode("div", _hoisted_45, [
                           _cache[35] || (_cache[35] = _createElementVNode("span", null, "时间", -1)),
                           _createElementVNode("b", null, _toDisplayString(item.time), 1),
                           _cache[36] || (_cache[36] = _createElementVNode("span", null, "耗时", -1)),
                           _createElementVNode("b", null, _toDisplayString(item.duration) + "s", 1)
                         ]),
-                        _createElementVNode("div", _hoisted_45, _toDisplayString(item.summary), 1)
+                        _createElementVNode("div", _hoisted_46, _toDisplayString(item.summary), 1)
                       ]))
                     }), 128)),
                     (!history.value.length)
-                      ? (_openBlock(), _createElementBlock("div", _hoisted_46, "暂无运行历史"))
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_47, "暂无运行历史"))
                       : _createCommentVNode("", true)
                   ]),
                   (historyTotal.value > historyPageSize)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_47, [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_48, [
                         _createVNode(_component_VBtn, {
                           size: "x-small",
                           variant: "tonal",
@@ -908,6 +946,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-56e6ccec"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4bbd0d35"]]);
 
-export { Page as default };
+export { AppPage as default };

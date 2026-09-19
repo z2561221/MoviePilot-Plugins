@@ -10,7 +10,9 @@ const emit = defineEmits(['close', 'switch'])
 
 const activeTab = ref('overview')
 const status = ref(null)
-const cleanupPlan = ref({ total: 0, items: [], batch_size: 10 })
+const cleanupPlan = ref({ total: 0, page: 1, page_size: 15, total_pages: 1, items: [], batch_size: 10 })
+const cleanupPlanPage = ref(1)
+const cleanupPlanPageSize = 15
 const history = ref([])
 const historyTotal = ref(0)
 const historyPage = ref(1)
@@ -28,6 +30,7 @@ const tabs = [
 ]
 
 const historyTotalPages = computed(() => Math.max(1, Math.ceil((historyTotal.value || 0) / historyPageSize)))
+const cleanupPlanTotalPages = computed(() => Math.max(1, Number(cleanupPlan.value?.total_pages || Math.ceil((cleanupPlan.value?.total || 0) / cleanupPlanPageSize))))
 const cleanupStatus = computed(() => status.value?.modules?.library_cleanup || {})
 const batchSize = computed(() => Number(cleanupPlan.value?.batch_size || cleanupStatus.value?.cycle_batch_size || 10))
 const overviewCards = computed(() => [
@@ -78,18 +81,18 @@ function apiPath(path) {
   return pluginApiPath(props.pluginId, path)
 }
 
-async function loadOverview() {
-  const [currentStatus, plan] = await Promise.all([
-    apiGet(props.api, apiPath('local_toolkit/status')),
-    apiGet(props.api, apiPath('local_toolkit/cleanup_plan?page=1&page_size=50')),
-  ])
-  status.value = currentStatus
-  cleanupPlan.value = plan || { total: 0, items: [], batch_size: 10 }
+async function loadStatus() {
+  status.value = await apiGet(props.api, apiPath('local_toolkit/status'))
 }
 
 async function loadPlan() {
-  cleanupPlan.value = await apiGet(props.api, apiPath('local_toolkit/cleanup_plan?page=1&page_size=50'))
-    || { total: 0, items: [], batch_size: 10 }
+  const data = await apiGet(props.api, apiPath(`local_toolkit/cleanup_plan?page=${cleanupPlanPage.value}&page_size=${cleanupPlanPageSize}`))
+  cleanupPlan.value = data || { total: 0, page: 1, page_size: cleanupPlanPageSize, total_pages: 1, items: [], batch_size: 10 }
+  cleanupPlanPage.value = Number(cleanupPlan.value.page || cleanupPlanPage.value)
+}
+
+async function loadOverview() {
+  await Promise.all([loadStatus(), loadPlan()])
 }
 
 async function loadHistory() {
@@ -103,7 +106,7 @@ async function refreshActive() {
   error.value = ''
   try {
     if (activeTab.value === 'overview') await loadOverview()
-    else if (activeTab.value === 'cleanup_plan') await Promise.all([loadOverview(), loadPlan()])
+    else if (activeTab.value === 'cleanup_plan') await Promise.all([loadStatus(), loadPlan()])
     else await loadHistory()
   } catch (err) {
     error.value = String(err)
@@ -119,7 +122,7 @@ async function selectTab(key) {
 }
 
 async function refreshAfterAction() {
-  await Promise.all([loadOverview(), loadPlan()])
+  await Promise.all([loadStatus(), loadPlan()])
   if (activeTab.value === 'history') await loadHistory()
 }
 
@@ -198,6 +201,18 @@ function nextHistoryPage() {
   if (historyPage.value >= historyTotalPages.value) return
   historyPage.value += 1
   loadHistory()
+}
+
+function prevCleanupPlanPage() {
+  if (cleanupPlanPage.value <= 1) return
+  cleanupPlanPage.value -= 1
+  loadPlan()
+}
+
+function nextCleanupPlanPage() {
+  if (cleanupPlanPage.value >= cleanupPlanTotalPages.value) return
+  cleanupPlanPage.value += 1
+  loadPlan()
 }
 
 onMounted(loadOverview)
@@ -341,6 +356,11 @@ onMounted(loadOverview)
               <div class="lt-record-meta"><span>媒体库</span><b>{{ item.library_name || item.server || '未标记媒体库' }}</b><span>入库</span><b>{{ item.date_created ? item.date_created.slice(0, 10) : '未知' }}</b><span>尝试</span><b>{{ item.attempts || 0 }}</b></div>
             </article>
             <div v-if="!cleanupPlan.items?.length" class="lt-empty">暂无待处理对象</div>
+          </div>
+          <div v-if="cleanupPlanTotalPages > 1" class="lt-pagination">
+            <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" :disabled="cleanupPlanPage <= 1" @click="prevCleanupPlanPage" />
+            <span>{{ cleanupPlanPage }} / {{ cleanupPlanTotalPages }}（共 {{ cleanupPlan.total || 0 }} 部）</span>
+            <VBtn size="x-small" variant="tonal" icon="mdi-chevron-right" :disabled="cleanupPlanPage >= cleanupPlanTotalPages" @click="nextCleanupPlanPage" />
           </div>
         </section>
 
