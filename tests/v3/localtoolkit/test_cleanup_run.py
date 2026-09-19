@@ -44,15 +44,28 @@ class FakeMediaServer:
         self.deleted = []
         self.checked = []
         self.scans = 0
+        self.prechecked = []
+        self.preflight = {}
+        created = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat()
+        self.inventory = {
+            key: CleanupCandidate(movie_id=key, title=f"电影 {key}", server="emby", library_id="movies",
+                                  date_created=created, favorite=False, played=True)
+            for key in self.states
+        }
 
     def iter_candidates(self, _config):
         self.scans += 1
-        created = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat()
-        return [
-            CleanupCandidate(movie_id=key, title=f"电影 {key}", server="emby",
-                             date_created=created, favorite=False, played=True)
-            for key in self.states if key not in self.deleted
-        ]
+        return [deepcopy(item) for key, item in self.inventory.items() if key not in self.deleted]
+
+    def refresh_candidate(self, item, user):
+        """独立模拟删除前读取，删除后状态由 states 控制。"""
+        self.prechecked.append((item.movie_id, user))
+        if item.movie_id in self.preflight:
+            value = self.preflight[item.movie_id]
+            if isinstance(value, Exception):
+                raise value
+            return value
+        return True, deepcopy(self.inventory[item.movie_id])
 
     def delete_item(self, item):
         self.deleted.append(item.movie_id)
@@ -76,9 +89,13 @@ def build_module(states, *, delete_results=None, **config):
     module = LibraryCleanupModule(plugin, adapter, FakeNotifier)
     module.verification_delay = 0
     module.load_config({
-        **module.get_default_config(), "auto_delete": True, "auto_delete_delay": 0,
+        "auto_delete": True, "auto_delete_delay": 0,
         "selected_user": "viewer", **config,
     })
+    plugin.data["library_cleanup_plan"] = {"version": 1, "items": [
+        {**item.to_dict(), "queue_key": f"emby:{item.movie_id}", "attempts": 0}
+        for item in adapter.inventory.values()
+    ]}
     return module, plugin, adapter
 
 
@@ -86,7 +103,8 @@ def test_deletion_is_verified_before_same_report_gets_final_status():
     module, plugin, adapter = build_module({"a": [False], "b": [False]})
     result = module.run_once()
     assert result["success"] is True
-    assert adapter.deleted == ["b", "a"] and adapter.scans == 1
+    assert adapter.deleted == ["b", "a"] and adapter.scans == 0
+    assert adapter.prechecked == [("b", "viewer"), ("a", "viewer")]
     assert adapter.checked == [("b", "viewer"), ("a", "viewer")]
     assert len(plugin.notifiers) == 1
     calls = plugin.notifiers[0].calls
@@ -102,7 +120,7 @@ def test_api_success_does_not_hide_remaining_or_unknown_items():
     result = module.run_once()
     assert result["success"] is False
     assert adapter.deleted == ["c", "b", "a"]
-    assert [key for key, _ in adapter.checked] == ["c", "b", "c", "b", "c", "b"]
+    assert [key for key, _ in adapter.checked] == ["c", "b", "a", "c", "b", "c", "b"]
     verification = plugin.data["library_cleanup_result"]["deletion"]["verification"]
     assert [verification[key] for key in ["removed_count", "remaining_count", "unknown_count"]] == [1, 1, 1]
     assert plugin.data["tool_history"][0]["status"] == "failed"
@@ -144,8 +162,7 @@ def test_check_dry_run_and_limit_guards_never_delete_or_verify(config):
     module, plugin, adapter = build_module({"a": [False], "b": [False]}, **config)
     module.run_once()
     assert not adapter.deleted and not adapter.checked
-    assert [call[0] for call in plugin.notifiers[0].calls] == ["finish"]
-    assert "✅ 本轮删除完毕" not in plugin.notifiers[0].calls[0][2]
+    assert not adapter.prechecked and not adapter.scans and not plugin.notifiers
 
 
 def test_cleanup_plan_processes_configured_quantity_first_and_respects_cooldown():
@@ -163,6 +180,7 @@ def test_cleanup_plan_processes_configured_quantity_first_and_respects_cooldown(
     assert second["success"] is True
     assert second["cooldown"] is True
     assert adapter.deleted == [str(index) for index in range(14, 2, -1)]
+    assert not adapter.scans and len(adapter.prechecked) == 12
 
 
 def test_cleanup_plan_retains_failed_items_with_attempt_metadata():
@@ -179,11 +197,11 @@ def test_cleanup_plan_retains_failed_items_with_attempt_metadata():
     assert all(item["last_error"] for item in plan_items)
 
 
-def test_empty_inventory_sends_one_check_report_without_deletion():
+def test_empty_plan_is_quiet_without_scanning_or_deletion():
     module, plugin, adapter = build_module({})
     assert module.run_once()["success"] is True
     assert not adapter.deleted and not adapter.checked
-    assert len(plugin.notifiers) == 1 and len(plugin.notifiers[0].calls) == 1
+    assert not plugin.notifiers and not adapter.scans and not adapter.prechecked
 
 
 def test_notifications_off_does_not_disable_verification():
@@ -196,7 +214,7 @@ def test_overlapping_run_cannot_delete_twice_or_replace_active_report():
     module, plugin, adapter = build_module({"a": [False]})
     module._run_lock.acquire()
     try:
-        assert module.run_once()["success"] is False
+        assert module.run_once()["busy"] is True
         assert not adapter.deleted and not plugin.notifiers and not adapter.scans
     finally:
         module._run_lock.release()

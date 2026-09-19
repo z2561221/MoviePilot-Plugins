@@ -106,6 +106,18 @@ def test_run_module_rejects_unknown_module_with_404() -> None:
     assert error.value.status_code == 404
 
 
+def test_cleanup_failure_keeps_per_batch_counts_in_the_typed_response() -> None:
+    """部分失败仍保留本批结果，不能被响应模型丢弃。"""
+    response = run_module(_plugin_with_result({
+        "success": False, "summary": "本轮未全部完成", "operation": "cleanup",
+        "processed_count": 10, "success_count": 7, "unknown_count": 2,
+        "skipped_count": 1, "already_absent_count": 0, "queue_count": 12, "scanned_count": 0,
+    }), "library_cleanup")
+    assert response.success is False
+    assert response.data.unknown_count == 2 and response.data.skipped_count == 1
+    assert response.data.scanned_count == 0 and response.data.operation == "cleanup"
+
+
 def test_response_router_produces_exact_single_envelope() -> None:
     """确认宿主路由对业务模型只包装一次，并保留显式业务失败。"""
     router = ResponseAPIRouter()

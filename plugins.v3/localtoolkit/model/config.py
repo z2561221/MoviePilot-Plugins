@@ -5,6 +5,7 @@ from typing import Any, Dict
 from ..service.check_missing import CheckMissingModule
 from ..service.library_cleanup import LibraryCleanupModule
 from ..service.tmdb_cache import TmdbCacheModule
+from .cleanup_config import normalize_cleanup_config
 
 
 def build_default_config(plugin) -> Dict[str, Any]:
@@ -26,4 +27,5 @@ def merge_config(plugin, config: Dict[str, Any] | None) -> Dict[str, Any]:
             merged[key].update(value)
         else:
             merged[key] = value
+    merged["library_cleanup"] = normalize_cleanup_config((config or {}).get("library_cleanup"))
     return merged

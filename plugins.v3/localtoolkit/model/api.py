@@ -17,6 +17,14 @@ class ToolkitModuleStatus(BaseModel):
     enabled: Optional[bool] = None
     auto_delete: Optional[bool] = None
     cron: Optional[str] = None
+    scan_enabled: bool | None = None
+    scan_cron: str | None = None
+    scan_notify: bool | None = None
+    cleanup_enabled: bool | None = None
+    cleanup_cron: str | None = None
+    cleanup_notify: bool | None = None
+    scan_error: str | None = None
+    cleanup_error: str | None = None
     last_error: Optional[str] = None
     plan_count: Optional[int] = None
     last_scan_at: Optional[str] = None
@@ -119,6 +127,7 @@ class ToolkitCleanupPlanData(BaseModel):
     last_scan_at: str = ""
     last_cycle_at: str = ""
     last_cycle: dict = Field(default_factory=dict)
+    last_scan: dict = Field(default_factory=dict)
     next_cycle_at: str = ""
     cooldown_minutes: int = 0
     batch_size: int = 10
@@ -146,6 +155,8 @@ class ToolkitRunData(BaseModel):
     """工具模块运行接口的统一业务数据。"""
 
     summary: Optional[str] = None
+    operation: str | None = None
+    busy: bool | None = None
     deleted: Optional[int] = None
     total: Optional[int] = None
     before: Optional[ToolkitCacheSnapshot] = None
@@ -154,9 +165,15 @@ class ToolkitRunData(BaseModel):
     items: Optional[list[ToolkitMissingItem]] = None
     scanned_count: Optional[int] = None
     queued_added: Optional[int] = None
+    queued_removed: int | None = None
+    qualified_count: int | None = None
     queue_count: Optional[int] = None
     processed_count: Optional[int] = None
     success_count: Optional[int] = None
     fail_count: Optional[int] = None
+    remaining_count: int | None = None
+    unknown_count: int | None = None
+    skipped_count: int | None = None
+    already_absent_count: int | None = None
     cleared_count: Optional[int] = None
     cooldown: Optional[bool] = None

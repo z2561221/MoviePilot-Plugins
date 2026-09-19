@@ -267,12 +267,35 @@ def filter_cleanup_candidates(
             candidate = candidate_from_media_item(candidate)
         if not any(match_condition(candidate, condition, current) for condition in conditions):
             continue
-        identity = candidate.identity
+        identity = cleanup_plan_key(candidate)
         if identity in seen:
             continue
         seen.add(identity)
         qualified.append(candidate)
     return CleanupResult(conditions=conditions, qualified_movies=qualified)
+
+
+def evaluate_cleanup_candidate(
+    candidate: CleanupCandidate, conditions: Iterable[CleanupCondition], now: datetime,
+) -> bool | None:
+    """三态判断实时条件；缺失必要字段时保留待复核，不按旧快照删除。"""
+    unknown = False
+    for condition in conditions:
+        age = candidate.age_days(now)
+        checks = [None if age is None else age > condition.days_threshold]
+        checks.append(
+            True if condition.favorite == "all" else
+            None if candidate.favorite is None else match_favorite(candidate.favorite, condition.favorite)
+        )
+        checks.append(
+            True if condition.played == "all" else
+            None if candidate.played is None else match_played(candidate.played, condition.played)
+        )
+        if all(value is True for value in checks):
+            return True
+        if False not in checks:
+            unknown = True
+    return None if unknown else False
 
 
 def match_condition(candidate: CleanupCandidate, condition: CleanupCondition, now: datetime) -> bool:

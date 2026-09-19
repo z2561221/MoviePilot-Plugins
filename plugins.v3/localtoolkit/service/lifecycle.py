@@ -3,6 +3,7 @@
 from app.sdk.logging import logger
 from app.sdk.plugins import PluginManager
 
+from ..model.cleanup_config import normalize_cleanup_config
 from ..model.config import merge_config
 from ..security import redact_sensitive_text
 from .check_missing import CheckMissingModule
@@ -12,6 +13,7 @@ from .tmdb_cache import TmdbCacheModule
 
 def initialize_plugin(plugin, config: dict | None = None) -> None:
     """初始化工具中心插件运行状态与模块实例。"""
+    stop_plugin_service(plugin)
     plugin._config = merge_config(plugin, config or {})
     plugin._enabled = bool(plugin._config.get("enabled", False))
     plugin.tmdb_cache = TmdbCacheModule(plugin)
@@ -22,6 +24,9 @@ def initialize_plugin(plugin, config: dict | None = None) -> None:
     plugin.library_cleanup.load_config(plugin._config.get("library_cleanup", {}))
     if config is None or not config.get("migration_done"):
         migrate_old_configs(plugin)
+    elif any(key in (config.get("library_cleanup") or {}) for key in ("enabled", "cron", "notify")):
+        plugin.update_config(plugin._config)
+    plugin.library_cleanup.load_config(plugin._config.get("library_cleanup", {}))
 
 
 def migrate_old_configs(plugin) -> None:
@@ -37,6 +42,8 @@ def migrate_old_configs(plugin) -> None:
         for plugin_id, key in mapping.items():
             old_config = plugin_manager.get_plugin_config(plugin_id) or {}
             if old_config:
+                if key == "library_cleanup":
+                    old_config = normalize_cleanup_config(old_config)
                 plugin._config[key].update(
                     item
                     for item in old_config.items()
@@ -59,5 +66,8 @@ def build_services(plugin) -> list:
 
 
 def stop_plugin_service(plugin) -> None:
-    """停止工具中心后台服务。"""
-    return None
+    """禁用旧模块的定时回调；已进入的批次仍持有共享锁直至收尾。"""
+    module = getattr(plugin, "library_cleanup", None)
+    if module is not None:
+        module.config["scan_enabled"] = False
+        module.config["cleanup_enabled"] = False

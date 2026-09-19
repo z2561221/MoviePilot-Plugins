@@ -9,7 +9,7 @@ from ..model.library_cleanup import CleanupCandidate, CleanupResult, CleanupVeri
 
 BODY_LIMIT = 2400
 FOOTER_LIMIT = 1100
-REPORT_TITLE = "清理库存检查报告"
+REPORT_TITLE = "周期清理报告"
 
 
 def _length(text: str) -> int:
@@ -35,6 +35,8 @@ def build_report(
     *,
     phase: str = "",
     verification: CleanupVerification | None = None,
+    cycle_stats: dict | None = None,
+    precheck_errors: list[tuple[CleanupCandidate, str]] | None = None,
 ) -> str:
     """生成固定上半部分与可更新底部，始终保留完整 HTML 标签。"""
     favorite_labels = {"all": "收藏不限", "fav": "已收藏", "unfav": "未收藏"}
@@ -47,7 +49,7 @@ def build_report(
         )
     lines.extend([
         "", "<b>检查结果</b>",
-        f"符合条件：{result.qualified_count} 部",
+        f"{'本轮检查' if phase else '符合条件'}：{result.qualified_count} 部",
         f"自动删除：{'已开启' if config.get('auto_delete', False) else '未开启'}",
     ])
     if summary and not phase:
@@ -75,29 +77,37 @@ def build_report(
     elif phase == "verifying":
         footer.append("⏳ 正在复核本轮媒体条目，请稍候。")
     elif verification is not None:
+        counts = cycle_stats or {}
         footer.extend([
             f"本轮目标：{result.qualified_count} 部",
             f"确认移除：{len(verification.removed)} 部",
+            f"条件变化跳过：{counts.get('skipped_count', 0)} 部",
+            f"已不存在：{counts.get('already_absent_count', 0)} 部",
             f"仍然存在：{len(verification.remaining)} 部",
-            f"无法核验：{len(verification.unknown)} 部",
+            f"无法核验：{counts.get('unknown_count', len(verification.unknown))} 部",
         ])
+        if cycle_stats is not None:
+            footer.append(f"计划剩余：{counts.get('queue_count', 0)} 部")
         anomalies = [
             (movie, label)
             for label, movies in (("仍然存在", verification.remaining), ("无法核验", verification.unknown))
             for movie in movies
         ]
+        anomalies.extend(precheck_errors or [])
         shown = 0
         for movie, label in anomalies:
-            row = f"• {_movie_name(movie)}：{label}"
+            row = f"• {_movie_name(movie)}：{_escaped(label)}"
             if _length("\n".join([*footer, row])) > FOOTER_LIMIT - 100:
                 break
             footer.append(row)
             shown += 1
         if shown < len(anomalies):
             footer.append(f"另有 {len(anomalies) - shown} 部异常项目未展开")
+        complete = not verification.remaining and not counts.get("unknown_count", len(verification.unknown))
+        completion = "✅ 本轮删除完毕" if verification.removed else "✅ 本轮检查完成"
         footer.extend([
             "",
-            "✅ 本轮删除完毕" if verification.complete else "⚠️ 本轮清理未全部完成",
+            completion if complete else "⚠️ 本轮清理未全部完成",
             "核验范围：媒体库条目",
         ])
     return f"{body}\n\n" + "\n".join(footer)
