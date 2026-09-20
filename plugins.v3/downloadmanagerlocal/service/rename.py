@@ -20,7 +20,7 @@ from ..utils.name_cleaner import (
     collect_retry_rename_hashes,
     is_polluted_original_name,
 )
-from ..utils.torrent_adapter import get_hash, get_label, get_save_path
+from ..utils.torrent_adapter import get_hash, get_label, get_save_path, get_tracker_urls
 
 
 def _set_meta_attr(meta: MetaBase, attr: str, value: str) -> None:
@@ -443,7 +443,7 @@ def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: st
                     save_rename_record(plugin, torrent_hash, torrent_name, str(new_name), True, "")
                     return True
                 else:
-                    logger.info(f"转移后重命名(历史): 名称未变化或格式化失败，回退到种子名解析")
+                    logger.info("转移后重命名(历史): 名称未变化或格式化失败，回退到种子名解析")
 
         # 回退：解析种子名称
         cleaned_torrent_name = clean_torrent_original_name(torrent_name).strip()
@@ -487,52 +487,75 @@ def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: st
 
 
 def retry_failed_renames(plugin, to_service):
-    """对目标下载器中之前重命名失败的种子进行补刀（重命名+站点标签）"""
+    """对目标下载器中之前重命名失败的种子进行补刀并返回逐项统计。"""
+    summary = _retry_summary()
     if not plugin._rename_enabled and not plugin._tag_enabled:
-        return 0
+        return summary
     failed_hashes = get_failed_rename_hashes(plugin)
     if not failed_hashes:
-        return 0
+        return summary
+
+    if not to_service or not to_service.instance:
+        summary["failed"] = len(failed_hashes)
+        summary["errors"].append("目标下载器不可用")
+        return summary
 
     dl = to_service.instance
     dl_type = to_service.type
     try:
         torrents, _ = dl.get_torrents(ids=list(failed_hashes))
         if not torrents:
-            return 0
-        retry_count = 0
+            return summary
         for torrent in torrents:
-            th = torrent.get("hash") if dl_type == "qbittorrent" else torrent.hashString
+            th = get_hash(torrent, dl_type)
             if th not in failed_hashes:
                 continue
             is_archived = getattr(plugin, "is_rename_archived", None)
             if callable(is_archived) and is_archived(th):
                 logger.info(f"补刀跳过归档记录 hash={th}")
+                summary["skipped"] += 1
                 continue
+            summary["attempted"] += 1
             tn = torrent.get("name", "") if dl_type == "qbittorrent" else torrent.name
-            sp = torrent.get("save_path", "") if dl_type == "qbittorrent" else torrent.download_dir
-            tags = [str(t).strip() for t in torrent.get("tags", "").split(",") if t.strip()] if dl_type == "qbittorrent" and torrent.get("tags") else (torrent.labels or [])
-            trackers = [t.get("url") for t in (torrent.trackers or []) if t.get("tier", -1) >= 0 and t.get("url")] if dl_type == "qbittorrent" else [t.announce for t in (torrent.trackers or []) if t.tier >= 0 and t.announce]
+            sp = get_save_path(torrent, dl_type)
+            tags = get_label(torrent, dl_type)
+            trackers = get_tracker_urls(torrent, dl_type)
             logger.info(f"补刀处理: hash={th} name={tn}")
+            item_success = True
             if plugin._rename_enabled:
                 retry_name = resolve_retry_original_name(plugin, th, tn, _get_torrent_content_name(torrent, dl_type))
                 source_hash = _find_iyuu_source_hash(plugin, th) if _is_iyuu_seed_tags(plugin, tags) else ""
                 if source_hash and rename_iyuu_torrent_by_source_record(plugin, dl, dl_type, th, retry_name or tn, source_hash):
-                    pass
+                    rename_success = True
                 elif retry_name:
-                    rename_torrent(plugin, dl, dl_type, th, retry_name, sp)
+                    rename_success = bool(rename_torrent(plugin, dl, dl_type, th, retry_name, sp))
                 else:
                     save_rename_record(plugin, th, tn, tn, False, "原始发布名污染，无法可靠补刀")
+                    rename_success = False
+                if not rename_success:
+                    item_success = False
+                    summary["errors"].append(f"{th}: 重命名失败")
             if plugin._tag_enabled:
                 from .site_tag import tag_torrent
-                tag_torrent(plugin, dl, dl_type, th, tags, trackers)
-            retry_count += 1
-        if retry_count > 0:
-            logger.info(f"补刀完成，处理 {retry_count} 个种子")
-        return retry_count
+                if not tag_torrent(plugin, dl, dl_type, th, tags, trackers):
+                    item_success = False
+                    summary["errors"].append(f"{th}: 站点标签失败")
+            if item_success:
+                summary["success"] += 1
+            else:
+                summary["failed"] += 1
+        if summary["success"] > 0:
+            logger.info(f"补刀完成，成功 {summary['success']} 个，失败 {summary['failed']} 个")
+        return summary
     except Exception as e:
         logger.error(f"补刀失败: {e}")
-        return 0
+        summary["errors"].append(str(e))
+        return summary
+
+
+def _retry_summary() -> dict:
+    """构造批量补刀统计，成功数与失败数严格对应实际返回值。"""
+    return {"attempted": 0, "success": 0, "failed": 0, "skipped": 0, "errors": []}
 
 
 def _get_torrent_name(torrent, dl_type):
@@ -544,18 +567,7 @@ def _get_torrent_name(torrent, dl_type):
 
 def _get_tracker_urls(torrent, dl_type):
     """按下载器类型提取有效 tracker URL 列表。"""
-    trackers = getattr(torrent, "trackers", None) or []
-    if dl_type == "qbittorrent":
-        return [
-            tracker.get("url")
-            for tracker in trackers
-            if tracker.get("tier", -1) >= 0 and tracker.get("url")
-        ]
-    return [
-        tracker.announce
-        for tracker in trackers
-        if tracker.tier >= 0 and tracker.announce
-    ]
+    return get_tracker_urls(torrent, dl_type)
 
 
 def retry_rename_by_hash(plugin, to_service, torrent_hash: str):

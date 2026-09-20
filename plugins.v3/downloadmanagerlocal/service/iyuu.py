@@ -29,6 +29,7 @@ from ..adapter.moviepilot import (
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
 from ..model.state import iyuu_history_key, iyuu_source_key, record_iyuu_results
 from ..utils.sensitive import mask_sensitive_url
+from ..utils.torrent_adapter import get_label, get_tracker_urls
 
 
 IYUU_QUERY_CHUNK_SIZE = 100
@@ -113,6 +114,7 @@ def iyuu_auto_service_info(plugin) -> Optional[ServiceInfo]:
 
 def iyuu_auto_seed(plugin):
     """IYUU 自动辅种主逻辑"""
+    _reset_iyuu_run_counters(plugin)
     try:
         return _iyuu_auto_seed(plugin)
     except Exception as e:
@@ -123,6 +125,16 @@ def iyuu_auto_seed(plugin):
             logger.error(f"IYUU辅种：异常后保存缓存失败: {save_err}", exc_info=True)
     finally:
         _flush_iyuu_stats(plugin)
+
+
+def _reset_iyuu_run_counters(plugin) -> None:
+    """在每次调度入口清零本轮计数，避免提前返回重复结算上一轮。"""
+    plugin._iyuu_total = 0
+    plugin._iyuu_realtotal = 0
+    plugin._iyuu_success = 0
+    plugin._iyuu_exist = 0
+    plugin._iyuu_fail = 0
+    plugin._iyuu_cached = 0
 
 
 def _flush_iyuu_stats(plugin):
@@ -147,13 +159,6 @@ def _iyuu_auto_seed(plugin):
         logger.warning(f"IYUU辅种：预检失败，本轮跳过：{ready_msg}")
         return
     logger.info("开始 IYUU 辅种任务 ...")
-
-    plugin._iyuu_total = 0
-    plugin._iyuu_realtotal = 0
-    plugin._iyuu_success = 0
-    plugin._iyuu_exist = 0
-    plugin._iyuu_fail = 0
-    plugin._iyuu_cached = 0
 
     transient_error_count = 0
     stop_reason = ""
@@ -504,8 +509,8 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
             torrents, _ = dl.get_torrents(ids=[download_id])
             if torrents:
                 t = torrents[0]
-                tags = [str(x).strip() for x in t.get("tags", "").split(",") if x.strip()] if dl_type == "qbittorrent" and t.get("tags") else (t.labels or [])
-                trackers = [tr.get("url") for tr in (t.trackers or []) if tr.get("tier", -1) >= 0 and tr.get("url")] if dl_type == "qbittorrent" else [tr.announce for tr in (t.trackers or []) if tr.tier >= 0 and tr.announce]
+                tags = get_label(t, dl_type)
+                trackers = get_tracker_urls(t, dl_type)
                 plugin._tag_torrent(dl, dl_type, download_id, tags, trackers)
         except Exception as e:
             logger.error(f"IYUU辅种后打标签失败: {e}")

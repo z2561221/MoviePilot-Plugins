@@ -64,3 +64,33 @@ def test_worker_starts_once_wakes_and_stop_does_not_call_restore():
     assert plugin.calls >= 1
     assert worker.stop_upload_limit_worker(plugin) is True
     assert worker.is_upload_limit_worker_running(plugin) is False
+
+
+def test_worker_restarts_after_stop_timeout_when_new_start_is_requested():
+    """旧协调轮次超时退出后，显式新启动请求不能留下空转状态。"""
+    worker = _load("service.upload_limit_worker")
+    plugin = FakePlugin()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def coordinate():
+        """阻塞首轮协调，模拟下载器调用超过停止等待时间。"""
+        plugin.calls += 1
+        entered.set()
+        release.wait(5)
+
+    plugin._coordinate_upload_limits = coordinate
+    assert worker.start_upload_limit_worker(plugin) is True
+    assert entered.wait(1)
+
+    assert worker.stop_upload_limit_worker(plugin, join_timeout=0) is True
+    assert worker.start_upload_limit_worker(plugin) is False
+    release.set()
+
+    for _ in range(100):
+        if plugin.calls >= 2:
+            break
+        threading.Event().wait(0.01)
+
+    assert plugin.calls >= 2
+    worker.stop_upload_limit_worker(plugin)

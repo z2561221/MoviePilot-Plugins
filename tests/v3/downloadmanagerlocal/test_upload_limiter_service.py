@@ -550,3 +550,45 @@ def test_disabled_status_clears_stale_runtime_metrics():
         "allocated_kib",
     ):
         assert result[key] == 0
+
+
+def test_returning_incomplete_torrent_restores_original_limit():
+    """任务暂时回到下载状态时，应恢复接管前限速并清除接管记录。"""
+    limiter = _load("service.upload_limiter")
+    torrents = [qb_torrent("resume", "A", limit_kib=23, rate=10 * 1024)]
+    instance = FakeQbInstance(torrents)
+    plugin = FakePlugin(
+        {"QB2": SimpleNamespace(type="qbittorrent", instance=instance)},
+        ["QB2"],
+        {"QB2": 100},
+        {"A": {"limit_kib": 50}},
+    )
+
+    limiter.run_upload_limit_cycle(plugin, now=1000)
+    assert torrents[0]["up_limit"] == 50 * 1024
+    torrents[0].update(state="downloading", progress=0.5, amount_left=512)
+
+    limiter.run_upload_limit_cycle(plugin, now=1030)
+
+    assert torrents[0]["up_limit"] == 23 * 1024
+    assert plugin.data["upload_limit_state"]["torrents"] == {}
+
+
+def test_unknown_state_schema_preserves_original_payload_and_blocks_writes():
+    """未知 schema 不得把原始恢复基线覆盖为空状态。"""
+    limiter = _load("service.upload_limiter")
+    raw = {
+        "schema_version": 99,
+        "downloaders": {"QB2": {"original_global": {"limit_kib": 23}}},
+        "torrents": {"QB2:hash": {"original_settings": {"limit_bps": 23552}}},
+    }
+    plugin = FakePlugin({}, ["QB2"], {"QB2": 100}, data={"upload_limit_state": raw})
+
+    state = limiter.load_upload_limit_state(plugin)
+    restored = limiter.restore_upload_limits(plugin)
+
+    assert plugin._upload_limit_state_error
+    assert state["torrents"] == {}
+    assert plugin.data["upload_limit_state"] == raw
+    assert restored["code"] == 1
+    assert restored["errors"]

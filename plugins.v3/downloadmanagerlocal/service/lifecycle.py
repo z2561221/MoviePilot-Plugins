@@ -16,6 +16,7 @@ from .speed_worker import (
     start_speed_monitor_worker_if_needed,
     stop_speed_monitor_worker,
 )
+from .recheck import stop_seed_recheck_worker
 from .upload_limiter import load_upload_limit_state, restore_upload_limits
 from .upload_limit_worker import (
     start_upload_limit_worker,
@@ -126,6 +127,7 @@ def stop_plugin_service(plugin) -> None:
     except Exception as error:
         logger.error(f"停止服务失败: {error}")
     finally:
+        stop_seed_recheck_worker(plugin)
         stop_upload_limit_worker(plugin)
         stop_speed_monitor_worker(plugin)
         stop_speed_monitor_runtime(plugin)

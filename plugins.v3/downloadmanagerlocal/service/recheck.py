@@ -13,34 +13,81 @@ from ..model.state import SEED_RECHECK_QUEUE_KEY
 from ..utils.torrent_adapter import get_hash, get_label
 
 
+def _queue_lock(plugin) -> threading.RLock:
+    """获取做种校验队列锁，兼容未声明该属性的测试替身。"""
+    lock = getattr(plugin, "_seed_recheck_queue_lock", None)
+    if lock is None:
+        lock = getattr(plugin, "_seed_recheck_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            plugin._seed_recheck_lock = lock
+        plugin._seed_recheck_queue_lock = lock
+    return lock
+
+
+def _queue_key(downloader: str, hash_text: str) -> str:
+    """构造下载器隔离的队列身份。"""
+    return f"{str(downloader or '').strip()}::{str(hash_text or '').strip().lower()}"
+
+
+def _normalize_queue(value) -> dict:
+    """把旧版按 hash 的队列迁移为下载器加 hash 的键。"""
+    if not isinstance(value, dict):
+        return {}
+    normalized = {}
+    for old_key, raw_item in value.items():
+        if not isinstance(raw_item, dict):
+            continue
+        item = dict(raw_item)
+        hash_text = str(item.get("hash") or old_key or "").strip()
+        downloader = str(item.get("downloader") or "").strip()
+        if not hash_text or not downloader:
+            continue
+        key = _queue_key(downloader, hash_text)
+        existing = normalized.get(key)
+        if existing is None or float(item.get("updated_at") or 0) >= float(existing.get("updated_at") or 0):
+            item["hash"] = hash_text
+            item["downloader"] = downloader
+            item["updated_at"] = float(item.get("updated_at") or item.get("created_at") or time.time())
+            normalized[key] = item
+    return normalized
+
+
 def load_seed_recheck_queue(plugin):
     """读取持久化做种校验队列。"""
-    return plugin.get_data(SEED_RECHECK_QUEUE_KEY) or {}
+    with _queue_lock(plugin):
+        return _normalize_queue(plugin.get_data(SEED_RECHECK_QUEUE_KEY))
 
 
 def save_seed_recheck_queue(plugin, queue):
     """保存持久化做种校验队列。"""
-    plugin.save_data(SEED_RECHECK_QUEUE_KEY, queue)
+    with _queue_lock(plugin):
+        plugin.save_data(SEED_RECHECK_QUEUE_KEY, _normalize_queue(queue))
 
 
 def register_seed_recheck(plugin, downloader, hashes, source):
     """注册一批待校验完成后自动开始做种的任务。"""
     if not hashes:
         return
-    queue = load_seed_recheck_queue(plugin)
-    for hash_text in hashes:
-        existing = queue.get(hash_text, {})
-        queue[hash_text] = {
-            "hash": hash_text,
-            "downloader": downloader,
-            "source": source,
-            "created_at": existing.get("created_at") or time.time(),
-            "updated_at": time.time(),
-            "attempts": existing.get("attempts", 0),
-            "last_check": existing.get("last_check", 0),
-            "max_wait_minutes": plugin._seed_max_wait_minutes,
-        }
-    save_seed_recheck_queue(plugin, queue)
+    with _queue_lock(plugin):
+        queue = _normalize_queue(plugin.get_data(SEED_RECHECK_QUEUE_KEY))
+        for hash_text in hashes:
+            clean_hash = str(hash_text or "").strip()
+            if not clean_hash:
+                continue
+            key = _queue_key(downloader, clean_hash)
+            existing = queue.get(key, {})
+            queue[key] = {
+                "hash": clean_hash,
+                "downloader": downloader,
+                "source": source,
+                "created_at": existing.get("created_at") or time.time(),
+                "updated_at": time.time(),
+                "attempts": existing.get("attempts", 0),
+                "last_check": existing.get("last_check", 0),
+                "max_wait_minutes": plugin._seed_max_wait_minutes,
+            }
+        plugin.save_data(SEED_RECHECK_QUEUE_KEY, queue)
     logger.info(f"做种校验：注册 {len(hashes)} 个待校验任务，来源={source}，下载器={downloader}")
     ensure_seed_recheck_worker(plugin)
 
@@ -51,76 +98,142 @@ def ensure_seed_recheck_worker(plugin):
         if plugin._seed_recheck_running:
             return
         plugin._seed_recheck_running = True
+        stop_event = threading.Event()
+        plugin._seed_recheck_stop_event = stop_event
     thread = threading.Thread(
         target=seed_recheck_loop,
-        args=(plugin,),
+        args=(plugin, stop_event),
         name="DownloadManagerSeedRecheck",
         daemon=True,
     )
+    plugin._seed_recheck_thread = thread
     thread.start()
     logger.info("做种校验：按需 worker 已启动")
 
 
-def seed_recheck_loop(plugin):
+def stop_seed_recheck_worker(plugin, join_timeout: float = 10.0) -> bool:
+    """停止并等待做种校验 worker，阻止停止后的下载器写操作。"""
+    thread = getattr(plugin, "_seed_recheck_thread", None)
+    stop_event = getattr(plugin, "_seed_recheck_stop_event", None)
+    if stop_event is not None:
+        stop_event.set()
+    if thread is None:
+        return False
+    if thread is not threading.current_thread() and thread.is_alive():
+        thread.join(timeout=max(0.0, float(join_timeout)))
+    if not thread.is_alive():
+        with getattr(plugin, "_seed_recheck_lock", threading.RLock()):
+            if getattr(plugin, "_seed_recheck_thread", None) is thread:
+                plugin._seed_recheck_thread = None
+            if getattr(plugin, "_seed_recheck_stop_event", None) is stop_event:
+                plugin._seed_recheck_stop_event = None
+    return True
+
+
+def seed_recheck_loop(plugin, stop_event=None):
     """持续处理做种校验队列，直到队列清空或插件停用。"""
+    stop_event = stop_event or getattr(plugin, "_seed_recheck_stop_event", None) or threading.Event()
     try:
-        while plugin._enabled:
+        while plugin._enabled and not stop_event.is_set():
             queue = load_seed_recheck_queue(plugin)
             if not queue:
                 logger.info("做种校验：队列已清空，worker 退出")
                 break
-            changed = process_seed_recheck_once(plugin, queue)
+            before = {key: dict(item) for key, item in queue.items()}
+            try:
+                changed = process_seed_recheck_once(plugin, queue, stop_event=stop_event)
+            except Exception as exc:
+                logger.error(f"做种校验：处理队列失败: {exc}")
+                changed = False
             if changed:
-                save_seed_recheck_queue(plugin, queue)
-            time.sleep(plugin._seed_check_interval)
+                _merge_processed_queue(plugin, before, queue)
+            if stop_event.wait(max(0.1, float(getattr(plugin, "_seed_check_interval", 60) or 60))):
+                break
     finally:
         with plugin._seed_recheck_lock:
             plugin._seed_recheck_running = False
+            if getattr(plugin, "_seed_recheck_thread", None) is threading.current_thread():
+                plugin._seed_recheck_thread = None
+            if getattr(plugin, "_seed_recheck_stop_event", None) is stop_event:
+                plugin._seed_recheck_stop_event = None
 
 
-def process_seed_recheck_once(plugin, queue):
+def _merge_processed_queue(plugin, before: dict, after: dict) -> None:
+    """把旧快照处理结果合并到最新队列，避免覆盖并发登记的新任务。"""
+    with _queue_lock(plugin):
+        current = _normalize_queue(plugin.get_data(SEED_RECHECK_QUEUE_KEY))
+        for key, old_item in before.items():
+            current_item = current.get(key)
+            old_revision = float(old_item.get("updated_at") or old_item.get("created_at") or 0)
+            current_revision = float((current_item or {}).get("updated_at") or (current_item or {}).get("created_at") or 0)
+            if current_revision > old_revision:
+                continue
+            if key not in after:
+                current.pop(key, None)
+            else:
+                current[key] = after[key]
+        plugin.save_data(SEED_RECHECK_QUEUE_KEY, current)
+
+
+def process_seed_recheck_once(plugin, queue, stop_event=None):
     """处理一次做种校验队列并返回队列是否发生变化。"""
     changed = False
     grouped = {}
-    for hash_text, item in queue.items():
+    stop_event = stop_event or getattr(plugin, "_seed_recheck_stop_event", None)
+    for queue_key, item in queue.items():
         downloader_name = item.get("downloader", "")
-        grouped.setdefault(downloader_name, []).append(item)
+        grouped.setdefault(downloader_name, []).append((queue_key, item))
     for downloader_name, items in grouped.items():
         service = plugin.service_info(downloader_name)
         if not service:
             continue
         downloader = service.instance
         downloader_type = service.type
-        hashes = [item["hash"] for item in items]
+        hashes = [item[1]["hash"] for item in items]
         try:
-            torrents, _ = downloader.get_torrents(ids=hashes)
+            response = downloader.get_torrents(ids=hashes)
+            torrents, poll_error = response if isinstance(response, tuple) and len(response) == 2 else (response, None)
         except Exception as exc:
             logger.error(f"做种校验：查询下载器 {downloader_name} 失败: {exc}")
             continue
+        if poll_error:
+            logger.error(f"做种校验：查询下载器 {downloader_name} 失败: {poll_error}")
+            continue
         if not torrents:
+            for queue_key, item in items:
+                if seed_is_timeout(item, plugin._seed_max_wait_minutes):
+                    queue.pop(queue_key, None)
+                    changed = True
             continue
         task_map = {}
         for torrent in torrents:
             hash_text = plugin.get_hash(torrent, downloader_type)
             if hash_text:
-                task_map[hash_text] = torrent
-        for item in items:
+                task_map[str(hash_text).lower()] = torrent
+        for queue_key, item in items:
             hash_text = item["hash"]
-            task = task_map.get(hash_text)
+            task = task_map.get(str(hash_text).lower())
             if not task:
                 if seed_should_remove_missing(item):
-                    queue.pop(hash_text, None)
+                    queue.pop(queue_key, None)
                     changed = True
                     logger.info(f"做种校验：{hash_text} 在下载器中未找到，已移出队列")
                 continue
             state = task.get("state") if downloader_type == "qbittorrent" else task.status
+            if seed_is_timeout(item, plugin._seed_max_wait_minutes):
+                queue.pop(queue_key, None)
+                changed = True
+                logger.info(f"做种校验：{hash_text} 等待超时（{plugin._seed_max_wait_minutes}分钟），已移出队列")
+                continue
             if seed_is_checking(state, downloader_type):
                 continue
             if seed_is_ready(state, downloader_type, task):
                 try:
+                    if stop_event is not None and stop_event.is_set():
+                        return changed
                     downloader.start_torrents(ids=[hash_text])
                     logger.info(f"做种校验：{hash_text} 校验完成，已自动开始做种，来源={item.get('source')}")
-                    queue.pop(hash_text, None)
+                    queue.pop(queue_key, None)
                     changed = True
                 except Exception as exc:
                     logger.error(f"做种校验：{hash_text} 开始做种失败: {exc}")
@@ -128,16 +241,12 @@ def process_seed_recheck_once(plugin, queue):
             if seed_is_error(state, downloader_type):
                 item["attempts"] = item.get("attempts", 0) + 1
                 if item["attempts"] >= 5:
-                    queue.pop(hash_text, None)
+                    queue.pop(queue_key, None)
                     changed = True
                     logger.info(f"做种校验：{hash_text} 多次错误，已移出队列")
                 continue
-            if seed_is_timeout(item, plugin._seed_max_wait_minutes):
-                queue.pop(hash_text, None)
-                changed = True
-                logger.info(f"做种校验：{hash_text} 等待超时（{plugin._seed_max_wait_minutes}分钟），已移出队列")
-                continue
             item["last_check"] = time.time()
+            item["updated_at"] = time.time()
             changed = True
     return changed
 
@@ -352,6 +461,7 @@ def _resolve_seed_source(
 
 __all__ = (
     "ensure_seed_recheck_worker",
+    "stop_seed_recheck_worker",
     "can_seed_paused_torrent",
     "load_seed_recheck_queue",
     "process_seed_recheck_once",
