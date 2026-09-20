@@ -242,7 +242,9 @@ def write_subscribe_record(
 ) -> None:
     """写入自动或榜单手动订阅历史记录。"""
     resolved_title = (title if prefer_title else None) or getattr(mediainfo, "title", None) or title
-    resolved_year = str(year) if year is not None else utils.get_media_year(mediainfo, season=season)
+    resolved_year = (
+        str(year) if year is not None else utils.get_media_year(mediainfo, season=season)
+    )
     resolved_tmdb_id = getattr(mediainfo, "tmdb_id", None) if mediainfo else tmdb_id
     resolved_type = getattr(mediainfo, "type", None) if mediainfo else media_type
     if not poster and mediainfo:

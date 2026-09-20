@@ -68,6 +68,8 @@ DoubanCenter 3.0.11 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - 定时 / 立即运行：`DoubanCenter.__run_all()` -> `service/rank_pipeline.py:run_scheduled()` / `run_once()` -> `service/rank_subscription.py:refresh_then_subscribe()` -> `service/rank_refresh.py:refresh_rank_data()`。
 - 榜单刷新：`service/rank_refresh.py` -> `service/rank_snapshot.py` -> `service/rank_recognition.py` -> `service/rank_pipeline.py` 领域识别回调。
 - 榜单订阅：`service/rank_subscription.py` -> `service/rank_pipeline.py:_process_coming_snapshots()` / `_process_general_snapshots()` -> `service/observation.py` -> `service/subscription.py`。
+- 本季日期：`service/rank_timing.py` 在当前快照内按 TMDB 身份及原生季号复用日期；分段年份与原生季日期分别保留，不能直接使用剧集组 `season_years`。记录年份单独传递，不改写宿主媒体对象。
+- 分季退避：`service/folio_retry.py` 保留未到期同类失败的原期限；到期失败才递增，身份、状态或库内季事实变化可立即复核。
 - 详情 API：`controller/api.py` -> `service/dashboard.py` -> `storage/records.py` / `service/archive.py`。
 - 豆瓣时间：Webhook event -> `service/webhook.py` -> `service/folio.py` -> `adapter/douban_account.py:DoubanApi`。
 

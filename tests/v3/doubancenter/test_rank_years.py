@@ -7,7 +7,7 @@ import pytest
 from app.plugins.doubancenter import utils
 from app.plugins.doubancenter.service import rank_pipeline, rank_timing, subscription
 from app.plugins.doubancenter.storage import records
-from app.schemas.types import MediaType
+from app.schemas.types import MediaSource, MediaType
 from app.sdk.media import MetaInfo
 
 from tests.v3.doubancenter import test_rank_seasons
@@ -276,3 +276,36 @@ def test_failed_subscription_record_keeps_explicit_season_year(season_lab, monke
     assert not season_lab.added
     assert season_lab.saved["subscribe_records"][0]["year"] == "2026"
     assert season_lab.saved["subscribe_records"][0]["status"] == "failed"
+
+
+@pytest.mark.parametrize("has_native_date", [True, False])
+def test_selected_episode_group_cannot_supply_native_date(has_native_date):
+    """启用分组时只消费原生季列表或查询结果，不消费投影后的同号季日期。"""
+    media = SimpleNamespace(
+        episode_group="lab-group", year="2016",
+        season_info=[{"season_number": 4, "air_date": "2024-04-08"}],
+        tmdb_info={"seasons": [{"season_number": 4, "air_date": "2026-04-08"}]}
+        if has_native_date else {},
+    )
+    calls = []
+    assert utils.get_media_release(
+        media, 4, season_date_loader=lambda season: calls.append(season) or "2026-04-08",
+    ) == ("2026", "2026-04-08")
+    assert calls == ([] if has_native_date else [4])
+
+
+@pytest.mark.parametrize("tmdb_id", [None, 65942])
+def test_other_source_id_is_never_used_as_tmdb_id(season_lab, monkeypatch, tmdb_id):
+    """Bangumi 原生 ID 不能进入 TMDB 季查询，只有明确的 TMDB 映射可用。"""
+    media = season_lab.media
+    media.media_source = MediaSource.Bangumi
+    media.media_id = "633836"
+    media.tmdb_id = None
+    media.season_info = []
+    calls = []
+    monkeypatch.setattr(season_lab.plugin.chain, "tmdb_info", lambda **kw: calls.append(kw) or {
+        "season_number": 4, "air_date": "2026-04-08",
+    })
+    year, _ = rank_timing.resolve_release(season_lab.plugin, media, 4, entry={"tmdbid": tmdb_id})
+    assert year == ("2026" if tmdb_id else "")
+    assert [call["tmdbid"] for call in calls] == ([tmdb_id] if tmdb_id else [])

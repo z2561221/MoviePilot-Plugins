@@ -1,6 +1,7 @@
 """验证身份未决条目的持久化退避和安全恢复，不请求或写入豆瓣。"""
 
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 from app.plugins.doubancenter.service import folio, folio_retry
@@ -90,3 +91,60 @@ def test_retry_delay_is_bounded_and_new_reason_is_reported(retry_lab):
     assert not folio._sync_to_douban(plugin, "还珠格格 第2季", "do", "TV", {}, media, origin=origin)
     assert len(warnings) == 2
     assert next(iter(plugin.data["folio_wait"].values()))["retry_count"] == 1
+
+
+def test_repeated_library_failure_preserves_unexpired_deadline(retry_lab, monkeypatch):
+    """媒体库查询失败的早退路径也遵守原有期限，不能被重复播放推迟。"""
+    plugin, media, origin, now, _, _, _ = retry_lab
+    origin["mediaserver"] = {"server": "lab", "series_id": "series1", "season_id": "season2"}
+    monkeypatch.setattr(folio.folio_library, "load_season", lambda *args, **kwargs: None)
+
+    def invoke():
+        """只走隔离的媒体库失败分支。"""
+        return folio._sync_to_douban(plugin, "还珠格格 第2季", "do", "TV", {}, media, origin=origin)
+
+    assert not invoke()
+    first = next(iter(plugin.data["folio_wait"].values()))
+    now[0] += 60
+    assert not invoke()
+    repeated = next(iter(plugin.data["folio_wait"].values()))
+    assert repeated["next_retry_at"] == first["next_retry_at"]
+    assert repeated["retry_count"] == first["retry_count"] == 1
+    now[0] = first["next_retry_at"]
+    assert not invoke()
+    repeated = next(iter(plugin.data["folio_wait"].values()))
+    assert repeated["retry_count"] == 2
+    assert repeated["next_retry_at"] == now[0] + 60 * 60
+
+
+def test_changed_library_or_native_identity_rechecks_immediately(retry_lab):
+    """库内季修复或同一库条目的来源身份修正，不受旧等待期限限制。"""
+    plugin, media, origin, _, calls, _, _ = retry_lab
+    assert not folio._sync_to_douban(plugin, "还珠格格 第2季", "do", "TV", {}, media, origin=origin)
+    changed = {**origin, "library_season": {"air_date": "1999-04-21", "episode_numbers": [1, 2]}}
+    assert not folio._sync_to_douban(plugin, "还珠格格 第2季", "do", "TV", {}, media, origin=changed)
+    assert len(calls) == 2
+    reference = {"server": "lab", "series_id": "series1", "season_id": "season2"}
+    first = {**changed, "mediaserver": reference}
+    repaired = {**first, "media_id": "99999"}
+    assert folio_retry.context_key(first, "do") != folio_retry.context_key(repaired, "do")
+
+
+def test_retry_success_clears_persisted_queue(retry_lab, monkeypatch):
+    """到期后核验成功只写一次档案，并清除持久化待处理记录。"""
+    plugin, media, origin, now, _, _, result = retry_lab
+    writes = []
+    monkeypatch.setattr(folio, "_create_douban_api", lambda target: SimpleNamespace(
+        set_watching_status=lambda **kwargs: writes.append(kwargs) or True,
+    ))
+    assert not folio._sync_to_douban(plugin, "还珠格格 第2季", "do", "TV", {}, media, origin=origin)
+    now[0] = next(iter(plugin.data["folio_wait"].values()))["next_retry_at"]
+    result.update(resolved=True, subject_id="1786740", subject_name="还珠格格第二部",
+                  poster_path="https://example.test/season.jpg", identity_scope="season")
+    processed = {}
+    assert folio._sync_to_douban(
+        plugin, "还珠格格 第2季", "do", "TV", processed, media, origin=origin,
+    )
+    assert len(writes) == 1
+    assert plugin.data["folio_wait"] == {}
+    assert next(iter(plugin.data["folio_data"].values()))["identity_status"] == "verified"

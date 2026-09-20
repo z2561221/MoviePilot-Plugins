@@ -4,7 +4,6 @@ import time
 
 from ..model import folio_record
 
-
 BASE_DELAY_SECONDS = 30 * 60
 MAX_DELAY_SECONDS = 6 * 60 * 60
 
@@ -12,8 +11,12 @@ MAX_DELAY_SECONDS = 6 * 60 * 60
 def context_key(origin: dict, status: str) -> str:
     """播放身份、观影状态或实际库内季信息变化时允许立即复核。"""
     library = origin.get("library_season") or {}
+    source = origin.get("media_source")
     return folio_record.fingerprint({
         "identity": folio_record.origin_key(origin),
+        "media_source": str(getattr(source, "value", source) or ""),
+        "media_id": str(origin.get("media_id") or ""),
+        "episode_group": str(origin.get("episode_group") or ""),
         "status": status,
         "library": {key: library.get(key) for key in (
             "season", "air_date", "episode_count", "episode_numbers", "episodes",
@@ -47,6 +50,8 @@ def defer(record: dict, previous: dict) -> None:
     origin = record.get("origin") or {}
     status = record.get("status") or "do"
     unchanged = not failure_changed(previous, origin, status, record.get("identity_reason") or "")
+    if unchanged and not is_due(previous, origin, status):
+        return
     try:
         attempts = max(0, int(previous.get("retry_count") or 0)) if unchanged else 0
     except (TypeError, ValueError):
