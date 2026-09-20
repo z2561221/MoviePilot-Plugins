@@ -619,7 +619,11 @@ class AgentRankAgentAdapter:
                         f"{repair_details}"
                         f"{repair_evidence}"
                     )
-                    repair_outputs = [repair_result, *captured_outputs]
+                    repair_outputs = [
+                        repair_result,
+                        getattr(active_agent, "_streamed_output", ""),
+                        *captured_outputs,
+                    ]
                     if not result_collector.submitted:
                         self._capture_submission_issue(
                             result_collector,

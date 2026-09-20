@@ -858,6 +858,45 @@ def test_terminal_role_recovers_agent_json_through_schema_and_collector():
     assert len(FakeJsonSubmissionRunner.instances[-1].prompts) == 1
 
 
+@pytest.mark.parametrize("valid_payload", [True, False])
+def test_terminal_repair_reads_stream_buffer_and_preserves_schema(valid_payload):
+    """修正仅有缓冲输出时恢复合法提交，非法 JSON 对象仍然拒绝。"""
+    class BufferedRepairRunner(FakeRunner):
+        """模拟修正回合返回空值且未发送输出回调的宿主。"""
+
+        instances = []
+
+        async def process(self, prompt):
+            """首轮无提交；修正结果只写入当前 Agent 的缓冲区。"""
+            self.prompt = prompt
+            if self.kwargs.get("submission_only"):
+                payload = _profile_submission() if valid_payload else {"profile": None}
+                self._streamed_output = json.dumps(payload, ensure_ascii=False)
+            return None
+
+    cleared = []
+    adapter = AgentRankAgentAdapter(
+        agent_factory=BufferedRepairRunner,
+        memory_clearer=lambda *args: cleared.append(args),
+    )
+    trusted = _trusted_context(agent_role="profile")
+    if valid_payload:
+        output = asyncio.run(adapter.run_profile("profile", trusted))
+        assert json.loads(output) == _profile_submission()
+        assert output.provenance["repair_count"] == 1
+        assert output.provenance["repair_recovered"] is True
+    else:
+        with pytest.raises(adapter_module.AgentSubmissionUnavailableError):
+            asyncio.run(adapter.run_profile("profile", trusted))
+
+    first, repair = BufferedRepairRunner.instances
+    assert first is not repair
+    assert first.cleaned and repair.cleaned
+    assert repair.kwargs["submission_only"] is True
+    assert first.kwargs["result_collector"] is repair.kwargs["result_collector"]
+    assert cleared == [(first.kwargs["session_id"], "system")]
+
+
 def test_terminal_role_repairs_one_named_field_with_fresh_agent():
     """新 Agent 接续原会话与收集器，修正成功后清理一次会话记忆。"""
     FakeRepairSubmissionRunner.instances.clear()

@@ -192,6 +192,7 @@ const historyAgentFailureClassLabels = {
   repeated_context_read: '重复读取上下文',
   schema_validation: '结构校验',
   submission_required: '缺少提交',
+  agent_output_missing: '缺少有效输出',
   host_lifecycle: '宿主生命周期',
   agent_execution: 'Agent执行',
 }
