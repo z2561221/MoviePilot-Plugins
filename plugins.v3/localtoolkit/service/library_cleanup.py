@@ -395,7 +395,7 @@ class LibraryCleanupModule(BaseToolModule):
             result, checked_at, summary=summary, queue=plan,
             deletion={**counts, "verification": verification.to_dict(checked_at)},
             report={"title": REPORT_TITLE, "text": final_text,
-                    "updated": report_updated and notification_state in ("sent", "confirmed"),
+                    "updated": report_updated and notification_state not in ("failed", "disabled"),
                     "notification_state": notification_state,
                     **(notifier.to_dict() if notifier else {})},
         )

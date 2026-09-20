@@ -69,29 +69,32 @@ def test_multiple_telegram_sources_keep_separate_receipts_and_other_channels_get
     assert other_calls[0]["save_history"] is False
 
 
-def test_edit_failure_retries_original_message_without_posting_another_telegram_report(monkeypatch):
+def test_edit_failure_falls_back_to_one_final_telegram_report(monkeypatch):
     monkeypatch.setattr("app.plugins.localtoolkit.adapter.cleanup_notification.time.sleep", lambda _seconds: None)
     notifier, plugin = build_notifier(monkeypatch)
     notifier.start("报告", "开始")
     plugin.chain.run_module.return_value = False
-    assert notifier.finish("报告", "结束") is False
+    assert notifier.finish("报告", "结束") is True
     assert plugin.chain.run_module.call_count == 2
     plugin.chain.send_direct_message.assert_called_once()
-    assert all(call.kwargs.get("source") != "TG" for call in plugin.post_message.call_args_list)
-    assert notifier.to_dict()["updated"] is False
+    telegram_calls = [call for call in plugin.post_message.call_args_list if call.kwargs.get("source") == "TG"]
+    assert len(telegram_calls) == 1
+    assert notifier.to_dict()["delivery_state"] == "queued"
 
 
 @pytest.mark.parametrize("response", [None, {"success": True, "message_id": 1},
     {"success": True, "message_id": 1, "chat_id": 2, "source": "foreign"}])
-def test_missing_or_foreign_receipt_never_edits_arbitrary_message_or_resends(monkeypatch, response):
+def test_missing_or_foreign_receipt_never_edits_arbitrary_message_but_sends_final_fallback(monkeypatch, response):
     notifier, plugin = build_notifier(monkeypatch)
     plugin.chain.send_direct_message.side_effect = None
     plugin.chain.send_direct_message.return_value = response
     notifier.start("报告", "开始")
-    assert notifier.finish("报告", "结束") is False
+    assert notifier.finish("报告", "结束") is True
     plugin.chain.run_module.assert_not_called()
     plugin.chain.send_direct_message.assert_called_once()
-    assert all(call.kwargs.get("source") != "TG" for call in plugin.post_message.call_args_list)
+    telegram_calls = [call for call in plugin.post_message.call_args_list if call.kwargs.get("source") == "TG"]
+    assert len(telegram_calls) == 1
+    assert notifier.to_dict()["delivery_state"] == "queued"
 
 
 def test_admin_routing_is_preserved_without_bypassing_notification_type_switch(monkeypatch):
@@ -112,6 +115,17 @@ def test_admin_without_telegram_target_does_not_fall_back_to_default_chat(monkey
     assert notifier.finish("报告", "结束")
     plugin.chain.send_direct_message.assert_not_called()
     assert all(call.kwargs.get("source") != "TG" for call in plugin.post_message.call_args_list)
+
+
+def test_failed_direct_send_falls_back_to_host_notification(monkeypatch):
+    notifier, plugin = build_notifier(monkeypatch)
+    plugin.chain.send_direct_message.side_effect = None
+    plugin.chain.send_direct_message.return_value = None
+    notifier.start("报告", "开始")
+    assert notifier.finish("报告", "结束") is True
+    telegram_calls = [call for call in plugin.post_message.call_args_list if call.kwargs.get("source") == "TG"]
+    assert len(telegram_calls) == 1
+    assert notifier.to_dict()["delivery_state"] == "queued"
 
 
 def test_all_routing_does_not_read_administrator_settings(monkeypatch):

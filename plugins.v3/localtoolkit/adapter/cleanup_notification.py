@@ -42,6 +42,8 @@ class CleanupReportNotifier:
         self.plugin = plugin
         self.receipts: list[dict] = []
         self.attempted: set[str] = set()
+        self.blocked: set[str] = set()
+        self.queued: set[str] = set()
         self.failures: set[str] = set()
         try:
             configs = (helper or NotificationHelper()).get_configs().values()
@@ -70,10 +72,10 @@ class CleanupReportNotifier:
         for conf in self.configs:
             if conf.type != "telegram":
                 continue
-            self.attempted.add(conf.name)
             try:
                 targets = self._targets()
                 if targets is not None and not targets.get("telegram_userid"):
+                    self.blocked.add(conf.name)
                     continue
                 response = send(Message(
                     channel=NotificationChannel.Telegram,
@@ -96,9 +98,15 @@ class CleanupReportNotifier:
                     self.receipts.append({
                         "source": source, "message_id": message_id, "chat_id": chat_id,
                     })
+                    self.attempted.add(conf.name)
                     continue
             except Exception as err:
                 logger.warning(f"工具中心：发送清理报告失败：{redact_sensitive_text(err)}")
+                try:
+                    if (ServiceConfigHelper.get_notification_switch(MessageType.Plugin) or "all").split(",")[0] == "admin":
+                        self.blocked.add(conf.name)
+                except Exception as route_error:  # noqa: BLE001 - preserve the original notification failure
+                    logger.debug(f"工具中心：读取通知路由失败：{redact_sensitive_text(route_error)}")
             # 发送超时可能已经送达，缺少回执时不能再发一条冒充原消息。
             self.failures.add(conf.name)
 
@@ -135,7 +143,8 @@ class CleanupReportNotifier:
         self.update(title, text, final=True)
         plain_text = plain_report(text)
         for conf in self.configs:
-            if conf.name in self.attempted:
+            edit_failed = conf.name in self.attempted and conf.name in self.failures
+            if (conf.name in self.attempted and not edit_failed) or conf.name in self.blocked:
                 continue
             try:
                 self.plugin.post_message(
@@ -146,6 +155,8 @@ class CleanupReportNotifier:
                     parse_mode="HTML" if conf.type == "telegram" else "plain",
                     save_history=False,
                 )
+                self.failures.discard(conf.name)
+                self.queued.add(conf.name)
             except Exception as err:
                 self.failures.add(conf.name)
                 logger.warning(f"工具中心：发送最终清理报告失败：{redact_sensitive_text(err)}")
@@ -176,6 +187,8 @@ class CleanupReportNotifier:
         """返回 confirmed、queued 或 failed，不把入队当作确认投递。"""
         if self.failures:
             return "failed"
+        if self.queued:
+            return "queued"
         if self.receipts:
             return "confirmed"
         return "queued"
