@@ -225,5 +225,54 @@ def test_refresh_and_subscription_reuse_date_without_mutating_media(season_lab, 
     assert season_lab.media.year == "2016"
     assert season_lab.media.season_info == []
     season_lab.media.media_id = "65942"
-    rank_timing.resolve_release(season_lab.plugin, season_lab.media, 4, entry=entry, require_date=True)
+    rank_timing.resolve_release(
+        season_lab.plugin, season_lab.media, 4, entry=entry, require_date=True,
+    )
     assert [call["tmdbid"] for call in calls] == [95480, 65942]
+
+
+def test_existing_history_keeps_season_year(season_lab, monkeypatch):
+    """已存在分支不能把刚解析的本季年份写回母剧年份。"""
+    monkeypatch.setattr(rank_pipeline, "_is_existing_media", lambda *args: True)
+    rank_pipeline._process_general_snapshots(season_lab.plugin, [snapshot(season_lab)], RANK)
+    record = records.read_rank_history(season_lab.plugin, "bangumi")[0]
+    assert record["existing"]
+    assert (record["year"], record["season"]) == ("2026", 4)
+    assert not season_lab.added
+
+
+@pytest.mark.parametrize("source_year, expected", [("", "2026"), ("2027", "2027")])
+def test_subscription_records_use_display_year_without_changing_host_identity(
+    season_lab, source_year, expected,
+):
+    """档案使用本季或分段年份，宿主识别请求继续使用母剧的身份年份。"""
+    rank_pipeline._process_general_snapshots(
+        season_lab.plugin, [snapshot(season_lab, source_year=source_year)], RANK,
+    )
+    assert season_lab.saved["subscribe_records"][0]["year"] == expected
+    assert records.read_rank_history(season_lab.plugin, "bangumi")[0]["year"] == expected
+    assert season_lab.added[0]["year"] == season_lab.media.year == "2016"
+
+
+def test_unknown_year_is_not_replaced_when_year_filter_is_disabled(season_lab, monkeypatch):
+    """允许未知年份进入订阅时，榜单与订阅记录也保持未知。"""
+    season_lab.plugin._rank_configs["bangumi"]["year"] = 0
+    season_lab.media.season_info = []
+    monkeypatch.setattr(season_lab.plugin.chain, "tmdb_info", lambda **kw: {})
+    rank_pipeline._process_general_snapshots(season_lab.plugin, [snapshot(season_lab)], RANK)
+    assert len(season_lab.added) == 1
+    assert season_lab.saved["subscribe_records"][0]["year"] == ""
+    assert records.read_rank_history(season_lab.plugin, "bangumi")[0]["year"] == ""
+
+
+def test_failed_subscription_record_keeps_explicit_season_year(season_lab, monkeypatch):
+    """查重失败的诊断记录同样使用本季年份，且不提交真实订阅。"""
+    monkeypatch.setattr(subscription, "is_existing_media", lambda *args, **kw: None)
+    meta = MetaInfo(TITLE)
+    meta.begin_season = 4
+    assert not subscription.add_subscription(
+        season_lab.plugin, season_lab.media, meta=meta, record_year="2026",
+    )
+    assert not season_lab.added
+    assert season_lab.saved["subscribe_records"][0]["year"] == "2026"
+    assert season_lab.saved["subscribe_records"][0]["status"] == "failed"

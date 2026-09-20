@@ -136,7 +136,7 @@ def _record_existing_history(
     history: List[dict],
     unique: str,
     title: str = "",
-    year: Any = "",
+    year: Any = None,
     link: str = "",
     mediainfo=None,
     rank_key: str = "",
@@ -1234,6 +1234,7 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
             rank_name=rd["name"],
             source_link=link,
             record_title=title,
+            record_year=year,
         ):
             cn_title = mediainfo.title or title
             stored_title = title if rd["key"] == "bangumi" else cn_title
@@ -1469,6 +1470,7 @@ def _process_general(self, url: str, rd: dict) -> None:
             rank_name=rd["name"],
             source_link=link,
             record_title=display_title,
+            record_year=year,
         ):
             cn_title = mediainfo.title or title
             stored_title = display_title if rd["key"] == "bangumi" else cn_title
@@ -1569,6 +1571,7 @@ def _add_sub(
     rank_name="",
     source_link: str = "",
     record_title: str = "",
+    record_year: Optional[str] = None,
 ) -> bool:
     """按 MP 默认 TMDB 语义执行自动订阅。"""
     return subscription_service.add_subscription(
@@ -1579,6 +1582,7 @@ def _add_sub(
         rank_name=rank_name,
         source_link=source_link,
         record_title=record_title if rank_key == "bangumi" else "",
+        record_year=record_year,
         subscribe_chain_cls=SubscribeChain,
     )
 
