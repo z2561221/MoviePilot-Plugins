@@ -46,13 +46,14 @@ def test_report_escapes_titles_and_preserves_same_body_in_every_phase():
                      verification=CleanupVerification(removed=[candidate]))
         for phase in ["deleting", "verifying", "finished"]
     ]
-    assert len({text.split("<b>本轮清理结果</b>")[0] for text in reports}) == 1
+    assert len({text.split("<b>结果</b>")[0] for text in reports}) == 1
     assert "电影 &lt;测试&gt; &amp; 特别篇" in reports[0]
     assert "｜2026-01-01" in reports[0] and "入库时长：" not in reports[0]
     assert "\n\n<b>02." not in reports[0]
     assert "**" not in reports[0] and "```" not in reports[0]
     assert "正在清理" in reports[0] and "正在复核" in reports[1]
-    assert "确认移除：1 部" in reports[2] and "✅ 本轮删除完毕" in reports[2]
+    assert "移除：1 部" in reports[2] and "✅ 本轮删除完毕" in reports[2]
+    assert "检查结果" not in reports[2] and "自动删除：" not in reports[2]
     assert "电影 <测试> & 特别篇" in plain_report(reports[2])
 
 
@@ -65,7 +66,7 @@ def test_remaining_and_unknown_items_cannot_claim_completion():
         ),
     )
     assert "✅ 本轮删除完毕" not in text
-    assert "仍然存在：1 部" in text and "无法核验：1 部" in text
+    assert "仍存在：1 部" in text and "待核验：1 部" in text
     assert "电影 1：仍然存在" in text and "电影 2：无法核验" in text
 
 
@@ -79,10 +80,10 @@ def test_long_html_and_emoji_report_stays_in_one_message_without_cutting_tags():
     checker.feed(text)
     assert checker.open_tags == []
     assert len(text.encode("utf-16-le")) // 2 < 3800
-    assert "本轮目标：50 部" in text
-    assert "仍然存在：25 部" in text and "无法核验：25 部" in text
+    assert "目标：50 部｜移除：0 部" in text
+    assert "仍存在：25 部" in text and "待核验：25 部" in text
     assert "未展开" in text
-    assert text.endswith("核验范围：媒体库条目")
+    assert text.endswith("⚠️ 清理未全部完成")
 
 
 def test_check_only_summary_cannot_inject_html():
