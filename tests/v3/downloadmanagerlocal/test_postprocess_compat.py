@@ -15,6 +15,23 @@ def test_qb_missing_trackers_is_an_empty_compatible_field() -> None:
     assert get_tracker_urls(torrent, "qbittorrent") == []
 
 
+def test_qb_tracker_property_is_used_for_site_tagging() -> None:
+    """qB TorrentDictionary 风格的 trackers 属性必须参与站点标签识别。"""
+    class QbTorrent(dict):
+        """模拟 qB 任务字典通过属性提供 trackers。"""
+
+        @property
+        def trackers(self):
+            """返回 qB tracker 对象风格字段。"""
+            return [SimpleNamespace(url="https://tracker.example/announce", tier=0)]
+
+    torrent = QbTorrent({"hash": "abc", "tags": "", "save_path": "/downloads"})
+
+    assert get_tracker_urls(torrent, "qbittorrent") == [
+        "https://tracker.example/announce"
+    ]
+
+
 def test_transfer_postprocess_calls_rename_and_tag_without_qb_trackers(monkeypatch) -> None:
     """真实 qB 字典缺少 trackers 时，转移后重命名和标签仍按顺序执行。"""
     calls = []

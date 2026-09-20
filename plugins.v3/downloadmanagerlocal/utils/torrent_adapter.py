@@ -223,15 +223,19 @@ def get_torrent_size(torrent: Any, dl_type: str) -> int:
 
 
 def get_tracker_urls(torrent: Any, dl_type: str) -> List[str]:
-    """获取有效 tracker URL，兼容 qB 缺少 trackers 字段的任务字典。"""
+    """获取有效 tracker URL，兼容 qB 字段、对象属性和缺失字段。"""
     if dl_type == "qbittorrent":
-        trackers = torrent.get("trackers", []) if isinstance(torrent, dict) else []
+        trackers = torrent.get("trackers") if isinstance(torrent, dict) else None
+        if trackers is None:
+            try:
+                trackers = getattr(torrent, "trackers", None)
+            except Exception:
+                trackers = []
         urls = []
         for tracker in trackers or []:
-            if not isinstance(tracker, dict):
-                continue
-            url = tracker.get("url")
-            if url and tracker.get("tier", -1) >= 0:
+            url = _read(tracker, "url", default="")
+            tier = _read(tracker, "tier", default=-1)
+            if url and tier >= 0:
                 urls.append(str(url))
         return urls
 
