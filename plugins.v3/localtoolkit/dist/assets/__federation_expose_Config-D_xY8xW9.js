@@ -337,11 +337,12 @@ return (_ctx, _cache) => {
             }, [
               _withDirectives(_createElementVNode("div", _hoisted_7, [
                 _cache[36] || (_cache[36] = _createElementVNode("div", { class: "plugin-section-title" }, "运行总览", -1)),
-                _createVNode(_component_VRow, null, {
+                _createVNode(_component_VRow, { class: "overview-status-row" }, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
                       cols: "12",
-                      md: "4"
+                      md: "4",
+                      class: "overview-status-col"
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VCard, {
@@ -368,7 +369,8 @@ return (_ctx, _cache) => {
                     }),
                     _createVNode(_component_VCol, {
                       cols: "12",
-                      md: "4"
+                      md: "4",
+                      class: "overview-status-col"
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VCard, {
@@ -394,7 +396,8 @@ return (_ctx, _cache) => {
                     }),
                     _createVNode(_component_VCol, {
                       cols: "12",
-                      md: "4"
+                      md: "4",
+                      class: "overview-status-col"
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VCard, {
@@ -1047,6 +1050,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a79e26da"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-169c7917"]]);
 
 export { Config as default };

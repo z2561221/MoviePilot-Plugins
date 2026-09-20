@@ -5,8 +5,8 @@ const currentImports = {};
       dynamicLoadingCss(["__federation_expose_Page-Cwy7wyZe.css"], false, './Page');
       return __federation_import('./__federation_expose_Page-CvI5oNpr.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Config":()=>{
-      dynamicLoadingCss(["__federation_expose_Config-B3x6jDNG.css"], false, './Config');
-      return __federation_import('./__federation_expose_Config-CHTZGA_-.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Config-aghBo10r.css"], false, './Config');
+      return __federation_import('./__federation_expose_Config-D_xY8xW9.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Dashboard":()=>{
       dynamicLoadingCss(["__federation_expose_Dashboard-Bbvqg4Sd.css"], false, './Dashboard');
       return __federation_import('./__federation_expose_Dashboard-DJk_e2f-.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},

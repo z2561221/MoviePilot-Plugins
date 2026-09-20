@@ -193,8 +193,8 @@ function saveConfig() {
           <div class="plugin-window" :class="{ 'plugin-window--overview': activeMain === 'overview' }">
             <div v-show="activeMain === 'overview' && activeSub === 'overview'" class="plugin-pane">
               <div class="plugin-section-title">运行总览</div>
-              <VRow>
-                <VCol cols="12" md="4">
+              <VRow class="overview-status-row">
+                <VCol cols="12" md="4" class="overview-status-col">
                   <VCard variant="tonal" color="error" class="status-card">
                     <VCardText>
                       <div class="text-subtitle-1 font-weight-bold">清理库存</div>
@@ -205,7 +205,7 @@ function saveConfig() {
                     </VCardText>
                   </VCard>
                 </VCol>
-                <VCol cols="12" md="4">
+                <VCol cols="12" md="4" class="overview-status-col">
                   <VCard variant="tonal" color="primary" class="status-card">
                     <VCardText>
                       <div class="text-subtitle-1 font-weight-bold">扫描缺集</div>
@@ -215,7 +215,7 @@ function saveConfig() {
                     </VCardText>
                   </VCard>
                 </VCol>
-                <VCol cols="12" md="4">
+                <VCol cols="12" md="4" class="overview-status-col">
                   <VCard variant="tonal" color="warning" class="status-card">
                     <VCardText>
                       <div class="text-subtitle-1 font-weight-bold">TMDB 缓存</div>
@@ -367,7 +367,9 @@ function saveConfig() {
 .condition-title { font-size: 13px; font-weight: 700; color: rgba(var(--v-theme-on-surface), .78); margin-top: 6px; }
 .condition-title--second { margin-top: 4px; }
 .plugin-hint { font-size: 12px; line-height: 1.6; color: rgba(var(--v-theme-on-surface), .68); margin-top: 2px; }
-.status-card { border-radius: 14px; min-height: 132px; }
+.overview-status-row { align-items: stretch; }
+.overview-status-col { display: flex; }
+.status-card { width: 100%; height: 100%; border-radius: 14px; min-height: 132px; }
 .schedule-block { border: 1px solid rgba(var(--v-border-color), .16); border-radius: 10px; padding: 14px 16px 4px; }
 .schedule-block + .schedule-block { margin-top: 12px; }
 .schedule-block--scan { border-left: 3px solid rgb(var(--v-theme-primary)); }
