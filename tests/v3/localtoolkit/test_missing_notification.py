@@ -87,7 +87,7 @@ def test_scan_notifies_grouped_html_and_plain_without_changing_missing_results(t
     assert email["parse_mode"] == "plain" and "<b>" not in email["text"]
     assert "动画 & 剧集" in email["text"]
     assert history["parse_mode"] == "plain"
-    module.send_notification("清理 TMDB 缓存", "清理完成：8 个缓存键")
+    module.send_notification("清TMDB", "清TMDB缓存完成：8 个缓存键")
     assert len(messages) == 4 and messages[-1]["parse_mode"] == "plain"
 
 

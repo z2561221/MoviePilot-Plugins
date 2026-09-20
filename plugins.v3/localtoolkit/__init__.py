@@ -28,7 +28,7 @@ class LocalToolkit(_PluginBase):
 
     plugin_name = "工具中心"
     plugin_display_name = "工具中心"
-    plugin_desc = "整合清理库存、扫描缺集、清理TMDB的本地维护工具中心。"
+    plugin_desc = "整合清理库存、扫描缺集、清TMDB的本地维护工具中心。"
     plugin_icon = "Ittools_A.png"
     plugin_color = "#26A69A"
     plugin_version = "3.0.0"

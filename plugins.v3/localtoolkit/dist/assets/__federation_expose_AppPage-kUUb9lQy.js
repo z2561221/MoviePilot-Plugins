@@ -86,7 +86,7 @@ const cleanupPlanPageSize = 15;
 const historyPageSize = 15;
 
 const _sfc_main = {
-  __name: 'Page',
+  __name: 'AppPage',
   props: {
   api: { type: Object, default: () => ({}) },
   pluginId: { type: String, default: 'LocalToolkit' },
@@ -627,7 +627,7 @@ return (_ctx, _cache) => {
                       onClick: _cache[5] || (_cache[5] = $event => (runModule('tmdb_cache')))
                     }, {
                       default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
-                        _createTextVNode("清理 TMDB", -1)
+                        _createTextVNode("清TMDB", -1)
                       ]))]),
                       _: 1
                     }, 8, ["loading"])
@@ -953,6 +953,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4fbb6005"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-dbe8144b"]]);
 
-export { Page as default };
+export { AppPage as default };

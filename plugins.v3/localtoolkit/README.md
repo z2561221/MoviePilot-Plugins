@@ -1,6 +1,6 @@
 # LocalToolkit V3
 
-工具中心是 MoviePilot V3 本地专属维护插件，把三个本地工具收敛到一个插件入口：清理库存、扫描缺集、清理 TMDB 缓存。插件只发布在本地插件源（元数据位于 `package.local.v3.json`，同步时物化为本地仓库的 `package.v3.json`），不进入公共插件市场。
+工具中心是 MoviePilot V3 本地专属维护插件，把三个本地工具收敛到一个插件入口：清理库存、扫描缺集、清TMDB。插件只发布在本地插件源（元数据位于 `package.local.v3.json`，同步时物化为本地仓库的 `package.v3.json`），不进入公共插件市场。
 
 ## 模块构成
 
@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `library_cleanup` | 清理库存 | 独立扫描周期 + 独立清理周期 + 手动 |
 | `check_missing` | 扫描缺集 | 仅手动 |
-| `tmdb_cache` | 清理 TMDB 缓存 | 仅手动 |
+| `tmdb_cache` | 清TMDB | 仅手动 |
 
 只有清理库存会注册 MoviePilot 后台服务；扫描缺集与 TMDB 缓存清理是按需模块，不再拥有 cron 配置，插件停用时不返回任何服务条目。
 
@@ -17,7 +17,7 @@
 - 插件总开关 `enabled` 打开后才会注册后台服务。
 - `library_cleanup.scan_enabled` 和 `cleanup_enabled` 分别控制周期扫描与周期清理；媒体服务器、媒体库与用户共用同一配置。
 - 扫描缺集需要在 `check_missing.scan_paths` 填写可访问的本地目录，每行一个。
-- 清理 TMDB 缓存需要可用 Redis；连接地址取 `CACHE_BACKEND_URL`，默认 `redis://localhost:6379`。
+- 清TMDB需要可用 Redis；连接地址取 `CACHE_BACKEND_URL`，默认 `redis://localhost:6379`。
 
 首次启用会从旧插件 `ClearTmdbCache`、`CheckMissing`、`LibraryCleanup` 迁移配置，并写入 `migration_done` 防止重复迁移。
 
@@ -43,7 +43,7 @@
 - `skip_empty`：跳过空目录，默认开启。
 - `notify`：扫描结果通知，默认开启；Telegram 按路径、剧集和季度显示 HTML 报告，长清单保留总数及省略提示，其他渠道使用纯文本。
 
-清理 TMDB 缓存
+清TMDB
 
 - `threshold_mb`：缓存体积阈值，默认 50 MB。
 - `auto_clear`：达到阈值时自动清理，默认关闭。
@@ -109,5 +109,5 @@
 - MoviePilot `>= 3.0.0`
 - MoviePilot V3 原生插件格式与 Vue 联邦渲染
 - 清理库存需要可用媒体服务器（Emby 等）
-- 清理 TMDB 缓存需要可用 Redis
+- 清TMDB需要可用 Redis
 - 本地插件源安装，不经公共插件市场分发

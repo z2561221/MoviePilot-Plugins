@@ -84,7 +84,7 @@ return (_ctx, _cache) => {
           }),
           _createVNode(_component_VCardSubtitle, null, {
             default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
-              _createTextVNode("清理库存 / 扫描缺集 / 清理TMDB", -1)
+              _createTextVNode("清理库存 / 扫描缺集 / 清TMDB", -1)
             ]))]),
             _: 1
           })
@@ -123,6 +123,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9f8e7cfb"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-47c3bcb9"]]);
 
 export { Dashboard as default };

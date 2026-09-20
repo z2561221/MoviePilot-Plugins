@@ -318,7 +318,7 @@ onMounted(loadOverview)
               <VBtn color="primary" variant="tonal" prepend-icon="mdi-playlist-plus" :loading="loadingAction === 'scan_plan'" @click="scanPlan">生成计划</VBtn>
               <VBtn color="error" variant="flat" prepend-icon="mdi-delete-sweep-outline" :loading="loadingAction === 'library_cleanup'" @click="runModule('library_cleanup')">立即清理</VBtn>
               <VBtn color="primary" variant="tonal" prepend-icon="mdi-magnify-scan" :loading="loadingAction === 'check_missing'" @click="runModule('check_missing')">扫描缺集</VBtn>
-              <VBtn color="warning" variant="tonal" prepend-icon="mdi-database-refresh-outline" :loading="loadingAction === 'tmdb_cache'" @click="runModule('tmdb_cache')">清理 TMDB</VBtn>
+              <VBtn color="warning" variant="tonal" prepend-icon="mdi-database-refresh-outline" :loading="loadingAction === 'tmdb_cache'" @click="runModule('tmdb_cache')">清TMDB</VBtn>
             </div>
           </section>
         </section>

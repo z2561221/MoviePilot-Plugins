@@ -18,7 +18,7 @@ class TmdbCacheModule(BaseToolModule):
     """按需查询和清理 Redis 中的 TMDB 缓存键。"""
 
     module_key = "tmdb_cache"
-    module_name = "清理TMDB"
+    module_name = "清TMDB"
     _TMDB_CACHE_PATTERNS: ClassVar[tuple[str, ...]] = (
         "app.modules.themoviedb*",
         "__tmdb_cache__*",
@@ -26,7 +26,7 @@ class TmdbCacheModule(BaseToolModule):
     )
 
     def get_default_config(self):
-        """返回清理 TMDB 缓存默认配置。"""
+        """返回清TMDB缓存默认配置。"""
         return {"notify": True, "auto_clear": False, "threshold_mb": 50}
 
     def _redis(self):
@@ -43,7 +43,7 @@ class TmdbCacheModule(BaseToolModule):
             return None
 
     def get_service(self):
-        """清理 TMDB 缓存只支持手动运行，不注册后台服务。"""
+        """清TMDB缓存只支持手动运行，不注册后台服务。"""
         return []
 
     def _keys(self, client: Any) -> list[Any] | None:
@@ -93,12 +93,12 @@ class TmdbCacheModule(BaseToolModule):
 
         keys = self._keys(client)
         if keys is None:
-            message = safe_error_text("读取 TMDB 缓存键")
+            message = safe_error_text("读取清TMDB缓存键")
             self.add_history("failed", message, time.time() - start)
             return {"success": False, "message": message}
         before = self._status(client, keys)
         if before["error"]:
-            message = safe_error_text("读取 TMDB 缓存状态")
+            message = safe_error_text("读取清TMDB缓存状态")
             self.add_history("failed", message, time.time() - start)
             return {"success": False, "message": message, "before": before}
 
@@ -107,32 +107,32 @@ class TmdbCacheModule(BaseToolModule):
             message = f"缓存 {before['size_kb'] / 1024:.2f}MB 未超过阈值 {self.config.get('threshold_mb')}MB"
             self.add_history("success", message, time.time() - start)
             if self.config.get("notify", True):
-                self.send_notification("本地工具集 - 清理TMDB", message)
+                self.send_notification("本地工具集 - 清TMDB", message)
             return {"success": True, "message": message, "deleted": 0}
 
         try:
             deleted = client.delete(*keys) if keys else 0
         except Exception as error:  # noqa: BLE001 - Redis client exposes vendor exceptions
-            logger.error(f"本地工具集：清理TMDB缓存失败：{redact_sensitive_text(error)}")
-            message = safe_error_text("清理 TMDB 缓存")
+            logger.error(f"本地工具集：清TMDB缓存失败：{redact_sensitive_text(error)}")
+            message = safe_error_text("清TMDB缓存")
             self.add_history("failed", message, time.time() - start)
             if self.config.get("notify", True):
-                self.send_notification("本地工具集 - 清理TMDB", message)
+                self.send_notification("本地工具集 - 清TMDB", message)
             return {"success": False, "message": message}
 
         after = self._status(client)
         payload = {"before": before, "after": after, "deleted": deleted}
         self.plugin.save_data(key="tmdb_cache_result", value=payload)
         if after["error"]:
-            message = safe_error_text("核验 TMDB 缓存清理结果")
+            message = safe_error_text("核验清TMDB缓存结果")
             self.add_history("failed", message, time.time() - start)
             return {"success": False, "message": message, **payload}
 
-        summary = f"清理 TMDB 缓存 {deleted}/{len(keys)} 个，清理后 {after['keys']} 个键"
+        summary = f"清TMDB缓存 {deleted}/{len(keys)} 个，清理后 {after['keys']} 个键"
         logger.info("本地工具集：" + summary)
         self.add_history("success", summary, time.time() - start)
         if self.config.get("notify", True):
-            self.send_notification("本地工具集 - 清理TMDB", summary)
+            self.send_notification("本地工具集 - 清TMDB", summary)
         return {
             "success": True,
             "deleted": deleted,

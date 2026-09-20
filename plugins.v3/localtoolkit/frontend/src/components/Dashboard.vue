@@ -24,7 +24,7 @@ onMounted(load)
     <VCardItem>
       <template #prepend><VAvatar color="teal" variant="tonal" rounded="lg"><VIcon icon="mdi-tools" /></VAvatar></template>
       <VCardTitle>工具中心</VCardTitle>
-      <VCardSubtitle>清理库存 / 扫描缺集 / 清理TMDB</VCardSubtitle>
+      <VCardSubtitle>清理库存 / 扫描缺集 / 清TMDB</VCardSubtitle>
       <template #append>
         <VBtn v-if="allowRefresh" icon="mdi-refresh" variant="text" size="small" :loading="loading" @click="load" />
       </template>

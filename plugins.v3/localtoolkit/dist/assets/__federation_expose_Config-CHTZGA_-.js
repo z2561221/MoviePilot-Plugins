@@ -99,7 +99,7 @@ const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '统一管理三个本地维护模块。', color: 'primary' },
   { key: 'library_cleanup', title: '清理库存', icon: 'mdi-delete-sweep-outline', desc: '扫描与清理独立调度，共用清理计划。', color: 'error' },
   { key: 'check_missing', title: '扫描缺集', icon: 'mdi-magnify-scan', desc: '按需单次扫描媒体目录，检查已存在季的缺集。', color: 'primary' },
-  { key: 'tmdb_cache', title: '清理TMDB', icon: 'mdi-database-refresh-outline', desc: '按需单次查询与清理 Redis 中的 TMDB 缓存。', color: 'warning' },
+  { key: 'tmdb_cache', title: '清TMDB', icon: 'mdi-database-refresh-outline', desc: '按需单次查询与清理 Redis 中的 TMDB 缓存。', color: 'warning' },
 ];
 
 const subTabs = {
@@ -945,12 +945,12 @@ return (_ctx, _cache) => {
                 [_vShow, activeMain.value === 'check_missing']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_25, [
-                _cache[48] || (_cache[48] = _createElementVNode("div", { class: "plugin-section-title text-warning" }, "TMDB 缓存按需清理", -1)),
+                _cache[48] || (_cache[48] = _createElementVNode("div", { class: "plugin-section-title text-warning" }, "清TMDB按需清理", -1)),
                 _createVNode(_component_VAlert, {
                   type: "warning",
                   variant: "tonal",
                   class: "mb-4",
-                  text: "清理TMDB不再提供 Cron 周期配置，只在详情页点击“立即清理”时运行。可选择按阈值判断是否真正删除。"
+                  text: "清TMDB不再提供 Cron 周期配置，只在详情页点击“立即清理”时运行。可选择按阈值判断是否真正删除。"
                 }),
                 _createVNode(_component_VRow, null, {
                   default: _withCtx(() => [
@@ -1047,6 +1047,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-13ebb45f"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a79e26da"]]);
 
 export { Config as default };

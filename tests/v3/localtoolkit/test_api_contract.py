@@ -40,7 +40,7 @@ class FakeModule:
 def _plugin_with_result(result: dict) -> SimpleNamespace:
     """构建三个模块共用预设结果的插件替身。"""
     return SimpleNamespace(
-        tmdb_cache=FakeModule("清理TMDB", result),
+        tmdb_cache=FakeModule("清TMDB", result),
         check_missing=FakeModule("扫描缺集", result),
         library_cleanup=FakeModule("清理库存", result),
     )
