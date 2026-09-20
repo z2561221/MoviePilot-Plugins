@@ -86,7 +86,7 @@ const cleanupPlanPageSize = 15;
 const historyPageSize = 15;
 
 const _sfc_main = {
-  __name: 'AppPage',
+  __name: 'Page',
   props: {
   api: { type: Object, default: () => ({}) },
   pluginId: { type: String, default: 'LocalToolkit' },
@@ -591,7 +591,7 @@ return (_ctx, _cache) => {
                       onClick: scanPlan
                     }, {
                       default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
-                        _createTextVNode("生成清理计划", -1)
+                        _createTextVNode("生成计划", -1)
                       ]))]),
                       _: 1
                     }, 8, ["loading"]),
@@ -609,7 +609,7 @@ return (_ctx, _cache) => {
                     }, 8, ["loading"]),
                     _createVNode(_component_VBtn, {
                       color: "primary",
-                      variant: "text",
+                      variant: "tonal",
                       "prepend-icon": "mdi-magnify-scan",
                       loading: loadingAction.value === 'check_missing',
                       onClick: _cache[4] || (_cache[4] = $event => (runModule('check_missing')))
@@ -621,7 +621,7 @@ return (_ctx, _cache) => {
                     }, 8, ["loading"]),
                     _createVNode(_component_VBtn, {
                       color: "warning",
-                      variant: "text",
+                      variant: "tonal",
                       "prepend-icon": "mdi-database-refresh-outline",
                       loading: loadingAction.value === 'tmdb_cache',
                       onClick: _cache[5] || (_cache[5] = $event => (runModule('tmdb_cache')))
@@ -953,6 +953,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a7f5244c"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4fbb6005"]]);
 
-export { AppPage as default };
+export { Page as default };
