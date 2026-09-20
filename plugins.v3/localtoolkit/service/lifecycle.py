@@ -66,8 +66,7 @@ def build_services(plugin) -> list:
 
 
 def stop_plugin_service(plugin) -> None:
-    """禁用旧模块的定时回调；已进入的批次仍持有共享锁直至收尾。"""
+    """停止旧回调与尚未发起的请求，跨重载文件锁保护收尾过程。"""
     module = getattr(plugin, "library_cleanup", None)
     if module is not None:
-        module.config["scan_enabled"] = False
-        module.config["cleanup_enabled"] = False
+        module.stop()

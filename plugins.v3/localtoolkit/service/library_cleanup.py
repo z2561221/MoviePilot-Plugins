@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta, timezone
-from threading import Lock
 from typing import List, Optional
 
 from app.sdk.logging import logger
@@ -27,6 +26,7 @@ from ..model.library_cleanup import (
 from ..security import redact_sensitive_text, safe_error_text
 from .base import BaseToolModule
 from .cleanup_alerts import CleanupAlerts
+from .cleanup_execution import CleanupCancelled, CleanupExecution
 from .cleanup_report import REPORT_TITLE, build_report
 
 _options_cache = {}
@@ -55,8 +55,16 @@ class LibraryCleanupModule(BaseToolModule):
         super().__init__(plugin)
         self.adapter = adapter or MediaServerCleanupAdapter()
         self._notifier_factory = notifier_factory
-        self._run_lock = getattr(plugin, "_localtoolkit_cleanup_lock", None) or Lock()
-        plugin._localtoolkit_cleanup_lock = self._run_lock
+        self._run_lock = CleanupExecution(plugin.get_data_path())
+
+    def stop(self):
+        """取消尚未发起的请求，旧批次持有文件锁完成已处理项收尾。"""
+        self.config["scan_enabled"] = False
+        self.config["cleanup_enabled"] = False
+        self._run_lock.cancel()
+
+    def _stopped_result(self, operation):
+        return {"success": True, "summary": "任务已停止，未处理条目保留", "operation": operation, "stopped": True}
 
     def get_default_config(self):
         """返回清理库存默认配置。"""
@@ -172,15 +180,17 @@ class LibraryCleanupModule(BaseToolModule):
 
     def scan_plan(self, scheduled=False):
         """独立扫描并更新计划，仅计划成员变化或异常时通知。"""
+        if self._run_lock.stopped:
+            return self._stopped_result("scan")
         if scheduled and not self.config.get("scan_enabled"):
             return {"success": True, "summary": "周期扫描已关闭", "operation": "scan"}
         if not self._run_lock.acquire(blocking=scheduled):
-            return self._busy_result("scan")
+            return self._stopped_result("scan") if self._run_lock.stopped else self._busy_result("scan")
         start = time.time()
         try:
             if scheduled and not self.config.get("scan_enabled"):
                 return {"success": True, "summary": "周期扫描已关闭", "operation": "scan"}
-            with self.adapter.user_scope():
+            with self.adapter.user_scope(self._run_lock.check):
                 result, checked_at, plan, added, removed = self._scan_and_queue()
             queue_count = len(plan["items"])
             summary = f"扫描完成，新增入队 {added} 部，失效移出 {removed} 部，待清理 {queue_count} 部"
@@ -201,6 +211,8 @@ class LibraryCleanupModule(BaseToolModule):
                 "qualified_count": result.qualified_count, "queued_added": added,
                 "queued_removed": removed, "queue_count": queue_count,
             }
+        except CleanupCancelled:
+            return self._stopped_result("scan")
         except Exception as err:
             return self._operation_failed("scan", err, start)
         finally:
@@ -224,6 +236,8 @@ class LibraryCleanupModule(BaseToolModule):
 
     def clear_cleanup_plan(self):
         """清空持久化清理计划，不触碰媒体库条目。"""
+        if self._run_lock.stopped:
+            return self._stopped_result("cleanup")
         if not self._run_lock.acquire(blocking=False):
             return {"success": False, "message": "本轮清理仍在进行，请等待当前报告更新"}
         try:
@@ -240,16 +254,20 @@ class LibraryCleanupModule(BaseToolModule):
 
     def run_once(self, scheduled=False):
         """仅消费已有计划；定时与手动清理共用互斥和冷却。"""
+        if self._run_lock.stopped:
+            return self._stopped_result("cleanup")
         if scheduled and not self.config.get("cleanup_enabled"):
             return {"success": True, "summary": "周期清理已关闭", "operation": "cleanup"}
         if not self._run_lock.acquire(blocking=scheduled):
-            return self._busy_result("cleanup")
+            return self._stopped_result("cleanup") if self._run_lock.stopped else self._busy_result("cleanup")
         start = time.time()
         try:
             if scheduled and not self.config.get("cleanup_enabled"):
                 return {"success": True, "summary": "周期清理已关闭", "operation": "cleanup"}
-            with self.adapter.user_scope():
+            with self.adapter.user_scope(self._run_lock.check):
                 return self._run_once(start)
+        except CleanupCancelled:
+            return self._stopped_result("cleanup")
         except Exception as err:
             return self._operation_failed("cleanup", err, start)
         finally:
@@ -258,6 +276,7 @@ class LibraryCleanupModule(BaseToolModule):
     def _run_once(self, start):
         """检查清理门禁后，只按 ID 复核并处理本批次对象。"""
         checked_at = datetime.now(timezone.utc)
+        self._run_lock.check()
         plan = self._load_plan()
         queue_count = len(plan["items"])
         summary = ""
@@ -290,26 +309,32 @@ class LibraryCleanupModule(BaseToolModule):
             removed=verification.removed + batch["skipped"] + batch["absent"],
             remaining=verification.remaining, unknown=verification.unknown + batch["unknown"],
         )
-        plan = self._reconcile_plan(plan, selected_items, reconciled, checked_at)
+        processed_items = [item for item in selected_items if item["queue_key"] in batch["processed_keys"]]
+        plan = self._reconcile_plan(plan, processed_items, reconciled, checked_at)
         for item in plan["items"]:
             if item["queue_key"] in batch["errors"]:
                 item["last_error"] = batch["errors"][item["queue_key"]]
         counts = {
-            "processed_count": len(selected_movies), "success_count": len(verification.removed),
+            "processed_count": len(processed_items), "success_count": len(verification.removed),
             "fail_count": batch["fail_count"], "remaining_count": len(verification.remaining),
             "unknown_count": len(reconciled.unknown), "skipped_count": len(batch["skipped"]),
             "already_absent_count": len(batch["absent"]), "queue_count": len(plan["items"]),
             "scanned_count": 0,
+            "stopped": batch["stopped"] or self._run_lock.stopped,
+            "unprocessed_count": len(selected_items) - len(processed_items),
         }
-        complete = not reconciled.remaining and not reconciled.unknown
-        plan["last_cycle"] = {"status": "success" if complete else "failed", **counts}
+        complete = not reconciled.remaining and not reconciled.unknown and not counts["stopped"]
+        status = "cancelled" if counts["stopped"] else "success" if complete else "failed"
+        plan["last_cycle"] = {"status": status, **counts}
         self._save_plan(plan)
         summary = (
-            f"计划清理：本轮检查 {len(selected_movies)} 部，确认移除 {counts['success_count']} 部，"
+            f"计划清理：本轮检查 {len(processed_items)} 部，确认移除 {counts['success_count']} 部，"
             f"条件变化跳过 {counts['skipped_count']} 部，已不存在 {counts['already_absent_count']} 部，"
             f"仍然存在 {counts['remaining_count']} 部，无法核验 {counts['unknown_count']} 部，"
             f"剩余 {counts['queue_count']} 部"
         )
+        if counts["stopped"]:
+            summary += f"；任务已停止，未处理 {counts['unprocessed_count']} 部保留"
         self.last_error = "" if complete else "本轮清理未全部完成"
         final_text = self._build_report_text(
             result, "", checked_at, phase="finished", verification=verification, cycle_stats=counts,
@@ -319,12 +344,12 @@ class LibraryCleanupModule(BaseToolModule):
         all_unknown = len(batch["unknown"]) == len(selected_movies)
         report_updated = True
         notification_state = "disabled"
-        if all_unknown:
+        if all_unknown and not counts["stopped"]:
             sent = self._alerts().fail("cleanup", "precheck_unavailable", final_text, checked_at)
             report_updated = sent is not False
             notification_state = "suppressed" if sent is None else "sent" if sent else "failed"
         else:
-            if not reconciled.unknown:
+            if not reconciled.unknown and not counts["stopped"]:
                 self._alerts().recover("cleanup")
             if self.config.get("cleanup_notify", True):
                 if notifier:
@@ -343,7 +368,7 @@ class LibraryCleanupModule(BaseToolModule):
                     "notification_state": notification_state,
                     **(notifier.to_dict() if notifier else {})},
         )
-        self.add_history("success" if complete else "failed", summary, time.time() - start)
+        self.add_history(status, summary, time.time() - start)
         return {"success": complete, "summary": summary, "operation": "cleanup", **counts}
 
     def _precheck_candidate(self, movie, conditions, now):
@@ -373,19 +398,28 @@ class LibraryCleanupModule(BaseToolModule):
     def _process_batch(self, movies, result, checked_at):
         """每次删除前即时查询；删除间隔内的状态变化也能被发现。"""
         batch = {"attempted": [], "skipped": [], "absent": [], "unknown": [],
-                 "errors": {}, "fail_count": 0, "notifier": None, "notification_error": False}
+                 "errors": {}, "fail_count": 0, "notifier": None, "notification_error": False,
+                 "processed_keys": set(), "stopped": False}
         try:
             delay = max(0, int(self.config.get("auto_delete_delay", 60)))
         except (TypeError, ValueError):
             delay = 60
         last_delete = None
         for movie in movies:
+            if self._run_lock.stopped:
+                batch["stopped"] = True
+                break
             if last_delete is not None:
                 remaining = delay - (time.monotonic() - last_delete)
-                if remaining > 0:
-                    time.sleep(remaining)
+                if remaining > 0 and self._run_lock.wait(remaining):
+                    batch["stopped"] = True
+                    break
             state, fresh, error = self._precheck_candidate(movie, result.conditions, datetime.now(timezone.utc))
+            if self._run_lock.stopped:
+                batch["stopped"] = True
+                break
             if state != "eligible":
+                batch["processed_keys"].add(cleanup_plan_key(movie))
                 batch[state].append(fresh)
                 if error:
                     batch["errors"][cleanup_plan_key(movie)] = error
@@ -399,6 +433,10 @@ class LibraryCleanupModule(BaseToolModule):
                 except Exception as err:
                     batch["notification_error"] = True
                     logger.warning(f"工具中心：清理开始通知失败：{redact_sensitive_text(err)}")
+            if self._run_lock.stopped:
+                batch["stopped"] = True
+                break
+            batch["processed_keys"].add(cleanup_plan_key(movie))
             batch["attempted"].append(fresh)
             _success, failed = self._delete_candidates([fresh])
             batch["fail_count"] += failed
@@ -469,6 +507,7 @@ class LibraryCleanupModule(BaseToolModule):
         candidates = list(self.adapter.iter_candidates(self.config))
         checked_at = datetime.now(timezone.utc)
         result = filter_cleanup_candidates(candidates, self.config, now=checked_at)
+        self._run_lock.check()
         plan = self._load_plan()
         plan, added = self._merge_plan(plan, result.qualified_movies, checked_at)
         valid_keys = {cleanup_plan_key(movie) for movie in result.qualified_movies}
@@ -624,11 +663,13 @@ class LibraryCleanupModule(BaseToolModule):
         states: list[Optional[bool]] = [None] * len(movies)
         pending = list(range(len(movies)))
         for _attempt in range(self.verification_attempts):
-            if not pending:
+            if not pending or self._run_lock.stopped:
                 break
-            if self.verification_delay > 0:
-                time.sleep(self.verification_delay)
+            if self.verification_delay > 0 and self._run_lock.wait(self.verification_delay):
+                break
             for index in pending:
+                if self._run_lock.stopped:
+                    break
                 try:
                     state = self.adapter.item_exists(
                         movies[index], str(self.config.get("selected_user") or ""),

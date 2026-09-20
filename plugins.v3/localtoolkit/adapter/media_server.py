@@ -26,15 +26,18 @@ class MediaServerCleanupAdapter:
         self.helper = helper or MediaServerHelper()
         self.chain = chain if chain is not None else self._build_chain()
         self._user_bindings = ContextVar("cleanup_user_bindings", default=None)
+        self._cancel_check = ContextVar("cleanup_cancel_check", default=lambda: None)
 
     @contextmanager
-    def user_scope(self):
+    def user_scope(self, check_cancel=lambda: None):
         """将一次扫描/清理中的用户名绑定到同一真实用户 ID。"""
         token = self._user_bindings.set({})
+        cancel_token = self._cancel_check.set(check_cancel)
         try:
             yield
         finally:
             self._user_bindings.reset(token)
+            self._cancel_check.reset(cancel_token)
 
     def list_servers(self) -> List[dict]:
         """返回可用于清理库存的媒体服务器选项。"""
@@ -78,6 +81,7 @@ class MediaServerCleanupAdapter:
         if not services:
             raise RuntimeError("未找到可用的媒体服务器，保留原清理计划")
         for server, service in services.items():
+            self._cancel_check.get()()
             libraries = self._libraries(server, service, selected_user, strict=True)
             matched = False
             for library in libraries:
@@ -109,6 +113,7 @@ class MediaServerCleanupAdapter:
         if items is None:
             raise RuntimeError("无法完整读取媒体库，保留原清理计划")
         for item in items:
+            self._cancel_check.get()()
             if not item:
                 continue
             candidate = candidate_from_media_item(
@@ -154,7 +159,9 @@ class MediaServerCleanupAdapter:
         items = []
         seen = set()
         while True:
+            self._cancel_check.get()()
             res = self._request_utils(timeout=20).get_res(url, dict(params))
+            self._cancel_check.get()()
             if res is None or res.status_code != 200:
                 raise RuntimeError("媒体库分页读取失败，原清理计划未更新")
             payload = res.json()
@@ -329,6 +336,7 @@ class MediaServerCleanupAdapter:
                     raise RuntimeError("媒体库列表不可访问")
                 return result or []
         except Exception as err:
+            self._cancel_check.get()()
             if strict:
                 raise RuntimeError("读取媒体库列表失败") from err
             logger.warning(f"本地工具集：获取 {server} 媒体库失败：{redact_sensitive_text(err)}")

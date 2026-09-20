@@ -1,6 +1,8 @@
 from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 from app.plugins.localtoolkit.model.library_cleanup import CleanupCandidate
@@ -8,9 +10,14 @@ from app.plugins.localtoolkit.service.library_cleanup import LibraryCleanupModul
 
 
 class FakePlugin:
-    def __init__(self):
+    def __init__(self, data_path=None):
         self.data = {}
         self.notifiers = []
+        self._temporary = TemporaryDirectory(prefix="localtoolkit-test-") if data_path is None else None
+        self._data_path = Path(self._temporary.name if self._temporary else data_path)
+
+    def get_data_path(self):
+        return self._data_path
 
     def get_data(self, key):
         return deepcopy(self.data.get(key))
@@ -39,7 +46,7 @@ class FakeNotifier:
 
 
 class FakeMediaServer:
-    def user_scope(self):
+    def user_scope(self, check_cancel=None):
         return nullcontext()
 
     def __init__(self, states, delete_results=None):

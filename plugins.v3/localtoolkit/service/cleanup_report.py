@@ -105,6 +105,9 @@ def build_report(
             footer.append(f"另有 {len(anomalies) - shown} 部异常项目未展开")
         complete = not verification.remaining and not counts.get("unknown_count", len(verification.unknown))
         completion = "✅ 本轮删除完毕" if verification.removed else "✅ 本轮检查完成"
+        if counts.get("stopped"):
+            completion = f"⏹ 本轮已停止，未处理 {counts.get('unprocessed_count', 0)} 部保留"
+            complete = True
         footer.extend([
             "",
             completion if complete else "⚠️ 本轮清理未全部完成",

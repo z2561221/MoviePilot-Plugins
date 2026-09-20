@@ -157,6 +157,8 @@ class ToolkitRunData(BaseModel):
     summary: Optional[str] = None
     operation: str | None = None
     busy: bool | None = None
+    stopped: bool | None = None
+    unprocessed_count: int | None = None
     deleted: Optional[int] = None
     total: Optional[int] = None
     before: Optional[ToolkitCacheSnapshot] = None
