@@ -1,10 +1,11 @@
 """续季年份必须贯穿展示和订阅筛选，所有写入均停留在内存替身。"""
 
+import datetime
 from types import SimpleNamespace
 
 import pytest
 from app.plugins.doubancenter import utils
-from app.plugins.doubancenter.service import rank_pipeline, subscription
+from app.plugins.doubancenter.service import rank_pipeline, rank_timing, subscription
 from app.plugins.doubancenter.storage import records
 from app.schemas.types import MediaType
 from app.sdk.media import MetaInfo
@@ -15,6 +16,15 @@ from tests.v3.doubancenter import test_rank_seasons
 rank_lab = test_rank_seasons.rank_lab
 RANK = {"key": "bangumi", "name": "BangumiTV", "route": "/bangumi.tv/anime/followrank"}
 TITLE = "Re：从零开始的异世界生活 第四季 夺还篇"
+
+
+class FixedDatetime(datetime.datetime):
+    """冻结上映窗口实验的日期，不随执行时间漂移。"""
+
+    @classmethod
+    def now(cls, tz=None):
+        """返回固定的实验时间。"""
+        return cls(2026, 9, 9, 12, tzinfo=tz)
 
 
 @pytest.fixture
@@ -120,6 +130,9 @@ def test_unknown_season_year_remains_retryable(season_lab, monkeypatch):
     assert any("本季年份" in line and "待重试" in line for line in lines)
     season_lab.media.season_years = {"4": "2026"}
     rank_pipeline._process_general_snapshots(season_lab.plugin, [entry], RANK)
+    assert season_lab.added == []  # 单独的年份映射不足以证明原生季日期。
+    season_lab.media.season_info = [{"season_number": 4, "air_date": "2026-04-08"}]
+    rank_pipeline._process_general_snapshots(season_lab.plugin, [entry], RANK)
     assert len(season_lab.added) == 1
 
 
@@ -127,3 +140,90 @@ def test_unknown_season_year_remains_retryable(season_lab, monkeypatch):
 def test_movie_year_keeps_its_original_meaning(year, expected):
     """电影年份不受续季规则影响。"""
     assert utils.get_media_year(SimpleNamespace(type=MediaType.MOVIE, year=year)) == expected
+
+
+@pytest.mark.parametrize("direct", [False, True])
+def test_resolved_date_passes_air_window_in_both_paths(season_lab, monkeypatch, direct):
+    """无季详情的识别对象仍可通过日期回退完成上映窗口筛选。"""
+    monkeypatch.setattr(
+        utils, "datetime", SimpleNamespace(datetime=FixedDatetime, date=datetime.date),
+    )
+    season_lab.media.season_info = []
+    season_lab.media.season_years = {}
+    season_lab.plugin._rank_configs["bangumi"]["air_days"] = 365
+    calls = []
+
+    def load(**kwargs):
+        """仅返回对应的原生第四季日期。"""
+        calls.append(kwargs)
+        return {"season_number": 4, "air_date": "2026-04-08"}
+
+    monkeypatch.setattr(season_lab.plugin.chain, "tmdb_info", load)
+    if direct:
+        meta = MetaInfo(TITLE)
+        meta.begin_season = 4
+        monkeypatch.setattr(
+            rank_pipeline, "_fetch_rss", lambda *a: [{"title": TITLE, "year": "2016"}],
+        )
+        monkeypatch.setattr(
+            rank_pipeline, "_recognize_rss_item", lambda *a: (meta, season_lab.media, "tv"),
+        )
+        rank_pipeline._process_general(season_lab.plugin, "https://example.test/rss", RANK)
+    else:
+        rank_pipeline._process_general_snapshots(season_lab.plugin, [snapshot(season_lab)], RANK)
+    assert len(calls) == len(season_lab.added) == 1
+    record = records.read_rank_history(season_lab.plugin, "bangumi")[0]
+    assert (record["year"], record["air_date"], record["season"]) == ("2026", "2026-04-08", 4)
+    assert season_lab.media.year == "2016"
+
+
+def test_native_identity_supplies_missing_tmdb_alias(season_lab, monkeypatch):
+    """宿主只提供统一 TMDB 身份时仍能查询季日期，不依赖旧别名。"""
+    season_lab.media.tmdb_id = None
+    season_lab.media.season_info = []
+    calls = []
+
+    def load(**kwargs):
+        """记录最终使用的身份和季号。"""
+        calls.append(kwargs)
+        return {"season_number": 4, "air_date": "2026-04-08"}
+
+    monkeypatch.setattr(season_lab.plugin.chain, "tmdb_info", load)
+    rank_pipeline._process_general_snapshots(season_lab.plugin, [snapshot(season_lab)], RANK)
+    assert len(season_lab.added) == 1
+    assert [(call["tmdbid"], call["season"]) for call in calls] == [(95480, 4)]
+
+
+def test_group_year_cannot_replace_native_season_date(season_lab, monkeypatch):
+    """宿主按分组 order 生成的年份不能用于原生季筛选。"""
+    season_lab.media.season_info = []
+    season_lab.media.season_years = {4: "2024"}
+    monkeypatch.setattr(season_lab.plugin.chain, "tmdb_info", lambda **kw: {
+        "season_number": 4, "air_date": "2026-04-08",
+    })
+    rank_pipeline._process_general_snapshots(season_lab.plugin, [snapshot(season_lab)], RANK)
+    assert len(season_lab.added) == 1
+    assert records.read_rank_history(season_lab.plugin, "bangumi")[0]["year"] == "2026"
+
+
+def test_refresh_and_subscription_reuse_date_without_mutating_media(season_lab, monkeypatch):
+    """刷新后订阅复用本轮日期，保留分段年份且不修改宿主媒体对象。"""
+    season_lab.media.season_info = []
+    calls = []
+    monkeypatch.setattr(season_lab.plugin.chain, "tmdb_info", lambda **kw: calls.append(kw) or {
+        "season_number": 4, "air_date": "2026-04-08",
+    })
+    entry = snapshot(season_lab)["entry"]
+    assert rank_timing.resolve_release(season_lab.plugin, season_lab.media, 4, entry=entry) == (
+        "2026", "2026-04-08",
+    )
+    entry["source_year"] = "2027"
+    assert rank_timing.resolve_release(
+        season_lab.plugin, season_lab.media, 4, entry=entry, require_date=True,
+    ) == ("2027", "2026-04-08")
+    assert len(calls) == 1
+    assert season_lab.media.year == "2016"
+    assert season_lab.media.season_info == []
+    season_lab.media.media_id = "65942"
+    rank_timing.resolve_release(season_lab.plugin, season_lab.media, 4, entry=entry, require_date=True)
+    assert [call["tmdbid"] for call in calls] == [95480, 65942]
