@@ -86,7 +86,7 @@ const cleanupPlanPageSize = 15;
 const historyPageSize = 15;
 
 const _sfc_main = {
-  __name: 'AppPage',
+  __name: 'Page',
   props: {
   api: { type: Object, default: () => ({}) },
   pluginId: { type: String, default: 'LocalToolkit' },
@@ -567,7 +567,7 @@ return (_ctx, _cache) => {
                   _createElementVNode("div", _hoisted_23, [
                     _cache[13] || (_cache[13] = _createElementVNode("div", null, [
                       _createElementVNode("div", { class: "lt-section-title" }, "快速操作"),
-                      _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "生成计划会扫描；立即清理一批只处理已有计划。")
+                      _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "生成计划会扫描；立即清理只处理已有计划。")
                     ], -1)),
                     _createVNode(_component_VBtn, {
                       size: "small",
@@ -603,7 +603,7 @@ return (_ctx, _cache) => {
                       onClick: _cache[3] || (_cache[3] = $event => (runModule('library_cleanup')))
                     }, {
                       default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
-                        _createTextVNode("立即清理一批", -1)
+                        _createTextVNode("立即清理", -1)
                       ]))]),
                       _: 1
                     }, 8, ["loading"]),
@@ -663,7 +663,7 @@ return (_ctx, _cache) => {
                         onClick: _cache[6] || (_cache[6] = $event => (runModule('library_cleanup')))
                       }, {
                         default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
-                          _createTextVNode("立即清理一批", -1)
+                          _createTextVNode("立即清理", -1)
                         ]))]),
                         _: 1
                       }, 8, ["loading"]),
@@ -953,6 +953,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b8fa6fb6"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a6402e48"]]);
 
-export { AppPage as default };
+export { Page as default };

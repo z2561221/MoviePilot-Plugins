@@ -34,9 +34,9 @@ class CheckMissingModule(BaseToolModule):
             bp=Path(base)
             if not bp.exists():
                 results.append({'path':self._path_label(base),'status':'not_exists','missing':[]}); continue
-            # 只扫描分类目录（国漫/日番）的直接子目录作为剧集目录
+            # 分类目录下的每个剧集目录递归收集 STRM，季目录不应因根目录没有文件而被跳过。
             for cat in [d for d in bp.iterdir() if d.is_dir()]:
-                for sd in [d for d in cat.iterdir() if d.is_dir() and any(f.is_file() for f in d.iterdir())]:
+                for sd in [d for d in cat.iterdir() if d.is_dir()]:
                     files=[f for f in sd.rglob('*.strm') if f.is_file()]
                     if self.config.get('skip_empty', True) and not files: continue
                     seasons={}

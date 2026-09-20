@@ -23,7 +23,14 @@ class CleanupAlerts:
         data = self.plugin.get_data(key=ALERT_DATA_KEY)
         return dict(data) if isinstance(data, dict) else {}
 
-    def fail(self, operation: str, category: str, text: str, now: datetime) -> bool | None:
+    def fail(
+        self,
+        operation: str,
+        category: str,
+        text: str,
+        now: datetime,
+        identities: list[str] | None = None,
+    ) -> bool | None:
         """首次异常或通知冷却到期时发送，失败时保留后续重试机会。"""
         data = self._load()
         previous = data.get(operation)
@@ -35,24 +42,35 @@ class CleanupAlerts:
             "fingerprint": fingerprint, "notified": False, "last_notified_at": "",
         }
         message = "删除前媒体状态持续无法核验" if category == "precheck_unavailable" else text
-        state.update(active=True, message=message, category=category)
+        state.update(
+            active=True,
+            message=message,
+            category=category,
+            identities=sorted({str(identity) for identity in (identities or []) if identity}),
+        )
         last = parse_datetime(state.get("last_notified_at"))
         due = last is None or (now - last).total_seconds() >= ALERT_INTERVAL_SECONDS
         sent = None
         if due and self.config.get(f"{operation}_notify", True):
             title = "清理计划扫描异常" if operation == "scan" else "周期清理异常"
             sent = self.send(operation, title, text)
-            if sent:
+            if sent and getattr(sent, "confirmed", True):
                 state.update(notified=True, last_notified_at=now.isoformat())
+            elif sent:
+                state["delivery_state"] = getattr(sent, "state", "queued")
         data[operation] = state
         self.plugin.save_data(key=ALERT_DATA_KEY, value=data)
         return sent
 
-    def recover(self, operation: str) -> None:
+    def recover(self, operation: str, identities: list[str] | None = None) -> None:
         """仅在对应操作真实恢复后提醒一次，空计划和冷却跳过不算恢复。"""
         data = self._load()
         state = data.get(operation)
         if not isinstance(state, dict):
+            return
+        failed = {str(identity) for identity in state.get("identities", []) if identity}
+        current = {str(identity) for identity in (identities or []) if identity}
+        if failed and not failed.issubset(current):
             return
         state["active"] = False
         if state.get("notified") and self.config.get(f"{operation}_notify", True):

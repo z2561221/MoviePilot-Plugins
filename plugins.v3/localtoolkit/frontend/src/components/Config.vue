@@ -232,7 +232,7 @@ function saveConfig() {
             <div v-show="activeMain === 'library_cleanup'" class="plugin-pane">
               <div v-if="activeSub === 'basic'">
                 <div class="plugin-section-title text-error">清理库存基础设置</div>
-                <VAlert type="info" variant="tonal" class="mb-4" text="扫描只更新清理计划；立即清理一批仅读取已有计划，删除前逐项复核当前条件。两个周期互斥执行，空计划或冷却中不会重复推送。" />
+                <VAlert type="info" variant="tonal" class="mb-4" text="扫描只更新清理计划；立即清理仅读取已有计划，删除前逐项复核当前条件。两个周期互斥执行，空计划或冷却中不会重复推送。" />
                 <section class="schedule-block schedule-block--scan">
                   <div class="schedule-block__header">
                     <div>
@@ -254,7 +254,7 @@ function saveConfig() {
                   <div class="schedule-block__header">
                     <div>
                       <div class="schedule-block__title"><VIcon icon="mdi-delete-sweep-outline" size="18" />周期清理</div>
-                      <div class="plugin-hint">只处理已有计划；立即清理一批与周期清理共用冷却、批次数量和复核规则。</div>
+                      <div class="plugin-hint">只处理已有计划；立即清理与周期清理共用冷却、批次数量和复核规则。</div>
                     </div>
                     <VSwitch v-model="form.library_cleanup.cleanup_enabled" color="error" inset label="启用" hide-details />
                   </div>

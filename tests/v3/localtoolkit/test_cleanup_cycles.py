@@ -35,7 +35,7 @@ def test_schedulers_are_independent_and_invalid_scan_cron_does_not_disable_clean
     services = module.get_service()
     assert len(services) == 2 and len({item["id"] for item in services}) == 2
     assert [item["func"].__name__ for item in services] == ["scan_plan", "run_once"]
-    assert all(item["kwargs"] == {"scheduled": True} for item in services)
+    assert all(item["func_kwargs"] == {"scheduled": True} for item in services)
     assert [item["id"] for item in module.get_service()] == [item["id"] for item in services]
     module.config["scan_cron"] = "not a cron"
     assert [item["func"].__name__ for item in module.get_service()] == ["run_once"]
@@ -52,6 +52,7 @@ def test_scan_only_adds_plan_and_changed_report_then_cleanup_never_rescans():
     assert not adapter.deleted and not adapter.checked and not adapter.prechecked
     assert len(plugin.notifiers) == 1
     assert plugin.notifiers[0].calls[0][1] == "清理计划更新"
+    assert "<b>清理计划更新</b>" not in plugin.notifiers[0].calls[0][2]
     assert "当前待清理：2 部" in plugin.notifiers[0].calls[0][2]
     assert module.run_once()["success_count"] == 2
     assert adapter.scans == 1
@@ -195,6 +196,37 @@ def test_new_module_instance_reuses_persisted_cleanup_cooldown():
     assert not adapter.deleted and not adapter.scans
     plugin.data["library_cleanup_plan"]["last_cycle_at"] = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
     assert reloaded.get_cleanup_plan()["next_cycle_at"] == ""
+
+
+def test_scheduled_cooldown_creates_one_persisted_retry_trigger():
+    """周期冷却只登记一次 DateTrigger，手动跳过不登记。"""
+    module, plugin, _adapter = build_module({"a": [False]}, cleanup_enabled=True,
+                                           cycle_cooldown_minutes=60, cleanup_notify=False)
+    plugin.data["library_cleanup_plan"]["last_cycle_at"] = datetime.now(timezone.utc).isoformat()
+    manual = module.run_once()
+    assert manual["cooldown"] and "pending_cycle_at" not in plugin.data["library_cleanup_plan"]
+    scheduled = module.run_once(scheduled=True)
+    assert scheduled["retry_scheduled"]
+    pending = plugin.data["library_cleanup_plan"]["pending_cycle_at"]
+    services = module.get_service()
+    retry = [item for item in services if item["id"].endswith("cooldown_retry")]
+    assert len(retry) == 1 and retry[0]["func_kwargs"] == {"scheduled": True, "retry": True}
+    module.run_once(scheduled=True)
+    assert plugin.data["library_cleanup_plan"]["pending_cycle_at"] == pending
+    assert not _adapter.deleted
+
+
+def test_retry_consumes_pending_intent_and_clear_cancels_it():
+    """补跑执行后消费意图，清空计划撤销意图。"""
+    module, plugin, _adapter = build_module({"a": [False]}, cleanup_enabled=True,
+                                           cycle_cooldown_minutes=1, cleanup_notify=False)
+    plugin.data["library_cleanup_plan"]["pending_cycle_at"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    plugin.data["library_cleanup_plan"]["last_cycle_at"] = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    result = module.run_once(scheduled=True, retry=True)
+    assert result["success"] and not plugin.data["library_cleanup_plan"]["pending_cycle_at"]
+    plugin.data["library_cleanup_plan"]["pending_cycle_at"] = datetime.now(timezone.utc).isoformat()
+    module.clear_cleanup_plan()
+    assert not plugin.data["library_cleanup_plan"]["pending_cycle_at"]
 
 
 def test_reinitialization_migrates_saved_config_and_keeps_inflight_batch_lock():

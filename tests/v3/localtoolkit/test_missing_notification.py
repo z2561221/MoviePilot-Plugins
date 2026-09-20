@@ -89,3 +89,23 @@ def test_scan_notifies_grouped_html_and_plain_without_changing_missing_results(t
     assert history["parse_mode"] == "plain"
     module.send_notification("清理 TMDB 缓存", "清理完成：8 个缓存键")
     assert len(messages) == 4 and messages[-1]["parse_mode"] == "plain"
+
+
+def test_season_subdirectory_is_scanned_when_series_root_has_no_direct_file(tmp_path):
+    """剧集根目录没有海报或视频文件时，季目录 STRM 仍参与缺集判断。"""
+    root = tmp_path / "library"
+    season = root / "动画" / "示例剧" / "Season 1"
+    season.mkdir(parents=True)
+    for name in ("Show.S01E01.strm", "Show.S01E03.strm"):
+        (season / name).write_text("https://example.invalid/media", encoding="utf-8")
+    data = {}
+    plugin = SimpleNamespace(
+        post_message=lambda **_kwargs: None,
+        get_data=lambda key: data.get(key),
+        save_data=lambda key, value: data.update({key: value}),
+    )
+    module = CheckMissingModule(plugin)
+    module.load_config({"notify": False, "scan_paths": [str(root)]})
+    result = module.run_once()
+    assert result["missing_total"] == 1
+    assert data["check_missing_result"][0]["missing"] == [2]

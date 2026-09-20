@@ -438,7 +438,7 @@ return (_ctx, _cache) => {
                         type: "info",
                         variant: "tonal",
                         class: "mb-4",
-                        text: "扫描只更新清理计划；立即清理一批仅读取已有计划，删除前逐项复核当前条件。两个周期互斥执行，空计划或冷却中不会重复推送。"
+                        text: "扫描只更新清理计划；立即清理仅读取已有计划，删除前逐项复核当前条件。两个周期互斥执行，空计划或冷却中不会重复推送。"
                       }),
                       _createElementVNode("section", _hoisted_16, [
                         _createElementVNode("div", _hoisted_17, [
@@ -514,7 +514,7 @@ return (_ctx, _cache) => {
                               }),
                               _cache[39] || (_cache[39] = _createTextVNode("周期清理", -1))
                             ]),
-                            _cache[40] || (_cache[40] = _createElementVNode("div", { class: "plugin-hint" }, "只处理已有计划；立即清理一批与周期清理共用冷却、批次数量和复核规则。", -1))
+                            _cache[40] || (_cache[40] = _createElementVNode("div", { class: "plugin-hint" }, "只处理已有计划；立即清理与周期清理共用冷却、批次数量和复核规则。", -1))
                           ]),
                           _createVNode(_component_VSwitch, {
                             modelValue: form.library_cleanup.cleanup_enabled,
@@ -1047,6 +1047,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-182f54ab"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-13ebb45f"]]);
 
 export { Config as default };

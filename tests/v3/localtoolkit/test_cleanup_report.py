@@ -48,6 +48,8 @@ def test_report_escapes_titles_and_preserves_same_body_in_every_phase():
     ]
     assert len({text.split("<b>本轮清理结果</b>")[0] for text in reports}) == 1
     assert "电影 &lt;测试&gt; &amp; 特别篇" in reports[0]
+    assert "｜2026-01-01" in reports[0] and "入库时长：" not in reports[0]
+    assert "\n\n<b>02." not in reports[0]
     assert "**" not in reports[0] and "```" not in reports[0]
     assert "正在清理" in reports[0] and "正在复核" in reports[1]
     assert "确认移除：1 部" in reports[2] and "✅ 本轮删除完毕" in reports[2]

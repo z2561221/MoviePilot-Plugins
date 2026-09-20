@@ -61,10 +61,10 @@ def build_report(
             age = movie.age_days(checked_at)
             age_text = f"{age} 天" if age is not None else "未知"
             date_text = _escaped(movie.date_created[:10] if movie.date_created else "未知", 10)
-            row = f"<b>{index:02d}. {_movie_name(movie)}</b>\n入库时长：{age_text}｜入库日期：{date_text}"
+            row = f"<b>{index:02d}. {_movie_name(movie)}</b>｜{age_text}｜{date_text}"
             if _length("\n".join([*lines, row])) > BODY_LIMIT - 60:
                 break
-            lines.extend([row, ""])
+            lines.append(row)
             shown += 1
         if shown < result.qualified_count:
             lines.append(f"另有 {result.qualified_count - shown} 部未展开")

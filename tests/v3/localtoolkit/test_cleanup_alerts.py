@@ -64,3 +64,16 @@ def test_muted_operations_do_not_emit_failure_or_recovery_notifications():
     assert alerts.errors() == {"scan": "扫描失败"}
     alerts.recover("scan")
     assert not calls
+
+
+def test_recovery_waits_until_the_failed_identity_is_in_current_batch():
+    """其他批次成功不能清除仍待复核的原异常。"""
+    plugin = FakePlugin()
+    calls = []
+    alerts = CleanupAlerts(plugin, {}, lambda *args: calls.append(args) or True)
+    now = datetime.now(timezone.utc)
+    alerts.fail("cleanup", "precheck_unavailable", "无法核验", now, identities=["emby:failed"])
+    alerts.recover("cleanup", identities=["emby:other"])
+    assert alerts.errors() == {"cleanup": "删除前媒体状态持续无法核验"}
+    alerts.recover("cleanup", identities=["emby:failed"])
+    assert alerts.errors() == {} and calls[-1][1] == "周期清理恢复"

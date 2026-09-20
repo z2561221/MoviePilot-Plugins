@@ -8,8 +8,9 @@ from typing import List, Optional
 
 from app.sdk.logging import logger
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 
-from ..adapter.cleanup_notification import CleanupReportNotifier
+from ..adapter.cleanup_notification import CleanupReportNotifier, NotificationOutcome
 from ..adapter.media_server import MediaServerCleanupAdapter
 from ..model.cleanup_config import default_cleanup_config, normalize_cleanup_config
 from ..model.library_cleanup import (
@@ -81,12 +82,16 @@ class LibraryCleanupModule(BaseToolModule):
     def _notify(self, operation: str, title: str, text: str) -> bool:
         """发送单次最终通知，返回成功状态供异常去重使用。"""
         if not self.config.get(f"{operation}_notify", True):
-            return False
+            return NotificationOutcome(False, False, "disabled")
         try:
-            return bool(self._notifier_factory(self.plugin).finish(title, text))
+            notifier = self._notifier_factory(self.plugin)
+            success = bool(notifier.finish(title, text))
+            confirmed = bool(getattr(notifier, "delivery_confirmed", success))
+            state = getattr(notifier, "delivery_state", "confirmed" if success else "failed")
+            return NotificationOutcome(success, confirmed, state)
         except Exception as err:  # noqa: BLE001 - 通知渠道失败不能改变清理结果
             logger.warning(f"工具中心：发送{operation}报告失败：{redact_sensitive_text(err)}")
-            return False
+            return NotificationOutcome(False, False, "failed")
 
     def send_notification(self, title: str, text: str) -> None:
         """发送不需要后续更新的 HTML 清理报告。"""
@@ -110,8 +115,18 @@ class LibraryCleanupModule(BaseToolModule):
             services.append({
                 "id": f"{self.plugin.__class__.__name__}.LibraryCleanup.{operation}",
                 "name": f"工具中心 - {label}", "trigger": trigger,
-                "func": callback, "kwargs": {"scheduled": True},
+                "func": callback, "func_kwargs": {"scheduled": True},
             })
+        if self.config.get("cleanup_enabled"):
+            pending_at = parse_datetime(self._load_plan().get("pending_cycle_at"))
+            if pending_at is not None:
+                services.append({
+                    "id": f"{self.plugin.__class__.__name__}.LibraryCleanup.cooldown_retry",
+                    "name": "工具中心 - 冷却结束补跑",
+                    "trigger": DateTrigger(run_date=max(pending_at, datetime.now(timezone.utc))),
+                    "func": self.run_once,
+                    "func_kwargs": {"scheduled": True, "retry": True},
+                })
         return services
 
     def get_options(
@@ -196,10 +211,10 @@ class LibraryCleanupModule(BaseToolModule):
             summary = f"扫描完成，新增入队 {added} 部，失效移出 {removed} 部，待清理 {queue_count} 部"
             self._save_result(result, checked_at, summary=summary, queue=plan, operation="scan")
             self.add_history("success", summary, time.time() - start)
-            self._alerts().recover("scan")
+            self._alerts().recover("scan", identities=[])
             self.last_error = ""
             if added or removed:
-                text = (f"<b>清理计划更新</b>\n新增入队：{added} 部｜失效移出：{removed} 部\n"
+                text = (f"新增入队：{added} 部｜失效移出：{removed} 部\n"
                         f"当前待清理：{queue_count} 部\n完整名单请查看清理计划页。")
                 if self.config.get("scan_notify", True) and not self._notify("scan", "清理计划更新", text):
                     self.last_error = "扫描通知发送失败"
@@ -244,6 +259,7 @@ class LibraryCleanupModule(BaseToolModule):
             plan = self._load_plan()
             cleared = len(plan["items"])
             plan["items"] = []
+            plan["pending_cycle_at"] = ""
             plan["last_cleared_at"] = datetime.now(timezone.utc).isoformat()
             self._save_plan(plan)
             summary = f"已清空清理计划，共移除 {cleared} 部待处理记录"
@@ -252,7 +268,7 @@ class LibraryCleanupModule(BaseToolModule):
         finally:
             self._run_lock.release()
 
-    def run_once(self, scheduled=False):
+    def run_once(self, scheduled=False, retry=False):
         """仅消费已有计划；定时与手动清理共用互斥和冷却。"""
         if self._run_lock.stopped:
             return self._stopped_result("cleanup")
@@ -263,9 +279,10 @@ class LibraryCleanupModule(BaseToolModule):
         start = time.time()
         try:
             if scheduled and not self.config.get("cleanup_enabled"):
+                self._clear_pending_cycle()
                 return {"success": True, "summary": "周期清理已关闭", "operation": "cleanup"}
             with self.adapter.user_scope(self._run_lock.check):
-                return self._run_once(start)
+                return self._run_once(start, scheduled=scheduled, retry=retry)
         except CleanupCancelled:
             return self._stopped_result("cleanup")
         except Exception as err:
@@ -273,7 +290,7 @@ class LibraryCleanupModule(BaseToolModule):
         finally:
             self._run_lock.release()
 
-    def _run_once(self, start):
+    def _run_once(self, start, scheduled=False, retry=False):
         """检查清理门禁后，只按 ID 复核并处理本批次对象。"""
         checked_at = datetime.now(timezone.utc)
         self._run_lock.check()
@@ -287,14 +304,19 @@ class LibraryCleanupModule(BaseToolModule):
             summary = f"计划共 {queue_count} 部，自动删除未开启，本次跳过"
         elif cooldown > 0:
             summary = f"清理冷却中，约剩 {max(1, int((cooldown + 59) // 60))} 分钟"
+            if scheduled and parse_datetime(plan.get("pending_cycle_at")) is None:
+                plan["pending_cycle_at"] = (checked_at + timedelta(seconds=cooldown)).isoformat()
+                self._save_plan(plan)
         elif self.config.get("dry_run", False):
             summary = f"演练模式：计划共 {queue_count} 部，本批最多 {self._cycle_limit()} 部，未执行删除"
         if summary:
             self.add_history("skipped", summary, time.time() - start)
             return {"success": True, "summary": summary, "operation": "cleanup",
-                    "scanned_count": 0, "queue_count": queue_count, "cooldown": cooldown > 0}
+                    "scanned_count": 0, "queue_count": queue_count, "cooldown": cooldown > 0,
+                    "retry_scheduled": bool(scheduled and cooldown > 0)}
 
         selected_items = list(reversed(plan["items"]))[:self._cycle_limit()]
+        plan["pending_cycle_at"] = ""
         selected_movies = [candidate_from_plan_item(item) for item in selected_items]
         result = CleanupResult(conditions=build_cleanup_conditions(self.config), qualified_movies=selected_movies)
         plan["last_cycle_at"] = checked_at.isoformat()
@@ -345,18 +367,27 @@ class LibraryCleanupModule(BaseToolModule):
         report_updated = True
         notification_state = "disabled"
         if all_unknown and not counts["stopped"]:
-            sent = self._alerts().fail("cleanup", "precheck_unavailable", final_text, checked_at)
-            report_updated = sent is not False
-            notification_state = "suppressed" if sent is None else "sent" if sent else "failed"
+            sent = self._alerts().fail(
+                "cleanup", "precheck_unavailable", final_text, checked_at,
+                identities=[cleanup_plan_key(movie) for movie in batch["unknown"]],
+            )
+            report_updated = sent is None or bool(sent)
+            notification_state = (
+                "suppressed" if sent is None else getattr(sent, "state", "sent") if sent else "failed"
+            )
         else:
             if not reconciled.unknown and not counts["stopped"]:
-                self._alerts().recover("cleanup")
+                self._alerts().recover(
+                    "cleanup", identities=[cleanup_plan_key(movie) for movie in selected_movies],
+                )
             if self.config.get("cleanup_notify", True):
                 if notifier:
                     report_updated = bool(notifier.finish(REPORT_TITLE, final_text))
+                    notification_state = getattr(notifier, "delivery_state", "sent")
                 else:
-                    report_updated = self._notify("cleanup", REPORT_TITLE, final_text)
-                notification_state = "sent" if report_updated else "failed"
+                    outcome = self._notify("cleanup", REPORT_TITLE, final_text)
+                    report_updated = bool(outcome)
+                    notification_state = getattr(outcome, "state", "sent" if report_updated else "failed")
         if not report_updated or batch["notification_error"]:
             self.last_error = "；".join(filter(None, [self.last_error, "清理报告更新失败"]))
             summary += "；清理报告更新失败"
@@ -364,7 +395,7 @@ class LibraryCleanupModule(BaseToolModule):
             result, checked_at, summary=summary, queue=plan,
             deletion={**counts, "verification": verification.to_dict(checked_at)},
             report={"title": REPORT_TITLE, "text": final_text,
-                    "updated": report_updated and notification_state == "sent",
+                    "updated": report_updated and notification_state in ("sent", "confirmed"),
                     "notification_state": notification_state,
                     **(notifier.to_dict() if notifier else {})},
         )
@@ -457,6 +488,7 @@ class LibraryCleanupModule(BaseToolModule):
             "plan_count": len(plan["items"]),
             "last_scan_at": plan.get("last_scan_at", ""),
             "last_cycle_at": plan.get("last_cycle_at", ""),
+            "pending_cycle_at": plan.get("pending_cycle_at", ""),
             "next_cycle_at": self._next_cycle_at(plan),
             "cooldown_minutes": self._cooldown_minutes(),
             "cycle_batch_size": self._cycle_limit(),
@@ -567,6 +599,7 @@ class LibraryCleanupModule(BaseToolModule):
             "last_scanned_total": raw.get("last_scanned_total", 0),
             "last_scan": raw.get("last_scan") if isinstance(raw.get("last_scan"), dict) else {},
             "last_cycle_at": str(raw.get("last_cycle_at") or ""),
+            "pending_cycle_at": str(raw.get("pending_cycle_at") or ""),
             "last_cycle": raw.get("last_cycle") if isinstance(raw.get("last_cycle"), dict) else {},
             "last_cleared_at": str(raw.get("last_cleared_at") or ""),
         }
@@ -574,6 +607,13 @@ class LibraryCleanupModule(BaseToolModule):
     def _save_plan(self, plan: dict) -> None:
         """保存清理计划及其运行元数据。"""
         self.plugin.save_data(key=PLAN_DATA_KEY, value=plan)
+
+    def _clear_pending_cycle(self) -> None:
+        """取消持久化的冷却补跑意图。"""
+        plan = self._load_plan()
+        if plan.get("pending_cycle_at"):
+            plan["pending_cycle_at"] = ""
+            self._save_plan(plan)
 
     def _merge_plan(
         self,

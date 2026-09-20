@@ -17,6 +17,18 @@ from ..model.library_cleanup import read_value
 from ..security import redact_sensitive_text
 
 
+class NotificationOutcome:
+    """区分业务发送结果与可确认的外部投递。"""
+
+    def __init__(self, success: bool, confirmed: bool, state: str):
+        self.success = success
+        self.confirmed = confirmed
+        self.state = state
+
+    def __bool__(self):
+        return self.success
+
+
 def plain_report(text: str) -> str:
     """将受控 HTML 报告转换为其他通知渠道可读的纯文本。"""
     return unescape(text.replace("<b>", "").replace("</b>", ""))
@@ -153,4 +165,21 @@ class CleanupReportNotifier:
 
     def to_dict(self) -> dict:
         """保存回执和更新状态，不保存通知源凭据。"""
-        return {"receipts": self.receipts, "updated": not self.failures}
+        return {
+            "receipts": self.receipts,
+            "updated": not self.failures,
+            "delivery_state": self.delivery_state,
+        }
+
+    @property
+    def delivery_state(self) -> str:
+        """返回 confirmed、queued 或 failed，不把入队当作确认投递。"""
+        if self.failures:
+            return "failed"
+        if self.receipts:
+            return "confirmed"
+        return "queued"
+
+    @property
+    def delivery_confirmed(self) -> bool:
+        return self.delivery_state == "confirmed"

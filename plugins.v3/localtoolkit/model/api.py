@@ -129,6 +129,7 @@ class ToolkitCleanupPlanData(BaseModel):
     last_cycle: dict = Field(default_factory=dict)
     last_scan: dict = Field(default_factory=dict)
     next_cycle_at: str = ""
+    pending_cycle_at: str = ""
     cooldown_minutes: int = 0
     batch_size: int = 10
 
@@ -179,3 +180,4 @@ class ToolkitRunData(BaseModel):
     already_absent_count: int | None = None
     cleared_count: Optional[int] = None
     cooldown: Optional[bool] = None
+    retry_scheduled: bool | None = None
