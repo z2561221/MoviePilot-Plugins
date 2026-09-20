@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Dict, Iterable, List, Optional
 
 from app.sdk.logging import logger
@@ -23,6 +25,16 @@ class MediaServerCleanupAdapter:
         """初始化媒体服务器适配器。"""
         self.helper = helper or MediaServerHelper()
         self.chain = chain if chain is not None else self._build_chain()
+        self._user_bindings = ContextVar("cleanup_user_bindings", default=None)
+
+    @contextmanager
+    def user_scope(self):
+        """将一次扫描/清理中的用户名绑定到同一真实用户 ID。"""
+        token = self._user_bindings.set({})
+        try:
+            yield
+        finally:
+            self._user_bindings.reset(token)
 
     def list_servers(self) -> List[dict]:
         """返回可用于清理库存的媒体服务器选项。"""
@@ -121,7 +133,7 @@ class MediaServerCleanupAdapter:
         service_type = getattr(service, "type", "") if service else ""
         host = getattr(instance, "_host", "")
         apikey = getattr(instance, "_apikey", "")
-        user_id = self._resolve_user_id(instance, selected_user)
+        user_id = self._resolve_user_id(instance, selected_user, service_type)
         if not host or not apikey or not user_id or not library_id:
             return None
         prefix = "emby/" if service_type == "emby" else ""
@@ -135,6 +147,10 @@ class MediaServerCleanupAdapter:
             "Limit": 200,
             "StartIndex": 0,
         }
+        return self._read_pages(url, params)
+
+    def _read_pages(self, url: str, params: dict) -> list[dict]:
+        """完整读取用户范围列表，任一页异常均不返回部分结果。"""
         items = []
         seen = set()
         while True:
@@ -216,7 +232,7 @@ class MediaServerCleanupAdapter:
         instance = getattr(service, "instance", None)
         host = getattr(instance, "_host", "")
         key = getattr(instance, "_apikey", "")
-        user_id = self._resolve_user_id(instance, selected_user)
+        user_id = self._resolve_user_id(instance, selected_user, getattr(service, "type", ""))
         if not host or not key or not user_id:
             return None
         prefix = "emby/" if getattr(service, "type", "") == "emby" else ""
@@ -241,7 +257,7 @@ class MediaServerCleanupAdapter:
         service_type = getattr(service, "type", "")
         host = getattr(instance, "_host", "")
         apikey = getattr(instance, "_apikey", "")
-        user_id = self._resolve_user_id(instance, selected_user)
+        user_id = self._resolve_user_id(instance, selected_user, service_type)
         if service_type not in ("emby", "jellyfin") or not host or not apikey or not user_id:
             return None, None
         prefix = "emby/" if service_type == "emby" else ""
@@ -290,6 +306,17 @@ class MediaServerCleanupAdapter:
     ) -> List[Any]:
         """读取媒体库列表。"""
         try:
+            if selected_user:
+                instance = getattr(service, "instance", None)
+                service_type = getattr(service, "type", "")
+                user_id = self._resolve_user_id(instance, selected_user, service_type)
+                if not user_id:
+                    raise RuntimeError("所选媒体用户不存在或无法核验")
+                host = getattr(instance, "_host", "").rstrip("/")
+                prefix = "emby/" if service_type == "emby" else ""
+                return self._read_pages(f"{host}/{prefix}Users/{user_id}/Views", {
+                    "api_key": instance._apikey, "Limit": 200, "StartIndex": 0,
+                })
             if self.chain and hasattr(self.chain, "librarys"):
                 result = self.chain.librarys(server=server, username=selected_user or None)
                 if result is None and strict:
@@ -347,11 +374,12 @@ class MediaServerCleanupAdapter:
         apikey = getattr(instance, "_apikey", "")
         if not host or not apikey:
             return []
-        url = f"{host}{'emby/' if service_type == 'emby' else ''}Users"
+        url = f"{host.rstrip('/')}/{'emby/' if service_type == 'emby' else ''}Users"
         try:
-            res = self._request_utils().get_res(url, {"api_key": apikey})
-            if res and res.status_code == 200:
-                return res.json() or []
+            res = self._request_utils(timeout=10).get_res(url, {"api_key": apikey})
+            if res is not None and res.status_code == 200:
+                users = res.json()
+                return users if isinstance(users, list) else []
         except Exception as err:
             logger.warning(f"本地工具集：读取媒体服务器用户失败：{redact_sensitive_text(err)}")
         return []
@@ -366,7 +394,7 @@ class MediaServerCleanupAdapter:
         """通过 Emby/Jellyfin HTTP API 读取条目原始详情。"""
         host = getattr(instance, "_host", "")
         apikey = getattr(instance, "_apikey", "")
-        user_id = self._resolve_user_id(instance, selected_user)
+        user_id = self._resolve_user_id(instance, selected_user, service_type)
         if not host or not apikey or not user_id or not item_id:
             return None
         prefix = "emby/" if service_type == "emby" else ""
@@ -398,16 +426,31 @@ class MediaServerCleanupAdapter:
             logger.warning(f"本地工具集：删除媒体条目 {item_id} 失败：{redact_sensitive_text(err)}")
         return False
 
-    def _resolve_user_id(self, instance: Any, selected_user: str = "") -> Optional[str]:
-        """解析用户名称对应的媒体服务器用户 ID。"""
-        if instance and hasattr(instance, "get_user"):
+    def _resolve_user_id(
+        self, instance: Any, selected_user: str = "", service_type: str = "",
+    ) -> Optional[str]:
+        """显式用户精确匹配；默认用户保留宿主语义，执行中拒绝换身份。"""
+        if instance is None:
+            return None
+        if selected_user:
+            users = self._users_by_http(instance, service_type)
+            matches = [user for user in users if isinstance(user, dict) and user.get("Name") == selected_user]
+            if len(matches) != 1 or not matches[0].get("Id"):
+                return None
+            user_id = str(matches[0]["Id"])
+        else:
             try:
-                user_id = instance.get_user(selected_user or None)
-                if user_id:
-                    return str(user_id)
+                user_id = str(instance.get_user(None) or "")
             except Exception:
                 return None
-        return None
+        if not user_id:
+            return None
+        bindings = self._user_bindings.get()
+        if bindings is not None:
+            key = (getattr(instance, "_host", ""), selected_user)
+            if bindings.setdefault(key, user_id) != user_id:
+                return None
+        return user_id
 
     def _request_utils(self, timeout: Optional[int] = None) -> Any:
         """延迟导入宿主 HTTP 工具。"""

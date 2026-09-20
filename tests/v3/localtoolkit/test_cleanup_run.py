@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
@@ -38,6 +39,9 @@ class FakeNotifier:
 
 
 class FakeMediaServer:
+    def user_scope(self):
+        return nullcontext()
+
     def __init__(self, states, delete_results=None):
         self.states = deepcopy(states)
         self.delete_results = delete_results or {}

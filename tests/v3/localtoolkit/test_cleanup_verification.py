@@ -5,6 +5,13 @@ from app.plugins.localtoolkit.adapter.media_server import MediaServerCleanupAdap
 from app.plugins.localtoolkit.model.library_cleanup import CleanupCandidate
 
 
+@pytest.fixture(autouse=True)
+def valid_selected_user(monkeypatch):
+    """条目/分页用例固定有效用户，身份失效由独立集成用例覆盖。"""
+    monkeypatch.setattr(MediaServerCleanupAdapter, "_users_by_http",
+                        lambda *_args: [{"Name": "viewer", "Id": "viewer-id"}])
+
+
 class Response:
     def __init__(self, status, data=None):
         self.status_code = status

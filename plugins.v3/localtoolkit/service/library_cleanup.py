@@ -180,7 +180,8 @@ class LibraryCleanupModule(BaseToolModule):
         try:
             if scheduled and not self.config.get("scan_enabled"):
                 return {"success": True, "summary": "周期扫描已关闭", "operation": "scan"}
-            result, checked_at, plan, added, removed = self._scan_and_queue()
+            with self.adapter.user_scope():
+                result, checked_at, plan, added, removed = self._scan_and_queue()
             queue_count = len(plan["items"])
             summary = f"扫描完成，新增入队 {added} 部，失效移出 {removed} 部，待清理 {queue_count} 部"
             self._save_result(result, checked_at, summary=summary, queue=plan, operation="scan")
@@ -247,7 +248,8 @@ class LibraryCleanupModule(BaseToolModule):
         try:
             if scheduled and not self.config.get("cleanup_enabled"):
                 return {"success": True, "summary": "周期清理已关闭", "operation": "cleanup"}
-            return self._run_once(start)
+            with self.adapter.user_scope():
+                return self._run_once(start)
         except Exception as err:
             return self._operation_failed("cleanup", err, start)
         finally:
