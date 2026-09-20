@@ -41,21 +41,16 @@ def build_report(
     """生成固定上半部分与可更新底部，始终保留完整 HTML 标签。"""
     favorite_labels = {"all": "收藏不限", "fav": "已收藏", "unfav": "未收藏"}
     played_labels = {"all": "观看不限", "played": "已看过", "unplayed": "未看过"}
-    lines = ["<b>筛选条件</b>"]
+    lines = ["<b>条件</b>"]
     for condition in result.conditions:
         lines.append(
             f"{_escaped(condition.title)}：{favorite_labels[condition.favorite]} + "
             f"{played_labels[condition.played]} + 超过 {condition.days_threshold} 天"
         )
-    lines.extend([
-        "", "<b>检查结果</b>",
-        f"{'本轮检查' if phase else '符合条件'}：{result.qualified_count} 部",
-        f"自动删除：{'已开启' if config.get('auto_delete', False) else '未开启'}",
-    ])
     if summary and not phase:
         lines.append(_escaped(summary, 180))
     if result.qualified_movies:
-        lines.extend(["", "<b>本轮清理名单</b>"])
+        lines.extend(["", "<b>名单</b>"])
         shown = 0
         for index, movie in enumerate(result.qualified_movies[:20], start=1):
             age = movie.age_days(checked_at)
@@ -71,23 +66,20 @@ def build_report(
     body = "\n".join(lines).rstrip()
     if not phase:
         return body
-    footer = ["<b>本轮清理结果</b>"]
+    footer = ["<b>结果</b>"]
     if phase == "deleting":
-        footer.append("⏳ 正在清理，完成后在此更新结果。")
+        footer.append("⏳ 正在清理")
     elif phase == "verifying":
-        footer.append("⏳ 正在复核本轮媒体条目，请稍候。")
+        footer.append("⏳ 正在复核")
     elif verification is not None:
         counts = cycle_stats or {}
         footer.extend([
-            f"本轮目标：{result.qualified_count} 部",
-            f"确认移除：{len(verification.removed)} 部",
-            f"条件变化跳过：{counts.get('skipped_count', 0)} 部",
-            f"已不存在：{counts.get('already_absent_count', 0)} 部",
-            f"仍然存在：{len(verification.remaining)} 部",
-            f"无法核验：{counts.get('unknown_count', len(verification.unknown))} 部",
+            f"目标：{result.qualified_count} 部｜移除：{len(verification.removed)} 部",
+            f"跳过：{counts.get('skipped_count', 0)} 部｜不存在：{counts.get('already_absent_count', 0)} 部",
+            f"仍存在：{len(verification.remaining)} 部｜待核验：{counts.get('unknown_count', len(verification.unknown))} 部",
         ])
         if cycle_stats is not None:
-            footer.append(f"计划剩余：{counts.get('queue_count', 0)} 部")
+            footer.append(f"剩余：{counts.get('queue_count', 0)} 部")
         anomalies = [
             (movie, label)
             for label, movies in (("仍然存在", verification.remaining), ("无法核验", verification.unknown))
@@ -106,11 +98,10 @@ def build_report(
         complete = not verification.remaining and not counts.get("unknown_count", len(verification.unknown))
         completion = "✅ 本轮删除完毕" if verification.removed else "✅ 本轮检查完成"
         if counts.get("stopped"):
-            completion = f"⏹ 本轮已停止，未处理 {counts.get('unprocessed_count', 0)} 部保留"
+            completion = f"⏹ 已停止｜未处理：{counts.get('unprocessed_count', 0)} 部"
             complete = True
         footer.extend([
             "",
-            completion if complete else "⚠️ 本轮清理未全部完成",
-            "核验范围：媒体库条目",
+            completion if complete else "⚠️ 清理未全部完成",
         ])
     return f"{body}\n\n" + "\n".join(footer)
