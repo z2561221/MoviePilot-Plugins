@@ -1,5 +1,7 @@
 """执行受限的在线选择性恢复，并委托宿主管理数据库恢复点。"""
 
+from copy import deepcopy
+import os
 import re
 import shutil
 import tempfile
@@ -25,6 +27,9 @@ class RestoreServiceError(RuntimeError):
 
 class RestoreService:
     """将明文或加密负载恢复为受限的在线逻辑数据。"""
+
+    _max_zip_members = 100_000
+    _max_zip_uncompressed_bytes = 20 * 1024 * 1024 * 1024
 
     def __init__(self, plugin: Any, backup_service: BackupService) -> None:
         """绑定插件和创建应急备份所需的备份服务。"""
@@ -54,6 +59,24 @@ class RestoreService:
             raise RestoreServiceError("备份负载包含不安全路径")
         return Path(*value.parts)
 
+    @classmethod
+    def _validate_zip_members(cls, members: Iterable[zipfile.ZipInfo]) -> None:
+        """限制 ZIP 条目数量和展开总大小，避免恶意负载耗尽资源。"""
+        members = list(members)
+        if len(members) > cls._max_zip_members:
+            raise RestoreServiceError("备份负载条目数量超过限制")
+        total_size = 0
+        names: set[str] = set()
+        for item in members:
+            if item.filename in names:
+                raise RestoreServiceError("备份负载包含重复路径")
+            names.add(item.filename)
+            if item.file_size < 0:
+                raise RestoreServiceError("备份负载大小无效")
+            total_size += item.file_size
+            if total_size > cls._max_zip_uncompressed_bytes:
+                raise RestoreServiceError("备份负载展开大小超过限制")
+
     @contextmanager
     def _payload_directory(
         self, backup_id: Any, public_manifest: Dict[str, Any], password: Any = None
@@ -81,7 +104,9 @@ class RestoreService:
                 else:
                     shutil.copy2(backup_path / "payload.zip", payload_zip)
                 with zipfile.ZipFile(payload_zip) as archive:
-                    for item in archive.infolist():
+                    members = archive.infolist()
+                    self._validate_zip_members(members)
+                    for item in members:
                         relative = self._safe_zip_path(item.filename)
                         if item.is_dir():
                             (temporary_root / relative).mkdir(parents=True, exist_ok=True)
@@ -92,6 +117,8 @@ class RestoreService:
                             shutil.copyfileobj(source, destination)
             except BackupCryptoError as error:
                 raise RestoreServiceError(str(error)) from error
+            except RestoreServiceError:
+                raise
             except (OSError, zipfile.BadZipFile, ManifestError) as error:
                 raise RestoreServiceError("无法读取备份负载") from error
             payload_root = temporary_root / "payload"
@@ -172,6 +199,77 @@ class RestoreService:
             restored += 1
         return restored
 
+    def _system_settings_snapshot(self, payload_root: Path) -> Dict[str, Tuple[bool, Any]]:
+        """记录恢复涉及的系统配置原值，供失败时精确回滚。"""
+        settings_data = self._read_optional_json(payload_root / "system_config.json")
+        all_settings = getattr(self.plugin.systemconfig, "all", None)
+        current = all_settings() if callable(all_settings) else {}
+        excluded = {"UserInstalledPlugins"}
+        return {
+            str(key): (str(key) in current, deepcopy(current.get(key)))
+            for key in settings_data
+            if not str(key).startswith("plugin.") and str(key) not in excluded
+        }
+
+    def _rollback_system_settings(
+        self, snapshot: Dict[str, Tuple[bool, Any]]
+    ) -> None:
+        """恢复系统配置快照，缺失项优先走宿主删除接口。"""
+        for key, (present, value) in snapshot.items():
+            if present:
+                self.plugin.systemconfig.set(key, value)
+                continue
+            deleter = getattr(self.plugin.systemconfig, "delete", None)
+            if callable(deleter):
+                deleter(key)
+
+    def _read_plugin_config(self, plugin_id: str) -> Any:
+        """通过稳定插件配置入口读取指定实例配置。"""
+        getter = getattr(self.plugin, "get_config", None)
+        if callable(getter):
+            try:
+                return getter(plugin_id=plugin_id)
+            except TypeError:
+                return getter(plugin_id)
+        all_settings = getattr(self.plugin.systemconfig, "all", None)
+        config = all_settings() if callable(all_settings) else {}
+        return config.get(f"plugin.{plugin_id}")
+
+    def _write_plugin_config(self, plugin_id: str, value: Any) -> None:
+        """通过稳定插件配置入口写入指定实例配置。"""
+        updater = getattr(self.plugin, "update_config", None)
+        if callable(updater):
+            try:
+                result = updater(value, plugin_id=plugin_id)
+            except TypeError:
+                result = updater(value, plugin_id)
+            if result is False:
+                raise RestoreServiceError(f"插件配置写入失败：{plugin_id}")
+            return
+        setter = getattr(self.plugin.systemconfig, "set", None)
+        if not callable(setter):
+            raise RestoreServiceError(f"插件配置写入入口不可用：{plugin_id}")
+        setter(f"plugin.{plugin_id}", value)
+
+    def _delete_plugin_config(self, plugin_id: str) -> None:
+        """删除恢复前不存在的插件配置，优先使用宿主实例管理器。"""
+        deleter = None
+        try:
+            from app.sdk.plugin.manager import PluginManager
+
+            deleter = getattr(PluginManager(), "delete_plugin_config", None)
+        except (AttributeError, ImportError, TypeError):
+            pass
+        if callable(deleter):
+            result = deleter(plugin_id, force=True)
+            if result is False:
+                raise RestoreServiceError(f"插件配置删除失败：{plugin_id}")
+            return
+        deleter = getattr(self.plugin.systemconfig, "delete", None)
+        if not callable(deleter):
+            raise RestoreServiceError(f"插件配置删除入口不可用：{plugin_id}")
+        deleter(f"plugin.{plugin_id}")
+
     def _restore_plugin_settings(self, payload_root: Path, plugin_ids: Iterable[str]) -> int:
         """恢复指定插件的持久化配置键。"""
         configs = self._read_optional_json(payload_root / "plugin_configs.json")
@@ -179,9 +277,32 @@ class RestoreService:
         for plugin_id in plugin_ids:
             if plugin_id not in configs:
                 continue
-            self.plugin.systemconfig.set(f"plugin.{plugin_id}", configs[plugin_id])
+            self._write_plugin_config(plugin_id, configs[plugin_id])
             restored += 1
         return restored
+
+    def _plugin_config_snapshot(
+        self, payload_root: Path, plugin_ids: Iterable[str]
+    ) -> Dict[str, Tuple[bool, Any]]:
+        """记录备份中目标插件配置的原值和存在性。"""
+        configs = self._read_optional_json(payload_root / "plugin_configs.json")
+        snapshot: Dict[str, Tuple[bool, Any]] = {}
+        for plugin_id in plugin_ids:
+            if plugin_id not in configs:
+                continue
+            current = self._read_plugin_config(plugin_id)
+            snapshot[plugin_id] = (current is not None, deepcopy(current))
+        return snapshot
+
+    def _rollback_plugin_configs(
+        self, snapshot: Dict[str, Tuple[bool, Any]]
+    ) -> None:
+        """恢复插件配置快照，包含恢复前不存在的键。"""
+        for plugin_id, (present, value) in snapshot.items():
+            if present:
+                self._write_plugin_config(plugin_id, value)
+            else:
+                self._delete_plugin_config(plugin_id)
 
     def _validated_plugin_data_rows(
         self, payload_root: Path, plugin_ids: Iterable[str]
@@ -250,6 +371,31 @@ class RestoreService:
             raise RestoreServiceError("插件数据恢复失败，已自动回滚") from error
         return len(rows)
 
+    def _plugin_data_snapshot(
+        self, plugin_ids: Iterable[str]
+    ) -> Dict[str, List[Tuple[str, Any]]]:
+        """记录目标插件的 PluginData 快照，供跨范围失败回滚。"""
+        if not callable(getattr(self.plugin, "get_data", None)):
+            # 旧宿主测试桩或仅提供数据库恢复点的适配器没有公开数据入口；
+            # 生产 V3 基类始终具备该方法。
+            return {}
+        return {
+            plugin_id: self._read_plugin_data_rows(plugin_id)
+            for plugin_id in plugin_ids
+        }
+
+    def _rollback_plugin_data_snapshot(
+        self, snapshot: Dict[str, List[Tuple[str, Any]]]
+    ) -> None:
+        """恢复全部目标插件的 PluginData 快照。"""
+        plugin_ids = list(snapshot)
+        self._clear_plugin_data(plugin_ids)
+        self._write_plugin_data(
+            (plugin_id, key, value)
+            for plugin_id, rows in snapshot.items()
+            for key, value in rows
+        )
+
     def _restore_plugin_files(self, payload_root: Path, plugin_ids: Iterable[str]) -> List[str]:
         """将插件标准数据目录复制到同卷临时目录后原子替换。"""
         restored: List[str] = []
@@ -258,7 +404,14 @@ class RestoreService:
             source = files_root / plugin_id
             if not source.is_dir():
                 continue
-            target = Path(self.backup_service.settings.PLUGIN_DATA_PATH) / plugin_id
+            target_getter = getattr(self.plugin, "get_data_path", None)
+            if callable(target_getter):
+                try:
+                    target = Path(target_getter(plugin_id=plugin_id))
+                except TypeError:
+                    target = Path(target_getter(plugin_id))
+            else:
+                target = Path(self.backup_service.settings.PLUGIN_DATA_PATH) / plugin_id
             target.parent.mkdir(parents=True, exist_ok=True)
             temporary = Path(
                 tempfile.mkdtemp(prefix=f".backupcenter-{plugin_id}-", dir=target.parent)
@@ -282,6 +435,52 @@ class RestoreService:
             finally:
                 shutil.rmtree(temporary, ignore_errors=True)
         return restored
+
+    def _snapshot_plugin_files(
+        self, plugin_ids: Iterable[str], snapshot_root: Path
+    ) -> Dict[str, Path | None]:
+        """在同卷临时目录保存目标插件目录，供跨范围失败回滚。"""
+        snapshot_root.mkdir(parents=True, exist_ok=True)
+        snapshots: Dict[str, Path | None] = {}
+        for plugin_id in plugin_ids:
+            target_getter = getattr(self.plugin, "get_data_path", None)
+            if callable(target_getter):
+                try:
+                    target = Path(target_getter(plugin_id=plugin_id))
+                except TypeError:
+                    target = Path(target_getter(plugin_id))
+            else:
+                target = Path(self.backup_service.settings.PLUGIN_DATA_PATH) / plugin_id
+            if target.is_symlink():
+                raise RestoreServiceError(f"不允许恢复符号链接目录：{plugin_id}")
+            if not target.is_dir():
+                snapshots[plugin_id] = None
+                continue
+            snapshot = snapshot_root / plugin_id
+            shutil.copytree(target, snapshot, symlinks=True)
+            snapshots[plugin_id] = snapshot
+        return snapshots
+
+    def _rollback_plugin_files(
+        self, snapshots: Dict[str, Path | None]
+    ) -> None:
+        """恢复插件目录快照并清理本次恢复生成的目录。"""
+        for plugin_id, snapshot in snapshots.items():
+            target_getter = getattr(self.plugin, "get_data_path", None)
+            if callable(target_getter):
+                try:
+                    target = Path(target_getter(plugin_id=plugin_id))
+                except TypeError:
+                    target = Path(target_getter(plugin_id))
+            else:
+                target = Path(self.backup_service.settings.PLUGIN_DATA_PATH) / plugin_id
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+            elif target.is_dir():
+                shutil.rmtree(target)
+            if snapshot is not None and snapshot.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(snapshot, target)
 
     @staticmethod
     def _stop_target_plugins(plugin_ids: Iterable[str]) -> Tuple[Any, List[str]]:
@@ -324,6 +523,30 @@ class RestoreService:
             else:
                 failed.append(plugin_id)
         return reloaded, failed
+
+    def _rollback_restore_state(
+        self,
+        *,
+        system_snapshot: Dict[str, Tuple[bool, Any]],
+        config_snapshot: Dict[str, Tuple[bool, Any]],
+        data_snapshot: Dict[str, List[Tuple[str, Any]]],
+        file_snapshots: Dict[str, Path | None],
+    ) -> List[str]:
+        """按范围恢复写入前快照，并返回无法回滚的范围。"""
+        failures: List[str] = []
+        for label, callback, value in (
+            ("插件目录", self._rollback_plugin_files, file_snapshots),
+            ("PluginData", self._rollback_plugin_data_snapshot, data_snapshot),
+            ("插件配置", self._rollback_plugin_configs, config_snapshot),
+            ("系统配置", self._rollback_system_settings, system_snapshot),
+        ):
+            if not value:
+                continue
+            try:
+                callback(value)
+            except Exception:
+                failures.append(label)
+        return failures
 
     @staticmethod
     def _create_host_database_backup() -> str:
@@ -379,12 +602,35 @@ class RestoreService:
         result: Dict[str, Any] = {}
         manager = None
         stopped_plugins: List[str] = []
+        system_snapshot: Dict[str, Tuple[bool, Any]] = {}
+        config_snapshot: Dict[str, Tuple[bool, Any]] = {}
+        data_snapshot: Dict[str, List[Tuple[str, Any]]] = {}
+        file_snapshots: Dict[str, Path | None] = {}
+        rollback_root: Path | None = None
         try:
             with self._payload_directory(
                 normalized_backup_id, public_manifest, password=password
             ) as payload_root:
                 private_manifest = ManifestService.read_json(payload_root / "manifest.json")
                 self._verify_private_manifest(public_manifest, private_manifest)
+                if selection.mp_settings:
+                    system_snapshot = self._system_settings_snapshot(payload_root)
+                if selection.plugin_settings:
+                    config_snapshot = self._plugin_config_snapshot(
+                        payload_root, selected_plugin_ids
+                    )
+                if selection.plugin_data:
+                    data_snapshot = self._plugin_data_snapshot(selected_plugin_ids)
+                if selection.plugin_files:
+                    rollback_root = Path(
+                        tempfile.mkdtemp(
+                            prefix=".restore-rollback-",
+                            dir=self.backup_service.get_backup_root(),
+                        )
+                    )
+                    file_snapshots = self._snapshot_plugin_files(
+                        selected_plugin_ids, rollback_root
+                    )
                 host_database_backup_name = self._create_host_database_backup()
                 try:
                     emergency = self.backup_service.create_backup(
@@ -434,21 +680,46 @@ class RestoreService:
                         payload_root, selected_plugin_ids
                     )
         except RestoreServiceError as error:
+            rollback_failed = self._rollback_restore_state(
+                system_snapshot=system_snapshot,
+                config_snapshot=config_snapshot,
+                data_snapshot=data_snapshot,
+                file_snapshots=file_snapshots,
+            )
+            if rollback_root is not None:
+                shutil.rmtree(rollback_root, ignore_errors=True)
             if manager is not None and stopped_plugins:
                 _, reload_failed = self._reload_target_plugins(manager, stopped_plugins)
-                if reload_failed:
-                    failed = "、".join(reload_failed)
-                    raise RestoreServiceError(f"{error}；且插件重载失败：{failed}") from error
+            else:
+                reload_failed = []
+            failures = [*rollback_failed, *reload_failed]
+            if failures:
+                failed = "、".join(failures)
+                raise RestoreServiceError(f"{error}；且恢复回滚失败：{failed}") from error
             raise
         except Exception as error:
+            rollback_failed = self._rollback_restore_state(
+                system_snapshot=system_snapshot,
+                config_snapshot=config_snapshot,
+                data_snapshot=data_snapshot,
+                file_snapshots=file_snapshots,
+            )
+            if rollback_root is not None:
+                shutil.rmtree(rollback_root, ignore_errors=True)
             if manager is not None and stopped_plugins:
                 _, reload_failed = self._reload_target_plugins(manager, stopped_plugins)
-                if reload_failed:
-                    failed = "、".join(reload_failed)
-                    raise RestoreServiceError(
-                        f"选择性恢复失败，且插件重载失败：{failed}；请使用应急备份回退"
-                    ) from error
+            else:
+                reload_failed = []
+            failures = [*rollback_failed, *reload_failed]
+            if failures:
+                failed = "、".join(failures)
+                raise RestoreServiceError(
+                    f"选择性恢复失败，且恢复回滚失败：{failed}；请使用应急备份回退"
+                ) from error
             raise RestoreServiceError("选择性恢复失败，请使用应急备份回退") from error
+        finally:
+            if rollback_root is not None and rollback_root.exists():
+                shutil.rmtree(rollback_root, ignore_errors=True)
         if manager is not None and stopped_plugins:
             reloaded, reload_failed = self._reload_target_plugins(manager, stopped_plugins)
             result["reloaded"] = sorted(reloaded)
