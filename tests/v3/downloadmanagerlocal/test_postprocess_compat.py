@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.plugins.downloadmanagerlocal.service import rename, transfer
+from app.plugins.downloadmanagerlocal.service import rename, site_tag, transfer
 from app.plugins.downloadmanagerlocal.utils.torrent_adapter import get_tracker_urls
 
 
@@ -30,6 +30,40 @@ def test_qb_tracker_property_is_used_for_site_tagging() -> None:
     assert get_tracker_urls(torrent, "qbittorrent") == [
         "https://tracker.example/announce"
     ]
+
+
+def test_site_tag_writes_qb_tag_from_tracker_property(monkeypatch) -> None:
+    """tracker 属性识别站点后，必须实际调用 qB 标签写入接口。"""
+    class QbTorrent(dict):
+        """模拟带 tracker 属性的 qB 任务。"""
+
+        @property
+        def trackers(self):
+            """返回站点 tracker。"""
+            return [SimpleNamespace(url="https://tracker.example/announce", tier=0)]
+
+    writes = []
+    plugin = SimpleNamespace(
+        _tracker_mappings={},
+        _tag_siteprefix="🏠",
+        _tag_enabled=True,
+    )
+    downloader = SimpleNamespace(
+        set_torrents_tag=lambda **kwargs: writes.append(kwargs),
+    )
+    monkeypatch.setattr(site_tag, "find_site_by_domain", lambda domain: "ExampleSite")
+    monkeypatch.setattr(site_tag, "get_url_domain", lambda url: "tracker.example")
+
+    site_tag.tag_torrent(
+        plugin,
+        downloader,
+        "qbittorrent",
+        "abc",
+        [],
+        get_tracker_urls(QbTorrent({}), "qbittorrent"),
+    )
+
+    assert writes == [{"ids": "abc", "tags": ["🏠ExampleSite"]}]
 
 
 def test_transfer_postprocess_calls_rename_and_tag_without_qb_trackers(monkeypatch) -> None:
