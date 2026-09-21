@@ -39,9 +39,11 @@ config_module.settings = SimpleNamespace(
     SECRET_KEY="backupcenter-api-contract",
 )
 sys.modules["app.sdk.config"] = config_module
-plugin_module = ModuleType("app.sdk.plugins")
-plugin_module.PluginManager = _PluginManager
-sys.modules["app.sdk.plugins"] = plugin_module
+plugin_package = _package("app.sdk.plugin", PLUGIN_DIR)
+plugin_manager_module = ModuleType("app.sdk.plugin.manager")
+plugin_manager_module.PluginManager = _PluginManager
+plugin_package.manager = plugin_manager_module
+sys.modules["app.sdk.plugin.manager"] = plugin_manager_module
 database_module = ModuleType("app.sdk.database")
 database_module.create_backup = lambda: SimpleNamespace(name="test.sqlite")
 sys.modules["app.sdk.database"] = database_module

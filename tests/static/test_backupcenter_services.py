@@ -64,9 +64,12 @@ sys.modules["app.sdk.config"] = app_sdk_config_module
 app_sdk_logging_module = ModuleType("app.sdk.logging")
 app_sdk_logging_module.logger = app_log_module.logger
 sys.modules["app.sdk.logging"] = app_sdk_logging_module
-app_sdk_plugins_module = ModuleType("app.sdk.plugins")
-app_sdk_plugins_module.PluginManager = SimpleNamespace
-sys.modules["app.sdk.plugins"] = app_sdk_plugins_module
+app_sdk_plugin_module = ModuleType("app.sdk.plugin")
+app_sdk_plugin_manager_module = ModuleType("app.sdk.plugin.manager")
+app_sdk_plugin_manager_module.PluginManager = SimpleNamespace
+app_sdk_plugin_module.manager = app_sdk_plugin_manager_module
+sys.modules["app.sdk.plugin"] = app_sdk_plugin_module
+sys.modules["app.sdk.plugin.manager"] = app_sdk_plugin_manager_module
 app_sdk_database_module = ModuleType("app.sdk.database")
 app_sdk_database_module.create_backup = lambda: SimpleNamespace(
     name="db-backup-test.sqlite"
@@ -74,7 +77,7 @@ app_sdk_database_module.create_backup = lambda: SimpleNamespace(
 sys.modules["app.sdk.database"] = app_sdk_database_module
 app_sdk_module.config = app_sdk_config_module
 app_sdk_module.logging = app_sdk_logging_module
-app_sdk_module.plugins = app_sdk_plugins_module
+app_sdk_module.plugin = app_sdk_plugin_module
 app_sdk_module.database = app_sdk_database_module
 app_schemas_module = _package("app.schemas", PLUGIN_DIR)
 app_schemas_types_module = ModuleType("app.schemas.types")
@@ -446,6 +449,56 @@ def test_legacy_public_manifest_without_display_name_is_normalized(tmp_path):
     assert "display_name" not in manifest_module.ManifestService.read_json(
         manifest_path
     )
+
+
+def test_available_plugin_ids_include_virtual_instances(tmp_path, monkeypatch):
+    """虚拟分身不在物理安装清单时也必须出现在备份范围。"""
+    plugin = type("BackupCenter", (_Plugin,), {})(tmp_path)
+    plugin.systemconfig.all = lambda: {
+        "UserInstalledPlugins": ["DemoPlugin", "BackupCenter"]
+    }
+    manager_module = ModuleType("app.sdk.plugin.manager")
+    manager_module.PluginManager = lambda: SimpleNamespace(
+        get_plugin_instances=lambda: {"DemoPluginClone": object()}
+    )
+    monkeypatch.setitem(sys.modules, "app.sdk.plugin.manager", manager_module)
+
+    service = backup_module.BackupService(plugin, _service_settings(tmp_path))
+
+    assert service.available_plugin_ids() == ["DemoPlugin", "DemoPluginClone"]
+
+
+def test_corrupt_manifest_is_skipped_when_listing_backups(tmp_path):
+    """单个损坏的公开清单不得拖垮整个备份列表。"""
+    plugin = _Plugin(tmp_path)
+    service = backup_module.BackupService(plugin, _service_settings(tmp_path))
+    backup_path = service.get_backup_root() / "backup-corrupt"
+    backup_path.mkdir()
+    manifest_module.ManifestService.write_json(
+        backup_path / "manifest.public.json",
+        {
+            "backup_id": "backup-corrupt",
+            "selected_plugin_ids": ["../outside"],
+        },
+    )
+
+    assert service.list_backups() == []
+
+
+def test_restore_rejects_zip_member_limits():
+    """ZIP 条目数量和重复路径都必须在写入临时目录前被阻断。"""
+    members = [zipfile.ZipInfo("payload/one"), zipfile.ZipInfo("payload/two")]
+    with pytest.raises(restore_module.RestoreServiceError, match="条目数量"):
+        original_limit = restore_module.RestoreService._max_zip_members
+        restore_module.RestoreService._max_zip_members = 1
+        try:
+            restore_module.RestoreService._validate_zip_members(members)
+        finally:
+            restore_module.RestoreService._max_zip_members = original_limit
+
+    duplicate = [zipfile.ZipInfo("payload/one"), zipfile.ZipInfo("payload/one")]
+    with pytest.raises(restore_module.RestoreServiceError, match="重复路径"):
+        restore_module.RestoreService._validate_zip_members(duplicate)
 
 
 def test_manual_backup_selection_defaults_empty_and_maps_both_targets():
@@ -973,6 +1026,128 @@ def test_plugin_file_restore_removes_successful_rollback_directory(tmp_path):
     assert list(settings.PLUGIN_DATA_PATH.glob(".PluginA.pre-restore-*")) == []
 
 
+def test_restore_rolls_back_config_data_and_files_together(tmp_path, monkeypatch):
+    """后续文件恢复失败时，配置、PluginData 和目录必须恢复原值。"""
+
+    class _Config:
+        """提供可删除的系统配置快照。"""
+
+        def __init__(self):
+            self.values = {"UserInstalledPlugins": ["PluginA"], "Language": "old"}
+
+        def all(self):
+            return copy.deepcopy(self.values)
+
+        def set(self, key, value):
+            self.values[key] = copy.deepcopy(value)
+
+        def delete(self, key):
+            self.values.pop(key, None)
+
+    class _FullPlugin(_Plugin):
+        """提供配置和按实例数据目录接口的恢复测试插件。"""
+
+        def __init__(self, root):
+            super().__init__(root)
+            self.systemconfig = _Config()
+            self.configs = {"PluginA": {"mode": "old"}}
+
+        def get_config(self, plugin_id=None):
+            return copy.deepcopy(self.configs.get(plugin_id))
+
+        def update_config(self, config, plugin_id=None):
+            self.configs[plugin_id] = copy.deepcopy(config)
+            return True
+
+        def get_data_path(self, plugin_id=None):
+            path = self.root / "plugin-data" / str(plugin_id or "BackupCenter")
+            path.mkdir(parents=True, exist_ok=True)
+            return path
+
+        def get_backup_password(self):
+            """返回测试用未加密备份口令。"""
+            return ""
+
+    plugin = _FullPlugin(tmp_path)
+    target = plugin.get_data_path("PluginA")
+    (target / "state.txt").write_text("old-file", encoding="utf-8")
+    plugin.plugin_records = {"PluginA": {"old": {"value": 1}}}
+
+    manifest = {
+        "format_version": 3,
+        "backup_id": "backup-atomic",
+        "display_name": "atomic",
+        "created_at": "2026-09-20T00:00:00+00:00",
+        "source_mp_version": "v3.0.0",
+        "scope": {"plugin_settings": True, "plugin_data": True, "plugin_files": True},
+        "selected_plugin_ids": ["PluginA"],
+        "selected_plugins": [{"id": "PluginA", "name": "插件甲"}],
+        "content_counts": {"plugin_settings": 1, "plugin_data": 1, "plugin_files": 1},
+        "emergency": False,
+        "backup_kind": "manual",
+        "manual_target": "plugin",
+        "encryption": {"enabled": False},
+        "encrypted": False,
+    }
+    payload = tmp_path / "payload"
+    (payload / "files" / "plugins" / "PluginA").mkdir(parents=True)
+    (payload / "files" / "plugins" / "PluginA" / "state.txt").write_text(
+        "new-file", encoding="utf-8"
+    )
+    manifest_module.ManifestService.write_json(payload / "manifest.json", manifest)
+    manifest_module.ManifestService.write_json(
+        payload / "plugin_configs.json", {"PluginA": {"mode": "new"}}
+    )
+    manifest_module.ManifestService.write_json(
+        payload / "plugin_data.json", {"PluginA": [{"key": "new", "value": 2}]}
+    )
+
+    settings = _service_settings(tmp_path)
+    backup_service = SimpleNamespace(
+        settings=settings,
+        get_backup_root=lambda: tmp_path / "backups",
+        read_public_manifest=lambda _backup_id: manifest,
+        create_backup=lambda *_args, **_kwargs: {"backup_id": "backup-emergency"},
+    )
+    (tmp_path / "backups").mkdir()
+    service = restore_module.RestoreService(plugin, backup_service)
+
+    @contextmanager
+    def payload_directory(*_args, **_kwargs):
+        """返回测试负载目录。"""
+        yield payload
+
+    monkeypatch.setattr(service, "_payload_directory", payload_directory)
+    monkeypatch.setattr(service, "_create_host_database_backup", lambda: "host-backup")
+    monkeypatch.setattr(
+        service,
+        "_stop_target_plugins",
+        lambda plugin_ids: (SimpleNamespace(running_plugins={}), list(plugin_ids)),
+    )
+    monkeypatch.setattr(service, "_reload_target_plugins", lambda *_args: ([], []))
+    original_restore_files = service._restore_plugin_files
+
+    def fail_after_file_restore(payload_root, plugin_ids):
+        """在文件替换完成后注入失败，验证跨范围回滚。"""
+        original_restore_files(payload_root, plugin_ids)
+        raise RuntimeError("injected file restore failure")
+
+    monkeypatch.setattr(service, "_restore_plugin_files", fail_after_file_restore)
+
+    with pytest.raises(restore_module.RestoreServiceError, match="选择性恢复失败"):
+        service.restore_logical(
+            backup_id="backup-atomic",
+            selection=backup_model.RestoreSelection(
+                plugin_settings=True, plugin_data=True, plugin_files=True
+            ),
+            plugin_ids=["PluginA"],
+        )
+
+    assert plugin.configs == {"PluginA": {"mode": "old"}}
+    assert plugin.plugin_records == {"PluginA": {"old": {"value": 1}}}
+    assert (target / "state.txt").read_text(encoding="utf-8") == "old-file"
+
+
 def test_partial_plugin_stop_failure_reloads_already_stopped_plugins(monkeypatch):
     """停止后续插件失败时，先前已停止插件必须立即恢复运行。"""
     manager = SimpleNamespace(running_plugins={"PluginA": object(), "PluginB": object()})
@@ -988,9 +1163,9 @@ def test_partial_plugin_stop_failure_reloads_already_stopped_plugins(monkeypatch
 
     manager.stop = stop
     manager.reload_plugin = reload_plugin
-    plugin_module = ModuleType("app.sdk.plugins")
+    plugin_module = ModuleType("app.sdk.plugin.manager")
     plugin_module.PluginManager = lambda: manager
-    monkeypatch.setitem(sys.modules, "app.sdk.plugins", plugin_module)
+    monkeypatch.setitem(sys.modules, "app.sdk.plugin.manager", plugin_module)
 
     with pytest.raises(restore_module.RestoreServiceError, match="PluginB"):
         restore_module.RestoreService._stop_target_plugins(["PluginA", "PluginB"])

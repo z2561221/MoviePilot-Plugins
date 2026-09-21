@@ -54,12 +54,49 @@ class BackupService:
         return path
 
     def _installed_plugin_ids(self, config: Dict[str, Any]) -> List[str]:
-        """从宿主配置读取可备份插件 ID，并排除备份中心自身。"""
+        """读取物理插件和虚拟分身 ID，并排除备份中心自身。"""
         raw = config.get(SystemConfigKey.UserInstalledPlugins.value, [])
-        if not isinstance(raw, list):
-            return []
-        own_plugin_id = self.plugin.__class__.__name__
-        return [plugin_id for plugin_id in normalize_plugin_ids(raw) if plugin_id != own_plugin_id]
+        installed = normalize_plugin_ids(raw) if isinstance(raw, list) else []
+        try:
+            from app.sdk.plugin.manager import PluginManager
+
+            instances = PluginManager().get_plugin_instances()
+            for instance_id in (instances or {}):
+                if instance_id not in installed:
+                    installed.append(instance_id)
+        except (AttributeError, TypeError, ImportError):
+            # 旧宿主没有虚拟实例查询口时继续使用物理安装清单。
+            pass
+        own_ids = {
+            str(self.plugin.__class__.__name__),
+            str(getattr(self.plugin, "plugin_source_id", "") or ""),
+        }
+        return [plugin_id for plugin_id in installed if plugin_id not in own_ids]
+
+    def _plugin_data_path(self, plugin_id: str) -> Path:
+        """返回按运行实例隔离的插件数据目录，兼容旧宿主回退路径。"""
+        getter = getattr(self.plugin, "get_data_path", None)
+        if callable(getter):
+            try:
+                return Path(getter(plugin_id=plugin_id))
+            except TypeError:
+                try:
+                    return Path(getter(plugin_id))
+                except TypeError:
+                    pass
+        return Path(self.settings.PLUGIN_DATA_PATH) / plugin_id
+
+    def _plugin_config(self, plugin_id: str, config: Dict[str, Any]) -> Any:
+        """通过宿主插件配置入口读取指定实例配置，旧宿主回退系统配置快照。"""
+        getter = getattr(self.plugin, "get_config", None)
+        if callable(getter):
+            try:
+                value = getter(plugin_id=plugin_id)
+            except TypeError:
+                value = getter(plugin_id)
+            if value is not None:
+                return value
+        return config.get(f"plugin.{plugin_id}")
 
     def available_plugin_ids(self) -> List[str]:
         """返回当前允许纳入逻辑备份的已安装插件 ID。"""
@@ -307,11 +344,11 @@ class BackupService:
                     self._write_payload_json(payload_root / "system_config.json", mp_settings)
                     content_counts["mp_settings"] = len(mp_settings)
                 if scope.plugin_settings:
-                    plugin_settings = {
-                        plugin_id: config.get(f"plugin.{plugin_id}")
-                        for plugin_id in selected_ids
-                        if f"plugin.{plugin_id}" in config
-                    }
+                    plugin_settings = {}
+                    for plugin_id in selected_ids:
+                        value = self._plugin_config(plugin_id, config)
+                        if value is not None:
+                            plugin_settings[plugin_id] = value
                     self._write_payload_json(payload_root / "plugin_configs.json", plugin_settings)
                     content_counts["plugin_settings"] = len(plugin_settings)
                 if scope.plugin_data:
@@ -336,7 +373,7 @@ class BackupService:
                         shutil.copy2(source_app_env, destination_app_env)
                 if scope.plugin_files:
                     for plugin_id in selected_ids:
-                        source_directory = Path(self.settings.PLUGIN_DATA_PATH) / plugin_id
+                        source_directory = self._plugin_data_path(plugin_id)
                         destination_directory = payload_root / "files" / "plugins" / plugin_id
                         content_counts["plugin_files"] += self._copy_tree(
                             source_directory, destination_directory
@@ -420,7 +457,7 @@ class BackupService:
                     item.stat().st_size for item in child.rglob("*") if item.is_file()
                 )
                 backups.append(manifest)
-            except (ManifestError, OSError):
+            except (ManifestError, ScopeError, TypeError, ValueError, OSError):
                 continue
         return sorted(backups, key=lambda item: str(item.get("created_at", "")), reverse=True)
 
