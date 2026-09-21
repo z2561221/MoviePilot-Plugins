@@ -45,6 +45,12 @@ async function apiPost(api, path, body = {}) {
   }
 }
 
+/** 空目标是异常批次，单条始终传完整队列身份；保留部分失败明细。 */
+function recheckCleanupPlan(api, pluginId, queueKey = null) {
+  const body = queueKey === null ? {} : { queue_key: queueKey };
+  return apiPost(api, pluginApiPath(pluginId, 'local_toolkit/cleanup_plan/recheck'), body)
+}
+
 const _export_sfc = (sfc, props) => {
   const target = sfc.__vccOpts || sfc;
   for (const [key, val] of props) {
@@ -53,4 +59,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, apiPost as a, apiGet as b, pluginApiPath as p };
+export { _export_sfc as _, apiGet as a, apiPost as b, pluginApiPath as p, recheckCleanupPlan as r };

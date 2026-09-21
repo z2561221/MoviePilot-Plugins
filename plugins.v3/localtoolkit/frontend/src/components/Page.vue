@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { apiGet, apiPost, pluginApiPath } from '../api.js'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { apiGet, apiPost, pluginApiPath, recheckCleanupPlan } from '../api.js'
 
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
@@ -22,6 +22,9 @@ const loadingAction = ref('')
 const error = ref('')
 const actionMessage = ref('')
 const actionOk = ref(false)
+const recheckResults = ref([])
+let pageActive = true
+onBeforeUnmount(() => { pageActive = false })
 
 const tabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' },
@@ -89,11 +92,13 @@ function apiPath(path) {
 }
 
 async function loadStatus() {
-  status.value = await apiGet(props.api, apiPath('local_toolkit/status'))
+  const data = await apiGet(props.api, apiPath('local_toolkit/status'))
+  if (pageActive) status.value = data
 }
 
 async function loadPlan() {
   const data = await apiGet(props.api, apiPath(`local_toolkit/cleanup_plan?page=${cleanupPlanPage.value}&page_size=${cleanupPlanPageSize}`))
+  if (!pageActive) return
   cleanupPlan.value = data || { total: 0, page: 1, page_size: cleanupPlanPageSize, total_pages: 1, items: [], batch_size: 10 }
   cleanupPlanPage.value = Number(cleanupPlan.value.page || cleanupPlanPage.value)
 }
@@ -104,6 +109,7 @@ async function loadOverview() {
 
 async function loadHistory() {
   const data = await apiGet(props.api, apiPath(`local_toolkit/history?page=${historyPage.value}&page_size=${historyPageSize}`))
+  if (!pageActive) return
   history.value = data?.items || []
   historyTotal.value = data?.total || 0
 }
@@ -134,6 +140,7 @@ async function refreshAfterAction() {
 }
 
 async function runModule(moduleKey) {
+  if (loadingAction.value) return
   loadingAction.value = moduleKey
   actionMessage.value = ''
   try {
@@ -150,6 +157,7 @@ async function runModule(moduleKey) {
 }
 
 async function scanPlan() {
+  if (loadingAction.value) return
   loadingAction.value = 'scan_plan'
   actionMessage.value = ''
   try {
@@ -166,6 +174,7 @@ async function scanPlan() {
 }
 
 async function clearPlan() {
+  if (loadingAction.value) return
   if (!window.confirm('确认清空当前清理计划吗？这不会删除媒体库条目。')) return
   loadingAction.value = 'clear_plan'
   actionMessage.value = ''
@@ -186,8 +195,33 @@ function planStatus(item) {
   return item.last_error || '待处理'
 }
 
-function planStatusColor(item) {
-  return item.last_error ? 'warning' : 'primary'
+async function recheckPlan(item = null) {
+  if (loadingAction.value) return
+  loadingAction.value = item ? `recheck:${item.queue_key}` : 'recheck'
+  actionMessage.value = ''
+  recheckResults.value = []
+  try {
+    const response = await recheckCleanupPlan(props.api, props.pluginId, item?.queue_key ?? null)
+    if (!pageActive) return
+    actionOk.value = response?.success !== false
+    actionMessage.value = response?.message || response?.summary || '核验完成'
+    recheckResults.value = response?.results || []
+    try {
+      await refreshAfterAction()
+    } catch {
+      if (pageActive) actionMessage.value += ' 列表刷新失败，请手动刷新；上方核验结果已保留。'
+    }
+  } catch (err) {
+    if (!pageActive) return
+    actionOk.value = false
+    actionMessage.value = `${String(err)}；请先刷新计划确认状态，再决定是否重新核验。`
+  } finally {
+    if (pageActive) loadingAction.value = ''
+  }
+}
+
+function planRecoveryHint(item) {
+  return item.recovery_hint || '点击重新核验查看当前状态及处理办法'
 }
 
 function historyStatus(item) {
@@ -327,6 +361,7 @@ onMounted(loadOverview)
           <div class="lt-section-heading">
             <div><div class="lt-section-title">清理计划</div><div class="text-caption text-medium-emphasis">按设置数量倒序取本批对象，逐项复核后清理；执行周期不扫描媒体库。</div></div>
             <div class="lt-action-row lt-action-row--right">
+              <VBtn size="small" color="primary" variant="tonal" prepend-icon="mdi-refresh" :disabled="!!loadingAction || !cleanupPlan.error_count" :loading="loadingAction === 'recheck'" @click="recheckPlan()">核验异常（{{ cleanupPlan.error_count || 0 }}）</VBtn>
               <VBtn size="small" variant="tonal" prepend-icon="mdi-playlist-plus" :loading="loadingAction === 'scan_plan'" @click="scanPlan">生成计划</VBtn>
               <VBtn size="small" color="error" variant="flat" prepend-icon="mdi-delete-sweep-outline" :loading="loadingAction === 'library_cleanup'" @click="runModule('library_cleanup')">立即清理</VBtn>
               <VBtn size="small" color="warning" variant="text" prepend-icon="mdi-playlist-remove" :disabled="!cleanupPlan.total" :loading="loadingAction === 'clear_plan'" @click="clearPlan">清空计划</VBtn>
@@ -340,6 +375,13 @@ onMounted(loadOverview)
             <div><span>清理冷却</span><strong>{{ cleanupPlan.next_cycle_at ? formatPlanTime(cleanupPlan.next_cycle_at) : '可执行' }}</strong></div>
           </div>
           <VAlert v-if="cleanupPlan.next_cycle_at" type="info" variant="tonal" density="compact" class="mt-3">当前处于清理冷却，冷却结束：{{ formatPlanTime(cleanupPlan.next_cycle_at) }}</VAlert>
+          <div class="text-caption text-medium-emphasis mt-3">重新核验只查询媒体状态，不删除媒体；批量每次最多核验 10 部异常条目。</div>
+          <div v-if="recheckResults.length" class="lt-recheck-results mt-3" aria-live="polite">
+            <div v-for="result in recheckResults" :key="result.queue_key" class="lt-record">
+              <strong>{{ result.title }}</strong><span class="ml-2">{{ result.reason }}</span>
+              <div class="text-caption text-medium-emphasis mt-1">{{ result.action }}</div>
+            </div>
+          </div>
 
           <div class="lt-table-wrap mt-3">
             <VTable class="lt-table" density="compact">
@@ -351,7 +393,12 @@ onMounted(loadOverview)
                   <td>{{ item.library_name || item.server || '未标记媒体库' }}</td>
                   <td>{{ item.date_created ? item.date_created.slice(0, 10) : '未知' }}</td>
                   <td>{{ item.attempts || 0 }}</td>
-                  <td><VChip size="x-small" :color="planStatusColor(item)" variant="tonal">{{ planStatus(item) }}</VChip></td>
+                  <td class="lt-plan-state">
+                    <div class="lt-break-text" :class="item.last_error ? 'text-warning' : 'text-primary'">{{ planStatus(item) }}</div>
+                    <div v-if="item.last_error" class="text-caption text-medium-emphasis mt-1">{{ planRecoveryHint(item) }}</div>
+                    <div v-if="item.last_recheck_at" class="text-caption text-medium-emphasis">最近核验：{{ formatPlanTime(item.last_recheck_at) }}</div>
+                    <VBtn size="x-small" variant="text" color="primary" prepend-icon="mdi-refresh" :disabled="!!loadingAction" :loading="loadingAction === `recheck:${item.queue_key}`" @click="recheckPlan(item)">重新核验</VBtn>
+                  </td>
                 </tr>
                 <tr v-if="!cleanupPlan.items?.length"><td colspan="6" class="text-center text-medium-emphasis py-8">暂无待处理对象</td></tr>
               </tbody>
@@ -359,7 +406,11 @@ onMounted(loadOverview)
           </div>
           <div class="lt-mobile-list">
             <article v-for="(item, index) in cleanupPlan.items" :key="`mobile-${item.queue_key || index}`" class="lt-record">
-              <div class="lt-record-head"><strong>{{ item.title || item.code || item.movie_id || '未知对象' }}</strong><VChip size="x-small" :color="planStatusColor(item)" variant="tonal">{{ planStatus(item) }}</VChip></div>
+              <div class="lt-record-head"><strong>{{ item.title || item.code || item.movie_id || '未知对象' }}</strong></div>
+              <div class="lt-break-text mt-2" :class="item.last_error ? 'text-warning' : 'text-primary'">{{ planStatus(item) }}</div>
+              <div v-if="item.last_error" class="text-caption text-medium-emphasis mt-1">{{ planRecoveryHint(item) }}</div>
+              <div v-if="item.last_recheck_at" class="text-caption text-medium-emphasis">最近核验：{{ formatPlanTime(item.last_recheck_at) }}</div>
+              <VBtn size="small" variant="text" color="primary" prepend-icon="mdi-refresh" :disabled="!!loadingAction" :loading="loadingAction === `recheck:${item.queue_key}`" @click="recheckPlan(item)">重新核验</VBtn>
               <div class="lt-record-meta"><span>媒体库</span><b>{{ item.library_name || item.server || '未标记媒体库' }}</b><span>入库</span><b>{{ item.date_created ? item.date_created.slice(0, 10) : '未知' }}</b><span>尝试</span><b>{{ item.attempts || 0 }}</b></div>
             </article>
             <div v-if="!cleanupPlan.items?.length" class="lt-empty">暂无待处理对象</div>
@@ -454,6 +505,8 @@ onMounted(loadOverview)
 .lt-table-wrap { width: 100%; overflow-x: auto; }
 .lt-table { min-width: 720px; background: transparent; }
 .lt-table :deep(th) { font-weight: 700 !important; }
+.lt-plan-state { min-width: 240px; max-width: 360px; padding-block: 8px !important; overflow-wrap: anywhere; }
+.lt-recheck-results { display: grid; gap: 6px; overflow-wrap: anywhere; }
 .lt-ellipsis { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lt-mobile-list { display: none; }
 .lt-record { min-width: 0; padding: 11px 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgba(var(--v-theme-on-surface), .02); }

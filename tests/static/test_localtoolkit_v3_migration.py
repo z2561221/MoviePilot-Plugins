@@ -84,7 +84,8 @@ def test_localtoolkit_v3_api_and_federation_contracts_are_present() -> None:
     controller = (V3_DIR / "controller" / "api.py").read_text(encoding="utf-8")
     frontend_api = (V3_DIR / "frontend" / "src" / "api.js").read_text(encoding="utf-8")
 
-    assert controller.count('"response_model"') == 8
+    assert controller.count('"response_model"') == 9
+    assert '"response_model": schemas.Response[ToolkitRecheckData]' in controller
     assert '"response_model": ToolkitStatusData' in controller
     assert '"response_model": schemas.Response[ToolkitRunData]' in controller
     assert '"response_model": ToolkitHistoryData' in controller
@@ -132,10 +133,10 @@ def test_localtoolkit_v3_schedule_controls_use_cron_fields_and_clear_actions() -
     assert "form.library_cleanup.scan_cron" in config
     assert "form.library_cleanup.cleanup_cron" in config
     assert "schedule-block--scan" in config and "schedule-block--cleanup" in config
-    for source in (page, app_page):
-        assert "立即清理一批" in source
-        assert "执行一周期" not in source
-        assert "立即清理一批只处理已有计划" in source
+    assert ">立即清理</VBtn>" in page
+    assert "执行一周期" not in page
+    assert "import Page from './Page.vue'" in app_page
+    assert ':api="api" :plugin-id="pluginId"' in app_page
 
 
 def test_localtoolkit_v3_uses_public_media_server_sdk() -> None:

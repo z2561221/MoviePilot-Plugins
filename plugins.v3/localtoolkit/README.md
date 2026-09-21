@@ -63,6 +63,9 @@
 | `/local_toolkit/cleanup_plan` | GET | 分页读取持久化清理计划 |
 | `/local_toolkit/cleanup_plan/scan` | POST | 完整扫描并合并清理计划，不执行删除 |
 | `/local_toolkit/cleanup_plan/clear` | POST | 清空清理计划，不删除媒体库条目 |
+| `/local_toolkit/cleanup_plan/recheck` | POST | 只读核验单条或异常批次，返回逐项处理结果 |
+
+清理计划中点击单条“重新核验”，或“核验异常”批量处理。核验只查询媒体状态：已不存在或条件不符则移出计划，仍符合条件则清除旧错误恢复待处理，无法核验则保留并显示原因和处理办法。媒体条目不会被删除，也不触发通知、扫描或清理冷却。批量每次最多 10 部，耗时较长时会提前返回已完成结果与未核验数量，后续批次优先核验尚未检查的异常项。请求体省略 `queue_key` 时选择异常批次；单条必须传入计划返回的完整 `queue_key`，条目失效时不会扩大成批量操作。
 
 `history` 接受 `page` 与 `page_size`，非法值会被收敛，返回 `total`、`page`、`page_size`、`total_pages` 和 `items`；历史存储损坏时返回空列表而不是报错。
 

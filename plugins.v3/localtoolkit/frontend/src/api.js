@@ -44,3 +44,9 @@ export async function apiPost(api, path, body = {}) {
     message: response.message || data.message || data.summary || '',
   }
 }
+
+/** 空目标是异常批次，单条始终传完整队列身份；保留部分失败明细。 */
+export function recheckCleanupPlan(api, pluginId, queueKey = null) {
+  const body = queueKey === null ? {} : { queue_key: queueKey }
+  return apiPost(api, pluginApiPath(pluginId, 'local_toolkit/cleanup_plan/recheck'), body)
+}

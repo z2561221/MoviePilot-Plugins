@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, b as apiGet, p as pluginApiPath } from './_plugin-vue_export-helper-aSpYeKwD.js';
+import { _ as _export_sfc, a as apiGet, p as pluginApiPath } from './_plugin-vue_export-helper-B5niX35I.js';
 
 // 旧配置只在新字段缺失时迁移，避免覆盖用户已关闭的周期或通知。
 function migrateCleanupConfig(config) {
