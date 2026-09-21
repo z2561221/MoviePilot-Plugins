@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { apiGet, apiPost, pluginApiPath, recheckCleanupPlan } from '../../../plugins.v3/localtoolkit/frontend/src/api.js'
 import { migrateCleanupConfig } from '../../../plugins.v3/localtoolkit/frontend/src/cleanupConfig.js'
+import { fitPlanPage, PLAN_ROW_HEIGHT, PLAN_HEADER_HEIGHT, PLAN_MOBILE_ROW_HEIGHT } from '../../../plugins.v3/localtoolkit/frontend/src/cleanupPlanLayout.js'
 
 test('旧周期与关闭的通知迁移为两组独立字段', () => {
   const old = { enabled: true, cron: '9 1 * * *', notify: false, auto_delete_max_count: 12 }
@@ -76,4 +77,29 @@ test('核验请求失败不制造成功回执或自动重试', async () => {
   const api = { post: async () => { count++; throw new Error('network unavailable') } }
   await assert.rejects(recheckCleanupPlan(api, 'LocalToolkitClone', 'server:a'), /network unavailable/)
   assert.equal(count, 1)
+})
+
+test('列表页数按实际高度容纳完整行，桌面预留表头且最多十五条', () => {
+  for (const height of [120, 240, 390, 480, 700]) {
+    for (const mobile of [false, true]) {
+      const { pageSize } = fitPlanPage(height, mobile)
+      const occupied = pageSize * (mobile ? PLAN_MOBILE_ROW_HEIGHT : PLAN_ROW_HEIGHT) + (mobile ? 0 : PLAN_HEADER_HEIGHT)
+      assert.ok(occupied <= height)
+      assert.ok(pageSize >= 1 && pageSize <= 15)
+    }
+  }
+  assert.equal(fitPlanPage(392, false).pageSize, 10)
+  assert.equal(fitPlanPage(392, true).pageSize, 6)
+  assert.equal(fitPlanPage(2000, false).pageSize, 15)
+  assert.equal(fitPlanPage(0, false).pageSize, 1)
+  assert.equal(fitPlanPage(Number.NaN, true).pageSize, 1)
+})
+
+test('缩放或切换移动布局后保留原首条所在页，不跳回第一页或跳过记录', () => {
+  const firstIndex = 30
+  for (const mobile of [false, true]) {
+    const { page, pageSize } = fitPlanPage(300, mobile, 3, 15)
+    assert.ok((page - 1) * pageSize <= firstIndex)
+    assert.ok(page * pageSize > firstIndex)
+  }
 })

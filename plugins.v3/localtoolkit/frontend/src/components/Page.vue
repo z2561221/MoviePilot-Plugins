@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiPost, pluginApiPath, recheckCleanupPlan } from '../api.js'
+import { fitPlanPage, PLAN_ROW_HEIGHT, PLAN_HEADER_HEIGHT, PLAN_MOBILE_ROW_HEIGHT } from '../cleanupPlanLayout.js'
 
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
@@ -12,7 +13,15 @@ const activeTab = ref('overview')
 const status = ref(null)
 const cleanupPlan = ref({ total: 0, page: 1, page_size: 15, total_pages: 1, items: [], batch_size: 10 })
 const cleanupPlanPage = ref(1)
-const cleanupPlanPageSize = 15
+const cleanupPlanPageSize = ref(15)
+const planListElement = ref(null)
+const planLoading = ref(false)
+const planDetailsOpen = ref(false)
+const planDetails = ref(null)
+const recheckResultsOpen = ref(false)
+let planLoadSequence = 0
+let planResizeObserver = null
+let planResizeFrame = 0
 const history = ref([])
 const historyTotal = ref(0)
 const historyPage = ref(1)
@@ -24,7 +33,32 @@ const actionMessage = ref('')
 const actionOk = ref(false)
 const recheckResults = ref([])
 let pageActive = true
-onBeforeUnmount(() => { pageActive = false })
+onBeforeUnmount(() => {
+  pageActive = false
+  planResizeObserver?.disconnect()
+  if (planResizeFrame) cancelAnimationFrame(planResizeFrame)
+})
+
+watch(planListElement, (element) => {
+  planResizeObserver?.disconnect()
+  if (planResizeFrame) cancelAnimationFrame(planResizeFrame)
+  if (!element) return
+  const resize = () => {
+    if (planResizeFrame) cancelAnimationFrame(planResizeFrame)
+    planResizeFrame = requestAnimationFrame(() => {
+      if (!pageActive || activeTab.value !== 'cleanup_plan' || !element.clientHeight) return
+      const next = fitPlanPage(element.clientHeight, window.matchMedia('(max-width: 760px)').matches,
+        cleanupPlanPage.value, cleanupPlanPageSize.value)
+      if (next.pageSize === cleanupPlanPageSize.value) return
+      cleanupPlanPageSize.value = next.pageSize
+      cleanupPlanPage.value = next.page
+      loadPlan().catch((err) => { if (pageActive) error.value = String(err) })
+    })
+  }
+  planResizeObserver = new ResizeObserver(resize)
+  planResizeObserver.observe(element)
+  resize()
+})
 
 const tabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' },
@@ -33,7 +67,7 @@ const tabs = [
 ]
 
 const historyTotalPages = computed(() => Math.max(1, Math.ceil((historyTotal.value || 0) / historyPageSize)))
-const cleanupPlanTotalPages = computed(() => Math.max(1, Number(cleanupPlan.value?.total_pages || Math.ceil((cleanupPlan.value?.total || 0) / cleanupPlanPageSize))))
+const cleanupPlanTotalPages = computed(() => Math.max(1, Number(cleanupPlan.value?.total_pages || Math.ceil((cleanupPlan.value?.total || 0) / cleanupPlanPageSize.value))))
 const cleanupStatus = computed(() => status.value?.modules?.library_cleanup || {})
 const batchSize = computed(() => Number(cleanupPlan.value?.batch_size || cleanupStatus.value?.cycle_batch_size || 10))
 function formatPlanTime(value) {
@@ -97,10 +131,18 @@ async function loadStatus() {
 }
 
 async function loadPlan() {
-  const data = await apiGet(props.api, apiPath(`local_toolkit/cleanup_plan?page=${cleanupPlanPage.value}&page_size=${cleanupPlanPageSize}`))
-  if (!pageActive) return
-  cleanupPlan.value = data || { total: 0, page: 1, page_size: cleanupPlanPageSize, total_pages: 1, items: [], batch_size: 10 }
-  cleanupPlanPage.value = Number(cleanupPlan.value.page || cleanupPlanPage.value)
+  const sequence = ++planLoadSequence
+  planLoading.value = true
+  try {
+    const data = await apiGet(props.api, apiPath(`local_toolkit/cleanup_plan?page=${cleanupPlanPage.value}&page_size=${cleanupPlanPageSize.value}`))
+    if (!pageActive || sequence !== planLoadSequence) return
+    cleanupPlan.value = data || { total: 0, page: 1, page_size: cleanupPlanPageSize.value, total_pages: 1, items: [], batch_size: 10 }
+    cleanupPlanPage.value = Number(cleanupPlan.value.page || cleanupPlanPage.value)
+  } catch (err) {
+    if (pageActive && sequence === planLoadSequence) throw err
+  } finally {
+    if (pageActive && sequence === planLoadSequence) planLoading.value = false
+  }
 }
 
 async function loadOverview() {
@@ -195,6 +237,11 @@ function planStatus(item) {
   return item.last_error || '待处理'
 }
 
+function showPlanDetails(item) {
+  planDetails.value = item
+  planDetailsOpen.value = true
+}
+
 async function recheckPlan(item = null) {
   if (loadingAction.value) return
   loadingAction.value = item ? `recheck:${item.queue_key}` : 'recheck'
@@ -247,13 +294,13 @@ function nextHistoryPage() {
 function prevCleanupPlanPage() {
   if (cleanupPlanPage.value <= 1) return
   cleanupPlanPage.value -= 1
-  loadPlan()
+  loadPlan().catch((err) => { if (pageActive) error.value = String(err) })
 }
 
 function nextCleanupPlanPage() {
   if (cleanupPlanPage.value >= cleanupPlanTotalPages.value) return
   cleanupPlanPage.value += 1
-  loadPlan()
+  loadPlan().catch((err) => { if (pageActive) error.value = String(err) })
 }
 
 onMounted(loadOverview)
@@ -281,7 +328,7 @@ onMounted(loadOverview)
         </VList>
       </nav>
 
-      <main class="lt-main">
+      <main class="lt-main" :class="{ 'lt-main--plan': activeTab === 'cleanup_plan' }">
         <VAlert v-if="actionMessage" :type="actionOk ? 'success' : 'error'" variant="tonal" class="mb-3" closable density="compact">{{ actionMessage }}</VAlert>
         <VAlert v-if="error" type="error" variant="tonal" class="mb-3" density="compact">{{ error }}</VAlert>
         <div v-if="loading" class="lt-state"><VProgressCircular indeterminate color="primary" /></div>
@@ -357,9 +404,9 @@ onMounted(loadOverview)
           </section>
         </section>
 
-        <section v-else-if="activeTab === 'cleanup_plan'" class="lt-pane">
+        <section v-else-if="activeTab === 'cleanup_plan'" class="lt-pane lt-pane--plan">
           <div class="lt-section-heading">
-            <div><div class="lt-section-title">清理计划</div><div class="text-caption text-medium-emphasis">按设置数量倒序取本批对象，逐项复核后清理；执行周期不扫描媒体库。</div></div>
+            <div class="lt-section-title text-no-wrap">清理计划</div>
             <div class="lt-action-row lt-action-row--right">
               <VBtn size="small" color="primary" variant="tonal" prepend-icon="mdi-refresh" :disabled="!!loadingAction || !cleanupPlan.error_count" :loading="loadingAction === 'recheck'" @click="recheckPlan()">核验异常（{{ cleanupPlan.error_count || 0 }}）</VBtn>
               <VBtn size="small" variant="tonal" prepend-icon="mdi-playlist-plus" :loading="loadingAction === 'scan_plan'" @click="scanPlan">生成计划</VBtn>
@@ -368,57 +415,50 @@ onMounted(loadOverview)
             </div>
           </div>
 
-          <div class="lt-plan-summary mt-3">
-            <div><span>待处理对象</span><strong>{{ cleanupPlan.total || 0 }} 部</strong></div>
-            <div><span>本周期数量</span><strong>{{ batchSize }} 部</strong></div>
-            <div><span>冷却</span><strong>{{ cleanupPlan.cooldown_minutes ?? cleanupStatus.cooldown_minutes ?? 0 }} 分钟</strong></div>
-            <div><span>清理冷却</span><strong>{{ cleanupPlan.next_cycle_at ? formatPlanTime(cleanupPlan.next_cycle_at) : '可执行' }}</strong></div>
+          <div class="lt-plan-summary lt-plan-summary--compact">
+            <span>待处理 <strong>{{ cleanupPlan.total || 0 }}</strong> 部</span>
+            <span>每批 <strong>{{ batchSize }}</strong> 部</span>
+            <span>冷却 {{ cleanupPlan.cooldown_minutes ?? cleanupStatus.cooldown_minutes ?? 0 }} 分钟</span>
+            <span>{{ cleanupPlan.next_cycle_at ? `冷却至 ${formatPlanTime(cleanupPlan.next_cycle_at)}` : '可执行' }}</span>
+            <VBtn v-if="recheckResults.length" size="x-small" variant="text" color="primary" @click="recheckResultsOpen = true">查看核验结果</VBtn>
           </div>
-          <VAlert v-if="cleanupPlan.next_cycle_at" type="info" variant="tonal" density="compact" class="mt-3">当前处于清理冷却，冷却结束：{{ formatPlanTime(cleanupPlan.next_cycle_at) }}</VAlert>
-          <div class="text-caption text-medium-emphasis mt-3">重新核验只查询媒体状态，不删除媒体；批量每次最多核验 10 部异常条目。</div>
-          <div v-if="recheckResults.length" class="lt-recheck-results mt-3" aria-live="polite">
-            <div v-for="result in recheckResults" :key="result.queue_key" class="lt-record">
-              <strong>{{ result.title }}</strong><span class="ml-2">{{ result.reason }}</span>
-              <div class="text-caption text-medium-emphasis mt-1">{{ result.action }}</div>
-            </div>
-          </div>
-
-          <div class="lt-table-wrap mt-3">
-            <VTable class="lt-table" density="compact">
-              <thead><tr><th>#</th><th>对象</th><th>媒体库</th><th>入库日期</th><th>尝试</th><th>状态</th></tr></thead>
+          <div ref="planListElement" class="lt-plan-list" :aria-busy="planLoading" :class="{ 'lt-plan-list--loading': planLoading }" :style="{ '--lt-plan-row-height': `${PLAN_ROW_HEIGHT}px`, '--lt-plan-header-height': `${PLAN_HEADER_HEIGHT}px`, '--lt-plan-mobile-row-height': `${PLAN_MOBILE_ROW_HEIGHT}px` }">
+            <VTable class="lt-table lt-plan-table" density="compact">
+              <colgroup><col style="width: 34px"><col><col style="width: 90px"><col style="width: 88px"><col style="width: 40px"><col style="width: 64px"><col style="width: 68px"></colgroup>
+              <thead><tr><th>#</th><th>对象</th><th>媒体库</th><th>入库日期</th><th>尝试</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="(item, index) in cleanupPlan.items" :key="item.queue_key || index">
                   <td>{{ (cleanupPlanPage - 1) * cleanupPlanPageSize + index + 1 }}</td>
-                  <td class="lt-ellipsis" :title="item.title || item.code || item.movie_id">{{ item.title || item.code || item.movie_id || '未知对象' }}</td>
-                  <td>{{ item.library_name || item.server || '未标记媒体库' }}</td>
+                  <td :title="item.title || item.code || item.movie_id">{{ item.title || item.code || item.movie_id || '未知对象' }}</td>
+                  <td :title="item.library_name || item.server">{{ item.library_name || item.server || '未标记媒体库' }}</td>
                   <td>{{ item.date_created ? item.date_created.slice(0, 10) : '未知' }}</td>
                   <td>{{ item.attempts || 0 }}</td>
-                  <td class="lt-plan-state">
-                    <div class="lt-break-text" :class="item.last_error ? 'text-warning' : 'text-primary'">{{ planStatus(item) }}</div>
-                    <div v-if="item.last_error" class="text-caption text-medium-emphasis mt-1">{{ planRecoveryHint(item) }}</div>
-                    <div v-if="item.last_recheck_at" class="text-caption text-medium-emphasis">最近核验：{{ formatPlanTime(item.last_recheck_at) }}</div>
-                    <VBtn size="x-small" variant="text" color="primary" prepend-icon="mdi-refresh" :disabled="!!loadingAction" :loading="loadingAction === `recheck:${item.queue_key}`" @click="recheckPlan(item)">重新核验</VBtn>
+                  <td :class="item.last_error ? 'text-warning' : 'text-primary'" :title="planStatus(item)">{{ item.last_error ? '待核验' : '待处理' }}</td>
+                  <td class="lt-plan-actions">
+                    <VBtn size="x-small" variant="text" icon="mdi-information-outline" title="查看状态与处理办法" aria-label="查看状态与处理办法" @click="showPlanDetails(item)" />
+                    <VBtn size="x-small" variant="text" color="primary" icon="mdi-refresh" title="重新核验（不删除媒体）" aria-label="重新核验" :disabled="!!loadingAction" :loading="loadingAction === `recheck:${item.queue_key}`" @click="recheckPlan(item)" />
                   </td>
                 </tr>
-                <tr v-if="!cleanupPlan.items?.length"><td colspan="6" class="text-center text-medium-emphasis py-8">暂无待处理对象</td></tr>
+                <tr v-if="!cleanupPlan.items?.length"><td colspan="7" class="text-center text-medium-emphasis">暂无待处理对象</td></tr>
               </tbody>
             </VTable>
+            <div class="lt-plan-mobile">
+              <article v-for="(item, index) in cleanupPlan.items" :key="`mobile-${item.queue_key || index}`" class="lt-plan-mobile-row">
+                <div class="lt-plan-mobile-copy">
+                  <div class="lt-plan-mobile-title">{{ item.title || item.code || item.movie_id || '未知对象' }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ item.library_name || item.server }} · {{ item.date_created ? item.date_created.slice(0, 10) : '日期未知' }} · {{ item.attempts || 0 }} 次</div>
+                </div>
+                <span class="text-caption text-no-wrap" :class="item.last_error ? 'text-warning' : 'text-primary'">{{ item.last_error ? '待核验' : '待处理' }}</span>
+                <VBtn size="x-small" variant="text" icon="mdi-information-outline" aria-label="查看状态与处理办法" @click="showPlanDetails(item)" />
+                <VBtn size="x-small" variant="text" color="primary" icon="mdi-refresh" aria-label="重新核验" :disabled="!!loadingAction" :loading="loadingAction === `recheck:${item.queue_key}`" @click="recheckPlan(item)" />
+              </article>
+              <div v-if="!cleanupPlan.items?.length" class="lt-empty">暂无待处理对象</div>
+            </div>
           </div>
-          <div class="lt-mobile-list">
-            <article v-for="(item, index) in cleanupPlan.items" :key="`mobile-${item.queue_key || index}`" class="lt-record">
-              <div class="lt-record-head"><strong>{{ item.title || item.code || item.movie_id || '未知对象' }}</strong></div>
-              <div class="lt-break-text mt-2" :class="item.last_error ? 'text-warning' : 'text-primary'">{{ planStatus(item) }}</div>
-              <div v-if="item.last_error" class="text-caption text-medium-emphasis mt-1">{{ planRecoveryHint(item) }}</div>
-              <div v-if="item.last_recheck_at" class="text-caption text-medium-emphasis">最近核验：{{ formatPlanTime(item.last_recheck_at) }}</div>
-              <VBtn size="small" variant="text" color="primary" prepend-icon="mdi-refresh" :disabled="!!loadingAction" :loading="loadingAction === `recheck:${item.queue_key}`" @click="recheckPlan(item)">重新核验</VBtn>
-              <div class="lt-record-meta"><span>媒体库</span><b>{{ item.library_name || item.server || '未标记媒体库' }}</b><span>入库</span><b>{{ item.date_created ? item.date_created.slice(0, 10) : '未知' }}</b><span>尝试</span><b>{{ item.attempts || 0 }}</b></div>
-            </article>
-            <div v-if="!cleanupPlan.items?.length" class="lt-empty">暂无待处理对象</div>
-          </div>
-          <div v-if="cleanupPlanTotalPages > 1" class="lt-pagination">
-            <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" :disabled="cleanupPlanPage <= 1" @click="prevCleanupPlanPage" />
-            <span>{{ cleanupPlanPage }} / {{ cleanupPlanTotalPages }}（共 {{ cleanupPlan.total || 0 }} 部）</span>
-            <VBtn size="x-small" variant="tonal" icon="mdi-chevron-right" :disabled="cleanupPlanPage >= cleanupPlanTotalPages" @click="nextCleanupPlanPage" />
+          <div class="lt-pagination lt-plan-pagination">
+            <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" aria-label="上一页" :disabled="planLoading || cleanupPlanPage <= 1" @click="prevCleanupPlanPage" />
+            <span>{{ cleanupPlanPage }} / {{ cleanupPlanTotalPages }} · 共 {{ cleanupPlan.total || 0 }} 部 · 每页 {{ cleanupPlanPageSize }} 条</span>
+            <VBtn size="x-small" variant="tonal" icon="mdi-chevron-right" aria-label="下一页" :disabled="planLoading || cleanupPlanPage >= cleanupPlanTotalPages" @click="nextCleanupPlanPage" />
           </div>
         </section>
 
@@ -458,6 +498,34 @@ onMounted(loadOverview)
         </section>
       </main>
     </div>
+    <VDialog v-model="planDetailsOpen" max-width="620" scrollable>
+      <VCard v-if="planDetails" title="条目详情">
+        <VCardText class="lt-break-text">
+          <div class="text-subtitle-1 mb-3">{{ planDetails.title || planDetails.code || planDetails.movie_id }}</div>
+          <dl class="lt-plan-details">
+            <dt>媒体库</dt><dd>{{ planDetails.library_name || planDetails.server }}</dd>
+            <dt>入库日期</dt><dd>{{ planDetails.date_created ? formatPlanTime(planDetails.date_created) : '未知' }}</dd>
+            <dt>清理尝试</dt><dd>{{ planDetails.attempts || 0 }} 次</dd>
+            <dt>当前状态</dt><dd>{{ planStatus(planDetails) }}</dd>
+            <dt v-if="planDetails.last_error">处理办法</dt><dd v-if="planDetails.last_error">{{ planRecoveryHint(planDetails) }}</dd>
+            <dt>最近核验</dt><dd>{{ planDetails.last_recheck_at ? formatPlanTime(planDetails.last_recheck_at) : '尚未核验' }}</dd>
+          </dl>
+          <div class="text-caption text-medium-emphasis mt-4">重新核验只查询媒体状态，不删除媒体。批量每次最多核验 10 部异常条目。</div>
+        </VCardText>
+        <VCardActions><VSpacer /><VBtn @click="planDetailsOpen = false">关闭</VBtn></VCardActions>
+      </VCard>
+    </VDialog>
+    <VDialog v-model="recheckResultsOpen" max-width="680" scrollable>
+      <VCard title="核验结果">
+        <VCardText class="lt-recheck-results">
+          <div v-for="result in recheckResults" :key="result.queue_key" class="lt-record">
+            <strong>{{ result.title }}</strong><div class="mt-1">{{ result.reason }}</div>
+            <div class="text-caption text-medium-emphasis mt-1">{{ result.action }}</div>
+          </div>
+        </VCardText>
+        <VCardActions><VSpacer /><VBtn @click="recheckResultsOpen = false">关闭</VBtn></VCardActions>
+      </VCard>
+    </VDialog>
   </div>
 </template>
 
@@ -505,7 +573,30 @@ onMounted(loadOverview)
 .lt-table-wrap { width: 100%; overflow-x: auto; }
 .lt-table { min-width: 720px; background: transparent; }
 .lt-table :deep(th) { font-weight: 700 !important; }
-.lt-plan-state { min-width: 240px; max-width: 360px; padding-block: 8px !important; overflow-wrap: anywhere; }
+.lt-main--plan { display: flex; flex-direction: column; overflow: hidden; }
+.lt-main--plan > :not(.lt-pane--plan) { flex-shrink: 0; }
+.lt-pane--plan { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.lt-pane--plan > :not(.lt-plan-list) { flex-shrink: 0; }
+.lt-plan-summary--compact { display: flex; flex-wrap: wrap; align-items: center; column-gap: 16px; row-gap: 4px; margin: 8px 0; }
+.lt-plan-summary--compact strong { font-size: 12px; }
+.lt-plan-list { flex: 1 1 0; min-height: 0; overflow: hidden; }
+.lt-plan-list--loading { opacity: .55; pointer-events: none; }
+.lt-plan-table { min-width: 0; --v-table-row-height: var(--lt-plan-row-height); --v-table-header-height: var(--lt-plan-header-height); }
+.lt-plan-table :deep(.v-table__wrapper) { overflow: hidden; }
+.lt-plan-table :deep(table) { width: 100%; table-layout: fixed; }
+.lt-plan-table :deep(th), .lt-plan-table :deep(td) { padding: 0 6px !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.lt-plan-table :deep(td) { height: var(--lt-plan-row-height) !important; }
+.lt-plan-table :deep(th) { height: var(--lt-plan-header-height) !important; }
+.lt-plan-table :deep(.lt-plan-actions) { padding: 0 !important; }
+.lt-pane--plan .lt-plan-pagination { padding: 6px 0 0; min-height: 34px; }
+.lt-plan-mobile { display: none; }
+.lt-plan-mobile-row { display: flex; align-items: center; gap: 4px; height: var(--lt-plan-mobile-row-height); box-sizing: border-box; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.lt-plan-mobile-copy { flex: 1; min-width: 0; }
+.lt-plan-mobile-copy > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lt-plan-mobile-title { font-size: 13px; font-weight: 600; }
+.lt-plan-details { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px 12px; }
+.lt-plan-details dt { color: rgba(var(--v-theme-on-surface), .6); }
+.lt-plan-details dd { margin: 0; }
 .lt-recheck-results { display: grid; gap: 6px; overflow-wrap: anywhere; }
 .lt-ellipsis { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lt-mobile-list { display: none; }
@@ -533,6 +624,8 @@ onMounted(loadOverview)
   .lt-stat-grid, .lt-flow-grid, .lt-plan-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lt-attention-list { grid-template-columns: 1fr; }
   .lt-table-wrap { display: none; }
+  .lt-plan-table { display: none; }
+  .lt-plan-mobile { display: block; }
   .lt-mobile-list { display: grid; gap: 8px; }
   .lt-toolbar-title { font-size: 16px; }
 }

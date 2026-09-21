@@ -107,8 +107,8 @@ def test_localtoolkit_v3_page_uses_download_center_style_sections() -> None:
     assert "class=\"lt-flow-grid" in page
     assert "class=\"lt-plan-summary" in page
     assert "class=\"lt-pagination" in page
-    assert "cleanupPlanPageSize = 15" in page
-    assert "cleanup_plan?page=${cleanupPlanPage.value}&page_size=${cleanupPlanPageSize}" in page
+    assert "cleanupPlanPageSize = ref(15)" in page
+    assert "cleanup_plan?page=${cleanupPlanPage.value}&page_size=${cleanupPlanPageSize.value}" in page
     assert "prevCleanupPlanPage" in page
     assert "nextCleanupPlanPage" in page
     assert "每周期固定最多" not in page
