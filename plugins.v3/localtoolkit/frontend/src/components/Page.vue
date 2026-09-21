@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiPost, pluginApiPath, recheckCleanupPlan } from '../api.js'
 import { fitPlanPage, PLAN_ROW_HEIGHT, PLAN_HEADER_HEIGHT, PLAN_MOBILE_ROW_HEIGHT } from '../cleanupPlanLayout.js'
+import { planConditionSummary } from '../planCondition.js'
 
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
@@ -424,14 +425,14 @@ onMounted(loadOverview)
           </div>
           <div ref="planListElement" class="lt-plan-list" :aria-busy="planLoading" :class="{ 'lt-plan-list--loading': planLoading }" :style="{ '--lt-plan-row-height': `${PLAN_ROW_HEIGHT}px`, '--lt-plan-header-height': `${PLAN_HEADER_HEIGHT}px`, '--lt-plan-mobile-row-height': `${PLAN_MOBILE_ROW_HEIGHT}px` }">
             <VTable class="lt-table lt-plan-table" density="compact">
-              <colgroup><col style="width: 34px"><col><col style="width: 90px"><col style="width: 88px"><col style="width: 40px"><col style="width: 64px"><col style="width: 68px"></colgroup>
-              <thead><tr><th>#</th><th>对象</th><th>媒体库</th><th>入库日期</th><th>尝试</th><th>状态</th><th>操作</th></tr></thead>
+              <colgroup><col style="width: 34px"><col><col style="width: 100px"><col style="width: 150px"><col style="width: 44px"><col style="width: 68px"><col style="width: 68px"></colgroup>
+              <thead><tr><th>#</th><th>对象</th><th>入库日期</th><th>满足条件</th><th>尝试</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="(item, index) in cleanupPlan.items" :key="item.queue_key || index">
                   <td>{{ (cleanupPlanPage - 1) * cleanupPlanPageSize + index + 1 }}</td>
                   <td :title="item.title || item.code || item.movie_id">{{ item.title || item.code || item.movie_id || '未知对象' }}</td>
-                  <td :title="item.library_name || item.server">{{ item.library_name || item.server || '未标记媒体库' }}</td>
                   <td>{{ item.date_created ? item.date_created.slice(0, 10) : '未知' }}</td>
+                  <td :title="planConditionSummary(item)">{{ planConditionSummary(item) }}</td>
                   <td>{{ item.attempts || 0 }}</td>
                   <td :class="item.last_error ? 'text-warning' : 'text-primary'" :title="planStatus(item)">{{ item.last_error ? '待核验' : '待处理' }}</td>
                   <td class="lt-plan-actions">
@@ -446,7 +447,7 @@ onMounted(loadOverview)
               <article v-for="(item, index) in cleanupPlan.items" :key="`mobile-${item.queue_key || index}`" class="lt-plan-mobile-row">
                 <div class="lt-plan-mobile-copy">
                   <div class="lt-plan-mobile-title">{{ item.title || item.code || item.movie_id || '未知对象' }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ item.library_name || item.server }} · {{ item.date_created ? item.date_created.slice(0, 10) : '日期未知' }} · {{ item.attempts || 0 }} 次</div>
+                  <div class="text-caption text-medium-emphasis">{{ item.date_created ? item.date_created.slice(0, 10) : '日期未知' }} · {{ planConditionSummary(item) }} · {{ item.attempts || 0 }} 次</div>
                 </div>
                 <span class="text-caption text-no-wrap" :class="item.last_error ? 'text-warning' : 'text-primary'">{{ item.last_error ? '待核验' : '待处理' }}</span>
                 <VBtn size="x-small" variant="text" icon="mdi-information-outline" aria-label="查看状态与处理办法" @click="showPlanDetails(item)" />

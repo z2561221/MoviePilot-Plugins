@@ -111,6 +111,9 @@ def test_localtoolkit_v3_page_uses_download_center_style_sections() -> None:
     assert "cleanup_plan?page=${cleanupPlanPage.value}&page_size=${cleanupPlanPageSize.value}" in page
     assert "prevCleanupPlanPage" in page
     assert "nextCleanupPlanPage" in page
+    assert "<th>满足条件</th>" in page
+    assert "<th>媒体库</th>" not in page
+    assert "planConditionSummary(item)" in page
     assert "每周期固定最多" not in page
 
 

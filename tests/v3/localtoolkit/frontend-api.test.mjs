@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { apiGet, apiPost, pluginApiPath, recheckCleanupPlan } from '../../../plugins.v3/localtoolkit/frontend/src/api.js'
 import { migrateCleanupConfig } from '../../../plugins.v3/localtoolkit/frontend/src/cleanupConfig.js'
 import { fitPlanPage, PLAN_ROW_HEIGHT, PLAN_HEADER_HEIGHT, PLAN_MOBILE_ROW_HEIGHT } from '../../../plugins.v3/localtoolkit/frontend/src/cleanupPlanLayout.js'
+import { planConditionSummary } from '../../../plugins.v3/localtoolkit/frontend/src/planCondition.js'
 
 test('旧周期与关闭的通知迁移为两组独立字段', () => {
   const old = { enabled: true, cron: '9 1 * * *', notify: false, auto_delete_max_count: 12 }
@@ -102,4 +103,10 @@ test('缩放或切换移动布局后保留原首条所在页，不跳回第一�
     assert.ok((page - 1) * pageSize <= firstIndex)
     assert.ok(page * pageSize > firstIndex)
   }
+})
+
+test('清理计划条件列显示播放与收藏快照，未知值不伪装成满足', () => {
+  assert.equal(planConditionSummary({ played: true, favorite: false }), '已看过 · 未收藏')
+  assert.equal(planConditionSummary({ played: false, favorite: true }), '未看过 · 已收藏')
+  assert.equal(planConditionSummary({ played: null, favorite: undefined }), '观看未知 · 收藏未知')
 })

@@ -15,6 +15,13 @@ function fitPlanPage(height, mobile, page = 1, previousSize = 15) {
   return { pageSize, page: Math.floor(firstIndex / pageSize) + 1 }
 }
 
+/** 返回清理计划快照中的观看与收藏条件，未知值保持可辨认。 */
+function planConditionSummary(item = {}) {
+  const played = item.played === true ? '已看过' : item.played === false ? '未看过' : '观看未知';
+  const favorite = item.favorite === true ? '已收藏' : item.favorite === false ? '未收藏' : '收藏未知';
+  return `${played} · ${favorite}`
+}
+
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,unref:_unref,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
 
@@ -843,18 +850,18 @@ return (_ctx, _cache) => {
                         _cache[35] || (_cache[35] = _createElementVNode("colgroup", null, [
                           _createElementVNode("col", { style: {"width":"34px"} }),
                           _createElementVNode("col"),
-                          _createElementVNode("col", { style: {"width":"90px"} }),
-                          _createElementVNode("col", { style: {"width":"88px"} }),
-                          _createElementVNode("col", { style: {"width":"40px"} }),
-                          _createElementVNode("col", { style: {"width":"64px"} }),
+                          _createElementVNode("col", { style: {"width":"100px"} }),
+                          _createElementVNode("col", { style: {"width":"150px"} }),
+                          _createElementVNode("col", { style: {"width":"44px"} }),
+                          _createElementVNode("col", { style: {"width":"68px"} }),
                           _createElementVNode("col", { style: {"width":"68px"} })
                         ], -1)),
                         _cache[36] || (_cache[36] = _createElementVNode("thead", null, [
                           _createElementVNode("tr", null, [
                             _createElementVNode("th", null, "#"),
                             _createElementVNode("th", null, "对象"),
-                            _createElementVNode("th", null, "媒体库"),
                             _createElementVNode("th", null, "入库日期"),
+                            _createElementVNode("th", null, "满足条件"),
                             _createElementVNode("th", null, "尝试"),
                             _createElementVNode("th", null, "状态"),
                             _createElementVNode("th", null, "操作")
@@ -869,10 +876,10 @@ return (_ctx, _cache) => {
                               _createElementVNode("td", {
                                 title: item.title || item.code || item.movie_id
                               }, _toDisplayString(item.title || item.code || item.movie_id || '未知对象'), 9, _hoisted_29),
-                              _createElementVNode("td", {
-                                title: item.library_name || item.server
-                              }, _toDisplayString(item.library_name || item.server || '未标记媒体库'), 9, _hoisted_30),
                               _createElementVNode("td", null, _toDisplayString(item.date_created ? item.date_created.slice(0, 10) : '未知'), 1),
+                              _createElementVNode("td", {
+                                title: _unref(planConditionSummary)(item)
+                              }, _toDisplayString(_unref(planConditionSummary)(item)), 9, _hoisted_30),
                               _createElementVNode("td", null, _toDisplayString(item.attempts || 0), 1),
                               _createElementVNode("td", {
                                 class: _normalizeClass(item.last_error ? 'text-warning' : 'text-primary'),
@@ -921,7 +928,7 @@ return (_ctx, _cache) => {
                         }, [
                           _createElementVNode("div", _hoisted_35, [
                             _createElementVNode("div", _hoisted_36, _toDisplayString(item.title || item.code || item.movie_id || '未知对象'), 1),
-                            _createElementVNode("div", _hoisted_37, _toDisplayString(item.library_name || item.server) + " · " + _toDisplayString(item.date_created ? item.date_created.slice(0, 10) : '日期未知') + " · " + _toDisplayString(item.attempts || 0) + " 次", 1)
+                            _createElementVNode("div", _hoisted_37, _toDisplayString(item.date_created ? item.date_created.slice(0, 10) : '日期未知') + " · " + _toDisplayString(_unref(planConditionSummary)(item)) + " · " + _toDisplayString(item.attempts || 0) + " 次", 1)
                           ]),
                           _createElementVNode("span", {
                             class: _normalizeClass(["text-caption text-no-wrap", item.last_error ? 'text-warning' : 'text-primary'])
@@ -1202,6 +1209,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-620a22a0"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ef6a14d3"]]);
 
 export { Page as default };
