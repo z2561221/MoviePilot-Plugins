@@ -226,6 +226,12 @@ class DataLifecycleService:
             "agent_provider",
             "agent_model_source",
             "agent_provenance",
+            "agent_first_pass_success_count",
+            "agent_repair_success_count",
+            "agent_terminal_failure_count",
+            "agent_failure_class_counts",
+            "agent_repair_kind_counts",
+            "agent_outcome_by_role",
             "profile_agent_model",
             "profile_agent_source",
             "ranking_agent_model",
@@ -282,6 +288,11 @@ class DataLifecycleService:
                         "failure_reason": _redact_text(
                             item.get("failure_reason")
                         )[:240],
+                        "failure_class": _redact_text(
+                            item.get("failure_class")
+                        )[:64],
+                        "repair_kind": _redact_text(item.get("repair_kind"))[:32],
+                        "repair_recovered": bool(item.get("repair_recovered", False)),
                     }
                     for item in value
                     if isinstance(item, Mapping)
@@ -290,6 +301,25 @@ class DataLifecycleService:
                 result[key] = {
                     source: max(0, int(value.get(source) or 0))
                     for source in ("agent", "safe_fallback")
+                }
+            elif key in {"agent_failure_class_counts", "agent_repair_kind_counts"} and isinstance(value, Mapping):
+                result[key] = {
+                    _redact_text(name)[:64]: _safe_nonnegative_int(count)
+                    for name, count in value.items()
+                    if str(name or "").strip()
+                }
+            elif key == "agent_outcome_by_role" and isinstance(value, Mapping):
+                result[key] = {
+                    _redact_text(role)[:32]: {
+                        field: _safe_nonnegative_int(values.get(field))
+                        for field in (
+                            "first_pass_success",
+                            "repair_success",
+                            "terminal_failure",
+                        )
+                    }
+                    for role, values in value.items()
+                    if isinstance(values, Mapping) and str(role or "").strip()
                 }
             else:
                 result[key] = _safe_scalar(value)

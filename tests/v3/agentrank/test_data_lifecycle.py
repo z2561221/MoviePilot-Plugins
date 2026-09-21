@@ -335,6 +335,18 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
             "copy_rewrite_candidate_count": 2,
             "copy_rewrite_success_count": 1,
             "copy_template_fallback_count": 1,
+            "agent_first_pass_success_count": 2,
+            "agent_repair_success_count": 1,
+            "agent_terminal_failure_count": 0,
+            "agent_failure_class_counts": {"upstream_reasoning": 1},
+            "agent_repair_kind_counts": {"transport": 1},
+            "agent_outcome_by_role": {
+                "profile": {
+                    "first_pass_success": 1,
+                    "repair_success": 0,
+                    "terminal_failure": 0,
+                }
+            },
         }
     )
     first_segment = repository._feedback_segment_key(PROFILE_ID, 1)
@@ -386,6 +398,13 @@ def test_export_uses_whitelists_and_redacts_addresses_and_credentials():
     assert exported["run_history"][0]["metrics"]["copy_rewrite_candidate_count"] == 2
     assert exported["run_history"][0]["metrics"]["copy_rewrite_success_count"] == 1
     assert exported["run_history"][0]["metrics"]["copy_template_fallback_count"] == 1
+    assert exported["run_history"][0]["metrics"]["agent_first_pass_success_count"] == 2
+    assert exported["run_history"][0]["metrics"]["agent_failure_class_counts"] == {
+        "upstream_reasoning": 1
+    }
+    assert exported["run_history"][0]["metrics"]["agent_outcome_by_role"]["profile"][
+        "first_pass_success"
+    ] == 1
     exported_support = exported["board"]["recommendations"][0]["support"]
     assert exported_support["policy_version"] == "policy-v1-safe"
     assert exported_support["percentage"] == 100

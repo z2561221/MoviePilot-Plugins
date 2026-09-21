@@ -7,7 +7,10 @@ import sys
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
+
+import pytest
+from langchain.agents.middleware.types import ModelRequest
 
 
 PLUGIN_DIR = Path(__file__).resolve().parents[3] / "plugins.v3" / "agentrank"
@@ -241,6 +244,7 @@ class FakeMissingSubmissionRunner(FakeRunner):
     """模拟两轮都没有调用终结提交工具。"""
 
     async def process(self, prompt):
+        assert not self.cleaned, "已关闭的宿主 Agent 不得再次执行"
         self.prompt = prompt
         self.prompts = [*getattr(self, "prompts", []), prompt]
         return "没有提交"
@@ -256,13 +260,14 @@ class FakeJsonSubmissionRunner(FakeRunner):
 
 
 class FakeRepairSubmissionRunner(FakeRunner):
-    """首次提交失败，收到短错误后在同一会话修正。"""
+    """首次提交失败，新 Agent 接续同一会话修正。"""
 
     async def process(self, prompt):
+        assert not self.cleaned, "已关闭的宿主 Agent 不得再次执行"
         self.prompt = prompt
         self.prompts = [*getattr(self, "prompts", []), prompt]
         collector = self.kwargs["result_collector"]
-        if len(self.prompts) == 1:
+        if not self.kwargs.get("submission_only"):
             collector.reject("schema_validation_failed", "profile.summary")
         else:
             collector.submit(
@@ -270,6 +275,10 @@ class FakeRepairSubmissionRunner(FakeRunner):
                 _profile_submission(),
             )
         return "工具回合结束"
+
+    def get_session_status(self):
+        """返回每个 Agent 对象独立记录的模型调用次数。"""
+        return {"model_call_count": 1 if self.kwargs.get("submission_only") else 2}
 
 
 class FakeFinalRepairSessionRunner(FakeRunner):
@@ -311,9 +320,10 @@ class FakeSchemaErrorResultRunner(FakeRunner):
     """模拟 LangChain 在调用 run 前返回字段化 args_schema 错误。"""
 
     async def process(self, prompt):
+        assert not self.cleaned, "已关闭的宿主 Agent 不得再次执行"
         self.prompt = prompt
         self.prompts = [*getattr(self, "prompts", []), prompt]
-        if len(self.prompts) == 1:
+        if not self.kwargs.get("submission_only"):
             return {
                 "content": (
                     '{"status":"rejected","code":"schema_validation_failed",'
@@ -822,13 +832,13 @@ def test_terminal_role_missing_submission_gets_one_short_repair_only():
     else:
         raise AssertionError("missing terminal submission was accepted")
 
-    runner = FakeMissingSubmissionRunner.instances[-1]
-    assert len(runner.prompts) == 2
-    assert runner.prompts[1].startswith(
+    first, repair = FakeMissingSubmissionRunner.instances
+    assert len(first.prompts) == len(repair.prompts) == 1
+    assert repair.prompts[0].startswith(
         "AGENTRANK_REPAIR code=submission_required field=submission."
     )
-    assert "完整画像协议和上下文" not in runner.prompts[1]
-    assert "read_agentrank" not in runner.prompts[1]
+    assert "完整画像协议和上下文" not in repair.prompts[0]
+    assert "read_agentrank" not in repair.prompts[0]
 
 
 def test_terminal_role_recovers_agent_json_through_schema_and_collector():
@@ -848,12 +858,52 @@ def test_terminal_role_recovers_agent_json_through_schema_and_collector():
     assert len(FakeJsonSubmissionRunner.instances[-1].prompts) == 1
 
 
-def test_terminal_role_repairs_one_named_field_in_same_session():
-    """首次结构错误只反馈错误码和字段，第二次提交成功即停止。"""
+@pytest.mark.parametrize("valid_payload", [True, False])
+def test_terminal_repair_reads_stream_buffer_and_preserves_schema(valid_payload):
+    """修正仅有缓冲输出时恢复合法提交，非法 JSON 对象仍然拒绝。"""
+    class BufferedRepairRunner(FakeRunner):
+        """模拟修正回合返回空值且未发送输出回调的宿主。"""
+
+        instances = []
+
+        async def process(self, prompt):
+            """首轮无提交；修正结果只写入当前 Agent 的缓冲区。"""
+            self.prompt = prompt
+            if self.kwargs.get("submission_only"):
+                payload = _profile_submission() if valid_payload else {"profile": None}
+                self._streamed_output = json.dumps(payload, ensure_ascii=False)
+            return None
+
+    cleared = []
+    adapter = AgentRankAgentAdapter(
+        agent_factory=BufferedRepairRunner,
+        memory_clearer=lambda *args: cleared.append(args),
+    )
+    trusted = _trusted_context(agent_role="profile")
+    if valid_payload:
+        output = asyncio.run(adapter.run_profile("profile", trusted))
+        assert json.loads(output) == _profile_submission()
+        assert output.provenance["repair_count"] == 1
+        assert output.provenance["repair_recovered"] is True
+    else:
+        with pytest.raises(adapter_module.AgentSubmissionUnavailableError):
+            asyncio.run(adapter.run_profile("profile", trusted))
+
+    first, repair = BufferedRepairRunner.instances
+    assert first is not repair
+    assert first.cleaned and repair.cleaned
+    assert repair.kwargs["submission_only"] is True
+    assert first.kwargs["result_collector"] is repair.kwargs["result_collector"]
+    assert cleared == [(first.kwargs["session_id"], "system")]
+
+
+def test_terminal_role_repairs_one_named_field_with_fresh_agent():
+    """新 Agent 接续原会话与收集器，修正成功后清理一次会话记忆。"""
     FakeRepairSubmissionRunner.instances.clear()
+    cleared = []
     adapter = AgentRankAgentAdapter(
         agent_factory=FakeRepairSubmissionRunner,
-        memory_clearer=lambda *_: None,
+        memory_clearer=lambda *args: cleared.append(args),
     )
 
     output = asyncio.run(
@@ -862,9 +912,157 @@ def test_terminal_role_repairs_one_named_field_in_same_session():
 
     assert json.loads(output) == _profile_submission()
     assert output.provenance["repair_count"] == 1
-    runner = FakeRepairSubmissionRunner.instances[-1]
-    assert len(runner.prompts) == 2
-    assert "code=schema_validation_failed field=profile.summary" in runner.prompts[1]
+    assert output.provenance["repair_recovered"] is True
+    assert output.provenance["repair_kind"] == "schema"
+    assert output.provenance["model_call_count"] == 3
+    first, repair = FakeRepairSubmissionRunner.instances
+    assert first is not repair
+    assert first.kwargs["session_id"] == repair.kwargs["session_id"]
+    assert first.kwargs["trusted_context"] is repair.kwargs["trusted_context"]
+    assert first.kwargs["result_collector"] is repair.kwargs["result_collector"]
+    assert repair.kwargs["submission_only"] is True
+    assert first.cleaned and repair.cleaned
+    assert len(first.prompts) == len(repair.prompts) == 1
+    assert "code=schema_validation_failed field=profile.summary" in repair.prompts[0]
+    assert cleared == [(first.kwargs["session_id"], "system")]
+
+
+@pytest.mark.parametrize("role", ["profile", "retrieval", "preliminary"])
+def test_repair_uses_fresh_agent_for_each_nonfinal_terminal_role(role):
+    """各非决赛角色均用新对象执行唯一修正回合，结束后清理共享记忆。"""
+    FakeMissingSubmissionRunner.instances.clear()
+    cleared = []
+    adapter = AgentRankAgentAdapter(
+        agent_factory=FakeMissingSubmissionRunner,
+        memory_clearer=lambda *args: cleared.append(args),
+    )
+    trusted = _trusted_context(agent_role=role)
+    with pytest.raises(adapter_module.AgentSubmissionUnavailableError):
+        asyncio.run(adapter.run("first turn", trusted))
+
+    first, repair = FakeMissingSubmissionRunner.instances
+    assert first is not repair
+    assert first.cleaned and repair.cleaned
+    assert first.kwargs["session_id"] == repair.kwargs["session_id"]
+    assert repair.kwargs["trusted_context"] is trusted
+    assert first.kwargs["result_collector"] is repair.kwargs["result_collector"]
+    assert repair.kwargs["submission_only"] is True
+    assert len(first.prompts) == len(repair.prompts) == 1
+    assert cleared == [(first.kwargs["session_id"], "system")]
+
+
+def test_incomplete_cleanup_does_not_start_repair_agent():
+    """宿主未完成资源回收时停止修正，避免新旧执行器重叠。"""
+    class PendingCleanupRunner(FakeMissingSubmissionRunner):
+        """模拟宿主资源尚未收敛的关闭结果。"""
+
+        async def cleanup(self):
+            """标记对象已关闭，但报告资源仍待回收。"""
+            self.cleaned = True
+            return False
+
+    PendingCleanupRunner.instances.clear()
+    adapter = AgentRankAgentAdapter(
+        agent_factory=PendingCleanupRunner, memory_clearer=lambda *_: None
+    )
+    with pytest.raises(RuntimeError, match="repair cleanup did not complete"):
+        asyncio.run(adapter.run_profile("profile", _trusted_context(agent_role="profile")))
+    assert len(PendingCleanupRunner.instances) == 1
+
+
+def test_profile_repair_contains_frozen_evidence_without_session_memory():
+    """无渠道会话没有历史时，修正仍携带播放事实、旧画像及提交 schema。"""
+    trusted = build_trusted_context(
+        "alice", "repair-evidence", [], {}, {}, agent_role="profile",
+        playback={"sample_count": 15, "samples": [{"title": "唯一事实"}]},
+        previous_profile={"summary": "旧画像"},
+        profile_preferences={"custom_tags": ["悬疑"]},
+    )
+    adapter = AgentRankAgentAdapter(memory_clearer=lambda *_: None)
+    encoded = asyncio.run(adapter._repair_evidence(trusted, "session", ["x" * 15000]))
+    payload = json.loads(encoded.split("REPAIR_DATA=", 1)[1])
+    assert payload["role"] == "profile"
+    assert payload["snapshot"]["playback"]["sample_count"] == 15
+    assert payload["snapshot"]["playback"]["samples"][0]["title"] == "唯一事实"
+    assert payload["snapshot"]["previous_profile"]["summary"] == "旧画像"
+    assert payload["snapshot"]["confirmed_preferences"]["custom_tags"] == ["悬疑"]
+    assert "profile" in payload["submission_schema"]["properties"]
+    assert len(payload["previous_output"]) == 12000
+    assert "candidates" not in payload["snapshot"]
+
+
+def test_terminal_graph_adds_stage_protocol_with_shared_collector():
+    """画像图的工具阶段由当前收集器控制，首轮与修正都受约束。"""
+    from agentrank_agent_adapter_test.adapter.protocol import AgentRankProtocolMiddleware
+
+    for submission_only in (False, True):
+        agent = RestrictedAgentRankAgent(
+            trusted_context=_trusted_context(agent_role="profile"),
+            session_id="protocol", user_id="system", submission_only=submission_only,
+        )
+        agent._tool_context.update(asyncio.run(agent._build_tool_context(False)))
+        graph = asyncio.run(agent._create_agent())
+        protocol = graph["middleware"][1]
+        assert isinstance(protocol, AgentRankProtocolMiddleware)
+        assert protocol.collector is agent._agentrank_result_collector
+        assert protocol.submission_only is submission_only
+
+
+def test_protocol_switches_from_read_to_submit_and_supports_sync_calls():
+    """阶段切换实际改变绑定工具与指定工具名，修正禁止重新读取。"""
+    protocol_class = importlib.import_module(f"{PACKAGE_NAME}.adapter.protocol").AgentRankProtocolMiddleware
+    collector = SimpleNamespace(expected_tool="submit", context_read=False)
+    protocol = protocol_class(collector)
+    request = ModelRequest(model="unused", messages=[], tools=[
+        SimpleNamespace(name="read"), SimpleNamespace(name="submit")
+    ], state={}, runtime=None)
+    seen = []
+
+    def record(value):
+        """记录同步请求实际暴露的工具。"""
+        seen.append(value)
+        return "ok"
+
+    assert protocol.wrap_model_call(request, record) == "ok"
+    collector.context_read = True
+    protocol.wrap_model_call(request, record)
+    assert [x.tools[0].name for x in seen] == ["read", "submit"]
+    assert seen[1].tool_choice["function"]["name"] == "submit"
+    collector.context_read = False
+    repair = protocol_class(collector, submission_only=True)
+    repair.wrap_model_call(request, record)
+    assert seen[-1].tools[0].name == "submit"
+
+
+def test_protocol_only_falls_back_for_explicit_unsupported_tool_choice():
+    """只对未执行的参数拒绝降级一次，网络或其它错误必须向上传播。"""
+    protocol_class = importlib.import_module(f"{PACKAGE_NAME}.adapter.protocol").AgentRankProtocolMiddleware
+    collector = SimpleNamespace(expected_tool="submit", context_read=True)
+    protocol = protocol_class(collector)
+    request = ModelRequest(model="unused", messages=[], tools=[SimpleNamespace(name="submit")], state={}, runtime=None)
+    seen = []
+
+    class UnsupportedChoice(RuntimeError):
+        """模拟供应商明确拒绝 tool_choice 参数。"""
+        status_code = 400
+
+    async def handler(value):
+        """首次明确拒绝，后续检查工具白名单仍被保留。"""
+        seen.append(value)
+        if value.tool_choice is not None:
+            raise UnsupportedChoice("tool_choice is not supported")
+        return "ok"
+
+    assert asyncio.run(protocol.awrap_model_call(request, handler)) == "ok"
+    assert len(seen) == 2 and protocol.tool_choice_supported is False
+    assert all([tool.name for tool in value.tools] == ["submit"] for value in seen)
+
+    async def network_failure(value):
+        """不允许把其它失败冒充能力协商失败。"""
+        raise RuntimeError("connection lost")
+
+    with pytest.raises(RuntimeError, match="connection lost"):
+        asyncio.run(protocol.awrap_model_call(request, network_failure))
 
 
 def test_final_candidate_error_rebuilds_submission_only_repair_session():
@@ -913,9 +1111,9 @@ def test_adapter_preserves_field_from_host_schema_validation_error():
     )
 
     assert json.loads(output) == _profile_submission()
-    prompts = FakeSchemaErrorResultRunner.instances[-1].prompts
-    assert len(prompts) == 2
-    assert "code=schema_validation_failed field=profile.summary" in prompts[1]
+    first, repair = FakeSchemaErrorResultRunner.instances
+    assert len(first.prompts) == len(repair.prompts) == 1
+    assert "code=schema_validation_failed field=profile.summary" in repair.prompts[0]
 
 
 def test_preliminary_and_final_adapter_methods_use_terminal_collectors():

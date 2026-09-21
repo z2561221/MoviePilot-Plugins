@@ -18,7 +18,7 @@ class AgentRank(_PluginBase):
     plugin_desc = "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。"
     plugin_icon = "agentresourceofficer.png"
     plugin_color = "#7C4DFF"
-    plugin_version = "3.0.6"
+    plugin_version = "3.0.7"
     plugin_label = "智能推荐,发现"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
@@ -138,10 +138,8 @@ class AgentRank(_PluginBase):
 
     @staticmethod
     def get_agent_tools() -> List[Type]:
-        """返回插件提供的 Agent 工具列表。"""
-        from .agent_tools.registry import AGENT_TOOL_CLASSES
-
-        return list(AGENT_TOOL_CLASSES)
+        """内部工具仅由受限 Agent 注入上下文后使用，不向普通聊天注册。"""
+        return []
 
     def stop_service(self) -> None:
         """停止插件后台服务。"""

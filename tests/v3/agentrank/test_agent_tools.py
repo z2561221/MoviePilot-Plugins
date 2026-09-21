@@ -300,6 +300,25 @@ def test_ranking_tools_reject_duplicate_snapshot_reads():
         asyncio.run(tool.run())
 
 
+@pytest.mark.parametrize("role,classes", [
+    ("profile", PROFILE_AGENT_TOOL_CLASSES),
+    ("retrieval", RETRIEVAL_AGENT_TOOL_CLASSES),
+    ("preliminary", PRELIMINARY_AGENT_TOOL_CLASSES),
+    ("final", FINAL_AGENT_TOOL_CLASSES),
+])
+def test_terminal_repeat_read_returns_submit_hint_without_new_attempt(role, classes):
+    """重复读取不再终止推理，也不消耗修正次数或泄露新的快照。"""
+    context = build_trusted_context("alice", "repeat-read", [], {}, {}, agent_role=role)
+    tools, collector = _role_tools(context, classes)
+    first = json.loads(asyncio.run(tools[0].run()))
+    repeated = json.loads(asyncio.run(tools[0].run()))
+    assert first != repeated
+    assert repeated["status"] == "already_read"
+    assert repeated["next_tool"] == collector.expected_tool
+    assert collector.context_read is True
+    assert collector.attempts == 0
+
+
 def test_tools_reject_missing_or_wrong_trusted_context():
     """General Agent sessions cannot use AgentRank tools without adapter injection."""
     for tool_class in AGENT_TOOL_CLASSES:
@@ -312,6 +331,20 @@ def test_tools_reject_missing_or_wrong_trusted_context():
                 assert "trusted" in str(error).lower()
             else:
                 raise AssertionError(f"{tool.name} accepted an untrusted context")
+
+
+def test_general_agent_catalog_does_not_expose_context_bound_tools():
+    """通用工具注册入口为空，角色执行器仍保留内部工具注册表。"""
+    tree = ast.parse((PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8"))
+    plugin_class = next(node for node in tree.body if isinstance(node, ast.ClassDef))
+    callback = next(node for node in plugin_class.body
+                    if isinstance(node, ast.FunctionDef) and node.name == "get_agent_tools")
+    callback.decorator_list = []
+    namespace = {"List": list, "Type": type}
+    exec(compile(ast.Module(body=[callback], type_ignores=[]), "<plugin-catalog>", "exec"), namespace)
+    assert namespace["get_agent_tools"]() == []
+    assert len(AGENT_TOOL_CLASSES) == 4
+    assert len(FINAL_AGENT_TOOL_CLASSES) == 2
 
 
 def test_archive_tool_exposes_only_minimal_validated_fields():

@@ -29,6 +29,22 @@ class _ReadAgentRankTool(MoviePilotTool):
     args_schema: Type[BaseModel] = ReadAgentRankInput
     allowed_roles: ClassVar[Tuple[str, ...]] = ("profile", "ranking")
 
+    def _repeat_read_result(self) -> Optional[str]:
+        """已读取的终结角色返回提交提示，仍先核对受信身份与角色。"""
+        trusted = resolve_trusted_context(self._agent_context)
+        if trusted.agent_role not in self.allowed_roles:
+            raise PermissionError(f"{self.name} is not allowed for {trusted.agent_role} Agent")
+        collector = resolve_result_collector(self._agent_context)
+        if collector.trusted_context is not trusted:
+            raise PermissionError("AgentRank result collector scope mismatch")
+        if collector.context_read:
+            return json.dumps({
+                "status": "already_read",
+                "next_tool": collector.expected_tool,
+                "message": "Use the previous immutable snapshot and submit now; do not read again.",
+            }, separators=(",", ":"))
+        return None
+
     def _trusted_context(self):
         """读取并校验当前工具允许访问的角色上下文。"""
         trusted_context = resolve_trusted_context(self._agent_context)
@@ -387,6 +403,9 @@ class ReadAgentRankProfileContextTool(_ReadAgentRankTool):
 
     async def run(self, **kwargs: Any) -> str:
         """返回画像增量更新所需的最小受信上下文。"""
+        repeated = self._repeat_read_result()
+        if repeated is not None:
+            return repeated
         trusted_context = self._trusted_context()
         return json.dumps(
             _minimal_profile_update_context(trusted_context),
@@ -407,6 +426,9 @@ class ReadAgentRankRetrievalContextTool(_ReadAgentRankTool):
 
     async def run(self, **kwargs: Any) -> str:
         """返回宿主预先裁剪并冻结的检索策划上下文。"""
+        repeated = self._repeat_read_result()
+        if repeated is not None:
+            return repeated
         trusted_context = self._trusted_context()
         return json.dumps(
             to_jsonable(trusted_context.retrieval_context) or {},
@@ -427,6 +449,9 @@ class ReadAgentRankBatchContextTool(_ReadAgentRankTool):
 
     async def run(self, **kwargs: Any) -> str:
         """返回当前初赛批次的候选、权重和证据目录。"""
+        repeated = self._repeat_read_result()
+        if repeated is not None:
+            return repeated
         trusted_context = self._trusted_context()
         payload = {
             "candidates": [
@@ -464,6 +489,9 @@ class ReadAgentRankFinalContextTool(_ReadAgentRankTool):
 
     async def run(self, **kwargs: Any) -> str:
         """返回晋级候选及其初赛判断卡。"""
+        repeated = self._repeat_read_result()
+        if repeated is not None:
+            return repeated
         trusted_context = self._trusted_context()
         constraints = to_jsonable(trusted_context.submission_constraints) or {}
         raw_options = (
