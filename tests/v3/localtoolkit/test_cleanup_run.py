@@ -68,7 +68,7 @@ class FakeMediaServer:
         self.scans += 1
         return [deepcopy(item) for key, item in self.inventory.items() if key not in self.deleted]
 
-    def refresh_candidate(self, item, user):
+    def refresh_candidate(self, item, user, *, diagnose=False):
         """独立模拟删除前读取，删除后状态由 states 控制。"""
         self.prechecked.append((item.movie_id, user))
         if item.movie_id in self.preflight:

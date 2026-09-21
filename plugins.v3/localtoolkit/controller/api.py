@@ -16,6 +16,8 @@ from ..model.api import (
     ToolkitModuleStatus,
     ToolkitOptionsData,
     ToolkitRunData,
+    ToolkitRecheckData,
+    ToolkitRecheckRequest,
     ToolkitStatusData,
 )
 from ..security import redact_sensitive_text, safe_error_text
@@ -24,6 +26,14 @@ from ..security import redact_sensitive_text, safe_error_text
 def build_api_routes(plugin) -> list[dict]:
     """构建工具中心 V3 API 路由声明。"""
     return [
+        {
+            "path": "/local_toolkit/cleanup_plan/recheck",
+            "endpoint": plugin.api_cleanup_plan_recheck,
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "只读核验清理计划",
+            "response_model": schemas.Response[ToolkitRecheckData],
+        },
         {
             "path": "/local_toolkit/status",
             "endpoint": plugin.api_status,
@@ -261,3 +271,14 @@ def cleanup_plan_scan_response(plugin) -> schemas.Response[ToolkitRunData]:
 def cleanup_plan_clear_response(plugin) -> schemas.Response[ToolkitRunData]:
     """清空清理计划并返回清理数量。"""
     return _normalize_run_result(plugin.library_cleanup.clear_cleanup_plan())
+
+
+def cleanup_plan_recheck_response(plugin, request: ToolkitRecheckRequest) -> schemas.Response[ToolkitRecheckData]:
+    """显式保留部分成功回执，单条失效不回退为批量核验。"""
+    if request.queue_key is not None and not request.queue_key.strip():
+        raise HTTPException(status_code=422, detail="计划条目不能为空")
+    result = plugin.library_cleanup.recheck_plan(request.queue_key)
+    return schemas.Response[ToolkitRecheckData](
+        success=result.get("success", False), message=result.get("summary", ""),
+        data=ToolkitRecheckData.model_validate(result),
+    )

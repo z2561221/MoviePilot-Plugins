@@ -89,3 +89,21 @@ class CleanupAlerts:
             for operation, state in self._load().items()
             if isinstance(state, dict) and state.get("active")
         }
+
+    def resolve_rechecked(self, identities: list[str]) -> None:
+        """仅解除已逐项核验的读取异常，不发送通知或清除独立执行异常。"""
+        data = self._load()
+        state = data.get("cleanup")
+        if not isinstance(state, dict) or state.get("category") != "precheck_unavailable":
+            return
+        failed = set(state.get("identities") or [])
+        if not failed:
+            return
+        remaining = failed - set(identities)
+        if remaining == failed:
+            return
+        if remaining:
+            state["identities"] = sorted(remaining)
+        else:
+            data.pop("cleanup", None)
+        self.plugin.save_data(key=ALERT_DATA_KEY, value=data)

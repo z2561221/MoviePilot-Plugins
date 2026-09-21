@@ -10,6 +10,7 @@ from app.sdk.logging import logger
 from app.sdk.network import RequestUtils
 from app.sdk.services import MediaServerHelper
 
+from ..model.cleanup_recheck import CleanupReadError, unavailable
 from ..model.library_cleanup import (
     CleanupCandidate,
     candidate_from_media_item,
@@ -214,10 +215,10 @@ class MediaServerCleanupAdapter:
         return state
 
     def refresh_candidate(
-        self, candidate: CleanupCandidate, selected_user: str = "",
+        self, candidate: CleanupCandidate, selected_user: str = "", *, diagnose: bool = False,
     ) -> tuple[bool | None, CleanupCandidate | None]:
         """按条目 ID 获取当前用户的真实状态，不枚举媒体库或复用旧筛选值。"""
-        state, detail = self._read_item(candidate, selected_user, details=True)
+        state, detail = self._read_item(candidate, selected_user, details=True, diagnose=diagnose)
         if state is not True:
             return state, None
         fresh = candidate_from_media_item(
@@ -228,7 +229,8 @@ class MediaServerCleanupAdapter:
         if candidate.library_id and parent_id != candidate.library_id:
             membership = self._belongs_to_library(candidate, selected_user)
             if membership is None:
-                return None, None
+                return unavailable(diagnose, "library_unavailable", "媒体库归属无法核验",
+                                   "检查所选用户的媒体库访问权限和服务连接后重新核验")
             if membership is False:
                 fresh.library_id = parent_id or "outside-plan-library"
         return True, fresh
@@ -255,10 +257,12 @@ class MediaServerCleanupAdapter:
 
     def _read_item(
         self, candidate: CleanupCandidate, selected_user: str, *, details: bool = False,
+        diagnose: bool = False,
     ) -> tuple[bool | None, Any]:
         """使用同一用户身份读取单项，明确区分不存在、无权限和读取失败。"""
         if not candidate.server or not candidate.movie_id:
-            return None, None
+            return unavailable(diagnose, "identity_missing", "计划条目身份不完整",
+                               "检查媒体服务器配置后重新生成计划")
         service = self.helper.get_service(name=candidate.server)
         instance = getattr(service, "instance", None)
         service_type = getattr(service, "type", "")
@@ -266,7 +270,8 @@ class MediaServerCleanupAdapter:
         apikey = getattr(instance, "_apikey", "")
         user_id = self._resolve_user_id(instance, selected_user, service_type)
         if service_type not in ("emby", "jellyfin") or not host or not apikey or not user_id:
-            return None, None
+            return unavailable(diagnose, "connection_or_user", "媒体服务器或用户配置无法核验",
+                               "检查 MP 媒体服务器连接，并在工具中心重新选择有效用户")
         prefix = "emby/" if service_type == "emby" else ""
         url = f"{host.rstrip('/')}/{prefix}Users/{user_id}/Items/{candidate.movie_id}"
         params = {"api_key": apikey}
@@ -276,7 +281,8 @@ class MediaServerCleanupAdapter:
             response = self._request_utils(timeout=10).get_res(url, params)
             # HTTP 错误响应可能为 falsy，不能用 bool(response) 吞掉 404。
             if response is None:
-                return None, None
+                return unavailable(diagnose, "no_response", "媒体服务器未返回有效响应",
+                                   "检查媒体服务器运行状态与 MP 到服务器的连接后重新核验")
             if response.status_code == 404:
                 return False, None
             if response.status_code == 200:
@@ -284,9 +290,19 @@ class MediaServerCleanupAdapter:
                 item_id = read_value(item, "Id", "id", "item_id")
                 if str(item_id or "") == candidate.movie_id:
                     return True, item
+                return unavailable(diagnose, "identity_mismatch", "返回的媒体条目身份不一致",
+                                   "在媒体服务器确认该条目，再重新生成计划")
+            if response.status_code in (401, 403):
+                return unavailable(diagnose, "access_denied", f"媒体服务器拒绝访问（HTTP {response.status_code}）",
+                                   "检查 MP 中的媒体服务器密钥及所选用户的媒体库权限后重新核验")
+            return unavailable(diagnose, "http_error", f"媒体服务器请求失败（HTTP {response.status_code}）",
+                               "检查媒体服务器与反向代理状态后重新核验")
+        except CleanupReadError:
+            raise
         except Exception as err:
             logger.warning(f"本地工具集：核验媒体条目失败：{redact_sensitive_text(err)}")
-        return None, None
+            return unavailable(diagnose, "request_error", "媒体条目请求失败或响应格式异常",
+                               "检查媒体服务器连接和响应，恢复后重新核验")
 
     def _build_chain(self) -> Any:
         """延迟构建宿主媒体服务器链，测试环境缺失时返回空。"""

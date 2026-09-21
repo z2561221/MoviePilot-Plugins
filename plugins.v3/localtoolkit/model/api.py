@@ -114,6 +114,9 @@ class ToolkitCleanupPlanItem(BaseModel):
     attempts: int = 0
     last_attempt_at: str = ""
     last_error: str = ""
+    last_recheck_at: str = ""
+    error_code: str = ""
+    recovery_hint: str = ""
 
 
 class ToolkitCleanupPlanData(BaseModel):
@@ -132,6 +135,41 @@ class ToolkitCleanupPlanData(BaseModel):
     pending_cycle_at: str = ""
     cooldown_minutes: int = 0
     batch_size: int = 10
+    error_count: int = 0
+
+
+class ToolkitRecheckRequest(BaseModel):
+    """省略 key 时仅核验异常批次；拒绝错拼字段扩大操作范围。"""
+
+    model_config = {"extra": "forbid"}
+    queue_key: str | None = Field(default=None, min_length=1, max_length=2048)
+
+
+class ToolkitRecheckItem(BaseModel):
+    """每个计划条目的核验结果与处理办法。"""
+
+    queue_key: str
+    title: str = ""
+    state: str
+    reason: str
+    action: str
+    error_code: str = ""
+
+
+class ToolkitRecheckData(BaseModel):
+    """部分失败仍保留成功项和未处理数量。"""
+
+    operation: str = "recheck"
+    summary: str = ""
+    processed_count: int = 0
+    restored_count: int = 0
+    removed_count: int = 0
+    unknown_count: int = 0
+    pending_count: int = 0
+    queue_count: int = 0
+    busy: bool = False
+    stopped: bool = False
+    results: list[ToolkitRecheckItem] = Field(default_factory=list)
 
 
 class ToolkitCacheSnapshot(BaseModel):

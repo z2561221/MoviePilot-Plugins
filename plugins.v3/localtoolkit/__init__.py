@@ -6,6 +6,7 @@ from app.plugins import _PluginBase
 from .controller.api import (
     build_api_routes,
     cleanup_plan_clear_response,
+    cleanup_plan_recheck_response,
     cleanup_plan_response,
     cleanup_plan_scan_response,
     history_response,
@@ -19,6 +20,8 @@ from .model.api import (
     ToolkitHistoryData,
     ToolkitOptionsData,
     ToolkitRunData,
+    ToolkitRecheckData,
+    ToolkitRecheckRequest,
     ToolkitStatusData,
 )
 from .service.lifecycle import build_services, initialize_plugin, stop_plugin_service
@@ -96,6 +99,10 @@ class LocalToolkit(_PluginBase):
     def api_cleanup_plan_clear(self) -> schemas.Response[ToolkitRunData]:
         """清空清理计划，不删除媒体库条目。"""
         return cleanup_plan_clear_response(self)
+
+    def api_cleanup_plan_recheck(self, request: ToolkitRecheckRequest) -> schemas.Response[ToolkitRecheckData]:
+        """只读查询媒体状态并修正计划，不执行媒体删除。"""
+        return cleanup_plan_recheck_response(self, request)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """返回 Vue 模式下的空配置 schema 与当前配置模型。"""

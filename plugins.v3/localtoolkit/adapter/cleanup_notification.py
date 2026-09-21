@@ -195,4 +195,5 @@ class CleanupReportNotifier:
 
     @property
     def delivery_confirmed(self) -> bool:
+        """仅在通知渠道确认投递后返回真。"""
         return self.delivery_state == "confirmed"

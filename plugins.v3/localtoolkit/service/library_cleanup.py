@@ -13,6 +13,7 @@ from apscheduler.triggers.date import DateTrigger
 from ..adapter.cleanup_notification import CleanupReportNotifier, NotificationOutcome
 from ..adapter.media_server import MediaServerCleanupAdapter
 from ..model.cleanup_config import default_cleanup_config, normalize_cleanup_config
+from ..model.cleanup_recheck import CleanupReadError
 from ..model.library_cleanup import (
     CleanupCandidate,
     CleanupResult,
@@ -28,6 +29,7 @@ from ..security import redact_sensitive_text, safe_error_text
 from .base import BaseToolModule
 from .cleanup_alerts import CleanupAlerts
 from .cleanup_execution import CleanupCancelled, CleanupExecution
+from .cleanup_recheck import recheck_plan
 from .cleanup_report import REPORT_TITLE, build_report
 
 _options_cache = {}
@@ -191,7 +193,12 @@ class LibraryCleanupModule(BaseToolModule):
             "next_cycle_at": self._next_cycle_at(plan),
             "cooldown_minutes": self._cooldown_minutes(),
             "batch_size": self._cycle_limit(),
+            "error_count": sum(bool(item.get("last_error")) for item in items),
         }
+
+    def recheck_plan(self, queue_key=None):
+        """只读核验单条或异常批次，更新计划但不执行删除。"""
+        return recheck_plan(self, queue_key)
 
     def scan_plan(self, scheduled=False):
         """独立扫描并更新计划，仅计划成员变化或异常时通知。"""
@@ -402,14 +409,19 @@ class LibraryCleanupModule(BaseToolModule):
         self.add_history(status, summary, time.time() - start)
         return {"success": complete, "summary": summary, "operation": "cleanup", **counts}
 
-    def _precheck_candidate(self, movie, conditions, now):
+    def _precheck_candidate(self, movie, conditions, now, *, diagnose=False):
         """复核当前范围及实时筛选条件，未知状态一律保留且不删除。"""
         server = str(self.config.get("selected_server") or "")
         library = str(self.config.get("selected_library") or "")
         if (server and movie.server != server) or (library and movie.library_id != library):
             return "skipped", movie, "已不在当前配置范围"
         try:
-            exists, fresh = self.adapter.refresh_candidate(movie, str(self.config.get("selected_user") or ""))
+            options = {"diagnose": True} if diagnose else {}
+            exists, fresh = self.adapter.refresh_candidate(
+                movie, str(self.config.get("selected_user") or ""), **options,
+            )
+        except (CleanupReadError, CleanupCancelled):
+            raise
         except Exception as err:
             logger.warning(f"工具中心：删除前复核失败：{redact_sensitive_text(err)}")
             return "unknown", movie, "删除前状态无法核验"
