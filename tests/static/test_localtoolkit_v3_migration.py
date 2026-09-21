@@ -12,7 +12,7 @@ V3_DIR = REPO / "plugins.v3" / "localtoolkit"
 V2_PACKAGE = REPO / "package.local.v2.json"
 V3_PACKAGE = REPO / "package.local.v3.json"
 FORBIDDEN_V3_IMPORT_PREFIXES = ("app.core", "app.helper", "app.utils")
-FORBIDDEN_V3_IMPORTS = {"app.log"}
+FORBIDDEN_V3_IMPORTS = {"app.log", "app.sdk.plugins"}
 
 
 def _load_json(path: Path) -> dict:

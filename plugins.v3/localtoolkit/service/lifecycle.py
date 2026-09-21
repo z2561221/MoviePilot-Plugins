@@ -1,7 +1,7 @@
 """工具中心生命周期与旧配置迁移服务。"""
 
 from app.sdk.logging import logger
-from app.sdk.plugins import PluginManager
+from app.sdk.plugin.manager import PluginManager
 
 from ..model.cleanup_config import normalize_cleanup_config
 from ..model.config import merge_config
