@@ -169,6 +169,10 @@ class DownloadManagerLocal(_PluginBase):
         """初始化实例级运行态，避免多实例共享配置、队列、缓存或退出信号。"""
         super().__init__()
         self._scheduler = None
+        self._transfer_schedule_lock = threading.RLock()
+        self._transfer_pending_runs = {}
+        self._transfer_scheduled_run = None
+        self._transfer_running_generation = None
         self._speed_monitor_thread = None
         self._speed_monitor_stop_event = None
         self._speed_monitor_worker_lock = None

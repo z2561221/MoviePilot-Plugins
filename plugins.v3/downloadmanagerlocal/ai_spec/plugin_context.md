@@ -25,7 +25,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.9`；V2 源码与元数据保持原样。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.10`；V2 源码与元数据保持原样。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
@@ -202,8 +202,9 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 插件转移功能未激活时直接返回。
 - 事件下载器不匹配 `_fromdownloader` 时直接返回。
-- 根据 `_delay_minutes` 创建 `delayed_transfer_<fromdownloader>` date job。
-- 通过 `_delayed_transfer()` 委托转移实现。
+- 根据 `_delay_minutes` 保存每个 `download_hash` 的最早到期时间；缺少 hash 时按事件到期时间登记，同一种子的重复事件不顺延。
+- 每个实例只排定一个最早到期的 date job；回调通过 `_delayed_transfer()` 串行执行，结束后接续其余到期时间，执行期间的新事件也会保留。
+- 停止时清空延迟状态；回调携带停止代次，重载前的回调不能恢复新任务。长批次结束后仍执行已到期的接续任务，不受默认 misfire 宽限丢弃。
 - 事件驱动和兜底扫描进入共享转移循环后，会按 qB `completion_on` 再次校验完成年龄；不足 `_delay_minutes` 的任务跳过，达到阈值后再转移。
 - 手动“立即运行一次”不受自动入口延迟门禁影响；缺少 `completion_on` 时保持原有候选行为。
 

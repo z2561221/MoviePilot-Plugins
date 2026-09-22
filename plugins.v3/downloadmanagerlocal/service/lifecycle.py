@@ -11,6 +11,7 @@ from app.sdk.config import settings
 from app.sdk.logging import logger
 from ..iyuu_helper import IyuuHelper
 from .config import initialize_runtime_config
+from .events import clear_transfer_schedule
 from .speed_monitor import ensure_speed_monitor_runtime, stop_speed_monitor_runtime
 from .speed_worker import (
     start_speed_monitor_worker_if_needed,
@@ -117,6 +118,7 @@ def stop_plugin_service(plugin) -> None:
     event = getattr(plugin, "_event", None)
     if event is not None:
         event.set()
+    clear_transfer_schedule(plugin)
     try:
         if not plugin._scheduler:
             return

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytz
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.sdk.config import settings
@@ -17,7 +18,7 @@ from .upload_limit_worker import wake_upload_limit_worker
 
 
 def handle_transfer_complete_event(plugin, event) -> None:
-    """处理 TransferComplete 事件并登记延迟转移做种任务。"""
+    """保留最早转种时间，同种重复事件合并，后续种子的到期时间接续执行。"""
     if not plugin._transfer_active:
         return
 
@@ -27,18 +28,94 @@ def handle_transfer_complete_event(plugin, event) -> None:
         return
 
     delay = _coerce_delay_minutes(plugin._delay_minutes)
-    logger.info(f"收到 TransferComplete 事件（来源: {downloader_name}），将在 {delay} 分钟后执行转移做种")
-
-    _ensure_scheduler(plugin)
     run_time = datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(minutes=delay)
-    job_id = f"delayed_transfer_{plugin._fromdownloader or 'default'}"
+    torrent_hash = str(event_data.get("download_hash") or "").strip().lower()
+    event_key = f"hash:{torrent_hash}" if torrent_hash else f"time:{run_time.isoformat()}"
+    with plugin._transfer_schedule_lock:
+        generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
+        if not _transfer_schedule_active(plugin, generation):
+            return
+        previous = plugin._transfer_pending_runs.get(event_key)
+        plugin._transfer_pending_runs[event_key] = min(previous, run_time) if previous else run_time
+        next_run = _schedule_next_transfer(plugin, generation)
+    if next_run:
+        logger.info(f"收到 TransferComplete 事件（来源: {downloader_name}），转移做种保持最早执行时间：{next_run:%Y-%m-%d %H:%M:%S}")
+    else:
+        logger.info(f"收到 TransferComplete 事件（来源: {downloader_name}），本轮执行后接续待到期转移")
+
+
+def _transfer_schedule_active(plugin, generation: int) -> bool:
+    """核对调度所属代次与停止信号，阻止旧回调恢复任务。"""
+    event = getattr(plugin, "_event", None)
+    return (
+        plugin._transfer_active
+        and generation == int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
+        and (event is None or not event.is_set())
+    )
+
+
+def _transfer_job_id(plugin, generation: int, run_time: datetime) -> str:
+    """为每个到期批次生成独立标识，避免接续任务与刚结束的批次争用运行名额。"""
+    return f"delayed_transfer_{plugin._fromdownloader or 'default'}_{generation}_{run_time.isoformat()}"
+
+
+def _schedule_next_transfer(plugin, generation: int):
+    """持有实例调度锁时，仅为最早到期项登记一个任务。"""
+    if plugin._transfer_running_generation is not None or not plugin._transfer_pending_runs:
+        return None
+    run_time = min(plugin._transfer_pending_runs.values())
+    previous = plugin._transfer_scheduled_run
+    if previous is not None and previous <= run_time:
+        return previous
+    _ensure_scheduler(plugin)
+    if previous is not None:
+        try:
+            plugin._scheduler.remove_job(_transfer_job_id(plugin, generation, previous))
+        except JobLookupError:
+            pass
     plugin._scheduler.add_job(
-        plugin._delayed_transfer,
+        _run_scheduled_transfer,
         "date",
         run_date=run_time,
-        id=job_id,
+        id=_transfer_job_id(plugin, generation, run_time),
+        kwargs={"plugin": plugin, "generation": generation, "run_time": run_time},
         replace_existing=True,
+        misfire_grace_time=None,
     )
+    plugin._transfer_scheduled_run = run_time
+    return run_time
+
+
+def _run_scheduled_transfer(plugin, generation: int, run_time: datetime) -> None:
+    """串行处理已到期批次，结束后继续登记尚未到期的事件。"""
+    with plugin._transfer_schedule_lock:
+        if not _transfer_schedule_active(plugin, generation) or plugin._transfer_scheduled_run != run_time:
+            return
+        plugin._transfer_scheduled_run = None
+        plugin._transfer_running_generation = generation
+        now = max(run_time, datetime.now(tz=pytz.timezone(settings.TZ)))
+        plugin._transfer_pending_runs = {
+            key: deadline for key, deadline in plugin._transfer_pending_runs.items()
+            if deadline > now
+        }
+    try:
+        plugin._delayed_transfer()
+    finally:
+        with plugin._transfer_schedule_lock:
+            if _transfer_schedule_active(plugin, generation):
+                plugin._transfer_running_generation = None
+                _schedule_next_transfer(plugin, generation)
+
+
+def clear_transfer_schedule(plugin) -> None:
+    """清空当前实例的延迟状态；调度器本身由生命周期入口关闭。"""
+    lock = getattr(plugin, "_transfer_schedule_lock", None)
+    if lock is None:
+        return
+    with lock:
+        plugin._transfer_pending_runs.clear()
+        plugin._transfer_scheduled_run = None
+        plugin._transfer_running_generation = None
 
 
 def handle_download_added_event(plugin, event) -> dict:
@@ -67,6 +144,7 @@ def _ensure_scheduler(plugin) -> None:
 
 
 __all__ = (
+    "clear_transfer_schedule",
     "handle_download_added_event",
     "handle_transfer_complete_event",
 )
