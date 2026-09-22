@@ -114,9 +114,9 @@ def test_deletion_is_verified_before_same_report_gets_final_status():
     module, plugin, adapter = build_module({"a": [False], "b": [False]})
     result = module.run_once()
     assert result["success"] is True
-    assert adapter.deleted == ["b", "a"] and adapter.scans == 0
-    assert adapter.prechecked == [("b", "viewer"), ("a", "viewer")]
-    assert adapter.checked == [("b", "viewer"), ("a", "viewer")]
+    assert adapter.deleted == ["a", "b"] and adapter.scans == 0
+    assert adapter.prechecked == [("a", "viewer"), ("b", "viewer")]
+    assert adapter.checked == [("a", "viewer"), ("b", "viewer")]
     assert len(plugin.notifiers) == 1
     calls = plugin.notifiers[0].calls
     assert [call[0] for call in calls] == ["start", "update", "finish"]
@@ -130,8 +130,8 @@ def test_api_success_does_not_hide_remaining_or_unknown_items():
     module, plugin, adapter = build_module({"a": [False], "b": [True], "c": [None]})
     result = module.run_once()
     assert result["success"] is False
-    assert adapter.deleted == ["c", "b", "a"]
-    assert [key for key, _ in adapter.checked] == ["c", "b", "a", "c", "b", "c", "b"]
+    assert adapter.deleted == ["a", "b", "c"]
+    assert [key for key, _ in adapter.checked] == ["a", "b", "c", "b", "c", "b", "c"]
     verification = plugin.data["library_cleanup_result"]["deletion"]["verification"]
     assert [verification[key] for key in ["removed_count", "remaining_count", "unknown_count"]] == [1, 1, 1]
     assert plugin.data["tool_history"][0]["status"] == "failed"
@@ -142,8 +142,8 @@ def test_api_success_does_not_hide_remaining_or_unknown_items():
 def test_bounded_recheck_handles_media_server_delay_without_redeleting():
     module, plugin, adapter = build_module({"a": [True, False], "b": [False]})
     assert module.run_once()["success"] is True
-    assert adapter.deleted == ["b", "a"]
-    assert [key for key, _ in adapter.checked] == ["b", "a", "a"]
+    assert adapter.deleted == ["a", "b"]
+    assert [key for key, _ in adapter.checked] == ["a", "b", "a"]
     assert plugin.data["library_cleanup_result"]["deletion"]["verification"]["complete"]
 
 
@@ -161,7 +161,7 @@ def test_delete_and_check_exceptions_do_not_skip_final_report_or_later_items():
         delete_results={"a": RuntimeError("delete failed")},
     )
     assert module.run_once()["success"] is False
-    assert adapter.deleted == ["b", "a"]
+    assert adapter.deleted == ["a", "b"]
     assert plugin.data["library_cleanup_result"]["deletion"]["verification"]["unknown_count"] == 1
     assert plugin.notifiers[0].calls[-1][0] == "finish"
 
@@ -183,14 +183,16 @@ def test_cleanup_plan_processes_configured_quantity_first_and_respects_cooldown(
     first = module.run_once()
 
     assert first["success"] is True
-    assert adapter.deleted == [str(index) for index in range(14, 2, -1)]
-    assert [item["movie_id"] for item in plugin.data["library_cleanup_plan"]["items"]] == ["0", "1", "2"]
+    assert adapter.deleted == [str(index) for index in range(12)]
+    assert [item["movie_id"] for item in plugin.data["library_cleanup_plan"]["items"]] == [
+        str(index) for index in range(12, 15)
+    ]
 
     second = module.run_once()
 
     assert second["success"] is True
     assert second["cooldown"] is True
-    assert adapter.deleted == [str(index) for index in range(14, 2, -1)]
+    assert adapter.deleted == [str(index) for index in range(12)]
     assert not adapter.scans and len(adapter.prechecked) == 12
 
 
@@ -201,7 +203,7 @@ def test_cleanup_plan_retains_failed_items_with_attempt_metadata():
     result = module.run_once()
 
     assert result["success"] is False
-    assert adapter.deleted == ["b", "a"]
+    assert adapter.deleted == ["a", "b"]
     plan_items = plugin.data["library_cleanup_plan"]["items"]
     assert [item["movie_id"] for item in plan_items] == ["a", "b"]
     assert [item["attempts"] for item in plan_items] == [1, 1]

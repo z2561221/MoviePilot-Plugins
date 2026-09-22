@@ -69,10 +69,10 @@ def test_reload_cannot_clear_or_duplicate_inflight_batch_and_old_task_stops():
         release_delete.set()
         thread.join(3)
     assert not thread.is_alive()
-    assert adapter.deleted == ["b"]
+    assert adapter.deleted == ["a"]
     assert results[0]["stopped"] and results[0]["unprocessed_count"] == 1
     items = {item["movie_id"]: item for item in plugin.data["library_cleanup_plan"]["items"]}
-    assert items["a"]["attempts"] == 0 and items["b"]["attempts"] == 1
+    assert items["a"]["attempts"] == 1 and items["b"]["attempts"] == 0
     assert replacement.clear_cleanup_plan()["success"]
     assert old.run_once()["stopped"] and not plugin.data["library_cleanup_plan"]["items"]
 
@@ -95,7 +95,7 @@ def test_stop_interrupts_long_delete_interval():
     assert first_deleted.wait(3)
     module.stop()
     thread.join(1)
-    assert not thread.is_alive() and adapter.deleted == ["b"]
+    assert not thread.is_alive() and adapter.deleted == ["a"]
     assert results[0]["stopped"]
 
 

@@ -5,7 +5,6 @@ import json
 import re
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[2]
 V2_DIR = REPO / "plugins.v2" / "localtoolkit"
 V3_DIR = REPO / "plugins.v3" / "localtoolkit"
@@ -115,6 +114,8 @@ def test_localtoolkit_v3_page_uses_download_center_style_sections() -> None:
     assert "<th>媒体库</th>" not in page
     assert "planConditionSummary(item)" in page
     assert "每周期固定最多" not in page
+    assert "倒序" not in page
+    assert "按序取最多" in page
 
 
 def test_localtoolkit_v3_cleanup_batch_comes_from_configuration() -> None:

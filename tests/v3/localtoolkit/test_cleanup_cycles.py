@@ -49,6 +49,7 @@ def test_scan_only_adds_plan_and_changed_report_then_cleanup_never_rescans():
     plugin.data["library_cleanup_plan"]["items"] = []
     scan = module.scan_plan()
     assert scan["queued_added"] == 2 and scan["scanned_count"] == 2
+    assert [item["movie_id"] for item in plugin.data["library_cleanup_plan"]["items"]] == ["a", "b"]
     assert not adapter.deleted and not adapter.checked and not adapter.prechecked
     assert len(plugin.notifiers) == 1
     assert plugin.notifiers[0].calls[0][1] == "清理计划更新"
@@ -56,6 +57,19 @@ def test_scan_only_adds_plan_and_changed_report_then_cleanup_never_rescans():
     assert "当前待清理：2 部" in plugin.notifiers[0].calls[0][2]
     assert module.run_once()["success_count"] == 2
     assert adapter.scans == 1
+
+
+def test_scan_appends_new_candidates_after_existing_plan_items():
+    """扫描新增条目追加到已有清理计划末尾。"""
+    module, plugin, _adapter = build_module({"a": [False], "b": [False]})
+    plugin.data["library_cleanup_plan"]["items"] = [
+        deepcopy(plugin.data["library_cleanup_plan"]["items"][0])
+    ]
+
+    result = module.scan_plan()
+
+    assert result["queued_added"] == 1
+    assert [item["movie_id"] for item in plugin.data["library_cleanup_plan"]["items"]] == ["a", "b"]
 
 
 def test_unchanged_scan_is_quiet_and_does_not_change_cleanup_cooldown():
@@ -143,8 +157,8 @@ def test_precheck_skips_do_not_expand_this_cycle_beyond_configured_batch():
     module, plugin, adapter = build_module({str(i): [False] for i in range(5)}, auto_delete_max_count=2)
     adapter.inventory["4"].favorite = True
     result = module.run_once()
-    assert [item for item, _user in adapter.prechecked] == ["4", "3"]
-    assert adapter.deleted == ["3"] and result["processed_count"] == 2
+    assert [item for item, _user in adapter.prechecked] == ["0", "1"]
+    assert adapter.deleted == ["0", "1"] and result["processed_count"] == 2
     assert len(plugin.data["library_cleanup_plan"]["items"]) == 3
 
 
@@ -262,12 +276,14 @@ def test_fresh_candidate_with_changed_id_is_retained_without_deletion():
     assert plugin.data["library_cleanup_plan"]["items"][0]["last_error"] == "删除前条目身份不一致"
 
 
-def test_unknown_then_eligible_later_item_is_not_starved():
-    """失败项放回队首，倒序清理下轮能够继续处理其余计划。"""
+def test_cleanup_starts_from_plan_head_and_keeps_failed_item_in_place():
+    """清理从计划头部开始，失败项保留原位置等待下一轮重试。"""
     module, _plugin, adapter = build_module({"a": [False], "b": [False]}, auto_delete_max_count=1,
-                                         cycle_cooldown_minutes=0, cleanup_notify=False)
-    adapter.preflight["b"] = (None, None)
+                                          cycle_cooldown_minutes=0, cleanup_notify=False)
+    adapter.preflight["a"] = (None, None)
     assert module.run_once()["success"] is False
+    assert not adapter.deleted
+    adapter.preflight.clear()
     assert module.run_once()["success"] is True
     assert adapter.deleted == ["a"]
 

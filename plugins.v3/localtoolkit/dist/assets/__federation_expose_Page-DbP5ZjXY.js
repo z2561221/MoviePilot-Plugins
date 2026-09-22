@@ -565,7 +565,7 @@ return (_ctx, _cache) => {
                 _cache[24] || (_cache[24] = _createElementVNode("div", { class: "lt-section-heading" }, [
                   _createElementVNode("div", null, [
                     _createElementVNode("div", { class: "lt-section-title" }, "运行总览"),
-                    _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "清理库存按“扫描、入队、倒序执行、复核”运行，其他工具保持按需执行。")
+                    _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "清理库存按“扫描、入队、按序执行、复核”运行，其他工具保持按需执行。")
                   ])
                 ], -1)),
                 _createElementVNode("div", _hoisted_6, [
@@ -617,7 +617,7 @@ return (_ctx, _cache) => {
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList([
                 { icon: 'mdi-magnify-scan', title: '周期扫描', detail: '独立扫描周期，仅读取媒体库' },
                 { icon: 'mdi-playlist-plus', title: '更新计划', detail: '新增入队，失效移出，失败保留原计划' },
-                { icon: 'mdi-sort-numeric-descending', title: '周期清理', detail: `倒序取最多 ${batchSize.value} 部，逐项复核条件` },
+                { icon: 'mdi-format-list-numbered', title: '周期清理', detail: `按序取最多 ${batchSize.value} 部，逐项复核条件` },
                 { icon: 'mdi-check-decagram-outline', title: '删除复核', detail: '确认移除后出队，异常对象保留重试' },
               ], (step, index) => {
                       return (_openBlock(), _createElementBlock("div", {
@@ -1209,6 +1209,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ef6a14d3"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-78a15634"]]);
 
 export { Page as default };

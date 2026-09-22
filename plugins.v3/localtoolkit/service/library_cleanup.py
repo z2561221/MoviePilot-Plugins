@@ -322,7 +322,7 @@ class LibraryCleanupModule(BaseToolModule):
                     "scanned_count": 0, "queue_count": queue_count, "cooldown": cooldown > 0,
                     "retry_scheduled": bool(scheduled and cooldown > 0)}
 
-        selected_items = list(reversed(plan["items"]))[:self._cycle_limit()]
+        selected_items = plan["items"][:self._cycle_limit()]
         plan["pending_cycle_at"] = ""
         selected_movies = [candidate_from_plan_item(item) for item in selected_items]
         result = CleanupResult(conditions=build_cleanup_conditions(self.config), qualified_movies=selected_movies)
@@ -662,14 +662,13 @@ class LibraryCleanupModule(BaseToolModule):
         verification: CleanupVerification,
         checked_at: datetime,
     ) -> dict:
-        """按删除后复核结果移除成功项并保留失败项。"""
+        """按删除后复核结果移除成功项并保留失败项原有顺序。"""
         removed_keys = {cleanup_plan_key(movie) for movie in verification.removed}
         remaining_keys = {cleanup_plan_key(movie) for movie in verification.remaining}
         selected_keys = {
             str(item.get("queue_key") or cleanup_plan_key(candidate_from_plan_item(item)))
             for item in selected_items
         }
-        retry_items = []
         retained_items = []
         for item in plan["items"]:
             key = str(item.get("queue_key") or "")
@@ -680,10 +679,10 @@ class LibraryCleanupModule(BaseToolModule):
                 updated["attempts"] = int(updated.get("attempts") or 0) + 1
                 updated["last_attempt_at"] = checked_at.isoformat()
                 updated["last_error"] = "媒体条目仍然存在" if key in remaining_keys else "媒体条目状态无法核验"
-                retry_items.append(updated)
+                retained_items.append(updated)
             else:
                 retained_items.append(item)
-        plan["items"] = retry_items + retained_items
+        plan["items"] = retained_items
         return plan
 
     def _delete_candidates(self, movies: List[CleanupCandidate]) -> tuple[int, int]:

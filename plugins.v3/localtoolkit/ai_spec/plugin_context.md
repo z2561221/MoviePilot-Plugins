@@ -54,7 +54,7 @@ that belongs to the later MP local runtime phase.
   - Shared module helpers such as history recording and config storage.
 - `service/library_cleanup.py`
   - Library cleanup behavior, options cache, self-owned candidate filtering,
-    notification text, persistent cleanup queue, cooldown, reverse-order batch
+    notification text, persistent cleanup queue, cooldown, FIFO batch
     deletion, result saving, and optional deletion orchestration.
 - `service/check_missing.py`
   - On-demand missing scan behavior.
