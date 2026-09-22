@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.3.6 - MoviePilot V3 本地插件
+DownloadManagerLocal v3.3.9 - MoviePilot V3 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 from threading import Event as ThreadEvent
@@ -23,7 +23,7 @@ from .service.rename import rename_torrent as _rename_torrent_impl, format_torre
 from .service.archive import record_rename_failure as _record_rename_failure_impl, clear_rename_retry_state as _clear_rename_retry_state_impl, is_rename_archived as _is_rename_archived_impl, list_rename_archive as _list_rename_archive_impl, restore_rename_archive as _restore_rename_archive_impl, delete_rename_archive as _delete_rename_archive_impl, rename_archive_stats as _rename_archive_stats_impl
 from .service.diagnostics import build_diagnostics as _build_diagnostics_impl
 from .service.site_tag import tag_torrent as _tag_torrent_impl, find_site_by_domain as _find_site_by_domain_impl
-from .service.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl, run_recheck_cycle as _check_recheck_impl, sweep_paused_seed_tasks as _sweep_paused_seed_tasks_impl, can_seed_paused_torrent as _can_seeding_impl
+from .service.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, stop_seed_recheck_worker as _stop_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl, run_recheck_cycle as _check_recheck_impl, sweep_paused_seed_tasks as _sweep_paused_seed_tasks_impl, can_seed_paused_torrent as _can_seeding_impl
 from .service.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl, retry_pending_renames as _retry_pending_renames_impl
 from .service.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
 from .controller.api import build_api_routes as _build_api_routes_impl
@@ -46,7 +46,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.3.8"
+    plugin_version = "3.3.9"
     # 插件作者
     plugin_author = "Kurisu"
     # 作者主页
@@ -67,6 +67,7 @@ class DownloadManagerLocal(_PluginBase):
     _upload_limit_stop_event = None
     _upload_limit_wake_event = None
     _upload_limit_worker_lock = None
+    _upload_limit_restart_pending = False
     _upload_limit_cycle_lock = None
     _upload_limit_state = None
     _upload_limit_state_error = ""
@@ -176,6 +177,7 @@ class DownloadManagerLocal(_PluginBase):
         self._upload_limit_stop_event = None
         self._upload_limit_wake_event = None
         self._upload_limit_worker_lock = None
+        self._upload_limit_restart_pending = False
         self._upload_limit_cycle_lock = None
         self._upload_limit_state = None
         self._upload_limit_state_error = ""
@@ -204,6 +206,9 @@ class DownloadManagerLocal(_PluginBase):
         self._is_recheck_running = False
         self._seed_recheck_running = False
         self._seed_recheck_lock = threading.RLock()
+        self._seed_recheck_queue_lock = self._seed_recheck_lock
+        self._seed_recheck_thread = None
+        self._seed_recheck_stop_event = None
         self._torrent_tags = []
         self._tracker_mappings = {}
         self.downloader_helper = None
@@ -526,6 +531,9 @@ class DownloadManagerLocal(_PluginBase):
 
     def _ensure_seed_recheck_worker(self):
         """确保按需做种复查后台线程已启动。"""; return _ensure_seed_recheck_worker_impl(self)
+
+    def _stop_seed_recheck_worker(self):
+        """停止按需做种复查后台线程并等待其退出。"""; return _stop_seed_recheck_worker_impl(self)
 
     def _seed_recheck_loop(self):
         """运行按需做种复查后台循环。"""; return _seed_recheck_loop_impl(self)

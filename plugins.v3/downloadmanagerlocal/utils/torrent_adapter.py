@@ -220,3 +220,30 @@ def get_torrent_size(torrent: Any, dl_type: str) -> int:
     if dl_type == "qbittorrent":
         return torrent.get("size", 0) or torrent.get("total_size", 0) or 0
     return int(_number(_read(torrent, "total_size", "totalSize", default=0)))
+
+
+def get_tracker_urls(torrent: Any, dl_type: str) -> List[str]:
+    """获取有效 tracker URL，兼容 qB 字段、对象属性和缺失字段。"""
+    if dl_type == "qbittorrent":
+        trackers = torrent.get("trackers") if isinstance(torrent, dict) else None
+        if trackers is None:
+            try:
+                trackers = getattr(torrent, "trackers", None)
+            except Exception:
+                trackers = []
+        urls = []
+        for tracker in trackers or []:
+            url = _read(tracker, "url", default="")
+            tier = _read(tracker, "tier", default=-1)
+            if url and tier >= 0:
+                urls.append(str(url))
+        return urls
+
+    trackers = _read(torrent, "trackers", default=[]) or []
+    urls = []
+    for tracker in trackers:
+        tier = _read(tracker, "tier", default=-1)
+        announce = _read(tracker, "announce", default="")
+        if announce and tier >= 0:
+            urls.append(str(announce))
+    return urls

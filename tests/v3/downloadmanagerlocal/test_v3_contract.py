@@ -8,7 +8,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pydantic import BaseModel
 
 from app import schemas
 from app.schemas.types import MediaSource, MediaType

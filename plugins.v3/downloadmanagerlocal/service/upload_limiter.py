@@ -62,7 +62,7 @@ def load_upload_limit_state(plugin: Any) -> dict:
         plugin._upload_limit_state_error = str(error)
         logger.error("上传限速状态迁移失败：%s", error)
     plugin._upload_limit_state = state
-    if raw_value != state:
+    if raw_value != state and not getattr(plugin, "_upload_limit_state_error", ""):
         plugin.save_data(UPLOAD_LIMIT_STATE_KEY, state)
     return state
 
@@ -71,6 +71,9 @@ def save_upload_limit_state(plugin: Any, state: dict) -> None:
     """保存当前上传限速运行态并更新插件实例缓存。"""
     state["schema_version"] = 1
     plugin._upload_limit_state = state
+    if getattr(plugin, "_upload_limit_state_error", ""):
+        logger.error("上传限速状态存在迁移错误，拒绝覆盖原始持久化数据")
+        return
     plugin.save_data(UPLOAD_LIMIT_STATE_KEY, state)
 
 
@@ -86,6 +89,11 @@ def run_upload_limit_cycle(
         return get_upload_limit_status(plugin)
     with _cycle_lock(plugin):
         state = load_upload_limit_state(plugin)
+        if getattr(plugin, "_upload_limit_state_error", ""):
+            status = get_upload_limit_status(plugin, state=state)
+            status["service_status"] = "error"
+            status["errors"] = [str(plugin._upload_limit_state_error)]
+            return status
         selected = _selected_downloaders(plugin)
         caps = _downloader_caps(plugin, selected)
         site_rules = _site_rules(plugin)
@@ -188,7 +196,20 @@ def run_upload_limit_cycle(
                     entry["initial_scan_complete"] = False
                     entry["per_torrent_management_active"] = False
                     continue
-                _drop_missing_torrent_state(torrent_state, downloader_id, set(completed))
+                for task_key, snapshot in all_snapshots.items():
+                    if snapshot.completed or task_key not in torrent_state:
+                        continue
+                    release_error = _release_torrent_record(
+                        state=state,
+                        task_key=task_key,
+                        record=torrent_state[task_key],
+                        snapshot=snapshot,
+                        instance=service.instance,
+                        downloader_type=downloader_type,
+                    )
+                    if release_error:
+                        errors[downloader_id].append(release_error)
+                _drop_missing_torrent_state(torrent_state, downloader_id, set(all_snapshots))
                 stock_scan = bool(first_activation or initial_scan_pending)
                 for task_key, snapshot in completed.items():
                     record = torrent_state.get(task_key)
@@ -385,6 +406,13 @@ def restore_upload_limits(
     """按 compare-and-set 恢复接管前限速，用户后改值保持不动。"""
     with _cycle_lock(plugin):
         state = load_upload_limit_state(plugin)
+        if getattr(plugin, "_upload_limit_state_error", ""):
+            return {
+                "code": 1,
+                "msg": "上传限速状态无法安全恢复，已保留原始数据",
+                "downloaders": [],
+                "errors": [str(plugin._upload_limit_state_error)],
+            }
         available = set((state.get("downloaders") or {}).keys())
         targets = available if downloader_ids is None else {
             str(value or "").strip() for value in downloader_ids

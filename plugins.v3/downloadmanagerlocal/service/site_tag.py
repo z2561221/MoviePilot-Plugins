@@ -422,7 +422,7 @@ def find_site_by_domain(domain: str) -> Optional[str]:
 
 
 def tag_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_tags: list, trackers: list):
-    """给种子打站点标签。"""
+    """给种子打站点标签，并返回是否完成或已满足幂等条件。"""
     try:
         # 通过 tracker 解析站点
         site_name = None
@@ -443,13 +443,13 @@ def tag_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_tags: list,
 
         if not site_name:
             logger.info(f"转移后标签：无法识别站点 hash={torrent_hash}")
-            return
+            return False
 
         # 构造标签
         site_tag = (plugin._tag_siteprefix + site_name) if plugin._tag_siteprefix else site_name
         if site_tag in torrent_tags:
             logger.info(f"转移后标签：标签已存在 hash={torrent_hash}")
-            return
+            return True
 
         # 设置标签
         if dl_type == "qbittorrent":
@@ -457,8 +457,10 @@ def tag_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_tags: list,
         else:
             dl.set_torrent_tag(ids=torrent_hash, tags=[site_tag])
         logger.info(f"转移后标签成功: hash={torrent_hash} tag={site_tag}")
+        return True
     except Exception as e:
         logger.error(f"转移后标签失败 hash={torrent_hash}: {e}")
+        return False
 
 
 __all__ = (

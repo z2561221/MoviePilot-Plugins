@@ -19,6 +19,9 @@ def start_upload_limit_worker(plugin: Any) -> bool:
     with _worker_lock(plugin):
         current = getattr(plugin, "_upload_limit_thread", None)
         if current and current.is_alive():
+            if getattr(plugin, "_upload_limit_stop_event", None) is not None:
+                if plugin._upload_limit_stop_event.is_set():
+                    plugin._upload_limit_restart_pending = True
             return False
         stop_event = threading.Event()
         wake_event = threading.Event()
@@ -30,6 +33,7 @@ def start_upload_limit_worker(plugin: Any) -> bool:
         )
         plugin._upload_limit_stop_event = stop_event
         plugin._upload_limit_wake_event = wake_event
+        plugin._upload_limit_restart_pending = False
         plugin._upload_limit_thread = thread
         try:
             thread.start()
@@ -62,6 +66,7 @@ def is_upload_limit_worker_running(plugin: Any) -> bool:
 def stop_upload_limit_worker(plugin: Any, join_timeout: float = 10.0) -> bool:
     """停止 worker；仅结束协调，不恢复已写入下载器的限速。"""
     with _worker_lock(plugin):
+        plugin._upload_limit_restart_pending = False
         thread = getattr(plugin, "_upload_limit_thread", None)
         stop_event = getattr(plugin, "_upload_limit_stop_event", None)
         wake_event = getattr(plugin, "_upload_limit_wake_event", None)
@@ -105,6 +110,7 @@ def _upload_limit_loop(
             wake_event.wait(UPLOAD_LIMIT_INTERVAL_SECONDS)
             wake_event.clear()
     finally:
+        restart = False
         with _worker_lock(plugin):
             if getattr(plugin, "_upload_limit_thread", None) is threading.current_thread():
                 plugin._upload_limit_thread = None
@@ -112,6 +118,13 @@ def _upload_limit_loop(
                 plugin._upload_limit_stop_event = None
             if getattr(plugin, "_upload_limit_wake_event", None) is wake_event:
                 plugin._upload_limit_wake_event = None
+            restart = bool(
+                getattr(plugin, "_upload_limit_restart_pending", False)
+                and is_upload_limit_active(plugin)
+            )
+            plugin._upload_limit_restart_pending = False
+        if restart:
+            start_upload_limit_worker(plugin)
 
 
 def _worker_lock(plugin: Any) -> threading.RLock:

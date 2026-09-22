@@ -2,23 +2,20 @@
 
 import os
 import time
-from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
-import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
 from bencode import bdecode, bencode
 
 from app.schemas import ServiceInfo
-from app.schemas.types import EventType, MessageType
+from app.schemas.types import MessageType
 from app.sdk.config import settings
-from app.sdk.events import eventmanager, Event
 from app.sdk.logging import logger
 
 from ..adapter.moviepilot import is_downloader_type
 from ..model.state import record_transfer_success
 from ..utils.name_cleaner import is_dirty_renamed_torrent_name
+from ..utils.torrent_adapter import get_label, get_save_path, get_tracker_urls
 from .rename import _get_torrent_content_name, resolve_retry_original_name
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
 
@@ -70,8 +67,8 @@ def validate_config(plugin) -> bool:
         plugin.systemmessage.put(f"源下载器种子文件保存路径不存在：{plugin._fromtorrentpath}", title="自动转移做种")
         return False
     if plugin._fromdownloader == plugin._todownloader:
-        logger.error(f"源下载器和目的下载器不能相同")
-        plugin.systemmessage.put(f"源下载器和目的下载器不能相同", title="自动转移做种")
+        logger.error("源下载器和目的下载器不能相同")
+        plugin.systemmessage.put("源下载器和目的下载器不能相同", title="自动转移做种")
         return False
     return True
 
@@ -136,7 +133,7 @@ def download_torrent(plugin, service: ServiceInfo, content: bytes,
         else:
             return torrent.hashString
 
-    logger.error(f"不支持的下载器类型")
+    logger.error("不支持的下载器类型")
     return None
 
 
@@ -160,18 +157,18 @@ def post_transfer_process(plugin, to_service: ServiceInfo, torrent_hash: str,
                 return
             torrent = torrents[0]
             torrent_name = torrent.get("name", "")
-            torrent_tags = [str(t).strip() for t in torrent.get("tags", "").split(",") if t.strip()] if torrent.get("tags") else []
-            trackers = [t.get("url") for t in (torrent.trackers or []) if t.get("tier", -1) >= 0 and t.get("url")]
-            save_path = torrent.get("save_path", "")
+            torrent_tags = get_label(torrent, dl_type)
+            trackers = get_tracker_urls(torrent, dl_type)
+            save_path = get_save_path(torrent, dl_type)
         else:
             torrents, _ = dl.get_torrents(ids=[torrent_hash])
             if not torrents:
                 return
             torrent = torrents[0]
             torrent_name = torrent.name
-            torrent_tags = torrent.labels or []
-            trackers = [t.announce for t in (torrent.trackers or []) if t.tier >= 0 and t.announce]
-            save_path = torrent.download_dir
+            torrent_tags = get_label(torrent, dl_type)
+            trackers = get_tracker_urls(torrent, dl_type)
+            save_path = get_save_path(torrent, dl_type)
     except Exception as e:
         logger.error(f"转移后处理：获取种子信息失败 hash={torrent_hash}: {e}")
         return
@@ -459,7 +456,7 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                 text=f"总数：{total}，成功：{success}，失败：{fail}，跳过：{skip}，删除重复：{del_dup}"
             )
     else:
-        logger.info(f"没有需要转移的种子")
+        logger.info("没有需要转移的种子")
 
     if _transfer_stopped(plugin, generation):
         logger.info("转移做种任务已停止，未继续执行重命名补刀")
@@ -478,37 +475,48 @@ def retry_pending_renames(plugin):
         if not to_service or not to_service.instance:
             logger.warning("转移做种兜底服务：目标下载器不可用，跳过重命名补刀")
             return {"code": 1, "msg": "目标下载器不可用，已跳过补刀", "history": 0, "dirty": 0, "total": 0}
-        history_count = int(plugin._retry_failed_renames(to_service) or 0)
-        dirty_count = int(retry_dirty_torrent_names(plugin, to_service) or 0)
+        history_result = plugin._retry_failed_renames(to_service) or {}
+        dirty_result = retry_dirty_torrent_names(plugin, to_service) or {}
+        history_count = int(history_result.get("success", 0) or 0)
+        dirty_count = int(dirty_result.get("success", 0) or 0)
+        history_failed = int(history_result.get("failed", 0) or 0)
+        dirty_failed = int(dirty_result.get("failed", 0) or 0)
+        skipped = int(history_result.get("skipped", 0) or 0) + int(dirty_result.get("skipped", 0) or 0)
         total = history_count + dirty_count
+        failed = history_failed + dirty_failed
+        errors = list(history_result.get("errors", []) or []) + list(dirty_result.get("errors", []) or [])
+        code = 0 if failed == 0 else (2 if total > 0 else 1)
         return {
-            "code": 0,
-            "msg": f"补刀完成：历史记录 {history_count} 个，当前脏名字 {dirty_count} 个",
+            "code": code,
+            "msg": f"补刀完成：成功 {total} 个，失败 {failed} 个，跳过 {skipped} 个",
             "history": history_count,
             "dirty": dirty_count,
             "total": total,
+            "attempted": int(history_result.get("attempted", 0) or 0) + int(dirty_result.get("attempted", 0) or 0),
+            "failed": failed,
+            "skipped": skipped,
+            "errors": errors,
         }
     except Exception as e:
         logger.error(f"转移做种兜底服务：重命名补刀失败: {e}")
-        return {"code": 1, "msg": f"补刀失败: {e}", "history": 0, "dirty": 0, "total": 0}
+        return {"code": 1, "msg": f"补刀失败: {e}", "history": 0, "dirty": 0, "total": 0, "attempted": 0, "failed": 1, "skipped": 0, "errors": [str(e)]}
 
 
 def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
     """扫描目标下载器当前任务名，补刀不在历史记录里的副标题污染任务。"""
+    result = {"attempted": 0, "success": 0, "failed": 0, "skipped": 0, "errors": []}
     if not plugin._rename_enabled or not to_service or not to_service.instance:
-        return 0
+        return result
     dl = to_service.instance
     dl_type = to_service.type
     try:
         torrents, _ = dl.get_torrents()
     except Exception as e:
         logger.error(f"转移做种兜底服务：获取目标下载器任务失败: {e}")
-        return 0
+        return result
     if not torrents:
-        return 0
+        return result
 
-    retry_count = 0
-    archived_skip_count = 0
     for torrent in torrents:
         torrent_name = torrent.get("name", "") if dl_type == "qbittorrent" else torrent.name
         if not is_dirty_renamed_torrent_name(torrent_name):
@@ -519,8 +527,9 @@ def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
             continue
         is_archived = getattr(plugin, "is_rename_archived", None)
         if callable(is_archived) and is_archived(torrent_hash):
-            archived_skip_count += 1
+            result["skipped"] += 1
             continue
+        result["attempted"] += 1
         save_path = plugin.get_save_path(torrent, dl_type)
         logger.info(f"转移做种兜底服务：发现脏种子名，补刀处理 hash={torrent_hash} name={torrent_name}")
         try:
@@ -535,23 +544,30 @@ def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
                 record_failure = getattr(plugin, "record_rename_failure", None)
                 if callable(record_failure):
                     record_failure(torrent_hash, torrent_name, "NO_TRUSTED_SOURCE", "原始发布名污染且无可信候选")
+                result["failed"] += 1
+                result["errors"].append(f"{torrent_hash}: 无可信原始名称")
                 continue
-            plugin._rename_torrent(
+            if plugin._rename_torrent(
                 dl, dl_type, torrent_hash,
                 retry_name,
                 save_path
-            )
-            retry_count += 1
+            ):
+                result["success"] += 1
+            else:
+                result["failed"] += 1
+                result["errors"].append(f"{torrent_hash}: 重命名失败")
         except Exception as e:
             logger.error(f"转移做种兜底服务：脏种子名补刀失败 hash={torrent_hash} name={torrent_name}: {e}")
+            result["failed"] += 1
+            result["errors"].append(f"{torrent_hash}: {e}")
             record_failure = getattr(plugin, "record_rename_failure", None)
             if callable(record_failure):
                 record_failure(torrent_hash, torrent_name, "RENAME_API_FAILED", str(e))
-    if retry_count:
-        logger.info(f"转移做种兜底服务：脏种子名补刀完成，处理 {retry_count} 个种子")
-    if archived_skip_count:
-        logger.info(f"转移做种兜底服务：跳过已归档补刀记录 {archived_skip_count} 个")
-    return retry_count
+    if result["success"]:
+        logger.info(f"转移做种兜底服务：脏种子名补刀完成，成功 {result['success']} 个，失败 {result['failed']} 个")
+    if result["skipped"]:
+        logger.info(f"转移做种兜底服务：跳过已归档补刀记录 {result['skipped']} 个")
+    return result
 
 
 def fallback_transfer(plugin):

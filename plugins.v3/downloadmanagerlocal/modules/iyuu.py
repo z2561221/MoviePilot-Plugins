@@ -3,7 +3,6 @@
 from ..service.iyuu import (
     append_iyuu_cache,
     custom_sites,
-    is_torrent_content,
     iyuu_auto_seed,
     iyuu_auto_service_info,
     iyuu_download,

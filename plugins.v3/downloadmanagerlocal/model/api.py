@@ -91,6 +91,10 @@ class RetryRenamesResult(ActionResult):
     history: int = 0
     dirty: int = 0
     total: int = 0
+    attempted: int = 0
+    failed: int = 0
+    skipped: int = 0
+    errors: list[str] = Field(default_factory=list)
 
 
 class HashActionResult(ActionResult):
