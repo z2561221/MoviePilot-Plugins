@@ -406,6 +406,7 @@ def _complete_session(
     key: str,
     observed_at: float,
     resume_after_error: bool,
+    category: str = "",
 ) -> bool:
     """结束完成会话并仅保存合格的健康样本候选。"""
     with runtime.session_lock(key):
@@ -425,27 +426,32 @@ def _complete_session(
         session.completion_stats = stats
         session.sample_eligible = bool(stats["eligible"])
         if session.sample_eligible:
-            floor_speeds = getattr(
-                plugin, "_speed_monitor_floor_speed_bps", {}
-            )
-            floor_speed = (
-                floor_speeds.get(session.downloader_id, 0.0)
-                if isinstance(floor_speeds, dict)
-                else 0.0
-            )
-            baseline, accepted, rejection_reason = record_health_sample(
-                runtime.baselines.get(session.downloader_id),
-                stats,
-                min_samples=_int(
-                    getattr(plugin, "_speed_monitor_min_samples", 5), 5
-                ),
-                floor_speed_bps=_float(floor_speed),
-            )
-            runtime.baselines[session.downloader_id] = baseline
-            session.sample_eligible = accepted
-            if not accepted:
+            if is_speed_monitor_category_excluded(plugin, category):
                 stats["eligible"] = False
-                stats["rejection_reasons"].append(rejection_reason)
+                stats["rejection_reasons"].append("category_excluded")
+                session.sample_eligible = False
+            else:
+                floor_speeds = getattr(
+                    plugin, "_speed_monitor_floor_speed_bps", {}
+                )
+                floor_speed = (
+                    floor_speeds.get(session.downloader_id, 0.0)
+                    if isinstance(floor_speeds, dict)
+                    else 0.0
+                )
+                baseline, accepted, rejection_reason = record_health_sample(
+                    runtime.baselines.get(session.downloader_id),
+                    stats,
+                    min_samples=_int(
+                        getattr(plugin, "_speed_monitor_min_samples", 5), 5
+                    ),
+                    floor_speed_bps=_float(floor_speed),
+                )
+                runtime.baselines[session.downloader_id] = baseline
+                session.sample_eligible = accepted
+                if not accepted:
+                    stats["eligible"] = False
+                    stats["rejection_reasons"].append(rejection_reason)
         return _finish_session(runtime, key, "completed", observed_at)
 
 
@@ -554,7 +560,12 @@ def _observe_snapshot(
                 session.total_bytes = snapshot.total_bytes or session.total_bytes
                 session.last_success_poll_at = observed_at
                 _complete_session(
-                    plugin, runtime, key, observed_at, resume_after_error
+                    plugin,
+                    runtime,
+                    key,
+                    observed_at,
+                    resume_after_error,
+                    getattr(snapshot, "category", ""),
                 )
             return False, key
         if session is None:
