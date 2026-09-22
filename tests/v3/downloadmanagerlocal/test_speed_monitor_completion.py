@@ -236,6 +236,45 @@ def test_repeated_completed_snapshot_does_not_duplicate_health_sample():
     assert plugin._speed_monitor_runtime.sessions["qb-main:abc"].terminal_at == 30
 
 
+def test_excluded_category_completion_never_enters_downloader_baseline():
+    """完成快照命中排除分类时仍结束会话，但不得写入速度基准。"""
+    monitor = _load_monitor()
+    downloader = MutableDownloader([])
+    plugin = FakePlugin(downloader)
+    plugin._speed_monitor_exclude_categories = "excluded"
+    runtime = monitor.ensure_speed_monitor_runtime(plugin)
+
+    active = SimpleNamespace(
+        downloader_id="qb-main",
+        downloader_type="qbittorrent",
+        torrent_hash="excluded-hash",
+        name="Excluded Task",
+        total_bytes=1000,
+        downloaded_bytes=100,
+        state_category="active",
+        category="normal",
+    )
+    completed = SimpleNamespace(
+        downloader_id="qb-main",
+        downloader_type="qbittorrent",
+        torrent_hash="excluded-hash",
+        name="Excluded Task",
+        total_bytes=1000,
+        downloaded_bytes=1000,
+        state_category="completed",
+        category="excluded",
+    )
+
+    monitor._observe_snapshot(plugin, runtime, active, 10, False)
+    monitor._observe_snapshot(plugin, runtime, completed, 20, False)
+
+    session = runtime.sessions["qb-main:excluded-hash"]
+    assert session.status == "completed"
+    assert session.sample_eligible is False
+    assert "category_excluded" in session.completion_stats["rejection_reasons"]
+    assert runtime.baselines == {}
+
+
 @pytest.mark.parametrize(
     ("downloader_type", "downloader_id", "states"),
     [

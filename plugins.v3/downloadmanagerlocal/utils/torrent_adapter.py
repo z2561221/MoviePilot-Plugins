@@ -27,6 +27,7 @@ class TorrentSnapshot:
     state_category: str
     save_path: str
     download_speed_bps: float
+    category: str = ""
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,7 @@ def normalize_torrent(torrent: Any, downloader_id: str, downloader_type: str) ->
     """将 qBittorrent 字典或 Transmission 对象归一为快照。"""
     torrent_hash = _read(torrent, "hash", "hashString", "hash_string", default="")
     name = _read(torrent, "name", default="")
+    category = _read(torrent, "category", "group", default="")
     total_bytes = int(_number(_read(
         torrent, "total_size", "size", "totalSize", default=0,
     )))
@@ -128,6 +130,7 @@ def normalize_torrent(torrent: Any, downloader_id: str, downloader_type: str) ->
         downloader_type=str(downloader_type or "").lower(),
         torrent_hash=str(torrent_hash or "").lower(),
         name=str(name or ""),
+        category=str(category or ""),
         total_bytes=total_bytes,
         downloaded_bytes=min(downloaded_bytes, total_bytes) if total_bytes else downloaded_bytes,
         added_at=added_at,

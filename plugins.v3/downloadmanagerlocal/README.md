@@ -36,13 +36,14 @@
 - `iyuu_sites`、`iyuu_nolabels`、`iyuu_nopaths`、`iyuu_size`、`iyuu_labelsafterseed`、`iyuu_categoryafterseed`：辅种范围与辅种后的标签分类。
 - `seed_autostart`、`seed_skipverify`、`seed_check_interval`、`seed_max_wait_minutes`：做种校验行为与等待上限。
 - `speed_monitor_mode`、`speed_monitor_tolerance`、`speed_monitor_min_samples`、`speed_monitor_interval_seconds`、`speed_monitor_grace_minutes`、`speed_monitor_consecutive_abnormal_samples`：基准来源、判定容忍度、采样与宽限。
+- `speed_monitor_exclude_categories`：按逗号分隔的分类关键词；qB 分类或 Transmission group 命中后不建立速度监控会话。
 - `upload_limit_site_rules`、`upload_limit_grace_minutes`：站点合计上限与新种宽限；站点值为空或 `0` 时不写单种限速。
 - `notify`、`speed_monitor_notification_type`：通知开关与消息通道。
 - 速度告警与操作结果在 Telegram 使用 HTML，并更新原卡片；其他渠道及辅种、转移统计使用纯文本。
 
 ## 运行流程
 
-1. 转移做种在下载完成事件后按 `delay_minutes` 延迟执行，兜底扫描按周期补齐漏掉的任务。
+1. 转移做种在整理完成事件后按 `delay_minutes` 延迟执行，后续事件不会推迟已排定的最早时间；同一种子的重复事件合并，其余到期批次依次接续，兜底扫描按周期补齐漏掉的任务。
 2. 转移成功后按模板执行重命名并写入站点标签，失败记录进入重命名历史，可单条或批量补刀。
 3. 连续补刀失败的记录自动归档，归档后跳过后续兜底扫描，可直接补刀、手动恢复或删除；直接补刀成功后移出归档，重命名失败则保留归档并更新原因与次数。
 4. 转移与辅种完成的种子登记做种校验队列，后台线程轮询并按配置自动开始做种。

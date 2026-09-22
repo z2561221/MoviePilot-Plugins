@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.3.9 - MoviePilot V3 本地插件
+DownloadManagerLocal v3.3.10 - MoviePilot V3 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 from threading import Event as ThreadEvent
@@ -46,7 +46,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.3.9"
+    plugin_version = "3.3.10"
     # 插件作者
     plugin_author = "Kurisu"
     # 作者主页
@@ -169,6 +169,10 @@ class DownloadManagerLocal(_PluginBase):
         """初始化实例级运行态，避免多实例共享配置、队列、缓存或退出信号。"""
         super().__init__()
         self._scheduler = None
+        self._transfer_schedule_lock = threading.RLock()
+        self._transfer_pending_runs = {}
+        self._transfer_scheduled_run = None
+        self._transfer_running_generation = None
         self._speed_monitor_thread = None
         self._speed_monitor_stop_event = None
         self._speed_monitor_worker_lock = None

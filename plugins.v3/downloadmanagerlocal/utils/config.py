@@ -6,6 +6,7 @@ from copy import deepcopy
 SPEED_MONITOR_CONFIG_DEFAULTS = {
     "speed_monitor_enabled": False,
     "speed_monitor_downloaders": [],
+    "speed_monitor_exclude_categories": "",
     "speed_monitor_mode": "auto",
     "speed_monitor_tolerance": 1.5,
     "speed_monitor_min_samples": 5,
@@ -145,6 +146,21 @@ def _positive_integer_mapping(value) -> dict[str, int]:
     return result
 
 
+def _category_keywords(value) -> list[str]:
+    """清洗速度监控分类排除关键词，兼容中英文逗号和列表输入。"""
+    raw_values = value if isinstance(value, (list, tuple, set)) else [value]
+    result = []
+    seen = set()
+    for raw_value in raw_values:
+        for part in str(raw_value or "").replace("，", ",").split(","):
+            keyword = part.strip()
+            folded = keyword.casefold()
+            if keyword and folded not in seen:
+                seen.add(folded)
+                result.append(keyword)
+    return result
+
+
 def _normalize_upload_site_rules(value) -> dict[str, dict]:
     """清洗站点合计上传上限，零值表示不设置站点限速。"""
     if not isinstance(value, dict):
@@ -187,6 +203,9 @@ def normalize_speed_monitor_config(config: dict | None) -> dict:
     return {
         "speed_monitor_enabled": bool(source.get("speed_monitor_enabled", False)),
         "speed_monitor_downloaders": downloaders,
+        "speed_monitor_exclude_categories": ",".join(
+            _category_keywords(source.get("speed_monitor_exclude_categories"))
+        ),
         "speed_monitor_mode": mode,
         "speed_monitor_tolerance": safe_float(
             source.get("speed_monitor_tolerance"), 1.5, min_exclusive=1.0
@@ -280,6 +299,17 @@ def is_speed_monitor_active(plugin) -> bool:
         and getattr(plugin, "_speed_monitor_enabled", False)
         and selected_names
     )
+
+
+def is_speed_monitor_category_excluded(plugin, category) -> bool:
+    """判断下载器分类是否命中速度监控排除关键词。"""
+    category_text = str(category or "").casefold()
+    if not category_text:
+        return False
+    keywords = _category_keywords(
+        getattr(plugin, "_speed_monitor_exclude_categories", "")
+    )
+    return any(keyword.casefold() in category_text for keyword in keywords)
 
 
 def is_upload_limit_active(plugin) -> bool:

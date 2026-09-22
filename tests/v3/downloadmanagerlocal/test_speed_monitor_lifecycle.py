@@ -129,6 +129,20 @@ def test_speed_monitor_is_independent_from_transfer_and_iyuu_state():
     assert config.is_speed_monitor_active(plugin) is False
     assert config.is_plugin_active(plugin) is False
 
+
+def test_speed_monitor_category_exclusion_config_normalizes_keywords():
+    """分类排除配置应支持中英文逗号、去重并保持大小写匹配语义。"""
+    config = _load("utils.config")
+
+    normalized = config.normalize_speed_monitor_config({
+        "speed_monitor_exclude_categories": "  动画,电影，动画, 4K  ",
+    })
+
+    assert normalized["speed_monitor_exclude_categories"] == "动画,电影,4K"
+    plugin = SimpleNamespace(_speed_monitor_exclude_categories=normalized["speed_monitor_exclude_categories"])
+    assert config.is_speed_monitor_category_excluded(plugin, "电影 4K") is True
+    assert config.is_speed_monitor_category_excluded(plugin, "纪录片") is False
+
     plugin._speed_monitor_enabled = True
     plugin._speed_monitor_downloaders = []
     assert config.is_speed_monitor_active(plugin) is False
@@ -459,3 +473,63 @@ def test_download_added_event_starts_session_before_interval_scan():
     monitor.scan_speed_monitor(plugin, now=520)
 
     assert session.status == "completed"
+
+
+def test_category_keyword_excludes_scan_sessions_and_closes_existing_session():
+    """分类命中排除关键词时不建会话，已存在会话应收束。"""
+    monitor = _load("service.speed_monitor")
+    downloader = FakeDownloader(([{
+        "hash": "QB-HASH",
+        "name": "Category Task",
+        "category": "电影",
+        "total_size": 1000,
+        "downloaded": 200,
+        "state": "downloading",
+        "dlspeed": 40,
+    }], None))
+    plugin = FakePlugin({
+        "qb-main": SimpleNamespace(type="qbittorrent", instance=downloader),
+    })
+    plugin._speed_monitor_downloaders = ["qb-main"]
+    plugin._speed_monitor_exclude_categories = "动画，电影"
+
+    first = monitor.scan_speed_monitor(plugin, now=500)
+    assert first["created_sessions"] == 0
+    assert plugin._speed_monitor_runtime.sessions == {}
+
+    plugin._speed_monitor_exclude_categories = "动画"
+    second = monitor.scan_speed_monitor(plugin, now=520)
+    assert second["created_sessions"] == 1
+    assert plugin._speed_monitor_runtime.sessions["qb-main:qb-hash"].status == "active"
+
+    plugin._speed_monitor_exclude_categories = "动画，电影"
+    third = monitor.scan_speed_monitor(plugin, now=540)
+    session = plugin._speed_monitor_runtime.sessions["qb-main:qb-hash"]
+    assert third["active_sessions"] == 0
+    assert session.status == "category_excluded"
+
+
+def test_category_keyword_excludes_download_added_event_before_session_creation():
+    """下载新增事件命中分类排除关键词时不应立即创建监控会话。"""
+    monitor = _load("service.speed_monitor")
+    downloader = FakeDownloader(([{
+        "hash": "QB-HASH",
+        "name": "Category Event Task",
+        "category": "动漫",
+        "total_size": 1000,
+        "downloaded": 200,
+        "state": "downloading",
+        "dlspeed": 40,
+    }], None))
+    plugin = FakePlugin({
+        "qb-main": SimpleNamespace(type="qbittorrent", instance=downloader),
+    })
+    plugin._speed_monitor_downloaders = ["qb-main"]
+    plugin._speed_monitor_exclude_categories = "动漫"
+    event = SimpleNamespace(event_data={"hash": "QB-HASH", "downloader": "qb-main"})
+
+    result = monitor.handle_download_added_event(plugin, event, now=500)
+
+    assert result["handled"] is True
+    assert result["created_sessions"] == 0
+    assert result["active_sessions"] == 0

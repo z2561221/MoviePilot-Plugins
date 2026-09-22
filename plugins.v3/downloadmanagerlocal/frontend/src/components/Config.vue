@@ -88,6 +88,7 @@ const defaults = {
   seed_autostart: true, seed_skipverify: false,
   seed_check_interval: 60, seed_max_wait_minutes: 120,
   speed_monitor_enabled: false, speed_monitor_downloaders: [], speed_monitor_mode: 'auto',
+  speed_monitor_exclude_categories: '',
   speed_monitor_tolerance: 1.5, speed_monitor_min_samples: 5,
   speed_monitor_interval_seconds: 30, speed_monitor_grace_minutes: 10,
   speed_monitor_consecutive_abnormal_samples: 2,
@@ -930,6 +931,12 @@ async function executeCleanupTags() {
                 <VCol cols="12" md="6">
                   <VSelect v-model="form.speed_monitor_notification_type" label="通知分类" density="compact" variant="outlined" hide-details
                     :items="notificationTypeItems" />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2">
+                <VCol cols="12" md="8">
+                  <VTextField v-model="form.speed_monitor_exclude_categories" label="排除分类关键词" density="compact" variant="outlined"
+                    hint="逗号分隔；qB 分类或 Transmission group 命中任一关键词的任务不进入速度监控" persistent-hint clearable />
                 </VCol>
               </VRow>
               <VAlert type="info" variant="tonal" density="compact" class="mt-4">
