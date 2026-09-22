@@ -339,6 +339,7 @@ IYUU：
 - `speed_monitor_consecutive_abnormal_samples`
 - `speed_monitor_manual_speed_bps`
 - `speed_monitor_floor_speed_bps`
+- `speed_monitor_exclude_categories`
 - `speed_monitor_notification_type`
 
 上传限速：

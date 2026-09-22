@@ -18,7 +18,10 @@ from ..model.state import (
     trim_health_samples,
     trim_terminal_records,
 )
-from ..utils.config import is_speed_monitor_active
+from ..utils.config import (
+    is_speed_monitor_active,
+    is_speed_monitor_category_excluded,
+)
 from ..utils.torrent_adapter import (
     TORRENT_ACTIVE,
     TORRENT_COMPLETED,
@@ -506,6 +509,22 @@ def _evaluate_session(
     _update_anomaly_cycle(runtime, session, observed_at)
 
 
+def _exclude_snapshot(
+    plugin: Any,
+    runtime: SpeedMonitorRuntime,
+    snapshot: Any,
+    observed_at: float,
+) -> bool:
+    """按分类排除任务，并收束已经存在的活跃监控会话。"""
+    if not is_speed_monitor_category_excluded(
+        plugin, getattr(snapshot, "category", "")
+    ):
+        return False
+    key = _session_key(snapshot.downloader_id, snapshot.torrent_hash)
+    _finish_session(runtime, key, "category_excluded", observed_at)
+    return True
+
+
 def _observe_snapshot(
     plugin: Any,
     runtime: SpeedMonitorRuntime,
@@ -519,6 +538,9 @@ def _observe_snapshot(
     key = _session_key(snapshot.downloader_id, snapshot.torrent_hash)
     with runtime.session_lock(key):
         session = runtime.sessions.get(key)
+        if session is not None and session.status == "category_excluded":
+            runtime.sessions.pop(key, None)
+            session = None
         is_completed = (
             snapshot.state_category == TORRENT_COMPLETED
             or (
@@ -640,6 +662,9 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
             resume_after_error = bool(previous_result and not previous_result.success)
             seen_keys = set()
             for snapshot in result.items:
+                if _exclude_snapshot(plugin, runtime, snapshot, observed_at):
+                    seen_keys.add(_session_key(snapshot.downloader_id, snapshot.torrent_hash))
+                    continue
                 created, key = _observe_snapshot(
                     plugin, runtime, snapshot, observed_at, resume_after_error
                 )
@@ -780,6 +805,18 @@ def handle_download_added_event(
         created = False
         key = _session_key(downloader_id, torrent_hash)
         if snapshot is not None:
+            if _exclude_snapshot(plugin, runtime, snapshot, observed_at):
+                persist_speed_monitor_runtime(plugin, runtime, observed_at)
+                return {
+                    "handled": True,
+                    "found": True,
+                    "created_sessions": 0,
+                    "active_sessions": sum(
+                        session.status == SESSION_ACTIVE
+                        for session in runtime.sessions.values()
+                    ),
+                    "errors": {},
+                }
             created, key = _observe_snapshot(
                 plugin,
                 runtime,

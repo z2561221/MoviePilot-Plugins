@@ -55,6 +55,7 @@ def test_qbittorrent_dict_normalizes_all_monitor_fields():
         "downloaded": 1024,
         "added_on": 123.5,
         "state": "stalledDL",
+        "category": "电影 4K",
         "save_path": "/downloads",
         "dlspeed": 512,
     }, "qb-main", "qbittorrent")
@@ -63,6 +64,7 @@ def test_qbittorrent_dict_normalizes_all_monitor_fields():
     assert snapshot.downloader_type == "qbittorrent"
     assert snapshot.torrent_hash == "abc123"
     assert snapshot.name == "Example"
+    assert snapshot.category == "电影 4K"
     assert snapshot.total_bytes == 4096
     assert snapshot.downloaded_bytes == 1024
     assert snapshot.added_at == 123.5
@@ -83,6 +85,7 @@ def test_transmission_object_and_missing_fields_return_stable_snapshot():
         dateAdded=321,
         status="seeding",
         downloadDir="/tr",
+        group="series",
         rateDownload=0,
     )
 
@@ -94,6 +97,7 @@ def test_transmission_object_and_missing_fields_return_stable_snapshot():
     assert completed.downloaded_bytes == 8000
     assert completed.state_category == adapter.TORRENT_COMPLETED
     assert completed.save_path == "/tr"
+    assert completed.category == "series"
     assert missing.torrent_hash == ""
     assert missing.total_bytes == 0
     assert missing.downloaded_bytes == 0
