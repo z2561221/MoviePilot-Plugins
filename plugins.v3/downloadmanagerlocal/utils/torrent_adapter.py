@@ -20,7 +20,6 @@ class TorrentSnapshot:
     downloader_type: str
     torrent_hash: str
     name: str
-    category: str
     total_bytes: int
     downloaded_bytes: int
     added_at: float
@@ -28,6 +27,7 @@ class TorrentSnapshot:
     state_category: str
     save_path: str
     download_speed_bps: float
+    category: str = ""
 
 
 @dataclass(frozen=True)
