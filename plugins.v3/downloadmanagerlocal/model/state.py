@@ -14,6 +14,9 @@ TRANSFER_STATS_KEY = "transfer_stats"
 TRANSFER_STATS_SCHEMA_VERSION = 2
 _TRANSFER_STATS_LOCK = RLock()
 
+TRANSFER_SCHEDULE_KEY = "transfer_schedule"
+TRANSFER_SCHEDULE_SCHEMA_VERSION = 1
+
 IYUU_STATS_KEY = "iyuu_stats"
 IYUU_STATS_SCHEMA_VERSION = 1
 _IYUU_STATS_LOCK = RLock()
@@ -45,6 +48,7 @@ PERSISTED_STATE_KEYS = {
     "rename_retry_state": RENAME_RETRY_STATE_KEY,
     "seed_recheck_queue": SEED_RECHECK_QUEUE_KEY,
     "transfer_stats": TRANSFER_STATS_KEY,
+    "transfer_schedule": TRANSFER_SCHEDULE_KEY,
     "speed_monitor_sessions": SPEED_MONITOR_SESSIONS_KEY,
     "speed_monitor_baselines": SPEED_MONITOR_BASELINES_KEY,
     "speed_monitor_alerts": SPEED_MONITOR_ALERTS_KEY,

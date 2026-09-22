@@ -11,6 +11,7 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.plugins.downloadmanagerlocal import DownloadManagerLocal
+from app.plugins.downloadmanagerlocal.model.state import TRANSFER_SCHEDULE_KEY
 from app.plugins.downloadmanagerlocal.service import events, lifecycle
 
 
@@ -37,12 +38,15 @@ def schedule_case(monkeypatch):
         schedulers.append(scheduler)
         return scheduler
 
+    data = {}
     plugin = SimpleNamespace(
         _scheduler=new_scheduler(), _event=threading.Event(),
         _transfer_active=True, _transfer_stop_generation=0,
         _transfer_schedule_lock=threading.RLock(), _transfer_pending_runs={},
         _transfer_scheduled_run=None, _transfer_running_generation=None,
         _fromdownloader="QB1", _delay_minutes=30, _delayed_transfer=Mock(),
+        get_data=lambda key=None: data.get(key),
+        save_data=lambda key, value: data.__setitem__(key, value),
     )
     monkeypatch.setattr(events, "datetime", Clock)
     for name in (
@@ -73,7 +77,7 @@ def schedule_case(monkeypatch):
         return job
 
     yield SimpleNamespace(
-        plugin=plugin, clock=clock, start=start, emit=emit, job=current_job,
+        plugin=plugin, data=data, clock=clock, start=start, emit=emit, job=current_job,
         fire=fire, new_scheduler=new_scheduler,
     )
     plugin._event.set()
@@ -220,6 +224,62 @@ def test_old_callback_cannot_touch_new_generation(schedule_case):
     case.plugin._delayed_transfer.assert_not_called()
     assert case.job().id == new_job.id
     assert list(case.plugin._transfer_pending_runs) == ["hash:b"]
+
+
+def test_reload_restores_pending_deadline_and_clears_state_after_execution(schedule_case):
+    """reload 后恢复原到期时间，执行完成后同步清掉持久化队列。"""
+    case = schedule_case
+    case.emit("a")
+    first = case.job()
+    persisted = case.data[TRANSFER_SCHEDULE_KEY]
+    assert persisted["items"]["hash:a"] == first.next_run_time.isoformat()
+
+    lifecycle.stop_plugin_service(case.plugin)
+    assert case.plugin._transfer_pending_runs == {}
+    assert case.data[TRANSFER_SCHEDULE_KEY] == persisted
+
+    case.plugin._scheduler = case.new_scheduler()
+    case.plugin._event.clear()
+    restored = events.restore_transfer_schedule(case.plugin)
+    assert restored == first.next_run_time
+    assert case.job().next_run_time == first.next_run_time
+
+    case.fire()
+    assert case.plugin._delayed_transfer.call_count == 1
+    assert case.data[TRANSFER_SCHEDULE_KEY] == {
+        "schema_version": 1,
+        "items": {},
+    }
+
+
+def test_reload_resumes_overdue_persisted_event(schedule_case):
+    """已过期但未执行的事件在 reload 后立即接续，不会被清理丢失。"""
+    case = schedule_case
+    overdue = case.start - timedelta(minutes=5)
+    case.data[TRANSFER_SCHEDULE_KEY] = {
+        "schema_version": 1,
+        "items": {"hash:overdue": overdue.isoformat()},
+    }
+    case.plugin._event.clear()
+    restored = events.restore_transfer_schedule(case.plugin)
+    assert restored == overdue
+    assert case.job().next_run_time == overdue
+
+    case.fire()
+    assert case.plugin._delayed_transfer.call_count == 1
+    assert case.data[TRANSFER_SCHEDULE_KEY]["items"] == {}
+
+
+def test_empty_new_instance_stop_does_not_erase_recovered_state(schedule_case):
+    """V3 reload 创建的新实例先停服务时，不覆盖旧实例已落盘的队列。"""
+    case = schedule_case
+    case.emit("a")
+    persisted = case.data[TRANSFER_SCHEDULE_KEY]
+
+    case.plugin._transfer_pending_runs.clear()
+    events.clear_transfer_schedule(case.plugin)
+
+    assert case.data[TRANSFER_SCHEDULE_KEY] == persisted
 
 
 def test_new_event_after_empty_batch_starts_new_timer(schedule_case):
