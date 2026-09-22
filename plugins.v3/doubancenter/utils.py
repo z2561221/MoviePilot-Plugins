@@ -239,8 +239,13 @@ def get_media_release_date(mediainfo: Any, season: int | None = None) -> str | N
     if season is not None and target_season is None:
         return None
     if target_season is not None:
-        if date := _season_air_date(getattr(mediainfo, "season_info", None), target_season):
-            return date
+        tmdb_info = getattr(mediainfo, "tmdb_info", None)
+        if isinstance(tmdb_info, dict):
+            if date := _season_air_date(tmdb_info.get("seasons"), target_season):
+                return date
+        if not getattr(mediainfo, "episode_group", None):
+            if date := _season_air_date(getattr(mediainfo, "season_info", None), target_season):
+                return date
         if target_season != 1:
             return None
     for value in (
@@ -250,6 +255,45 @@ def get_media_release_date(mediainfo: Any, season: int | None = None) -> str | N
         if release_date := _normalize_iso_date(value):
             return release_date
     return None
+
+
+def get_media_release(
+    mediainfo: Any,
+    season: Any = None,
+    *,
+    source_year: Any = "",
+    season_date_loader=None,
+    require_date: bool = False,
+) -> tuple[str, str | None]:
+    """一起返回展示年份和原生季日期，不使用按剧集组编号生成的 season_years。"""
+    target_season = normalize_season(season)
+    if season is not None and target_season is None:
+        return "", None
+
+    def valid_year(value: Any) -> str:
+        text = str(value or "").strip()
+        return text[:4] if re.fullmatch(r"(?:19|20)\d{2}(?:-\d{2}-\d{2})?", text) else ""
+
+    date = get_media_release_date(mediainfo, season=target_season)
+    if target_season is None:
+        return valid_year(getattr(mediainfo, "year", None)) or valid_year(source_year), date
+    year = valid_year(source_year) or (date[:4] if date else "")
+    if not date and callable(season_date_loader) and (require_date or not year):
+        # 网络失败由日期查询边界处理；不要吞掉调用方的 NameError 等编程错误。
+        date = _normalize_iso_date(season_date_loader(target_season))
+        year = valid_year(source_year) or (date[:4] if date else "")
+    if not year and target_season == 1:
+        year = valid_year(getattr(mediainfo, "year", None))
+    return year, date
+
+
+def get_media_year(
+    mediainfo: Any, season: Any = None, *, source_year: Any = "", season_date_loader=None,
+) -> str:
+    """兼容只读取年份的调用；续季缺失时保持未知。"""
+    return get_media_release(
+        mediainfo, season, source_year=source_year, season_date_loader=season_date_loader,
+    )[0]
 
 
 def is_within_days(date_str: str, days: int) -> bool:

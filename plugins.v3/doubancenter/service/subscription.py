@@ -26,7 +26,7 @@ def _default_subscribe_oper_cls():
 
 def _default_media_server_oper_cls():
     """按调用时环境读取 MoviePilot 媒体库数据库操作类。"""
-    from app.db.mediaserver_oper import MediaServerOper
+    from app.db.oper.mediaserver import MediaServerOper
 
     return MediaServerOper
 
@@ -176,7 +176,7 @@ def record_existing_history(
     history: List[dict],
     unique: str,
     title: str = "",
-    year: Any = "",
+    year: Any = None,
     link: str = "",
     mediainfo=None,
     rank_key: str = "",
@@ -189,7 +189,7 @@ def record_existing_history(
     existing_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = {
         "title": (title if prefer_title else None) or getattr(mediainfo, "title", None) or title or unique,
-        "year": getattr(mediainfo, "year", None) or year or "",
+        "year": str(year) if year is not None else utils.get_media_year(mediainfo, season=season),
         "link": link,
         "tmdbid": getattr(mediainfo, "tmdb_id", ""),
         "time": existing_at,
@@ -230,7 +230,7 @@ def write_subscribe_record(
     source_link: str = "",
     *,
     title: str = "",
-    year: Any = "",
+    year: Any = None,
     media_type=None,
     tmdb_id: Any = None,
     poster: str = "",
@@ -242,7 +242,9 @@ def write_subscribe_record(
 ) -> None:
     """写入自动或榜单手动订阅历史记录。"""
     resolved_title = (title if prefer_title else None) or getattr(mediainfo, "title", None) or title
-    resolved_year = getattr(mediainfo, "year", None) or year or ""
+    resolved_year = (
+        str(year) if year is not None else utils.get_media_year(mediainfo, season=season)
+    )
     resolved_tmdb_id = getattr(mediainfo, "tmdb_id", None) if mediainfo else tmdb_id
     resolved_type = getattr(mediainfo, "type", None) if mediainfo else media_type
     if not poster and mediainfo:
@@ -319,6 +321,7 @@ def add_subscription(
     subscribe_chain_cls=SubscribeChain,
     subscribe_oper_cls=None,
     media_server_oper_cls=None,
+    record_year: Optional[str] = None,
 ) -> bool:
     """按 MoviePilot V3 通用媒体身份执行自动订阅。"""
     if meta is not None:
@@ -337,6 +340,7 @@ def add_subscription(
                 plugin, mediainfo, rank_key=rank_key, rank_name=rank_name,
                 status="failed", reason="订阅状态检查失败，未提交订阅",
                 source_link=source_link, title=record_title,
+                year=record_year,
                 season=getattr(meta, "begin_season", None) if meta else None,
                 prefer_title=bool(record_title),
             )
@@ -355,6 +359,7 @@ def add_subscription(
                 rank_name=rank_name,
                 status="failed",
                 reason="缺少有效媒体身份",
+                year=record_year,
                 source_link=source_link,
                 title=record_title,
                 season=season,
@@ -381,6 +386,7 @@ def add_subscription(
                 rank_name=rank_name,
                 status="failed",
                 reason=msg or "订阅失败",
+                year=record_year,
                 source_link=source_link,
                 title=record_title,
                 season=season,
@@ -394,6 +400,7 @@ def add_subscription(
             rank_key=rank_key,
             rank_name=rank_name,
             status="success",
+            year=record_year,
             source_link=source_link,
             title=record_title,
             season=season,

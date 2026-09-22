@@ -48,6 +48,7 @@ def recognize_rss_item(
             meta.begin_season = int(recognition["season"])
         if recognition.get("title"):
             item["display_title"] = recognition["title"]
+        item["source_year"] = bangumi_subject_year(recognition.get("subject") or {}, fallback="")
         return meta, recognition.get("mediainfo"), "tv"
     if inferred in ("movie", "tv"):
         meta.type = MediaType.MOVIE if inferred == "movie" else MediaType.TV

@@ -2,7 +2,7 @@
 
 ## 插件用途
 
-DoubanCenter 3.0.10 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
+DoubanCenter 3.0.11 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
 
 ## 入口与渲染
 
@@ -68,6 +68,8 @@ DoubanCenter 3.0.10 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - 定时 / 立即运行：`DoubanCenter.__run_all()` -> `service/rank_pipeline.py:run_scheduled()` / `run_once()` -> `service/rank_subscription.py:refresh_then_subscribe()` -> `service/rank_refresh.py:refresh_rank_data()`。
 - 榜单刷新：`service/rank_refresh.py` -> `service/rank_snapshot.py` -> `service/rank_recognition.py` -> `service/rank_pipeline.py` 领域识别回调。
 - 榜单订阅：`service/rank_subscription.py` -> `service/rank_pipeline.py:_process_coming_snapshots()` / `_process_general_snapshots()` -> `service/observation.py` -> `service/subscription.py`。
+- 本季日期：`service/rank_timing.py` 在当前快照内按 TMDB 身份及原生季号复用日期；分段年份与原生季日期分别保留，不能直接使用剧集组 `season_years`。记录年份单独传递，不改写宿主媒体对象。
+- 分季退避：`service/folio_retry.py` 保留未到期同类失败的原期限；到期失败才递增，身份、状态或库内季事实变化可立即复核。
 - 详情 API：`controller/api.py` -> `service/dashboard.py` -> `storage/records.py` / `service/archive.py`。
 - 豆瓣时间：Webhook event -> `service/webhook.py` -> `service/folio.py` -> `adapter/douban_account.py:DoubanApi`。
 
@@ -76,7 +78,7 @@ DoubanCenter 3.0.10 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - V3 聚焦测试：设置 `MOVIEPILOT_BACKEND_PATH` 为固定 V3 宿主后运行 `python -m pytest tests/v3/doubancenter -q`。
 - Python 语法：`python -m compileall -q plugins.v3/doubancenter`。
 - 联邦构建：`pnpm --dir plugins.v3/doubancenter build`，并确认 `dist/assets/remoteEntry.js` 引用的资产均存在。
-- 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.10`；不修改 V2 元数据。
+- 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.11`；不修改 V2 元数据。
 - MP 本地闭环：使用开发技能的 `accept_local.py` 同步至可用的 MP 本地仓库；需要时从发现结果安装准确的本地来源，再执行 `POST /api/v1/plugin/reload/DoubanCenter`，回读 history、installed、overview、remotes 和静态资产。页面验收由用户完成。
 
 ## 禁止改动区

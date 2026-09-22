@@ -25,7 +25,7 @@ from ..model.identity import (
     recognize_media,
 )
 from ..storage import records as storage
-from . import folio_watch
+from . import folio_retry, folio_watch
 
 WISH_NOTIFY_THROTTLE_SECONDS = 6 * 60 * 60
 WISH_RECOGNIZE_MAX_RETRIES = 3
@@ -650,9 +650,12 @@ def _process_tv_show(self, event_info, processed: Dict, played: bool = False):
         logger.info(f"{title} 相同播放身份已同步，不重复处理")
         return
     if _sync_to_douban(self, title, status, event_info.item_type, processed, mediainfo, origin=origin):
-        logger.info("尝试同步之前同步失败的条目")
         self._wait_process = storage.read_folio_wait(self)
-        for k, v in list(self._wait_process.items()):
+        due = [(key, value) for key, value in self._wait_process.items()
+               if folio_retry.is_due(value, value.get("origin") or {}, value["status"])]
+        if due:
+            logger.info(f"尝试同步之前同步失败的条目，本轮到期 {len(due)} 条")
+        for k, v in due:
             retry_title = v.get("display_title") or v.get("subject_name") or k
             logger.info(f"尝试同步: {retry_title}")
             _sync_to_douban(self, retry_title, v["status"], v["type"], processed, None, origin=v.get("origin"))
@@ -1043,6 +1046,8 @@ def _save_waiting_playback(self, key, title, status, media_type, origin, verifie
         record["identity_status"] = "verified" if verified.get("resolved") else "unresolved"
         record["identity_reason"] = verified.get("reason") or ""
         record["season_facts"] = verified.get("facts") or {}
+        if not verified.get("resolved"):
+            folio_retry.defer(record, previous)
     if verified.get("resolved"):
         record.update({
             "subject_id": str(verified["subject_id"]),
@@ -1059,7 +1064,6 @@ def _sync_to_douban(
     self, title: str, status: str, mediaType: str, processed: Dict, mediainfo=None, *, origin=None,
 ) -> bool:
     """按播放身份核验并同步，未确认的剧集季禁止写入豆瓣。"""
-    logger.info(f"开始尝试获取 {title} 豆瓣id")
     is_tv = folio_record.media_kind(mediaType) == "tv"
     if is_tv and not origin and mediainfo is not None:
         origin = _playback_origin(mediainfo, mediaType, _media_season(title, mediainfo) or 1)
@@ -1089,12 +1093,16 @@ def _sync_to_douban(
     if (origin and folio_record.origin_key(previous.get("origin") or {}) == folio_record.origin_key(origin)
             and folio_record.already_synced(previous, status)):
         return True
+    if is_tv and not folio_retry.is_due(waiting, origin or {}, status):
+        return False
+    logger.info(f"开始尝试获取 {title} 豆瓣id")
     dh = _create_douban_api(self)
     verified = {}
     if is_tv:
         verified = _validated_playback_subject(title, mediainfo, origin, previous, waiting)
         if not verified.get("resolved"):
-            logger.warning(f"{title} 分季身份待核实，暂不写入豆瓣：{verified.get('reason', '')}")
+            if folio_retry.failure_changed(waiting, origin or {}, status, verified.get("reason") or ""):
+                logger.warning(f"{title} 分季身份待核实，暂不写入豆瓣：{verified.get('reason', '')}")
             _save_waiting_playback(self, wait_key, title, status, mediaType, origin, verified)
             return False
         name, sid, poster = verified["subject_name"], verified["subject_id"], verified.get("poster_path", "")
