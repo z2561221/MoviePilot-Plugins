@@ -5,26 +5,30 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
-
 from app.sdk.config import settings
 from app.sdk.logging import logger
+from apscheduler.schedulers.background import BackgroundScheduler
+
 from ..iyuu_helper import IyuuHelper
+from ..utils.config import is_speed_monitor_active, is_upload_limit_active
 from .config import initialize_runtime_config
 from .events import clear_transfer_schedule, restore_transfer_schedule
+from .recheck import (
+    ensure_seed_recheck_worker,
+    load_seed_recheck_queue,
+    stop_seed_recheck_worker,
+)
 from .speed_monitor import ensure_speed_monitor_runtime, stop_speed_monitor_runtime
 from .speed_worker import (
     start_speed_monitor_worker_if_needed,
     stop_speed_monitor_worker,
 )
-from .recheck import stop_seed_recheck_worker
-from .upload_limiter import load_upload_limit_state, restore_upload_limits
+from .transfer import validate_config
 from .upload_limit_worker import (
     start_upload_limit_worker,
     stop_upload_limit_worker,
 )
-from .transfer import validate_config
-from ..utils.config import is_speed_monitor_active, is_upload_limit_active
+from .upload_limiter import load_upload_limit_state, restore_upload_limits
 
 
 def initialize_plugin(plugin, config: dict = None) -> None:
@@ -62,6 +66,9 @@ def initialize_plugin(plugin, config: dict = None) -> None:
 
         _schedule_iyuu_once(plugin, config)
         _start_scheduler_if_needed(plugin)
+
+    if getattr(plugin, "_enabled", False) and load_seed_recheck_queue(plugin):
+        ensure_seed_recheck_worker(plugin)
 
 
 def _disable_invalid_transfer_config(plugin, config: dict) -> None:

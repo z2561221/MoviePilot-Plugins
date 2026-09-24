@@ -6,7 +6,45 @@ import threading
 from copy import deepcopy
 from types import SimpleNamespace
 
-from app.plugins.downloadmanagerlocal.service import recheck
+from app.plugins.downloadmanagerlocal.service import lifecycle, recheck
+
+
+def test_initialization_resumes_persisted_recheck_once(monkeypatch):
+    """启用后恢复已有校验队列，重复初始化不遗留旧 worker。"""
+    data = {"seed_recheck_queue": {"QB1::a": {"hash": "a", "downloader": "QB1"}}}
+    plugin = _plugin(data)
+    plugin._event = threading.Event()
+    plugin._transfer_active = False
+    plugin._onlyonce = False
+    plugin._iyuu_enabled = False
+    plugin._speed_monitor_enabled = False
+    plugin._upload_limit_enabled = False
+    plugin.stop_service = lambda: recheck.stop_seed_recheck_worker(plugin)
+    monkeypatch.setattr(lifecycle, "initialize_runtime_config", lambda p, c: c)
+    monkeypatch.setattr(lifecycle, "load_upload_limit_state", lambda p: {})
+    starts = []
+    monkeypatch.setattr(lifecycle, "ensure_seed_recheck_worker", lambda p: starts.append(p))
+    lifecycle.initialize_plugin(plugin, {"enabled": True})
+    assert starts == [plugin]
+    plugin._enabled = False
+    lifecycle.initialize_plugin(plugin, {"enabled": False})
+    assert starts == [plugin]
+
+
+def test_recheck_restart_after_old_worker_finishes(monkeypatch):
+    """旧 worker 停止超时后，恢复请求在旧线程结束时接续。"""
+    plugin = _plugin({})
+    plugin._event = threading.Event()
+    plugin._seed_recheck_running = True
+    old_stop = threading.Event()
+    old_stop.set()
+    plugin._seed_recheck_stop_event = old_stop
+    recheck.ensure_seed_recheck_worker(plugin)
+    assert plugin._seed_recheck_restart_pending is True
+    starts = []
+    monkeypatch.setattr(recheck, "ensure_seed_recheck_worker", lambda p: starts.append(p))
+    recheck.seed_recheck_loop(plugin, old_stop)
+    assert starts == [plugin]
 
 
 def _plugin(data, **kwargs):

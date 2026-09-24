@@ -95,28 +95,43 @@ def register_seed_recheck(plugin, downloader, hashes, source):
 def ensure_seed_recheck_worker(plugin):
     """确保按需做种校验 worker 已启动。"""
     with plugin._seed_recheck_lock:
+        event = getattr(plugin, "_event", None)
+        if event is not None and event.is_set():
+            return
         if plugin._seed_recheck_running:
+            stop_event = getattr(plugin, "_seed_recheck_stop_event", None)
+            if stop_event is not None and stop_event.is_set():
+                plugin._seed_recheck_restart_pending = True
             return
         plugin._seed_recheck_running = True
+        plugin._seed_recheck_restart_pending = False
         stop_event = threading.Event()
         plugin._seed_recheck_stop_event = stop_event
-    thread = threading.Thread(
-        target=seed_recheck_loop,
-        args=(plugin, stop_event),
-        name="DownloadManagerSeedRecheck",
-        daemon=True,
-    )
-    plugin._seed_recheck_thread = thread
-    thread.start()
+        thread = threading.Thread(
+            target=seed_recheck_loop,
+            args=(plugin, stop_event),
+            name="DownloadManagerSeedRecheck",
+            daemon=True,
+        )
+        plugin._seed_recheck_thread = thread
+        try:
+            thread.start()
+        except Exception:
+            plugin._seed_recheck_running = False
+            plugin._seed_recheck_thread = None
+            plugin._seed_recheck_stop_event = None
+            raise
     logger.info("做种校验：按需 worker 已启动")
 
 
 def stop_seed_recheck_worker(plugin, join_timeout: float = 10.0) -> bool:
     """停止并等待做种校验 worker，阻止停止后的下载器写操作。"""
-    thread = getattr(plugin, "_seed_recheck_thread", None)
-    stop_event = getattr(plugin, "_seed_recheck_stop_event", None)
-    if stop_event is not None:
-        stop_event.set()
+    with _queue_lock(plugin):
+        plugin._seed_recheck_restart_pending = False
+        thread = getattr(plugin, "_seed_recheck_thread", None)
+        stop_event = getattr(plugin, "_seed_recheck_stop_event", None)
+        if stop_event is not None:
+            stop_event.set()
     if thread is None:
         return False
     if thread is not threading.current_thread() and thread.is_alive():
@@ -156,6 +171,10 @@ def seed_recheck_loop(plugin, stop_event=None):
                 plugin._seed_recheck_thread = None
             if getattr(plugin, "_seed_recheck_stop_event", None) is stop_event:
                 plugin._seed_recheck_stop_event = None
+            restart = bool(getattr(plugin, "_seed_recheck_restart_pending", False) and plugin._enabled)
+            plugin._seed_recheck_restart_pending = False
+        if restart:
+            ensure_seed_recheck_worker(plugin)
 
 
 def _merge_processed_queue(plugin, before: dict, after: dict) -> None:
