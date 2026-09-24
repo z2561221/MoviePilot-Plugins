@@ -14,26 +14,6 @@ PACKAGE_NAME = "agentrank_media_recognition_test"
 package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
 
-app_module = sys.modules.setdefault("app", ModuleType("app"))
-schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
-types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-
-
-class V3MediaSource(str):
-    """测试使用的可扩展 V3 媒体来源值。"""
-
-    def __new__(cls, value):
-        instance = str.__new__(cls, value)
-        instance.value = value
-        return instance
-
-
-V3MediaSource.TMDB = V3MediaSource("themoviedb")
-V3MediaSource.Douban = V3MediaSource("douban")
-app_module.schemas = schemas_module
-schemas_module.types = types_module
-types_module.MediaSource = V3MediaSource
-
 adapter_package = sys.modules.setdefault(
     f"{PACKAGE_NAME}.adapter", ModuleType(f"{PACKAGE_NAME}.adapter")
 )

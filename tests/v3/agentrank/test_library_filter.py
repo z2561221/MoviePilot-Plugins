@@ -1,43 +1,8 @@
 """AgentRank media-library exclusion adapter tests."""
 
-import importlib
-import sys
-from pathlib import Path
-from types import ModuleType
-
-
-PLUGIN_DIR = Path(__file__).resolve().parents[3] / "plugins.v3" / "agentrank"
-PACKAGE_NAME = "agentrank_library_filter_test"
-
-package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
-package.__path__ = [str(PLUGIN_DIR)]
-
-app_module = sys.modules.setdefault("app", ModuleType("app"))
-schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
-types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-
-
-class V3MediaSource(str):
-    """测试使用的可扩展 V3 媒体来源值。"""
-
-    def __new__(cls, value):
-        instance = str.__new__(cls, value)
-        instance.value = value
-        return instance
-
-
-V3MediaSource.TMDB = V3MediaSource("themoviedb")
-V3MediaSource.Douban = V3MediaSource("douban")
-app_module.schemas = schemas_module
-schemas_module.types = types_module
-types_module.MediaSource = V3MediaSource
-
-candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
-library_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.library")
-
-Candidate = candidate_module.Candidate
-LibraryAdapter = library_module.LibraryAdapter
-MediaSource = library_module.MediaSource
+from app.schemas.types import MediaSource
+from app.plugins.agentrank.model.candidate import Candidate
+from app.plugins.agentrank.adapter.library import LibraryAdapter
 
 
 class RecordingOper:

@@ -3,12 +3,11 @@
 import importlib
 import asyncio
 import sys
-from enum import Enum
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
-from fastapi import Depends, HTTPException
+from app.schemas.types import MediaSource, MessageType
 
 
 PLUGIN_DIR = Path(__file__).resolve().parents[3] / "plugins.v3" / "agentrank"
@@ -16,64 +15,6 @@ PACKAGE_NAME = "agentrank_subscription_test"
 
 package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
-
-app_module = sys.modules.setdefault("app", ModuleType("app"))
-schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
-types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-api_module = sys.modules.setdefault("app.api", ModuleType("app.api"))
-endpoint_package = sys.modules.setdefault(
-    "app.api.endpoints", ModuleType("app.api.endpoints")
-)
-host_plugin_module = sys.modules.setdefault(
-    "app.api.endpoints.plugin", ModuleType("app.api.endpoints.plugin")
-)
-
-
-class TokenPayload:
-    """测试使用的最小 MoviePilot 登录载荷。"""
-
-    def __init__(self, sub=None, username=None, super_user=False):
-        self.sub = sub
-        self.username = username
-        self.super_user = super_user
-
-
-class MediaSource(str):
-    """测试使用的可扩展 V3 媒体来源值。"""
-
-    def __new__(cls, value):
-        instance = str.__new__(cls, value)
-        instance.value = value
-        return instance
-
-
-MediaSource.TMDB = MediaSource("themoviedb")
-MediaSource.Douban = MediaSource("douban")
-
-
-def verify_token():
-    """为控制器 FastAPI 签名提供测试鉴权依赖。"""
-    return TokenPayload(sub=1, username="admin", super_user=True)
-
-
-class MessageType(Enum):
-    """测试使用的最小 MoviePilot 通知类型枚举。"""
-
-    Subscribe = "订阅"
-    Manual = "手动处理"
-    Plugin = "插件"
-    Agent = "智能体"
-
-
-app_module.schemas = schemas_module
-app_module.api = api_module
-api_module.endpoints = endpoint_package
-endpoint_package.plugin = host_plugin_module
-schemas_module.types = types_module
-schemas_module.TokenPayload = TokenPayload
-types_module.MessageType = MessageType
-types_module.MediaSource = MediaSource
-host_plugin_module.verify_token = verify_token
 
 candidate_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate")
 snapshot_module = importlib.import_module(f"{PACKAGE_NAME}.model.candidate_snapshot")
