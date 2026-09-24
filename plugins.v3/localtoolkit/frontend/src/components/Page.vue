@@ -34,6 +34,11 @@ const actionMessage = ref('')
 const actionOk = ref(false)
 const recheckResults = ref([])
 let pageActive = true
+watch([actionMessage, actionOk], ([message, ok], _previous, onCleanup) => {
+  if (!pageActive || !message || !ok) return
+  const timer = setTimeout(() => { actionMessage.value = '' }, 5000)
+  onCleanup(() => clearTimeout(timer))
+})
 onBeforeUnmount(() => {
   pageActive = false
   planResizeObserver?.disconnect()
@@ -257,7 +262,10 @@ async function recheckPlan(item = null) {
     try {
       await refreshAfterAction()
     } catch {
-      if (pageActive) actionMessage.value += ' 列表刷新失败，请手动刷新；上方核验结果已保留。'
+      if (pageActive) {
+        actionOk.value = false
+        actionMessage.value += ' 列表刷新失败，请手动刷新；上方核验结果已保留。'
+      }
     }
   } catch (err) {
     if (!pageActive) return
@@ -330,8 +338,8 @@ onMounted(loadOverview)
       </nav>
 
       <main class="lt-main" :class="{ 'lt-main--plan': activeTab === 'cleanup_plan' }">
-        <VAlert v-if="actionMessage" :type="actionOk ? 'success' : 'error'" variant="tonal" class="mb-3" closable density="compact">{{ actionMessage }}</VAlert>
-        <VAlert v-if="error" type="error" variant="tonal" class="mb-3" density="compact">{{ error }}</VAlert>
+        <VAlert v-if="actionMessage" :type="actionOk ? 'success' : 'error'" variant="tonal" class="lt-feedback mb-3" closable density="compact" @update:model-value="value => { if (!value) actionMessage = '' }">{{ actionMessage }}</VAlert>
+        <VAlert v-if="error" type="error" variant="tonal" class="lt-feedback mb-3" closable density="compact" @update:model-value="value => { if (!value) error = '' }">{{ error }}</VAlert>
         <div v-if="loading" class="lt-state"><VProgressCircular indeterminate color="primary" /></div>
 
         <section v-else-if="activeTab === 'overview'" class="lt-pane">
@@ -540,6 +548,8 @@ onMounted(loadOverview)
 .lt-side-item { margin: 2px 8px; }
 .lt-main { flex: 1 1 auto; min-width: 0; min-height: 0; padding: 12px; overflow-y: auto; }
 .lt-pane { min-width: 0; min-height: 100%; }
+.lt-feedback { flex: 0 0 auto; min-height: 44px; padding: 8px 12px; align-items: center; font-size: 14px; }
+.lt-feedback :deep(.v-alert__content) { min-width: 0; line-height: 20px; overflow-wrap: anywhere; }
 .lt-state { min-height: 360px; display: flex; align-items: center; justify-content: center; }
 .lt-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; }
 .lt-section-title { color: rgb(var(--v-theme-primary)); font-size: 15px; font-weight: 700; }
