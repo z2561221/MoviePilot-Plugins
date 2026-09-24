@@ -4,7 +4,6 @@ import threading
 from types import SimpleNamespace
 
 import pytest
-
 from app.plugins.downloadmanagerlocal.model.state import load_transfer_stats
 from app.plugins.downloadmanagerlocal.service import lifecycle, transfer
 
@@ -157,3 +156,23 @@ def test_initialize_stops_old_work_before_changing_configuration(monkeypatch, tr
     lifecycle.initialize_plugin(case.plugin, {})
     assert order == ["stop", "configure"]
     assert not case.plugin._event.is_set()
+
+
+def test_postprocess_exception_keeps_target_identity_and_resumes(monkeypatch, transfer_case):
+    """目标接收后校验超时，重试必须续办而非删除重复源任务。"""
+    case = transfer_case
+    original = transfer._complete_transfer
+
+    def fail(*args, **kwargs):
+        """模拟真实下载器后处理故障。"""
+        raise RuntimeError("recheck timeout")
+
+    monkeypatch.setattr(transfer, "_complete_transfer", fail)
+    transfer.transfer(case.plugin)
+    assert case.added == ["a"]
+    assert case.deleted == []
+    assert case.data["source-a"]["transfer_state"] == "stopped_after_add"
+    monkeypatch.setattr(transfer, "_complete_transfer", original)
+    transfer.transfer(case.plugin)
+    assert case.added == ["a", "b"]
+    assert case.processed == case.registered == case.deleted == ["a", "b"]
