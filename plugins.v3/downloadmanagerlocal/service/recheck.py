@@ -247,6 +247,8 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
             if seed_is_checking(state, downloader_type):
                 continue
             if seed_is_ready(state, downloader_type, task):
+                if not getattr(plugin, "_seed_autostart", True):
+                    continue
                 try:
                     if stop_event is not None and stop_event.is_set():
                         return changed
@@ -327,6 +329,8 @@ def run_recheck_cycle(plugin) -> None:
 
 def sweep_paused_seed_tasks(plugin, check_services: list[Any]) -> None:
     """兜底扫描已完成但暂停的转移或铺种任务，并自动开始做种。"""
+    if not getattr(plugin, "_seed_autostart", True):
+        return
     for service in check_services:
         try:
             downloader = service.instance
@@ -339,7 +343,7 @@ def sweep_paused_seed_tasks(plugin, check_services: list[Any]) -> None:
                 downloader_type=service.type,
                 only_tagged_sources=True,
             )
-            if ready_hashes:
+            if ready_hashes and getattr(plugin, "_seed_autostart", True):
                 source_text = "，".join(
                     f"{source} {count} 个" for source, count in source_counts.items()
                 )
@@ -388,6 +392,8 @@ def _collect_check_services(plugin) -> list[Any]:
 
 def _process_legacy_recheck_queue(plugin, check_services: list[Any]) -> None:
     """处理入口层历史内存队列中的待做种校验任务。"""
+    if not getattr(plugin, "_seed_autostart", True):
+        return
     for service in check_services:
         recheck_items = plugin._recheck_torrents.get(service.name, {})
         if isinstance(recheck_items, list):
@@ -409,7 +415,7 @@ def _process_legacy_recheck_queue(plugin, check_services: list[Any]) -> None:
                 downloader_type=service.type,
                 recheck_items=recheck_items,
             )
-            if ready_hashes:
+            if ready_hashes and getattr(plugin, "_seed_autostart", True):
                 source_text = "，".join(
                     f"{source} {count} 个" for source, count in source_counts.items()
                 ) or f"{len(ready_hashes)} 个"

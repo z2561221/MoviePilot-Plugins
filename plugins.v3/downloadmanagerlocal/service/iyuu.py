@@ -2,6 +2,7 @@
 
 import os
 import re
+import threading
 import time
 from typing import Dict, Optional
 from urllib.parse import urljoin
@@ -32,6 +33,7 @@ from .site_tag import create_temporary_tag, forget_temporary_tag, release_tempor
 from .transfer import _transfer_stopped
 
 IYUU_QUERY_CHUNK_SIZE = 100
+_IYUU_LOCK_INIT = threading.Lock()
 IYUU_QUERY_BATCH_DELAY_SECONDS = 6
 IYUU_SCAN_PROGRESS_INTERVAL = 500
 IYUU_TRANSIENT_ERROR_LIMIT = 2
@@ -112,6 +114,22 @@ def iyuu_auto_service_info(plugin) -> Optional[ServiceInfo]:
 
 
 def iyuu_auto_seed(plugin):
+    """串行保护同一实例的辅种批次，重复触发不重置正在运行的计数。"""
+    with _IYUU_LOCK_INIT:
+        lock = getattr(plugin, "_iyuu_run_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            plugin._iyuu_run_lock = lock
+    if not lock.acquire(blocking=False):
+        logger.info("IYUU辅种：已有批次运行，跳过重叠触发")
+        return
+    try:
+        return _run_iyuu_batch(plugin)
+    finally:
+        lock.release()
+
+
+def _run_iyuu_batch(plugin):
     """IYUU 自动辅种主逻辑"""
     generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     if _transfer_stopped(plugin, generation):
