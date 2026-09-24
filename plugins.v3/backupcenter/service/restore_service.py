@@ -457,7 +457,8 @@ class RestoreService:
                 snapshots[plugin_id] = None
                 continue
             snapshot = snapshot_root / plugin_id
-            shutil.copytree(target, snapshot, symlinks=True)
+            snapshot.mkdir()
+            BackupService._copy_tree(target, snapshot)
             snapshots[plugin_id] = snapshot
         return snapshots
 
@@ -607,12 +608,20 @@ class RestoreService:
         data_snapshot: Dict[str, List[Tuple[str, Any]]] = {}
         file_snapshots: Dict[str, Path | None] = {}
         rollback_root: Path | None = None
+        modified_scopes: set[str] = set()
         try:
             with self._payload_directory(
                 normalized_backup_id, public_manifest, password=password
             ) as payload_root:
                 private_manifest = ManifestService.read_json(payload_root / "manifest.json")
                 self._verify_private_manifest(public_manifest, private_manifest)
+                host_database_backup_name = self._create_host_database_backup()
+                plugin_selection = (
+                    selected_plugin_ids
+                    if selection.plugin_settings or selection.plugin_data or selection.plugin_files
+                    else []
+                )
+                manager, stopped_plugins = self._stop_target_plugins(plugin_selection)
                 if selection.mp_settings:
                     system_snapshot = self._system_settings_snapshot(payload_root)
                 if selection.plugin_settings:
@@ -631,7 +640,6 @@ class RestoreService:
                     file_snapshots = self._snapshot_plugin_files(
                         selected_plugin_ids, rollback_root
                     )
-                host_database_backup_name = self._create_host_database_backup()
                 try:
                     emergency = self.backup_service.create_backup(
                         emergency_scope,
@@ -659,32 +667,30 @@ class RestoreService:
                     "reloaded": [],
                     "host_database_backup_name": host_database_backup_name,
                 }
-                plugin_selection = (
-                    selected_plugin_ids
-                    if selection.plugin_settings or selection.plugin_data or selection.plugin_files
-                    else []
-                )
-                manager, stopped_plugins = self._stop_target_plugins(plugin_selection)
                 if selection.mp_settings:
+                    modified_scopes.add("system")
                     result["restored"]["mp_settings"] = self._restore_system_settings(payload_root)
                 if selection.plugin_settings:
+                    modified_scopes.add("config")
                     result["restored"]["plugin_settings"] = self._restore_plugin_settings(
                         payload_root, selected_plugin_ids
                     )
                 if selection.plugin_data:
+                    modified_scopes.add("data")
                     result["restored"]["plugin_data"] = self._restore_plugin_data(
                         payload_root, selected_plugin_ids
                     )
                 if selection.plugin_files:
+                    modified_scopes.add("files")
                     result["restored"]["plugin_files"] = self._restore_plugin_files(
                         payload_root, selected_plugin_ids
                     )
         except RestoreServiceError as error:
             rollback_failed = self._rollback_restore_state(
-                system_snapshot=system_snapshot,
-                config_snapshot=config_snapshot,
-                data_snapshot=data_snapshot,
-                file_snapshots=file_snapshots,
+                system_snapshot=system_snapshot if "system" in modified_scopes else {},
+                config_snapshot=config_snapshot if "config" in modified_scopes else {},
+                data_snapshot=data_snapshot if "data" in modified_scopes else {},
+                file_snapshots=file_snapshots if "files" in modified_scopes else {},
             )
             if rollback_root is not None:
                 shutil.rmtree(rollback_root, ignore_errors=True)
@@ -699,10 +705,10 @@ class RestoreService:
             raise
         except Exception as error:
             rollback_failed = self._rollback_restore_state(
-                system_snapshot=system_snapshot,
-                config_snapshot=config_snapshot,
-                data_snapshot=data_snapshot,
-                file_snapshots=file_snapshots,
+                system_snapshot=system_snapshot if "system" in modified_scopes else {},
+                config_snapshot=config_snapshot if "config" in modified_scopes else {},
+                data_snapshot=data_snapshot if "data" in modified_scopes else {},
+                file_snapshots=file_snapshots if "files" in modified_scopes else {},
             )
             if rollback_root is not None:
                 shutil.rmtree(rollback_root, ignore_errors=True)

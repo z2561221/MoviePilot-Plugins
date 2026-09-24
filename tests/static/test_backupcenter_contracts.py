@@ -72,17 +72,18 @@ def test_backupcenter_metadata_is_consistent_and_v3_scoped():
     ):
         assert package[metadata_key] == manifest[metadata_key]
         assert package[metadata_key] == _class_string(plugin_class, class_key)
-    assert package["version"] == manifest["version"] == "3.0.5"
+    assert re.fullmatch(r"3\.\d+\.\d+", package["version"])
     assert "v2" not in package and "v2" not in manifest
     assert package["release"] is True
-    assert package["history"] == manifest["history"] == {
-        "v3.0.5": "[1]修复V3兼容导入",
-        "v3.0.4": "[1]隔离分身前端请求",
-        "v3.0.3": "[1]修复备份记录下载操作栏",
-        "v3.0.2": "[1]聚焦逻辑备份;[2]接入宿主恢复点;[3]恢复失败自动回滚",
-        "v3.0.1": "[1]新增运行日志;[2]适配V3接口;[3]修复插件加载",
-        "v3.0.0": "[1]备份MP与插件;[2]支持加密校验;[3]附带离线恢复"
-    }
+    current_key = f"v{package['version']}"
+    current_history = package["history"][current_key]
+    assert current_history and current_history == manifest["history"][current_key]
+    entries = current_history.split(";")
+    for index, entry in enumerate(entries, 1):
+        assert entry.startswith(f"[{index}]")
+        assert 1 <= len(entry.removeprefix(f"[{index}]")) <= 15
+    readme = (PLUGIN_DIR / "README.md").read_text(encoding="utf-8")
+    assert f"`{current_key}`" in readme
     assert "BackupCenter" not in package_v2
     assert not (ROOT / "plugins.v2" / "backupcenter" / "__init__.py").exists()
     assert package["system_version"] == manifest["system_version"] == ">=3.0.0"

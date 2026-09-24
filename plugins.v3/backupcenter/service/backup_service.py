@@ -13,6 +13,7 @@ from app.schemas.types import SystemConfigKey
 from app.sdk.config import settings
 from version import APP_VERSION
 
+from ..adapter.sqlite_snapshot import create_sqlite_snapshot, is_sqlite_database
 from ..model.backup import BackupScope, ScopeError, normalize_plugin_ids
 from .crypto_service import CryptoService
 from .manifest_service import ManifestError, ManifestService
@@ -128,17 +129,32 @@ class BackupService:
             return 0
         if source.is_symlink():
             raise BackupServiceError("不允许备份符号链接目录")
-        count = 0
-        for item in source.rglob("*"):
+        items = list(source.rglob("*"))
+        databases: set[Path] = set()
+        for item in items:
             if item.is_symlink():
                 raise BackupServiceError(f"不允许备份符号链接：{item.name}")
+            if item.is_file() and is_sqlite_database(item):
+                databases.add(item)
+        sidecars = {
+            database.with_name(database.name + suffix)
+            for database in databases
+            for suffix in ("-wal", "-shm", "-journal")
+        }
+        count = 0
+        for item in items:
+            if item in sidecars:
+                continue
             relative = item.relative_to(source)
             target = destination / relative
             if item.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
             elif item.is_file():
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(item, target)
+                if item in databases:
+                    create_sqlite_snapshot(item, target)
+                else:
+                    shutil.copy2(item, target)
                 count += 1
         return count
 
