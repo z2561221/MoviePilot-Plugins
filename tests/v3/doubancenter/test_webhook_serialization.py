@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
-
 from app.plugins.doubancenter.service import webhook
 
 

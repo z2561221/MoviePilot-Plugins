@@ -1,17 +1,18 @@
 """订阅去重的 SDK 查询入口及旧宿主兼容边界。"""
 
 from app.sdk.logging import logger
+from sqlalchemy.exc import SQLAlchemyError
 
 
 def _sdk_queries():
     """只有旧镜像确实缺少该模块时才回退，查询故障不能降级为空。"""
     try:
-        import app.sdk.queries as queries
+        import app.sdk.queries
     except ModuleNotFoundError as err:
         if err.name != "app.sdk.queries":
             raise
         return None
-    return queries
+    return app.sdk.queries
 
 
 def _legacy_active(params):
@@ -56,7 +57,7 @@ def exists(params, *, subscribe_oper_cls=None):
                 (lambda: _sdk_exists(queries.list_subscription_history, params)) if queries
                 else (lambda: _legacy_history(params)),
             )
-    except Exception as err:
+    except (ImportError, AttributeError, RuntimeError, ValueError, TypeError, OSError, LookupError, SQLAlchemyError) as err:
         logger.warning(f"豆瓣中心：初始化订阅查询失败：{type(err).__name__}")
         return None
     failed = False
@@ -67,7 +68,7 @@ def exists(params, *, subscribe_oper_cls=None):
                 failed = True
             elif result:
                 return True
-        except Exception as err:
+        except (ImportError, AttributeError, RuntimeError, ValueError, TypeError, OSError, LookupError, SQLAlchemyError) as err:
             failed = True
             logger.warning(f"豆瓣中心：订阅查询失败：{type(err).__name__}")
     return None if failed else False

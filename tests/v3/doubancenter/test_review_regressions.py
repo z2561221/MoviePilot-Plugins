@@ -3,10 +3,8 @@
 from types import SimpleNamespace
 
 import pytest
-
 from app.plugins.doubancenter.adapter import subscription_query as query
 from app.plugins.doubancenter.service import subscription
-
 
 PARAMS = {"media_source": "themoviedb", "media_id": "123", "season": 2, "episode_group": "group"}
 
@@ -72,5 +70,3 @@ def test_old_host_uses_separate_real_history_oper(monkeypatch):
     monkeypatch.setattr(SubscribeOper, "exists", lambda self, **kw: False)
     monkeypatch.setattr(SubscribeHistoryOper, "exists", lambda self, **kw: True)
     assert query.exists(PARAMS) is True
-
-

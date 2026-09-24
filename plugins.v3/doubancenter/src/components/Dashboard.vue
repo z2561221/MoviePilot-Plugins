@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getPluginApi, postPluginApi, toPosterThumbnail } from './api'
+import { getPluginApi, postPluginApi, toPosterThumbnail, openNativeSubscription } from './api'
 import { sourceDescriptor, doubanDispatchUrl } from './source'
 import { useRankMediaActions } from './useRankMediaActions'
 
@@ -199,7 +199,7 @@ function dialogPoster() {
 
 async function subscribeViaNativeDialog(rk, item) {
   const media = await resolveRankMedia(rk, item)
-  await props.nativeSubscribe(media)
+  await openNativeSubscription(props.nativeSubscribe, media)
   subscribeResult.value = '已打开 MP 原生订阅窗口'
 }
 
