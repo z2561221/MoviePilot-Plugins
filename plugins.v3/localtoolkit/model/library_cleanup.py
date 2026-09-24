@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from math import isfinite
 from typing import Any, Iterable, List, Optional
 
 FAVORITE_LABELS = {
@@ -339,7 +340,7 @@ def candidate_from_media_item(
     code = read_value(item, "code", "tmdbid", "imdbid", "item_id", "id", "Id") or movie_id
     date_created = read_value(item, "date_created", "DateCreated", "dateCreated", "created") or ""
     user_state = read_value(item, "user_state", "UserData") or {}
-    played = read_bool(read_value(user_state, "played", "Played"))
+    played = played_from_progress(user_state)
     favorite = read_bool(
         read_value(item, "favorite", "is_favorite", "IsFavorite")
         if read_value(item, "favorite", "is_favorite", "IsFavorite") is not None
@@ -358,6 +359,23 @@ def candidate_from_media_item(
         library_name=str(library_name or ""),
         raw=raw,
     )
+
+
+def played_from_progress(user_state: Any) -> Optional[bool]:
+    """按当前播放进度判定看过状态，缺失或非法进度保留未知。"""
+    progress = read_value(user_state, "percentage", "PlayedPercentage")
+    if progress is None:
+        # 原始接口未返回百分比时，正数播放位置同样表示进度大于零。
+        progress = read_value(user_state, "playback_position_ticks", "PlaybackPositionTicks")
+    if progress is None or isinstance(progress, bool):
+        return None
+    try:
+        value = float(progress)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not isfinite(value) or value < 0:
+        return None
+    return value > 0
 
 
 def candidate_from_plan_item(item: Any) -> CleanupCandidate:

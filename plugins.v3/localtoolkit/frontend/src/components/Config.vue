@@ -278,6 +278,7 @@ function saveConfig() {
 
               <div v-if="activeSub === 'filter'">
                 <div class="plugin-section-title text-error">筛选条件</div>
+                <div class="plugin-hint mb-3">已看过：播放进度大于 0%；未看过：播放进度为 0%。不采用媒体服务器的已观看标记，进度无法读取时保留待核验。</div>
                 <VRow>
                   <VCol cols="12" md="4"><VSelect v-model="form.library_cleanup.selected_server" label="媒体服务器" :items="serverItems" :loading="loadingOptions" density="compact" variant="outlined" clearable hide-details /></VCol>
                   <VCol cols="12" md="4"><VSelect v-model="form.library_cleanup.selected_user" label="用户" :items="userItems" :loading="loadingOptions" density="compact" variant="outlined" clearable hide-details /></VCol>

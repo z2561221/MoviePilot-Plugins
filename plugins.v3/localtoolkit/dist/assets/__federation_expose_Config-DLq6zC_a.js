@@ -620,6 +620,7 @@ return (_ctx, _cache) => {
                 (activeSub.value === 'filter')
                   ? (_openBlock(), _createElementBlock("div", _hoisted_22, [
                       _cache[45] || (_cache[45] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "筛选条件", -1)),
+                      _cache[46] || (_cache[46] = _createElementVNode("div", { class: "plugin-hint mb-3" }, "已看过：播放进度大于 0%；未看过：播放进度为 0%。不采用媒体服务器的已观看标记，进度无法读取时保留待核验。", -1)),
                       _createVNode(_component_VRow, null, {
                         default: _withCtx(() => [
                           _createVNode(_component_VCol, {
@@ -820,7 +821,7 @@ return (_ctx, _cache) => {
                   : _createCommentVNode("", true),
                 (activeSub.value === 'advanced')
                   ? (_openBlock(), _createElementBlock("div", _hoisted_23, [
-                      _cache[46] || (_cache[46] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "高级选项", -1)),
+                      _cache[47] || (_cache[47] = _createElementVNode("div", { class: "plugin-section-title text-error" }, "高级选项", -1)),
                       _createVNode(_component_VAlert, {
                         type: "error",
                         variant: "tonal",
@@ -887,7 +888,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeMain.value === 'library_cleanup']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_24, [
-                _cache[47] || (_cache[47] = _createElementVNode("div", { class: "plugin-section-title" }, "扫描缺集按需扫描", -1)),
+                _cache[48] || (_cache[48] = _createElementVNode("div", { class: "plugin-section-title" }, "扫描缺集按需扫描", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
                   variant: "tonal",
@@ -948,7 +949,7 @@ return (_ctx, _cache) => {
                 [_vShow, activeMain.value === 'check_missing']
               ]),
               _withDirectives(_createElementVNode("div", _hoisted_25, [
-                _cache[48] || (_cache[48] = _createElementVNode("div", { class: "plugin-section-title text-warning" }, "清TMDB按需清理", -1)),
+                _cache[49] || (_cache[49] = _createElementVNode("div", { class: "plugin-section-title text-warning" }, "清TMDB按需清理", -1)),
                 _createVNode(_component_VAlert, {
                   type: "warning",
                   variant: "tonal",
@@ -1023,7 +1024,7 @@ return (_ctx, _cache) => {
               variant: "text",
               onClick: _cache[27] || (_cache[27] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[49] || (_cache[49] = [
+              default: _withCtx(() => [...(_cache[50] || (_cache[50] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -1034,7 +1035,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-content-save-outline",
               onClick: saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[50] || (_cache[50] = [
+              default: _withCtx(() => [...(_cache[51] || (_cache[51] = [
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
@@ -1050,6 +1051,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-169c7917"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-dab68736"]]);
 
 export { Config as default };
