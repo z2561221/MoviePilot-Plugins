@@ -185,7 +185,7 @@ const overviewFeatureCards = computed(() => {
       icon: 'mdi-seed-plus',
       color: cards.iyuu?.enabled ? 'success' : 'default',
       value: cards.iyuu?.enabled ? '已启用' : '未启用',
-      desc: `今日 ${cards.iyuu?.today_success || 0} · 累计 ${cards.iyuu?.success_total || 0} · 失败 ${cards.iyuu?.fail_total || 0}`,
+      desc: `成功 ${cards.iyuu?.today_success || 0} · 失败 ${cards.iyuu?.today_fail || 0} · 累计 ${Math.max(0, (cards.iyuu?.success_total || 0) - (cards.iyuu?.today_success || 0))}`,
     },
     {
       title: '命名补刀',

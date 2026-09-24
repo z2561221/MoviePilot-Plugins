@@ -168,8 +168,8 @@ def test_page_uses_today_and_cumulative_counter_copy() -> None:
         " · 累计 ${Math.max(0, (cards.transfer?.success_total || 0) - (cards.transfer?.today_success || 0))}" in page_source
     )
     assert (
-        "今日 ${cards.iyuu?.today_success || 0}"
-        " · 累计 ${cards.iyuu?.success_total || 0}"
-        " · 失败 ${cards.iyuu?.fail_total || 0}" in page_source
+        "成功 ${cards.iyuu?.today_success || 0}"
+        " · 失败 ${cards.iyuu?.today_fail || 0}"
+        " · 累计 ${Math.max(0, (cards.iyuu?.success_total || 0) - (cards.iyuu?.today_success || 0))}" in page_source
     )
     assert "兜底服务已启用" not in page_source
