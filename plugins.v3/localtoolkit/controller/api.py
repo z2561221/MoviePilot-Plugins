@@ -2,10 +2,11 @@
 
 from typing import Any, Dict, Optional
 
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 
 from app import schemas
 from app.sdk.logging import logger
+from app.sdk.security import verify_token
 
 from ..model.api import (
     ToolkitHistoryData,
@@ -23,9 +24,15 @@ from ..model.api import (
 from ..security import redact_sensitive_text, safe_error_text
 
 
+def require_superuser(token_payload: Any = Depends(verify_token)) -> None:
+    """仅允许超级用户访问具有全局读写能力的工具中心接口。"""
+    if getattr(token_payload, "super_user", False) is not True:
+        raise HTTPException(status_code=403, detail="需要超级用户权限")
+
+
 def build_api_routes(plugin) -> list[dict]:
     """构建工具中心 V3 API 路由声明。"""
-    return [
+    routes = [
         {
             "path": "/local_toolkit/cleanup_plan/recheck",
             "endpoint": plugin.api_cleanup_plan_recheck,
@@ -103,6 +110,9 @@ def build_api_routes(plugin) -> list[dict]:
             "response_model_exclude_none": True,
         },
     ]
+    for route in routes:
+        route["dependencies"] = [Depends(require_superuser)]
+    return routes
 
 
 def module_map(plugin) -> Dict[str, Any]:

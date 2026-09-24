@@ -11,6 +11,7 @@ from app import schemas
 from app.api.response import ResponseAPIRouter
 from app.plugins.localtoolkit import LocalToolkit
 from app.plugins.localtoolkit.controller.api import run_module
+from app.sdk.security import verify_token
 from app.plugins.localtoolkit.model.api import (
     ToolkitCleanupPlanData,
     ToolkitHistoryData,
@@ -177,3 +178,65 @@ def test_readme_documents_modules_and_boundaries() -> None:
         "bear",
     ):
         assert keyword in content
+
+
+@pytest.mark.parametrize("super_user, expected_status", [(False, 403), (True, 200)])
+@pytest.mark.parametrize("module", ["library_cleanup", "tmdb_cache", "check_missing"])
+def test_management_routes_check_authorization_before_execution(super_user, expected_status, module):
+    """使用真实动态路由验证普通用户不能进入任何工具执行器。"""
+    calls = []
+    plugin = object.__new__(LocalToolkit)
+
+    class RecordingModule:
+        """记录是否发生受保护的业务调用。"""
+
+        def run_once(self):
+            """仅记录调用，不访问媒体服务器或缓存。"""
+            calls.append(module)
+            return {"success": True, "summary": "完成"}
+
+    plugin.library_cleanup = plugin.tmdb_cache = plugin.check_missing = RecordingModule()
+    app = FastAPI()
+    for original in plugin.get_api():
+        route = dict(original)
+        route.pop("auth")
+        app.add_api_route(**route)
+    app.dependency_overrides[verify_token] = lambda: SimpleNamespace(super_user=super_user)
+    response = TestClient(app).post(f"/local_toolkit/run/{module}")
+    assert response.status_code == expected_status
+    assert calls == ([module] if super_user else [])
+
+
+@pytest.mark.parametrize("super_user", [False, None])
+def test_all_toolkit_routes_reject_non_admin_before_business_logic(super_user):
+    """覆盖查询、清计划、扫描与核验接口，拒绝缺少管理身份的请求。"""
+    plugin = object.__new__(LocalToolkit)
+    app = FastAPI()
+    routes = plugin.get_api()
+    for original in routes:
+        route = dict(original)
+        route.pop("auth")
+        app.add_api_route(**route)
+    app.dependency_overrides[verify_token] = lambda: SimpleNamespace(super_user=super_user)
+    client = TestClient(app)
+    for route in routes:
+        path = route["path"].replace("{module}", "library_cleanup")
+        response = client.request(route["methods"][0], path, json={})
+        assert response.status_code == 403, path
+
+
+def test_toolkit_routes_preserve_authentication_failures():
+    """认证失败保持 401，不能绕过认证直接执行业务。"""
+    plugin = object.__new__(LocalToolkit)
+    app = FastAPI()
+    for original in plugin.get_api():
+        route = dict(original)
+        route.pop("auth")
+        app.add_api_route(**route)
+
+    def unauthenticated():
+        """模拟宿主认证拒绝，不签发真实凭据。"""
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    app.dependency_overrides[verify_token] = unauthenticated
+    assert TestClient(app).post("/local_toolkit/run/library_cleanup").status_code == 401
