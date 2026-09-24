@@ -178,7 +178,7 @@ const overviewFeatureCards = computed(() => {
       icon: 'mdi-transfer',
       color: cards.transfer?.active ? 'success' : 'warning',
       value: cards.transfer?.active ? '运行中' : '未就绪',
-      desc: `今日 ${cards.transfer?.today_success || 0} · 累计 ${cards.transfer?.success_total || 0} · 兜底 ${cards.transfer?.fallback_success || 0}`,
+      desc: `今日 ${cards.transfer?.today_success || 0} · 兜底 ${cards.transfer?.today_fallback || 0} · 累计 ${Math.max(0, (cards.transfer?.success_total || 0) - (cards.transfer?.today_success || 0))}`,
     },
     {
       title: 'IYUU铺种',

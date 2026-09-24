@@ -21,10 +21,12 @@ def test_page_ignores_stale_history_and_unmounted_errors() -> None:
       const getApi = (api, id, path) => new Promise((resolve, reject) => pending.push({path, resolve, reject}));
       const build = new Function('ref', 'computed', 'watch', 'onMounted', 'onBeforeUnmount',
         'defineProps', 'defineEmits', 'getPluginApi', 'postPluginApi',
-        source + '\nreturn {loadHistory, page, records, error, loading, nextPage};');
+        source + '\nreturn {loadHistory, page, records, error, loading, nextPage, overview, overviewFeatureCards};');
       globalThis.document = { removeEventListener() {} };
       const state = build(value => ({value}), get => ({get value() { return get(); }}), () => {},
         () => {}, fn => cleanups.push(fn), () => props, () => () => {}, getApi, () => {});
+      state.overview.value = {cards: {transfer: {today_success: 31, today_fallback: 7, success_total: 227}}};
+      assert.equal(state.overviewFeatureCards.value[0].desc, '今日 31 · 兜底 7 · 累计 196');
       const first = state.loadHistory(), second = state.loadHistory();
       pending[1].resolve({items: [{hash: 'page1'}], total: 45}); await second;
       state.nextPage();
