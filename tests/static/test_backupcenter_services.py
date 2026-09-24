@@ -3,6 +3,7 @@
 import copy
 import importlib.util
 import sys
+import sqlite3
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -1191,3 +1192,115 @@ def test_plugin_reload_reports_failed_targets():
 
     assert reloaded == ["PluginA"]
     assert failed == ["PluginB"]
+
+
+@pytest.mark.parametrize("failure_stage", ["host", "emergency", "write"])
+def test_restore_failure_preserves_writes_outside_restore(tmp_path, monkeypatch, failure_stage):
+    """准备失败不回写，写入失败只回滚到目标停止后的数据快照。"""
+    plugin = _Plugin(tmp_path)
+    plugin.plugin_records = {"PluginA": {"counter": 1}}
+    plugin.get_backup_password = lambda: ""
+    manifest = {
+        "format_version": 3, "backup_id": "backup-review",
+        "source_mp_version": "v3.0.0", "scope": {"plugin_data": True},
+        "selected_plugin_ids": ["PluginA"],
+    }
+    manifest_module.ManifestService.write_json(tmp_path / "manifest.json", manifest)
+    events = []
+
+    def host_backup():
+        """模拟恢复点创建期间仍在运行的目标写入。"""
+        events.append("host")
+        plugin.plugin_records["PluginA"]["counter"] = 2
+        if failure_stage == "host":
+            raise restore_module.RestoreServiceError("injected host failure")
+        return "host-backup"
+
+    def stop_targets(plugin_ids):
+        """模拟停止前完成最后一次目标写入。"""
+        events.append("stop")
+        plugin.plugin_records["PluginA"]["counter"] = 3
+        return object(), list(plugin_ids)
+
+    def emergency_backup(*_args, **_kwargs):
+        """模拟应急备份失败，不允许恢复器覆盖外部新数据。"""
+        events.append("emergency")
+        if failure_stage == "emergency":
+            plugin.plugin_records["PluginA"]["counter"] = 4
+            raise backup_module.BackupServiceError("injected emergency failure")
+        return {"backup_id": "backup-emergency"}
+
+    def fail_write(*_args):
+        """模拟恢复写入一半失败，应回滚而不是保留半成品。"""
+        events.append("write")
+        plugin.plugin_records["PluginA"]["counter"] = 99
+        raise restore_module.RestoreServiceError("injected write failure")
+
+    def reload_targets(_manager, ids):
+        """记录准备失败或写入失败后仍会恢复目标运行。"""
+        events.append("reload")
+        return list(ids), []
+
+    @contextmanager
+    def payload_directory(*_args, **_kwargs):
+        """返回隔离的已校验负载。"""
+        yield tmp_path
+
+    service = restore_module.RestoreService(plugin, SimpleNamespace(
+        read_public_manifest=lambda _: manifest, create_backup=emergency_backup,
+    ))
+    monkeypatch.setattr(service, "_payload_directory", payload_directory)
+    monkeypatch.setattr(service, "_create_host_database_backup", host_backup)
+    monkeypatch.setattr(service, "_stop_target_plugins", stop_targets)
+    monkeypatch.setattr(service, "_reload_target_plugins", reload_targets)
+    monkeypatch.setattr(service, "_restore_plugin_data", fail_write)
+    with pytest.raises(restore_module.RestoreServiceError):
+        service.restore_logical("backup-review", backup_model.RestoreSelection(plugin_data=True), ["PluginA"])
+    expected = {"host": 2, "emergency": 4, "write": 3}[failure_stage]
+    assert plugin.plugin_records["PluginA"]["counter"] == expected
+    if failure_stage == "host":
+        assert events == ["host"]
+    else:
+        assert events[:3] == ["host", "stop", "emergency"]
+        assert events[-1] == "reload"
+
+
+@pytest.mark.parametrize("journal_mode", ["WAL", "DELETE"])
+def test_plugin_directory_backup_uses_consistent_sqlite_snapshot(tmp_path, monkeypatch, journal_mode):
+    """并发 checkpoint 不能让备份漏掉已提交数据，普通同名文件仍保留。"""
+    source = tmp_path / "source"
+    source.mkdir()
+    target = tmp_path / "snapshot"
+    (source / "notes.db").write_text("普通文件", encoding="utf-8")
+    (source / "notes.db-wal").write_text("普通附件", encoding="utf-8")
+    db = sqlite3.connect(source / "plugin.db")
+    try:
+        db.execute(f"PRAGMA journal_mode={journal_mode}")
+        db.execute("CREATE TABLE data(value INTEGER)")
+        db.commit()
+        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        db.execute("INSERT INTO data VALUES (42)")
+        db.commit()
+        original_copy = backup_module.shutil.copy2
+
+        def checkpoint_after_copy(src, dst, *args, **kwargs):
+            """模拟旧实现复制主库后发生正常 checkpoint 的交错。"""
+            result = original_copy(src, dst, *args, **kwargs)
+            if Path(src).name == "plugin.db":
+                db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            return result
+
+        monkeypatch.setattr(backup_module.shutil, "copy2", checkpoint_after_copy)
+        assert backup_module.BackupService._copy_tree(source, target) == 3
+        assert not (target / "plugin.db-wal").exists()
+        assert not (target / "plugin.db-shm").exists()
+        copied = sqlite3.connect(target / "plugin.db")
+        try:
+            assert copied.execute("SELECT value FROM data").fetchall() == [(42,)]
+            assert copied.execute("PRAGMA quick_check").fetchone() == ("ok",)
+        finally:
+            copied.close()
+        assert (target / "notes.db-wal").read_text(encoding="utf-8") == "普通附件"
+        assert db.execute("SELECT value FROM data").fetchall() == [(42,)]
+    finally:
+        db.close()
