@@ -176,7 +176,10 @@ def delete_torrent_with_files(
         raise ValueError("删除种子及全部数据必须显式传入 delete_file=True")
     if not torrent_hash:
         raise ValueError("删除种子及全部数据需要有效 hash")
-    return instance.delete_torrents(ids=[torrent_hash], delete_file=True)
+    result = instance.delete_torrents(ids=[torrent_hash], delete_file=True)
+    if result is False:
+        raise RuntimeError("下载器未确认删除成功")
+    return result
 
 
 def get_hash(torrent: Any, dl_type: str) -> str:

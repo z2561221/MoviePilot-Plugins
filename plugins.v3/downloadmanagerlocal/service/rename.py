@@ -6,15 +6,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from bencode import bdecode
-
 from app.modules.filemanager.transhandler import TransHandler
 from app.schemas.types import MediaType
 from app.sdk.logging import logger
 from app.sdk.media import MetaBase, MetaInfo, resolve_media_identity
+from bencode import bdecode
 
 from ..adapter.moviepilot import get_download_history_by_hash
 from ..model.state import IYUU_SOURCE_KEY_PREFIX, RENAME_RECORDS_KEY, iyuu_source_key
+from ..service.archive import serialized_rename_state
 from ..utils.name_cleaner import (
     clean_torrent_original_name,
     collect_retry_rename_hashes,
@@ -88,6 +88,7 @@ def format_torrent_name(template_string: str, meta: MetaBase, mediainfo) -> Opti
     return path.as_posix() if path else None
 
 
+@serialized_rename_state
 def save_rename_record(plugin, torrent_hash: str, original_name: str, after_name: str,
                        success: bool, reason: str = ""):
     """保存重命名记录"""
