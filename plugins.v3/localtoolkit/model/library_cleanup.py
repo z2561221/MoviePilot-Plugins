@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import isfinite
 from typing import Any, Iterable, List, Optional
 
@@ -72,6 +72,13 @@ class CleanupCandidate:
             return None
         current = normalize_datetime(now or datetime.now(timezone.utc))
         return (current - normalize_datetime(created)).days
+
+    def exceeds_age(self, days: int, now: datetime) -> Optional[bool]:
+        """按精确时间差判断是否超过阈值，缺失日期时保留未知。"""
+        created = self.date_created_obj or parse_datetime(self.date_created)
+        if not created:
+            return None
+        return normalize_datetime(now) - normalize_datetime(created) > timedelta(days=days)
 
     def to_dict(self, now: Optional[datetime] = None) -> dict:
         """转换为可持久化的结果字典。"""
@@ -282,8 +289,7 @@ def evaluate_cleanup_candidate(
     """三态判断实时条件；缺失必要字段时保留待复核，不按旧快照删除。"""
     unknown = False
     for condition in conditions:
-        age = candidate.age_days(now)
-        checks = [None if age is None else age > condition.days_threshold]
+        checks = [candidate.exceeds_age(condition.days_threshold, now)]
         checks.append(
             True if condition.favorite == "all" else
             None if candidate.favorite is None else match_favorite(candidate.favorite, condition.favorite)
@@ -301,12 +307,7 @@ def evaluate_cleanup_candidate(
 
 def match_condition(candidate: CleanupCandidate, condition: CleanupCondition, now: datetime) -> bool:
     """判断单个候选项是否命中一组清理条件。"""
-    age = candidate.age_days(now)
-    if age is None or age <= condition.days_threshold:
-        return False
-    if not match_favorite(candidate.favorite, condition.favorite):
-        return False
-    return match_played(candidate.played, condition.played)
+    return evaluate_cleanup_candidate(candidate, [condition], now) is True
 
 
 def match_favorite(value: Optional[bool], expected: str) -> bool:

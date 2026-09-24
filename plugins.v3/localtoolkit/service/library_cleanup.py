@@ -215,13 +215,18 @@ class LibraryCleanupModule(BaseToolModule):
             with self.adapter.user_scope(self._run_lock.check):
                 result, checked_at, plan, added, removed = self._scan_and_queue()
             queue_count = len(plan["items"])
-            summary = f"扫描完成，新增入队 {added} 部，失效移出 {removed} 部，待清理 {queue_count} 部"
+            scanned_count = plan.get("last_scanned_total", 0)
+            summary = (
+                f"扫描 {scanned_count} 部，符合条件 {result.qualified_count} 部，"
+                f"新增入队 {added} 部，失效移出 {removed} 部，待清理 {queue_count} 部"
+            )
             self._save_result(result, checked_at, summary=summary, queue=plan, operation="scan")
             self.add_history("success", summary, time.time() - start)
             self._alerts().recover("scan", identities=[])
             self.last_error = ""
             if added or removed:
-                text = (f"新增入队：{added} 部｜失效移出：{removed} 部\n"
+                text = (f"扫描：{scanned_count} 部｜符合条件：{result.qualified_count} 部\n"
+                        f"新增入队：{added} 部｜失效移出：{removed} 部\n"
                         f"当前待清理：{queue_count} 部\n完整名单请查看清理计划页。")
                 if self.config.get("scan_notify", True) and not self._notify("scan", "清理计划更新", text):
                     self.last_error = "扫描通知发送失败"

@@ -49,12 +49,14 @@ def test_scan_only_adds_plan_and_changed_report_then_cleanup_never_rescans():
     plugin.data["library_cleanup_plan"]["items"] = []
     scan = module.scan_plan()
     assert scan["queued_added"] == 2 and scan["scanned_count"] == 2
+    assert "扫描 2 部，符合条件 2 部" in scan["summary"]
     assert [item["movie_id"] for item in plugin.data["library_cleanup_plan"]["items"]] == ["a", "b"]
     assert not adapter.deleted and not adapter.checked and not adapter.prechecked
     assert len(plugin.notifiers) == 1
     assert plugin.notifiers[0].calls[0][1] == "清理计划更新"
     assert "<b>清理计划更新</b>" not in plugin.notifiers[0].calls[0][2]
     assert "当前待清理：2 部" in plugin.notifiers[0].calls[0][2]
+    assert "扫描：2 部｜符合条件：2 部" in plugin.notifiers[0].calls[0][2]
     assert module.run_once()["success_count"] == 2
     assert adapter.scans == 1
 
