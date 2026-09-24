@@ -5,9 +5,42 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 API_MODULE = REPO_ROOT / "plugins.v3/downloadmanagerlocal/frontend/src/components/api.js"
+
+
+def test_page_ignores_stale_history_and_unmounted_errors() -> None:
+    """执行实际页面脚本，验证乱序响应和销毁后错误不能回写。"""
+    script = r'''
+      import assert from 'node:assert/strict';
+      import { readFileSync } from 'node:fs';
+      const source = readFileSync('plugins.v3/downloadmanagerlocal/frontend/src/components/Page.vue', 'utf8')
+        .match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '');
+      const pending = [], cleanups = [];
+      const props = { pluginId: 'test-instance', api: {} };
+      const getApi = (api, id, path) => new Promise((resolve, reject) => pending.push({path, resolve, reject}));
+      const build = new Function('ref', 'computed', 'watch', 'onMounted', 'onBeforeUnmount',
+        'defineProps', 'defineEmits', 'getPluginApi', 'postPluginApi',
+        source + '\nreturn {loadHistory, page, records, error, loading, nextPage};');
+      globalThis.document = { removeEventListener() {} };
+      const state = build(value => ({value}), get => ({get value() { return get(); }}), () => {},
+        () => {}, fn => cleanups.push(fn), () => props, () => () => {}, getApi, () => {});
+      const first = state.loadHistory(), second = state.loadHistory();
+      pending[1].resolve({items: [{hash: 'page1'}], total: 45}); await second;
+      state.nextPage();
+      pending[2].resolve({items: [{hash: 'page2'}], total: 45});
+      await new Promise(resolve => setImmediate(resolve));
+      pending[0].resolve({items: [{hash: 'old-page1'}], total: 45}); await first;
+      assert.equal(state.page.value, 2);
+      assert.equal(state.records.value[0].hash, 'page2');
+      const last = state.loadHistory();
+      for (const cleanup of cleanups) cleanup();
+      pending[3].reject(new Error('late error')); await last;
+      assert.equal(state.error.value, '');
+      assert.equal(state.records.value[0].hash, 'page2');
+    '''
+    result = _run_node(script)
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def _run_node(script: str) -> subprocess.CompletedProcess[str]:

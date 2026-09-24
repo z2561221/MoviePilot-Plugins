@@ -269,6 +269,16 @@ const actionOk = ref(false);
 let overviewRefreshTimer = null;
 let overviewRefreshPending = false;
 
+let pageRequestRevision = 0;
+let pageDisposed = false;
+function beginPageRequest() {
+  return { revision: ++pageRequestRevision, pluginId: props.pluginId, tab: activeTab.value }
+}
+function isCurrentPageRequest(request) {
+  return !pageDisposed && request.revision === pageRequestRevision
+    && request.pluginId === props.pluginId && request.tab === activeTab.value
+}
+
 const tabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' },
   { key: 'history', title: '命名历史', icon: 'mdi-history' },
@@ -441,6 +451,7 @@ watch(
 );
 
 async function loadOverview({ silent = false } = {}) {
+  const request = beginPageRequest();
   if (!silent) {
     loading.value = true;
     error.value = '';
@@ -454,6 +465,7 @@ async function loadOverview({ silent = false } = {}) {
         return null
       }),
     ]);
+    if (!isCurrentPageRequest(request)) return
     if (overviewResp?.code && overviewResp.code !== 0 && !overviewResp.cards) {
       throw new Error(overviewResp?.msg || '总览加载失败')
     }
@@ -462,60 +474,71 @@ async function loadOverview({ silent = false } = {}) {
       : overviewResp?.upload_limit;
     overview.value = { ...(overviewResp || {}), upload_limit: uploadStatus || {} };
   } catch (e) {
+    if (!isCurrentPageRequest(request)) return
     if (silent) console.error('运行总览自动刷新失败:', e);
     else error.value = e?.message || '总览加载失败';
   } finally {
-    if (!silent) loading.value = false;
+    if (isCurrentPageRequest(request) && !silent) loading.value = false;
   }
 }
 
 async function loadHistory() {
+  const request = beginPageRequest();
   loading.value = true;
   error.value = '';
   try {
     const resp = await getApi(`rename_history?page=${page.value}&page_size=${pageSize}`);
+    if (!isCurrentPageRequest(request)) return
     records.value = Array.isArray(resp?.items) ? resp.items : [];
     total.value = resp?.total || 0;
   } catch (e) {
+    if (!isCurrentPageRequest(request)) return
     error.value = e?.message || '加载失败';
   } finally {
-    loading.value = false;
+    if (isCurrentPageRequest(request)) loading.value = false;
   }
 }
 
 async function loadArchive() {
+  const request = beginPageRequest();
   loading.value = true;
   error.value = '';
   try {
     let resp = await getApi(`rename_archive?page=${archivePage.value}&page_size=${pageSize}`);
+    if (!isCurrentPageRequest(request)) return
     const lastPage = Math.max(1, Math.ceil((resp?.total || 0) / pageSize));
     if (archivePage.value > lastPage) {
       archivePage.value = lastPage;
       resp = await getApi(`rename_archive?page=${archivePage.value}&page_size=${pageSize}`);
     }
+    if (!isCurrentPageRequest(request)) return
     archiveRecords.value = Array.isArray(resp?.items) ? resp.items : [];
     archiveTotal.value = resp?.total || 0;
   } catch (e) {
+    if (!isCurrentPageRequest(request)) return
     error.value = e?.message || '归档加载失败';
   } finally {
-    loading.value = false;
+    if (isCurrentPageRequest(request)) loading.value = false;
   }
 }
 
 async function loadDiagnostics() {
+  const request = beginPageRequest();
   loading.value = true;
   error.value = '';
   try {
     const resp = await getApi('diagnostics');
+    if (!isCurrentPageRequest(request)) return
     if (resp?.code && resp.code !== 0) {
       error.value = resp?.msg || '诊断失败';
       return
     }
     diagnostics.value = resp;
   } catch (e) {
+    if (!isCurrentPageRequest(request)) return
     error.value = e?.message || '诊断失败';
   } finally {
-    loading.value = false;
+    if (isCurrentPageRequest(request)) loading.value = false;
   }
 }
 
@@ -699,6 +722,8 @@ onMounted(() => {
   syncOverviewAutoRefresh();
 });
 onBeforeUnmount(() => {
+  pageDisposed = true;
+  pageRequestRevision++;
   stopOverviewAutoRefresh();
   document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
@@ -1820,6 +1845,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8b05f94b"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-758faea2"]]);
 
 export { Page as default };
