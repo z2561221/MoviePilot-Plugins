@@ -87,25 +87,27 @@ const _hoisted_41 = { class: "lt-section-heading" };
 const _hoisted_42 = { class: "lt-table-wrap mt-3" };
 const _hoisted_43 = { class: "text-no-wrap" };
 const _hoisted_44 = ["title"];
-const _hoisted_45 = { key: 0 };
-const _hoisted_46 = { class: "lt-mobile-list" };
-const _hoisted_47 = { class: "lt-record-head" };
-const _hoisted_48 = { class: "lt-record-meta" };
-const _hoisted_49 = { class: "lt-record-summary" };
-const _hoisted_50 = {
+const _hoisted_45 = { class: "lt-duration" };
+const _hoisted_46 = { key: 0 };
+const _hoisted_47 = { class: "lt-mobile-list" };
+const _hoisted_48 = { class: "lt-record-head" };
+const _hoisted_49 = { class: "lt-record-meta" };
+const _hoisted_50 = { class: "lt-duration" };
+const _hoisted_51 = { class: "lt-record-summary" };
+const _hoisted_52 = {
   key: 0,
   class: "lt-empty"
 };
-const _hoisted_51 = {
+const _hoisted_53 = {
   key: 0,
   class: "lt-pagination"
 };
-const _hoisted_52 = { class: "text-subtitle-1 mb-3" };
-const _hoisted_53 = { class: "lt-plan-details" };
-const _hoisted_54 = { key: 0 };
-const _hoisted_55 = { key: 1 };
-const _hoisted_56 = { class: "mt-1" };
-const _hoisted_57 = { class: "text-caption text-medium-emphasis mt-1" };
+const _hoisted_54 = { class: "text-subtitle-1 mb-3" };
+const _hoisted_55 = { class: "lt-plan-details" };
+const _hoisted_56 = { key: 0 };
+const _hoisted_57 = { key: 1 };
+const _hoisted_58 = { class: "mt-1" };
+const _hoisted_59 = { class: "text-caption text-medium-emphasis mt-1" };
 
 const {computed,onBeforeUnmount,onMounted,ref,watch} = await importShared('vue');
 
@@ -188,6 +190,13 @@ const historyTotalPages = computed(() => Math.max(1, Math.ceil((historyTotal.val
 const cleanupPlanTotalPages = computed(() => Math.max(1, Number(cleanupPlan.value?.total_pages || Math.ceil((cleanupPlan.value?.total || 0) / cleanupPlanPageSize.value))));
 const cleanupStatus = computed(() => status.value?.modules?.library_cleanup || {});
 const batchSize = computed(() => Number(cleanupPlan.value?.batch_size || cleanupStatus.value?.cycle_batch_size || 10));
+function formatDuration(value) {
+  if (value == null || value === '' || !['number', 'string'].includes(typeof value)) return '--:--'
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return '--:--'
+  const total = Math.floor(seconds);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
 function formatPlanTime(value) {
   if (!value) return '尚未扫描'
   const date = new Date(value);
@@ -1016,7 +1025,7 @@ return (_ctx, _cache) => {
                             _createElementVNode("th", null, "模块"),
                             _createElementVNode("th", null, "状态"),
                             _createElementVNode("th", null, "摘要"),
-                            _createElementVNode("th", null, "耗时")
+                            _createElementVNode("th", { class: "lt-duration" }, "耗时（分:秒）")
                           ])
                         ], -1)),
                         _createElementVNode("tbody", null, [
@@ -1042,11 +1051,11 @@ return (_ctx, _cache) => {
                                 class: "lt-ellipsis",
                                 title: item.summary
                               }, _toDisplayString(item.summary), 9, _hoisted_44),
-                              _createElementVNode("td", null, _toDisplayString(item.duration) + "s", 1)
+                              _createElementVNode("td", _hoisted_45, _toDisplayString(formatDuration(item.duration)), 1)
                             ]))
                           }), 128)),
                           (!history.value.length)
-                            ? (_openBlock(), _createElementBlock("tr", _hoisted_45, [...(_cache[40] || (_cache[40] = [
+                            ? (_openBlock(), _createElementBlock("tr", _hoisted_46, [...(_cache[40] || (_cache[40] = [
                                 _createElementVNode("td", {
                                   colspan: "5",
                                   class: "text-center text-medium-emphasis py-8"
@@ -1058,13 +1067,13 @@ return (_ctx, _cache) => {
                       _: 1
                     })
                   ]),
-                  _createElementVNode("div", _hoisted_46, [
+                  _createElementVNode("div", _hoisted_47, [
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value, (item, index) => {
                       return (_openBlock(), _createElementBlock("article", {
                         key: `mobile-history-${item.time}-${index}`,
                         class: "lt-record"
                       }, [
-                        _createElementVNode("div", _hoisted_47, [
+                        _createElementVNode("div", _hoisted_48, [
                           _createElementVNode("strong", null, _toDisplayString(item.module_name), 1),
                           _createVNode(_component_VChip, {
                             size: "x-small",
@@ -1077,21 +1086,21 @@ return (_ctx, _cache) => {
                             _: 2
                           }, 1032, ["color"])
                         ]),
-                        _createElementVNode("div", _hoisted_48, [
+                        _createElementVNode("div", _hoisted_49, [
                           _cache[42] || (_cache[42] = _createElementVNode("span", null, "时间", -1)),
                           _createElementVNode("b", null, _toDisplayString(item.time), 1),
                           _cache[43] || (_cache[43] = _createElementVNode("span", null, "耗时", -1)),
-                          _createElementVNode("b", null, _toDisplayString(item.duration) + "s", 1)
+                          _createElementVNode("b", _hoisted_50, _toDisplayString(formatDuration(item.duration)), 1)
                         ]),
-                        _createElementVNode("div", _hoisted_49, _toDisplayString(item.summary), 1)
+                        _createElementVNode("div", _hoisted_51, _toDisplayString(item.summary), 1)
                       ]))
                     }), 128)),
                     (!history.value.length)
-                      ? (_openBlock(), _createElementBlock("div", _hoisted_50, "暂无运行历史"))
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_52, "暂无运行历史"))
                       : _createCommentVNode("", true)
                   ]),
                   (historyTotal.value > historyPageSize)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_51, [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_53, [
                         _createVNode(_component_VBtn, {
                           size: "x-small",
                           variant: "tonal",
@@ -1127,8 +1136,8 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [
                 _createVNode(_component_VCardText, { class: "lt-break-text" }, {
                   default: _withCtx(() => [
-                    _createElementVNode("div", _hoisted_52, _toDisplayString(planDetails.value.title || planDetails.value.code || planDetails.value.movie_id), 1),
-                    _createElementVNode("dl", _hoisted_53, [
+                    _createElementVNode("div", _hoisted_54, _toDisplayString(planDetails.value.title || planDetails.value.code || planDetails.value.movie_id), 1),
+                    _createElementVNode("dl", _hoisted_55, [
                       _cache[44] || (_cache[44] = _createElementVNode("dt", null, "媒体库", -1)),
                       _createElementVNode("dd", null, _toDisplayString(planDetails.value.library_name || planDetails.value.server), 1),
                       _cache[45] || (_cache[45] = _createElementVNode("dt", null, "入库日期", -1)),
@@ -1138,10 +1147,10 @@ return (_ctx, _cache) => {
                       _cache[47] || (_cache[47] = _createElementVNode("dt", null, "当前状态", -1)),
                       _createElementVNode("dd", null, _toDisplayString(planStatus(planDetails.value)), 1),
                       (planDetails.value.last_error)
-                        ? (_openBlock(), _createElementBlock("dt", _hoisted_54, "处理办法"))
+                        ? (_openBlock(), _createElementBlock("dt", _hoisted_56, "处理办法"))
                         : _createCommentVNode("", true),
                       (planDetails.value.last_error)
-                        ? (_openBlock(), _createElementBlock("dd", _hoisted_55, _toDisplayString(planRecoveryHint(planDetails.value)), 1))
+                        ? (_openBlock(), _createElementBlock("dd", _hoisted_57, _toDisplayString(planRecoveryHint(planDetails.value)), 1))
                         : _createCommentVNode("", true),
                       _cache[48] || (_cache[48] = _createElementVNode("dt", null, "最近核验", -1)),
                       _createElementVNode("dd", null, _toDisplayString(planDetails.value.last_recheck_at ? formatPlanTime(planDetails.value.last_recheck_at) : '尚未核验'), 1)
@@ -1188,8 +1197,8 @@ return (_ctx, _cache) => {
                     class: "lt-record"
                   }, [
                     _createElementVNode("strong", null, _toDisplayString(result.title), 1),
-                    _createElementVNode("div", _hoisted_56, _toDisplayString(result.reason), 1),
-                    _createElementVNode("div", _hoisted_57, _toDisplayString(result.action), 1)
+                    _createElementVNode("div", _hoisted_58, _toDisplayString(result.reason), 1),
+                    _createElementVNode("div", _hoisted_59, _toDisplayString(result.action), 1)
                   ]))
                 }), 128))
               ]),
@@ -1220,6 +1229,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9c5eeb4d"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-016f5ea4"]]);
 
 export { Page as default };

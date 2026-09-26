@@ -76,6 +76,13 @@ const historyTotalPages = computed(() => Math.max(1, Math.ceil((historyTotal.val
 const cleanupPlanTotalPages = computed(() => Math.max(1, Number(cleanupPlan.value?.total_pages || Math.ceil((cleanupPlan.value?.total || 0) / cleanupPlanPageSize.value))))
 const cleanupStatus = computed(() => status.value?.modules?.library_cleanup || {})
 const batchSize = computed(() => Number(cleanupPlan.value?.batch_size || cleanupStatus.value?.cycle_batch_size || 10))
+function formatDuration(value) {
+  if (value == null || value === '' || !['number', 'string'].includes(typeof value)) return '--:--'
+  const seconds = Number(value)
+  if (!Number.isFinite(seconds) || seconds < 0) return '--:--'
+  const total = Math.floor(seconds)
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
 function formatPlanTime(value) {
   if (!value) return '尚未扫描'
   const date = new Date(value)
@@ -478,14 +485,14 @@ onMounted(loadOverview)
           </div>
           <div class="lt-table-wrap mt-3">
             <VTable class="lt-table" density="compact">
-              <thead><tr><th>时间</th><th>模块</th><th>状态</th><th>摘要</th><th>耗时</th></tr></thead>
+              <thead><tr><th>时间</th><th>模块</th><th>状态</th><th>摘要</th><th class="lt-duration">耗时（分:秒）</th></tr></thead>
               <tbody>
                 <tr v-for="(item, index) in history" :key="`${item.time}-${index}`">
                   <td class="text-no-wrap">{{ item.time }}</td>
                   <td>{{ item.module_name }}</td>
                   <td><VChip size="x-small" :color="historyStatusColor(item)" variant="tonal">{{ historyStatus(item) }}</VChip></td>
                   <td class="lt-ellipsis" :title="item.summary">{{ item.summary }}</td>
-                  <td>{{ item.duration }}s</td>
+                  <td class="lt-duration">{{ formatDuration(item.duration) }}</td>
                 </tr>
                 <tr v-if="!history.length"><td colspan="5" class="text-center text-medium-emphasis py-8">暂无运行历史</td></tr>
               </tbody>
@@ -494,7 +501,7 @@ onMounted(loadOverview)
           <div class="lt-mobile-list">
             <article v-for="(item, index) in history" :key="`mobile-history-${item.time}-${index}`" class="lt-record">
               <div class="lt-record-head"><strong>{{ item.module_name }}</strong><VChip size="x-small" :color="historyStatusColor(item)" variant="tonal">{{ historyStatus(item) }}</VChip></div>
-              <div class="lt-record-meta"><span>时间</span><b>{{ item.time }}</b><span>耗时</span><b>{{ item.duration }}s</b></div>
+              <div class="lt-record-meta"><span>时间</span><b>{{ item.time }}</b><span>耗时</span><b class="lt-duration">{{ formatDuration(item.duration) }}</b></div>
               <div class="lt-record-summary">{{ item.summary }}</div>
             </article>
             <div v-if="!history.length" class="lt-empty">暂无运行历史</div>
@@ -583,6 +590,7 @@ onMounted(loadOverview)
 .lt-plan-summary strong { overflow-wrap: anywhere; font-size: 15px; }
 .lt-table-wrap { width: 100%; overflow-x: auto; }
 .lt-table { min-width: 720px; background: transparent; }
+.lt-duration { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right !important; }
 .lt-table :deep(th) { font-weight: 700 !important; }
 .lt-main--plan { display: flex; flex-direction: column; overflow: hidden; }
 .lt-main--plan > :not(.lt-pane--plan) { flex-shrink: 0; }
