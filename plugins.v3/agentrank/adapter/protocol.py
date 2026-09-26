@@ -29,7 +29,7 @@ class AgentRankProtocolMiddleware(AgentMiddleware):
         )
         return request.override(tools=tools, tool_choice=choice)
 
-    def _record(self, response):
+    def _record(self, response, request):
         """仅保存有限次响应的安全统计，不改变响应。"""
         rows = getattr(self.collector, "model_diagnostics", None)
         if rows is not None and len(rows) < 12:
@@ -37,7 +37,7 @@ class AgentRankProtocolMiddleware(AgentMiddleware):
                 "submit" if self.collector.context_read else "read"
             )
             rows.append(response_diagnostic(
-                response, phase=phase, forced=self.tool_choice_supported
+                response, phase=phase, forced=self.tool_choice_supported, tools=request.tools
             ))
         return response
 
@@ -54,20 +54,20 @@ class AgentRankProtocolMiddleware(AgentMiddleware):
         """限制异步模型调用；参数明确不受支持时只降级一次。"""
         constrained = self._request(request)
         try:
-            return self._record(await handler(constrained))
+            return self._record(await handler(constrained), constrained)
         except Exception as error:
             if not self.tool_choice_supported or not self._unsupported_choice(error):
                 raise
             self.tool_choice_supported = False
-            return self._record(await handler(self._request(request)))
+            return self._record(await handler(self._request(request)), self._request(request))
 
     def wrap_model_call(self, request, handler):
         """为宿主同步图执行保留相同的阶段与参数约束。"""
         constrained = self._request(request)
         try:
-            return self._record(handler(constrained))
+            return self._record(handler(constrained), constrained)
         except Exception as error:
             if not self.tool_choice_supported or not self._unsupported_choice(error):
                 raise
             self.tool_choice_supported = False
-            return self._record(handler(self._request(request)))
+            return self._record(handler(self._request(request)), self._request(request))

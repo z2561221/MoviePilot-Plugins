@@ -9,6 +9,7 @@ from app.agent import MoviePilotAgent, ReplyMode
 from pydantic import ValidationError
 
 from ..host_compat import get_internal_user_id
+from .diagnostics import validation_error_types
 from ..agent_tools.context import (
     CONVERSATION_AGENT_ROLE,
     FEEDBACK_AGENT_ROLE,
@@ -476,15 +477,7 @@ class AgentRankAgentAdapter:
                     if len(collector.output_diagnostics) < 6:
                         collector.output_diagnostics.append({
                             "kind": "schema_invalid",
-                            "error_types": sorted({
-                                item["type"] if item["type"] in {
-                                    "missing", "extra_forbidden", "string_type",
-                                    "list_type", "dict_type", "model_type",
-                                    "int_parsing", "float_parsing", "literal_error",
-                                    "value_error", "too_short", "too_long"
-                                } else "other"
-                                for item in error.errors(include_input=False, include_url=False)
-                            })[:12],
+                            "error_types": validation_error_types(error),
                         })
                     continue
                 if collector.submit(collector.expected_tool, payload) is None:
@@ -571,6 +564,11 @@ class AgentRankAgentAdapter:
                     repair_failure_class, repair_kind = self._classify_repair(
                         terminal_outputs, issue
                     )
+                    last_model = (result_collector.model_diagnostics or [{}])[-1]
+                    if last_model.get("tool_schema_error_types"):
+                        repair_failure_class, repair_kind = "tool_schema_invalid", "schema"
+                    elif last_model.get("unexpected_tool_call_count"):
+                        repair_failure_class, repair_kind = "unexpected_tool_call", "protocol"
                     code = issue.code if issue is not None else "submission_required"
                     field = issue.field if issue is not None else "submission"
                     repair_evidence = await self._repair_evidence(

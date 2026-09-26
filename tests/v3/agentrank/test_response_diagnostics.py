@@ -74,3 +74,34 @@ def test_schema_diagnostic_survives_run_history_projection():
     )
     assert metrics["agent_provenance"][0]["output_diagnostics"]
     assert "PRIVATE" not in json.dumps(metrics)
+
+
+def test_tool_schema_error_captured_before_execution():
+    """工具调用 JSON 合法仍可能缺少必填参数，诊断须覆盖这个边界。"""
+    from pydantic import BaseModel
+
+    class Submission(BaseModel):
+        """最小提交格式。"""
+        profile: dict
+
+    tool = SimpleNamespace(name="submit", args_schema=Submission)
+    message = AIMessage(content="", tool_calls=[{
+        "name": "submit", "args": {"private": "PRIVATE_VALUE"}, "id": "call-1",
+    }])
+    row = response_diagnostic(SimpleNamespace(result=[message]),
+                              phase="submit", forced=True, tools=[tool])
+    assert row["tool_call_count"] == 1
+    assert row["invalid_tool_call_count"] == 0
+    assert row["tool_schema_error_types"] == ["missing"]
+    assert "PRIVATE" not in json.dumps(row)
+
+
+def test_unexpected_tool_name_is_counted_but_not_saved():
+    """供应商未遵循强制选择时，只记录计数。"""
+    message = AIMessage(content="", tool_calls=[{
+        "name": "PRIVATE_TOOL", "args": {}, "id": "call-1",
+    }])
+    row = response_diagnostic(SimpleNamespace(result=[message]), phase="repair",
+                              forced=True, tools=[SimpleNamespace(name="submit")])
+    assert row["unexpected_tool_call_count"] == 1
+    assert "PRIVATE_TOOL" not in json.dumps(row)
