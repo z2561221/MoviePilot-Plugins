@@ -1,5 +1,5 @@
-import { reactive, ref } from 'vue'
-import { getPluginApi, postPluginApi, toPosterThumbnail } from '../api'
+import { reactive, ref, onScopeDispose, watch } from 'vue'
+import { getPluginApi, postPluginApi, toPosterThumbnail, openNativeSubscription } from '../api'
 import { sourceDescriptor } from '../source'
 import { useRankMediaActions } from '../useRankMediaActions'
 
@@ -48,6 +48,25 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   const dialogResolving = ref(false)
   const dialogResolveError = ref('')
   const dialogResolveToken = ref(0)
+
+  let requestEpoch = 0
+  let active = true
+  function invalidateRequests() {
+    requestEpoch += 1
+    dialogResolveToken.value += 1
+    loading.value = false
+  }
+  onScopeDispose(() => {
+    active = false
+    invalidateRequests()
+  })
+  watch(pluginId, invalidateRequests, { flush: 'sync' })
+
+  function beginRequest() {
+    const epoch = ++requestEpoch
+    const owner = pluginId()
+    return () => active && epoch === requestEpoch && owner === pluginId()
+  }
 
   function rankColorOf(key) {
     return rankIconColors[key] || rankIconColors.unknown
@@ -140,6 +159,8 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   } = useRankMediaActions({ api, pluginId, rankNameOf })
 
   async function loadAll() {
+    if (!active) return
+    const isCurrent = beginRequest()
     loading.value = true
     loadError.value = ''
     const requests = [
@@ -168,8 +189,9 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
     const results = await Promise.allSettled(requests.map(async request => {
       const response = await getPluginApi(api(), pluginId(), request.path, { timeoutMs: INITIAL_LOAD_TIMEOUT_MS })
       if (response?.success === false) throw new Error(response.message || `${request.label}加载失败`)
-      request.apply(normalizeApiData(response))
+      if (isCurrent()) request.apply(normalizeApiData(response))
     }))
+    if (!isCurrent()) return
     const failed = []
     results.forEach((result, index) => {
       if (result.status === 'rejected') {
@@ -182,6 +204,8 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   async function loadArchive() {
+    if (!active) return
+    const isCurrent = beginRequest()
     loading.value = true
     loadError.value = ''
     try {
@@ -191,14 +215,16 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
         return normalizeApiData(response)
       }
       let data = await fetchPage(archiveData.value.page)
+      if (!isCurrent()) return
       const lastPage = Math.max(Number(data?.total_pages) || 0, 1)
       if ((Number(data?.page) || 1) > lastPage) data = await fetchPage(lastPage)
-      if (data) archiveData.value = data
+      if (isCurrent() && data) archiveData.value = data
     } catch (error) {
+      if (!isCurrent()) return
       loadError.value = '归档记录加载失败'
       console.error('[DoubanCenter] 归档记录加载失败', error)
     } finally {
-      loading.value = false
+      if (isCurrent()) loading.value = false
     }
   }
 
@@ -208,6 +234,7 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   function closeArchivePage() {
+    invalidateRequests()
     archivePage.value = false
   }
 
@@ -294,8 +321,10 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   async function subscribeViaNativeDialog(rk, item) {
+    const owner = pluginId()
     const media = await resolveRankMedia(rk, item)
-    await nativeSubscribe()(media)
+    if (!active || owner !== pluginId()) return
+    await openNativeSubscription(nativeSubscribe(), media)
     actionOk.value = true
     actionMessage.value = '已打开 MP 原生订阅窗口'
   }

@@ -1494,8 +1494,13 @@ def test_manual_bangumi_resolve_reuses_saved_tmdb_and_returns_season():
     assert chain.recognize_calls[0]["media_id"] == "65942"
 
 
-def test_manual_bangumi_subscription_passes_tmdb_identity_to_subscribe_chain():
+def test_manual_bangumi_subscription_passes_tmdb_identity_to_subscribe_chain(monkeypatch):
     """手动订阅识别成功后向订阅链传递 TMDB 来源和 ID。"""
+    from app.plugins.doubancenter.adapter import subscription_query
+
+    monkeypatch.setattr(subscription_query, "_sdk_queries", lambda: None)
+    monkeypatch.setattr(subscription_query, "_legacy_active", lambda params: False)
+    monkeypatch.setattr(subscription_query, "_legacy_history", lambda params: False)
     tmdb_media = FakeMediaInfo(
         title="Yan neko",
         source=MediaSource.TMDB,
@@ -1535,8 +1540,13 @@ def test_manual_bangumi_subscription_passes_tmdb_identity_to_subscribe_chain():
     assert captured["media_id"] == "312949"
 
 
-def test_manual_bangumi_subscription_reuses_tmdb_identity_and_season():
+def test_manual_bangumi_subscription_reuses_tmdb_identity_and_season(monkeypatch):
     """手动订阅直接复用榜单 TMDB 身份并把季号传给订阅链。"""
+    from app.plugins.doubancenter.adapter import subscription_query
+
+    monkeypatch.setattr(subscription_query, "_sdk_queries", lambda: None)
+    monkeypatch.setattr(subscription_query, "_legacy_active", lambda params: False)
+    monkeypatch.setattr(subscription_query, "_legacy_history", lambda params: False)
     tmdb_media = FakeMediaInfo(
         title="Re：从零开始的异世界生活",
         source=MediaSource.TMDB,

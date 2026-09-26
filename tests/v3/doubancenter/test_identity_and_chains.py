@@ -467,6 +467,10 @@ def test_auto_subscription_forwards_season_and_keeps_bangumi_record_title():
     class SubscribeOper:
         """模拟没有已完成订阅。"""
 
+        def exists(self, **kwargs):
+            """返回完整的活动订阅空结果。"""
+            return False
+
         def exist_history(self, **kwargs):
             """返回没有完成历史。"""
             return False

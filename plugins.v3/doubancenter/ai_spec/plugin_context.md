@@ -2,7 +2,7 @@
 
 ## 插件用途
 
-DoubanCenter 3.0.11 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
+DoubanCenter 3.0.12 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
 
 ## 入口与渲染
 
@@ -78,7 +78,7 @@ DoubanCenter 3.0.11 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - V3 聚焦测试：设置 `MOVIEPILOT_BACKEND_PATH` 为固定 V3 宿主后运行 `python -m pytest tests/v3/doubancenter -q`。
 - Python 语法：`python -m compileall -q plugins.v3/doubancenter`。
 - 联邦构建：`pnpm --dir plugins.v3/doubancenter build`，并确认 `dist/assets/remoteEntry.js` 引用的资产均存在。
-- 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.11`；不修改 V2 元数据。
+- 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.12`；不修改 V2 元数据。
 - MP 本地闭环：使用开发技能的 `accept_local.py` 同步至可用的 MP 本地仓库；需要时从发现结果安装准确的本地来源，再执行 `POST /api/v1/plugin/reload/DoubanCenter`，回读 history、installed、overview、remotes 和静态资产。页面验收由用户完成。
 
 ## 禁止改动区
@@ -87,3 +87,17 @@ DoubanCenter 3.0.11 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - 不改全局 MoviePilot 宿主逻辑，除非问题已定位为宿主契约缺口并单独确认。
 - 不把新业务逻辑继续塞回 `__init__.py`。
 - 不在验收中触发真实订阅、真实自动订阅或破坏性数据清理。
+
+## 订阅查重兼容边界
+
+- `adapter/subscription_query.py` 在提供 `app.sdk.queries` 的宿主上使用
+  `list_subscriptions` / `list_subscription_history`，按来源、ID、季、剧集组
+  在服务端精确过滤，只取一个命中；SDK 合同核对于 `bbaec9d6`。
+- 旧宿主 `2fe39d85` 没有该 SDK，限于 `SubscribeOper.exists` 与
+  `SubscribeHistoryOper.exists` 两个独立入口。最低宿主要求提高到具备 queries SDK
+  后移除回退。任一必要查询失败或缺失返回未知，已确认命中优先。
+- 聚焦覆盖：`tests/v3/doubancenter/test_review_regressions.py`，包括真实旧 Oper
+  方法形状、完成历史命中、SDK 故障和不完整返回。
+
+- 播放事件用实例锁串行处理，不丢弃锁忙时到达的不同媒体事件。
+- 详情加载按请求代次、插件实例和组件存活状态回写；原生订阅需明确 success=true。

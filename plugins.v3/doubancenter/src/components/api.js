@@ -81,3 +81,11 @@ export async function savePluginConfig(api, pluginId, payload = {}) {
   if (response?.success === false) throw new Error(response?.message || '插件配置保存失败')
   return response?.data ?? response
 }
+
+export async function openNativeSubscription(nativeSubscribe, media) {
+  const result = await nativeSubscribe(media)
+  if (result?.success !== true) {
+    throw new Error(result?.message || '未能打开 MP 原生订阅窗口')
+  }
+  return result
+}

@@ -9,19 +9,13 @@ from app.sdk.logging import logger
 from app.schemas.types import MediaType
 
 from .. import utils
+from ..adapter import subscription_query
 from ..model.identity import identity_from_media, identity_payload, legacy_identity
 from ..storage import records as storage
 from . import observation
 
 
 _SUBSCRIBE_LOCK = threading.Lock()
-
-
-def _default_subscribe_oper_cls():
-    """按调用时环境读取 MoviePilot 订阅数据库操作类。"""
-    from app.db.oper.subscribe import SubscribeOper
-
-    return SubscribeOper
 
 
 def _default_media_server_oper_cls():
@@ -69,34 +63,12 @@ def is_existing_identity(
     )
     if not source or not resolved_id:
         return False
-    try:
-        subscribe_oper_cls = subscribe_oper_cls or _default_subscribe_oper_cls()
-        oper = subscribe_oper_cls()
-    except Exception as err:
-        logger.warning(f"豆瓣中心：初始化订阅状态检查失败：{type(err).__name__}")
-        return None
-    params = {
+    return subscription_query.exists({
         "media_source": source,
         "media_id": resolved_id,
         "season": season,
         "episode_group": episode_group,
-    }
-    lookup_failed = False
-    try:
-        exists = getattr(oper, "exists", None)
-        if callable(exists) and exists(**params):
-            return True
-    except Exception as err:
-        lookup_failed = True
-        logger.warning(f"豆瓣中心：检查活动订阅状态失败：{type(err).__name__}")
-    try:
-        exist_history = getattr(oper, "exist_history", None)
-        if callable(exist_history) and exist_history(**params):
-            return True
-    except Exception as err:
-        lookup_failed = True
-        logger.warning(f"豆瓣中心：检查已完成订阅状态失败：{type(err).__name__}")
-    return None if lookup_failed else False
+    }, subscribe_oper_cls=subscribe_oper_cls)
 
 
 def is_existing_library_media(

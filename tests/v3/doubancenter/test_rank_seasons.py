@@ -54,7 +54,9 @@ def rank_lab(monkeypatch):
             return False
 
     monkeypatch.setattr(rank_pipeline, "SubscribeChain", FakeSubscribeChain)
-    monkeypatch.setattr(subscription, "_default_subscribe_oper_cls", lambda: FakeSubscribeOper)
+    monkeypatch.setattr(subscription.subscription_query, "_sdk_queries", lambda: None)
+    monkeypatch.setattr(subscription.subscription_query, "_legacy_active", lambda params: False)
+    monkeypatch.setattr(subscription.subscription_query, "_legacy_history", lambda params: False)
     plugin = SimpleNamespace(
         chain=SimpleNamespace(
             recognize_media=recognize,

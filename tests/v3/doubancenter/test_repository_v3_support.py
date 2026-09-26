@@ -100,7 +100,7 @@ def test_v3_sdk_migrations_use_current_public_exports():
     assert "from app.sdk.services import MediaServerHelper, MediaServerIdentityHelper" in folio_source
     assert "from app.schemas.types import MediaSource, MediaType, MessageType" in folio_source
     assert "NotificationType" not in folio_source
-    assert "from app.db.oper.subscribe import SubscribeOper" in subscription_source
+    assert "subscription_query.exists" in subscription_source
     assert '"app.db.oper.subscribe"' in migration_source
     assert '"app.db.oper.subscribehistory"' in migration_source
     assert "app.db.subscribe_oper" not in migration_source + subscription_source
