@@ -6,6 +6,7 @@ import re
 from typing import Any, Callable, Dict, List, Mapping, Type
 
 from app.agent import MoviePilotAgent, ReplyMode
+from pydantic import ValidationError
 
 from ..host_compat import get_internal_user_id
 from ..agent_tools.context import (
@@ -415,6 +416,14 @@ class AgentRankAgentAdapter:
             return code[:64], "submission"
         if code == "submission_required":
             return code, "submission"
+        if any(cls._host_failure_marker(item) for value in values
+               for item in cls._text_candidates(value)):
+            return "host_execution_failed", "transport"
+        if any(cls._is_json_object_text(item) for value in values
+               for item in cls._text_candidates(value)):
+            return "agent_schema_invalid", "schema"
+        if text.strip():
+            return "agent_text_without_submission", "output"
         return "agent_output_missing", "output"
 
     @classmethod
@@ -463,7 +472,20 @@ class AgentRankAgentAdapter:
                     payload = schema.model_validate_json(normalized).model_dump(
                         mode="json"
                     )
-                except Exception:
+                except ValidationError as error:
+                    if len(collector.output_diagnostics) < 6:
+                        collector.output_diagnostics.append({
+                            "kind": "schema_invalid",
+                            "error_types": sorted({
+                                item["type"] if item["type"] in {
+                                    "missing", "extra_forbidden", "string_type",
+                                    "list_type", "dict_type", "model_type",
+                                    "int_parsing", "float_parsing", "literal_error",
+                                    "value_error", "too_short", "too_long"
+                                } else "other"
+                                for item in error.errors(include_input=False, include_url=False)
+                            })[:12],
+                        })
                     continue
                 if collector.submit(collector.expected_tool, payload) is None:
                     return True
@@ -510,6 +532,10 @@ class AgentRankAgentAdapter:
 
         def attach_repair_provenance(target: Dict[str, Any]) -> None:
             """仅在实际发生修正时附加新诊断字段，保持无修正旧结果兼容。"""
+            if result_collector.model_diagnostics:
+                target["model_diagnostics"] = list(result_collector.model_diagnostics)
+            if result_collector.output_diagnostics:
+                target["output_diagnostics"] = list(result_collector.output_diagnostics)
             if repair_count or repair_failure_class or repair_kind:
                 target["repair_failure_class"] = repair_failure_class
                 target["repair_kind"] = repair_kind
