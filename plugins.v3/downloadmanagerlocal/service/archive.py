@@ -3,9 +3,28 @@
 from __future__ import annotations
 
 from datetime import datetime
-
+from functools import wraps
+from threading import RLock
 
 from ..model.state import RENAME_RECORDS_KEY, RENAME_RETRY_STATE_KEY
+
+_LOCK_INIT = RLock()
+
+
+def serialized_rename_state(func):
+    """为同一插件实例的归档与历史读改写提供可重入锁。"""
+    @wraps(func)
+    def locked(plugin, *args, **kwargs):
+        """持有实例锁执行完整读改写，允许归档和历史互相调用。"""
+        with _LOCK_INIT:
+            lock = getattr(plugin, "_rename_state_lock", None)
+            if lock is None:
+                lock = RLock()
+                plugin._rename_state_lock = lock
+        with lock:
+            return func(plugin, *args, **kwargs)
+    return locked
+
 
 RETRY_STATE_KEY = RENAME_RETRY_STATE_KEY
 DEFAULT_ARCHIVE_THRESHOLD = 3
@@ -75,12 +94,14 @@ def classify_rename_failure(reason: str = "") -> str:
     return "UNKNOWN_ERROR"
 
 
+@serialized_rename_state
 def get_rename_retry_state(plugin) -> dict:
     """读取补刀失败状态。"""
     state = plugin.get_data(RETRY_STATE_KEY) or {}
     return state if isinstance(state, dict) else {}
 
 
+@serialized_rename_state
 def save_rename_retry_state(plugin, state: dict) -> None:
     """保存补刀失败状态。"""
     plugin.save_data(RETRY_STATE_KEY, state or {})
@@ -95,6 +116,7 @@ def is_rename_archived(plugin, torrent_hash: str) -> bool:
     return bool(item.get("archived"))
 
 
+@serialized_rename_state
 def clear_rename_retry_state(plugin, torrent_hash: str) -> None:
     """清理指定种子的补刀失败状态。"""
     hash_text = str(torrent_hash or "").strip()
@@ -106,6 +128,7 @@ def clear_rename_retry_state(plugin, torrent_hash: str) -> None:
         save_rename_retry_state(plugin, state)
 
 
+@serialized_rename_state
 def record_rename_failure(
     plugin,
     torrent_hash: str,
@@ -144,6 +167,7 @@ def record_rename_failure(
     return item
 
 
+@serialized_rename_state
 def restore_rename_archive(plugin, torrent_hash: str) -> dict:
     """从归档中恢复指定种子，使其重新参与补刀。"""
     hash_text = str(torrent_hash or "").strip()
@@ -171,6 +195,7 @@ def restore_rename_archive(plugin, torrent_hash: str) -> dict:
     return {"code": 0, "msg": "已恢复，后续将重新参与补刀", "hash": hash_text}
 
 
+@serialized_rename_state
 def delete_rename_archive(plugin, torrent_hash: str) -> dict:
     """删除指定归档状态记录。"""
     hash_text = str(torrent_hash or "").strip()
@@ -184,6 +209,7 @@ def delete_rename_archive(plugin, torrent_hash: str) -> dict:
     return {"code": 0, "msg": "已删除归档记录", "hash": hash_text}
 
 
+@serialized_rename_state
 def list_rename_archive(plugin, page: int = 1, page_size: int = 15) -> dict:
     """返回补刀归档记录分页。"""
     state = get_rename_retry_state(plugin)
@@ -210,6 +236,7 @@ def list_rename_archive(plugin, page: int = 1, page_size: int = 15) -> dict:
     }
 
 
+@serialized_rename_state
 def rename_archive_stats(plugin) -> dict:
     """统计补刀失败状态，用于总览和诊断。"""
     state = get_rename_retry_state(plugin)

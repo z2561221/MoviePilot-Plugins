@@ -5,12 +5,11 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from bencode import bdecode, bencode
-
 from app.schemas import ServiceInfo
 from app.schemas.types import MessageType
 from app.sdk.config import settings
 from app.sdk.logging import logger
+from bencode import bdecode, bencode
 
 from ..adapter.moviepilot import is_downloader_type
 from ..model.state import record_transfer_success
@@ -18,7 +17,6 @@ from ..utils.name_cleaner import is_dirty_renamed_torrent_name
 from ..utils.torrent_adapter import get_label, get_save_path, get_tracker_urls
 from .rename import _get_torrent_content_name, resolve_retry_original_name
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
-
 
 _AUTOMATIC_DELAY_TRIGGER_SOURCES = frozenset({"兜底扫描", "事件驱动"})
 
@@ -214,6 +212,20 @@ def _complete_transfer(plugin, from_downloader, to_service, source_hash: str,
     return True
 
 
+def _finish_saved_transfer(plugin, from_service, to_service, source_hash, download_id, generation):
+    """先落盘目标身份，后处理失败时保留续办记录和源任务。"""
+    _save_transfer_state(plugin, from_service, to_service, source_hash, download_id, False)
+    try:
+        completed = _complete_transfer(
+            plugin, from_service.instance, to_service, source_hash, download_id, generation,
+        )
+    except (OSError, RuntimeError, ValueError, TypeError) as error:
+        logger.error(f"转移后处理失败，保留源任务与续办记录 {source_hash}: {error}")
+        return False
+    _save_transfer_state(plugin, from_service, to_service, source_hash, download_id, completed)
+    return completed
+
+
 def _save_transfer_state(plugin, from_service, to_service, source_hash: str,
                          download_id: str, completed: bool) -> None:
     """保存真实阶段，已创建但未收尾的目标任务不会被当成普通重复项删除源。"""
@@ -354,10 +366,9 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                     and previous.get("to_download_id")
                 ):
                     download_id = str(previous["to_download_id"])
-                    completed = _complete_transfer(
-                        plugin, from_downloader, to_service, torrent_item["hash"], download_id, generation,
+                    completed = _finish_saved_transfer(
+                        plugin, from_service, to_service, torrent_item["hash"], download_id, generation,
                     )
-                    _save_transfer_state(plugin, from_service, to_service, torrent_item["hash"], download_id, completed)
                     if not completed:
                         break
                     success += 1
@@ -433,10 +444,9 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                 fail += 1
                 logger.error(f"添加下载任务失败：{torrent_file}")
                 continue
-            completed = _complete_transfer(
-                plugin, from_downloader, to_service, torrent_item["hash"], download_id, generation,
+            completed = _finish_saved_transfer(
+                plugin, from_service, to_service, torrent_item["hash"], download_id, generation,
             )
-            _save_transfer_state(plugin, from_service, to_service, torrent_item["hash"], download_id, completed)
             if not completed:
                 logger.warning(f"转移已停止：目标任务 {download_id} 已创建，源任务保留，下次续办后处理")
                 break

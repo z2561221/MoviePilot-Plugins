@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.9`（基于已发布的 V3.3.8）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.11`（基于已发布的 V3.3.10）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -25,7 +25,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.10`；V2 源码与元数据保持原样。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.11`；V2 源码与元数据保持原样。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。

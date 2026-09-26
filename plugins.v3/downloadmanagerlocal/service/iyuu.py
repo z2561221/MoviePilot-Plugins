@@ -2,17 +2,17 @@
 
 import os
 import re
+import threading
 import time
-from typing import Optional, Dict
+from typing import Dict, Optional
 from urllib.parse import urljoin
-
-from bencode import bdecode
-from lxml import etree
 
 from app.schemas import ServiceInfo
 from app.schemas.types import MessageType
 from app.sdk.config import settings
 from app.sdk.logging import logger
+from bencode import bdecode
+from lxml import etree
 
 from ..adapter.moviepilot import (
     check_site,
@@ -26,13 +26,14 @@ from ..adapter.moviepilot import (
     request_get_res,
     request_post_res,
 )
-from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
 from ..model.state import iyuu_history_key, iyuu_source_key, record_iyuu_results
 from ..utils.sensitive import mask_sensitive_url
 from ..utils.torrent_adapter import get_label, get_tracker_urls
-
+from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
+from .transfer import _transfer_stopped
 
 IYUU_QUERY_CHUNK_SIZE = 100
+_IYUU_LOCK_INIT = threading.Lock()
 IYUU_QUERY_BATCH_DELAY_SECONDS = 6
 IYUU_SCAN_PROGRESS_INTERVAL = 500
 IYUU_TRANSIENT_ERROR_LIMIT = 2
@@ -113,14 +114,34 @@ def iyuu_auto_service_info(plugin) -> Optional[ServiceInfo]:
 
 
 def iyuu_auto_seed(plugin):
+    """串行保护同一实例的辅种批次，重复触发不重置正在运行的计数。"""
+    with _IYUU_LOCK_INIT:
+        lock = getattr(plugin, "_iyuu_run_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            plugin._iyuu_run_lock = lock
+    if not lock.acquire(blocking=False):
+        logger.info("IYUU辅种：已有批次运行，跳过重叠触发")
+        return
+    try:
+        return _run_iyuu_batch(plugin)
+    finally:
+        lock.release()
+
+
+def _run_iyuu_batch(plugin):
     """IYUU 自动辅种主逻辑"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
+    if _transfer_stopped(plugin, generation):
+        return
     _reset_iyuu_run_counters(plugin)
     try:
-        return _iyuu_auto_seed(plugin)
+        return _iyuu_auto_seed(plugin, generation)
     except Exception as e:
         logger.error(f"IYUU辅种任务执行失败: {e}", exc_info=True)
         try:
-            update_iyuu_config(plugin)
+            if not _transfer_stopped(plugin, generation):
+                update_iyuu_config(plugin)
         except Exception as save_err:
             logger.error(f"IYUU辅种：异常后保存缓存失败: {save_err}", exc_info=True)
     finally:
@@ -149,7 +170,7 @@ def _flush_iyuu_stats(plugin):
         logger.error(f"IYUU辅种：累计统计写入失败: {e}", exc_info=True)
 
 
-def _iyuu_auto_seed(plugin):
+def _iyuu_auto_seed(plugin, generation):
     """IYUU 自动辅种主逻辑"""
     services = iyuu_service_infos(plugin)
     if not plugin.iyuu_helper or not services:
@@ -175,7 +196,7 @@ def _iyuu_auto_seed(plugin):
 
         hash_strs = []
         for index, torrent in enumerate(torrents, 1):
-            if plugin._event.is_set():
+            if _transfer_stopped(plugin, generation):
                 logger.info("IYUU辅种服务停止")
                 return
             if index % IYUU_SCAN_PROGRESS_INTERVAL == 0:
@@ -214,6 +235,8 @@ def _iyuu_auto_seed(plugin):
         if hash_strs:
             logger.info(f"IYUU辅种：需要辅种的种子数：{len(hash_strs)}")
             for i in range(0, len(hash_strs), IYUU_QUERY_CHUNK_SIZE):
+                if _transfer_stopped(plugin, generation):
+                    return
                 if i and IYUU_QUERY_BATCH_DELAY_SECONDS > 0:
                     logger.info(
                         f"IYUU辅种：等待 {IYUU_QUERY_BATCH_DELAY_SECONDS} 秒后继续下一批，避免请求过快"
@@ -222,7 +245,7 @@ def _iyuu_auto_seed(plugin):
                         logger.info("IYUU辅种服务停止")
                         return
                 chunk = hash_strs[i:i + IYUU_QUERY_CHUNK_SIZE]
-                query_error = iyuu_seed_torrents(plugin, hash_strs=chunk, service=service)
+                query_error = iyuu_seed_torrents(plugin, hash_strs=chunk, service=service, stop_generation=generation)
                 if not query_error:
                     transient_error_count = 0
                     continue
@@ -249,6 +272,8 @@ def _iyuu_auto_seed(plugin):
     if stop_reason:
         logger.warning(f"IYUU辅种：{stop_reason}")
 
+    if _transfer_stopped(plugin, generation):
+        return
     update_iyuu_config(plugin)
     if plugin._notify and (plugin._iyuu_success or plugin._iyuu_fail):
         plugin.post_message(
@@ -265,9 +290,10 @@ def _iyuu_auto_seed(plugin):
     logger.info("IYUU 辅种任务执行完成")
 
 
-def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
+def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo, stop_generation=None):
     """执行一批种子的 IYUU 辅种"""
-    if not hash_strs:
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
+    if not hash_strs or _transfer_stopped(plugin, generation):
         return None
     logger.info(f"IYUU辅种：下载器 {service.name} 查询辅种，数量：{len(hash_strs)}")
     hashs = [item.get("hash") for item in hash_strs]
@@ -292,6 +318,8 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
         logger.info(f"IYUU辅种：{title} {len(counter)} 个站点，共 {total} 条：{detail}")
 
     seed_list, msg = plugin.iyuu_helper.get_seed_info(hashs)
+    if _transfer_stopped(plugin, generation):
+        return None
     if not isinstance(seed_list, dict):
         if plugin._iyuu_token and msg == '请求缺少token':
             logger.warning(f'IYUU辅种失败，疑似站点未绑定：{msg}')
@@ -307,8 +335,9 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
         if not isinstance(seed_torrents, list):
             seed_torrents = [seed_torrents]
 
-        success_torrents = []
         for seed in seed_torrents:
+            if _transfer_stopped(plugin, generation):
+                return None
             if not seed or not isinstance(seed, dict):
                 continue
             if not seed.get("sid") or not seed.get("info_hash"):
@@ -331,17 +360,16 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
                 continue
 
             target_service = iyuu_auto_service_info(plugin) or service
+            if _transfer_stopped(plugin, generation):
+                return None
             success = iyuu_download_torrent(plugin, seed=seed, service=target_service,
                                             save_path=save_paths.get(current_hash),
                                             save_category=save_category.get(current_hash),
                                             source_hash=current_hash,
-                                            site_info=site_info)
+                                            site_info=site_info, stop_generation=generation)
             if success:
-                success_torrents.append(seed.get("info_hash"))
-
-        if success_torrents:
-            iyuu_save_history(plugin, current_hash=current_hash, downloader=service.name,
-                              success_torrents=success_torrents)
+                iyuu_save_history(plugin, current_hash=current_hash, downloader=target_service.name,
+                                  success_torrents=[seed.get("info_hash")])
 
     __log_counter("跳过未维护站点", unmanaged_sites)
     __log_counter("跳过未选择站点", skipped_sites)
@@ -350,8 +378,11 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo):
 
 
 def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: str, save_category: str,
-                          source_hash: str = None, site_info: dict = None):
+                          source_hash: str = None, site_info: dict = None, stop_generation=None):
     """从站点下载种子并添加到下载器，辅种后打站点标签"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
+    if _transfer_stopped(plugin, generation):
+        return False
 
     def __is_special_site(url):
         """判断下载链接是否需要追加 https 参数。"""
@@ -410,6 +441,8 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         ua=site_info.get("ua") or settings.USER_AGENT,
         proxy=site_info.get("proxy"),
     )
+    if _transfer_stopped(plugin, generation):
+        return False
 
     if content and not is_torrent_content(content):
         error_msg = "下载到的内容不是有效 torrent 文件，疑似登录页或错误页"
@@ -461,13 +494,18 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
                                 save_path=save_path, save_category=save_category,
                                 site_name=site_info.get("name"),
                                 expected_hash=seed.get("info_hash"),
-                                torrent_url=torrent_url)
+                                torrent_url=torrent_url, stop_generation=generation)
     if not download_id:
+        if _transfer_stopped(plugin, generation):
+            return False
         plugin._iyuu_fail += 1
         append_iyuu_cache(plugin._iyuu_error_caches, seed.get("info_hash"))
         plugin._iyuu_cached += 1
         return False
 
+    # 目标已经接收，即使此刻停止，也必须让调用者记录实际目标以供同步清理。
+    if _transfer_stopped(plugin, generation):
+        return True
     plugin._iyuu_success += 1
     append_iyuu_cache(plugin._iyuu_success_caches, seed.get("info_hash"))
     dl = service.instance
@@ -483,13 +521,19 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         else:
             logger.info(f"IYUU辅种：qbittorrent 开始校验 {download_id}")
             dl.recheck_torrents(ids=[download_id])
+            if _transfer_stopped(plugin, generation):
+                return True
             plugin._register_seed_recheck(service.name, [download_id], "iyuu")
     else:
         plugin._register_seed_recheck(service.name, [download_id], "iyuu")
 
+    if _transfer_stopped(plugin, generation):
+        return True
     if plugin._rename_enabled:
         try:
             torrents, _ = dl.get_torrents(ids=[download_id])
+            if _transfer_stopped(plugin, generation):
+                return True
             if torrents:
                 t = torrents[0]
                 torrent_name = t.get("name", "") if dl_type == "qbittorrent" else t.name
@@ -499,14 +543,18 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
                         dl=dl, dl_type=dl_type, torrent_hash=download_id,
                         torrent_name=torrent_name, source_hash=source_hash
                     )
-                    if not reused:
+                    if not reused and not _transfer_stopped(plugin, generation):
                         plugin._rename_torrent(dl, dl_type, download_id, torrent_name, save_path_t)
         except Exception as e:
             logger.error(f"IYUU辅种后重命名失败: {e}")
 
+    if _transfer_stopped(plugin, generation):
+        return True
     if plugin._tag_enabled:
         try:
             torrents, _ = dl.get_torrents(ids=[download_id])
+            if _transfer_stopped(plugin, generation):
+                return True
             if torrents:
                 t = torrents[0]
                 tags = get_label(t, dl_type)
@@ -520,8 +568,11 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
 
 def iyuu_download(plugin, service: ServiceInfo, content: bytes,
                   save_path: str, save_category: str, site_name: str,
-                  expected_hash: str = None, torrent_url: str = None) -> Optional[str]:
+                  expected_hash: str = None, torrent_url: str = None, stop_generation=None) -> Optional[str]:
     """添加 IYUU 辅种下载任务，并用 expected_hash + 临时标签多次确认任务入库。"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
+    if _transfer_stopped(plugin, generation):
+        return None
     safe_torrent_url = mask_sensitive_url(torrent_url)
     torrent_tags = plugin._iyuu_labelsafterseed.split(',')
     if hasattr(plugin, '_iyuu_addhosttotag') and plugin._iyuu_addhosttotag:
@@ -550,6 +601,8 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
             return None
 
         try:
+            if _transfer_stopped(plugin, generation):
+                return None
             state = service.instance.add_torrent(content=content, download_dir=save_path,
                                                  is_paused=True, tag=torrent_tags,
                                                  category=save_category,

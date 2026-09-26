@@ -6,9 +6,8 @@ import logging
 import threading
 from typing import Any
 
-from .speed_monitor import SESSION_ACTIVE
 from ..utils.config import is_speed_monitor_active
-
+from .speed_monitor import SESSION_ACTIVE
 
 logger = logging.getLogger(__name__)
 _CONTROL_LOCK = threading.RLock()
@@ -48,7 +47,11 @@ def start_speed_monitor_worker(plugin: Any) -> bool:
     with lock:
         current = getattr(plugin, "_speed_monitor_thread", None)
         if current and current.is_alive():
+            stopping = getattr(plugin, "_speed_monitor_stop_event", None)
+            if stopping is not None and stopping.is_set():
+                plugin._speed_monitor_restart_pending = True
             return False
+        plugin._speed_monitor_restart_pending = False
         stop_event = threading.Event()
         thread = threading.Thread(
             target=_speed_monitor_loop,
@@ -110,12 +113,21 @@ def _speed_monitor_loop(plugin: Any, stop_event: threading.Event) -> None:
                 plugin._speed_monitor_thread = None
             if getattr(plugin, "_speed_monitor_stop_event", None) is stop_event:
                 plugin._speed_monitor_stop_event = None
+            restart = bool(
+                getattr(plugin, "_speed_monitor_restart_pending", False)
+                and is_speed_monitor_active(plugin)
+                and _runtime_has_active_sessions(getattr(plugin, "_speed_monitor_runtime", None))
+            )
+            plugin._speed_monitor_restart_pending = False
+            if restart:
+                start_speed_monitor_worker(plugin)
 
 
 def stop_speed_monitor_worker(plugin: Any, join_timeout: float = 10.0) -> bool:
     """停止并等待插件实例的速度监控 worker 退出。"""
     lock = _worker_lock(plugin)
     with lock:
+        plugin._speed_monitor_restart_pending = False
         thread = getattr(plugin, "_speed_monitor_thread", None)
         stop_event = getattr(plugin, "_speed_monitor_stop_event", None)
         if stop_event is not None:

@@ -6,7 +6,6 @@ from datetime import date
 from threading import RLock
 from typing import Any, Iterable
 
-
 RENAME_RECORDS_KEY = "rename_records"
 RENAME_RETRY_STATE_KEY = "rename_retry_state"
 SEED_RECHECK_QUEUE_KEY = "seed_recheck_queue"
@@ -99,6 +98,7 @@ def _normalize_daily_counters(
     *,
     total_keys: tuple[str, ...],
     today_keys: tuple[str, ...],
+    nested: bool = True,
 ) -> dict[str, Any]:
     """按当天日期戳规范化今日计数，跨天读取时视为归零且不写盘。
 
@@ -114,7 +114,7 @@ def _normalize_daily_counters(
     ceiling: int | None = None
     for total_key, today_key in zip(total_keys, today_keys):
         limit = _non_negative_int(payload.get(total_key))
-        if ceiling is not None:
+        if nested and ceiling is not None:
             limit = min(limit, ceiling)
         value = min(limit, _non_negative_int(payload.get(today_key)))
         normalized[today_key] = value
@@ -167,6 +167,7 @@ def load_iyuu_stats(plugin: Any) -> dict[str, Any]:
         payload,
         total_keys=("success_total", "fail_total"),
         today_keys=("today_success", "today_fail"),
+        nested=False,
     )
     return {
         "schema_version": IYUU_STATS_SCHEMA_VERSION,

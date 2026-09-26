@@ -205,13 +205,13 @@ def test_page_cards_show_today_total_and_tail_counters() -> None:
 
     assert (
         "今日 ${cards.transfer?.today_success || 0}"
-        " · 累计 ${cards.transfer?.success_total || 0}"
-        " · 兜底 ${cards.transfer?.fallback_success || 0}" in page_source
+        " · 兜底 ${cards.transfer?.today_fallback || 0}"
+        " · 累计 ${Math.max(0, (cards.transfer?.success_total || 0) - (cards.transfer?.today_success || 0))}" in page_source
     )
     assert (
-        "今日 ${cards.iyuu?.today_success || 0}"
-        " · 累计 ${cards.iyuu?.success_total || 0}"
-        " · 失败 ${cards.iyuu?.fail_total || 0}" in page_source
+        "成功 ${cards.iyuu?.today_success || 0}"
+        " · 失败 ${cards.iyuu?.today_fail || 0}"
+        " · 累计 ${Math.max(0, (cards.iyuu?.success_total || 0) - (cards.iyuu?.today_success || 0))}" in page_source
     )
     assert "累计成功 ${cards.transfer?.success_total || 0}" not in page_source
     assert "已铺种 ${cards.iyuu?.success_total || 0}" not in page_source

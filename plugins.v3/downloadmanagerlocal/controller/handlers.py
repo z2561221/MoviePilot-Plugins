@@ -3,11 +3,10 @@
 from datetime import datetime
 from typing import TypeVar
 
-from fastapi import HTTPException
-from pydantic import BaseModel
-
 from app import schemas
 from app.sdk.logging import logger
+from fastapi import HTTPException
+from pydantic import BaseModel
 
 from ..adapter.moviepilot import get_downloader_config, list_builtin_sites
 from ..model.api import (
@@ -39,6 +38,7 @@ from ..model.state import (
     load_iyuu_stats,
     load_transfer_stats,
 )
+from ..service.archive import serialized_rename_state
 from ..service.site_tag import execute_tag_cleanup, scan_and_clean_tags
 from ..service.speed_baseline import suggest_thresholds
 from ..service.speed_decision import resolve_reference_speed
@@ -47,6 +47,7 @@ from ..service.speed_monitor import (
     load_speed_monitor_runtime_snapshot,
     reset_speed_monitor_baseline,
 )
+from ..service.upload_limit_worker import stop_upload_limit_worker
 from ..service.upload_limiter import (
     get_upload_limit_status,
     persist_upload_limit_site_rules,
@@ -54,9 +55,7 @@ from ..service.upload_limiter import (
     run_upload_limit_cycle,
     scan_upload_limit_site_tags,
 )
-from ..service.upload_limit_worker import stop_upload_limit_worker
 from ..utils.config import is_speed_monitor_active
-
 
 BusinessModelT = TypeVar("BusinessModelT", bound=ApiBusinessModel)
 
@@ -494,6 +493,7 @@ def api_rename_history(plugin, page: int = 1, page_size: int = 15):
     })
 
 
+@serialized_rename_state
 def api_delete_rename_history(plugin, hash: str = ""):
     """删除指定 hash 的重命名记录"""
     records = plugin.get_data(RENAME_RECORDS_KEY) or {}
@@ -525,6 +525,7 @@ def api_delete_rename_archive(plugin, hash: str = ""):
     return _operation_response(plugin.delete_rename_archive(hash), HashActionResult)
 
 
+@serialized_rename_state
 def api_recovery_torrent(plugin, hash: str = ""):
     """恢复种子原始名称"""
     if not hash:

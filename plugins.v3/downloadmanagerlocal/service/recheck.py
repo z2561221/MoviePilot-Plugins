@@ -95,28 +95,43 @@ def register_seed_recheck(plugin, downloader, hashes, source):
 def ensure_seed_recheck_worker(plugin):
     """确保按需做种校验 worker 已启动。"""
     with plugin._seed_recheck_lock:
+        event = getattr(plugin, "_event", None)
+        if event is not None and event.is_set():
+            return
         if plugin._seed_recheck_running:
+            stop_event = getattr(plugin, "_seed_recheck_stop_event", None)
+            if stop_event is not None and stop_event.is_set():
+                plugin._seed_recheck_restart_pending = True
             return
         plugin._seed_recheck_running = True
+        plugin._seed_recheck_restart_pending = False
         stop_event = threading.Event()
         plugin._seed_recheck_stop_event = stop_event
-    thread = threading.Thread(
-        target=seed_recheck_loop,
-        args=(plugin, stop_event),
-        name="DownloadManagerSeedRecheck",
-        daemon=True,
-    )
-    plugin._seed_recheck_thread = thread
-    thread.start()
+        thread = threading.Thread(
+            target=seed_recheck_loop,
+            args=(plugin, stop_event),
+            name="DownloadManagerSeedRecheck",
+            daemon=True,
+        )
+        plugin._seed_recheck_thread = thread
+        try:
+            thread.start()
+        except Exception:
+            plugin._seed_recheck_running = False
+            plugin._seed_recheck_thread = None
+            plugin._seed_recheck_stop_event = None
+            raise
     logger.info("做种校验：按需 worker 已启动")
 
 
 def stop_seed_recheck_worker(plugin, join_timeout: float = 10.0) -> bool:
     """停止并等待做种校验 worker，阻止停止后的下载器写操作。"""
-    thread = getattr(plugin, "_seed_recheck_thread", None)
-    stop_event = getattr(plugin, "_seed_recheck_stop_event", None)
-    if stop_event is not None:
-        stop_event.set()
+    with _queue_lock(plugin):
+        plugin._seed_recheck_restart_pending = False
+        thread = getattr(plugin, "_seed_recheck_thread", None)
+        stop_event = getattr(plugin, "_seed_recheck_stop_event", None)
+        if stop_event is not None:
+            stop_event.set()
     if thread is None:
         return False
     if thread is not threading.current_thread() and thread.is_alive():
@@ -156,6 +171,10 @@ def seed_recheck_loop(plugin, stop_event=None):
                 plugin._seed_recheck_thread = None
             if getattr(plugin, "_seed_recheck_stop_event", None) is stop_event:
                 plugin._seed_recheck_stop_event = None
+            restart = bool(getattr(plugin, "_seed_recheck_restart_pending", False) and plugin._enabled)
+            plugin._seed_recheck_restart_pending = False
+        if restart:
+            ensure_seed_recheck_worker(plugin)
 
 
 def _merge_processed_queue(plugin, before: dict, after: dict) -> None:
@@ -228,6 +247,8 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
             if seed_is_checking(state, downloader_type):
                 continue
             if seed_is_ready(state, downloader_type, task):
+                if not getattr(plugin, "_seed_autostart", True):
+                    continue
                 try:
                     if stop_event is not None and stop_event.is_set():
                         return changed
@@ -308,6 +329,8 @@ def run_recheck_cycle(plugin) -> None:
 
 def sweep_paused_seed_tasks(plugin, check_services: list[Any]) -> None:
     """兜底扫描已完成但暂停的转移或铺种任务，并自动开始做种。"""
+    if not getattr(plugin, "_seed_autostart", True):
+        return
     for service in check_services:
         try:
             downloader = service.instance
@@ -320,7 +343,7 @@ def sweep_paused_seed_tasks(plugin, check_services: list[Any]) -> None:
                 downloader_type=service.type,
                 only_tagged_sources=True,
             )
-            if ready_hashes:
+            if ready_hashes and getattr(plugin, "_seed_autostart", True):
                 source_text = "，".join(
                     f"{source} {count} 个" for source, count in source_counts.items()
                 )
@@ -369,6 +392,8 @@ def _collect_check_services(plugin) -> list[Any]:
 
 def _process_legacy_recheck_queue(plugin, check_services: list[Any]) -> None:
     """处理入口层历史内存队列中的待做种校验任务。"""
+    if not getattr(plugin, "_seed_autostart", True):
+        return
     for service in check_services:
         recheck_items = plugin._recheck_torrents.get(service.name, {})
         if isinstance(recheck_items, list):
@@ -390,7 +415,7 @@ def _process_legacy_recheck_queue(plugin, check_services: list[Any]) -> None:
                 downloader_type=service.type,
                 recheck_items=recheck_items,
             )
-            if ready_hashes:
+            if ready_hashes and getattr(plugin, "_seed_autostart", True):
                 source_text = "，".join(
                     f"{source} {count} 个" for source, count in source_counts.items()
                 ) or f"{len(ready_hashes)} 个"

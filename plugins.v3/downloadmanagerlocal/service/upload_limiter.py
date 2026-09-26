@@ -88,6 +88,8 @@ def run_upload_limit_cycle(
     if not is_upload_limit_active(plugin):
         return get_upload_limit_status(plugin)
     with _cycle_lock(plugin):
+        if not is_upload_limit_active(plugin):
+            return get_upload_limit_status(plugin)
         state = load_upload_limit_state(plugin)
         if getattr(plugin, "_upload_limit_state_error", ""):
             status = get_upload_limit_status(plugin, state=state)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any, Dict, Iterable, List
 
@@ -10,8 +11,8 @@ from app.sdk.logging import logger
 from ..adapter.moviepilot import get_download_hash_by_fullpath
 from ..model.state import iyuu_history_key
 
-
 RECENT_CLEANUP_WINDOW_SECONDS = 30
+_CLEANUP_LOCK_INIT = threading.Lock()
 
 
 def handle_sync_delete_by_hash_event(plugin, event, trigger: str = "") -> Dict[str, Any]:
@@ -60,7 +61,28 @@ def cleanup_by_path(plugin, item_path: str, trigger: str = "") -> Dict[str, Any]
     return cleanup_by_hash(plugin, source_hash, trigger=trigger)
 
 
-def cleanup_by_hash(plugin, source_hash: str, downloader: str = "", trigger: str = "") -> Dict[str, Any]:
+def cleanup_by_hash(plugin, source_hash: str, downloader: str = "", trigger: str = "") -> dict[str, Any]:
+    """串行清理并防止删除事件重入，失败后允许下一次事件重试。"""
+    with _CLEANUP_LOCK_INIT:
+        lock = getattr(plugin, "_sync_delete_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            plugin._sync_delete_lock = lock
+            plugin._sync_delete_inflight = set()
+    source_hash = _clean_text(source_hash)
+    with lock:
+        if source_hash in plugin._sync_delete_inflight:
+            result = _empty_result(trigger=trigger)
+            result["skipped"] = True
+            return result
+        plugin._sync_delete_inflight.add(source_hash)
+        try:
+            return _cleanup_by_hash(plugin, source_hash, downloader, trigger)
+        finally:
+            plugin._sync_delete_inflight.discard(source_hash)
+
+
+def _cleanup_by_hash(plugin, source_hash: str, downloader: str = "", trigger: str = "") -> Dict[str, Any]:
     """按源下载 hash 清理转种任务和 IYUU 辅种任务。"""
     source_hash = _clean_text(source_hash)
     result = _empty_result(trigger=trigger)
@@ -74,8 +96,12 @@ def cleanup_by_hash(plugin, source_hash: str, downloader: str = "", trigger: str
     source_downloader = _clean_text(downloader or getattr(plugin, "_fromdownloader", ""))
     transfer_deleted = _cleanup_transfer_target(plugin, source_hash, source_downloader)
     iyuu_deleted = _cleanup_iyuu_targets(plugin, source_hash)
-    result["transfer_deleted"] = transfer_deleted
-    result["iyuu_deleted"] = iyuu_deleted
+    if transfer_deleted >= 0 and iyuu_deleted >= 0:
+        plugin._sync_delete_recent[source_hash] = time.time()
+    result["transfer_deleted"] = max(0, transfer_deleted)
+    result["iyuu_deleted"] = max(0, iyuu_deleted)
+    transfer_deleted = result["transfer_deleted"]
+    iyuu_deleted = result["iyuu_deleted"]
     if transfer_deleted or iyuu_deleted:
         logger.info(
             f"同步删除：{trigger or '事件'} 已按源 hash={source_hash} 删除转种 {transfer_deleted} 个、辅种 {iyuu_deleted} 个（含文件）"
@@ -101,16 +127,19 @@ def _cleanup_iyuu_targets(plugin, source_hash: str) -> int:
     if not isinstance(history, list):
         return 0
     deleted = 0
+    failed = False
     for item in history:
         if not isinstance(item, dict):
             continue
         downloader = _clean_text(item.get("downloader"))
-        deleted += _delete_downloader_hashes(plugin, downloader, item.get("torrents") or [])
-    return deleted
+        count = _delete_downloader_hashes(plugin, downloader, item.get("torrents") or [])
+        failed = failed or count < 0
+        deleted += max(0, count)
+    return -1 if failed else deleted
 
 
 def _delete_downloader_hashes(plugin, downloader: str, hashes: Iterable[str]) -> int:
-    """调用下载器删除任务和文件，并返回请求删除的 hash 数量。"""
+    """返回请求删除的数量；负一表示失败，不得登记成功去重。"""
     downloader = _clean_text(downloader)
     hash_list = _unique_hashes(hashes)
     if not downloader or not hash_list:
@@ -120,15 +149,15 @@ def _delete_downloader_hashes(plugin, downloader: str, hashes: Iterable[str]) ->
         instance = getattr(service, "instance", None) if service else None
         if not instance:
             logger.warning(f"同步删除：下载器不可用，跳过 {downloader} / {hash_list}")
-            return 0
+            return -1
         state = instance.delete_torrents(delete_file=True, ids=hash_list)
         if state is False:
             logger.warning(f"同步删除：下载器删除返回失败 {downloader} / {hash_list}")
-            return 0
+            return -1
         return len(hash_list)
     except Exception as err:
         logger.error(f"同步删除：删除下载器任务失败 {downloader} / {hash_list}: {err}")
-        return 0
+        return -1
 
 
 def _skip_recent_duplicate(plugin, source_hash: str) -> bool:
@@ -139,7 +168,6 @@ def _skip_recent_duplicate(plugin, source_hash: str) -> bool:
         recent = {}
         setattr(plugin, "_sync_delete_recent", recent)
     last = float(recent.get(source_hash) or 0)
-    recent[source_hash] = now
     for key, value in list(recent.items()):
         if now - float(value or 0) > RECENT_CLEANUP_WINDOW_SECONDS:
             recent.pop(key, None)
