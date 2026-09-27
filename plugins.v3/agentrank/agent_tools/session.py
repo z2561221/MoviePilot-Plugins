@@ -54,6 +54,8 @@ class AgentRankSessionResultCollector:
     payload: Optional[Dict[str, Any]] = None
     last_issue: Optional[SubmissionIssue] = None
     context_read: bool = False
+    model_diagnostics: list = field(default_factory=list)
+    output_diagnostics: list = field(default_factory=list)
     _allowed_candidate_ids: frozenset[str] = field(init=False)
     _ordered_candidate_ids: tuple[str, ...] = field(init=False)
     _candidate_aliases: Dict[str, str] = field(init=False)

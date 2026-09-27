@@ -28,21 +28,16 @@ class MoviePilotTool:
         self._agent_context = agent_context or {}
 
 
-app_module = sys.modules.setdefault("app", ModuleType("app"))
-agent_module = sys.modules.setdefault("app.agent", ModuleType("app.agent"))
-tools_package = sys.modules.setdefault("app.agent.tools", ModuleType("app.agent.tools"))
-base_module = sys.modules.setdefault("app.agent.tools.base", ModuleType("app.agent.tools.base"))
-base_module.MoviePilotTool = MoviePilotTool
-app_module.agent = agent_module
-agent_module.tools = tools_package
-tools_package.base = base_module
-
 package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
 
-context_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.context")
-registry_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.registry")
-tools_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.tools")
+with pytest.MonkeyPatch.context() as import_patch:
+    import_patch.setattr(
+        importlib.import_module("app.agent.tools.base"), "MoviePilotTool", MoviePilotTool
+    )
+    context_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.context")
+    registry_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.registry")
+    tools_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.tools")
 
 TRUSTED_CONTEXT_KEY = context_module.TRUSTED_CONTEXT_KEY
 build_trusted_context = context_module.build_trusted_context

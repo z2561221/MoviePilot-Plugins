@@ -5,9 +5,12 @@ import json
 import re
 from typing import Any, Callable, Dict, List, Mapping, Type
 
-from app.agent import MoviePilotAgent, ReplyMode
+from app.agent.contracts import ReplyMode
+from app.agent.orchestrator import MoviePilotAgent
+from pydantic import ValidationError
 
 from ..host_compat import get_internal_user_id
+from .diagnostics import validation_error_types
 from ..agent_tools.context import (
     CONVERSATION_AGENT_ROLE,
     FEEDBACK_AGENT_ROLE,
@@ -415,6 +418,14 @@ class AgentRankAgentAdapter:
             return code[:64], "submission"
         if code == "submission_required":
             return code, "submission"
+        if any(cls._host_failure_marker(item) for value in values
+               for item in cls._text_candidates(value)):
+            return "host_execution_failed", "transport"
+        if any(cls._is_json_object_text(item) for value in values
+               for item in cls._text_candidates(value)):
+            return "agent_schema_invalid", "schema"
+        if text.strip():
+            return "agent_text_without_submission", "output"
         return "agent_output_missing", "output"
 
     @classmethod
@@ -463,7 +474,12 @@ class AgentRankAgentAdapter:
                     payload = schema.model_validate_json(normalized).model_dump(
                         mode="json"
                     )
-                except Exception:
+                except ValidationError as error:
+                    if len(collector.output_diagnostics) < 6:
+                        collector.output_diagnostics.append({
+                            "kind": "schema_invalid",
+                            "error_types": validation_error_types(error),
+                        })
                     continue
                 if collector.submit(collector.expected_tool, payload) is None:
                     return True
@@ -510,6 +526,10 @@ class AgentRankAgentAdapter:
 
         def attach_repair_provenance(target: Dict[str, Any]) -> None:
             """仅在实际发生修正时附加新诊断字段，保持无修正旧结果兼容。"""
+            if result_collector.model_diagnostics:
+                target["model_diagnostics"] = list(result_collector.model_diagnostics)
+            if result_collector.output_diagnostics:
+                target["output_diagnostics"] = list(result_collector.output_diagnostics)
             if repair_count or repair_failure_class or repair_kind:
                 target["repair_failure_class"] = repair_failure_class
                 target["repair_kind"] = repair_kind
@@ -545,6 +565,11 @@ class AgentRankAgentAdapter:
                     repair_failure_class, repair_kind = self._classify_repair(
                         terminal_outputs, issue
                     )
+                    last_model = (result_collector.model_diagnostics or [{}])[-1]
+                    if last_model.get("tool_schema_error_types"):
+                        repair_failure_class, repair_kind = "tool_schema_invalid", "schema"
+                    elif last_model.get("unexpected_tool_call_count"):
+                        repair_failure_class, repair_kind = "unexpected_tool_call", "protocol"
                     code = issue.code if issue is not None else "submission_required"
                     field = issue.field if issue is not None else "submission"
                     repair_evidence = await self._repair_evidence(

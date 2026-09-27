@@ -2,6 +2,8 @@
 
 from langchain.agents.middleware.types import AgentMiddleware
 
+from .diagnostics import response_diagnostic
+
 
 class AgentRankProtocolMiddleware(AgentMiddleware):
     """按本轮收集器状态收窄工具，并在供应商明确拒绝时降级工具选择参数。"""
@@ -27,6 +29,18 @@ class AgentRankProtocolMiddleware(AgentMiddleware):
         )
         return request.override(tools=tools, tool_choice=choice)
 
+    def _record(self, response, request):
+        """仅保存有限次响应的安全统计，不改变响应。"""
+        rows = getattr(self.collector, "model_diagnostics", None)
+        if rows is not None and len(rows) < 12:
+            phase = "repair" if self.submission_only else (
+                "submit" if self.collector.context_read else "read"
+            )
+            rows.append(response_diagnostic(
+                response, phase=phase, forced=self.tool_choice_supported, tools=request.tools
+            ))
+        return response
+
     @staticmethod
     def _unsupported_choice(error):
         """仅识别供应商明确拒绝工具选择参数的请求错误。"""
@@ -40,20 +54,20 @@ class AgentRankProtocolMiddleware(AgentMiddleware):
         """限制异步模型调用；参数明确不受支持时只降级一次。"""
         constrained = self._request(request)
         try:
-            return await handler(constrained)
+            return self._record(await handler(constrained), constrained)
         except Exception as error:
             if not self.tool_choice_supported or not self._unsupported_choice(error):
                 raise
             self.tool_choice_supported = False
-            return await handler(self._request(request))
+            return self._record(await handler(self._request(request)), self._request(request))
 
     def wrap_model_call(self, request, handler):
         """为宿主同步图执行保留相同的阶段与参数约束。"""
         constrained = self._request(request)
         try:
-            return handler(constrained)
+            return self._record(handler(constrained), constrained)
         except Exception as error:
             if not self.tool_choice_supported or not self._unsupported_choice(error):
                 raise
             self.tool_choice_supported = False
-            return handler(self._request(request))
+            return self._record(handler(self._request(request)), self._request(request))

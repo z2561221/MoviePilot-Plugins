@@ -3,9 +3,13 @@
 import importlib
 import sys
 from datetime import datetime, timedelta, timezone
-from enum import Enum
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+
+import pytest
+from app.schemas.types import MessageType, NotificationChannel
+
+sdk_module = importlib.import_module("app.sdk")
 
 
 PLUGIN_DIR = Path(__file__).resolve().parents[3] / "plugins.v3" / "agentrank"
@@ -14,34 +18,6 @@ PACKAGE_NAME = "agentrank_telegram_interaction_test"
 package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
 
-app_module = sys.modules.setdefault("app", ModuleType("app"))
-schemas_module = sys.modules.setdefault("app.schemas", ModuleType("app.schemas"))
-types_module = sys.modules.setdefault("app.schemas.types", ModuleType("app.schemas.types"))
-message_module = sys.modules.setdefault("app.schemas.message", ModuleType("app.schemas.message"))
-
-
-class MessageType(Enum):
-    """测试使用的通知类型。"""
-
-    Subscribe = "订阅"
-    Plugin = "插件"
-
-
-class NotificationChannel(Enum):
-    """测试使用的消息渠道。"""
-
-    Telegram = "Telegram"
-
-
-app_module.schemas = schemas_module
-schemas_module.types = types_module
-types_module.MessageType = MessageType
-types_module.NotificationChannel = NotificationChannel
-
-sdk_module = sys.modules.setdefault("app.sdk", ModuleType("app.sdk"))
-services_module = sys.modules.setdefault(
-    "app.sdk.services", ModuleType("app.sdk.services")
-)
 NOTIFICATION_CONFIGS = [
     SimpleNamespace(
         name="Telegram",
@@ -61,11 +37,6 @@ class ServiceConfigHelper:
         return list(NOTIFICATION_CONFIGS)
 
 
-app_module.sdk = sdk_module
-sdk_module.services = services_module
-services_module.ServiceConfigHelper = ServiceConfigHelper
-
-
 class Notification:
     """接收宿主 Notification 载荷的测试替身。"""
 
@@ -73,7 +44,15 @@ class Notification:
         self.__dict__.update(kwargs)
 
 
-message_module.Notification = Notification
+@pytest.fixture(autouse=True)
+def isolated_notification_stubs(monkeypatch):
+    """仅在本用例中替换通知发送及渠道配置，保留宿主类型。"""
+    monkeypatch.setattr(
+        importlib.import_module("app.schemas.message"), "Notification", Notification
+    )
+    monkeypatch.setattr(
+        importlib.import_module("app.sdk.services"), "ServiceConfigHelper", ServiceConfigHelper
+    )
 
 board_module = importlib.import_module(f"{PACKAGE_NAME}.model.board")
 pending_model_module = importlib.import_module(

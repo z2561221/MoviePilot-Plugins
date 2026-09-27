@@ -4,7 +4,6 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
 from langchain.agents import create_agent
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
@@ -42,7 +41,7 @@ class StageModel(BaseChatModel):
 
 def test_real_graph_reads_once_then_submits():
     """真实图第二轮只绑定提交工具，并在提交后结束。"""
-    collector = SimpleNamespace(context_read=False, expected_tool="submit")
+    collector = SimpleNamespace(context_read=False, expected_tool="submit", model_diagnostics=[])
     calls = []
 
     async def read():
@@ -61,9 +60,9 @@ def test_real_graph_reads_once_then_submits():
         StructuredTool.from_function(coroutine=read, name="read"),
         StructuredTool.from_function(coroutine=submit, name="submit", return_direct=True),
     ], middleware=[AgentRankProtocolMiddleware(collector)])
-    if not hasattr(graph, "ainvoke"):
-        pytest.skip("前置隔离测试替换了 langchain.agents.create_agent")
     asyncio.run(graph.ainvoke({"messages": [{"role": "user", "content": "run"}]}))
+    assert [row["phase"] for row in collector.model_diagnostics] == ["read", "submit"]
+    assert all(row["tool_call_count"] == 1 for row in collector.model_diagnostics)
     assert calls == ["read", "submit"]
     assert [names for names, _ in model._seen] == [["read"], ["submit"]]
     assert model._seen[-1][1]["function"]["name"] == "submit"

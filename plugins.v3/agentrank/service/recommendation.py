@@ -336,6 +336,9 @@ class RecommendationOrchestrator:
             "repair_kind": str(raw.get("repair_kind") or "").strip()[:32],
             "repair_recovered": bool(raw.get("repair_recovered", False)),
         }
+        for diagnostic_key in ("model_diagnostics", "output_diagnostics"):
+            if isinstance(raw.get(diagnostic_key), list):
+                entry[diagnostic_key] = raw[diagnostic_key][:12]
         entries = metrics.setdefault("agent_provenance", [])
         entries.append(entry)
         metrics["model_call_count"] = int(metrics.get("model_call_count", 0) or 0) + model_call_count

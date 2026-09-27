@@ -114,46 +114,12 @@ class MoviePilotTool:
         self._agent_context = agent_context
 
 
-app_module = sys.modules.setdefault("app", ModuleType("app"))
-agent_module = sys.modules.setdefault("app.agent", ModuleType("app.agent"))
-agent_module.MoviePilotAgent = MoviePilotAgent
-agent_module.ReplyMode = ReplyMode
-llm_module = sys.modules.setdefault("app.agent.llm", ModuleType("app.agent.llm"))
-llm_module.LLMHelper = LLMHelper
-tools_package = sys.modules.setdefault("app.agent.tools", ModuleType("app.agent.tools"))
-base_module = sys.modules.setdefault("app.agent.tools.base", ModuleType("app.agent.tools.base"))
-base_module.MoviePilotTool = MoviePilotTool
-agent_module.tools = tools_package
-tools_package.base = base_module
-app_module.agent = agent_module
-
-
 class UsageMiddleware:
     """Minimal host usage middleware retaining the callback contract."""
 
     def __init__(self, *, on_usage=None):
         self.on_usage = on_usage
 
-
-middleware_package = sys.modules.setdefault(
-    "app.agent.middleware", ModuleType("app.agent.middleware")
-)
-usage_module = sys.modules.setdefault(
-    "app.agent.middleware.usage", ModuleType("app.agent.middleware.usage")
-)
-usage_module.UsageMiddleware = UsageMiddleware
-middleware_package.usage = usage_module
-agent_module.middleware = middleware_package
-
-foundation_module = sys.modules.setdefault(
-    "app.foundation", ModuleType("app.foundation")
-)
-identity_module = sys.modules.setdefault(
-    "app.foundation.identity", ModuleType("app.foundation.identity")
-)
-identity_module.SYSTEM_INTERNAL_USER_ID = "system"
-app_module.foundation = foundation_module
-foundation_module.identity = identity_module
 
 created_agent_calls = []
 
@@ -168,29 +134,38 @@ class InMemorySaver:
     """Minimal LangGraph checkpointer stand-in."""
 
 
-langchain_module = sys.modules.setdefault("langchain", ModuleType("langchain"))
-langchain_agents_module = sys.modules.setdefault(
-    "langchain.agents", ModuleType("langchain.agents")
-)
-langchain_agents_module.create_agent = create_agent
-langchain_module.agents = langchain_agents_module
-langgraph_module = sys.modules.setdefault("langgraph", ModuleType("langgraph"))
-langgraph_checkpoint_module = sys.modules.setdefault(
-    "langgraph.checkpoint", ModuleType("langgraph.checkpoint")
-)
-langgraph_memory_module = sys.modules.setdefault(
-    "langgraph.checkpoint.memory", ModuleType("langgraph.checkpoint.memory")
-)
-langgraph_memory_module.InMemorySaver = InMemorySaver
-langgraph_module.checkpoint = langgraph_checkpoint_module
-langgraph_checkpoint_module.memory = langgraph_memory_module
+def _install_host_stubs(patch):
+    """仅在导入或本文件用例执行期间替换宿主符号，退出后恢复。"""
+    replacements = {
+        "app.agent.orchestrator": {"MoviePilotAgent": MoviePilotAgent},
+        "app.agent.contracts": {"ReplyMode": ReplyMode},
+        "app.agent.llm": {"LLMHelper": LLMHelper},
+        "app.agent.tools.base": {"MoviePilotTool": MoviePilotTool},
+        "app.agent.middleware.usage": {"UsageMiddleware": UsageMiddleware},
+        "app.foundation.identity": {"SYSTEM_INTERNAL_USER_ID": "system"},
+        "langchain.agents": {"create_agent": create_agent},
+        "langgraph.checkpoint.memory": {"InMemorySaver": InMemorySaver},
+    }
+    for name, attributes in replacements.items():
+        module = importlib.import_module(name)
+        for attribute, value in attributes.items():
+            patch.setattr(module, attribute, value)
+
+
+@pytest.fixture(autouse=True)
+def isolated_host_stubs(monkeypatch):
+    """为适配器的延迟导入安装替身，测试结束自动恢复。"""
+    _install_host_stubs(monkeypatch)
+
 
 package = sys.modules.setdefault(PACKAGE_NAME, ModuleType(PACKAGE_NAME))
 package.__path__ = [str(PLUGIN_DIR)]
 
-context_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.context")
-registry_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.registry")
-adapter_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.agent")
+with pytest.MonkeyPatch.context() as import_patch:
+    _install_host_stubs(import_patch)
+    context_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.context")
+    registry_module = importlib.import_module(f"{PACKAGE_NAME}.agent_tools.registry")
+    adapter_module = importlib.import_module(f"{PACKAGE_NAME}.adapter.agent")
 
 TRUSTED_CONTEXT_KEY = context_module.TRUSTED_CONTEXT_KEY
 build_trusted_context = context_module.build_trusted_context
