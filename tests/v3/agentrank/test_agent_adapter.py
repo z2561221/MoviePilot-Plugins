@@ -137,7 +137,8 @@ class InMemorySaver:
 def _install_host_stubs(patch):
     """仅在导入或本文件用例执行期间替换宿主符号，退出后恢复。"""
     replacements = {
-        "app.agent": {"MoviePilotAgent": MoviePilotAgent, "ReplyMode": ReplyMode},
+        "app.agent.orchestrator": {"MoviePilotAgent": MoviePilotAgent},
+        "app.agent.contracts": {"ReplyMode": ReplyMode},
         "app.agent.llm": {"LLMHelper": LLMHelper},
         "app.agent.tools.base": {"MoviePilotTool": MoviePilotTool},
         "app.agent.middleware.usage": {"UsageMiddleware": UsageMiddleware},

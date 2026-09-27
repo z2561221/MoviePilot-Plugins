@@ -41,6 +41,8 @@ FORBIDDEN_V3_HOST_IMPORTS = {
     ("app.schemas", "NotificationType"),
     ("app.schemas.types", "MessageChannel"),
     ("app.schemas.types", "NotificationType"),
+    ("app.agent", "MoviePilotAgent"),
+    ("app.agent", "ReplyMode"),
 }
 REVIEWED_INTERNAL_IMPORTS = {
     ("app.foundation.identity", "SYSTEM_INTERNAL_USER_ID"),

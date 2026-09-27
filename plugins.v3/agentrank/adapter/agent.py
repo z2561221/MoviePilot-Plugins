@@ -5,7 +5,8 @@ import json
 import re
 from typing import Any, Callable, Dict, List, Mapping, Type
 
-from app.agent import MoviePilotAgent, ReplyMode
+from app.agent.contracts import ReplyMode
+from app.agent.orchestrator import MoviePilotAgent
 from pydantic import ValidationError
 
 from ..host_compat import get_internal_user_id
